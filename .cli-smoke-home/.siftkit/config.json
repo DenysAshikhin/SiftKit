@@ -1,0 +1,21 @@
+﻿{
+    "Model":  "qwen3.5:4b-q8_0",
+    "Version":  "0.1.0",
+    "Paths":  {
+                  "RuntimeRoot":  "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\.cli-smoke-home\\.siftkit",
+                  "Logs":  "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\.cli-smoke-home\\.siftkit\\logs",
+                  "EvalFixtures":  "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\.cli-smoke-home\\.siftkit\\eval\\fixtures",
+                  "EvalResults":  "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\.cli-smoke-home\\.siftkit\\eval\\results"
+              },
+    "PolicyMode":  "conservative",
+    "RawLogRetention":  true,
+    "Thresholds":  {
+                       "MinCharactersForSummary":  500,
+                       "MinLinesForSummary":  16
+                   },
+    "Ollama":  {
+                   "BaseUrl":  "http://127.0.0.1:11434",
+                   "ExecutablePath":  "C:\\Users\\denys\\AppData\\Local\\Programs\\Ollama\\ollama.exe"
+               },
+    "Backend":  "ollama"
+}

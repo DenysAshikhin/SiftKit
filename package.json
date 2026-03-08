@@ -1,0 +1,21 @@
+{
+  "name": "siftkit",
+  "version": "0.1.0",
+  "description": "Windows-first shell-output compression toolkit for Codex workflows.",
+  "bin": {
+    "siftkit": "bin/siftkit.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js",
+    "refresh-global": "powershell -ExecutionPolicy Bypass -File .\\scripts\\refresh-global.ps1"
+  },
+  "files": [
+    "bin",
+    "SiftKit",
+    "eval",
+    "scripts",
+    "README.md",
+    "docs"
+  ],
+  "license": "UNLICENSED"
+}
