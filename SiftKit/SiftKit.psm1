@@ -4,6 +4,9 @@ $script:SiftMarkers = @{
     CodexPolicyStart = '<!-- SiftKit Policy:Start -->'
     CodexPolicyEnd   = '<!-- SiftKit Policy:End -->'
 }
+$script:SiftExecutionLockDepth = 0
+$script:SiftExecutionMutex = $null
+$script:SiftExecutionMutexName = $null
 
 $script:SiftPromptProfiles = @{
     'general' = @'
@@ -60,6 +63,143 @@ function New-SiftDirectory {
     }
 
     return $Path
+}
+
+function Get-SiftExecutionLockTimeoutMilliseconds {
+    $timeoutValue = $env:SIFTKIT_LOCK_TIMEOUT_MS
+    $parsedTimeout = 0
+    if ($timeoutValue -and [int]::TryParse($timeoutValue, [ref]$parsedTimeout)) {
+        if ($parsedTimeout -gt 0) {
+            return $parsedTimeout
+        }
+    }
+
+    300000
+}
+
+function Get-SiftStableHash {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Text
+    )
+
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($Text)
+        $hash = $sha.ComputeHash($bytes)
+        -join ($hash | ForEach-Object { $_.ToString('x2') })
+    }
+    finally {
+        $sha.Dispose()
+    }
+}
+
+function Get-SiftExecutionLockName {
+    $runtimeRoot = [System.IO.Path]::GetFullPath((Get-SiftRuntimeRoot)).ToLowerInvariant()
+    'Local\SiftKit_' + (Get-SiftStableHash -Text $runtimeRoot)
+}
+
+function Enter-SiftExecutionLock {
+    if ($script:SiftExecutionLockDepth -gt 0) {
+        $script:SiftExecutionLockDepth++
+        return $script:SiftExecutionMutexName
+    }
+
+    $mutexName = Get-SiftExecutionLockName
+    $mutex = New-Object System.Threading.Mutex($false, $mutexName)
+    $timeoutMilliseconds = Get-SiftExecutionLockTimeoutMilliseconds
+    $lockTaken = $false
+
+    try {
+        $lockTaken = $mutex.WaitOne($timeoutMilliseconds)
+    }
+    catch [System.Threading.AbandonedMutexException] {
+        $lockTaken = $true
+    }
+
+    if (-not $lockTaken) {
+        $mutex.Dispose()
+        throw ('SiftKit is busy. Timed out after {0} ms waiting for execution lock {1}.' -f $timeoutMilliseconds, $mutexName)
+    }
+
+    $script:SiftExecutionMutex = $mutex
+    $script:SiftExecutionMutexName = $mutexName
+    $script:SiftExecutionLockDepth = 1
+    $mutexName
+}
+
+function Exit-SiftExecutionLock {
+    if ($script:SiftExecutionLockDepth -le 0) {
+        return
+    }
+
+    $script:SiftExecutionLockDepth--
+    if ($script:SiftExecutionLockDepth -gt 0) {
+        return
+    }
+
+    if ($script:SiftExecutionMutex) {
+        try {
+            $script:SiftExecutionMutex.ReleaseMutex()
+        }
+        finally {
+            $script:SiftExecutionMutex.Dispose()
+            $script:SiftExecutionMutex = $null
+            $script:SiftExecutionMutexName = $null
+        }
+    }
+}
+
+function Invoke-SiftWithExecutionLock {
+    param(
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$ScriptBlock
+    )
+
+    Enter-SiftExecutionLock | Out-Null
+    try {
+        & $ScriptBlock
+    }
+    finally {
+        Exit-SiftExecutionLock
+    }
+}
+
+function Save-SiftContentAtomically {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$Content
+    )
+
+    $directory = Split-Path -Path $Path -Parent
+    $null = New-SiftDirectory -Path $directory
+    $tempPath = Join-Path -Path $directory -ChildPath ([System.Guid]::NewGuid().ToString('N') + '.tmp')
+
+    try {
+        [System.IO.File]::WriteAllText($tempPath, $Content, [System.Text.Encoding]::UTF8)
+
+        if (Test-Path -LiteralPath $Path) {
+            $backupPath = Join-Path -Path $directory -ChildPath ([System.Guid]::NewGuid().ToString('N') + '.bak')
+            try {
+                [System.IO.File]::Replace($tempPath, $Path, $backupPath, $false)
+            }
+            finally {
+                if (Test-Path -LiteralPath $backupPath) {
+                    Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+        else {
+            Move-Item -LiteralPath $tempPath -Destination $Path -Force
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $tempPath) {
+            Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 function Get-SiftDefaultConfigObject {
@@ -159,7 +299,7 @@ function Save-SiftConfig {
     )
 
     $null = Initialize-SiftRuntime
-    Set-Content -LiteralPath (Get-SiftConfigPath) -Value (ConvertTo-SiftJson -InputObject $Config) -Encoding UTF8
+    Save-SiftContentAtomically -Path (Get-SiftConfigPath) -Content (ConvertTo-SiftJson -InputObject $Config)
 }
 
 function Update-SiftConfigDefaults {
@@ -369,6 +509,58 @@ function Initialize-SiftProviders {
 
             return [string]$response.response
         }
+
+    if ($env:SIFTKIT_TEST_PROVIDER -eq 'mock' -and -not $script:SiftProviders.ContainsKey('mock')) {
+        Register-SiftProvider -Name 'mock' `
+            -TestScript {
+                param($Config)
+
+                [pscustomobject]@{
+                    Available = $true
+                    ExecutablePath = 'mock.exe'
+                    Reachable = $true
+                    BaseUrl = 'mock://local'
+                    Error = $null
+                }
+            } `
+            -ListModelsScript {
+                param($Config)
+                @('mock-model')
+            } `
+            -SummarizeScript {
+                param($Config, $Model, $Prompt)
+
+                $sleepMilliseconds = 0
+                $parsedSleep = 0
+                if ($env:SIFTKIT_TEST_PROVIDER_SLEEP_MS -and [int]::TryParse($env:SIFTKIT_TEST_PROVIDER_SLEEP_MS, [ref]$parsedSleep)) {
+                    if ($parsedSleep -gt 0) {
+                        $sleepMilliseconds = $parsedSleep
+                    }
+                }
+                if ($sleepMilliseconds -gt 0) {
+                    Start-Sleep -Milliseconds $sleepMilliseconds
+                }
+
+                if ($Prompt -match 'Return only valid JSON') {
+                    return '[{"package":"lodash","severity":"high","title":"demo","fix_version":"1.0.0"}]'
+                }
+
+                if ($Prompt -match 'did tests pass') {
+                    return 'test_order_processing failed and test_auth_timeout failed'
+                }
+
+                if ($Prompt -match 'resources added, changed, and destroyed') {
+                    return 'destroy aws_db_instance.main; raw review required'
+                }
+
+                $token = $env:SIFTKIT_TEST_TOKEN
+                if ($token) {
+                    return ('mock summary {0}' -f $token)
+                }
+
+                'mock summary'
+            }
+    }
 }
 
 function Get-SiftProvider {
@@ -797,7 +989,7 @@ function Invoke-SiftSummaryCore {
 }
 
 function Get-SiftTimestamp {
-    (Get-Date).ToString('yyyyMMdd_HHmmss')
+    (Get-Date).ToString('yyyyMMdd_HHmmss_fff')
 }
 
 function New-SiftArtifactPath {
@@ -811,7 +1003,8 @@ function New-SiftArtifactPath {
     )
 
     $safeExtension = $Extension.TrimStart('.')
-    Join-Path -Path $Directory -ChildPath ('{0}_{1}.{2}' -f $Prefix, (Get-SiftTimestamp), $safeExtension)
+    $suffix = '{0}_{1}_{2}' -f (Get-SiftTimestamp), $PID, ([System.Guid]::NewGuid().ToString('N').Substring(0, 8))
+    Join-Path -Path $Directory -ChildPath ('{0}_{1}.{2}' -f $Prefix, $suffix, $safeExtension)
 }
 
 function Format-SiftArgument {
@@ -994,39 +1187,41 @@ function Install-SiftKit {
         [switch]$Force
     )
 
-    $paths = Initialize-SiftRuntime
-    $config = Get-SiftDefaultConfigObject
-    $config.Paths.RuntimeRoot = $paths.RuntimeRoot
-    $config.Paths.Logs = $paths.Logs
-    $config.Paths.EvalFixtures = $paths.EvalFixtures
-    $config.Paths.EvalResults = $paths.EvalResults
-    $config.Ollama.ExecutablePath = Find-OllamaExecutable
+    Invoke-SiftWithExecutionLock {
+        $paths = Initialize-SiftRuntime
+        $config = Get-SiftDefaultConfigObject
+        $config.Paths.RuntimeRoot = $paths.RuntimeRoot
+        $config.Paths.Logs = $paths.Logs
+        $config.Paths.EvalFixtures = $paths.EvalFixtures
+        $config.Paths.EvalResults = $paths.EvalResults
+        $config.Ollama.ExecutablePath = Find-OllamaExecutable
 
-    if ($Force -or -not (Test-Path -LiteralPath (Get-SiftConfigPath))) {
-        Save-SiftConfig -Config $config
-    }
-    else {
-        $config = Get-SiftConfig
-    }
+        if ($Force -or -not (Test-Path -LiteralPath (Get-SiftConfigPath))) {
+            Save-SiftConfig -Config $config
+        }
+        else {
+            $config = Get-SiftConfig
+        }
 
-    $models = @()
-    try {
-        $provider = Get-SiftProvider -Name $config.Backend
-        $models = @(& $provider.ListModels $config)
-    }
-    catch {
-    }
+        $models = @()
+        try {
+            $provider = Get-SiftProvider -Name $config.Backend
+            $models = @(& $provider.ListModels $config)
+        }
+        catch {
+        }
 
-    [pscustomobject]@{
-        Installed = $true
-        ConfigPath = Get-SiftConfigPath
-        RuntimeRoot = $paths.RuntimeRoot
-        LogsPath = $paths.Logs
-        EvalResultsPath = $paths.EvalResults
-        Backend = $config.Backend
-        Model = $config.Model
-        OllamaExecutablePath = $config.Ollama.ExecutablePath
-        AvailableModels = $models
+        [pscustomobject]@{
+            Installed = $true
+            ConfigPath = Get-SiftConfigPath
+            RuntimeRoot = $paths.RuntimeRoot
+            LogsPath = $paths.Logs
+            EvalResultsPath = $paths.EvalResults
+            Backend = $config.Backend
+            Model = $config.Model
+            OllamaExecutablePath = $config.Ollama.ExecutablePath
+            AvailableModels = $models
+        }
     }
 }
 
@@ -1090,6 +1285,7 @@ function Invoke-SiftSummary {
     )
 
     begin {
+        Enter-SiftExecutionLock | Out-Null
         $buffer = New-Object System.Collections.Generic.List[string]
     }
 
@@ -1100,46 +1296,51 @@ function Invoke-SiftSummary {
     }
 
     end {
-        $config = Get-SiftConfig -Ensure
-        if (-not $Backend) {
-            $Backend = $config.Backend
-        }
-        if (-not $Model) {
-            $Model = $config.Model
-        }
+        try {
+            $config = Get-SiftConfig -Ensure
+            if (-not $Backend) {
+                $Backend = $config.Backend
+            }
+            if (-not $Model) {
+                $Model = $config.Model
+            }
 
-        $inputArgs = @{
-            PipelineBuffer = $buffer
-        }
-        if ($PSBoundParameters.ContainsKey('Text')) {
-            $inputArgs.Text = $Text
-        }
-        if ($PSBoundParameters.ContainsKey('InputFile')) {
-            $inputArgs.InputFile = $InputFile
-        }
+            $inputArgs = @{
+                PipelineBuffer = $buffer
+            }
+            if ($PSBoundParameters.ContainsKey('Text')) {
+                $inputArgs.Text = $Text
+            }
+            if ($PSBoundParameters.ContainsKey('InputFile')) {
+                $inputArgs.InputFile = $InputFile
+            }
 
-        $inputText = Get-SiftInputText @inputArgs
-        $riskLevel = if ($PolicyProfile -eq 'risky-operation') { 'risky' } else { 'informational' }
-        $decision = Get-SiftSummaryDecision -Text $inputText -RiskLevel $riskLevel -Config $config
+            $inputText = Get-SiftInputText @inputArgs
+            $riskLevel = if ($PolicyProfile -eq 'risky-operation') { 'risky' } else { 'informational' }
+            $decision = Get-SiftSummaryDecision -Text $inputText -RiskLevel $riskLevel -Config $config
 
-        if (-not $decision.ShouldSummarize) {
-            return [pscustomobject]@{
-                WasSummarized = $false
+            if (-not $decision.ShouldSummarize) {
+                return [pscustomobject]@{
+                    WasSummarized = $false
+                    PolicyDecision = $decision.Reason
+                    Backend = $Backend
+                    Model = $Model
+                    Summary = $inputText
+                }
+            }
+
+            $summary = Invoke-SiftSummaryCore -Question $Question -InputText $inputText -Format $Format -PolicyProfile $PolicyProfile -Backend $Backend -Model $Model -Config $config -RawReviewRequired $decision.RawReviewRequired
+
+            [pscustomobject]@{
+                WasSummarized = $true
                 PolicyDecision = $decision.Reason
                 Backend = $Backend
                 Model = $Model
-                Summary = $inputText
+                Summary = $summary.Trim()
             }
         }
-
-        $summary = Invoke-SiftSummaryCore -Question $Question -InputText $inputText -Format $Format -PolicyProfile $PolicyProfile -Backend $Backend -Model $Model -Config $config -RawReviewRequired $decision.RawReviewRequired
-
-        [pscustomobject]@{
-            WasSummarized = $true
-            PolicyDecision = $decision.Reason
-            Backend = $Backend
-            Model = $Model
-            Summary = $summary.Trim()
+        finally {
+            Exit-SiftExecutionLock
         }
     }
 }
@@ -1164,54 +1365,56 @@ function Invoke-SiftCommand {
         [switch]$NoSummarize
     )
 
-    $config = Get-SiftConfig -Ensure
-    if (-not $Backend) {
-        $Backend = $config.Backend
-    }
-    if (-not $Model) {
-        $Model = $config.Model
-    }
+    Invoke-SiftWithExecutionLock {
+        $config = Get-SiftConfig -Ensure
+        if (-not $Backend) {
+            $Backend = $config.Backend
+        }
+        if (-not $Model) {
+            $Model = $config.Model
+        }
 
-    $paths = Initialize-SiftRuntime
-    $processResult = Invoke-SiftProcess -Command $Command -ArgumentList $ArgumentList
-    $rawLogPath = New-SiftArtifactPath -Directory $paths.Logs -Prefix 'command_raw' -Extension 'log'
-    Set-Content -LiteralPath $rawLogPath -Value $processResult.Combined -Encoding UTF8
+        $paths = Initialize-SiftRuntime
+        $processResult = Invoke-SiftProcess -Command $Command -ArgumentList $ArgumentList
+        $rawLogPath = New-SiftArtifactPath -Directory $paths.Logs -Prefix 'command_raw' -Extension 'log'
+        Save-SiftContentAtomically -Path $rawLogPath -Content $processResult.Combined
 
-    $decision = Get-SiftSummaryDecision -Text $processResult.Combined -RiskLevel $RiskLevel -Config $config
-    $reducedText = Reduce-SiftText -Text $processResult.Combined -ReducerProfile $ReducerProfile
-    $reducedLogPath = $null
-    if ($reducedText -ne $processResult.Combined) {
-        $reducedLogPath = New-SiftArtifactPath -Directory $paths.Logs -Prefix 'command_reduced' -Extension 'log'
-        Set-Content -LiteralPath $reducedLogPath -Value $reducedText -Encoding UTF8
-    }
+        $decision = Get-SiftSummaryDecision -Text $processResult.Combined -RiskLevel $RiskLevel -Config $config
+        $reducedText = Reduce-SiftText -Text $processResult.Combined -ReducerProfile $ReducerProfile
+        $reducedLogPath = $null
+        if ($reducedText -ne $processResult.Combined) {
+            $reducedLogPath = New-SiftArtifactPath -Directory $paths.Logs -Prefix 'command_reduced' -Extension 'log'
+            Save-SiftContentAtomically -Path $reducedLogPath -Content $reducedText
+        }
 
-    if ($NoSummarize -or -not $decision.ShouldSummarize) {
-        return [pscustomobject]@{
+        if ($NoSummarize -or -not $decision.ShouldSummarize) {
+            return [pscustomobject]@{
+                ExitCode = $processResult.ExitCode
+                RawLogPath = $rawLogPath
+                ReducedLogPath = $reducedLogPath
+                WasSummarized = $false
+                PolicyDecision = if ($NoSummarize) { 'no-summarize' } else { $decision.Reason }
+                RawReviewRequired = $decision.RawReviewRequired
+                Summary = $null
+            }
+        }
+
+        $effectiveProfile = $PolicyProfile
+        if (($RiskLevel -eq 'debug' -or $RiskLevel -eq 'risky') -and $PolicyProfile -eq 'general') {
+            $effectiveProfile = 'risky-operation'
+        }
+
+        $summaryResult = Invoke-SiftSummary -Question $Question -Text $reducedText -Format $Format -Backend $Backend -Model $Model -PolicyProfile $effectiveProfile
+
+        [pscustomobject]@{
             ExitCode = $processResult.ExitCode
             RawLogPath = $rawLogPath
             ReducedLogPath = $reducedLogPath
-            WasSummarized = $false
-            PolicyDecision = if ($NoSummarize) { 'no-summarize' } else { $decision.Reason }
+            WasSummarized = $summaryResult.WasSummarized
+            PolicyDecision = $decision.Reason
             RawReviewRequired = $decision.RawReviewRequired
-            Summary = $null
+            Summary = $summaryResult.Summary
         }
-    }
-
-    $effectiveProfile = $PolicyProfile
-    if (($RiskLevel -eq 'debug' -or $RiskLevel -eq 'risky') -and $PolicyProfile -eq 'general') {
-        $effectiveProfile = 'risky-operation'
-    }
-
-    $summaryResult = Invoke-SiftSummary -Question $Question -Text $reducedText -Format $Format -Backend $Backend -Model $Model -PolicyProfile $effectiveProfile
-
-    [pscustomobject]@{
-        ExitCode = $processResult.ExitCode
-        RawLogPath = $rawLogPath
-        ReducedLogPath = $reducedLogPath
-        WasSummarized = $summaryResult.WasSummarized
-        PolicyDecision = $decision.Reason
-        RawReviewRequired = $decision.RawReviewRequired
-        Summary = $summaryResult.Summary
     }
 }
 
@@ -1224,71 +1427,73 @@ function Invoke-SiftEvaluation {
         [string]$Model
     )
 
-    $config = Get-SiftConfig -Ensure
-    if (-not $Backend) {
-        $Backend = $config.Backend
-    }
-    if (-not $Model) {
-        $Model = $config.Model
-    }
-
-    $manifest = Get-SiftFixtureManifest -FixtureRoot $FixtureRoot
-    $results = New-Object System.Collections.Generic.List[object]
-
-    foreach ($fixture in $manifest) {
-        $path = Join-Path -Path $FixtureRoot -ChildPath $fixture.File
-        $source = Get-Content -LiteralPath $path -Raw
-        $summaryResult = Invoke-SiftSummary -Question $fixture.Question -Text $source -Format $fixture.Format -Backend $Backend -Model $Model -PolicyProfile $fixture.PolicyProfile
-        $score = Get-SiftFixtureScore -Summary $summaryResult.Summary -Fixture $fixture -SourceLength $source.Length
-
-        [void]$results.Add([pscustomobject]@{
-            Name = $fixture.Name
-            SourcePath = $path
-            WasSummarized = $summaryResult.WasSummarized
-            Summary = $summaryResult.Summary
-            Recall = $score.Recall
-            Precision = $score.Precision
-            Faithfulness = $score.Faithfulness
-            Format = $score.Format
-            Compression = $score.Compression
-            Total = $score.Total
-            Notes = $score.Notes
-        })
-    }
-
-    foreach ($path in $RealLogPath) {
-        if (-not (Test-Path -LiteralPath $path)) {
-            continue
+    Invoke-SiftWithExecutionLock {
+        $config = Get-SiftConfig -Ensure
+        if (-not $Backend) {
+            $Backend = $config.Backend
+        }
+        if (-not $Model) {
+            $Model = $config.Model
         }
 
-        $source = Get-Content -LiteralPath $path -Raw
-        $summaryResult = Invoke-SiftSummary -Question 'Summarize the important result in up to 5 bullets, preserving only the decisive facts.' `
-            -Text $source -Format 'text' -Backend $Backend -Model $Model -PolicyProfile 'general'
+        $manifest = Get-SiftFixtureManifest -FixtureRoot $FixtureRoot
+        $results = New-Object System.Collections.Generic.List[object]
 
-        [void]$results.Add([pscustomobject]@{
-            Name = ('RealLog:{0}' -f (Split-Path -Path $path -Leaf))
-            SourcePath = $path
-            WasSummarized = $summaryResult.WasSummarized
-            Summary = $summaryResult.Summary
-            Recall = $null
-            Precision = $null
-            Faithfulness = $null
-            Format = $null
-            Compression = $null
-            Total = $null
-            Notes = 'Manual review required for real-log scoring.'
-        })
-    }
+        foreach ($fixture in $manifest) {
+            $path = Join-Path -Path $FixtureRoot -ChildPath $fixture.File
+            $source = Get-Content -LiteralPath $path -Raw
+            $summaryResult = Invoke-SiftSummary -Question $fixture.Question -Text $source -Format $fixture.Format -Backend $Backend -Model $Model -PolicyProfile $fixture.PolicyProfile
+            $score = Get-SiftFixtureScore -Summary $summaryResult.Summary -Fixture $fixture -SourceLength $source.Length
 
-    $resultArray = $results.ToArray()
-    $resultPath = New-SiftArtifactPath -Directory $config.Paths.EvalResults -Prefix 'evaluation' -Extension 'json'
-    Set-Content -LiteralPath $resultPath -Value (ConvertTo-SiftJson -InputObject $resultArray) -Encoding UTF8
+            [void]$results.Add([pscustomobject]@{
+                Name = $fixture.Name
+                SourcePath = $path
+                WasSummarized = $summaryResult.WasSummarized
+                Summary = $summaryResult.Summary
+                Recall = $score.Recall
+                Precision = $score.Precision
+                Faithfulness = $score.Faithfulness
+                Format = $score.Format
+                Compression = $score.Compression
+                Total = $score.Total
+                Notes = $score.Notes
+            })
+        }
 
-    [pscustomobject]@{
-        Backend = $Backend
-        Model = $Model
-        ResultPath = $resultPath
-        Results = $resultArray
+        foreach ($path in $RealLogPath) {
+            if (-not (Test-Path -LiteralPath $path)) {
+                continue
+            }
+
+            $source = Get-Content -LiteralPath $path -Raw
+            $summaryResult = Invoke-SiftSummary -Question 'Summarize the important result in up to 5 bullets, preserving only the decisive facts.' `
+                -Text $source -Format 'text' -Backend $Backend -Model $Model -PolicyProfile 'general'
+
+            [void]$results.Add([pscustomobject]@{
+                Name = ('RealLog:{0}' -f (Split-Path -Path $path -Leaf))
+                SourcePath = $path
+                WasSummarized = $summaryResult.WasSummarized
+                Summary = $summaryResult.Summary
+                Recall = $null
+                Precision = $null
+                Faithfulness = $null
+                Format = $null
+                Compression = $null
+                Total = $null
+                Notes = 'Manual review required for real-log scoring.'
+            })
+        }
+
+        $resultArray = $results.ToArray()
+        $resultPath = New-SiftArtifactPath -Directory $config.Paths.EvalResults -Prefix 'evaluation' -Extension 'json'
+        Save-SiftContentAtomically -Path $resultPath -Content (ConvertTo-SiftJson -InputObject $resultArray)
+
+        [pscustomobject]@{
+            Backend = $Backend
+            Model = $Model
+            ResultPath = $resultPath
+            Results = $resultArray
+        }
     }
 }
 
@@ -1322,23 +1527,25 @@ function Find-SiftFiles {
         [switch]$FullPath
     )
 
-    $resolvedPath = Resolve-Path -LiteralPath $Path -ErrorAction Stop | Select-Object -ExpandProperty Path -First 1
-    $patterns = @($Name | ForEach-Object { [System.Management.Automation.WildcardPattern]::new($_, 'IgnoreCase') })
+    Invoke-SiftWithExecutionLock {
+        $resolvedPath = Resolve-Path -LiteralPath $Path -ErrorAction Stop | Select-Object -ExpandProperty Path -First 1
+        $patterns = @($Name | ForEach-Object { [System.Management.Automation.WildcardPattern]::new($_, 'IgnoreCase') })
 
-    Get-ChildItem -LiteralPath $resolvedPath -Recurse -File | Where-Object {
-        $fileName = $_.Name
-        foreach ($pattern in $patterns) {
-            if ($pattern.IsMatch($fileName)) {
-                return $true
+        Get-ChildItem -LiteralPath $resolvedPath -Recurse -File | Where-Object {
+            $fileName = $_.Name
+            foreach ($pattern in $patterns) {
+                if ($pattern.IsMatch($fileName)) {
+                    return $true
+                }
             }
-        }
 
-        return $false
-    } | Sort-Object FullName | ForEach-Object {
-        [pscustomobject]@{
-            Name = $_.Name
-            RelativePath = ConvertTo-SiftRelativePath -BasePath $resolvedPath -TargetPath $_.FullName
-            FullPath = $_.FullName
+            return $false
+        } | Sort-Object FullName | ForEach-Object {
+            [pscustomobject]@{
+                Name = $_.Name
+                RelativePath = ConvertTo-SiftRelativePath -BasePath $resolvedPath -TargetPath $_.FullName
+                FullPath = $_.FullName
+            }
         }
     }
 }
@@ -1350,37 +1557,39 @@ function Install-SiftCodexPolicy {
         [switch]$Force
     )
 
-    $null = New-SiftDirectory -Path $CodexHome
-    $agentsPath = Join-Path -Path $CodexHome -ChildPath 'AGENTS.md'
-    $policyBlock = Get-SiftCodexPolicyBlock
-    $existing = ''
+    Invoke-SiftWithExecutionLock {
+        $null = New-SiftDirectory -Path $CodexHome
+        $agentsPath = Join-Path -Path $CodexHome -ChildPath 'AGENTS.md'
+        $policyBlock = Get-SiftCodexPolicyBlock
+        $existing = ''
 
-    if (Test-Path -LiteralPath $agentsPath) {
-        $existing = Get-Content -LiteralPath $agentsPath -Raw
-        if ($existing -match [Regex]::Escape($script:SiftMarkers.CodexPolicyStart)) {
-            $updated = [Regex]::Replace(
-                $existing,
-                [Regex]::Escape($script:SiftMarkers.CodexPolicyStart) + '.*?' + [Regex]::Escape($script:SiftMarkers.CodexPolicyEnd),
-                [System.Text.RegularExpressions.MatchEvaluator]{ param($match) $policyBlock },
-                [System.Text.RegularExpressions.RegexOptions]::Singleline
-            )
-        }
-        elseif ($Force -or $existing.Trim()) {
-            $updated = $existing.TrimEnd() + [Environment]::NewLine + [Environment]::NewLine + $policyBlock + [Environment]::NewLine
+        if (Test-Path -LiteralPath $agentsPath) {
+            $existing = Get-Content -LiteralPath $agentsPath -Raw
+            if ($existing -match [Regex]::Escape($script:SiftMarkers.CodexPolicyStart)) {
+                $updated = [Regex]::Replace(
+                    $existing,
+                    [Regex]::Escape($script:SiftMarkers.CodexPolicyStart) + '.*?' + [Regex]::Escape($script:SiftMarkers.CodexPolicyEnd),
+                    [System.Text.RegularExpressions.MatchEvaluator]{ param($match) $policyBlock },
+                    [System.Text.RegularExpressions.RegexOptions]::Singleline
+                )
+            }
+            elseif ($Force -or $existing.Trim()) {
+                $updated = $existing.TrimEnd() + [Environment]::NewLine + [Environment]::NewLine + $policyBlock + [Environment]::NewLine
+            }
+            else {
+                $updated = $policyBlock + [Environment]::NewLine
+            }
         }
         else {
             $updated = $policyBlock + [Environment]::NewLine
         }
-    }
-    else {
-        $updated = $policyBlock + [Environment]::NewLine
-    }
 
-    Set-Content -LiteralPath $agentsPath -Value $updated -Encoding UTF8
+        Save-SiftContentAtomically -Path $agentsPath -Content $updated
 
-    [pscustomobject]@{
-        AgentsPath = $agentsPath
-        Installed = $true
+        [pscustomobject]@{
+            AgentsPath = $agentsPath
+            Installed = $true
+        }
     }
 }
 
@@ -1392,32 +1601,34 @@ function Install-SiftKitShellIntegration {
         [switch]$Force
     )
 
-    $moduleSource = Get-SiftKitRoot
-    $repoRoot = Split-Path -Path $moduleSource -Parent
-    $moduleTarget = Join-Path -Path $ModuleInstallRoot -ChildPath 'SiftKit'
-    $binSource = Join-Path -Path $repoRoot -ChildPath 'bin'
+    Invoke-SiftWithExecutionLock {
+        $moduleSource = Get-SiftKitRoot
+        $repoRoot = Split-Path -Path $moduleSource -Parent
+        $moduleTarget = Join-Path -Path $ModuleInstallRoot -ChildPath 'SiftKit'
+        $binSource = Join-Path -Path $repoRoot -ChildPath 'bin'
 
-    $null = New-SiftDirectory -Path $ModuleInstallRoot
-    $null = New-SiftDirectory -Path $BinDir
+        $null = New-SiftDirectory -Path $ModuleInstallRoot
+        $null = New-SiftDirectory -Path $BinDir
 
-    if (Test-Path -LiteralPath $moduleTarget) {
-        if ($Force) {
-            Remove-Item -LiteralPath $moduleTarget -Recurse -Force
+        if (Test-Path -LiteralPath $moduleTarget) {
+            if ($Force) {
+                Remove-Item -LiteralPath $moduleTarget -Recurse -Force
+            }
         }
-    }
 
-    $null = New-SiftDirectory -Path $moduleTarget
-    Get-ChildItem -LiteralPath $moduleSource -Force | Copy-Item -Destination $moduleTarget -Recurse -Force
-    Copy-Item -LiteralPath (Join-Path -Path $binSource -ChildPath 'siftkit.ps1') -Destination (Join-Path -Path $BinDir -ChildPath 'siftkit.ps1') -Force
-    Copy-Item -LiteralPath (Join-Path -Path $binSource -ChildPath 'siftkit.cmd') -Destination (Join-Path -Path $BinDir -ChildPath 'siftkit.cmd') -Force
+        $null = New-SiftDirectory -Path $moduleTarget
+        Get-ChildItem -LiteralPath $moduleSource -Force | Copy-Item -Destination $moduleTarget -Recurse -Force
+        Copy-Item -LiteralPath (Join-Path -Path $binSource -ChildPath 'siftkit.ps1') -Destination (Join-Path -Path $BinDir -ChildPath 'siftkit.ps1') -Force
+        Copy-Item -LiteralPath (Join-Path -Path $binSource -ChildPath 'siftkit.cmd') -Destination (Join-Path -Path $BinDir -ChildPath 'siftkit.cmd') -Force
 
-    [pscustomobject]@{
-        Installed = $true
-        ModulePath = $moduleTarget
-        BinDir = $BinDir
-        PowerShellShim = Join-Path -Path $BinDir -ChildPath 'siftkit.ps1'
-        CmdShim = Join-Path -Path $BinDir -ChildPath 'siftkit.cmd'
-        PathHint = 'Add the bin directory to PATH to run siftkit globally.'
+        [pscustomobject]@{
+            Installed = $true
+            ModulePath = $moduleTarget
+            BinDir = $BinDir
+            PowerShellShim = Join-Path -Path $BinDir -ChildPath 'siftkit.ps1'
+            CmdShim = Join-Path -Path $BinDir -ChildPath 'siftkit.cmd'
+            PathHint = 'Add the bin directory to PATH to run siftkit globally.'
+        }
     }
 }
 
