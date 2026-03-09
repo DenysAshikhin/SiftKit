@@ -7,6 +7,10 @@ $script:SiftMarkers = @{
 $script:SiftExecutionLockDepth = 0
 $script:SiftExecutionMutex = $null
 $script:SiftExecutionMutexName = $null
+$script:SiftLegacyDefaultNumCtx = 16384
+$script:SiftLegacyDefaultMaxInputCharacters = 32000
+$script:SiftDefaultNumCtx = 50000
+$script:SiftInputCharactersPerContextToken = 2.5
 
 $script:SiftPromptProfiles = @{
     'general' = @'
@@ -40,7 +44,44 @@ function Get-SiftKitRoot {
 }
 
 function Get-SiftRuntimeRoot {
-    Join-Path -Path $env:USERPROFILE -ChildPath '.siftkit'
+    $configuredStatusPath = $env:sift_kit_status
+    if ($configuredStatusPath -and $configuredStatusPath.Trim()) {
+        $statusPath = [System.IO.Path]::GetFullPath($configuredStatusPath)
+        $statusDirectory = Split-Path -Path $statusPath -Parent
+        if ([System.IO.Path]::GetFileName($statusDirectory).ToLowerInvariant() -eq 'status') {
+            return [System.IO.Path]::GetFullPath((Split-Path -Path $statusDirectory -Parent))
+        }
+
+        return [System.IO.Path]::GetFullPath($statusDirectory)
+    }
+
+    [System.IO.Path]::GetFullPath((Join-Path -Path $env:USERPROFILE -ChildPath '.siftkit'))
+}
+
+function Get-SiftInferenceStatusPath {
+    $configuredPath = $env:sift_kit_status
+    if (-not $configuredPath -or -not $configuredPath.Trim()) {
+        $configuredPath = Join-Path -Path (Get-SiftRuntimeRoot) -ChildPath 'status\inference.txt'
+    }
+
+    [System.IO.Path]::GetFullPath($configuredPath)
+}
+
+function Get-SiftDefaultNumCtx {
+    $script:SiftDefaultNumCtx
+}
+
+function Get-SiftDerivedMaxInputCharacters {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$NumCtx
+    )
+
+    if ($NumCtx -le 0) {
+        $NumCtx = Get-SiftDefaultNumCtx
+    }
+
+    [Math]::Max([int][Math]::Floor($NumCtx * $script:SiftInputCharactersPerContextToken), 1)
 }
 
 function Get-SiftRepoPath {
@@ -50,6 +91,28 @@ function Get-SiftRepoPath {
     )
 
     Join-Path -Path (Split-Path -Path (Get-SiftKitRoot) -Parent) -ChildPath $RelativePath
+}
+
+function Remove-SiftProperty {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$InputObject,
+        [Parameter(Mandatory = $true)]
+        [string]$PropertyName
+    )
+
+    if (-not $InputObject.PSObject.Properties[$PropertyName]) {
+        return $InputObject
+    }
+
+    $properties = [ordered]@{}
+    foreach ($property in $InputObject.PSObject.Properties) {
+        if ($property.Name -ne $PropertyName) {
+            $properties[$property.Name] = $property.Value
+        }
+    }
+
+    [pscustomobject]$properties
 }
 
 function New-SiftDirectory {
@@ -183,7 +246,12 @@ function Save-SiftContentAtomically {
         if (Test-Path -LiteralPath $Path) {
             $backupPath = Join-Path -Path $directory -ChildPath ([System.Guid]::NewGuid().ToString('N') + '.bak')
             try {
-                [System.IO.File]::Replace($tempPath, $Path, $backupPath, $false)
+                try {
+                    [System.IO.File]::Replace($tempPath, $Path, $backupPath, $false)
+                }
+                catch [System.UnauthorizedAccessException], [System.IO.IOException] {
+                    [System.IO.File]::Copy($tempPath, $Path, $true)
+                }
             }
             finally {
                 if (Test-Path -LiteralPath $backupPath) {
@@ -202,6 +270,60 @@ function Save-SiftContentAtomically {
     }
 }
 
+function Set-SiftInferenceStatus {
+    param(
+        [Parameter(Mandatory = $true)]
+        [bool]$Running
+    )
+
+    $statusPath = Get-SiftInferenceStatusPath
+    Invoke-SiftStatusBackend -Running $Running -StatusPath $statusPath
+    $statusPath
+}
+
+function Get-SiftStatusBackendUrl {
+    $configuredUrl = $env:SIFTKIT_STATUS_BACKEND_URL
+    if (-not $configuredUrl -or -not $configuredUrl.Trim()) {
+        $host = if ($env:SIFTKIT_STATUS_HOST -and $env:SIFTKIT_STATUS_HOST.Trim()) { $env:SIFTKIT_STATUS_HOST.Trim() } else { '127.0.0.1' }
+        $port = if ($env:SIFTKIT_STATUS_PORT -and $env:SIFTKIT_STATUS_PORT.Trim()) { $env:SIFTKIT_STATUS_PORT.Trim() } else { '4765' }
+        return ('http://{0}:{1}/status' -f $host, $port)
+    }
+
+    $configuredUrl.Trim()
+}
+
+function Invoke-SiftStatusBackend {
+    param(
+        [Parameter(Mandatory = $true)]
+        [bool]$Running,
+        [Parameter(Mandatory = $true)]
+        [string]$StatusPath
+    )
+
+    $backendUrl = Get-SiftStatusBackendUrl
+    if (-not $backendUrl) {
+        return
+    }
+
+    $body = [ordered]@{
+        running = $Running
+        status = if ($Running) { 'true' } else { 'false' }
+        statusPath = $StatusPath
+        updatedAtUtc = [DateTime]::UtcNow.ToString('o')
+    }
+
+    try {
+        Invoke-RestMethod -Uri $backendUrl `
+            -Method Post `
+            -ContentType 'application/json' `
+            -Body (ConvertTo-SiftJson -InputObject $body) `
+            -TimeoutSec 2 | Out-Null
+    }
+    catch {
+        Write-Verbose ('SiftKit status backend notify failed: {0}' -f $_.Exception.Message)
+    }
+}
+
 function Get-SiftDefaultConfigObject {
     $runtimeRoot = Get-SiftRuntimeRoot
     [ordered]@{
@@ -213,13 +335,12 @@ function Get-SiftDefaultConfigObject {
         Ollama = [ordered]@{
             BaseUrl = 'http://127.0.0.1:11434'
             ExecutablePath = $null
-            NumCtx = 16384
+            NumCtx = Get-SiftDefaultNumCtx
         }
         Thresholds = [ordered]@{
             MinCharactersForSummary = 500
             MinLinesForSummary = 16
-            MaxInputCharacters = 32000
-            ChunkThresholdRatio = 0.75
+            ChunkThresholdRatio = 0.92
         }
         Paths = [ordered]@{
             RuntimeRoot = $runtimeRoot
@@ -310,6 +431,8 @@ function Update-SiftConfigDefaults {
 
     $changed = $false
     $defaultConfig = Get-SiftDefaultConfigObject
+    $hadExplicitMaxInputCharacters = $false
+    $existingMaxInputCharacters = $null
 
     if (-not $Config.PSObject.Properties['Thresholds']) {
         $Config | Add-Member -NotePropertyName Thresholds -NotePropertyValue ([pscustomobject]$defaultConfig.Thresholds)
@@ -335,6 +458,10 @@ function Update-SiftConfigDefaults {
         $Config.Ollama | Add-Member -NotePropertyName NumCtx -NotePropertyValue $defaultConfig.Ollama.NumCtx
         $changed = $true
     }
+    elseif ([int]$Config.Ollama.NumCtx -le 0) {
+        $Config.Ollama.NumCtx = $defaultConfig.Ollama.NumCtx
+        $changed = $true
+    }
 
     if (-not $Config.Thresholds.PSObject.Properties['MinCharactersForSummary']) {
         $Config.Thresholds | Add-Member -NotePropertyName MinCharactersForSummary -NotePropertyValue $defaultConfig.Thresholds.MinCharactersForSummary
@@ -346,13 +473,32 @@ function Update-SiftConfigDefaults {
         $changed = $true
     }
 
-    if (-not $Config.Thresholds.PSObject.Properties['MaxInputCharacters']) {
-        $Config.Thresholds | Add-Member -NotePropertyName MaxInputCharacters -NotePropertyValue $defaultConfig.Thresholds.MaxInputCharacters
-        $changed = $true
+    if ($Config.Thresholds.PSObject.Properties['MaxInputCharacters']) {
+        $hadExplicitMaxInputCharacters = $true
+        $existingMaxInputCharacters = [int]$Config.Thresholds.MaxInputCharacters
+        if ([int]$Config.Thresholds.MaxInputCharacters -le 0) {
+            $Config.Thresholds = Remove-SiftProperty -InputObject $Config.Thresholds -PropertyName 'MaxInputCharacters'
+            $changed = $true
+            $hadExplicitMaxInputCharacters = $false
+            $existingMaxInputCharacters = $null
+        }
     }
 
     if (-not $Config.Thresholds.PSObject.Properties['ChunkThresholdRatio']) {
         $Config.Thresholds | Add-Member -NotePropertyName ChunkThresholdRatio -NotePropertyValue $defaultConfig.Thresholds.ChunkThresholdRatio
+        $changed = $true
+    }
+
+    if (
+        [int]$Config.Ollama.NumCtx -eq $script:SiftLegacyDefaultNumCtx -and
+        (
+            (-not $hadExplicitMaxInputCharacters) -or
+            ($existingMaxInputCharacters -eq $script:SiftLegacyDefaultMaxInputCharacters)
+        )
+    ) {
+        $Config.Ollama.NumCtx = $defaultConfig.Ollama.NumCtx
+        $Config.Thresholds = Remove-SiftProperty -InputObject $Config.Thresholds -PropertyName 'MaxInputCharacters'
+        $Config.Thresholds.ChunkThresholdRatio = $defaultConfig.Thresholds.ChunkThresholdRatio
         $changed = $true
     }
 
@@ -581,11 +727,11 @@ function Get-SiftInputText {
     param(
         [string]$Text,
         [string]$InputFile,
-        [System.Collections.Generic.List[string]]$PipelineBuffer
+        [System.Collections.IEnumerable]$PipelineBuffer
     )
 
     if ($PSBoundParameters.ContainsKey('Text')) {
-        return $Text
+        return (Normalize-SiftInputText -Text $Text)
     }
 
     if ($PSBoundParameters.ContainsKey('InputFile')) {
@@ -593,14 +739,225 @@ function Get-SiftInputText {
             throw "Input file not found: $InputFile"
         }
 
-        return Get-Content -LiteralPath $InputFile -Raw
+        return (Normalize-SiftInputText -Text (Get-Content -LiteralPath $InputFile -Raw))
     }
 
     if ($PipelineBuffer -and $PipelineBuffer.Count -gt 0) {
-        return ($PipelineBuffer -join [Environment]::NewLine)
+        return (Convert-SiftPipelineBufferToText -PipelineBuffer $PipelineBuffer)
     }
 
     throw 'No input text was provided.'
+}
+
+function Normalize-SiftInputText {
+    param(
+        [AllowNull()]
+        [string]$Text
+    )
+
+    if ($null -eq $Text) {
+        return $null
+    }
+
+    $Text.TrimEnd([char[]]@("`r", "`n"))
+}
+
+function Get-SiftPropertyValue {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$InputObject,
+        [Parameter(Mandatory = $true)]
+        [string]$PropertyName
+    )
+
+    $property = $InputObject.PSObject.Properties[$PropertyName]
+    if ($property) {
+        return $property.Value
+    }
+
+    $null
+}
+
+function Test-SiftFormatData {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$InputObject
+    )
+
+    $typeName = $InputObject.GetType().FullName
+    $typeName -like 'Microsoft.PowerShell.Commands.Internal.Format.*'
+}
+
+function Convert-SiftListFormatDataToText {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]]$Items
+    )
+
+    $entryItems = @($Items | Where-Object { $_.GetType().Name -eq 'FormatEntryData' })
+    if ($entryItems.Count -eq 0) {
+        return $null
+    }
+
+    $allLines = New-Object System.Collections.Generic.List[string]
+    for ($entryIndex = 0; $entryIndex -lt $entryItems.Count; $entryIndex++) {
+        $entry = Get-SiftPropertyValue -InputObject $entryItems[$entryIndex] -PropertyName 'formatEntryInfo'
+        $fields = @(Get-SiftPropertyValue -InputObject $entry -PropertyName 'listViewFieldList')
+        if ($fields.Count -eq 0) {
+            continue
+        }
+
+        $names = @()
+        foreach ($field in $fields) {
+            $label = [string](Get-SiftPropertyValue -InputObject $field -PropertyName 'label')
+            if ([string]::IsNullOrWhiteSpace($label)) {
+                $label = [string](Get-SiftPropertyValue -InputObject $field -PropertyName 'propertyName')
+            }
+
+            $names += $label
+        }
+
+        $nameWidth = @($names | ForEach-Object { $_.Length } | Measure-Object -Maximum).Maximum
+        for ($fieldIndex = 0; $fieldIndex -lt $fields.Count; $fieldIndex++) {
+            $formatField = Get-SiftPropertyValue -InputObject $fields[$fieldIndex] -PropertyName 'formatPropertyField'
+            $value = [string](Get-SiftPropertyValue -InputObject $formatField -PropertyName 'propertyValue')
+            [void]$allLines.Add(('{0} : {1}' -f $names[$fieldIndex].PadRight($nameWidth), $value))
+        }
+
+        if ($entryIndex -lt ($entryItems.Count - 1)) {
+            [void]$allLines.Add('')
+        }
+    }
+
+    Normalize-SiftInputText -Text ($allLines -join [Environment]::NewLine)
+}
+
+function Convert-SiftTableFormatDataToText {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]]$Items,
+        [Parameter(Mandatory = $true)]
+        [object]$ShapeInfo
+    )
+
+    $columns = @(Get-SiftPropertyValue -InputObject $ShapeInfo -PropertyName 'tableColumnInfoList')
+    if ($columns.Count -eq 0) {
+        return $null
+    }
+
+    $headers = @()
+    foreach ($column in $columns) {
+        $label = [string](Get-SiftPropertyValue -InputObject $column -PropertyName 'label')
+        if ([string]::IsNullOrWhiteSpace($label)) {
+            $label = [string](Get-SiftPropertyValue -InputObject $column -PropertyName 'propertyName')
+        }
+
+        $headers += $label
+    }
+
+    $rows = @()
+    foreach ($entryItem in @($Items | Where-Object { $_.GetType().Name -eq 'FormatEntryData' })) {
+        $entry = Get-SiftPropertyValue -InputObject $entryItem -PropertyName 'formatEntryInfo'
+        $fields = @(Get-SiftPropertyValue -InputObject $entry -PropertyName 'formatPropertyFieldList')
+        $row = @()
+        foreach ($field in $fields) {
+            $row += [string](Get-SiftPropertyValue -InputObject $field -PropertyName 'propertyValue')
+        }
+
+        $rows += ,$row
+    }
+
+    $widths = @()
+    for ($columnIndex = 0; $columnIndex -lt $headers.Count; $columnIndex++) {
+        $width = $headers[$columnIndex].Length
+        foreach ($row in $rows) {
+            if ($columnIndex -lt $row.Count -and $row[$columnIndex].Length -gt $width) {
+                $width = $row[$columnIndex].Length
+            }
+        }
+
+        $widths += $width
+    }
+
+    $separator = '  '
+    $lines = New-Object System.Collections.Generic.List[string]
+    [void]$lines.Add((0..($headers.Count - 1) | ForEach-Object { $headers[$_].PadRight($widths[$_]) }) -join $separator)
+    [void]$lines.Add((0..($headers.Count - 1) | ForEach-Object { ('-' * $widths[$_]) }) -join $separator)
+    foreach ($row in $rows) {
+        [void]$lines.Add((0..($headers.Count - 1) | ForEach-Object {
+            $value = if ($_ -lt $row.Count) { $row[$_] } else { '' }
+            $value.PadRight($widths[$_])
+        }) -join $separator)
+    }
+
+    Normalize-SiftInputText -Text ($lines -join [Environment]::NewLine)
+}
+
+function Convert-SiftFormatDataToText {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]]$Items
+    )
+
+    if ($Items.Count -eq 0 -or ($Items | Where-Object { -not (Test-SiftFormatData -InputObject $_) }).Count -gt 0) {
+        return $null
+    }
+
+    $startData = $Items | Where-Object { $_.GetType().Name -eq 'FormatStartData' } | Select-Object -First 1
+    if (-not $startData) {
+        return $null
+    }
+
+    $shapeInfo = Get-SiftPropertyValue -InputObject $startData -PropertyName 'shapeInfo'
+    if (-not $shapeInfo) {
+        return $null
+    }
+
+    switch ($shapeInfo.GetType().Name) {
+        'ListViewHeaderInfo' { return (Convert-SiftListFormatDataToText -Items $Items) }
+        'TableHeaderInfo' { return (Convert-SiftTableFormatDataToText -Items $Items -ShapeInfo $shapeInfo) }
+        default { return $null }
+    }
+}
+
+function Convert-SiftPipelineBufferToText {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Collections.IEnumerable]$PipelineBuffer
+    )
+
+    $items = @($PipelineBuffer)
+    if ($items.Count -eq 0) {
+        return ''
+    }
+
+    $allStrings = $true
+    foreach ($item in $items) {
+        if ($item -isnot [string]) {
+            $allStrings = $false
+            break
+        }
+    }
+
+    if ($allStrings) {
+        return (Normalize-SiftInputText -Text ($items -join [Environment]::NewLine))
+    }
+
+    try {
+        $rendered = Normalize-SiftInputText -Text ($items | Out-String -Width 200)
+        if (-not [string]::IsNullOrWhiteSpace($rendered)) {
+            return $rendered
+        }
+    }
+    catch [System.InvalidOperationException] {
+    }
+
+    $formattedText = Convert-SiftFormatDataToText -Items $items
+    if ($null -ne $formattedText) {
+        return $formattedText
+    }
+
+    Normalize-SiftInputText -Text (($items | ForEach-Object { [string]$_ }) -join [Environment]::NewLine)
 }
 
 function Measure-SiftText {
@@ -877,7 +1234,13 @@ function Invoke-SiftProviderSummary {
     )
 
     $provider = Get-SiftProvider -Name $Backend
-    & $provider.Summarize $Config $Model $Prompt
+    Set-SiftInferenceStatus -Running $true | Out-Null
+    try {
+        & $provider.Summarize $Config $Model $Prompt
+    }
+    finally {
+        Set-SiftInferenceStatus -Running $false | Out-Null
+    }
 }
 
 function Get-SiftChunkThresholdCharacters {
@@ -890,59 +1253,50 @@ function Get-SiftChunkThresholdCharacters {
         [int]$Config.Thresholds.MaxInputCharacters
     }
     else {
-        32000
+        Get-SiftDerivedMaxInputCharacters -NumCtx ([int]$Config.Ollama.NumCtx)
     }
 
     $chunkThresholdRatio = if ($Config.Thresholds.PSObject.Properties['ChunkThresholdRatio']) {
         [double]$Config.Thresholds.ChunkThresholdRatio
     }
     else {
-        0.75
+        0.92
     }
 
     if ($maxInputCharacters -le 0) {
-        $maxInputCharacters = 32000
+        $maxInputCharacters = Get-SiftDerivedMaxInputCharacters -NumCtx ([int]$Config.Ollama.NumCtx)
     }
 
     if ($chunkThresholdRatio -le 0 -or $chunkThresholdRatio -gt 1) {
-        $chunkThresholdRatio = 0.75
+        $chunkThresholdRatio = 0.92
     }
 
     [Math]::Max([int][Math]::Floor($maxInputCharacters * $chunkThresholdRatio), 1)
 }
 
-function Split-SiftTextInHalf {
+function Split-SiftTextIntoChunks {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Text
+        [string]$Text,
+        [Parameter(Mandatory = $true)]
+        [int]$ChunkSize
     )
 
-    if ($Text.Length -lt 2) {
-        return @($Text, '')
+    if ($ChunkSize -le 0) {
+        throw 'ChunkSize must be greater than zero.'
     }
 
-    $midpoint = [int][Math]::Floor($Text.Length / 2)
-    $window = [Math]::Min(1000, [Math]::Max(1, [int][Math]::Floor($Text.Length / 8)))
-    $start = [Math]::Max(1, $midpoint - $window)
-    $length = [Math]::Min(($window * 2), $Text.Length - $start)
-    $segment = $Text.Substring($start, $length)
-    $newlineOffset = $segment.IndexOf("`n")
-
-    if ($newlineOffset -ge 0) {
-        $splitIndex = $start + $newlineOffset + 1
-    }
-    else {
-        $splitIndex = $midpoint
+    if ($Text.Length -le $ChunkSize) {
+        return @($Text)
     }
 
-    if ($splitIndex -le 0 -or $splitIndex -ge $Text.Length) {
-        $splitIndex = $midpoint
+    $chunks = New-Object System.Collections.Generic.List[string]
+    for ($offset = 0; $offset -lt $Text.Length; $offset += $ChunkSize) {
+        $length = [Math]::Min($ChunkSize, $Text.Length - $offset)
+        [void]$chunks.Add($Text.Substring($offset, $length))
     }
 
-    @(
-        $Text.Substring(0, $splitIndex),
-        $Text.Substring($splitIndex)
-    )
+    @($chunks)
 }
 
 function Invoke-SiftSummaryCore {
@@ -968,19 +1322,24 @@ function Invoke-SiftSummaryCore {
 
     $chunkThreshold = Get-SiftChunkThresholdCharacters -Config $Config
     if ($InputText.Length -gt $chunkThreshold) {
-        $halves = Split-SiftTextInHalf -Text $InputText
-        $firstSummary = Invoke-SiftSummaryCore -Question $Question -InputText $halves[0] -Format $Format -PolicyProfile $PolicyProfile -Backend $Backend -Model $Model -Config $Config -RawReviewRequired $RawReviewRequired -Depth ($Depth + 1)
-        $secondSummary = Invoke-SiftSummaryCore -Question $Question -InputText $halves[1] -Format $Format -PolicyProfile $PolicyProfile -Backend $Backend -Model $Model -Config $Config -RawReviewRequired $RawReviewRequired -Depth ($Depth + 1)
+        $chunks = Split-SiftTextIntoChunks -Text $InputText -ChunkSize $chunkThreshold
+        $chunkSummaries = @(
+            for ($index = 0; $index -lt $chunks.Count; $index++) {
+                Invoke-SiftSummaryCore -Question $Question -InputText $chunks[$index] -Format $Format -PolicyProfile $PolicyProfile -Backend $Backend -Model $Model -Config $Config -RawReviewRequired $RawReviewRequired -Depth ($Depth + 1)
+            }
+        )
 
-        $mergeInput = @(
-            'Summary of first half:'
-            $firstSummary
-            ''
-            'Summary of second half:'
-            $secondSummary
-        ) -join [Environment]::NewLine
+        $mergeSections = New-Object System.Collections.Generic.List[string]
+        for ($index = 0; $index -lt $chunkSummaries.Count; $index++) {
+            [void]$mergeSections.Add(('Summary of chunk {0}:' -f ($index + 1)))
+            [void]$mergeSections.Add($chunkSummaries[$index])
+            if ($index -lt ($chunkSummaries.Count - 1)) {
+                [void]$mergeSections.Add('')
+            }
+        }
 
-        $mergeQuestion = 'Merge these two partial summaries into one final answer for the original question: ' + $Question
+        $mergeInput = $mergeSections -join [Environment]::NewLine
+        $mergeQuestion = 'Merge these partial summaries into one final answer for the original question: ' + $Question
         return Invoke-SiftSummaryCore -Question $mergeQuestion -InputText $mergeInput -Format $Format -PolicyProfile $PolicyProfile -Backend $Backend -Model $Model -Config $Config -RawReviewRequired $RawReviewRequired -Depth ($Depth + 1)
     }
 
@@ -1275,7 +1634,7 @@ function Invoke-SiftSummary {
         [Parameter(ParameterSetName = 'File', Mandatory = $true)]
         [string]$InputFile,
         [Parameter(ParameterSetName = 'Pipeline', ValueFromPipeline = $true)]
-        [string]$InputObject,
+        [object]$InputObject,
         [ValidateSet('text', 'json')]
         [string]$Format = 'text',
         [string]$Backend,
@@ -1286,13 +1645,19 @@ function Invoke-SiftSummary {
 
     begin {
         Enter-SiftExecutionLock | Out-Null
-        $buffer = New-Object System.Collections.Generic.List[string]
+        $buffer = New-Object System.Collections.Generic.List[object]
     }
 
     process {
-        if ($null -ne $InputObject -and $InputObject.Length -gt 0) {
-            [void]$buffer.Add([string]$InputObject)
+        if ($null -eq $InputObject) {
+            return
         }
+
+        if ($InputObject -is [string] -and $InputObject.Length -eq 0) {
+            return
+        }
+
+        [void]$buffer.Add($InputObject)
     }
 
     end {

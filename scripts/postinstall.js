@@ -31,27 +31,20 @@ function writeFileIfPossible(filePath, content) {
 const shimDir = getShimDir();
 
 const powershellShim = `#!/usr/bin/env pwsh
+[CmdletBinding()]
+param(
+  [Parameter(ValueFromPipeline = $true)]
+  [object]$InputObject,
+  [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
+  [string[]]$CliArgs
+)
 $basedir=Split-Path $MyInvocation.MyCommand.Definition -Parent
 $target=Join-Path $basedir 'node_modules\\siftkit\\bin\\siftkit.ps1'
 $ret=0
 if ($MyInvocation.ExpectingInput) {
-  $summaryMode = ($args.Count -eq 0) -or ($args[0] -eq 'summary') -or ($args[0] -notin @('run', 'find-files', 'install', 'test', 'eval', 'codex-policy', 'install-global'))
-  $hasExplicitInput = $args -contains '--text' -or $args -contains '--file'
-  if ($summaryMode -and -not $hasExplicitInput) {
-    $tempFile = [System.IO.Path]::GetTempFileName()
-    try {
-      ($input | ForEach-Object { [string]$_ }) -join [Environment]::NewLine | Set-Content -LiteralPath $tempFile -Encoding UTF8
-      & powershell.exe -ExecutionPolicy Bypass -File $target @args --file $tempFile
-    } finally {
-      if (Test-Path -LiteralPath $tempFile) {
-        Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
-      }
-    }
-  } else {
-    & powershell.exe -ExecutionPolicy Bypass -File $target @args
-  }
+  $input | & powershell.exe -ExecutionPolicy Bypass -File $target @CliArgs
 } else {
-  & powershell.exe -ExecutionPolicy Bypass -File $target @args
+  & powershell.exe -ExecutionPolicy Bypass -File $target @CliArgs
 }
 $ret=$LASTEXITCODE
 exit $ret

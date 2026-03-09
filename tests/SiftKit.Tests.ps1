@@ -81,6 +81,80 @@ function Wait-JsonScriptProcess {
     }
 }
 
+function Start-NodeStatusServer {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$StatusPath,
+        [int]$Port = 0,
+        [switch]$UseBuiltInCli
+    )
+
+    $serverPath = if ($UseBuiltInCli) {
+        Join-Path $PSScriptRoot '..\bin\siftkit.js'
+    }
+    else {
+        Join-Path $PSScriptRoot '..\siftKitStatus\index.js'
+    }
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = 'node'
+    $psi.Arguments = if ($UseBuiltInCli) { "`"$serverPath`" status-server" } else { "`"$serverPath`"" }
+    $psi.WorkingDirectory = (Split-Path $serverPath -Parent)
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $psi.Environment['sift_kit_status'] = $StatusPath
+    $psi.Environment['SIFTKIT_STATUS_PORT'] = [string]$Port
+
+    $process = [System.Diagnostics.Process]::Start($psi)
+    $readyLine = $null
+    while (-not $process.StandardOutput.EndOfStream) {
+        $candidateLine = $process.StandardOutput.ReadLine()
+        if (-not $candidateLine) {
+            continue
+        }
+
+        $trimmedLine = $candidateLine.Trim()
+        if ($trimmedLine.StartsWith('{') -and $trimmedLine.EndsWith('}')) {
+            $readyLine = $trimmedLine
+            break
+        }
+    }
+
+    if (-not $readyLine) {
+        $stderr = $process.StandardError.ReadToEnd()
+        if (-not $process.HasExited) {
+            $process.Kill()
+        }
+        $process.Dispose()
+        throw ("Node status server failed to start. {0}" -f $stderr)
+    }
+
+    $ready = $readyLine | ConvertFrom-Json
+    [pscustomobject]@{
+        Process = $process
+        Port = [int]$ready.port
+        StatusPath = [string]$ready.statusPath
+    }
+}
+
+function Stop-NodeStatusServer {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Handle
+    )
+
+    $process = $Handle.Process
+    try {
+        if (-not $process.HasExited) {
+            $process.Kill()
+            $process.WaitForExit()
+        }
+    }
+    finally {
+        $process.Dispose()
+    }
+}
+
 function New-ModuleWorkerScript {
     param(
         [Parameter(Mandatory = $true)]
@@ -218,10 +292,21 @@ function Get-ElapsedMilliseconds {
     [int]([TimeSpan]($finished - $started)).TotalMilliseconds
 }
 
+function Get-TestStatusPath {
+    Join-Path $script:TestHome 'status\inference.txt'
+}
+
+function Get-DefaultTestStatusPath {
+    Join-Path $script:TestHome '.siftkit\status\inference.txt'
+}
+
 Describe 'SiftKit' {
 
     BeforeEach {
         $env:USERPROFILE = $script:TestHome
+        $env:SIFTKIT_TEST_PROVIDER = 'mock'
+        Remove-Item Env:\SIFTKIT_STATUS_BACKEND_URL -ErrorAction SilentlyContinue
+        Remove-Item Env:\sift_kit_status -ErrorAction SilentlyContinue
 
         if (Test-Path -LiteralPath $script:TestHome) {
             Remove-Item -LiteralPath $script:TestHome -Recurse -Force
@@ -287,6 +372,9 @@ Describe 'SiftKit' {
 
     AfterAll {
         $env:USERPROFILE = $script:OriginalUserProfile
+        Remove-Item Env:\SIFTKIT_TEST_PROVIDER -ErrorAction SilentlyContinue
+        Remove-Item Env:\SIFTKIT_STATUS_BACKEND_URL -ErrorAction SilentlyContinue
+        Remove-Item Env:\sift_kit_status -ErrorAction SilentlyContinue
 
         if (Test-Path -LiteralPath $script:TestHome) {
             Remove-Item -LiteralPath $script:TestHome -Recurse -Force
@@ -366,8 +454,132 @@ Describe 'SiftKit' {
         $loaded.Model | Should Be 'qwen3.5:4b-q8_0'
     }
 
+    It 'prefers the status path from the environment variable and falls back to the runtime status path' {
+        $env:sift_kit_status = Get-TestStatusPath
+
+        $customPath = InModuleScope SiftKit { Get-SiftInferenceStatusPath }
+        $fallbackPath = InModuleScope SiftKit {
+            Remove-Item Env:\sift_kit_status -ErrorAction SilentlyContinue
+            Get-SiftInferenceStatusPath
+        }
+
+        $customPath | Should Be ([System.IO.Path]::GetFullPath((Get-TestStatusPath)))
+        $fallbackPath | Should Be ([System.IO.Path]::GetFullPath((Get-DefaultTestStatusPath)))
+    }
+
+    It 'derives the runtime root from the status path environment variable and falls back to the user profile runtime root' {
+        $env:sift_kit_status = Join-Path $script:TestHome '.codex\siftkit\status\inference.txt'
+
+        $customRoot = InModuleScope SiftKit { Get-SiftRuntimeRoot }
+        $fallbackRoot = InModuleScope SiftKit {
+            Remove-Item Env:\sift_kit_status -ErrorAction SilentlyContinue
+            Get-SiftRuntimeRoot
+        }
+
+        $customRoot | Should Be ([System.IO.Path]::GetFullPath((Join-Path $script:TestHome '.codex\siftkit')))
+        $fallbackRoot | Should Be ([System.IO.Path]::GetFullPath((Join-Path $script:TestHome '.siftkit')))
+    }
+
+    It 'falls back to the user profile runtime root when the status path environment variable is empty or whitespace' {
+        $emptyRoot = InModuleScope SiftKit {
+            $env:sift_kit_status = ''
+            Get-SiftRuntimeRoot
+        }
+        $whitespaceRoot = InModuleScope SiftKit {
+            $env:sift_kit_status = '   '
+            Get-SiftRuntimeRoot
+        }
+
+        $expectedRoot = [System.IO.Path]::GetFullPath((Join-Path $script:TestHome '.siftkit'))
+        $emptyRoot | Should Be $expectedRoot
+        $whitespaceRoot | Should Be $expectedRoot
+    }
+
+    It 'normalizes a runtime root derived from a relative status path to a full path' {
+        $resolvedRoot = InModuleScope SiftKit {
+            $env:sift_kit_status = '.\runtime-root\status\inference.txt'
+            Get-SiftRuntimeRoot
+        }
+
+        $resolvedRoot | Should Be ([System.IO.Path]::GetFullPath('.\runtime-root'))
+    }
+
+    It 'falls back to the runtime status path when the status environment variable is empty or whitespace' {
+        $emptyPath = InModuleScope SiftKit {
+            $env:sift_kit_status = ''
+            Get-SiftInferenceStatusPath
+        }
+        $whitespacePath = InModuleScope SiftKit {
+            $env:sift_kit_status = '   '
+            Get-SiftInferenceStatusPath
+        }
+
+        $emptyPath | Should Be ([System.IO.Path]::GetFullPath((Get-DefaultTestStatusPath)))
+        $whitespacePath | Should Be ([System.IO.Path]::GetFullPath((Get-DefaultTestStatusPath)))
+    }
+
+    It 'normalizes a relative status path from the environment variable to a full path' {
+        $relativePath = '.\status\relative.txt'
+        $resolvedPath = InModuleScope SiftKit {
+            $env:sift_kit_status = '.\status\relative.txt'
+            Get-SiftInferenceStatusPath
+        }
+
+        $resolvedPath | Should Be ([System.IO.Path]::GetFullPath($relativePath))
+    }
+
+    It 'does not create the local status file after summarization when no backend is configured' {
+        $env:sift_kit_status = Get-TestStatusPath
+        $text = ((1..40 | ForEach-Object { "line $_ with repeated status" }) -join "`n")
+
+        $result = Invoke-SiftSummary -Question 'summarize this' -Text $text -Backend 'mock' -Model 'mock-model'
+
+        $result.WasSummarized | Should Be $true
+        (Test-Path -LiteralPath (Get-TestStatusPath)) | Should Be $false
+    }
+
+    It 'does not create the default status file under the runtime root when no backend is set' {
+        Remove-Item Env:\sift_kit_status -ErrorAction SilentlyContinue
+        $text = ((1..40 | ForEach-Object { "line $_ with repeated status" }) -join "`n")
+
+        Invoke-SiftSummary -Question 'summarize this' -Text $text -Backend 'mock' -Model 'mock-model' | Out-Null
+
+        (Test-Path -LiteralPath (Get-DefaultTestStatusPath)) | Should Be $false
+    }
+
+    It 'does not create parent directories for a nested status path without a backend' {
+        $nestedStatusPath = Join-Path $script:TestHome 'deep\status\inference.txt'
+        $env:sift_kit_status = $nestedStatusPath
+        $text = ((1..40 | ForEach-Object { "line $_ with repeated status" }) -join "`n")
+
+        Invoke-SiftSummary -Question 'summarize this' -Text $text -Backend 'mock' -Model 'mock-model' | Out-Null
+
+        (Test-Path -LiteralPath (Split-Path -Path $nestedStatusPath -Parent)) | Should Be $false
+        (Test-Path -LiteralPath $nestedStatusPath) | Should Be $false
+    }
+
+    It 'does not write the local status file when config is ensured without a backend' {
+        $env:sift_kit_status = Get-TestStatusPath
+
+        InModuleScope SiftKit { Get-SiftConfig -Ensure | Out-Null }
+
+        (Test-Path -LiteralPath (Get-TestStatusPath)) | Should Be $false
+    }
+
+    It 'writes runtime artifacts under the runtime root derived from the status path without creating a local status file' {
+        $env:sift_kit_status = Join-Path $script:TestHome '.codex\siftkit\status\inference.txt'
+
+        InModuleScope SiftKit { Get-SiftConfig -Ensure | Out-Null }
+
+        $runtimeRoot = Join-Path $script:TestHome '.codex\siftkit'
+        $statusPath = Join-Path $runtimeRoot 'status\inference.txt'
+        (Test-Path -LiteralPath (Join-Path $runtimeRoot 'config.json')) | Should Be $true
+        (Test-Path -LiteralPath (Join-Path $runtimeRoot 'logs')) | Should Be $true
+        (Test-Path -LiteralPath $statusPath) | Should Be $false
+    }
+
     It 'splits oversized input into chunk summaries before the final summary' {
-        $text = ('A' * 25000)
+        $text = ('A' * 120000)
         $result = Invoke-SiftSummary -Question 'summarize this' -Text $text -Backend 'mock' -Model 'mock-model'
 
         $result.WasSummarized | Should Be $true
@@ -402,9 +614,84 @@ Describe 'SiftKit' {
 
         $config = InModuleScope SiftKit { Get-SiftConfig -Ensure }
 
-        $config.Thresholds.MaxInputCharacters | Should Be 32000
-        $config.Thresholds.ChunkThresholdRatio | Should Be 0.75
-        $config.Ollama.NumCtx | Should Be 16384
+        $config.Thresholds.PSObject.Properties['MaxInputCharacters'] | Should BeNullOrEmpty
+        $config.Thresholds.ChunkThresholdRatio | Should Be 0.92
+        $config.Ollama.NumCtx | Should Be 50000
+    }
+
+    It 'migrates persisted legacy defaults to the new derived context settings' {
+        $configPath = Join-Path $script:TestHome '.siftkit\config.json'
+        $legacy = @{
+            Version = '0.1.0'
+            Backend = 'ollama'
+            Model = 'qwen3.5:4b-q8_0'
+            PolicyMode = 'conservative'
+            RawLogRetention = $true
+            Ollama = @{
+                BaseUrl = 'http://127.0.0.1:11434'
+                ExecutablePath = 'mock.exe'
+                NumCtx = 16384
+            }
+            Thresholds = @{
+                MinCharactersForSummary = 500
+                MinLinesForSummary = 16
+                MaxInputCharacters = 32000
+                ChunkThresholdRatio = 0.75
+            }
+            Paths = @{
+                RuntimeRoot = Join-Path $script:TestHome '.siftkit'
+                Logs = Join-Path $script:TestHome '.siftkit\logs'
+                EvalFixtures = Join-Path $script:TestHome '.siftkit\eval\fixtures'
+                EvalResults = Join-Path $script:TestHome '.siftkit\eval\results'
+            }
+        }
+        $legacy | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $configPath -Encoding UTF8
+
+        $config = InModuleScope SiftKit { Get-SiftConfig -Ensure }
+
+        $config.Thresholds.PSObject.Properties['MaxInputCharacters'] | Should BeNullOrEmpty
+        $config.Thresholds.ChunkThresholdRatio | Should Be 0.92
+        $config.Ollama.NumCtx | Should Be 50000
+    }
+
+    It 'does not write the local status file when summarization fails without a backend' {
+        $env:sift_kit_status = Get-TestStatusPath
+
+        InModuleScope SiftKit {
+            Register-SiftProvider -Name 'mock-throw' `
+                -TestScript {
+                    param($Config)
+
+                    [pscustomobject]@{
+                        Available = $true
+                        ExecutablePath = 'mock-throw.exe'
+                        Reachable = $true
+                        BaseUrl = 'mock://throw'
+                        Error = $null
+                    }
+                } `
+                -ListModelsScript {
+                    param($Config)
+                    @('mock-throw-model')
+                } `
+                -SummarizeScript {
+                    param($Config, $Model, $Prompt)
+                    throw 'mock provider failure'
+                }
+        }
+
+        { Invoke-SiftSummary -Question 'summarize this' -Text ((1..40 | ForEach-Object { "line $_" }) -join "`n") -Backend 'mock-throw' -Model 'mock-throw-model' } | Should Throw 'mock provider failure'
+        (Test-Path -LiteralPath (Get-TestStatusPath)) | Should Be $false
+    }
+
+    It 'does not write the local status file after chunked summarization without a backend' {
+        $env:sift_kit_status = Get-TestStatusPath
+        $text = ('A' * 25000)
+
+        $result = Invoke-SiftSummary -Question 'summarize this' -Text $text -Backend 'mock' -Model 'mock-model'
+
+        $result.WasSummarized | Should Be $true
+        (Test-Path -LiteralPath (Get-TestStatusPath)) | Should Be $false
     }
 
     It 'captures raw logs and flags debug commands for raw review' {
@@ -523,7 +810,7 @@ Describe 'SiftKit' {
         (Test-Path -LiteralPath (Join-Path $prefix 'siftkit.cmd')) | Should Be $true
     }
 
-    It 'spools large piped input through a temp file in the generated global shim' {
+    It 'streams piped input directly in the generated global shim' {
         $prefix = $script:TestNpmPrefix
         if (Test-Path -LiteralPath $prefix) {
             Remove-Item -LiteralPath $prefix -Recurse -Force
@@ -540,10 +827,41 @@ Describe 'SiftKit' {
         $shimPath = Join-Path $prefix 'siftkit.ps1'
         $shimContent = Get-Content -LiteralPath $shimPath -Raw
 
-        $shimContent | Should Match 'GetTempFileName'
-        $shimContent | Should Match 'Set-Content -LiteralPath \$tempFile -Encoding UTF8'
-        $shimContent | Should Match '--file \$tempFile'
-        $shimContent | Should Not Match '--text \$siftText'
+        $shimContent | Should Match 'ValueFromRemainingArguments = \$true'
+        $shimContent | Should Match '\$input \| & powershell\.exe -ExecutionPolicy Bypass -File \$target @CliArgs'
+        $shimContent | Should Not Match 'GetTempFileName'
+        $shimContent | Should Not Match 'Set-Content -LiteralPath \$tempFile -Encoding UTF8'
+        $shimContent | Should Not Match '--file \$tempFile'
+    }
+
+    It 'supports file arguments with spaces through the generated global shim' {
+        $prefix = $script:TestNpmPrefix
+        if (Test-Path -LiteralPath $prefix) {
+            Remove-Item -LiteralPath $prefix -Recurse -Force
+        }
+
+        $env:npm_config_prefix = $prefix
+        try {
+            node (Join-Path $PSScriptRoot '..\scripts\postinstall.js')
+        }
+        finally {
+            Remove-Item Env:\npm_config_prefix -ErrorAction SilentlyContinue
+        }
+
+        $shimPath = Join-Path $prefix 'siftkit.ps1'
+        $installedPackageRoot = Join-Path $prefix 'node_modules\siftkit'
+        $null = New-Item -ItemType Directory -Path $installedPackageRoot -Force
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\bin') -Destination (Join-Path $installedPackageRoot 'bin') -Recurse -Force
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\SiftKit') -Destination (Join-Path $installedPackageRoot 'SiftKit') -Recurse -Force
+        $inputDirectory = Join-Path $script:TestHome 'space path'
+        $null = New-Item -ItemType Directory -Path $inputDirectory -Force
+        $inputPath = Join-Path $inputDirectory 'sample file.txt'
+        $inputText = ((1..40 | ForEach-Object { "line $_ repeated summary content" }) -join "`n")
+        Set-Content -LiteralPath $inputPath -Value $inputText -Encoding UTF8 -NoNewline
+
+        $output = & $shimPath summary --question 'summarize this' --file $inputPath --backend mock --model mock-model
+
+        ($output -join "`n") | Should Match 'mock summary'
     }
 
     It 'accepts direct powershell pipeline input with cli args' {
@@ -551,6 +869,67 @@ Describe 'SiftKit' {
         $output = $siftInput | & (Join-Path $PSScriptRoot '..\bin\siftkit.ps1') 'what is this?'
 
         ($output -join "`n") | Should Match 'short output'
+    }
+
+    It 'renders formatted list pipeline input through the cli shim' {
+        $itemPath = Join-Path $script:TestHome 'format-list.txt'
+        Set-Content -LiteralPath $itemPath -Value 'demo' -Encoding UTF8 -NoNewline
+
+        $output = Get-Item $itemPath | Format-List Name,Length | & (Join-Path $PSScriptRoot '..\bin\siftkit.ps1') 'summarize this file metadata'
+
+        ($output -join "`n") | Should Match 'format-list\.txt'
+        ($output -join "`n") | Should Match 'Length'
+        ($output -join "`n") | Should Not Match 'Microsoft\.PowerShell\.Commands\.Internal\.Format'
+    }
+
+    It 'renders formatted table pipeline input through the cli shim' {
+        $output = @(
+            [pscustomobject]@{ ProcessName = 'alpha'; Id = 101 }
+            [pscustomobject]@{ ProcessName = 'beta'; Id = 202 }
+        ) | Format-Table ProcessName,Id | & (Join-Path $PSScriptRoot '..\bin\siftkit.ps1') 'summarize these processes'
+
+        ($output -join "`n") | Should Match 'ProcessName'
+        ($output -join "`n") | Should Match 'alpha'
+        ($output -join "`n") | Should Match 'beta'
+        ($output -join "`n") | Should Not Match 'Microsoft\.PowerShell\.Commands\.Internal\.Format'
+    }
+
+    It 'renders mixed object and string pipeline input through the cli shim' {
+        $output = @(
+            [pscustomobject]@{ Name = 'alpha'; Status = 'ok' }
+            'tail line'
+        ) | & (Join-Path $PSScriptRoot '..\bin\siftkit.ps1') 'summarize this mixed input'
+
+        ($output -join "`n") | Should Match 'alpha'
+        ($output -join "`n") | Should Match 'tail line'
+    }
+
+    It 'renders formatted object pipeline input through Invoke-SiftSummary' {
+        $result = @(
+            [pscustomobject]@{ ProcessName = 'alpha'; Id = 101 }
+            [pscustomobject]@{ ProcessName = 'beta'; Id = 202 }
+        ) | Format-Table ProcessName,Id | Invoke-SiftSummary -Question 'summarize these processes' -Backend 'mock' -Model 'mock-model'
+
+        $result.WasSummarized | Should Be $false
+        $result.Summary | Should Match 'ProcessName'
+        $result.Summary | Should Match 'alpha'
+        $result.Summary | Should Match 'beta'
+        $result.Summary | Should Not Match 'Microsoft\.PowerShell\.Commands\.Internal\.Format'
+    }
+
+    It 'supports summary cli flags for explicit text input' {
+        $text = ((1..40 | ForEach-Object { "line $_ repeated summary content" }) -join "`n")
+        $output = & (Join-Path $PSScriptRoot '..\bin\siftkit.ps1') summary --question 'summarize this' --text $text --backend mock --model mock-model --profile general --format text
+
+        ($output -join "`n") | Should Match 'mock summary'
+    }
+
+    It 'supports run cli flags including repeated --arg' {
+        $scriptText = "1..40 | ForEach-Object { `"line `$_. repeated status text`" }; Write-Error 'boom'"
+        $output = & (Join-Path $PSScriptRoot '..\bin\siftkit.ps1') run --command powershell.exe --arg -NoProfile --arg -Command --arg $scriptText --question 'what failed?' --risk debug --reducer none --format text --backend mock --model mock-model --profile general
+
+        ($output -join "`n") | Should Match 'mock summary'
+        ($output -join "`n") | Should Match 'Raw log:'
     }
 
     It 'accepts redirected stdin when launched with powershell file mode' {
@@ -598,6 +977,60 @@ Describe 'SiftKit' {
 
         ($output -join "`n") | Should Match 'frigate\.gd'
         ($output -join "`n") | Should Match 'Enemy_Manager\.gd'
+    }
+
+    It 'supports find-files cli flags including --full-path' {
+        $root = Join-Path $script:TestHome 'cli-find-full-root'
+        $nested = Join-Path $root 'nested'
+        $null = New-Item -ItemType Directory -Path $nested -Force
+        $firstPath = Join-Path $root 'frigate.gd'
+        $secondPath = Join-Path $nested 'Enemy_Manager.gd'
+        $null = New-Item -ItemType File -Path $firstPath -Force
+        $null = New-Item -ItemType File -Path $secondPath -Force
+
+        $output = & (Join-Path $PSScriptRoot '..\bin\siftkit.ps1') find-files --path $root --full-path '*.gd'
+
+        ($output -join "`n") | Should Match ([regex]::Escape($firstPath))
+        ($output -join "`n") | Should Match ([regex]::Escape($secondPath))
+    }
+
+    It 'supports eval cli flags' {
+        $output = (& (Join-Path $PSScriptRoot '..\bin\siftkit.ps1') eval --fixture-root (Join-Path $PSScriptRoot '..\eval\fixtures') --backend mock --model mock-model | Out-String)
+
+        $output | Should Match 'ResultPath'
+        $output | Should Match 'Results'
+    }
+
+    It 'supports codex-policy cli flags' {
+        $output = (& (Join-Path $PSScriptRoot '..\bin\siftkit.ps1') codex-policy --codex-home $script:TestCodexHome | Out-String)
+
+        $output | Should Match 'Installed'
+        $output | Should Match 'AgentsPath'
+        (Test-Path -LiteralPath (Join-Path $script:TestCodexHome 'AGENTS.md')) | Should Be $true
+    }
+
+    It 'supports install-global cli flags' {
+        $output = (& (Join-Path $PSScriptRoot '..\bin\siftkit.ps1') install-global --bin-dir $script:TestBinDir --module-root $script:TestModuleRoot | Out-String)
+
+        $output | Should Match 'Installed'
+        $output | Should Match 'PowerShellShim'
+        (Test-Path -LiteralPath (Join-Path $script:TestBinDir 'siftkit.ps1')) | Should Be $true
+        (Test-Path -LiteralPath (Join-Path $script:TestBinDir 'siftkit.cmd')) | Should Be $true
+    }
+
+    It 'supports the built-in status-server cli command' {
+        $statusPath = Join-Path $script:TestHome 'builtin-status\inference.txt'
+        $server = Start-NodeStatusServer -StatusPath $statusPath -Port 0 -UseBuiltInCli
+        try {
+            $health = Invoke-RestMethod -Uri ('http://127.0.0.1:{0}/health' -f $server.Port) -TimeoutSec 3
+            $health.ok | Should Be $true
+            $health.statusPath | Should Be ([System.IO.Path]::GetFullPath($statusPath))
+            (Test-Path -LiteralPath $statusPath) | Should Be $true
+            (Get-Content -LiteralPath $statusPath -Raw).Trim() | Should Be 'false'
+        }
+        finally {
+            Stop-NodeStatusServer -Handle $server
+        }
     }
 
     It 'accepts redirected stdin when launched through the node cli wrapper' {
@@ -698,6 +1131,104 @@ Describe 'SiftKit' {
         (Get-ElapsedMilliseconds -Results $results) | Should BeGreaterThan 400
         ($results[0].Json.Summary + $results[1].Json.Summary) | Should Match 'sum-a'
         ($results[0].Json.Summary + $results[1].Json.Summary) | Should Match 'sum-b'
+    }
+
+    It 'does not write the local status file while inference is running without a backend' {
+        $statusPath = Get-TestStatusPath
+        $envVars = Get-ConcurrentTestEnvironment -ProviderSleepMs 1200
+        $envVars['sift_kit_status'] = $statusPath
+        $handle = Start-JsonScriptProcess -ScriptContent (New-ModuleWorkerScript -Action 'summary' -Token 'status-live') -Environment $envVars
+
+        try {
+            $observedWrite = $false
+            for ($attempt = 0; $attempt -lt 20; $attempt++) {
+                if (Test-Path -LiteralPath $statusPath) {
+                    $observedWrite = $true
+                    break
+                }
+
+                Start-Sleep -Milliseconds 100
+            }
+
+            $observedWrite | Should Be $false
+        }
+        finally {
+            $result = Wait-JsonScriptProcess -Handle $handle
+        }
+
+        $result.ExitCode | Should Be 0
+        (Test-Path -LiteralPath $statusPath) | Should Be $false
+    }
+
+    It 'notifies the localhost status backend before and after summarization' {
+        $localStatusPath = Join-Path $script:TestHome '.codex\siftkit\status\inference.txt'
+        $backendStatusPath = Join-Path $script:TestHome 'external-status\inference.txt'
+        $server = Start-NodeStatusServer -StatusPath $backendStatusPath
+        try {
+            $envVars = Get-ConcurrentTestEnvironment -ProviderSleepMs 1200
+            $envVars['sift_kit_status'] = $localStatusPath
+            $envVars['SIFTKIT_STATUS_BACKEND_URL'] = ('http://127.0.0.1:{0}/status' -f $server.Port)
+            $handle = Start-JsonScriptProcess -ScriptContent (New-ModuleWorkerScript -Action 'summary' -Token 'status-backend') -Environment $envVars
+
+            try {
+                $observedTrue = $false
+                for ($attempt = 0; $attempt -lt 20; $attempt++) {
+                    if ((Test-Path -LiteralPath $backendStatusPath) -and (Get-Content -LiteralPath $backendStatusPath -Raw) -eq 'true') {
+                        $observedTrue = $true
+                        break
+                    }
+
+                    Start-Sleep -Milliseconds 100
+                }
+
+                $observedTrue | Should Be $true
+            }
+            finally {
+                $result = Wait-JsonScriptProcess -Handle $handle
+            }
+
+            $result.ExitCode | Should Be 0
+            (Get-Content -LiteralPath $backendStatusPath -Raw) | Should Be 'false'
+            (Test-Path -LiteralPath $localStatusPath) | Should Be $false
+        }
+        finally {
+            Stop-NodeStatusServer -Handle $server
+        }
+    }
+
+    It 'notifies the built-in localhost status backend by default when no backend url is configured' {
+        $localStatusPath = Join-Path $script:TestHome '.codex\siftkit\status\inference.txt'
+        $backendStatusPath = Join-Path $script:TestHome 'default-external-status\inference.txt'
+        $server = Start-NodeStatusServer -StatusPath $backendStatusPath -Port 4767 -UseBuiltInCli
+        try {
+            $envVars = Get-ConcurrentTestEnvironment -ProviderSleepMs 1200
+            $envVars['sift_kit_status'] = $localStatusPath
+            $envVars['SIFTKIT_STATUS_PORT'] = '4767'
+            $handle = Start-JsonScriptProcess -ScriptContent (New-ModuleWorkerScript -Action 'summary' -Token 'status-default-backend') -Environment $envVars
+
+            try {
+                $observedTrue = $false
+                for ($attempt = 0; $attempt -lt 20; $attempt++) {
+                    if ((Test-Path -LiteralPath $backendStatusPath) -and (Get-Content -LiteralPath $backendStatusPath -Raw) -eq 'true') {
+                        $observedTrue = $true
+                        break
+                    }
+
+                    Start-Sleep -Milliseconds 100
+                }
+
+                $observedTrue | Should Be $true
+            }
+            finally {
+                $result = Wait-JsonScriptProcess -Handle $handle
+            }
+
+            $result.ExitCode | Should Be 0
+            (Get-Content -LiteralPath $backendStatusPath -Raw) | Should Be 'false'
+        }
+        finally {
+            Stop-NodeStatusServer -Handle $server
+        }
     }
 
     It 'serializes four concurrent summary requests independently' {

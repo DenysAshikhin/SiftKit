@@ -6,13 +6,18 @@
     "siftkit": "bin/siftkit.js"
   },
   "scripts": {
+    "start": "nodemon .\\bin\\siftkit.js status-server",
     "postinstall": "node scripts/postinstall.js",
     "refresh-global": "powershell -ExecutionPolicy Bypass -File .\\scripts\\refresh-global.ps1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
   },
   "files": [
     "bin",
     "SiftKit",
     "eval",
+    "siftKitStatus",
     "scripts",
     "README.md",
     "docs"

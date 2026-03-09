@@ -2,7 +2,7 @@
 
 SiftKit is a Windows-first PowerShell module for conservative shell-output compression in Codex workflows. It provides a local toolkit that preserves raw logs, uses deterministic reduction first, and summarizes through Ollama only when the policy allows it.
 
-SiftKit currently caps model-bound input at a 32,000-character budget and sets Ollama `num_ctx` explicitly to `16384` at runtime. When input exceeds 75% of that character budget, it recursively splits the text into halves, summarizes each half, then summarizes the partial summaries into one final answer.
+SiftKit currently sets Ollama `num_ctx` explicitly to `50000` at runtime and derives the model-bound input budget as `num_ctx * 2.5`, which yields a 125,000-character cap with the default config. When input exceeds 92% of that character budget, it slices the text into sequential threshold-sized chunks, summarizes each chunk, then merges the partial summaries into one final answer.
 
 ## What it ships
 
@@ -23,6 +23,23 @@ Test-SiftKit
 ```
 
 The default backend is `ollama` and the default model is `qwen3.5:4b-q8_0`.
+
+To run inside a sandboxed Codex workspace for now, set `sift_kit_status` to a writable in-repo path such as:
+
+```powershell
+$env:sift_kit_status = (Join-Path (Get-Location) '.codex\siftkit\status\inference.txt')
+```
+
+When `sift_kit_status` is set, SiftKit derives its runtime root from that path, so config, logs, eval artifacts, and the execution lock stay under the same workspace-local root. SiftKit itself no longer writes the status file directly.
+
+If you want an external process to mirror those transitions, start the built-in status server with its own `sift_kit_status` path:
+
+```powershell
+$env:sift_kit_status = (Join-Path (Get-Location) '.codex\siftkit\status\inference.txt')
+siftkit status-server
+```
+
+By default, SiftKit posts status transitions to `http://127.0.0.1:4765/status`. You can override that with `SIFTKIT_STATUS_BACKEND_URL` if needed. The built-in server accepts `POST /status` with `{"running":true|false}`, writes the resulting `true` or `false` value to its configured status path, and logs each request and write transition to the console.
 
 ## Make it global
 
