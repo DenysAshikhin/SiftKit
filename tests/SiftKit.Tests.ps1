@@ -654,6 +654,40 @@ Describe 'SiftKit' {
         $config.Ollama.NumCtx | Should Be 50000
     }
 
+    It 'migrates legacy derived context defaults from num_ctx 32000 to 50000' {
+        $configPath = Join-Path $script:TestHome '.siftkit\config.json'
+        $legacy = @{
+            Version = '0.1.0'
+            Backend = 'ollama'
+            Model = 'qwen3.5:4b-q8_0'
+            PolicyMode = 'conservative'
+            RawLogRetention = $true
+            Ollama = @{
+                BaseUrl = 'http://127.0.0.1:11434'
+                ExecutablePath = 'mock.exe'
+                NumCtx = 32000
+            }
+            Thresholds = @{
+                MinCharactersForSummary = 500
+                MinLinesForSummary = 16
+                ChunkThresholdRatio = 0.92
+            }
+            Paths = @{
+                RuntimeRoot = Join-Path $script:TestHome '.siftkit'
+                Logs = Join-Path $script:TestHome '.siftkit\logs'
+                EvalFixtures = Join-Path $script:TestHome '.siftkit\eval\fixtures'
+                EvalResults = Join-Path $script:TestHome '.siftkit\eval\results'
+            }
+        }
+        $legacy | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $configPath -Encoding UTF8
+
+        $config = InModuleScope SiftKit { Get-SiftConfig -Ensure }
+
+        $config.Thresholds.PSObject.Properties['MaxInputCharacters'] | Should BeNullOrEmpty
+        $config.Thresholds.ChunkThresholdRatio | Should Be 0.92
+        $config.Ollama.NumCtx | Should Be 50000
+    }
+
     It 'does not write the local status file when summarization fails without a backend' {
         $env:sift_kit_status = Get-TestStatusPath
 

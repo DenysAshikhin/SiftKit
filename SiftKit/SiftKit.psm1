@@ -8,6 +8,7 @@ $script:SiftExecutionLockDepth = 0
 $script:SiftExecutionMutex = $null
 $script:SiftExecutionMutexName = $null
 $script:SiftLegacyDefaultNumCtx = 16384
+$script:SiftLegacyDerivedNumCtx = 32000
 $script:SiftLegacyDefaultMaxInputCharacters = 32000
 $script:SiftDefaultNumCtx = 50000
 $script:SiftInputCharactersPerContextToken = 2.5
@@ -489,13 +490,20 @@ function Update-SiftConfigDefaults {
         $changed = $true
     }
 
-    if (
+    $isLegacyDefaultSettings = (
         [int]$Config.Ollama.NumCtx -eq $script:SiftLegacyDefaultNumCtx -and
         (
             (-not $hadExplicitMaxInputCharacters) -or
             ($existingMaxInputCharacters -eq $script:SiftLegacyDefaultMaxInputCharacters)
         )
-    ) {
+    )
+    $isLegacyDerivedSettings = (
+        [int]$Config.Ollama.NumCtx -eq $script:SiftLegacyDerivedNumCtx -and
+        (-not $hadExplicitMaxInputCharacters) -and
+        ([double]$Config.Thresholds.ChunkThresholdRatio -eq [double]$defaultConfig.Thresholds.ChunkThresholdRatio)
+    )
+
+    if ($isLegacyDefaultSettings -or $isLegacyDerivedSettings) {
         $Config.Ollama.NumCtx = $defaultConfig.Ollama.NumCtx
         $Config.Thresholds = Remove-SiftProperty -InputObject $Config.Thresholds -PropertyName 'MaxInputCharacters'
         $Config.Thresholds.ChunkThresholdRatio = $defaultConfig.Thresholds.ChunkThresholdRatio
