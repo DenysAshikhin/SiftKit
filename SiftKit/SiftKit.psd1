@@ -10,12 +10,19 @@
     FunctionsToExport = @(
         'Install-SiftKit',
         'Test-SiftKit',
+        'Get-SiftKitConfig',
+        'Set-SiftKitConfig',
         'Invoke-SiftSummary',
         'Invoke-SiftCommand',
         'Invoke-SiftEvaluation',
         'Find-SiftFiles',
         'Install-SiftCodexPolicy',
-        'Install-SiftKitShellIntegration'
+        'Install-SiftKitShellIntegration',
+        'Install-SiftKitService',
+        'Uninstall-SiftKitService',
+        'Enable-SiftInteractiveShellIntegration',
+        'Invoke-SiftInteractiveCapture',
+        'Invoke-SiftInteractiveCommandWrapper'
     )
     CmdletsToExport = @()
     VariablesToExport = @()

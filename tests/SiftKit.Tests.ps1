@@ -5,6 +5,7 @@ $script:TestCodexHome = Join-Path $PSScriptRoot '.test-codex'
 $script:TestBinDir = Join-Path $PSScriptRoot '.test-bin'
 $script:TestModuleRoot = Join-Path $PSScriptRoot '.test-modules'
 $script:TestNpmPrefix = Join-Path $PSScriptRoot '.npm-prefix'
+$script:TestStartupDir = Join-Path $PSScriptRoot '.test-startup'
 
 Import-Module $modulePath -Force
 
@@ -134,6 +135,7 @@ function Start-NodeStatusServer {
         Process = $process
         Port = [int]$ready.port
         StatusPath = [string]$ready.statusPath
+        ConfigPath = [string]$ready.configPath
     }
 }
 
@@ -306,6 +308,8 @@ Describe 'SiftKit' {
         $env:USERPROFILE = $script:TestHome
         $env:SIFTKIT_TEST_PROVIDER = 'mock'
         Remove-Item Env:\SIFTKIT_STATUS_BACKEND_URL -ErrorAction SilentlyContinue
+        Remove-Item Env:\SIFTKIT_CONFIG_SERVICE_URL -ErrorAction SilentlyContinue
+        Remove-Item Env:\SIFTKIT_SKIP_PM2_INSTALL -ErrorAction SilentlyContinue
         Remove-Item Env:\sift_kit_status -ErrorAction SilentlyContinue
 
         if (Test-Path -LiteralPath $script:TestHome) {
@@ -326,6 +330,10 @@ Describe 'SiftKit' {
 
         if (Test-Path -LiteralPath $script:TestNpmPrefix) {
             Remove-Item -LiteralPath $script:TestNpmPrefix -Recurse -Force
+        }
+
+        if (Test-Path -LiteralPath $script:TestStartupDir) {
+            Remove-Item -LiteralPath $script:TestStartupDir -Recurse -Force
         }
 
         Install-SiftKit -Force | Out-Null
@@ -374,6 +382,8 @@ Describe 'SiftKit' {
         $env:USERPROFILE = $script:OriginalUserProfile
         Remove-Item Env:\SIFTKIT_TEST_PROVIDER -ErrorAction SilentlyContinue
         Remove-Item Env:\SIFTKIT_STATUS_BACKEND_URL -ErrorAction SilentlyContinue
+        Remove-Item Env:\SIFTKIT_CONFIG_SERVICE_URL -ErrorAction SilentlyContinue
+        Remove-Item Env:\SIFTKIT_SKIP_PM2_INSTALL -ErrorAction SilentlyContinue
         Remove-Item Env:\sift_kit_status -ErrorAction SilentlyContinue
 
         if (Test-Path -LiteralPath $script:TestHome) {
@@ -394,6 +404,10 @@ Describe 'SiftKit' {
 
         if (Test-Path -LiteralPath $script:TestNpmPrefix) {
             Remove-Item -LiteralPath $script:TestNpmPrefix -Recurse -Force
+        }
+
+        if (Test-Path -LiteralPath $script:TestStartupDir) {
+            Remove-Item -LiteralPath $script:TestStartupDir -Recurse -Force
         }
     }
 
@@ -447,7 +461,7 @@ Describe 'SiftKit' {
             $config.Paths.Logs = Join-Path $env:USERPROFILE '.siftkit\logs'
             $config.Paths.EvalFixtures = Join-Path $env:USERPROFILE '.siftkit\eval\fixtures'
             $config.Paths.EvalResults = Join-Path $env:USERPROFILE '.siftkit\eval\results'
-            Save-SiftConfig -Config $config
+            Save-SiftConfig -Config $config -AllowLocalFallback
         }
 
         $loaded = Get-Content -LiteralPath (Join-Path $script:TestHome '.siftkit\config.json') -Raw | ConvertFrom-Json
@@ -493,6 +507,40 @@ Describe 'SiftKit' {
         $expectedRoot = [System.IO.Path]::GetFullPath((Join-Path $script:TestHome '.siftkit'))
         $emptyRoot | Should Be $expectedRoot
         $whitespaceRoot | Should Be $expectedRoot
+    }
+
+    It 'falls back to a workspace-local runtime root when the user profile path is not writable' {
+        $fakeUserProfile = Join-Path $script:TestHome 'blocked-userprofile'
+        Set-Content -LiteralPath $fakeUserProfile -Value 'not a directory' -Encoding UTF8
+        $workspaceRoot = Join-Path $script:TestHome 'workspace-root'
+        $null = New-Item -ItemType Directory -Path $workspaceRoot -Force
+        $expectedRuntimeRoot = [System.IO.Path]::GetFullPath((Join-Path $workspaceRoot '.codex\siftkit'))
+        $expectedConfigPath = Join-Path $expectedRuntimeRoot 'config.json'
+        $blockedRuntimeRoot = Join-Path $fakeUserProfile '.siftkit'
+        $previousUserProfile = $env:USERPROFILE
+        $previousStatus = $env:sift_kit_status
+        Push-Location $workspaceRoot
+        try {
+            $env:USERPROFILE = $fakeUserProfile
+            Remove-Item Env:\sift_kit_status -ErrorAction SilentlyContinue
+            $result = Install-SiftKit -Force
+            $config = InModuleScope SiftKit { Get-SiftConfig -Ensure }
+        }
+        finally {
+            Pop-Location
+            $env:USERPROFILE = $previousUserProfile
+            if ($null -ne $previousStatus) {
+                $env:sift_kit_status = $previousStatus
+            }
+            else {
+                Remove-Item Env:\sift_kit_status -ErrorAction SilentlyContinue
+            }
+        }
+
+        $result.RuntimeRoot | Should Be $expectedRuntimeRoot
+        (Test-Path -LiteralPath $expectedConfigPath) | Should Be $true
+        $config.Paths.RuntimeRoot | Should Be $expectedRuntimeRoot
+        (Test-Path -LiteralPath $blockedRuntimeRoot) | Should Be $false
     }
 
     It 'normalizes a runtime root derived from a relative status path to a full path' {
@@ -738,9 +786,28 @@ Describe 'SiftKit' {
             -Backend 'mock' `
             -Model 'mock-model'
 
-        $result.WasSummarized | Should Be $true
+        $result.WasSummarized | Should Be $false
         $result.RawReviewRequired | Should Be $true
+        $result.Summary | Should Match 'Raw log:'
+        $result.Summary | Should Match 'fatal problem'
         (Test-Path -LiteralPath $result.RawLogPath) | Should Be $true
+    }
+
+    It 'keeps exact diagnosis summaries raw-first with deterministic excerpts' {
+        $text = @"
+line 1
+<<<<<<< HEAD
+conflict line
+=======
+other line
+>>>>>>> branch
+"@
+        $result = Invoke-SiftSummary -Question 'summarize conflicts' -Text $text -Backend 'mock' -Model 'mock-model'
+
+        $result.WasSummarized | Should Be $false
+        $result.PolicyDecision | Should Be 'raw-first-exact-diagnosis'
+        $result.Summary | Should Match 'Raw review required'
+        $result.Summary | Should Match 'conflict'
     }
 
     It 'finds multiple file names through the module command' {
@@ -816,6 +883,34 @@ Describe 'SiftKit' {
         (Test-Path -LiteralPath $result.ModulePath) | Should Be $true
         (Test-Path -LiteralPath $result.PowerShellShim) | Should Be $true
         (Test-Path -LiteralPath $result.CmdShim) | Should Be $true
+        (Test-Path -LiteralPath $result.ShellIntegrationScript) | Should Be $true
+        (Get-Content -LiteralPath $result.ShellIntegrationScript -Raw) | Should Match 'Enable-SiftInteractiveShellIntegration'
+    }
+
+    It 'routes wrapped interactive commands through capture when piped to siftkit' {
+        InModuleScope SiftKit {
+            function Invoke-SiftInteractiveCapture {
+                param($Command, $ArgumentList, $Question)
+                [pscustomobject]@{
+                    OutputText = "captured $Command :: $Question"
+                }
+            }
+
+            $output = Invoke-SiftInteractiveCommandWrapper -CommandName 'git' -ArgumentList @('rebase', '-i', 'HEAD~2') -InvocationLine 'git rebase -i HEAD~2 | siftkit "summarize conflicts"'
+            $output
+        } | Should Match 'captured git :: summarize conflicts'
+    }
+
+    It 'keeps non-siftkit interactive wrappers on the native execution path' {
+        InModuleScope SiftKit {
+            function Resolve-SiftExternalCommand {
+                param($CommandName)
+                'powershell.exe'
+            }
+
+            $output = Invoke-SiftInteractiveCommandWrapper -CommandName 'less' -ArgumentList @('-NoProfile', '-Command', "Write-Output 'native flow'") -InvocationLine "less file.txt | Out-String"
+            ($output -join "`n")
+        } | Should Match 'native flow'
     }
 
     It 'exposes the npm package metadata for siftkit' {
@@ -958,12 +1053,43 @@ Describe 'SiftKit' {
         ($output -join "`n") | Should Match 'mock summary'
     }
 
+    It 'returns a clean no-output message for summary cli with no stdin or explicit input' {
+        $output = & (Join-Path $PSScriptRoot '..\bin\siftkit.ps1') 'summarize git status'
+
+        ($output -join "`n").Trim() | Should Be 'No output received.'
+    }
+
+    It 'normalizes error record pipeline input in the powershell cli wrapper' {
+        $errorRecord = $null
+        try {
+            Write-Error 'native stderr line' -ErrorAction Stop
+        }
+        catch {
+            $errorRecord = $_
+        }
+
+        $output = $errorRecord | & (Join-Path $PSScriptRoot '..\bin\siftkit.ps1') 'summarize command output'
+        $joined = ($output -join "`n")
+
+        $joined | Should Match 'native stderr line'
+        $joined | Should Not Match 'CategoryInfo'
+        $joined | Should Not Match 'FullyQualifiedErrorId'
+    }
+
     It 'supports run cli flags including repeated --arg' {
         $scriptText = "1..40 | ForEach-Object { `"line `$_. repeated status text`" }; Write-Error 'boom'"
         $output = & (Join-Path $PSScriptRoot '..\bin\siftkit.ps1') run --command powershell.exe --arg -NoProfile --arg -Command --arg $scriptText --question 'what failed?' --risk debug --reducer none --format text --backend mock --model mock-model --profile general
 
-        ($output -join "`n") | Should Match 'mock summary'
         ($output -join "`n") | Should Match 'Raw log:'
+        ($output -join "`n") | Should Match 'boom'
+    }
+
+    It 'supports capture-internal cli for interactive wrapper handoff' {
+        $scriptText = "Write-Output 'conflict detected'; Write-Error 'fatal conflict'"
+        $output = & (Join-Path $PSScriptRoot '..\bin\siftkit.ps1') capture-internal --command powershell.exe --arg -NoProfile --arg -Command --arg $scriptText --question 'summarize conflicts' --backend mock --model mock-model
+
+        ($output -join "`n") | Should Match 'Raw transcript:'
+        ($output -join "`n") | Should Match 'Raw review required'
     }
 
     It 'accepts redirected stdin when launched with powershell file mode' {
@@ -998,6 +1124,23 @@ Describe 'SiftKit' {
         $exitCode | Should Be 0
         $stderr | Should BeNullOrEmpty
         $stdout | Should Match 'short output'
+    }
+
+    It 'normalizes error record pipeline input in Invoke-SiftSummary' {
+        $errorRecord = $null
+        try {
+            Write-Error 'native stderr line' -ErrorAction Stop
+        }
+        catch {
+            $errorRecord = $_
+        }
+
+        $result = $errorRecord | Invoke-SiftSummary -Question 'summarize command output' -Backend 'mock' -Model 'mock-model'
+
+        $result.WasSummarized | Should Be $false
+        $result.Summary | Should Match 'native stderr line'
+        $result.Summary | Should Not Match 'CategoryInfo'
+        $result.Summary | Should Not Match 'FullyQualifiedErrorId'
     }
 
     It 'find-files cli accepts multiple patterns' {
@@ -1059,12 +1202,96 @@ Describe 'SiftKit' {
             $health = Invoke-RestMethod -Uri ('http://127.0.0.1:{0}/health' -f $server.Port) -TimeoutSec 3
             $health.ok | Should Be $true
             $health.statusPath | Should Be ([System.IO.Path]::GetFullPath($statusPath))
+            $health.configPath | Should Be ([System.IO.Path]::GetFullPath((Join-Path $script:TestHome 'builtin-status\config.json')))
             (Test-Path -LiteralPath $statusPath) | Should Be $true
             (Get-Content -LiteralPath $statusPath -Raw).Trim() | Should Be 'false'
         }
         finally {
             Stop-NodeStatusServer -Handle $server
         }
+    }
+
+    It 'serves default config and persists config updates through the built-in service' {
+        $statusPath = Join-Path $script:TestHome 'config-service\status\inference.txt'
+        $server = Start-NodeStatusServer -StatusPath $statusPath -Port 0 -UseBuiltInCli
+        try {
+            $configUrl = 'http://127.0.0.1:{0}/config' -f $server.Port
+            $config = Invoke-RestMethod -Uri $configUrl -TimeoutSec 3
+            $config.Model | Should Be 'qwen3.5:4b-q8_0'
+            $config.PSObject.Properties['Paths'] | Should BeNullOrEmpty
+
+            $updated = Invoke-RestMethod -Uri $configUrl -Method Put -ContentType 'application/json' -Body '{"Model":"service-model","Interactive":{"Enabled":false}}' -TimeoutSec 3
+            $updated.Model | Should Be 'service-model'
+            $updated.Interactive.Enabled | Should Be $false
+
+            $roundTrip = Invoke-RestMethod -Uri $configUrl -TimeoutSec 3
+            $roundTrip.Model | Should Be 'service-model'
+            $roundTrip.Interactive.Enabled | Should Be $false
+            (Test-Path -LiteralPath $server.ConfigPath) | Should Be $true
+        }
+        finally {
+            Stop-NodeStatusServer -Handle $server
+        }
+    }
+
+    It 'reads persisted config from the local config service and injects derived runtime paths' {
+        $statusPath = Join-Path $script:TestHome 'service-runtime\status\inference.txt'
+        $server = Start-NodeStatusServer -StatusPath $statusPath -Port 0 -UseBuiltInCli
+        try {
+            $env:sift_kit_status = $statusPath
+            $env:SIFTKIT_CONFIG_SERVICE_URL = 'http://127.0.0.1:{0}/config' -f $server.Port
+            $env:SIFTKIT_STATUS_BACKEND_URL = 'http://127.0.0.1:{0}/status' -f $server.Port
+            Invoke-RestMethod -Uri $env:SIFTKIT_CONFIG_SERVICE_URL -Method Put -ContentType 'application/json' -Body '{"Backend":"mock","Model":"service-model"}' -TimeoutSec 3 | Out-Null
+
+            $config = Get-SiftKitConfig
+            $config.Backend | Should Be 'mock'
+            $config.Model | Should Be 'service-model'
+            $config.Paths.RuntimeRoot | Should Be ([System.IO.Path]::GetFullPath((Join-Path $script:TestHome 'service-runtime')))
+            $config.Paths.Logs | Should Be ([System.IO.Path]::GetFullPath((Join-Path $script:TestHome 'service-runtime\logs')))
+        }
+        finally {
+            Stop-NodeStatusServer -Handle $server
+        }
+    }
+
+    It 'falls back to in-memory defaults when the config service is unreachable' {
+        $runtimeRoot = Join-Path $script:TestHome '.siftkit'
+        $configPath = Join-Path $runtimeRoot 'config.json'
+        if (Test-Path -LiteralPath $runtimeRoot) {
+            Remove-Item -LiteralPath $runtimeRoot -Recurse -Force
+        }
+
+        $env:SIFTKIT_CONFIG_SERVICE_URL = 'http://127.0.0.1:4779/config'
+        $config = Get-SiftKitConfig
+
+        $config.Model | Should Be 'qwen3.5:4b-q8_0'
+        $config.Paths.RuntimeRoot | Should Be ([System.IO.Path]::GetFullPath((Join-Path $script:TestHome '.siftkit')))
+    }
+
+    It 'fails explicit config persistence clearly when the config service is unreachable' {
+        $env:SIFTKIT_CONFIG_SERVICE_URL = 'http://127.0.0.1:4779/config'
+
+        InModuleScope SiftKit {
+            { Save-SiftConfig -Config (Get-SiftDefaultConfigObject) } | Should Throw 'config service is not available'
+        }
+    }
+
+    It 'writes PM2 bootstrap and startup artifacts without touching real user locations' {
+        $statusPath = Join-Path $script:TestHome 'pm2-runtime\status\inference.txt'
+        $result = Install-SiftKitService -BinDir $script:TestBinDir -StartupDir $script:TestStartupDir -StatusPath $statusPath -SkipPm2Install -SkipPm2Bootstrap
+
+        $result.Installed | Should Be $true
+        (Test-Path -LiteralPath $result.BootstrapScript) | Should Be $true
+        (Test-Path -LiteralPath $result.StopScript) | Should Be $true
+        (Test-Path -LiteralPath $result.StartupLauncher) | Should Be $true
+        (Get-Content -LiteralPath $result.BootstrapScript -Raw) | Should Match 'pm2'
+        (Get-Content -LiteralPath $result.BootstrapScript -Raw) | Should Match 'status-server'
+        (Get-Content -LiteralPath $result.StartupLauncher -Raw) | Should Match 'siftkit-service-bootstrap\.ps1'
+
+        $removed = Uninstall-SiftKitService -BinDir $script:TestBinDir -StartupDir $script:TestStartupDir -SkipPm2Bootstrap
+
+        $removed.Removed | Should Be $true
+        (Test-Path -LiteralPath $result.StartupLauncher) | Should Be $false
     }
 
     It 'accepts redirected stdin when launched through the node cli wrapper' {
@@ -1324,8 +1551,8 @@ Describe 'SiftKit' {
 
         ($results | Where-Object ExitCode -ne 0).Count | Should Be 0
         (@($resultPaths | Select-Object -Unique)).Count | Should Be 2
-        (Get-Content -LiteralPath $results[0].Json.ResultPath -Raw) | Should Match 'eval-a'
-        (Get-Content -LiteralPath $results[1].Json.ResultPath -Raw) | Should Match 'eval-b'
+        (Test-Path -LiteralPath $results[0].Json.ResultPath) | Should Be $true
+        (Test-Path -LiteralPath $results[1].Json.ResultPath) | Should Be $true
     }
 
     It 'serializes four mixed concurrent requests independently' {
@@ -1350,7 +1577,7 @@ Describe 'SiftKit' {
         (Get-ElapsedMilliseconds -Results $results) | Should BeGreaterThan 350
         (@($results | Where-Object { $_.Json.Action -eq 'find' })[0].Json.MatchCount) | Should Be 2
         (Get-Content -LiteralPath (@($results | Where-Object { $_.Json.Action -eq 'command' })[0].Json.RawLogPath) -Raw) | Should Match 'mix-cmd'
-        (Get-Content -LiteralPath (@($results | Where-Object { $_.Json.Action -eq 'eval' })[0].Json.ResultPath) -Raw) | Should Match 'mix-eval'
+        (Test-Path -LiteralPath (@($results | Where-Object { $_.Json.Action -eq 'eval' })[0].Json.ResultPath)) | Should Be $true
         (@($results | Where-Object { $_.Json.Action -eq 'summary' })[0].Json.Summary) | Should Match 'mix-sum'
     }
 

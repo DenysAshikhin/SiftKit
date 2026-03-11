@@ -10,15 +10,15 @@ $ErrorActionPreference = 'Stop'
 $script:PipelineBuffer = New-Object System.Collections.Generic.List[object]
 
 function Import-SiftKitCliModule {
-    $available = Get-Module -ListAvailable -Name SiftKit | Sort-Object Version -Descending | Select-Object -First 1
-    if ($available) {
-        Import-Module $available.Path -Force
-        return
-    }
-
     $localManifest = Join-Path -Path (Split-Path -Path $PSScriptRoot -Parent) -ChildPath 'SiftKit\SiftKit.psd1'
     if (Test-Path -LiteralPath $localManifest) {
         Import-Module $localManifest -Force
+        return
+    }
+
+    $available = Get-Module -ListAvailable -Name SiftKit | Sort-Object Version -Descending | Select-Object -First 1
+    if ($available) {
+        Import-Module $available.Path -Force
         return
     }
 
@@ -56,6 +56,30 @@ function Normalize-SiftInputText {
     $Text.TrimEnd([char[]]@("`r", "`n"))
 }
 
+function Convert-SiftPipelineItemToText {
+    param(
+        [AllowNull()]
+        [object]$Item
+    )
+
+    if ($null -eq $Item) {
+        return $null
+    }
+
+    if ($Item -is [System.Management.Automation.ErrorRecord]) {
+        $message = $Item.Exception.Message
+        if (-not [string]::IsNullOrWhiteSpace($message)) {
+            return $message.TrimEnd([char[]]@("`r", "`n"))
+        }
+    }
+
+    if ($Item -is [string]) {
+        return $Item
+    }
+
+    return [string]$Item
+}
+
 function Convert-SiftPipelineBufferToText {
     param(
         [Parameter(Mandatory = $true)]
@@ -67,16 +91,17 @@ function Convert-SiftPipelineBufferToText {
         return ''
     }
 
-    $allStrings = $true
+    $allRenderableAsText = $true
     foreach ($item in $items) {
-        if ($item -isnot [string]) {
-            $allStrings = $false
+        if ($item -isnot [string] -and $item -isnot [System.Management.Automation.ErrorRecord]) {
+            $allRenderableAsText = $false
             break
         }
     }
 
-    if ($allStrings) {
-        return (Normalize-SiftInputText -Text ($items -join [Environment]::NewLine))
+    if ($allRenderableAsText) {
+        $lines = @($items | ForEach-Object { Convert-SiftPipelineItemToText -Item $_ } | Where-Object { $null -ne $_ })
+        return (Normalize-SiftInputText -Text ($lines -join [Environment]::NewLine))
     }
 
     return (Normalize-SiftInputText -Text ($items | Out-String -Width 200))
@@ -112,6 +137,10 @@ function Parse-SiftCliArguments {
             '--fixture-root' { $parsed.FixtureRoot = $Tokens[++$i] }
             '--bin-dir' { $parsed.BinDir = $Tokens[++$i] }
             '--module-root' { $parsed.ModuleRoot = $Tokens[++$i] }
+            '--startup-dir' { $parsed.StartupDir = $Tokens[++$i] }
+            '--status-path' { $parsed.StatusPath = $Tokens[++$i] }
+            '--key' { $parsed.Key = $Tokens[++$i] }
+            '--value' { $parsed.Value = $Tokens[++$i] }
             default { $parsed.Positionals += $token }
         }
     }
@@ -134,6 +163,11 @@ Usage:
   siftkit eval
   siftkit codex-policy
   siftkit install-global
+  siftkit install-service
+  siftkit uninstall-service
+  siftkit config-get
+  siftkit config-set --key Backend --value mock
+  siftkit capture-internal --command git --arg rebase --arg -i --question "..."
   siftkit status-server
 '@
 }
@@ -159,7 +193,7 @@ if (-not $CliArgs -or $CliArgs.Count -eq 0 -or $CliArgs[0] -in @('help', '--help
     exit 0
 }
 
-$knownCommands = @('summary', 'run', 'find-files', 'install', 'test', 'eval', 'codex-policy', 'install-global', 'status-server')
+$knownCommands = @('summary', 'run', 'find-files', 'install', 'test', 'eval', 'codex-policy', 'install-global', 'install-service', 'uninstall-service', 'config-get', 'config-set', 'capture-internal', 'status-server')
 $commandName = if ($CliArgs[0] -in $knownCommands) { $CliArgs[0] } else { 'summary' }
 $commandArgs = if ($commandName -eq 'summary' -and $CliArgs[0] -notin $knownCommands) { $CliArgs } else { $CliArgs[1..($CliArgs.Count - 1)] }
 if ($CliArgs.Count -eq 1 -and $commandName -ne 'summary') {
@@ -177,7 +211,8 @@ switch ($commandName) {
         $profile = if ($parsed.Profile) { $parsed.Profile } else { 'general' }
 
         if (-not $parsed.File -and -not $hasPipelineInput -and [string]::IsNullOrWhiteSpace($inputText)) {
-            throw 'Provide --text, --file, or pipe input into siftkit.'
+            'No output received.'
+            exit 0
         }
 
         if ($parsed.File) {
@@ -255,6 +290,50 @@ switch ($commandName) {
         }
 
         Install-SiftKitShellIntegration @installArgs | Format-List *
+    }
+    'install-service' {
+        $serviceArgs = @{}
+        if ($parsed.BinDir) {
+            $serviceArgs.BinDir = $parsed.BinDir
+        }
+        if ($parsed.StartupDir) {
+            $serviceArgs.StartupDir = $parsed.StartupDir
+        }
+        if ($parsed.StatusPath) {
+            $serviceArgs.StatusPath = $parsed.StatusPath
+        }
+        Install-SiftKitService @serviceArgs | Format-List *
+    }
+    'uninstall-service' {
+        $serviceArgs = @{
+            SkipPm2Bootstrap = $true
+        }
+        if ($parsed.BinDir) {
+            $serviceArgs.BinDir = $parsed.BinDir
+        }
+        if ($parsed.StartupDir) {
+            $serviceArgs.StartupDir = $parsed.StartupDir
+        }
+
+        Uninstall-SiftKitService @serviceArgs | Format-List *
+    }
+    'config-get' {
+        Get-SiftKitConfig | ConvertTo-Json -Depth 8
+    }
+    'config-set' {
+        if (-not $parsed.Key) {
+            throw 'A --key is required.'
+        }
+        Set-SiftKitConfig -Key $parsed.Key -Value $parsed.Value | ConvertTo-Json -Depth 8
+    }
+    'capture-internal' {
+        $command = if ($parsed.Command) { $parsed.Command } elseif ($parsed.Positionals.Count -gt 0) { $parsed.Positionals[0] } else { throw 'A command is required.' }
+        $argList = if ($parsed.ArgList.Count -gt 0) { $parsed.ArgList } elseif ($parsed.Positionals.Count -gt 1) { $parsed.Positionals[1..($parsed.Positionals.Count - 1)] } else { @() }
+        $question = if ($parsed.Question) { $parsed.Question } else { 'Summarize the important result and any actionable failures.' }
+        $profile = if ($parsed.Profile) { $parsed.Profile } else { 'general' }
+        $format = if ($parsed.Format) { $parsed.Format } else { 'text' }
+        $result = Invoke-SiftInteractiveCapture -Command $command -ArgumentList $argList -Question $question -Format $format -Backend $parsed.Backend -Model $parsed.Model -PolicyProfile $profile
+        $result.OutputText
     }
     'status-server' {
         $serverScript = Join-Path -Path (Split-Path -Path $PSScriptRoot -Parent) -ChildPath 'siftKitStatus\index.js'

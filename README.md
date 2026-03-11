@@ -41,6 +41,8 @@ siftkit status-server
 
 By default, SiftKit posts status transitions to `http://127.0.0.1:4765/status`. You can override that with `SIFTKIT_STATUS_BACKEND_URL` if needed. The built-in server accepts `POST /status` with `{"running":true|false}`, writes the resulting `true` or `false` value to its configured status path, and logs each request and write transition to the console.
 
+The same local service now also exposes persisted config at `GET /config` and `PUT /config`. It stores only user-configurable settings such as backend, model, thresholds, and interactive behavior. Runtime paths remain derived client-side from the active runtime root.
+
 ## Make it global
 
 You can install the module and CLI shims into user-scoped locations:
@@ -54,6 +56,7 @@ That installs:
 
 - the module into your user PowerShell modules folder
 - `siftkit.ps1` and `siftkit.cmd` into `%USERPROFILE%\bin`
+- optional service bootstrap scripts can be generated with `siftkit install-service`
 
 After adding `%USERPROFILE%\bin` to `PATH`, you can use it like:
 
@@ -64,6 +67,22 @@ some-command 2>&1 | siftkit "summarize only the decisive failures"
 siftkit run --command pytest --arg -q --question "did tests pass?"
 siftkit find-files frigate.gd Enemy_Manager.gd
 ```
+
+For PowerShell-only interactive support, also dot-source the generated shell wrapper script once per shell startup:
+
+```powershell
+. "$HOME\bin\siftkit-shell.ps1"
+```
+
+That wrapper layer preserves callsites such as `git rebase -i HEAD~5 | siftkit "summarize conflicts"` for known interactive commands by running the interactive session first, then handing a captured transcript back into SiftKit.
+
+To install the config service bootstrap for PM2 plus Windows Startup-folder autostart:
+
+```powershell
+siftkit install-service
+```
+
+This writes a PM2 bootstrap script, a stop/remove script, and a Startup-folder launcher. The installer reports the generated paths plus a verification hint for `pm2 list` and `GET /health`.
 
 If you want npm-style global installation behavior, the repo now exposes an npm bin entry:
 
@@ -83,6 +102,8 @@ Get-Content .\build.log -Raw |
 ```
 
 Avoid using `$input` as your own variable name in PowerShell. It is a built-in automatic variable for pipeline input.
+
+For exact diagnosis tasks such as conflict review, schema inspection, failing-test triage, or root-exception extraction, SiftKit now stays raw-first and includes the raw artifact path instead of forcing a lossy model summary.
 
 Run a command and keep the raw log:
 

@@ -44,6 +44,47 @@ function Get-SiftKitRoot {
     Split-Path -Path $modulePath -Parent
 }
 
+function Test-SiftRuntimeRootWritable {
+    param(
+        [AllowNull()]
+        [string]$Path
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $false
+    }
+
+    try {
+        $fullPath = [System.IO.Path]::GetFullPath($Path)
+        $parent = Split-Path -Path $fullPath -Parent
+        if ([string]::IsNullOrWhiteSpace($parent)) {
+            return $false
+        }
+
+        if (-not (Test-Path -LiteralPath $parent)) {
+            $null = New-Item -Path $parent -ItemType Directory -Force
+        }
+
+        if (-not (Test-Path -LiteralPath $fullPath)) {
+            $null = New-Item -Path $fullPath -ItemType Directory -Force
+        }
+
+        $probePath = Join-Path -Path $fullPath -ChildPath ([System.Guid]::NewGuid().ToString('N') + '.tmp')
+        try {
+            [System.IO.File]::WriteAllText($probePath, 'probe', [System.Text.Encoding]::UTF8)
+            return $true
+        }
+        finally {
+            if (Test-Path -LiteralPath $probePath) {
+                Remove-Item -LiteralPath $probePath -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    catch {
+        return $false
+    }
+}
+
 function Get-SiftRuntimeRoot {
     $configuredStatusPath = $env:sift_kit_status
     if ($configuredStatusPath -and $configuredStatusPath.Trim()) {
@@ -56,7 +97,29 @@ function Get-SiftRuntimeRoot {
         return [System.IO.Path]::GetFullPath($statusDirectory)
     }
 
-    [System.IO.Path]::GetFullPath((Join-Path -Path $env:USERPROFILE -ChildPath '.siftkit'))
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($env:USERPROFILE -and $env:USERPROFILE.Trim()) {
+        [void]$candidates.Add([System.IO.Path]::GetFullPath((Join-Path -Path $env:USERPROFILE -ChildPath '.siftkit')))
+    }
+
+    try {
+        $workspaceRoot = Join-Path -Path (Get-Location).Path -ChildPath '.codex\siftkit'
+        [void]$candidates.Add([System.IO.Path]::GetFullPath($workspaceRoot))
+    }
+    catch {
+    }
+
+    foreach ($candidate in $candidates) {
+        if (Test-SiftRuntimeRootWritable -Path $candidate) {
+            return $candidate
+        }
+    }
+
+    if ($candidates.Count -gt 0) {
+        return $candidates[0]
+    }
+
+    throw 'Unable to determine a writable SiftKit runtime root.'
 }
 
 function Get-SiftInferenceStatusPath {
@@ -293,6 +356,49 @@ function Get-SiftStatusBackendUrl {
     $configuredUrl.Trim()
 }
 
+function Get-SiftConfigServiceUrl {
+    $configuredUrl = $env:SIFTKIT_CONFIG_SERVICE_URL
+    if ($configuredUrl -and $configuredUrl.Trim()) {
+        return $configuredUrl.Trim()
+    }
+
+    $statusUrl = $env:SIFTKIT_STATUS_BACKEND_URL
+    if ($statusUrl -and $statusUrl.Trim()) {
+        return ($statusUrl.Trim() -replace '/status/?$', '/config')
+    }
+
+    $host = if ($env:SIFTKIT_STATUS_HOST -and $env:SIFTKIT_STATUS_HOST.Trim()) { $env:SIFTKIT_STATUS_HOST.Trim() } else { '127.0.0.1' }
+    $port = if ($env:SIFTKIT_STATUS_PORT -and $env:SIFTKIT_STATUS_PORT.Trim()) { $env:SIFTKIT_STATUS_PORT.Trim() } else { '4765' }
+    ('http://{0}:{1}/config' -f $host, $port)
+}
+
+function Test-SiftTcpEndpointAvailable {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Url
+    )
+
+    try {
+        $uri = [System.Uri]$Url
+        $client = New-Object System.Net.Sockets.TcpClient
+        try {
+            $async = $client.BeginConnect($uri.Host, $uri.Port, $null, $null)
+            if (-not $async.AsyncWaitHandle.WaitOne(150)) {
+                return $false
+            }
+
+            $client.EndConnect($async)
+            return $true
+        }
+        finally {
+            $client.Close()
+        }
+    }
+    catch {
+        return $false
+    }
+}
+
 function Invoke-SiftStatusBackend {
     param(
         [Parameter(Mandatory = $true)]
@@ -343,6 +449,13 @@ function Get-SiftDefaultConfigObject {
             MinLinesForSummary = 16
             ChunkThresholdRatio = 0.92
         }
+        Interactive = [ordered]@{
+            Enabled = $true
+            WrappedCommands = @('git', 'less', 'vim', 'sqlite3')
+            IdleTimeoutMs = 900000
+            MaxTranscriptCharacters = 60000
+            TranscriptRetention = $true
+        }
         Paths = [ordered]@{
             RuntimeRoot = $runtimeRoot
             Logs = Join-Path -Path $runtimeRoot -ChildPath 'logs'
@@ -372,6 +485,38 @@ function ConvertFrom-SiftJsonFile {
     }
 
     Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+}
+
+function ConvertTo-SiftPersistedConfigObject {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Config
+    )
+
+    [pscustomobject]([ordered]@{
+        Version = $Config.Version
+        Backend = $Config.Backend
+        Model = $Config.Model
+        PolicyMode = $Config.PolicyMode
+        RawLogRetention = [bool]$Config.RawLogRetention
+        Ollama = [ordered]@{
+            BaseUrl = $Config.Ollama.BaseUrl
+            ExecutablePath = $Config.Ollama.ExecutablePath
+            NumCtx = [int]$Config.Ollama.NumCtx
+        }
+        Thresholds = [ordered]@{
+            MinCharactersForSummary = [int]$Config.Thresholds.MinCharactersForSummary
+            MinLinesForSummary = [int]$Config.Thresholds.MinLinesForSummary
+            ChunkThresholdRatio = [double]$Config.Thresholds.ChunkThresholdRatio
+        }
+        Interactive = [ordered]@{
+            Enabled = [bool]$Config.Interactive.Enabled
+            WrappedCommands = @($Config.Interactive.WrappedCommands)
+            IdleTimeoutMs = [int]$Config.Interactive.IdleTimeoutMs
+            MaxTranscriptCharacters = [int]$Config.Interactive.MaxTranscriptCharacters
+            TranscriptRetention = [bool]$Config.Interactive.TranscriptRetention
+        }
+    })
 }
 
 function Get-SiftConfigPath {
@@ -414,14 +559,83 @@ function Initialize-SiftRuntime {
     }
 }
 
-function Save-SiftConfig {
+function Update-SiftConfigRuntimePaths {
     param(
         [Parameter(Mandatory = $true)]
         [object]$Config
     )
 
+    $paths = Initialize-SiftRuntime
+    $runtimePaths = [pscustomobject]@{
+        RuntimeRoot = $paths.RuntimeRoot
+        Logs = $paths.Logs
+        EvalFixtures = $paths.EvalFixtures
+        EvalResults = $paths.EvalResults
+    }
+
+    if ($Config.PSObject.Properties['Paths']) {
+        $Config.Paths = $runtimePaths
+    }
+    else {
+        $Config | Add-Member -NotePropertyName Paths -NotePropertyValue $runtimePaths
+    }
+
+    $Config
+}
+
+function Get-SiftConfigFromService {
+    $configServiceUrl = Get-SiftConfigServiceUrl
+    if (-not (Test-SiftTcpEndpointAvailable -Url $configServiceUrl)) {
+        return $null
+    }
+
+    try {
+        Invoke-RestMethod -Uri $configServiceUrl -Method Get -TimeoutSec 2
+    }
+    catch {
+        $null
+    }
+}
+
+function Set-SiftConfigInService {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Config
+    )
+
+    $configServiceUrl = Get-SiftConfigServiceUrl
+    if (-not (Test-SiftTcpEndpointAvailable -Url $configServiceUrl)) {
+        throw ('SiftKit config service is not available at {0}.' -f $configServiceUrl)
+    }
+
+    Invoke-RestMethod -Uri $configServiceUrl `
+        -Method Put `
+        -ContentType 'application/json' `
+        -Body (ConvertTo-SiftJson -InputObject (ConvertTo-SiftPersistedConfigObject -Config $Config)) `
+        -TimeoutSec 2
+}
+
+function Save-SiftConfig {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Config,
+        [switch]$AllowLocalFallback
+    )
+
+    $persistedConfig = ConvertTo-SiftPersistedConfigObject -Config $Config
+    try {
+        $savedConfig = Set-SiftConfigInService -Config $persistedConfig
+        return $savedConfig
+    }
+    catch {
+        if (-not $AllowLocalFallback) {
+            throw
+        }
+    }
+
     $null = Initialize-SiftRuntime
-    Save-SiftContentAtomically -Path (Get-SiftConfigPath) -Content (ConvertTo-SiftJson -InputObject $Config)
+    Save-SiftContentAtomically -Path (Get-SiftConfigPath) -Content (ConvertTo-SiftJson -InputObject $persistedConfig)
+    $persistedConfig
 }
 
 function Update-SiftConfigDefaults {
@@ -442,6 +656,11 @@ function Update-SiftConfigDefaults {
 
     if (-not $Config.PSObject.Properties['Ollama']) {
         $Config | Add-Member -NotePropertyName Ollama -NotePropertyValue ([pscustomobject]$defaultConfig.Ollama)
+        $changed = $true
+    }
+
+    if (-not $Config.PSObject.Properties['Interactive']) {
+        $Config | Add-Member -NotePropertyName Interactive -NotePropertyValue ([pscustomobject]$defaultConfig.Interactive)
         $changed = $true
     }
 
@@ -490,6 +709,31 @@ function Update-SiftConfigDefaults {
         $changed = $true
     }
 
+    if (-not $Config.Interactive.PSObject.Properties['Enabled']) {
+        $Config.Interactive | Add-Member -NotePropertyName Enabled -NotePropertyValue $defaultConfig.Interactive.Enabled
+        $changed = $true
+    }
+
+    if (-not $Config.Interactive.PSObject.Properties['WrappedCommands']) {
+        $Config.Interactive | Add-Member -NotePropertyName WrappedCommands -NotePropertyValue $defaultConfig.Interactive.WrappedCommands
+        $changed = $true
+    }
+
+    if (-not $Config.Interactive.PSObject.Properties['IdleTimeoutMs']) {
+        $Config.Interactive | Add-Member -NotePropertyName IdleTimeoutMs -NotePropertyValue $defaultConfig.Interactive.IdleTimeoutMs
+        $changed = $true
+    }
+
+    if (-not $Config.Interactive.PSObject.Properties['MaxTranscriptCharacters']) {
+        $Config.Interactive | Add-Member -NotePropertyName MaxTranscriptCharacters -NotePropertyValue $defaultConfig.Interactive.MaxTranscriptCharacters
+        $changed = $true
+    }
+
+    if (-not $Config.Interactive.PSObject.Properties['TranscriptRetention']) {
+        $Config.Interactive | Add-Member -NotePropertyName TranscriptRetention -NotePropertyValue $defaultConfig.Interactive.TranscriptRetention
+        $changed = $true
+    }
+
     $isLegacyDefaultSettings = (
         [int]$Config.Ollama.NumCtx -eq $script:SiftLegacyDefaultNumCtx -and
         (
@@ -521,29 +765,36 @@ function Get-SiftConfig {
         [switch]$Ensure
     )
 
-    $configPath = Get-SiftConfigPath
-    if (-not (Test-Path -LiteralPath $configPath)) {
+    $config = Get-SiftConfigFromService
+    if (-not $config) {
+        $configPath = Get-SiftConfigPath
+        if (Test-Path -LiteralPath $configPath) {
+            $config = ConvertFrom-SiftJsonFile -Path $configPath
+        }
+    }
+
+    if (-not $config) {
         if (-not $Ensure) {
             throw "SiftKit is not installed. Run Install-SiftKit first."
         }
 
-        $paths = Initialize-SiftRuntime
         $config = Get-SiftDefaultConfigObject
-        $config.Paths.RuntimeRoot = $paths.RuntimeRoot
-        $config.Paths.Logs = $paths.Logs
-        $config.Paths.EvalFixtures = $paths.EvalFixtures
-        $config.Paths.EvalResults = $paths.EvalResults
         $config.Ollama.ExecutablePath = Find-OllamaExecutable
-        Save-SiftConfig -Config $config
     }
 
-    $config = ConvertFrom-SiftJsonFile -Path $configPath
     $update = Update-SiftConfigDefaults -Config $config
     if ($update.Changed) {
-        Save-SiftConfig -Config $update.Config
+        try {
+            Save-SiftConfig -Config $update.Config -AllowLocalFallback:$Ensure | Out-Null
+        }
+        catch {
+            if (-not $Ensure) {
+                throw
+            }
+        }
     }
 
-    $update.Config
+    Update-SiftConfigRuntimePaths -Config $update.Config
 }
 
 function Register-SiftProvider {
@@ -928,6 +1179,30 @@ function Convert-SiftFormatDataToText {
     }
 }
 
+function Convert-SiftPipelineItemToText {
+    param(
+        [AllowNull()]
+        [object]$Item
+    )
+
+    if ($null -eq $Item) {
+        return $null
+    }
+
+    if ($Item -is [System.Management.Automation.ErrorRecord]) {
+        $message = $Item.Exception.Message
+        if (-not [string]::IsNullOrWhiteSpace($message)) {
+            return $message.TrimEnd([char[]]@("`r", "`n"))
+        }
+    }
+
+    if ($Item -is [string]) {
+        return $Item
+    }
+
+    return [string]$Item
+}
+
 function Convert-SiftPipelineBufferToText {
     param(
         [Parameter(Mandatory = $true)]
@@ -939,16 +1214,17 @@ function Convert-SiftPipelineBufferToText {
         return ''
     }
 
-    $allStrings = $true
+    $allRenderableAsText = $true
     foreach ($item in $items) {
-        if ($item -isnot [string]) {
-            $allStrings = $false
+        if ($item -isnot [string] -and $item -isnot [System.Management.Automation.ErrorRecord]) {
+            $allRenderableAsText = $false
             break
         }
     }
 
-    if ($allStrings) {
-        return (Normalize-SiftInputText -Text ($items -join [Environment]::NewLine))
+    if ($allRenderableAsText) {
+        $lines = @($items | ForEach-Object { Convert-SiftPipelineItemToText -Item $_ } | Where-Object { $null -ne $_ })
+        return (Normalize-SiftInputText -Text ($lines -join [Environment]::NewLine))
     }
 
     try {
@@ -965,7 +1241,7 @@ function Convert-SiftPipelineBufferToText {
         return $formattedText
     }
 
-    Normalize-SiftInputText -Text (($items | ForEach-Object { [string]$_ }) -join [Environment]::NewLine)
+    Normalize-SiftInputText -Text (($items | ForEach-Object { Convert-SiftPipelineItemToText -Item $_ }) -join [Environment]::NewLine)
 }
 
 function Measure-SiftText {
@@ -986,10 +1262,86 @@ function Measure-SiftText {
     }
 }
 
+function Get-SiftQuestionAnalysis {
+    param(
+        [AllowNull()]
+        [string]$Question
+    )
+
+    $normalized = if ($Question) { $Question.ToLowerInvariant() } else { '' }
+    $isExactDiagnosis = $false
+    $reason = $null
+
+    $patterns = @(
+        @{ Pattern = 'file matching|exact file|find files|exact match'; Reason = 'exact-file-match' }
+        @{ Pattern = 'schema|summarize schema'; Reason = 'schema-inspection' }
+        @{ Pattern = 'summarize conflicts|conflict'; Reason = 'conflict-review' }
+        @{ Pattern = 'summarize edits|edited|diff|patch'; Reason = 'edit-review' }
+        @{ Pattern = 'failing tests|did tests pass|what failed'; Reason = 'failure-triage' }
+        @{ Pattern = 'root exception|first relevant application frame|first relevant frame'; Reason = 'stack-triage' }
+    )
+
+    foreach ($entry in $patterns) {
+        if ($normalized -match $entry.Pattern) {
+            $isExactDiagnosis = $true
+            $reason = $entry.Reason
+            break
+        }
+    }
+
+    [pscustomobject]@{
+        IsExactDiagnosis = $isExactDiagnosis
+        Reason = $reason
+    }
+}
+
+function Get-SiftDeterministicExcerpt {
+    param(
+        [AllowNull()]
+        [string]$Text,
+        [AllowNull()]
+        [string]$Question
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return $null
+    }
+
+    $normalizedText = $Text -replace "`r`n", "`n"
+    $lines = @($normalizedText -split "`n")
+    $significant = New-Object System.Collections.Generic.List[string]
+    $questionAnalysis = Get-SiftQuestionAnalysis -Question $Question
+
+    foreach ($line in $lines) {
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+
+        if (
+            $line -match '(?i)\b(fatal|error|exception|traceback|failed|conflict|<<<<<<<|>>>>>>>|schema|stderr)\b' -or
+            ($questionAnalysis.IsExactDiagnosis -and $line -match '(?i)\b(test|assert|frame|file|table|column|constraint)\b')
+        ) {
+            [void]$significant.Add($line.Trim())
+        }
+
+        if ($significant.Count -ge 12) {
+            break
+        }
+    }
+
+    if ($significant.Count -eq 0) {
+        return $null
+    }
+
+    ($significant | Select-Object -Unique) -join [Environment]::NewLine
+}
+
 function Get-SiftSummaryDecision {
     param(
         [Parameter(Mandatory = $true)]
         [string]$Text,
+        [AllowNull()]
+        [string]$Question,
         [Parameter(Mandatory = $true)]
         [string]$RiskLevel,
         [Parameter(Mandatory = $true)]
@@ -999,6 +1351,18 @@ function Get-SiftSummaryDecision {
     $metrics = Measure-SiftText -Text $Text
     $minCharacters = [int]$Config.Thresholds.MinCharactersForSummary
     $minLines = [int]$Config.Thresholds.MinLinesForSummary
+    $questionAnalysis = Get-SiftQuestionAnalysis -Question $Question
+    $hasErrorSignals = $Text -match '(?im)^(.*\b(error|exception|traceback|failed|fatal|conflict)\b.*)$'
+
+    if ($questionAnalysis.IsExactDiagnosis -or $hasErrorSignals) {
+        return [pscustomobject]@{
+            ShouldSummarize = $false
+            Reason = if ($questionAnalysis.IsExactDiagnosis) { 'raw-first-exact-diagnosis' } else { 'raw-first-error-signals' }
+            RawReviewRequired = $true
+            CharacterCount = $metrics.CharacterCount
+            LineCount = $metrics.LineCount
+        }
+    }
 
     if ($metrics.CharacterCount -lt $minCharacters -and $metrics.LineCount -lt $minLines) {
         return [pscustomobject]@{
@@ -1421,6 +1785,243 @@ function Invoke-SiftProcess {
     }
 }
 
+function Resolve-SiftExternalCommand {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CommandName
+    )
+
+    $commands = @(Get-Command -Name $CommandName -All -ErrorAction SilentlyContinue)
+    foreach ($command in $commands) {
+        if ($command.CommandType -in @('Application', 'ExternalScript')) {
+            return $command.Source
+        }
+    }
+
+    $fallback = Get-Command -Name ("{0}.exe" -f $CommandName) -ErrorAction SilentlyContinue
+    if ($fallback) {
+        return $fallback.Source
+    }
+
+    throw "Unable to resolve external command: $CommandName"
+}
+
+function Test-SiftInteractiveGitArguments {
+    param(
+        [string[]]$ArgumentList = @()
+    )
+
+    if ($ArgumentList.Count -eq 0) {
+        return $false
+    }
+
+    $subcommand = $ArgumentList[0].ToLowerInvariant()
+    $joined = ($ArgumentList -join ' ').ToLowerInvariant()
+
+    if ($subcommand -eq 'rebase' -and $joined -match '(^|\s)(-i|--interactive)(\s|$)') {
+        return $true
+    }
+
+    if ($subcommand -in @('add', 'checkout', 'restore') -and $joined -match '(^|\s)-p(\s|$)') {
+        return $true
+    }
+
+    $subcommand -in @('mergetool', 'commit')
+}
+
+function Test-SiftInteractiveCommandMatch {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CommandName,
+        [string[]]$ArgumentList = @(),
+        [object]$Config
+    )
+
+    if ($Config -and $Config.PSObject.Properties['Interactive'] -and -not [bool]$Config.Interactive.Enabled) {
+        return $false
+    }
+
+    $normalizedCommand = $CommandName.ToLowerInvariant()
+    $configured = @()
+    if ($Config -and $Config.PSObject.Properties['Interactive'] -and $Config.Interactive.PSObject.Properties['WrappedCommands']) {
+        $configured = @($Config.Interactive.WrappedCommands | ForEach-Object { [string]$_ })
+    }
+
+    if ($normalizedCommand -eq 'git') {
+        return (Test-SiftInteractiveGitArguments -ArgumentList $ArgumentList)
+    }
+
+    $configured -contains $normalizedCommand
+}
+
+function Test-SiftPipelineTargetsSiftKit {
+    param(
+        [AllowNull()]
+        [string]$InvocationLine
+    )
+
+    if ([string]::IsNullOrWhiteSpace($InvocationLine)) {
+        return $false
+    }
+
+    $InvocationLine -match '\|\s*(?:&\s*)?(?:"[^"]*[\\/])?siftkit(?:\.cmd|\.ps1|\.js)?\b'
+}
+
+function Get-SiftQuestionFromInvocationLine {
+    param(
+        [AllowNull()]
+        [string]$InvocationLine
+    )
+
+    if ([string]::IsNullOrWhiteSpace($InvocationLine)) {
+        return 'Summarize the important result and any actionable failures.'
+    }
+
+    $patterns = @(
+        '\|\s*(?:&\s*)?(?:"[^"]*[\\/])?siftkit(?:\.cmd|\.ps1|\.js)?\s+"([^"]+)"',
+        "\|\s*(?:&\s*)?(?:""[^""]*[\\/])?siftkit(?:\.cmd|\.ps1|\.js)?\s+'([^']+)'",
+        '\|\s*(?:&\s*)?(?:"[^"]*[\\/])?siftkit(?:\.cmd|\.ps1|\.js)?\s+summary\s+--question\s+"([^"]+)"',
+        "\|\s*(?:&\s*)?(?:""[^""]*[\\/])?siftkit(?:\.cmd|\.ps1|\.js)?\s+summary\s+--question\s+'([^']+)'"
+    )
+
+    foreach ($pattern in $patterns) {
+        if ($InvocationLine -match $pattern) {
+            return $Matches[1]
+        }
+    }
+
+    'Summarize the important result and any actionable failures.'
+}
+
+function Get-SiftShellIntegrationScript {
+@'
+Import-Module SiftKit -Force
+Enable-SiftInteractiveShellIntegration
+'@
+}
+
+function Enable-SiftInteractiveShellIntegration {
+    [CmdletBinding()]
+    param()
+
+    $commands = @('git', 'less', 'vim', 'sqlite3')
+    foreach ($commandName in $commands) {
+        $scriptBlock = [scriptblock]::Create(@"
+param([Parameter(ValueFromRemainingArguments = `$true)][string[]]`$Arguments)
+Invoke-SiftInteractiveCommandWrapper -CommandName '$commandName' -ArgumentList `$Arguments -InvocationLine `$MyInvocation.Line
+"@)
+        Set-Item -Path ("Function:global:{0}" -f $commandName) -Value $scriptBlock
+    }
+}
+
+function Invoke-SiftInteractiveCapture {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Command,
+        [string[]]$ArgumentList = @(),
+        [string]$Question = 'Summarize the important result and any actionable failures.',
+        [ValidateSet('text', 'json')]
+        [string]$Format = 'text',
+        [string]$Backend,
+        [string]$Model,
+        [ValidateSet('general', 'pass-fail', 'unique-errors', 'buried-critical', 'json-extraction', 'diff-summary', 'risky-operation')]
+        [string]$PolicyProfile = 'general'
+    )
+
+    $config = Get-SiftConfig -Ensure
+    if (-not $Backend) {
+        $Backend = $config.Backend
+    }
+    if (-not $Model) {
+        $Model = $config.Model
+    }
+
+    $paths = Initialize-SiftRuntime
+    $transcriptPath = New-SiftArtifactPath -Directory $paths.Logs -Prefix 'interactive_raw' -Extension 'log'
+    $transcriptStarted = $false
+    $resolvedCommand = Resolve-SiftExternalCommand -CommandName $Command
+    $exitCode = 0
+
+    try {
+        try {
+            Start-Transcript -Path $transcriptPath -Force | Out-Null
+            $transcriptStarted = $true
+        }
+        catch {
+            Save-SiftContentAtomically -Path $transcriptPath -Content ''
+        }
+
+        & $resolvedCommand @ArgumentList
+        if ($null -ne $LASTEXITCODE) {
+            $exitCode = [int]$LASTEXITCODE
+        }
+    }
+    finally {
+        if ($transcriptStarted) {
+            try {
+                Stop-Transcript | Out-Null
+            }
+            catch {
+            }
+        }
+    }
+
+    $transcriptText = ''
+    if (Test-Path -LiteralPath $transcriptPath) {
+        $transcriptText = Get-Content -LiteralPath $transcriptPath -Raw
+    }
+
+    if ($config.Interactive.MaxTranscriptCharacters -and $transcriptText.Length -gt [int]$config.Interactive.MaxTranscriptCharacters) {
+        $transcriptText = $transcriptText.Substring($transcriptText.Length - [int]$config.Interactive.MaxTranscriptCharacters)
+        Save-SiftContentAtomically -Path $transcriptPath -Content $transcriptText
+    }
+
+    if ([string]::IsNullOrWhiteSpace($transcriptText)) {
+        $transcriptText = "Interactive command completed without a captured transcript.`nCommand: $Command $($ArgumentList -join ' ')`nExitCode: $exitCode"
+        Save-SiftContentAtomically -Path $transcriptPath -Content $transcriptText
+    }
+
+    $summaryResult = Invoke-SiftSummary -Question $Question -Text $transcriptText -Format $Format -Backend $Backend -Model $Model -PolicyProfile $PolicyProfile
+    $outputText = $summaryResult.Summary
+    if ([string]::IsNullOrWhiteSpace($outputText)) {
+        $outputText = 'No summary generated.'
+    }
+
+    $outputText = "{0}`nRaw transcript: {1}" -f $outputText.Trim(), $transcriptPath
+
+    [pscustomobject]@{
+        ExitCode = $exitCode
+        TranscriptPath = $transcriptPath
+        WasSummarized = $summaryResult.WasSummarized
+        RawReviewRequired = ($summaryResult.PolicyDecision -like 'raw-first*') -or ($exitCode -ne 0)
+        OutputText = $outputText
+        Summary = $summaryResult.Summary
+    }
+}
+
+function Invoke-SiftInteractiveCommandWrapper {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CommandName,
+        [string[]]$ArgumentList = @(),
+        [AllowNull()]
+        [string]$InvocationLine
+    )
+
+    $config = Get-SiftConfig -Ensure
+    if ((Test-SiftPipelineTargetsSiftKit -InvocationLine $InvocationLine) -and (Test-SiftInteractiveCommandMatch -CommandName $CommandName -ArgumentList $ArgumentList -Config $config)) {
+        $question = Get-SiftQuestionFromInvocationLine -InvocationLine $InvocationLine
+        $captureResult = Invoke-SiftInteractiveCapture -Command $CommandName -ArgumentList $ArgumentList -Question $question
+        $captureResult.OutputText
+        return
+    }
+
+    $resolvedCommand = Resolve-SiftExternalCommand -CommandName $CommandName
+    & $resolvedCommand @ArgumentList
+}
+
 function Get-SiftCodexPolicyBlock {
 @"
 $($script:SiftMarkers.CodexPolicyStart)
@@ -1432,6 +2033,8 @@ Use SiftKit instead of distill for shell-output compression.
 - For large informational output, prefer `Invoke-SiftCommand` so raw logs are saved before summarization.
 - For direct text or log-file summarization, use `Invoke-SiftSummary`.
 - For short output, risky operations, crashes, auth issues, migrations, or exact diagnosis, inspect raw output first.
+- Interactive `... | siftkit ...` support is PowerShell-only and depends on the installed shell wrappers for known commands such as `git`, `less`, `vim`, and `sqlite3`.
+- If an interactive command is unsupported or not wrapper-backed, do not trust a normal pipe; prefer raw/manual review instead of a lossy summary.
 - If SiftKit returns a summary for a risky or debug command, treat it as a lossy secondary summary and review the raw log path before making strong claims.
 - When reporting distilled output, say it is a summary and include the raw log path when available.
 
@@ -1564,10 +2167,10 @@ function Install-SiftKit {
         $config.Ollama.ExecutablePath = Find-OllamaExecutable
 
         if ($Force -or -not (Test-Path -LiteralPath (Get-SiftConfigPath))) {
-            Save-SiftConfig -Config $config
+            Save-SiftConfig -Config $config -AllowLocalFallback | Out-Null
         }
         else {
-            $config = Get-SiftConfig
+            $config = Get-SiftConfig -Ensure
         }
 
         $models = @()
@@ -1632,6 +2235,33 @@ function Test-SiftKit {
     }
 }
 
+function Get-SiftKitConfig {
+    [CmdletBinding()]
+    param()
+
+    Get-SiftConfig -Ensure
+}
+
+function Set-SiftKitConfig {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Key,
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [object]$Value
+    )
+
+    $config = Get-SiftConfig -Ensure
+    if (-not $config.PSObject.Properties[$Key]) {
+        throw ('Unknown top-level config key: {0}' -f $Key)
+    }
+
+    $config.$Key = $Value
+    Save-SiftConfig -Config $config | Out-Null
+    Get-SiftConfig -Ensure
+}
+
 function Invoke-SiftSummary {
     [CmdletBinding(DefaultParameterSetName = 'Pipeline')]
     param(
@@ -1690,15 +2320,25 @@ function Invoke-SiftSummary {
 
             $inputText = Get-SiftInputText @inputArgs
             $riskLevel = if ($PolicyProfile -eq 'risky-operation') { 'risky' } else { 'informational' }
-            $decision = Get-SiftSummaryDecision -Text $inputText -RiskLevel $riskLevel -Config $config
+            $decision = Get-SiftSummaryDecision -Text $inputText -Question $Question -RiskLevel $riskLevel -Config $config
+            $deterministicExcerpt = Get-SiftDeterministicExcerpt -Text $inputText -Question $Question
 
             if (-not $decision.ShouldSummarize) {
+                $summaryText = if ($deterministicExcerpt) {
+                    "Raw review required.`n$deterministicExcerpt"
+                }
+                elseif ($decision.RawReviewRequired) {
+                    "Raw review required.`n$inputText"
+                }
+                else {
+                    $inputText
+                }
                 return [pscustomobject]@{
                     WasSummarized = $false
                     PolicyDecision = $decision.Reason
                     Backend = $Backend
                     Model = $Model
-                    Summary = $inputText
+                    Summary = $summaryText
                 }
             }
 
@@ -1752,8 +2392,9 @@ function Invoke-SiftCommand {
         $rawLogPath = New-SiftArtifactPath -Directory $paths.Logs -Prefix 'command_raw' -Extension 'log'
         Save-SiftContentAtomically -Path $rawLogPath -Content $processResult.Combined
 
-        $decision = Get-SiftSummaryDecision -Text $processResult.Combined -RiskLevel $RiskLevel -Config $config
+        $decision = Get-SiftSummaryDecision -Text $processResult.Combined -Question $Question -RiskLevel $RiskLevel -Config $config
         $reducedText = Reduce-SiftText -Text $processResult.Combined -ReducerProfile $ReducerProfile
+        $deterministicExcerpt = Get-SiftDeterministicExcerpt -Text $processResult.Combined -Question $Question
         $reducedLogPath = $null
         if ($reducedText -ne $processResult.Combined) {
             $reducedLogPath = New-SiftArtifactPath -Directory $paths.Logs -Prefix 'command_reduced' -Extension 'log'
@@ -1768,7 +2409,7 @@ function Invoke-SiftCommand {
                 WasSummarized = $false
                 PolicyDecision = if ($NoSummarize) { 'no-summarize' } else { $decision.Reason }
                 RawReviewRequired = $decision.RawReviewRequired
-                Summary = $null
+                Summary = if ($deterministicExcerpt) { "Raw review required.`nRaw log: $rawLogPath`n$deterministicExcerpt" } else { $null }
             }
         }
 
@@ -1778,6 +2419,10 @@ function Invoke-SiftCommand {
         }
 
         $summaryResult = Invoke-SiftSummary -Question $Question -Text $reducedText -Format $Format -Backend $Backend -Model $Model -PolicyProfile $effectiveProfile
+        $summaryText = $summaryResult.Summary
+        if ($decision.RawReviewRequired -and -not [string]::IsNullOrWhiteSpace($summaryText)) {
+            $summaryText = "{0}`nRaw log: {1}" -f $summaryText.Trim(), $rawLogPath
+        }
 
         [pscustomobject]@{
             ExitCode = $processResult.ExitCode
@@ -1786,7 +2431,7 @@ function Invoke-SiftCommand {
             WasSummarized = $summaryResult.WasSummarized
             PolicyDecision = $decision.Reason
             RawReviewRequired = $decision.RawReviewRequired
-            Summary = $summaryResult.Summary
+            Summary = $summaryText
         }
     }
 }
@@ -1966,6 +2611,172 @@ function Install-SiftCodexPolicy {
     }
 }
 
+function Get-SiftPm2ServiceName {
+    'siftkit-config-service'
+}
+
+function Get-SiftStartupFolderPath {
+    [Environment]::GetFolderPath('Startup')
+}
+
+function Install-SiftPm2 {
+    param(
+        [switch]$SkipInstall
+    )
+
+    if ($SkipInstall -or $env:SIFTKIT_SKIP_PM2_INSTALL -eq '1') {
+        return [pscustomobject]@{
+            Installed = $false
+            Command = 'pm2'
+            Skipped = $true
+        }
+    }
+
+    $pm2Command = Get-Command pm2.cmd, pm2 -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($pm2Command) {
+        return [pscustomobject]@{
+            Installed = $true
+            Command = $pm2Command.Source
+            Skipped = $false
+        }
+    }
+
+    & npm install -g pm2 | Out-Null
+    $pm2Command = Get-Command pm2.cmd, pm2 -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $pm2Command) {
+        throw 'pm2 was not found after npm install -g pm2.'
+    }
+
+    [pscustomobject]@{
+        Installed = $true
+        Command = $pm2Command.Source
+        Skipped = $false
+    }
+}
+
+function Get-SiftPm2BootstrapScript {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$NodeScriptPath,
+        [Parameter(Mandatory = $true)]
+        [string]$StatusPath
+    )
+
+@"
+`$ErrorActionPreference = 'Stop'
+`$serviceName = '$(Get-SiftPm2ServiceName)'
+`$scriptPath = '$($NodeScriptPath.Replace("'", "''"))'
+`$env:sift_kit_status = '$($StatusPath.Replace("'", "''"))'
+`$pm2 = Get-Command pm2.cmd, pm2 -ErrorAction Stop | Select-Object -First 1
+& `$pm2.Source delete `$serviceName 2>`$null | Out-Null
+& `$pm2.Source start `$scriptPath --name `$serviceName --interpreter node -- status-server | Out-Host
+& `$pm2.Source save | Out-Host
+"@
+}
+
+function Get-SiftPm2StopScript {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ServiceName
+    )
+
+@"
+`$ErrorActionPreference = 'Stop'
+`$pm2 = Get-Command pm2.cmd, pm2 -ErrorAction Stop | Select-Object -First 1
+& `$pm2.Source delete '$($ServiceName.Replace("'", "''"))' 2>`$null | Out-Null
+& `$pm2.Source save | Out-Host
+"@
+}
+
+function Get-SiftStartupLauncherContent {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$BootstrapScriptPath
+    )
+
+@"
+@echo off
+powershell.exe -ExecutionPolicy Bypass -File "$BootstrapScriptPath"
+"@
+}
+
+function Install-SiftKitService {
+    [CmdletBinding()]
+    param(
+        [string]$BinDir = (Join-Path -Path $env:USERPROFILE -ChildPath 'bin'),
+        [string]$StartupDir = (Get-SiftStartupFolderPath),
+        [string]$StatusPath = (Get-SiftInferenceStatusPath),
+        [switch]$SkipPm2Install,
+        [switch]$SkipPm2Bootstrap
+    )
+
+    Invoke-SiftWithExecutionLock {
+        $repoRoot = Split-Path -Path (Get-SiftKitRoot) -Parent
+        $nodeScriptPath = Join-Path -Path $repoRoot -ChildPath 'bin\siftkit.js'
+        $serviceName = Get-SiftPm2ServiceName
+        $statusPort = if ($env:SIFTKIT_STATUS_PORT) { $env:SIFTKIT_STATUS_PORT } else { '4765' }
+        $null = New-SiftDirectory -Path $BinDir
+        $null = New-SiftDirectory -Path $StartupDir
+        $bootstrapScriptPath = Join-Path -Path $BinDir -ChildPath 'siftkit-service-bootstrap.ps1'
+        $stopScriptPath = Join-Path -Path $BinDir -ChildPath 'siftkit-service-stop.ps1'
+        $startupLauncherPath = Join-Path -Path $StartupDir -ChildPath 'siftkit-service-startup.cmd'
+
+        Save-SiftContentAtomically -Path $bootstrapScriptPath -Content (Get-SiftPm2BootstrapScript -NodeScriptPath $nodeScriptPath -StatusPath $StatusPath)
+        Save-SiftContentAtomically -Path $stopScriptPath -Content (Get-SiftPm2StopScript -ServiceName $serviceName)
+        Save-SiftContentAtomically -Path $startupLauncherPath -Content (Get-SiftStartupLauncherContent -BootstrapScriptPath $bootstrapScriptPath)
+
+        $pm2Status = Install-SiftPm2 -SkipInstall:$SkipPm2Install
+        if (-not $SkipPm2Bootstrap) {
+            & powershell.exe -ExecutionPolicy Bypass -File $bootstrapScriptPath | Out-Null
+        }
+
+        [pscustomobject]@{
+            Installed = $true
+            ServiceName = $serviceName
+            BootstrapScript = $bootstrapScriptPath
+            StopScript = $stopScriptPath
+            StartupLauncher = $startupLauncherPath
+            StatusPath = [System.IO.Path]::GetFullPath($StatusPath)
+            Pm2Command = $pm2Status.Command
+            VerificationHint = ('pm2 list && Invoke-RestMethod http://127.0.0.1:{0}/health' -f $statusPort)
+        }
+    }
+}
+
+function Uninstall-SiftKitService {
+    [CmdletBinding()]
+    param(
+        [string]$BinDir = (Join-Path -Path $env:USERPROFILE -ChildPath 'bin'),
+        [string]$StartupDir = (Get-SiftStartupFolderPath),
+        [switch]$SkipPm2Bootstrap
+    )
+
+    Invoke-SiftWithExecutionLock {
+        $serviceName = Get-SiftPm2ServiceName
+        $stopScriptPath = Join-Path -Path $BinDir -ChildPath 'siftkit-service-stop.ps1'
+        $startupLauncherPath = Join-Path -Path $StartupDir -ChildPath 'siftkit-service-startup.cmd'
+        if ((Test-Path -LiteralPath $stopScriptPath) -and -not $SkipPm2Bootstrap) {
+            & powershell.exe -ExecutionPolicy Bypass -File $stopScriptPath | Out-Null
+        }
+
+        foreach ($path in @(
+            (Join-Path -Path $BinDir -ChildPath 'siftkit-service-bootstrap.ps1'),
+            $stopScriptPath,
+            $startupLauncherPath
+        )) {
+            if (Test-Path -LiteralPath $path) {
+                Remove-Item -LiteralPath $path -Force
+            }
+        }
+
+        [pscustomobject]@{
+            Removed = $true
+            ServiceName = $serviceName
+            StartupLauncher = $startupLauncherPath
+        }
+    }
+}
+
 function Install-SiftKitShellIntegration {
     [CmdletBinding()]
     param(
@@ -1993,6 +2804,8 @@ function Install-SiftKitShellIntegration {
         Get-ChildItem -LiteralPath $moduleSource -Force | Copy-Item -Destination $moduleTarget -Recurse -Force
         Copy-Item -LiteralPath (Join-Path -Path $binSource -ChildPath 'siftkit.ps1') -Destination (Join-Path -Path $BinDir -ChildPath 'siftkit.ps1') -Force
         Copy-Item -LiteralPath (Join-Path -Path $binSource -ChildPath 'siftkit.cmd') -Destination (Join-Path -Path $BinDir -ChildPath 'siftkit.cmd') -Force
+        $shellIntegrationPath = Join-Path -Path $BinDir -ChildPath 'siftkit-shell.ps1'
+        Save-SiftContentAtomically -Path $shellIntegrationPath -Content (Get-SiftShellIntegrationScript)
 
         [pscustomobject]@{
             Installed = $true
@@ -2000,9 +2813,11 @@ function Install-SiftKitShellIntegration {
             BinDir = $BinDir
             PowerShellShim = Join-Path -Path $BinDir -ChildPath 'siftkit.ps1'
             CmdShim = Join-Path -Path $BinDir -ChildPath 'siftkit.cmd'
+            ShellIntegrationScript = $shellIntegrationPath
             PathHint = 'Add the bin directory to PATH to run siftkit globally.'
+            ProfileHint = '. ''{0}''' -f $shellIntegrationPath
         }
     }
 }
 
-Export-ModuleMember -Function Install-SiftKit, Test-SiftKit, Invoke-SiftSummary, Invoke-SiftCommand, Invoke-SiftEvaluation, Find-SiftFiles, Install-SiftCodexPolicy, Install-SiftKitShellIntegration
+Export-ModuleMember -Function Install-SiftKit, Test-SiftKit, Get-SiftKitConfig, Set-SiftKitConfig, Invoke-SiftSummary, Invoke-SiftCommand, Invoke-SiftEvaluation, Find-SiftFiles, Install-SiftCodexPolicy, Install-SiftKitShellIntegration, Install-SiftKitService, Uninstall-SiftKitService, Enable-SiftInteractiveShellIntegration, Invoke-SiftInteractiveCapture, Invoke-SiftInteractiveCommandWrapper

@@ -16,7 +16,7 @@ const shellCandidates = isWindows
       'pwsh.exe'
     ]
   : ['pwsh', 'powershell'];
-const knownCommands = new Set(['summary', 'run', 'find-files', 'install', 'test', 'eval', 'codex-policy', 'install-global', 'status-server']);
+const knownCommands = new Set(['summary', 'run', 'find-files', 'install', 'test', 'eval', 'codex-policy', 'install-global', 'install-service', 'uninstall-service', 'config-get', 'config-set', 'capture-internal', 'status-server']);
 const cliArgs = process.argv.slice(2);
 const commandName = getCommandName(cliArgs);
 const commandArgs = getCommandArgs(cliArgs);

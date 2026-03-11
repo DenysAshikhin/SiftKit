@@ -8,7 +8,9 @@
   "scripts": {
     "start": "nodemon .\\bin\\siftkit.js status-server",
     "postinstall": "node scripts/postinstall.js",
-    "refresh-global": "powershell -ExecutionPolicy Bypass -File .\\scripts\\refresh-global.ps1"
+    "refresh-global": "powershell -ExecutionPolicy Bypass -File .\\scripts\\refresh-global.ps1",
+    "service-install": "powershell -ExecutionPolicy Bypass -File .\\bin\\siftkit.ps1 install-service",
+    "service-uninstall": "powershell -ExecutionPolicy Bypass -File .\\bin\\siftkit.ps1 uninstall-service"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
