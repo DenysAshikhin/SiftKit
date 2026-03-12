@@ -50,7 +50,7 @@ function Get-SiftCommandName {
         [string[]]$Args
     )
 
-    $knownCommands = @('summary', 'run', 'find-files', 'install', 'test', 'eval', 'codex-policy', 'install-global', 'install-service', 'uninstall-service', 'config-get', 'config-set', 'capture-internal', 'internal', 'status-server')
+    $knownCommands = @('summary', 'run', 'find-files', 'install', 'test', 'eval', 'codex-policy', 'install-global', 'config-get', 'config-set', 'capture-internal', 'internal')
     if ($Args.Count -gt 0 -and $Args[0] -in $knownCommands) {
         return $Args[0]
     }
@@ -124,12 +124,6 @@ if ($script:PipelineBuffer.Count -gt 0 -and $commandName -eq 'summary' -and -not
 }
 
 try {
-    if ($commandName -eq 'status-server') {
-        $serverScript = Join-Path -Path (Split-Path -Path $PSScriptRoot -Parent) -ChildPath 'siftKitStatus\index.js'
-        & node $serverScript
-        exit $LASTEXITCODE
-    }
-
     $cliPath = Get-SiftTsCliPath
     & node $cliPath @forwardedArgs
     exit $LASTEXITCODE

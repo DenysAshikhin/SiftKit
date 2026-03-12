@@ -1,42 +1,53 @@
 # SiftKit Architecture
 
-## Design
+## Runtime ownership
 
-SiftKit has four layers:
+SiftKit is split into two processes:
 
-1. Public PowerShell commands for bootstrap, summarization, command execution, evaluation, and Codex policy install.
-2. A policy layer that decides whether output should stay raw, be reduced first, or be summarized with a raw-review warning.
-3. A provider layer with a stable contract for backend health checks, model discovery, and summarization.
-4. A fixture and scoring layer for benchmark-style evaluation.
+1. The client in TypeScript.
+2. A separate status/config server process.
 
-## Conservative policy
+The client never hosts the server. Normal client operations preflight `GET /health` and fail closed if the server is unavailable. The repo may still start the server manually with `npm start`, but that is an explicit operator action outside normal `siftkit` command execution.
 
-The core policy encoded from `distill_codex_recommendation.md` is:
+## Client layers
+
+The client has four practical layers:
+
+1. TS CLI/runtime for summary, run, config, eval, install, and file-finding behavior.
+2. Config/status HTTP client logic that treats the external server as authoritative.
+3. Policy and provider logic for deterministic reduction plus conservative summarization.
+4. PowerShell compatibility shims for object-pipeline rendering and interactive wrapper interception.
+
+PowerShell is not the runtime owner. It exists only to preserve the current Windows-facing shell surface where Node cannot reproduce the same behavior directly.
+
+## Server dependency
+
+Server-dependent commands:
+
+- `summary`
+- `run`
+- `install`
+- `test`
+- `eval`
+- `config-get`
+- `config-set`
+- `capture-internal`
+
+Local-only commands:
+
+- `find-files`
+- `codex-policy`
+- `install-global`
+
+The client assumes the external server provides `GET /health`, `GET /config`, `PUT /config`, and `POST /status`. There is no local config fallback and no local status-file fallback for normal operation.
+
+## Policy and tests
+
+The runtime remains conservative:
 
 - short output stays raw
-- large informational output can summarize
-- debug and risky output stays raw-first and any summary is secondary
-- managed command execution always preserves the raw combined log
-- deterministic reduction happens before model summarization when possible
+- exact-diagnosis and error-dense output stays raw-first
+- risky or debug flows only get secondary summaries
+- managed command execution always preserves raw logs
 
-## Provider contract
-
-Each provider supplies three operations:
-
-- availability and health check
-- model listing
-- summarization from a prompt and model id
-
-v1 only ships an Ollama provider, but the module keeps provider registration isolated so more backends can be added without changing the public command surface.
-
-## Evaluation flow
-
-`Invoke-SiftEvaluation` loads fixture metadata, runs the configured backend against each source file, and scores the result with a lightweight rubric:
-
-- recall
-- precision
-- faithfulness
-- format following
-- compression usefulness
-
-Synthetic fixtures are scored automatically. Real logs are included in the same result artifact but marked for manual review.
+Only the Ollama provider ships as runtime behavior. Mock provider hooks and related environment variables are test seams, not public extensibility points.

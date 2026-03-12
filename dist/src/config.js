@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN = exports.SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS = exports.SIFT_PREVIOUS_DEFAULT_MODEL = exports.SIFT_PREVIOUS_DEFAULT_NUM_CTX = exports.SIFT_LEGACY_DERIVED_NUM_CTX = exports.SIFT_LEGACY_DEFAULT_NUM_CTX = exports.SIFT_DEFAULT_NUM_CTX = exports.SIFTKIT_VERSION = void 0;
+exports.StatusServerUnavailableError = exports.SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN = exports.SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS = exports.SIFT_PREVIOUS_DEFAULT_MODEL = exports.SIFT_PREVIOUS_DEFAULT_NUM_CTX = exports.SIFT_LEGACY_DERIVED_NUM_CTX = exports.SIFT_LEGACY_DEFAULT_NUM_CTX = exports.SIFT_DEFAULT_NUM_CTX = exports.SIFTKIT_VERSION = void 0;
 exports.ensureDirectory = ensureDirectory;
 exports.saveContentAtomically = saveContentAtomically;
 exports.getRuntimeRoot = getRuntimeRoot;
@@ -44,6 +44,9 @@ exports.getEffectiveMaxInputCharacters = getEffectiveMaxInputCharacters;
 exports.getChunkThresholdCharacters = getChunkThresholdCharacters;
 exports.getInferenceStatusPath = getInferenceStatusPath;
 exports.getStatusBackendUrl = getStatusBackendUrl;
+exports.getStatusServerHealthUrl = getStatusServerHealthUrl;
+exports.getStatusServerUnavailableMessage = getStatusServerUnavailableMessage;
+exports.ensureStatusServerReachable = ensureStatusServerReachable;
 exports.notifyStatusBackend = notifyStatusBackend;
 exports.getConfigServiceUrl = getConfigServiceUrl;
 exports.getConfigPath = getConfigPath;
@@ -114,6 +117,22 @@ function requestJson(options) {
         }
         request.end();
     });
+}
+class StatusServerUnavailableError extends Error {
+    healthUrl;
+    constructor(healthUrl) {
+        super(`SiftKit status/config server is not reachable at ${healthUrl}. Start the separate server process and stop issuing further siftkit commands until it is available.`);
+        this.name = 'StatusServerUnavailableError';
+        this.healthUrl = healthUrl;
+    }
+}
+exports.StatusServerUnavailableError = StatusServerUnavailableError;
+function deriveServiceUrl(configuredUrl, nextPath) {
+    const target = new URL(configuredUrl);
+    target.pathname = nextPath;
+    target.search = '';
+    target.hash = '';
+    return target.toString();
 }
 function ensureDirectory(dirPath) {
     fs.mkdirSync(dirPath, { recursive: true });
@@ -216,6 +235,34 @@ function getStatusBackendUrl() {
     const port = process.env.SIFTKIT_STATUS_PORT?.trim() || '4765';
     return `http://${host}:${port}/status`;
 }
+function getStatusServerHealthUrl() {
+    const configuredConfigUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
+    if (configuredConfigUrl && configuredConfigUrl.trim()) {
+        return deriveServiceUrl(configuredConfigUrl.trim(), '/health');
+    }
+    return deriveServiceUrl(getStatusBackendUrl(), '/health');
+}
+function getStatusServerUnavailableMessage() {
+    return new StatusServerUnavailableError(getStatusServerHealthUrl()).message;
+}
+function toStatusServerUnavailableError() {
+    return new StatusServerUnavailableError(getStatusServerHealthUrl());
+}
+async function ensureStatusServerReachable() {
+    try {
+        const response = await requestJson({
+            url: getStatusServerHealthUrl(),
+            method: 'GET',
+            timeoutMs: 2000,
+        });
+        if (!response || response.ok !== true) {
+            throw new Error('Health endpoint did not return ok=true.');
+        }
+    }
+    catch {
+        throw toStatusServerUnavailableError();
+    }
+}
 async function notifyStatusBackend(options) {
     const body = {
         running: options.running,
@@ -252,7 +299,7 @@ async function notifyStatusBackend(options) {
         });
     }
     catch {
-        // Keep status notifications best-effort.
+        throw toStatusServerUnavailableError();
     }
 }
 function getConfigServiceUrl() {
@@ -260,11 +307,7 @@ function getConfigServiceUrl() {
     if (configuredUrl && configuredUrl.trim()) {
         return configuredUrl.trim();
     }
-    const statusBackendUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
-    if (statusBackendUrl && statusBackendUrl.trim()) {
-        return statusBackendUrl.trim().replace(/\/status\/?$/u, '/config');
-    }
-    return null;
+    return deriveServiceUrl(getStatusBackendUrl(), '/config');
 }
 function getConfigPath() {
     return path.join(getRuntimeRoot(), 'config.json');
@@ -496,70 +539,39 @@ function addEffectiveConfigProperties(config, info) {
     };
 }
 async function getConfigFromService() {
-    const configServiceUrl = getConfigServiceUrl();
-    if (!configServiceUrl) {
-        return null;
-    }
     try {
         return await requestJson({
-            url: configServiceUrl,
+            url: getConfigServiceUrl(),
             method: 'GET',
             timeoutMs: 2000,
         });
     }
     catch {
-        return null;
+        throw toStatusServerUnavailableError();
     }
 }
 async function setConfigInService(config) {
-    const configServiceUrl = getConfigServiceUrl();
-    if (!configServiceUrl) {
-        throw new Error('SiftKit config service is not configured.');
-    }
-    return requestJson({
-        url: configServiceUrl,
-        method: 'PUT',
-        timeoutMs: 2000,
-        body: JSON.stringify(toPersistedConfigObject(config)),
-    });
-}
-async function saveConfig(config, options) {
     try {
-        return await setConfigInService(config);
+        return await requestJson({
+            url: getConfigServiceUrl(),
+            method: 'PUT',
+            timeoutMs: 2000,
+            body: JSON.stringify(toPersistedConfigObject(config)),
+        });
     }
-    catch (error) {
-        if (!options?.allowLocalFallback) {
-            throw error;
-        }
+    catch {
+        throw toStatusServerUnavailableError();
     }
-    saveContentAtomically(getConfigPath(), JSON.stringify(toPersistedConfigObject(config), null, 2));
-    return config;
+}
+async function saveConfig(config) {
+    return setConfigInService(config);
 }
 async function loadConfig(options) {
+    void options;
     let config = await getConfigFromService();
-    if (!config) {
-        const configPath = getConfigPath();
-        if (fs.existsSync(configPath)) {
-            config = parseJsonText(fs.readFileSync(configPath, 'utf8'));
-        }
-    }
-    if (!config) {
-        if (!options?.ensure) {
-            throw new Error('SiftKit is not installed. Run Install-SiftKit first.');
-        }
-        config = getDefaultConfigObject();
-        config.Ollama.ExecutablePath = findOllamaExecutable();
-    }
     const update = normalizeConfig(config);
     if (update.info.changed) {
-        try {
-            await saveConfig(update.config, { allowLocalFallback: options?.ensure });
-        }
-        catch (error) {
-            if (!options?.ensure) {
-                throw error;
-            }
-        }
+        await saveConfig(update.config);
     }
     return addEffectiveConfigProperties(updateRuntimePaths(update.config), update.info);
 }

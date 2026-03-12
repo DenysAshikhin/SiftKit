@@ -802,44 +802,6 @@ function Install-SiftCodexPolicy {
     }
 }
 
-function Get-SiftStartupFolderPath {
-    [Environment]::GetFolderPath('Startup')
-}
-
-function Install-SiftKitService {
-    [CmdletBinding()]
-    param(
-        [string]$BinDir = (Join-Path -Path $env:USERPROFILE -ChildPath 'bin'),
-        [string]$StartupDir = (Get-SiftStartupFolderPath),
-        [string]$StatusPath,
-        [switch]$SkipPm2Install,
-        [switch]$SkipPm2Bootstrap
-    )
-
-    Invoke-SiftTsInternal -Operation 'install-service' -RequestObject @{
-        BinDir = $BinDir
-        StartupDir = $StartupDir
-        StatusPath = $StatusPath
-        SkipPm2Install = [bool]$SkipPm2Install
-        SkipPm2Bootstrap = [bool]$SkipPm2Bootstrap
-    }
-}
-
-function Uninstall-SiftKitService {
-    [CmdletBinding()]
-    param(
-        [string]$BinDir = (Join-Path -Path $env:USERPROFILE -ChildPath 'bin'),
-        [string]$StartupDir = (Get-SiftStartupFolderPath),
-        [switch]$SkipPm2Bootstrap
-    )
-
-    Invoke-SiftTsInternal -Operation 'uninstall-service' -RequestObject @{
-        BinDir = $BinDir
-        StartupDir = $StartupDir
-        SkipPm2Bootstrap = [bool]$SkipPm2Bootstrap
-    }
-}
-
 function Install-SiftKitShellIntegration {
     [CmdletBinding()]
     param(
@@ -855,4 +817,4 @@ function Install-SiftKitShellIntegration {
     }
 }
 
-Export-ModuleMember -Function Install-SiftKit, Test-SiftKit, Get-SiftKitConfig, Set-SiftKitConfig, Invoke-SiftSummary, Invoke-SiftCommand, Invoke-SiftEvaluation, Find-SiftFiles, Install-SiftCodexPolicy, Install-SiftKitShellIntegration, Install-SiftKitService, Uninstall-SiftKitService, Enable-SiftInteractiveShellIntegration, Invoke-SiftInteractiveCapture, Invoke-SiftInteractiveCommandWrapper
+Export-ModuleMember -Function Install-SiftKit, Test-SiftKit, Get-SiftKitConfig, Set-SiftKitConfig, Invoke-SiftSummary, Invoke-SiftCommand, Invoke-SiftEvaluation, Find-SiftFiles, Install-SiftCodexPolicy, Install-SiftKitShellIntegration, Enable-SiftInteractiveShellIntegration, Invoke-SiftInteractiveCapture, Invoke-SiftInteractiveCommandWrapper

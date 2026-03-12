@@ -36,11 +36,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.installSiftKit = installSiftKit;
 exports.installCodexPolicy = installCodexPolicy;
 exports.installShellIntegration = installShellIntegration;
-exports.installService = installService;
-exports.uninstallService = uninstallService;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
-const node_child_process_1 = require("node:child_process");
 const config_js_1 = require("./config.js");
 const ollama_js_1 = require("./providers/ollama.js");
 const execution_lock_js_1 = require("./execution-lock.js");
@@ -95,76 +92,12 @@ function getCodexPolicyBlock() {
         '',
     ].join('\n');
 }
-function getPm2ServiceName() {
-    return 'siftkit-config-service';
-}
-function getStartupFolderPath() {
-    return path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup');
-}
-function installPm2(skipInstall) {
-    if (skipInstall || process.env.SIFTKIT_SKIP_PM2_INSTALL === '1') {
-        return {
-            Installed: false,
-            Command: 'pm2',
-            Skipped: true,
-        };
-    }
-    const whereResult = (0, node_child_process_1.spawnSync)('where', ['pm2.cmd'], { encoding: 'utf8', shell: true });
-    if (whereResult.status === 0 && whereResult.stdout.trim()) {
-        return {
-            Installed: true,
-            Command: whereResult.stdout.split(/\r?\n/u)[0].trim(),
-            Skipped: false,
-        };
-    }
-    (0, node_child_process_1.spawnSync)('npm', ['install', '-g', 'pm2'], { encoding: 'utf8', shell: true });
-    const retry = (0, node_child_process_1.spawnSync)('where', ['pm2.cmd'], { encoding: 'utf8', shell: true });
-    if (retry.status !== 0 || !retry.stdout.trim()) {
-        throw new Error('pm2 was not found after npm install -g pm2.');
-    }
-    return {
-        Installed: true,
-        Command: retry.stdout.split(/\r?\n/u)[0].trim(),
-        Skipped: false,
-    };
-}
-function getPm2BootstrapScript(nodeScriptPath, statusPath) {
-    return [
-        "$ErrorActionPreference = 'Stop'",
-        `$serviceName = '${getPm2ServiceName()}'`,
-        `$scriptPath = '${nodeScriptPath.replace(/'/gu, "''")}'`,
-        `$env:sift_kit_status = '${statusPath.replace(/'/gu, "''")}'`,
-        "$pm2 = Get-Command pm2.cmd, pm2 -ErrorAction Stop | Select-Object -First 1",
-        '& $pm2.Source delete $serviceName 2>$null | Out-Null',
-        '& $pm2.Source start $scriptPath --name $serviceName --interpreter node -- status-server | Out-Host',
-        '& $pm2.Source save | Out-Host',
-        '',
-    ].join('\n');
-}
-function getPm2StopScript(serviceName) {
-    return [
-        "$ErrorActionPreference = 'Stop'",
-        "$pm2 = Get-Command pm2.cmd, pm2 -ErrorAction Stop | Select-Object -First 1",
-        `& $pm2.Source delete '${serviceName.replace(/'/gu, "''")}' 2>$null | Out-Null`,
-        '& $pm2.Source save | Out-Host',
-        '',
-    ].join('\n');
-}
-function getStartupLauncherContent(bootstrapScriptPath) {
-    return `@echo off\r\npowershell.exe -ExecutionPolicy Bypass -File "${bootstrapScriptPath}"\r\n`;
-}
 async function installSiftKit(force) {
     return (0, execution_lock_js_1.withExecutionLock)(async () => {
+        void force;
         const paths = (0, config_js_1.initializeRuntime)();
-        let config = await (0, config_js_1.loadConfig)({ ensure: true });
-        config.Paths = paths;
-        config.Ollama.ExecutablePath = (0, config_js_1.findOllamaExecutable)();
-        if (force || !fs.existsSync((0, config_js_1.getConfigPath)())) {
-            await (0, config_js_1.saveConfig)(config, { allowLocalFallback: true });
-        }
-        else {
-            config = await (0, config_js_1.loadConfig)({ ensure: true });
-        }
+        const config = await (0, config_js_1.loadConfig)({ ensure: true });
+        const detectedOllamaExecutablePath = (0, config_js_1.findOllamaExecutable)();
         let models = [];
         try {
             if (config.Backend === 'ollama') {
@@ -182,7 +115,7 @@ async function installSiftKit(force) {
             EvalResultsPath: paths.EvalResults,
             Backend: config.Backend,
             Model: config.Model,
-            OllamaExecutablePath: config.Ollama.ExecutablePath,
+            OllamaExecutablePath: detectedOllamaExecutablePath || config.Ollama.ExecutablePath,
             AvailableModels: models,
         };
     });
@@ -250,73 +183,6 @@ async function installShellIntegration(options) {
             ShellIntegrationScript: shellIntegrationPath,
             PathHint: 'Add the bin directory to PATH to run siftkit globally.',
             ProfileHint: `. '${shellIntegrationPath}'`,
-        };
-    });
-}
-async function installService(options) {
-    return (0, execution_lock_js_1.withExecutionLock)(async () => {
-        const repoRoot = getRepoRoot();
-        const nodeScriptPath = path.join(repoRoot, 'bin', 'siftkit.js');
-        const serviceName = getPm2ServiceName();
-        const statusPath = path.resolve(options?.StatusPath || (0, config_js_1.getInferenceStatusPath)());
-        const statusPort = process.env.SIFTKIT_STATUS_PORT || '4765';
-        const binDir = options?.BinDir || path.join(process.env.USERPROFILE || '', 'bin');
-        const startupDir = options?.StartupDir || getStartupFolderPath();
-        (0, config_js_1.ensureDirectory)(binDir);
-        (0, config_js_1.ensureDirectory)(startupDir);
-        const bootstrapScriptPath = path.join(binDir, 'siftkit-service-bootstrap.ps1');
-        const stopScriptPath = path.join(binDir, 'siftkit-service-stop.ps1');
-        const startupLauncherPath = path.join(startupDir, 'siftkit-service-startup.cmd');
-        (0, config_js_1.saveContentAtomically)(bootstrapScriptPath, getPm2BootstrapScript(nodeScriptPath, statusPath));
-        (0, config_js_1.saveContentAtomically)(stopScriptPath, getPm2StopScript(serviceName));
-        (0, config_js_1.saveContentAtomically)(startupLauncherPath, getStartupLauncherContent(bootstrapScriptPath));
-        const pm2Status = installPm2(options?.SkipPm2Install);
-        if (!options?.SkipPm2Bootstrap) {
-            (0, node_child_process_1.spawnSync)('powershell.exe', ['-ExecutionPolicy', 'Bypass', '-File', bootstrapScriptPath], {
-                encoding: 'utf8',
-                shell: false,
-                windowsHide: true,
-            });
-        }
-        return {
-            Installed: true,
-            ServiceName: serviceName,
-            BootstrapScript: bootstrapScriptPath,
-            StopScript: stopScriptPath,
-            StartupLauncher: startupLauncherPath,
-            StatusPath: statusPath,
-            Pm2Command: pm2Status.Command,
-            VerificationHint: `pm2 list && Invoke-RestMethod http://127.0.0.1:${statusPort}/health`,
-        };
-    });
-}
-async function uninstallService(options) {
-    return (0, execution_lock_js_1.withExecutionLock)(async () => {
-        const serviceName = getPm2ServiceName();
-        const binDir = options?.BinDir || path.join(process.env.USERPROFILE || '', 'bin');
-        const startupDir = options?.StartupDir || getStartupFolderPath();
-        const stopScriptPath = path.join(binDir, 'siftkit-service-stop.ps1');
-        const startupLauncherPath = path.join(startupDir, 'siftkit-service-startup.cmd');
-        if (fs.existsSync(stopScriptPath) && !options?.SkipPm2Bootstrap) {
-            (0, node_child_process_1.spawnSync)('powershell.exe', ['-ExecutionPolicy', 'Bypass', '-File', stopScriptPath], {
-                encoding: 'utf8',
-                shell: false,
-                windowsHide: true,
-            });
-        }
-        for (const targetPath of [
-            path.join(binDir, 'siftkit-service-bootstrap.ps1'),
-            stopScriptPath,
-            startupLauncherPath,
-        ]) {
-            if (fs.existsSync(targetPath)) {
-                fs.rmSync(targetPath, { force: true });
-            }
-        }
-        return {
-            Removed: true,
-            ServiceName: serviceName,
-            StartupLauncher: startupLauncherPath,
         };
     });
 }

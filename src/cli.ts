@@ -1,12 +1,12 @@
 import * as fs from 'node:fs';
 import { inspect } from 'node:util';
-import { loadConfig, setTopLevelConfigKey, getConfigPath, getChunkThresholdCharacters, getEffectiveMaxInputCharacters } from './config.js';
+import { ensureStatusServerReachable, loadConfig, setTopLevelConfigKey, getConfigPath, getChunkThresholdCharacters, getEffectiveMaxInputCharacters } from './config.js';
 import { findFiles } from './find-files.js';
 import { getOllamaProviderStatus, listOllamaModels } from './providers/ollama.js';
 import { readSummaryInput, summarizeRequest } from './summary.js';
 import { analyzeCommandOutput, runCommand } from './command.js';
 import { runEvaluation } from './eval.js';
-import { installCodexPolicy, installService, installSiftKit, installShellIntegration, uninstallService } from './install.js';
+import { installCodexPolicy, installSiftKit, installShellIntegration } from './install.js';
 import { runInteractiveCapture } from './interactive.js';
 
 type CliRunOptions = {
@@ -53,13 +53,10 @@ const KNOWN_COMMANDS = new Set([
   'eval',
   'codex-policy',
   'install-global',
-  'install-service',
-  'uninstall-service',
   'config-get',
   'config-set',
   'capture-internal',
   'internal',
-  'status-server',
 ]);
 
 function showHelp(stdout: NodeJS.WritableStream): void {
@@ -77,15 +74,35 @@ function showHelp(stdout: NodeJS.WritableStream): void {
     '  siftkit eval',
     '  siftkit codex-policy',
     '  siftkit install-global',
-    '  siftkit install-service',
-    '  siftkit uninstall-service',
     '  siftkit config-get',
     '  siftkit config-set --key Backend --value mock',
     '  siftkit capture-internal --command git --arg rebase --arg -i --question "..."',
-    '  siftkit status-server',
     '',
   ].join('\n'));
 }
+
+const SERVER_DEPENDENT_COMMANDS = new Set([
+  'summary',
+  'run',
+  'install',
+  'test',
+  'eval',
+  'config-get',
+  'config-set',
+  'capture-internal',
+]);
+
+const SERVER_DEPENDENT_INTERNAL_OPS = new Set([
+  'install',
+  'test',
+  'config-get',
+  'config-set',
+  'summary',
+  'command',
+  'command-analyze',
+  'eval',
+  'interactive-capture',
+]);
 
 function getCommandName(argv: string[]): string {
   if (argv.length > 0 && KNOWN_COMMANDS.has(argv[0])) {
@@ -414,33 +431,6 @@ async function runInstallGlobalCli(options: {
   return 0;
 }
 
-async function runInstallServiceCli(options: {
-  argv: string[];
-  stdout: NodeJS.WritableStream;
-}): Promise<number> {
-  const parsed = parseArguments(getCommandArgs(options.argv));
-  const result = await installService({
-    BinDir: parsed.binDir,
-    StartupDir: parsed.startupDir,
-    StatusPath: parsed.statusPath,
-  });
-  options.stdout.write(formatPsList(result));
-  return 0;
-}
-
-async function runUninstallServiceCli(options: {
-  argv: string[];
-  stdout: NodeJS.WritableStream;
-}): Promise<number> {
-  const parsed = parseArguments(getCommandArgs(options.argv));
-  const result = await uninstallService({
-    BinDir: parsed.binDir,
-    StartupDir: parsed.startupDir,
-  });
-  options.stdout.write(formatPsList(result));
-  return 0;
-}
-
 async function runCaptureInternalCli(options: {
   argv: string[];
   stdout: NodeJS.WritableStream;
@@ -483,6 +473,10 @@ async function runInternal(options: {
   }
   if (!parsed.requestFile) {
     throw new Error('A --request-file is required.');
+  }
+
+  if (SERVER_DEPENDENT_INTERNAL_OPS.has(parsed.op)) {
+    await ensureStatusServerReachable();
   }
 
   const request = readRequestFile(parsed.requestFile);
@@ -563,22 +557,6 @@ async function runInternal(options: {
         Force: Boolean(request.Force),
       });
       break;
-    case 'install-service':
-      result = await installService({
-        BinDir: request.BinDir ? String(request.BinDir) : undefined,
-        StartupDir: request.StartupDir ? String(request.StartupDir) : undefined,
-        StatusPath: request.StatusPath ? String(request.StatusPath) : undefined,
-        SkipPm2Install: Boolean(request.SkipPm2Install),
-        SkipPm2Bootstrap: Boolean(request.SkipPm2Bootstrap),
-      });
-      break;
-    case 'uninstall-service':
-      result = await uninstallService({
-        BinDir: request.BinDir ? String(request.BinDir) : undefined,
-        StartupDir: request.StartupDir ? String(request.StartupDir) : undefined,
-        SkipPm2Bootstrap: Boolean(request.SkipPm2Bootstrap),
-      });
-      break;
     case 'interactive-capture':
       result = await runInteractiveCapture({
         Command: String(request.Command),
@@ -609,6 +587,10 @@ export async function runCli(options: CliRunOptions): Promise<number> {
 
   const commandName = getCommandName(options.argv);
   try {
+    if (SERVER_DEPENDENT_COMMANDS.has(commandName)) {
+      await ensureStatusServerReachable();
+    }
+
     switch (commandName) {
       case 'summary':
         return await runSummary({ argv: options.argv, stdinText: options.stdinText, stdout });
@@ -626,10 +608,6 @@ export async function runCli(options: CliRunOptions): Promise<number> {
         return await runCodexPolicyCli({ argv: options.argv, stdout });
       case 'install-global':
         return await runInstallGlobalCli({ argv: options.argv, stdout });
-      case 'install-service':
-        return await runInstallServiceCli({ argv: options.argv, stdout });
-      case 'uninstall-service':
-        return await runUninstallServiceCli({ argv: options.argv, stdout });
       case 'capture-internal':
         return await runCaptureInternalCli({ argv: options.argv, stdout });
       case 'find-files':

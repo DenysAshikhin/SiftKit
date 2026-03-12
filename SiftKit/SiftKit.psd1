@@ -18,8 +18,6 @@
         'Find-SiftFiles',
         'Install-SiftCodexPolicy',
         'Install-SiftKitShellIntegration',
-        'Install-SiftKitService',
-        'Uninstall-SiftKitService',
         'Enable-SiftInteractiveShellIntegration',
         'Invoke-SiftInteractiveCapture',
         'Invoke-SiftInteractiveCommandWrapper'
