@@ -235,7 +235,27 @@ function splitTextIntoChunks(text: string, chunkSize: number): string[] {
   return chunks;
 }
 
-function getMockSummary(prompt: string, question: string): string {
+function appendTestProviderEvent(event: Record<string, unknown>): void {
+  const logPath = process.env.SIFTKIT_TEST_PROVIDER_LOG_PATH;
+  if (!logPath || !logPath.trim()) {
+    return;
+  }
+
+  fs.appendFileSync(logPath, `${JSON.stringify(event)}\n`, { encoding: 'utf8' });
+}
+
+function getMockSummary(prompt: string, question: string, phase: 'leaf' | 'merge'): string {
+  const behavior = process.env.SIFTKIT_TEST_PROVIDER_BEHAVIOR?.trim() || '';
+  if (behavior === 'throw') {
+    throw new Error('mock provider failure');
+  }
+  if (behavior === 'recursive-merge') {
+    if (phase === 'merge' || question.startsWith('Merge these partial summaries into one final answer')) {
+      return 'merge summary';
+    }
+    return 'L'.repeat(150000);
+  }
+
   if (/Return only valid JSON/u.test(prompt)) {
     return '[{"package":"lodash","severity":"high","title":"demo","fix_version":"1.0.0"}]';
   }
@@ -279,7 +299,15 @@ async function invokeProviderSummary(options: {
       if (Number.isFinite(sleepMs) && sleepMs > 0) {
         await new Promise((resolve) => setTimeout(resolve, sleepMs));
       }
-      return getMockSummary(options.prompt, options.question);
+      appendTestProviderEvent({
+        backend: options.backend,
+        model: options.model,
+        phase: options.phase,
+        question: options.question,
+        rawInputCharacterCount: options.rawInputCharacterCount,
+        chunkInputCharacterCount: options.chunkInputCharacterCount,
+      });
+      return getMockSummary(options.prompt, options.question, options.phase);
     }
 
     const response = await generateOllamaResponse({

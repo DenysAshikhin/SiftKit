@@ -8,6 +8,7 @@
   "scripts": {
     "start": "nodemon .\\bin\\siftkit.js status-server",
     "build": "tsc -p .\\tsconfig.json",
+    "test": "npm run build && node --test .\\tests\\runtime.test.js",
     "postinstall": "node scripts/postinstall.js",
     "refresh-global": "powershell -ExecutionPolicy Bypass -File .\\scripts\\refresh-global.ps1",
     "service-install": "powershell -ExecutionPolicy Bypass -File .\\bin\\siftkit.ps1 install-service",

@@ -90,10 +90,37 @@ function requestJson(options) {
     });
 }
 function getOllamaLoadedModels(executablePath) {
+    const mockedOutput = process.env.SIFTKIT_TEST_OLLAMA_PS_OUTPUT;
+    if (mockedOutput && mockedOutput.trim()) {
+        return mockedOutput
+            .split(/\r?\n/u)
+            .slice(1)
+            .filter((line) => line.trim().length > 0)
+            .reduce((loadedModels, line) => {
+            const parts = line.trim().split(/\s{2,}/u);
+            if (parts.length < 5) {
+                return loadedModels;
+            }
+            const parsedContext = Number.parseInt(parts[4], 10);
+            loadedModels.push({
+                Name: parts[0].trim(),
+                Id: parts[1]?.trim() || null,
+                Size: parts[2]?.trim() || null,
+                Processor: parts[3]?.trim() || null,
+                Context: Number.isFinite(parsedContext) ? parsedContext : null,
+                Until: parts[5]?.trim() || null,
+            });
+            return loadedModels;
+        }, []);
+    }
     if (!executablePath || !fs.existsSync(executablePath)) {
         return [];
     }
-    const result = (0, node_child_process_1.spawnSync)(executablePath, ['ps'], { encoding: 'utf8' });
+    const extension = path.extname(executablePath).toLowerCase();
+    const usesCommandShell = extension === '.cmd' || extension === '.bat';
+    const result = usesCommandShell
+        ? (0, node_child_process_1.spawnSync)('cmd.exe', ['/d', '/s', '/c', `"${executablePath}" ps`], { encoding: 'utf8' })
+        : (0, node_child_process_1.spawnSync)(executablePath, ['ps'], { encoding: 'utf8' });
     if (result.status !== 0 || !result.stdout) {
         return [];
     }

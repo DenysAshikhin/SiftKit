@@ -25,151 +25,60 @@ function Import-SiftKitCliModule {
     throw 'SiftKit module could not be located. Import the module or run Install-SiftKitShellIntegration first.'
 }
 
-function Read-SiftStdin {
-    if ($script:PipelineBuffer.Count -gt 0) {
-        $pipelineText = Convert-SiftPipelineBufferToText -PipelineBuffer $script:PipelineBuffer
-        if (-not [string]::IsNullOrEmpty($pipelineText)) {
-            return $pipelineText
-        }
+function Get-SiftTsCliPath {
+    $module = Get-Module SiftKit
+    if (-not $module) {
+        throw 'SiftKit module is not loaded.'
     }
 
-    if ([Console]::IsInputRedirected) {
-        $redirectedText = Normalize-SiftInputText -Text ([Console]::In.ReadToEnd())
-        if (-not [string]::IsNullOrEmpty($redirectedText)) {
-            return $redirectedText
-        }
-    }
-
-    return $null
-}
-
-function Normalize-SiftInputText {
-    param(
-        [AllowNull()]
-        [string]$Text
+    $candidatePaths = @(
+        (Join-Path -Path (Split-Path -Path $module.ModuleBase -Parent) -ChildPath 'dist\src\cli.js'),
+        (Join-Path -Path $module.ModuleBase -ChildPath 'dist\src\cli.js')
     )
 
-    if ($null -eq $Text) {
-        return $null
-    }
-
-    $Text.TrimEnd([char[]]@("`r", "`n"))
-}
-
-function Convert-SiftPipelineItemToText {
-    param(
-        [AllowNull()]
-        [object]$Item
-    )
-
-    if ($null -eq $Item) {
-        return $null
-    }
-
-    if ($Item -is [System.Management.Automation.ErrorRecord]) {
-        $message = $Item.Exception.Message
-        if (-not [string]::IsNullOrWhiteSpace($message)) {
-            return $message.TrimEnd([char[]]@("`r", "`n"))
+    foreach ($candidate in $candidatePaths) {
+        if (Test-Path -LiteralPath $candidate) {
+            return $candidate
         }
     }
 
-    if ($Item -is [string]) {
-        return $Item
-    }
-
-    return [string]$Item
+    throw ('TS CLI entrypoint not found. Checked: {0}. Run npm run build.' -f ($candidatePaths -join '; '))
 }
 
-function Convert-SiftPipelineBufferToText {
+function Get-SiftCommandName {
+    param(
+        [string[]]$Args
+    )
+
+    $knownCommands = @('summary', 'run', 'find-files', 'install', 'test', 'eval', 'codex-policy', 'install-global', 'install-service', 'uninstall-service', 'config-get', 'config-set', 'capture-internal', 'internal', 'status-server')
+    if ($Args.Count -gt 0 -and $Args[0] -in $knownCommands) {
+        return $Args[0]
+    }
+
+    'summary'
+}
+
+function Test-SiftSummaryHasExplicitInput {
+    param(
+        [string[]]$Args
+    )
+
+    $Args -contains '--text' -or $Args -contains '--file'
+}
+
+function Invoke-SiftModuleHelper {
     param(
         [Parameter(Mandatory = $true)]
-        [System.Collections.IEnumerable]$PipelineBuffer
+        [scriptblock]$ScriptBlock,
+        [object[]]$ArgumentList = @()
     )
 
-    $items = @($PipelineBuffer)
-    if ($items.Count -eq 0) {
-        return ''
+    $module = Get-Module SiftKit
+    if (-not $module) {
+        throw 'SiftKit module is not loaded.'
     }
 
-    $allRenderableAsText = $true
-    foreach ($item in $items) {
-        if ($item -isnot [string] -and $item -isnot [System.Management.Automation.ErrorRecord]) {
-            $allRenderableAsText = $false
-            break
-        }
-    }
-
-    if ($allRenderableAsText) {
-        $lines = @($items | ForEach-Object { Convert-SiftPipelineItemToText -Item $_ } | Where-Object { $null -ne $_ })
-        return (Normalize-SiftInputText -Text ($lines -join [Environment]::NewLine))
-    }
-
-    return (Normalize-SiftInputText -Text ($items | Out-String -Width 200))
-}
-
-function Parse-SiftCliArguments {
-    param(
-        [string[]]$Tokens
-    )
-
-    $parsed = [ordered]@{
-        Positionals = @()
-        ArgList = @()
-    }
-
-    for ($i = 0; $i -lt $Tokens.Count; $i++) {
-        $token = $Tokens[$i]
-        switch ($token) {
-            '--question' { $parsed.Question = $Tokens[++$i] }
-            '--text' { $parsed.Text = $Tokens[++$i] }
-            '--file' { $parsed.File = $Tokens[++$i] }
-            '--backend' { $parsed.Backend = $Tokens[++$i] }
-            '--model' { $parsed.Model = $Tokens[++$i] }
-            '--profile' { $parsed.Profile = $Tokens[++$i] }
-            '--format' { $parsed.Format = $Tokens[++$i] }
-            '--risk' { $parsed.Risk = $Tokens[++$i] }
-            '--reducer' { $parsed.Reducer = $Tokens[++$i] }
-            '--command' { $parsed.Command = $Tokens[++$i] }
-            '--arg' { $parsed.ArgList += $Tokens[++$i] }
-            '--path' { $parsed.Path = $Tokens[++$i] }
-            '--full-path' { $parsed.FullPath = $true }
-            '--codex-home' { $parsed.CodexHome = $Tokens[++$i] }
-            '--fixture-root' { $parsed.FixtureRoot = $Tokens[++$i] }
-            '--bin-dir' { $parsed.BinDir = $Tokens[++$i] }
-            '--module-root' { $parsed.ModuleRoot = $Tokens[++$i] }
-            '--startup-dir' { $parsed.StartupDir = $Tokens[++$i] }
-            '--status-path' { $parsed.StatusPath = $Tokens[++$i] }
-            '--key' { $parsed.Key = $Tokens[++$i] }
-            '--value' { $parsed.Value = $Tokens[++$i] }
-            default { $parsed.Positionals += $token }
-        }
-    }
-
-    [pscustomobject]$parsed
-}
-
-function Show-SiftKitHelp {
-@'
-SiftKit CLI
-
-Usage:
-  siftkit "question"
-  some-command | siftkit "question"
-  siftkit summary --question "..." [--text "..."] [--file path]
-  siftkit run --command pytest --arg -q --question "did tests pass?"
-  siftkit find-files [--path dir] [--full-path] pattern [pattern...]
-  siftkit install
-  siftkit test
-  siftkit eval
-  siftkit codex-policy
-  siftkit install-global
-  siftkit install-service
-  siftkit uninstall-service
-  siftkit config-get
-  siftkit config-set --key Backend --value mock
-  siftkit capture-internal --command git --arg rebase --arg -i --question "..."
-  siftkit status-server
-'@
+    & ($module.NewBoundScriptBlock($ScriptBlock)) @ArgumentList
 }
 
 Import-SiftKitCliModule
@@ -188,155 +97,45 @@ foreach ($item in $input) {
     }
 }
 
-if (-not $CliArgs -or $CliArgs.Count -eq 0 -or $CliArgs[0] -in @('help', '--help', '-h')) {
-    Show-SiftKitHelp
-    exit 0
+$commandName = Get-SiftCommandName -Args $CliArgs
+$forwardedArgs = @($CliArgs)
+$tempInputPath = $null
+
+if ($script:PipelineBuffer.Count -gt 0 -and $commandName -eq 'summary' -and -not (Test-SiftSummaryHasExplicitInput -Args $CliArgs)) {
+    $pipelineText = Invoke-SiftModuleHelper -ScriptBlock {
+        param($PipelineBuffer)
+        Convert-SiftPipelineBufferToText -PipelineBuffer $PipelineBuffer
+    } -ArgumentList (, $script:PipelineBuffer)
+
+    $tempInputPath = Invoke-SiftModuleHelper -ScriptBlock {
+        param($Content)
+        New-SiftTempTextFile -Content $Content -Prefix 'siftkit_cli'
+    } -ArgumentList @($pipelineText)
+
+    if ($CliArgs.Count -gt 1 -and $CliArgs[0] -eq 'summary') {
+        $forwardedArgs = @('summary', '--file', $tempInputPath) + $CliArgs[1..($CliArgs.Count - 1)]
+    }
+    elseif ($CliArgs.Count -eq 1 -and $CliArgs[0] -eq 'summary') {
+        $forwardedArgs = @('summary', '--file', $tempInputPath)
+    }
+    else {
+        $forwardedArgs = @('summary', '--file', $tempInputPath) + $CliArgs
+    }
 }
 
-$knownCommands = @('summary', 'run', 'find-files', 'install', 'test', 'eval', 'codex-policy', 'install-global', 'install-service', 'uninstall-service', 'config-get', 'config-set', 'capture-internal', 'status-server')
-$commandName = if ($CliArgs[0] -in $knownCommands) { $CliArgs[0] } else { 'summary' }
-$commandArgs = if ($commandName -eq 'summary' -and $CliArgs[0] -notin $knownCommands) { $CliArgs } else { $CliArgs[1..($CliArgs.Count - 1)] }
-if ($CliArgs.Count -eq 1 -and $commandName -ne 'summary') {
-    $commandArgs = @()
-}
-
-$parsed = Parse-SiftCliArguments -Tokens $commandArgs
-
-switch ($commandName) {
-    'summary' {
-        $question = if ($parsed.Question) { $parsed.Question } elseif ($parsed.Positionals.Count -gt 0) { $parsed.Positionals[0] } else { throw 'A question is required.' }
-        $hasPipelineInput = $script:PipelineBuffer.Count -gt 0
-        $inputText = if ($parsed.Text) { Normalize-SiftInputText -Text $parsed.Text } elseif ($parsed.File -or $hasPipelineInput) { $null } else { Read-SiftStdin }
-        $format = if ($parsed.Format) { $parsed.Format } else { 'text' }
-        $profile = if ($parsed.Profile) { $parsed.Profile } else { 'general' }
-
-        if (-not $parsed.File -and -not $hasPipelineInput -and [string]::IsNullOrWhiteSpace($inputText)) {
-            'No output received.'
-            exit 0
-        }
-
-        if ($parsed.File) {
-            $result = Invoke-SiftSummary -Question $question -InputFile $parsed.File -Format $format -Backend $parsed.Backend -Model $parsed.Model -PolicyProfile $profile
-        }
-        elseif ($hasPipelineInput) {
-            $result = $script:PipelineBuffer | Invoke-SiftSummary -Question $question -Format $format -Backend $parsed.Backend -Model $parsed.Model -PolicyProfile $profile
-        }
-        else {
-            $result = Invoke-SiftSummary -Question $question -Text $inputText -Format $format -Backend $parsed.Backend -Model $parsed.Model -PolicyProfile $profile
-        }
-
-        $result.Summary
-    }
-    'run' {
-        $command = if ($parsed.Command) { $parsed.Command } elseif ($parsed.Positionals.Count -gt 0) { $parsed.Positionals[0] } else { throw 'A command is required.' }
-        $argList = if ($parsed.ArgList.Count -gt 0) { $parsed.ArgList } elseif ($parsed.Positionals.Count -gt 1) { $parsed.Positionals[1..($parsed.Positionals.Count - 1)] } else { @() }
-        $risk = if ($parsed.Risk) { $parsed.Risk } else { 'informational' }
-        $reducer = if ($parsed.Reducer) { $parsed.Reducer } else { 'smart' }
-        $question = if ($parsed.Question) { $parsed.Question } else { 'Summarize the main result and any actionable failures.' }
-        $profile = if ($parsed.Profile) { $parsed.Profile } else { 'general' }
-        $format = if ($parsed.Format) { $parsed.Format } else { 'text' }
-        $result = Invoke-SiftCommand -Command $command -ArgumentList $argList -Question $question -RiskLevel $risk -ReducerProfile $reducer -Format $format -Backend $parsed.Backend -Model $parsed.Model -PolicyProfile $profile
-
-        if ($result.Summary) {
-            $result.Summary
-        }
-        else {
-            'No summary generated.'
-        }
-
-        'Raw log: {0}' -f $result.RawLogPath
-    }
-    'find-files' {
-        $patterns = if ($parsed.Positionals.Count -gt 0) { $parsed.Positionals } else { throw 'At least one file name or pattern is required.' }
-        $searchPath = if ($parsed.Path) { $parsed.Path } else { '.' }
-        $results = Find-SiftFiles -Name $patterns -Path $searchPath -FullPath:$([bool]$parsed.FullPath)
-
-        if ($parsed.FullPath) {
-            $results | ForEach-Object { $_.FullPath }
-        }
-        else {
-            $results | ForEach-Object { $_.RelativePath }
-        }
-    }
-    'install' {
-        Install-SiftKit | Format-List *
-    }
-    'test' {
-        Test-SiftKit | Format-List *
-    }
-    'eval' {
-        if ($parsed.FixtureRoot) {
-            Invoke-SiftEvaluation -FixtureRoot $parsed.FixtureRoot -Backend $parsed.Backend -Model $parsed.Model | Format-List *
-        }
-        else {
-            Invoke-SiftEvaluation -Backend $parsed.Backend -Model $parsed.Model | Format-List *
-        }
-    }
-    'codex-policy' {
-        if ($parsed.CodexHome) {
-            Install-SiftCodexPolicy -CodexHome $parsed.CodexHome | Format-List *
-        }
-        else {
-            Install-SiftCodexPolicy | Format-List *
-        }
-    }
-    'install-global' {
-        $installArgs = @{}
-        if ($parsed.BinDir) {
-            $installArgs.BinDir = $parsed.BinDir
-        }
-        if ($parsed.ModuleRoot) {
-            $installArgs.ModuleInstallRoot = $parsed.ModuleRoot
-        }
-
-        Install-SiftKitShellIntegration @installArgs | Format-List *
-    }
-    'install-service' {
-        $serviceArgs = @{}
-        if ($parsed.BinDir) {
-            $serviceArgs.BinDir = $parsed.BinDir
-        }
-        if ($parsed.StartupDir) {
-            $serviceArgs.StartupDir = $parsed.StartupDir
-        }
-        if ($parsed.StatusPath) {
-            $serviceArgs.StatusPath = $parsed.StatusPath
-        }
-        Install-SiftKitService @serviceArgs | Format-List *
-    }
-    'uninstall-service' {
-        $serviceArgs = @{
-            SkipPm2Bootstrap = $true
-        }
-        if ($parsed.BinDir) {
-            $serviceArgs.BinDir = $parsed.BinDir
-        }
-        if ($parsed.StartupDir) {
-            $serviceArgs.StartupDir = $parsed.StartupDir
-        }
-
-        Uninstall-SiftKitService @serviceArgs | Format-List *
-    }
-    'config-get' {
-        Get-SiftKitConfig | ConvertTo-Json -Depth 8
-    }
-    'config-set' {
-        if (-not $parsed.Key) {
-            throw 'A --key is required.'
-        }
-        Set-SiftKitConfig -Key $parsed.Key -Value $parsed.Value | ConvertTo-Json -Depth 8
-    }
-    'capture-internal' {
-        $command = if ($parsed.Command) { $parsed.Command } elseif ($parsed.Positionals.Count -gt 0) { $parsed.Positionals[0] } else { throw 'A command is required.' }
-        $argList = if ($parsed.ArgList.Count -gt 0) { $parsed.ArgList } elseif ($parsed.Positionals.Count -gt 1) { $parsed.Positionals[1..($parsed.Positionals.Count - 1)] } else { @() }
-        $question = if ($parsed.Question) { $parsed.Question } else { 'Summarize the important result and any actionable failures.' }
-        $profile = if ($parsed.Profile) { $parsed.Profile } else { 'general' }
-        $format = if ($parsed.Format) { $parsed.Format } else { 'text' }
-        $result = Invoke-SiftInteractiveCapture -Command $command -ArgumentList $argList -Question $question -Format $format -Backend $parsed.Backend -Model $parsed.Model -PolicyProfile $profile
-        $result.OutputText
-    }
-    'status-server' {
+try {
+    if ($commandName -eq 'status-server') {
         $serverScript = Join-Path -Path (Split-Path -Path $PSScriptRoot -Parent) -ChildPath 'siftKitStatus\index.js'
         & node $serverScript
+        exit $LASTEXITCODE
+    }
+
+    $cliPath = Get-SiftTsCliPath
+    & node $cliPath @forwardedArgs
+    exit $LASTEXITCODE
+}
+finally {
+    if ($tempInputPath -and (Test-Path -LiteralPath $tempInputPath)) {
+        Remove-Item -LiteralPath $tempInputPath -Force -ErrorAction SilentlyContinue
     }
 }
