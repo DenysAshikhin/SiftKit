@@ -2365,27 +2365,7 @@ function Test-SiftUsePowerShellProviderPath {
     $script:SiftProviders.ContainsKey($Backend)
 }
 
-function Test-SiftUseLegacyCommandPath {
-    param(
-        [AllowNull()]
-        [string]$Command,
-        [AllowNull()]
-        [string]$Backend
-    )
-
-    if (Test-SiftUsePowerShellProviderPath -Backend $Backend) {
-        return $true
-    }
-
-    if ([string]::IsNullOrWhiteSpace($Command)) {
-        return $false
-    }
-
-    $leafName = [System.IO.Path]::GetFileName($Command)
-    $leafName -in @('powershell', 'powershell.exe', 'pwsh', 'pwsh.exe')
-}
-
-function Invoke-SiftSummaryLegacyCore {
+function Invoke-SiftSummaryProviderAdapterCore {
     param(
         [Parameter(Mandatory = $true)]
         [string]$Question,
@@ -2447,7 +2427,7 @@ function Invoke-SiftSummaryLegacyCore {
     }
 }
 
-function Test-SiftKitLegacyCore {
+function Test-SiftKitProviderAdapterCore {
     $config = Get-SiftConfig -Ensure
     $paths = Initialize-SiftRuntime
     $provider = Get-SiftProvider -Name $config.Backend
@@ -2497,7 +2477,7 @@ function Test-SiftKitLegacyCore {
     }
 }
 
-function Invoke-SiftCommandLegacyCore {
+function Invoke-SiftCommandAdapterCore {
     param(
         [Parameter(Mandatory = $true)]
         [string]$Command,
@@ -2571,7 +2551,7 @@ function Test-SiftKit {
 
     $config = Get-SiftConfig -Ensure
     if (Test-SiftUsePowerShellProviderPath -Backend $config.Backend) {
-        return Test-SiftKitLegacyCore
+        return Test-SiftKitProviderAdapterCore
     }
 
     $result = Invoke-SiftTsInternal -Operation 'test' -RequestObject @{}
@@ -2654,7 +2634,7 @@ function Invoke-SiftSummary {
         $config = Get-SiftConfig -Ensure
         $effectiveBackend = if ([string]::IsNullOrWhiteSpace($Backend)) { $config.Backend } else { $Backend }
         if (Test-SiftUsePowerShellProviderPath -Backend $effectiveBackend) {
-            return Invoke-SiftSummaryLegacyCore -Question $Question -InputText $inputText -Format $Format -Backend $Backend -Model $Model -PolicyProfile $PolicyProfile
+            return Invoke-SiftSummaryProviderAdapterCore -Question $Question -InputText $inputText -Format $Format -Backend $Backend -Model $Model -PolicyProfile $PolicyProfile
         }
 
         $textFile = New-SiftTempTextFile -Content $inputText -Prefix 'siftkit_summary'
@@ -2696,24 +2676,7 @@ function Invoke-SiftCommand {
         [switch]$NoSummarize
     )
 
-    $config = Get-SiftConfig -Ensure
-    $effectiveBackend = if ([string]::IsNullOrWhiteSpace($Backend)) { $config.Backend } else { $Backend }
-    if (Test-SiftUseLegacyCommandPath -Command $Command -Backend $effectiveBackend) {
-        return Invoke-SiftCommandLegacyCore -Command $Command -ArgumentList $ArgumentList -Question $Question -RiskLevel $RiskLevel -ReducerProfile $ReducerProfile -Format $Format -PolicyProfile $PolicyProfile -Backend $Backend -Model $Model -NoSummarize:$NoSummarize
-    }
-
-    Invoke-SiftTsInternal -Operation 'command' -RequestObject @{
-        Command = $Command
-        ArgumentList = @($ArgumentList)
-        Question = $Question
-        RiskLevel = $RiskLevel
-        ReducerProfile = $ReducerProfile
-        Format = $Format
-        PolicyProfile = $PolicyProfile
-        Backend = $Backend
-        Model = $Model
-        NoSummarize = [bool]$NoSummarize
-    }
+    Invoke-SiftCommandAdapterCore -Command $Command -ArgumentList $ArgumentList -Question $Question -RiskLevel $RiskLevel -ReducerProfile $ReducerProfile -Format $Format -PolicyProfile $PolicyProfile -Backend $Backend -Model $Model -NoSummarize:$NoSummarize
 }
 
 function Invoke-SiftEvaluation {
