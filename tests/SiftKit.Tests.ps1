@@ -280,6 +280,8 @@ function Get-ConcurrentTestEnvironment {
         SIFTKIT_TEST_PROVIDER = 'mock'
         SIFTKIT_LOCK_TIMEOUT_MS = [string]$LockTimeoutMs
         SIFTKIT_TEST_PROVIDER_SLEEP_MS = [string]$ProviderSleepMs
+        sift_kit_status = ''
+        SIFTKIT_STATUS_PATH = ''
     }
 }
 
@@ -465,7 +467,13 @@ Describe 'SiftKit' {
         }
 
         $loaded = Get-Content -LiteralPath (Join-Path $script:TestHome '.siftkit\config.json') -Raw | ConvertFrom-Json
-        $loaded.Model | Should Be 'qwen3.5:4b-q8_0'
+        $loaded.Model | Should Be 'qwen3.5:9b-q4_K_M'
+        $loaded.Ollama.Temperature | Should Be 0.2
+        $loaded.Ollama.TopP | Should Be 0.95
+        $loaded.Ollama.TopK | Should Be 20
+        $loaded.Ollama.MinP | Should Be 0.0
+        $loaded.Ollama.PresencePenalty | Should Be 0.0
+        $loaded.Ollama.RepetitionPenalty | Should Be 1.0
     }
 
     It 'prefers the status path from the environment variable and falls back to the runtime status path' {
@@ -566,6 +574,16 @@ Describe 'SiftKit' {
         $whitespacePath | Should Be ([System.IO.Path]::GetFullPath((Get-DefaultTestStatusPath)))
     }
 
+    It 'does not use a config service unless it was explicitly configured' {
+        $serviceUrl = InModuleScope SiftKit {
+            Remove-Item Env:\SIFTKIT_CONFIG_SERVICE_URL -ErrorAction SilentlyContinue
+            Remove-Item Env:\SIFTKIT_STATUS_BACKEND_URL -ErrorAction SilentlyContinue
+            Get-SiftConfigServiceUrl
+        }
+
+        $serviceUrl | Should Be $null
+    }
+
     It 'normalizes a relative status path from the environment variable to a full path' {
         $relativePath = '.\status\relative.txt'
         $resolvedPath = InModuleScope SiftKit {
@@ -627,12 +645,37 @@ Describe 'SiftKit' {
     }
 
     It 'splits oversized input into chunk summaries before the final summary' {
-        $text = ('A' * 120000)
+        $threshold = InModuleScope SiftKit {
+            $config = Get-SiftConfig -Ensure
+            Get-SiftChunkThresholdCharacters -Config $config
+        }
+        $text = ('A' * ($threshold + 1))
         $result = Invoke-SiftSummary -Question 'summarize this' -Text $text -Backend 'mock' -Model 'mock-model'
 
         $result.WasSummarized | Should Be $true
         $result.Summary | Should Match 'mock summary'
         InModuleScope SiftKit { $script:MockSummaryCalls } | Should Be 3
+    }
+
+    It 'still summarizes long input when incidental stderr-like lines are present' {
+        $body = (1..120 | ForEach-Object { "repo\file$_.gd:$($_): tech_unlocks status_effects" }) -join "`n"
+        $text = $body + "`nrg: repo\assets\locked.png: Access is denied. (os error 5)"
+        $result = Invoke-SiftSummary -Question 'find the main files and hotspots where hardcoded tech unlock or status effect keys are used' -Text $text -Backend 'mock' -Model 'mock-model'
+
+        $result.WasSummarized | Should Be $true
+        $result.PolicyDecision | Should Be 'summarize'
+        $result.Summary | Should Match 'mock summary'
+    }
+
+    It 'still summarizes large grep-style input when many incidental access-denied lines are present' {
+        $body = (1..800 | ForEach-Object { "repo\file$_.gd:$($_): tech_unlocks status_effects" }) -join "`n"
+        $errorLines = (1..12 | ForEach-Object { "rg: repo\assets\locked_$_.png: Access is denied. (os error 5)" }) -join "`n"
+        $text = $body + "`n" + $errorLines
+        $result = Invoke-SiftSummary -Question 'find the main files and hotspots where hardcoded tech unlock or status effect keys are used' -Text $text -Backend 'mock' -Model 'mock-model'
+
+        $result.WasSummarized | Should Be $true
+        $result.PolicyDecision | Should Be 'summarize'
+        $result.Summary | Should Match 'mock summary'
     }
 
     It 'migrates legacy config files with missing chunk thresholds' {
@@ -664,7 +707,7 @@ Describe 'SiftKit' {
 
         $config.Thresholds.PSObject.Properties['MaxInputCharacters'] | Should BeNullOrEmpty
         $config.Thresholds.ChunkThresholdRatio | Should Be 0.92
-        $config.Ollama.NumCtx | Should Be 50000
+        $config.Ollama.NumCtx | Should Be 128000
     }
 
     It 'migrates persisted legacy defaults to the new derived context settings' {
@@ -672,7 +715,7 @@ Describe 'SiftKit' {
         $legacy = @{
             Version = '0.1.0'
             Backend = 'ollama'
-            Model = 'qwen3.5:4b-q8_0'
+            Model = 'qwen3.5:9b-q4_K_M'
             PolicyMode = 'conservative'
             RawLogRetention = $true
             Ollama = @{
@@ -699,15 +742,15 @@ Describe 'SiftKit' {
 
         $config.Thresholds.PSObject.Properties['MaxInputCharacters'] | Should BeNullOrEmpty
         $config.Thresholds.ChunkThresholdRatio | Should Be 0.92
-        $config.Ollama.NumCtx | Should Be 50000
+        $config.Ollama.NumCtx | Should Be 128000
     }
 
-    It 'migrates legacy derived context defaults from num_ctx 32000 to 50000' {
+    It 'migrates legacy derived context defaults from num_ctx 32000 to 128000' {
         $configPath = Join-Path $script:TestHome '.siftkit\config.json'
         $legacy = @{
             Version = '0.1.0'
             Backend = 'ollama'
-            Model = 'qwen3.5:4b-q8_0'
+            Model = 'qwen3.5:9b-q4_K_M'
             PolicyMode = 'conservative'
             RawLogRetention = $true
             Ollama = @{
@@ -733,7 +776,252 @@ Describe 'SiftKit' {
 
         $config.Thresholds.PSObject.Properties['MaxInputCharacters'] | Should BeNullOrEmpty
         $config.Thresholds.ChunkThresholdRatio | Should Be 0.92
-        $config.Ollama.NumCtx | Should Be 50000
+        $config.Ollama.NumCtx | Should Be 128000
+    }
+
+    It 'migrates the previous default num_ctx 50000 to 128000' {
+        $configPath = Join-Path $script:TestHome '.siftkit\config.json'
+        $legacy = @{
+            Version = '0.1.0'
+            Backend = 'ollama'
+            Model = 'qwen3.5:9b-q4_K_M'
+            PolicyMode = 'conservative'
+            RawLogRetention = $true
+            Ollama = @{
+                BaseUrl = 'http://127.0.0.1:11434'
+                ExecutablePath = 'mock.exe'
+                NumCtx = 50000
+            }
+            Thresholds = @{
+                MinCharactersForSummary = 500
+                MinLinesForSummary = 16
+                ChunkThresholdRatio = 0.92
+            }
+            Paths = @{
+                RuntimeRoot = Join-Path $script:TestHome '.siftkit'
+                Logs = Join-Path $script:TestHome '.siftkit\logs'
+                EvalFixtures = Join-Path $script:TestHome '.siftkit\eval\fixtures'
+                EvalResults = Join-Path $script:TestHome '.siftkit\eval\results'
+            }
+        }
+        $legacy | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $configPath -Encoding UTF8
+
+        $config = InModuleScope SiftKit { Get-SiftConfig -Ensure }
+
+        $config.Thresholds.PSObject.Properties['MaxInputCharacters'] | Should BeNullOrEmpty
+        $config.Thresholds.ChunkThresholdRatio | Should Be 0.92
+        $config.Ollama.NumCtx | Should Be 128000
+    }
+
+    It 'migrates the previous default model to qwen3.5:9b-q4_K_M' {
+        $configPath = Join-Path $script:TestHome '.siftkit\config.json'
+        $legacy = @{
+            Version = '0.1.0'
+            Backend = 'ollama'
+            Model = 'qwen3.5:4b-q8_0'
+            PolicyMode = 'conservative'
+            RawLogRetention = $true
+            Ollama = @{
+                BaseUrl = 'http://127.0.0.1:11434'
+                ExecutablePath = 'mock.exe'
+                NumCtx = 128000
+            }
+            Thresholds = @{
+                MinCharactersForSummary = 500
+                MinLinesForSummary = 16
+                ChunkThresholdRatio = 0.92
+            }
+            Paths = @{
+                RuntimeRoot = Join-Path $script:TestHome '.siftkit'
+                Logs = Join-Path $script:TestHome '.siftkit\logs'
+                EvalFixtures = Join-Path $script:TestHome '.siftkit\eval\fixtures'
+                EvalResults = Join-Path $script:TestHome '.siftkit\eval\results'
+            }
+        }
+        $legacy | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $configPath -Encoding UTF8
+
+        $config = InModuleScope SiftKit { Get-SiftConfig -Ensure }
+
+        $config.Model | Should Be 'qwen3.5:9b-q4_K_M'
+    }
+
+    It 'removes stale MaxInputCharacters when modern NumCtx is already configured' {
+        $configPath = Join-Path $script:TestHome '.siftkit\config.json'
+        $legacy = @{
+            Version = '0.1.0'
+            Backend = 'ollama'
+            Model = 'qwen3.5:9b-q4_K_M'
+            PolicyMode = 'conservative'
+            RawLogRetention = $true
+            Ollama = @{
+                BaseUrl = 'http://127.0.0.1:11434'
+                ExecutablePath = 'mock.exe'
+                NumCtx = 128000
+            }
+            Thresholds = @{
+                MinCharactersForSummary = 500
+                MinLinesForSummary = 16
+                MaxInputCharacters = 32000
+                ChunkThresholdRatio = 0.92
+            }
+            Paths = @{
+                RuntimeRoot = Join-Path $script:TestHome '.siftkit'
+                Logs = Join-Path $script:TestHome '.siftkit\logs'
+                EvalFixtures = Join-Path $script:TestHome '.siftkit\eval\fixtures'
+                EvalResults = Join-Path $script:TestHome '.siftkit\eval\results'
+            }
+        }
+        $legacy | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $configPath -Encoding UTF8
+
+        $config = InModuleScope SiftKit { Get-SiftConfig -Ensure }
+        $persisted = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+
+        $config.Thresholds.PSObject.Properties['MaxInputCharacters'] | Should BeNullOrEmpty
+        $persisted.Thresholds.PSObject.Properties['MaxInputCharacters'] | Should BeNullOrEmpty
+        $config.Effective.MaxInputCharacters | Should Be 320000
+        $config.Effective.ChunkThresholdCharacters | Should Be 294400
+        $config.Effective.LegacyMaxInputCharactersRemoved | Should Be $true
+        $config.Effective.LegacyMaxInputCharactersValue | Should Be 32000
+    }
+
+    It 'derives chunk threshold from NumCtx instead of MaxInputCharacters' {
+        $threshold = InModuleScope SiftKit {
+            $config = Get-SiftDefaultConfigObject
+            $config.Ollama.NumCtx = 128000
+            $config.Thresholds | Add-Member -NotePropertyName MaxInputCharacters -NotePropertyValue 32000
+            $config.Thresholds.ChunkThresholdRatio = 0.92
+            Get-SiftChunkThresholdCharacters -Config $config
+        }
+
+        $threshold | Should Be 294400
+    }
+
+    It 'uses the same two-chunk budget for 115666 characters across text file and pipeline input' {
+        $threshold = InModuleScope SiftKit {
+            $config = Get-SiftConfig -Ensure
+            Get-SiftChunkThresholdCharacters -Config $config
+        }
+        $text = 'A' * ($threshold + 666)
+        $inputPath = Join-Path $script:TestHome '115666.txt'
+        Set-Content -LiteralPath $inputPath -Value $text -Encoding UTF8 -NoNewline
+
+        InModuleScope SiftKit { $script:MockSummaryCalls = 0 }
+        $textResult = Invoke-SiftSummary -Question 'summarize this' -Text $text -Backend 'mock' -Model 'mock-model'
+        $textCalls = InModuleScope SiftKit { $script:MockSummaryCalls }
+
+        InModuleScope SiftKit { $script:MockSummaryCalls = 0 }
+        $fileResult = Invoke-SiftSummary -Question 'summarize this' -InputFile $inputPath -Backend 'mock' -Model 'mock-model'
+        $fileCalls = InModuleScope SiftKit { $script:MockSummaryCalls }
+
+        InModuleScope SiftKit { $script:MockSummaryCalls = 0 }
+        $pipelineResult = $text | Invoke-SiftSummary -Question 'summarize this' -Backend 'mock' -Model 'mock-model'
+        $pipelineCalls = InModuleScope SiftKit { $script:MockSummaryCalls }
+
+        $textResult.WasSummarized | Should Be $true
+        $fileResult.WasSummarized | Should Be $true
+        $pipelineResult.WasSummarized | Should Be $true
+        $textCalls | Should Be 3
+        $fileCalls | Should Be 3
+        $pipelineCalls | Should Be 3
+    }
+
+    It 'uses 11 summaries for a 10-chunk input when the merge fits in one final pass' {
+        $threshold = InModuleScope SiftKit {
+            $config = Get-SiftConfig -Ensure
+            Get-SiftChunkThresholdCharacters -Config $config
+        }
+        $text = 'A' * (($threshold * 9) + 1)
+
+        InModuleScope SiftKit { $script:MockSummaryCalls = 0 }
+        $result = Invoke-SiftSummary -Question 'summarize this' -Text $text -Backend 'mock' -Model 'mock-model'
+        $calls = InModuleScope SiftKit { $script:MockSummaryCalls }
+
+        $result.WasSummarized | Should Be $true
+        $calls | Should Be 11
+    }
+
+    It 'recursively merges when the merge input exceeds the chunk threshold' {
+        InModuleScope SiftKit {
+            $script:RecursiveMergeLeafCalls = 0
+            $script:RecursiveMergePhaseCalls = 0
+            Register-SiftProvider -Name 'mock-recursive-merge' `
+                -TestScript {
+                    param($Config)
+
+                    [pscustomobject]@{
+                        Available = $true
+                        ExecutablePath = 'mock-recursive-merge.exe'
+                        Reachable = $true
+                        BaseUrl = 'mock://recursive-merge'
+                        Error = $null
+                    }
+                } `
+                -ListModelsScript {
+                    param($Config)
+                    @('mock-recursive-merge-model')
+                } `
+                -SummarizeScript {
+                    param($Config, $Model, $Prompt)
+
+                    if ($Prompt -match 'Merge these partial summaries into one final answer') {
+                        $script:RecursiveMergePhaseCalls++
+                        return 'merge summary'
+                    }
+
+                    $script:RecursiveMergeLeafCalls++
+                    return ('L' * 150000)
+                }
+        }
+
+        $threshold = InModuleScope SiftKit {
+            $config = Get-SiftConfig -Ensure
+            Get-SiftChunkThresholdCharacters -Config $config
+        }
+        $text = 'A' * (($threshold * 3) + 1)
+
+        $result = Invoke-SiftSummary -Question 'summarize this' -Text $text -Backend 'mock-recursive-merge' -Model 'mock-recursive-merge-model'
+        $leafCalls = InModuleScope SiftKit { $script:RecursiveMergeLeafCalls }
+        $mergeCalls = InModuleScope SiftKit { $script:RecursiveMergePhaseCalls }
+
+        $result.WasSummarized | Should Be $true
+        $result.Summary | Should Be 'merge summary'
+        $leafCalls | Should Be 4
+        $mergeCalls | Should BeGreaterThan 1
+    }
+
+    It 'normalizes stale workspace-local config on install when the runtime root is derived from the status path' {
+        $workspaceStatusPath = Join-Path $script:TestHome '.codex\siftkit\status\inference.txt'
+        $workspaceRoot = Join-Path $script:TestHome '.codex\siftkit'
+        $configPath = Join-Path $workspaceRoot 'config.json'
+        $null = New-Item -ItemType Directory -Path $workspaceRoot -Force
+        $legacy = @{
+            Version = '0.1.0'
+            Backend = 'ollama'
+            Model = 'qwen3.5:9b-q4_K_M'
+            PolicyMode = 'conservative'
+            RawLogRetention = $true
+            Ollama = @{
+                BaseUrl = 'http://127.0.0.1:11434'
+                ExecutablePath = 'mock.exe'
+                NumCtx = 16384
+            }
+            Thresholds = @{
+                MinCharactersForSummary = 500
+                MinLinesForSummary = 16
+                MaxInputCharacters = 32000
+                ChunkThresholdRatio = 0.75
+            }
+        }
+        $legacy | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $configPath -Encoding UTF8
+
+        $env:sift_kit_status = $workspaceStatusPath
+        $result = Install-SiftKit
+        $persisted = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+
+        $result.ConfigPath | Should Be ([System.IO.Path]::GetFullPath($configPath))
+        $persisted.Ollama.NumCtx | Should Be 128000
+        $persisted.Thresholds.PSObject.Properties['MaxInputCharacters'] | Should BeNullOrEmpty
+        $persisted.Thresholds.ChunkThresholdRatio | Should Be 0.92
     }
 
     It 'does not write the local status file when summarization fails without a backend' {
@@ -981,6 +1269,7 @@ other line
         $installedPackageRoot = Join-Path $prefix 'node_modules\siftkit'
         $null = New-Item -ItemType Directory -Path $installedPackageRoot -Force
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\bin') -Destination (Join-Path $installedPackageRoot 'bin') -Recurse -Force
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\dist') -Destination (Join-Path $installedPackageRoot 'dist') -Recurse -Force
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\SiftKit') -Destination (Join-Path $installedPackageRoot 'SiftKit') -Recurse -Force
         $inputDirectory = Join-Path $script:TestHome 'space path'
         $null = New-Item -ItemType Directory -Path $inputDirectory -Force
@@ -991,6 +1280,34 @@ other line
         $output = & $shimPath summary --question 'summarize this' --file $inputPath --backend mock --model mock-model
 
         ($output -join "`n") | Should Match 'mock summary'
+    }
+
+    It 'runs the test command through the generated global shim' {
+        $prefix = $script:TestNpmPrefix
+        if (Test-Path -LiteralPath $prefix) {
+            Remove-Item -LiteralPath $prefix -Recurse -Force
+        }
+
+        $env:npm_config_prefix = $prefix
+        try {
+            node (Join-Path $PSScriptRoot '..\scripts\postinstall.js')
+        }
+        finally {
+            Remove-Item Env:\npm_config_prefix -ErrorAction SilentlyContinue
+        }
+
+        $shimPath = Join-Path $prefix 'siftkit.ps1'
+        $installedPackageRoot = Join-Path $prefix 'node_modules\siftkit'
+        $null = New-Item -ItemType Directory -Path $installedPackageRoot -Force
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\bin') -Destination (Join-Path $installedPackageRoot 'bin') -Recurse -Force
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\dist') -Destination (Join-Path $installedPackageRoot 'dist') -Recurse -Force
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\SiftKit') -Destination (Join-Path $installedPackageRoot 'SiftKit') -Recurse -Force
+
+        $output = & $shimPath test
+        $joined = ($output -join "`n")
+
+        $joined | Should Match 'Ready'
+        $joined | Should Match 'EffectiveNumCtx'
     }
 
     It 'accepts direct powershell pipeline input with cli args' {
@@ -1217,7 +1534,13 @@ other line
         try {
             $configUrl = 'http://127.0.0.1:{0}/config' -f $server.Port
             $config = Invoke-RestMethod -Uri $configUrl -TimeoutSec 3
-            $config.Model | Should Be 'qwen3.5:4b-q8_0'
+            $config.Model | Should Be 'qwen3.5:9b-q4_K_M'
+            $config.Ollama.Temperature | Should Be 0.2
+            $config.Ollama.TopP | Should Be 0.95
+            $config.Ollama.TopK | Should Be 20
+            $config.Ollama.MinP | Should Be 0.0
+            $config.Ollama.PresencePenalty | Should Be 0.0
+            $config.Ollama.RepetitionPenalty | Should Be 1.0
             $config.PSObject.Properties['Paths'] | Should BeNullOrEmpty
 
             $updated = Invoke-RestMethod -Uri $configUrl -Method Put -ContentType 'application/json' -Body '{"Model":"service-model","Interactive":{"Enabled":false}}' -TimeoutSec 3
@@ -1230,6 +1553,31 @@ other line
             (Test-Path -LiteralPath $server.ConfigPath) | Should Be $true
         }
         finally {
+            Stop-NodeStatusServer -Handle $server
+        }
+    }
+
+    It 'keeps local config isolated from an implicitly discoverable service unless the config service is explicitly configured' {
+        $statusPath = Join-Path $script:TestHome 'implicit-service\status\inference.txt'
+        $server = Start-NodeStatusServer -StatusPath $statusPath -Port 0 -UseBuiltInCli
+        try {
+            $remoteConfigUrl = 'http://127.0.0.1:{0}/config' -f $server.Port
+            Invoke-RestMethod -Uri $remoteConfigUrl -Method Put -ContentType 'application/json' -Body '{"Model":"remote-model"}' -TimeoutSec 3 | Out-Null
+
+            Remove-Item Env:\SIFTKIT_CONFIG_SERVICE_URL -ErrorAction SilentlyContinue
+            Remove-Item Env:\SIFTKIT_STATUS_BACKEND_URL -ErrorAction SilentlyContinue
+            Remove-Item Env:\sift_kit_status -ErrorAction SilentlyContinue
+            $env:SIFTKIT_STATUS_PORT = [string]$server.Port
+
+            $result = Install-SiftKit -Force
+            $localConfig = Get-Content -LiteralPath $result.ConfigPath -Raw | ConvertFrom-Json
+            $remoteConfig = Invoke-RestMethod -Uri $remoteConfigUrl -TimeoutSec 3
+
+            $localConfig.Model | Should Be 'qwen3.5:9b-q4_K_M'
+            $remoteConfig.Model | Should Be 'remote-model'
+        }
+        finally {
+            Remove-Item Env:\SIFTKIT_STATUS_PORT -ErrorAction SilentlyContinue
             Stop-NodeStatusServer -Handle $server
         }
     }
@@ -1254,6 +1602,29 @@ other line
         }
     }
 
+    It 'normalizes legacy chunk settings when config is loaded from the config service' {
+        $statusPath = Join-Path $script:TestHome 'service-legacy\status\inference.txt'
+        $server = Start-NodeStatusServer -StatusPath $statusPath -Port 0 -UseBuiltInCli
+        try {
+            $env:sift_kit_status = $statusPath
+            $env:SIFTKIT_CONFIG_SERVICE_URL = 'http://127.0.0.1:{0}/config' -f $server.Port
+            $env:SIFTKIT_STATUS_BACKEND_URL = 'http://127.0.0.1:{0}/status' -f $server.Port
+            Invoke-RestMethod -Uri $env:SIFTKIT_CONFIG_SERVICE_URL -Method Put -ContentType 'application/json' -Body '{"Backend":"mock","Model":"mock-model","Ollama":{"NumCtx":16384},"Thresholds":{"MinCharactersForSummary":500,"MinLinesForSummary":16,"MaxInputCharacters":32000,"ChunkThresholdRatio":0.75}}' -TimeoutSec 3 | Out-Null
+
+            $config = Get-SiftKitConfig
+            $persisted = Invoke-RestMethod -Uri $env:SIFTKIT_CONFIG_SERVICE_URL -TimeoutSec 3
+
+            $config.Ollama.NumCtx | Should Be 128000
+            $config.Effective.MaxInputCharacters | Should Be 320000
+            $persisted.Ollama.NumCtx | Should Be '128000'
+            $persisted.Thresholds.PSObject.Properties['MaxInputCharacters'] | Should BeNullOrEmpty
+            $persisted.Thresholds.ChunkThresholdRatio | Should Be '0.92'
+        }
+        finally {
+            Stop-NodeStatusServer -Handle $server
+        }
+    }
+
     It 'falls back to in-memory defaults when the config service is unreachable' {
         $runtimeRoot = Join-Path $script:TestHome '.siftkit'
         $configPath = Join-Path $runtimeRoot 'config.json'
@@ -1264,8 +1635,20 @@ other line
         $env:SIFTKIT_CONFIG_SERVICE_URL = 'http://127.0.0.1:4779/config'
         $config = Get-SiftKitConfig
 
-        $config.Model | Should Be 'qwen3.5:4b-q8_0'
+        $config.Model | Should Be 'qwen3.5:9b-q4_K_M'
         $config.Paths.RuntimeRoot | Should Be ([System.IO.Path]::GetFullPath((Join-Path $script:TestHome '.siftkit')))
+    }
+
+    It 'config-get exposes effective derived budget settings' {
+        $output = & (Join-Path $PSScriptRoot '..\bin\siftkit.ps1') config-get
+        $config = ($output -join "`n") | ConvertFrom-Json
+
+        $config.Effective.ConfigAuthoritative | Should Be $true
+        $config.Effective.BudgetSource | Should Be 'NumCtxDerived'
+        $config.Effective.NumCtx | Should Be 128000
+        $config.Effective.MaxInputCharacters | Should Be 320000
+        $config.Effective.ChunkThresholdCharacters | Should Be 294400
+        $config.Effective.ChunkThresholdRatio | Should Be 0.92
     }
 
     It 'fails explicit config persistence clearly when the config service is unreachable' {
@@ -1292,6 +1675,108 @@ other line
 
         $removed.Removed | Should Be $true
         (Test-Path -LiteralPath $result.StartupLauncher) | Should Be $false
+    }
+
+    It 'parses loaded Ollama models without throwing on Windows PowerShell' {
+        $mockOllamaPath = Join-Path $script:TestHome 'mock-ollama.cmd'
+        Set-Content -LiteralPath $mockOllamaPath -Encoding ASCII -Value @'
+@echo off
+if /I "%~1"=="ps" (
+  echo NAME                ID              SIZE      PROCESSOR    CONTEXT    UNTIL
+  echo qwen3.5:9b-q4_K_M   abc123          5.5 GB    100%% GPU     128000     4 minutes from now
+  echo qwen3.5:2b          def456          1.7 GB    100%% GPU     32768      2 minutes from now
+)
+'@
+
+        $loadedModels = & ((Get-Module SiftKit).NewBoundScriptBlock({
+            param($ExecutablePath)
+            Get-SiftOllamaLoadedModels -ExecutablePath $ExecutablePath
+        })) $mockOllamaPath
+
+        $loadedModels.Count | Should Be 2
+        $loadedModels[0].Name | Should Be 'qwen3.5:9b-q4_K_M'
+        $loadedModels[0].Context | Should Be 128000
+        $loadedModels[1].Name | Should Be 'qwen3.5:2b'
+        $loadedModels[1].Context | Should Be 32768
+    }
+
+    It 'Test-SiftKit warns when the loaded model context differs from configured NumCtx' {
+        InModuleScope SiftKit {
+            Register-SiftProvider -Name 'mock-runtime' `
+                -TestScript {
+                    param($Config)
+
+                    [pscustomobject]@{
+                        Available = $true
+                        ExecutablePath = 'mock-runtime.exe'
+                        Reachable = $true
+                        BaseUrl = 'mock://runtime'
+                        Error = $null
+                        LoadedModelContext = 40000
+                        LoadedModelName = 'mock-runtime-model'
+                        RuntimeContextMatchesConfig = $false
+                    }
+                } `
+                -ListModelsScript {
+                    param($Config)
+                    @('mock-runtime-model')
+                } `
+                -SummarizeScript {
+                    param($Config, $Model, $Prompt)
+                    'mock runtime summary'
+                }
+
+            $config = Get-SiftDefaultConfigObject
+            $config.Backend = 'mock-runtime'
+            $config.Model = 'mock-runtime-model'
+            $config.Ollama.NumCtx = 128000
+            Save-SiftConfig -Config $config -AllowLocalFallback | Out-Null
+        }
+
+        $result = Test-SiftKit
+
+        $result.LoadedModelContext | Should Be 40000
+        $result.RuntimeContextMatchesConfig | Should Be $false
+        $result.EffectiveNumCtx | Should Be 128000
+        $result.EffectiveMaxInputCharacters | Should Be 320000
+        $result.EffectiveChunkThresholdCharacters | Should Be 294400
+        ($result.Issues -join "`n") | Should Match 'Config remains authoritative'
+    }
+
+    It 'formats status request logs without phase or path and supports total elapsed' {
+        $scriptPath = (Join-Path $PSScriptRoot '..\siftKitStatus\index.js')
+        $json = node -e "const status=require(process.argv[1]); const lines=[status.buildStatusRequestLogMessage({running:true,statusPath:'C:\\tmp\\siftkit.txt',rawInputCharacterCount:1100618,chunkInputCharacterCount:294400,promptCharacterCount:295066,chunkIndex:1,chunkTotal:4}),status.buildStatusRequestLogMessage({running:false,statusPath:'C:\\tmp\\siftkit.txt',elapsedMs:22000}),status.buildStatusRequestLogMessage({running:false,statusPath:'C:\\tmp\\siftkit.txt',totalElapsedMs:66000}),status.buildStatusRequestLogMessage({running:true,statusPath:'C:\\tmp\\siftkit.txt',characterCount:1234})]; process.stdout.write(JSON.stringify(lines));" $scriptPath
+        $lines = $json | ConvertFrom-Json
+
+        $lines[0] | Should Match '^request true'
+        $lines[0] | Should Not Match 'siftkit\.txt'
+        $lines[0] | Should Match 'raw_chars=1100618'
+        $lines[0] | Should Match 'chunk_input_chars=294400'
+        $lines[0] | Should Match 'prompt_chars=295066'
+        $lines[0] | Should Match 'chunk 1/4'
+        $lines[0] | Should Not Match 'phase='
+        $lines[1] | Should Match '^request false'
+        $lines[1] | Should Match 'elapsed=00:00:22'
+        $lines[1] | Should Not Match 'total_elapsed='
+        $lines[2] | Should Match '^request false'
+        $lines[2] | Should Not Match 'siftkit\.txt'
+        $lines[2] | Should Match 'total_elapsed=00:01:06'
+        $lines[3] | Should Match 'prompt_chars=1234'
+    }
+
+    It 'emits total elapsed only on the final completion of a chunked run' {
+        $scriptPath = (Join-Path $PSScriptRoot '..\siftKitStatus\index.js')
+        $json = node -e "process.env.SIFTKIT_STATUS_PORT='0'; const status=require(process.argv[1]); const logs=[]; const originalWrite=process.stdout.write.bind(process.stdout); process.stdout.write=(chunk)=>{const text=String(chunk).trim(); if(text && !text.startsWith('{') && !text.includes(' path -> ') && !text.includes(' config -> ')) logs.push(text); return true;}; const server=status.startStatusServer(); const wait=(ms)=>new Promise(resolve=>setTimeout(resolve,ms)); const post=(port, body)=>fetch('http://127.0.0.1:' + port + '/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); server.on('listening', async()=>{try{const port=server.address().port; await post(port,{running:true,statusPath:'C:\\\\tmp\\\\siftkit.txt',rawInputCharacterCount:1100618,chunkInputCharacterCount:294400,promptCharacterCount:295066,chunkIndex:1,chunkTotal:4}); await wait(20); await post(port,{running:false,statusPath:'C:\\\\tmp\\\\siftkit.txt'}); await post(port,{running:true,statusPath:'C:\\\\tmp\\\\siftkit.txt',rawInputCharacterCount:1100618,chunkInputCharacterCount:294400,promptCharacterCount:295066,chunkIndex:2,chunkTotal:4}); await wait(20); await post(port,{running:false,statusPath:'C:\\\\tmp\\\\siftkit.txt'}); await post(port,{running:true,statusPath:'C:\\\\tmp\\\\siftkit.txt',promptCharacterCount:52000}); await wait(20); await post(port,{running:false,statusPath:'C:\\\\tmp\\\\siftkit.txt'}); process.stdout.write=originalWrite; server.close(()=>{process.stdout.write(JSON.stringify(logs));});}catch(error){process.stdout.write=originalWrite; console.error(error); server.close(()=>process.exit(1));}});" $scriptPath
+        $lines = $json | ConvertFrom-Json
+
+        $lines[0] | Should Match 'chunk 1/4'
+        $lines[1] | Should Match 'elapsed='
+        $lines[1] | Should Not Match 'total_elapsed='
+        $lines[2] | Should Match 'chunk 2/4'
+        $lines[3] | Should Match 'elapsed='
+        $lines[3] | Should Not Match 'total_elapsed='
+        $lines[4] | Should Match 'prompt_chars=52000'
+        $lines[5] | Should Match 'total_elapsed='
     }
 
     It 'accepts redirected stdin when launched through the node cli wrapper' {
@@ -1363,6 +1848,84 @@ other line
         $stdout | Should Match 'third line'
     }
 
+    It 'summarizes large redirected stdin through the powershell cli without returning empty output' {
+        $scriptPath = (Join-Path $PSScriptRoot '..\bin\siftkit.ps1')
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = 'powershell.exe'
+        $psi.Arguments = "-ExecutionPolicy Bypass -File `"$scriptPath`" summary --question `"find the main files and hotspots`" --backend mock --model mock-model"
+        $psi.WorkingDirectory = (Split-Path $scriptPath -Parent)
+        $psi.RedirectStandardInput = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.UseShellExecute = $false
+        $psi.Environment['USERPROFILE'] = $script:TestHome
+        $psi.Environment['SIFTKIT_TEST_PROVIDER'] = 'mock'
+
+        $process = [System.Diagnostics.Process]::Start($psi)
+        try {
+            $largeText = ((1..4000 | ForEach-Object { "repo\src\file$_.gd:$($_): tech_unlocks[shield_duality] status_effects[marked]" }) -join "`n")
+            $process.StandardInput.Write($largeText)
+            $process.StandardInput.Close()
+
+            $stdout = $process.StandardOutput.ReadToEnd()
+            $stderr = $process.StandardError.ReadToEnd()
+            $process.WaitForExit()
+            $exitCode = $process.ExitCode
+        }
+        finally {
+            if (-not $process.HasExited) {
+                $process.Kill()
+            }
+            $process.Dispose()
+        }
+
+        $exitCode | Should Be 0
+        $stderr | Should BeNullOrEmpty
+        $stdout.Trim() | Should Not BeNullOrEmpty
+        $stdout | Should Match 'mock summary'
+    }
+
+    It 'summarizes large redirected stdin with incidental stderr-like lines through the node cli wrapper' {
+        $scriptPath = (Join-Path $PSScriptRoot '..\bin\siftkit.js')
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = 'node'
+        $psi.Arguments = "`"$scriptPath`" summary --question `"find the main files and hotspots`" --backend mock --model mock-model"
+        $psi.WorkingDirectory = (Split-Path $scriptPath -Parent)
+        $psi.RedirectStandardInput = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.UseShellExecute = $false
+        $psi.Environment['USERPROFILE'] = $script:TestHome
+        $psi.Environment['SIFTKIT_TEST_PROVIDER'] = 'mock'
+
+        $process = [System.Diagnostics.Process]::Start($psi)
+        try {
+            $matchLines = (1..4000 | ForEach-Object { "repo\src\file$_.gd:$($_): tech_unlocks status_effects" }) -join "`n"
+            $diagnosticLines = @(
+                'rg: repo\assets\locked_a.png: Access is denied. (os error 5)'
+                'rg: repo\assets\locked_b.png: Access is denied. (os error 5)'
+            ) -join "`n"
+            $process.StandardInput.Write($matchLines + "`n" + $diagnosticLines)
+            $process.StandardInput.Close()
+
+            $stdout = $process.StandardOutput.ReadToEnd()
+            $stderr = $process.StandardError.ReadToEnd()
+            $process.WaitForExit()
+            $exitCode = $process.ExitCode
+        }
+        finally {
+            if (-not $process.HasExited) {
+                $process.Kill()
+            }
+            $process.Dispose()
+        }
+
+        $exitCode | Should Be 0
+        $stderr | Should BeNullOrEmpty
+        $stdout.Trim() | Should Not BeNullOrEmpty
+        $stdout | Should Match 'mock summary'
+    }
+
     It 'times out with a deterministic busy error when another process holds the execution lock' {
         $holderScript = New-ModuleWorkerScript -Action 'command' -Token 'holder' -DelayMs 1500
         $waiterScript = New-ModuleWorkerScript -Action 'summary' -Token 'waiter' -DelayMs 0
@@ -1388,7 +1951,7 @@ other line
         )
         $results = @($handles | ForEach-Object { Wait-JsonScriptProcess -Handle $_ })
 
-        ($results | Where-Object ExitCode -ne 0).Count | Should Be 0
+        @($results | Where-Object ExitCode -ne 0).Count | Should Be 0
         (Get-ElapsedMilliseconds -Results $results) | Should BeGreaterThan 400
         ($results[0].Json.Summary + $results[1].Json.Summary) | Should Match 'sum-a'
         ($results[0].Json.Summary + $results[1].Json.Summary) | Should Match 'sum-b'
@@ -1499,7 +2062,7 @@ other line
         })
         $results = @($handles | ForEach-Object { Wait-JsonScriptProcess -Handle $_ })
 
-        ($results | Where-Object ExitCode -ne 0).Count | Should Be 0
+        @($results | Where-Object ExitCode -ne 0).Count | Should Be 0
         (Get-ElapsedMilliseconds -Results $results) | Should BeGreaterThan 650
         foreach ($token in $tokens) {
             $matching = @($results | Where-Object { $_.Json.Summary -match [regex]::Escape($token) })
@@ -1516,7 +2079,7 @@ other line
         $results = @($handles | ForEach-Object { Wait-JsonScriptProcess -Handle $_ })
         $rawPaths = @($results | ForEach-Object { $_.Json.RawLogPath })
 
-        ($results | Where-Object ExitCode -ne 0).Count | Should Be 0
+        @($results | Where-Object ExitCode -ne 0).Count | Should Be 0
         (Get-ElapsedMilliseconds -Results $results) | Should BeGreaterThan 300
         (@($rawPaths | Select-Object -Unique)).Count | Should Be 2
         (Get-Content -LiteralPath $results[0].Json.RawLogPath -Raw) | Should Match $results[0].Json.Token
@@ -1531,7 +2094,7 @@ other line
         $results = @($handles | ForEach-Object { Wait-JsonScriptProcess -Handle $_ })
         $rawPaths = @($results | ForEach-Object { $_.Json.RawLogPath })
 
-        ($results | Where-Object ExitCode -ne 0).Count | Should Be 0
+        @($results | Where-Object ExitCode -ne 0).Count | Should Be 0
         (Get-ElapsedMilliseconds -Results $results) | Should BeGreaterThan 500
         (@($rawPaths | Select-Object -Unique)).Count | Should Be 4
         foreach ($result in $results) {

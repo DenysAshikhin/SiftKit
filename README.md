@@ -2,7 +2,7 @@
 
 SiftKit is a Windows-first PowerShell module for conservative shell-output compression in Codex workflows. It provides a local toolkit that preserves raw logs, uses deterministic reduction first, and summarizes through Ollama only when the policy allows it.
 
-SiftKit currently sets Ollama `num_ctx` explicitly to `50000` at runtime and derives the model-bound input budget as `num_ctx * 2.5`, which yields a 125,000-character cap with the default config. When input exceeds 92% of that character budget, it slices the text into sequential threshold-sized chunks, summarizes each chunk, then merges the partial summaries into one final answer.
+SiftKit treats its own config as the source of truth for chunk sizing, sends Ollama `num_ctx` explicitly from that config, and derives the model-bound input budget as `num_ctx * 2.5`. With the default `num_ctx` of `128000`, that yields a 320,000-character cap; with the default `ChunkThresholdRatio` of `0.92`, chunking begins at 294,400 characters. Legacy `MaxInputCharacters` settings are migrated away automatically and no longer control normal chunk budgeting.
 
 ## What it ships
 
@@ -22,7 +22,7 @@ Install-SiftKit
 Test-SiftKit
 ```
 
-The default backend is `ollama` and the default model is `qwen3.5:4b-q8_0`.
+The default backend is `ollama` and the default model is `qwen3.5:9b-q4_K_M`.
 
 To run inside a sandboxed Codex workspace for now, set `sift_kit_status` to a writable in-repo path such as:
 
@@ -41,7 +41,7 @@ siftkit status-server
 
 By default, SiftKit posts status transitions to `http://127.0.0.1:4765/status`. You can override that with `SIFTKIT_STATUS_BACKEND_URL` if needed. The built-in server accepts `POST /status` with `{"running":true|false}`, writes the resulting `true` or `false` value to its configured status path, and logs each request and write transition to the console.
 
-The same local service now also exposes persisted config at `GET /config` and `PUT /config`. It stores only user-configurable settings such as backend, model, thresholds, and interactive behavior. Runtime paths remain derived client-side from the active runtime root.
+The same local service now also exposes persisted config at `GET /config` and `PUT /config`. It stores only user-configurable settings such as backend, model, thresholds, and interactive behavior. Runtime paths remain derived client-side from the active runtime root, and effective chunk-budget diagnostics are derived from the configured `num_ctx`.
 
 ## Make it global
 

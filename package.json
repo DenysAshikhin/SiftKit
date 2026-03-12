@@ -7,13 +7,19 @@
   },
   "scripts": {
     "start": "nodemon .\\bin\\siftkit.js status-server",
+    "build": "tsc -p .\\tsconfig.json",
     "postinstall": "node scripts/postinstall.js",
     "refresh-global": "powershell -ExecutionPolicy Bypass -File .\\scripts\\refresh-global.ps1",
     "service-install": "powershell -ExecutionPolicy Bypass -File .\\bin\\siftkit.ps1 install-service",
-    "service-uninstall": "powershell -ExecutionPolicy Bypass -File .\\bin\\siftkit.ps1 uninstall-service"
+    "service-uninstall": "powershell -ExecutionPolicy Bypass -File .\\bin\\siftkit.ps1 uninstall-service",
+    "ts:build-full": "tsc -p .\\tsconfig.json",
+    "ts:run-full": "npm run ts:build-full && node .\\dist\\test-full.js"
   },
   "devDependencies": {
-    "nodemon": "^3.1.10"
+    "@types/node": "^24.5.2",
+    "nodemon": "^3.1.10",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
   },
   "files": [
     "bin",
@@ -21,6 +27,7 @@
     "eval",
     "siftKitStatus",
     "scripts",
+    "dist",
     "README.md",
     "docs"
   ],

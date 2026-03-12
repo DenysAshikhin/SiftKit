@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { spawnSync } = require('node:child_process');
+const { spawn } = require('node:child_process');
 const os = require('node:os');
 const { dirname, join } = require('node:path');
 const fs = require('node:fs');
@@ -111,7 +111,27 @@ function getRuntimeRoot() {
     return statusDirectory;
   }
 
-  return join(process.env.USERPROFILE || os.homedir(), '.siftkit');
+  const candidates = [];
+  if (process.cwd()) {
+    candidates.push(join(process.cwd(), '.codex', 'siftkit'));
+  }
+
+  if (process.env.USERPROFILE) {
+    candidates.push(join(process.env.USERPROFILE, '.siftkit'));
+  }
+
+  candidates.push(join(os.homedir(), '.siftkit'));
+
+  for (const candidate of candidates) {
+    try {
+      ensureDirectory(candidate);
+      return candidate;
+    } catch (error) {
+      // Continue to the next candidate.
+    }
+  }
+
+  return join(os.tmpdir(), 'siftkit');
 }
 
 function acquireLock(lockPath, timeoutMs) {
@@ -208,6 +228,75 @@ function runMockSummaryFallback(args) {
 
 let forwardedArgs = [...cliArgs];
 
+function tryLoadTsCli() {
+  const runtimePath = join(__dirname, '..', 'dist', 'src', 'cli.js');
+  if (!fs.existsSync(runtimePath)) {
+    return null;
+  }
+
+  try {
+    return require(runtimePath);
+  } catch (error) {
+    return null;
+  }
+}
+
+function runShell(shell) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(
+        shell,
+        ['-ExecutionPolicy', 'Bypass', '-File', scriptPath, ...forwardedArgs],
+        {
+          stdio: ['pipe', 'pipe', 'pipe']
+        }
+      );
+    } catch (error) {
+      resolve({
+        ok: false,
+        error
+      });
+      return;
+    }
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
+
+    child.on('error', (error) => {
+      resolve({
+        ok: false,
+        error
+      });
+    });
+
+    child.on('close', (code) => {
+      resolve({
+        ok: true,
+        code,
+        stdout,
+        stderr
+      });
+    });
+
+    if (hasStdin) {
+      child.stdin.end(stdinText);
+    } else {
+      child.stdin.end();
+    }
+  });
+}
+
 if (commandName === 'status-server') {
   const server = startStatusServer();
   const shutdown = () => {
@@ -217,41 +306,45 @@ if (commandName === 'status-server') {
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 } else {
-  let lastError = null;
-  for (const shell of shellCandidates) {
-    const result = spawnSync(
-      shell,
-      ['-ExecutionPolicy', 'Bypass', '-File', scriptPath, ...forwardedArgs],
-      {
-        input: hasStdin ? stdinText : undefined,
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe']
-      }
-    );
-
-    if (!result.error) {
-      if (result.stdout) {
-        process.stdout.write(result.stdout);
-      }
-      if (result.stderr) {
-        process.stderr.write(result.stderr);
-      }
-      process.exit(result.status === null ? 1 : result.status);
+  (async () => {
+    const tsCli = tryLoadTsCli();
+    if (tsCli && typeof tsCli.runCli === 'function' && ['summary', 'run', 'find-files', 'install', 'test', 'eval', 'codex-policy', 'install-global', 'install-service', 'uninstall-service', 'config-get', 'config-set', 'capture-internal'].includes(commandName)) {
+      const exitCode = await tsCli.runCli({
+        argv: cliArgs,
+        stdinText,
+        stdout: process.stdout,
+        stderr: process.stderr
+      });
+      process.exit(exitCode);
     }
 
-    lastError = result.error;
-  }
+    let lastError = null;
+    for (const shell of shellCandidates) {
+      const result = await runShell(shell);
+      if (result.ok) {
+        if (result.stdout) {
+          process.stdout.write(result.stdout);
+        }
+        if (result.stderr) {
+          process.stderr.write(result.stderr);
+        }
+        process.exit(result.code === null ? 1 : result.code);
+      }
 
-  if (process.env.SIFTKIT_TEST_PROVIDER === 'mock' && isSummaryMode) {
-    try {
-      process.stdout.write(runMockSummaryFallback(forwardedArgs));
-      process.exit(0);
-    } catch (error) {
-      console.error(error.message);
-      process.exit(1);
+      lastError = result.error;
     }
-  }
 
-  console.error(`Unable to launch PowerShell for SiftKit: ${lastError ? lastError.message : 'unknown error'}`);
-  process.exit(1);
+    if (process.env.SIFTKIT_TEST_PROVIDER === 'mock' && isSummaryMode) {
+      try {
+        process.stdout.write(runMockSummaryFallback(forwardedArgs));
+        process.exit(0);
+      } catch (error) {
+        console.error(error.message);
+        process.exit(1);
+      }
+    }
+
+    console.error(`Unable to launch PowerShell for SiftKit: ${lastError ? lastError.message : 'unknown error'}`);
+    process.exit(1);
+  })();
 }

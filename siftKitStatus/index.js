@@ -55,13 +55,19 @@ function getDefaultConfig() {
   return {
     Version: '0.1.0',
     Backend: 'ollama',
-    Model: 'qwen3.5:4b-q8_0',
+    Model: 'qwen3.5:9b-q4_K_M',
     PolicyMode: 'conservative',
     RawLogRetention: true,
     Ollama: {
       BaseUrl: 'http://127.0.0.1:11434',
       ExecutablePath: null,
-      NumCtx: 50000
+      NumCtx: 128000,
+      Temperature: 0.2,
+      TopP: 0.95,
+      TopK: 20,
+      MinP: 0.0,
+      PresencePenalty: 0.0,
+      RepetitionPenalty: 1.0
     },
     Thresholds: {
       MinCharactersForSummary: 500,
@@ -112,6 +118,9 @@ function mergeConfig(baseValue, patchValue) {
 function normalizeConfig(input) {
   const merged = mergeConfig(getDefaultConfig(), input || {});
   delete merged.Paths;
+  if (merged.Thresholds && typeof merged.Thresholds === 'object') {
+    delete merged.Thresholds.MaxInputCharacters;
+  }
   return merged;
 }
 
@@ -142,8 +151,54 @@ function formatTimestamp(date = new Date()) {
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 }
 
+function formatElapsed(milliseconds) {
+  const totalSeconds = Math.max(Math.floor(milliseconds / 1000), 0);
+  const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
+  const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
+  const seconds = String(totalSeconds % 60).padStart(2, '0');
+  return `${hours}:${minutes}:${seconds}`;
+}
+
+function buildStatusRequestLogMessage({
+  running,
+  statusPath,
+  characterCount = null,
+  promptCharacterCount = null,
+  rawInputCharacterCount = null,
+  chunkInputCharacterCount = null,
+  chunkIndex = null,
+  chunkTotal = null,
+  elapsedMs = null,
+  totalElapsedMs = null
+}) {
+  const statusText = running ? 'true' : 'false';
+  let logMessage = `request ${statusText}`;
+
+  if (running) {
+    const resolvedPromptCharacterCount = promptCharacterCount ?? characterCount;
+    if (rawInputCharacterCount !== null) {
+      logMessage += ` raw_chars=${rawInputCharacterCount}`;
+    }
+    if (chunkInputCharacterCount !== null) {
+      logMessage += ` chunk_input_chars=${chunkInputCharacterCount}`;
+    }
+    if (resolvedPromptCharacterCount !== null) {
+      logMessage += ` prompt_chars=${resolvedPromptCharacterCount}`;
+    }
+    if (chunkIndex !== null && chunkTotal !== null) {
+      logMessage += ` chunk ${chunkIndex}/${chunkTotal}`;
+    }
+  } else if (totalElapsedMs !== null) {
+    logMessage += ` total_elapsed=${formatElapsed(totalElapsedMs)}`;
+  } else if (elapsedMs !== null) {
+    logMessage += ` elapsed=${formatElapsed(elapsedMs)}`;
+  }
+
+  return logMessage;
+}
+
 function logLine(message) {
-  process.stdout.write(`[siftKitStatus] ${formatTimestamp()} ${message}\n`);
+  process.stdout.write(`${formatTimestamp()} ${message}\n`);
 }
 
 function parseRunning(bodyText) {
@@ -169,6 +224,45 @@ function parseRunning(bodyText) {
   return null;
 }
 
+function parseStatusMetadata(bodyText) {
+  const metadata = {
+    promptCharacterCount: null,
+    rawInputCharacterCount: null,
+    chunkInputCharacterCount: null,
+    chunkIndex: null,
+    chunkTotal: null
+  };
+
+  if (!bodyText || !bodyText.trim()) {
+    return metadata;
+  }
+
+  try {
+    const parsed = JSON.parse(bodyText);
+    if (Number.isFinite(parsed.promptCharacterCount) && parsed.promptCharacterCount >= 0) {
+      metadata.promptCharacterCount = parsed.promptCharacterCount;
+    } else if (Number.isFinite(parsed.characterCount) && parsed.characterCount >= 0) {
+      metadata.promptCharacterCount = parsed.characterCount;
+    }
+    if (Number.isFinite(parsed.rawInputCharacterCount) && parsed.rawInputCharacterCount >= 0) {
+      metadata.rawInputCharacterCount = parsed.rawInputCharacterCount;
+    }
+    if (Number.isFinite(parsed.chunkInputCharacterCount) && parsed.chunkInputCharacterCount >= 0) {
+      metadata.chunkInputCharacterCount = parsed.chunkInputCharacterCount;
+    }
+    if (Number.isFinite(parsed.chunkIndex) && parsed.chunkIndex > 0) {
+      metadata.chunkIndex = parsed.chunkIndex;
+    }
+    if (Number.isFinite(parsed.chunkTotal) && parsed.chunkTotal > 0) {
+      metadata.chunkTotal = parsed.chunkTotal;
+    }
+  } catch {
+    return metadata;
+  }
+
+  return metadata;
+}
+
 function readBody(req) {
   return new Promise((resolve) => {
     const chunks = [];
@@ -189,8 +283,7 @@ function startStatusServer() {
   const configPath = getConfigPath();
   ensureStatusFile(statusPath);
   writeConfig(configPath, readConfig(configPath));
-  logLine(`path -> ${statusPath}`);
-  logLine(`config -> ${configPath}`);
+  const activeRunsByStatusPath = new Map();
 
   const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
@@ -210,14 +303,73 @@ function startStatusServer() {
     }
 
     if (req.method === 'POST' && req.url === '/status') {
-      const running = parseRunning(await readBody(req));
+      const bodyText = await readBody(req);
+      const running = parseRunning(bodyText);
       if (running === null) {
         sendJson(res, 400, { error: 'Expected running=true|false or status=true|false.' });
         return;
       }
 
       const statusText = running ? 'true' : 'false';
-      logLine(`request ${statusText} -> ${statusPath}`);
+      const metadata = parseStatusMetadata(bodyText);
+      let elapsedMs = null;
+      let totalElapsedMs = null;
+      if (running) {
+        const now = Date.now();
+        const existingRun = activeRunsByStatusPath.get(statusPath);
+        const isChunkedRequest = metadata.chunkIndex !== null && metadata.chunkTotal !== null;
+        let runState = existingRun;
+
+        if (!runState) {
+          runState = {
+            overallStartedAt: now,
+            currentRequestStartedAt: now,
+            sawChunked: false,
+            lastChunkIndex: null,
+            lastChunkTotal: null,
+            pendingFinalMerge: false
+          };
+        } else {
+          runState.currentRequestStartedAt = now;
+        }
+
+        if (isChunkedRequest) {
+          runState.sawChunked = true;
+          runState.lastChunkIndex = metadata.chunkIndex;
+          runState.lastChunkTotal = metadata.chunkTotal;
+          runState.pendingFinalMerge = false;
+        } else if (runState.sawChunked) {
+          runState.pendingFinalMerge = true;
+        }
+
+        activeRunsByStatusPath.set(statusPath, runState);
+      } else {
+        const runState = activeRunsByStatusPath.get(statusPath);
+        if (runState && Number.isFinite(runState.currentRequestStartedAt)) {
+          const now = Date.now();
+          elapsedMs = now - runState.currentRequestStartedAt;
+          if (runState.sawChunked) {
+            if (runState.pendingFinalMerge) {
+              totalElapsedMs = now - runState.overallStartedAt;
+              activeRunsByStatusPath.delete(statusPath);
+            }
+          } else {
+            activeRunsByStatusPath.delete(statusPath);
+          }
+        }
+      }
+      const logMessage = buildStatusRequestLogMessage({
+        running,
+        statusPath,
+        promptCharacterCount: metadata.promptCharacterCount,
+        rawInputCharacterCount: metadata.rawInputCharacterCount,
+        chunkInputCharacterCount: metadata.chunkInputCharacterCount,
+        chunkIndex: metadata.chunkIndex,
+        chunkTotal: metadata.chunkTotal,
+        elapsedMs,
+        totalElapsedMs
+      });
+      logLine(logMessage);
       writeText(statusPath, statusText);
       sendJson(res, 200, { ok: true, running, status: statusText, statusPath, configPath });
       return;
@@ -255,6 +407,8 @@ function startStatusServer() {
 }
 
 module.exports = {
+  buildStatusRequestLogMessage,
+  formatElapsed,
   getConfigPath,
   getStatusPath,
   startStatusServer
