@@ -39,7 +39,7 @@ Local-only commands:
 - `codex-policy`
 - `install-global`
 
-The client assumes the external server provides `GET /health`, `GET /config`, `PUT /config`, and `POST /status`. There is no local config fallback and no local status-file fallback for normal operation.
+The client assumes the external server provides `GET /health`, `GET /config`, `PUT /config`, `GET /execution`, `POST /execution/acquire`, `POST /execution/heartbeat`, `POST /execution/release`, and `POST /status`. There is no local config fallback and no local status-file fallback for normal operation.
 
 ## Policy and tests
 

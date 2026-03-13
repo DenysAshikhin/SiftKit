@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import * as http from 'node:http';
 import * as https from 'node:https';
 import { spawnSync } from 'node:child_process';
-import { type SiftConfig, findOllamaExecutable, initializeRuntime, saveContentAtomically } from '../config.js';
+import { type SiftConfig, findOllamaExecutable } from '../config.js';
 
 export type OllamaGenerateResponse = {
   response: string;
@@ -219,13 +219,6 @@ export async function generateOllamaResponse(options: {
   prompt: string;
   timeoutSeconds: number;
 }): Promise<OllamaGenerateResponse> {
-  const paths = initializeRuntime();
-  const promptPath = path.join(
-    paths.Logs,
-    `ollama_prompt_${Date.now()}_${process.pid}_${Math.random().toString(16).slice(2, 10)}.txt`
-  );
-  saveContentAtomically(promptPath, options.prompt);
-
   const requestBody = JSON.stringify({
     model: options.model,
     prompt: options.prompt,
@@ -252,7 +245,7 @@ export async function generateOllamaResponse(options: {
     body: requestBody,
   });
   if (response.statusCode >= 400) {
-    throw new Error(`Ollama generate failed with HTTP ${response.statusCode}. Prompt path: ${promptPath}`);
+    throw new Error(`Ollama generate failed with HTTP ${response.statusCode}.`);
   }
   if (!response.body.response) {
     throw new Error('Ollama did not return a response body.');

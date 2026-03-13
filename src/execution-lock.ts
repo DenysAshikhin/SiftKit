@@ -1,12 +1,37 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { ensureDirectory, getRuntimeRoot } from './config.js';
+import {
+  getExecutionServerState,
+  refreshExecutionLease,
+  releaseExecutionLease,
+  tryAcquireExecutionLease,
+} from './config.js';
 
-let activeLock: { lockPath: string; handle: number } | null = null;
+let activeLeaseToken: string | null = null;
 let activeLockDepth = 0;
+let activeHeartbeat: NodeJS.Timeout | null = null;
 
-function sleepMs(milliseconds: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+function sleepMs(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function stopHeartbeat(): void {
+  if (!activeHeartbeat) {
+    return;
+  }
+
+  clearInterval(activeHeartbeat);
+  activeHeartbeat = null;
+}
+
+function startHeartbeat(token: string): void {
+  stopHeartbeat();
+  activeHeartbeat = setInterval(() => {
+    void refreshExecutionLease(token).catch(() => {
+      // The owning operation will surface the canonical server-unavailable error.
+    });
+  }, 3_000);
+  if (typeof activeHeartbeat.unref === 'function') {
+    activeHeartbeat.unref();
+  }
 }
 
 export function getExecutionLockTimeoutMilliseconds(): number {
@@ -19,47 +44,43 @@ export function getExecutionLockTimeoutMilliseconds(): number {
   return 300_000;
 }
 
-export function acquireExecutionLock(): {
-  lockPath: string;
-  handle: number;
-} {
-  if (activeLock) {
+export async function acquireExecutionLock(): Promise<{
+  token: string;
+}> {
+  if (activeLeaseToken) {
     activeLockDepth += 1;
-    return activeLock;
+    return { token: activeLeaseToken };
   }
 
-  const runtimeRoot = getRuntimeRoot();
-  const lockPath = path.join(runtimeRoot, 'execution.lock');
-  ensureDirectory(path.dirname(lockPath));
   const timeoutMs = getExecutionLockTimeoutMilliseconds();
   const startedAt = Date.now();
 
   while (true) {
-    try {
-      const handle = fs.openSync(lockPath, 'wx');
-      activeLock = { lockPath, handle };
+    const lease = await tryAcquireExecutionLease();
+    if (lease.acquired && lease.token) {
+      activeLeaseToken = lease.token;
       activeLockDepth = 1;
-      return activeLock;
-    } catch (error) {
-      const exception = error as NodeJS.ErrnoException;
-      if (exception.code !== 'EEXIST') {
-        throw error;
-      }
-
-      if (Date.now() - startedAt >= timeoutMs) {
-        throw new Error(`SiftKit is busy. Timed out after ${timeoutMs} ms waiting for the execution lock.`);
-      }
-
-      sleepMs(25);
+      startHeartbeat(lease.token);
+      return { token: lease.token };
     }
+
+    const state = await getExecutionServerState();
+    if (Date.now() - startedAt >= timeoutMs) {
+      throw new Error(`SiftKit is busy. Timed out after ${timeoutMs} ms waiting for the server to report idle.`);
+    }
+
+    if (!state.busy) {
+      continue;
+    }
+
+    await sleepMs(250);
   }
 }
 
 export function releaseExecutionLock(lock: {
-  lockPath: string;
-  handle: number;
-}): void {
-  if (!activeLock) {
+  token: string;
+}): Promise<void> | void {
+  if (!activeLeaseToken) {
     return;
   }
 
@@ -68,16 +89,16 @@ export function releaseExecutionLock(lock: {
     return;
   }
 
-  fs.closeSync(lock.handle);
-  fs.rmSync(lock.lockPath, { force: true });
-  activeLock = null;
+  stopHeartbeat();
+  activeLeaseToken = null;
+  return releaseExecutionLease(lock.token);
 }
 
 export async function withExecutionLock<T>(fn: () => Promise<T> | T): Promise<T> {
-  const lock = acquireExecutionLock();
+  const lock = await acquireExecutionLock();
   try {
     return await fn();
   } finally {
-    releaseExecutionLock(lock);
+    await releaseExecutionLock(lock);
   }
 }

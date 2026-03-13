@@ -2,6 +2,7 @@
 param()
 
 $ErrorActionPreference = 'Stop'
+$script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
 function ConvertTo-ProcessArgumentString {
     param(
@@ -67,7 +68,7 @@ function Invoke-RetryableCommand {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = $resolvedFilePath
         $psi.Arguments = ConvertTo-ProcessArgumentString -ArgumentList $ArgumentList
-        $psi.WorkingDirectory = (Get-Location).Path
+        $psi.WorkingDirectory = $script:RepoRoot
         $psi.RedirectStandardOutput = $true
         $psi.RedirectStandardError = $true
         $psi.UseShellExecute = $false

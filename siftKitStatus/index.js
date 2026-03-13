@@ -2,6 +2,10 @@ const http = require('node:http');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
+
+const STATUS_IDLE_CLEAR_INTERVAL_MS = 10_000;
+const EXECUTION_LEASE_STALE_MS = 10_000;
 
 function getRuntimeRoot() {
   const configuredPath = process.env.sift_kit_status || process.env.SIFTKIT_STATUS_PATH;
@@ -271,6 +275,22 @@ function readBody(req) {
   });
 }
 
+function readStatusText(targetPath) {
+  try {
+    return fs.readFileSync(targetPath, 'utf8').trim() || 'false';
+  } catch {
+    return 'false';
+  }
+}
+
+function parseJsonBody(bodyText) {
+  if (!bodyText || !bodyText.trim()) {
+    return {};
+  }
+
+  return JSON.parse(bodyText);
+}
+
 function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(payload));
@@ -284,6 +304,45 @@ function startStatusServer() {
   ensureStatusFile(statusPath);
   writeConfig(configPath, readConfig(configPath));
   const activeRunsByStatusPath = new Map();
+  let activeExecutionLease = null;
+
+  function getActiveExecutionLease() {
+    if (!activeExecutionLease) {
+      return null;
+    }
+
+    if ((Date.now() - activeExecutionLease.heartbeatAt) >= EXECUTION_LEASE_STALE_MS) {
+      activeExecutionLease = null;
+      return null;
+    }
+
+    return activeExecutionLease;
+  }
+
+  function releaseExecutionLease(token) {
+    const lease = getActiveExecutionLease();
+    if (!lease || lease.token !== token) {
+      return false;
+    }
+
+    activeExecutionLease = null;
+    return true;
+  }
+
+  const idleStatusWatchdog = setInterval(() => {
+    if (activeRunsByStatusPath.has(statusPath)) {
+      return;
+    }
+
+    getActiveExecutionLease();
+
+    if (readStatusText(statusPath) === 'true') {
+      writeText(statusPath, 'false');
+    }
+  }, STATUS_IDLE_CLEAR_INTERVAL_MS);
+  if (typeof idleStatusWatchdog.unref === 'function') {
+    idleStatusWatchdog.unref();
+  }
 
   const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
@@ -297,8 +356,74 @@ function startStatusServer() {
     }
 
     if (req.method === 'GET' && req.url === '/status') {
-      const currentStatus = fs.readFileSync(statusPath, 'utf8').trim() || 'false';
+      const currentStatus = readStatusText(statusPath);
       sendJson(res, 200, { running: currentStatus === 'true', status: currentStatus, statusPath, configPath });
+      return;
+    }
+
+    if (req.method === 'GET' && req.url === '/execution') {
+      const lease = getActiveExecutionLease();
+      sendJson(res, 200, { busy: Boolean(lease), statusPath, configPath });
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/execution/acquire') {
+      const lease = getActiveExecutionLease();
+      if (lease) {
+        sendJson(res, 200, { ok: true, acquired: false, busy: true });
+        return;
+      }
+
+      const token = crypto.randomUUID();
+      activeExecutionLease = {
+        token,
+        heartbeatAt: Date.now(),
+      };
+      sendJson(res, 200, { ok: true, acquired: true, busy: true, token });
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/execution/heartbeat') {
+      let parsedBody;
+      try {
+        parsedBody = parseJsonBody(await readBody(req));
+      } catch {
+        sendJson(res, 400, { error: 'Expected valid JSON object.' });
+        return;
+      }
+
+      if (typeof parsedBody.token !== 'string' || !parsedBody.token.trim()) {
+        sendJson(res, 400, { error: 'Expected token.' });
+        return;
+      }
+
+      const lease = getActiveExecutionLease();
+      if (!lease || lease.token !== parsedBody.token) {
+        sendJson(res, 409, { error: 'Execution lease is not active.' });
+        return;
+      }
+
+      lease.heartbeatAt = Date.now();
+      sendJson(res, 200, { ok: true, busy: true });
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/execution/release') {
+      let parsedBody;
+      try {
+        parsedBody = parseJsonBody(await readBody(req));
+      } catch {
+        sendJson(res, 400, { error: 'Expected valid JSON object.' });
+        return;
+      }
+
+      if (typeof parsedBody.token !== 'string' || !parsedBody.token.trim()) {
+        sendJson(res, 400, { error: 'Expected token.' });
+        return;
+      }
+
+      const released = releaseExecutionLease(parsedBody.token);
+      sendJson(res, released ? 200 : 409, { ok: released, released, busy: Boolean(getActiveExecutionLease()) });
       return;
     }
 
@@ -401,6 +526,9 @@ function startStatusServer() {
   server.listen(Number.isFinite(requestedPort) ? requestedPort : 4765, host, () => {
     const address = server.address();
     process.stdout.write(`${JSON.stringify({ ok: true, port: address.port, host, statusPath, configPath })}\n`);
+  });
+  server.on('close', () => {
+    clearInterval(idleStatusWatchdog);
   });
 
   return server;

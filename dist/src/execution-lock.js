@@ -1,49 +1,33 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getExecutionLockTimeoutMilliseconds = getExecutionLockTimeoutMilliseconds;
 exports.acquireExecutionLock = acquireExecutionLock;
 exports.releaseExecutionLock = releaseExecutionLock;
 exports.withExecutionLock = withExecutionLock;
-const fs = __importStar(require("node:fs"));
-const path = __importStar(require("node:path"));
 const config_js_1 = require("./config.js");
-let activeLock = null;
+let activeLeaseToken = null;
 let activeLockDepth = 0;
+let activeHeartbeat = null;
 function sleepMs(milliseconds) {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+    return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+function stopHeartbeat() {
+    if (!activeHeartbeat) {
+        return;
+    }
+    clearInterval(activeHeartbeat);
+    activeHeartbeat = null;
+}
+function startHeartbeat(token) {
+    stopHeartbeat();
+    activeHeartbeat = setInterval(() => {
+        void (0, config_js_1.refreshExecutionLease)(token).catch(() => {
+            // The owning operation will surface the canonical server-unavailable error.
+        });
+    }, 3_000);
+    if (typeof activeHeartbeat.unref === 'function') {
+        activeHeartbeat.unref();
+    }
 }
 function getExecutionLockTimeoutMilliseconds() {
     const raw = process.env.SIFTKIT_LOCK_TIMEOUT_MS;
@@ -53,53 +37,49 @@ function getExecutionLockTimeoutMilliseconds() {
     }
     return 300_000;
 }
-function acquireExecutionLock() {
-    if (activeLock) {
+async function acquireExecutionLock() {
+    if (activeLeaseToken) {
         activeLockDepth += 1;
-        return activeLock;
+        return { token: activeLeaseToken };
     }
-    const runtimeRoot = (0, config_js_1.getRuntimeRoot)();
-    const lockPath = path.join(runtimeRoot, 'execution.lock');
-    (0, config_js_1.ensureDirectory)(path.dirname(lockPath));
     const timeoutMs = getExecutionLockTimeoutMilliseconds();
     const startedAt = Date.now();
     while (true) {
-        try {
-            const handle = fs.openSync(lockPath, 'wx');
-            activeLock = { lockPath, handle };
+        const lease = await (0, config_js_1.tryAcquireExecutionLease)();
+        if (lease.acquired && lease.token) {
+            activeLeaseToken = lease.token;
             activeLockDepth = 1;
-            return activeLock;
+            startHeartbeat(lease.token);
+            return { token: lease.token };
         }
-        catch (error) {
-            const exception = error;
-            if (exception.code !== 'EEXIST') {
-                throw error;
-            }
-            if (Date.now() - startedAt >= timeoutMs) {
-                throw new Error(`SiftKit is busy. Timed out after ${timeoutMs} ms waiting for the execution lock.`);
-            }
-            sleepMs(25);
+        const state = await (0, config_js_1.getExecutionServerState)();
+        if (Date.now() - startedAt >= timeoutMs) {
+            throw new Error(`SiftKit is busy. Timed out after ${timeoutMs} ms waiting for the server to report idle.`);
         }
+        if (!state.busy) {
+            continue;
+        }
+        await sleepMs(250);
     }
 }
 function releaseExecutionLock(lock) {
-    if (!activeLock) {
+    if (!activeLeaseToken) {
         return;
     }
     activeLockDepth -= 1;
     if (activeLockDepth > 0) {
         return;
     }
-    fs.closeSync(lock.handle);
-    fs.rmSync(lock.lockPath, { force: true });
-    activeLock = null;
+    stopHeartbeat();
+    activeLeaseToken = null;
+    return (0, config_js_1.releaseExecutionLease)(lock.token);
 }
 async function withExecutionLock(fn) {
-    const lock = acquireExecutionLock();
+    const lock = await acquireExecutionLock();
     try {
         return await fn();
     }
     finally {
-        releaseExecutionLock(lock);
+        await releaseExecutionLock(lock);
     }
 }

@@ -209,9 +209,6 @@ async function getOllamaProviderStatus(config) {
     return status;
 }
 async function generateOllamaResponse(options) {
-    const paths = (0, config_js_1.initializeRuntime)();
-    const promptPath = path.join(paths.Logs, `ollama_prompt_${Date.now()}_${process.pid}_${Math.random().toString(16).slice(2, 10)}.txt`);
-    (0, config_js_1.saveContentAtomically)(promptPath, options.prompt);
     const requestBody = JSON.stringify({
         model: options.model,
         prompt: options.prompt,
@@ -237,7 +234,7 @@ async function generateOllamaResponse(options) {
         body: requestBody,
     });
     if (response.statusCode >= 400) {
-        throw new Error(`Ollama generate failed with HTTP ${response.statusCode}. Prompt path: ${promptPath}`);
+        throw new Error(`Ollama generate failed with HTTP ${response.statusCode}.`);
     }
     if (!response.body.response) {
         throw new Error('Ollama did not return a response body.');

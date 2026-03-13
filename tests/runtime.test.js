@@ -4,17 +4,32 @@ const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 const {
   loadConfig,
   saveConfig,
+  getExecutionServerState,
   getChunkThresholdCharacters,
   getStatusServerUnavailableMessage,
 } = require('../dist/src/config.js');
 const { summarizeRequest } = require('../dist/src/summary.js');
 const { runCommand } = require('../dist/src/command.js');
 const { getOllamaLoadedModels } = require('../dist/src/providers/ollama.js');
+const { withExecutionLock } = require('../dist/src/execution-lock.js');
+const { startStatusServer } = require('../siftKitStatus/index.js');
+
+const TEST_USE_EXISTING_SERVER = process.env.SIFTKIT_TEST_USE_EXISTING_SERVER === '1';
+const EXISTING_SERVER_STATUS_URL = process.env.SIFTKIT_STATUS_BACKEND_URL;
+const EXISTING_SERVER_CONFIG_URL = process.env.SIFTKIT_CONFIG_SERVICE_URL;
+
+function deriveServiceUrl(configuredUrl, nextPath) {
+  const target = new URL(configuredUrl);
+  target.pathname = nextPath;
+  target.search = '';
+  target.hash = '';
+  return target.toString();
+}
 
 function getDefaultConfig() {
   return {
@@ -89,16 +104,101 @@ function readBody(req) {
   });
 }
 
+function requestJson(url, options = {}) {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const request = http.request(
+      {
+        protocol: target.protocol,
+        hostname: target.hostname,
+        port: target.port,
+        path: `${target.pathname}${target.search}`,
+        method: options.method || 'GET',
+        headers: options.body ? {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(options.body, 'utf8'),
+        } : undefined,
+      },
+      (response) => {
+        let responseText = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => {
+          responseText += chunk;
+        });
+        response.on('end', () => {
+          if ((response.statusCode || 0) >= 400) {
+            reject(new Error(`HTTP ${response.statusCode}: ${responseText}`));
+            return;
+          }
+
+          resolve(responseText ? JSON.parse(responseText) : {});
+        });
+      }
+    );
+
+    request.on('error', reject);
+    if (options.body) {
+      request.write(options.body);
+    }
+    request.end();
+  });
+}
+
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function spawnProcess(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      ...options,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on('error', reject);
+    child.on('close', (code, signal) => {
+      resolve({
+        code,
+        signal,
+        stdout,
+        stderr,
+      });
+    });
+  });
+}
+
 async function startStubStatusServer(options = {}) {
   const state = {
     config: mergeConfig(getDefaultConfig(), options.config || {}),
     statusPosts: [],
+    running: Boolean(options.running),
+    executionLeaseToken: null,
   };
 
   const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    if (req.method === 'GET' && req.url === '/status') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ running: state.running, status: state.running ? 'true' : 'false' }));
+      return;
+    }
+
+    if (req.method === 'GET' && req.url === '/execution') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ busy: Boolean(state.executionLeaseToken) }));
       return;
     }
 
@@ -127,8 +227,43 @@ async function startStubStatusServer(options = {}) {
       const bodyText = await readBody(req);
       const parsed = bodyText ? JSON.parse(bodyText) : {};
       state.statusPosts.push(parsed);
+      state.running = Boolean(parsed.running);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, running: Boolean(parsed.running) }));
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/execution/acquire') {
+      if (state.executionLeaseToken) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, acquired: false, busy: true }));
+        return;
+      }
+
+      state.executionLeaseToken = `lease-${Date.now()}`;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, acquired: true, busy: true, token: state.executionLeaseToken }));
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/execution/heartbeat') {
+      const bodyText = await readBody(req);
+      const parsed = bodyText ? JSON.parse(bodyText) : {};
+      const ok = typeof parsed.token === 'string' && parsed.token === state.executionLeaseToken;
+      res.writeHead(ok ? 200 : 409, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok, busy: ok }));
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/execution/release') {
+      const bodyText = await readBody(req);
+      const parsed = bodyText ? JSON.parse(bodyText) : {};
+      const released = typeof parsed.token === 'string' && parsed.token === state.executionLeaseToken;
+      if (released) {
+        state.executionLeaseToken = null;
+      }
+      res.writeHead(released ? 200 : 409, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: released, released, busy: Boolean(state.executionLeaseToken) }));
       return;
     }
 
@@ -157,6 +292,8 @@ function withTempEnv(fn) {
   const previous = {
     USERPROFILE: process.env.USERPROFILE,
     sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
     SIFTKIT_TEST_PROVIDER: process.env.SIFTKIT_TEST_PROVIDER,
     SIFTKIT_TEST_PROVIDER_BEHAVIOR: process.env.SIFTKIT_TEST_PROVIDER_BEHAVIOR,
     SIFTKIT_TEST_PROVIDER_LOG_PATH: process.env.SIFTKIT_TEST_PROVIDER_LOG_PATH,
@@ -170,6 +307,8 @@ function withTempEnv(fn) {
 
   process.env.USERPROFILE = tempRoot;
   delete process.env.sift_kit_status;
+  delete process.env.SIFTKIT_STATUS_PATH;
+  delete process.env.SIFTKIT_CONFIG_PATH;
   delete process.env.SIFTKIT_TEST_PROVIDER_BEHAVIOR;
   delete process.env.SIFTKIT_TEST_PROVIDER_LOG_PATH;
   delete process.env.SIFTKIT_TEST_PROVIDER_SLEEP_MS;
@@ -204,6 +343,71 @@ async function withStubServer(fn, options = {}) {
     return await fn(server);
   } finally {
     await server.close();
+  }
+}
+
+async function withSummaryTestServer(fn, options = {}) {
+  if (!TEST_USE_EXISTING_SERVER) {
+    return withStubServer(fn, options);
+  }
+
+  assert.ok(EXISTING_SERVER_STATUS_URL, 'SIFTKIT_STATUS_BACKEND_URL is required when SIFTKIT_TEST_USE_EXISTING_SERVER=1.');
+  assert.ok(EXISTING_SERVER_CONFIG_URL, 'SIFTKIT_CONFIG_SERVICE_URL is required when SIFTKIT_TEST_USE_EXISTING_SERVER=1.');
+  await requestJson(deriveServiceUrl(EXISTING_SERVER_CONFIG_URL, '/health'));
+
+  process.env.SIFTKIT_STATUS_BACKEND_URL = EXISTING_SERVER_STATUS_URL;
+  process.env.SIFTKIT_CONFIG_SERVICE_URL = EXISTING_SERVER_CONFIG_URL;
+  return fn({
+    statusUrl: EXISTING_SERVER_STATUS_URL,
+    configUrl: EXISTING_SERVER_CONFIG_URL,
+    usingExistingServer: true,
+  });
+}
+
+async function withRealStatusServer(fn, options = {}) {
+  const previous = {
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+  };
+
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+  process.env.sift_kit_status = options.statusPath;
+  process.env.SIFTKIT_STATUS_PATH = options.statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = options.configPath;
+
+  const server = startStatusServer();
+  try {
+    const address = await new Promise((resolve) => {
+      if (server.listening) {
+        resolve(server.address());
+        return;
+      }
+
+      server.once('listening', () => resolve(server.address()));
+    });
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    return await fn({
+      server,
+      port,
+      statusUrl: `http://127.0.0.1:${port}/status`,
+      healthUrl: `http://127.0.0.1:${port}/health`,
+      statusPath: options.statusPath,
+      configPath: options.configPath,
+    });
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
   }
 }
 
@@ -262,6 +466,89 @@ test('summarizeRequest recursively merges oversized mock summaries when the exte
   });
 });
 
+test('concurrent oversized CLI summary requests are serialized until the first request fully completes', async () => {
+  await withTempEnv(async (tempRoot) => {
+    await withSummaryTestServer(async () => {
+      process.env.SIFTKIT_TEST_PROVIDER_BEHAVIOR = 'recursive-merge';
+      process.env.SIFTKIT_TEST_PROVIDER_SLEEP_MS = '100';
+      const logPath = path.join(tempRoot, 'provider-events-concurrent.jsonl');
+      process.env.SIFTKIT_TEST_PROVIDER_LOG_PATH = logPath;
+
+      const firstInputPath = path.join(tempRoot, 'oversized-a.txt');
+      const secondInputPath = path.join(tempRoot, 'oversized-b.txt');
+      fs.writeFileSync(firstInputPath, 'A'.repeat(300_001), 'utf8');
+      fs.writeFileSync(secondInputPath, 'B'.repeat(300_001), 'utf8');
+
+      const cliPath = path.join(process.cwd(), 'bin', 'siftkit.js');
+      const childEnv = {
+        ...process.env,
+        SIFTKIT_TEST_PROVIDER: 'mock',
+        SIFTKIT_TEST_PROVIDER_BEHAVIOR: 'recursive-merge',
+        SIFTKIT_TEST_PROVIDER_SLEEP_MS: '100',
+        SIFTKIT_TEST_PROVIDER_LOG_PATH: logPath,
+      };
+
+      const [firstResult, secondResult] = await Promise.all([
+        spawnProcess(process.execPath, [
+          cliPath,
+          'summary',
+          '--question',
+          'summarize oversized request A',
+          '--file',
+          firstInputPath,
+          '--backend',
+          'mock',
+          '--model',
+          'mock-model',
+        ], {
+          cwd: process.cwd(),
+          env: childEnv,
+        }),
+        spawnProcess(process.execPath, [
+          cliPath,
+          'summary',
+          '--question',
+          'summarize oversized request B',
+          '--file',
+          secondInputPath,
+          '--backend',
+          'mock',
+          '--model',
+          'mock-model',
+        ], {
+          cwd: process.cwd(),
+          env: childEnv,
+        }),
+      ]);
+
+      const events = fs.readFileSync(logPath, 'utf8')
+        .trim()
+        .split(/\r?\n/u)
+        .map((line) => JSON.parse(line));
+      const questions = events.map((event) => event.question);
+      const firstQuestion = 'summarize oversized request A';
+      const secondQuestion = 'summarize oversized request B';
+      const referencesFirstRequest = (question) => String(question).includes(firstQuestion);
+      const referencesSecondRequest = (question) => String(question).includes(secondQuestion);
+      const firstSecondIndex = questions.indexOf(secondQuestion);
+
+      assert.equal(firstResult.code, 0);
+      assert.equal(secondResult.code, 0);
+      assert.match(firstResult.stdout, /merge summary/u);
+      assert.match(secondResult.stdout, /merge summary/u);
+      assert.equal(firstResult.stderr, '');
+      assert.equal(secondResult.stderr, '');
+      assert.ok(firstSecondIndex > 0);
+      assert.equal(questions.slice(0, firstSecondIndex).some(referencesSecondRequest), false);
+      assert.equal(questions.slice(firstSecondIndex).some(referencesFirstRequest), false);
+      assert.ok(questions.slice(0, firstSecondIndex).every(referencesFirstRequest));
+      assert.ok(questions.slice(firstSecondIndex).every(referencesSecondRequest));
+    }, {
+      running: false,
+    });
+  });
+});
+
 test('runCommand saves a raw log and respects no-summarize mode when the external server is available', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
@@ -314,6 +601,75 @@ test('status notification failures fail closed with the canonical message', asyn
       );
     }, {
       failStatusPosts: true,
+    });
+  });
+});
+
+test('withExecutionLock acquires and releases execution control through the server', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async () => {
+      const result = await withExecutionLock(async () => 'ok');
+      const state = await getExecutionServerState();
+
+      assert.equal(result, 'ok');
+      assert.equal(state.busy, false);
+    });
+  });
+});
+
+test('withExecutionLock waits for the server to release execution control before starting', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      server.state.executionLeaseToken = 'lease-busy';
+      const startedAt = Date.now();
+      setTimeout(() => {
+        server.state.executionLeaseToken = null;
+      }, 300);
+
+      const result = await withExecutionLock(async () => Date.now() - startedAt);
+
+      assert.equal(typeof result, 'number');
+      assert.ok(result >= 250);
+      assert.equal(server.state.executionLeaseToken, null);
+    });
+  });
+});
+
+test('real status server clears stale true status after the idle watchdog interval', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+    fs.writeFileSync(statusPath, 'true', 'utf8');
+
+    await withRealStatusServer(async ({ statusPath: liveStatusPath }) => {
+      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'true');
+      await sleep(10_500);
+      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'false');
+    }, {
+      statusPath,
+      configPath,
+    });
+  });
+});
+
+test('real status server preserves true status while an active request is tracked', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+
+    await withRealStatusServer(async ({ statusUrl, statusPath: liveStatusPath }) => {
+      await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: true }),
+      });
+
+      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'true');
+      await sleep(10_500);
+      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'true');
+    }, {
+      statusPath,
+      configPath,
     });
   });
 });

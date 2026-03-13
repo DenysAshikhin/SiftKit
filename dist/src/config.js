@@ -44,8 +44,13 @@ exports.getEffectiveMaxInputCharacters = getEffectiveMaxInputCharacters;
 exports.getChunkThresholdCharacters = getChunkThresholdCharacters;
 exports.getInferenceStatusPath = getInferenceStatusPath;
 exports.getStatusBackendUrl = getStatusBackendUrl;
+exports.getExecutionServiceUrl = getExecutionServiceUrl;
 exports.getStatusServerHealthUrl = getStatusServerHealthUrl;
 exports.getStatusServerUnavailableMessage = getStatusServerUnavailableMessage;
+exports.getExecutionServerState = getExecutionServerState;
+exports.tryAcquireExecutionLease = tryAcquireExecutionLease;
+exports.refreshExecutionLease = refreshExecutionLease;
+exports.releaseExecutionLease = releaseExecutionLease;
 exports.ensureStatusServerReachable = ensureStatusServerReachable;
 exports.notifyStatusBackend = notifyStatusBackend;
 exports.getConfigServiceUrl = getConfigServiceUrl;
@@ -235,6 +240,9 @@ function getStatusBackendUrl() {
     const port = process.env.SIFTKIT_STATUS_PORT?.trim() || '4765';
     return `http://${host}:${port}/status`;
 }
+function getExecutionServiceUrl() {
+    return deriveServiceUrl(getStatusBackendUrl(), '/execution');
+}
 function getStatusServerHealthUrl() {
     const configuredConfigUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
     if (configuredConfigUrl && configuredConfigUrl.trim()) {
@@ -247,6 +255,70 @@ function getStatusServerUnavailableMessage() {
 }
 function toStatusServerUnavailableError() {
     return new StatusServerUnavailableError(getStatusServerHealthUrl());
+}
+async function getExecutionServerState() {
+    try {
+        const response = await requestJson({
+            url: getExecutionServiceUrl(),
+            method: 'GET',
+            timeoutMs: 2000,
+        });
+        if (typeof response?.busy !== 'boolean') {
+            throw new Error('Execution endpoint did not return a usable busy flag.');
+        }
+        return {
+            busy: response.busy,
+        };
+    }
+    catch {
+        throw toStatusServerUnavailableError();
+    }
+}
+async function tryAcquireExecutionLease() {
+    try {
+        const response = await requestJson({
+            url: `${getExecutionServiceUrl().replace(/\/$/u, '')}/acquire`,
+            method: 'POST',
+            timeoutMs: 2000,
+            body: JSON.stringify({ pid: process.pid }),
+        });
+        if (typeof response?.acquired !== 'boolean') {
+            throw new Error('Execution acquire endpoint did not return a usable acquired flag.');
+        }
+        return {
+            acquired: response.acquired,
+            token: response.acquired && typeof response.token === 'string' && response.token.trim() ? response.token : null,
+        };
+    }
+    catch {
+        throw toStatusServerUnavailableError();
+    }
+}
+async function refreshExecutionLease(token) {
+    try {
+        await requestJson({
+            url: `${getExecutionServiceUrl().replace(/\/$/u, '')}/heartbeat`,
+            method: 'POST',
+            timeoutMs: 2000,
+            body: JSON.stringify({ token }),
+        });
+    }
+    catch {
+        throw toStatusServerUnavailableError();
+    }
+}
+async function releaseExecutionLease(token) {
+    try {
+        await requestJson({
+            url: `${getExecutionServiceUrl().replace(/\/$/u, '')}/release`,
+            method: 'POST',
+            timeoutMs: 2000,
+            body: JSON.stringify({ token }),
+        });
+    }
+    catch {
+        throw toStatusServerUnavailableError();
+    }
 }
 async function ensureStatusServerReachable() {
     try {

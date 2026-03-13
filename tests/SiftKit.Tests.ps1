@@ -179,6 +179,7 @@ const statusPath = process.env.SIFTKIT_TEST_STATUS_PATH;
 const configPath = process.env.SIFTKIT_TEST_CONFIG_PATH;
 const failStatusPosts = process.env.SIFTKIT_TEST_FAIL_STATUS_POSTS === '1';
 let config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+let executionLeaseToken = null;
 
 function readBody(req) {
   return new Promise((resolve) => {
@@ -206,6 +207,12 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'GET' && req.url === '/execution') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ busy: !!executionLeaseToken }));
+    return;
+  }
+
   if (req.method === 'PUT' && req.url === '/config') {
     const bodyText = await readBody(req);
     config = bodyText ? JSON.parse(bodyText) : config;
@@ -226,6 +233,40 @@ const server = http.createServer(async (req, res) => {
     ensureFile(statusPath, payload.running ? 'true' : 'false');
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, running: !!payload.running }));
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/execution/acquire') {
+    if (executionLeaseToken) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, acquired: false, busy: true }));
+      return;
+    }
+
+    executionLeaseToken = 'lease-' + Date.now();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, acquired: true, busy: true, token: executionLeaseToken }));
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/execution/heartbeat') {
+    const bodyText = await readBody(req);
+    const payload = bodyText ? JSON.parse(bodyText) : {};
+    const ok = typeof payload.token === 'string' && payload.token === executionLeaseToken;
+    res.writeHead(ok ? 200 : 409, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok, busy: ok }));
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/execution/release') {
+    const bodyText = await readBody(req);
+    const payload = bodyText ? JSON.parse(bodyText) : {};
+    const released = typeof payload.token === 'string' && payload.token === executionLeaseToken;
+    if (released) {
+      executionLeaseToken = null;
+    }
+    res.writeHead(released ? 200 : 409, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: released, released, busy: !!executionLeaseToken }));
     return;
   }
 

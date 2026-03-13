@@ -64,6 +64,14 @@ Build the TS client:
 npm run build
 ```
 
+Run the full client verification flow, including a live `siftkit summary` smoke test:
+
+```powershell
+npm run verify:client
+```
+
+That script assumes the separate status/config server is already running and reachable.
+
 Import the PowerShell compatibility module when you want cmdlets or wrapper behavior:
 
 ```powershell
