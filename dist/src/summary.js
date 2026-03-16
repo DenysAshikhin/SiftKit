@@ -41,7 +41,7 @@ exports.readSummaryInput = readSummaryInput;
 const fs = __importStar(require("node:fs"));
 const config_js_1 = require("./config.js");
 const execution_lock_js_1 = require("./execution-lock.js");
-const ollama_js_1 = require("./providers/ollama.js");
+const llama_cpp_js_1 = require("./providers/llama-cpp.js");
 const PROMPT_PROFILES = {
     general: [
         'Summarize only the information supported by the input. Prefer short bullets or short prose.',
@@ -244,6 +244,10 @@ async function invokeProviderSummary(options) {
         chunkIndex: options.chunkIndex,
         chunkTotal: options.chunkTotal,
     });
+    const startedAt = Date.now();
+    let inputTokens = null;
+    let outputCharacterCount = null;
+    let outputTokens = null;
     try {
         if (options.backend === 'mock') {
             const rawSleep = process.env.SIFTKIT_TEST_PROVIDER_SLEEP_MS;
@@ -259,18 +263,30 @@ async function invokeProviderSummary(options) {
                 rawInputCharacterCount: options.rawInputCharacterCount,
                 chunkInputCharacterCount: options.chunkInputCharacterCount,
             });
-            return getMockSummary(options.prompt, options.question, options.phase);
+            const mockSummary = getMockSummary(options.prompt, options.question, options.phase);
+            outputCharacterCount = mockSummary.length;
+            return mockSummary;
         }
-        const response = await (0, ollama_js_1.generateOllamaResponse)({
+        const response = await (0, llama_cpp_js_1.generateLlamaCppResponse)({
             config: options.config,
             model: options.model,
             prompt: options.prompt,
             timeoutSeconds: 600,
         });
-        return String(response.response).trim();
+        inputTokens = response.usage?.promptTokens ?? null;
+        outputCharacterCount = response.text.length;
+        outputTokens = response.usage?.completionTokens ?? null;
+        return response.text.trim();
     }
     finally {
-        await (0, config_js_1.notifyStatusBackend)({ running: false });
+        await (0, config_js_1.notifyStatusBackend)({
+            running: false,
+            promptCharacterCount: options.promptCharacterCount,
+            inputTokens,
+            outputCharacterCount,
+            outputTokens,
+            requestDurationMs: Date.now() - startedAt,
+        });
     }
 }
 function buildPrompt(options) {

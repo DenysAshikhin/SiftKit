@@ -9,7 +9,7 @@ export const SIFT_DEFAULT_NUM_CTX = 128_000;
 export const SIFT_LEGACY_DEFAULT_NUM_CTX = 16_384;
 export const SIFT_LEGACY_DERIVED_NUM_CTX = 32_000;
 export const SIFT_PREVIOUS_DEFAULT_NUM_CTX = 50_000;
-export const SIFT_PREVIOUS_DEFAULT_MODEL = 'qwen3.5:4b-q8_0';
+export const SIFT_PREVIOUS_DEFAULT_MODEL = 'qwen3.5-4b-q8_0';
 export const SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS = 32_000;
 export const SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN = 2.5;
 
@@ -19,17 +19,22 @@ export type SiftConfig = {
   Model: string;
   PolicyMode: string;
   RawLogRetention: boolean;
-  Ollama: {
+  LlamaCpp: {
     BaseUrl: string;
-    ExecutablePath: string | null;
     NumCtx: number;
+    ModelPath?: string | null;
     Temperature: number;
     TopP: number;
     TopK: number;
     MinP: number;
     PresencePenalty: number;
     RepetitionPenalty: number;
-    NumPredict?: number | null;
+    MaxTokens?: number | null;
+    GpuLayers?: number | null;
+    Threads?: number | null;
+    FlashAttention?: boolean;
+    ParallelSlots?: number | null;
+    Reasoning?: 'on' | 'off' | 'auto';
   };
   Thresholds: {
     MinCharactersForSummary: number;
@@ -54,6 +59,7 @@ export type SiftConfig = {
     ConfigAuthoritative: boolean;
     BudgetSource: string;
     NumCtx: number;
+    InputCharactersPerContextToken: number;
     MaxInputCharacters: number;
     ChunkThresholdRatio: number;
     ChunkThresholdCharacters: number;
@@ -66,6 +72,15 @@ type NormalizationInfo = {
   changed: boolean;
   legacyMaxInputCharactersRemoved: boolean;
   legacyMaxInputCharactersValue: number | null;
+};
+
+type StatusMetricsSnapshot = {
+  inputCharactersTotal?: number;
+  inputTokensTotal?: number;
+};
+
+type StatusSnapshotResponse = {
+  metrics?: StatusMetricsSnapshot;
 };
 
 function parseJsonText<T>(text: string): T {
@@ -235,13 +250,24 @@ export function getDefaultNumCtx(): number {
   return SIFT_DEFAULT_NUM_CTX;
 }
 
-export function getDerivedMaxInputCharacters(numCtx: number): number {
+export function getDerivedMaxInputCharacters(numCtx: number, inputCharactersPerContextToken = SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN): number {
   const effectiveNumCtx = numCtx > 0 ? numCtx : getDefaultNumCtx();
-  return Math.max(Math.floor(effectiveNumCtx * SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN), 1);
+  const effectiveCharactersPerContextToken = inputCharactersPerContextToken > 0
+    ? inputCharactersPerContextToken
+    : SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN;
+  return Math.max(Math.floor(effectiveNumCtx * effectiveCharactersPerContextToken), 1);
+}
+
+export function getEffectiveInputCharactersPerContextToken(config: SiftConfig): number {
+  const effectiveValue = Number(config.Effective?.InputCharactersPerContextToken);
+  return effectiveValue > 0 ? effectiveValue : SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN;
 }
 
 export function getEffectiveMaxInputCharacters(config: SiftConfig): number {
-  return getDerivedMaxInputCharacters(Number(config.Ollama.NumCtx));
+  return getDerivedMaxInputCharacters(
+    Number(config.LlamaCpp.NumCtx),
+    getEffectiveInputCharactersPerContextToken(config)
+  );
 }
 
 export function getChunkThresholdCharacters(config: SiftConfig): number {
@@ -268,6 +294,51 @@ export function getStatusBackendUrl(): string {
   const host = process.env.SIFTKIT_STATUS_HOST?.trim() || '127.0.0.1';
   const port = process.env.SIFTKIT_STATUS_PORT?.trim() || '4765';
   return `http://${host}:${port}/status`;
+}
+
+async function getStatusSnapshot(): Promise<StatusSnapshotResponse> {
+  try {
+    return await requestJson<StatusSnapshotResponse>({
+      url: getStatusBackendUrl(),
+      method: 'GET',
+      timeoutMs: 2000,
+    });
+  } catch {
+    throw toStatusServerUnavailableError();
+  }
+}
+
+function getObservedInputCharactersPerContextToken(snapshot: StatusSnapshotResponse | null | undefined): number | null {
+  const inputCharactersTotal = Number(snapshot?.metrics?.inputCharactersTotal);
+  const inputTokensTotal = Number(snapshot?.metrics?.inputTokensTotal);
+  if (!Number.isFinite(inputCharactersTotal) || inputCharactersTotal <= 0) {
+    return null;
+  }
+  if (!Number.isFinite(inputTokensTotal) || inputTokensTotal <= 0) {
+    return null;
+  }
+
+  return inputCharactersTotal / inputTokensTotal;
+}
+
+async function resolveInputCharactersPerContextToken(): Promise<{ value: number; budgetSource: string }> {
+  try {
+    const snapshot = await getStatusSnapshot();
+    const observedValue = getObservedInputCharactersPerContextToken(snapshot);
+    if (observedValue !== null) {
+      return {
+        value: observedValue,
+        budgetSource: 'ObservedCharsPerToken',
+      };
+    }
+  } catch {
+    // Fall back to the conservative built-in estimate if metrics are unavailable.
+  }
+
+  return {
+    value: SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN,
+    budgetSource: 'FixedCharsPerToken',
+  };
 }
 
 export function getExecutionServiceUrl(): string {
@@ -380,6 +451,11 @@ export async function notifyStatusBackend(options: {
   phase?: 'leaf' | 'merge';
   chunkIndex?: number | null;
   chunkTotal?: number | null;
+  inputTokens?: number | null;
+  outputCharacterCount?: number | null;
+  outputTokens?: number | null;
+  thinkingTokens?: number | null;
+  requestDurationMs?: number | null;
 }): Promise<void> {
   const body: Record<string, unknown> = {
     running: options.running,
@@ -388,7 +464,7 @@ export async function notifyStatusBackend(options: {
     updatedAtUtc: new Date().toISOString(),
   };
 
-  if (options.running && options.promptCharacterCount !== undefined && options.promptCharacterCount !== null) {
+  if (options.promptCharacterCount !== undefined && options.promptCharacterCount !== null) {
     body.promptCharacterCount = options.promptCharacterCount;
   }
   if (options.running && options.rawInputCharacterCount !== undefined && options.rawInputCharacterCount !== null) {
@@ -409,6 +485,21 @@ export async function notifyStatusBackend(options: {
   ) {
     body.chunkIndex = options.chunkIndex;
     body.chunkTotal = options.chunkTotal;
+  }
+  if (!options.running && options.inputTokens !== undefined && options.inputTokens !== null) {
+    body.inputTokens = options.inputTokens;
+  }
+  if (!options.running && options.outputCharacterCount !== undefined && options.outputCharacterCount !== null) {
+    body.outputCharacterCount = options.outputCharacterCount;
+  }
+  if (!options.running && options.outputTokens !== undefined && options.outputTokens !== null) {
+    body.outputTokens = options.outputTokens;
+  }
+  if (!options.running && options.thinkingTokens !== undefined && options.thinkingTokens !== null) {
+    body.thinkingTokens = options.thinkingTokens;
+  }
+  if (!options.running && options.requestDurationMs !== undefined && options.requestDurationMs !== null) {
+    body.requestDurationMs = options.requestDurationMs;
   }
 
   try {
@@ -436,48 +527,30 @@ export function getConfigPath(): string {
   return path.join(getRuntimeRoot(), 'config.json');
 }
 
-export function findOllamaExecutable(): string | null {
-  const pathEntries = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
-  for (const entry of pathEntries) {
-    const candidate = path.join(entry, process.platform === 'win32' ? 'ollama.exe' : 'ollama');
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  const candidates = [
-    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', 'Ollama', 'ollama.exe') : null,
-    process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'Ollama', 'ollama.exe') : null,
-    process.env['ProgramFiles(x86)'] ? path.join(process.env['ProgramFiles(x86)'], 'Ollama', 'ollama.exe') : null,
-  ].filter((candidate): candidate is string => Boolean(candidate));
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return null;
-}
-
 function getDefaultConfigObject(): SiftConfig {
   const runtimePaths = initializeRuntime();
   return {
     Version: SIFTKIT_VERSION,
-    Backend: 'ollama',
-    Model: 'qwen3.5:9b-q4_K_M',
+    Backend: 'llama.cpp',
+    Model: 'qwen3.5-9b-instruct-q4_k_m',
     PolicyMode: 'conservative',
     RawLogRetention: true,
-    Ollama: {
-      BaseUrl: 'http://127.0.0.1:11434',
-      ExecutablePath: null,
+    LlamaCpp: {
+      BaseUrl: 'http://127.0.0.1:8080',
       NumCtx: getDefaultNumCtx(),
+      ModelPath: null,
       Temperature: 0.2,
       TopP: 0.95,
       TopK: 20,
       MinP: 0.0,
       PresencePenalty: 0.0,
       RepetitionPenalty: 1.0,
+      MaxTokens: 4096,
+      GpuLayers: 999,
+      Threads: -1,
+      FlashAttention: true,
+      ParallelSlots: 1,
+      Reasoning: 'off',
     },
     Thresholds: {
       MinCharactersForSummary: 500,
@@ -502,17 +575,22 @@ function toPersistedConfigObject(config: SiftConfig): Omit<SiftConfig, 'Paths' |
     Model: config.Model,
     PolicyMode: config.PolicyMode,
     RawLogRetention: Boolean(config.RawLogRetention),
-    Ollama: {
-      BaseUrl: config.Ollama.BaseUrl,
-      ExecutablePath: config.Ollama.ExecutablePath,
-      NumCtx: Number(config.Ollama.NumCtx),
-      Temperature: Number(config.Ollama.Temperature),
-      TopP: Number(config.Ollama.TopP),
-      TopK: Number(config.Ollama.TopK),
-      MinP: Number(config.Ollama.MinP),
-      PresencePenalty: Number(config.Ollama.PresencePenalty),
-      RepetitionPenalty: Number(config.Ollama.RepetitionPenalty),
-      ...(config.Ollama.NumPredict === undefined ? {} : { NumPredict: config.Ollama.NumPredict }),
+    LlamaCpp: {
+      BaseUrl: config.LlamaCpp.BaseUrl,
+      NumCtx: Number(config.LlamaCpp.NumCtx),
+      ...(config.LlamaCpp.ModelPath === undefined ? {} : { ModelPath: config.LlamaCpp.ModelPath }),
+      Temperature: Number(config.LlamaCpp.Temperature),
+      TopP: Number(config.LlamaCpp.TopP),
+      TopK: Number(config.LlamaCpp.TopK),
+      MinP: Number(config.LlamaCpp.MinP),
+      PresencePenalty: Number(config.LlamaCpp.PresencePenalty),
+      RepetitionPenalty: Number(config.LlamaCpp.RepetitionPenalty),
+      ...(config.LlamaCpp.MaxTokens === undefined ? {} : { MaxTokens: config.LlamaCpp.MaxTokens }),
+      ...(config.LlamaCpp.GpuLayers === undefined ? {} : { GpuLayers: config.LlamaCpp.GpuLayers }),
+      ...(config.LlamaCpp.Threads === undefined ? {} : { Threads: config.LlamaCpp.Threads }),
+      ...(config.LlamaCpp.FlashAttention === undefined ? {} : { FlashAttention: config.LlamaCpp.FlashAttention }),
+      ...(config.LlamaCpp.ParallelSlots === undefined ? {} : { ParallelSlots: config.LlamaCpp.ParallelSlots }),
+      ...(config.LlamaCpp.Reasoning === undefined ? {} : { Reasoning: config.LlamaCpp.Reasoning }),
     },
     Thresholds: {
       MinCharactersForSummary: Number(config.Thresholds.MinCharactersForSummary),
@@ -544,46 +622,97 @@ function normalizeConfig(config: SiftConfig): { config: SiftConfig; info: Normal
   let legacyMaxInputCharactersRemoved = false;
 
   updated.Thresholds ??= { ...defaults.Thresholds };
-  updated.Ollama ??= { ...defaults.Ollama };
   updated.Interactive ??= { ...defaults.Interactive };
 
-  if (!updated.Ollama.BaseUrl) {
-    updated.Ollama.BaseUrl = defaults.Ollama.BaseUrl;
+  const legacyOllama = (updated as SiftConfig & { Ollama?: Record<string, unknown> }).Ollama;
+  if (legacyOllama && !updated.LlamaCpp) {
+    updated.LlamaCpp = {
+      BaseUrl: String(legacyOllama.BaseUrl || defaults.LlamaCpp.BaseUrl),
+      NumCtx: Number(legacyOllama.NumCtx || defaults.LlamaCpp.NumCtx),
+      ModelPath: defaults.LlamaCpp.ModelPath,
+      Temperature: Number(legacyOllama.Temperature ?? defaults.LlamaCpp.Temperature),
+      TopP: Number(legacyOllama.TopP ?? defaults.LlamaCpp.TopP),
+      TopK: Number(legacyOllama.TopK ?? defaults.LlamaCpp.TopK),
+      MinP: Number(legacyOllama.MinP ?? defaults.LlamaCpp.MinP),
+      PresencePenalty: Number(legacyOllama.PresencePenalty ?? defaults.LlamaCpp.PresencePenalty),
+      RepetitionPenalty: Number(legacyOllama.RepetitionPenalty ?? defaults.LlamaCpp.RepetitionPenalty),
+      ...(legacyOllama.NumPredict === undefined ? {} : { MaxTokens: legacyOllama.NumPredict as number | null }),
+      GpuLayers: defaults.LlamaCpp.GpuLayers,
+      Threads: defaults.LlamaCpp.Threads,
+      FlashAttention: defaults.LlamaCpp.FlashAttention,
+      ParallelSlots: defaults.LlamaCpp.ParallelSlots,
+      Reasoning: defaults.LlamaCpp.Reasoning,
+    };
     changed = true;
   }
-  if (!Object.prototype.hasOwnProperty.call(updated.Ollama, 'ExecutablePath')) {
-    updated.Ollama.ExecutablePath = defaults.Ollama.ExecutablePath;
-    changed = true;
-  }
-  if (!updated.Ollama.NumCtx || Number(updated.Ollama.NumCtx) <= 0) {
-    updated.Ollama.NumCtx = defaults.Ollama.NumCtx;
-    changed = true;
-  }
-  if (!Object.prototype.hasOwnProperty.call(updated.Ollama, 'Temperature')) {
-    updated.Ollama.Temperature = defaults.Ollama.Temperature;
-    changed = true;
-  }
-  if (!Object.prototype.hasOwnProperty.call(updated.Ollama, 'TopP')) {
-    updated.Ollama.TopP = defaults.Ollama.TopP;
-    changed = true;
-  }
-  if (!Object.prototype.hasOwnProperty.call(updated.Ollama, 'TopK')) {
-    updated.Ollama.TopK = defaults.Ollama.TopK;
-    changed = true;
-  }
-  if (!Object.prototype.hasOwnProperty.call(updated.Ollama, 'MinP')) {
-    updated.Ollama.MinP = defaults.Ollama.MinP;
-    changed = true;
-  }
-  if (!Object.prototype.hasOwnProperty.call(updated.Ollama, 'PresencePenalty')) {
-    updated.Ollama.PresencePenalty = defaults.Ollama.PresencePenalty;
-    changed = true;
-  }
-  if (!Object.prototype.hasOwnProperty.call(updated.Ollama, 'RepetitionPenalty')) {
-    updated.Ollama.RepetitionPenalty = defaults.Ollama.RepetitionPenalty;
+  delete (updated as SiftConfig & { Ollama?: Record<string, unknown> }).Ollama;
+  updated.LlamaCpp ??= { ...defaults.LlamaCpp };
+
+  if (updated.Backend === 'ollama') {
+    updated.Backend = defaults.Backend;
     changed = true;
   }
 
+  if (!updated.LlamaCpp.BaseUrl) {
+    updated.LlamaCpp.BaseUrl = defaults.LlamaCpp.BaseUrl;
+    changed = true;
+  }
+  if (!updated.LlamaCpp.NumCtx || Number(updated.LlamaCpp.NumCtx) <= 0) {
+    updated.LlamaCpp.NumCtx = defaults.LlamaCpp.NumCtx;
+    changed = true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'Temperature')) {
+    updated.LlamaCpp.Temperature = defaults.LlamaCpp.Temperature;
+    changed = true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'ModelPath')) {
+    updated.LlamaCpp.ModelPath = defaults.LlamaCpp.ModelPath;
+    changed = true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'TopP')) {
+    updated.LlamaCpp.TopP = defaults.LlamaCpp.TopP;
+    changed = true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'TopK')) {
+    updated.LlamaCpp.TopK = defaults.LlamaCpp.TopK;
+    changed = true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'MinP')) {
+    updated.LlamaCpp.MinP = defaults.LlamaCpp.MinP;
+    changed = true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'PresencePenalty')) {
+    updated.LlamaCpp.PresencePenalty = defaults.LlamaCpp.PresencePenalty;
+    changed = true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'RepetitionPenalty')) {
+    updated.LlamaCpp.RepetitionPenalty = defaults.LlamaCpp.RepetitionPenalty;
+    changed = true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'MaxTokens')) {
+    updated.LlamaCpp.MaxTokens = defaults.LlamaCpp.MaxTokens;
+    changed = true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'GpuLayers')) {
+    updated.LlamaCpp.GpuLayers = defaults.LlamaCpp.GpuLayers;
+    changed = true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'Threads')) {
+    updated.LlamaCpp.Threads = defaults.LlamaCpp.Threads;
+    changed = true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'FlashAttention')) {
+    updated.LlamaCpp.FlashAttention = defaults.LlamaCpp.FlashAttention;
+    changed = true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'ParallelSlots')) {
+    updated.LlamaCpp.ParallelSlots = defaults.LlamaCpp.ParallelSlots;
+    changed = true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'Reasoning')) {
+    updated.LlamaCpp.Reasoning = defaults.LlamaCpp.Reasoning;
+    changed = true;
+  }
   if (!Object.prototype.hasOwnProperty.call(updated.Thresholds, 'MinCharactersForSummary')) {
     updated.Thresholds.MinCharactersForSummary = defaults.Thresholds.MinCharactersForSummary;
     changed = true;
@@ -634,7 +763,7 @@ function normalizeConfig(config: SiftConfig): { config: SiftConfig; info: Normal
     changed = true;
   }
 
-  const numCtx = Number(updated.Ollama.NumCtx);
+  const numCtx = Number(updated.LlamaCpp.NumCtx);
   const ratio = Number(updated.Thresholds.ChunkThresholdRatio);
   const isLegacyDefaultSettings = (
     numCtx === SIFT_LEGACY_DEFAULT_NUM_CTX
@@ -652,7 +781,7 @@ function normalizeConfig(config: SiftConfig): { config: SiftConfig; info: Normal
   );
 
   if (isLegacyDefaultSettings || isLegacyDerivedSettings || isPreviousDefaultSettings) {
-    updated.Ollama.NumCtx = defaults.Ollama.NumCtx;
+    updated.LlamaCpp.NumCtx = defaults.LlamaCpp.NumCtx;
     updated.Thresholds.ChunkThresholdRatio = defaults.Thresholds.ChunkThresholdRatio;
     delete updated.Thresholds.MaxInputCharacters;
     changed = true;
@@ -668,16 +797,24 @@ function normalizeConfig(config: SiftConfig): { config: SiftConfig; info: Normal
   };
 }
 
-function addEffectiveConfigProperties(config: SiftConfig, info: NormalizationInfo): SiftConfig {
+async function addEffectiveConfigProperties(config: SiftConfig, info: NormalizationInfo): Promise<SiftConfig> {
+  const effectiveBudget = await resolveInputCharactersPerContextToken();
+  const maxInputCharacters = getDerivedMaxInputCharacters(
+    Number(config.LlamaCpp.NumCtx),
+    effectiveBudget.value
+  );
+  const chunkThresholdRatio = Number(config.Thresholds.ChunkThresholdRatio);
+  const effectiveChunkThresholdRatio = chunkThresholdRatio > 0 && chunkThresholdRatio <= 1 ? chunkThresholdRatio : 0.92;
   return {
     ...config,
     Effective: {
       ConfigAuthoritative: true,
-      BudgetSource: 'NumCtxDerived',
-      NumCtx: Number(config.Ollama.NumCtx),
-      MaxInputCharacters: getEffectiveMaxInputCharacters(config),
-      ChunkThresholdRatio: Number(config.Thresholds.ChunkThresholdRatio),
-      ChunkThresholdCharacters: getChunkThresholdCharacters(config),
+      BudgetSource: effectiveBudget.budgetSource,
+      NumCtx: Number(config.LlamaCpp.NumCtx),
+      InputCharactersPerContextToken: effectiveBudget.value,
+      MaxInputCharacters: maxInputCharacters,
+      ChunkThresholdRatio: chunkThresholdRatio,
+      ChunkThresholdCharacters: Math.max(Math.floor(maxInputCharacters * effectiveChunkThresholdRatio), 1),
       LegacyMaxInputCharactersRemoved: info.legacyMaxInputCharactersRemoved,
       LegacyMaxInputCharactersValue: info.legacyMaxInputCharactersValue,
     },

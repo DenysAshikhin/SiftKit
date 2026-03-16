@@ -55,20 +55,26 @@ function Get-TestStatusPath {
 function Get-DefaultServerConfig {
     @{
         Version = '0.1.0'
-        Backend = 'ollama'
-        Model = 'qwen3.5:9b-q4_K_M'
+        Backend = 'llama.cpp'
+        Model = 'qwen3.5-9b-instruct-q4_k_m'
         PolicyMode = 'conservative'
         RawLogRetention = $true
-        Ollama = @{
-            BaseUrl = 'http://127.0.0.1:11434'
-            ExecutablePath = 'mock.exe'
+        LlamaCpp = @{
+            BaseUrl = 'http://127.0.0.1:8080'
             NumCtx = 128000
+            ModelPath = $null
             Temperature = 0.2
             TopP = 0.95
             TopK = 20
             MinP = 0.0
             PresencePenalty = 0.0
             RepetitionPenalty = 1.0
+            MaxTokens = 4096
+            GpuLayers = 999
+            Threads = -1
+            FlashAttention = $true
+            ParallelSlots = 1
+            Reasoning = 'off'
         }
         Thresholds = @{
             MinCharactersForSummary = 500
@@ -213,6 +219,31 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'GET' && req.url === '/v1/models') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: [{ id: config.Model }] }));
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/v1/chat/completions') {
+    const bodyText = await readBody(req);
+    const payload = bodyText ? JSON.parse(bodyText) : {};
+    const promptText = payload?.messages?.[0]?.content || '';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      id: 'chatcmpl-test',
+      object: 'chat.completion',
+      choices: [{
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: ('summary:' + String(promptText).slice(0, 24))
+        }
+      }]
+    }));
+    return;
+  }
+
   if (req.method === 'PUT' && req.url === '/config') {
     const bodyText = await readBody(req);
     config = bodyText ? JSON.parse(bodyText) : config;
@@ -276,6 +307,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(port, host, () => {
   const address = server.address();
+  config.LlamaCpp.BaseUrl = 'http://127.0.0.1:' + address.port;
   process.stdout.write(JSON.stringify({ port: address.port, statusPath, configPath }) + '\n');
 });
 

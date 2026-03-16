@@ -3,9 +3,25 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const Database = require('better-sqlite3');
 
 const STATUS_IDLE_CLEAR_INTERVAL_MS = 10_000;
 const EXECUTION_LEASE_STALE_MS = 10_000;
+const IDLE_SUMMARY_DELAY_MS = getPositiveIntegerFromEnv('SIFTKIT_IDLE_SUMMARY_DELAY_MS', 60_000);
+
+function getPositiveIntegerFromEnv(name, fallback) {
+  const rawValue = process.env[name];
+  if (!rawValue || !rawValue.trim()) {
+    return fallback;
+  }
+
+  const parsedValue = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+    return fallback;
+  }
+
+  return parsedValue;
+}
 
 function getRuntimeRoot() {
   const configuredPath = process.env.sift_kit_status || process.env.SIFTKIT_STATUS_PATH;
@@ -40,6 +56,24 @@ function getConfigPath() {
   return path.join(getRuntimeRoot(), 'config.json');
 }
 
+function getMetricsPath() {
+  const configuredPath = process.env.SIFTKIT_METRICS_PATH;
+  if (configuredPath && configuredPath.trim()) {
+    return path.resolve(configuredPath);
+  }
+
+  return path.join(getRuntimeRoot(), 'metrics', 'compression.json');
+}
+
+function getIdleSummarySnapshotsPath() {
+  const configuredPath = process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH;
+  if (configuredPath && configuredPath.trim()) {
+    return path.resolve(configuredPath);
+  }
+
+  return path.join(path.dirname(getStatusPath()), 'idle-summary.sqlite');
+}
+
 function ensureDirectory(targetPath) {
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
 }
@@ -55,23 +89,91 @@ function ensureStatusFile(targetPath) {
   }
 }
 
+function getDefaultMetrics() {
+  return {
+    inputCharactersTotal: 0,
+    outputCharactersTotal: 0,
+    inputTokensTotal: 0,
+    outputTokensTotal: 0,
+    thinkingTokensTotal: 0,
+    requestDurationMsTotal: 0,
+    completedRequestCount: 0,
+    updatedAtUtc: null
+  };
+}
+
+function normalizeMetrics(input) {
+  const metrics = getDefaultMetrics();
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return metrics;
+  }
+
+  if (Number.isFinite(input.inputCharactersTotal) && input.inputCharactersTotal >= 0) {
+    metrics.inputCharactersTotal = Number(input.inputCharactersTotal);
+  }
+  if (Number.isFinite(input.outputCharactersTotal) && input.outputCharactersTotal >= 0) {
+    metrics.outputCharactersTotal = Number(input.outputCharactersTotal);
+  }
+  if (Number.isFinite(input.inputTokensTotal) && input.inputTokensTotal >= 0) {
+    metrics.inputTokensTotal = Number(input.inputTokensTotal);
+  }
+  if (Number.isFinite(input.outputTokensTotal) && input.outputTokensTotal >= 0) {
+    metrics.outputTokensTotal = Number(input.outputTokensTotal);
+  }
+  if (Number.isFinite(input.thinkingTokensTotal) && input.thinkingTokensTotal >= 0) {
+    metrics.thinkingTokensTotal = Number(input.thinkingTokensTotal);
+  }
+  if (Number.isFinite(input.requestDurationMsTotal) && input.requestDurationMsTotal >= 0) {
+    metrics.requestDurationMsTotal = Number(input.requestDurationMsTotal);
+  }
+  if (Number.isFinite(input.completedRequestCount) && input.completedRequestCount >= 0) {
+    metrics.completedRequestCount = Number(input.completedRequestCount);
+  }
+  if (typeof input.updatedAtUtc === 'string' && input.updatedAtUtc.trim()) {
+    metrics.updatedAtUtc = input.updatedAtUtc;
+  }
+
+  return metrics;
+}
+
+function readMetrics(metricsPath) {
+  if (!fs.existsSync(metricsPath)) {
+    return getDefaultMetrics();
+  }
+
+  try {
+    return normalizeMetrics(JSON.parse(fs.readFileSync(metricsPath, 'utf8')));
+  } catch {
+    return getDefaultMetrics();
+  }
+}
+
+function writeMetrics(metricsPath, metrics) {
+  writeText(metricsPath, `${JSON.stringify(normalizeMetrics(metrics), null, 2)}\n`);
+}
+
 function getDefaultConfig() {
   return {
     Version: '0.1.0',
-    Backend: 'ollama',
-    Model: 'qwen3.5:9b-q4_K_M',
+    Backend: 'llama.cpp',
+    Model: 'qwen3.5-9b-instruct-q4_k_m',
     PolicyMode: 'conservative',
     RawLogRetention: true,
-    Ollama: {
-      BaseUrl: 'http://127.0.0.1:11434',
-      ExecutablePath: null,
+    LlamaCpp: {
+      BaseUrl: 'http://127.0.0.1:8080',
       NumCtx: 128000,
+      ModelPath: null,
       Temperature: 0.2,
       TopP: 0.95,
       TopK: 20,
       MinP: 0.0,
       PresencePenalty: 0.0,
-      RepetitionPenalty: 1.0
+      RepetitionPenalty: 1.0,
+      MaxTokens: 4096,
+      GpuLayers: 999,
+      FlashAttention: true,
+      ParallelSlots: 1,
+      Reasoning: 'off'
     },
     Thresholds: {
       MinCharactersForSummary: 500,
@@ -121,9 +223,34 @@ function mergeConfig(baseValue, patchValue) {
 
 function normalizeConfig(input) {
   const merged = mergeConfig(getDefaultConfig(), input || {});
+  if (merged.Backend === 'ollama') {
+    merged.Backend = 'llama.cpp';
+  }
+  if (merged.Ollama && !merged.LlamaCpp) {
+    merged.LlamaCpp = {
+      BaseUrl: merged.Ollama.BaseUrl || getDefaultConfig().LlamaCpp.BaseUrl,
+      NumCtx: Number(merged.Ollama.NumCtx || getDefaultConfig().LlamaCpp.NumCtx),
+      ModelPath: getDefaultConfig().LlamaCpp.ModelPath,
+      Temperature: Number(merged.Ollama.Temperature ?? getDefaultConfig().LlamaCpp.Temperature),
+      TopP: Number(merged.Ollama.TopP ?? getDefaultConfig().LlamaCpp.TopP),
+      TopK: Number(merged.Ollama.TopK ?? getDefaultConfig().LlamaCpp.TopK),
+      MinP: Number(merged.Ollama.MinP ?? getDefaultConfig().LlamaCpp.MinP),
+      PresencePenalty: Number(merged.Ollama.PresencePenalty ?? getDefaultConfig().LlamaCpp.PresencePenalty),
+      RepetitionPenalty: Number(merged.Ollama.RepetitionPenalty ?? getDefaultConfig().LlamaCpp.RepetitionPenalty),
+      ...(Object.prototype.hasOwnProperty.call(merged.Ollama, 'NumPredict') ? { MaxTokens: merged.Ollama.NumPredict } : {}),
+      GpuLayers: getDefaultConfig().LlamaCpp.GpuLayers,
+      FlashAttention: getDefaultConfig().LlamaCpp.FlashAttention,
+      ParallelSlots: getDefaultConfig().LlamaCpp.ParallelSlots,
+      Reasoning: getDefaultConfig().LlamaCpp.Reasoning
+    };
+  }
+  delete merged.Ollama;
   delete merged.Paths;
   if (merged.Thresholds && typeof merged.Thresholds === 'object') {
     delete merged.Thresholds.MaxInputCharacters;
+  }
+  if (merged.LlamaCpp && typeof merged.LlamaCpp === 'object') {
+    delete merged.LlamaCpp.Threads;
   }
   return merged;
 }
@@ -157,10 +284,213 @@ function formatTimestamp(date = new Date()) {
 
 function formatElapsed(milliseconds) {
   const totalSeconds = Math.max(Math.floor(milliseconds / 1000), 0);
-  const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
-  const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
-  const seconds = String(totalSeconds % 60).padStart(2, '0');
-  return `${hours}:${minutes}:${seconds}`;
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (days > 0) {
+    return `${days}d ${String(hours).padStart(2, '0')}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
+  }
+  if (hours > 0) {
+    return `${hours}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+  }
+
+  return `${seconds}s`;
+}
+
+function formatGroupedNumber(value, fractionDigits = null) {
+  if (!Number.isFinite(value)) {
+    return 'n/a';
+  }
+
+  const numericValue = Number(value);
+  const useGrouping = Math.abs(numericValue) >= 1000;
+  if (fractionDigits === null) {
+    return useGrouping
+      ? numericValue.toLocaleString('en-US', { maximumFractionDigits: 20 })
+      : String(numericValue);
+  }
+
+  if (!useGrouping) {
+    return numericValue.toFixed(fractionDigits);
+  }
+
+  return numericValue.toLocaleString('en-US', {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  });
+}
+
+function formatInteger(value) {
+  if (!Number.isFinite(value)) {
+    return 'n/a';
+  }
+
+  return formatGroupedNumber(Math.trunc(Number(value)));
+}
+
+function formatMilliseconds(milliseconds) {
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) {
+    return 'n/a';
+  }
+
+  return `${formatGroupedNumber(milliseconds, 2)}ms`;
+}
+
+function formatPercentage(value) {
+  if (!Number.isFinite(value)) {
+    return 'n/a';
+  }
+
+  return `${formatGroupedNumber(Number(value) * 100, 2)}%`;
+}
+
+function formatRatio(value) {
+  if (!Number.isFinite(value)) {
+    return 'n/a';
+  }
+
+  return `${formatGroupedNumber(value, 2)}x`;
+}
+
+function formatTokensPerSecond(value) {
+  if (!Number.isFinite(value) || value < 0) {
+    return 'n/a';
+  }
+
+  return formatGroupedNumber(value, 2);
+}
+
+function supportsAnsiColor(options = {}) {
+  const env = options.env ?? process.env;
+  const isTTY = options.isTTY ?? Boolean(process.stdout && process.stdout.isTTY);
+  return isTTY && !Object.prototype.hasOwnProperty.call(env, 'NO_COLOR');
+}
+
+function colorize(text, colorCode, options = {}) {
+  if (!supportsAnsiColor(options)) {
+    return text;
+  }
+
+  return `\x1b[${colorCode}m${text}\x1b[0m`;
+}
+
+function formatIdleSummarySection(label, content, colorCode, colorOptions = {}) {
+  const visibleLabel = `${label}:`;
+  const spacing = ' '.repeat(Math.max(1, 8 - visibleLabel.length));
+  return `  ${colorize(label, colorCode, colorOptions)}:${spacing}${content}`;
+}
+
+function buildIdleSummarySnapshot(metrics, emittedAt = new Date()) {
+  const inputTokensTotal = Number(metrics.inputTokensTotal) || 0;
+  const outputTokensTotal = Number(metrics.outputTokensTotal) || 0;
+  const thinkingTokensTotal = Number(metrics.thinkingTokensTotal) || 0;
+  const inputCharactersTotal = Number(metrics.inputCharactersTotal) || 0;
+  const outputCharactersTotal = Number(metrics.outputCharactersTotal) || 0;
+  const requestDurationMsTotal = Number(metrics.requestDurationMsTotal) || 0;
+  const completedRequestCount = Number(metrics.completedRequestCount) || 0;
+  const savedTokens = inputTokensTotal - outputTokensTotal;
+  const savedPercent = inputTokensTotal > 0 ? savedTokens / inputTokensTotal : Number.NaN;
+  const compressionRatio = outputTokensTotal > 0 ? inputTokensTotal / outputTokensTotal : Number.NaN;
+  const avgRequestMs = completedRequestCount > 0 ? requestDurationMsTotal / completedRequestCount : Number.NaN;
+  const avgTokensPerSecond = requestDurationMsTotal > 0 && outputTokensTotal > 0
+    ? outputTokensTotal / (requestDurationMsTotal / 1000)
+    : Number.NaN;
+
+  return {
+    emittedAtUtc: emittedAt.toISOString(),
+    inputTokensTotal,
+    outputTokensTotal,
+    thinkingTokensTotal,
+    inputCharactersTotal,
+    outputCharactersTotal,
+    requestDurationMsTotal,
+    completedRequestCount,
+    savedTokens,
+    savedPercent,
+    compressionRatio,
+    avgRequestMs,
+    avgTokensPerSecond
+  };
+}
+
+function buildIdleSummarySnapshotMessage(snapshot, colorOptions = {}) {
+  return [
+    `requests=${formatInteger(snapshot.completedRequestCount)}`,
+    formatIdleSummarySection('input', `chars=${formatInteger(snapshot.inputCharactersTotal)} tokens=${formatInteger(snapshot.inputTokensTotal)}`, 36, colorOptions),
+    formatIdleSummarySection('output', `chars=${formatInteger(snapshot.outputCharactersTotal)} tokens=${formatInteger(snapshot.outputTokensTotal)}`, 32, colorOptions),
+    formatIdleSummarySection('saved', `tokens=${formatInteger(snapshot.savedTokens)} pct=${formatPercentage(snapshot.savedPercent)} ratio=${formatRatio(snapshot.compressionRatio)}`, 33, colorOptions),
+    formatIdleSummarySection('timing', `total=${formatElapsed(snapshot.requestDurationMsTotal)} avg_request=${formatMilliseconds(snapshot.avgRequestMs)} avg_tokens_per_s=${formatTokensPerSecond(snapshot.avgTokensPerSecond)}`, 34, colorOptions)
+  ].join('\n');
+}
+
+function normalizeSqlNumber(value) {
+  return Number.isFinite(value) ? Number(value) : null;
+}
+
+function ensureIdleSummarySnapshotsTable(database) {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS idle_summary_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      emitted_at_utc TEXT NOT NULL,
+      completed_request_count INTEGER NOT NULL,
+      input_characters_total INTEGER NOT NULL,
+      output_characters_total INTEGER NOT NULL,
+      input_tokens_total INTEGER NOT NULL,
+      output_tokens_total INTEGER NOT NULL,
+      thinking_tokens_total INTEGER NOT NULL,
+      saved_tokens INTEGER NOT NULL,
+      saved_percent REAL,
+      compression_ratio REAL,
+      request_duration_ms_total INTEGER NOT NULL,
+      avg_request_ms REAL,
+      avg_tokens_per_second REAL
+    );
+  `);
+
+  const existingColumns = database.prepare('PRAGMA table_info(idle_summary_snapshots)').all()
+    .map((column) => String(column.name));
+  if (!existingColumns.includes('thinking_tokens_total')) {
+    database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN thinking_tokens_total INTEGER NOT NULL DEFAULT 0;');
+  }
+}
+
+function persistIdleSummarySnapshot(database, snapshot) {
+  database.prepare(`
+    INSERT INTO idle_summary_snapshots (
+      emitted_at_utc,
+      completed_request_count,
+      input_characters_total,
+      output_characters_total,
+      input_tokens_total,
+      output_tokens_total,
+      thinking_tokens_total,
+      saved_tokens,
+      saved_percent,
+      compression_ratio,
+      request_duration_ms_total,
+      avg_request_ms,
+      avg_tokens_per_second
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    snapshot.emittedAtUtc,
+    snapshot.completedRequestCount,
+    snapshot.inputCharactersTotal,
+    snapshot.outputCharactersTotal,
+    snapshot.inputTokensTotal,
+    snapshot.outputTokensTotal,
+    snapshot.thinkingTokensTotal,
+    snapshot.savedTokens,
+    normalizeSqlNumber(snapshot.savedPercent),
+    normalizeSqlNumber(snapshot.compressionRatio),
+    snapshot.requestDurationMsTotal,
+    normalizeSqlNumber(snapshot.avgRequestMs),
+    normalizeSqlNumber(snapshot.avgTokensPerSecond)
+  );
 }
 
 function buildStatusRequestLogMessage({
@@ -201,8 +531,12 @@ function buildStatusRequestLogMessage({
   return logMessage;
 }
 
-function logLine(message) {
-  process.stdout.write(`${formatTimestamp()} ${message}\n`);
+function buildIdleMetricsLogMessage(metrics, colorOptions = {}) {
+  return buildIdleSummarySnapshotMessage(buildIdleSummarySnapshot(metrics), colorOptions);
+}
+
+function logLine(message, date = new Date()) {
+  process.stdout.write(`${formatTimestamp(date)} ${message}\n`);
 }
 
 function parseRunning(bodyText) {
@@ -234,7 +568,12 @@ function parseStatusMetadata(bodyText) {
     rawInputCharacterCount: null,
     chunkInputCharacterCount: null,
     chunkIndex: null,
-    chunkTotal: null
+    chunkTotal: null,
+    inputTokens: null,
+    outputCharacterCount: null,
+    outputTokens: null,
+    thinkingTokens: null,
+    requestDurationMs: null
   };
 
   if (!bodyText || !bodyText.trim()) {
@@ -259,6 +598,21 @@ function parseStatusMetadata(bodyText) {
     }
     if (Number.isFinite(parsed.chunkTotal) && parsed.chunkTotal > 0) {
       metadata.chunkTotal = parsed.chunkTotal;
+    }
+    if (Number.isFinite(parsed.inputTokens) && parsed.inputTokens >= 0) {
+      metadata.inputTokens = parsed.inputTokens;
+    }
+    if (Number.isFinite(parsed.outputCharacterCount) && parsed.outputCharacterCount >= 0) {
+      metadata.outputCharacterCount = parsed.outputCharacterCount;
+    }
+    if (Number.isFinite(parsed.outputTokens) && parsed.outputTokens >= 0) {
+      metadata.outputTokens = parsed.outputTokens;
+    }
+    if (Number.isFinite(parsed.thinkingTokens) && parsed.thinkingTokens >= 0) {
+      metadata.thinkingTokens = parsed.thinkingTokens;
+    }
+    if (Number.isFinite(parsed.requestDurationMs) && parsed.requestDurationMs >= 0) {
+      metadata.requestDurationMs = parsed.requestDurationMs;
     }
   } catch {
     return metadata;
@@ -301,10 +655,71 @@ function startStatusServer() {
   const requestedPort = Number.parseInt(process.env.SIFTKIT_STATUS_PORT || '4765', 10);
   const statusPath = getStatusPath();
   const configPath = getConfigPath();
+  const metricsPath = getMetricsPath();
+  const idleSummarySnapshotsPath = getIdleSummarySnapshotsPath();
   ensureStatusFile(statusPath);
   writeConfig(configPath, readConfig(configPath));
+  let metrics = readMetrics(metricsPath);
+  writeMetrics(metricsPath, metrics);
   const activeRunsByStatusPath = new Map();
   let activeExecutionLease = null;
+  let idleSummaryTimer = null;
+  let idleSummaryPending = false;
+  let idleSummaryDatabase = null;
+
+  function getIdleSummaryDatabase() {
+    if (idleSummaryDatabase) {
+      return idleSummaryDatabase;
+    }
+
+    ensureDirectory(idleSummarySnapshotsPath);
+    idleSummaryDatabase = new Database(idleSummarySnapshotsPath);
+    ensureIdleSummarySnapshotsTable(idleSummaryDatabase);
+    return idleSummaryDatabase;
+  }
+
+  function hasActiveRuns() {
+    return activeRunsByStatusPath.has(statusPath);
+  }
+
+  function isIdle() {
+    return !hasActiveRuns() && !getActiveExecutionLease();
+  }
+
+  function clearIdleSummaryTimer() {
+    if (idleSummaryTimer) {
+      clearTimeout(idleSummaryTimer);
+      idleSummaryTimer = null;
+    }
+  }
+
+  function scheduleIdleSummaryIfNeeded() {
+    if (!idleSummaryPending || !isIdle()) {
+      clearIdleSummaryTimer();
+      return;
+    }
+
+    clearIdleSummaryTimer();
+    idleSummaryTimer = setTimeout(() => {
+      idleSummaryTimer = null;
+      if (!idleSummaryPending || !isIdle()) {
+        return;
+      }
+
+      const emittedAt = new Date();
+      const snapshot = buildIdleSummarySnapshot(metrics, emittedAt);
+      try {
+        persistIdleSummarySnapshot(getIdleSummaryDatabase(), snapshot);
+      } catch (error) {
+        process.stderr.write(`[siftKitStatus] Failed to persist idle summary snapshot to ${idleSummarySnapshotsPath}: ${error.message}\n`);
+      }
+      logLine(buildIdleSummarySnapshotMessage(snapshot), emittedAt);
+      idleSummaryPending = false;
+    }, IDLE_SUMMARY_DELAY_MS);
+    if (typeof idleSummaryTimer.unref === 'function') {
+      idleSummaryTimer.unref();
+    }
+  }
 
   function getActiveExecutionLease() {
     if (!activeExecutionLease) {
@@ -326,6 +741,7 @@ function startStatusServer() {
     }
 
     activeExecutionLease = null;
+    scheduleIdleSummaryIfNeeded();
     return true;
   }
 
@@ -350,6 +766,8 @@ function startStatusServer() {
         ok: true,
         statusPath,
         configPath,
+        metricsPath,
+        idleSummarySnapshotsPath,
         runtimeRoot: getRuntimeRoot()
       });
       return;
@@ -357,7 +775,7 @@ function startStatusServer() {
 
     if (req.method === 'GET' && req.url === '/status') {
       const currentStatus = readStatusText(statusPath);
-      sendJson(res, 200, { running: currentStatus === 'true', status: currentStatus, statusPath, configPath });
+      sendJson(res, 200, { running: currentStatus === 'true', status: currentStatus, statusPath, configPath, metrics, idleSummarySnapshotsPath });
       return;
     }
 
@@ -368,6 +786,7 @@ function startStatusServer() {
     }
 
     if (req.method === 'POST' && req.url === '/execution/acquire') {
+      clearIdleSummaryTimer();
       const lease = getActiveExecutionLease();
       if (lease) {
         sendJson(res, 200, { ok: true, acquired: false, busy: true });
@@ -439,7 +858,9 @@ function startStatusServer() {
       const metadata = parseStatusMetadata(bodyText);
       let elapsedMs = null;
       let totalElapsedMs = null;
+      let requestCompleted = false;
       if (running) {
+        clearIdleSummaryTimer();
         const now = Date.now();
         const existingRun = activeRunsByStatusPath.get(statusPath);
         const isChunkedRequest = metadata.chunkIndex !== null && metadata.chunkTotal !== null;
@@ -452,10 +873,18 @@ function startStatusServer() {
             sawChunked: false,
             lastChunkIndex: null,
             lastChunkTotal: null,
-            pendingFinalMerge: false
+            pendingFinalMerge: false,
+            rawInputCharacterCount: metadata.rawInputCharacterCount,
+            promptCharacterCount: metadata.promptCharacterCount
           };
         } else {
           runState.currentRequestStartedAt = now;
+          if (runState.rawInputCharacterCount === null && metadata.rawInputCharacterCount !== null) {
+            runState.rawInputCharacterCount = metadata.rawInputCharacterCount;
+          }
+          if (metadata.promptCharacterCount !== null) {
+            runState.promptCharacterCount = metadata.promptCharacterCount;
+          }
         }
 
         if (isChunkedRequest) {
@@ -473,14 +902,37 @@ function startStatusServer() {
         if (runState && Number.isFinite(runState.currentRequestStartedAt)) {
           const now = Date.now();
           elapsedMs = now - runState.currentRequestStartedAt;
+          if (metadata.promptCharacterCount === null && runState.promptCharacterCount !== null) {
+            metadata.promptCharacterCount = runState.promptCharacterCount;
+          }
           if (runState.sawChunked) {
             if (runState.pendingFinalMerge) {
               totalElapsedMs = now - runState.overallStartedAt;
+              metadata.rawInputCharacterCount = runState.rawInputCharacterCount;
               activeRunsByStatusPath.delete(statusPath);
+              requestCompleted = true;
             }
           } else {
+            metadata.rawInputCharacterCount = runState.rawInputCharacterCount;
             activeRunsByStatusPath.delete(statusPath);
+            requestCompleted = true;
           }
+        }
+        metrics = normalizeMetrics({
+          ...metrics,
+          inputCharactersTotal: metrics.inputCharactersTotal + (metadata.promptCharacterCount ?? 0),
+          outputCharactersTotal: metrics.outputCharactersTotal + (metadata.outputCharacterCount ?? 0),
+          inputTokensTotal: metrics.inputTokensTotal + (metadata.inputTokens ?? 0),
+          outputTokensTotal: metrics.outputTokensTotal + (metadata.outputTokens ?? 0),
+          thinkingTokensTotal: metrics.thinkingTokensTotal + (metadata.thinkingTokens ?? 0),
+          requestDurationMsTotal: metrics.requestDurationMsTotal + (metadata.requestDurationMs ?? elapsedMs ?? 0),
+          completedRequestCount: metrics.completedRequestCount + (requestCompleted ? 1 : 0),
+          updatedAtUtc: new Date().toISOString()
+        });
+        writeMetrics(metricsPath, metrics);
+        if (requestCompleted) {
+          idleSummaryPending = true;
+          scheduleIdleSummaryIfNeeded();
         }
       }
       const logMessage = buildStatusRequestLogMessage({
@@ -529,16 +981,27 @@ function startStatusServer() {
   });
   server.on('close', () => {
     clearInterval(idleStatusWatchdog);
+    clearIdleSummaryTimer();
+    if (idleSummaryDatabase) {
+      idleSummaryDatabase.close();
+      idleSummaryDatabase = null;
+    }
   });
 
   return server;
 }
 
 module.exports = {
+  buildIdleMetricsLogMessage,
+  buildIdleSummarySnapshot,
   buildStatusRequestLogMessage,
+  colorize,
   formatElapsed,
   getConfigPath,
+  getIdleSummarySnapshotsPath,
+  getMetricsPath,
   getStatusPath,
+  supportsAnsiColor,
   startStatusServer
 };
 

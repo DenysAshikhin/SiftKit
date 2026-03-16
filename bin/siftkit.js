@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const { join } = require('node:path');
 
-const runtimePath = join(__dirname, '..', 'dist', 'src', 'cli.js');
+const runtimePath = join(__dirname, '..', 'dist', 'cli.js');
 
 if (!fs.existsSync(runtimePath)) {
   console.error(`TS CLI entrypoint not found at ${runtimePath}. Run npm run build.`);

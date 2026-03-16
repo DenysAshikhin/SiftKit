@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import { loadConfig, type SiftConfig, getChunkThresholdCharacters, notifyStatusBackend } from './config.js';
 import { withExecutionLock } from './execution-lock.js';
-import { generateOllamaResponse } from './providers/ollama.js';
+import { generateLlamaCppResponse } from './providers/llama-cpp.js';
 
 export type SummaryRequest = {
   question: string;
@@ -292,6 +292,11 @@ async function invokeProviderSummary(options: {
     chunkIndex: options.chunkIndex,
     chunkTotal: options.chunkTotal,
   });
+  const startedAt = Date.now();
+  let inputTokens: number | null = null;
+  let outputCharacterCount: number | null = null;
+  let outputTokens: number | null = null;
+  let thinkingTokens: number | null = null;
   try {
     if (options.backend === 'mock') {
       const rawSleep = process.env.SIFTKIT_TEST_PROVIDER_SLEEP_MS;
@@ -307,19 +312,32 @@ async function invokeProviderSummary(options: {
         rawInputCharacterCount: options.rawInputCharacterCount,
         chunkInputCharacterCount: options.chunkInputCharacterCount,
       });
-      return getMockSummary(options.prompt, options.question, options.phase);
+      const mockSummary = getMockSummary(options.prompt, options.question, options.phase);
+      outputCharacterCount = mockSummary.length;
+      return mockSummary;
     }
 
-    const response = await generateOllamaResponse({
+    const response = await generateLlamaCppResponse({
       config: options.config,
       model: options.model,
       prompt: options.prompt,
       timeoutSeconds: 600,
     });
-
-    return String(response.response).trim();
+    inputTokens = response.usage?.promptTokens ?? null;
+    outputCharacterCount = response.text.length;
+    outputTokens = response.usage?.completionTokens ?? null;
+    thinkingTokens = response.usage?.thinkingTokens ?? null;
+    return response.text.trim();
   } finally {
-    await notifyStatusBackend({ running: false });
+    await notifyStatusBackend({
+      running: false,
+      promptCharacterCount: options.promptCharacterCount,
+      inputTokens,
+      outputCharacterCount,
+      outputTokens,
+      thinkingTokens,
+      requestDurationMs: Date.now() - startedAt,
+    });
   }
 }
 

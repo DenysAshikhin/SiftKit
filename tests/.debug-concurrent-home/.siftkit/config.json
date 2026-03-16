@@ -1,35 +1,29 @@
-﻿{
-    "Version":  "0.1.0",
-    "Backend":  "ollama",
-    "Model":  "qwen3.5:9b-q4_K_M",
-    "PolicyMode":  "conservative",
-    "RawLogRetention":  true,
-    "Ollama":  {
-                   "BaseUrl":  "http://127.0.0.1:11434",
-                   "ExecutablePath":  "C:\\Users\\denys\\AppData\\Local\\Programs\\Ollama\\ollama.exe",
-                   "NumCtx":  128000,
-                   "Temperature":  0.2,
-                   "TopP":  0.95,
-                   "TopK":  20,
-                   "MinP":  0,
-                   "PresencePenalty":  0,
-                   "RepetitionPenalty":  1
-               },
-    "Thresholds":  {
-                       "MinCharactersForSummary":  500,
-                       "MinLinesForSummary":  16,
-                       "ChunkThresholdRatio":  0.92
-                   },
-    "Interactive":  {
-                        "Enabled":  true,
-                        "WrappedCommands":  [
-                                                "git",
-                                                "less",
-                                                "vim",
-                                                "sqlite3"
-                                            ],
-                        "IdleTimeoutMs":  900000,
-                        "MaxTranscriptCharacters":  60000,
-                        "TranscriptRetention":  true
-                    }
+{
+    "Version": "0.1.0",
+    "Backend": "llama.cpp",
+    "Model": "qwen3.5-9b-instruct-q4_k_m",
+    "PolicyMode": "conservative",
+    "RawLogRetention": true,
+    "LlamaCpp": {
+        "BaseUrl": "http://127.0.0.1:8080",
+        "NumCtx": 128000,
+        "Temperature": 0.2,
+        "TopP": 0.95,
+        "TopK": 20,
+        "MinP": 0.0,
+        "PresencePenalty": 0.0,
+        "RepetitionPenalty": 1.0,
+        "MaxTokens": 4096
+    },
+    "Thresholds": {
+        "MinCharactersForSummary": 500,
+        "MinLinesForSummary": 16,
+        "ChunkThresholdRatio": 0.92
+    },
+    "Paths": {
+        "RuntimeRoot": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tests\\.debug-concurrent-home\\.siftkit",
+        "Logs": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tests\\.debug-concurrent-home\\.siftkit\\logs",
+        "EvalFixtures": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tests\\.debug-concurrent-home\\.siftkit\\eval\\fixtures",
+        "EvalResults": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tests\\.debug-concurrent-home\\.siftkit\\eval\\results"
+    }
 }

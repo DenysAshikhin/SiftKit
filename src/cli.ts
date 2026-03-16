@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import { inspect } from 'node:util';
 import { ensureStatusServerReachable, loadConfig, setTopLevelConfigKey, getConfigPath, getChunkThresholdCharacters, getEffectiveMaxInputCharacters } from './config.js';
 import { findFiles } from './find-files.js';
-import { getOllamaProviderStatus, listOllamaModels } from './providers/ollama.js';
+import { getLlamaCppProviderStatus, listLlamaCppModels } from './providers/llama-cpp.js';
 import { readSummaryInput, summarizeRequest } from './summary.js';
 import { analyzeCommandOutput, runCommand } from './command.js';
 import { runEvaluation } from './eval.js';
@@ -302,39 +302,26 @@ async function runTest(stdout: NodeJS.WritableStream): Promise<number> {
 
 async function buildTestResult(): Promise<Record<string, unknown>> {
   const config = await loadConfig({ ensure: true });
-  const providerStatus = config.Backend === 'ollama'
-    ? await getOllamaProviderStatus(config)
+  const providerStatus = config.Backend === 'llama.cpp'
+    ? await getLlamaCppProviderStatus(config)
     : {
         Available: true,
-        ExecutablePath: 'mock.exe',
         Reachable: true,
         BaseUrl: 'mock://local',
         Error: null,
-        LoadedModelContext: null,
-        LoadedModelName: null,
-        RuntimeContextMatchesConfig: null,
       };
-  const models = config.Backend === 'ollama' ? await listOllamaModels(config) : ['mock-model'];
-  const defaultModelPresent = models.includes(config.Model);
+  const models = config.Backend === 'llama.cpp' ? await listLlamaCppModels(config) : ['mock-model'];
+  const modelPresent = models.length === 0 ? null : models.includes(config.Model);
   const issues: string[] = [];
 
   if (!providerStatus.Available) {
     issues.push('Backend is not available.');
   }
   if (!providerStatus.Reachable) {
-    issues.push('Ollama API is not reachable.');
+    issues.push('llama.cpp server is not reachable.');
   }
-  if (!defaultModelPresent) {
+  if (modelPresent === false) {
     issues.push(`Configured model not found: ${config.Model}`);
-  }
-  if (
-    providerStatus.LoadedModelContext !== null
-    && providerStatus.LoadedModelContext !== undefined
-    && Number(providerStatus.LoadedModelContext) !== Number(config.Ollama.NumCtx)
-  ) {
-    issues.push(
-      `Loaded model context differs from configured NumCtx: runtime ${providerStatus.LoadedModelContext}, config ${config.Ollama.NumCtx}. Config remains authoritative.`
-    );
   }
 
   return {
@@ -346,16 +333,17 @@ async function buildTestResult(): Promise<Record<string, unknown>> {
     EvalResultsPath: config.Paths?.EvalResults,
     Backend: config.Backend,
     Model: config.Model,
-    OllamaExecutablePath: providerStatus.ExecutablePath,
-    OllamaApiReachable: providerStatus.Reachable,
+    LlamaCppBaseUrl: providerStatus.BaseUrl,
+    LlamaCppReachable: providerStatus.Reachable,
     AvailableModels: models,
-    DefaultModelPresent: defaultModelPresent,
-    EffectiveNumCtx: Number(config.Ollama.NumCtx),
+    ModelPresent: modelPresent,
+    EffectiveNumCtx: Number(config.LlamaCpp.NumCtx),
+    EffectiveInputCharactersPerToken: config.Effective?.InputCharactersPerContextToken ?? null,
+    EffectiveBudgetSource: config.Effective?.BudgetSource ?? null,
     EffectiveMaxInputCharacters: getEffectiveMaxInputCharacters(config),
     EffectiveChunkThresholdCharacters: getChunkThresholdCharacters(config),
     ChunkThresholdRatio: Number(config.Thresholds.ChunkThresholdRatio),
-    LoadedModelContext: providerStatus.LoadedModelContext,
-    RuntimeContextMatchesConfig: providerStatus.RuntimeContextMatchesConfig,
+    ProviderError: providerStatus.Error,
     Issues: issues,
   };
 }

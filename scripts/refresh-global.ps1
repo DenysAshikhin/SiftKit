@@ -65,25 +65,30 @@ function Invoke-RetryableCommand {
         Write-Host ('{0} (attempt {1}/{2})...' -f $Description, $attempt, $MaxAttempts)
 
         $resolvedFilePath = Resolve-CommandFilePath -Name $FilePath
-        $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = $resolvedFilePath
-        $psi.Arguments = ConvertTo-ProcessArgumentString -ArgumentList $ArgumentList
-        $psi.WorkingDirectory = $script:RepoRoot
-        $psi.RedirectStandardOutput = $true
-        $psi.RedirectStandardError = $true
-        $psi.UseShellExecute = $false
-        $psi.EnvironmentVariables['npm_config_cache'] = Get-SiftKitNpmCachePath
-
-        $process = [System.Diagnostics.Process]::Start($psi)
+        $previousNpmCache = $env:npm_config_cache
+        $outputLines = @()
         try {
-            $stdout = $process.StandardOutput.ReadToEnd()
-            $stderr = $process.StandardError.ReadToEnd()
-            $process.WaitForExit()
-            $exitCode = $process.ExitCode
+            $env:npm_config_cache = Get-SiftKitNpmCachePath
+            Push-Location $script:RepoRoot
+            try {
+                $outputLines = & $resolvedFilePath @ArgumentList 2>&1
+                $exitCode = if ($null -ne $LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+            }
+            finally {
+                Pop-Location
+            }
         }
         finally {
-            $process.Dispose()
+            if ($null -eq $previousNpmCache) {
+                Remove-Item Env:\npm_config_cache -ErrorAction SilentlyContinue
+            }
+            else {
+                $env:npm_config_cache = $previousNpmCache
+            }
         }
+
+        $stdout = ($outputLines | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
+        $stderr = ($outputLines | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
 
         if ($stdout) {
             $stdout | Out-Host
@@ -140,39 +145,6 @@ function Install-SiftKitViaShellIntegration {
     throw 'Install-SiftKitShellIntegration completed but no runnable shim was found.'
 }
 
-function Stop-RunningOllamaModels {
-    $ollamaCommand = Get-Command ollama -ErrorAction SilentlyContinue
-    if (-not $ollamaCommand) {
-        Write-Host 'Ollama not found. Skipping model stop step.'
-        return
-    }
-
-    $loadedModels = @(
-        & ollama ps 2>$null |
-            Select-Object -Skip 1 |
-            ForEach-Object {
-                $line = $_.ToString().Trim()
-                if (-not $line) {
-                    return
-                }
-
-                ($line -split '\s{2,}')[0].Trim()
-            } |
-            Where-Object { $_ } |
-            Select-Object -Unique
-    )
-
-    if ($loadedModels.Count -eq 0) {
-        Write-Host 'No running Ollama models to stop.'
-        return
-    }
-
-    Write-Host ('Stopping running Ollama models: {0}' -f ($loadedModels -join ', '))
-    foreach ($model in $loadedModels) {
-        & ollama stop $model | Out-Host
-    }
-}
-
 function Get-GlobalSiftKitCommandPath {
     $globalPrefix = (npm prefix -g 2>$null | Select-Object -First 1).ToString().Trim()
     if (-not $globalPrefix) {
@@ -193,17 +165,14 @@ function Get-GlobalSiftKitCommandPath {
     throw ('Unable to locate the global siftkit shim under {0}.' -f $globalPrefix)
 }
 
-Write-Host 'Stopping running Ollama models...'
-Stop-RunningOllamaModels
-
 try {
     $tarballName = Get-SiftKitPackageTarballName
 
     Write-Host 'Packing current repo...'
-    Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('pack') -Description 'Packing current repo'
+    Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('pack', '--loglevel', 'error') -Description 'Packing current repo'
 
     Write-Host 'Installing packed tarball globally...'
-    Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('i', '-g', $tarballName, '--force') -Description 'Installing packed tarball globally'
+    Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('i', '-g', $tarballName, '--force', '--loglevel', 'error') -Description 'Installing packed tarball globally'
 
     Write-Host 'Resolving freshly installed global siftkit command...'
     $globalSiftKit = Get-GlobalSiftKitCommandPath
@@ -222,11 +191,4 @@ $siftInput = ((1..25 | ForEach-Object { "INFO step $_ completed successfully" })
 Write-Host 'Running sample summary...'
 & $globalSiftKit summary --question "what is the main problem?" --text $siftInput | Out-Host
 
-$ollamaCommand = Get-Command ollama -ErrorAction SilentlyContinue
-if ($ollamaCommand) {
-    Write-Host 'Showing loaded Ollama model state...'
-    & $ollamaCommand.Source ps | Out-Host
-}
-else {
-    Write-Host 'Ollama not found. Skipping loaded model state.'
-}
+Write-Host 'Use the siftkit test output above to verify external llama-server reachability.'

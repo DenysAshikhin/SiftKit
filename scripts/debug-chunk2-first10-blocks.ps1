@@ -95,7 +95,7 @@ Remove-Item Env:SIFTKIT_STATUS_BACKEND_URL -ErrorAction SilentlyContinue
 `$bound = `$module.NewBoundScriptBlock({
     `$config = Get-SiftDefaultConfigObject
     `$config.Model = '$Model'
-    `$config.Ollama.NumCtx = $NumCtx
+    `$config.LlamaCpp.NumCtx = $NumCtx
     `$config.Thresholds.ChunkThresholdRatio = $ChunkThresholdRatio
     Save-SiftConfig -Config `$config -AllowLocalFallback | Out-Null
     Get-SiftConfig -Ensure | Out-Null

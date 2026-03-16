@@ -39,7 +39,7 @@ exports.installShellIntegration = installShellIntegration;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const config_js_1 = require("./config.js");
-const ollama_js_1 = require("./providers/ollama.js");
+const llama_cpp_js_1 = require("./providers/llama-cpp.js");
 const execution_lock_js_1 = require("./execution-lock.js");
 const CODEX_POLICY_START = '<!-- SiftKit Policy:Start -->';
 const CODEX_POLICY_END = '<!-- SiftKit Policy:End -->';
@@ -97,11 +97,13 @@ async function installSiftKit(force) {
         void force;
         const paths = (0, config_js_1.initializeRuntime)();
         const config = await (0, config_js_1.loadConfig)({ ensure: true });
-        const detectedOllamaExecutablePath = (0, config_js_1.findOllamaExecutable)();
         let models = [];
+        let providerReachable = false;
         try {
-            if (config.Backend === 'ollama') {
-                models = await (0, ollama_js_1.listOllamaModels)(config);
+            if (config.Backend === 'llama.cpp') {
+                const providerStatus = await (0, llama_cpp_js_1.getLlamaCppProviderStatus)(config);
+                providerReachable = Boolean(providerStatus.Reachable);
+                models = providerReachable ? await (0, llama_cpp_js_1.listLlamaCppModels)(config) : [];
             }
         }
         catch {
@@ -115,74 +117,71 @@ async function installSiftKit(force) {
             EvalResultsPath: paths.EvalResults,
             Backend: config.Backend,
             Model: config.Model,
-            OllamaExecutablePath: detectedOllamaExecutablePath || config.Ollama.ExecutablePath,
+            LlamaCppBaseUrl: config.LlamaCpp.BaseUrl,
+            LlamaCppReachable: providerReachable,
             AvailableModels: models,
         };
     });
 }
 async function installCodexPolicy(codexHome, force) {
-    return (0, execution_lock_js_1.withExecutionLock)(async () => {
-        const targetCodexHome = codexHome || path.join(process.env.USERPROFILE || '', '.codex');
-        (0, config_js_1.ensureDirectory)(targetCodexHome);
-        const agentsPath = path.join(targetCodexHome, 'AGENTS.md');
-        const policyBlock = getCodexPolicyBlock();
-        let updated;
-        if (fs.existsSync(agentsPath)) {
-            const existing = fs.readFileSync(agentsPath, 'utf8');
-            if (existing.includes(CODEX_POLICY_START)) {
-                const pattern = new RegExp(`${CODEX_POLICY_START}[\\s\\S]*?${CODEX_POLICY_END}`, 'u');
-                updated = existing.replace(pattern, policyBlock.trimEnd());
-            }
-            else if (force || existing.trim()) {
-                updated = `${existing.trimEnd()}\n\n${policyBlock}`;
-            }
-            else {
-                updated = policyBlock;
-            }
+    const targetCodexHome = codexHome || path.join(process.env.USERPROFILE || '', '.codex');
+    (0, config_js_1.ensureDirectory)(targetCodexHome);
+    const agentsPath = path.join(targetCodexHome, 'AGENTS.md');
+    const policyBlock = getCodexPolicyBlock();
+    let updated;
+    if (fs.existsSync(agentsPath)) {
+        const existing = fs.readFileSync(agentsPath, 'utf8');
+        if (existing.includes(CODEX_POLICY_START)) {
+            const pattern = new RegExp(`${CODEX_POLICY_START}[\\s\\S]*?${CODEX_POLICY_END}`, 'u');
+            updated = existing.replace(pattern, policyBlock.trimEnd());
+        }
+        else if (force || existing.trim()) {
+            updated = `${existing.trimEnd()}\n\n${policyBlock}`;
         }
         else {
             updated = policyBlock;
         }
-        (0, config_js_1.saveContentAtomically)(agentsPath, updated.endsWith('\n') ? updated : `${updated}\n`);
-        return {
-            AgentsPath: agentsPath,
-            Installed: true,
-        };
-    });
+    }
+    else {
+        updated = policyBlock;
+    }
+    (0, config_js_1.saveContentAtomically)(agentsPath, updated.endsWith('\n') ? updated : `${updated}\n`);
+    return {
+        AgentsPath: agentsPath,
+        Installed: true,
+    };
 }
 async function installShellIntegration(options) {
-    return (0, execution_lock_js_1.withExecutionLock)(async () => {
-        const binDir = options?.BinDir || path.join(process.env.USERPROFILE || '', 'bin');
-        const moduleInstallRoot = options?.ModuleInstallRoot || path.join(process.env.USERPROFILE || '', 'Documents', 'WindowsPowerShell', 'Modules');
-        const moduleSource = getModuleRoot();
-        const repoRoot = getRepoRoot();
-        const moduleTarget = path.join(moduleInstallRoot, 'SiftKit');
-        const distSource = path.join(repoRoot, 'dist');
-        const distTarget = path.join(moduleTarget, 'dist');
-        const binSource = path.join(repoRoot, 'bin');
-        (0, config_js_1.ensureDirectory)(moduleInstallRoot);
-        (0, config_js_1.ensureDirectory)(binDir);
-        if (fs.existsSync(moduleTarget) && options?.Force) {
-            fs.rmSync(moduleTarget, { recursive: true, force: true });
-        }
-        (0, config_js_1.ensureDirectory)(moduleTarget);
-        copyDirectoryContents(moduleSource, moduleTarget);
-        if (fs.existsSync(distSource)) {
-            copyDirectoryContents(distSource, distTarget);
-        }
-        fs.copyFileSync(path.join(binSource, 'siftkit.ps1'), path.join(binDir, 'siftkit.ps1'));
-        fs.copyFileSync(path.join(binSource, 'siftkit.cmd'), path.join(binDir, 'siftkit.cmd'));
-        const shellIntegrationPath = path.join(binDir, 'siftkit-shell.ps1');
-        (0, config_js_1.saveContentAtomically)(shellIntegrationPath, getShellIntegrationScript());
-        return {
-            Installed: true,
-            ModulePath: moduleTarget,
-            BinDir: binDir,
-            PowerShellShim: path.join(binDir, 'siftkit.ps1'),
-            CmdShim: path.join(binDir, 'siftkit.cmd'),
-            ShellIntegrationScript: shellIntegrationPath,
-            PathHint: 'Add the bin directory to PATH to run siftkit globally.',
-            ProfileHint: `. '${shellIntegrationPath}'`,
-        };
-    });
+    const binDir = options?.BinDir || path.join(process.env.USERPROFILE || '', 'bin');
+    const moduleInstallRoot = options?.ModuleInstallRoot || path.join(process.env.USERPROFILE || '', 'Documents', 'WindowsPowerShell', 'Modules');
+    const moduleSource = getModuleRoot();
+    const repoRoot = getRepoRoot();
+    const moduleTarget = path.join(moduleInstallRoot, 'SiftKit');
+    const distSource = path.join(repoRoot, 'dist');
+    const distTarget = path.join(moduleTarget, 'dist');
+    const binSource = path.join(repoRoot, 'bin');
+    (0, config_js_1.ensureDirectory)(moduleInstallRoot);
+    (0, config_js_1.ensureDirectory)(binDir);
+    if (fs.existsSync(moduleTarget) && options?.Force) {
+        fs.rmSync(moduleTarget, { recursive: true, force: true });
+    }
+    (0, config_js_1.ensureDirectory)(moduleTarget);
+    copyDirectoryContents(moduleSource, moduleTarget);
+    if (fs.existsSync(distSource)) {
+        copyDirectoryContents(distSource, distTarget);
+    }
+    fs.copyFileSync(path.join(binSource, 'siftkit.ps1'), path.join(binDir, 'siftkit.ps1'));
+    fs.copyFileSync(path.join(binSource, 'siftkit.cmd'), path.join(binDir, 'siftkit.cmd'));
+    const shellIntegrationPath = path.join(binDir, 'siftkit-shell.ps1');
+    (0, config_js_1.saveContentAtomically)(shellIntegrationPath, getShellIntegrationScript());
+    return {
+        Installed: true,
+        ModulePath: moduleTarget,
+        BinDir: binDir,
+        PowerShellShim: path.join(binDir, 'siftkit.ps1'),
+        CmdShim: path.join(binDir, 'siftkit.cmd'),
+        ShellIntegrationScript: shellIntegrationPath,
+        PathHint: 'Add the bin directory to PATH to run siftkit globally.',
+        ProfileHint: `. '${shellIntegrationPath}'`,
+    };
 }

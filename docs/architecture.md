@@ -39,7 +39,10 @@ Local-only commands:
 - `codex-policy`
 - `install-global`
 
-The client assumes the external server provides `GET /health`, `GET /config`, `PUT /config`, `GET /execution`, `POST /execution/acquire`, `POST /execution/heartbeat`, `POST /execution/release`, and `POST /status`. There is no local config fallback and no local status-file fallback for normal operation.
+The client assumes the external server provides `GET /health`, `GET /status`, `GET /config`, `PUT /config`, `GET /execution`, `POST /execution/acquire`, `POST /execution/heartbeat`, `POST /execution/release`, and `POST /status`. There is no local config fallback and no local status-file fallback for normal operation.
+
+Inference is also external. SiftKit targets a separately managed `llama-server` instance over HTTP and does not host or supervise `llama.cpp`.
+Launch-time tuning stays with that external process; SiftKit does not model or apply `llama-server` flags such as thread count or `tbatch`.
 
 ## Policy and tests
 
@@ -50,4 +53,4 @@ The runtime remains conservative:
 - risky or debug flows only get secondary summaries
 - managed command execution always preserves raw logs
 
-Only the Ollama provider ships as runtime behavior. Mock provider hooks and related environment variables are test seams, not public extensibility points.
+Only the `llama.cpp` provider ships as runtime behavior. Mock provider hooks and related environment variables are test seams, not public extensibility points.

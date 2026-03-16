@@ -4,6 +4,9 @@ SiftKit is a Windows-first client for conservative shell-output compression in C
 
 The status/config server is required infrastructure and is not hosted by this package. Normal SiftKit commands fail closed if that separate server is not reachable.
 
+SiftKit also assumes an external `llama-server` instance is already running. The client does not embed or manage `llama.cpp`; it connects to the configured `LlamaCpp.BaseUrl`.
+Launch-time tuning such as CPU thread count and `tbatch` belongs to that external `llama-server` process, not to SiftKit client config.
+
 For local development, you can still start the separate server process manually from this repo with:
 
 ```powershell
@@ -15,6 +18,7 @@ npm start
 The client assumes an already-running external server that exposes:
 
 - `GET /health`
+- `GET /status`
 - `GET /config`
 - `PUT /config`
 - `POST /status`
@@ -72,6 +76,14 @@ npm run verify:client
 
 That script assumes the separate status/config server is already running and reachable.
 
+Start `llama-server` separately and point SiftKit at it through the config service, for example with a base URL such as `http://127.0.0.1:8080`.
+
+Run the dedicated live `llama.cpp` smoke flow against an already-running `llama-server` plus status/config server:
+
+```powershell
+npm run verify:llama-live
+```
+
 Import the PowerShell compatibility module when you want cmdlets or wrapper behavior:
 
 ```powershell
@@ -127,4 +139,6 @@ For PowerShell-only interactive capture support, dot-source the generated wrappe
 
 - `find-files`, `codex-policy`, and `install-global` are local-only client operations and do not require the external server.
 - All other normal commands require the external server and do not fall back to local config or local status handling.
+- External inference is provided by `llama.cpp` via `llama-server` on the configured `LlamaCpp.BaseUrl`.
+- Server launch and low-level runtime tuning remain external responsibilities; SiftKit does not manage `llama-server` flags such as thread count or `tbatch`.
 - Test seams such as the mock provider environment variables exist for automated tests only and are not part of the public runtime contract.
