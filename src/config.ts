@@ -156,6 +156,13 @@ export class StatusServerUnavailableError extends Error {
   }
 }
 
+export class MissingObservedBudgetError extends Error {
+  constructor() {
+    super('SiftKit status server did not provide usable input character/token totals. Refusing to derive chunk budgets from the hardcoded fallback; run at least one successful request or fix status metrics first.');
+    this.name = 'MissingObservedBudgetError';
+  }
+}
+
 function deriveServiceUrl(configuredUrl: string, nextPath: string): string {
   const target = new URL(configuredUrl);
   target.pathname = nextPath;
@@ -331,14 +338,10 @@ async function resolveInputCharactersPerContextToken(): Promise<{ value: number;
         budgetSource: 'ObservedCharsPerToken',
       };
     }
+    throw new MissingObservedBudgetError();
   } catch {
-    // Fall back to the conservative built-in estimate if metrics are unavailable.
+    throw new MissingObservedBudgetError();
   }
-
-  return {
-    value: SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN,
-    budgetSource: 'FixedCharsPerToken',
-  };
 }
 
 export function getExecutionServiceUrl(): string {

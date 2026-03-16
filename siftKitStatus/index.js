@@ -290,13 +290,13 @@ function formatElapsed(milliseconds) {
   const seconds = totalSeconds % 60;
 
   if (days > 0) {
-    return `${days}d ${String(hours).padStart(2, '0')}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
+    return `${days}:${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   }
   if (hours > 0) {
-    return `${hours}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   }
   if (minutes > 0) {
-    return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+    return `${minutes}:${String(seconds).padStart(2, '0')}`;
   }
 
   return `${seconds}s`;
@@ -339,6 +339,14 @@ function formatMilliseconds(milliseconds) {
   }
 
   return `${formatGroupedNumber(milliseconds, 2)}ms`;
+}
+
+function formatSeconds(milliseconds) {
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) {
+    return 'n/a';
+  }
+
+  return `${formatGroupedNumber(milliseconds / 1000, 2)}s`;
 }
 
 function formatPercentage(value) {
@@ -424,7 +432,7 @@ function buildIdleSummarySnapshotMessage(snapshot, colorOptions = {}) {
     formatIdleSummarySection('input', `chars=${formatInteger(snapshot.inputCharactersTotal)} tokens=${formatInteger(snapshot.inputTokensTotal)}`, 36, colorOptions),
     formatIdleSummarySection('output', `chars=${formatInteger(snapshot.outputCharactersTotal)} tokens=${formatInteger(snapshot.outputTokensTotal)}`, 32, colorOptions),
     formatIdleSummarySection('saved', `tokens=${formatInteger(snapshot.savedTokens)} pct=${formatPercentage(snapshot.savedPercent)} ratio=${formatRatio(snapshot.compressionRatio)}`, 33, colorOptions),
-    formatIdleSummarySection('timing', `total=${formatElapsed(snapshot.requestDurationMsTotal)} avg_request=${formatMilliseconds(snapshot.avgRequestMs)} avg_tokens_per_s=${formatTokensPerSecond(snapshot.avgTokensPerSecond)}`, 34, colorOptions)
+    formatIdleSummarySection('timing', `total=${formatElapsed(snapshot.requestDurationMsTotal)} avg_request=${formatSeconds(snapshot.avgRequestMs)} avg_tokens_per_s=${formatTokensPerSecond(snapshot.avgTokensPerSecond)}`, 34, colorOptions)
   ].join('\n');
 }
 
@@ -511,13 +519,13 @@ function buildStatusRequestLogMessage({
   if (running) {
     const resolvedPromptCharacterCount = promptCharacterCount ?? characterCount;
     if (rawInputCharacterCount !== null) {
-      logMessage += ` raw_chars=${rawInputCharacterCount}`;
+      logMessage += ` raw_chars=${formatInteger(rawInputCharacterCount)}`;
     }
     if (chunkInputCharacterCount !== null) {
-      logMessage += ` chunk_input_chars=${chunkInputCharacterCount}`;
+      logMessage += ` chunk_input_chars=${formatInteger(chunkInputCharacterCount)}`;
     }
     if (resolvedPromptCharacterCount !== null) {
-      logMessage += ` prompt_chars=${resolvedPromptCharacterCount}`;
+      logMessage += ` prompt_chars=${formatInteger(resolvedPromptCharacterCount)}`;
     }
     if (chunkIndex !== null && chunkTotal !== null) {
       logMessage += ` chunk ${chunkIndex}/${chunkTotal}`;

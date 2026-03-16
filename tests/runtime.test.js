@@ -199,9 +199,9 @@ async function startStubStatusServer(options = {}) {
     running: Boolean(options.running),
     executionLeaseToken: null,
     metrics: {
-      inputCharactersTotal: 0,
+      inputCharactersTotal: 3461904,
       outputCharactersTotal: 0,
-      inputTokensTotal: 0,
+      inputTokensTotal: 1865267,
       outputTokensTotal: 0,
       thinkingTokensTotal: 0,
       requestDurationMsTotal: 0,
@@ -639,16 +639,39 @@ function getIdleSummaryBlock(stdoutLines, requestsPattern) {
   return stdoutLines.slice(startIndex, startIndex + 5).map(stripAnsi);
 }
 
+test('loadConfig fails closed when observed chars-per-token metrics are unavailable', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async () => {
+      await assert.rejects(
+        () => loadConfig({ ensure: true }),
+        /did not provide usable input character\/token totals/u
+      );
+    }, {
+      metrics: {
+        inputCharactersTotal: 0,
+        inputTokensTotal: 0,
+        outputCharactersTotal: 0,
+        outputTokensTotal: 0,
+        thinkingTokensTotal: 0,
+        completedRequestCount: 0,
+        requestDurationMsTotal: 0,
+      },
+    });
+  });
+});
+
 test('loadConfig normalizes legacy defaults and derives effective budgets from the external server', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
+      const expectedRatio = 3461904 / 1865267;
+
       assert.equal(config.LlamaCpp.NumCtx, 128000);
       assert.equal(config.LlamaCpp.Threads, -1);
-      assert.equal(config.Effective.BudgetSource, 'FixedCharsPerToken');
-      assert.equal(config.Effective.InputCharactersPerContextToken, 2.5);
-      assert.equal(config.Effective.MaxInputCharacters, 320000);
-      assert.equal(config.Effective.ChunkThresholdCharacters, 294400);
+      assert.equal(config.Effective.BudgetSource, 'ObservedCharsPerToken');
+      assert.ok(Math.abs(config.Effective.InputCharactersPerContextToken - expectedRatio) < 1e-12);
+      assert.equal(config.Effective.MaxInputCharacters, 237565);
+      assert.equal(config.Effective.ChunkThresholdCharacters, 218559);
       assert.equal(config.Thresholds.MaxInputCharacters, undefined);
     }, {
       config: {
@@ -1173,6 +1196,13 @@ test('llama.cpp provider records thinking tokens separately from completion usag
 test('summary aggregation accumulates provider usage and duration in status metrics', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
+      const baselineInputCharacters = server.state.metrics.inputCharactersTotal;
+      const baselineOutputCharacters = server.state.metrics.outputCharactersTotal;
+      const baselineInputTokens = server.state.metrics.inputTokensTotal;
+      const baselineOutputTokens = server.state.metrics.outputTokensTotal;
+      const baselineThinkingTokens = server.state.metrics.thinkingTokensTotal;
+      const baselineCompletedRequestCount = server.state.metrics.completedRequestCount;
+      const baselineRequestDurationMs = server.state.metrics.requestDurationMsTotal;
       const result = await summarizeRequest({
         question: 'summarize this',
         inputText: 'A'.repeat(5000),
@@ -1183,13 +1213,23 @@ test('summary aggregation accumulates provider usage and duration in status metr
       });
 
       assert.equal(result.WasSummarized, true);
-      assert.ok(server.state.metrics.inputCharactersTotal > 0);
-      assert.ok(server.state.metrics.outputCharactersTotal > 0);
-      assert.equal(server.state.metrics.inputTokensTotal, 123);
-      assert.equal(server.state.metrics.outputTokensTotal, 45);
-      assert.equal(server.state.metrics.thinkingTokensTotal, 0);
-      assert.equal(server.state.metrics.completedRequestCount, 1);
-      assert.ok(server.state.metrics.requestDurationMsTotal >= 0);
+      assert.ok(server.state.metrics.inputCharactersTotal > baselineInputCharacters);
+      assert.ok(server.state.metrics.outputCharactersTotal > baselineOutputCharacters);
+      assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 123);
+      assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 45);
+      assert.equal(server.state.metrics.thinkingTokensTotal - baselineThinkingTokens, 0);
+      assert.equal(server.state.metrics.completedRequestCount - baselineCompletedRequestCount, 1);
+      assert.ok(server.state.metrics.requestDurationMsTotal >= baselineRequestDurationMs);
+    }, {
+      metrics: {
+        inputCharactersTotal: 3_461_904,
+        inputTokensTotal: 1_865_267,
+        outputCharactersTotal: 0,
+        outputTokensTotal: 0,
+        thinkingTokensTotal: 0,
+        completedRequestCount: 0,
+        requestDurationMsTotal: 0,
+      },
     });
   });
 });
@@ -1197,6 +1237,13 @@ test('summary aggregation accumulates provider usage and duration in status metr
 test('summary aggregation records duration without tokens when provider usage is absent', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
+      const baselineInputCharacters = server.state.metrics.inputCharactersTotal;
+      const baselineOutputCharacters = server.state.metrics.outputCharactersTotal;
+      const baselineInputTokens = server.state.metrics.inputTokensTotal;
+      const baselineOutputTokens = server.state.metrics.outputTokensTotal;
+      const baselineThinkingTokens = server.state.metrics.thinkingTokensTotal;
+      const baselineCompletedRequestCount = server.state.metrics.completedRequestCount;
+      const baselineRequestDurationMs = server.state.metrics.requestDurationMsTotal;
       const result = await summarizeRequest({
         question: 'summarize this',
         inputText: 'A'.repeat(5000),
@@ -1207,15 +1254,24 @@ test('summary aggregation records duration without tokens when provider usage is
       });
 
       assert.equal(result.WasSummarized, true);
-      assert.ok(server.state.metrics.inputCharactersTotal > 0);
-      assert.ok(server.state.metrics.outputCharactersTotal > 0);
-      assert.equal(server.state.metrics.inputTokensTotal, 0);
-      assert.equal(server.state.metrics.outputTokensTotal, 0);
-      assert.equal(server.state.metrics.thinkingTokensTotal, 0);
-      assert.equal(server.state.metrics.completedRequestCount, 1);
-      assert.ok(server.state.metrics.requestDurationMsTotal >= 0);
+      assert.ok(server.state.metrics.inputCharactersTotal > baselineInputCharacters);
+      assert.ok(server.state.metrics.outputCharactersTotal > baselineOutputCharacters);
+      assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 0);
+      assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 0);
+      assert.equal(server.state.metrics.thinkingTokensTotal - baselineThinkingTokens, 0);
+      assert.equal(server.state.metrics.completedRequestCount - baselineCompletedRequestCount, 1);
+      assert.ok(server.state.metrics.requestDurationMsTotal >= baselineRequestDurationMs);
     }, {
       omitUsage: true,
+      metrics: {
+        inputCharactersTotal: 3_461_904,
+        inputTokensTotal: 1_865_267,
+        outputCharactersTotal: 0,
+        outputTokensTotal: 0,
+        thinkingTokensTotal: 0,
+        completedRequestCount: 0,
+        requestDurationMsTotal: 0,
+      },
     });
   });
 });
@@ -1223,6 +1279,11 @@ test('summary aggregation records duration without tokens when provider usage is
 test('summary aggregation records thinking tokens independently from output metrics', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
+      const baselineInputTokens = server.state.metrics.inputTokensTotal;
+      const baselineOutputTokens = server.state.metrics.outputTokensTotal;
+      const baselineThinkingTokens = server.state.metrics.thinkingTokensTotal;
+      const baselineCompletedRequestCount = server.state.metrics.completedRequestCount;
+      const baselineRequestDurationMs = server.state.metrics.requestDurationMsTotal;
       const result = await summarizeRequest({
         question: 'summarize this',
         inputText: 'A'.repeat(5000),
@@ -1233,13 +1294,22 @@ test('summary aggregation records thinking tokens independently from output metr
       });
 
       assert.equal(result.WasSummarized, true);
-      assert.equal(server.state.metrics.inputTokensTotal, 123);
-      assert.equal(server.state.metrics.outputTokensTotal, 33);
-      assert.equal(server.state.metrics.thinkingTokensTotal, 12);
-      assert.equal(server.state.metrics.completedRequestCount, 1);
-      assert.ok(server.state.metrics.requestDurationMsTotal >= 0);
+      assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 123);
+      assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 33);
+      assert.equal(server.state.metrics.thinkingTokensTotal - baselineThinkingTokens, 12);
+      assert.equal(server.state.metrics.completedRequestCount - baselineCompletedRequestCount, 1);
+      assert.ok(server.state.metrics.requestDurationMsTotal >= baselineRequestDurationMs);
     }, {
       reasoningTokens: 12,
+      metrics: {
+        inputCharactersTotal: 3_461_904,
+        inputTokensTotal: 1_865_267,
+        outputCharactersTotal: 0,
+        outputTokensTotal: 0,
+        thinkingTokensTotal: 0,
+        completedRequestCount: 0,
+        requestDurationMsTotal: 0,
+      },
     });
   });
 });
@@ -1294,7 +1364,7 @@ test('idle metrics formatter disables ANSI colors when stdout is not a TTY', () 
   });
 
   assert.doesNotMatch(message, /\u001b\[/u);
-  assert.match(message, /  timing: total=0s avg_request=800\.00ms avg_tokens_per_s=31\.25/u);
+  assert.match(message, /  timing: total=0s avg_request=0\.80s avg_tokens_per_s=31\.25/u);
 });
 
 test('idle metrics formatter groups large values and formats days in elapsed durations', () => {
@@ -1315,19 +1385,28 @@ test('idle metrics formatter groups large values and formats days in elapsed dur
     '  input:  chars=1,868,795 tokens=1,380,110',
     '  output: chars=81,979 tokens=83,526',
     '  saved:  tokens=1,296,584 pct=93.95% ratio=16.52x',
-    '  timing: total=1d 06h 03m 53s avg_request=387,931.90ms avg_tokens_per_s=0.77',
+    '  timing: total=1:06:03:53 avg_request=387.93s avg_tokens_per_s=0.77',
   ].join('\n'));
 });
 
-test('request status log uses suffixed elapsed durations with day support', () => {
+test('request status log groups large running counts and uses colon elapsed durations', () => {
   assert.equal(formatElapsed(999), '0s');
   assert.equal(formatElapsed(12_000), '12s');
-  assert.equal(formatElapsed(187_000), '3m 07s');
-  assert.equal(formatElapsed(7_449_000), '2h 04m 09s');
-  assert.equal(formatElapsed(97_200_000), '1d 03h 00m 00s');
+  assert.equal(formatElapsed(187_000), '3:07');
+  assert.equal(formatElapsed(7_449_000), '2:04:09');
+  assert.equal(formatElapsed(97_200_000), '1:03:00:00');
+  assert.equal(
+    buildStatusRequestLogMessage({
+      running: true,
+      rawInputCharacterCount: 101_891,
+      chunkInputCharacterCount: 101_891,
+      promptCharacterCount: 102_584,
+    }),
+    'request true raw_chars=101,891 chunk_input_chars=101,891 prompt_chars=102,584',
+  );
   assert.equal(
     buildStatusRequestLogMessage({ running: false, totalElapsedMs: 97_200_000 }),
-    'request false total_elapsed=1d 03h 00m 00s',
+    'request false total_elapsed=1:03:00:00',
   );
 });
 
@@ -1408,7 +1487,7 @@ test('real status server prints one idle metrics line only after the full idle d
       assert.equal(block[1], '  input:  chars=200 tokens=100');
       assert.equal(block[2], '  output: chars=80 tokens=25');
       assert.equal(block[3], '  saved:  tokens=75 pct=75.00% ratio=4.00x');
-      assert.equal(block[4], '  timing: total=0s avg_request=800.00ms avg_tokens_per_s=31.25');
+      assert.equal(block[4], '  timing: total=0s avg_request=0.80s avg_tokens_per_s=31.25');
 
       assert.equal(fs.existsSync(idleSummaryDbPath), true);
       const rows = readIdleSummarySnapshots(idleSummaryDbPath);
@@ -1506,7 +1585,7 @@ test('real status server restarts the idle countdown when a new request begins b
       assert.equal(block[1], '  input:  chars=150 tokens=10');
       assert.equal(block[2], '  output: chars=40 tokens=5');
       assert.equal(block[3], '  saved:  tokens=5 pct=50.00% ratio=2.00x');
-      assert.equal(block[4], '  timing: total=0s avg_request=37.50ms avg_tokens_per_s=66.67');
+      assert.equal(block[4], '  timing: total=0s avg_request=0.04s avg_tokens_per_s=66.67');
       assert.equal(readIdleSummarySnapshots(idleSummaryDbPath).length, 1);
     } finally {
       await server.close();
@@ -1555,7 +1634,7 @@ test('real status server does not count idle delay while an execution lease rema
       assert.equal(block[1], '  input:  chars=10 tokens=0');
       assert.equal(block[2], '  output: chars=0 tokens=0');
       assert.equal(block[3], '  saved:  tokens=0 pct=n/a ratio=n/a');
-      assert.equal(block[4], '  timing: total=0s avg_request=10.00ms avg_tokens_per_s=n/a');
+      assert.equal(block[4], '  timing: total=0s avg_request=0.01s avg_tokens_per_s=n/a');
       assert.equal(readIdleSummarySnapshots(idleSummaryDbPath).length, 1);
     } finally {
       await server.close();

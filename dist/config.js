@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.StatusServerUnavailableError = exports.SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN = exports.SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS = exports.SIFT_PREVIOUS_DEFAULT_MODEL = exports.SIFT_PREVIOUS_DEFAULT_NUM_CTX = exports.SIFT_LEGACY_DERIVED_NUM_CTX = exports.SIFT_LEGACY_DEFAULT_NUM_CTX = exports.SIFT_DEFAULT_NUM_CTX = exports.SIFTKIT_VERSION = void 0;
+exports.MissingObservedBudgetError = exports.StatusServerUnavailableError = exports.SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN = exports.SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS = exports.SIFT_PREVIOUS_DEFAULT_MODEL = exports.SIFT_PREVIOUS_DEFAULT_NUM_CTX = exports.SIFT_LEGACY_DERIVED_NUM_CTX = exports.SIFT_LEGACY_DEFAULT_NUM_CTX = exports.SIFT_DEFAULT_NUM_CTX = exports.SIFTKIT_VERSION = void 0;
 exports.ensureDirectory = ensureDirectory;
 exports.saveContentAtomically = saveContentAtomically;
 exports.getRuntimeRoot = getRuntimeRoot;
@@ -132,6 +132,13 @@ class StatusServerUnavailableError extends Error {
     }
 }
 exports.StatusServerUnavailableError = StatusServerUnavailableError;
+class MissingObservedBudgetError extends Error {
+    constructor() {
+        super('SiftKit status server did not provide usable input character/token totals. Refusing to derive chunk budgets from the hardcoded fallback; run at least one successful request or fix status metrics first.');
+        this.name = 'MissingObservedBudgetError';
+    }
+}
+exports.MissingObservedBudgetError = MissingObservedBudgetError;
 function deriveServiceUrl(configuredUrl, nextPath) {
     const target = new URL(configuredUrl);
     target.pathname = nextPath;
@@ -280,14 +287,11 @@ async function resolveInputCharactersPerContextToken() {
                 budgetSource: 'ObservedCharsPerToken',
             };
         }
+        throw new MissingObservedBudgetError();
     }
     catch {
-        // Fall back to the conservative built-in estimate if metrics are unavailable.
+        throw new MissingObservedBudgetError();
     }
-    return {
-        value: exports.SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN,
-        budgetSource: 'FixedCharsPerToken',
-    };
 }
 function getExecutionServiceUrl() {
     return deriveServiceUrl(getStatusBackendUrl(), '/execution');
