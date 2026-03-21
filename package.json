@@ -6,16 +6,17 @@
     "siftkit": "bin/siftkit.js"
   },
   "scripts": {
-    "start": "nodemon .\\siftKitStatus\\index.js",
+    "start": "nodemon --signal SIGINT .\\siftKitStatus\\index.js",
     "build": "tsc -p .\\tsconfig.json",
     "benchmark": "tsx .\\src\\benchmark.ts",
+    "benchmark:matrix": "tsx .\\src\\benchmark-matrix.ts",
     "benchmark:import-md": "tsx .\\src\\import-markdown-benchmark.ts",
     "test": "npm run build && node --test .\\tests\\runtime.test.js",
     "test:live": "npm run build && powershell -Command \"$env:SIFTKIT_TEST_USE_EXISTING_SERVER='1'; if (-not $env:SIFTKIT_STATUS_BACKEND_URL) { $env:SIFTKIT_STATUS_BACKEND_URL='http://127.0.0.1:4765/status' }; if (-not $env:SIFTKIT_CONFIG_SERVICE_URL) { $env:SIFTKIT_CONFIG_SERVICE_URL='http://127.0.0.1:4765/config' }; node --test --test-name-pattern 'concurrent oversized CLI summary requests' .\\tests\\runtime.test.js\"",
     "verify:client": "powershell -ExecutionPolicy Bypass -File .\\scripts\\verify-client.ps1",
     "verify:llama-live": "powershell -ExecutionPolicy Bypass -File .\\scripts\\verify-llama-live.ps1",
     "postinstall": "node scripts/postinstall.js",
-    "refresh-global": "powershell -ExecutionPolicy Bypass -File .\\scripts\\refresh-global.ps1"
+    "refresh-global": "npm run build && powershell -ExecutionPolicy Bypass -File .\\scripts\\refresh-global.ps1"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",

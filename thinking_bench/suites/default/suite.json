@@ -1,0 +1,121 @@
+{
+  "BenchmarkLauncherScript": "..\\..\\Start-Qwen35-35B-Benchmark.ps1",
+  "EvaluatorLauncherScript": "..\\..\\Start-Qwen35-35B-Evaluator.ps1",
+  "LlamaBaseUrl": "http://127.0.0.1:8097",
+  "ResultsRoot": "..\\..\\results",
+  "ReadinessTimeoutSeconds": 180,
+  "RequestTimeoutSeconds": 600,
+  "BenchmarkSystemPromptFile": "prompts\\benchmark_system.txt",
+  "EvaluatorSystemPromptFile": "prompts\\evaluator_system.txt",
+  "EvaluatorTopK": 10,
+  "EvaluatorCandidatePoolSize": 12,
+  "LaunchSweep": {
+    "Reasoning": [
+      "on"
+    ],
+    "ReasoningBudget": [
+      2048
+    ],
+    "ReasoningFormat": [
+      "auto"
+    ],
+    "Temperature": [
+      0.2,
+	  0.4,
+	  0.6,
+	  0.8,
+	  1.0
+    ],
+    "TopP": [
+	  0.85,
+	  0.95
+    ],
+    "TopK": [
+      20
+    ],
+    "MinP": [
+      0.0
+    ],
+    "PresencePenalty": [
+	  1.5
+    ],
+    "RepetitionPenalty": [
+	  1.06,
+	  1.08,
+	  1.1
+    ]
+  },
+  "RequestSweep": {},
+  "Cases": [
+    {
+      "Id": "03_tools_inventory",
+      "Label": "03. Tools Inventory",
+      "InputFile": "cases\\03_tools_inventory.txt",
+      "Question": "List the important validation and utility scripts in tools/ and identify the canonical GUI test runner and the canonical full-game smoke runner.",
+      "MaxOutputCharacters": 700
+    },
+    {
+      "Id": "07_main_scene_and_autoloads",
+      "Label": "07. Main Scene And Autoloads",
+      "InputFile": "cases\\07_main_scene_and_autoloads.txt",
+      "Question": "Extract the project name, version, main scene, and full autoload singleton list. Include the autoload count.",
+      "MaxOutputCharacters": 700
+    },
+    {
+      "Id": "09_runtime_flow_overview",
+      "Label": "09. Runtime Flow Overview",
+      "InputFile": "cases\\09_runtime_flow_overview.txt",
+      "Question": "Summarize the high-level runtime flow from boot to root_game and the core managers it brings online.",
+      "MaxOutputCharacters": 800
+    },
+    {
+      "Id": "13_test_harness_gd",
+      "Label": "13. test_harness.gd",
+      "InputFile": "cases\\13_test_harness_gd.txt",
+      "Question": "Summarize the purpose of the GUI test harness script, including how it selects suites/tests and how it reports completion or failure.",
+      "MaxOutputCharacters": 950
+    },
+    {
+      "Id": "15_gui_test_runner",
+      "Label": "15. GUI Test Runner",
+      "InputFile": "cases\\15_gui_test_runner.txt",
+      "Question": "Summarize what this GUI test runner does, including its canonical scene, isolation behavior, save seeding, timeout behavior, and popup/crash handling.",
+      "MaxOutputCharacters": 1000
+    },
+    {
+      "Id": "18_autorun_output_log",
+      "Label": "18. Autorun Output Log",
+      "InputFile": "cases\\18_autorun_output_log.txt",
+      "Question": "Summarize what happened during this run, including startup markers, warnings, and any pass/fail indicators.",
+      "MaxOutputCharacters": 700
+    },
+    {
+      "Id": "20_specific_historical_failure_log",
+      "Label": "20. Specific Historical Failure Log",
+      "InputFile": "cases\\20_specific_historical_failure_log.txt",
+      "Question": "Summarize the failure in this log. Identify the exact script error, whether the run still reached its completion marker, and any likely implication for shutdown integrity.",
+      "MaxOutputCharacters": 850
+    },
+    {
+      "Id": "24_runtime_entrypoints_search",
+      "Label": "24. Runtime Entrypoints Search",
+      "InputFile": "cases\\24_runtime_entrypoints_search.txt",
+      "Question": "Group these entrypoint and runner references by topic: smoke flow, test harness, loading screen, and root game. Return the key files for each topic.",
+      "MaxOutputCharacters": 1000
+    },
+    {
+      "Id": "26_async_validity_and_signal_patterns",
+      "Label": "26. Async, Validity, And Signal Patterns",
+      "InputFile": "cases\\26_async_validity_and_signal_patterns.txt",
+      "Question": "Group matches by pattern (is_instance_valid, await, .connect(). For each pattern, summarize how widespread it is and name the main hotspot files.",
+      "MaxOutputCharacters": 1200
+    },
+    {
+      "Id": "38_enemy_manager_full_read",
+      "Label": "38. Enemy Manager Full Read",
+      "InputFile": "cases\\38_enemy_manager_full_read.txt",
+      "Question": "Summarize Enemy_Manager.gd: enemy lifecycle/spawn responsibilities, tracking structures, and the runtime coordination it performs.",
+      "MaxOutputCharacters": 1100
+    }
+  ]
+}

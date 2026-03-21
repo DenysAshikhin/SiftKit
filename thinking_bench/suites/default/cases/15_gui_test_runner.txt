@@ -1,0 +1,260 @@
+<#
+.SYNOPSIS
+  Runs the Godot GUI test harness repeatedly with deterministic stdout/stderr/log capture.
+
+.DESCRIPTION
+  Stable runner path restored from the known-good implementation that correctly executes
+  full integration suites in this repo.
+#>
+
+[CmdletBinding()]
+param(
+  [Parameter()]
+  [string] $GodotExe = "C:\Users\denys\Documents\godot\Godot_v4.4-stable_mono_win64\Godot_v4.4-stable_mono_win64_console.exe",
+
+  [Parameter()]
+  [string] $Scene = "res://scenes/testing/test_harness.tscn",
+
+  [Parameter()]
+  [ValidateRange(1, 999)]
+  [int] $Repeat = 1,
+
+  [Parameter()]
+  [switch] $GodotVerbose,
+
+  [Parameter()]
+  [string] $SuiteFilter = "",
+
+  [Parameter()]
+  [string] $TestFilter = "",
+
+  [Parameter()]
+  [ValidateRange(5, 300)]
+  [int] $SummaryGraceSec = 30,
+
+  [Parameter()]
+  [ValidateRange(5, 1800)]
+  [int] $TimeoutSec = 300,
+
+  [Parameter()]
+  [bool] $UseIsolatedAppData = $true,
+
+  [Parameter()]
+  [bool] $CleanupIsolatedAppData = $true,
+
+  [Parameter()]
+  [string] $SeedSaveSourcePath = "",
+
+  [Parameter()]
+  [bool] $RequireSeedSave = $true
+)
+
+$ErrorActionPreference = "Stop";
+
+$ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path;
+$LogDir = Join-Path $ProjectRoot ".godot_logs";
+$runnerTs = Get-Date -Format "yyyyMMdd_HHmmss_fff";
+$isolatedAppDataRoot = Join-Path $LogDir ("test_harness_appdata_{0}" -f $runnerTs);
+$hadAppData = (Test-Path Env:APPDATA);
+$hadLocalAppData = (Test-Path Env:LOCALAPPDATA);
+$previousAppData = $env:APPDATA;
+$previousLocalAppData = $env:LOCALAPPDATA;
+$overallExit = 0;
+$skipRuns = $false;
+
+# Resolves project display name from `project.godot` so user:// save seeding targets the correct app dir.
+function Get-ProjectAppName([string] $projectRoot) {
+  $projectName = "Stellar Fleet Idle";
+  $projectFile = Join-Path $projectRoot "project.godot";
+  if (-not (Test-Path $projectFile)) {
+    return $projectName;
+  }
+  try {
+    foreach ($line in (Get-Content $projectFile)) {
+      if ($line -match '^config/name="(.+)"') {
+        return [string]$Matches[1];
+      }
+    }
+  } catch { }
+  return $projectName;
+}
+
+# Seeds isolated APPDATA with a known-good save file so harness startup uses real save-flow state.
+function Ensure-SeedSaveForIsolatedAppData(
+  [string] $projectRoot,
+  [string] $isolatedAppDataFull,
+  [string] $seedSourcePath,
+  [bool] $requireSeedSave,
+  [string] $defaultAppDataRoot
+) {
+  $projectName = Get-ProjectAppName -projectRoot $projectRoot;
+  $targetSavePath = Join-Path $isolatedAppDataFull ("Godot\app_userdata\{0}\savegame.save" -f $projectName);
+  $resolvedSourcePath = $seedSourcePath;
+  if ([string]::IsNullOrWhiteSpace($resolvedSourcePath)) {
+    if (-not [string]::IsNullOrWhiteSpace($defaultAppDataRoot)) {
+      $resolvedSourcePath = Join-Path $defaultAppDataRoot ("Godot\app_userdata\{0}\savegame.save" -f $projectName);
+    }
+  }
+
+  Write-Host ("SEED_SAVE_PROJECT_NAME={0}" -f $projectName);
+  Write-Host ("SEED_SAVE_SOURCE={0}" -f $resolvedSourcePath);
+  Write-Host ("SEED_SAVE_TARGET={0}" -f $targetSavePath);
+
+  if ([string]::IsNullOrWhiteSpace($resolvedSourcePath) -or -not (Test-Path $resolvedSourcePath)) {
+    if ($requireSeedSave) {
+      Write-Host ("SEED_SAVE_ERROR=required_source_missing");
+      return $false;
+    }
+    Write-Host ("SEED_SAVE_SOURCE_MISSING_BUT_OPTIONAL=True");
+    return $true;
+  }
+
+  try {
+    $targetDir = Split-Path -Parent $targetSavePath;
+    New-Item -ItemType Directory -Path $targetDir -Force | Out-Null;
+    Copy-Item -Path $resolvedSourcePath -Destination $targetSavePath -Force;
+    Write-Host ("SEED_SAVE_COPIED=True");
+    return $true;
+  } catch {
+    Write-Host ("SEED_SAVE_ERROR=copy_failed:{0}" -f $_.Exception.Message);
+    return $false;
+  }
+}
+
+if (-not (Test-Path $LogDir)) {
+  New-Item -ItemType Directory -Path $LogDir | Out-Null;
+}
+
+if ($UseIsolatedAppData) {
+  New-Item -ItemType Directory -Path $isolatedAppDataRoot -Force | Out-Null;
+  $isolatedAppDataFull = (Resolve-Path $isolatedAppDataRoot).Path;
+  # Isolates Godot user:// cache/save writes to the repo workspace for deterministic GUI test runs.
+  $env:APPDATA = $isolatedAppDataFull;
+  $env:LOCALAPPDATA = $isolatedAppDataFull;
+  Write-Host ("APPDATA_ISOLATION_ENABLED=True");
+  Write-Host ("APPDATA_ISOLATION_ROOT={0}" -f $isolatedAppDataFull);
+  $seedReady = Ensure-SeedSaveForIsolatedAppData `
+    -projectRoot $ProjectRoot `
+    -isolatedAppDataFull $isolatedAppDataFull `
+    -seedSourcePath $SeedSaveSourcePath `
+    -requireSeedSave $RequireSeedSave `
+    -defaultAppDataRoot $previousAppData;
+  if (-not $seedReady) {
+    Write-Host "SEED_SAVE_SETUP_FAILED=True";
+    $overallExit = 1;
+    $skipRuns = $true;
+  }
+}
+
+if (-not (Test-Path $GodotExe)) {
+  Write-Error "Godot exe not found: $GodotExe";
+}
+
+# Finds crash/debugger popups that can block unattended GUI test runs.
+# Why:
+# - Native crash dialogs ("Application Error") and JIT debugger pickers can stall process exit
+#   until a button is clicked.
+# - Detecting them by main window title lets the runner close them proactively and continue.
+function Get-BlockingPopupProcesses {
+  $titlePatterns = @(
+    'Application Error',
+    'Just-In-Time Debugger',
+    'Choose Just-In-Time Debugger',
+    'Visual Studio Just-In-Time Debugger'
+  );
+  $matches = @();
+  foreach ($procItem in (Get-Process -ErrorAction SilentlyContinue)) {
+    $title = "";
+    try { $title = [string]$procItem.MainWindowTitle; } catch { $title = ""; }
+    if ([string]::IsNullOrWhiteSpace($title)) {
+      continue;
+    }
+    foreach ($pattern in $titlePatterns) {
+      if ($title -like ("*{0}*" -f $pattern)) {
+        $name = "";
+        try { $name = [string]$procItem.ProcessName; } catch { $name = ""; }
+        $isGodotRelated = ($title -like "*Godot*") -or ($name -eq "WerFault") -or ($name -eq "vsjitdebugger");
+        if ($isGodotRelated) {
+          $matches += $procItem;
+        }
+        break;
+      }
+    }
+  }
+  return $matches;
+}
+
+# Force-closes blocking popup processes and returns how many were terminated.
+function Close-BlockingPopups {
+  $closed = 0;
+  $popupProcs = Get-BlockingPopupProcesses;
+  foreach ($popup in $popupProcs) {
+    try {
+      Stop-Process -Id $popup.Id -Force -ErrorAction SilentlyContinue;
+      $closed += 1;
+    } catch { }
+  }
+  return $closed;
+}
+
+# Returns Godot process IDs whose command line includes the per-run token.
+# Why:
+# - On Windows, a launched wrapper process can exit while child GUI Godot processes keep running.
+# - Token ownership lets the runner wait/kill the exact processes for the current run.
+function Get-GodotRunProcessIds([string] $token) {
+  if ([string]::IsNullOrWhiteSpace($token)) {
+    return @();
+  }
+
+  $needle = "--runner_token={0}" -f $token;
+  $ids = @();
+  try {
+    $rows = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue;
+    foreach ($row in $rows) {
+      $cmd = [string]$row.CommandLine;
+      if ([string]::IsNullOrWhiteSpace($cmd)) {
+        continue;
+      }
+      if ($cmd -like ("*{0}*" -f $needle)) {
+        $ids += [int]$row.ProcessId;
+      }
+    }
+  } catch { }
+  return $ids | Select-Object -Unique;
+}
+
+# Force-kills all processes owned by a tokenized test run.
+function Stop-GodotRunByToken([string] $token) {
+  $killed = 0;
+  foreach ($targetPid in (Get-GodotRunProcessIds $token)) {
+    try { & taskkill /PID $targetPid /T /F *> $null; } catch { }
+    try {
+      Stop-Process -Id $targetPid -Force -ErrorAction SilentlyContinue;
+      $killed += 1;
+    } catch { }
+  }
+  return $killed;
+}
+
+# Returns process IDs of Godot GUI game windows that were started during this run.
+# Why:
+# - Some runs can leave additional Godot game windows alive even after the tracked launch process exits.
+# - Comparing against a pre-run baseline prevents us from touching long-lived processes that were already running.
+function Get-NewGodotGameWindowPids([int[]] $baselinePids) {
+  $baseline = @{};
+  foreach ($id in $baselinePids) {
+    $baseline[[int]$id] = $true;
+  }
+
+  $result = @();
+  foreach ($procItem in (Get-Process -ErrorAction SilentlyContinue)) {
+    $name = "";
+    $title = "";
+    try { $name = [string]$procItem.ProcessName; } catch { $name = ""; }
+    try { $title = [string]$procItem.MainWindowTitle; } catch { $title = ""; }
+    if ([string]::IsNullOrWhiteSpace($name)) {
+      continue;
+    }
+    if (-not ($name -like "Godot*")) {
+      continue;
+    }

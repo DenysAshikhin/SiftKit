@@ -1,0 +1,240 @@
+extends Node2D
+
+# Test harness scene entrypoint.
+# - Loads the current local save file (`user://savegame.save`) and initialises the game world.
+# - Forces online features off (Steam / leaderboards / HTTP) so tests can run deterministically.
+# - Runs both synchronous unit tests (`Global.run_tests()`) and async integration tests (`IntegrationTestRunner`).
+
+@export var Enemy_Manager_Path: NodePath;
+@export var Player_Manager_Path: NodePath;
+@export var Map_Manager_Path: NodePath;
+
+const HEADLESS_SETTINGS_STUB_SCRIPT = preload("res://classes/testing/headless_settings_stub.gd");
+const HEADLESS_ROOT_UI_STUB_SCRIPT = preload("res://classes/testing/headless_root_ui_stub.gd");
+const HEADLESS_JUMP_MANAGER_STUB_SCRIPT = preload("res://classes/testing/headless_jump_manager_stub.gd");
+
+@onready var STATUS_LABEL: Label = get_node_or_null(NodePath("HarnessOverlay/PanelContainer/VBoxContainer/StatusLabel")) as Label;
+@onready var TEST_LOG: RichTextLabel = get_node_or_null(NodePath("HarnessOverlay/PanelContainer/VBoxContainer/TestLog")) as RichTextLabel;
+@onready var EXPORT_FAILURES_BUTTON: Button = get_node_or_null(NodePath("HarnessOverlay/PanelContainer/VBoxContainer/ExportFailuresButton")) as Button;
+@onready var EXPORT_POPUP: AcceptDialog = get_node_or_null(NodePath("HarnessOverlay/ExportPopup")) as AcceptDialog;
+
+var Enemy_Manager = -1;
+var Player_Manager = -1;
+var Map_Manager = -1;
+
+const SAVE_PATH: String = "user://savegame.save";
+const FAILING_TESTS_DIR_RES: String = "res://failing_tests";
+const FAILING_TESTS_DIR_USER: String = "user://failing_tests";
+
+var _unit_results: Dictionary = {};
+var _integration_results: Dictionary = {};
+
+# Optional substring filters (used to bisect flaky/crashing tests in headless runs).
+var _suite_filter: String = "";
+var _test_filter: String = "";
+# Enables deterministic teardown+quit after tests complete.
+# Why:
+# - GUI runner scripts need the harness process to self-terminate after tests.
+# - Reusing the same shutdown drain path as headless prevents detached-node/resource leaks
+#   that can otherwise trigger native shutdown crashes.
+var _auto_quit_after_tests: bool = true;
+# Hard safety default: this harness is a test runner scene, so it should terminate automatically
+# once reporting is complete. Keeping this `true` prevents local editor/run-arg drift from leaving
+# test sessions open and requiring manual window close.
+const FORCE_AUTO_QUIT_AFTER_TESTS: bool = true;
+# Prevents duplicate quit attempts when shutdown watchdog + normal shutdown path race.
+var _shutdown_in_progress: bool = false;
+var _quit_committed: bool = false;
+
+func _enter_tree() -> void:
+	# Headless harness scenes intentionally avoid instancing the full UI stack, but several gameplay systems
+	# assume these globals are present very early during startup (including during manager `_ready()` methods).
+	# We install minimal stubs *before* children `_ready()` callbacks run so headless tests don't crash.
+	_maybe_install_headless_stubs();
+
+func _init() -> void:
+	# Important: these flags are read by managers + Root UI during their `_ready()` methods.
+	# We set them in `_init()` so the scene subtree sees the "loading save" state immediately.
+	Global.saver.need_to_load_from_save = true;
+	Global.saver.save_file_loaded = false;
+
+	# Force offline/online-disabled mode for this harness.
+	# - `Global.network.http_request(Global, )` will early-return when `SERVER_TICKET == "-2"`.
+	# - This avoids Steam/HTTP dependencies during tests.
+	Global.SERVER_TICKET = "-2";
+	Global.INITIAL_SERVER_TICKER_SET = true;
+	# Route `Global._throw_error(...)` through deterministic harness accounting instead of editor assertions.
+	Global.STRICT_TEST_RUNTIME_ERRORS = true;
+	Global.TEST_RUNTIME_ERRORS.clear();
+
+	_parse_user_args();
+
+# Installs minimal stubs for `Global.SETTINGS`, `Global.ROOT_UI`, and `Global.JUMP_Manager` when the
+# harness scene doesn't include the real UI (e.g. `test_harness_headless.tscn`).
+func _maybe_install_headless_stubs() -> void:
+	# If the full Root UI scene exists, it will initialise these globals itself.
+	if(get_node_or_null(NodePath("CanvasLayer")) != null):
+		return;
+
+	if(Global.SETTINGS == null):
+		var settings = HEADLESS_SETTINGS_STUB_SCRIPT.new();
+		add_child(settings);
+		Global.SETTINGS = settings;
+
+	if(Global.ROOT_UI == null):
+		var root_ui = HEADLESS_ROOT_UI_STUB_SCRIPT.new();
+		add_child(root_ui);
+		Global.ROOT_UI = root_ui;
+
+	if(Global.JUMP_Manager == null):
+		var jump_mgr = HEADLESS_JUMP_MANAGER_STUB_SCRIPT.new();
+		add_child(jump_mgr);
+		Global.JUMP_Manager = jump_mgr;
+
+# Parse command-line user arguments (arguments passed after `--`).
+# - Uses `OS.get_cmdline_user_args()` (Godot docs) so engine args are not affected.
+# - Supported args:
+#   - `--suite_filter=<substr>`: only run integration suites whose script path contains `<substr>`.
+#   - `--test_filter=<substr>`: only run tests whose method name contains `<substr>`.
+func _parse_user_args() -> void:
+	_suite_filter = "";
+	_test_filter = "";
+	_auto_quit_after_tests = true;
+
+	for arg in OS.get_cmdline_user_args():
+		var s: String = str(arg);
+		if(s.begins_with("--suite_filter=")):
+			_suite_filter = s.substr("--suite_filter=".length(), s.length() - "--suite_filter=".length());
+			continue;
+		if(s.begins_with("--test_filter=")):
+			_test_filter = s.substr("--test_filter=".length(), s.length() - "--test_filter=".length());
+			continue;
+		if(s == "--auto_quit_after_tests"):
+			_auto_quit_after_tests = true;
+			continue;
+		if(s.begins_with("--auto_quit_after_tests=")):
+			var raw_auto_quit: String = s.substr("--auto_quit_after_tests=".length(), s.length() - "--auto_quit_after_tests=".length());
+			_auto_quit_after_tests = (raw_auto_quit == "1" || raw_auto_quit.to_lower() == "true");
+			continue;
+		if(s == "--stay_open_after_tests"):
+			_auto_quit_after_tests = false;
+			continue;
+		if(s.begins_with("--stay_open_after_tests=")):
+			var raw_stay_open: String = s.substr("--stay_open_after_tests=".length(), s.length() - "--stay_open_after_tests=".length());
+			_auto_quit_after_tests = (raw_stay_open == "0" || raw_stay_open.to_lower() == "false");
+			continue;
+
+# Returns whether this harness run should auto-quit after tests.
+# Why:
+# - Headless runs must always terminate.
+# - GUI runs should also terminate by default for automation reliability.
+# - `FORCE_AUTO_QUIT_AFTER_TESTS` ensures external run-arg overrides cannot leave sessions hanging.
+func _should_auto_quit_after_tests() -> bool:
+	if(DisplayServer.get_name() == "headless"):
+		return true;
+	if(FORCE_AUTO_QUIT_AFTER_TESTS):
+		return true;
+	return _auto_quit_after_tests;
+
+func _ready() -> void:
+	# Ensure each harness run starts from a clean runtime-error buffer.
+	Global.TEST_RUNTIME_ERRORS.clear();
+
+	_set_status("Loading save from disk...");
+	_reset_log();
+	_log_line("Loading save from disk...");
+
+	if(EXPORT_FAILURES_BUTTON != null):
+		EXPORT_FAILURES_BUTTON.pressed.connect(_on_export_failures_button_pressed);
+
+	Global.ROOT_NODE = self;
+	Enemy_Manager = get_node(Enemy_Manager_Path);
+	Player_Manager = get_node(Player_Manager_Path);
+	Map_Manager = get_node(Map_Manager_Path);
+	# Disable frame-driven gameplay/UI loops before save parsing.
+	# Why:
+	# - Isolated-appdata runs can legitimately start without a seeded save file.
+	# - If startup loops tick before we branch on save-load failure, they can dereference partially
+	#   initialised runtime globals and emit unrelated script errors.
+	# - Keeping these loops disabled up-front preserves deterministic early-failure behavior.
+	_disable_nonessential_ui_runtime_loops();
+	_stabilize_world_for_idle();
+
+	# Parse save file (error if missing/invalid, per harness requirements).
+	var save_data = _load_save_from_disk_or_error();
+	if(save_data == null):
+		# Keep the window open so the user can read the error and close manually.
+		_stabilize_world_for_idle();
+		# In automation mode, quit so CLI/CI runs don't hang indefinitely.
+		if(_should_auto_quit_after_tests()):
+			await _shutdown_and_quit(1);
+		return;
+
+	# Mirror normal boot: load save into runtime singletons/managers, then unblock `_save_file_loaded()`.
+	Global.saver.save_to_use = save_data;
+	Global.saver._load_data_from_save(Global.saver.save_to_use);
+	Global.saver.need_to_load_from_save = false;
+	Global.saver.save_to_use = { };
+	Global.saver.save_file_loaded = true;
+
+	# Wait 1 frame so deferred spawns / ready handlers settle before running integration tests.
+	await get_tree().process_frame;
+
+	# Keep the world stable: tests should spawn what they need.
+	if(Global.Enemy_Manager != null):
+		Global.Enemy_Manager.process_mode = Node.PROCESS_MODE_DISABLED;
+	if(Global.Map_Manager != null):
+		Global.Map_Manager.process_mode = Node.PROCESS_MODE_DISABLED;
+	if(Global.Player_Manager != null):
+		# Disable automatic spawning/physics updates; tests can call manager spawn methods explicitly.
+		Global.Player_Manager.process_mode = Node.PROCESS_MODE_DISABLED;
+	_disable_nonessential_ui_runtime_loops();
+
+	# Expose test utilities to suites (without adding new autoload singletons).
+	var test_env_script = ResourceLoader.load("res://classes/testing/test_harness_env.gd");
+	if(test_env_script != null):
+		Global.TEST_ENV = test_env_script.new();
+		add_child(Global.TEST_ENV);
+
+	# Stabilize `Constants.GLOBAL_STATS` before running tests.
+	# - Some autoload singletons (AI cores / achievements / map sector stats) apply save-loaded modifiers
+	#   on their first couple of frames. If tests start too early, stat snapshots can drift mid-test.
+	# - Refreshing via `Unlocks._update_global_stats()` also calls `Constants._populate_global_stats()`.
+	await get_tree().process_frame;
+	Unlocks._update_global_stats();
+
+	_set_status("Running unit tests...");
+	_log_line("Running unit tests...");
+	# Forward filters to the unit test runner too, so headless bisection can skip *all* tests when needed.
+	var unit_params: Dictionary = {"reporter": self, "suite_filter": _suite_filter, "test_filter": _test_filter};
+	var unit_res: Dictionary = Global.run_tests(unit_params);
+
+	_set_status("Running integration tests...");
+	_log_line("Running integration tests...");
+	var integration_res: Dictionary = await _run_integration_tests();
+
+	var summary_lines: Array[String] = [];
+	summary_lines.push_back(str(unit_res.get("summary", "")));
+	summary_lines.push_back(str(integration_res.get("summary", "")));
+	var runtime_error_count:int = int(Global.TEST_RUNTIME_ERRORS.size());
+	if(runtime_error_count > 0):
+		var runtime_summary:String = "RUNTIME ERRORS: " + str(runtime_error_count);
+		summary_lines.push_back(runtime_summary);
+		_log_line(runtime_summary);
+		# Keep details concise while still surfacing the first few actionable messages.
+		var max_lines:int = min(runtime_error_count, 5);
+		for i in range(max_lines):
+			_log_line("  - " + str(Global.TEST_RUNTIME_ERRORS[i]));
+		if(runtime_error_count > max_lines):
+			_log_line("  - ... +" + str(runtime_error_count - max_lines) + " more");
+	_set_status("\\n".join(summary_lines));
+	_log_line(str(unit_res.get("summary", "")));
+	_log_line(str(integration_res.get("summary", "")));
+
+	print("TEST HARNESS: " + str(unit_res.get("summary", "")));
+	print("TEST HARNESS: " + str(integration_res.get("summary", "")));
+	_log_slowest_tests(unit_res, integration_res, 10);
+	# Default behavior: leave the window open so you can inspect the status overlay/output.
+	# Headless behavior: auto-export failures and quit so CI/CLI runs can complete deterministically.
+
+	_unit_results = unit_res;

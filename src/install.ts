@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { ensureDirectory, getConfigPath, initializeRuntime, loadConfig, saveContentAtomically } from './config.js';
+import { ensureDirectory, getConfigPath, getConfiguredLlamaBaseUrl, getConfiguredModel, initializeRuntime, loadConfig, saveContentAtomically } from './config.js';
 import { getLlamaCppProviderStatus, listLlamaCppModels } from './providers/llama-cpp.js';
 import { withExecutionLock } from './execution-lock.js';
 
@@ -87,8 +87,8 @@ export async function installSiftKit(force?: boolean): Promise<Record<string, un
       LogsPath: paths.Logs,
       EvalResultsPath: paths.EvalResults,
       Backend: config.Backend,
-      Model: config.Model,
-      LlamaCppBaseUrl: config.LlamaCpp.BaseUrl,
+      Model: getConfiguredModel(config),
+      LlamaCppBaseUrl: getConfiguredLlamaBaseUrl(config),
       LlamaCppReachable: providerReachable,
       AvailableModels: models,
     };

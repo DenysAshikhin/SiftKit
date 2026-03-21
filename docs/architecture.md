@@ -41,8 +41,9 @@ Local-only commands:
 
 The client assumes the external server provides `GET /health`, `GET /status`, `GET /config`, `PUT /config`, `GET /execution`, `POST /execution/acquire`, `POST /execution/heartbeat`, `POST /execution/release`, and `POST /status`. There is no local config fallback and no local status-file fallback for normal operation.
 
-Inference is also external. SiftKit targets a separately managed `llama-server` instance over HTTP and does not host or supervise `llama.cpp`.
-Launch-time tuning stays with that external process; SiftKit does not model or apply `llama-server` flags such as thread count or `tbatch`.
+Inference is still external over HTTP, but the status server now supervises the `llama.cpp` lifecycle for normal request flow. Server startup is the readiness gate: when the configured `LlamaCpp.BaseUrl` is down, the server marks status busy, clears stale managed processes, runs `Server.LlamaCpp.StartupScript`, waits until `/v1/models` responds, scans the captured startup logs for warning/error markers, and only then serves as ready while keeping published status `true` for the live managed model. Once the model is shut down again, published status returns to `false`.
+
+After the idle summary block is emitted, the status server can run `Server.LlamaCpp.ShutdownScript` and clear the published status back to `false`.
 
 ## Policy and tests
 

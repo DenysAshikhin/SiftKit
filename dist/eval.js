@@ -95,7 +95,7 @@ async function runEvaluation(request) {
     return (0, execution_lock_js_1.withExecutionLock)(async () => {
         const config = await (0, config_js_1.loadConfig)({ ensure: true });
         const backend = request.Backend || config.Backend;
-        const model = request.Model || config.Model;
+        const model = request.Model || (0, config_js_1.getConfiguredModel)(config);
         const fixtureRoot = request.FixtureRoot || path.join(getRepoRoot(), 'eval', 'fixtures');
         const manifest = getFixtureManifest(fixtureRoot);
         const results = [];
@@ -109,12 +109,17 @@ async function runEvaluation(request) {
                 backend,
                 model,
                 policyProfile: fixture.PolicyProfile,
+                sourceKind: 'standalone',
             });
             const score = getFixtureScore(summaryResult.Summary, fixture, source.length);
             results.push({
                 Name: fixture.Name,
                 SourcePath: sourcePath,
                 WasSummarized: summaryResult.WasSummarized,
+                PolicyDecision: summaryResult.PolicyDecision,
+                Classification: summaryResult.Classification,
+                RawReviewRequired: summaryResult.RawReviewRequired,
+                ModelCallSucceeded: summaryResult.ModelCallSucceeded,
                 Summary: summaryResult.Summary,
                 Recall: score.Recall,
                 Precision: score.Precision,
@@ -137,11 +142,16 @@ async function runEvaluation(request) {
                 backend,
                 model,
                 policyProfile: 'general',
+                sourceKind: 'standalone',
             });
             results.push({
                 Name: `RealLog:${path.basename(logPath)}`,
                 SourcePath: logPath,
                 WasSummarized: summaryResult.WasSummarized,
+                PolicyDecision: summaryResult.PolicyDecision,
+                Classification: summaryResult.Classification,
+                RawReviewRequired: summaryResult.RawReviewRequired,
+                ModelCallSucceeded: summaryResult.ModelCallSucceeded,
                 Summary: summaryResult.Summary,
                 Recall: null,
                 Precision: null,

@@ -1,6 +1,6 @@
 import * as http from 'node:http';
 import * as https from 'node:https';
-import { type SiftConfig } from '../config.js';
+import { getConfiguredLlamaBaseUrl, getConfiguredLlamaSetting, type RuntimeLlamaCppConfig, type SiftConfig } from '../config.js';
 
 type JsonRequestOptions = {
   url: string;
@@ -9,14 +9,25 @@ type JsonRequestOptions = {
   body?: string;
 };
 
+type JsonResponse<T> = {
+  statusCode: number;
+  body: T;
+  rawText: string;
+};
+
 type LlamaCppModelListResponse = {
   data?: Array<{ id?: string }>;
+};
+
+type LlamaCppTokenizeResponse = {
+  tokens?: unknown[];
 };
 
 type LlamaCppChatResponse = {
   choices?: Array<{
     message?: {
       content?: string | Array<{ type?: string; text?: string }>;
+      reasoning_content?: string | Array<{ type?: string; text?: string }>;
     };
     text?: string;
   }>;
@@ -97,7 +108,7 @@ function subtractThinkingTokens(value: number | null, thinkingTokens: number | n
   return Math.max(value - (thinkingTokens ?? 0), 0);
 }
 
-function requestJson<T>(options: JsonRequestOptions): Promise<{ statusCode: number; body: T }> {
+function requestJson<T>(options: JsonRequestOptions): Promise<JsonResponse<T>> {
   return new Promise((resolve, reject) => {
     const target = new URL(options.url);
     const transport = target.protocol === 'https:' ? https : http;
@@ -121,7 +132,7 @@ function requestJson<T>(options: JsonRequestOptions): Promise<{ statusCode: numb
         });
         response.on('end', () => {
           if (!responseText.trim()) {
-            resolve({ statusCode: response.statusCode || 0, body: {} as T });
+            resolve({ statusCode: response.statusCode || 0, body: {} as T, rawText: '' });
             return;
           }
 
@@ -129,6 +140,7 @@ function requestJson<T>(options: JsonRequestOptions): Promise<{ statusCode: numb
             resolve({
               statusCode: response.statusCode || 0,
               body: JSON.parse(responseText) as T,
+              rawText: responseText,
             });
           } catch (error) {
             reject(error);
@@ -162,15 +174,41 @@ function getTextContent(content: string | Array<{ type?: string; text?: string }
     .join('');
 }
 
+async function countLlamaCppTokens(config: SiftConfig, content: string): Promise<number | null> {
+  if (!content.trim()) {
+    return 0;
+  }
+
+  try {
+    const baseUrl = getConfiguredLlamaBaseUrl(config);
+    const response = await requestJson<LlamaCppTokenizeResponse>({
+      url: `${baseUrl.replace(/\/$/u, '')}/tokenize`,
+      method: 'POST',
+      timeoutMs: 10_000,
+      body: JSON.stringify({ content }),
+    });
+
+    if (response.statusCode >= 400 || !Array.isArray(response.body.tokens)) {
+      return null;
+    }
+
+    return response.body.tokens.length;
+  } catch {
+    return null;
+  }
+}
+
 export async function listLlamaCppModels(config: SiftConfig): Promise<string[]> {
+  const baseUrl = getConfiguredLlamaBaseUrl(config);
   const response = await requestJson<LlamaCppModelListResponse>({
-    url: `${config.LlamaCpp.BaseUrl.replace(/\/$/u, '')}/v1/models`,
+    url: `${baseUrl.replace(/\/$/u, '')}/v1/models`,
     method: 'GET',
     timeoutMs: 5000,
   });
 
   if (response.statusCode >= 400) {
-    throw new Error(`llama.cpp model list failed with HTTP ${response.statusCode}.`);
+    const detail = response.rawText.trim();
+    throw new Error(`llama.cpp model list failed with HTTP ${response.statusCode}${detail ? `: ${detail}` : '.'}`);
   }
 
   return (response.body.data || [])
@@ -182,11 +220,12 @@ export async function getLlamaCppProviderStatus(config: SiftConfig): Promise<Rec
   const status: Record<string, unknown> = {
     Available: true,
     Reachable: false,
-    BaseUrl: config.LlamaCpp.BaseUrl,
+    BaseUrl: null,
     Error: null,
   };
 
   try {
+    status.BaseUrl = getConfiguredLlamaBaseUrl(config);
     await listLlamaCppModels(config);
     status.Reachable = true;
   } catch (error) {
@@ -201,7 +240,19 @@ export async function generateLlamaCppResponse(options: {
   model: string;
   prompt: string;
   timeoutSeconds: number;
+  overrides?: Pick<
+    RuntimeLlamaCppConfig,
+    'Temperature' | 'TopP' | 'TopK' | 'MinP' | 'PresencePenalty' | 'RepetitionPenalty' | 'MaxTokens'
+  >;
 }): Promise<LlamaCppGenerateResult> {
+  const baseUrl = getConfiguredLlamaBaseUrl(options.config);
+  const resolvedTemperature = options.overrides?.Temperature ?? getConfiguredLlamaSetting<number>(options.config, 'Temperature');
+  const resolvedTopP = options.overrides?.TopP ?? getConfiguredLlamaSetting<number>(options.config, 'TopP');
+  const resolvedMaxTokens = options.overrides?.MaxTokens ?? getConfiguredLlamaSetting<number | null>(options.config, 'MaxTokens');
+  const resolvedTopK = options.overrides?.TopK ?? getConfiguredLlamaSetting<number>(options.config, 'TopK');
+  const resolvedMinP = options.overrides?.MinP ?? getConfiguredLlamaSetting<number>(options.config, 'MinP');
+  const resolvedPresencePenalty = options.overrides?.PresencePenalty ?? getConfiguredLlamaSetting<number>(options.config, 'PresencePenalty');
+  const resolvedRepetitionPenalty = options.overrides?.RepetitionPenalty ?? getConfiguredLlamaSetting<number>(options.config, 'RepetitionPenalty');
   const requestBody = JSON.stringify({
     model: options.model,
     messages: [
@@ -210,39 +261,39 @@ export async function generateLlamaCppResponse(options: {
         content: options.prompt,
       },
     ],
-    temperature: Number(options.config.LlamaCpp.Temperature),
-    top_p: Number(options.config.LlamaCpp.TopP),
-    ...(options.config.LlamaCpp.MaxTokens === undefined || options.config.LlamaCpp.MaxTokens === null
-      ? {}
-      : { max_tokens: Number(options.config.LlamaCpp.MaxTokens) }),
+    ...(resolvedTemperature === undefined ? {} : { temperature: Number(resolvedTemperature) }),
+    ...(resolvedTopP === undefined ? {} : { top_p: Number(resolvedTopP) }),
+    ...(resolvedMaxTokens === undefined || resolvedMaxTokens === null ? {} : { max_tokens: Number(resolvedMaxTokens) }),
     extra_body: {
-      top_k: Number(options.config.LlamaCpp.TopK),
-      min_p: Number(options.config.LlamaCpp.MinP),
-      presence_penalty: Number(options.config.LlamaCpp.PresencePenalty),
-      repeat_penalty: Number(options.config.LlamaCpp.RepetitionPenalty),
+      ...(resolvedTopK === undefined ? {} : { top_k: Number(resolvedTopK) }),
+      ...(resolvedMinP === undefined ? {} : { min_p: Number(resolvedMinP) }),
+      ...(resolvedPresencePenalty === undefined ? {} : { presence_penalty: Number(resolvedPresencePenalty) }),
+      ...(resolvedRepetitionPenalty === undefined ? {} : { repeat_penalty: Number(resolvedRepetitionPenalty) }),
     },
   });
 
   const response = await requestJson<LlamaCppChatResponse>({
-    url: `${options.config.LlamaCpp.BaseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
+    url: `${baseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
     method: 'POST',
     timeoutMs: options.timeoutSeconds * 1000,
     body: requestBody,
   });
 
   if (response.statusCode >= 400) {
-    throw new Error(`llama.cpp generate failed with HTTP ${response.statusCode}.`);
+    const detail = response.rawText.trim();
+    throw new Error(`llama.cpp generate failed with HTTP ${response.statusCode}${detail ? `: ${detail}` : '.'}`);
   }
 
   const firstChoice = response.body.choices?.[0];
   const messageText = getTextContent(firstChoice?.message?.content);
+  const reasoningText = getTextContent(firstChoice?.message?.reasoning_content);
   const text = (messageText || firstChoice?.text || '').trim();
   if (!text) {
     throw new Error('llama.cpp did not return a response body.');
   }
 
   const rawUsage = response.body.usage;
-  const thinkingTokens = getThinkingTokenCount(rawUsage);
+  const thinkingTokens = getThinkingTokenCount(rawUsage) ?? await countLlamaCppTokens(options.config, reasoningText);
   const usage = rawUsage
     ? {
       promptTokens: getUsageValue(rawUsage.prompt_tokens),

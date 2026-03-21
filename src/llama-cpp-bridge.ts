@@ -1,5 +1,5 @@
 import * as fs from 'node:fs';
-import { type SiftConfig } from './config.js';
+import { getConfiguredModel, type SiftConfig } from './config.js';
 import { generateLlamaCppResponse } from './providers/llama-cpp.js';
 
 type ArgMap = Map<string, string>;
@@ -87,7 +87,7 @@ async function main(): Promise<void> {
 
   const response = await generateLlamaCppResponse({
     config,
-    model: config.Model,
+    model: getConfiguredModel(config),
     prompt,
     timeoutSeconds: Number(getRequiredArg(args, 'timeout-seconds')),
   });

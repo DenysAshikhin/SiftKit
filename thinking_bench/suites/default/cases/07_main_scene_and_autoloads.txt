@@ -1,0 +1,31 @@
+
+> project.godot:13:config/name="Stellar Fleet Idle"
+> project.godot:14:config/version="0.6.2.0"
+> project.godot:15:run/main_scene="res://scenes/ui/main_menu.tscn"
+  project.godot:16:config/features=PackedStringArray("4.4", "C#")
+  project.godot:17:config/icon="res://icon.png"
+  project.godot:18:config/windows_native_icon="res://assets/images/random_pics/main_icon2.ico"
+  project.godot:19:
+> project.godot:20:[autoload]
+  project.godot:21:
+  project.godot:22:Steam2="*res://Globals/Steam_Custom.gd"
+  project.godot:23:Constants="*res://Globals/Constants.gd"
+  project.godot:24:Global="*res://Globals/Global.gd"
+  project.godot:25:Player="*res://Globals/Player.gd"
+  project.godot:26:Unlocks="*res://Globals/Unlocks.gd"
+  project.godot:27:Drones="*res://Globals/Drones.gd"
+  project.godot:28:Motherships="*res://Globals/Motherships.gd"
+  project.godot:29:Frigates="*res://Globals/Frigates.gd"
+  project.godot:30:Supports="*res://Globals/Supports.gd"
+  project.godot:31:Threaded="*res://Globals/Threaded.gd"
+  project.godot:32:Threaded2="*res://Globals/Threaded2.gd"
+  project.godot:33:
+  project.godot:34:[debug]
+  project.godot:35:
+  project.godot:36:file_logging/enable_file_logging=true
+  project.godot:37:gdscript/warnings/shadowed_variable=2
+  project.godot:38:gdscript/warnings/shadowed_variable_base_class=2
+  project.godot:39:gdscript/warnings/shadowed_global_identifier=2
+  project.godot:40:
+
+

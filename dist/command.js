@@ -227,7 +227,7 @@ function reduceText(text, reducerProfile) {
 async function analyzeCommandOutput(request) {
     const config = await (0, config_js_1.loadConfig)({ ensure: true });
     const backend = request.Backend || config.Backend;
-    const model = request.Model || config.Model;
+    const model = request.Model || (0, config_js_1.getConfiguredModel)(config);
     const paths = (0, config_js_1.initializeRuntime)();
     const combinedText = request.CombinedText || '';
     const rawLogPath = newArtifactPath(paths.Logs, 'command_raw', 'log');
@@ -252,7 +252,10 @@ async function analyzeCommandOutput(request) {
             ReducedLogPath: reducedLogPath,
             WasSummarized: false,
             PolicyDecision: request.NoSummarize ? 'no-summarize' : decision.Reason,
+            Classification: 'no-summarize',
             RawReviewRequired: decision.RawReviewRequired,
+            ModelCallSucceeded: false,
+            ProviderError: null,
             Summary: deterministicExcerpt ? `Raw review required.\nRaw log: ${rawLogPath}\n${deterministicExcerpt}` : null,
         };
     }
@@ -261,13 +264,15 @@ async function analyzeCommandOutput(request) {
         : policyProfile;
     const summaryResult = await (0, summary_js_1.summarizeRequest)({
         question,
-        inputText: reducedText,
+        inputText: combinedText,
         format,
         policyProfile: effectiveProfile,
         backend,
         model,
+        sourceKind: 'command-output',
+        commandExitCode: request.ExitCode,
     });
-    const summaryText = decision.RawReviewRequired && summaryResult.Summary.trim()
+    const summaryText = summaryResult.RawReviewRequired && summaryResult.Classification !== 'unsupported_input' && summaryResult.Summary.trim()
         ? `${summaryResult.Summary.trim()}\nRaw log: ${rawLogPath}`
         : summaryResult.Summary;
     return {
@@ -275,8 +280,11 @@ async function analyzeCommandOutput(request) {
         RawLogPath: rawLogPath,
         ReducedLogPath: reducedLogPath,
         WasSummarized: summaryResult.WasSummarized,
-        PolicyDecision: decision.Reason,
-        RawReviewRequired: decision.RawReviewRequired,
+        PolicyDecision: summaryResult.PolicyDecision,
+        Classification: summaryResult.Classification,
+        RawReviewRequired: summaryResult.RawReviewRequired,
+        ModelCallSucceeded: summaryResult.ModelCallSucceeded,
+        ProviderError: summaryResult.ProviderError,
         Summary: summaryText,
     };
 }

@@ -1,0 +1,46 @@
+## Runtime flow (high level)
+
+### 1) Boot -> main menu -> save selection
+
+1. Game starts in `scenes/main_menu/main_menu.gd`.
+2. It loads the local save from `user://savegame.save` (if present) and sets:
+   - `Global.saver.save_file`
+   - `Global.saver.need_to_load_from_save`
+3. It also waits for server auth (`Global._await_server_authorised()`), then optionally fetches cloud save data.
+4. Clicking play runs `scenes/main_menu/Play_Button.gd`:
+   - sets `Global.saver.save_file_loaded = false`
+   - switches to `scenes/loading_screen/loading_screen.tscn`
+
+### 2) Loading screen -> root game scene
+
+1. `scenes/loading_screen/loading_screen.gd` threaded-loads `scenes/root_game/root_game.tscn`.
+2. After load completes, it changes scene to `root_game.tscn`.
+
+### 3) root_game brings the world up
+
+`scenes/root_game/root_game.gd` is a "glue" scene script that:
+
+- Sets `Global.ROOT_NODE`.
+- If `Global.saver.need_to_load_from_save` is true, calls `Global.saver._load_data_from_save(Global.saver.save_to_use)`.
+- Sets `Global.saver.save_file_loaded = true` (unblocks the `await Global.saver._save_file_loaded()` waits).
+- Spawns the `Leaderboards` node (`managers/multiplayer/leaderboard.gd`) under `Global`.
+- Runs a lightweight "1 second tick" and context-aware periodic save:
+  - Every second: ticks research/mining; attempts "perm" shop catch-up upgrades.
+  - Homebase: every 10 seconds calls full `Global.saver._save_data()`.
+  - Non-homebase zones: every 60 seconds calls local-only `Global.saver._save_data(false, true)`.
+
+### 4) Managers/entities do the combat simulation
+
+Once `Global.saver.save_file_loaded` is true, the "gameplay" side mostly revolves around:
+
+- `managers/map_manager/Map_Manager.gd`
+  - Owns the current **zone/sector modifiers** and provides `get_sector_stats(...)` used in stat formulas.
+  - Spawns asteroids in combat zones and the homebase entity in homebase mode.
+  - Updates survival/objective timers per zone (e.g. "Easy Zone survival time").
+
+- `managers/player/Player_Manager.gd`
+  - Spawns the player `Capital` ship, then spawns/pools player drones/supports/frigates.
+  - Owns bullet pooling for team 1 and exposes `_spawn_bullet(...)` / `_return_bullet(...)`.
+
+- `managers/enemy/Enemy_Manager.gd`
+  - Spawns/pools enemy drones/supports/frigates and bosses.

@@ -1,13 +1,48 @@
 const http = require('node:http');
+const https = require('node:https');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
+
+const DEFAULT_LLAMA_MODEL = 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
+const DEFAULT_LLAMA_BASE_URL = 'http://127.0.0.1:8097';
+const DEFAULT_LLAMA_MODEL_PATH = 'D:\\personal\\models\\Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
+const DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-35B-4bit-150k-no-thinking.ps1';
+const DEFAULT_LLAMA_SHUTDOWN_SCRIPT = 'C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\scripts\\stop-llama-server.ps1';
+const { spawn, spawnSync } = require('node:child_process');
 const Database = require('better-sqlite3');
 
-const STATUS_IDLE_CLEAR_INTERVAL_MS = 10_000;
 const EXECUTION_LEASE_STALE_MS = 10_000;
 const IDLE_SUMMARY_DELAY_MS = getPositiveIntegerFromEnv('SIFTKIT_IDLE_SUMMARY_DELAY_MS', 60_000);
+const GPU_LOCK_POLL_DELAY_MS = 100;
+const LLAMA_STARTUP_GRACE_DELAY_MS = 2_000;
+const MAX_LLAMA_STARTUP_TIMEOUT_MS = 30_000;
+const DEFAULT_LLAMA_STARTUP_TIMEOUT_MS = 120_000;
+const DEFAULT_LLAMA_HEALTHCHECK_TIMEOUT_MS = 2_000;
+const DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS = 1_000;
+const MANAGED_LLAMA_LOG_ALERT_PATTERN = /\b(?:warn(?:ing)?|error|exception|fatal)\b/iu;
+const RUNTIME_OWNED_LLAMA_CPP_KEYS = [
+  'BaseUrl',
+  'NumCtx',
+  'ModelPath',
+  'Temperature',
+  'TopP',
+  'TopK',
+  'MinP',
+  'PresencePenalty',
+  'RepetitionPenalty',
+  'MaxTokens',
+  'GpuLayers',
+  'Threads',
+  'FlashAttention',
+  'ParallelSlots',
+  'Reasoning',
+];
+const STATUS_TRUE = 'true';
+const STATUS_FALSE = 'false';
+const STATUS_LOCK_REQUESTED = 'lock_requested';
+const STATUS_FOREIGN_LOCK = 'foreign_lock';
 
 function getPositiveIntegerFromEnv(name, fallback) {
   const rawValue = process.env[name];
@@ -83,9 +118,23 @@ function writeText(targetPath, content) {
   fs.writeFileSync(targetPath, content, 'utf8');
 }
 
+function normalizeStatusText(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (
+    normalized === STATUS_TRUE ||
+    normalized === STATUS_FALSE ||
+    normalized === STATUS_LOCK_REQUESTED ||
+    normalized === STATUS_FOREIGN_LOCK
+  ) {
+    return normalized;
+  }
+
+  return STATUS_FALSE;
+}
+
 function ensureStatusFile(targetPath) {
   if (!fs.existsSync(targetPath)) {
-    writeText(targetPath, 'false');
+    writeText(targetPath, STATUS_FALSE);
   }
 }
 
@@ -156,24 +205,41 @@ function getDefaultConfig() {
   return {
     Version: '0.1.0',
     Backend: 'llama.cpp',
-    Model: 'qwen3.5-9b-instruct-q4_k_m',
     PolicyMode: 'conservative',
     RawLogRetention: true,
+    PromptPrefix: 'Preserve exact technical anchors from the input when they matter: file paths, function names, symbols, commands, error text, and any line numbers or code references that are already present. Quote short code fragments exactly when that precision changes the meaning. Do not invent locations or line numbers that are not in the input.',
     LlamaCpp: {
-      BaseUrl: 'http://127.0.0.1:8080',
-      NumCtx: 128000,
-      ModelPath: null,
-      Temperature: 0.2,
-      TopP: 0.95,
+      BaseUrl: DEFAULT_LLAMA_BASE_URL,
+      NumCtx: 150000,
+      ModelPath: DEFAULT_LLAMA_MODEL_PATH,
+      Temperature: 0.7,
+      TopP: 0.8,
       TopK: 20,
       MinP: 0.0,
-      PresencePenalty: 0.0,
+      PresencePenalty: 1.5,
       RepetitionPenalty: 1.0,
-      MaxTokens: 4096,
-      GpuLayers: 999,
+      MaxTokens: 15000,
       FlashAttention: true,
       ParallelSlots: 1,
-      Reasoning: 'off'
+      Reasoning: 'off',
+    },
+    Runtime: {
+      Model: DEFAULT_LLAMA_MODEL,
+      LlamaCpp: {
+        BaseUrl: DEFAULT_LLAMA_BASE_URL,
+        NumCtx: 150000,
+        ModelPath: DEFAULT_LLAMA_MODEL_PATH,
+        Temperature: 0.7,
+        TopP: 0.8,
+        TopK: 20,
+        MinP: 0.0,
+        PresencePenalty: 1.5,
+        RepetitionPenalty: 1.0,
+        MaxTokens: 15000,
+        FlashAttention: true,
+        ParallelSlots: 1,
+        Reasoning: 'off',
+      }
     },
     Thresholds: {
       MinCharactersForSummary: 500,
@@ -186,6 +252,15 @@ function getDefaultConfig() {
       IdleTimeoutMs: 900000,
       MaxTranscriptCharacters: 60000,
       TranscriptRetention: true
+    },
+    Server: {
+      LlamaCpp: {
+        StartupScript: DEFAULT_LLAMA_STARTUP_SCRIPT,
+        ShutdownScript: DEFAULT_LLAMA_SHUTDOWN_SCRIPT,
+        StartupTimeoutMs: DEFAULT_LLAMA_STARTUP_TIMEOUT_MS,
+        HealthcheckTimeoutMs: DEFAULT_LLAMA_HEALTHCHECK_TIMEOUT_MS,
+        HealthcheckIntervalMs: DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS,
+      }
     }
   };
 }
@@ -226,31 +301,80 @@ function normalizeConfig(input) {
   if (merged.Backend === 'ollama') {
     merged.Backend = 'llama.cpp';
   }
-  if (merged.Ollama && !merged.LlamaCpp) {
-    merged.LlamaCpp = {
-      BaseUrl: merged.Ollama.BaseUrl || getDefaultConfig().LlamaCpp.BaseUrl,
-      NumCtx: Number(merged.Ollama.NumCtx || getDefaultConfig().LlamaCpp.NumCtx),
-      ModelPath: getDefaultConfig().LlamaCpp.ModelPath,
-      Temperature: Number(merged.Ollama.Temperature ?? getDefaultConfig().LlamaCpp.Temperature),
-      TopP: Number(merged.Ollama.TopP ?? getDefaultConfig().LlamaCpp.TopP),
-      TopK: Number(merged.Ollama.TopK ?? getDefaultConfig().LlamaCpp.TopK),
-      MinP: Number(merged.Ollama.MinP ?? getDefaultConfig().LlamaCpp.MinP),
-      PresencePenalty: Number(merged.Ollama.PresencePenalty ?? getDefaultConfig().LlamaCpp.PresencePenalty),
-      RepetitionPenalty: Number(merged.Ollama.RepetitionPenalty ?? getDefaultConfig().LlamaCpp.RepetitionPenalty),
-      ...(Object.prototype.hasOwnProperty.call(merged.Ollama, 'NumPredict') ? { MaxTokens: merged.Ollama.NumPredict } : {}),
-      GpuLayers: getDefaultConfig().LlamaCpp.GpuLayers,
-      FlashAttention: getDefaultConfig().LlamaCpp.FlashAttention,
-      ParallelSlots: getDefaultConfig().LlamaCpp.ParallelSlots,
-      Reasoning: getDefaultConfig().LlamaCpp.Reasoning
-    };
+  merged.LlamaCpp = (merged.LlamaCpp && typeof merged.LlamaCpp === 'object') ? merged.LlamaCpp : {};
+  merged.Runtime = (merged.Runtime && typeof merged.Runtime === 'object') ? merged.Runtime : {};
+  merged.Runtime.LlamaCpp = (merged.Runtime.LlamaCpp && typeof merged.Runtime.LlamaCpp === 'object') ? merged.Runtime.LlamaCpp : {};
+  if (merged.Ollama) {
+    if (merged.Ollama.BaseUrl !== undefined) {
+      merged.Runtime.LlamaCpp.BaseUrl = merged.Runtime.LlamaCpp.BaseUrl ?? merged.Ollama.BaseUrl;
+    }
+    if (merged.Ollama.NumCtx !== undefined) {
+      merged.Runtime.LlamaCpp.NumCtx = merged.Runtime.LlamaCpp.NumCtx ?? Number(merged.Ollama.NumCtx);
+    }
+    if (merged.Ollama.Temperature !== undefined) {
+      merged.Runtime.LlamaCpp.Temperature = merged.Runtime.LlamaCpp.Temperature ?? Number(merged.Ollama.Temperature);
+    }
+    if (merged.Ollama.TopP !== undefined) {
+      merged.Runtime.LlamaCpp.TopP = merged.Runtime.LlamaCpp.TopP ?? Number(merged.Ollama.TopP);
+    }
+    if (merged.Ollama.TopK !== undefined) {
+      merged.Runtime.LlamaCpp.TopK = merged.Runtime.LlamaCpp.TopK ?? Number(merged.Ollama.TopK);
+    }
+    if (merged.Ollama.MinP !== undefined) {
+      merged.Runtime.LlamaCpp.MinP = merged.Runtime.LlamaCpp.MinP ?? Number(merged.Ollama.MinP);
+    }
+    if (merged.Ollama.PresencePenalty !== undefined) {
+      merged.Runtime.LlamaCpp.PresencePenalty = merged.Runtime.LlamaCpp.PresencePenalty ?? Number(merged.Ollama.PresencePenalty);
+    }
+    if (merged.Ollama.RepetitionPenalty !== undefined) {
+      merged.Runtime.LlamaCpp.RepetitionPenalty = merged.Runtime.LlamaCpp.RepetitionPenalty ?? Number(merged.Ollama.RepetitionPenalty);
+    }
+    if (Object.prototype.hasOwnProperty.call(merged.Ollama, 'NumPredict')) {
+      merged.Runtime.LlamaCpp.MaxTokens = merged.Runtime.LlamaCpp.MaxTokens ?? merged.Ollama.NumPredict;
+    }
   }
   delete merged.Ollama;
   delete merged.Paths;
+  merged.Server = (merged.Server && typeof merged.Server === 'object') ? merged.Server : {};
+  merged.Server.LlamaCpp = (merged.Server.LlamaCpp && typeof merged.Server.LlamaCpp === 'object') ? merged.Server.LlamaCpp : {};
+  if (typeof merged.Model === 'string' && merged.Model.trim() && !merged.Runtime.Model) {
+    merged.Runtime.Model = merged.Model;
+  }
+  delete merged.Model;
+  if ((!merged.PromptPrefix || !String(merged.PromptPrefix).trim()) && typeof merged.Runtime.PromptPrefix === 'string' && merged.Runtime.PromptPrefix.trim()) {
+    merged.PromptPrefix = merged.Runtime.PromptPrefix;
+  }
+  delete merged.Runtime.PromptPrefix;
+  if (!merged.PromptPrefix || !String(merged.PromptPrefix).trim()) {
+    merged.PromptPrefix = getDefaultConfig().PromptPrefix;
+  }
   if (merged.Thresholds && typeof merged.Thresholds === 'object') {
     delete merged.Thresholds.MaxInputCharacters;
   }
   if (merged.LlamaCpp && typeof merged.LlamaCpp === 'object') {
-    delete merged.LlamaCpp.Threads;
+    for (const key of RUNTIME_OWNED_LLAMA_CPP_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(merged.LlamaCpp, key)) {
+        if (!Object.prototype.hasOwnProperty.call(merged.Runtime.LlamaCpp, key)) {
+          merged.Runtime.LlamaCpp[key] = merged.LlamaCpp[key];
+        }
+        delete merged.LlamaCpp[key];
+      }
+    }
+  }
+  if (!Object.prototype.hasOwnProperty.call(merged.Server.LlamaCpp, 'StartupScript')) {
+    merged.Server.LlamaCpp.StartupScript = null;
+  }
+  if (!Object.prototype.hasOwnProperty.call(merged.Server.LlamaCpp, 'ShutdownScript')) {
+    merged.Server.LlamaCpp.ShutdownScript = null;
+  }
+  if (!Object.prototype.hasOwnProperty.call(merged.Server.LlamaCpp, 'StartupTimeoutMs')) {
+    merged.Server.LlamaCpp.StartupTimeoutMs = DEFAULT_LLAMA_STARTUP_TIMEOUT_MS;
+  }
+  if (!Object.prototype.hasOwnProperty.call(merged.Server.LlamaCpp, 'HealthcheckTimeoutMs')) {
+    merged.Server.LlamaCpp.HealthcheckTimeoutMs = DEFAULT_LLAMA_HEALTHCHECK_TIMEOUT_MS;
+  }
+  if (!Object.prototype.hasOwnProperty.call(merged.Server.LlamaCpp, 'HealthcheckIntervalMs')) {
+    merged.Server.LlamaCpp.HealthcheckIntervalMs = DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS;
   }
   return merged;
 }
@@ -270,6 +394,110 @@ function readConfig(configPath) {
 
 function writeConfig(configPath, config) {
   writeText(configPath, `${JSON.stringify(normalizeConfig(config), null, 2)}\n`);
+}
+
+function getFinitePositiveInteger(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getManagedStartupTimeoutMs(value, fallback) {
+  return Math.min(getFinitePositiveInteger(value, fallback), MAX_LLAMA_STARTUP_TIMEOUT_MS);
+}
+
+function requestText(url, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const transport = target.protocol === 'https:' ? https : http;
+    const request = transport.request({
+      protocol: target.protocol,
+      hostname: target.hostname,
+      port: target.port || (target.protocol === 'https:' ? 443 : 80),
+      path: `${target.pathname}${target.search}`,
+      method: 'GET',
+    }, (response) => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => {
+        body += chunk;
+      });
+      response.on('end', () => {
+        resolve({
+          statusCode: response.statusCode || 0,
+          body,
+        });
+      });
+    });
+
+    request.setTimeout(timeoutMs, () => {
+      request.destroy(new Error(`Request timed out after ${timeoutMs} ms.`));
+    });
+    request.on('error', reject);
+    request.end();
+  });
+}
+
+function getCompatRuntimeLlamaCpp(config) {
+  return config?.Runtime?.LlamaCpp ?? config?.LlamaCpp ?? {};
+}
+
+function getLlamaBaseUrl(config) {
+  const baseUrl = getCompatRuntimeLlamaCpp(config).BaseUrl;
+  return typeof baseUrl === 'string' && baseUrl.trim() ? baseUrl.trim() : null;
+}
+
+function getManagedLlamaConfig(config) {
+  const defaults = getDefaultConfig().Server.LlamaCpp;
+  const serverLlama = config?.Server?.LlamaCpp ?? {};
+  return {
+    StartupScript: typeof serverLlama.StartupScript === 'string' && serverLlama.StartupScript.trim() ? serverLlama.StartupScript.trim() : null,
+    ShutdownScript: typeof serverLlama.ShutdownScript === 'string' && serverLlama.ShutdownScript.trim() ? serverLlama.ShutdownScript.trim() : null,
+    StartupTimeoutMs: getManagedStartupTimeoutMs(serverLlama.StartupTimeoutMs, defaults.StartupTimeoutMs),
+    HealthcheckTimeoutMs: getFinitePositiveInteger(serverLlama.HealthcheckTimeoutMs, defaults.HealthcheckTimeoutMs),
+    HealthcheckIntervalMs: getFinitePositiveInteger(serverLlama.HealthcheckIntervalMs, defaults.HealthcheckIntervalMs),
+  };
+}
+
+function resolveManagedScriptPath(scriptPath, configPath) {
+  if (!scriptPath || !scriptPath.trim()) {
+    return null;
+  }
+
+  return path.isAbsolute(scriptPath)
+    ? path.resolve(scriptPath)
+    : path.resolve(path.dirname(configPath), scriptPath);
+}
+
+function getManagedLlamaLogRoot() {
+  return path.join(getRuntimeRoot(), 'logs', 'managed-llama');
+}
+
+function createManagedLlamaLogPaths(purpose) {
+  const timestamp = new Date().toISOString().replace(/[:.]/gu, '-');
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const directory = path.join(getManagedLlamaLogRoot(), `${timestamp}-${suffix}-${purpose}`);
+  ensureDirectory(path.join(directory, 'placeholder.txt'));
+  return {
+    directory,
+    scriptStdoutPath: path.join(directory, 'script.stdout.log'),
+    scriptStderrPath: path.join(directory, 'script.stderr.log'),
+    llamaStdoutPath: path.join(directory, 'llama.stdout.log'),
+    llamaStderrPath: path.join(directory, 'llama.stderr.log'),
+    startupDumpPath: path.join(directory, 'startup-review.log'),
+    latestStartupDumpPath: path.join(getManagedLlamaLogRoot(), 'latest-startup.log'),
+    failureDumpPath: path.join(directory, 'startup-scan-failure.log'),
+  };
+}
+
+function readTextIfExists(targetPath) {
+  try {
+    if (!targetPath || !fs.existsSync(targetPath)) {
+      return '';
+    }
+    return fs.readFileSync(targetPath, 'utf8');
+  } catch {
+    return '';
+  }
 }
 
 function formatTimestamp(date = new Date()) {
@@ -508,6 +736,9 @@ function buildStatusRequestLogMessage({
   promptCharacterCount = null,
   rawInputCharacterCount = null,
   chunkInputCharacterCount = null,
+  budgetSource = null,
+  inputCharactersPerContextToken = null,
+  chunkThresholdCharacters = null,
   chunkIndex = null,
   chunkTotal = null,
   elapsedMs = null,
@@ -526,6 +757,15 @@ function buildStatusRequestLogMessage({
     }
     if (resolvedPromptCharacterCount !== null) {
       logMessage += ` prompt_chars=${formatInteger(resolvedPromptCharacterCount)}`;
+    }
+    if (budgetSource !== null) {
+      logMessage += ` budget=${String(budgetSource)}`;
+    }
+    if (inputCharactersPerContextToken !== null) {
+      logMessage += ` chars_per_token=${Number(inputCharactersPerContextToken).toFixed(3)}`;
+    }
+    if (chunkThresholdCharacters !== null) {
+      logMessage += ` chunk_threshold_chars=${formatInteger(chunkThresholdCharacters)}`;
     }
     if (chunkIndex !== null && chunkTotal !== null) {
       logMessage += ` chunk ${chunkIndex}/${chunkTotal}`;
@@ -558,12 +798,15 @@ function parseRunning(bodyText) {
       return parsed.running;
     }
     if (typeof parsed.status === 'string') {
-      return parsed.status.trim().toLowerCase() === 'true';
+      const normalized = normalizeStatusText(parsed.status);
+      if (normalized === STATUS_TRUE || normalized === STATUS_FALSE) {
+        return normalized === STATUS_TRUE;
+      }
     }
   } catch {
-    const normalized = bodyText.trim().toLowerCase();
-    if (normalized === 'true' || normalized === 'false') {
-      return normalized === 'true';
+    const normalized = normalizeStatusText(bodyText);
+    if (normalized === STATUS_TRUE || normalized === STATUS_FALSE) {
+      return normalized === STATUS_TRUE;
     }
   }
 
@@ -575,6 +818,9 @@ function parseStatusMetadata(bodyText) {
     promptCharacterCount: null,
     rawInputCharacterCount: null,
     chunkInputCharacterCount: null,
+    budgetSource: null,
+    inputCharactersPerContextToken: null,
+    chunkThresholdCharacters: null,
     chunkIndex: null,
     chunkTotal: null,
     inputTokens: null,
@@ -600,6 +846,15 @@ function parseStatusMetadata(bodyText) {
     }
     if (Number.isFinite(parsed.chunkInputCharacterCount) && parsed.chunkInputCharacterCount >= 0) {
       metadata.chunkInputCharacterCount = parsed.chunkInputCharacterCount;
+    }
+    if (typeof parsed.budgetSource === 'string' && parsed.budgetSource.trim()) {
+      metadata.budgetSource = parsed.budgetSource.trim();
+    }
+    if (Number.isFinite(parsed.inputCharactersPerContextToken) && parsed.inputCharactersPerContextToken > 0) {
+      metadata.inputCharactersPerContextToken = Number(parsed.inputCharactersPerContextToken);
+    }
+    if (Number.isFinite(parsed.chunkThresholdCharacters) && parsed.chunkThresholdCharacters > 0) {
+      metadata.chunkThresholdCharacters = Number(parsed.chunkThresholdCharacters);
     }
     if (Number.isFinite(parsed.chunkIndex) && parsed.chunkIndex > 0) {
       metadata.chunkIndex = parsed.chunkIndex;
@@ -637,11 +892,15 @@ function readBody(req) {
   });
 }
 
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 function readStatusText(targetPath) {
   try {
-    return fs.readFileSync(targetPath, 'utf8').trim() || 'false';
+    return normalizeStatusText(fs.readFileSync(targetPath, 'utf8'));
   } catch {
-    return 'false';
+    return STATUS_FALSE;
   }
 }
 
@@ -674,6 +933,519 @@ function startStatusServer() {
   let idleSummaryTimer = null;
   let idleSummaryPending = false;
   let idleSummaryDatabase = null;
+  let managedLlamaStartupPromise = null;
+  let managedLlamaShutdownPromise = null;
+  let managedLlamaHostProcess = null;
+  let managedLlamaLastStartupLogs = null;
+  let managedLlamaStarting = false;
+  let managedLlamaReady = false;
+  let bootstrapManagedLlamaStartup = false;
+  let siftKitOwnsGpuLock = false;
+  let siftKitWaitingForGpuLock = false;
+  let gpuLockAcquisitionPromise = null;
+  let server = null;
+
+  function getServiceBaseUrl() {
+    const address = server?.address?.();
+    const port = typeof address === 'object' && address ? address.port : requestedPort;
+    return `http://${host}:${port}`;
+  }
+
+  function getManagedLifecycleArgs(scriptPath) {
+    return [
+      '-ConfigPath', configPath,
+      '-ConfigUrl', `${getServiceBaseUrl()}/config`,
+      '-StatusPath', statusPath,
+      '-StatusUrl', `${getServiceBaseUrl()}/status`,
+      '-HealthUrl', `${getServiceBaseUrl()}/health`,
+      '-RuntimeRoot', getRuntimeRoot(),
+      '-ScriptPath', scriptPath,
+    ];
+  }
+
+  function getManagedScriptInvocation(scriptPath) {
+    const resolvedPath = resolveManagedScriptPath(scriptPath, configPath);
+    if (!resolvedPath || !fs.existsSync(resolvedPath)) {
+      throw new Error(`Configured llama.cpp script does not exist: ${scriptPath}`);
+    }
+
+    const extension = path.extname(resolvedPath).toLowerCase();
+    return extension === '.ps1'
+      ? {
+        filePath: 'powershell.exe',
+        args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', resolvedPath, ...getManagedLifecycleArgs(resolvedPath)],
+        cwd: path.dirname(resolvedPath),
+      }
+      : {
+        filePath: resolvedPath,
+        args: getManagedLifecycleArgs(resolvedPath),
+        cwd: path.dirname(resolvedPath),
+      };
+  }
+
+  function spawnManagedScript(scriptPath, purpose, logPaths = createManagedLlamaLogPaths(purpose)) {
+    let invocation;
+    try {
+      invocation = getManagedScriptInvocation(scriptPath);
+    } catch (error) {
+      throw new Error(`Configured llama.cpp ${purpose} script does not exist: ${scriptPath}`);
+    }
+
+    const stdoutFd = fs.openSync(logPaths.scriptStdoutPath, 'w');
+    const stderrFd = fs.openSync(logPaths.scriptStderrPath, 'w');
+    const child = spawn(invocation.filePath, invocation.args, {
+      cwd: invocation.cwd,
+      env: {
+        ...process.env,
+        SIFTKIT_SERVER_CONFIG_PATH: configPath,
+        SIFTKIT_SERVER_CONFIG_URL: `${getServiceBaseUrl()}/config`,
+        SIFTKIT_SERVER_STATUS_PATH: statusPath,
+        SIFTKIT_SERVER_STATUS_URL: `${getServiceBaseUrl()}/status`,
+        SIFTKIT_SERVER_HEALTH_URL: `${getServiceBaseUrl()}/health`,
+        SIFTKIT_SERVER_RUNTIME_ROOT: getRuntimeRoot(),
+        SIFTKIT_LLAMA_SCRIPT_STDOUT_PATH: logPaths.scriptStdoutPath,
+        SIFTKIT_LLAMA_SCRIPT_STDERR_PATH: logPaths.scriptStderrPath,
+        SIFTKIT_LLAMA_STDOUT_PATH: logPaths.llamaStdoutPath,
+        SIFTKIT_LLAMA_STDERR_PATH: logPaths.llamaStderrPath,
+      },
+      stdio: ['ignore', stdoutFd, stderrFd],
+      windowsHide: true,
+      detached: false,
+    });
+    fs.closeSync(stdoutFd);
+    fs.closeSync(stderrFd);
+
+    child.on('error', (error) => {
+      process.stderr.write(`[siftKitStatus] llama.cpp ${purpose} script failed to spawn (${scriptPath}): ${error.message}\n`);
+    });
+
+    return {
+      child,
+      logPaths,
+    };
+  }
+
+  function collectManagedLlamaLogEntries(logPaths) {
+    const sources = [
+      ['startup_script_stdout', logPaths.scriptStdoutPath],
+      ['startup_script_stderr', logPaths.scriptStderrPath],
+      ['llama_stdout', logPaths.llamaStdoutPath],
+      ['llama_stderr', logPaths.llamaStderrPath],
+    ];
+    const entries = [];
+    for (const [label, filePath] of sources) {
+      const text = readTextIfExists(filePath);
+      const matchingLines = text
+        .split(/\r?\n/u)
+        .filter((line) => MANAGED_LLAMA_LOG_ALERT_PATTERN.test(line));
+      entries.push({
+        label,
+        filePath,
+        text,
+        matchingLines,
+      });
+    }
+
+    return entries;
+  }
+
+  function collectManagedLlamaAlertMatches(logPaths) {
+    return collectManagedLlamaLogEntries(logPaths)
+      .filter((entry) => entry.text.trim() || entry.matchingLines.length > 0);
+  }
+
+  function writeManagedLlamaStartupReviewDump(logPaths, options = {}) {
+    const entries = collectManagedLlamaLogEntries(logPaths);
+    const content = [
+      'Managed llama.cpp startup log dump.',
+      `Result: ${options.result || 'unknown'}`,
+      ...(options.baseUrl ? [`BaseUrl: ${options.baseUrl}`] : []),
+      ...(options.errorMessage ? [`Error: ${options.errorMessage}`] : []),
+      '',
+      'Full logs:',
+      ...entries.flatMap((entry) => [
+        `===== ${entry.label} :: ${entry.filePath} =====`,
+        entry.text.trimEnd() || '<empty>',
+        '',
+      ]),
+    ].join('\n');
+    writeText(logPaths.startupDumpPath, `${content}\n`);
+    writeText(logPaths.latestStartupDumpPath, `${content}\n`);
+    return logPaths.startupDumpPath;
+  }
+
+  function writeManagedLlamaFailureDump(logPaths, entries) {
+    const matched = entries.filter((entry) => entry.matchingLines.length > 0);
+    const content = [
+      'Managed llama.cpp startup log scan failed.',
+      `Pattern: ${String(MANAGED_LLAMA_LOG_ALERT_PATTERN)}`,
+      '',
+      'Matched lines:',
+      ...matched.flatMap((entry) => [
+        `${entry.label} (${entry.filePath})`,
+        ...entry.matchingLines.map((line) => `  ${line}`),
+      ]),
+      '',
+      'Full logs:',
+      ...entries.flatMap((entry) => [
+        `===== ${entry.label} :: ${entry.filePath} =====`,
+        entry.text.trimEnd(),
+        '',
+      ]),
+    ].join('\n');
+    writeText(logPaths.failureDumpPath, `${content}\n`);
+    return logPaths.failureDumpPath;
+  }
+
+  function failManagedLlamaStartup(message) {
+    process.stderr.write(`[siftKitStatus] ${message}\n`);
+    if (require.main === module && server && typeof server.close === 'function') {
+      setImmediate(() => {
+        server.close(() => process.exit(1));
+      });
+    }
+  }
+
+  async function scanManagedLlamaStartupLogsOrFail(logPaths) {
+    const entries = collectManagedLlamaAlertMatches(logPaths);
+    const matchedEntries = entries.filter((entry) => entry.matchingLines.length > 0);
+    if (matchedEntries.length === 0) {
+      return;
+    }
+
+    const dumpPath = writeManagedLlamaFailureDump(logPaths, entries);
+    const error = new Error(`Managed llama.cpp startup logs contained warning/error markers. Dumped logs to ${dumpPath}.`);
+    setImmediate(() => {
+      void shutdownManagedLlamaIfNeeded().finally(() => {
+        failManagedLlamaStartup(error.message);
+      });
+    });
+    throw error;
+  }
+
+  async function isLlamaServerReachable(config) {
+    const baseUrl = getLlamaBaseUrl(config);
+    if (!baseUrl) {
+      return false;
+    }
+
+    try {
+      const response = await requestText(`${baseUrl.replace(/\/$/u, '')}/v1/models`, getManagedLlamaConfig(config).HealthcheckTimeoutMs);
+      return response.statusCode > 0 && response.statusCode < 400;
+    } catch {
+      return false;
+    }
+  }
+
+  async function waitForLlamaServerReachability(config, shouldBeReachable, deadline = null) {
+    const managed = getManagedLlamaConfig(config);
+    const timeoutDeadline = Number.isFinite(deadline) ? Number(deadline) : Date.now() + managed.StartupTimeoutMs;
+    while (Date.now() < timeoutDeadline) {
+      const reachable = await isLlamaServerReachable(config);
+      if (reachable === shouldBeReachable) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, managed.HealthcheckIntervalMs));
+    }
+
+    const baseUrl = getLlamaBaseUrl(config) || '<missing>';
+    throw new Error(`Timed out waiting for llama.cpp server at ${baseUrl} to become ${shouldBeReachable ? 'ready' : 'offline'}.`);
+  }
+
+  async function abortManagedLlamaStartup(config, launchedChild = null) {
+    const managed = getManagedLlamaConfig(config);
+
+    if (managed.ShutdownScript) {
+      logLine(`llama_stop startup_abort script=${managed.ShutdownScript}`);
+      const stopChild = spawnManagedScript(managed.ShutdownScript, 'shutdown').child;
+      await new Promise((resolve, reject) => {
+        stopChild.once('error', reject);
+        stopChild.once('exit', (code) => {
+          if ((code ?? 0) !== 0) {
+            reject(new Error(`Configured llama.cpp shutdown script exited with code ${code}.`));
+            return;
+          }
+          resolve();
+        });
+      });
+    } else if (launchedChild && launchedChild.exitCode === null && launchedChild.signalCode === null) {
+      launchedChild.kill('SIGTERM');
+    }
+
+    try {
+      await waitForLlamaServerReachability(config, false);
+    } finally {
+      managedLlamaReady = false;
+      managedLlamaHostProcess = null;
+      managedLlamaLastStartupLogs = null;
+    }
+  }
+
+  function dumpManagedLlamaStartupReviewToConsole(logPaths, stream = process.stderr) {
+    if (!logPaths) {
+      return;
+    }
+
+    const dumpText = readTextIfExists(logPaths.startupDumpPath) || readTextIfExists(logPaths.latestStartupDumpPath);
+    if (!dumpText.trim()) {
+      return;
+    }
+
+    stream.write(`${dumpText.trimEnd()}\n`);
+  }
+
+  async function ensureManagedLlamaReady(options = {}) {
+    const config = readConfig(configPath);
+    if (config.Backend !== 'llama.cpp') {
+      return config;
+    }
+
+    const baseUrl = getLlamaBaseUrl(config);
+    if (!baseUrl) {
+      return config;
+    }
+    const managed = getManagedLlamaConfig(config);
+    const startupDeadline = Date.now() + managed.StartupTimeoutMs;
+
+    if (managedLlamaShutdownPromise) {
+      await managedLlamaShutdownPromise;
+    }
+    await ensureSiftKitGpuLockAcquired();
+    if (await isLlamaServerReachable(config)) {
+      managedLlamaReady = true;
+      publishStatus();
+      return config;
+    }
+    if (managedLlamaStartupPromise) {
+      await managedLlamaStartupPromise;
+      managedLlamaReady = true;
+      publishStatus();
+      return readConfig(configPath);
+    }
+    const graceDelayMs = Math.min(LLAMA_STARTUP_GRACE_DELAY_MS, Math.max(startupDeadline - Date.now(), 0));
+    if (graceDelayMs > 0) {
+      await sleep(graceDelayMs);
+    }
+    if (await isLlamaServerReachable(config)) {
+      managedLlamaReady = true;
+      publishStatus();
+      return readConfig(configPath);
+    }
+    if (managedLlamaStartupPromise) {
+      await managedLlamaStartupPromise;
+      managedLlamaReady = true;
+      publishStatus();
+      return readConfig(configPath);
+    }
+    if (!managed.StartupScript) {
+      throw new Error(`llama.cpp is not reachable at ${baseUrl} and config.Server.LlamaCpp.StartupScript is not set.`);
+    }
+    if (Date.now() >= startupDeadline) {
+      throw new Error(`Timed out waiting for llama.cpp server at ${baseUrl} to become ready.`);
+    }
+
+    managedLlamaStarting = true;
+    managedLlamaStartupPromise = (async () => {
+      logLine(`llama_start starting script=${managed.StartupScript}`);
+      const launched = spawnManagedScript(managed.StartupScript, 'startup');
+      managedLlamaHostProcess = launched.child;
+      managedLlamaLastStartupLogs = launched.logPaths;
+      try {
+        await waitForLlamaServerReachability(config, true, startupDeadline);
+        await scanManagedLlamaStartupLogsOrFail(launched.logPaths);
+        writeManagedLlamaStartupReviewDump(launched.logPaths, {
+          result: 'ready',
+          baseUrl,
+        });
+        managedLlamaReady = true;
+        logLine(`llama_start ready base_url=${baseUrl}`);
+      } catch (error) {
+        writeManagedLlamaStartupReviewDump(launched.logPaths, {
+          result: 'failed',
+          baseUrl,
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+        managedLlamaReady = false;
+        if (!/startup logs contained warning\/error markers/iu.test(error instanceof Error ? error.message : '')) {
+          try {
+            await abortManagedLlamaStartup(config, launched.child);
+          } catch (cleanupError) {
+            process.stderr.write(`[siftKitStatus] Failed to abort managed llama.cpp startup: ${cleanupError.message}\n`);
+          }
+        }
+        throw error;
+      }
+    })().finally(() => {
+      managedLlamaStarting = false;
+      managedLlamaStartupPromise = null;
+      if (!managedLlamaReady) {
+        releaseSiftKitGpuLockIfIdle();
+      }
+    });
+
+    await managedLlamaStartupPromise;
+    return readConfig(configPath);
+  }
+
+  async function shutdownManagedLlamaIfNeeded() {
+    const config = readConfig(configPath);
+    if (config.Backend !== 'llama.cpp') {
+      return;
+    }
+
+    const baseUrl = getLlamaBaseUrl(config);
+    if (!baseUrl) {
+      return;
+    }
+
+    if (managedLlamaStartupPromise) {
+      await managedLlamaStartupPromise;
+    }
+    if (managedLlamaShutdownPromise) {
+      return managedLlamaShutdownPromise;
+    }
+    if (!await isLlamaServerReachable(config)) {
+      managedLlamaReady = false;
+      releaseSiftKitGpuLockIfIdle();
+      return;
+    }
+
+    const managed = getManagedLlamaConfig(config);
+    managedLlamaShutdownPromise = (async () => {
+      if (managed.ShutdownScript) {
+        logLine(`llama_stop stopping script=${managed.ShutdownScript}`);
+        const stopChild = spawnManagedScript(managed.ShutdownScript, 'shutdown').child;
+        await new Promise((resolve, reject) => {
+          stopChild.once('error', reject);
+          stopChild.once('exit', (code) => {
+            if ((code ?? 0) !== 0) {
+              reject(new Error(`Configured llama.cpp shutdown script exited with code ${code}.`));
+              return;
+            }
+            resolve();
+          });
+        });
+      } else if (managedLlamaHostProcess && managedLlamaHostProcess.exitCode === null && managedLlamaHostProcess.signalCode === null) {
+        logLine(`llama_stop stopping pid=${managedLlamaHostProcess.pid ?? 0}`);
+        managedLlamaHostProcess.kill('SIGTERM');
+      } else {
+        process.stderr.write('[siftKitStatus] llama.cpp is still reachable but no shutdown script is configured and no managed host process is active.\n');
+        return;
+      }
+
+      try {
+        await waitForLlamaServerReachability(config, false);
+      } finally {
+        managedLlamaReady = false;
+        managedLlamaHostProcess = null;
+        managedLlamaLastStartupLogs = null;
+      }
+      logLine(`llama_stop offline base_url=${baseUrl}`);
+      releaseSiftKitGpuLockIfIdle();
+    })().catch((error) => {
+      process.stderr.write(`[siftKitStatus] Failed to stop llama.cpp server: ${error.message}\n`);
+    }).finally(() => {
+      managedLlamaShutdownPromise = null;
+    });
+
+    return managedLlamaShutdownPromise;
+  }
+
+  function shutdownManagedLlamaForProcessExitSync() {
+    try {
+      bootstrapManagedLlamaStartup = false;
+      managedLlamaStarting = false;
+      managedLlamaReady = false;
+      idleSummaryPending = false;
+      siftKitWaitingForGpuLock = false;
+      siftKitOwnsGpuLock = false;
+      const config = readConfig(configPath);
+      if (config.Backend !== 'llama.cpp') {
+        publishStatus();
+        return;
+      }
+
+      const baseUrl = getLlamaBaseUrl(config);
+      if (!baseUrl) {
+        publishStatus();
+        return;
+      }
+
+      const managed = getManagedLlamaConfig(config);
+      if (managed.ShutdownScript) {
+        const invocation = getManagedScriptInvocation(managed.ShutdownScript);
+        const result = spawnSync(invocation.filePath, invocation.args, {
+          cwd: invocation.cwd,
+          env: {
+            ...process.env,
+            SIFTKIT_SERVER_CONFIG_PATH: configPath,
+            SIFTKIT_SERVER_CONFIG_URL: `${getServiceBaseUrl()}/config`,
+            SIFTKIT_SERVER_STATUS_PATH: statusPath,
+            SIFTKIT_SERVER_STATUS_URL: `${getServiceBaseUrl()}/status`,
+            SIFTKIT_SERVER_HEALTH_URL: `${getServiceBaseUrl()}/health`,
+            SIFTKIT_SERVER_RUNTIME_ROOT: getRuntimeRoot(),
+          },
+          stdio: 'ignore',
+          windowsHide: true,
+        });
+
+        if ((result.status ?? 0) !== 0) {
+          process.stderr.write(`[siftKitStatus] Managed llama.cpp shutdown script exited with code ${result.status ?? 'null'} during process exit.\n`);
+        }
+        publishStatus();
+        return;
+      }
+
+      if (managedLlamaHostProcess && managedLlamaHostProcess.exitCode === null && managedLlamaHostProcess.signalCode === null) {
+        managedLlamaHostProcess.kill('SIGTERM');
+      }
+      publishStatus();
+    } catch (error) {
+      process.stderr.write(`[siftKitStatus] Failed to stop managed llama.cpp during process exit: ${error.message}\n`);
+      try {
+        publishStatus();
+      } catch {
+        // Ignore final status-file write failures during process exit.
+      }
+    }
+  }
+
+  async function shutdownManagedLlamaForServerExit() {
+    try {
+      bootstrapManagedLlamaStartup = false;
+      managedLlamaStarting = false;
+      siftKitWaitingForGpuLock = false;
+      await shutdownManagedLlamaIfNeeded();
+    } catch (error) {
+      process.stderr.write(`[siftKitStatus] Failed to stop managed llama.cpp during server exit: ${error.message}\n`);
+    } finally {
+      managedLlamaReady = false;
+      idleSummaryPending = false;
+      releaseSiftKitGpuLockIfIdle();
+    }
+  }
+
+  async function clearPreexistingManagedLlamaIfNeeded() {
+    const config = readConfig(configPath);
+    if (config.Backend !== 'llama.cpp') {
+      return;
+    }
+
+    const baseUrl = getLlamaBaseUrl(config);
+    if (!baseUrl || !await isLlamaServerReachable(config)) {
+      return;
+    }
+
+    const managed = getManagedLlamaConfig(config);
+    if (!managed.ShutdownScript) {
+      process.stderr.write(`[siftKitStatus] llama.cpp is already reachable at ${baseUrl} during server startup, but no shutdown script is configured for stale-process cleanup.\n`);
+      managedLlamaReady = true;
+      return;
+    }
+
+    logLine(`llama_stop startup_cleanup script=${managed.ShutdownScript}`);
+    await shutdownManagedLlamaIfNeeded();
+  }
 
   function getIdleSummaryDatabase() {
     if (idleSummaryDatabase) {
@@ -688,6 +1460,67 @@ function startStatusServer() {
 
   function hasActiveRuns() {
     return activeRunsByStatusPath.has(statusPath);
+  }
+
+  function hasSiftKitGpuDemand() {
+    return bootstrapManagedLlamaStartup || managedLlamaStarting || managedLlamaReady || hasActiveRuns() || idleSummaryPending || Boolean(gpuLockAcquisitionPromise);
+  }
+
+  function getPublishedStatusText() {
+    if (siftKitWaitingForGpuLock) {
+      return STATUS_LOCK_REQUESTED;
+    }
+    if (siftKitOwnsGpuLock) {
+      return STATUS_TRUE;
+    }
+
+    const sharedStatus = readStatusText(statusPath);
+    return sharedStatus === STATUS_FOREIGN_LOCK ? STATUS_FOREIGN_LOCK : STATUS_FALSE;
+  }
+
+  function publishStatus() {
+    writeText(statusPath, getPublishedStatusText());
+  }
+
+  function releaseSiftKitGpuLockIfIdle() {
+    if (hasSiftKitGpuDemand()) {
+      return;
+    }
+
+    siftKitWaitingForGpuLock = false;
+    siftKitOwnsGpuLock = false;
+    publishStatus();
+  }
+
+  async function ensureSiftKitGpuLockAcquired() {
+    if (siftKitOwnsGpuLock) {
+      return;
+    }
+    if (gpuLockAcquisitionPromise) {
+      await gpuLockAcquisitionPromise;
+      return;
+    }
+
+    gpuLockAcquisitionPromise = (async () => {
+      while (true) {
+        const sharedStatus = readStatusText(statusPath);
+        if (sharedStatus === STATUS_FALSE || sharedStatus === STATUS_TRUE) {
+          siftKitWaitingForGpuLock = false;
+          siftKitOwnsGpuLock = true;
+          publishStatus();
+          return;
+        }
+
+        siftKitWaitingForGpuLock = true;
+        siftKitOwnsGpuLock = false;
+        publishStatus();
+        await sleep(GPU_LOCK_POLL_DELAY_MS);
+      }
+    })().finally(() => {
+      gpuLockAcquisitionPromise = null;
+    });
+
+    await gpuLockAcquisitionPromise;
   }
 
   function isIdle() {
@@ -708,7 +1541,7 @@ function startStatusServer() {
     }
 
     clearIdleSummaryTimer();
-    idleSummaryTimer = setTimeout(() => {
+    idleSummaryTimer = setTimeout(async () => {
       idleSummaryTimer = null;
       if (!idleSummaryPending || !isIdle()) {
         return;
@@ -723,6 +1556,8 @@ function startStatusServer() {
       }
       logLine(buildIdleSummarySnapshotMessage(snapshot), emittedAt);
       idleSummaryPending = false;
+      releaseSiftKitGpuLockIfIdle();
+      await shutdownManagedLlamaIfNeeded();
     }, IDLE_SUMMARY_DELAY_MS);
     if (typeof idleSummaryTimer.unref === 'function') {
       idleSummaryTimer.unref();
@@ -754,21 +1589,16 @@ function startStatusServer() {
   }
 
   const idleStatusWatchdog = setInterval(() => {
-    if (activeRunsByStatusPath.has(statusPath)) {
-      return;
+    const expectedStatus = getPublishedStatusText();
+    if (readStatusText(statusPath) !== expectedStatus) {
+      writeText(statusPath, expectedStatus);
     }
-
-    getActiveExecutionLease();
-
-    if (readStatusText(statusPath) === 'true') {
-      writeText(statusPath, 'false');
-    }
-  }, STATUS_IDLE_CLEAR_INTERVAL_MS);
+  }, EXECUTION_LEASE_STALE_MS);
   if (typeof idleStatusWatchdog.unref === 'function') {
     idleStatusWatchdog.unref();
   }
 
-  const server = http.createServer(async (req, res) => {
+  server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
       sendJson(res, 200, {
         ok: true,
@@ -782,8 +1612,8 @@ function startStatusServer() {
     }
 
     if (req.method === 'GET' && req.url === '/status') {
-      const currentStatus = readStatusText(statusPath);
-      sendJson(res, 200, { running: currentStatus === 'true', status: currentStatus, statusPath, configPath, metrics, idleSummarySnapshotsPath });
+      const currentStatus = getPublishedStatusText();
+      sendJson(res, 200, { running: currentStatus === STATUS_TRUE, status: currentStatus, statusPath, configPath, metrics, idleSummarySnapshotsPath });
       return;
     }
 
@@ -862,7 +1692,6 @@ function startStatusServer() {
         return;
       }
 
-      const statusText = running ? 'true' : 'false';
       const metadata = parseStatusMetadata(bodyText);
       let elapsedMs = null;
       let totalElapsedMs = null;
@@ -871,6 +1700,7 @@ function startStatusServer() {
         clearIdleSummaryTimer();
         const now = Date.now();
         const existingRun = activeRunsByStatusPath.get(statusPath);
+        const needsGpuLock = !existingRun;
         const isChunkedRequest = metadata.chunkIndex !== null && metadata.chunkTotal !== null;
         let runState = existingRun;
 
@@ -905,6 +1735,9 @@ function startStatusServer() {
         }
 
         activeRunsByStatusPath.set(statusPath, runState);
+        if (needsGpuLock) {
+          await ensureSiftKitGpuLockAcquired();
+        }
       } else {
         const runState = activeRunsByStatusPath.get(statusPath);
         if (runState && Number.isFinite(runState.currentRequestStartedAt)) {
@@ -949,19 +1782,31 @@ function startStatusServer() {
         promptCharacterCount: metadata.promptCharacterCount,
         rawInputCharacterCount: metadata.rawInputCharacterCount,
         chunkInputCharacterCount: metadata.chunkInputCharacterCount,
+        budgetSource: metadata.budgetSource,
+        inputCharactersPerContextToken: metadata.inputCharactersPerContextToken,
+        chunkThresholdCharacters: metadata.chunkThresholdCharacters,
         chunkIndex: metadata.chunkIndex,
         chunkTotal: metadata.chunkTotal,
         elapsedMs,
         totalElapsedMs
       });
       logLine(logMessage);
-      writeText(statusPath, statusText);
-      sendJson(res, 200, { ok: true, running, status: statusText, statusPath, configPath });
+      const publishedStatus = getPublishedStatusText();
+      writeText(statusPath, publishedStatus);
+      sendJson(res, 200, { ok: true, running: publishedStatus === STATUS_TRUE, status: publishedStatus, statusPath, configPath });
       return;
     }
 
     if (req.method === 'GET' && req.url === '/config') {
-      sendJson(res, 200, readConfig(configPath));
+      try {
+        if (bootstrapManagedLlamaStartup && (managedLlamaStarting || managedLlamaStartupPromise)) {
+          sendJson(res, 200, readConfig(configPath));
+          return;
+        }
+        sendJson(res, 200, await ensureManagedLlamaReady());
+      } catch (error) {
+        sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
+      }
       return;
     }
 
@@ -983,9 +1828,38 @@ function startStatusServer() {
     sendJson(res, 404, { error: 'Not found' });
   });
 
-  server.listen(Number.isFinite(requestedPort) ? requestedPort : 4765, host, () => {
-    const address = server.address();
-    process.stdout.write(`${JSON.stringify({ ok: true, port: address.port, host, statusPath, configPath })}\n`);
+  const originalClose = server.close.bind(server);
+  let closeRequested = false;
+  server.close = (callback) => {
+    const finalCallback = typeof callback === 'function' ? callback : undefined;
+    if (closeRequested) {
+      return originalClose(finalCallback);
+    }
+
+    closeRequested = true;
+    void shutdownManagedLlamaForServerExit().finally(() => {
+      originalClose(finalCallback);
+    });
+    return server;
+  };
+
+  server.listen(Number.isFinite(requestedPort) ? requestedPort : 4765, host, async () => {
+    try {
+      await clearPreexistingManagedLlamaIfNeeded();
+      bootstrapManagedLlamaStartup = true;
+      try {
+        await ensureManagedLlamaReady({ resetStatusBeforeCheck: false });
+      } finally {
+        bootstrapManagedLlamaStartup = false;
+      }
+      publishStatus();
+      const address = server.address();
+      process.stdout.write(`${JSON.stringify({ ok: true, port: address.port, host, statusPath, configPath })}\n`);
+    } catch (error) {
+      dumpManagedLlamaStartupReviewToConsole(managedLlamaLastStartupLogs);
+      process.stderr.write(`[siftKitStatus] Startup cleanup failed: ${error.message}\n`);
+      server.close(() => process.exit(1));
+    }
   });
   server.on('close', () => {
     clearInterval(idleStatusWatchdog);
@@ -995,6 +1869,8 @@ function startStatusServer() {
       idleSummaryDatabase = null;
     }
   });
+  server.shutdownManagedLlamaForServerExit = shutdownManagedLlamaForServerExit;
+  server.shutdownManagedLlamaForProcessExitSync = shutdownManagedLlamaForProcessExitSync;
 
   return server;
 }
@@ -1015,10 +1891,33 @@ module.exports = {
 
 if (require.main === module) {
   const server = startStatusServer();
-  const shutdown = () => {
-    server.close(() => process.exit(0));
+  let shuttingDown = false;
+  const shutdown = async (signal = 'SIGTERM') => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+    try {
+      if (typeof server.shutdownManagedLlamaForServerExit === 'function') {
+        await server.shutdownManagedLlamaForServerExit();
+      }
+    } finally {
+      server.close(() => {
+        if (signal === 'SIGUSR2') {
+          process.kill(process.pid, 'SIGUSR2');
+          return;
+        }
+        process.exit(0);
+      });
+    }
   };
 
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  process.on('exit', () => {
+    if (typeof server.shutdownManagedLlamaForProcessExitSync === 'function') {
+      server.shutdownManagedLlamaForProcessExitSync();
+    }
+  });
+  process.on('SIGINT', () => { void shutdown('SIGINT'); });
+  process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
+  process.on('SIGUSR2', () => { void shutdown('SIGUSR2'); });
 }

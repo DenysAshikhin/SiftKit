@@ -1,0 +1,1162 @@
+entities\capital\Capital.gd:248:	var valid_asteroid:bool = is_instance_valid(asteroid_target);
+entities\capital\Capital.gd:253:		if(is_instance_valid(Global.Map_Manager)):
+entities\capital\Capital.gd:258:				if(is_instance_valid(asteroid_target)):
+entities\capital\Capital.gd:610:			#if(is_instance_valid(UNITS_TARGETTING[key])):
+entities\capital\Capital.gd:629:	#if(!is_instance_valid(SHIELD)):
+entities\drone_flat\death_explosion.gd:12:	# - Avoiding `await Global._sleep(...)` here prevents leaked `GDScriptFunctionState`
+entities\drone_flat\death_explosion.gd:19:	cutoff_timer.timeout.connect(_on_cutoff_timeout, CONNECT_ONE_SHOT);
+entities\drone_flat\drone_flat.gd:1109:				and (!is_instance_valid(prev_target) or ("queued_into_pool" in prev_target and prev_target.queued_into_pool))):
+entities\drone_flat\drone_flat.gd:1114:			TARGET_VALID = is_instance_valid(target);
+entities\bosses\scanilus\scanilus.gd:205:		await Global._sleep(spawn_intro_sleep);
+entities\bosses\scanilus\scanilus.gd:251:	await Global._sleep(1);
+entities\bosses\scanilus\scanilus.gd:263:		await Global._sleep(2);
+entities\bosses\scanilus\scanilus.gd:410:		#await Global._sleep(5);
+entities\bosses\scanilus\scanilus.gd:611:		if(!is_instance_valid(linked_allies[key])):
+entities\bosses\scanilus\scanilus.gd:677:				var enemies_to_strip = await Global.combat.getFinalTagetCustom(Supports, team,
+entities\drone_flat\drone_sprite.gd:35:		await Global._sleep(1.5);
+managers\player\Player_Manager.gd:107:	await Global.saver._save_file_loaded();
+managers\player\Player_Manager.gd:110:	if(!(is_instance_valid(CAPITAL))):
+managers\player\Player_Manager.gd:202:					if (is_instance_valid(source.target)):
+managers\player\Player_Manager.gd:228:	#await Global.await_deferred();
+managers\player\Player_Manager.gd:1389:	if(is_instance_valid(CAPITAL)):
+managers\multiplayer\leaderboard.gd:35:		await Global._sleep(0.1);
+managers\map_manager\Map_Manager.gd:352:		await(Global._sleep(0.1));
+managers\map_manager\Map_Manager.gd:354:	await Global.saver._save_file_loaded()
+managers\map_manager\Map_Manager.gd:359:	while(!(is_instance_valid(Player_Manager.CAPITAL))):
+managers\map_manager\Map_Manager.gd:362:		await(Global._sleep(0.1));
+managers\map_manager\Map_Manager.gd:444:	await get_tree().create_timer(0.1).timeout  # Waits 3 seconds
+managers\map_manager\Map_Manager.gd:445:	while(!is_instance_valid(Player_Manager.CAPITAL)):
+managers\map_manager\Map_Manager.gd:448:		await(Global._sleep(0.1));
+managers\map_manager\Map_Manager.gd:452:	while(!is_instance_valid(Player_Manager)):
+managers\map_manager\Map_Manager.gd:455:		await(Global._sleep(0.1));
+managers\map_manager\Map_Manager.gd:456:	while(!is_instance_valid(Player_Manager.CAPITAL)):
+managers\map_manager\Map_Manager.gd:459:		await(Global._sleep(0.1));
+managers\map_manager\Map_Manager.gd:596:	while(!is_instance_valid(Player_Manager.CAPITAL)):
+managers\map_manager\Map_Manager.gd:599:		await(Global._sleep(0.1));
+entities\bosses\necrotilus\necrotilus.gd:203:		await Global._sleep(spawn_intro_sleep);
+entities\bosses\necrotilus\necrotilus.gd:232:		#await Global._sleep(5);
+entities\bosses\necrotilus\necrotilus.gd:243:			target = await Global.combat.getFinalTagetCustom(Drones, 1,
+entities\bosses\necrotilus\necrotilus.gd:258:		TARGET_VALID = is_instance_valid(target);
+entities\bosses\necrotilus\necrotilus.gd:264:			if(is_instance_valid(Global.Player_Manager.CAPITAL) and TEAM != 1):
+tests\integration\unlocks_test_utils.gd:83:		await run_callable.call();
+tests\integration\unlocks_test_utils.gd:86:		await run_callable.call();
+tests\integration\unlocks_test_utils.gd:90:		await run_callable.call();
+tests\integration\unlocks_test_utils.gd:97:	await run_callable.call();
+globals\Steam_Custom.gd:21:	await Global._sleep(10);
+globals\Steam_Custom.gd:44:	Steam.get_ticket_for_web_api.connect(_handle_web_api_ticket_response);
+globals\Steam_Custom.gd:124:	http_request.request_completed.connect(ticket_request_callback.bind(http_request));
+globals\Steam_Custom.gd:211:	#get_tree().connect("idle_frame", methodName, CONNECT_ONE_SHOT)
+globals\Motherships.gd:178:						if(is_instance_valid(Global.player_capital)):
+globals\Motherships.gd:429:		if(is_instance_valid(Global.player_capital)):
+managers\enemy\Enemy_Manager.gd:143:	await Global.saver._save_file_loaded();
+managers\enemy\Enemy_Manager.gd:147:		await(Global._sleep(0.1));
+managers\enemy\Enemy_Manager.gd:212:		await Global._sleep(0.25);
+managers\enemy\Enemy_Manager.gd:307:					if (is_instance_valid(source.target)):
+managers\enemy\Enemy_Manager.gd:331:	#await Global.await_deferred();
+managers\enemy\Enemy_Manager.gd:1512:	if(is_instance_valid(Global.player_capital)):
+managers\enemy\Enemy_Manager.gd:1514:			if(is_instance_valid(laser)):
+managers\enemy\Enemy_Manager.gd:1569:	await Global.saver._save_file_loaded();
+managers\enemy\Enemy_Manager.gd:1570:	while(!is_instance_valid(Global.player_capital)):
+managers\enemy\Enemy_Manager.gd:1573:		await Global._sleep(0.1);
+tests\integration\test_global_trigger_damage_sharing_and_death.gd:150:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_sharing_and_death.gd:166:	var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\test_global_trigger_damage_sharing_and_death.gd:210:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_sharing_and_death.gd:368:	await get_tree().process_frame;
+globals\Player.gd:392:	await Global.saver._save_file_loaded();
+globals\Global.gd:33:@onready var BASES:Bases = await Bases.new();
+globals\Global.gd:35:@onready var CHEATS:Cheats = await Cheats.new();
+globals\Global.gd:36:@onready var ACH:Achievements = await Achievements.new();
+globals\Global.gd:37:@onready var PRESTIGE:Prestige = await Prestige.new();
+globals\Global.gd:38:@onready var JUMP_SETTINGS:Jump_Settings = await Jump_Settings.new();
+globals\Global.gd:39:@onready var AI_CORES:AI_Cores = await AI_Cores.new();
+globals\Global.gd:40:@onready var TUTORIAL:Tutorials = await Tutorials.new();
+globals\Global.gd:274:	await saver._save_file_loaded();
+globals\Global.gd:305:		await _sleep(0.1);
+globals\Global.gd:740:		await _sleep(5);
+globals\Global.gd:755:		await _cleanup_world_for_transition({"flush_cycles": 4, "capitals_to_clear": caps_snapshot});
+globals\Global.gd:759:		# Use a post-await snapshot guard so teardown does not dereference a stale manager reference.
+globals\Global.gd:766:				await cap.tree_exited;
+globals\Global.gd:836:		while(!is_instance_valid(JUMP_Manager)):
+globals\Global.gd:837:			await _sleep(0.1);
+globals\Global.gd:841:		await _sleep(0.25);
+globals\Global.gd:856:	var lb_request = await network.http_request(self, 'get', network.urls.get_lb, { });
+globals\Global.gd:868:	var rankings_request = await network.http_request(self, 'get', network.urls.get_lb_rankings, { });
+globals\Global.gd:1071:		if(is_instance_valid(unit_to_clear.DEFAULT_STATS.linked_support)):
+globals\Global.gd:1080:	if(is_instance_valid(player_capital.SPRITE.material)):
+globals\Global.gd:1081:		if (is_instance_valid(player_capital.SPRITE.material.shader)):
+globals\Global.gd:1083:	await get_tree().create_timer(duration).timeout  # Waits 3 seconds
+globals\Global.gd:1085:	if(!is_instance_valid(player_capital)):
+globals\Global.gd:1097:	if(is_instance_valid(unit.SPRITE.material)):
+globals\Global.gd:1098:		if (is_instance_valid(unit.SPRITE.material.shader)):
+globals\Global.gd:1106:		if(!is_instance_valid(unit)):
+globals\Global.gd:1108:		elif(!is_instance_valid(unit.SPRITE)):
+globals\Global.gd:1110:		elif(!is_instance_valid(unit.SPRITE.material)):
+globals\Global.gd:1127:	#await _sleep(duration + 0.1);
+globals\Global.gd:1167:	# - `await Global._sleep(...)` is used broadly across gameplay/UI scripts.
+globals\Global.gd:1185:	wait_signal.connect(on_wait_done, CONNECT_ONE_SHOT);
+globals\Global.gd:1199:		await tree.process_frame;
+globals\Global.gd:1200:		await tree.physics_frame;
+globals\Global.gd:1244:	await _flush_scene_frames(tree, flush_cycles);
+globals\Global.gd:1272:		if(!is_instance_valid(singleton_node)):
+globals\Global.gd:1364:		var asteroid = await Map_Manager._spawn_asteroid({"asteroid_count": true, "id_increment":  0, "return_asteroid": true});
+globals\Global.gd:1561:		await _sleep(0.01);
+globals\Global.gd:1898:		await _sleep(2.5);
+globals\Global.gd:1907:		await _sleep(0.35);
+globals\Global.gd:1911:		await _sleep(0.35);
+globals\Global.gd:1923:		#await _sleep(2.5);
+globals\Global.gd:1925:		#await _sleep(2.5);
+globals\Global.gd:1962:		#await _sleep(2.5);
+globals\utils\UIUtils.gd:37:	if (!is_instance_valid(grid)):
+globals\Threaded.gd:17:		await Global._sleep(0.1);
+globals\Threaded.gd:19:	await Global.saver._save_file_loaded();
+globals\Threaded.gd:36:	if(!is_instance_valid(enemy_manager) or !is_instance_valid(player_manager)):
+globals\Threaded2.gd:17:		await Global._sleep(0.1);
+globals\Threaded2.gd:19:	await Global.saver._save_file_loaded();
+globals\Threaded2.gd:42:	if(!is_instance_valid(enemy_manager) or !is_instance_valid(player_manager)):
+tests\integration\test_global_trigger_damage_reflection.gd:64:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_reflection.gd:99:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_reflection.gd:100:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_reflection.gd:138:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_reflection.gd:184:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_reflection.gd:185:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_reflection.gd:228:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_reflection.gd:266:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_reflection.gd:307:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_reflection.gd:355:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_reflection.gd:396:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_reflection.gd:447:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_reflection.gd:489:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_reflection.gd:490:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_reflection.gd:527:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_reflection.gd:528:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_reflection.gd:586:	await get_tree().process_frame;
+entities\chain_lightning\chain_lightning.tscn:39:		if(is_instance_valid(origin)):
+entities\chain_lightning\chain_lightning.tscn:46:		if(is_instance_valid(target)):
+globals\utils\NetworkManager.gd:32:	await Global._await_server_authorised()
+globals\utils\NetworkManager.gd:47:	var response = await http_request_new.request_completed
+globals\utils\NetworkManager.gd:56:				await Global._await_server_authorised()
+globals\utils\NetworkManager.gd:59:				response = await http_request_new.request_completed
+tests\integration\test_global_trigger_damage_effects.gd:380:	await Global.TEST_ENV.with_temp_tech_changes(
+globals\utils\CombatUtils.gd:179:		# null + freed references without the per-candidate `is_instance_valid()` call cost.
+globals\utils\CombatUtils.gd:511:	if(!is_instance_valid(unit_killer)):
+globals\utils\CombatUtils.gd:757:	# if(!is_instance_valid(unit_attacking)):
+globals\utils\CombatUtils.gd:778:	# if(!is_instance_valid(target)):
+globals\utils\CombatUtils.gd:2205:	await Engine.get_main_loop().process_frame
+globals\utils\SaveManager.gd:242:		await Global.get_tree().create_timer(0.1, false).timeout
+globals\utils\SaveManager.gd:246:		await Global.get_tree().create_timer(0.1, false).timeout
+globals\utils\SaveManager.gd:259:		await Global.get_tree().create_timer(0.1, false).timeout
+tests\integration\test_global_trigger_damage_basic.gd:54:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_basic.gd:76:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_basic.gd:113:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_basic.gd:133:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_basic.gd:162:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_basic.gd:190:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_basic.gd:217:	await get_tree().process_frame;
+tests\integration\test_global_trigger_damage_basic.gd:247:	await get_tree().process_frame;
+entities\bosses\bastionlus\bastionlus.gd:211:		await Global._sleep(spawn_intro_sleep);
+entities\bosses\bastionlus\bastionlus.gd:251:		#await Global._sleep(5);
+entities\laser\Laser.gd:60:	await Global.saver._save_file_loaded();
+entities\laser\Laser.gd:66:		await Global._sleep(0.05);
+entities\laser\Laser.gd:82:		await Global._sleep(0.1);
+entities\laser\Laser.gd:599:				if (ENEMY_TEAM == 1 && !is_instance_valid(target) and !Global.Game_Over):
+entities\laser\LasE36F.tmp:135:				target = await Global.getFinalTagetCustom(Frigates, ENEMY_TEAM,
+entities\laser\LasE36F.tmp:143:				#if (!is_instance_valid(target) && better_laster_targetting):
+entities\laser\LasE36F.tmp:144:					#target = await Global.getFinalTagetCustom(Frigates, ENEMY_TEAM,
+entities\laser\LasE36F.tmp:151:				target = await Global.getFinalTagetCustom(Frigates, ENEMY_TEAM,
+entities\laser\LasE36F.tmp:154:				if (ENEMY_TEAM == 1 && !is_instance_valid(target)):
+entities\laser\LasE36F.tmp:157:			if(is_instance_valid(target)):
+entities\laser\LasE36F.tmp:168:	elif(!is_instance_valid(target)):
+entities\laser\LasA9D3.tmp:135:				target = await Global.getFinalTagetCustom(Frigates, ENEMY_TEAM,
+entities\laser\LasA9D3.tmp:143:				#if (!is_instance_valid(target) && better_laster_targetting):
+entities\laser\LasA9D3.tmp:144:					#target = await Global.getFinalTagetCustom(Frigates, ENEMY_TEAM,
+entities\laser\LasA9D3.tmp:151:				target = await Global.getFinalTagetCustom(Frigates, ENEMY_TEAM,
+entities\laser\LasA9D3.tmp:154:				if (ENEMY_TEAM == 1 && !is_instance_valid(target)):
+entities\laser\LasA9D3.tmp:157:			if(is_instance_valid(target)):
+entities\laser\LasA9D3.tmp:168:	elif(!is_instance_valid(target)):
+entities\frigate_flat\frigate.gd:742:	#elif (is_instance_valid(CAPITAL)):
+entities\frigate_flat\frigate.gd:925:	#if(!is_instance_valid(SHIELD)):
+entities\laser\Las8F38.tmp:135:				target = await Global.getFinalTagetCustom(Frigates, ENEMY_TEAM,
+entities\laser\Las8F38.tmp:143:				#if (!is_instance_valid(target) && better_laster_targetting):
+entities\laser\Las8F38.tmp:144:					#target = await Global.getFinalTagetCustom(Frigates, ENEMY_TEAM,
+entities\laser\Las8F38.tmp:151:				target = await Global.getFinalTagetCustom(Frigates, ENEMY_TEAM,
+entities\laser\Las8F38.tmp:154:				if (ENEMY_TEAM == 1 && !is_instance_valid(target)):
+entities\laser\Las8F38.tmp:157:			if(is_instance_valid(target)):
+entities\laser\Las8F38.tmp:168:	elif(!is_instance_valid(target)):
+scenes\sfx\sharding\shard_emitter.gd:50:	$DeleteTimer.timeout.connect(_on_DeleteTimer_timeout)
+scenes\sfx\sharding\shard_emitter.gd:56:	#await get_tree().create_timer(1).timeout;
+scenes\sfx\sharding\shard_emitter.gd:72:	await _stagger_timer.timeout;
+scenes\sfx\sharding\shard_emitter.gd:176:			var completed_delay: bool = await _wait_stagger_delay();
+scenes\ui\tech_tree\tech_tree.gd:72:	await Global.saver._save_file_loaded();
+scenes\ui\warp_jump\zone_holder\zone_holder.gd:34:	while(!is_instance_valid(STYLED_PANEL)):
+scenes\ui\warp_jump\zone_holder\zone_holder.gd:35:		await Global._sleep(0.05);
+scenes\sfx\popup_text.gd:33:	if(time_to_live <= elapsed or !(is_instance_valid(source))):
+scenes\sfx\popup_text.gd:42:		#await Global._sleep(0.1);
+scenes\sfx\arc_travel\arc_travel.gd:37:		!is_instance_valid(source)
+scenes\sfx\arc_travel\arc_travel.gd:38:		or (!is_instance_valid(target) and !IGNORE_TARGET_STATE)
+scenes\main_menu\save_selection\generic_save_option.gd:28:				await Global._sleep(0.1);
+scenes\main_menu\save_selection\generic_save_option.gd:32:			await Global.saver._await_cloud_save();
+scenes\ui\achievements\achivements_canvas.gd:135:	if(!is_instance_valid(PERM_RES_BUTTON)):
+scenes\root_game\root_game.gd:55:	if(!is_instance_valid(Enemy_Manager) || Global.Game_Over):
+scenes\root_game\root_game.gd:85:	elif (is_instance_valid(Global.tracked_unit) and !Global.JUMP_ZOOM):
+scenes\main_menu\main_menu.gd:24:	await Global._await_server_authorised();
+scenes\main_menu\main_menu.gd:31:	var online_save = await Global.network.http_request(Global, 'get', Global.network.urls.get_save, { });
+scenes\testing\test_harness.gd:148:		EXPORT_FAILURES_BUTTON.pressed.connect(_on_export_failures_button_pressed);
+scenes\testing\test_harness.gd:170:			await _shutdown_and_quit(1);
+scenes\testing\test_harness.gd:181:	await get_tree().process_frame;
+scenes\testing\test_harness.gd:203:	await get_tree().process_frame;
+scenes\testing\test_harness.gd:214:	var integration_res: Dictionary = await _run_integration_tests();
+scenes\testing\test_harness.gd:252:		await _shutdown_and_quit(exit_code);
+scenes\testing\test_harness.gd:356:	shutdown_watchdog.timeout.connect(_on_shutdown_watchdog_timeout.bind(exit_code), CONNECT_ONE_SHOT);
+scenes\testing\test_harness.gd:372:	await _drain_async_waiters_before_queue_free(tree);
+scenes\testing\test_harness.gd:381:	await _flush_scene_frames(tree, 6);
+scenes\testing\test_harness.gd:400:	# via `SceneTreeTimer`/`await Global._sleep(...)`, and exiting too early leaves those states orphaned.
+scenes\testing\test_harness.gd:401:	await _flush_scene_frames(tree, 420);
+scenes\testing\test_harness.gd:413:	await _drain_async_waiters_before_queue_free(tree, 1.0);
+scenes\testing\test_harness.gd:432:		await tree.create_timer(wait_window, true, false, true).timeout;
+scenes\testing\test_harness.gd:433:	await _flush_scene_frames(tree, 12);
+scenes\testing\test_harness.gd:561:		if(!is_instance_valid(value)):
+scenes\testing\test_harness.gd:667:		await tree.process_frame;
+scenes\testing\test_harness.gd:671:			await tree.physics_frame;
+scenes\testing\test_harness.gd:725:	var res: Dictionary = await runner.run_all({"reporter": self, "suite_filter": _suite_filter, "test_filter": _test_filter});
+scenes\root_game\CanvasLayer.gd:76:		if(!is_instance_valid(ui_node)):
+scenes\root_game\CanvasLayer.gd:175:		await Global._sleep(0.1);
+scenes\root_game\CanvasLayer.gd:180:	await Global._sleep(0.25);
+scenes\root_game\CanvasLayer.gd:432:		#if (!is_instance_valid(POPUP_CANVAS.get_parent())):
+scenes\root_game\CanvasLayer.gd:501:	#if (!is_instance_valid(POPUP_CANVAS.get_parent())):
+scenes\ui\warp_jump\resupply_stuff\res_selector\res_selector.gd:14:	await Global.saver._save_file_loaded();
+scenes\loading_screen\loading_screen.gd:105:		await Global._sleep(0.25);
+scenes\ui\tech_tree\tech_item\tech_item_info.gd:206:	if(is_instance_valid(PIN_BUTTON)):
+scenes\ui\info\root_selector\root_selector.gd:28:	if(!is_instance_valid(LABEL)):
+scenes\ui\hangar\hangar_canvas.gd:63:		await Global._sleep(0.05);
+scenes\ui\info\info_canvas.gd:41:	await Global.saver._save_file_loaded();
+scenes\ui\info\info_canvas.gd:42:	await Global._sleep(0.25);
+scenes\ui\hangar\generic_inventory_slot.gd:36:	if(is_instance_valid(SOURCE)):
+scenes\ui\hangar\generic_inventory_slot.gd:51:			if(is_instance_valid(helper_container)):
+scenes\ui\hangar\generic_inventory_slot.gd:86:			if(is_instance_valid(helper_container)):
+scenes\ui\hangar\targetting\generic_target_priority.gd:29:	await Global.saver._save_file_loaded();
+scenes\ui\hangar\targetting\generic_target_priority.gd:115:	if(!is_instance_valid(targeting_new)):
+scenes\ui\root_ui\buffs.gd:30:	await Global._await_save_file();
+scenes\ui\root_ui\buffs.gd:248:	if(!is_instance_valid(LOCKED_OVERLAY)):
+scenes\ui\root_ui\jump_drive.gd:185:	await Global.saver._save_file_loaded();
+scenes\ui\root_ui\jump_drive.gd:205:	while (!is_instance_valid(Global.Player_Manager.CAPITAL)):
+scenes\ui\root_ui\jump_drive.gd:206:		await Global._sleep(0.05);
+scenes\ui\root_ui\jump_drive.gd:214:	while(!is_instance_valid(Global.Enemy_Manager)):
+scenes\ui\root_ui\jump_drive.gd:215:		await (Global._sleep(0.05));
+scenes\ui\root_ui\jump_drive.gd:218:		await (Global._sleep(0.05));
+scenes\ui\root_ui\jump_drive.gd:261:			await Global._sleep(0.1);
+scenes\ui\root_ui\jump_drive.gd:419:	if(!is_instance_valid(CAPITAL)):
+scenes\ui\root_ui\jump_drive.gd:448:	await Global._sleep(0.2 / Constants.GLOBAL_STATS[Constants.GLOBAL_STAT_KEY.mothership_warp_speedup]);
+scenes\ui\root_ui\jump_drive.gd:449:	if(!is_instance_valid(CAPITAL)):
+scenes\ui\root_ui\jump_drive.gd:455:	await Global._sleep(1.0 / Constants.GLOBAL_STATS[Constants.GLOBAL_STAT_KEY.mothership_warp_speedup]);
+scenes\ui\root_ui\jump_drive.gd:456:	if(!is_instance_valid(CAPITAL)):
+scenes\ui\root_ui\jump_drive.gd:463:	await Global._sleep(2.0 / Constants.GLOBAL_STATS[Constants.GLOBAL_STAT_KEY.mothership_warp_speedup]);
+scenes\ui\root_ui\jump_drive.gd:464:	if(!is_instance_valid(CAPITAL)):
+scenes\ui\root_ui\jump_drive.gd:472:	await Global._sleep(0.5 / Constants.GLOBAL_STATS[Constants.GLOBAL_STAT_KEY.mothership_warp_speedup]);
+scenes\ui\root_ui\jump_drive.gd:473:	if(!is_instance_valid(CAPITAL)):
+scenes\ui\root_ui\jump_drive.gd:481:	var caps_to_clear: Array = [CAPITAL] if is_instance_valid(CAPITAL) else [];
+scenes\ui\root_ui\jump_drive.gd:482:	await Global._cleanup_world_for_transition({"flush_cycles": 3, "capitals_to_clear": caps_to_clear});
+scenes\ui\root_ui\jump_drive.gd:484:	await Global._sleep(0.5 / Constants.GLOBAL_STATS[Constants.GLOBAL_STAT_KEY.mothership_warp_speedup]);
+scenes\ui\root_ui\jump_drive.gd:485:	if(!is_instance_valid(CAPITAL)):
+scenes\ui\root_ui\jump_drive.gd:505:	await Global._sleep(1.0 / Constants.GLOBAL_STATS[Constants.GLOBAL_STAT_KEY.mothership_warp_speedup]);
+scenes\ui\root_ui\jump_drive.gd:506:	if(!is_instance_valid(CAPITAL)):
+scenes\ui\root_ui\jump_drive.gd:514:	await Global._sleep(1.2 / Constants.GLOBAL_STATS[Constants.GLOBAL_STAT_KEY.mothership_warp_speedup]);
+scenes\ui\root_ui\jump_drive.gd:515:	if(!is_instance_valid(CAPITAL)):
+scenes\ui\root_ui\jump_drive.gd:525:	await Global._sleep(remaining_hide_delay_base / Constants.GLOBAL_STATS[Constants.GLOBAL_STAT_KEY.mothership_warp_speedup]);
+scenes\ui\root_ui\jump_drive.gd:526:	if(!is_instance_valid(CAPITAL)):
+scenes\ui\root_ui\jump_drive.gd:614:	if(is_instance_valid(SELECTED_ZONE)):
+scenes\ui\root_ui\jump_drive.gd:856:	if(!is_instance_valid(CAPITAL)):
+scenes\ui\root_ui\jump_drive.gd:881:	await Global._sleep(0.2 / Constants.GLOBAL_STATS[Constants.GLOBAL_STAT_KEY.mothership_warp_speedup]);
+scenes\ui\root_ui\jump_drive.gd:882:	if(!is_instance_valid(CAPITAL)):
+scenes\ui\root_ui\jump_drive.gd:888:	await Global._sleep(1.0 / Constants.GLOBAL_STATS[Constants.GLOBAL_STAT_KEY.mothership_warp_speedup]);
+scenes\ui\root_ui\jump_drive.gd:889:	if(!is_instance_valid(CAPITAL)):
+scenes\ui\root_ui\jump_drive.gd:896:	await Global._sleep(2.0 / Constants.GLOBAL_STATS[Constants.GLOBAL_STAT_KEY.mothership_warp_speedup]);
+scenes\ui\root_ui\jump_drive.gd:897:	if(!is_instance_valid(CAPITAL)):
+scenes\ui\root_ui\jump_drive.gd:901:	if(!is_instance_valid(CAPITAL)):
+scenes\ui\root_ui\jump_drive.gd:906:	await Global._sleep(0.5 / Constants.GLOBAL_STATS[Constants.GLOBAL_STAT_KEY.mothership_warp_speedup]);
+scenes\ui\root_ui\jump_drive.gd:907:	if(!is_instance_valid(CAPITAL)):
+scenes\ui\root_ui\jump_drive.gd:914:	var caps_to_clear: Array = [CAPITAL] if is_instance_valid(CAPITAL) else [];
+scenes\ui\root_ui\jump_drive.gd:915:	await Global._cleanup_world_for_transition({"flush_cycles": 3, "capitals_to_clear": caps_to_clear});
+scenes\ui\root_ui\jump_drive.gd:916:	await Global._sleep(0.5 / Constants.GLOBAL_STATS[Constants.GLOBAL_STAT_KEY.mothership_warp_speedup]);
+scenes\ui\root_ui\jump_drive.gd:917:	if(!is_instance_valid(CAPITAL)):
+scenes\ui\root_ui\jump_drive.gd:926:	await Global._sleep(1.0 / Constants.GLOBAL_STATS[Constants.GLOBAL_STAT_KEY.mothership_warp_speedup]);
+scenes\ui\root_ui\jump_drive.gd:927:	if(!is_instance_valid(CAPITAL)):
+scenes\ui\root_ui\jump_drive.gd:935:	await Global._sleep(1.2 / Constants.GLOBAL_STATS[Constants.GLOBAL_STAT_KEY.mothership_warp_speedup]);
+scenes\ui\root_ui\jump_drive.gd:936:	if(!is_instance_valid(CAPITAL)):
+scenes\ui\root_ui\jump_drive.gd:946:	await Global._sleep(remaining_hide_delay_base / Constants.GLOBAL_STATS[Constants.GLOBAL_STAT_KEY.mothership_warp_speedup]);
+scenes\ui\root_ui\jump_drive.gd:947:	if(!is_instance_valid(CAPITAL)):
+scenes\ui\root_ui\jump_drive.gd:962:	await Global._sleep(1.0);
+scenes\ui\root_ui\jump_drive.gd:986:	if(!is_instance_valid(ZONE_OPTIONS)):
+scenes\ui\root_ui\jump_drive.gd:1042:		if(is_instance_valid(orb)):
+scenes\ui\root_ui\jump_drive.gd:1072:		await Global._sleep(spawn_cd);
+scenes\ui\root_ui\jump_drive.gd:1140:			await Global._sleep(1.0);
+scenes\ui\root_ui\jump_drive.gd:1194:			await Global._sleep(1.1);
+scenes\ui\root_ui\jump_drive.gd:1372:					await Global._sleep(0.05);
+scenes\ui\root_ui\jump_drive.gd:1381:	if(is_instance_valid(current_ressuply)):
+scenes\ui\root_ui\jump_drive.gd:1515:	if (!is_instance_valid(ZONE_OPTIONS_LIST)):
+scenes\ui\root_ui\jump_drive.gd:1685:		await Global._sleep(0.2);
+scenes\ui\tech_tree\pinned_tech\pinned_research_canvas.gd:24:	await Global.saver._save_file_loaded();
+scenes\ui\tech_tree\pinned_tech\pinned_research_canvas.gd:105:	if (!is_instance_valid(BASE_PANEL)):
+scenes\ui\tech_tree\pinned_tech\pinned_research_canvas.gd:130:	#below await is just to let it populate before updating size
+scenes\ui\tech_tree\pinned_tech\pinned_research_canvas.gd:131:	await Global._sleep(0.25);
+scenes\ui\settings\setting_canvas.gd:90:	if(prev_settings != null and prev_settings != self and prev_settings is Node and is_instance_valid(prev_settings)):
+scenes\ui\settings\setting_canvas.gd:93:	await Global.saver._save_file_loaded();
+scenes\ui\settings\setting_canvas.gd:186:	await Global._sleep(1.0);
+scenes\ui\homebase\homebase_canvas.gd:62:	await Global.saver._save_file_loaded();
+scenes\ui\homebase\homebase_canvas.gd:284:	if(!is_instance_valid(ALLOY_BUTTON)):
+scenes\ui\tech_tree\evolution\evolve_upgrade\generic_evolve_upgrade.gd:38:	if(is_instance_valid(TITLE) == false):
+scenes\ui\tech_tree\evolution\evolution_scene.gd:17:	await Global.saver._save_file_loaded();
+scenes\ui\boss_ui\generic_boss_reward.gd:59:	#if(reward_list.size() < 1 or !is_instance_valid(ITEM_GRID)):
+tests\integration\test_drone_shield_hit.gd:66:	var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\test_drone_shield_hit.gd:94:	await Global.TEST_ENV.wait_one_frame();
+tests\integration\test_drone_shield_hit.gd:100:	await Global.TEST_ENV.wait_one_frame();
+tests\integration\test_drone_shield_hit.gd:123:	var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\test_drone_shield_hit.gd:144:	await Global.TEST_ENV.wait_one_frame();
+tests\integration\test_drone_shield_hit.gd:148:	await Global.TEST_ENV.wait_one_frame();
+tests\integration\test_drone_shield_hit.gd:162:	var drone = await Global.TEST_ENV.spawn_player_drone(1)
+tests\integration\test_drone_shield_hit.gd:186:	await Global.TEST_ENV.wait_one_frame()
+tests\integration\test_drone_shield_hit.gd:191:	await Global.TEST_ENV.wait_one_frame()
+scenes\ui\research\upgrade_limit_increase.gd:12:	CONFIRM_BUTTON.find_child("TextureButton").pressed.connect(SOURCE._increase_active_research.bind());
+scenes\ui\warp_jump\resupply_stuff\res_item\ressuply_item.gd:11:	await Global.saver._save_file_loaded();
+scenes\ui\warp_jump\resupply_stuff\res_item\ressuply_item.gd:23:		if(is_instance_valid(PARENT)):
+scenes\ui\warp_jump\resupply_stuff\res_grid\res_grid.gd:11:	await Global.saver._save_file_loaded();
+scenes\ui\warp_jump\resupply_stuff\res_grid\res_grid.gd:43:	if(!is_instance_valid(GRID)):
+scenes\ui\boss_ui\boss_canvas.gd:76:	var rewards_populated:bool = is_instance_valid(open_boss_reward);
+scenes\ui\boss_ui\boss_canvas.gd:153:				var rewards = await Global._generate_loot(Global.Enemy_Manager.bosses[key]);
+scenes\ui\boss_ui\boss_canvas.gd:219:	if (is_instance_valid(open_boss_reward)):
+tests\integration\managers\test_enemy_min_drone_spawn_floor.gd:66:	await get_tree().process_frame;
+tests\integration\managers\test_enemy_min_drone_spawn_floor.gd:72:	await get_tree().process_frame;
+tests\integration\managers\test_enemy_min_drone_spawn_floor.gd:73:	await get_tree().process_frame;
+tests\integration\managers\test_enemy_min_drone_spawn_floor.gd:88:	var counts: Dictionary = await _run_spawn_tick(manager, map_manager, 5, false);
+tests\integration\managers\test_enemy_min_drone_spawn_floor.gd:91:	await get_tree().process_frame;
+tests\integration\managers\test_enemy_min_drone_spawn_floor.gd:104:	var counts: Dictionary = await _run_spawn_tick(manager, map_manager, 10, false);
+tests\integration\managers\test_enemy_min_drone_spawn_floor.gd:107:	await get_tree().process_frame;
+tests\integration\managers\test_enemy_min_drone_spawn_floor.gd:120:	var counts: Dictionary = await _run_spawn_tick(manager, map_manager, 5, true);
+tests\integration\managers\test_enemy_min_drone_spawn_floor.gd:123:	await get_tree().process_frame;
+tests\integration\managers\test_enemy_min_drone_spawn_floor.gd:136:	var counts: Dictionary = await _run_spawn_tick(manager, map_manager, 1, false);
+tests\integration\managers\test_enemy_min_drone_spawn_floor.gd:139:	await get_tree().process_frame;
+scenes\ui\warp_jump\jump_settings\jump_priority_generic\generic_jump_priority.gd:54:	while(!is_instance_valid(NUM_CORRUPT)):
+scenes\ui\warp_jump\jump_settings\jump_priority_generic\generic_jump_priority.gd:55:		await Global._sleep(0.05);
+tests\integration\managers\test_manager_reset_stale_refs.gd:55:	await get_tree().process_frame;
+tests\integration\managers\test_manager_reset_stale_refs.gd:59:	await get_tree().process_frame;
+tests\integration\managers\test_manager_reset_stale_refs.gd:73:	var capital = await Global.TEST_ENV.spawn_player_capital({});
+tests\integration\managers\test_manager_reset_stale_refs.gd:74:	var enemy = await Global.TEST_ENV.spawn_enemy_drone(1);
+tests\integration\managers\test_manager_reset_stale_refs.gd:81:		await get_tree().process_frame;
+tests\integration\managers\test_manager_reset_stale_refs.gd:91:	await get_tree().process_frame;
+tests\integration\managers\test_manager_reset_stale_refs.gd:105:	await get_tree().process_frame;
+tests\integration\managers\test_manager_reset_stale_refs.gd:134:	await get_tree().process_frame;
+tests\integration\managers\test_manager_reset_stale_refs.gd:159:	await get_tree().process_frame;
+tests\integration\managers\test_manager_reset_stale_refs.gd:197:	await get_tree().process_frame;
+tests\integration\managers\test_manager_reset_stale_refs.gd:218:	await get_tree().process_frame;
+scenes\ui\research\research_progress\researh_progress.gd:337:		await Global._sleep(orb_delay);
+scenes\ui\research\research_progress\researh_progress.gd:338:	#needed because due to await above visual may be freed
+scenes\ui\research\research_progress\researh_progress.gd:339:	if(is_instance_valid(options_map[option.key])):
+scenes\ui\research\research_progress\researh_progress.gd:343:	if (!is_instance_valid(option)):
+scenes\ui\research\research_progress\researh_progress.gd:358:		if(is_instance_valid(orb)):
+scenes\ui\research\research_progress\researh_progress.gd:390:	if(!is_instance_valid(REPEAT_ICON)):
+scenes\ui\root_ui\camera_control\camera_control.gd:46:		if(is_instance_valid(Global.tracked_unit)):
+scenes\ui\root_ui\camera_control\camera_control.gd:153:		if(is_instance_valid(SELECTED_ROW)):
+scenes\ui\root_ui\camera_control\camera_control.gd:155:		if(is_instance_valid(UNIT_STATS)):
+scenes\ui\root_ui\camera_control\camera_control.gd:161:	if(is_instance_valid(Global.tracked_unit)):
+scenes\ui\root_ui\camera_control\camera_control.gd:165:	if(is_instance_valid(SELECTED_ROW)):
+scenes\ui\root_ui\camera_control\camera_control.gd:167:	if(is_instance_valid(UNIT_STATS)):
+tests\integration\tech_options\unlocks\spec_parity\test_spec_parity.gd:20:	await legacy_test_codex_unlock_specs_match_unlock_definitions(ctx);
+scenes\ui\upgrades\upgrade_table\upgrade_table.gd:51:	await Global.saver._save_file_loaded();
+scenes\ui\upgrades\upgrade_table\upgrade_table.gd:53:		await Global._sleep(0.05);
+scenes\ui\upgrades\upgrade_table\upgrade_table.gd:69:			await Global._sleep(0.05);
+scenes\ui\upgrades\upgrade_table\upgrade_table.gd:104:					while(!is_instance_valid(upgrade_mapping[SOURCE_KEY][subkey][item])):
+scenes\ui\upgrades\upgrade_table\upgrade_table.gd:105:						await Global._sleep(0.1);
+scenes\ui\research\research_canvas.gd:29:	await Global.saver._save_file_loaded();
+scenes\ui\research\research_canvas.gd:136:	if(!is_instance_valid(BODY_CONTAINER)):
+tests\integration\interactions\support_flat\test_support_target_registry_churn_and_enemy_pool_pressure.gd:41:	var support = await Global.TEST_ENV.spawn_player_support();
+tests\integration\interactions\support_flat\test_support_target_registry_churn_and_enemy_pool_pressure.gd:42:	var ally_a = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\interactions\support_flat\test_support_target_registry_churn_and_enemy_pool_pressure.gd:43:	var ally_b = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\interactions\support_flat\test_support_target_registry_churn_and_enemy_pool_pressure.gd:49:		await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_target_registry_churn_and_enemy_pool_pressure.gd:62:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_target_registry_churn_and_enemy_pool_pressure.gd:73:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_target_registry_churn_and_enemy_pool_pressure.gd:99:		var enemy_support = await Global.TEST_ENV.spawn_enemy_support();
+tests\integration\interactions\support_flat\test_support_target_registry_churn_and_enemy_pool_pressure.gd:113:		await RuntimeUtils.wait_frames(self, 1);
+scenes\ui\upgrades\upgrade_canvas.gd:44:	await Global.saver._save_file_loaded();
+scenes\ui\upgrades\upgrade_canvas.gd:233:	if(!is_instance_valid(auto_buy_logic)):
+tests\integration\interactions\support_flat\test_support_multi_support_overlap_and_callback_fanout.gd:53:	var support_a = await Global.TEST_ENV.spawn_player_support();
+tests\integration\interactions\support_flat\test_support_multi_support_overlap_and_callback_fanout.gd:54:	var support_b = await Global.TEST_ENV.spawn_player_support();
+tests\integration\interactions\support_flat\test_support_multi_support_overlap_and_callback_fanout.gd:55:	var ally_shared = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\interactions\support_flat\test_support_multi_support_overlap_and_callback_fanout.gd:56:	var ally_a = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\interactions\support_flat\test_support_multi_support_overlap_and_callback_fanout.gd:57:	var ally_b = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\interactions\support_flat\test_support_multi_support_overlap_and_callback_fanout.gd:69:		await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_multi_support_overlap_and_callback_fanout.gd:100:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_multi_support_overlap_and_callback_fanout.gd:130:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_multi_support_overlap_and_callback_fanout.gd:183:	await get_tree().process_frame;
+tests\integration\interactions\support_flat\test_support_mixed_class_scaling_and_relink_races.gd:30:	await Global.TEST_ENV.with_temp_tech_changes(
+tests\integration\interactions\support_flat\test_support_mixed_class_scaling_and_relink_races.gd:35:			var support = await Global.TEST_ENV.spawn_player_support();
+tests\integration\interactions\support_flat\test_support_mixed_class_scaling_and_relink_races.gd:36:			var drone_ally = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\interactions\support_flat\test_support_mixed_class_scaling_and_relink_races.gd:37:			var frigate_ally = await Global.TEST_ENV.spawn_player_frigate(1);
+tests\integration\interactions\support_flat\test_support_mixed_class_scaling_and_relink_races.gd:38:			var support_ally = await Global.TEST_ENV.spawn_player_support();
+tests\integration\interactions\support_flat\test_support_mixed_class_scaling_and_relink_races.gd:74:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_mixed_class_scaling_and_relink_races.gd:88:	await Global.TEST_ENV.with_temp_tech_changes(
+tests\integration\interactions\support_flat\test_support_mixed_class_scaling_and_relink_races.gd:93:			var support = await Global.TEST_ENV.spawn_player_support();
+tests\integration\interactions\support_flat\test_support_mixed_class_scaling_and_relink_races.gd:94:			var dead_ally = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\interactions\support_flat\test_support_mixed_class_scaling_and_relink_races.gd:95:			var next_ally = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\interactions\support_flat\test_support_mixed_class_scaling_and_relink_races.gd:106:			await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_mixed_class_scaling_and_relink_races.gd:118:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\tech_options\unlocks\persistence\test_persistence_smoke.gd:20:	await legacy_test_unlocks_save_load_round_trip_restores_selection_overcharge_and_stats(ctx);
+tests\integration\interactions\support_flat\test_support_cross_manager_cleanup_and_threaded_backlog.gd:45:	var p_support = await Global.TEST_ENV.spawn_player_support();
+tests\integration\interactions\support_flat\test_support_cross_manager_cleanup_and_threaded_backlog.gd:46:	var p_drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\interactions\support_flat\test_support_cross_manager_cleanup_and_threaded_backlog.gd:47:	var e_support = await Global.TEST_ENV.spawn_enemy_support();
+tests\integration\interactions\support_flat\test_support_cross_manager_cleanup_and_threaded_backlog.gd:48:	var e_drone = await Global.TEST_ENV.spawn_enemy_drone(1);
+tests\integration\interactions\support_flat\test_support_cross_manager_cleanup_and_threaded_backlog.gd:55:		await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_cross_manager_cleanup_and_threaded_backlog.gd:71:	await RuntimeUtils.wait_frames(self, 2);
+tests\integration\interactions\support_flat\test_support_cross_manager_cleanup_and_threaded_backlog.gd:91:	var support = await Global.TEST_ENV.spawn_player_support();
+tests\integration\interactions\support_flat\test_support_cross_manager_cleanup_and_threaded_backlog.gd:92:	var ally_a = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\interactions\support_flat\test_support_cross_manager_cleanup_and_threaded_backlog.gd:93:	var ally_b = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\interactions\support_flat\test_support_cross_manager_cleanup_and_threaded_backlog.gd:94:	var enemy = await Global.TEST_ENV.spawn_enemy_drone(1);
+tests\integration\interactions\support_flat\test_support_cross_manager_cleanup_and_threaded_backlog.gd:101:		await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_cross_manager_cleanup_and_threaded_backlog.gd:127:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_cross_manager_cleanup_and_threaded_backlog.gd:146:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\tech_options\unlocks\persistence\test_persistence_all.gd:20:	await legacy_test_unlocks_save_load_round_trip_restores_all_codex_techs(ctx);
+tests\integration\interactions\support_flat\test_support_capital_feedback_and_cooldown_resume.gd:32:	var support = await Global.TEST_ENV.spawn_player_support();
+tests\integration\interactions\support_flat\test_support_capital_feedback_and_cooldown_resume.gd:34:	var enemy = await Global.TEST_ENV.spawn_enemy_drone(1);
+tests\integration\interactions\support_flat\test_support_capital_feedback_and_cooldown_resume.gd:39:		await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_capital_feedback_and_cooldown_resume.gd:51:	await Global.TEST_ENV.with_temp_tech_changes(
+tests\integration\interactions\support_flat\test_support_capital_feedback_and_cooldown_resume.gd:75:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_capital_feedback_and_cooldown_resume.gd:89:	var support = await Global.TEST_ENV.spawn_player_support();
+tests\integration\interactions\support_flat\test_support_capital_feedback_and_cooldown_resume.gd:106:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_capital_feedback_and_cooldown_resume.gd:109:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_capital_feedback_and_cooldown_resume.gd:123:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_capital_feedback_and_cooldown_resume.gd:137:	var support = await Global.TEST_ENV.spawn_player_support();
+tests\integration\interactions\support_flat\test_support_capital_feedback_and_cooldown_resume.gd:138:	var enemy = await Global.TEST_ENV.spawn_enemy_drone(1);
+tests\integration\interactions\support_flat\test_support_capital_feedback_and_cooldown_resume.gd:143:		await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_capital_feedback_and_cooldown_resume.gd:185:	await RuntimeUtils.wait_frames(self, 1);
+scenes\ui\upgrades\stat_table\stat_table.gd:14:	await Global.saver._save_file_loaded();
+scenes\ui\upgrades\stat_table\stat_table.gd:16:		await Global._sleep(0.05);
+tests\integration\interactions\support_flat\test_support_boss_handoff_radius_precision_and_long_soak.gd:47:	boss = await Global.TEST_ENV.spawn_enemy_boss(boss_id, {}, 2);
+tests\integration\interactions\support_flat\test_support_boss_handoff_radius_precision_and_long_soak.gd:56:	var support_a = await Global.TEST_ENV.spawn_enemy_support();
+tests\integration\interactions\support_flat\test_support_boss_handoff_radius_precision_and_long_soak.gd:61:		await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_boss_handoff_radius_precision_and_long_soak.gd:69:	var support_b = await Global.TEST_ENV.spawn_enemy_support();
+tests\integration\interactions\support_flat\test_support_boss_handoff_radius_precision_and_long_soak.gd:84:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_boss_handoff_radius_precision_and_long_soak.gd:98:	var support = await Global.TEST_ENV.spawn_player_support();
+tests\integration\interactions\support_flat\test_support_boss_handoff_radius_precision_and_long_soak.gd:99:	var enemy_near = await Global.TEST_ENV.spawn_enemy_drone(1);
+tests\integration\interactions\support_flat\test_support_boss_handoff_radius_precision_and_long_soak.gd:100:	var enemy_far = await Global.TEST_ENV.spawn_enemy_drone(1);
+tests\integration\interactions\support_flat\test_support_boss_handoff_radius_precision_and_long_soak.gd:106:		await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_boss_handoff_radius_precision_and_long_soak.gd:150:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_boss_handoff_radius_precision_and_long_soak.gd:191:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_boss_handoff_radius_precision_and_long_soak.gd:200:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_boss_handoff_radius_precision_and_long_soak.gd:220:		var support = await Global.TEST_ENV.spawn_player_support();
+tests\integration\interactions\support_flat\test_support_boss_handoff_radius_precision_and_long_soak.gd:221:		var ally = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\interactions\support_flat\test_support_boss_handoff_radius_precision_and_long_soak.gd:222:		var enemy = await Global.TEST_ENV.spawn_enemy_drone(1);
+tests\integration\interactions\support_flat\test_support_boss_handoff_radius_precision_and_long_soak.gd:240:		await RuntimeUtils.wait_frames(self, 1);
+tests\integration\interactions\support_flat\test_support_boss_handoff_radius_precision_and_long_soak.gd:242:	await RuntimeUtils.wait_frames(self, 2);
+scenes\ui\upgrades\generic_upgrade_row.gd:233:	if (!is_instance_valid(STAT_LINE) or !is_instance_valid(REPEAT_ICON)):
+scenes\ui\research\new_research_container\upgrade_options_tab.gd:13:	await Global._await_save_file();
+scenes\ui\research\new_research_container\upgrade_options_tab.gd:14:	while(!is_instance_valid(PARENT)):
+scenes\ui\research\new_research_container\upgrade_options_tab.gd:15:		await Global._sleep(0.05);
+scenes\ui\research\new_research_container\upgrade_options_tab.gd:34:	if(!is_instance_valid(GRIDCONTAINER) or SOURCE == null):
+tests\integration\entities\test_frigate_runtime.gd:113:	var frig = await Global.TEST_ENV.spawn_player_frigate(1);
+tests\integration\entities\test_frigate_runtime.gd:129:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\test_frigate_runtime.gd:139:	var frig = await Global.TEST_ENV.spawn_player_frigate(1);
+tests\integration\entities\test_frigate_runtime.gd:163:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\test_frigate_runtime.gd:172:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\test_frigate_runtime.gd:181:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\test_frigate_runtime.gd:190:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\test_frigate_runtime.gd:198:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\test_frigate_runtime.gd:208:	var frig = await Global.TEST_ENV.spawn_player_frigate(1);
+tests\integration\entities\test_frigate_runtime.gd:237:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\test_frigate_runtime.gd:247:	var frig = await Global.TEST_ENV.spawn_player_frigate(1);
+tests\integration\entities\test_frigate_runtime.gd:262:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\tech_options\support_techs\targeting\test_targeting.gd:25:	await legacy_test_support_targetting_num_1_options_apply_on_acquire_and_on_death(ctx);
+tests\integration\tech_options\support_techs\targeting\test_targeting.gd:29:	await legacy_test_support_targetting_2_options_apply_distance_and_missing_hp_scaling(ctx);
+tests\integration\tech_options\support_techs\targeting\test_targeting.gd:33:	await legacy_test_support_targetting_num_2_options_apply_secondary_drip_threat_beacon_and_distance_leash(ctx);
+tests\integration\tech_options\support_techs\targeting\test_targeting.gd:37:	await legacy_test_support_s_targetting_num_3_options_apply_shield_break_override_uncrowded_routing_and_priority_echo(ctx);
+tests\integration\tech_options\support_techs\targeting\test_targeting.gd:41:	await legacy_test_support_targetting_3_options_apply_frigate_symbiosis_buddy_and_commitment(ctx);
+tests\integration\tech_options\support_techs\targeting\test_targeting.gd:45:	await legacy_test_support_targetting_4_options_apply_velocity_proximity_and_death_chain(ctx);
+tests\integration\entities\test_capital_runtime.gd:125:	var capital = await Global.TEST_ENV.spawn_player_capital({});
+tests\integration\entities\test_capital_runtime.gd:145:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\test_capital_runtime.gd:155:	var capital = await Global.TEST_ENV.spawn_player_capital({});
+tests\integration\entities\test_capital_runtime.gd:167:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\test_capital_runtime.gd:177:	var capital = await Global.TEST_ENV.spawn_player_capital({});
+tests\integration\entities\test_capital_runtime.gd:206:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\test_capital_runtime.gd:216:	var capital = await Global.TEST_ENV.spawn_player_capital({});
+tests\integration\entities\test_capital_runtime.gd:241:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\test_capital_runtime.gd:249:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\test_capital_runtime.gd:256:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\test_capital_runtime.gd:267:	var capital = await Global.TEST_ENV.spawn_player_capital({});
+tests\integration\entities\test_capital_runtime.gd:291:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\test_capital_runtime.gd:299:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\test_capital_runtime.gd:306:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\test_capital_runtime.gd:317:	var capital = await Global.TEST_ENV.spawn_player_capital({});
+tests\integration\entities\test_capital_runtime.gd:335:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\test_capital_runtime.gd:345:	var capital = await Global.TEST_ENV.spawn_player_capital({});
+tests\integration\entities\test_capital_runtime.gd:364:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\test_capital_runtime.gd:374:	var capital = await Global.TEST_ENV.spawn_player_capital({});
+tests\integration\entities\test_capital_runtime.gd:390:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\test_capital_runtime.gd:400:	var capital = await Global.TEST_ENV.spawn_player_capital({});
+tests\integration\entities\test_capital_runtime.gd:412:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\test_capital_runtime.gd:422:		await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\test_capital_runtime.gd:437:	await RuntimeUtils.wait_frames(self, 1);
+scenes\ui\research\new_research_container\new_research_container.gd:59:	await Global.saver._save_file_loaded();
+scenes\ui\research\new_research_container\new_research_container.gd:88:	if(!is_instance_valid(TAB_CONTAINER)):
+scenes\ui\shared\generic_selector\generic_selector.gd:99:	await Global._sleep(0.25);
+tests\integration\tech_options\support_techs\shop_shields\test_shop_shields.gd:30:	await legacy_test_support_shop_shield_health_grant_options_apply_deep_reservoir_mesh_pulse_and_emergency_surges(ctx);
+tests\integration\tech_options\support_techs\shop_shields\test_shop_shields.gd:34:	await legacy_test_support_shop_shield_regen_grant_options_apply_ramp_stabilize_and_incoming_threshold(ctx);
+tests\integration\tech_options\support_techs\shop_shields\test_shop_shields.gd:38:	await legacy_test_support_shop_shield_health_options_apply_oath_relay_and_screenrunner(ctx);
+tests\integration\tech_options\support_techs\shop_shields\test_shop_shields.gd:42:	await legacy_test_support_shop_shield_regen_options_apply_disengage_feedback_and_overcharge_vent(ctx);
+tests\integration\tech_options\support_techs\shop_shields\test_shop_shields.gd:46:	await legacy_test_support_shop_linked_ally_options_apply_escort_contracted_and_death_handoff(ctx);
+tests\integration\tech_options\support_techs\shop_shields\test_shop_shields.gd:50:	await legacy_test_support_shop_shield_health_grant_options_apply_deep_reservoir_mesh_and_emergency_surge(ctx);
+tests\integration\tech_options\support_techs\shop_shields\test_shop_shields.gd:54:	await legacy_test_support_shop_shield_regen_grant_options_apply_deficit_ramp_stabilized_and_harmonic_threshold(ctx);
+tests\integration\tech_options\support_techs\shop_shields\test_shop_shields.gd:58:	await legacy_test_support_shop_shield_health_multiplier_options_apply_overflow_conversion_and_fortified_intake(ctx);
+tests\integration\tech_options\support_techs\shop_shields\test_shop_shields.gd:62:	await legacy_test_support_shop_shield_regen_multiplier_options_apply_full_charge_anchor_and_emergency_reroute(ctx);
+tests\integration\tech_options\support_techs\shop_shields\test_shop_shields.gd:66:	await legacy_test_support_shop_shield_break_and_full_shield_update_paths_trigger_sos_and_overcharge_vent(ctx);
+tests\integration\tech_options\support_techs\shop_shields\test_shop_shields.gd:70:	await legacy_test_support_shop_shield_regen_timer_channels_stack_and_decay_independently(ctx);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:116:	var restore_fn_base = await Global.TEST_ENV.with_temp_tech_changes([
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:119:	var drone_base = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:129:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:134:	var restore_fn_dmg = await Global.TEST_ENV.with_temp_tech_changes([
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:137:	var drone_dmg = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:151:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:156:	var restore_fn_hp = await Global.TEST_ENV.with_temp_tech_changes([
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:159:	var drone_hp = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:172:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:186:	var restore_fn_base = await Global.TEST_ENV.with_temp_tech_changes([
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:190:	var drone_base = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:200:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:205:	var restore_fn = await Global.TEST_ENV.with_temp_tech_changes([
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:209:	var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:228:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:241:	var restore_fn_base = await Global.TEST_ENV.with_temp_tech_changes([
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:244:	var drone_base = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:254:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:258:	var restore_fn = await Global.TEST_ENV.with_temp_tech_changes([
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:261:	var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:280:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:294:	var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:304:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:316:	var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:329:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:341:	var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:389:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:399:	var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:450:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:460:	var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:494:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:504:	var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:514:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:530:	await Global.TEST_ENV.with_temp_tech_changes(
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:544:			var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_tech_spawn_and_on_kill.gd:629:			await RuntimeUtils.wait_frames(self, 1);
+scenes\ui\research\generic_enhancement.gd:17:	await Global._await_save_file();
+tests\integration\entities\drone_flat\test_drone_flat_init_respawn_and_populate.gd:64:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_init_respawn_and_populate.gd:71:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_init_respawn_and_populate.gd:73:	var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_init_respawn_and_populate.gd:98:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_init_respawn_and_populate.gd:124:	await Global.TEST_ENV.with_temp_tech_changes(
+tests\integration\entities\drone_flat\test_drone_flat_init_respawn_and_populate.gd:127:			var drone_base = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_init_respawn_and_populate.gd:154:			await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_init_respawn_and_populate.gd:160:			await Global.TEST_ENV.with_temp_tech_changes(
+tests\integration\entities\drone_flat\test_drone_flat_init_respawn_and_populate.gd:163:					var drone_tuned = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_init_respawn_and_populate.gd:190:					await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_init_respawn_and_populate.gd:240:	var enemy_base = await Global.TEST_ENV.spawn_enemy_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_init_respawn_and_populate.gd:254:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_init_respawn_and_populate.gd:258:	var enemy_tuned = await Global.TEST_ENV.spawn_enemy_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_init_respawn_and_populate.gd:267:		await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\support_flat\test_support_flat_links_callbacks_damage.gd:45:	var support_035 = await Global.TEST_ENV.spawn_player_support();
+tests\integration\entities\support_flat\test_support_flat_links_callbacks_damage.gd:46:	var ally_035 = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\support_flat\test_support_flat_links_callbacks_damage.gd:47:	var hidden_035 = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\support_flat\test_support_flat_links_callbacks_damage.gd:70:	await get_tree().process_frame;
+tests\integration\entities\support_flat\test_support_flat_links_callbacks_damage.gd:72:	var support_036 = await Global.TEST_ENV.spawn_player_support();
+tests\integration\entities\support_flat\test_support_flat_links_callbacks_damage.gd:73:	var ally_036 = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\support_flat\test_support_flat_links_callbacks_damage.gd:90:	await get_tree().process_frame;
+tests\integration\entities\support_flat\test_support_flat_links_callbacks_damage.gd:92:	var support_037 = await Global.TEST_ENV.spawn_player_support();
+tests\integration\entities\support_flat\test_support_flat_links_callbacks_damage.gd:112:	await get_tree().process_frame;
+tests\integration\entities\support_flat\test_support_flat_links_callbacks_damage.gd:124:	var support = await Global.TEST_ENV.spawn_player_support();
+tests\integration\entities\support_flat\test_support_flat_links_callbacks_damage.gd:148:	await get_tree().process_frame;
+tests\integration\entities\support_flat\test_support_flat_links_callbacks_damage.gd:153:	await get_tree().process_frame;
+tests\integration\entities\support_flat\test_support_flat_links_callbacks_damage.gd:162:	var support = await Global.TEST_ENV.spawn_player_support();
+tests\integration\entities\support_flat\test_support_flat_links_callbacks_damage.gd:163:	var ally_a = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\support_flat\test_support_flat_links_callbacks_damage.gd:164:	var ally_b = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\support_flat\test_support_flat_links_callbacks_damage.gd:193:	await get_tree().process_frame;
+tests\integration\entities\support_flat\test_support_flat_links_callbacks_damage.gd:205:	await get_tree().process_frame;
+tests\integration\entities\support_flat\test_support_flat_links_callbacks_damage.gd:214:	var support = await Global.TEST_ENV.spawn_player_support();
+tests\integration\entities\support_flat\test_support_flat_links_callbacks_damage.gd:215:	var ally = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\support_flat\test_support_flat_links_callbacks_damage.gd:216:	var enemy = await Global.TEST_ENV.spawn_enemy_drone(1);
+tests\integration\entities\support_flat\test_support_flat_links_callbacks_damage.gd:266:	await get_tree().process_frame;
+tests\integration\entities\support_flat\test_support_flat_links_callbacks_damage.gd:275:	await get_tree().process_frame;
+tests\integration\tech_options\support_techs\shield_systems\test_shield_systems.gd:27:	await legacy_test_support_shield_duality_1_and_2_drain_and_spread_modes_transfer_shields(ctx);
+tests\integration\tech_options\support_techs\shield_systems\test_shield_systems.gd:31:	await legacy_test_support_shield_duality_team2_uses_correct_stolen_keys(ctx);
+tests\integration\tech_options\support_techs\shield_systems\test_shield_systems.gd:35:	await legacy_test_support_shield_duality_overcharge_affordability_consumes_drolium(ctx);
+tests\integration\tech_options\support_techs\shield_systems\test_shield_systems.gd:39:	await legacy_test_support_shield_duality_options_set_modes_and_damage_sharing_behaves(ctx);
+tests\integration\tech_options\support_techs\shield_systems\test_shield_systems.gd:43:	await legacy_test_shield_martyr_options_1_and_2_apply_last_will_and_echo_branches(ctx);
+tests\integration\tech_options\support_techs\shield_systems\test_shield_systems.gd:47:	await legacy_test_shield_martyr_option3_predeath_triggers_once_and_grants_shield(ctx);
+tests\integration\tech_options\support_techs\shield_systems\test_shield_systems.gd:51:	await legacy_test_shield_martyr_all_options_apply_expected_effects_via_real_death_path(ctx);
+tests\integration\tech_options\support_techs\shield_systems\test_shield_systems.gd:55:	await legacy_test_support_ion_bullet_reflect_options_apply_mirror_link_absorb_and_prism_discharge(ctx);
+tests\integration\entities\support_flat\test_support_flat_init_respawn.gd:34:	await get_tree().process_frame;
+tests\integration\entities\support_flat\test_support_flat_init_respawn.gd:52:	await get_tree().process_frame;
+tests\integration\entities\drone_flat\test_drone_flat_fire_and_modes.gd:95:	var restore_fn = await Global.TEST_ENV.with_temp_tech_changes(_damage_isolation_changes());
+tests\integration\entities\drone_flat\test_drone_flat_fire_and_modes.gd:96:	var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_fire_and_modes.gd:118:	await RuntimeUtils.wait_frames(self, 2);
+tests\integration\entities\drone_flat\test_drone_flat_fire_and_modes.gd:130:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_fire_and_modes.gd:141:	var restore_fn = await Global.TEST_ENV.with_temp_tech_changes(_damage_isolation_changes());
+tests\integration\entities\drone_flat\test_drone_flat_fire_and_modes.gd:142:	var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_fire_and_modes.gd:164:	await RuntimeUtils.wait_frames(self, 2);
+tests\integration\entities\drone_flat\test_drone_flat_fire_and_modes.gd:175:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_fire_and_modes.gd:185:	var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_fire_and_modes.gd:208:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_fire_and_modes.gd:218:	var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_fire_and_modes.gd:240:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_fire_and_modes.gd:250:	var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_fire_and_modes.gd:280:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_fire_and_modes.gd:290:	var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_fire_and_modes.gd:321:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_fire_and_modes.gd:336:	var restore_fn = await Global.TEST_ENV.with_temp_tech_changes(_damage_isolation_changes());
+tests\integration\entities\drone_flat\test_drone_flat_fire_and_modes.gd:339:	var drone_a = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_fire_and_modes.gd:340:	var killer = await Global.TEST_ENV.spawn_enemy_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_fire_and_modes.gd:364:	var drone_b = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_fire_and_modes.gd:388:	var drone_c = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_fire_and_modes.gd:415:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\support_flat\test_support_flat_equipment_and_misc.gd:103:	var support = await Global.TEST_ENV.spawn_player_support();
+tests\integration\entities\support_flat\test_support_flat_equipment_and_misc.gd:122:	await get_tree().process_frame;
+tests\integration\entities\support_flat\test_support_flat_equipment_and_misc.gd:134:	await get_tree().process_frame;
+tests\integration\entities\support_flat\test_support_flat_equipment_and_misc.gd:141:	await get_tree().process_frame;
+tests\integration\entities\support_flat\test_support_flat_equipment_and_misc.gd:148:	await get_tree().process_frame;
+tests\integration\entities\support_flat\test_support_flat_equipment_and_misc.gd:155:	await get_tree().process_frame;
+tests\integration\entities\support_flat\test_support_flat_equipment_and_misc.gd:166:	var support = await Global.TEST_ENV.spawn_player_support();
+tests\integration\entities\support_flat\test_support_flat_equipment_and_misc.gd:186:	await get_tree().process_frame;
+tests\integration\entities\drone_flat\test_drone_flat_damage_callbacks_and_visuals.gd:97:	await Global.TEST_ENV.with_temp_tech_changes(
+tests\integration\entities\drone_flat\test_drone_flat_damage_callbacks_and_visuals.gd:102:			var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_damage_callbacks_and_visuals.gd:125:			await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_damage_callbacks_and_visuals.gd:140:	await Global.TEST_ENV.with_temp_tech_changes(
+tests\integration\entities\drone_flat\test_drone_flat_damage_callbacks_and_visuals.gd:148:			var healer = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_damage_callbacks_and_visuals.gd:149:			var ally = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_damage_callbacks_and_visuals.gd:154:				await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_damage_callbacks_and_visuals.gd:171:			await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_damage_callbacks_and_visuals.gd:187:	var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_damage_callbacks_and_visuals.gd:219:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_damage_callbacks_and_visuals.gd:240:	await Global.TEST_ENV.with_temp_tech_changes(
+tests\integration\entities\drone_flat\test_drone_flat_damage_callbacks_and_visuals.gd:243:			var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_damage_callbacks_and_visuals.gd:244:			var attacker = await Global.TEST_ENV.spawn_enemy_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_damage_callbacks_and_visuals.gd:249:				await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_damage_callbacks_and_visuals.gd:330:			await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_damage_callbacks_and_visuals.gd:352:	await Global.TEST_ENV.with_temp_tech_changes(
+tests\integration\entities\drone_flat\test_drone_flat_damage_callbacks_and_visuals.gd:355:			var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_damage_callbacks_and_visuals.gd:356:			var enemy = await Global.TEST_ENV.spawn_enemy_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_damage_callbacks_and_visuals.gd:361:				await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_damage_callbacks_and_visuals.gd:406:			await RuntimeUtils.wait_frames(self, 2);
+tests\integration\entities\drone_flat\test_drone_flat_damage_callbacks_and_visuals.gd:436:			await RuntimeUtils.wait_frames(self, 1);
+tests\integration\tech_options\support_techs\sabotage\test_sabotage.gd:45:	await legacy_test_frequency_sabotage_option1_shield_break_once_per_life_strips_enemy_shields(ctx);
+tests\integration\tech_options\support_techs\sabotage\test_sabotage.gd:49:	await legacy_test_frequency_sabotage_option2_death_applies_emp_even_to_shieldless_targets(ctx);
+tests\integration\tech_options\support_techs\sabotage\test_sabotage.gd:53:	await legacy_test_frequency_sabotage_option3_death_buffs_linked_allies_incoming_regen(ctx);
+tests\integration\tech_options\support_techs\sabotage\test_sabotage.gd:57:	await legacy_test_frequency_sabotage_legacy_key_strips_current_shield_only(ctx);
+tests\integration\tech_options\support_techs\sabotage\test_sabotage.gd:61:	await legacy_test_frequency_sabotage2_chain_resonance_arms_and_consumes_on_next_gain(ctx);
+tests\integration\tech_options\support_techs\sabotage\test_sabotage.gd:65:	await legacy_test_frequency_sabotage2_reclaimed_frequency_buffs_incoming_cap_by_enemy_count(ctx);
+tests\integration\tech_options\support_techs\sabotage\test_sabotage.gd:69:	await legacy_test_frequency_sabotage_null_enemy_list_guard_safe_noop(ctx);
+tests\integration\tech_options\support_techs\sabotage\test_sabotage.gd:73:	await legacy_test_frequency_sabotage2_uses_selected_option_fallback_when_cfg_snapshot_missing(ctx);
+tests\integration\tech_options\support_techs\sabotage\test_sabotage.gd:77:	await legacy_test_sos_range_composes_frequency_sabotage_and_bonus(ctx);
+tests\integration\tech_options\support_techs\sabotage\test_sabotage.gd:81:	await legacy_test_sos_guard_and_cooldown_noop_branches(ctx);
+tests\integration\tech_options\support_techs\sabotage\test_sabotage.gd:85:	await legacy_test_frequency_sabotage_shield_break_and_death_triggers_fire_independently_in_one_lifecycle(ctx);
+tests\integration\tech_options\support_techs\sabotage\test_sabotage.gd:89:	await legacy_test_on_linked_ally_death_fanout_arms_handoff_and_updates_death_chain_retask_and_priority_echo(ctx);
+tests\integration\tech_options\support_techs\sabotage\test_sabotage.gd:93:	await legacy_test_link_ally_acquisition_hooks_apply_triage_uncrowded_stickiness_anchor_bastion_and_interceptor_states(ctx);
+scenes\ui\shared\Black_Panel\black_panel.gd:10:	await Global._await_save_file();
+tests\integration\entities\support_flat\test_support_flat_core_tick_and_movement.gd:57:	var support = await Global.TEST_ENV.spawn_player_support();
+tests\integration\entities\support_flat\test_support_flat_core_tick_and_movement.gd:79:	await get_tree().process_frame;
+tests\integration\entities\support_flat\test_support_flat_core_tick_and_movement.gd:90:	var support = await Global.TEST_ENV.spawn_player_support();
+tests\integration\entities\support_flat\test_support_flat_core_tick_and_movement.gd:128:	await get_tree().process_frame;
+tests\integration\entities\support_flat\test_support_flat_core_tick_and_movement.gd:138:	var support = await Global.TEST_ENV.spawn_player_support();
+tests\integration\entities\support_flat\test_support_flat_core_tick_and_movement.gd:139:	var ally = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\support_flat\test_support_flat_core_tick_and_movement.gd:190:	await get_tree().process_frame;
+tests\integration\entities\support_flat\test_support_flat_core_tick_and_movement.gd:202:	var support = await Global.TEST_ENV.spawn_player_support();
+tests\integration\entities\support_flat\test_support_flat_core_tick_and_movement.gd:203:	var zombie_ally = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\support_flat\test_support_flat_core_tick_and_movement.gd:204:	var normal_ally = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\support_flat\test_support_flat_core_tick_and_movement.gd:252:	await get_tree().process_frame;
+scenes\ui\debug_canvas\debug_canvas.gd:46:	if(is_instance_valid(invulnerable_button)):
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:105:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:109:	var boss = await BossUtils.spawn_boss_for_test(self, "necrotilus");
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:152:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:157:	var boss = await BossUtils.spawn_boss_for_test(self, "necrotilus");
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:168:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:173:	var boss = await BossUtils.spawn_boss_for_test(self, "necrotilus");
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:187:	await Callable(boss, "_core_logic_tick").call(0.1);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:193:	await Callable(boss, "_core_logic_tick").call(0.1);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:199:	await Callable(boss, "_core_logic_tick").call(0.1);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:205:	await Callable(boss, "_core_logic_tick").call(0.5);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:212:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:217:	var boss = await BossUtils.spawn_boss_for_test(self, "necrotilus");
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:222:	await Callable(boss, "_core_logic_tick").call(0.016);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:225:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:230:	var boss = await BossUtils.spawn_boss_for_test(self, "necrotilus");
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:248:	await Callable(boss, "_core_logic_tick").call(0.016);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:262:	await Callable(boss, "_core_logic_tick").call(0.016);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:274:	await Callable(boss, "_core_logic_tick").call(0.016);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:279:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:284:	var boss = await BossUtils.spawn_boss_for_test(self, "necrotilus");
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:299:	await Callable(boss, "_core_logic_tick").call(0.016);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:300:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:314:	await Callable(boss, "_core_logic_tick").call(0.1);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:319:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:320:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:325:	var boss = await BossUtils.spawn_boss_for_test(self, "necrotilus");
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:332:	await Callable(boss, "_core_logic_tick").call(0.016);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:335:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:340:	var boss = await BossUtils.spawn_boss_for_test(self, "necrotilus");
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:354:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:359:	var boss = await BossUtils.spawn_boss_for_test(self, "necrotilus");
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:373:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:378:	var boss = await BossUtils.spawn_boss_for_test(self, "necrotilus");
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:392:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:398:	var boss = await BossUtils.spawn_boss_for_test(self, "necrotilus");
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:425:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:436:	var ready_ok: bool = await _evaluate_ready_behavior();
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:437:	var setup_ok: bool = await _evaluate_setup_behavior();
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:438:	var core_early_ok: bool = await _evaluate_core_early_behavior();
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:439:	var death_ok: bool = await _evaluate_death_behavior();
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:440:	var target_ok: bool = await _evaluate_target_acquisition_behavior();
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:441:	var orbit_ok: bool = await _evaluate_orbit_and_shoot_behavior();
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:442:	var jump_ok: bool = await _evaluate_jump_cd_behavior();
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:443:	var trigger_damage_ok: bool = await _evaluate_trigger_damage_behavior();
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:444:	var update_shield_ok: bool = await _evaluate_update_shield_behavior();
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:445:	var kill_callback_ok: bool = await _evaluate_kill_callback_behavior();
+tests\integration\entities\bosses\necrotilus\test_necrotilus_behavioral_matrix.gd:446:	var collisions: Dictionary = await _evaluate_collision_behavior();
+scenes\ui\production\production_canvas.gd:62:	await Global.saver._save_file_loaded();
+scenes\ui\production\production_canvas.gd:69:			await (Global._sleep(0.1));
+scenes\ui\production\production_canvas.gd:377:	if (is_instance_valid(EQUIPMENT_CONTAINER)):
+scenes\ui\ai_cores\ai_cores.gd:101:	await Global.saver._save_file_loaded();
+scenes\ui\ai_cores\ai_cores.gd:368:	if(!is_instance_valid(CORE_GRID)):
+tests\integration\tech_options\support_techs\equipment_liferaft\test_equipment_liferaft.gd:24:	await legacy_test_support_life_raft_spawn_chance_integer_and_fractional_branches(ctx);
+tests\integration\tech_options\support_techs\equipment_liferaft\test_equipment_liferaft.gd:28:	await legacy_test_support_equipment_2_options_apply_shattered_ward_bastion_and_interceptor(ctx);
+tests\integration\tech_options\support_techs\equipment_liferaft\test_equipment_liferaft.gd:32:	await legacy_test_support_equipment_3_options_apply_dual_rig_cooldown_reclaim_and_sacrificial_ward(ctx);
+tests\integration\tech_options\support_techs\equipment_liferaft\test_equipment_liferaft.gd:36:	await legacy_test_support_equipment_4_options_apply_handover_anchor_and_breakaway(ctx);
+tests\integration\tech_options\support_techs\equipment_liferaft\test_equipment_liferaft.gd:40:	await legacy_test_support_equipment_5_options_apply_slipstream_threat_charge_and_rescue_immunity(ctx);
+tests\integration\entities\frigate_flat\test_frigate_flat_init_respawn.gd:147:	var frig = await Global.TEST_ENV.spawn_player_frigate(1)
+tests\integration\entities\frigate_flat\test_frigate_flat_init_respawn.gd:405:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_init_respawn.gd:598:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_damage_shield_health.gd:68:	var frig = await Global.TEST_ENV.spawn_player_frigate(1)
+tests\integration\entities\frigate_flat\test_frigate_flat_damage_shield_health.gd:134:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_damage_shield_health.gd:157:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_damage_shield_health.gd:171:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_damage_shield_health.gd:291:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_damage_shield_health.gd:305:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_damage_shield_health.gd:339:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_damage_shield_health.gd:346:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_damage_shield_health.gd:359:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_damage_shield_health.gd:366:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_damage_shield_health.gd:370:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_damage_shield_health.gd:376:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_damage_shield_health.gd:381:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:112:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:115:	var boss = await BossUtils.spawn_boss_for_test(self, "bastionlus");
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:142:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:146:	var boss = await BossUtils.spawn_boss_for_test(self, "bastionlus");
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:155:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:159:	var boss = await BossUtils.spawn_boss_for_test(self, "bastionlus");
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:171:	await Callable(boss, "_core_logic_tick").call(0.1);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:177:	await Callable(boss, "_core_logic_tick").call(0.1);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:183:	await Callable(boss, "_core_logic_tick").call(0.1);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:188:	await Callable(boss, "_core_logic_tick").call(0.1);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:191:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:195:	var boss = await BossUtils.spawn_boss_for_test(self, "bastionlus");
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:200:	await Callable(boss, "_core_logic_tick").call(0.016);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:208:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:219:	var boss = await BossUtils.spawn_boss_for_test(self, "bastionlus");
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:232:	await Callable(boss, "_core_logic_tick").call(0.1);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:251:	await Callable(boss, "_core_logic_tick").call(0.016);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:252:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:258:	await Callable(boss, "_core_logic_tick").call(0.016);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:264:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:265:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:269:	var odd_boss = await BossUtils.spawn_boss_for_test(self, "bastionlus");
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:276:	await Callable(odd_boss, "_core_logic_tick").call(0.016);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:284:	await _cleanup_boss(odd_boss);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:286:	var even_boss = await BossUtils.spawn_boss_for_test(self, "bastionlus");
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:293:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:298:	await Callable(even_boss, "_core_logic_tick").call(0.016);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:305:	await _cleanup_boss(even_boss);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:307:	var single_boss = await BossUtils.spawn_boss_for_test(self, "bastionlus");
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:313:		await Callable(single_boss, "_core_logic_tick").call(0.016);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:315:	await _cleanup_boss(single_boss);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:321:	var boss = await BossUtils.spawn_boss_for_test(self, "bastionlus");
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:332:	await Callable(boss, "_core_logic_tick").call(0.1);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:338:	await Callable(boss, "_core_logic_tick").call(0.1);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:347:	await Callable(boss, "_core_logic_tick").call(0.1);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:355:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:359:	var boss = await BossUtils.spawn_boss_for_test(self, "bastionlus");
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:370:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:374:	var boss = await BossUtils.spawn_boss_for_test(self, "bastionlus");
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:390:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:394:	var boss = await BossUtils.spawn_boss_for_test(self, "bastionlus");
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:404:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:408:	var boss = await BossUtils.spawn_boss_for_test(self, "bastionlus");
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:427:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:432:	var boss = await BossUtils.spawn_boss_for_test(self, "bastionlus");
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:458:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:468:	var ready_ok: bool = await _evaluate_ready_behavior();
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:469:	var setup_ok: bool = await _evaluate_setup_behavior();
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:470:	var core_early_ok: bool = await _evaluate_core_early_behavior();
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:471:	var death_ok: bool = await _evaluate_death_behavior();
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:472:	var living_bits: Dictionary = await _evaluate_living_dmg_and_bullets_behavior();
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:473:	var hp_thresh_ok: bool = await _evaluate_hp_threshold_behavior();
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:474:	var movement_bits: Dictionary = await _evaluate_movement_and_regen_behavior();
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:475:	var trigger_damage_ok: bool = await _evaluate_trigger_damage_behavior();
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:476:	var shield_update_ok: bool = await _evaluate_update_shield_behavior();
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:477:	var chain_ok: bool = await _evaluate_create_chain_behavior();
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:478:	var kill_callback_ok: bool = await _evaluate_kill_callback_behavior();
+tests\integration\entities\bosses\bastionlus\test_bastionlus_behavioral_matrix.gd:479:	var collisions: Dictionary = await _evaluate_collision_behavior();
+scenes\ui\ai_cores\res_selector\core_res_selector.gd:186:	if(!CREATED and is_instance_valid(ORE_LIST)):
+scenes\ui\offline_time\offline_time.gd:28:	await Global.saver._save_file_loaded();
+scenes\ui\offline_time\offline_time.gd:72:	if(!is_instance_valid(ACTUAL_EFF_LABEL)):
+scenes\ui\pop_ups\popup_canvas.gd:57:	if(!is_instance_valid(DEATH_POPUP)):
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:104:	await RuntimeUtils.wait_frames(self, 2);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:139:	var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:163:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:176:	var capital = await Global.TEST_ENV.spawn_player_capital({});
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:177:	var player_target = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:178:	var enemy_drone = await Global.TEST_ENV.spawn_enemy_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:184:		await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:209:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:222:	var capital = await Global.TEST_ENV.spawn_player_capital({});
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:223:	var enemy_drone = await Global.TEST_ENV.spawn_enemy_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:228:		await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:247:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:260:	var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:261:	var enemy = await Global.TEST_ENV.spawn_enemy_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:266:		await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:281:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:291:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:302:	var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:305:		await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:333:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:349:	await Global.TEST_ENV.with_temp_tech_changes(
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:352:			var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:364:			var result = await _simulate_one_player_shot(drone, target, 0.20);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:373:			await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:393:	await Global.TEST_ENV.with_temp_tech_changes(
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:396:			var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:412:			var no_mark = await _simulate_one_player_shot(drone, boss_target, 0.20);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:419:			var marked = await _simulate_one_player_shot(drone, boss_target, 0.20);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:436:			var mismatch = await _simulate_one_player_shot(drone, crowd_target, 0.20);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:440:			var matched = await _simulate_one_player_shot(drone, crowd_target, 0.20);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:453:			await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:478:	await Global.TEST_ENV.with_temp_tech_changes(
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:481:			var drone = await Global.TEST_ENV.spawn_player_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:482:			var boss_a = await Global.TEST_ENV.spawn_enemy_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:483:			var boss_b = await Global.TEST_ENV.spawn_enemy_drone(1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:489:				await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\drone_flat\test_drone_flat_core_tick_and_targeting.gd:566:			await RuntimeUtils.wait_frames(self, 1);
+scenes\ui\pop_ups\completed_tech_popup\completed_tech_popup.gd:15:	while(!is_instance_valid(Global.ROOT_UI)):
+scenes\ui\pop_ups\completed_tech_popup\completed_tech_popup.gd:16:		await Global._sleep(0.1);
+tests\integration\tech_options\support_techs\core_stats\test_core_stats.gd:34:	await legacy_test_s_auto_upgrades_options_apply_self_and_outgoing_upgrade_stats(ctx);
+tests\integration\tech_options\support_techs\core_stats\test_core_stats.gd:38:	await legacy_test_support_thrust_divert_options_apply_spawn_time_multipliers(ctx);
+tests\integration\tech_options\support_techs\core_stats\test_core_stats.gd:42:	await legacy_test_support_respawn_snapshots_include_fs2_and_sos_cfg_for_team1_and_team2(ctx);
+tests\integration\tech_options\support_techs\core_stats\test_core_stats.gd:46:	await legacy_test_support_spawn_rejects_malformed_custom_state_payload_for_both_teams(ctx);
+tests\integration\tech_options\support_techs\core_stats\test_core_stats.gd:50:	await legacy_test_support_respawn_team2_stolen_tech_snapshots_preserve_selected_option_payloads(ctx);
+tests\integration\tech_options\support_techs\core_stats\test_core_stats.gd:54:	await legacy_test_support_energy_vampire_options_apply_overflow_redirect_and_siphon_guard(ctx);
+tests\integration\entities\bosses\test_scanilus_runtime.gd:125:	var boss = await BossUtils.spawn_boss_for_test(self, "scanilus");
+tests\integration\entities\bosses\test_scanilus_runtime.gd:138:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_scanilus_runtime.gd:148:	var boss = await BossUtils.spawn_boss_for_test(self, "scanilus");
+tests\integration\entities\bosses\test_scanilus_runtime.gd:160:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_scanilus_runtime.gd:170:	var boss = await BossUtils.spawn_boss_for_test(self, "scanilus");
+tests\integration\entities\bosses\test_scanilus_runtime.gd:182:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_scanilus_runtime.gd:192:	var boss = await BossUtils.spawn_boss_for_test(self, "scanilus");
+tests\integration\entities\bosses\test_scanilus_runtime.gd:208:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_scanilus_runtime.gd:218:	var boss = await BossUtils.spawn_boss_for_test(self, "scanilus");
+tests\integration\entities\bosses\test_scanilus_runtime.gd:237:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_scanilus_runtime.gd:247:	var boss = await BossUtils.spawn_boss_for_test(self, "scanilus");
+tests\integration\entities\bosses\test_scanilus_runtime.gd:270:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_scanilus_runtime.gd:279:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_scanilus_runtime.gd:287:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_scanilus_runtime.gd:297:	var boss = await BossUtils.spawn_boss_for_test(self, "scanilus");
+tests\integration\entities\bosses\test_scanilus_runtime.gd:315:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\frigate_flat\test_frigate_flat_core_tick.gd:69:	var frig = await Global.TEST_ENV.spawn_player_frigate(1)
+tests\integration\entities\frigate_flat\test_frigate_flat_core_tick.gd:163:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_core_tick.gd:240:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_core_tick.gd:252:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_core_tick.gd:262:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_core_tick.gd:269:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_core_tick.gd:413:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\bosses\test_bastionlus_runtime.gd:117:	var boss = await BossUtils.spawn_boss_for_test(self, "bastionlus");
+tests\integration\entities\bosses\test_bastionlus_runtime.gd:130:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_bastionlus_runtime.gd:141:	var boss = await BossUtils.spawn_boss_for_test(self, "bastionlus");
+tests\integration\entities\bosses\test_bastionlus_runtime.gd:160:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_bastionlus_runtime.gd:171:	var boss = await BossUtils.spawn_boss_for_test(self, "bastionlus");
+tests\integration\entities\bosses\test_bastionlus_runtime.gd:182:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_bastionlus_runtime.gd:195:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_bastionlus_runtime.gd:206:	var boss = await BossUtils.spawn_boss_for_test(self, "bastionlus");
+tests\integration\entities\bosses\test_bastionlus_runtime.gd:223:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_bastionlus_runtime.gd:234:	var boss = await BossUtils.spawn_boss_for_test(self, "bastionlus");
+tests\integration\entities\bosses\test_bastionlus_runtime.gd:253:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_bastionlus_runtime.gd:264:	var boss = await BossUtils.spawn_boss_for_test(self, "bastionlus");
+tests\integration\entities\bosses\test_bastionlus_runtime.gd:287:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_bastionlus_runtime.gd:296:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_bastionlus_runtime.gd:304:	await RuntimeUtils.wait_frames(self, 1);
+scenes\ui\offline_time\generic_zone_summary.gd:434:	await Global._sleep(0.1)
+scenes\ui\outposts\outposts_canvas.gd:54:	await Global._await_save_file();
+scenes\ui\outposts\outposts_canvas.gd:241:	await Global._sleep(0.01);
+scenes\ui\outposts\outposts_canvas.gd:342:		await Global._sleep(0.1);
+scenes\ui\outposts\outposts_canvas.gd:343:		await Global.saver._save_file_loaded();
+scenes\ui\production\manufacturers\purchase_increase_manufacturer.gd:16:	CONFIRM_BUTTON.find_child("TextureButton").pressed.connect(SOURCE._increase_manufacturer.bind());
+scenes\ui\pop_ups\outpost_alert\outpost_popup.gd:15:	while(!is_instance_valid(Global.ROOT_UI)):
+scenes\ui\pop_ups\outpost_alert\outpost_popup.gd:16:		await Global._sleep(0.1);
+tests\integration\entities\drone_flat\test_drone_flat_behavioral_matrix.gd:61:	var drone = await Global.TEST_ENV.spawn_player_drone(1)
+tests\integration\entities\drone_flat\test_drone_flat_behavioral_matrix.gd:77:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\drone_flat\test_drone_flat_behavioral_matrix.gd:86:	var drone = await Global.TEST_ENV.spawn_player_drone(1)
+tests\integration\entities\drone_flat\test_drone_flat_behavioral_matrix.gd:98:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\drone_flat\test_drone_flat_behavioral_matrix.gd:107:	var drone = await Global.TEST_ENV.spawn_player_drone(1)
+tests\integration\entities\drone_flat\test_drone_flat_behavioral_matrix.gd:128:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\drone_flat\test_drone_flat_behavioral_matrix.gd:137:	var drone = await Global.TEST_ENV.spawn_player_drone(1)
+tests\integration\entities\drone_flat\test_drone_flat_behavioral_matrix.gd:158:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\drone_flat\test_drone_flat_behavioral_matrix.gd:163:	await RuntimeUtils.wait_frames(self, 1)
+scenes\ui\outposts\unique_upgrades\unique_upgrades.gd:16:	GREEN_CHECK.MAIN_BUTTON.pressed.connect(_purchase_upgrade.bind());
+tests\integration\tech_options\support_techs\catalog\test_catalog.gd:21:	await legacy_test_support_unlocks_exist_in_unlock_map(ctx);
+tests\integration\tech_options\support_techs\catalog\test_catalog.gd:25:	await legacy_test_support_equipment_unlock_gating_matches_unlocks(ctx);
+scenes\ui\pop_ups\achievement_popup\achievement_popup.gd:14:	while(!is_instance_valid(Global.ROOT_UI)):
+scenes\ui\pop_ups\achievement_popup\achievement_popup.gd:15:		await Global._sleep(0.1);
+tests\integration\entities\bosses\test_necrotilus_runtime.gd:116:	var boss = await BossUtils.spawn_boss_for_test(self, "necrotilus");
+tests\integration\entities\bosses\test_necrotilus_runtime.gd:124:	await Callable(boss, "_core_logic_tick").call(0.2);
+tests\integration\entities\bosses\test_necrotilus_runtime.gd:128:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_necrotilus_runtime.gd:138:	var boss = await BossUtils.spawn_boss_for_test(self, "necrotilus");
+tests\integration\entities\bosses\test_necrotilus_runtime.gd:147:	await Callable(boss, "_core_logic_tick").call(0.016);
+tests\integration\entities\bosses\test_necrotilus_runtime.gd:153:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_necrotilus_runtime.gd:163:	var boss = await BossUtils.spawn_boss_for_test(self, "necrotilus");
+tests\integration\entities\bosses\test_necrotilus_runtime.gd:182:	await Callable(boss, "_core_logic_tick").call(0.016);
+tests\integration\entities\bosses\test_necrotilus_runtime.gd:188:	await Callable(boss, "_core_logic_tick").call(0.016);
+tests\integration\entities\bosses\test_necrotilus_runtime.gd:189:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_necrotilus_runtime.gd:198:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_necrotilus_runtime.gd:208:	var boss = await BossUtils.spawn_boss_for_test(self, "necrotilus");
+tests\integration\entities\bosses\test_necrotilus_runtime.gd:217:	await Callable(boss, "_core_logic_tick").call(0.016);
+tests\integration\entities\bosses\test_necrotilus_runtime.gd:221:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_necrotilus_runtime.gd:231:	var boss = await BossUtils.spawn_boss_for_test(self, "necrotilus");
+tests\integration\entities\bosses\test_necrotilus_runtime.gd:238:	await Callable(boss, "_core_logic_tick").call(0.016);
+tests\integration\entities\bosses\test_necrotilus_runtime.gd:243:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_necrotilus_runtime.gd:253:	var boss = await BossUtils.spawn_boss_for_test(self, "necrotilus");
+tests\integration\entities\bosses\test_necrotilus_runtime.gd:276:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_necrotilus_runtime.gd:285:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\test_necrotilus_runtime.gd:293:	await RuntimeUtils.wait_frames(self, 1);
+scenes\ui\outposts\generic_bases\generic_base.gd:188:				await Global._sleep(0.05);
+scenes\ui\outposts\generic_bases\generic_base.gd:351:	if(!is_instance_valid(OPERATION_CONTAINER)):
+tests\integration\entities\frigate_flat\test_frigate_flat_collision_visual_kill.gd:61:	var frig = await Global.TEST_ENV.spawn_player_frigate(1)
+tests\integration\entities\frigate_flat\test_frigate_flat_collision_visual_kill.gd:86:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_collision_visual_kill.gd:93:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_collision_visual_kill.gd:100:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_collision_visual_kill.gd:107:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_collision_visual_kill.gd:115:	await RuntimeUtils.wait_frames(self, 1)
+tests\integration\entities\frigate_flat\test_frigate_flat_collision_visual_kill.gd:126:	await RuntimeUtils.wait_frames(self, 2)
+tests\integration\entities\frigate_flat\test_frigate_flat_collision_visual_kill.gd:155:	await RuntimeUtils.wait_frames(self, 2)
+tests\integration\entities\frigate_flat\test_frigate_flat_collision_visual_kill.gd:165:	await RuntimeUtils.wait_frames(self, 2)
+tests\integration\entities\frigate_flat\test_frigate_flat_collision_visual_kill.gd:173:	await RuntimeUtils.wait_frames(self, 2)
+tests\integration\entities\frigate_flat\test_frigate_flat_collision_visual_kill.gd:189:	await RuntimeUtils.wait_frames(self, 2)
+tests\integration\entities\frigate_flat\test_frigate_flat_collision_visual_kill.gd:197:	await RuntimeUtils.wait_frames(self, 2)
+tests\integration\entities\frigate_flat\test_frigate_flat_collision_visual_kill.gd:216:		if(is_instance_valid(expl)):
+tests\integration\entities\frigate_flat\test_frigate_flat_collision_visual_kill.gd:221:	await RuntimeUtils.wait_frames(self, 1)
+scenes\ui\production\manufacturers\manufacturer.gd:248:	if(!is_instance_valid(BONUS_LIST)):
+tests\integration\tech_options\mothership_techs\zone_difficulty\test_zone_difficulty.gd:35:	await Callable(helper, "legacy_" + legacy_name).call(ctx);
+tests\integration\tech_options\mothership_techs\zone_difficulty\test_zone_difficulty.gd:38:		await get_tree().process_frame;
+tests\integration\tech_options\mothership_techs\zone_difficulty\test_zone_difficulty.gd:59:	await legacy_test_zone_difficulty_unlocks_gate_ore_requirements(ctx);
+tests\integration\tech_options\mothership_techs\zone_difficulty\test_zone_difficulty.gd:63:	await legacy_test_zone_difficulty_jump_cd_elapsed_mult_matches_selections(ctx);
+tests\integration\tech_options\mothership_techs\zone_difficulty\test_zone_difficulty.gd:67:	await legacy_test_zone_difficulty_medium_option3_multi_ore_increases_asteroid_unique_ores(ctx);
+tests\integration\tech_options\mothership_techs\zone_difficulty\test_zone_difficulty.gd:71:	await _run_exhaustive_legacy_test("test_zone_difficulty_jump_cd_elapsed_mult_covers_all_options", ctx);
+tests\integration\tech_options\mothership_techs\zone_difficulty\test_zone_difficulty.gd:75:	await _run_exhaustive_legacy_test("test_zone_difficulty_hard_option3_ore_amount_scales_asteroid_quantities", ctx);
+tests\integration\tech_options\mothership_techs\zone_difficulty\test_zone_difficulty.gd:79:	await _run_exhaustive_legacy_test("test_zone_difficulty_medium_and_hard_option1_speed_scales_mining_impulse", ctx);
+tests\integration\tech_options\drone_techs\catalog\test_catalog.gd:22:	await legacy_test_drone_unlocks_exist_in_unlock_map(ctx);
+tests\integration\tech_options\drone_techs\catalog\test_catalog.gd:26:	await legacy_test_drone_unlock_manifest_includes_all_top_level_unlock_keys(ctx);
+tests\integration\tech_options\drone_techs\catalog\test_catalog.gd:30:	await legacy_test_drone_unlock_branch_matrix_maps_every_top_level_key(ctx);
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:127:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:132:	var boss = await BossUtils.spawn_boss_for_test(self, "scanilus");
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:157:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:162:	var boss = await BossUtils.spawn_boss_for_test(self, "scanilus");
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:184:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:189:	var boss = await BossUtils.spawn_boss_for_test(self, "scanilus");
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:194:	await boss._spawn_text([]);
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:197:	await boss._spawn_text([{"title": "MatrixTech"}]);
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:213:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:218:	var boss = await BossUtils.spawn_boss_for_test(self, "scanilus");
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:229:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:241:	var boss = await BossUtils.spawn_boss_for_test(self, "scanilus");
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:274:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:279:	var boss = await BossUtils.spawn_boss_for_test(self, "scanilus");
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:292:	await RuntimeUtils.wait_frames(self, 1);
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:297:	var boss = await BossUtils.spawn_boss_for_test(self, "scanilus");
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:322:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:333:	var boss = await BossUtils.spawn_boss_for_test(self, "scanilus");
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:390:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:402:	var boss = await BossUtils.spawn_boss_for_test(self, "scanilus");
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:473:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:478:	var boss = await BossUtils.spawn_boss_for_test(self, "scanilus");
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:514:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:519:	var boss = await BossUtils.spawn_boss_for_test(self, "scanilus");
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:534:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:539:	var boss = await BossUtils.spawn_boss_for_test(self, "scanilus");
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:571:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:576:	var boss = await BossUtils.spawn_boss_for_test(self, "scanilus");
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:590:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:596:	var boss = await BossUtils.spawn_boss_for_test(self, "scanilus");
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:625:	await _cleanup_boss(boss);
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:636:	var ready_setup: Dictionary = await _evaluate_ready_and_setup_behavior();
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:637:	var rebuild_ok: bool = await _evaluate_rebuild_behavior();
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:638:	var spawn_text_ok: bool = await _evaluate_spawn_text_behavior();
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:639:	var pick_logic_ok: bool = await _evaluate_pick_logic_behavior();
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:640:	var core_early_ok: bool = await _evaluate_core_early_behavior();
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:641:	var death_branch_ok: bool = await _evaluate_death_branch_behavior();
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:642:	var threshold_wave_ok: bool = await _evaluate_threshold_wave_cloak_behavior();
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:643:	var section9: Dictionary = await _evaluate_uncloak_movement_arc_timer_behavior();
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:644:	var section10: Dictionary = await _evaluate_shield_duality_behavior();
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:645:	var trigger_damage_ok: bool = await _evaluate_trigger_damage_behavior();
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:646:	var update_shield_ok: bool = await _evaluate_update_shield_behavior();
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:647:	var reset_linked_ok: bool = await _evaluate_reset_linked_allies_behavior();
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:648:	var kill_callback_ok: bool = await _evaluate_kill_callback_behavior();
+tests\integration\entities\bosses\scanilus\test_scanilus_behavioral_matrix.gd:649:	var collisions: Dictionary = await _evaluate_collision_behavior();
+scenes\ui\production\manufacturers\manufacturer_alloy_holder.gd:49:	if(!is_instance_valid(ALLOY_RATE)):
+scenes\ui\production\manufacturers\alloy_image_holder.gd:15:	while(!is_instance_valid(PARENT)):
+scenes\ui\production\manufacturers\alloy_image_holder.gd:16:		await(Global._sleep(0.05));
+scenes\ui\pop_ups\death_popup\death_popup.gd:101:	while (!is_instance_valid(Global.ROOT_UI)):
+scenes\ui\pop_ups\death_popup\death_popup.gd:102:		await Global._sleep(0.05);
+scenes\ui\pop_ups\death_popup\death_popup.gd:103:	await Global._sleep(0.1);
+scenes\ui\pop_ups\death_popup\death_popup.gd:237:	#if(!is_instance_valid(ORE_LIST)):
+tests\integration\tech_options\mothership_techs\drones_unlock\test_drones_unlock.gd:27:	await Callable(helper, "legacy_" + legacy_name).call(ctx);
+tests\integration\tech_options\mothership_techs\drones_unlock\test_drones_unlock.gd:30:		await get_tree().process_frame;
+tests\integration\tech_options\mothership_techs\drones_unlock\test_drones_unlock.gd:51:	await legacy_test_drones_unlock_updates_global_stats_per_option(ctx);
+scenes\ui\online_ui\onlline_canvas.gd:8:	await Global.saver._save_file_loaded();
+scenes\ui\online_ui\onlline_canvas.gd:10:		await Global._sleep(0.1);
+tests\integration\tech_options\drone_techs\targeting\test_targeting.gd:34:	await legacy_test_targetting_1_unlock_gates_and_ui_population(ctx);
+tests\integration\tech_options\drone_techs\targeting\test_targeting.gd:38:	await legacy_test_d_targeting_num_1_options_apply_damage_and_fire_rate_branches_and_retask_sprint(ctx);
+tests\integration\tech_options\drone_techs\targeting\test_targeting.gd:42:	await legacy_test_d_targeting_num_2_option3_crowd_screen_sets_statuses_and_modifies_damage(ctx);
+tests\integration\tech_options\drone_techs\targeting\test_targeting.gd:46:	await legacy_test_d_targeting_num_3_option1_boss_mark_applies_expires_and_non_boss_penalty(ctx);
+tests\integration\tech_options\drone_techs\targeting\test_targeting.gd:50:	await legacy_test_d_targeting_num_3_option2_return_fire_discipline_dr_only_from_current_target(ctx);
+tests\integration\tech_options\drone_techs\targeting\test_targeting.gd:54:	await legacy_test_d_targeting_num_3_option3_ramp_control_bonuses_value_on_long_fights(ctx);
+tests\integration\tech_options\drone_techs\targeting\test_targeting.gd:58:	await legacy_test_targetting_2_option1_triage_reflex_applies_on_hull_damage_and_expires(ctx);
+tests\integration\tech_options\drone_techs\targeting\test_targeting.gd:62:	await legacy_test_targetting_2_option2_solo_pursuit_applies_solo_and_focus_damage_branches(ctx);
+tests\integration\tech_options\drone_techs\targeting\test_targeting.gd:66:	await legacy_test_targetting_3_option1_support_breaker_applies_support_and_non_support_damage_branches(ctx);
+tests\integration\tech_options\drone_techs\targeting\test_targeting.gd:70:	await legacy_test_targetting_3_option2_link_disruptor_support_only_once_per_target(ctx);
+tests\integration\tech_options\drone_techs\targeting\test_targeting.gd:74:	await legacy_test_targetting_3_option3_crossfire_marker_applies_mark_and_marked_damage_penalty(ctx);
+tests\integration\tech_options\drone_techs\targeting\test_targeting.gd:78:	await legacy_test_targetting_4_options_1_and_2_apply_frigate_focus_and_crowd_brace_incoming_damage(ctx);
+tests\integration\tech_options\drone_techs\targeting\test_targeting.gd:82:	await legacy_test_targetting_4_option3_distance_bounty_applies_slag_bonus_by_kill_distance(ctx);
+tests\integration\tech_options\drone_techs\targeting\test_targeting.gd:86:	await legacy_test_refire_anti_waste_volley_and_waste_reduction_do_not_stack(ctx);
+tests\integration\tech_options\drone_techs\targeting\test_targeting.gd:90:	await legacy_test_target_lead_1_options_1_and_2_apply_shot_buff_and_servo_tracking(ctx);
+tests\integration\tech_options\mothership_techs\offline_efficiency\test_offline_efficiency.gd:29:	await Callable(helper, "legacy_" + legacy_name).call(ctx);
+tests\integration\tech_options\mothership_techs\offline_efficiency\test_offline_efficiency.gd:32:		await get_tree().process_frame;
+tests\integration\tech_options\mothership_techs\offline_efficiency\test_offline_efficiency.gd:53:	await legacy_test_offline_efficiency_modifiers_compose_and_multiply(ctx);
+tests\integration\tech_options\mothership_techs\offline_efficiency\test_offline_efficiency.gd:57:	await _run_exhaustive_legacy_test("test_offline_efficiency_each_option_applies_expected_modifiers", ctx);
+scenes\ui\outposts\trade_routes\resource_holder\generic_resouce_holder.gd:130:	if(!CREATED and is_instance_valid(ORE_LIST)):
+tests\integration\tech_options\drone_techs\core_stats\test_core_stats.gd:26:	await legacy_test_drilium_dmg_boost_overcharge_affordability_branches(ctx);
+tests\integration\tech_options\drone_techs\core_stats\test_core_stats.gd:30:	await legacy_test_spawn_time_stat_modifiers_for_targeting_and_target_lead_2_options(ctx);
+tests\integration\tech_options\drone_techs\core_stats\test_core_stats.gd:34:	await legacy_test_d_targeting_num_2_options_exhaustive_after_save_load(ctx);
+tests\integration\tech_options\drone_techs\core_stats\test_core_stats.gd:38:	await legacy_test_target_lead_2_options_1_and_3_apply_projectile_speed_and_damage_tradeoffs(ctx);
+tests\integration\tech_options\drone_techs\core_stats\test_core_stats.gd:42:	await legacy_test_d_auto_upgrades_options_apply_firmware_and_coupled_circuitry(ctx);
+tests\integration\tech_options\drone_techs\core_stats\test_core_stats.gd:46:	await legacy_test_d_thrust_divert_options_apply_speed_and_damage(ctx);
+tests\integration\tech_options\drone_techs\core_stats\test_core_stats.gd:50:	await legacy_test_shop_health_unlock_gate_and_upgrade_guard(ctx);
+tests\integration\tech_options\drone_techs\equipment\test_equipment.gd:25:	await legacy_test_equipment_unlock_gating_matches_unlocks(ctx);
+tests\integration\tech_options\drone_techs\equipment\test_equipment.gd:29:	await legacy_test_equipment_2_unlock_gates_inventory_slot_ui(ctx);
+tests\integration\tech_options\drone_techs\equipment\test_equipment.gd:33:	await legacy_test_drone_equipment_1_options_apply_defensive_specialization_reactive_plating_and_loot_linked_defense(ctx);
+tests\integration\tech_options\drone_techs\equipment\test_equipment.gd:37:	await legacy_test_drone_equipment_3_options_apply_dual_offense_boss_tuning_and_all_bark_no_bite(ctx);
+tests\integration\tech_options\drone_techs\equipment\test_equipment.gd:41:	await legacy_test_drone_equipment_4_options_apply_pursuit_thrusters_reposition_burst_and_long_range_spray(ctx);
+tests\integration\tech_options\drone_techs\equipment\test_equipment.gd:45:	await legacy_test_drone_equipment_5_options_apply_flank_pattern_emergency_vectoring_and_loot_linked_utility(ctx);
+scenes\ui\production\furnace.gd:210:	if(!is_instance_valid(ALLOY_TEXTURE)):
+scenes\ui\production\furnace.gd:323:	if(!is_instance_valid(ORE_GRID) or !self.visible):
+tests\integration\tech_options\drone_techs\death_lifecycle\test_death_lifecycle.gd:38:	await legacy_test_on_kill_lifesteal_hull_and_shield_split_and_caps(ctx);
+tests\integration\tech_options\drone_techs\death_lifecycle\test_death_lifecycle.gd:42:	await legacy_test_on_kill_lifesteal_options_1_and_3_apply_multiplier_and_overflow_fire_rate_buff(ctx);
+tests\integration\tech_options\drone_techs\death_lifecycle\test_death_lifecycle.gd:46:	await legacy_test_on_kill_lifesteal_2_options_1_2_3_apply_stack_steps_team_echo_and_assisted_stacking(ctx);
+tests\integration\tech_options\drone_techs\death_lifecycle\test_death_lifecycle.gd:50:	await legacy_test_kamikaze_option2_final_gambit_prevents_death(ctx);
+tests\integration\tech_options\drone_techs\death_lifecycle\test_death_lifecycle.gd:54:	await legacy_test_kamikaze_options_1_and_3_core_breach_aoe_and_death_mark_applies_mark(ctx);
+tests\integration\tech_options\drone_techs\death_lifecycle\test_death_lifecycle.gd:58:	await legacy_test_drone_necromancy_options_apply_hp_multiplier_and_stat_drain_caps_at_10(ctx);
+tests\integration\tech_options\drone_techs\death_lifecycle\test_death_lifecycle.gd:62:	await legacy_test_drone_necromancy_1_option1_applies_spawn_chance_bonus_and_self_damage_mult(ctx);
+tests\integration\tech_options\drone_techs\death_lifecycle\test_death_lifecycle.gd:66:	await legacy_test_drone_necromancy_2_option1_applies_spawn_chance_bonus_and_self_health_mult(ctx);
+tests\integration\tech_options\drone_techs\death_lifecycle\test_death_lifecycle.gd:70:	await legacy_test_drone_necromancy_2_option2_increases_revive_hp_multiplier(ctx);
+tests\integration\tech_options\drone_techs\death_lifecycle\test_death_lifecycle.gd:74:	await legacy_test_drone_necromancy_2_option3_adds_stat_drain_stacking(ctx);
+tests\integration\tech_options\drone_techs\death_lifecycle\test_death_lifecycle.gd:78:	await legacy_test_drone_life_raft_should_spawn_composes_modifiers_and_integer_spawns(ctx);
+tests\integration\tech_options\drone_techs\death_lifecycle\test_death_lifecycle.gd:82:	await legacy_test_drone_life_raft_1_option1_modifier_values(ctx);
+tests\integration\tech_options\drone_techs\death_lifecycle\test_death_lifecycle.gd:86:	await legacy_test_drone_life_raft_1_option2_modifier_values(ctx);
+tests\integration\tech_options\drone_techs\death_lifecycle\test_death_lifecycle.gd:90:	await legacy_test_drone_life_raft_1_option3_modifier_values(ctx);
+tests\integration\tech_options\drone_techs\death_lifecycle\test_death_lifecycle.gd:94:	await legacy_test_drone_life_raft_2_option1_modifier_values(ctx);
+tests\integration\tech_options\drone_techs\death_lifecycle\test_death_lifecycle.gd:98:	await legacy_test_drone_life_raft_2_option2_modifier_values(ctx);
+tests\integration\tech_options\drone_techs\death_lifecycle\test_death_lifecycle.gd:102:	await legacy_test_drone_life_raft_2_option3_modifier_values(ctx);
+tests\integration\tech_options\drone_techs\death_lifecycle\test_death_lifecycle.gd:106:	await legacy_test_drone_life_raft_3_option1_modifier_values(ctx);
+tests\integration\tech_options\drone_techs\death_lifecycle\test_death_lifecycle.gd:110:	await legacy_test_drone_life_raft_3_option2_modifier_values(ctx);
+tests\integration\tech_options\mothership_techs\catalog\test_catalog.gd:27:	await Callable(helper, "legacy_" + legacy_name).call(ctx);
+tests\integration\tech_options\mothership_techs\catalog\test_catalog.gd:30:		await get_tree().process_frame;
+tests\integration\tech_options\mothership_techs\catalog\test_catalog.gd:51:	await legacy_test_mothership_unlocks_exist_in_unlock_map(ctx);
+tests\integration\tech_options\drone_techs\shield_survival\test_shield_survival.gd:27:	await legacy_test_drone_energy_vampire_options_convert_laser_and_apply_tradeoffs(ctx);
+tests\integration\tech_options\drone_techs\shield_survival\test_shield_survival.gd:31:	await legacy_test_drone_shield_duality_options_modify_bullet_damage_and_self_shield(ctx);
+tests\integration\tech_options\drone_techs\shield_survival\test_shield_survival.gd:35:	await legacy_test_drone_ion_reflect_option3_applies_damage_penalty_and_can_mark_attacker(ctx);
+tests\integration\tech_options\drone_techs\shield_survival\test_shield_survival.gd:39:	await legacy_test_drone_ion_reflect_options_1_and_2_apply_reflected_damage_and_shield_restore(ctx);
+tests\integration\tech_options\drone_techs\shield_survival\test_shield_survival.gd:43:	await legacy_test_shop_shield_health_multiplier_options_trigger_on_shield_break_and_on_kill(ctx);
+tests\integration\tech_options\drone_techs\shield_survival\test_shield_survival.gd:47:	await legacy_test_shop_shield_regen_multiplier_options_apply_base_penalty_and_buffs(ctx);
+tests\integration\tech_options\drone_techs\shield_survival\test_shield_survival.gd:51:	await legacy_test_side_thrusters_options_apply_impulse_and_buffs(ctx);
+tests\integration\tech_options\drone_techs\shield_survival\test_shield_survival.gd:55:	await legacy_test_side_thrusters_option1_cooldown_reclaim_and_side_thrusters_2_options_apply_multipliers(ctx);
+tests\integration\tech_options\mothership_techs\item_equipment\test_item_equipment.gd:35:	await Callable(helper, "legacy_" + legacy_name).call(ctx);
+tests\integration\tech_options\mothership_techs\item_equipment\test_item_equipment.gd:38:		await get_tree().process_frame;
+tests\integration\tech_options\mothership_techs\item_equipment\test_item_equipment.gd:59:	await legacy_test_item_equip_techs_gate_consumables_for_mothership_only(ctx);
+tests\integration\tech_options\mothership_techs\item_equipment\test_item_equipment.gd:63:	await _run_exhaustive_legacy_test("test_item_shield_regen_equip_options_apply_auto_trigger_and_tick_buffs_scaling", ctx);
+tests\integration\tech_options\mothership_techs\item_equipment\test_item_equipment.gd:67:	await _run_exhaustive_legacy_test("test_item_value_boost_equip_options_apply_tick_buffs_scaling_and_opt1_zero_slag", ctx);
+tests\integration\tech_options\mothership_techs\item_equipment\test_item_equipment.gd:71:	await _run_exhaustive_legacy_test("test_item_production_drones_equip_options_apply_tick_buffs_scaling_and_opt1_cap_boost", ctx);
+tests\integration\tech_options\mothership_techs\item_equipment\test_item_equipment.gd:75:	await _run_exhaustive_legacy_test("test_item_mining_drones_equip_options_apply_tick_buffs_scaling_and_opt1_speed_boost", ctx);
+scenes\ui\outposts\outpost_info\outpost_info.gd:296:	if(!is_instance_valid(MANUFACTURER)):
+scenes\ui\outposts\outpost_info\outpost_info.gd:507:		if(is_instance_valid(MANUFACTURER_CONTAINER)):
+scenes\ui\outposts\outpost_info\outpost_info.gd:530:		if (is_instance_valid(MANUFACTURER)):
+tests\integration\tech_options\drone_techs\shop_damage\test_shop_damage.gd:22:	await legacy_test_shop_damage_option1_calibration_burst_branches_and_target_switch_reset(ctx);
+tests\integration\tech_options\drone_techs\shop_damage\test_shop_damage.gd:26:	await legacy_test_shop_damage_option2_ion_etch_applies_once_per_target(ctx);
+tests\integration\tech_options\drone_techs\shop_damage\test_shop_damage.gd:30:	await legacy_test_shop_damage_option3_scatter_pattern_applies_spawn_time_damage_and_fire_rate(ctx);
+scenes\ui\online_ui\leaderboards\leaderboard_container.gd:21:	await Global._await_save_file()
+scenes\ui\online_ui\leaderboards\leaderboard_container.gd:32:		await Global._sleep(0.1)
+scenes\ui\online_ui\leaderboards\leaderboard_container.gd:36:	await Global.LEADERBOARDS._lb_loaded(1.0)
+scenes\ui\online_ui\leaderboards\leaderboard_container.gd:125:	if (!is_instance_valid(PLAYER_LB_LABEL)):
+scenes\ui\production\furnaces\f_alloy_holder.gd:18:	while(!is_instance_valid(SOURCE)):
+scenes\ui\production\furnaces\f_alloy_holder.gd:19:		await(Global._sleep(0.05));
+scenes\ui\production\furnaces\alloy_image_holder.gd:19:	while(!is_instance_valid(PARENT)):
+scenes\ui\production\furnaces\alloy_image_holder.gd:20:		await(Global._sleep(0.05));
+tests\integration\tech_options\frigate_techs\targeting_num_3\test_targeting_num_3.gd:20:	await legacy_test_f_targeting_num_3_option1_cleanup_beam_tracks_last_acquire_and_switch_penalty(ctx);
+tests\integration\tech_options\frigate_techs\targeting_num_3\test_targeting_num_3.gd:23:	await legacy_test_f_targeting_num_3_option2_intercept_protocol_disarms_new_drone_targets_and_penalizes_non_drones(ctx);
+tests\integration\tech_options\frigate_techs\targeting_num_3\test_targeting_num_3.gd:26:	await legacy_test_f_targeting_num_3_option3_corrosive_lock_stacks_erosion_and_applies_switch_penalty(ctx);
+tests\integration\tech_options\frigate_techs\targeting_num_3\test_targeting_num_3.gd:29:	await legacy_test_f_targeting_num_3_team2_stolen_snapshot_preserves_selected_option_payload(ctx);
+tests\integration\tech_options\frigate_techs\stealth\test_stealth.gd:21:	await legacy_test_f_stealth_option1_sets_laser_damage_mult(ctx);
+tests\integration\tech_options\frigate_techs\stealth\test_stealth.gd:25:	await legacy_test_f_stealth_triggers_below_threshold_respects_duration_and_cooldown(ctx);
+scenes\ui\production\furnaces\furnace_max_purchase.gd:17:	CONFIRM_BUTTON.find_child("TextureButton").pressed.connect(SOURCE._increase_furnace.bind());
+tests\integration\tech_options\mothership_techs\features_research\test_features_research.gd:34:	await Callable(helper, "legacy_" + legacy_name).call(ctx);
+tests\integration\tech_options\mothership_techs\features_research\test_features_research.gd:37:		await get_tree().process_frame;
+tests\integration\tech_options\mothership_techs\features_research\test_features_research.gd:58:	await legacy_test_feature_buffs_auto_triggers_hull_bots_below_threshold(ctx);
+tests\integration\tech_options\mothership_techs\features_research\test_features_research.gd:62:	await legacy_test_feature_buffs_fractional_quantity_never_activates_regardless_of_preservation(ctx);
+tests\integration\tech_options\mothership_techs\features_research\test_features_research.gd:66:	await legacy_test_feature_buffs_options_2_and_3_scale_hull_bots_effectiveness_and_duration(ctx);
+tests\integration\tech_options\mothership_techs\features_research\test_features_research.gd:70:	await legacy_test_feature_permanent_research_option1_speeds_research_ticks(ctx);
+tests\integration\tech_options\mothership_techs\features_research\test_features_research.gd:74:	await legacy_test_feature_permanent_research_option2_scales_slag_on_kill(ctx);
+tests\integration\tech_options\mothership_techs\features_research\test_features_research.gd:78:	await legacy_test_feature_permanent_research_option2_scales_drolium_mining_yield(ctx);
+tests\integration\tech_options\mothership_techs\features_research\test_features_research.gd:82:	await _run_exhaustive_legacy_test("test_feature_permanent_research_option3_matches_option2_modifiers", ctx);
+tests\integration\tech_options\frigate_techs\laser_delay\test_laser_delay.gd:23:	await legacy_test_shop_laser_delay_option2_applies_fire_rate_tradeoff_at_spawn(ctx);
+tests\integration\tech_options\frigate_techs\laser_delay\test_laser_delay.gd:27:	await legacy_test_shop_laser_delay_option2_split_beams_preserve_pending_targets(ctx);
+tests\integration\tech_options\frigate_techs\laser_delay\test_laser_delay.gd:31:	await legacy_test_shop_laser_delay_option1_marks_next_target_after_kill(ctx);
+tests\integration\tech_options\frigate_techs\laser_delay\test_laser_delay.gd:35:	await legacy_test_shop_laser_delay_option3_refunds_stealth_cooldown_on_target_death(ctx);
+tests\integration\tech_options\frigate_techs\catalog_liferaft\test_catalog_liferaft.gd:22:	await legacy_test_frigate_unlocks_exist_in_unlock_map(ctx);
+tests\integration\tech_options\frigate_techs\catalog_liferaft\test_catalog_liferaft.gd:26:	await legacy_test_frigate_life_raft_spawn_chance_integer_and_fractional_branches(ctx);
+tests\integration\tech_options\frigate_techs\catalog_liferaft\test_catalog_liferaft.gd:30:	await legacy_test_frigate_life_raft_modifier_object_composes_options(ctx);
+tests\integration\tech_options\frigate_techs\targetting_3\test_targetting_3.gd:23:	await legacy_test_targetting_3_option1_medic_hunter_support_bonus_and_other_penalty(ctx);
+tests\integration\tech_options\frigate_techs\targetting_3\test_targetting_3.gd:27:	await legacy_test_targetting_3_option2_regen_jammer_applies_once_per_target_and_expires(ctx);
+tests\integration\tech_options\frigate_techs\targetting_3\test_targetting_3.gd:31:	await legacy_test_targetting_3_option3_link_disruptor_only_hits_supports_and_expires(ctx);
+tests\integration\tech_options\frigate_techs\targetting_3\test_targetting_3.gd:35:	await legacy_test_targetting_3_team2_stolen_snapshot_preserves_selected_option_payload(ctx);
+tests\integration\tech_options\frigate_techs\targeting_num_2\test_targeting_num_2.gd:24:	await legacy_test_f_targeting_num_2_option1_execute_threshold_switches_damage_at_30_percent_hp(ctx);
+tests\integration\tech_options\frigate_techs\targeting_num_2\test_targeting_num_2.gd:28:	await legacy_test_f_targeting_num_2_option2_threat_routing_arms_dr_and_damage_penalty_until_expiry(ctx);
+tests\integration\tech_options\frigate_techs\targeting_num_2\test_targeting_num_2.gd:32:	await legacy_test_f_targeting_num_2_option3_flank_window_first_on_target_arms_bonus_timer(ctx);
+tests\integration\tech_options\frigate_techs\targeting_num_2\test_targeting_num_2.gd:36:	await legacy_test_f_targeting_num_2_option3_flank_window_grouped_target_arms_penalty_by_unique_allied_owners(ctx);
+tests\integration\tech_options\frigate_techs\targeting_num_2\test_targeting_num_2.gd:40:	await legacy_test_f_targeting_num_2_team2_stolen_snapshot_preserves_selected_option_payload(ctx);
+tests\integration\tech_options\frigate_techs\targeting_num_1\test_targeting_num_1.gd:24:	await legacy_test_f_targeting_num_1_option1_solo_duelist_counts_distinct_cotargeters(ctx);
+tests\integration\tech_options\frigate_techs\targeting_num_1\test_targeting_num_1.gd:28:	await legacy_test_f_targeting_num_1_option2_guardian_lock_applies_damage_tradeoff_and_dr(ctx);
+tests\integration\tech_options\frigate_techs\targeting_num_1\test_targeting_num_1.gd:32:	await legacy_test_f_targeting_num_1_option2_guardian_lock_buffs_cotargeters_on_target_death(ctx);
+tests\integration\tech_options\frigate_techs\targeting_num_1\test_targeting_num_1.gd:36:	await legacy_test_f_targeting_num_1_option3_retask_surge_marks_next_target_for_source_only(ctx);
+tests\integration\tech_options\frigate_techs\targeting_num_1\test_targeting_num_1.gd:40:	await legacy_test_f_targeting_num_1_team2_stolen_snapshot_preserves_selected_option_payload(ctx);
+tests\integration\tech_options\frigate_techs\shop_laser_damage\test_shop_laser_damage.gd:23:	await legacy_test_shop_laser_damage_option1_first_hit_applies_sunder_and_damage_penalty(ctx);
+tests\integration\tech_options\frigate_techs\shop_laser_damage\test_shop_laser_damage.gd:27:	await legacy_test_shop_laser_damage_option2_target_pressure_switches_damage_multiplier(ctx);
+tests\integration\tech_options\frigate_techs\shop_laser_damage\test_shop_laser_damage.gd:31:	await legacy_test_shop_laser_damage_option3_decloak_ambush_penalty_window(ctx);
+tests\integration\tech_options\frigate_techs\shop_laser_damage\test_shop_laser_damage.gd:35:	await legacy_test_shop_laser_damage_team2_stolen_snapshot_preserves_selected_option_payload(ctx);
+tests\integration\tech_options\frigate_techs\shield_health_multiplier\test_shield_health_multiplier.gd:23:	await legacy_test_shop_shield_health_multiplier_option1_arms_break_buffer_and_damage_penalty(ctx);
+tests\integration\tech_options\frigate_techs\shield_health_multiplier\test_shield_health_multiplier.gd:27:	await legacy_test_shop_shield_health_multiplier_option2_applies_exposed_and_low_shield_fire_rate_penalty(ctx);
+tests\integration\tech_options\frigate_techs\shield_health_multiplier\test_shield_health_multiplier.gd:31:	await legacy_test_shop_shield_health_multiplier_option3_restores_shield_and_extends_stealth_cooldown(ctx);
+tests\integration\tech_options\frigate_techs\shield_health_multiplier\test_shield_health_multiplier.gd:35:	await legacy_test_shop_shield_health_multiplier_team2_stolen_snapshot_preserves_selected_option_payload(ctx);
+tests\integration\tech_options\frigate_techs\shield_regen_multiplier\test_shield_regen_multiplier.gd:23:	await legacy_test_shop_shield_regen_multiplier_option1_target_pressure_switches_regen_multiplier(ctx);
+tests\integration\tech_options\frigate_techs\shield_regen_multiplier\test_shield_regen_multiplier.gd:27:	await legacy_test_shop_shield_regen_multiplier_option2_kill_recharge_burst_refreshes_and_expires(ctx);
+tests\integration\tech_options\frigate_techs\shield_regen_multiplier\test_shield_regen_multiplier.gd:31:	await legacy_test_shop_shield_regen_multiplier_option3_bodyguard_response_snapshots_regen_and_applies_damage_penalty(ctx);
+tests\integration\tech_options\frigate_techs\shield_regen_multiplier\test_shield_regen_multiplier.gd:35:	await legacy_test_shop_shield_regen_multiplier_team2_stolen_snapshot_preserves_selected_option_payload(ctx);
+tests\integration\tech_options\frigate_techs\thrust_divert\test_thrust_divert.gd:21:	await legacy_test_f_thrust_divert_option1_speed_down_damage_up(ctx);
+tests\integration\tech_options\frigate_techs\thrust_divert\test_thrust_divert.gd:25:	await legacy_test_f_thrust_divert_option2_speed_down_regen_up(ctx);
+tests\integration\tech_options\frigate_techs\targetting_2\test_targetting_2.gd:23:	await legacy_test_targetting_2_option1_shield_and_hull_damage_branches(ctx);
+tests\integration\tech_options\frigate_techs\targetting_2\test_targetting_2.gd:27:	await legacy_test_targetting_2_option2_shield_break_applies_slow_and_expires(ctx);
+tests\integration\tech_options\frigate_techs\targetting_2\test_targetting_2.gd:31:	await legacy_test_targetting_2_option3_chain_hits_current_targeter(ctx);
+tests\integration\tech_options\frigate_techs\targetting_2\test_targetting_2.gd:35:	await legacy_test_targetting_2_team2_stolen_snapshot_preserves_selected_option_payload(ctx);
+tests\integration\tech_options\frigate_techs\targetting_4\test_targetting_4.gd:23:	await legacy_test_targetting_4_option1_focus_cascade_arms_on_three_laser_kill_and_sunders_next_hit(ctx);
+tests\integration\tech_options\frigate_techs\targetting_4\test_targetting_4.gd:27:	await legacy_test_targetting_4_option2_escort_retaliation_tracks_projectile_attacker_and_consumes_hits(ctx);
+tests\integration\tech_options\frigate_techs\targetting_4\test_targetting_4.gd:31:	await legacy_test_targetting_4_option3_backline_hunter_buffs_non_frigates_after_backline_kill_and_expires(ctx);
+tests\integration\tech_options\frigate_techs\targetting_4\test_targetting_4.gd:35:	await legacy_test_targetting_4_team2_stolen_snapshot_preserves_selected_option_payload(ctx);
+tests\integration\tech_options\frigate_techs\draw_fire\test_draw_fire.gd:22:	await legacy_test_f_draw_fire_baseline_forces_targetting(ctx);
+tests\integration\tech_options\frigate_techs\draw_fire\test_draw_fire.gd:26:	await legacy_test_f_draw_fire_toggles_around_threshold(ctx);
+tests\integration\tech_options\frigate_techs\draw_fire\test_draw_fire.gd:30:	await legacy_test_f_draw_fire_option1_disables_draw_fire_and_boosts_regen(ctx);

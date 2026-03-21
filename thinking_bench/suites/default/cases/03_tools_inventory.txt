@@ -1,0 +1,16 @@
+
+
+    Directory: C:\Users\denys\Documents\GitHub\ai_idle\core_project - Copy\tools
+
+
+Mode                 LastWriteTime         Length Name                                                                 
+----                 -------------         ------ ----                                                                 
+-a----        2026-03-10  10:14 AM          19942 run_gui_tests.ps1                                                    
+-a----        2026-02-10   9:38 PM           2123 run_headless_tests.ps1                                               
+-a----        2026-02-10   9:39 PM           4951 run_headless_tests_old_ab.ps1                                        
+-a----        2026-03-03   9:06 AM          45644 run_main_game_smoke.ps1                                              
+-a----        2026-02-10   9:39 PM          20356 run_main_game_smoke_old_ab.ps1                                       
+-a----        2026-02-18   4:16 PM           6823 run_tutorial_autoplay.ps1                                            
+-a----        2026-03-03  12:26 PM          15697 verify_grouped_unused_assets.ps1                                     
+
+

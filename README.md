@@ -4,14 +4,35 @@ SiftKit is a Windows-first client for conservative shell-output compression in C
 
 The status/config server is required infrastructure and is not hosted by this package. Normal SiftKit commands fail closed if that separate server is not reachable.
 
-SiftKit also assumes an external `llama-server` instance is already running. The client does not embed or manage `llama.cpp`; it connects to the configured `LlamaCpp.BaseUrl`.
-Launch-time tuning such as CPU thread count and `tbatch` belongs to that external `llama-server` process, not to SiftKit client config.
+The client still talks to `llama.cpp` over HTTP on the configured `LlamaCpp.BaseUrl`, but the status server now owns the runtime lifecycle and participates in a shared GPU status-file protocol. On `npm start`, it clears stale managed llama processes, acquires the shared lock before using GPU, starts `llama-server`, dumps the startup logs for review, fails closed on warning/error markers, and keeps the published status `true` while SiftKit owns the GPU. After the idle summary is emitted and the server shuts the model back down, the published status returns to `false`.
+
+The shared status file now uses four canonical values:
+
+- `true`: SiftKit currently owns the GPU lock.
+- `false`: no lock is held and other processes may claim the GPU.
+- `lock_requested`: SiftKit wants the GPU and is waiting for a foreign owner to release it.
+- `foreign_lock`: a non-SiftKit process currently owns the GPU.
+
+`GET /status` remains backward-compatible: `status` returns the full 4-state value, while `running` is `true` only when `status === 'true'`.
 
 For local development, you can still start the separate server process manually from this repo with:
 
 ```powershell
 npm start
 ```
+
+That launch path uses `nodemon --signal SIGINT`, so a managed llama process is torn down on graceful restarts instead of being left behind between reloads.
+
+When the status server runs a managed llama startup script, it captures startup-script stdout/stderr under the runtime `logs\managed-llama` folder and exposes server-owned log paths to the script through these environment variables:
+
+- `SIFTKIT_LLAMA_SCRIPT_STDOUT_PATH`
+- `SIFTKIT_LLAMA_SCRIPT_STDERR_PATH`
+- `SIFTKIT_LLAMA_STDOUT_PATH`
+- `SIFTKIT_LLAMA_STDERR_PATH`
+
+Each managed startup attempt also writes a reviewable startup-only dump to `logs\managed-llama\latest-startup.log`, and a per-attempt copy to the timestamped startup folder as `startup-review.log`.
+
+If startup succeeds but those captured logs contain warning/error markers, the server dumps the logs to a failure file under `logs\managed-llama`, stops the managed llama process, and fails closed.
 
 ## Required server contract
 
@@ -76,9 +97,9 @@ npm run verify:client
 
 That script assumes the separate status/config server is already running and reachable.
 
-Start `llama-server` separately and point SiftKit at it through the config service, for example with a base URL such as `http://127.0.0.1:8080`.
+Point SiftKit at the target `llama-server` base URL through the config service, for example `http://127.0.0.1:8080`, and set `Server.LlamaCpp.StartupScript` plus `Server.LlamaCpp.ShutdownScript` in the config file if you want the status server to manage the process lifecycle.
 
-Run the dedicated live `llama.cpp` smoke flow against an already-running `llama-server` plus status/config server:
+Run the dedicated live `llama.cpp` smoke flow against the status/config server plus a reachable `llama.cpp` endpoint:
 
 ```powershell
 npm run verify:llama-live
@@ -140,5 +161,5 @@ For PowerShell-only interactive capture support, dot-source the generated wrappe
 - `find-files`, `codex-policy`, and `install-global` are local-only client operations and do not require the external server.
 - All other normal commands require the external server and do not fall back to local config or local status handling.
 - External inference is provided by `llama.cpp` via `llama-server` on the configured `LlamaCpp.BaseUrl`.
-- Server launch and low-level runtime tuning remain external responsibilities; SiftKit does not manage `llama-server` flags such as thread count or `tbatch`.
+- The status server can supervise startup and shutdown through `Server.LlamaCpp.StartupScript` and `Server.LlamaCpp.ShutdownScript`.
 - Test seams such as the mock provider environment variables exist for automated tests only and are not part of the public runtime contract.

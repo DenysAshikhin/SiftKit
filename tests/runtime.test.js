@@ -14,7 +14,7 @@ const {
   getChunkThresholdCharacters,
   getStatusServerUnavailableMessage,
 } = require('../dist/config.js');
-const { summarizeRequest } = require('../dist/summary.js');
+const { summarizeRequest, buildPrompt, UNSUPPORTED_INPUT_MESSAGE } = require('../dist/summary.js');
 const { runCommand } = require('../dist/command.js');
 const { runBenchmarkSuite } = require('../dist/benchmark.js');
 const {
@@ -85,6 +85,16 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function setManagedLlamaBaseUrl(config, baseUrl) {
+  config.LlamaCpp.BaseUrl = baseUrl;
+  config.Runtime ??= {};
+  config.Runtime.Model ??= config.Model;
+  config.Runtime.LlamaCpp = {
+    ...(config.Runtime.LlamaCpp || {}),
+    BaseUrl: baseUrl,
+  };
+}
+
 function mergeConfig(baseValue, patchValue) {
   if (Array.isArray(baseValue) && Array.isArray(patchValue)) {
     return patchValue.slice();
@@ -111,6 +121,38 @@ function mergeConfig(baseValue, patchValue) {
   }
 
   return patchValue;
+}
+
+function extractPromptSection(promptText, header) {
+  const escaped = header.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  const match = new RegExp(`${escaped}\\n([\\s\\S]*?)(?:\\n[A-Z][^\\n]*:\\n|$)`, 'u').exec(promptText);
+  return match ? match[1].trim() : '';
+}
+
+function buildStructuredStubDecision(promptText) {
+  const inputText = extractPromptSection(promptText, 'Input:');
+
+  if (!inputText.trim() || /unsupported fixture marker/u.test(inputText)) {
+    return {
+      classification: 'unsupported_input',
+      raw_review_required: false,
+      output: UNSUPPORTED_INPUT_MESSAGE,
+    };
+  }
+
+  if (/Unable to resolve external command/u.test(inputText)) {
+    return {
+      classification: 'command_failure',
+      raw_review_required: true,
+      output: 'The command failed before producing a usable result. The executable could not be resolved in the current environment.\nRaw review required.',
+    };
+  }
+
+  return {
+    classification: 'summary',
+    raw_review_required: false,
+    output: `summary:${String(promptText).slice(0, 24)}`,
+  };
 }
 
 function readBody(req) {
@@ -165,6 +207,25 @@ function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+async function removeDirectoryWithRetries(targetPath, attempts = 40, delayMs = 100) {
+  let lastError = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      fs.rmSync(targetPath, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error ? String(error.code || '') : '';
+      if (code !== 'EPERM' && code !== 'EBUSY') {
+        throw error;
+      }
+      lastError = error;
+      await sleep(delayMs);
+    }
+  }
+
+  throw lastError;
+}
+
 function spawnProcess(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -196,6 +257,7 @@ async function startStubStatusServer(options = {}) {
   const state = {
     config: mergeConfig(getDefaultConfig(), options.config || {}),
     statusPosts: [],
+    chatRequests: [],
     running: Boolean(options.running),
     executionLeaseToken: null,
     metrics: {
@@ -248,6 +310,15 @@ async function startStubStatusServer(options = {}) {
       const bodyText = await readBody(req);
       const parsed = bodyText ? JSON.parse(bodyText) : {};
       const promptText = parsed?.messages?.[0]?.content || '';
+      state.chatRequests.push(parsed);
+      if (Number.isFinite(options.rejectPromptCharsOver) && String(promptText).length > Number(options.rejectPromptCharsOver)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `prompt too large: ${String(promptText).length}` }));
+        return;
+      }
+      const assistantContent = /"classification":"summary\|command_failure\|unsupported_input"/u.test(promptText)
+        ? JSON.stringify(buildStructuredStubDecision(String(promptText)))
+        : `summary:${String(promptText).slice(0, 24)}`;
       const usage = options.omitUsage ? null : {
         prompt_tokens: 123,
         completion_tokens: 45,
@@ -267,7 +338,7 @@ async function startStubStatusServer(options = {}) {
             index: 0,
             message: {
               role: 'assistant',
-              content: `summary:${String(promptText).slice(0, 24)}`,
+              content: assistantContent,
             },
           },
         ],
@@ -400,7 +471,7 @@ function withTempEnv(fn) {
   delete process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH;
   process.env.SIFTKIT_TEST_PROVIDER = 'mock';
 
-  const cleanup = () => {
+  const cleanup = async () => {
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) {
         delete process.env[key];
@@ -408,7 +479,7 @@ function withTempEnv(fn) {
         process.env[key] = value;
       }
     }
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    await removeDirectoryWithRetries(tempRoot);
   };
 
   return Promise.resolve()
@@ -520,11 +591,16 @@ async function startStatusServerProcess(options) {
   const stderrLines = [];
   let stdoutBuffer = '';
   let startupResolved = false;
+  let closeResolved = false;
   let resolveStartup;
   let rejectStartup;
+  let resolveClose;
   const startup = new Promise((resolve, reject) => {
     resolveStartup = resolve;
     rejectStartup = reject;
+  });
+  const closePromise = new Promise((resolve) => {
+    resolveClose = resolve;
   });
 
   function handleStdoutChunk(chunk) {
@@ -562,9 +638,17 @@ async function startStatusServerProcess(options) {
     }
   });
   child.on('close', (code, signal) => {
+    if (!closeResolved) {
+      closeResolved = true;
+      resolveClose({ code, signal });
+    }
     if (!startupResolved) {
       startupResolved = true;
-      rejectStartup(new Error(`status server exited before startup (code=${code}, signal=${signal})`));
+      rejectStartup(new Error([
+        `status server exited before startup (code=${code}, signal=${signal})`,
+        `stdout:\n${stdoutLines.join('\n')}`,
+        `stderr:\n${stderrLines.join('\n')}`,
+      ].join('\n')));
     }
   });
 
@@ -573,6 +657,7 @@ async function startStatusServerProcess(options) {
   return {
     port: startupInfo.port,
     statusUrl: `http://127.0.0.1:${startupInfo.port}/status`,
+    configUrl: `http://127.0.0.1:${startupInfo.port}/config`,
     executionUrl: `http://127.0.0.1:${startupInfo.port}/execution`,
     stdoutLines,
     stderrLines,
@@ -592,12 +677,18 @@ async function startStatusServerProcess(options) {
         await sleep(10);
       }
     },
+    async waitForExit(timeoutMs = 5000) {
+      return await Promise.race([
+        closePromise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error(`Timed out waiting for status server exit after ${timeoutMs} ms.`)), timeoutMs)),
+      ]);
+    },
     async close() {
       if (child.exitCode !== null || child.killed) {
         return;
       }
 
-      child.kill('SIGTERM');
+      child.kill('SIGINT');
       await new Promise((resolve) => child.once('close', resolve));
     },
   };
@@ -639,13 +730,190 @@ function getIdleSummaryBlock(stdoutLines, requestsPattern) {
   return stdoutLines.slice(startIndex, startIndex + 5).map(stripAnsi);
 }
 
-test('loadConfig fails closed when observed chars-per-token metrics are unavailable', async () => {
+async function getFreePort() {
+  const server = http.createServer(() => {});
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  await new Promise((resolve) => server.close(resolve));
+  return port;
+}
+
+function toSingleQuotedPowerShellLiteral(value) {
+  return `'${String(value).replace(/'/gu, "''")}'`;
+}
+
+function writeManagedLlamaScripts(tempRoot, port, modelId = 'managed-test-model', options = {}) {
+  const fakeServerPath = path.join(tempRoot, 'fake-llama-server.js');
+  const startupScriptPath = path.join(tempRoot, 'start-llama.ps1');
+  const shutdownScriptPath = path.join(tempRoot, 'stop-llama.ps1');
+  const pidFilePath = path.join(tempRoot, 'fake-llama.pid');
+  const readyFilePath = path.join(tempRoot, 'fake-llama.ready');
+
+  fs.writeFileSync(fakeServerPath, `
+const http = require('node:http');
+const fs = require('node:fs');
+const port = ${JSON.stringify(port)};
+const modelId = ${JSON.stringify(modelId)};
+const readyFilePath = ${JSON.stringify(readyFilePath)};
+
+const server = http.createServer((req, res) => {
+  if (req.method === 'GET' && req.url === '/v1/models') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: [{ id: modelId }] }));
+    return;
+  }
+
+  if (req.method === 'GET' && req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  res.writeHead(404, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ error: 'not found' }));
+});
+
+server.listen(port, '127.0.0.1', () => {
+  fs.writeFileSync(readyFilePath, String(process.pid), 'utf8');
+});
+
+function shutdown() {
+  server.close(() => process.exit(0));
+}
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+`, 'utf8');
+
+  fs.writeFileSync(startupScriptPath, `
+param(
+  [string]$ConfigPath,
+  [string]$ConfigUrl,
+  [string]$StatusPath,
+  [string]$StatusUrl,
+  [string]$HealthUrl,
+  [string]$RuntimeRoot,
+  [string]$ScriptPath
+)
+
+$pidFile = ${toSingleQuotedPowerShellLiteral(pidFilePath)}
+$nodePath = ${toSingleQuotedPowerShellLiteral(process.execPath)}
+$serverScript = ${toSingleQuotedPowerShellLiteral(fakeServerPath)}
+$startupLogLine = ${toSingleQuotedPowerShellLiteral(options.startupLogLine || '')}
+$llamaLogLine = ${toSingleQuotedPowerShellLiteral(options.llamaLogLine || '')}
+$launchHangingProcess = ${options.launchHangingProcess ? '$true' : '$false'}
+$preflightConfigGet = ${options.preflightConfigGet ? '$true' : '$false'}
+
+if (Test-Path -LiteralPath $pidFile) {
+  try {
+    $existingPid = [int]((Get-Content -LiteralPath $pidFile -Raw).Trim())
+    $existing = Get-Process -Id $existingPid -ErrorAction SilentlyContinue
+    if ($existing) {
+      exit 0
+    }
+  }
+  catch {
+  }
+}
+
+if ($startupLogLine) {
+  Write-Output $startupLogLine
+}
+if ($llamaLogLine -and $env:SIFTKIT_LLAMA_STDOUT_PATH) {
+  Set-Content -LiteralPath $env:SIFTKIT_LLAMA_STDOUT_PATH -Value $llamaLogLine -Encoding utf8 -NoNewline
+}
+if ($preflightConfigGet -and $ConfigUrl) {
+  try {
+    Invoke-RestMethod -Uri $ConfigUrl -Method Get -TimeoutSec 10 | Out-Null
+  }
+  catch {
+  }
+}
+
+$child = if ($launchHangingProcess) {
+  Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 60') -PassThru -WindowStyle Hidden
+} else {
+  Start-Process -FilePath $nodePath -ArgumentList @($serverScript) -PassThru -WindowStyle Hidden
+}
+Set-Content -LiteralPath $pidFile -Value ([string]$child.Id) -Encoding utf8 -NoNewline
+exit 0
+`, 'utf8');
+
+  fs.writeFileSync(shutdownScriptPath, `
+param(
+  [string]$ConfigPath,
+  [string]$ConfigUrl,
+  [string]$StatusPath,
+  [string]$StatusUrl,
+  [string]$HealthUrl,
+  [string]$RuntimeRoot,
+  [string]$ScriptPath
+)
+
+$pidFile = ${toSingleQuotedPowerShellLiteral(pidFilePath)}
+if (Test-Path -LiteralPath $pidFile) {
+  try {
+    $pidValue = [int]((Get-Content -LiteralPath $pidFile -Raw).Trim())
+    Stop-Process -Id $pidValue -Force -ErrorAction SilentlyContinue
+  }
+  catch {
+  }
+  Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
+}
+exit 0
+`, 'utf8');
+
+  return {
+    baseUrl: `http://127.0.0.1:${port}`,
+    startupScriptPath,
+    shutdownScriptPath,
+    pidFilePath,
+    readyFilePath,
+  };
+}
+
+async function waitForAsyncExpectation(expectation, timeoutMs = 2000) {
+  const startedAt = Date.now();
+  let lastError = null;
+  for (;;) {
+    try {
+      await expectation();
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+
+    if ((Date.now() - startedAt) >= timeoutMs) {
+      throw lastError;
+    }
+
+    await sleep(25);
+  }
+}
+
+function runPowerShellScript(scriptPath) {
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+
+  if ((result.status ?? 0) !== 0) {
+    throw new Error(`PowerShell script failed (${scriptPath}) with exit code ${result.status ?? 'null'}: ${result.stderr || result.stdout}`);
+  }
+}
+
+test('loadConfig uses the fixed bootstrap chars-per-token budget before observed telemetry exists', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
-      await assert.rejects(
-        () => loadConfig({ ensure: true }),
-        /did not provide usable input character\/token totals/u
-      );
+      const config = await loadConfig({ ensure: true });
+
+      assert.equal(config.Effective.BudgetSource, 'ColdStartFixedCharsPerToken');
+      assert.equal(config.Effective.InputCharactersPerContextToken, 2.5);
+      assert.equal(config.Effective.ObservedTelemetrySeen, false);
+      assert.equal(config.Effective.ObservedTelemetryUpdatedAtUtc, null);
+      assert.equal(config.Effective.MaxInputCharacters, 320000);
+      assert.equal(config.Effective.ChunkThresholdCharacters, 294400);
     }, {
       metrics: {
         inputCharactersTotal: 0,
@@ -656,6 +924,38 @@ test('loadConfig fails closed when observed chars-per-token metrics are unavaila
         completedRequestCount: 0,
         requestDurationMsTotal: 0,
       },
+    });
+  });
+});
+
+test('loadConfig immediately switches from bootstrap fallback to observed telemetry when totals appear', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async () => {
+      const coldStartConfig = await loadConfig({ ensure: true });
+      assert.equal(coldStartConfig.Effective.BudgetSource, 'ColdStartFixedCharsPerToken');
+      assert.equal(coldStartConfig.Effective.InputCharactersPerContextToken, 2.5);
+    }, {
+      metrics: {
+        inputCharactersTotal: 0,
+        inputTokensTotal: 0,
+        outputCharactersTotal: 0,
+        outputTokensTotal: 0,
+        thinkingTokensTotal: 0,
+        completedRequestCount: 0,
+        requestDurationMsTotal: 0,
+      },
+    });
+
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+      const expectedRatio = 3461904 / 1865267;
+
+      assert.equal(config.Effective.BudgetSource, 'ObservedCharsPerToken');
+      assert.ok(Math.abs(config.Effective.InputCharactersPerContextToken - expectedRatio) < 1e-12);
+      assert.equal(config.Effective.ObservedTelemetrySeen, true);
+      assert.equal(typeof config.Effective.ObservedTelemetryUpdatedAtUtc, 'string');
+      assert.equal(config.Effective.MaxInputCharacters, 237565);
+      assert.equal(config.Effective.ChunkThresholdCharacters, 218559);
     });
   });
 });
@@ -684,6 +984,60 @@ test('loadConfig normalizes legacy defaults and derives effective budgets from t
           MaxInputCharacters: 32000,
           ChunkThresholdRatio: 0.75,
         },
+      },
+    });
+  });
+});
+
+test('loadConfig fails closed when observed telemetry previously existed and status metrics later become unusable', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+      assert.equal(config.Effective.BudgetSource, 'ObservedCharsPerToken');
+    });
+
+    await withStubServer(async () => {
+      await assert.rejects(
+        () => loadConfig({ ensure: true }),
+        /previously recorded a valid observed chars-per-token budget.*no longer provides usable input character\/token totals/u
+      );
+    }, {
+      metrics: {
+        inputCharactersTotal: 0,
+        inputTokensTotal: 0,
+        outputCharactersTotal: 0,
+        outputTokensTotal: 0,
+        thinkingTokensTotal: 0,
+        completedRequestCount: 0,
+        requestDurationMsTotal: 0,
+      },
+    });
+  });
+});
+
+test('loadConfig fails closed when observed telemetry previously existed and the status backend later becomes unavailable', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+      assert.equal(config.Effective.BudgetSource, 'ObservedCharsPerToken');
+    });
+
+    await withStubServer(async (server) => {
+      process.env.SIFTKIT_CONFIG_SERVICE_URL = server.configUrl;
+      process.env.SIFTKIT_STATUS_BACKEND_URL = 'http://127.0.0.1:4779/status';
+      await assert.rejects(
+        () => loadConfig({ ensure: true }),
+        /previously recorded a valid observed chars-per-token budget.*status server is unavailable/i
+      );
+    }, {
+      metrics: {
+        inputCharactersTotal: 0,
+        inputTokensTotal: 0,
+        outputCharactersTotal: 0,
+        outputTokensTotal: 0,
+        thinkingTokensTotal: 0,
+        completedRequestCount: 0,
+        requestDurationMsTotal: 0,
       },
     });
   });
@@ -791,6 +1145,39 @@ test('summarizeRequest splits using the observed aggregate chars-per-token avera
       metrics: {
         inputCharactersTotal: 3461904,
         inputTokensTotal: 1865267,
+      },
+    });
+  });
+});
+
+test('summarizeRequest fails closed when observed telemetry existed and the status snapshot later becomes unusable', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+      assert.equal(config.Effective.BudgetSource, 'ObservedCharsPerToken');
+    });
+
+    await withStubServer(async () => {
+      await assert.rejects(
+        () => summarizeRequest({
+          question: 'summarize this',
+          inputText: 'A'.repeat(5000),
+          format: 'text',
+          policyProfile: 'general',
+          backend: 'mock',
+          model: 'mock-model',
+        }),
+        /previously recorded a valid observed chars-per-token budget.*no longer provides usable input character\/token totals/i
+      );
+    }, {
+      metrics: {
+        inputCharactersTotal: 0,
+        inputTokensTotal: 0,
+        outputCharactersTotal: 0,
+        outputTokensTotal: 0,
+        thinkingTokensTotal: 0,
+        completedRequestCount: 0,
+        requestDurationMsTotal: 0,
       },
     });
   });
@@ -983,6 +1370,111 @@ test('real status server clears stale true status after the idle watchdog interv
   });
 });
 
+test('real status server initializes a missing status file to false', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ statusUrl, statusPath: liveStatusPath }) => {
+      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'false');
+      const status = await requestJson(statusUrl);
+      assert.equal(status.running, false);
+      assert.equal(status.status, 'false');
+    }, {
+      statusPath,
+      configPath,
+    });
+  });
+});
+
+test('real status server preserves foreign_lock while siftkit is idle', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
+    fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+    fs.writeFileSync(statusPath, 'foreign_lock', 'utf8');
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ statusUrl, statusPath: liveStatusPath }) => {
+      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'foreign_lock');
+      await sleep(10_500);
+      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'foreign_lock');
+      const status = await requestJson(statusUrl);
+      assert.equal(status.running, false);
+      assert.equal(status.status, 'foreign_lock');
+    }, {
+      statusPath,
+      configPath,
+    });
+  });
+});
+
+test('real status server publishes lock_requested while waiting on a foreign_lock', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
+    fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+    fs.writeFileSync(statusPath, 'foreign_lock', 'utf8');
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      const acquirePromise = requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: true, rawInputCharacterCount: 25 }),
+      });
+
+      await waitForAsyncExpectation(async () => {
+        assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'lock_requested');
+        const waitingStatus = await requestJson(statusUrl);
+        assert.equal(waitingStatus.running, false);
+        assert.equal(waitingStatus.status, 'lock_requested');
+      }, 2000);
+
+      fs.writeFileSync(statusPath, 'false', 'utf8');
+
+      const acquired = await acquirePromise;
+      assert.equal(acquired.running, true);
+      assert.equal(acquired.status, 'true');
+      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
+
+      await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: false, promptCharacterCount: 25, inputTokens: 5, outputCharacterCount: 4, outputTokens: 1, requestDurationMs: 10 }),
+      });
+    }, {
+      statusPath,
+      configPath,
+    });
+  });
+});
+
+test('real status server rejects shared-file statuses in POST /status payloads', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      await assert.rejects(() => requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ status: 'foreign_lock' }),
+      }), /Expected running=true\|false or status=true\|false\./u);
+    }, {
+      statusPath,
+      configPath,
+    });
+  });
+});
+
 test('real status server preserves true status while an active request is tracked', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
@@ -1044,6 +1536,350 @@ test('real status server persists aggregate metrics and exposes them from GET /s
       assert.equal(status.metrics.thinkingTokensTotal, 0);
       assert.equal(status.metrics.requestDurationMsTotal, 800);
       assert.equal(status.metrics.completedRequestCount, 1);
+    }, {
+      statusPath,
+      configPath,
+    });
+  });
+});
+
+test('real status server starts managed llama.cpp during server startup before serving requests', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ port, statusUrl }) => {
+      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
+      await waitForAsyncExpectation(async () => {
+        const models = await requestJson(`${managed.baseUrl}/v1/models`);
+        assert.equal(models.data[0].id, 'managed-test-model');
+      }, 5000);
+      await waitForAsyncExpectation(async () => {
+        const status = await requestJson(statusUrl);
+        assert.equal(status.running, true);
+        assert.equal(status.status, 'true');
+        assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
+      }, 5000);
+      const latestStartupDumpPath = path.join(tempRoot, 'logs', 'managed-llama', 'latest-startup.log');
+      assert.equal(fs.existsSync(latestStartupDumpPath), true);
+      const latestStartupDumpText = fs.readFileSync(latestStartupDumpPath, 'utf8');
+      assert.match(latestStartupDumpText, /Result: ready/u);
+      assert.match(latestStartupDumpText, /startup_script_stdout/u);
+
+      const previousConfigUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
+      const previousStatusUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
+      process.env.SIFTKIT_CONFIG_SERVICE_URL = `http://127.0.0.1:${port}/config`;
+      process.env.SIFTKIT_STATUS_BACKEND_URL = statusUrl;
+
+      try {
+        const loadedConfig = await loadConfig({ ensure: true });
+        assert.equal(loadedConfig.LlamaCpp.BaseUrl, managed.baseUrl);
+        assert.equal(loadedConfig.Server.LlamaCpp.StartupScript, managed.startupScriptPath);
+      } finally {
+        if (previousConfigUrl === undefined) {
+          delete process.env.SIFTKIT_CONFIG_SERVICE_URL;
+        } else {
+          process.env.SIFTKIT_CONFIG_SERVICE_URL = previousConfigUrl;
+        }
+        if (previousStatusUrl === undefined) {
+          delete process.env.SIFTKIT_STATUS_BACKEND_URL;
+        } else {
+          process.env.SIFTKIT_STATUS_BACKEND_URL = previousStatusUrl;
+        }
+      }
+
+      assert.equal(fs.existsSync(managed.readyFilePath), true);
+    }, {
+      statusPath,
+      configPath,
+    });
+
+    await waitForAsyncExpectation(
+      async () => assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`)),
+      5000
+    );
+    await waitForAsyncExpectation(async () => {
+      assert.equal(fs.existsSync(managed.pidFilePath), false);
+    }, 5000);
+    await sleep(250);
+  });
+});
+
+test('real status server waits behind foreign_lock before starting managed llama.cpp', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+    fs.writeFileSync(statusPath, 'foreign_lock', 'utf8');
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      await waitForAsyncExpectation(async () => {
+        const status = await requestJson(statusUrl);
+        assert.equal(status.running, false);
+        assert.equal(status.status, 'lock_requested');
+        assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'lock_requested');
+      }, 2000);
+      assert.equal(fs.existsSync(managed.readyFilePath), false);
+
+      fs.writeFileSync(statusPath, 'false', 'utf8');
+
+      await waitForAsyncExpectation(async () => {
+        assert.equal(fs.existsSync(managed.readyFilePath), true);
+        const status = await requestJson(statusUrl);
+        assert.equal(status.running, true);
+        assert.equal(status.status, 'true');
+      }, 5000);
+    }, {
+      statusPath,
+      configPath,
+    });
+  });
+});
+
+test('real status server keeps published true status while managed llama stays ready', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      await waitForAsyncExpectation(async () => {
+        const models = await requestJson(`${managed.baseUrl}/v1/models`);
+        assert.equal(models.data[0].id, 'managed-test-model');
+      }, 5000);
+
+      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
+      await sleep(10_500);
+
+      const status = await requestJson(statusUrl);
+      assert.equal(status.running, true);
+      assert.equal(status.status, 'true');
+      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
+    }, {
+      statusPath,
+      configPath,
+    });
+  });
+});
+
+test('real status server keeps startup status true when the startup script calls config before launch', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
+      preflightConfigGet: true,
+    });
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
+      await waitForAsyncExpectation(async () => {
+        const models = await requestJson(`${managed.baseUrl}/v1/models`);
+        assert.equal(models.data[0].id, 'managed-test-model');
+      }, 5000);
+
+      const status = await requestJson(statusUrl);
+      assert.equal(status.running, true);
+      assert.equal(status.status, 'true');
+      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
+    }, {
+      statusPath,
+      configPath,
+    });
+  });
+});
+
+test('real status server fails closed during startup when managed llama logs contain warnings', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
+      llamaLogLine: 'warning: fake llama startup warning',
+    });
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await assert.rejects(
+      () => startStatusServerProcess({
+        statusPath,
+        configPath,
+      }),
+      /startup logs contained warning\/error markers/i
+    );
+
+    const managedLogRoot = path.join(tempRoot, 'logs', 'managed-llama');
+    const dumpFiles = fs.existsSync(managedLogRoot)
+      ? fs.readdirSync(managedLogRoot, { recursive: true })
+        .map((entry) => path.join(managedLogRoot, String(entry)))
+        .filter((entryPath) => /startup-scan-failure\.log$/u.test(entryPath))
+      : [];
+    assert.ok(dumpFiles.length > 0);
+    const dumpText = fs.readFileSync(dumpFiles[0], 'utf8');
+    assert.match(dumpText, /warning: fake llama startup warning/u);
+    const latestStartupDumpPath = path.join(tempRoot, 'logs', 'managed-llama', 'latest-startup.log');
+    assert.equal(fs.existsSync(latestStartupDumpPath), true);
+    assert.match(fs.readFileSync(latestStartupDumpPath, 'utf8'), /Result: failed/u);
+  });
+});
+
+test('real status server aborts a broken managed llama startup during server startup within the capped timeout', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
+      launchHangingProcess: true,
+    });
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 60_000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    const startedAt = Date.now();
+    await assert.rejects(
+      () => startStatusServerProcess({
+        statusPath,
+        configPath,
+      }),
+      /Timed out waiting for llama\.cpp server .* to become ready/i
+    );
+    const elapsedMs = Date.now() - startedAt;
+    assert.ok(elapsedMs < 31_000);
+    assert.equal(fs.existsSync(managed.pidFilePath), false);
+    const latestStartupDumpPath = path.join(tempRoot, 'logs', 'managed-llama', 'latest-startup.log');
+    assert.equal(fs.existsSync(latestStartupDumpPath), true);
+    const latestStartupDumpText = fs.readFileSync(latestStartupDumpPath, 'utf8');
+    assert.match(latestStartupDumpText, /Result: failed/u);
+    assert.match(latestStartupDumpText, /Timed out waiting for llama\.cpp server/u);
+  });
+});
+
+test('real status server clears a stale managed llama process during startup before serving requests', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    runPowerShellScript(managed.startupScriptPath);
+    await waitForAsyncExpectation(async () => {
+      const models = await requestJson(`${managed.baseUrl}/v1/models`);
+      assert.equal(models.data[0].id, 'managed-test-model');
+    }, 5000);
+
+    await withRealStatusServer(async ({ port }) => {
+      await waitForAsyncExpectation(
+        async () => assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`)),
+        5000
+      );
+
+      const previousConfigUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
+      const previousStatusUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
+      process.env.SIFTKIT_CONFIG_SERVICE_URL = `http://127.0.0.1:${port}/config`;
+      process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${port}/status`;
+      try {
+        const loadedConfig = await loadConfig({ ensure: true });
+        assert.equal(loadedConfig.LlamaCpp.BaseUrl, managed.baseUrl);
+        await waitForAsyncExpectation(async () => {
+          const models = await requestJson(`${managed.baseUrl}/v1/models`);
+          assert.equal(models.data[0].id, 'managed-test-model');
+        }, 5000);
+      } finally {
+        if (previousConfigUrl === undefined) {
+          delete process.env.SIFTKIT_CONFIG_SERVICE_URL;
+        } else {
+          process.env.SIFTKIT_CONFIG_SERVICE_URL = previousConfigUrl;
+        }
+        if (previousStatusUrl === undefined) {
+          delete process.env.SIFTKIT_STATUS_BACKEND_URL;
+        } else {
+          process.env.SIFTKIT_STATUS_BACKEND_URL = previousStatusUrl;
+        }
+      }
     }, {
       statusPath,
       configPath,
@@ -1314,6 +2150,39 @@ test('summary aggregation records thinking tokens independently from output metr
   });
 });
 
+test('summary retries with smaller chunks when llama.cpp rejects an oversized prompt', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const result = await summarizeRequest({
+        question: 'summarize this',
+        inputText: 'A'.repeat(150000),
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.WasSummarized, true);
+      assert.match(result.Summary, /^summary:/u);
+      assert.ok(server.state.chatRequests.length >= 3);
+      const promptLengths = server.state.chatRequests.map((request) => String(request?.messages?.[0]?.content || '').length);
+      assert.ok(promptLengths.some((length) => length > 80000));
+      assert.ok(promptLengths.some((length) => length <= 80000));
+    }, {
+      rejectPromptCharsOver: 80000,
+      metrics: {
+        inputCharactersTotal: 3_461_904,
+        inputTokensTotal: 1_865_267,
+        outputCharactersTotal: 0,
+        outputTokensTotal: 0,
+        thinkingTokensTotal: 0,
+        completedRequestCount: 0,
+        requestDurationMsTotal: 0,
+      },
+    });
+  });
+});
+
 test('idle metrics formatter emits ANSI colors when enabled on a TTY', () => {
   const message = buildIdleMetricsLogMessage({
     inputCharactersTotal: 200,
@@ -1401,8 +2270,11 @@ test('request status log groups large running counts and uses colon elapsed dura
       rawInputCharacterCount: 101_891,
       chunkInputCharacterCount: 101_891,
       promptCharacterCount: 102_584,
+      budgetSource: 'ObservedCharsPerToken',
+      inputCharactersPerContextToken: 1.856,
+      chunkThresholdCharacters: 218_559,
     }),
-    'request true raw_chars=101,891 chunk_input_chars=101,891 prompt_chars=102,584',
+    'request true raw_chars=101,891 chunk_input_chars=101,891 prompt_chars=102,584 budget=ObservedCharsPerToken chars_per_token=1.856 chunk_threshold_chars=218,559',
   );
   assert.equal(
     buildStatusRequestLogMessage({ running: false, totalElapsedMs: 97_200_000 }),
@@ -1478,6 +2350,11 @@ test('real status server prints one idle metrics line only after the full idle d
         body: JSON.stringify({ running: false, promptCharacterCount: 200, inputTokens: 100, outputCharacterCount: 80, outputTokens: 25, requestDurationMs: 800 }),
       });
 
+      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
+      const pendingStatus = await requestJson(server.statusUrl);
+      assert.equal(pendingStatus.running, true);
+      assert.equal(pendingStatus.status, 'true');
+
       await sleep(30);
       assert.equal(server.stdoutLines.some((line) => /idle_metrics/u.test(line)), false);
 
@@ -1488,6 +2365,10 @@ test('real status server prints one idle metrics line only after the full idle d
       assert.equal(block[2], '  output: chars=80 tokens=25');
       assert.equal(block[3], '  saved:  tokens=75 pct=75.00% ratio=4.00x');
       assert.equal(block[4], '  timing: total=0s avg_request=0.80s avg_tokens_per_s=31.25');
+      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'false');
+      const finalStatus = await requestJson(server.statusUrl);
+      assert.equal(finalStatus.running, false);
+      assert.equal(finalStatus.status, 'false');
 
       assert.equal(fs.existsSync(idleSummaryDbPath), true);
       const rows = readIdleSummarySnapshots(idleSummaryDbPath);
@@ -1511,6 +2392,138 @@ test('real status server prints one idle metrics line only after the full idle d
     } finally {
       await server.close();
     }
+  });
+});
+
+test('real status server shuts down managed llama.cpp after the idle summary block is emitted', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const idleSummaryDbPath = path.join(tempRoot, 'status', 'idle-summary.sqlite');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    const server = await startStatusServerProcess({
+      statusPath,
+      configPath,
+      idleSummaryDbPath,
+      idleSummaryDelayMs: 80,
+    });
+
+    try {
+      await requestJson(server.configUrl);
+      await waitForAsyncExpectation(async () => {
+        const models = await requestJson(`${managed.baseUrl}/v1/models`);
+        assert.equal(models.data[0].id, 'managed-test-model');
+      }, 5000);
+
+      await requestJson(server.statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: true, rawInputCharacterCount: 50 }),
+      });
+      await requestJson(server.statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: false, promptCharacterCount: 50, inputTokens: 10, outputCharacterCount: 5, outputTokens: 1, requestDurationMs: 20 }),
+      });
+
+      await server.waitForStdoutMatch(/requests=1/u, 1000);
+      await waitForAsyncExpectation(
+        async () => assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`)),
+        5000
+      );
+      await waitForAsyncExpectation(async () => {
+        assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'false');
+      }, 5000);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+test('real status server close() stops managed llama.cpp', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const previous = {
+      SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+      SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+      sift_kit_status: process.env.sift_kit_status,
+      SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+      SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+      SIFTKIT_CONFIG_SERVICE_URL: process.env.SIFTKIT_CONFIG_SERVICE_URL,
+      SIFTKIT_STATUS_BACKEND_URL: process.env.SIFTKIT_STATUS_BACKEND_URL,
+    };
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+    process.env.SIFTKIT_STATUS_PORT = '0';
+    process.env.sift_kit_status = statusPath;
+    process.env.SIFTKIT_STATUS_PATH = statusPath;
+    process.env.SIFTKIT_CONFIG_PATH = configPath;
+
+    const server = startStatusServer();
+    try {
+      const address = await new Promise((resolve) => {
+        if (server.listening) {
+          resolve(server.address());
+          return;
+        }
+
+        server.once('listening', () => resolve(server.address()));
+      });
+      const port = typeof address === 'object' && address ? address.port : 0;
+      process.env.SIFTKIT_CONFIG_SERVICE_URL = `http://127.0.0.1:${port}/config`;
+      process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${port}/status`;
+
+      const loadedConfig = await loadConfig({ ensure: true });
+      assert.equal(loadedConfig.LlamaCpp.BaseUrl, managed.baseUrl);
+      await waitForAsyncExpectation(async () => {
+        const models = await requestJson(`${managed.baseUrl}/v1/models`);
+        assert.equal(models.data[0].id, 'managed-test-model');
+      }, 5000);
+    } finally {
+      await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
+
+    await waitForAsyncExpectation(
+      async () => assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`)),
+      5000
+    );
+    await waitForAsyncExpectation(async () => {
+      assert.equal(fs.existsSync(managed.pidFilePath), false);
+    }, 5000);
   });
 });
 
@@ -1723,7 +2736,7 @@ test('real status server keeps emitting idle summaries when sqlite persistence f
   });
 });
 
-test('benchmark runner writes command prompt, output, per-case duration, and total duration', async () => {
+test('benchmark runner writes prompt, output, classification metadata, per-case duration, and total duration', async () => {
   await withTempEnv(async (tempRoot) => {
     await withStubServer(async () => {
       const fixtureRoot = path.join(tempRoot, 'bench-fixtures');
@@ -1758,6 +2771,7 @@ test('benchmark runner writes command prompt, output, per-case duration, and tot
       const artifact = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
 
       assert.equal(result.OutputPath, outputPath);
+      assert.equal(result.PromptPrefix, null);
       assert.equal(fs.existsSync(outputPath), true);
       assert.equal(typeof artifact.TotalDurationMs, 'number');
       assert.ok(artifact.TotalDurationMs >= 0);
@@ -1767,10 +2781,207 @@ test('benchmark runner writes command prompt, output, per-case duration, and tot
       assert.ok(artifact.Results[0].DurationMs >= 0);
       assert.equal(artifact.Results[0].Prompt, 'Get-Content case1.txt | siftkit "summarize this"');
       assert.match(artifact.Results[0].Output, /mock summary/u);
+      assert.equal(artifact.Results[0].PolicyDecision, 'model-summary');
+      assert.equal(artifact.Results[0].Classification, 'summary');
+      assert.equal(artifact.Results[0].ModelCallSucceeded, true);
+      assert.equal(artifact.Results[0].Error, null);
       assert.equal(artifact.Results[0].Name, undefined);
       assert.equal(artifact.Results[0].SourcePath, undefined);
-      assert.equal(artifact.Results[1].Prompt, 'summarize this');
-      assert.match(artifact.Results[1].Output, /short text that should stay raw/u);
+      assert.match(artifact.Results[1].Prompt, /You are SiftKit/u);
+      assert.match(artifact.Results[1].Output, /mock summary/u);
+      assert.equal(artifact.Results[1].PolicyDecision, 'model-summary');
+      assert.equal(artifact.Results[1].Classification, 'summary');
+    });
+  });
+});
+
+test('buildPrompt prepends promptPrefix when provided', () => {
+  const prompt = buildPrompt({
+    question: 'summarize this',
+    inputText: 'hello world',
+    format: 'text',
+    policyProfile: 'general',
+    rawReviewRequired: false,
+    promptPrefix: 'Always answer in terse benchmark mode.',
+  });
+
+  assert.match(prompt, /^Always answer in terse benchmark mode\./u);
+  assert.match(prompt, /You are SiftKit/u);
+});
+
+test('benchmark runner records a custom prompt prefix from file', async () => {
+  await withTempEnv(async (tempRoot) => {
+    await withStubServer(async () => {
+      const fixtureRoot = path.join(tempRoot, 'bench-fixtures');
+      const outputPath = path.join(tempRoot, 'bench-output.json');
+      const promptPrefixPath = path.join(tempRoot, 'prompt-prefix.txt');
+      fs.mkdirSync(fixtureRoot, { recursive: true });
+      fs.writeFileSync(path.join(fixtureRoot, 'case1.txt'), 'A'.repeat(600), 'utf8');
+      fs.writeFileSync(path.join(fixtureRoot, 'fixtures.json'), JSON.stringify([
+        {
+          Name: 'summarized-case',
+          File: 'case1.txt',
+          Question: 'summarize this',
+          Format: 'text',
+          PolicyProfile: 'general',
+        },
+      ], null, 2), 'utf8');
+      fs.writeFileSync(promptPrefixPath, 'Always answer in terse benchmark mode.', 'utf8');
+
+      const result = await runBenchmarkSuite({
+        fixtureRoot,
+        outputPath,
+        backend: 'mock',
+        model: 'mock-model',
+        promptPrefixFile: promptPrefixPath,
+      });
+
+      assert.equal(result.PromptPrefix, 'Always answer in terse benchmark mode.');
+    });
+  });
+});
+
+test('benchmark error-log fixtures now reach the model-first summary path', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async () => {
+      const fixtureRoot = path.join(process.cwd(), 'eval', 'fixtures', 'ai_core_60_tests', 'raw');
+      const cases = [
+        {
+          file: '17_autorun_error_log.txt',
+          question: 'Summarize whether this log contains script errors, crashes, or actionable failures. Quote exact error types, file paths, and line numbers if present.',
+          pattern: /run is not clean|script errors/i,
+        },
+        {
+          file: '18_autorun_output_log.txt',
+          question: 'Summarize what happened during this run, including startup markers, warnings, and any pass/fail indicators.',
+          pattern: /failed autonomous-mode validation|stay threshold/i,
+        },
+        {
+          file: '19_script_error_and_crash_marker_scan.txt',
+          question: 'Summarize any crash, popup, assertion, or script-error markers found in these logs, grouped by file.',
+          pattern: /run is not clean|script errors/i,
+        },
+        {
+          file: '20_specific_historical_failure_log.txt',
+          question: 'Summarize the failure in this log. Identify the exact script error, whether the run still reached its completion marker, and any likely implication for shutdown integrity.',
+          pattern: /passed numerically but is still not clean|shutdown integrity/i,
+        },
+        {
+          file: '30_explicit_test_result_markers.txt',
+          question: 'Summarize any explicit pass/fail test result markers in these logs. Name the files and whether they show passing or failing suites.',
+          pattern: /pass markers alone do not prove|numeric pass markers/i,
+        },
+        {
+          file: '50_main_game_smoke_stderr_log.txt',
+          question: 'Summarize the main failure in this stderr log and whether it indicates startup/runtime failure or shutdown-only noise.',
+          pattern: /failing during script compilation|parse errors/i,
+        },
+      ];
+
+      for (const fixture of cases) {
+        const inputText = fs.readFileSync(path.join(fixtureRoot, fixture.file), 'utf8');
+        const result = await summarizeRequest({
+          question: fixture.question,
+          inputText,
+          format: 'text',
+          policyProfile: 'general',
+          backend: 'mock',
+          model: 'mock-model',
+          sourceKind: 'standalone',
+        });
+
+        assert.equal(result.ModelCallSucceeded, true, fixture.file);
+        assert.equal(result.PolicyDecision, 'model-summary', fixture.file);
+        assert.equal(result.Classification, 'summary', fixture.file);
+        assert.equal(result.RawReviewRequired, true, fixture.file);
+        assert.equal(result.WasSummarized, true, fixture.file);
+        assert.match(result.Summary, fixture.pattern, fixture.file);
+      }
+    });
+  });
+});
+
+test('pass markers with zero failed still use the model summary path', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async () => {
+      const result = await summarizeRequest({
+        question: 'Summarize any explicit pass/fail test result markers in these logs.',
+        inputText: [
+          '.godot_logs\\baseline.log:11:TESTS: 2 passed, 0 failed, 0 skipped',
+          '.godot_logs\\baseline.log:12:INTEGRATION TESTS: 224 passed, 0 failed, 0 skipped',
+          '.godot_logs\\baseline.log:13:TEST HARNESS: TESTS: 2 passed, 0 failed, 0 skipped',
+        ].join('\n'),
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'mock',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.WasSummarized, true);
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.PolicyDecision, 'model-summary');
+      assert.match(result.Summary, /pass markers alone do not prove|numeric pass markers/i);
+    });
+  });
+});
+
+test('runCommand classifies missing executables as command failures with raw review required', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async () => {
+      const result = await runCommand({
+        Command: 'definitely-not-a-real-command-siftkit',
+        ArgumentList: [],
+        Question: 'Summarize the main result and any actionable failures.',
+        Backend: 'mock',
+        Model: 'mock-model',
+      });
+
+      assert.equal(result.WasSummarized, true);
+      assert.equal(result.PolicyDecision, 'model-command-failure');
+      assert.equal(result.Classification, 'command_failure');
+      assert.equal(result.RawReviewRequired, true);
+      assert.equal(result.ModelCallSucceeded, true);
+      assert.match(result.Summary, /command failed before producing a usable result/i);
+    });
+  });
+});
+
+test('unsupported input returns the exact terminal message', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async () => {
+      const result = await summarizeRequest({
+        question: 'Summarize this unsupported input.',
+        inputText: 'unsupported fixture marker',
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'mock',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.WasSummarized, false);
+      assert.equal(result.PolicyDecision, 'model-unsupported-input');
+      assert.equal(result.Classification, 'unsupported_input');
+      assert.equal(result.RawReviewRequired, false);
+      assert.equal(result.Summary, UNSUPPORTED_INPUT_MESSAGE);
+    });
+  });
+});
+
+test('provider failures hard fail instead of falling back to a deterministic raw excerpt', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async () => {
+      process.env.SIFTKIT_TEST_PROVIDER_BEHAVIOR = 'throw';
+      await assert.rejects(
+        () => summarizeRequest({
+          question: 'Summarize this provider failure.',
+          inputText: 'A'.repeat(5000),
+          format: 'text',
+          policyProfile: 'general',
+          backend: 'mock',
+          model: 'mock-model',
+        }),
+        /mock provider failure/u
+      );
     });
   });
 });

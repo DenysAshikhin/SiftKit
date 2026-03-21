@@ -33,12 +33,17 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MissingObservedBudgetError = exports.StatusServerUnavailableError = exports.SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN = exports.SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS = exports.SIFT_PREVIOUS_DEFAULT_MODEL = exports.SIFT_PREVIOUS_DEFAULT_NUM_CTX = exports.SIFT_LEGACY_DERIVED_NUM_CTX = exports.SIFT_LEGACY_DEFAULT_NUM_CTX = exports.SIFT_DEFAULT_NUM_CTX = exports.SIFTKIT_VERSION = void 0;
+exports.MissingObservedBudgetError = exports.StatusServerUnavailableError = exports.SIFT_DEFAULT_PROMPT_PREFIX = exports.SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN = exports.SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS = exports.SIFT_DEFAULT_LLAMA_SHUTDOWN_SCRIPT = exports.SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_DEFAULT_LLAMA_MODEL_PATH = exports.SIFT_DEFAULT_LLAMA_BASE_URL = exports.SIFT_DEFAULT_LLAMA_MODEL = exports.SIFT_PREVIOUS_DEFAULT_MODEL = exports.SIFT_PREVIOUS_DEFAULT_NUM_CTX = exports.SIFT_LEGACY_DERIVED_NUM_CTX = exports.SIFT_LEGACY_DEFAULT_NUM_CTX = exports.SIFT_DEFAULT_NUM_CTX = exports.SIFTKIT_VERSION = void 0;
 exports.ensureDirectory = ensureDirectory;
 exports.saveContentAtomically = saveContentAtomically;
 exports.getRuntimeRoot = getRuntimeRoot;
 exports.initializeRuntime = initializeRuntime;
 exports.getDefaultNumCtx = getDefaultNumCtx;
+exports.getConfiguredModel = getConfiguredModel;
+exports.getConfiguredPromptPrefix = getConfiguredPromptPrefix;
+exports.getConfiguredLlamaBaseUrl = getConfiguredLlamaBaseUrl;
+exports.getConfiguredLlamaNumCtx = getConfiguredLlamaNumCtx;
+exports.getConfiguredLlamaSetting = getConfiguredLlamaSetting;
 exports.getDerivedMaxInputCharacters = getDerivedMaxInputCharacters;
 exports.getEffectiveInputCharactersPerContextToken = getEffectiveInputCharactersPerContextToken;
 exports.getEffectiveMaxInputCharacters = getEffectiveMaxInputCharacters;
@@ -70,8 +75,31 @@ exports.SIFT_LEGACY_DEFAULT_NUM_CTX = 16_384;
 exports.SIFT_LEGACY_DERIVED_NUM_CTX = 32_000;
 exports.SIFT_PREVIOUS_DEFAULT_NUM_CTX = 50_000;
 exports.SIFT_PREVIOUS_DEFAULT_MODEL = 'qwen3.5-4b-q8_0';
+exports.SIFT_DEFAULT_LLAMA_MODEL = 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
+exports.SIFT_DEFAULT_LLAMA_BASE_URL = 'http://127.0.0.1:8097';
+exports.SIFT_DEFAULT_LLAMA_MODEL_PATH = 'D:\\personal\\models\\Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
+exports.SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-35B-4bit-150k-no-thinking.ps1';
+exports.SIFT_DEFAULT_LLAMA_SHUTDOWN_SCRIPT = 'C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\scripts\\stop-llama-server.ps1';
 exports.SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS = 32_000;
 exports.SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN = 2.5;
+exports.SIFT_DEFAULT_PROMPT_PREFIX = 'Preserve exact technical anchors from the input when they matter: file paths, function names, symbols, commands, error text, and any line numbers or code references that are already present. Quote short code fragments exactly when that precision changes the meaning. Do not invent locations or line numbers that are not in the input.';
+const RUNTIME_OWNED_LLAMA_CPP_KEYS = [
+    'BaseUrl',
+    'NumCtx',
+    'ModelPath',
+    'Temperature',
+    'TopP',
+    'TopK',
+    'MinP',
+    'PresencePenalty',
+    'RepetitionPenalty',
+    'MaxTokens',
+    'GpuLayers',
+    'Threads',
+    'FlashAttention',
+    'ParallelSlots',
+    'Reasoning',
+];
 function parseJsonText(text) {
     const normalized = text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
     return JSON.parse(normalized);
@@ -133,8 +161,8 @@ class StatusServerUnavailableError extends Error {
 }
 exports.StatusServerUnavailableError = StatusServerUnavailableError;
 class MissingObservedBudgetError extends Error {
-    constructor() {
-        super('SiftKit status server did not provide usable input character/token totals. Refusing to derive chunk budgets from the hardcoded fallback; run at least one successful request or fix status metrics first.');
+    constructor(message = 'SiftKit status server did not provide usable input character/token totals. Refusing to derive chunk budgets from the hardcoded fallback; run at least one successful request or fix status metrics first.') {
+        super(message);
         this.name = 'MissingObservedBudgetError';
     }
 }
@@ -153,12 +181,42 @@ function ensureDirectory(dirPath) {
 function writeUtf8NoBom(filePath, content) {
     fs.writeFileSync(filePath, content, { encoding: 'utf8' });
 }
+function isRetryableFsError(error) {
+    if (!error || typeof error !== 'object') {
+        return false;
+    }
+    const code = 'code' in error ? String(error.code ?? '') : '';
+    return code === 'EPERM' || code === 'EACCES' || code === 'EBUSY';
+}
 function saveContentAtomically(filePath, content) {
     const directory = path.dirname(filePath);
     ensureDirectory(directory);
-    const tempPath = path.join(directory, `${Math.random().toString(16).slice(2)}.tmp`);
-    writeUtf8NoBom(tempPath, content);
-    fs.renameSync(tempPath, filePath);
+    let lastError = null;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        const tempPath = path.join(directory, `${process.pid}-${Date.now()}-${attempt}-${Math.random().toString(16).slice(2)}.tmp`);
+        try {
+            writeUtf8NoBom(tempPath, content);
+            fs.renameSync(tempPath, filePath);
+            return;
+        }
+        catch (error) {
+            lastError = error;
+            try {
+                fs.rmSync(tempPath, { force: true });
+            }
+            catch {
+                // Ignore temp cleanup failures during retry handling.
+            }
+            if (!isRetryableFsError(error) || attempt === 4) {
+                break;
+            }
+        }
+    }
+    if (isRetryableFsError(lastError)) {
+        writeUtf8NoBom(filePath, content);
+        return;
+    }
+    throw lastError instanceof Error ? lastError : new Error(`Failed to save ${filePath} atomically.`);
 }
 function isRuntimeRootWritable(candidate) {
     if (!candidate || !candidate.trim()) {
@@ -219,6 +277,64 @@ function initializeRuntime() {
 function getDefaultNumCtx() {
     return exports.SIFT_DEFAULT_NUM_CTX;
 }
+function getCompatRuntimeLlamaCpp(config) {
+    return config.Runtime?.LlamaCpp ?? config.LlamaCpp ?? {};
+}
+function getFinitePositiveNumber(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+function getConfiguredModel(config) {
+    const model = config.Runtime?.Model ?? config.Model;
+    if (typeof model === 'string' && model.trim()) {
+        return model.trim();
+    }
+    throw new Error('SiftKit runtime config is missing Model. Start a launcher script first.');
+}
+function getConfiguredPromptPrefix(config) {
+    const promptPrefix = config.PromptPrefix;
+    return typeof promptPrefix === 'string' && promptPrefix.trim() ? promptPrefix : undefined;
+}
+function getConfiguredLlamaBaseUrl(config) {
+    const baseUrl = getCompatRuntimeLlamaCpp(config).BaseUrl;
+    if (typeof baseUrl === 'string' && baseUrl.trim()) {
+        return baseUrl.trim();
+    }
+    throw new Error('SiftKit runtime config is missing LlamaCpp.BaseUrl. Start a launcher script first.');
+}
+function getConfiguredLlamaNumCtx(config) {
+    const numCtx = getFinitePositiveNumber(getCompatRuntimeLlamaCpp(config).NumCtx);
+    if (numCtx !== null) {
+        return numCtx;
+    }
+    throw new Error('SiftKit runtime config is missing LlamaCpp.NumCtx. Start a launcher script first.');
+}
+function getConfiguredLlamaSetting(config, key) {
+    const runtimeValue = getCompatRuntimeLlamaCpp(config)[key];
+    return (runtimeValue === undefined || runtimeValue === null) ? undefined : runtimeValue;
+}
+function getMissingRuntimeFields(config) {
+    const missing = [];
+    try {
+        getConfiguredModel(config);
+    }
+    catch {
+        missing.push('Model');
+    }
+    try {
+        getConfiguredLlamaBaseUrl(config);
+    }
+    catch {
+        missing.push('LlamaCpp.BaseUrl');
+    }
+    try {
+        getConfiguredLlamaNumCtx(config);
+    }
+    catch {
+        missing.push('LlamaCpp.NumCtx');
+    }
+    return missing;
+}
 function getDerivedMaxInputCharacters(numCtx, inputCharactersPerContextToken = exports.SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN) {
     const effectiveNumCtx = numCtx > 0 ? numCtx : getDefaultNumCtx();
     const effectiveCharactersPerContextToken = inputCharactersPerContextToken > 0
@@ -231,7 +347,7 @@ function getEffectiveInputCharactersPerContextToken(config) {
     return effectiveValue > 0 ? effectiveValue : exports.SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN;
 }
 function getEffectiveMaxInputCharacters(config) {
-    return getDerivedMaxInputCharacters(Number(config.LlamaCpp.NumCtx), getEffectiveInputCharactersPerContextToken(config));
+    return getDerivedMaxInputCharacters(getConfiguredLlamaNumCtx(config), getEffectiveInputCharactersPerContextToken(config));
 }
 function getChunkThresholdCharacters(config) {
     const ratio = Number(config.Thresholds.ChunkThresholdRatio);
@@ -244,6 +360,9 @@ function getInferenceStatusPath() {
         return path.resolve(configuredPath);
     }
     return path.resolve(getRuntimeRoot(), 'status', 'inference.txt');
+}
+function getObservedBudgetStatePath() {
+    return path.resolve(getRuntimeRoot(), 'metrics', 'observed-budget.json');
 }
 function getStatusBackendUrl() {
     const configuredUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
@@ -266,6 +385,49 @@ async function getStatusSnapshot() {
         throw toStatusServerUnavailableError();
     }
 }
+function getDefaultObservedBudgetState() {
+    return {
+        observedTelemetrySeen: false,
+        lastKnownCharsPerToken: null,
+        updatedAtUtc: null,
+    };
+}
+function normalizeObservedBudgetState(input) {
+    const fallback = getDefaultObservedBudgetState();
+    if (!input || typeof input !== 'object') {
+        return fallback;
+    }
+    const parsed = input;
+    const lastKnownCharsPerToken = Number(parsed.lastKnownCharsPerToken);
+    return {
+        observedTelemetrySeen: parsed.observedTelemetrySeen === true && Number.isFinite(lastKnownCharsPerToken) && lastKnownCharsPerToken > 0,
+        lastKnownCharsPerToken: Number.isFinite(lastKnownCharsPerToken) && lastKnownCharsPerToken > 0 ? lastKnownCharsPerToken : null,
+        updatedAtUtc: typeof parsed.updatedAtUtc === 'string' && parsed.updatedAtUtc.trim() ? parsed.updatedAtUtc : null,
+    };
+}
+function readObservedBudgetState() {
+    const statePath = getObservedBudgetStatePath();
+    if (!fs.existsSync(statePath)) {
+        return getDefaultObservedBudgetState();
+    }
+    try {
+        return normalizeObservedBudgetState(parseJsonText(fs.readFileSync(statePath, 'utf8')));
+    }
+    catch {
+        return getDefaultObservedBudgetState();
+    }
+}
+function writeObservedBudgetState(state) {
+    saveContentAtomically(getObservedBudgetStatePath(), `${JSON.stringify(normalizeObservedBudgetState(state), null, 2)}\n`);
+}
+function tryWriteObservedBudgetState(state) {
+    try {
+        writeObservedBudgetState(state);
+    }
+    catch {
+        // Observed-budget persistence is advisory. Request execution should continue.
+    }
+}
 function getObservedInputCharactersPerContextToken(snapshot) {
     const inputCharactersTotal = Number(snapshot?.metrics?.inputCharactersTotal);
     const inputTokensTotal = Number(snapshot?.metrics?.inputTokensTotal);
@@ -278,20 +440,39 @@ function getObservedInputCharactersPerContextToken(snapshot) {
     return inputCharactersTotal / inputTokensTotal;
 }
 async function resolveInputCharactersPerContextToken() {
+    const persistedState = readObservedBudgetState();
+    let snapshot;
     try {
-        const snapshot = await getStatusSnapshot();
-        const observedValue = getObservedInputCharactersPerContextToken(snapshot);
-        if (observedValue !== null) {
-            return {
-                value: observedValue,
-                budgetSource: 'ObservedCharsPerToken',
-            };
-        }
-        throw new MissingObservedBudgetError();
+        snapshot = await getStatusSnapshot();
     }
     catch {
-        throw new MissingObservedBudgetError();
+        if (persistedState.observedTelemetrySeen) {
+            throw new MissingObservedBudgetError('SiftKit previously recorded a valid observed chars-per-token budget, but the status server is unavailable or no longer exposes usable totals. Refusing to fall back to the hardcoded bootstrap estimate after telemetry has been established.');
+        }
+        return {
+            value: exports.SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN,
+            budgetSource: 'ColdStartFixedCharsPerToken',
+        };
     }
+    const observedValue = getObservedInputCharactersPerContextToken(snapshot);
+    if (observedValue !== null) {
+        tryWriteObservedBudgetState({
+            observedTelemetrySeen: true,
+            lastKnownCharsPerToken: observedValue,
+            updatedAtUtc: new Date().toISOString(),
+        });
+        return {
+            value: observedValue,
+            budgetSource: 'ObservedCharsPerToken',
+        };
+    }
+    if (persistedState.observedTelemetrySeen) {
+        throw new MissingObservedBudgetError('SiftKit previously recorded a valid observed chars-per-token budget, but the status server no longer provides usable input character/token totals. Refusing to fall back to the hardcoded bootstrap estimate after telemetry has been established.');
+    }
+    return {
+        value: exports.SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN,
+        budgetSource: 'ColdStartFixedCharsPerToken',
+    };
 }
 function getExecutionServiceUrl() {
     return deriveServiceUrl(getStatusBackendUrl(), '/execution');
@@ -404,6 +585,15 @@ async function notifyStatusBackend(options) {
     if (options.running && options.chunkInputCharacterCount !== undefined && options.chunkInputCharacterCount !== null) {
         body.chunkInputCharacterCount = options.chunkInputCharacterCount;
     }
+    if (options.running && options.budgetSource && options.budgetSource.trim()) {
+        body.budgetSource = options.budgetSource.trim();
+    }
+    if (options.running && options.inputCharactersPerContextToken !== undefined && options.inputCharactersPerContextToken !== null) {
+        body.inputCharactersPerContextToken = options.inputCharactersPerContextToken;
+    }
+    if (options.running && options.chunkThresholdCharacters !== undefined && options.chunkThresholdCharacters !== null) {
+        body.chunkThresholdCharacters = options.chunkThresholdCharacters;
+    }
     if (options.running && options.phase) {
         body.phase = options.phase;
     }
@@ -457,25 +647,41 @@ function getDefaultConfigObject() {
     return {
         Version: exports.SIFTKIT_VERSION,
         Backend: 'llama.cpp',
-        Model: 'qwen3.5-9b-instruct-q4_k_m',
         PolicyMode: 'conservative',
         RawLogRetention: true,
+        PromptPrefix: exports.SIFT_DEFAULT_PROMPT_PREFIX,
         LlamaCpp: {
-            BaseUrl: 'http://127.0.0.1:8080',
-            NumCtx: getDefaultNumCtx(),
-            ModelPath: null,
-            Temperature: 0.2,
-            TopP: 0.95,
+            BaseUrl: exports.SIFT_DEFAULT_LLAMA_BASE_URL,
+            NumCtx: 150_000,
+            ModelPath: exports.SIFT_DEFAULT_LLAMA_MODEL_PATH,
+            Temperature: 0.7,
+            TopP: 0.8,
             TopK: 20,
             MinP: 0.0,
-            PresencePenalty: 0.0,
+            PresencePenalty: 1.5,
             RepetitionPenalty: 1.0,
-            MaxTokens: 4096,
-            GpuLayers: 999,
-            Threads: -1,
+            MaxTokens: 15_000,
             FlashAttention: true,
             ParallelSlots: 1,
             Reasoning: 'off',
+        },
+        Runtime: {
+            Model: exports.SIFT_DEFAULT_LLAMA_MODEL,
+            LlamaCpp: {
+                BaseUrl: exports.SIFT_DEFAULT_LLAMA_BASE_URL,
+                NumCtx: 150_000,
+                ModelPath: exports.SIFT_DEFAULT_LLAMA_MODEL_PATH,
+                Temperature: 0.7,
+                TopP: 0.8,
+                TopK: 20,
+                MinP: 0.0,
+                PresencePenalty: 1.5,
+                RepetitionPenalty: 1.0,
+                MaxTokens: 15_000,
+                FlashAttention: true,
+                ParallelSlots: 1,
+                Reasoning: 'off',
+            },
         },
         Thresholds: {
             MinCharactersForSummary: 500,
@@ -489,6 +695,15 @@ function getDefaultConfigObject() {
             MaxTranscriptCharacters: 60_000,
             TranscriptRetention: true,
         },
+        Server: {
+            LlamaCpp: {
+                StartupScript: exports.SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT,
+                ShutdownScript: exports.SIFT_DEFAULT_LLAMA_SHUTDOWN_SCRIPT,
+                StartupTimeoutMs: 120_000,
+                HealthcheckTimeoutMs: 2_000,
+                HealthcheckIntervalMs: 1_000,
+            },
+        },
         Paths: runtimePaths,
     };
 }
@@ -496,25 +711,24 @@ function toPersistedConfigObject(config) {
     return {
         Version: config.Version,
         Backend: config.Backend,
-        Model: config.Model,
         PolicyMode: config.PolicyMode,
         RawLogRetention: Boolean(config.RawLogRetention),
-        LlamaCpp: {
-            BaseUrl: config.LlamaCpp.BaseUrl,
-            NumCtx: Number(config.LlamaCpp.NumCtx),
-            ...(config.LlamaCpp.ModelPath === undefined ? {} : { ModelPath: config.LlamaCpp.ModelPath }),
-            Temperature: Number(config.LlamaCpp.Temperature),
-            TopP: Number(config.LlamaCpp.TopP),
-            TopK: Number(config.LlamaCpp.TopK),
-            MinP: Number(config.LlamaCpp.MinP),
-            PresencePenalty: Number(config.LlamaCpp.PresencePenalty),
-            RepetitionPenalty: Number(config.LlamaCpp.RepetitionPenalty),
-            ...(config.LlamaCpp.MaxTokens === undefined ? {} : { MaxTokens: config.LlamaCpp.MaxTokens }),
-            ...(config.LlamaCpp.GpuLayers === undefined ? {} : { GpuLayers: config.LlamaCpp.GpuLayers }),
-            ...(config.LlamaCpp.Threads === undefined ? {} : { Threads: config.LlamaCpp.Threads }),
-            ...(config.LlamaCpp.FlashAttention === undefined ? {} : { FlashAttention: config.LlamaCpp.FlashAttention }),
-            ...(config.LlamaCpp.ParallelSlots === undefined ? {} : { ParallelSlots: config.LlamaCpp.ParallelSlots }),
-            ...(config.LlamaCpp.Reasoning === undefined ? {} : { Reasoning: config.LlamaCpp.Reasoning }),
+        PromptPrefix: config.PromptPrefix ?? exports.SIFT_DEFAULT_PROMPT_PREFIX,
+        LlamaCpp: {},
+        Runtime: {
+            ...(config.Runtime?.Model === undefined ? {} : { Model: config.Runtime?.Model ?? null }),
+            LlamaCpp: {
+                ...(config.Runtime?.LlamaCpp?.BaseUrl === undefined ? {} : { BaseUrl: config.Runtime?.LlamaCpp?.BaseUrl ?? null }),
+                ...(config.Runtime?.LlamaCpp?.NumCtx === undefined ? {} : { NumCtx: config.Runtime?.LlamaCpp?.NumCtx ?? null }),
+                ...(config.Runtime?.LlamaCpp?.ModelPath === undefined ? {} : { ModelPath: config.Runtime?.LlamaCpp?.ModelPath ?? null }),
+                ...(config.Runtime?.LlamaCpp?.Temperature === undefined ? {} : { Temperature: config.Runtime?.LlamaCpp?.Temperature ?? null }),
+                ...(config.Runtime?.LlamaCpp?.TopP === undefined ? {} : { TopP: config.Runtime?.LlamaCpp?.TopP ?? null }),
+                ...(config.Runtime?.LlamaCpp?.TopK === undefined ? {} : { TopK: config.Runtime?.LlamaCpp?.TopK ?? null }),
+                ...(config.Runtime?.LlamaCpp?.MinP === undefined ? {} : { MinP: config.Runtime?.LlamaCpp?.MinP ?? null }),
+                ...(config.Runtime?.LlamaCpp?.PresencePenalty === undefined ? {} : { PresencePenalty: config.Runtime?.LlamaCpp?.PresencePenalty ?? null }),
+                ...(config.Runtime?.LlamaCpp?.RepetitionPenalty === undefined ? {} : { RepetitionPenalty: config.Runtime?.LlamaCpp?.RepetitionPenalty ?? null }),
+                ...(config.Runtime?.LlamaCpp?.MaxTokens === undefined ? {} : { MaxTokens: config.Runtime?.LlamaCpp?.MaxTokens ?? null }),
+            },
         },
         Thresholds: {
             MinCharactersForSummary: Number(config.Thresholds.MinCharactersForSummary),
@@ -528,6 +742,15 @@ function toPersistedConfigObject(config) {
             MaxTranscriptCharacters: Number(config.Interactive.MaxTranscriptCharacters),
             TranscriptRetention: Boolean(config.Interactive.TranscriptRetention),
         },
+        Server: {
+            LlamaCpp: {
+                StartupScript: config.Server?.LlamaCpp?.StartupScript ?? null,
+                ShutdownScript: config.Server?.LlamaCpp?.ShutdownScript ?? null,
+                StartupTimeoutMs: config.Server?.LlamaCpp?.StartupTimeoutMs ?? null,
+                HealthcheckTimeoutMs: config.Server?.LlamaCpp?.HealthcheckTimeoutMs ?? null,
+                HealthcheckIntervalMs: config.Server?.LlamaCpp?.HealthcheckIntervalMs ?? null,
+            },
+        },
     };
 }
 function updateRuntimePaths(config) {
@@ -536,100 +759,91 @@ function updateRuntimePaths(config) {
         Paths: initializeRuntime(),
     };
 }
+function applyRuntimeCompatibilityView(config) {
+    const runtime = config.Runtime ?? {};
+    const runtimeLlamaCpp = runtime.LlamaCpp ?? {};
+    const compatLlamaCpp = {
+        ...config.LlamaCpp,
+        ...runtimeLlamaCpp,
+    };
+    return {
+        ...config,
+        Model: runtime.Model ?? config.Model ?? null,
+        PromptPrefix: config.PromptPrefix ?? exports.SIFT_DEFAULT_PROMPT_PREFIX,
+        LlamaCpp: compatLlamaCpp,
+    };
+}
 function normalizeConfig(config) {
     const updated = JSON.parse(JSON.stringify(config));
     const defaults = getDefaultConfigObject();
     let changed = false;
     let legacyMaxInputCharactersValue = null;
     let legacyMaxInputCharactersRemoved = false;
+    updated.LlamaCpp ??= {};
+    updated.Runtime ??= {
+        Model: null,
+        LlamaCpp: {},
+    };
+    updated.Runtime.LlamaCpp ??= {};
     updated.Thresholds ??= { ...defaults.Thresholds };
     updated.Interactive ??= { ...defaults.Interactive };
+    updated.Server ??= {
+        LlamaCpp: { ...defaults.Server?.LlamaCpp },
+    };
+    updated.Server.LlamaCpp ??= { ...defaults.Server?.LlamaCpp };
     const legacyOllama = updated.Ollama;
-    if (legacyOllama && !updated.LlamaCpp) {
-        updated.LlamaCpp = {
-            BaseUrl: String(legacyOllama.BaseUrl || defaults.LlamaCpp.BaseUrl),
-            NumCtx: Number(legacyOllama.NumCtx || defaults.LlamaCpp.NumCtx),
-            ModelPath: defaults.LlamaCpp.ModelPath,
-            Temperature: Number(legacyOllama.Temperature ?? defaults.LlamaCpp.Temperature),
-            TopP: Number(legacyOllama.TopP ?? defaults.LlamaCpp.TopP),
-            TopK: Number(legacyOllama.TopK ?? defaults.LlamaCpp.TopK),
-            MinP: Number(legacyOllama.MinP ?? defaults.LlamaCpp.MinP),
-            PresencePenalty: Number(legacyOllama.PresencePenalty ?? defaults.LlamaCpp.PresencePenalty),
-            RepetitionPenalty: Number(legacyOllama.RepetitionPenalty ?? defaults.LlamaCpp.RepetitionPenalty),
+    if (legacyOllama) {
+        updated.Runtime.LlamaCpp = {
+            ...updated.Runtime.LlamaCpp,
+            ...(legacyOllama.BaseUrl === undefined ? {} : { BaseUrl: String(legacyOllama.BaseUrl || '') || null }),
+            ...(legacyOllama.NumCtx === undefined ? {} : { NumCtx: Number(legacyOllama.NumCtx || 0) || null }),
+            ...(legacyOllama.ModelPath === undefined ? {} : { ModelPath: String(legacyOllama.ModelPath || '') || null }),
+            ...(legacyOllama.Temperature === undefined ? {} : { Temperature: Number(legacyOllama.Temperature) }),
+            ...(legacyOllama.TopP === undefined ? {} : { TopP: Number(legacyOllama.TopP) }),
+            ...(legacyOllama.TopK === undefined ? {} : { TopK: Number(legacyOllama.TopK) }),
+            ...(legacyOllama.MinP === undefined ? {} : { MinP: Number(legacyOllama.MinP) }),
+            ...(legacyOllama.PresencePenalty === undefined ? {} : { PresencePenalty: Number(legacyOllama.PresencePenalty) }),
+            ...(legacyOllama.RepetitionPenalty === undefined ? {} : { RepetitionPenalty: Number(legacyOllama.RepetitionPenalty) }),
             ...(legacyOllama.NumPredict === undefined ? {} : { MaxTokens: legacyOllama.NumPredict }),
-            GpuLayers: defaults.LlamaCpp.GpuLayers,
-            Threads: defaults.LlamaCpp.Threads,
-            FlashAttention: defaults.LlamaCpp.FlashAttention,
-            ParallelSlots: defaults.LlamaCpp.ParallelSlots,
-            Reasoning: defaults.LlamaCpp.Reasoning,
         };
         changed = true;
     }
     delete updated.Ollama;
-    updated.LlamaCpp ??= { ...defaults.LlamaCpp };
     if (updated.Backend === 'ollama') {
         updated.Backend = defaults.Backend;
         changed = true;
     }
-    if (!updated.LlamaCpp.BaseUrl) {
-        updated.LlamaCpp.BaseUrl = defaults.LlamaCpp.BaseUrl;
+    if (typeof updated.Model === 'string' && updated.Model.trim() && !updated.Runtime.Model) {
+        updated.Runtime.Model = updated.Model;
         changed = true;
     }
-    if (!updated.LlamaCpp.NumCtx || Number(updated.LlamaCpp.NumCtx) <= 0) {
-        updated.LlamaCpp.NumCtx = defaults.LlamaCpp.NumCtx;
+    if (Object.prototype.hasOwnProperty.call(updated, 'Model')) {
+        delete updated.Model;
         changed = true;
     }
-    if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'Temperature')) {
-        updated.LlamaCpp.Temperature = defaults.LlamaCpp.Temperature;
+    const legacyRuntimePromptPrefix = updated.Runtime?.PromptPrefix;
+    if ((!updated.PromptPrefix || !String(updated.PromptPrefix).trim()) && typeof legacyRuntimePromptPrefix === 'string' && legacyRuntimePromptPrefix.trim()) {
+        updated.PromptPrefix = legacyRuntimePromptPrefix;
         changed = true;
     }
-    if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'ModelPath')) {
-        updated.LlamaCpp.ModelPath = defaults.LlamaCpp.ModelPath;
+    if (Object.prototype.hasOwnProperty.call(updated.Runtime ?? {}, 'PromptPrefix')) {
+        delete updated.Runtime.PromptPrefix;
         changed = true;
     }
-    if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'TopP')) {
-        updated.LlamaCpp.TopP = defaults.LlamaCpp.TopP;
+    if (!updated.PromptPrefix || !String(updated.PromptPrefix).trim()) {
+        updated.PromptPrefix = defaults.PromptPrefix;
         changed = true;
     }
-    if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'TopK')) {
-        updated.LlamaCpp.TopK = defaults.LlamaCpp.TopK;
-        changed = true;
-    }
-    if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'MinP')) {
-        updated.LlamaCpp.MinP = defaults.LlamaCpp.MinP;
-        changed = true;
-    }
-    if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'PresencePenalty')) {
-        updated.LlamaCpp.PresencePenalty = defaults.LlamaCpp.PresencePenalty;
-        changed = true;
-    }
-    if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'RepetitionPenalty')) {
-        updated.LlamaCpp.RepetitionPenalty = defaults.LlamaCpp.RepetitionPenalty;
-        changed = true;
-    }
-    if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'MaxTokens')) {
-        updated.LlamaCpp.MaxTokens = defaults.LlamaCpp.MaxTokens;
-        changed = true;
-    }
-    if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'GpuLayers')) {
-        updated.LlamaCpp.GpuLayers = defaults.LlamaCpp.GpuLayers;
-        changed = true;
-    }
-    if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'Threads')) {
-        updated.LlamaCpp.Threads = defaults.LlamaCpp.Threads;
-        changed = true;
-    }
-    if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'FlashAttention')) {
-        updated.LlamaCpp.FlashAttention = defaults.LlamaCpp.FlashAttention;
-        changed = true;
-    }
-    if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'ParallelSlots')) {
-        updated.LlamaCpp.ParallelSlots = defaults.LlamaCpp.ParallelSlots;
-        changed = true;
-    }
-    if (!Object.prototype.hasOwnProperty.call(updated.LlamaCpp, 'Reasoning')) {
-        updated.LlamaCpp.Reasoning = defaults.LlamaCpp.Reasoning;
-        changed = true;
+    for (const key of RUNTIME_OWNED_LLAMA_CPP_KEYS) {
+        const value = updated.LlamaCpp[key];
+        if (value !== undefined) {
+            const runtimeLlamaCpp = updated.Runtime.LlamaCpp;
+            if (runtimeLlamaCpp[key] === undefined) {
+                runtimeLlamaCpp[key] = value;
+            }
+            delete updated.LlamaCpp[key];
+            changed = true;
+        }
     }
     if (!Object.prototype.hasOwnProperty.call(updated.Thresholds, 'MinCharactersForSummary')) {
         updated.Thresholds.MinCharactersForSummary = defaults.Thresholds.MinCharactersForSummary;
@@ -675,11 +889,31 @@ function normalizeConfig(config) {
         updated.Interactive.TranscriptRetention = defaults.Interactive.TranscriptRetention;
         changed = true;
     }
-    if (updated.Model === exports.SIFT_PREVIOUS_DEFAULT_MODEL) {
-        updated.Model = defaults.Model;
+    if (!Object.prototype.hasOwnProperty.call(updated.Server.LlamaCpp, 'StartupScript')) {
+        updated.Server.LlamaCpp.StartupScript = defaults.Server?.LlamaCpp?.StartupScript ?? null;
         changed = true;
     }
-    const numCtx = Number(updated.LlamaCpp.NumCtx);
+    if (!Object.prototype.hasOwnProperty.call(updated.Server.LlamaCpp, 'ShutdownScript')) {
+        updated.Server.LlamaCpp.ShutdownScript = defaults.Server?.LlamaCpp?.ShutdownScript ?? null;
+        changed = true;
+    }
+    if (!Object.prototype.hasOwnProperty.call(updated.Server.LlamaCpp, 'StartupTimeoutMs')) {
+        updated.Server.LlamaCpp.StartupTimeoutMs = defaults.Server?.LlamaCpp?.StartupTimeoutMs ?? 120_000;
+        changed = true;
+    }
+    if (!Object.prototype.hasOwnProperty.call(updated.Server.LlamaCpp, 'HealthcheckTimeoutMs')) {
+        updated.Server.LlamaCpp.HealthcheckTimeoutMs = defaults.Server?.LlamaCpp?.HealthcheckTimeoutMs ?? 2_000;
+        changed = true;
+    }
+    if (!Object.prototype.hasOwnProperty.call(updated.Server.LlamaCpp, 'HealthcheckIntervalMs')) {
+        updated.Server.LlamaCpp.HealthcheckIntervalMs = defaults.Server?.LlamaCpp?.HealthcheckIntervalMs ?? 1_000;
+        changed = true;
+    }
+    if (updated.Runtime.Model === exports.SIFT_PREVIOUS_DEFAULT_MODEL) {
+        updated.Runtime.Model = null;
+        changed = true;
+    }
+    const numCtx = Number(updated.Runtime.LlamaCpp.NumCtx);
     const ratio = Number(updated.Thresholds.ChunkThresholdRatio);
     const isLegacyDefaultSettings = (numCtx === exports.SIFT_LEGACY_DEFAULT_NUM_CTX
         && (!hadExplicitMaxInputCharacters || legacyMaxInputCharactersValue === exports.SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS));
@@ -690,7 +924,7 @@ function normalizeConfig(config) {
         && !hadExplicitMaxInputCharacters
         && ratio === defaults.Thresholds.ChunkThresholdRatio);
     if (isLegacyDefaultSettings || isLegacyDerivedSettings || isPreviousDefaultSettings) {
-        updated.LlamaCpp.NumCtx = defaults.LlamaCpp.NumCtx;
+        delete updated.Runtime.LlamaCpp.NumCtx;
         updated.Thresholds.ChunkThresholdRatio = defaults.Thresholds.ChunkThresholdRatio;
         delete updated.Thresholds.MaxInputCharacters;
         changed = true;
@@ -706,19 +940,28 @@ function normalizeConfig(config) {
 }
 async function addEffectiveConfigProperties(config, info) {
     const effectiveBudget = await resolveInputCharactersPerContextToken();
-    const maxInputCharacters = getDerivedMaxInputCharacters(Number(config.LlamaCpp.NumCtx), effectiveBudget.value);
+    const missingRuntimeFields = getMissingRuntimeFields(config);
+    const runtimeConfigReady = missingRuntimeFields.length === 0;
+    const numCtx = runtimeConfigReady ? getConfiguredLlamaNumCtx(config) : null;
+    const maxInputCharacters = numCtx === null
+        ? null
+        : getDerivedMaxInputCharacters(numCtx, effectiveBudget.value);
     const chunkThresholdRatio = Number(config.Thresholds.ChunkThresholdRatio);
     const effectiveChunkThresholdRatio = chunkThresholdRatio > 0 && chunkThresholdRatio <= 1 ? chunkThresholdRatio : 0.92;
     return {
         ...config,
         Effective: {
             ConfigAuthoritative: true,
+            RuntimeConfigReady: runtimeConfigReady,
+            MissingRuntimeFields: missingRuntimeFields,
             BudgetSource: effectiveBudget.budgetSource,
-            NumCtx: Number(config.LlamaCpp.NumCtx),
+            NumCtx: numCtx,
             InputCharactersPerContextToken: effectiveBudget.value,
+            ObservedTelemetrySeen: effectiveBudget.budgetSource !== 'ColdStartFixedCharsPerToken',
+            ObservedTelemetryUpdatedAtUtc: readObservedBudgetState().updatedAtUtc,
             MaxInputCharacters: maxInputCharacters,
             ChunkThresholdRatio: chunkThresholdRatio,
-            ChunkThresholdCharacters: Math.max(Math.floor(maxInputCharacters * effectiveChunkThresholdRatio), 1),
+            ChunkThresholdCharacters: maxInputCharacters === null ? null : Math.max(Math.floor(maxInputCharacters * effectiveChunkThresholdRatio), 1),
             LegacyMaxInputCharactersRemoved: info.legacyMaxInputCharactersRemoved,
             LegacyMaxInputCharactersValue: info.legacyMaxInputCharactersValue,
         },
@@ -729,7 +972,7 @@ async function getConfigFromService() {
         return await requestJson({
             url: getConfigServiceUrl(),
             method: 'GET',
-            timeoutMs: 2000,
+            timeoutMs: 130_000,
         });
     }
     catch {
@@ -759,7 +1002,8 @@ async function loadConfig(options) {
     if (update.info.changed) {
         await saveConfig(update.config);
     }
-    return addEffectiveConfigProperties(updateRuntimePaths(update.config), update.info);
+    const runtimeBackfilled = applyRuntimeCompatibilityView(update.config);
+    return addEffectiveConfigProperties(updateRuntimePaths(runtimeBackfilled), update.info);
 }
 async function setTopLevelConfigKey(key, value) {
     const config = await loadConfig({ ensure: true });

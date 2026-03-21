@@ -1,3 +1,5 @@
 /.npm-cache
 /eval
 /node_modules
+/thinking_bench/qwen35-best-only-search
+/thinking_bench/results

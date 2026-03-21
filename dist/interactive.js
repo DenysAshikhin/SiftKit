@@ -129,7 +129,7 @@ function captureWithTranscript(commandPath, argumentList, transcriptPath) {
 async function runInteractiveCapture(request) {
     const config = await (0, config_js_1.loadConfig)({ ensure: true });
     const backend = request.Backend || config.Backend;
-    const model = request.Model || config.Model;
+    const model = request.Model || (0, config_js_1.getConfiguredModel)(config);
     const format = request.Format || 'text';
     const policyProfile = request.PolicyProfile || 'general';
     const question = request.Question || 'Summarize the important result and any actionable failures.';
@@ -160,14 +160,18 @@ async function runInteractiveCapture(request) {
         backend,
         model,
         policyProfile,
+        sourceKind: 'command-output',
+        commandExitCode: exitCode,
     });
     const outputText = `${(summaryResult.Summary || 'No summary generated.').trim()}\nRaw transcript: ${transcriptPath}`;
     return {
         ExitCode: exitCode,
         TranscriptPath: transcriptPath,
         WasSummarized: summaryResult.WasSummarized,
-        RawReviewRequired: summaryResult.PolicyDecision.startsWith('raw-first') || exitCode !== 0,
+        RawReviewRequired: summaryResult.RawReviewRequired || exitCode !== 0,
         OutputText: outputText,
         Summary: summaryResult.Summary,
+        Classification: summaryResult.Classification,
+        PolicyDecision: summaryResult.PolicyDecision,
     };
 }

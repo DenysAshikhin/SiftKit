@@ -116,8 +116,8 @@ async function installSiftKit(force) {
             LogsPath: paths.Logs,
             EvalResultsPath: paths.EvalResults,
             Backend: config.Backend,
-            Model: config.Model,
-            LlamaCppBaseUrl: config.LlamaCpp.BaseUrl,
+            Model: (0, config_js_1.getConfiguredModel)(config),
+            LlamaCppBaseUrl: (0, config_js_1.getConfiguredLlamaBaseUrl)(config),
             LlamaCppReachable: providerReachable,
             AvailableModels: models,
         };

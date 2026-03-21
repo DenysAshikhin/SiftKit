@@ -271,6 +271,14 @@ async function runTest(stdout) {
 }
 async function buildTestResult() {
     const config = await (0, config_js_1.loadConfig)({ ensure: true });
+    let model = null;
+    let modelError = null;
+    try {
+        model = (0, config_js_1.getConfiguredModel)(config);
+    }
+    catch (error) {
+        modelError = error instanceof Error ? error.message : String(error);
+    }
     const providerStatus = config.Backend === 'llama.cpp'
         ? await (0, llama_cpp_js_1.getLlamaCppProviderStatus)(config)
         : {
@@ -279,8 +287,8 @@ async function buildTestResult() {
             BaseUrl: 'mock://local',
             Error: null,
         };
-    const models = config.Backend === 'llama.cpp' ? await (0, llama_cpp_js_1.listLlamaCppModels)(config) : ['mock-model'];
-    const modelPresent = models.length === 0 ? null : models.includes(config.Model);
+    const models = config.Backend === 'llama.cpp' && providerStatus.Reachable ? await (0, llama_cpp_js_1.listLlamaCppModels)(config) : ['mock-model'];
+    const modelPresent = model === null || models.length === 0 ? null : models.includes(model);
     const issues = [];
     if (!providerStatus.Available) {
         issues.push('Backend is not available.');
@@ -288,8 +296,11 @@ async function buildTestResult() {
     if (!providerStatus.Reachable) {
         issues.push('llama.cpp server is not reachable.');
     }
-    if (modelPresent === false) {
-        issues.push(`Configured model not found: ${config.Model}`);
+    if (modelError) {
+        issues.push(modelError);
+    }
+    if (modelPresent === false && model) {
+        issues.push(`Configured model not found: ${model}`);
     }
     return {
         Ready: issues.length === 0,
@@ -299,16 +310,18 @@ async function buildTestResult() {
         EvalFixturesPath: config.Paths?.EvalFixtures,
         EvalResultsPath: config.Paths?.EvalResults,
         Backend: config.Backend,
-        Model: config.Model,
+        Model: model,
         LlamaCppBaseUrl: providerStatus.BaseUrl,
         LlamaCppReachable: providerStatus.Reachable,
         AvailableModels: models,
         ModelPresent: modelPresent,
-        EffectiveNumCtx: Number(config.LlamaCpp.NumCtx),
+        EffectiveNumCtx: config.Effective?.NumCtx ?? null,
         EffectiveInputCharactersPerToken: config.Effective?.InputCharactersPerContextToken ?? null,
         EffectiveBudgetSource: config.Effective?.BudgetSource ?? null,
-        EffectiveMaxInputCharacters: (0, config_js_1.getEffectiveMaxInputCharacters)(config),
-        EffectiveChunkThresholdCharacters: (0, config_js_1.getChunkThresholdCharacters)(config),
+        EffectiveObservedTelemetrySeen: config.Effective?.ObservedTelemetrySeen ?? null,
+        EffectiveObservedTelemetryUpdatedAtUtc: config.Effective?.ObservedTelemetryUpdatedAtUtc ?? null,
+        EffectiveMaxInputCharacters: config.Effective?.MaxInputCharacters ?? null,
+        EffectiveChunkThresholdCharacters: config.Effective?.ChunkThresholdCharacters ?? null,
         ChunkThresholdRatio: Number(config.Thresholds.ChunkThresholdRatio),
         ProviderError: providerStatus.Error,
         Issues: issues,

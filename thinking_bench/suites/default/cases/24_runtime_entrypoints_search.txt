@@ -1,0 +1,51 @@
+tools\run_headless_tests.ps1:17:  [string] $Scene = "res://scenes/testing/test_harness.tscn",
+tools\run_headless_tests.ps1:54:if ($forwardScene -eq "res://scenes/testing/test_harness_headless.tscn") {
+tools\run_headless_tests.ps1:56:  $forwardScene = "res://scenes/testing/test_harness.tscn";
+tools\run_headless_tests.ps1:60:  $forwardScene = "res://scenes/testing/test_harness.tscn";
+tools\run_gui_tests.ps1:16:  [string] $Scene = "res://scenes/testing/test_harness.tscn",
+tools\run_gui_tests.ps1:57:$isolatedAppDataRoot = Join-Path $LogDir ("test_harness_appdata_{0}" -f $runnerTs);
+tools\run_gui_tests.ps1:327:  $logFile = Join-Path $LogDir ("test_harness_{0}_{1}.log" -f $ts, $i);
+tools\run_main_game_smoke.ps1:7:  - `--smoke_main_game`
+tools\run_main_game_smoke.ps1:8:  - `--smoke_hold_seconds=<float>`
+tools\run_main_game_smoke.ps1:9:  - `--smoke_max_wait_seconds=<float>`
+tools\run_main_game_smoke.ps1:11:  The scene launched is `loading_screen.tscn`, which transitions into `root_game.tscn`.
+tools\run_main_game_smoke.ps1:21:  [string] $Scene = "res://scenes/loading_screen/loading_screen.tscn",
+tools\run_main_game_smoke.ps1:214:$args += @("--", "--smoke_main_game", "--smoke_hold_seconds=$HoldSeconds", "--smoke_max_wait_seconds=$MaxWaitSeconds");
+tools\run_main_game_smoke.ps1:322:& __GODOT__ --disable-crash-handler --path . --log-file __LOG__ __SCENE__ -- --smoke_main_game --smoke_hold_seconds=__HOLD__ --smoke_max_wait_seconds=__MAX_WAIT____AUTO_ENABLE__ 2>&1 | Tee-Object -FilePath __OUT__ | Out-Null;
+tools\run_main_game_smoke.ps1:755:& __GODOT__ __VERBOSE__--disable-crash-handler --path . --log-file __LOG__ __SCENE__ -- --smoke_main_game --smoke_hold_seconds=__HOLD__ --smoke_max_wait_seconds=__MAX_WAIT____AUTO_ENABLE__ 1> __OUT__ 2> __ERR__
+tools\run_tutorial_autoplay.ps1:27:  [string] $Scene = "res://scenes/loading_screen/loading_screen.tscn",
+tools\run_headless_tests_old_ab.ps1:16:  [string] $Scene = "res://scenes/testing/test_harness_headless.tscn",
+tools\run_headless_tests_old_ab.ps1:56:  $logFile = Join-Path $LogDir ("test_harness_{0}_{1}.log" -f $ts, $i);
+tools\run_main_game_smoke_old_ab.ps1:16:  [string] $Scene = "res://scenes/loading_screen/loading_screen.tscn",
+tools\run_main_game_smoke_old_ab.ps1:102:$args += @("--", "--smoke_main_game", "--smoke_hold_seconds=$HoldSeconds", "--smoke_max_wait_seconds=$MaxWaitSeconds");
+tools\run_main_game_smoke_old_ab.ps1:164:    "--smoke_main_game",
+tools\run_main_game_smoke_old_ab.ps1:165:    "--smoke_hold_seconds=1",
+tools\run_main_game_smoke_old_ab.ps1:166:    "--smoke_max_wait_seconds=30"
+globals\Global.gd:50:# Integration-test hooks (used by `scenes/testing/test_harness.tscn` suites).
+globals\Global.gd:286:# - This guard is enabled by `FullGameSmokeRunner` for `--smoke_main_game` sessions.
+globals\Steam_Custom.gd:53:	# - Disable in `--smoke_main_game` runs by default so full-game smoke tests avoid Steam auth/network
+globals\Steam_Custom.gd:59:	if("--smoke_main_game" in cmdline_args):
+scenes\testing\test_harness_headless.tscn:6:[ext_resource type="Script" path="res://scenes/testing/test_harness.gd" id="4"]
+scenes\loading_screen\loading_screen.gd:8:var next_scene = "res://scenes/root_game/root_game.tscn";
+scenes\testing\test_harness.tscn:6:[ext_resource type="Script" path="res://scenes/testing/test_harness.gd" id="5"]
+scenes\testing\test_harness.gd:73:# harness scene doesn't include the real UI (e.g. `test_harness_headless.tscn`).
+scenes\testing\test_harness.gd:194:	var test_env_script = ResourceLoader.load("res://classes/testing/test_harness_env.gd");
+scenes\main_menu\Play_Button.gd:6:	#var _unused_scene = get_tree().change_scene_to_file("res://scenes/root_game/root_game.tscn");
+scenes\main_menu\Play_Button.gd:8:	get_tree().change_scene_to_packed(load("res://scenes/loading_screen/loading_screen.tscn"));
+tests\integration\unlocks_test_utils.gd:7:# Returns false (and skips) if the suite isn't being run via `res://scenes/testing/test_harness.tscn`.
+tests\integration\unlocks_test_utils.gd:10:		ctx.skip("Run via res://scenes/testing/test_harness.tscn (requires Global.TEST_ENV).");
+tests\integration\test_global_trigger_damage_sharing_and_death.gd:138:		ctx.skip("Run via res://scenes/testing/test_harness.tscn (requires Global.TEST_ENV + Global.Player_Manager).");
+tests\integration\test_global_trigger_damage_reflection.gd:38:		ctx.skip("Run via res://scenes/testing/test_harness.tscn (requires Global.TEST_ENV).");
+tests\integration\test_global_trigger_damage_reflection.gd:322:		ctx.skip("Run via res://scenes/testing/test_harness.tscn (requires Global.TEST_ENV).");
+tests\integration\test_global_trigger_damage_reflection.gd:407:		ctx.skip("Run via res://scenes/testing/test_harness.tscn (requires Global.TEST_ENV).");
+tests\integration\test_global_trigger_damage_effects.gd:360:		ctx.skip("Run via res://scenes/testing/test_harness.tscn (requires Global.TEST_ENV).");
+tests\integration\test_global_trigger_damage_basic.gd:41:		ctx.skip("Run via res://scenes/testing/test_harness.tscn (requires Global.TEST_ENV).");
+tests\integration\test_global_trigger_damage_basic.gd:393:		ctx.skip("Run via res://scenes/testing/test_harness.tscn (requires Global.TEST_ENV).");
+tests\integration\test_drone_shield_hit.gd:62:		ctx.skip("Missing Global.TEST_ENV (run via scenes/testing/test_harness.tscn)");
+tests\integration\test_drone_shield_hit.gd:120:		ctx.skip("Missing Global.TEST_ENV (run via scenes/testing/test_harness.tscn)");
+tests\integration\test_drone_shield_hit.gd:159:		ctx.skip("Missing Global.TEST_ENV (run via scenes/testing/test_harness.tscn)")
+tests\integration\testing\test_harness_startup_and_shutdown.gd:5:		"test_harness_runtime_loops_are_disabled_for_integration_mode": "Harness startup keeps high-frequency runtime loops disabled during integration mode",
+tests\integration\testing\test_harness_startup_and_shutdown.gd:6:		"test_harness_stabilize_world_for_idle_is_idempotent": "Harness idle stabilizer remains safe to call repeatedly during early-failure handling",
+tests\integration\testing\test_harness_startup_and_shutdown.gd:23:func test_harness_runtime_loops_are_disabled_for_integration_mode(ctx) -> void:
+tests\integration\testing\test_harness_startup_and_shutdown.gd:29:func test_harness_stabilize_world_for_idle_is_idempotent(ctx) -> void:
+tests\integration\entities\branch_ledger.md:93:- `covered_by_existing` `scenes/testing/test_harness.gd:_ready:155:startup_disable_runtime_loops_before_save_load`

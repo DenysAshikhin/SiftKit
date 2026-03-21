@@ -38,6 +38,7 @@ exports.getLlamaCppProviderStatus = getLlamaCppProviderStatus;
 exports.generateLlamaCppResponse = generateLlamaCppResponse;
 const http = __importStar(require("node:http"));
 const https = __importStar(require("node:https"));
+const config_js_1 = require("../config.js");
 function getUsageValue(value) {
     return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : null;
 }
@@ -96,13 +97,14 @@ function requestJson(options) {
             });
             response.on('end', () => {
                 if (!responseText.trim()) {
-                    resolve({ statusCode: response.statusCode || 0, body: {} });
+                    resolve({ statusCode: response.statusCode || 0, body: {}, rawText: '' });
                     return;
                 }
                 try {
                     resolve({
                         statusCode: response.statusCode || 0,
                         body: JSON.parse(responseText),
+                        rawText: responseText,
                     });
                 }
                 catch (error) {
@@ -131,14 +133,37 @@ function getTextContent(content) {
         .map((part) => (part?.type === 'text' || !part?.type) ? String(part?.text || '') : '')
         .join('');
 }
+async function countLlamaCppTokens(config, content) {
+    if (!content.trim()) {
+        return 0;
+    }
+    try {
+        const baseUrl = (0, config_js_1.getConfiguredLlamaBaseUrl)(config);
+        const response = await requestJson({
+            url: `${baseUrl.replace(/\/$/u, '')}/tokenize`,
+            method: 'POST',
+            timeoutMs: 10_000,
+            body: JSON.stringify({ content }),
+        });
+        if (response.statusCode >= 400 || !Array.isArray(response.body.tokens)) {
+            return null;
+        }
+        return response.body.tokens.length;
+    }
+    catch {
+        return null;
+    }
+}
 async function listLlamaCppModels(config) {
+    const baseUrl = (0, config_js_1.getConfiguredLlamaBaseUrl)(config);
     const response = await requestJson({
-        url: `${config.LlamaCpp.BaseUrl.replace(/\/$/u, '')}/v1/models`,
+        url: `${baseUrl.replace(/\/$/u, '')}/v1/models`,
         method: 'GET',
         timeoutMs: 5000,
     });
     if (response.statusCode >= 400) {
-        throw new Error(`llama.cpp model list failed with HTTP ${response.statusCode}.`);
+        const detail = response.rawText.trim();
+        throw new Error(`llama.cpp model list failed with HTTP ${response.statusCode}${detail ? `: ${detail}` : '.'}`);
     }
     return (response.body.data || [])
         .map((entry) => entry.id)
@@ -148,10 +173,11 @@ async function getLlamaCppProviderStatus(config) {
     const status = {
         Available: true,
         Reachable: false,
-        BaseUrl: config.LlamaCpp.BaseUrl,
+        BaseUrl: null,
         Error: null,
     };
     try {
+        status.BaseUrl = (0, config_js_1.getConfiguredLlamaBaseUrl)(config);
         await listLlamaCppModels(config);
         status.Reachable = true;
     }
@@ -161,6 +187,14 @@ async function getLlamaCppProviderStatus(config) {
     return status;
 }
 async function generateLlamaCppResponse(options) {
+    const baseUrl = (0, config_js_1.getConfiguredLlamaBaseUrl)(options.config);
+    const resolvedTemperature = options.overrides?.Temperature ?? (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'Temperature');
+    const resolvedTopP = options.overrides?.TopP ?? (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'TopP');
+    const resolvedMaxTokens = options.overrides?.MaxTokens ?? (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'MaxTokens');
+    const resolvedTopK = options.overrides?.TopK ?? (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'TopK');
+    const resolvedMinP = options.overrides?.MinP ?? (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'MinP');
+    const resolvedPresencePenalty = options.overrides?.PresencePenalty ?? (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'PresencePenalty');
+    const resolvedRepetitionPenalty = options.overrides?.RepetitionPenalty ?? (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'RepetitionPenalty');
     const requestBody = JSON.stringify({
         model: options.model,
         messages: [
@@ -169,35 +203,35 @@ async function generateLlamaCppResponse(options) {
                 content: options.prompt,
             },
         ],
-        temperature: Number(options.config.LlamaCpp.Temperature),
-        top_p: Number(options.config.LlamaCpp.TopP),
-        ...(options.config.LlamaCpp.MaxTokens === undefined || options.config.LlamaCpp.MaxTokens === null
-            ? {}
-            : { max_tokens: Number(options.config.LlamaCpp.MaxTokens) }),
+        ...(resolvedTemperature === undefined ? {} : { temperature: Number(resolvedTemperature) }),
+        ...(resolvedTopP === undefined ? {} : { top_p: Number(resolvedTopP) }),
+        ...(resolvedMaxTokens === undefined || resolvedMaxTokens === null ? {} : { max_tokens: Number(resolvedMaxTokens) }),
         extra_body: {
-            top_k: Number(options.config.LlamaCpp.TopK),
-            min_p: Number(options.config.LlamaCpp.MinP),
-            presence_penalty: Number(options.config.LlamaCpp.PresencePenalty),
-            repeat_penalty: Number(options.config.LlamaCpp.RepetitionPenalty),
+            ...(resolvedTopK === undefined ? {} : { top_k: Number(resolvedTopK) }),
+            ...(resolvedMinP === undefined ? {} : { min_p: Number(resolvedMinP) }),
+            ...(resolvedPresencePenalty === undefined ? {} : { presence_penalty: Number(resolvedPresencePenalty) }),
+            ...(resolvedRepetitionPenalty === undefined ? {} : { repeat_penalty: Number(resolvedRepetitionPenalty) }),
         },
     });
     const response = await requestJson({
-        url: `${options.config.LlamaCpp.BaseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
+        url: `${baseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
         method: 'POST',
         timeoutMs: options.timeoutSeconds * 1000,
         body: requestBody,
     });
     if (response.statusCode >= 400) {
-        throw new Error(`llama.cpp generate failed with HTTP ${response.statusCode}.`);
+        const detail = response.rawText.trim();
+        throw new Error(`llama.cpp generate failed with HTTP ${response.statusCode}${detail ? `: ${detail}` : '.'}`);
     }
     const firstChoice = response.body.choices?.[0];
     const messageText = getTextContent(firstChoice?.message?.content);
+    const reasoningText = getTextContent(firstChoice?.message?.reasoning_content);
     const text = (messageText || firstChoice?.text || '').trim();
     if (!text) {
         throw new Error('llama.cpp did not return a response body.');
     }
     const rawUsage = response.body.usage;
-    const thinkingTokens = getThinkingTokenCount(rawUsage);
+    const thinkingTokens = getThinkingTokenCount(rawUsage) ?? await countLlamaCppTokens(options.config, reasoningText);
     const usage = rawUsage
         ? {
             promptTokens: getUsageValue(rawUsage.prompt_tokens),

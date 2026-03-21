@@ -1,0 +1,9 @@
+Make sure to make code as succint and straightforward as possible. 
+
+Keep diffs minimal.
+
+Re-use as much code/components as possible.
+
+Avoid overengineering of solutions where not 100% necessary.
+
+Ensure as close to 100% branch coverage as possible.

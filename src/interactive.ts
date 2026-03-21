@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { initializeRuntime, loadConfig, saveContentAtomically } from './config.js';
+import { getConfiguredModel, initializeRuntime, loadConfig, saveContentAtomically } from './config.js';
 import { summarizeRequest } from './summary.js';
 
 export type InteractiveCaptureRequest = {
@@ -117,7 +117,7 @@ function captureWithTranscript(commandPath: string, argumentList: string[], tran
 export async function runInteractiveCapture(request: InteractiveCaptureRequest): Promise<Record<string, unknown>> {
   const config = await loadConfig({ ensure: true });
   const backend = request.Backend || config.Backend;
-  const model = request.Model || config.Model;
+  const model = request.Model || getConfiguredModel(config);
   const format = request.Format || 'text';
   const policyProfile = request.PolicyProfile || 'general';
   const question = request.Question || 'Summarize the important result and any actionable failures.';
@@ -152,6 +152,8 @@ export async function runInteractiveCapture(request: InteractiveCaptureRequest):
     backend,
     model,
     policyProfile,
+    sourceKind: 'command-output',
+    commandExitCode: exitCode,
   });
   const outputText = `${(summaryResult.Summary || 'No summary generated.').trim()}\nRaw transcript: ${transcriptPath}`;
 
@@ -159,8 +161,10 @@ export async function runInteractiveCapture(request: InteractiveCaptureRequest):
     ExitCode: exitCode,
     TranscriptPath: transcriptPath,
     WasSummarized: summaryResult.WasSummarized,
-    RawReviewRequired: summaryResult.PolicyDecision.startsWith('raw-first') || exitCode !== 0,
+    RawReviewRequired: summaryResult.RawReviewRequired || exitCode !== 0,
     OutputText: outputText,
     Summary: summaryResult.Summary,
+    Classification: summaryResult.Classification,
+    PolicyDecision: summaryResult.PolicyDecision,
   };
 }

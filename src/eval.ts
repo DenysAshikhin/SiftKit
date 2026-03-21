@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { initializeRuntime, loadConfig, saveContentAtomically } from './config.js';
+import { getConfiguredModel, initializeRuntime, loadConfig, saveContentAtomically } from './config.js';
 import { summarizeRequest } from './summary.js';
 import { withExecutionLock } from './execution-lock.js';
 
@@ -98,7 +98,7 @@ export async function runEvaluation(request: EvalRequest): Promise<{
   return withExecutionLock(async () => {
     const config = await loadConfig({ ensure: true });
     const backend = request.Backend || config.Backend;
-    const model = request.Model || config.Model;
+    const model = request.Model || getConfiguredModel(config);
     const fixtureRoot = request.FixtureRoot || path.join(getRepoRoot(), 'eval', 'fixtures');
     const manifest = getFixtureManifest(fixtureRoot);
     const results: Array<Record<string, unknown>> = [];
@@ -113,6 +113,7 @@ export async function runEvaluation(request: EvalRequest): Promise<{
         backend,
         model,
         policyProfile: fixture.PolicyProfile,
+        sourceKind: 'standalone',
       });
       const score = getFixtureScore(summaryResult.Summary, fixture, source.length);
 
@@ -120,6 +121,10 @@ export async function runEvaluation(request: EvalRequest): Promise<{
         Name: fixture.Name,
         SourcePath: sourcePath,
         WasSummarized: summaryResult.WasSummarized,
+        PolicyDecision: summaryResult.PolicyDecision,
+        Classification: summaryResult.Classification,
+        RawReviewRequired: summaryResult.RawReviewRequired,
+        ModelCallSucceeded: summaryResult.ModelCallSucceeded,
         Summary: summaryResult.Summary,
         Recall: score.Recall,
         Precision: score.Precision,
@@ -144,12 +149,17 @@ export async function runEvaluation(request: EvalRequest): Promise<{
         backend,
         model,
         policyProfile: 'general',
+        sourceKind: 'standalone',
       });
 
       results.push({
         Name: `RealLog:${path.basename(logPath)}`,
         SourcePath: logPath,
         WasSummarized: summaryResult.WasSummarized,
+        PolicyDecision: summaryResult.PolicyDecision,
+        Classification: summaryResult.Classification,
+        RawReviewRequired: summaryResult.RawReviewRequired,
+        ModelCallSucceeded: summaryResult.ModelCallSucceeded,
         Summary: summaryResult.Summary,
         Recall: null,
         Precision: null,
