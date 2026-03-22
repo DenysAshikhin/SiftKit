@@ -351,7 +351,7 @@ function getEffectiveMaxInputCharacters(config) {
 }
 function getChunkThresholdCharacters(config) {
     const ratio = Number(config.Thresholds.ChunkThresholdRatio);
-    const effectiveRatio = ratio > 0 && ratio <= 1 ? ratio : 0.92;
+    const effectiveRatio = ratio > 0 && ratio <= 1 ? ratio : 1.0;
     return Math.max(Math.floor(getEffectiveMaxInputCharacters(config) * effectiveRatio), 1);
 }
 function getInferenceStatusPath() {
@@ -652,7 +652,7 @@ function getDefaultConfigObject() {
         PromptPrefix: exports.SIFT_DEFAULT_PROMPT_PREFIX,
         LlamaCpp: {
             BaseUrl: exports.SIFT_DEFAULT_LLAMA_BASE_URL,
-            NumCtx: 150_000,
+            NumCtx: exports.SIFT_DEFAULT_NUM_CTX,
             ModelPath: exports.SIFT_DEFAULT_LLAMA_MODEL_PATH,
             Temperature: 0.7,
             TopP: 0.8,
@@ -661,6 +661,8 @@ function getDefaultConfigObject() {
             PresencePenalty: 1.5,
             RepetitionPenalty: 1.0,
             MaxTokens: 15_000,
+            GpuLayers: 999,
+            Threads: -1,
             FlashAttention: true,
             ParallelSlots: 1,
             Reasoning: 'off',
@@ -669,7 +671,7 @@ function getDefaultConfigObject() {
             Model: exports.SIFT_DEFAULT_LLAMA_MODEL,
             LlamaCpp: {
                 BaseUrl: exports.SIFT_DEFAULT_LLAMA_BASE_URL,
-                NumCtx: 150_000,
+                NumCtx: exports.SIFT_DEFAULT_NUM_CTX,
                 ModelPath: exports.SIFT_DEFAULT_LLAMA_MODEL_PATH,
                 Temperature: 0.7,
                 TopP: 0.8,
@@ -678,6 +680,8 @@ function getDefaultConfigObject() {
                 PresencePenalty: 1.5,
                 RepetitionPenalty: 1.0,
                 MaxTokens: 15_000,
+                GpuLayers: 999,
+                Threads: -1,
                 FlashAttention: true,
                 ParallelSlots: 1,
                 Reasoning: 'off',
@@ -686,7 +690,7 @@ function getDefaultConfigObject() {
         Thresholds: {
             MinCharactersForSummary: 500,
             MinLinesForSummary: 16,
-            ChunkThresholdRatio: 0.92,
+            ChunkThresholdRatio: 1.0,
         },
         Interactive: {
             Enabled: true,
@@ -708,13 +712,30 @@ function getDefaultConfigObject() {
     };
 }
 function toPersistedConfigObject(config) {
+    const compatConfig = applyRuntimeCompatibilityView(config);
     return {
         Version: config.Version,
         Backend: config.Backend,
         PolicyMode: config.PolicyMode,
         RawLogRetention: Boolean(config.RawLogRetention),
         PromptPrefix: config.PromptPrefix ?? exports.SIFT_DEFAULT_PROMPT_PREFIX,
-        LlamaCpp: {},
+        LlamaCpp: {
+            ...(compatConfig.LlamaCpp?.BaseUrl === undefined ? {} : { BaseUrl: compatConfig.LlamaCpp?.BaseUrl ?? null }),
+            ...(compatConfig.LlamaCpp?.NumCtx === undefined ? {} : { NumCtx: compatConfig.LlamaCpp?.NumCtx ?? null }),
+            ...(compatConfig.LlamaCpp?.ModelPath === undefined ? {} : { ModelPath: compatConfig.LlamaCpp?.ModelPath ?? null }),
+            ...(compatConfig.LlamaCpp?.Temperature === undefined ? {} : { Temperature: compatConfig.LlamaCpp?.Temperature ?? null }),
+            ...(compatConfig.LlamaCpp?.TopP === undefined ? {} : { TopP: compatConfig.LlamaCpp?.TopP ?? null }),
+            ...(compatConfig.LlamaCpp?.TopK === undefined ? {} : { TopK: compatConfig.LlamaCpp?.TopK ?? null }),
+            ...(compatConfig.LlamaCpp?.MinP === undefined ? {} : { MinP: compatConfig.LlamaCpp?.MinP ?? null }),
+            ...(compatConfig.LlamaCpp?.PresencePenalty === undefined ? {} : { PresencePenalty: compatConfig.LlamaCpp?.PresencePenalty ?? null }),
+            ...(compatConfig.LlamaCpp?.RepetitionPenalty === undefined ? {} : { RepetitionPenalty: compatConfig.LlamaCpp?.RepetitionPenalty ?? null }),
+            ...(compatConfig.LlamaCpp?.MaxTokens === undefined ? {} : { MaxTokens: compatConfig.LlamaCpp?.MaxTokens ?? null }),
+            ...(compatConfig.LlamaCpp?.GpuLayers === undefined ? {} : { GpuLayers: compatConfig.LlamaCpp?.GpuLayers ?? null }),
+            ...(compatConfig.LlamaCpp?.Threads === undefined ? {} : { Threads: compatConfig.LlamaCpp?.Threads ?? null }),
+            ...(compatConfig.LlamaCpp?.FlashAttention === undefined ? {} : { FlashAttention: compatConfig.LlamaCpp?.FlashAttention ?? null }),
+            ...(compatConfig.LlamaCpp?.ParallelSlots === undefined ? {} : { ParallelSlots: compatConfig.LlamaCpp?.ParallelSlots ?? null }),
+            ...(compatConfig.LlamaCpp?.Reasoning === undefined ? {} : { Reasoning: compatConfig.LlamaCpp?.Reasoning ?? null }),
+        },
         Runtime: {
             ...(config.Runtime?.Model === undefined ? {} : { Model: config.Runtime?.Model ?? null }),
             LlamaCpp: {
@@ -728,6 +749,11 @@ function toPersistedConfigObject(config) {
                 ...(config.Runtime?.LlamaCpp?.PresencePenalty === undefined ? {} : { PresencePenalty: config.Runtime?.LlamaCpp?.PresencePenalty ?? null }),
                 ...(config.Runtime?.LlamaCpp?.RepetitionPenalty === undefined ? {} : { RepetitionPenalty: config.Runtime?.LlamaCpp?.RepetitionPenalty ?? null }),
                 ...(config.Runtime?.LlamaCpp?.MaxTokens === undefined ? {} : { MaxTokens: config.Runtime?.LlamaCpp?.MaxTokens ?? null }),
+                ...(config.Runtime?.LlamaCpp?.GpuLayers === undefined ? {} : { GpuLayers: config.Runtime?.LlamaCpp?.GpuLayers ?? null }),
+                ...(config.Runtime?.LlamaCpp?.Threads === undefined ? {} : { Threads: config.Runtime?.LlamaCpp?.Threads ?? null }),
+                ...(config.Runtime?.LlamaCpp?.FlashAttention === undefined ? {} : { FlashAttention: config.Runtime?.LlamaCpp?.FlashAttention ?? null }),
+                ...(config.Runtime?.LlamaCpp?.ParallelSlots === undefined ? {} : { ParallelSlots: config.Runtime?.LlamaCpp?.ParallelSlots ?? null }),
+                ...(config.Runtime?.LlamaCpp?.Reasoning === undefined ? {} : { Reasoning: config.Runtime?.LlamaCpp?.Reasoning ?? null }),
             },
         },
         Thresholds: {
@@ -760,15 +786,17 @@ function updateRuntimePaths(config) {
     };
 }
 function applyRuntimeCompatibilityView(config) {
+    const defaults = getDefaultConfigObject();
     const runtime = config.Runtime ?? {};
     const runtimeLlamaCpp = runtime.LlamaCpp ?? {};
     const compatLlamaCpp = {
+        ...defaults.LlamaCpp,
         ...config.LlamaCpp,
         ...runtimeLlamaCpp,
     };
     return {
         ...config,
-        Model: runtime.Model ?? config.Model ?? null,
+        Model: runtime.Model ?? config.Model ?? defaults.Runtime?.Model ?? null,
         PromptPrefix: config.PromptPrefix ?? exports.SIFT_DEFAULT_PROMPT_PREFIX,
         LlamaCpp: compatLlamaCpp,
     };
@@ -947,7 +975,7 @@ async function addEffectiveConfigProperties(config, info) {
         ? null
         : getDerivedMaxInputCharacters(numCtx, effectiveBudget.value);
     const chunkThresholdRatio = Number(config.Thresholds.ChunkThresholdRatio);
-    const effectiveChunkThresholdRatio = chunkThresholdRatio > 0 && chunkThresholdRatio <= 1 ? chunkThresholdRatio : 0.92;
+    const effectiveChunkThresholdRatio = chunkThresholdRatio > 0 && chunkThresholdRatio <= 1 ? chunkThresholdRatio : 1.0;
     return {
         ...config,
         Effective: {

@@ -18,6 +18,12 @@ const { summarizeRequest, buildPrompt, UNSUPPORTED_INPUT_MESSAGE } = require('..
 const { runCommand } = require('../dist/command.js');
 const { runBenchmarkSuite } = require('../dist/benchmark.js');
 const {
+  readMatrixManifest,
+  buildLaunchSignature,
+  buildLauncherArgs,
+  buildBenchmarkArgs,
+} = require('../dist/benchmark-matrix.js');
+const {
   listLlamaCppModels,
   generateLlamaCppResponse,
 } = require('../dist/providers/llama-cpp.js');
@@ -69,7 +75,7 @@ function getDefaultConfig() {
     Thresholds: {
       MinCharactersForSummary: 500,
       MinLinesForSummary: 16,
-      ChunkThresholdRatio: 0.92,
+      ChunkThresholdRatio: 1.0,
     },
     Interactive: {
       Enabled: true,
@@ -258,6 +264,7 @@ async function startStubStatusServer(options = {}) {
     config: mergeConfig(getDefaultConfig(), options.config || {}),
     statusPosts: [],
     chatRequests: [],
+    tokenizeRequests: [],
     running: Boolean(options.running),
     executionLeaseToken: null,
     metrics: {
@@ -302,6 +309,26 @@ async function startStubStatusServer(options = {}) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         data: [{ id: state.config.Model }],
+      }));
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/tokenize') {
+      const bodyText = await readBody(req);
+      const parsed = bodyText ? JSON.parse(bodyText) : {};
+      const content = String(parsed?.content || '');
+      state.tokenizeRequests.push(parsed);
+      if (!Number.isFinite(options.tokenizeCharsPerToken) || Number(options.tokenizeCharsPerToken) <= 0) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'tokenize unavailable' }));
+        return;
+      }
+      const tokenCount = content.trim()
+        ? Math.max(1, Math.ceil(content.length / Number(options.tokenizeCharsPerToken)))
+        : 0;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        tokens: Array.from({ length: tokenCount }, (_, index) => index),
       }));
       return;
     }
@@ -924,7 +951,7 @@ test('loadConfig uses the fixed bootstrap chars-per-token budget before observed
       assert.equal(config.Effective.ObservedTelemetrySeen, false);
       assert.equal(config.Effective.ObservedTelemetryUpdatedAtUtc, null);
       assert.equal(config.Effective.MaxInputCharacters, 320000);
-      assert.equal(config.Effective.ChunkThresholdCharacters, 294400);
+      assert.equal(config.Effective.ChunkThresholdCharacters, 320000);
     }, {
       metrics: {
         inputCharactersTotal: 0,
@@ -966,7 +993,7 @@ test('loadConfig immediately switches from bootstrap fallback to observed teleme
       assert.equal(config.Effective.ObservedTelemetrySeen, true);
       assert.equal(typeof config.Effective.ObservedTelemetryUpdatedAtUtc, 'string');
       assert.equal(config.Effective.MaxInputCharacters, 237565);
-      assert.equal(config.Effective.ChunkThresholdCharacters, 218559);
+      assert.equal(config.Effective.ChunkThresholdCharacters, 237565);
     });
   });
 });
@@ -982,7 +1009,7 @@ test('loadConfig normalizes legacy defaults and derives effective budgets from t
       assert.equal(config.Effective.BudgetSource, 'ObservedCharsPerToken');
       assert.ok(Math.abs(config.Effective.InputCharactersPerContextToken - expectedRatio) < 1e-12);
       assert.equal(config.Effective.MaxInputCharacters, 237565);
-      assert.equal(config.Effective.ChunkThresholdCharacters, 218559);
+      assert.equal(config.Effective.ChunkThresholdCharacters, 237565);
       assert.equal(config.Thresholds.MaxInputCharacters, undefined);
     }, {
       config: {
@@ -1063,8 +1090,8 @@ test('loadConfig derives effective budgets from aggregate prompt character and t
       assert.equal(config.Effective.BudgetSource, 'ObservedCharsPerToken');
       assert.ok(Math.abs(config.Effective.InputCharactersPerContextToken - expectedRatio) < 1e-12);
       assert.equal(config.Effective.MaxInputCharacters, 237565);
-      assert.equal(config.Effective.ChunkThresholdCharacters, 218559);
-      assert.equal(getChunkThresholdCharacters(config), 218559);
+      assert.equal(config.Effective.ChunkThresholdCharacters, 237565);
+      assert.equal(getChunkThresholdCharacters(config), 237565);
     }, {
       metrics: {
         inputCharactersTotal: 3461904,
@@ -1147,7 +1174,7 @@ test('summarizeRequest splits using the observed aggregate chars-per-token avera
       const leafCalls = events.filter((event) => event.phase === 'leaf').length;
       const mergeCalls = events.filter((event) => event.phase === 'merge').length;
 
-      assert.equal(threshold, 218559);
+      assert.equal(threshold, 237565);
       assert.equal(result.WasSummarized, true);
       assert.equal(result.Summary, 'mock summary');
       assert.equal(leafCalls, 2);
@@ -1631,6 +1658,9 @@ test('real status server preserves true status while an active request is tracke
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ statusUrl, statusPath: liveStatusPath }) => {
       await requestJson(statusUrl, {
@@ -1653,6 +1683,9 @@ test('real status server persists aggregate metrics and exposes them from GET /s
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const metricsPath = path.join(tempRoot, 'metrics', 'compression.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ statusUrl }) => {
       await requestJson(statusUrl, {
@@ -2302,7 +2335,7 @@ test('summary aggregation records thinking tokens independently from output metr
   });
 });
 
-test('summary retries with smaller chunks when llama.cpp rejects an oversized prompt', async () => {
+test('summary retries with smaller chunks when llama.cpp rejects an oversized prompt and tokenization is unavailable', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const result = await summarizeRequest({
@@ -2316,12 +2349,47 @@ test('summary retries with smaller chunks when llama.cpp rejects an oversized pr
 
       assert.equal(result.WasSummarized, true);
       assert.match(result.Summary, /^summary:/u);
+      assert.ok(server.state.tokenizeRequests.length >= 1);
       assert.ok(server.state.chatRequests.length >= 3);
       const promptLengths = server.state.chatRequests.map((request) => String(request?.messages?.[0]?.content || '').length);
       assert.ok(promptLengths.some((length) => length > 80000));
       assert.ok(promptLengths.some((length) => length <= 80000));
     }, {
       rejectPromptCharsOver: 80000,
+      metrics: {
+        inputCharactersTotal: 3_461_904,
+        inputTokensTotal: 1_865_267,
+        outputCharactersTotal: 0,
+        outputTokensTotal: 0,
+        thinkingTokensTotal: 0,
+        completedRequestCount: 0,
+        requestDurationMsTotal: 0,
+      },
+    });
+  });
+});
+
+test('summary resizes llama.cpp chunks before the first chat request when prompt tokenization exceeds context', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const result = await summarizeRequest({
+        question: 'summarize this',
+        inputText: 'A'.repeat(150000),
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.WasSummarized, true);
+      assert.match(result.Summary, /^summary:/u);
+      assert.ok(server.state.tokenizeRequests.length >= 3);
+      assert.ok(server.state.chatRequests.length >= 3);
+      const promptLengths = server.state.chatRequests.map((request) => String(request?.messages?.[0]?.content || '').length);
+      assert.ok(promptLengths.every((length) => length < 128000));
+      assert.ok(promptLengths.some((length) => length > 70000));
+    }, {
+      tokenizeCharsPerToken: 1,
       metrics: {
         inputCharactersTotal: 3_461_904,
         inputTokensTotal: 1_865_267,
@@ -2424,9 +2492,9 @@ test('request status log groups large running counts and uses colon elapsed dura
       promptCharacterCount: 102_584,
       budgetSource: 'ObservedCharsPerToken',
       inputCharactersPerContextToken: 1.856,
-      chunkThresholdCharacters: 218_559,
+      chunkThresholdCharacters: 237_565,
     }),
-    'request true raw_chars=101,891 chunk_input_chars=101,891 prompt_chars=102,584 budget=ObservedCharsPerToken chars_per_token=1.856 chunk_threshold_chars=218,559',
+    'request true raw_chars=101,891 chunk_input_chars=101,891 prompt_chars=102,584 budget=ObservedCharsPerToken chars_per_token=1.856 chunk_threshold_chars=237,565',
   );
   assert.equal(
     buildStatusRequestLogMessage({ running: false, totalElapsedMs: 97_200_000 }),
@@ -2947,6 +3015,236 @@ test('benchmark runner writes prompt, output, classification metadata, per-case 
       assert.equal(artifact.Results[1].PolicyDecision, 'model-summary');
       assert.equal(artifact.Results[1].Classification, 'summary');
     });
+  });
+});
+
+test('benchmark matrix respects per-run launcher overrides and script-owned reasoning', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const fixtureRoot = path.join(tempRoot, 'bench-fixtures');
+    const resultsRoot = path.join(tempRoot, 'bench-results');
+    const scriptsRoot = path.join(tempRoot, 'scripts');
+    const model9bPath = path.join(scriptsRoot, 'Qwen3.5-9B-Q8_0.gguf');
+    const model35bPath = path.join(scriptsRoot, 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf');
+    const start9bPath = path.join(scriptsRoot, 'Start-Qwen35-9B-Q8-200k.ps1');
+    const start35bPath = path.join(scriptsRoot, 'Start-Qwen35-35B-4bit-150k.ps1');
+    const promptPrefixPath = path.join(tempRoot, 'anchor_prompt_prefix.txt');
+    const manifestPath = path.join(tempRoot, 'matrix.json');
+
+    fs.mkdirSync(fixtureRoot, { recursive: true });
+    fs.mkdirSync(scriptsRoot, { recursive: true });
+    fs.writeFileSync(path.join(fixtureRoot, 'fixtures.json'), '[]', 'utf8');
+    fs.writeFileSync(model9bPath, '', 'utf8');
+    fs.writeFileSync(model35bPath, '', 'utf8');
+    fs.writeFileSync(start9bPath, '', 'utf8');
+    fs.writeFileSync(start35bPath, '', 'utf8');
+    fs.writeFileSync(promptPrefixPath, 'Anchor prefix', 'utf8');
+    fs.writeFileSync(manifestPath, JSON.stringify({
+      fixtureRoot,
+      configUrl: 'http://127.0.0.1:4765/config',
+      promptPrefixFile: promptPrefixPath,
+      startScript: start9bPath,
+      resultsRoot,
+      baseline: {
+        modelId: 'Qwen3.5-9B-Q8_0.gguf',
+        modelPath: 'Qwen3.5-9B-Q8_0.gguf',
+        contextSize: 200000,
+        maxTokens: 15000,
+        reasoning: 'off',
+        passReasoningArg: false,
+      },
+      runs: [
+        {
+          index: 1,
+          id: '9b-script-owned',
+          label: '9b script-owned',
+          enabled: true,
+          modelId: 'Qwen3.5-9B-Q8_0.gguf',
+          modelPath: 'Qwen3.5-9B-Q8_0.gguf',
+          reasoning: 'off',
+          sampling: {
+            temperature: 0.7,
+            topP: 0.8,
+            topK: 20,
+            minP: 0,
+            presencePenalty: 1.5,
+            repetitionPenalty: 1,
+          },
+        },
+        {
+          index: 2,
+          id: '35b-script-owned',
+          label: '35b script-owned',
+          enabled: true,
+          modelId: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+          modelPath: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+          startScript: start35bPath,
+          contextSize: 150000,
+          maxTokens: 9000,
+          reasoning: 'on',
+          passReasoningArg: false,
+          sampling: {
+            temperature: 0.7,
+            topP: 0.95,
+            topK: 20,
+            minP: 0,
+            presencePenalty: 1.5,
+            repetitionPenalty: 1.06,
+          },
+        },
+      ],
+    }, null, 2), 'utf8');
+
+    const manifest = readMatrixManifest({
+      manifestPath,
+      runIds: [],
+      promptPrefixFile: null,
+      validateOnly: false,
+    });
+    const [run9b, run35b] = manifest.selectedRuns;
+
+    assert.equal(manifest.baseline.passReasoningArg, false);
+    assert.equal(run9b.contextSize, 200000);
+    assert.equal(run9b.maxTokens, 15000);
+    assert.equal(run35b.contextSize, 150000);
+    assert.equal(run35b.maxTokens, 9000);
+
+    const launcherArgs = buildLauncherArgs(manifest, run35b);
+    assert.equal(launcherArgs.includes('-Reasoning'), false);
+    assert.deepEqual(launcherArgs.slice(-6), [
+      '-ConfigUrl', manifest.configUrl,
+      '-ModelPath', run35b.modelPath,
+      '-ContextSize', '150000',
+      '-MaxTokens', '9000',
+    ].slice(-6));
+
+    const benchmarkArgs = buildBenchmarkArgs(manifest, run35b, path.join(tempRoot, 'out.json'), promptPrefixPath);
+    assert.equal(benchmarkArgs.includes('--prompt-prefix-file'), true);
+    assert.equal(benchmarkArgs.includes('--max-tokens'), true);
+    assert.equal(benchmarkArgs[benchmarkArgs.indexOf('--max-tokens') + 1], '9000');
+  });
+});
+
+test('benchmark matrix launch signature changes for script and context changes but ignores metadata-only reasoning when script-owned', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const fixtureRoot = path.join(tempRoot, 'bench-fixtures');
+    const resultsRoot = path.join(tempRoot, 'bench-results');
+    const scriptsRoot = path.join(tempRoot, 'scripts');
+    const start9bPath = path.join(scriptsRoot, 'Start-Qwen35-9B-Q8-200k.ps1');
+    const start35bPath = path.join(scriptsRoot, 'Start-Qwen35-35B-4bit-150k.ps1');
+    const manifestPath = path.join(tempRoot, 'matrix.json');
+
+    fs.mkdirSync(fixtureRoot, { recursive: true });
+    fs.mkdirSync(scriptsRoot, { recursive: true });
+    fs.writeFileSync(path.join(fixtureRoot, 'fixtures.json'), '[]', 'utf8');
+    fs.writeFileSync(path.join(scriptsRoot, 'Qwen3.5-9B-Q8_0.gguf'), '', 'utf8');
+    fs.writeFileSync(start9bPath, '', 'utf8');
+    fs.writeFileSync(start35bPath, '', 'utf8');
+    fs.writeFileSync(manifestPath, JSON.stringify({
+      fixtureRoot,
+      configUrl: 'http://127.0.0.1:4765/config',
+      startScript: start9bPath,
+      resultsRoot,
+      baseline: {
+        modelId: 'Qwen3.5-9B-Q8_0.gguf',
+        modelPath: 'Qwen3.5-9B-Q8_0.gguf',
+        contextSize: 200000,
+        maxTokens: 15000,
+        reasoning: 'off',
+        passReasoningArg: false,
+      },
+      runs: [
+        {
+          index: 1,
+          id: 'same-script',
+          label: 'same-script',
+          enabled: true,
+          modelId: 'Qwen3.5-9B-Q8_0.gguf',
+          modelPath: 'Qwen3.5-9B-Q8_0.gguf',
+          reasoning: 'off',
+          sampling: {
+            temperature: 0.7,
+            topP: 0.8,
+            topK: 20,
+            minP: 0,
+            presencePenalty: 1.5,
+            repetitionPenalty: 1,
+          },
+        },
+      ],
+    }, null, 2), 'utf8');
+
+    const manifest = readMatrixManifest({
+      manifestPath,
+      runIds: [],
+      promptPrefixFile: null,
+      validateOnly: false,
+    });
+    const run = manifest.selectedRuns[0];
+    const sameScriptDifferentReasoning = { ...run, reasoning: 'on' };
+    const differentScript = { ...run, startScript: start35bPath };
+    const differentContext = { ...run, contextSize: 150000 };
+
+    assert.equal(buildLaunchSignature(run), buildLaunchSignature(sameScriptDifferentReasoning));
+    assert.notEqual(buildLaunchSignature(run), buildLaunchSignature(differentScript));
+    assert.notEqual(buildLaunchSignature(run), buildLaunchSignature(differentContext));
+  });
+});
+
+test('benchmark matrix passes reasoning by default when the launcher supports it', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const fixtureRoot = path.join(tempRoot, 'bench-fixtures');
+    const resultsRoot = path.join(tempRoot, 'bench-results');
+    const scriptsRoot = path.join(tempRoot, 'scripts');
+    const startPath = path.join(scriptsRoot, 'Start-Qwen.ps1');
+    const manifestPath = path.join(tempRoot, 'matrix.json');
+
+    fs.mkdirSync(fixtureRoot, { recursive: true });
+    fs.mkdirSync(scriptsRoot, { recursive: true });
+    fs.writeFileSync(path.join(fixtureRoot, 'fixtures.json'), '[]', 'utf8');
+    fs.writeFileSync(path.join(scriptsRoot, 'model.gguf'), '', 'utf8');
+    fs.writeFileSync(startPath, '', 'utf8');
+    fs.writeFileSync(manifestPath, JSON.stringify({
+      fixtureRoot,
+      configUrl: 'http://127.0.0.1:4765/config',
+      startScript: startPath,
+      resultsRoot,
+      baseline: {
+        modelId: 'model.gguf',
+        modelPath: 'model.gguf',
+        contextSize: 200000,
+        maxTokens: 15000,
+        reasoning: 'off',
+      },
+      runs: [
+        {
+          index: 1,
+          id: 'thinking',
+          label: 'thinking',
+          enabled: true,
+          modelId: 'model.gguf',
+          modelPath: 'model.gguf',
+          reasoning: 'on',
+          sampling: {
+            temperature: 0.7,
+            topP: 0.8,
+            topK: 20,
+            minP: 0,
+            presencePenalty: 1.5,
+            repetitionPenalty: 1,
+          },
+        },
+      ],
+    }, null, 2), 'utf8');
+
+    const manifest = readMatrixManifest({
+      manifestPath,
+      runIds: [],
+      promptPrefixFile: null,
+      validateOnly: false,
+    });
+    const launcherArgs = buildLauncherArgs(manifest, manifest.selectedRuns[0]);
+
+    assert.deepEqual(launcherArgs.slice(-2), ['-Reasoning', 'on']);
   });
 });
 

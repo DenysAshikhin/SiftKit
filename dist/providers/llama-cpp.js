@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.countLlamaCppTokens = countLlamaCppTokens;
 exports.listLlamaCppModels = listLlamaCppModels;
 exports.getLlamaCppProviderStatus = getLlamaCppProviderStatus;
 exports.generateLlamaCppResponse = generateLlamaCppResponse;

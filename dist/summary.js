@@ -205,6 +205,17 @@ function shouldRetryWithSmallerChunks(options) {
     const message = options.error instanceof Error ? options.error.message : String(options.error);
     return /llama\.cpp generate failed with HTTP 400\b/iu.test(message);
 }
+const LLAMA_CPP_PROMPT_TOKEN_RESERVE = 1024;
+function getTokenAwareChunkThreshold(options) {
+    if (options.inputLength <= 1
+        || options.promptTokenCount <= options.effectivePromptLimit
+        || options.effectivePromptLimit <= 0) {
+        return null;
+    }
+    const scaledThreshold = Math.floor(options.inputLength * (options.effectivePromptLimit / options.promptTokenCount) * 0.95);
+    const reducedThreshold = Math.max(1, Math.min(options.inputLength - 1, scaledThreshold));
+    return reducedThreshold < options.inputLength ? reducedThreshold : null;
+}
 function appendTestProviderEvent(event) {
     const logPath = process.env.SIFTKIT_TEST_PROVIDER_LOG_PATH;
     if (!logPath || !logPath.trim()) {
@@ -602,6 +613,27 @@ async function invokeSummaryCore(options) {
         commandExitCode: options.commandExitCode,
         phase,
     });
+    const effectivePromptLimit = options.backend === 'llama.cpp'
+        ? (0, config_js_1.getConfiguredLlamaNumCtx)(options.config) - LLAMA_CPP_PROMPT_TOKEN_RESERVE
+        : null;
+    const promptTokenCount = effectivePromptLimit !== null && effectivePromptLimit > 0
+        ? await (0, llama_cpp_js_1.countLlamaCppTokens)(options.config, prompt)
+        : null;
+    const preflightChunkThreshold = effectivePromptLimit !== null && promptTokenCount !== null
+        ? getTokenAwareChunkThreshold({
+            inputLength: options.inputText.length,
+            promptTokenCount,
+            effectivePromptLimit,
+        })
+        : null;
+    if (preflightChunkThreshold !== null) {
+        return invokeSummaryCore({
+            ...options,
+            chunkThresholdOverride: preflightChunkThreshold,
+            chunkIndex: options.chunkIndex ?? null,
+            chunkTotal: options.chunkTotal ?? null,
+        });
+    }
     try {
         const rawResponse = await invokeProviderSummary({
             backend: options.backend,
@@ -628,7 +660,13 @@ async function invokeSummaryCore(options) {
         })) {
             throw error;
         }
-        const reducedThreshold = Math.max(1, Math.min(chunkThreshold - 1, Math.floor(options.inputText.length / 2)));
+        const reducedThreshold = (effectivePromptLimit !== null && promptTokenCount !== null
+            ? getTokenAwareChunkThreshold({
+                inputLength: options.inputText.length,
+                promptTokenCount,
+                effectivePromptLimit,
+            })
+            : null) ?? Math.max(1, Math.min(chunkThreshold - 1, Math.floor(options.inputText.length / 2)));
         if (reducedThreshold >= options.inputText.length) {
             throw error;
         }

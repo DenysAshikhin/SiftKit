@@ -174,7 +174,7 @@ function getTextContent(content: string | Array<{ type?: string; text?: string }
     .join('');
 }
 
-async function countLlamaCppTokens(config: SiftConfig, content: string): Promise<number | null> {
+export async function countLlamaCppTokens(config: SiftConfig, content: string): Promise<number | null> {
   if (!content.trim()) {
     return 0;
   }

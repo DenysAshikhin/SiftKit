@@ -26,6 +26,7 @@ type RawMatrixManifest = {
     contextSize: number;
     maxTokens: number;
     reasoning: string;
+    passReasoningArg?: boolean;
   };
   runs: Array<{
     index: number;
@@ -36,6 +37,9 @@ type RawMatrixManifest = {
     modelPath: string;
     startScript?: string | null;
     promptPrefixFile?: string | null;
+    contextSize?: number;
+    maxTokens?: number;
+    passReasoningArg?: boolean;
     reasoning?: 'on' | 'off' | 'auto';
     sampling: {
       temperature: number;
@@ -59,6 +63,9 @@ type ResolvedMatrixTarget = {
   promptPrefixFile: string | null;
   reasoning: 'on' | 'off' | 'auto';
   sampling: BenchmarkSampling | null;
+  contextSize: number;
+  maxTokens: number;
+  passReasoningArg: boolean;
 };
 
 type ResolvedMatrixManifest = {
@@ -70,10 +77,7 @@ type ResolvedMatrixManifest = {
   startScript: string;
   stopScript: string | null;
   resultsRoot: string;
-  baseline: ResolvedMatrixTarget & {
-    contextSize: number;
-    maxTokens: number;
-  };
+  baseline: ResolvedMatrixTarget;
   enabledRuns: ResolvedMatrixTarget[];
   selectedRuns: ResolvedMatrixTarget[];
 };
@@ -300,6 +304,25 @@ function getRequiredDouble(value: unknown, name: string): number {
   return parsed;
 }
 
+function getOptionalInt(value: unknown, name: string): number | null {
+  if (value === null || value === undefined || String(value).trim() === '') {
+    return null;
+  }
+
+  return getRequiredInt(value, name);
+}
+
+function getOptionalBoolean(value: unknown, name: string): boolean | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value !== 'boolean') {
+    throw new Error(`Manifest field '${name}' must be boolean.`);
+  }
+
+  return value;
+}
+
 function parseArguments(argv: string[]): MatrixCliOptions {
   const parsed: MatrixCliOptions = {
     manifestPath: defaultManifestPath,
@@ -348,7 +371,7 @@ function getSelectedRuns(enabledRuns: ResolvedMatrixTarget[], requestedRunIds: s
   return selected;
 }
 
-function readMatrixManifest(options: MatrixCliOptions): ResolvedMatrixManifest {
+export function readMatrixManifest(options: MatrixCliOptions): ResolvedMatrixManifest {
   const resolvedManifestPath = resolvePathFromBase(options.manifestPath, repoRoot);
   if (!fs.existsSync(resolvedManifestPath)) {
     throw new Error(`Manifest file not found: ${resolvedManifestPath}`);
@@ -403,6 +426,7 @@ function readMatrixManifest(options: MatrixCliOptions): ResolvedMatrixManifest {
     contextSize: getRequiredInt(raw.baseline.contextSize, 'baseline.contextSize'),
     maxTokens: getRequiredInt(raw.baseline.maxTokens, 'baseline.maxTokens'),
     reasoning: baselineReasoning as 'on' | 'off' | 'auto',
+    passReasoningArg: getOptionalBoolean(raw.baseline.passReasoningArg, 'baseline.passReasoningArg') ?? true,
   };
 
   if (!fs.existsSync(baseline.resolvedModelPath)) {
@@ -437,6 +461,9 @@ function readMatrixManifest(options: MatrixCliOptions): ResolvedMatrixManifest {
       resolvedModelPath: '',
       promptPrefixFile: resolveOptionalPathFromBase(rawRun.promptPrefixFile ?? null, manifestDirectory),
       reasoning: ((rawRun.reasoning ?? baseline.reasoning) as 'on' | 'off' | 'auto'),
+      contextSize: getOptionalInt(rawRun.contextSize, `runs[${runId}].contextSize`) ?? baseline.contextSize,
+      maxTokens: getOptionalInt(rawRun.maxTokens, `runs[${runId}].maxTokens`) ?? baseline.maxTokens,
+      passReasoningArg: getOptionalBoolean(rawRun.passReasoningArg, `runs[${runId}].passReasoningArg`) ?? baseline.passReasoningArg,
       sampling: {
         temperature: getRequiredDouble(rawRun.sampling.temperature, `runs[${runId}].sampling.temperature`),
         topP: getRequiredDouble(rawRun.sampling.topP, `runs[${runId}].sampling.topP`),
@@ -487,6 +514,66 @@ function readMatrixManifest(options: MatrixCliOptions): ResolvedMatrixManifest {
     enabledRuns,
     selectedRuns,
   };
+}
+
+export function buildLaunchSignature(target: ResolvedMatrixTarget): string {
+  return [
+    target.startScript,
+    target.resolvedModelPath,
+    String(target.contextSize),
+    String(target.maxTokens),
+    target.passReasoningArg ? target.reasoning : 'script-controlled',
+  ].join('|');
+}
+
+export function buildLauncherArgs(manifest: ResolvedMatrixManifest, target: ResolvedMatrixTarget): string[] {
+  const args = [
+    '-NoProfile',
+    '-ExecutionPolicy', 'Bypass',
+    '-File', target.startScript,
+    '-ConfigUrl', manifest.configUrl,
+    '-ModelPath', target.modelPath,
+    '-ContextSize', String(target.contextSize),
+    '-MaxTokens', String(target.maxTokens),
+  ];
+  if (target.passReasoningArg) {
+    args.push('-Reasoning', target.reasoning);
+  }
+
+  return args;
+}
+
+export function buildBenchmarkArgs(
+  manifest: ResolvedMatrixManifest,
+  run: ResolvedMatrixTarget,
+  outputPath: string,
+  promptPrefixFile: string | null
+): string[] {
+  const args = [
+    path.join(repoRoot, 'dist', 'benchmark.js'),
+    '--fixture-root',
+    manifest.fixtureRoot,
+    '--model',
+    run.modelId,
+    '--output',
+    outputPath,
+  ];
+  if (promptPrefixFile) {
+    args.push('--prompt-prefix-file', promptPrefixFile);
+  }
+  if (run.sampling) {
+    args.push(
+      '--temperature', String(run.sampling.temperature),
+      '--top-p', String(run.sampling.topP),
+      '--top-k', String(run.sampling.topK),
+      '--min-p', String(run.sampling.minP),
+      '--presence-penalty', String(run.sampling.presencePenalty),
+      '--repetition-penalty', String(run.sampling.repetitionPenalty),
+    );
+  }
+  args.push('--max-tokens', String(run.maxTokens));
+
+  return args;
 }
 
 async function invokeConfigGet(configUrl: string): Promise<ConfigRecord> {
@@ -636,16 +723,7 @@ async function forceStopLlamaServer(sessionDirectory: string): Promise<void> {
 async function startLlamaLauncher(manifest: ResolvedMatrixManifest, target: ResolvedMatrixTarget, sessionDirectory: string): Promise<LaunchResult> {
   const stdoutPath = path.join(sessionDirectory, `launcher_${target.index}_${target.id}_stdout.log`);
   const stderrPath = path.join(sessionDirectory, `launcher_${target.index}_${target.id}_stderr.log`);
-  const args = [
-    '-NoProfile',
-    '-ExecutionPolicy', 'Bypass',
-    '-File', target.startScript,
-        '-ConfigUrl', manifest.configUrl,
-        '-ModelPath', target.modelPath,
-        '-ContextSize', String(manifest.baseline.contextSize),
-        '-Reasoning', target.reasoning,
-        '-MaxTokens', String(manifest.baseline.maxTokens),
-  ];
+  const args = buildLauncherArgs(manifest, target);
 
   ensureDirectory(sessionDirectory);
   const stdoutFd = fs.openSync(stdoutPath, 'w');
@@ -699,29 +777,7 @@ async function invokeBenchmarkProcess(manifest: ResolvedMatrixManifest, run: Res
     throw new Error(`Benchmark entrypoint not found: ${benchmarkScriptPath}. Run 'npm run build' first.`);
   }
 
-  const args = [
-    benchmarkScriptPath,
-    '--fixture-root',
-    manifest.fixtureRoot,
-    '--model',
-    run.modelId,
-    '--output',
-    outputPath,
-  ];
-  if (promptPrefixFile) {
-    args.push('--prompt-prefix-file', promptPrefixFile);
-  }
-  if (run.sampling) {
-    args.push(
-      '--temperature', String(run.sampling.temperature),
-      '--top-p', String(run.sampling.topP),
-      '--top-k', String(run.sampling.topK),
-      '--min-p', String(run.sampling.minP),
-      '--presence-penalty', String(run.sampling.presencePenalty),
-      '--repetition-penalty', String(run.sampling.repetitionPenalty),
-    );
-  }
-  args.push('--max-tokens', String(manifest.baseline.maxTokens));
+  const args = buildBenchmarkArgs(manifest, run, outputPath, promptPrefixFile);
 
   const env = {
     ...process.env,
@@ -816,7 +872,7 @@ async function runMatrix(options: MatrixCliOptions): Promise<void> {
 
   try {
     await restartLlamaForTarget(manifest, manifest.baseline, sessionDirectory);
-    currentLaunchSignature = `${manifest.baseline.resolvedModelPath}|${manifest.baseline.reasoning}`;
+    currentLaunchSignature = buildLaunchSignature(manifest.baseline);
 
     for (const run of manifest.selectedRuns) {
       const outputPath = path.join(sessionDirectory, `${String(run.index).padStart(2, '0')}_${run.id}.json`);
@@ -843,7 +899,7 @@ async function runMatrix(options: MatrixCliOptions): Promise<void> {
 
       process.stdout.write(`Running [${run.id}] ${run.label}\n`);
       try {
-        const requiredLaunchSignature = `${run.resolvedModelPath}|${run.reasoning}`;
+        const requiredLaunchSignature = buildLaunchSignature(run);
         if (currentLaunchSignature !== requiredLaunchSignature) {
           await restartLlamaForTarget(manifest, run, sessionDirectory);
           currentLaunchSignature = requiredLaunchSignature;

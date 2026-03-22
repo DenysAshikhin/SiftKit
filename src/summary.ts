@@ -11,7 +11,7 @@ import {
   notifyStatusBackend,
 } from './config.js';
 import { withExecutionLock } from './execution-lock.js';
-import { generateLlamaCppResponse } from './providers/llama-cpp.js';
+import { countLlamaCppTokens, generateLlamaCppResponse } from './providers/llama-cpp.js';
 
 export type SummaryPolicyProfile = 'general' | 'pass-fail' | 'unique-errors' | 'buried-critical' | 'json-extraction' | 'diff-summary' | 'risky-operation';
 export type SummarySourceKind = 'standalone' | 'command-output';
@@ -270,6 +270,28 @@ function shouldRetryWithSmallerChunks(options: {
 
   const message = options.error instanceof Error ? options.error.message : String(options.error);
   return /llama\.cpp generate failed with HTTP 400\b/iu.test(message);
+}
+
+const LLAMA_CPP_PROMPT_TOKEN_RESERVE = 1024;
+
+function getTokenAwareChunkThreshold(options: {
+  inputLength: number;
+  promptTokenCount: number;
+  effectivePromptLimit: number;
+}): number | null {
+  if (
+    options.inputLength <= 1
+    || options.promptTokenCount <= options.effectivePromptLimit
+    || options.effectivePromptLimit <= 0
+  ) {
+    return null;
+  }
+
+  const scaledThreshold = Math.floor(
+    options.inputLength * (options.effectivePromptLimit / options.promptTokenCount) * 0.95
+  );
+  const reducedThreshold = Math.max(1, Math.min(options.inputLength - 1, scaledThreshold));
+  return reducedThreshold < options.inputLength ? reducedThreshold : null;
 }
 
 function appendTestProviderEvent(event: Record<string, unknown>): void {
@@ -751,6 +773,27 @@ async function invokeSummaryCore(options: {
     commandExitCode: options.commandExitCode,
     phase,
   });
+  const effectivePromptLimit = options.backend === 'llama.cpp'
+    ? getConfiguredLlamaNumCtx(options.config) - LLAMA_CPP_PROMPT_TOKEN_RESERVE
+    : null;
+  const promptTokenCount = effectivePromptLimit !== null && effectivePromptLimit > 0
+    ? await countLlamaCppTokens(options.config, prompt)
+    : null;
+  const preflightChunkThreshold = effectivePromptLimit !== null && promptTokenCount !== null
+    ? getTokenAwareChunkThreshold({
+      inputLength: options.inputText.length,
+      promptTokenCount,
+      effectivePromptLimit,
+    })
+    : null;
+  if (preflightChunkThreshold !== null) {
+    return invokeSummaryCore({
+      ...options,
+      chunkThresholdOverride: preflightChunkThreshold,
+      chunkIndex: options.chunkIndex ?? null,
+      chunkTotal: options.chunkTotal ?? null,
+    });
+  }
 
   try {
     const rawResponse = await invokeProviderSummary({
@@ -778,7 +821,15 @@ async function invokeSummaryCore(options: {
       throw error;
     }
 
-    const reducedThreshold = Math.max(1, Math.min(chunkThreshold - 1, Math.floor(options.inputText.length / 2)));
+    const reducedThreshold = (
+      effectivePromptLimit !== null && promptTokenCount !== null
+        ? getTokenAwareChunkThreshold({
+          inputLength: options.inputText.length,
+          promptTokenCount,
+          effectivePromptLimit,
+        })
+        : null
+    ) ?? Math.max(1, Math.min(chunkThreshold - 1, Math.floor(options.inputText.length / 2)));
     if (reducedThreshold >= options.inputText.length) {
       throw error;
     }
