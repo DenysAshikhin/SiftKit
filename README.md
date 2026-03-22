@@ -4,7 +4,7 @@ SiftKit is a Windows-first client for conservative shell-output compression in C
 
 The status/config server is required infrastructure and is not hosted by this package. Normal SiftKit commands fail closed if that separate server is not reachable.
 
-The client still talks to `llama.cpp` over HTTP on the configured `LlamaCpp.BaseUrl`, but the status server now owns the runtime lifecycle and participates in a shared GPU status-file protocol. On `npm start`, it clears stale managed llama processes, acquires the shared lock before using GPU, starts `llama-server`, dumps the startup logs for review, fails closed on warning/error markers, and keeps the published status `true` while SiftKit owns the GPU. After the idle summary is emitted and the server shuts the model back down, the published status returns to `false`.
+The client still talks to `llama.cpp` over HTTP on the configured `LlamaCpp.BaseUrl`, but the status server now owns the runtime lifecycle and participates in a shared GPU status-file protocol. On normal startup, it clears stale managed llama processes, acquires the shared lock before using GPU, starts `llama-server`, dumps the startup logs for review, fails closed on warning/error markers, and keeps the published status `true` while SiftKit owns the GPU. After the idle summary is emitted and the server shuts the model back down, the published status returns to `false`.
 
 The shared status file now uses four canonical values:
 
@@ -22,6 +22,14 @@ npm start
 ```
 
 That launch path uses `nodemon --signal SIGINT`, so a managed llama process is torn down on graceful restarts instead of being left behind between reloads.
+
+If you need the status/config server without managed `llama.cpp` startup, use:
+
+```powershell
+npm start -- --disable-managed-llama-startup
+```
+
+In that mode the server still serves `GET /health`, `GET /status`, `GET /config`, and `PUT /config`, but it does not auto-start `llama-server` during boot or `GET /config`. `GET /health` also reports `disableManagedLlamaStartup: true`.
 
 When the status server runs a managed llama startup script, it captures startup-script stdout/stderr under the runtime `logs\managed-llama` folder and exposes server-owned log paths to the script through these environment variables:
 
@@ -97,7 +105,7 @@ npm run verify:client
 
 That script assumes the separate status/config server is already running and reachable.
 
-Point SiftKit at the target `llama-server` base URL through the config service, for example `http://127.0.0.1:8080`, and set `Server.LlamaCpp.StartupScript` plus `Server.LlamaCpp.ShutdownScript` in the config file if you want the status server to manage the process lifecycle.
+Point SiftKit at the target `llama-server` base URL through the config service, for example `http://127.0.0.1:8080`, and set `Server.LlamaCpp.StartupScript` plus `Server.LlamaCpp.ShutdownScript` in the config file if you want the status server to manage the process lifecycle. External model launchers that manage `llama-server` themselves should verify `GET /health` reports `disableManagedLlamaStartup: true` before calling `GET /config` or `PUT /config`.
 
 Run the dedicated live `llama.cpp` smoke flow against the status/config server plus a reachable `llama.cpp` endpoint:
 

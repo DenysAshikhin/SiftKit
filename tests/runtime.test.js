@@ -537,7 +537,9 @@ async function withRealStatusServer(fn, options = {}) {
     delete process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH;
   }
 
-  const server = startStatusServer();
+  const server = startStatusServer({
+    disableManagedLlamaStartup: Boolean(options.disableManagedLlamaStartup),
+  });
   try {
     const address = await new Promise((resolve) => {
       if (server.listening) {
@@ -548,12 +550,16 @@ async function withRealStatusServer(fn, options = {}) {
       server.once('listening', () => resolve(server.address()));
     });
     const port = typeof address === 'object' && address ? address.port : 0;
+    if (server.startupPromise) {
+      await server.startupPromise;
+    }
 
     return await fn({
       server,
       port,
       statusUrl: `http://127.0.0.1:${port}/status`,
       healthUrl: `http://127.0.0.1:${port}/health`,
+      configUrl: `http://127.0.0.1:${port}/config`,
       statusPath: options.statusPath,
       configPath: options.configPath,
       idleSummaryDbPath: options.idleSummaryDbPath || getIdleSummarySnapshotsPath(),
@@ -581,7 +587,11 @@ async function startStatusServerProcess(options) {
     ...(options.idleSummaryDbPath ? { SIFTKIT_IDLE_SUMMARY_DB_PATH: options.idleSummaryDbPath } : {}),
     ...(options.idleSummaryDelayMs ? { SIFTKIT_IDLE_SUMMARY_DELAY_MS: String(options.idleSummaryDelayMs) } : {}),
   };
-  const child = spawn(process.execPath, [path.join(process.cwd(), 'siftKitStatus', 'index.js')], {
+  const args = [path.join(process.cwd(), 'siftKitStatus', 'index.js')];
+  if (options.disableManagedLlamaStartup) {
+    args.push('--disable-managed-llama-startup');
+  }
+  const child = spawn(process.execPath, args, {
     cwd: process.cwd(),
     env: childEnv,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -866,6 +876,7 @@ exit 0
 
   return {
     baseUrl: `http://127.0.0.1:${port}`,
+    fakeServerPath,
     startupScriptPath,
     shutdownScriptPath,
     pidFilePath,
@@ -1352,16 +1363,19 @@ test('withExecutionLock waits for the server to release execution control before
   });
 });
 
-test('real status server clears stale true status after the idle watchdog interval', async () => {
+test('real status server clears stale true status once during startup', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
     fs.mkdirSync(path.dirname(statusPath), { recursive: true });
     fs.writeFileSync(statusPath, 'true', 'utf8');
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ statusPath: liveStatusPath }) => {
-      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'true');
-      await sleep(10_500);
+      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'false');
+      await sleep(250);
       assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'false');
     }, {
       statusPath,
@@ -1387,6 +1401,144 @@ test('real status server initializes a missing status file to false', async () =
       statusPath,
       configPath,
     });
+  });
+});
+
+test('real status server health reports disableManagedLlamaStartup mode when flagged', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ healthUrl }) => {
+      const health = await requestJson(healthUrl);
+      assert.equal(health.ok, true);
+      assert.equal(health.disableManagedLlamaStartup, true);
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
+test('real status server with disableManagedLlamaStartup skips managed llama bootstrap during server startup', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      await sleep(250);
+      assert.equal(fs.existsSync(managed.readyFilePath), false);
+      const status = await requestJson(statusUrl);
+      assert.equal(status.running, false);
+      assert.equal(status.status, 'false');
+      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'false');
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
+test('real status server with disableManagedLlamaStartup does not trigger managed startup from GET /config', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ configUrl }) => {
+      const loadedConfig = await requestJson(configUrl);
+      assert.equal(loadedConfig.Server.LlamaCpp.StartupScript, managed.startupScriptPath);
+      await sleep(250);
+      assert.equal(fs.existsSync(managed.readyFilePath), false);
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
+test('real status server with disableManagedLlamaStartup leaves an externally started llama running across boot and close', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    const externalLlama = spawn(process.execPath, [managed.fakeServerPath], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+
+    try {
+      await waitForAsyncExpectation(async () => {
+        const models = await requestJson(`${managed.baseUrl}/v1/models`);
+        assert.equal(models.data[0].id, 'managed-test-model');
+      }, 5000);
+
+      await withRealStatusServer(async () => {
+        await waitForAsyncExpectation(async () => {
+          const models = await requestJson(`${managed.baseUrl}/v1/models`);
+          assert.equal(models.data[0].id, 'managed-test-model');
+        }, 1000);
+      }, {
+        statusPath,
+        configPath,
+        disableManagedLlamaStartup: true,
+      });
+
+      await waitForAsyncExpectation(async () => {
+        const models = await requestJson(`${managed.baseUrl}/v1/models`);
+        assert.equal(models.data[0].id, 'managed-test-model');
+      }, 1000);
+    } finally {
+      externalLlama.kill('SIGTERM');
+      await new Promise((resolve) => externalLlama.once('close', resolve));
+    }
   });
 });
 
@@ -2497,6 +2649,9 @@ test('real status server close() stops managed llama.cpp', async () => {
         server.once('listening', () => resolve(server.address()));
       });
       const port = typeof address === 'object' && address ? address.port : 0;
+      if (server.startupPromise) {
+        await server.startupPromise;
+      }
       process.env.SIFTKIT_CONFIG_SERVICE_URL = `http://127.0.0.1:${port}/config`;
       process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${port}/status`;
 

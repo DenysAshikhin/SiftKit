@@ -45,6 +45,8 @@ Inference is still external over HTTP, but the status server now supervises the 
 
 After the idle summary block is emitted, the status server can run `Server.LlamaCpp.ShutdownScript` and clear the published status back to `false`.
 
+The server also supports a process-level safe mode via `--disable-managed-llama-startup`. In that mode it still serves health, status, and config endpoints, but it skips managed `llama.cpp` startup during boot and `GET /config`, skips stale-process cleanup on boot, and advertises `disableManagedLlamaStartup: true` from `GET /health` so external launchers can verify they will not trigger a second managed model startup.
+
 ## Policy and tests
 
 The runtime remains conservative:

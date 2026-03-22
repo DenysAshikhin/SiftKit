@@ -917,7 +917,8 @@ function sendJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload));
 }
 
-function startStatusServer() {
+function startStatusServer(options = {}) {
+  const disableManagedLlamaStartup = Boolean(options.disableManagedLlamaStartup);
   const host = process.env.SIFTKIT_STATUS_HOST || '127.0.0.1';
   const requestedPort = Number.parseInt(process.env.SIFTKIT_STATUS_PORT || '4765', 10);
   const statusPath = getStatusPath();
@@ -944,6 +945,12 @@ function startStatusServer() {
   let siftKitWaitingForGpuLock = false;
   let gpuLockAcquisitionPromise = null;
   let server = null;
+  let resolveStartupPromise;
+  let rejectStartupPromise;
+  const startupPromise = new Promise((resolve, reject) => {
+    resolveStartupPromise = resolve;
+    rejectStartupPromise = reject;
+  });
 
   function getServiceBaseUrl() {
     const address = server?.address?.();
@@ -1288,6 +1295,12 @@ function startStatusServer() {
   }
 
   async function shutdownManagedLlamaIfNeeded() {
+    if (disableManagedLlamaStartup) {
+      managedLlamaReady = false;
+      releaseSiftKitGpuLockIfIdle();
+      return;
+    }
+
     const config = readConfig(configPath);
     if (config.Backend !== 'llama.cpp') {
       return;
@@ -1359,6 +1372,10 @@ function startStatusServer() {
       idleSummaryPending = false;
       siftKitWaitingForGpuLock = false;
       siftKitOwnsGpuLock = false;
+      if (disableManagedLlamaStartup) {
+        publishStatus();
+        return;
+      }
       const config = readConfig(configPath);
       if (config.Backend !== 'llama.cpp') {
         publishStatus();
@@ -1415,6 +1432,9 @@ function startStatusServer() {
       bootstrapManagedLlamaStartup = false;
       managedLlamaStarting = false;
       siftKitWaitingForGpuLock = false;
+      if (disableManagedLlamaStartup) {
+        return;
+      }
       await shutdownManagedLlamaIfNeeded();
     } catch (error) {
       process.stderr.write(`[siftKitStatus] Failed to stop managed llama.cpp during server exit: ${error.message}\n`);
@@ -1426,6 +1446,10 @@ function startStatusServer() {
   }
 
   async function clearPreexistingManagedLlamaIfNeeded() {
+    if (disableManagedLlamaStartup) {
+      return;
+    }
+
     const config = readConfig(configPath);
     if (config.Backend !== 'llama.cpp') {
       return;
@@ -1588,20 +1612,11 @@ function startStatusServer() {
     return true;
   }
 
-  const idleStatusWatchdog = setInterval(() => {
-    const expectedStatus = getPublishedStatusText();
-    if (readStatusText(statusPath) !== expectedStatus) {
-      writeText(statusPath, expectedStatus);
-    }
-  }, EXECUTION_LEASE_STALE_MS);
-  if (typeof idleStatusWatchdog.unref === 'function') {
-    idleStatusWatchdog.unref();
-  }
-
   server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
       sendJson(res, 200, {
         ok: true,
+        disableManagedLlamaStartup,
         statusPath,
         configPath,
         metricsPath,
@@ -1799,6 +1814,10 @@ function startStatusServer() {
 
     if (req.method === 'GET' && req.url === '/config') {
       try {
+        if (disableManagedLlamaStartup) {
+          sendJson(res, 200, readConfig(configPath));
+          return;
+        }
         if (bootstrapManagedLlamaStartup && (managedLlamaStarting || managedLlamaStartupPromise)) {
           sendJson(res, 200, readConfig(configPath));
           return;
@@ -1845,24 +1864,27 @@ function startStatusServer() {
 
   server.listen(Number.isFinite(requestedPort) ? requestedPort : 4765, host, async () => {
     try {
-      await clearPreexistingManagedLlamaIfNeeded();
-      bootstrapManagedLlamaStartup = true;
-      try {
-        await ensureManagedLlamaReady({ resetStatusBeforeCheck: false });
-      } finally {
-        bootstrapManagedLlamaStartup = false;
+      if (!disableManagedLlamaStartup) {
+        await clearPreexistingManagedLlamaIfNeeded();
+        bootstrapManagedLlamaStartup = true;
+        try {
+          await ensureManagedLlamaReady({ resetStatusBeforeCheck: false });
+        } finally {
+          bootstrapManagedLlamaStartup = false;
+        }
       }
       publishStatus();
       const address = server.address();
       process.stdout.write(`${JSON.stringify({ ok: true, port: address.port, host, statusPath, configPath })}\n`);
+      resolveStartupPromise();
     } catch (error) {
+      rejectStartupPromise(error);
       dumpManagedLlamaStartupReviewToConsole(managedLlamaLastStartupLogs);
       process.stderr.write(`[siftKitStatus] Startup cleanup failed: ${error.message}\n`);
       server.close(() => process.exit(1));
     }
   });
   server.on('close', () => {
-    clearInterval(idleStatusWatchdog);
     clearIdleSummaryTimer();
     if (idleSummaryDatabase) {
       idleSummaryDatabase.close();
@@ -1871,6 +1893,7 @@ function startStatusServer() {
   });
   server.shutdownManagedLlamaForServerExit = shutdownManagedLlamaForServerExit;
   server.shutdownManagedLlamaForProcessExitSync = shutdownManagedLlamaForProcessExitSync;
+  server.startupPromise = startupPromise;
 
   return server;
 }
@@ -1890,7 +1913,9 @@ module.exports = {
 };
 
 if (require.main === module) {
-  const server = startStatusServer();
+  const server = startStatusServer({
+    disableManagedLlamaStartup: process.argv.includes('--disable-managed-llama-startup'),
+  });
   let shuttingDown = false;
   const shutdown = async (signal = 'SIGTERM') => {
     if (shuttingDown) {
