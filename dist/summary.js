@@ -474,6 +474,7 @@ async function invokeProviderSummary(options) {
     await (0, config_js_1.notifyStatusBackend)({
         running: true,
         promptCharacterCount: options.promptCharacterCount,
+        promptTokenCount: options.promptTokenCount,
         rawInputCharacterCount: options.rawInputCharacterCount,
         chunkInputCharacterCount: options.chunkInputCharacterCount,
         budgetSource: options.config.Effective?.BudgetSource ?? null,
@@ -512,7 +513,7 @@ async function invokeProviderSummary(options) {
             config: options.config,
             model: options.model,
             prompt: options.prompt,
-            timeoutSeconds: 600,
+            timeoutSeconds: options.requestTimeoutSeconds ?? 600,
             overrides: options.llamaCppOverrides,
         });
         inputTokens = response.usage?.promptTokens ?? null;
@@ -785,12 +786,14 @@ async function invokeSummaryCore(options) {
             prompt,
             question: options.question,
             promptCharacterCount: prompt.length,
+            promptTokenCount,
             rawInputCharacterCount: rootInputCharacterCount,
             chunkInputCharacterCount: options.inputText.length,
             phase,
             chunkIndex: options.chunkIndex ?? null,
             chunkTotal: options.chunkTotal ?? null,
             chunkPath: options.chunkPath ?? null,
+            requestTimeoutSeconds: options.requestTimeoutSeconds,
             llamaCppOverrides: options.llamaCppOverrides,
         });
         return normalizeStructuredDecision(parseStructuredModelDecision(rawResponse), options.format);
@@ -860,6 +863,7 @@ async function summarizeRequest(request) {
             sourceKind: request.sourceKind || 'standalone',
             commandExitCode: request.commandExitCode,
             promptPrefix: effectivePromptPrefix,
+            requestTimeoutSeconds: request.requestTimeoutSeconds,
             llamaCppOverrides: request.llamaCppOverrides,
         });
         return {

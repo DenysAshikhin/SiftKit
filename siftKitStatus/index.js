@@ -632,10 +632,17 @@ function buildIdleSummarySnapshot(metrics, emittedAt = new Date()) {
   const savedTokens = inputTokensTotal - outputTokensTotal;
   const savedPercent = inputTokensTotal > 0 ? savedTokens / inputTokensTotal : Number.NaN;
   const compressionRatio = outputTokensTotal > 0 ? inputTokensTotal / outputTokensTotal : Number.NaN;
+  const avgOutputTokensPerRequest = completedRequestCount > 0 ? outputTokensTotal / completedRequestCount : Number.NaN;
   const avgRequestMs = completedRequestCount > 0 ? requestDurationMsTotal / completedRequestCount : Number.NaN;
   const avgTokensPerSecond = requestDurationMsTotal > 0 && outputTokensTotal > 0
     ? outputTokensTotal / (requestDurationMsTotal / 1000)
     : Number.NaN;
+  const inputCharactersPerContextToken = Number.isFinite(metrics.inputCharactersPerContextToken) && metrics.inputCharactersPerContextToken > 0
+    ? Number(metrics.inputCharactersPerContextToken)
+    : null;
+  const chunkThresholdCharacters = Number.isFinite(metrics.chunkThresholdCharacters) && metrics.chunkThresholdCharacters > 0
+    ? Number(metrics.chunkThresholdCharacters)
+    : null;
 
   return {
     emittedAtUtc: emittedAt.toISOString(),
@@ -649,19 +656,33 @@ function buildIdleSummarySnapshot(metrics, emittedAt = new Date()) {
     savedTokens,
     savedPercent,
     compressionRatio,
+    avgOutputTokensPerRequest,
     avgRequestMs,
-    avgTokensPerSecond
+    avgTokensPerSecond,
+    inputCharactersPerContextToken,
+    chunkThresholdCharacters
   };
 }
 
 function buildIdleSummarySnapshotMessage(snapshot, colorOptions = {}) {
-  return [
+  const lines = [
     `requests=${formatInteger(snapshot.completedRequestCount)}`,
     formatIdleSummarySection('input', `chars=${formatInteger(snapshot.inputCharactersTotal)} tokens=${formatInteger(snapshot.inputTokensTotal)}`, 36, colorOptions),
-    formatIdleSummarySection('output', `chars=${formatInteger(snapshot.outputCharactersTotal)} tokens=${formatInteger(snapshot.outputTokensTotal)}`, 32, colorOptions),
+    formatIdleSummarySection('output', `chars=${formatInteger(snapshot.outputCharactersTotal)} tokens=${formatInteger(snapshot.outputTokensTotal)} avg_tokens_per_request=${formatGroupedNumber(snapshot.avgOutputTokensPerRequest, 2)}`, 32, colorOptions),
     formatIdleSummarySection('saved', `tokens=${formatInteger(snapshot.savedTokens)} pct=${formatPercentage(snapshot.savedPercent)} ratio=${formatRatio(snapshot.compressionRatio)}`, 33, colorOptions),
-    formatIdleSummarySection('timing', `total=${formatElapsed(snapshot.requestDurationMsTotal)} avg_request=${formatSeconds(snapshot.avgRequestMs)} avg_tokens_per_s=${formatTokensPerSecond(snapshot.avgTokensPerSecond)}`, 34, colorOptions)
-  ].join('\n');
+  ];
+  const budgetParts = [];
+  if (snapshot.inputCharactersPerContextToken !== null) {
+    budgetParts.push(`chars_per_token=${formatGroupedNumber(snapshot.inputCharactersPerContextToken, 3)}`);
+  }
+  if (snapshot.chunkThresholdCharacters !== null) {
+    budgetParts.push(`chunk_threshold_chars=${formatInteger(snapshot.chunkThresholdCharacters)}`);
+  }
+  if (budgetParts.length > 0) {
+    lines.push(formatIdleSummarySection('budget', budgetParts.join(' '), 35, colorOptions));
+  }
+  lines.push(formatIdleSummarySection('timing', `total=${formatElapsed(snapshot.requestDurationMsTotal)} avg_request=${formatSeconds(snapshot.avgRequestMs)} gen_tokens_per_s=${formatTokensPerSecond(snapshot.avgTokensPerSecond)}`, 34, colorOptions));
+  return lines.join('\n');
 }
 
 function normalizeSqlNumber(value) {
@@ -734,6 +755,7 @@ function buildStatusRequestLogMessage({
   statusPath,
   characterCount = null,
   promptCharacterCount = null,
+  promptTokenCount = null,
   rawInputCharacterCount = null,
   chunkInputCharacterCount = null,
   budgetSource = null,
@@ -756,13 +778,10 @@ function buildStatusRequestLogMessage({
       logMessage += ` raw_chars=${formatInteger(rawInputCharacterCount)}`;
     }
     if (resolvedPromptCharacterCount !== null) {
-      logMessage += ` prompt_chars=${formatInteger(resolvedPromptCharacterCount)}`;
-    }
-    if (inputCharactersPerContextToken !== null) {
-      logMessage += ` chars_per_token=${Number(inputCharactersPerContextToken).toFixed(3)}`;
-    }
-    if (chunkThresholdCharacters !== null) {
-      logMessage += ` chunk_threshold_chars=${formatInteger(chunkThresholdCharacters)}`;
+      logMessage += ` prompt=${formatInteger(resolvedPromptCharacterCount)}`;
+      if (promptTokenCount !== null) {
+        logMessage += ` (${formatInteger(promptTokenCount)})`;
+      }
     }
     if (chunkPath !== null) {
       logMessage += ` chunk ${String(chunkPath)}`;
@@ -821,6 +840,7 @@ function parseRunning(bodyText) {
 function parseStatusMetadata(bodyText) {
   const metadata = {
     promptCharacterCount: null,
+    promptTokenCount: null,
     rawInputCharacterCount: null,
     chunkInputCharacterCount: null,
     budgetSource: null,
@@ -846,6 +866,9 @@ function parseStatusMetadata(bodyText) {
       metadata.promptCharacterCount = parsed.promptCharacterCount;
     } else if (Number.isFinite(parsed.characterCount) && parsed.characterCount >= 0) {
       metadata.promptCharacterCount = parsed.characterCount;
+    }
+    if (Number.isFinite(parsed.promptTokenCount) && parsed.promptTokenCount >= 0) {
+      metadata.promptTokenCount = parsed.promptTokenCount;
     }
     if (Number.isFinite(parsed.rawInputCharacterCount) && parsed.rawInputCharacterCount >= 0) {
       metadata.rawInputCharacterCount = parsed.rawInputCharacterCount;
@@ -939,6 +962,10 @@ function startStatusServer(options = {}) {
   let metrics = readMetrics(metricsPath);
   writeMetrics(metricsPath, metrics);
   const activeRunsByStatusPath = new Map();
+  let pendingIdleSummaryMetadata = {
+    inputCharactersPerContextToken: null,
+    chunkThresholdCharacters: null,
+  };
   let activeExecutionLease = null;
   let idleSummaryTimer = null;
   let idleSummaryPending = false;
@@ -1379,6 +1406,7 @@ function startStatusServer(options = {}) {
       managedLlamaStarting = false;
       managedLlamaReady = false;
       idleSummaryPending = false;
+      resetPendingIdleSummaryMetadata();
       siftKitWaitingForGpuLock = false;
       siftKitOwnsGpuLock = false;
       if (disableManagedLlamaStartup) {
@@ -1450,6 +1478,7 @@ function startStatusServer(options = {}) {
     } finally {
       managedLlamaReady = false;
       idleSummaryPending = false;
+      resetPendingIdleSummaryMetadata();
       releaseSiftKitGpuLockIfIdle();
     }
   }
@@ -1567,6 +1596,13 @@ function startStatusServer(options = {}) {
     }
   }
 
+  function resetPendingIdleSummaryMetadata() {
+    pendingIdleSummaryMetadata = {
+      inputCharactersPerContextToken: null,
+      chunkThresholdCharacters: null,
+    };
+  }
+
   function scheduleIdleSummaryIfNeeded() {
     if (!idleSummaryPending || !isIdle()) {
       clearIdleSummaryTimer();
@@ -1581,7 +1617,10 @@ function startStatusServer(options = {}) {
       }
 
       const emittedAt = new Date();
-      const snapshot = buildIdleSummarySnapshot(metrics, emittedAt);
+      const snapshot = buildIdleSummarySnapshot({
+        ...metrics,
+        ...pendingIdleSummaryMetadata,
+      }, emittedAt);
       try {
         persistIdleSummarySnapshot(getIdleSummaryDatabase(), snapshot);
       } catch (error) {
@@ -1589,6 +1628,7 @@ function startStatusServer(options = {}) {
       }
       logLine(buildIdleSummarySnapshotMessage(snapshot), emittedAt);
       idleSummaryPending = false;
+      resetPendingIdleSummaryMetadata();
       releaseSiftKitGpuLockIfIdle();
       await shutdownManagedLlamaIfNeeded();
     }, IDLE_SUMMARY_DELAY_MS);
@@ -1726,6 +1766,12 @@ function startStatusServer(options = {}) {
         const existingRun = activeRunsByStatusPath.get(statusPath);
         const needsGpuLock = !existingRun;
         const isChunkedRequest = metadata.chunkIndex !== null && metadata.chunkTotal !== null;
+        if (metadata.inputCharactersPerContextToken !== null) {
+          pendingIdleSummaryMetadata.inputCharactersPerContextToken = metadata.inputCharactersPerContextToken;
+        }
+        if (metadata.chunkThresholdCharacters !== null) {
+          pendingIdleSummaryMetadata.chunkThresholdCharacters = metadata.chunkThresholdCharacters;
+        }
         let runState = existingRun;
 
         if (!runState) {
@@ -1809,6 +1855,7 @@ function startStatusServer(options = {}) {
         running,
         statusPath,
         promptCharacterCount: metadata.promptCharacterCount,
+        promptTokenCount: metadata.promptTokenCount,
         rawInputCharacterCount: metadata.rawInputCharacterCount,
         chunkInputCharacterCount: metadata.chunkInputCharacterCount,
         budgetSource: metadata.budgetSource,

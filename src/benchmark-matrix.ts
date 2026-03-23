@@ -17,6 +17,7 @@ type RawMatrixManifest = {
   fixtureRoot: string;
   configUrl: string;
   promptPrefixFile?: string | null;
+  requestTimeoutSeconds?: number | null;
   startScript: string;
   stopScript?: string | null;
   resultsRoot: string;
@@ -74,6 +75,7 @@ type ResolvedMatrixManifest = {
   fixtureRoot: string;
   configUrl: string;
   promptPrefixFile: string | null;
+  requestTimeoutSeconds: number;
   startScript: string;
   stopScript: string | null;
   resultsRoot: string;
@@ -86,6 +88,7 @@ type MatrixCliOptions = {
   manifestPath: string;
   runIds: string[];
   promptPrefixFile: string | null;
+  requestTimeoutSeconds: number | null;
   validateOnly: boolean;
 };
 
@@ -152,6 +155,13 @@ type BenchmarkProcessResult = {
   stderrPath: string;
   exitCode: number;
 };
+
+class MatrixInterruptedError extends Error {
+  constructor(signal: NodeJS.Signals) {
+    super(`Benchmark matrix interrupted by ${signal}.`);
+    this.name = 'MatrixInterruptedError';
+  }
+}
 
 const repoRoot = path.resolve(__dirname, '..');
 const defaultManifestPath = path.join(repoRoot, 'eval', 'benchmark-matrices', 'ai_core_60_tests.6run.json');
@@ -312,6 +322,18 @@ function getOptionalInt(value: unknown, name: string): number | null {
   return getRequiredInt(value, name);
 }
 
+function getOptionalPositiveInt(value: unknown, name: string): number | null {
+  const parsed = getOptionalInt(value, name);
+  if (parsed === null) {
+    return null;
+  }
+  if (parsed <= 0) {
+    throw new Error(`Manifest field '${name}' must be greater than zero.`);
+  }
+
+  return parsed;
+}
+
 function getOptionalBoolean(value: unknown, name: string): boolean | null {
   if (value === null || value === undefined) {
     return null;
@@ -328,6 +350,7 @@ function parseArguments(argv: string[]): MatrixCliOptions {
     manifestPath: defaultManifestPath,
     runIds: [],
     promptPrefixFile: null,
+    requestTimeoutSeconds: null,
     validateOnly: false,
   };
 
@@ -343,6 +366,9 @@ function parseArguments(argv: string[]): MatrixCliOptions {
         break;
       case '--prompt-prefix-file':
         parsed.promptPrefixFile = argv[++index];
+        break;
+      case '--request-timeout-seconds':
+        parsed.requestTimeoutSeconds = getOptionalPositiveInt(argv[++index], 'requestTimeoutSeconds');
         break;
       case '--validate-only':
         parsed.validateOnly = true;
@@ -385,6 +411,9 @@ export function readMatrixManifest(options: MatrixCliOptions): ResolvedMatrixMan
   const resultsRoot = resolvePathFromBase(getRequiredString(raw.resultsRoot, 'resultsRoot'), manifestDirectory);
   const configUrl = getRequiredString(raw.configUrl, 'configUrl');
   const manifestPromptPrefixFile = resolveOptionalPathFromBase(raw.promptPrefixFile ?? null, manifestDirectory);
+  const requestTimeoutSeconds = options.requestTimeoutSeconds
+    ?? getOptionalPositiveInt(raw.requestTimeoutSeconds ?? null, 'requestTimeoutSeconds')
+    ?? 600;
 
   if (!fs.existsSync(fixtureRoot)) {
     throw new Error(`Fixture root does not exist: ${fixtureRoot}`);
@@ -507,6 +536,7 @@ export function readMatrixManifest(options: MatrixCliOptions): ResolvedMatrixMan
     fixtureRoot,
     configUrl,
     promptPrefixFile: manifestPromptPrefixFile,
+    requestTimeoutSeconds,
     startScript,
     stopScript,
     resultsRoot,
@@ -561,6 +591,7 @@ export function buildBenchmarkArgs(
   if (promptPrefixFile) {
     args.push('--prompt-prefix-file', promptPrefixFile);
   }
+  args.push('--request-timeout-seconds', String(manifest.requestTimeoutSeconds));
   if (run.sampling) {
     args.push(
       '--temperature', String(run.sampling.temperature),
@@ -768,10 +799,8 @@ async function restartLlamaForTarget(manifest: ResolvedMatrixManifest, target: R
 }
 
 async function invokeBenchmarkProcess(manifest: ResolvedMatrixManifest, run: ResolvedMatrixTarget, outputPath: string, sessionDirectory: string, promptPrefixFile: string | null): Promise<BenchmarkProcessResult> {
-  const stdoutPath = path.join(sessionDirectory, `benchmark_${run.index}_${run.id}_stdout.log`);
-  const stderrPath = path.join(sessionDirectory, `benchmark_${run.index}_${run.id}_stderr.log`);
+  const { stdoutPath, stderrPath, runtimeStatusPath } = getBenchmarkProcessPaths(sessionDirectory, run);
   const benchmarkScriptPath = path.join(repoRoot, 'dist', 'benchmark.js');
-  const runtimeStatusPath = path.join(sessionDirectory, `runtime_${run.index}_${run.id}`, 'status', 'inference.txt');
 
   if (!fs.existsSync(benchmarkScriptPath)) {
     throw new Error(`Benchmark entrypoint not found: ${benchmarkScriptPath}. Run 'npm run build' first.`);
@@ -814,7 +843,58 @@ function writeMatrixIndex(filePath: string, index: MatrixIndex): void {
   writeJsonFile(filePath, index);
 }
 
-async function runMatrix(options: MatrixCliOptions): Promise<void> {
+function getBenchmarkProcessPaths(sessionDirectory: string, run: ResolvedMatrixTarget): {
+  stdoutPath: string;
+  stderrPath: string;
+  runtimeStatusPath: string;
+} {
+  return {
+    stdoutPath: path.join(sessionDirectory, `benchmark_${run.index}_${run.id}_stdout.log`),
+    stderrPath: path.join(sessionDirectory, `benchmark_${run.index}_${run.id}_stderr.log`),
+    runtimeStatusPath: path.join(sessionDirectory, `runtime_${run.index}_${run.id}`, 'status', 'inference.txt'),
+  };
+}
+
+function createMatrixInterruptSignal(onInterrupt: (error: MatrixInterruptedError) => void): {
+  interrupted: Promise<never>;
+  dispose: () => void;
+} {
+  let rejectInterrupted: (reason?: unknown) => void = () => {};
+  const interrupted = new Promise<never>((_resolve, reject) => {
+    rejectInterrupted = reject;
+  });
+  let active = true;
+  const onSignal = (signal: NodeJS.Signals): void => {
+    if (!active) {
+      return;
+    }
+    active = false;
+    const error = new MatrixInterruptedError(signal);
+    onInterrupt(error);
+    rejectInterrupted(error);
+  };
+
+  process.on('SIGINT', onSignal);
+  process.on('SIGTERM', onSignal);
+
+  return {
+    interrupted,
+    dispose: () => {
+      active = false;
+      process.off('SIGINT', onSignal);
+      process.off('SIGTERM', onSignal);
+    },
+  };
+}
+
+async function withMatrixInterrupt<T>(operation: Promise<T>, interrupted: Promise<never>): Promise<T> {
+  return Promise.race([operation, interrupted]);
+}
+
+export async function runMatrixWithInterrupt(options: MatrixCliOptions, interruptSignalOverride?: {
+  interrupted: Promise<never>;
+  dispose: () => void;
+}): Promise<void> {
   const manifest = readMatrixManifest(options);
   const resolvedPromptPrefixFile = options.promptPrefixFile
     ? resolvePathFromBase(options.promptPrefixFile, repoRoot)
@@ -869,13 +949,27 @@ async function runMatrix(options: MatrixCliOptions): Promise<void> {
   let currentLaunchSignature: string | null = null;
   let capturedError: unknown = null;
   let restoreError: unknown = null;
+  let activeRunEntry: RunEntry | null = null;
+  const interruptSignal = interruptSignalOverride ?? createMatrixInterruptSignal((error) => {
+    if (activeRunEntry && activeRunEntry.status === 'running') {
+      activeRunEntry.status = 'failed';
+      activeRunEntry.error = error.message;
+      activeRunEntry.completedAtUtc = new Date().toISOString();
+    }
+    matrixIndex.status = 'failed';
+    writeMatrixIndex(indexPath, matrixIndex);
+  });
 
   try {
-    await restartLlamaForTarget(manifest, manifest.baseline, sessionDirectory);
+    await withMatrixInterrupt(
+      restartLlamaForTarget(manifest, manifest.baseline, sessionDirectory),
+      interruptSignal.interrupted,
+    );
     currentLaunchSignature = buildLaunchSignature(manifest.baseline);
 
     for (const run of manifest.selectedRuns) {
       const outputPath = path.join(sessionDirectory, `${String(run.index).padStart(2, '0')}_${run.id}.json`);
+      const benchmarkPaths = getBenchmarkProcessPaths(sessionDirectory, run);
       const runEntry: RunEntry = {
         index: run.index,
         id: run.id,
@@ -887,13 +981,14 @@ async function runMatrix(options: MatrixCliOptions): Promise<void> {
         reasoning: run.reasoning,
         sampling: run.sampling,
         outputPath,
-        benchmarkStdoutPath: null,
-        benchmarkStderrPath: null,
+        benchmarkStdoutPath: benchmarkPaths.stdoutPath,
+        benchmarkStderrPath: benchmarkPaths.stderrPath,
         startedAtUtc: new Date().toISOString(),
         completedAtUtc: null,
         status: 'running',
         error: null,
       };
+      activeRunEntry = runEntry;
       matrixIndex.runs.push(runEntry);
       writeMatrixIndex(indexPath, matrixIndex);
 
@@ -901,28 +996,36 @@ async function runMatrix(options: MatrixCliOptions): Promise<void> {
       try {
         const requiredLaunchSignature = buildLaunchSignature(run);
         if (currentLaunchSignature !== requiredLaunchSignature) {
-          await restartLlamaForTarget(manifest, run, sessionDirectory);
+          await withMatrixInterrupt(
+            restartLlamaForTarget(manifest, run, sessionDirectory),
+            interruptSignal.interrupted,
+          );
           currentLaunchSignature = requiredLaunchSignature;
         }
 
-        const benchmarkResult = await invokeBenchmarkProcess(
-          manifest,
-          run,
-          outputPath,
-          sessionDirectory,
-          run.promptPrefixFile ?? resolvedPromptPrefixFile
+        const benchmarkResult = await withMatrixInterrupt(
+          invokeBenchmarkProcess(
+            manifest,
+            run,
+            outputPath,
+            sessionDirectory,
+            run.promptPrefixFile ?? resolvedPromptPrefixFile
+          ),
+          interruptSignal.interrupted
         );
         runEntry.benchmarkStdoutPath = benchmarkResult.stdoutPath;
         runEntry.benchmarkStderrPath = benchmarkResult.stderrPath;
         runEntry.status = 'completed';
         runEntry.completedAtUtc = new Date().toISOString();
         writeMatrixIndex(indexPath, matrixIndex);
+        activeRunEntry = null;
       } catch (error) {
         runEntry.status = 'failed';
         runEntry.error = error instanceof Error ? error.message : String(error);
         runEntry.completedAtUtc = new Date().toISOString();
         matrixIndex.status = 'failed';
         writeMatrixIndex(indexPath, matrixIndex);
+        activeRunEntry = null;
         throw error;
       }
     }
@@ -932,6 +1035,7 @@ async function runMatrix(options: MatrixCliOptions): Promise<void> {
     capturedError = error;
     matrixIndex.status = 'failed';
   } finally {
+    interruptSignal.dispose();
     try {
       await restartLlamaForTarget(manifest, manifest.baseline, sessionDirectory);
       matrixIndex.baselineRestore.status = 'completed';
@@ -958,6 +1062,10 @@ async function runMatrix(options: MatrixCliOptions): Promise<void> {
   }
 
   process.stdout.write(`Benchmark matrix completed successfully. Session directory: ${sessionDirectory}\n`);
+}
+
+export async function runMatrix(options: MatrixCliOptions): Promise<void> {
+  await runMatrixWithInterrupt(options);
 }
 
 async function main(): Promise<void> {

@@ -38,6 +38,14 @@ const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const config_js_1 = require("./config.js");
 const summary_js_1 = require("./summary.js");
+const DEFAULT_REQUEST_TIMEOUT_SECONDS = 600;
+const BENCHMARK_HEARTBEAT_MS = 15_000;
+class FatalBenchmarkError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'FatalBenchmarkError';
+    }
+}
 function getRepoRoot() {
     return path.resolve(__dirname, '..', '..');
 }
@@ -63,6 +71,9 @@ function parseArguments(argv) {
                 break;
             case '--prompt-prefix-file':
                 parsed.promptPrefixFile = argv[++index];
+                break;
+            case '--request-timeout-seconds':
+                parsed.requestTimeoutSeconds = Number(argv[++index]);
                 break;
             case '--temperature':
                 parsed.llamaCppOverrides ??= {};
@@ -114,6 +125,13 @@ function resolvePromptPrefix(options) {
     }
     return undefined;
 }
+function getValidatedRequestTimeoutSeconds(options) {
+    const timeoutSeconds = options.requestTimeoutSeconds ?? DEFAULT_REQUEST_TIMEOUT_SECONDS;
+    if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
+        throw new Error('Request timeout seconds must be a positive number.');
+    }
+    return timeoutSeconds;
+}
 function getTimestamp() {
     const current = new Date();
     const yyyy = current.getFullYear();
@@ -145,6 +163,93 @@ function getPromptLabel(options) {
         sourceKind: 'standalone',
     });
 }
+function roundDuration(durationMs) {
+    return Math.round(durationMs * 1000) / 1000;
+}
+function formatElapsed(durationMs) {
+    const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return minutes > 0
+        ? `${minutes}m ${String(seconds).padStart(2, '0')}s`
+        : `${seconds}s`;
+}
+function buildBenchmarkArtifact(options) {
+    const completedAt = new Date();
+    const totalDurationMs = Number(process.hrtime.bigint() - options.startedAtHr) / 1_000_000;
+    return {
+        Status: options.status,
+        TotalDurationMs: roundDuration(totalDurationMs),
+        StartedAtUtc: options.startedAt.toISOString(),
+        CompletedAtUtc: completedAt.toISOString(),
+        Backend: options.backend,
+        Model: options.model,
+        FixtureRoot: options.fixtureRoot,
+        OutputPath: options.outputPath,
+        PromptPrefix: options.promptPrefix ?? null,
+        CompletedFixtureCount: options.results.length,
+        FatalError: options.fatalError,
+        Results: options.results,
+    };
+}
+function createInterruptSignal() {
+    let rejectInterrupted = () => { };
+    const interrupted = new Promise((_resolve, reject) => {
+        rejectInterrupted = reject;
+    });
+    let active = true;
+    const onSignal = (signal) => {
+        if (!active) {
+            return;
+        }
+        active = false;
+        rejectInterrupted(new FatalBenchmarkError(`Benchmark interrupted by ${signal}.`));
+    };
+    process.on('SIGINT', onSignal);
+    process.on('SIGTERM', onSignal);
+    return {
+        interrupted,
+        dispose: () => {
+            active = false;
+            process.off('SIGINT', onSignal);
+            process.off('SIGTERM', onSignal);
+        },
+    };
+}
+function createFixtureHeartbeat(options) {
+    const handle = setInterval(() => {
+        const elapsedMs = Date.now() - options.startedAtMs;
+        process.stdout.write(`Fixture ${options.fixtureIndex}/${options.fixtureCount} [${options.fixtureLabel}] still running after ${formatElapsed(elapsedMs)}\n`);
+    }, BENCHMARK_HEARTBEAT_MS);
+    if (typeof handle.unref === 'function') {
+        handle.unref();
+    }
+    return handle;
+}
+async function runWithFixtureDeadline(operation, options) {
+    return new Promise((resolve, reject) => {
+        const timeoutHandle = setTimeout(() => {
+            reject(new FatalBenchmarkError(`Benchmark fixture '${options.fixtureLabel}' timed out after ${options.requestTimeoutSeconds} seconds.`));
+        }, options.requestTimeoutSeconds * 1000);
+        if (typeof timeoutHandle.unref === 'function') {
+            timeoutHandle.unref();
+        }
+        const resolveOnce = (value) => {
+            clearTimeout(timeoutHandle);
+            resolve(value);
+        };
+        const rejectOnce = (error) => {
+            clearTimeout(timeoutHandle);
+            reject(error);
+        };
+        operation.then((value) => resolveOnce(value), (error) => rejectOnce(error));
+        options.interrupted.then(() => undefined, (error) => rejectOnce(error));
+    });
+}
+function isTimeoutError(error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return /\btimed out after\b/iu.test(message);
+}
 async function runBenchmarkSuite(options = {}) {
     const fixtureRoot = path.resolve(options.fixtureRoot || path.join(getRepoRoot(), 'eval', 'fixtures'));
     const outputPath = path.resolve(options.outputPath || getDefaultOutputPath(fixtureRoot));
@@ -153,67 +258,103 @@ async function runBenchmarkSuite(options = {}) {
     const backend = options.backend || config.Backend;
     const model = options.model || (0, config_js_1.getConfiguredModel)(config);
     const promptPrefix = resolvePromptPrefix(options);
+    const requestTimeoutSeconds = getValidatedRequestTimeoutSeconds(options);
     const startedAt = new Date();
     const startedAtHr = process.hrtime.bigint();
     const results = [];
-    for (const fixture of manifest) {
-        const sourcePath = path.join(fixtureRoot, fixture.File);
-        const inputText = fs.readFileSync(sourcePath, 'utf8');
-        const prompt = getPromptLabel({ fixture });
-        const caseStartedAtHr = process.hrtime.bigint();
-        try {
-            const response = await (0, summary_js_1.summarizeRequest)({
-                question: fixture.Question,
-                inputText,
-                format: fixture.Format,
-                policyProfile: fixture.PolicyProfile,
-                backend,
-                model,
-                promptPrefix,
-                llamaCppOverrides: options.llamaCppOverrides,
-                sourceKind: 'standalone',
+    const interruptSignal = createInterruptSignal();
+    let fatalError = null;
+    let fatalException = null;
+    try {
+        for (let index = 0; index < manifest.length; index += 1) {
+            const fixture = manifest[index];
+            const fixtureLabel = fixture.Name || fixture.File;
+            const sourcePath = path.join(fixtureRoot, fixture.File);
+            const inputText = fs.readFileSync(sourcePath, 'utf8');
+            const prompt = getPromptLabel({ fixture });
+            const caseStartedAtHr = process.hrtime.bigint();
+            const caseStartedAtMs = Date.now();
+            const heartbeat = createFixtureHeartbeat({
+                fixtureLabel,
+                fixtureIndex: index + 1,
+                fixtureCount: manifest.length,
+                startedAtMs: caseStartedAtMs,
             });
-            const caseDurationMs = Number(process.hrtime.bigint() - caseStartedAtHr) / 1_000_000;
-            results.push({
-                Prompt: prompt,
-                Output: response.Summary,
-                DurationMs: Math.round(caseDurationMs * 1000) / 1000,
-                PolicyDecision: response.PolicyDecision,
-                Classification: response.Classification,
-                RawReviewRequired: response.RawReviewRequired,
-                ModelCallSucceeded: response.ModelCallSucceeded,
-                Error: response.ProviderError,
-            });
-        }
-        catch (error) {
-            const caseDurationMs = Number(process.hrtime.bigint() - caseStartedAtHr) / 1_000_000;
-            const message = error instanceof Error ? error.message : String(error);
-            results.push({
-                Prompt: prompt,
-                Output: null,
-                DurationMs: Math.round(caseDurationMs * 1000) / 1000,
-                PolicyDecision: 'provider-error',
-                Classification: null,
-                RawReviewRequired: false,
-                ModelCallSucceeded: false,
-                Error: message,
-            });
+            process.stdout.write(`Fixture ${index + 1}/${manifest.length} [${fixtureLabel}] start\n`);
+            try {
+                const response = await runWithFixtureDeadline((0, summary_js_1.summarizeRequest)({
+                    question: fixture.Question,
+                    inputText,
+                    format: fixture.Format,
+                    policyProfile: fixture.PolicyProfile,
+                    backend,
+                    model,
+                    promptPrefix,
+                    requestTimeoutSeconds,
+                    llamaCppOverrides: options.llamaCppOverrides,
+                    sourceKind: 'standalone',
+                }), {
+                    fixtureLabel,
+                    requestTimeoutSeconds,
+                    interrupted: interruptSignal.interrupted,
+                });
+                const caseDurationMs = Number(process.hrtime.bigint() - caseStartedAtHr) / 1_000_000;
+                clearInterval(heartbeat);
+                results.push({
+                    Prompt: prompt,
+                    Output: response.Summary,
+                    DurationMs: roundDuration(caseDurationMs),
+                    PolicyDecision: response.PolicyDecision,
+                    Classification: response.Classification,
+                    RawReviewRequired: response.RawReviewRequired,
+                    ModelCallSucceeded: response.ModelCallSucceeded,
+                    Error: response.ProviderError,
+                });
+                process.stdout.write(`Fixture ${index + 1}/${manifest.length} [${fixtureLabel}] completed in ${formatElapsed(caseDurationMs)}\n`);
+            }
+            catch (error) {
+                const caseDurationMs = Number(process.hrtime.bigint() - caseStartedAtHr) / 1_000_000;
+                clearInterval(heartbeat);
+                const message = error instanceof Error ? error.message : String(error);
+                if (error instanceof FatalBenchmarkError || isTimeoutError(error)) {
+                    fatalError = message;
+                    fatalException = error;
+                    process.stdout.write(`Fixture ${index + 1}/${manifest.length} [${fixtureLabel}] failed fatally after ${formatElapsed(caseDurationMs)}\n`);
+                    break;
+                }
+                results.push({
+                    Prompt: prompt,
+                    Output: null,
+                    DurationMs: roundDuration(caseDurationMs),
+                    PolicyDecision: 'provider-error',
+                    Classification: null,
+                    RawReviewRequired: false,
+                    ModelCallSucceeded: false,
+                    Error: message,
+                });
+                process.stdout.write(`Fixture ${index + 1}/${manifest.length} [${fixtureLabel}] recorded provider error in ${formatElapsed(caseDurationMs)}\n`);
+            }
         }
     }
-    const completedAt = new Date();
-    const totalDurationMs = Number(process.hrtime.bigint() - startedAtHr) / 1_000_000;
-    const artifact = {
-        TotalDurationMs: Math.round(totalDurationMs * 1000) / 1000,
-        StartedAtUtc: startedAt.toISOString(),
-        CompletedAtUtc: completedAt.toISOString(),
-        Backend: backend,
-        Model: model,
-        FixtureRoot: fixtureRoot,
-        OutputPath: outputPath,
-        PromptPrefix: promptPrefix ?? null,
-        Results: results,
-    };
+    finally {
+        interruptSignal.dispose();
+    }
+    const artifact = buildBenchmarkArtifact({
+        status: fatalError === null ? 'completed' : 'failed',
+        startedAt,
+        backend,
+        model,
+        fixtureRoot,
+        outputPath,
+        promptPrefix,
+        results,
+        startedAtHr,
+        fatalError,
+    });
     (0, config_js_1.saveContentAtomically)(outputPath, JSON.stringify(artifact, null, 2));
+    if (fatalException !== null) {
+        throw fatalException;
+    }
     return artifact;
 }
 async function main() {

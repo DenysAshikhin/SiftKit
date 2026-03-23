@@ -110,6 +110,25 @@ function subtractThinkingTokens(value: number | null, thinkingTokens: number | n
 
 function requestJson<T>(options: JsonRequestOptions): Promise<JsonResponse<T>> {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const resolveOnce = (value: JsonResponse<T>): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timeoutHandle);
+      resolve(value);
+    };
+    const rejectOnce = (error: unknown): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timeoutHandle);
+      reject(error);
+    };
     const target = new URL(options.url);
     const transport = target.protocol === 'https:' ? https : http;
     const request = transport.request(
@@ -132,27 +151,33 @@ function requestJson<T>(options: JsonRequestOptions): Promise<JsonResponse<T>> {
         });
         response.on('end', () => {
           if (!responseText.trim()) {
-            resolve({ statusCode: response.statusCode || 0, body: {} as T, rawText: '' });
+            resolveOnce({ statusCode: response.statusCode || 0, body: {} as T, rawText: '' });
             return;
           }
 
           try {
-            resolve({
+            resolveOnce({
               statusCode: response.statusCode || 0,
               body: JSON.parse(responseText) as T,
               rawText: responseText,
             });
           } catch (error) {
-            reject(error);
+            rejectOnce(error instanceof Error ? error : new Error(String(error)));
           }
         });
       }
     );
 
-    request.setTimeout(options.timeoutMs, () => {
+    const timeoutHandle = setTimeout(() => {
       request.destroy(new Error(`Request timed out after ${options.timeoutMs} ms.`));
+    }, options.timeoutMs);
+    if (typeof timeoutHandle.unref === 'function') {
+      timeoutHandle.unref();
+    }
+
+    request.on('error', (error) => {
+      rejectOnce(error);
     });
-    request.on('error', reject);
     if (options.body) {
       request.write(options.body);
     }
@@ -272,12 +297,21 @@ export async function generateLlamaCppResponse(options: {
     },
   });
 
-  const response = await requestJson<LlamaCppChatResponse>({
-    url: `${baseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
-    method: 'POST',
-    timeoutMs: options.timeoutSeconds * 1000,
-    body: requestBody,
-  });
+  let response: JsonResponse<LlamaCppChatResponse>;
+  try {
+    response = await requestJson<LlamaCppChatResponse>({
+      url: `${baseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
+      method: 'POST',
+      timeoutMs: options.timeoutSeconds * 1000,
+      body: requestBody,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/^Request timed out after \d+ ms\.$/u.test(message)) {
+      throw new Error(`llama.cpp generate timed out after ${options.timeoutSeconds} seconds.`);
+    }
+    throw error;
+  }
 
   if (response.statusCode >= 400) {
     const detail = response.rawText.trim();
@@ -293,7 +327,8 @@ export async function generateLlamaCppResponse(options: {
   }
 
   const rawUsage = response.body.usage;
-  const thinkingTokens = getThinkingTokenCount(rawUsage) ?? await countLlamaCppTokens(options.config, reasoningText);
+  const thinkingTokens = getThinkingTokenCount(rawUsage)
+    ?? (reasoningText.trim() ? await countLlamaCppTokens(options.config, reasoningText) : null);
   const usage = rawUsage
     ? {
       promptTokens: getUsageValue(rawUsage.prompt_tokens),

@@ -577,6 +577,9 @@ async function notifyStatusBackend(options) {
     if (options.promptCharacterCount !== undefined && options.promptCharacterCount !== null) {
         body.promptCharacterCount = options.promptCharacterCount;
     }
+    if (options.running && options.promptTokenCount !== undefined && options.promptTokenCount !== null) {
+        body.promptTokenCount = options.promptTokenCount;
+    }
     if (options.running && options.rawInputCharacterCount !== undefined && options.rawInputCharacterCount !== null) {
         body.rawInputCharacterCount = options.rawInputCharacterCount;
     }

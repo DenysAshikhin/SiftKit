@@ -28,6 +28,8 @@ const {
   buildLaunchSignature,
   buildLauncherArgs,
   buildBenchmarkArgs,
+  runMatrix,
+  runMatrixWithInterrupt,
 } = require('../dist/benchmark-matrix.js');
 const {
   countLlamaCppTokens,
@@ -268,6 +270,22 @@ function spawnProcess(command, args, options = {}) {
   });
 }
 
+async function waitForTextMatch(getText, pattern, timeoutMs = 2000) {
+  const startedAt = Date.now();
+  for (;;) {
+    const text = getText();
+    if (pattern.test(text)) {
+      return text;
+    }
+
+    if ((Date.now() - startedAt) >= timeoutMs) {
+      throw new Error(`Timed out waiting for match ${String(pattern)}.\n${text}`);
+    }
+
+    await sleep(10);
+  }
+}
+
 async function startStubStatusServer(options = {}) {
   const state = {
     config: mergeConfig(getDefaultConfig(), options.config || {}),
@@ -360,6 +378,9 @@ async function startStubStatusServer(options = {}) {
       const parsed = bodyText ? JSON.parse(bodyText) : {};
       const promptText = parsed?.messages?.[0]?.content || '';
       state.chatRequests.push(parsed);
+      if (Number.isFinite(options.chatDelayMs) && Number(options.chatDelayMs) > 0) {
+        await sleep(Number(options.chatDelayMs));
+      }
       if (Number.isFinite(options.rejectPromptCharsOver) && String(promptText).length > Number(options.rejectPromptCharsOver)) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: `prompt too large: ${String(promptText).length}` }));
@@ -786,9 +807,17 @@ function readIdleSummarySnapshots(dbPath) {
 }
 
 function getIdleSummaryBlock(stdoutLines, requestsPattern) {
-  const startIndex = stdoutLines.findIndex((line) => requestsPattern.test(stripAnsi(line)));
+  const strippedLines = stdoutLines.map(stripAnsi);
+  const startIndex = strippedLines.findIndex((line) => requestsPattern.test(line));
   assert.notEqual(startIndex, -1, `missing idle summary line matching ${String(requestsPattern)}\n${stdoutLines.join('\n')}`);
-  return stdoutLines.slice(startIndex, startIndex + 5).map(stripAnsi);
+  let endIndex = strippedLines.length;
+  for (let index = startIndex + 1; index < strippedLines.length; index += 1) {
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} /u.test(strippedLines[index])) {
+      endIndex = index;
+      break;
+    }
+  }
+  return strippedLines.slice(startIndex, endIndex);
 }
 
 async function getFreePort() {
@@ -2451,6 +2480,38 @@ test('summary resizes llama.cpp chunks before the first chat request when prompt
   });
 });
 
+test('summary posts the preflight prompt token count in running status updates', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const inputText = 'A'.repeat(5_000);
+      const result = await summarizeRequest({
+        question: 'summarize this',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.WasSummarized, true);
+      const runningStatusPosts = server.state.statusPosts.filter((post) => post.running === true && Number.isFinite(post.promptCharacterCount));
+      assert.ok(runningStatusPosts.length >= 1);
+      assert.equal(runningStatusPosts[0].promptTokenCount, Math.max(1, Math.ceil(runningStatusPosts[0].promptCharacterCount / 10)));
+    }, {
+      tokenizeCharsPerToken: 10,
+      metrics: {
+        inputCharactersTotal: 3_461_904,
+        inputTokensTotal: 1_865_267,
+        outputCharactersTotal: 0,
+        outputTokensTotal: 0,
+        thinkingTokensTotal: 0,
+        completedRequestCount: 0,
+        requestDurationMsTotal: 0,
+      },
+    });
+  });
+});
+
 test('summarizeRequest recovers malformed structured llama.cpp JSON when the expected fields are present', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
@@ -2876,10 +2937,33 @@ test('idle metrics formatter disables ANSI colors when stdout is not a TTY', () 
   });
 
   assert.doesNotMatch(message, /\u001b\[/u);
-  assert.match(message, /  timing: total=0s avg_request=0\.80s avg_tokens_per_s=31\.25/u);
+  assert.match(message, /  output: chars=80 tokens=25 avg_tokens_per_request=25\.00/u);
+  assert.match(message, /  timing: total=0s avg_request=0\.80s gen_tokens_per_s=31\.25/u);
 });
 
-test('idle metrics formatter groups large values and formats days in elapsed durations', () => {
+test('idle metrics formatter reports n/a averages when no requests completed', () => {
+  const message = buildIdleMetricsLogMessage({
+    inputCharactersTotal: 0,
+    outputCharactersTotal: 0,
+    inputTokensTotal: 0,
+    outputTokensTotal: 0,
+    requestDurationMsTotal: 0,
+    completedRequestCount: 0,
+  }, {
+    isTTY: false,
+    env: {},
+  });
+
+  assert.equal(message, [
+    'requests=0',
+    '  input:  chars=0 tokens=0',
+    '  output: chars=0 tokens=0 avg_tokens_per_request=n/a',
+    '  saved:  tokens=0 pct=n/a ratio=n/a',
+    '  timing: total=0s avg_request=n/a gen_tokens_per_s=n/a',
+  ].join('\n'));
+});
+
+test('idle metrics formatter groups large values, formats days in elapsed durations, and includes budget details when present', () => {
   const message = buildIdleMetricsLogMessage({
     inputCharactersTotal: 1_868_795,
     outputCharactersTotal: 81_979,
@@ -2887,6 +2971,8 @@ test('idle metrics formatter groups large values and formats days in elapsed dur
     outputTokensTotal: 83_526,
     requestDurationMsTotal: 30 * 3_600_000 + 3 * 60_000 + 53_000,
     completedRequestCount: 279,
+    inputCharactersPerContextToken: 4.15,
+    chunkThresholdCharacters: 763_603,
   }, {
     isTTY: false,
     env: {},
@@ -2895,9 +2981,10 @@ test('idle metrics formatter groups large values and formats days in elapsed dur
   assert.equal(message, [
     'requests=279',
     '  input:  chars=1,868,795 tokens=1,380,110',
-    '  output: chars=81,979 tokens=83,526',
+    '  output: chars=81,979 tokens=83,526 avg_tokens_per_request=299.38',
     '  saved:  tokens=1,296,584 pct=93.95% ratio=16.52x',
-    '  timing: total=1:06:03:53 avg_request=387.93s avg_tokens_per_s=0.77',
+    '  budget: chars_per_token=4.150 chunk_threshold_chars=763,603',
+    '  timing: total=1:06:03:53 avg_request=387.93s gen_tokens_per_s=0.77',
   ].join('\n'));
 });
 
@@ -2913,11 +3000,12 @@ test('request status log groups large running counts and uses colon elapsed dura
       rawInputCharacterCount: 101_891,
       chunkInputCharacterCount: 101_891,
       promptCharacterCount: 102_584,
+      promptTokenCount: 55_271,
       budgetSource: 'ObservedCharsPerToken',
       inputCharactersPerContextToken: 1.856,
       chunkThresholdCharacters: 237_565,
     }),
-    'request true raw_chars=101,891 prompt_chars=102,584 chars_per_token=1.856 chunk_threshold_chars=237,565',
+    'request true raw_chars=101,891 prompt=102,584 (55,271)',
   );
   assert.equal(
     buildStatusRequestLogMessage({
@@ -2925,6 +3013,7 @@ test('request status log groups large running counts and uses colon elapsed dura
       rawInputCharacterCount: 37_947_467,
       chunkInputCharacterCount: 558_055,
       promptCharacterCount: 560_315,
+      promptTokenCount: 135_016,
       budgetSource: 'ObservedCharsPerToken',
       inputCharactersPerContextToken: 4.15,
       chunkThresholdCharacters: 763_603,
@@ -2932,7 +3021,15 @@ test('request status log groups large running counts and uses colon elapsed dura
       chunkTotal: 2,
       chunkPath: '1/50 -> 1/2',
     }),
-    'request true raw_chars=37,947,467 prompt_chars=560,315 chars_per_token=4.150 chunk_threshold_chars=763,603 chunk 1/50 -> 1/2',
+    'request true raw_chars=37,947,467 prompt=560,315 (135,016) chunk 1/50 -> 1/2',
+  );
+  assert.equal(
+    buildStatusRequestLogMessage({
+      running: true,
+      rawInputCharacterCount: 300,
+      promptCharacterCount: 420,
+    }),
+    'request true raw_chars=300 prompt=420',
   );
   assert.equal(
     buildStatusRequestLogMessage({ running: false, elapsedMs: 12_000, outputTokens: 7 }),
@@ -3004,13 +3101,22 @@ test('real status server prints one idle metrics line only after the full idle d
       configPath,
       idleSummaryDbPath,
       idleSummaryDelayMs: 80,
+      disableManagedLlamaStartup: true,
     });
 
     try {
       await requestJson(server.statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: true, rawInputCharacterCount: 200 }),
+        body: JSON.stringify({
+          running: true,
+          rawInputCharacterCount: 200,
+          promptCharacterCount: 200,
+          promptTokenCount: 100,
+          inputCharactersPerContextToken: 2,
+          chunkThresholdCharacters: 320_000,
+        }),
       });
+      await server.waitForStdoutMatch(/request true raw_chars=200 prompt=200 \(100\)/u, 1000);
       await requestJson(server.statusUrl, {
         method: 'POST',
         body: JSON.stringify({ running: false, promptCharacterCount: 200, inputTokens: 100, outputCharacterCount: 80, outputTokens: 25, requestDurationMs: 800 }),
@@ -3028,10 +3134,13 @@ test('real status server prints one idle metrics line only after the full idle d
       const block = getIdleSummaryBlock(server.stdoutLines, /requests=1/u);
       assert.match(block[0], /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} requests=1$/u);
       assert.equal(block[1], '  input:  chars=200 tokens=100');
-      assert.equal(block[2], '  output: chars=80 tokens=25');
+      assert.equal(block[2], '  output: chars=80 tokens=25 avg_tokens_per_request=25.00');
       assert.equal(block[3], '  saved:  tokens=75 pct=75.00% ratio=4.00x');
-      assert.equal(block[4], '  timing: total=0s avg_request=0.80s avg_tokens_per_s=31.25');
-      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'false');
+      assert.equal(block[4], '  budget: chars_per_token=2.000 chunk_threshold_chars=320,000');
+      assert.equal(block[5], '  timing: total=0s avg_request=0.80s gen_tokens_per_s=31.25');
+      await waitForAsyncExpectation(async () => {
+        assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'false');
+      }, 1000);
       const finalStatus = await requestJson(server.statusUrl);
       assert.equal(finalStatus.running, false);
       assert.equal(finalStatus.status, 'false');
@@ -3086,6 +3195,7 @@ test('real status server shuts down managed llama.cpp after the idle summary blo
       configPath,
       idleSummaryDbPath,
       idleSummaryDelayMs: 80,
+      disableManagedLlamaStartup: true,
     });
 
     try {
@@ -3237,12 +3347,18 @@ test('real status server restarts the idle countdown when a new request begins b
       configPath,
       idleSummaryDbPath,
       idleSummaryDelayMs: 80,
+      disableManagedLlamaStartup: true,
     });
 
     try {
       await requestJson(server.statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: true, rawInputCharacterCount: 100 }),
+        body: JSON.stringify({
+          running: true,
+          rawInputCharacterCount: 100,
+          inputCharactersPerContextToken: 2,
+          chunkThresholdCharacters: 100,
+        }),
       });
       await requestJson(server.statusUrl, {
         method: 'POST',
@@ -3252,7 +3368,12 @@ test('real status server restarts the idle countdown when a new request begins b
       await sleep(40);
       await requestJson(server.statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: true, rawInputCharacterCount: 50 }),
+        body: JSON.stringify({
+          running: true,
+          rawInputCharacterCount: 50,
+          inputCharactersPerContextToken: 4,
+          chunkThresholdCharacters: 200,
+        }),
       });
       await sleep(60);
       assert.equal(server.stdoutLines.some((line) => /idle_metrics/u.test(line)), false);
@@ -3265,9 +3386,10 @@ test('real status server restarts the idle countdown when a new request begins b
       await server.waitForStdoutMatch(/requests=2/u, 1000);
       const block = getIdleSummaryBlock(server.stdoutLines, /requests=2/u);
       assert.equal(block[1], '  input:  chars=150 tokens=10');
-      assert.equal(block[2], '  output: chars=40 tokens=5');
+      assert.equal(block[2], '  output: chars=40 tokens=5 avg_tokens_per_request=2.50');
       assert.equal(block[3], '  saved:  tokens=5 pct=50.00% ratio=2.00x');
-      assert.equal(block[4], '  timing: total=0s avg_request=0.04s avg_tokens_per_s=66.67');
+      assert.equal(block[4], '  budget: chars_per_token=4.000 chunk_threshold_chars=200');
+      assert.equal(block[5], '  timing: total=0s avg_request=0.04s gen_tokens_per_s=66.67');
       assert.equal(readIdleSummarySnapshots(idleSummaryDbPath).length, 1);
     } finally {
       await server.close();
@@ -3285,6 +3407,7 @@ test('real status server does not count idle delay while an execution lease rema
       configPath,
       idleSummaryDbPath,
       idleSummaryDelayMs: 80,
+      disableManagedLlamaStartup: true,
     });
 
     try {
@@ -3314,9 +3437,9 @@ test('real status server does not count idle delay while an execution lease rema
       await server.waitForStdoutMatch(/requests=1/u, 1000);
       const block = getIdleSummaryBlock(server.stdoutLines, /requests=1/u);
       assert.equal(block[1], '  input:  chars=10 tokens=0');
-      assert.equal(block[2], '  output: chars=0 tokens=0');
+      assert.equal(block[2], '  output: chars=0 tokens=0 avg_tokens_per_request=0.00');
       assert.equal(block[3], '  saved:  tokens=0 pct=n/a ratio=n/a');
-      assert.equal(block[4], '  timing: total=0s avg_request=0.01s avg_tokens_per_s=n/a');
+      assert.equal(block[4], '  timing: total=0s avg_request=0.01s gen_tokens_per_s=n/a');
       assert.equal(readIdleSummarySnapshots(idleSummaryDbPath).length, 1);
     } finally {
       await server.close();
@@ -3440,8 +3563,14 @@ test('benchmark runner writes prompt, output, classification metadata, per-case 
       const artifact = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
 
       assert.equal(result.OutputPath, outputPath);
+      assert.equal(result.Status, 'completed');
+      assert.equal(result.CompletedFixtureCount, 2);
+      assert.equal(result.FatalError, null);
       assert.equal(result.PromptPrefix, null);
       assert.equal(fs.existsSync(outputPath), true);
+      assert.equal(artifact.Status, 'completed');
+      assert.equal(artifact.CompletedFixtureCount, 2);
+      assert.equal(artifact.FatalError, null);
       assert.equal(typeof artifact.TotalDurationMs, 'number');
       assert.ok(artifact.TotalDurationMs >= 0);
       assert.equal(Array.isArray(artifact.Results), true);
@@ -3460,6 +3589,79 @@ test('benchmark runner writes prompt, output, classification metadata, per-case 
       assert.match(artifact.Results[1].Output, /mock summary/u);
       assert.equal(artifact.Results[1].PolicyDecision, 'model-summary');
       assert.equal(artifact.Results[1].Classification, 'summary');
+    });
+  });
+});
+
+test('benchmark runner times out fatally and writes a partial artifact', async () => {
+  await withTempEnv(async (tempRoot) => {
+    await withStubServer(async () => {
+      const fixtureRoot = path.join(tempRoot, 'bench-fixtures');
+      const outputPath = path.join(tempRoot, 'bench-output.json');
+      fs.mkdirSync(fixtureRoot, { recursive: true });
+      fs.writeFileSync(path.join(fixtureRoot, 'case1.txt'), 'A'.repeat(600), 'utf8');
+      fs.writeFileSync(path.join(fixtureRoot, 'fixtures.json'), JSON.stringify([
+        {
+          Name: 'timeout-case',
+          File: 'case1.txt',
+          Question: 'summarize this',
+          Format: 'text',
+          PolicyProfile: 'general',
+        },
+      ], null, 2), 'utf8');
+
+      process.env.SIFTKIT_TEST_PROVIDER_SLEEP_MS = '200';
+      await assert.rejects(
+        () => runBenchmarkSuite({
+          fixtureRoot,
+          outputPath,
+          backend: 'mock',
+          model: 'mock-model',
+          requestTimeoutSeconds: 0.01,
+        }),
+        /timed out after 0\.01 seconds/u,
+      );
+
+      const artifact = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
+      assert.equal(artifact.Status, 'failed');
+      assert.equal(artifact.CompletedFixtureCount, 0);
+      assert.equal(artifact.Results.length, 0);
+      assert.match(artifact.FatalError, /timeout-case/u);
+    });
+  });
+});
+
+test('benchmark runner treats ordinary provider errors as per-case failures and still completes', async () => {
+  await withTempEnv(async (tempRoot) => {
+    await withStubServer(async () => {
+      const fixtureRoot = path.join(tempRoot, 'bench-fixtures');
+      const outputPath = path.join(tempRoot, 'bench-output.json');
+      fs.mkdirSync(fixtureRoot, { recursive: true });
+      fs.writeFileSync(path.join(fixtureRoot, 'case1.txt'), 'A'.repeat(600), 'utf8');
+      fs.writeFileSync(path.join(fixtureRoot, 'fixtures.json'), JSON.stringify([
+        {
+          Name: 'provider-error-case',
+          File: 'case1.txt',
+          Question: 'summarize this',
+          Format: 'text',
+          PolicyProfile: 'general',
+        },
+      ], null, 2), 'utf8');
+
+      process.env.SIFTKIT_TEST_PROVIDER_BEHAVIOR = 'throw';
+      const result = await runBenchmarkSuite({
+        fixtureRoot,
+        outputPath,
+        backend: 'mock',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Status, 'completed');
+      assert.equal(result.CompletedFixtureCount, 1);
+      assert.equal(result.FatalError, null);
+      assert.equal(result.Results.length, 1);
+      assert.equal(result.Results[0].ModelCallSucceeded, false);
+      assert.match(result.Results[0].Error, /mock provider failure/u);
     });
   });
 });
@@ -3488,6 +3690,7 @@ test('benchmark matrix respects per-run launcher overrides and script-owned reas
       fixtureRoot,
       configUrl: 'http://127.0.0.1:4765/config',
       promptPrefixFile: promptPrefixPath,
+      requestTimeoutSeconds: 45,
       startScript: start9bPath,
       resultsRoot,
       baseline: {
@@ -3565,8 +3768,119 @@ test('benchmark matrix respects per-run launcher overrides and script-owned reas
 
     const benchmarkArgs = buildBenchmarkArgs(manifest, run35b, path.join(tempRoot, 'out.json'), promptPrefixPath);
     assert.equal(benchmarkArgs.includes('--prompt-prefix-file'), true);
+    assert.equal(benchmarkArgs.includes('--request-timeout-seconds'), true);
+    assert.equal(benchmarkArgs[benchmarkArgs.indexOf('--request-timeout-seconds') + 1], '45');
     assert.equal(benchmarkArgs.includes('--max-tokens'), true);
     assert.equal(benchmarkArgs[benchmarkArgs.indexOf('--max-tokens') + 1], '9000');
+  });
+});
+
+test('benchmark matrix marks interrupted runs failed, preserves benchmark log paths, and restores baseline', async () => {
+  await withTempEnv(async (tempRoot) => {
+    await withStubServer(async (server) => {
+      const fixtureRoot = path.join(tempRoot, 'bench-fixtures');
+      const resultsRoot = path.join(tempRoot, 'bench-results');
+      const scriptsRoot = path.join(tempRoot, 'scripts');
+      const startScriptPath = path.join(scriptsRoot, 'start.ps1');
+      const stopScriptPath = path.join(scriptsRoot, 'stop.ps1');
+      const modelPath = path.join(scriptsRoot, `${server.state.config.Model}.gguf`);
+      const manifestPath = path.join(tempRoot, 'matrix.json');
+
+      fs.mkdirSync(fixtureRoot, { recursive: true });
+      fs.mkdirSync(scriptsRoot, { recursive: true });
+      fs.writeFileSync(path.join(fixtureRoot, 'case1.txt'), 'A'.repeat(600), 'utf8');
+      fs.writeFileSync(path.join(fixtureRoot, 'fixtures.json'), JSON.stringify([
+        {
+          Name: 'interrupt-case',
+          File: 'case1.txt',
+          Question: 'summarize this',
+          Format: 'text',
+          PolicyProfile: 'general',
+        },
+      ], null, 2), 'utf8');
+      fs.writeFileSync(modelPath, '', 'utf8');
+      fs.writeFileSync(startScriptPath, 'Start-Sleep -Seconds 2\n', 'utf8');
+      fs.writeFileSync(stopScriptPath, 'exit 0\n', 'utf8');
+      fs.writeFileSync(manifestPath, JSON.stringify({
+        fixtureRoot,
+        configUrl: server.configUrl,
+        startScript: startScriptPath,
+        stopScript: stopScriptPath,
+        resultsRoot,
+        requestTimeoutSeconds: 60,
+        baseline: {
+          modelId: server.state.config.Model,
+          modelPath: path.basename(modelPath),
+          contextSize: 128000,
+          maxTokens: 4096,
+          reasoning: 'off',
+          passReasoningArg: false,
+        },
+        runs: [
+          {
+            index: 1,
+            id: 'interrupt-run',
+            label: 'interrupt run',
+            enabled: true,
+            modelId: server.state.config.Model,
+            modelPath: path.basename(modelPath),
+            reasoning: 'off',
+            passReasoningArg: false,
+            sampling: {
+              temperature: 0.7,
+              topP: 0.8,
+              topK: 20,
+              minP: 0,
+              presencePenalty: 1.5,
+              repetitionPenalty: 1,
+            },
+          },
+        ],
+      }, null, 2), 'utf8');
+
+      let rejectInterrupted;
+      const interrupted = new Promise((_, reject) => {
+        rejectInterrupted = reject;
+      });
+      const interruptHandle = setTimeout(() => {
+        rejectInterrupted(new Error('Benchmark matrix interrupted by SIGINT.'));
+      }, 1500);
+      if (typeof interruptHandle.unref === 'function') {
+        interruptHandle.unref();
+      }
+
+      await assert.rejects(
+        () => runMatrixWithInterrupt(
+          {
+            manifestPath,
+            runIds: [],
+            promptPrefixFile: null,
+            requestTimeoutSeconds: null,
+            validateOnly: false,
+          },
+          {
+            interrupted,
+            dispose: () => clearTimeout(interruptHandle),
+          },
+        ),
+        /Benchmark matrix interrupted by SIGINT/u,
+      );
+      await sleep(2600);
+
+      const [sessionEntry] = fs.readdirSync(resultsRoot).sort().reverse();
+      const matrixIndex = JSON.parse(fs.readFileSync(path.join(resultsRoot, sessionEntry, 'matrix_index.json'), 'utf8'));
+      assert.equal(matrixIndex.status, 'failed');
+      assert.equal(matrixIndex.baselineRestore.status, 'completed');
+      assert.equal(matrixIndex.runs.length, 1);
+      assert.equal(matrixIndex.runs[0].status, 'failed');
+      assert.match(matrixIndex.runs[0].error, /SIGINT/u);
+      assert.equal(typeof matrixIndex.runs[0].benchmarkStdoutPath, 'string');
+      assert.equal(typeof matrixIndex.runs[0].benchmarkStderrPath, 'string');
+      assert.match(path.basename(matrixIndex.runs[0].benchmarkStdoutPath), /^benchmark_1_interrupt-run_stdout\.log$/u);
+      assert.match(path.basename(matrixIndex.runs[0].benchmarkStderrPath), /^benchmark_1_interrupt-run_stderr\.log$/u);
+    }, {
+      chatDelayMs: 5000,
+    });
   });
 });
 
