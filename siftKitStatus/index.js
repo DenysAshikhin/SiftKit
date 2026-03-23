@@ -244,7 +244,7 @@ function getDefaultConfig() {
     Thresholds: {
       MinCharactersForSummary: 500,
       MinLinesForSummary: 16,
-      ChunkThresholdRatio: 0.92
+      ChunkThresholdRatio: 1.0
     },
     Interactive: {
       Enabled: true,
@@ -741,6 +741,7 @@ function buildStatusRequestLogMessage({
   chunkThresholdCharacters = null,
   chunkIndex = null,
   chunkTotal = null,
+  chunkPath = null,
   elapsedMs = null,
   totalElapsedMs = null
 }) {
@@ -752,14 +753,8 @@ function buildStatusRequestLogMessage({
     if (rawInputCharacterCount !== null) {
       logMessage += ` raw_chars=${formatInteger(rawInputCharacterCount)}`;
     }
-    if (chunkInputCharacterCount !== null) {
-      logMessage += ` chunk_input_chars=${formatInteger(chunkInputCharacterCount)}`;
-    }
     if (resolvedPromptCharacterCount !== null) {
       logMessage += ` prompt_chars=${formatInteger(resolvedPromptCharacterCount)}`;
-    }
-    if (budgetSource !== null) {
-      logMessage += ` budget=${String(budgetSource)}`;
     }
     if (inputCharactersPerContextToken !== null) {
       logMessage += ` chars_per_token=${Number(inputCharactersPerContextToken).toFixed(3)}`;
@@ -767,7 +762,9 @@ function buildStatusRequestLogMessage({
     if (chunkThresholdCharacters !== null) {
       logMessage += ` chunk_threshold_chars=${formatInteger(chunkThresholdCharacters)}`;
     }
-    if (chunkIndex !== null && chunkTotal !== null) {
+    if (chunkPath !== null) {
+      logMessage += ` chunk ${String(chunkPath)}`;
+    } else if (chunkIndex !== null && chunkTotal !== null) {
       logMessage += ` chunk ${chunkIndex}/${chunkTotal}`;
     }
   } else if (totalElapsedMs !== null) {
@@ -823,6 +820,7 @@ function parseStatusMetadata(bodyText) {
     chunkThresholdCharacters: null,
     chunkIndex: null,
     chunkTotal: null,
+    chunkPath: null,
     inputTokens: null,
     outputCharacterCount: null,
     outputTokens: null,
@@ -861,6 +859,9 @@ function parseStatusMetadata(bodyText) {
     }
     if (Number.isFinite(parsed.chunkTotal) && parsed.chunkTotal > 0) {
       metadata.chunkTotal = parsed.chunkTotal;
+    }
+    if (typeof parsed.chunkPath === 'string' && parsed.chunkPath.trim()) {
+      metadata.chunkPath = parsed.chunkPath.trim();
     }
     if (Number.isFinite(parsed.inputTokens) && parsed.inputTokens >= 0) {
       metadata.inputTokens = parsed.inputTokens;
@@ -1802,6 +1803,7 @@ function startStatusServer(options = {}) {
         chunkThresholdCharacters: metadata.chunkThresholdCharacters,
         chunkIndex: metadata.chunkIndex,
         chunkTotal: metadata.chunkTotal,
+        chunkPath: metadata.chunkPath,
         elapsedMs,
         totalElapsedMs
       });

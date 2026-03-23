@@ -254,6 +254,72 @@ function splitTextIntoChunks(text: string, chunkSize: number): string[] {
   return chunks;
 }
 
+async function planTokenAwareLlamaCppChunks(options: {
+  question: string;
+  inputText: string;
+  format: 'text' | 'json';
+  policyProfile: SummaryPolicyProfile;
+  rawReviewRequired: boolean;
+  promptPrefix?: string;
+  sourceKind: SummarySourceKind;
+  commandExitCode?: number | null;
+  config: SiftConfig;
+  chunkThreshold: number;
+  phase: 'leaf' | 'merge';
+}): Promise<string[] | null> {
+  const effectivePromptLimit = getConfiguredLlamaNumCtx(options.config) - LLAMA_CPP_PROMPT_TOKEN_RESERVE;
+  if (effectivePromptLimit <= 0) {
+    return null;
+  }
+
+  const chunks: string[] = [];
+  let offset = 0;
+  while (offset < options.inputText.length) {
+    let candidateLength = Math.min(options.chunkThreshold, options.inputText.length - offset);
+    let acceptedChunk: string | null = null;
+
+    while (candidateLength > 0) {
+      const candidateText = options.inputText.substring(offset, offset + candidateLength);
+      const candidatePrompt = buildPrompt({
+        question: options.question,
+        inputText: candidateText,
+        format: options.format,
+        policyProfile: options.policyProfile,
+        rawReviewRequired: options.rawReviewRequired,
+        promptPrefix: options.promptPrefix,
+        sourceKind: options.sourceKind,
+        commandExitCode: options.commandExitCode,
+        phase: options.phase,
+      });
+      const promptTokenCount = await countLlamaCppTokens(options.config, candidatePrompt);
+      if (promptTokenCount === null) {
+        return null;
+      }
+
+      const reducedLength = getTokenAwareChunkThreshold({
+        inputLength: candidateLength,
+        promptTokenCount,
+        effectivePromptLimit,
+      });
+      if (reducedLength === null) {
+        acceptedChunk = candidateText;
+        break;
+      }
+
+      candidateLength = reducedLength;
+    }
+
+    if (!acceptedChunk) {
+      return null;
+    }
+
+    chunks.push(acceptedChunk);
+    offset += acceptedChunk.length;
+  }
+
+  return chunks;
+}
+
 function shouldRetryWithSmallerChunks(options: {
   error: unknown;
   backend: string;
@@ -486,6 +552,7 @@ async function invokeProviderSummary(options: {
   phase: 'leaf' | 'merge';
   chunkIndex: number | null;
   chunkTotal: number | null;
+  chunkPath: string | null;
   llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
 }): Promise<string> {
   await notifyStatusBackend({
@@ -499,6 +566,7 @@ async function invokeProviderSummary(options: {
     phase: options.phase,
     chunkIndex: options.chunkIndex,
     chunkTotal: options.chunkTotal,
+    chunkPath: options.chunkPath,
   });
   const startedAt = Date.now();
   let inputTokens: number | null = null;
@@ -643,11 +711,40 @@ function stripCodeFence(text: string): string {
   return fenceMatch ? fenceMatch[1].trim() : trimmed;
 }
 
+function decodeStructuredOutputText(text: string): string {
+  return text
+    .replace(/\\\\/gu, '\\')
+    .replace(/\\"/gu, '"')
+    .replace(/\\r/gu, '\r')
+    .replace(/\\n/gu, '\n')
+    .replace(/\\t/gu, '\t');
+}
+
+function tryRecoverStructuredModelDecision(text: string): StructuredModelDecision | null {
+  const normalized = stripCodeFence(text);
+  const classificationMatch = /"classification"\s*:\s*"(summary|command_failure|unsupported_input)"/iu.exec(normalized);
+  const outputMatch = /"output"\s*:\s*"([\s\S]*?)"(?:\s*[}])?\s*$/u.exec(normalized);
+  if (!classificationMatch || !outputMatch) {
+    return null;
+  }
+
+  const rawReviewMatch = /"raw_review_required"\s*:\s*(true|false)|"rawReviewRequired"\s*:\s*(true|false)/iu.exec(normalized);
+  return {
+    classification: classificationMatch[1].toLowerCase() as SummaryClassification,
+    rawReviewRequired: rawReviewMatch ? /true/iu.test(rawReviewMatch[0]) : false,
+    output: decodeStructuredOutputText(outputMatch[1]).trim(),
+  };
+}
+
 function parseStructuredModelDecision(text: string): StructuredModelDecision {
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(stripCodeFence(text)) as Record<string, unknown>;
   } catch (error) {
+    const recovered = tryRecoverStructuredModelDecision(text);
+    if (recovered) {
+      return recovered;
+    }
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Provider returned an invalid SiftKit decision payload: ${message}`);
   }
@@ -698,6 +795,13 @@ function normalizeStructuredDecision(decision: StructuredModelDecision, format: 
   return ensureRawReviewSentence(decision, format);
 }
 
+function appendChunkPath(parentPath: string | null | undefined, chunkIndex: number, chunkTotal: number): string {
+  const segment = `${chunkIndex}/${chunkTotal}`;
+  return parentPath && parentPath.trim()
+    ? `${parentPath.trim()} -> ${segment}`
+    : segment;
+}
+
 async function invokeSummaryCore(options: {
   question: string;
   inputText: string;
@@ -713,6 +817,7 @@ async function invokeSummaryCore(options: {
   phase?: 'leaf' | 'merge';
   chunkIndex?: number | null;
   chunkTotal?: number | null;
+  chunkPath?: string | null;
   chunkThresholdOverride?: number | null;
   promptPrefix?: string;
   llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
@@ -724,7 +829,23 @@ async function invokeSummaryCore(options: {
     Math.floor(options.chunkThresholdOverride ?? getChunkThresholdCharacters(options.config))
   );
   if (options.inputText.length > chunkThreshold) {
-    const chunks = splitTextIntoChunks(options.inputText, chunkThreshold);
+    const chunks = (
+      options.backend === 'llama.cpp'
+        ? await planTokenAwareLlamaCppChunks({
+          question: options.question,
+          inputText: options.inputText,
+          format: options.format,
+          policyProfile: options.policyProfile,
+          rawReviewRequired: options.rawReviewRequired,
+          promptPrefix: options.promptPrefix,
+          sourceKind: options.sourceKind,
+          commandExitCode: options.commandExitCode,
+          config: options.config,
+          chunkThreshold,
+          phase,
+        })
+        : null
+    ) ?? splitTextIntoChunks(options.inputText, chunkThreshold);
     const chunkDecisions: StructuredModelDecision[] = [];
 
     for (let index = 0; index < chunks.length; index += 1) {
@@ -735,6 +856,7 @@ async function invokeSummaryCore(options: {
         phase,
         chunkIndex: index + 1,
         chunkTotal: chunks.length,
+        chunkPath: appendChunkPath(options.chunkPath ?? null, index + 1, chunks.length),
       });
       chunkDecisions.push(decision);
     }
@@ -759,6 +881,7 @@ async function invokeSummaryCore(options: {
       phase: 'merge',
       chunkIndex: null,
       chunkTotal: null,
+      chunkPath: null,
     });
   }
 
@@ -792,6 +915,7 @@ async function invokeSummaryCore(options: {
       chunkThresholdOverride: preflightChunkThreshold,
       chunkIndex: options.chunkIndex ?? null,
       chunkTotal: options.chunkTotal ?? null,
+      chunkPath: options.chunkPath ?? null,
     });
   }
 
@@ -808,6 +932,7 @@ async function invokeSummaryCore(options: {
       phase,
       chunkIndex: options.chunkIndex ?? null,
       chunkTotal: options.chunkTotal ?? null,
+      chunkPath: options.chunkPath ?? null,
       llamaCppOverrides: options.llamaCppOverrides,
     });
     return normalizeStructuredDecision(parseStructuredModelDecision(rawResponse), options.format);
@@ -839,6 +964,7 @@ async function invokeSummaryCore(options: {
       chunkThresholdOverride: reducedThreshold,
       chunkIndex: options.chunkIndex ?? null,
       chunkTotal: options.chunkTotal ?? null,
+      chunkPath: options.chunkPath ?? null,
     });
   }
 }

@@ -75,7 +75,6 @@ function getDefaultConfig() {
     Thresholds: {
       MinCharactersForSummary: 500,
       MinLinesForSummary: 16,
-      ChunkThresholdRatio: 1.0,
     },
     Interactive: {
       Enabled: true,
@@ -343,9 +342,11 @@ async function startStubStatusServer(options = {}) {
         res.end(JSON.stringify({ error: `prompt too large: ${String(promptText).length}` }));
         return;
       }
-      const assistantContent = /"classification":"summary\|command_failure\|unsupported_input"/u.test(promptText)
-        ? JSON.stringify(buildStructuredStubDecision(String(promptText)))
-        : `summary:${String(promptText).slice(0, 24)}`;
+      const assistantContent = typeof options.assistantContent === 'string'
+        ? options.assistantContent
+        : (/"classification":"summary\|command_failure\|unsupported_input"/u.test(promptText)
+          ? JSON.stringify(buildStructuredStubDecision(String(promptText)))
+          : `summary:${String(promptText).slice(0, 24)}`);
       const usage = options.omitUsage ? null : {
         prompt_tokens: 123,
         completion_tokens: 45,
@@ -1022,6 +1023,30 @@ test('loadConfig normalizes legacy defaults and derives effective budgets from t
           MaxInputCharacters: 32000,
           ChunkThresholdRatio: 0.75,
         },
+      },
+    });
+  });
+});
+
+test('loadConfig removes legacy chunk threshold ratio from loaded and persisted config', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      await loadConfig({ ensure: true });
+      const config = await loadConfig({ ensure: true });
+      const persisted = await requestJson(server.configUrl);
+
+      assert.ok(!Object.prototype.hasOwnProperty.call(config.Thresholds, 'ChunkThresholdRatio'));
+      assert.ok(!Object.prototype.hasOwnProperty.call(config.Effective, 'ChunkThresholdRatio'));
+      assert.ok(!Object.prototype.hasOwnProperty.call(persisted.Thresholds, 'ChunkThresholdRatio'));
+    }, {
+      config: {
+        Thresholds: {
+          ChunkThresholdRatio: 0.75,
+        },
+      },
+      metrics: {
+        inputCharactersTotal: 3461904,
+        inputTokensTotal: 1865267,
       },
     });
   });
@@ -2403,6 +2428,78 @@ test('summary resizes llama.cpp chunks before the first chat request when prompt
   });
 });
 
+test('summarizeRequest recovers malformed structured llama.cpp JSON when the expected fields are present', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async () => {
+      const result = await summarizeRequest({
+        question: 'summarize this',
+        inputText: 'A'.repeat(5000),
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.WasSummarized, true);
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.RawReviewRequired, true);
+      assert.match(result.Summary, /contains "quotes" and a raw newline/u);
+      assert.match(result.Summary, /Raw review required\./u);
+    }, {
+      assistantContent: '{"classification":"summary","raw_review_required":true,"output":"contains "quotes" and a raw newline\nRaw review required."}',
+      metrics: {
+        inputCharactersTotal: 3_461_904,
+        inputTokensTotal: 1_865_267,
+        outputCharactersTotal: 0,
+        outputTokensTotal: 0,
+        thinkingTokensTotal: 0,
+        completedRequestCount: 0,
+        requestDurationMsTotal: 0,
+      },
+    });
+  });
+});
+
+test('summary flattens token-aware llama.cpp chunking across sibling boundaries', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const result = await summarizeRequest({
+        question: 'summarize this',
+        inputText: 'A'.repeat(threshold * 2),
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.WasSummarized, true);
+      const chunkPaths = server.state.statusPosts
+        .filter((post) => (
+          post.running === true
+          && post.phase === 'leaf'
+          && post.rawInputCharacterCount === threshold * 2
+          && typeof post.chunkPath === 'string'
+        ))
+        .map((post) => String(post.chunkPath));
+      assert.ok(chunkPaths.length >= 3);
+      assert.ok(chunkPaths.every((chunkPath) => !chunkPath.includes('->')));
+    }, {
+      tokenizeCharsPerToken: 1,
+      metrics: {
+        inputCharactersTotal: 3_461_904,
+        inputTokensTotal: 1_865_267,
+        outputCharactersTotal: 0,
+        outputTokensTotal: 0,
+        thinkingTokensTotal: 0,
+        completedRequestCount: 0,
+        requestDurationMsTotal: 0,
+      },
+    });
+  });
+});
+
 test('idle metrics formatter emits ANSI colors when enabled on a TTY', () => {
   const message = buildIdleMetricsLogMessage({
     inputCharactersTotal: 200,
@@ -2494,7 +2591,22 @@ test('request status log groups large running counts and uses colon elapsed dura
       inputCharactersPerContextToken: 1.856,
       chunkThresholdCharacters: 237_565,
     }),
-    'request true raw_chars=101,891 chunk_input_chars=101,891 prompt_chars=102,584 budget=ObservedCharsPerToken chars_per_token=1.856 chunk_threshold_chars=237,565',
+    'request true raw_chars=101,891 prompt_chars=102,584 chars_per_token=1.856 chunk_threshold_chars=237,565',
+  );
+  assert.equal(
+    buildStatusRequestLogMessage({
+      running: true,
+      rawInputCharacterCount: 37_947_467,
+      chunkInputCharacterCount: 558_055,
+      promptCharacterCount: 560_315,
+      budgetSource: 'ObservedCharsPerToken',
+      inputCharactersPerContextToken: 4.15,
+      chunkThresholdCharacters: 763_603,
+      chunkIndex: 1,
+      chunkTotal: 2,
+      chunkPath: '1/50 -> 1/2',
+    }),
+    'request true raw_chars=37,947,467 prompt_chars=560,315 chars_per_token=4.150 chunk_threshold_chars=763,603 chunk 1/50 -> 1/2',
   );
   assert.equal(
     buildStatusRequestLogMessage({ running: false, totalElapsedMs: 97_200_000 }),

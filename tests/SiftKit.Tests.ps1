@@ -79,7 +79,6 @@ function Get-DefaultServerConfig {
         Thresholds = @{
             MinCharactersForSummary = 500
             MinLinesForSummary = 16
-            ChunkThresholdRatio = 0.92
         }
         Interactive = @{
             Enabled = $true

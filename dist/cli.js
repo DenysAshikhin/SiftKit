@@ -322,7 +322,6 @@ async function buildTestResult() {
         EffectiveObservedTelemetryUpdatedAtUtc: config.Effective?.ObservedTelemetryUpdatedAtUtc ?? null,
         EffectiveMaxInputCharacters: config.Effective?.MaxInputCharacters ?? null,
         EffectiveChunkThresholdCharacters: config.Effective?.ChunkThresholdCharacters ?? null,
-        ChunkThresholdRatio: Number(config.Thresholds.ChunkThresholdRatio),
         ProviderError: providerStatus.Error,
         Issues: issues,
     };

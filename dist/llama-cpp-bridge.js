@@ -101,7 +101,6 @@ async function main() {
         Thresholds: {
             MinCharactersForSummary: 500,
             MinLinesForSummary: 16,
-            ChunkThresholdRatio: 1.0,
         },
         Interactive: {
             Enabled: true,

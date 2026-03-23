@@ -195,6 +195,52 @@ function splitTextIntoChunks(text, chunkSize) {
     }
     return chunks;
 }
+async function planTokenAwareLlamaCppChunks(options) {
+    const effectivePromptLimit = (0, config_js_1.getConfiguredLlamaNumCtx)(options.config) - LLAMA_CPP_PROMPT_TOKEN_RESERVE;
+    if (effectivePromptLimit <= 0) {
+        return null;
+    }
+    const chunks = [];
+    let offset = 0;
+    while (offset < options.inputText.length) {
+        let candidateLength = Math.min(options.chunkThreshold, options.inputText.length - offset);
+        let acceptedChunk = null;
+        while (candidateLength > 0) {
+            const candidateText = options.inputText.substring(offset, offset + candidateLength);
+            const candidatePrompt = buildPrompt({
+                question: options.question,
+                inputText: candidateText,
+                format: options.format,
+                policyProfile: options.policyProfile,
+                rawReviewRequired: options.rawReviewRequired,
+                promptPrefix: options.promptPrefix,
+                sourceKind: options.sourceKind,
+                commandExitCode: options.commandExitCode,
+                phase: options.phase,
+            });
+            const promptTokenCount = await (0, llama_cpp_js_1.countLlamaCppTokens)(options.config, candidatePrompt);
+            if (promptTokenCount === null) {
+                return null;
+            }
+            const reducedLength = getTokenAwareChunkThreshold({
+                inputLength: candidateLength,
+                promptTokenCount,
+                effectivePromptLimit,
+            });
+            if (reducedLength === null) {
+                acceptedChunk = candidateText;
+                break;
+            }
+            candidateLength = reducedLength;
+        }
+        if (!acceptedChunk) {
+            return null;
+        }
+        chunks.push(acceptedChunk);
+        offset += acceptedChunk.length;
+    }
+    return chunks;
+}
 function shouldRetryWithSmallerChunks(options) {
     if (options.backend !== 'llama.cpp') {
         return false;
@@ -389,6 +435,7 @@ async function invokeProviderSummary(options) {
         phase: options.phase,
         chunkIndex: options.chunkIndex,
         chunkTotal: options.chunkTotal,
+        chunkPath: options.chunkPath,
     });
     const startedAt = Date.now();
     let inputTokens = null;
@@ -516,12 +563,38 @@ function stripCodeFence(text) {
     const fenceMatch = /^```(?:json)?\s*([\s\S]*?)\s*```$/u.exec(trimmed);
     return fenceMatch ? fenceMatch[1].trim() : trimmed;
 }
+function decodeStructuredOutputText(text) {
+    return text
+        .replace(/\\\\/gu, '\\')
+        .replace(/\\"/gu, '"')
+        .replace(/\\r/gu, '\r')
+        .replace(/\\n/gu, '\n')
+        .replace(/\\t/gu, '\t');
+}
+function tryRecoverStructuredModelDecision(text) {
+    const normalized = stripCodeFence(text);
+    const classificationMatch = /"classification"\s*:\s*"(summary|command_failure|unsupported_input)"/iu.exec(normalized);
+    const outputMatch = /"output"\s*:\s*"([\s\S]*?)"(?:\s*[}])?\s*$/u.exec(normalized);
+    if (!classificationMatch || !outputMatch) {
+        return null;
+    }
+    const rawReviewMatch = /"raw_review_required"\s*:\s*(true|false)|"rawReviewRequired"\s*:\s*(true|false)/iu.exec(normalized);
+    return {
+        classification: classificationMatch[1].toLowerCase(),
+        rawReviewRequired: rawReviewMatch ? /true/iu.test(rawReviewMatch[0]) : false,
+        output: decodeStructuredOutputText(outputMatch[1]).trim(),
+    };
+}
 function parseStructuredModelDecision(text) {
     let parsed;
     try {
         parsed = JSON.parse(stripCodeFence(text));
     }
     catch (error) {
+        const recovered = tryRecoverStructuredModelDecision(text);
+        if (recovered) {
+            return recovered;
+        }
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`Provider returned an invalid SiftKit decision payload: ${message}`);
     }
@@ -563,12 +636,32 @@ function normalizeStructuredDecision(decision, format) {
     }
     return ensureRawReviewSentence(decision, format);
 }
+function appendChunkPath(parentPath, chunkIndex, chunkTotal) {
+    const segment = `${chunkIndex}/${chunkTotal}`;
+    return parentPath && parentPath.trim()
+        ? `${parentPath.trim()} -> ${segment}`
+        : segment;
+}
 async function invokeSummaryCore(options) {
     const rootInputCharacterCount = options.rootInputCharacterCount ?? options.inputText.length;
     const phase = options.phase ?? 'leaf';
     const chunkThreshold = Math.max(1, Math.floor(options.chunkThresholdOverride ?? (0, config_js_1.getChunkThresholdCharacters)(options.config)));
     if (options.inputText.length > chunkThreshold) {
-        const chunks = splitTextIntoChunks(options.inputText, chunkThreshold);
+        const chunks = (options.backend === 'llama.cpp'
+            ? await planTokenAwareLlamaCppChunks({
+                question: options.question,
+                inputText: options.inputText,
+                format: options.format,
+                policyProfile: options.policyProfile,
+                rawReviewRequired: options.rawReviewRequired,
+                promptPrefix: options.promptPrefix,
+                sourceKind: options.sourceKind,
+                commandExitCode: options.commandExitCode,
+                config: options.config,
+                chunkThreshold,
+                phase,
+            })
+            : null) ?? splitTextIntoChunks(options.inputText, chunkThreshold);
         const chunkDecisions = [];
         for (let index = 0; index < chunks.length; index += 1) {
             const decision = await invokeSummaryCore({
@@ -578,6 +671,7 @@ async function invokeSummaryCore(options) {
                 phase,
                 chunkIndex: index + 1,
                 chunkTotal: chunks.length,
+                chunkPath: appendChunkPath(options.chunkPath ?? null, index + 1, chunks.length),
             });
             chunkDecisions.push(decision);
         }
@@ -600,6 +694,7 @@ async function invokeSummaryCore(options) {
             phase: 'merge',
             chunkIndex: null,
             chunkTotal: null,
+            chunkPath: null,
         });
     }
     const prompt = buildPrompt({
@@ -632,6 +727,7 @@ async function invokeSummaryCore(options) {
             chunkThresholdOverride: preflightChunkThreshold,
             chunkIndex: options.chunkIndex ?? null,
             chunkTotal: options.chunkTotal ?? null,
+            chunkPath: options.chunkPath ?? null,
         });
     }
     try {
@@ -647,6 +743,7 @@ async function invokeSummaryCore(options) {
             phase,
             chunkIndex: options.chunkIndex ?? null,
             chunkTotal: options.chunkTotal ?? null,
+            chunkPath: options.chunkPath ?? null,
             llamaCppOverrides: options.llamaCppOverrides,
         });
         return normalizeStructuredDecision(parseStructuredModelDecision(rawResponse), options.format);
@@ -675,6 +772,7 @@ async function invokeSummaryCore(options) {
             chunkThresholdOverride: reducedThreshold,
             chunkIndex: options.chunkIndex ?? null,
             chunkTotal: options.chunkTotal ?? null,
+            chunkPath: options.chunkPath ?? null,
         });
     }
 }

@@ -60,7 +60,6 @@ export type SiftConfig = {
   Thresholds: {
     MinCharactersForSummary: number;
     MinLinesForSummary: number;
-    ChunkThresholdRatio: number;
     MaxInputCharacters?: number;
   };
   Interactive: {
@@ -89,7 +88,6 @@ export type SiftConfig = {
     ObservedTelemetrySeen: boolean;
     ObservedTelemetryUpdatedAtUtc: string | null;
     MaxInputCharacters: number | null;
-    ChunkThresholdRatio: number;
     ChunkThresholdCharacters: number | null;
     LegacyMaxInputCharactersRemoved: boolean;
     LegacyMaxInputCharactersValue: number | null;
@@ -441,9 +439,7 @@ export function getEffectiveMaxInputCharacters(config: SiftConfig): number {
 }
 
 export function getChunkThresholdCharacters(config: SiftConfig): number {
-  const ratio = Number(config.Thresholds.ChunkThresholdRatio);
-  const effectiveRatio = ratio > 0 && ratio <= 1 ? ratio : 1.0;
-  return Math.max(Math.floor(getEffectiveMaxInputCharacters(config) * effectiveRatio), 1);
+  return Math.max(getEffectiveMaxInputCharacters(config), 1);
 }
 
 export function getInferenceStatusPath(): string {
@@ -701,6 +697,7 @@ export async function notifyStatusBackend(options: {
   phase?: 'leaf' | 'merge';
   chunkIndex?: number | null;
   chunkTotal?: number | null;
+  chunkPath?: string | null;
   inputTokens?: number | null;
   outputCharacterCount?: number | null;
   outputTokens?: number | null;
@@ -744,6 +741,9 @@ export async function notifyStatusBackend(options: {
   ) {
     body.chunkIndex = options.chunkIndex;
     body.chunkTotal = options.chunkTotal;
+  }
+  if (options.running && options.chunkPath && options.chunkPath.trim()) {
+    body.chunkPath = options.chunkPath.trim();
   }
   if (!options.running && options.inputTokens !== undefined && options.inputTokens !== null) {
     body.inputTokens = options.inputTokens;
@@ -834,7 +834,6 @@ function getDefaultConfigObject(): SiftConfig {
     Thresholds: {
       MinCharactersForSummary: 500,
       MinLinesForSummary: 16,
-      ChunkThresholdRatio: 1.0,
     },
     Interactive: {
       Enabled: true,
@@ -904,7 +903,6 @@ function toPersistedConfigObject(config: SiftConfig): Omit<SiftConfig, 'Paths' |
     Thresholds: {
       MinCharactersForSummary: Number(config.Thresholds.MinCharactersForSummary),
       MinLinesForSummary: Number(config.Thresholds.MinLinesForSummary),
-      ChunkThresholdRatio: Number(config.Thresholds.ChunkThresholdRatio),
     },
     Interactive: {
       Enabled: Boolean(config.Interactive.Enabled),
@@ -1046,8 +1044,8 @@ function normalizeConfig(config: SiftConfig): { config: SiftConfig; info: Normal
       legacyMaxInputCharactersValue = null;
     }
   }
-  if (!Object.prototype.hasOwnProperty.call(updated.Thresholds, 'ChunkThresholdRatio')) {
-    updated.Thresholds.ChunkThresholdRatio = defaults.Thresholds.ChunkThresholdRatio;
+  if (Object.prototype.hasOwnProperty.call(updated.Thresholds, 'ChunkThresholdRatio')) {
+    delete (updated.Thresholds as { ChunkThresholdRatio?: number }).ChunkThresholdRatio;
     changed = true;
   }
 
@@ -1098,7 +1096,6 @@ function normalizeConfig(config: SiftConfig): { config: SiftConfig; info: Normal
   }
 
   const numCtx = Number(updated.Runtime.LlamaCpp.NumCtx);
-  const ratio = Number(updated.Thresholds.ChunkThresholdRatio);
   const isLegacyDefaultSettings = (
     numCtx === SIFT_LEGACY_DEFAULT_NUM_CTX
     && (!hadExplicitMaxInputCharacters || legacyMaxInputCharactersValue === SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS)
@@ -1106,17 +1103,16 @@ function normalizeConfig(config: SiftConfig): { config: SiftConfig; info: Normal
   const isLegacyDerivedSettings = (
     numCtx === SIFT_LEGACY_DERIVED_NUM_CTX
     && !hadExplicitMaxInputCharacters
-    && ratio === defaults.Thresholds.ChunkThresholdRatio
   );
   const isPreviousDefaultSettings = (
     numCtx === SIFT_PREVIOUS_DEFAULT_NUM_CTX
     && !hadExplicitMaxInputCharacters
-    && ratio === defaults.Thresholds.ChunkThresholdRatio
   );
 
   if (isLegacyDefaultSettings || isLegacyDerivedSettings || isPreviousDefaultSettings) {
-    delete updated.Runtime.LlamaCpp.NumCtx;
-    updated.Thresholds.ChunkThresholdRatio = defaults.Thresholds.ChunkThresholdRatio;
+    updated.Runtime.LlamaCpp = {
+      ...(defaults.Runtime?.LlamaCpp ?? defaults.LlamaCpp),
+    };
     delete updated.Thresholds.MaxInputCharacters;
     changed = true;
   }
@@ -1139,8 +1135,6 @@ async function addEffectiveConfigProperties(config: SiftConfig, info: Normalizat
   const maxInputCharacters = numCtx === null
     ? null
     : getDerivedMaxInputCharacters(numCtx, effectiveBudget.value);
-  const chunkThresholdRatio = Number(config.Thresholds.ChunkThresholdRatio);
-  const effectiveChunkThresholdRatio = chunkThresholdRatio > 0 && chunkThresholdRatio <= 1 ? chunkThresholdRatio : 1.0;
   return {
     ...config,
     Effective: {
@@ -1153,8 +1147,7 @@ async function addEffectiveConfigProperties(config: SiftConfig, info: Normalizat
       ObservedTelemetrySeen: effectiveBudget.budgetSource !== 'ColdStartFixedCharsPerToken',
       ObservedTelemetryUpdatedAtUtc: readObservedBudgetState().updatedAtUtc,
       MaxInputCharacters: maxInputCharacters,
-      ChunkThresholdRatio: chunkThresholdRatio,
-      ChunkThresholdCharacters: maxInputCharacters === null ? null : Math.max(Math.floor(maxInputCharacters * effectiveChunkThresholdRatio), 1),
+      ChunkThresholdCharacters: maxInputCharacters,
       LegacyMaxInputCharactersRemoved: info.legacyMaxInputCharactersRemoved,
       LegacyMaxInputCharactersValue: info.legacyMaxInputCharactersValue,
     },

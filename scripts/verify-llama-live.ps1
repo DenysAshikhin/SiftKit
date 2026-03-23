@@ -67,7 +67,7 @@ try {
         $existing.LlamaCpp.PresencePenalty = 0.0
         $existing.LlamaCpp.RepetitionPenalty = 1.0
         $existing.LlamaCpp.MaxTokens = 4096
-        $existing.Thresholds.ChunkThresholdRatio = 0.92
+        $existing.Thresholds.ChunkThresholdRatio = 1.0
         $json = $existing | ConvertTo-Json -Depth 12
         Invoke-RestMethod -Uri $configUrl -Method Put -ContentType 'application/json' -Body $json | Out-Null
     }
