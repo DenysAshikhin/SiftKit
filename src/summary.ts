@@ -254,7 +254,33 @@ function splitTextIntoChunks(text: string, chunkSize: number): string[] {
   return chunks;
 }
 
-async function planTokenAwareLlamaCppChunks(options: {
+async function countPromptTokensForChunk(options: {
+  question: string;
+  inputText: string;
+  format: 'text' | 'json';
+  policyProfile: SummaryPolicyProfile;
+  rawReviewRequired: boolean;
+  promptPrefix?: string;
+  sourceKind: SummarySourceKind;
+  commandExitCode?: number | null;
+  config: SiftConfig;
+  phase: 'leaf' | 'merge';
+}): Promise<number | null> {
+  const prompt = buildPrompt({
+    question: options.question,
+    inputText: options.inputText,
+    format: options.format,
+    policyProfile: options.policyProfile,
+    rawReviewRequired: options.rawReviewRequired,
+    promptPrefix: options.promptPrefix,
+    sourceKind: options.sourceKind,
+    commandExitCode: options.commandExitCode,
+    phase: options.phase,
+  });
+  return countLlamaCppTokens(options.config, prompt);
+}
+
+export async function planTokenAwareLlamaCppChunks(options: {
   question: string;
   inputText: string;
   format: 'text' | 'json';
@@ -275,12 +301,18 @@ async function planTokenAwareLlamaCppChunks(options: {
   const chunks: string[] = [];
   let offset = 0;
   while (offset < options.inputText.length) {
-    let candidateLength = Math.min(options.chunkThreshold, options.inputText.length - offset);
+    const remainingLength = options.inputText.length - offset;
+    const targetSlackTokens = Math.min(LLAMA_CPP_PROMPT_TOKEN_TARGET_TOLERANCE, effectivePromptLimit);
+    let candidateLength = Math.min(options.chunkThreshold, remainingLength);
     let acceptedChunk: string | null = null;
+    let acceptedLength = 0;
+    let rejectedLength: number | null = null;
+    let adjustmentCount = 0;
 
-    while (candidateLength > 0) {
+    while (candidateLength > 0 && adjustmentCount < MAX_TOKEN_AWARE_CHUNK_ADJUSTMENTS) {
+      adjustmentCount += 1;
       const candidateText = options.inputText.substring(offset, offset + candidateLength);
-      const candidatePrompt = buildPrompt({
+      const promptTokenCount = await countPromptTokensForChunk({
         question: options.question,
         inputText: candidateText,
         format: options.format,
@@ -289,11 +321,54 @@ async function planTokenAwareLlamaCppChunks(options: {
         promptPrefix: options.promptPrefix,
         sourceKind: options.sourceKind,
         commandExitCode: options.commandExitCode,
+        config: options.config,
         phase: options.phase,
       });
-      const promptTokenCount = await countLlamaCppTokens(options.config, candidatePrompt);
       if (promptTokenCount === null) {
         return null;
+      }
+
+      if (promptTokenCount <= effectivePromptLimit) {
+        acceptedChunk = candidateText;
+        acceptedLength = candidateLength;
+        const slackTokens = effectivePromptLimit - promptTokenCount;
+        if (
+          slackTokens <= targetSlackTokens
+          || candidateLength >= remainingLength
+          || rejectedLength === acceptedLength + 1
+        ) {
+          break;
+        }
+
+        if (rejectedLength !== null) {
+          candidateLength = Math.max(
+            acceptedLength + 1,
+            Math.floor((acceptedLength + rejectedLength) / 2)
+          );
+          continue;
+        }
+
+        const grownLength = Math.min(
+          remainingLength,
+          Math.max(
+            acceptedLength + 1,
+            Math.floor(acceptedLength * (effectivePromptLimit / Math.max(promptTokenCount, 1)))
+          )
+        );
+        if (grownLength <= acceptedLength) {
+          break;
+        }
+        candidateLength = grownLength;
+        continue;
+      }
+
+      rejectedLength = candidateLength;
+      if (acceptedLength > 0) {
+        candidateLength = Math.max(
+          acceptedLength + 1,
+          Math.floor((acceptedLength + rejectedLength) / 2)
+        );
+        continue;
       }
 
       const reducedLength = getTokenAwareChunkThreshold({
@@ -301,9 +376,8 @@ async function planTokenAwareLlamaCppChunks(options: {
         promptTokenCount,
         effectivePromptLimit,
       });
-      if (reducedLength === null) {
-        acceptedChunk = candidateText;
-        break;
+      if (reducedLength === null || reducedLength >= candidateLength) {
+        return null;
       }
 
       candidateLength = reducedLength;
@@ -339,6 +413,8 @@ function shouldRetryWithSmallerChunks(options: {
 }
 
 const LLAMA_CPP_PROMPT_TOKEN_RESERVE = 1024;
+const LLAMA_CPP_PROMPT_TOKEN_TARGET_TOLERANCE = 2000;
+const MAX_TOKEN_AWARE_CHUNK_ADJUSTMENTS = 8;
 
 function getTokenAwareChunkThreshold(options: {
   inputLength: number;
