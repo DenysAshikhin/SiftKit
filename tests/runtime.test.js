@@ -2609,8 +2609,12 @@ test('request status log groups large running counts and uses colon elapsed dura
     'request true raw_chars=37,947,467 prompt_chars=560,315 chars_per_token=4.150 chunk_threshold_chars=763,603 chunk 1/50 -> 1/2',
   );
   assert.equal(
-    buildStatusRequestLogMessage({ running: false, totalElapsedMs: 97_200_000 }),
-    'request false total_elapsed=1:03:00:00',
+    buildStatusRequestLogMessage({ running: false, elapsedMs: 12_000, outputTokens: 7 }),
+    'request false elapsed=12s output_tokens=7',
+  );
+  assert.equal(
+    buildStatusRequestLogMessage({ running: false, totalElapsedMs: 187_000, totalOutputTokens: 19 }),
+    'request false total_elapsed=3:07 output_tokens=19',
   );
 });
 
@@ -2619,7 +2623,8 @@ test('real status server accumulates provider payload totals across a chunked re
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
 
-    await withRealStatusServer(async ({ statusUrl }) => {
+    await withRealStatusServer(async (server) => {
+      const { statusUrl } = server;
       await requestJson(statusUrl, {
         method: 'POST',
         body: JSON.stringify({ running: true, rawInputCharacterCount: 1000, chunkIndex: 1, chunkTotal: 2 }),
@@ -2644,6 +2649,9 @@ test('real status server accumulates provider payload totals across a chunked re
         method: 'POST',
         body: JSON.stringify({ running: false, promptCharacterCount: 400, inputTokens: 5, outputCharacterCount: 60, outputTokens: 1, requestDurationMs: 50 }),
       });
+      await server.waitForStdoutMatch(/request false elapsed=0s output_tokens=2/u, 1000);
+      await server.waitForStdoutMatch(/request false elapsed=0s output_tokens=3/u, 1000);
+      await server.waitForStdoutMatch(/request false total_elapsed=0s output_tokens=6/u, 1000);
 
       const status = await requestJson(statusUrl);
       assert.equal(status.metrics.inputCharactersTotal, 1610);

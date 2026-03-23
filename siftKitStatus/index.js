@@ -743,7 +743,9 @@ function buildStatusRequestLogMessage({
   chunkTotal = null,
   chunkPath = null,
   elapsedMs = null,
-  totalElapsedMs = null
+  totalElapsedMs = null,
+  outputTokens = null,
+  totalOutputTokens = null
 }) {
   const statusText = running ? 'true' : 'false';
   let logMessage = `request ${statusText}`;
@@ -769,8 +771,14 @@ function buildStatusRequestLogMessage({
     }
   } else if (totalElapsedMs !== null) {
     logMessage += ` total_elapsed=${formatElapsed(totalElapsedMs)}`;
+    if (totalOutputTokens !== null) {
+      logMessage += ` output_tokens=${formatInteger(totalOutputTokens)}`;
+    }
   } else if (elapsedMs !== null) {
     logMessage += ` elapsed=${formatElapsed(elapsedMs)}`;
+    if (outputTokens !== null) {
+      logMessage += ` output_tokens=${formatInteger(outputTokens)}`;
+    }
   }
 
   return logMessage;
@@ -1729,7 +1737,8 @@ function startStatusServer(options = {}) {
             lastChunkTotal: null,
             pendingFinalMerge: false,
             rawInputCharacterCount: metadata.rawInputCharacterCount,
-            promptCharacterCount: metadata.promptCharacterCount
+            promptCharacterCount: metadata.promptCharacterCount,
+            outputTokensTotal: 0
           };
         } else {
           runState.currentRequestStartedAt = now;
@@ -1758,7 +1767,9 @@ function startStatusServer(options = {}) {
         const runState = activeRunsByStatusPath.get(statusPath);
         if (runState && Number.isFinite(runState.currentRequestStartedAt)) {
           const now = Date.now();
+          const resolvedOutputTokens = metadata.outputTokens ?? 0;
           elapsedMs = now - runState.currentRequestStartedAt;
+          runState.outputTokensTotal += resolvedOutputTokens;
           if (metadata.promptCharacterCount === null && runState.promptCharacterCount !== null) {
             metadata.promptCharacterCount = runState.promptCharacterCount;
           }
@@ -1766,11 +1777,13 @@ function startStatusServer(options = {}) {
             if (runState.pendingFinalMerge) {
               totalElapsedMs = now - runState.overallStartedAt;
               metadata.rawInputCharacterCount = runState.rawInputCharacterCount;
+              metadata.totalOutputTokens = runState.outputTokensTotal;
               activeRunsByStatusPath.delete(statusPath);
               requestCompleted = true;
             }
           } else {
             metadata.rawInputCharacterCount = runState.rawInputCharacterCount;
+            metadata.totalOutputTokens = runState.outputTokensTotal;
             activeRunsByStatusPath.delete(statusPath);
             requestCompleted = true;
           }
@@ -1805,7 +1818,9 @@ function startStatusServer(options = {}) {
         chunkTotal: metadata.chunkTotal,
         chunkPath: metadata.chunkPath,
         elapsedMs,
-        totalElapsedMs
+        totalElapsedMs,
+        outputTokens: metadata.outputTokens,
+        totalOutputTokens: metadata.totalOutputTokens ?? null
       });
       logLine(logMessage);
       const publishedStatus = getPublishedStatusText();
