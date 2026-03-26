@@ -1,0 +1,5 @@
+{
+"classification": "summary",
+"raw_review_required": true,
+"output": "Entity-family ownership is primarily defined by dedicated runtime code files and corresponding integration test suites. Drones are owned by `entities/drone_flat/drone_flat.gd` (runtime) and tested via `tests/integration/entities/drone_flat/`. Frigates are owned by `entities/frigate_flat/frigate.gd` (runtime) with tests in `tests/integration/entities/frigate_flat/`. Supports use `entities/support_flat/support_flat.gd` (runtime) and tests in `tests/integration/entities/support_flat/`. Motherships and capital ships are referenced as high-level entities; mothership ownership logic appears in `entities/bosses/necrotilus/necrotilus.gd` and `entities/bosses/scanilus/scanilus.gd`, while capital ship ownership is managed by `entities/capital/Capital.gd` (runtime) and tests in `tests/integration/entities/bosses/`. Raw review required."
+}

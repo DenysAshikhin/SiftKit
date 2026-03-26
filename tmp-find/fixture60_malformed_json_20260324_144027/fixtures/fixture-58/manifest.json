@@ -1,0 +1,48 @@
+{
+  "ok": true,
+  "fixtureIndex": 58,
+  "sourcePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\eval\\fixtures\\ai_core_60_tests\\raw\\58_combat_tick_damage_search.txt",
+  "fixtureName": "58. Combat Tick/Damage Search",
+  "backend": "llama.cpp",
+  "model": "Qwen3.5-9B-Q8_0.gguf",
+  "requestTimeoutSeconds": 1800,
+  "rawReviewRequired": false,
+  "chunkThreshold": 690509,
+  "effectivePromptLimit": 190000,
+  "chunkCount": 2,
+  "malformedChunk": null,
+  "chunks": [
+    {
+      "index": 1,
+      "chunkPath": "1/2",
+      "inputCharacters": 621591,
+      "promptCharacters": 624434,
+      "promptTokens": 188959,
+      "outputCharacters": 502,
+      "outputTokens": 116,
+      "promptPath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_144027\\fixtures\\fixture-58\\chunks\\chunk-01\\prompt.txt",
+      "responsePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_144027\\fixtures\\fixture-58\\chunks\\chunk-01\\response.txt",
+      "parsed": true,
+      "classification": "summary",
+      "rawReviewRequired": true,
+      "outputPreview": "The input is a partial code slice containing definitions for targeting logic, attack cadence, and tick-driven combat behavior. Main files identified are Globals/Global.gd (targeting registry and clearing), Globals/Drones.gd and Globals/Frigates.gd (attack cadence and damage exports), entities/unit/Unit.gd (tick-driven debuff/combat statuses), and managers/player/Player_Manager.gd (unit spawning/ticking). Raw review required.",
+      "error": null
+    },
+    {
+      "index": 2,
+      "chunkPath": "2/2",
+      "inputCharacters": 351698,
+      "promptCharacters": 354541,
+      "promptTokens": 104653,
+      "outputCharacters": 760,
+      "outputTokens": 162,
+      "promptPath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_144027\\fixtures\\fixture-58\\chunks\\chunk-02\\prompt.txt",
+      "responsePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_144027\\fixtures\\fixture-58\\chunks\\chunk-02\\response.txt",
+      "parsed": true,
+      "classification": "summary",
+      "rawReviewRequired": true,
+      "outputPreview": "The input contains extensive test code and source snippets for drone combat logic, specifically targeting `entities/drone_flat/drone_flat.gd` as the main file for targeting, attack cadence (via `_core_logic_tick`, `lived_ticks`, `target_tick`), projectile logic (`bullet.gd`, `DEFAULT_STATS['damage']`), and tick-driven behavior. Key systems verified include Shield Duality damage spreading (`tests/.../shield_systems.gd`), tech unlock modifiers for targeting modes (`target_lead_1`, `targetting_*`),",
+      "error": null
+    }
+  ]
+}

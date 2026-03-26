@@ -1,0 +1,54 @@
+[fixture-debug 2026-03-24T13:33:40.425Z] Output root: C:\Users\denys\Documents\GitHub\SiftKit\tmp-find\fixture48-file-live
+[fixture-debug 2026-03-24T13:33:40.427Z] Log path: C:\Users\denys\Documents\GitHub\SiftKit\tmp-find\fixture48-file-live\debug.log
+[fixture-debug 2026-03-24T13:33:40.427Z] Source path: C:\Users\denys\Documents\GitHub\SiftKit\eval\fixtures\ai_core_60_tests\raw\48_holistic_review_packet.txt
+[fixture-debug 2026-03-24T13:33:40.428Z] Input chars: 1094606
+[fixture-debug 2026-03-24T13:33:40.428Z] Question: Review this packet holistically and summarize the main conclusions and risks.
+[fixture-debug 2026-03-24T13:33:40.428Z] Format: text
+[fixture-debug 2026-03-24T13:33:40.428Z] Policy profile: general
+[fixture-debug 2026-03-24T13:33:40.429Z] Request timeout seconds: 600
+[fixture-debug 2026-03-24T13:33:40.429Z] Calling summarizeRequest...
+[siftkit-trace 2026-03-24T13:33:40.430Z] summary summarizeRequest start input_chars=1094606
+[siftkit-trace 2026-03-24T13:33:40.430Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-03-24T13:33:40.440Z] execution-lock acquire success token=c30fa53d-12fc-4f57-98fc-d17eb36ce31e elapsed_ms=10
+[siftkit-trace 2026-03-24T13:33:40.441Z] summary loadConfig start
+[siftkit-trace 2026-03-24T13:33:40.449Z] summary loadConfig done
+[siftkit-trace 2026-03-24T13:33:40.461Z] summary decision ready backend=llama.cpp model=Qwen3.5-35B-A3B-UD-Q4_K_L.gguf raw_review_required=false chars=1094606 lines=17437
+[siftkit-trace 2026-03-24T13:33:40.462Z] summary invokeSummaryCore start
+[siftkit-trace 2026-03-24T13:33:40.462Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=1094606 chunk_threshold=724266
+[siftkit-trace 2026-03-24T13:33:40.463Z] summary chunk split start phase=leaf chunk=undefined/undefined input_chars=1094606
+[siftkit-trace 2026-03-24T13:33:40.464Z] llama-cpp tokenize start chars=727036
+[siftkit-trace 2026-03-24T13:33:40.872Z] llama-cpp tokenize done elapsed_ms=409 tokens=179995
+[siftkit-trace 2026-03-24T13:33:40.872Z] llama-cpp tokenize start chars=803411
+[siftkit-trace 2026-03-24T13:33:41.343Z] llama-cpp tokenize done elapsed_ms=471 tokens=200152
+[siftkit-trace 2026-03-24T13:33:41.343Z] llama-cpp tokenize start chars=765223
+[siftkit-trace 2026-03-24T13:33:41.807Z] llama-cpp tokenize done elapsed_ms=464 tokens=190077
+[siftkit-trace 2026-03-24T13:33:41.808Z] llama-cpp tokenize start chars=784317
+[siftkit-trace 2026-03-24T13:33:42.263Z] llama-cpp tokenize done elapsed_ms=455 tokens=195099
+[siftkit-trace 2026-03-24T13:33:42.264Z] llama-cpp tokenize start chars=793864
+[siftkit-trace 2026-03-24T13:33:42.700Z] llama-cpp tokenize done elapsed_ms=436 tokens=197532
+[siftkit-trace 2026-03-24T13:33:42.701Z] llama-cpp tokenize start chars=306282
+[siftkit-trace 2026-03-24T13:33:42.880Z] llama-cpp tokenize done elapsed_ms=179 tokens=85516
+[siftkit-trace 2026-03-24T13:33:42.881Z] summary chunk split done phase=leaf chunk=undefined/undefined chunk_count=2
+[siftkit-trace 2026-03-24T13:33:42.884Z] summary invokeSummaryCore start phase=leaf chunk=1/2 input_chars=791094 chunk_threshold=791094
+[siftkit-trace 2026-03-24T13:33:42.885Z] summary preflight start phase=leaf chunk=1/2 prompt_chars=793858 effective_prompt_limit=198976
+[siftkit-trace 2026-03-24T13:33:42.886Z] llama-cpp tokenize start chars=793858
+[siftkit-trace 2026-03-24T13:33:43.339Z] llama-cpp tokenize done elapsed_ms=453 tokens=197533
+[siftkit-trace 2026-03-24T13:33:43.340Z] summary preflight done phase=leaf chunk=1/2 prompt_tokens=197533
+[siftkit-trace 2026-03-24T13:33:43.342Z] summary notify running=true phase=leaf chunk=1/2 raw_chars=1094606 chunk_chars=791094 prompt_chars=793858
+[siftkit-trace 2026-03-24T13:33:43.361Z] summary provider start backend=llama.cpp model=Qwen3.5-35B-A3B-UD-Q4_K_L.gguf phase=leaf chunk=1/2 timeout_s=600
+[siftkit-trace 2026-03-24T13:33:43.363Z] llama-cpp generate start model=Qwen3.5-35B-A3B-UD-Q4_K_L.gguf timeout_s=600 prompt_chars=793858 base_url=http://127.0.0.1:8097
+[siftkit-trace 2026-03-24T13:43:43.375Z] llama-cpp generate error elapsed_ms=600012 message="Request timed out after 600000 ms."
+[siftkit-trace 2026-03-24T13:43:43.376Z] summary notify running=false phase=leaf chunk=1/2 duration_ms=600015
+[siftkit-trace 2026-03-24T13:43:43.381Z] execution-lock release token=c30fa53d-12fc-4f57-98fc-d17eb36ce31e
+[fixture-debug 2026-03-24T13:43:43.383Z] summarizeRequest failed in 602.953s
+[fixture-debug 2026-03-24T13:43:43.383Z] Artifact path: C:\Users\denys\Documents\GitHub\SiftKit\tmp-find\fixture48-file-live\result.json
+Error: llama.cpp generate timed out after 600 seconds.
+    at generateLlamaCppResponse (C:\Users\denys\Documents\GitHub\SiftKit\dist\providers\llama-cpp.js:278:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async invokeProviderSummary (C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:547:26)
+    at async invokeSummaryCore (C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:899:29)
+    at async invokeSummaryCore (C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:819:34)
+    at async C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:1014:35
+    at async withExecutionLock (C:\Users\denys\Documents\GitHub\SiftKit\dist\execution-lock.js:93:16)
+    at async runDebugRequest (C:\Users\denys\Documents\GitHub\SiftKit\scripts\run-benchmark-fixture-debug.js:169:20)
+    at async main (C:\Users\denys\Documents\GitHub\SiftKit\scripts\run-benchmark-fixture-debug.js:227:18)

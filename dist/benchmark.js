@@ -38,7 +38,7 @@ const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const config_js_1 = require("./config.js");
 const summary_js_1 = require("./summary.js");
-const DEFAULT_REQUEST_TIMEOUT_SECONDS = 600;
+const DEFAULT_REQUEST_TIMEOUT_SECONDS = 1800;
 const BENCHMARK_HEARTBEAT_MS = 15_000;
 class FatalBenchmarkError extends Error {
     constructor(message) {
@@ -316,23 +316,12 @@ async function runBenchmarkSuite(options = {}) {
                 const caseDurationMs = Number(process.hrtime.bigint() - caseStartedAtHr) / 1_000_000;
                 clearInterval(heartbeat);
                 const message = error instanceof Error ? error.message : String(error);
-                if (error instanceof FatalBenchmarkError || isTimeoutError(error)) {
-                    fatalError = message;
-                    fatalException = error;
-                    process.stdout.write(`Fixture ${index + 1}/${manifest.length} [${fixtureLabel}] failed fatally after ${formatElapsed(caseDurationMs)}\n`);
-                    break;
-                }
-                results.push({
-                    Prompt: prompt,
-                    Output: null,
-                    DurationMs: roundDuration(caseDurationMs),
-                    PolicyDecision: 'provider-error',
-                    Classification: null,
-                    RawReviewRequired: false,
-                    ModelCallSucceeded: false,
-                    Error: message,
-                });
-                process.stdout.write(`Fixture ${index + 1}/${manifest.length} [${fixtureLabel}] recorded provider error in ${formatElapsed(caseDurationMs)}\n`);
+                fatalError = error instanceof FatalBenchmarkError || isTimeoutError(error)
+                    ? message
+                    : `Benchmark fixture '${fixtureLabel}' failed: ${message}`;
+                fatalException = error;
+                process.stdout.write(`Fixture ${index + 1}/${manifest.length} [${fixtureLabel}] failed fatally after ${formatElapsed(caseDurationMs)}: ${message}\n`);
+                break;
             }
         }
     }
@@ -353,7 +342,7 @@ async function runBenchmarkSuite(options = {}) {
     });
     (0, config_js_1.saveContentAtomically)(outputPath, JSON.stringify(artifact, null, 2));
     if (fatalException !== null) {
-        throw fatalException;
+        throw new FatalBenchmarkError(fatalError ?? (fatalException instanceof Error ? fatalException.message : String(fatalException)));
     }
     return artifact;
 }

@@ -1,0 +1,16 @@
+{
+  "index": 8,
+  "chunkPath": "8/14",
+  "inputCharacters": 376973,
+  "promptCharacters": 379765,
+  "promptTokens": 138671,
+  "outputCharacters": 1717,
+  "outputTokens": 545,
+  "promptPath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_160148\\fixtures\\fixture-19\\chunks\\chunk-08\\prompt.txt",
+  "responsePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_160148\\fixtures\\fixture-19\\chunks\\chunk-08\\response.txt",
+  "parsed": true,
+  "classification": "summary",
+  "rawReviewRequired": true,
+  "outputPreview": "Raw review required.\n\nErrors are concentrated in .godot_logs\\main_game_smoke_stderr_20260220_120101_326.txt (lines 372-1156), .godot_logs\\verify_leakfix_nomatch2.log (lines 14-98), and .godot_logs\\main_game_smoke_direct_probe_output_20260309_122557_640.txt (lines 4-3295).\n\nKey issues grouped by file:\n- main_game_smoke_stderr_20260220_120101_326.txt: Repeated calls to nonexistent function 'is_homebase' in base 'Nil', invalid 'float' constructor, and invalid operands 'Nil' and 'float' in operator ",
+  "error": null
+}

@@ -1,0 +1,27 @@
+[fixture60-repro 2026-03-24T18:40:27.617Z] Output root: C:\Users\denys\Documents\GitHub\SiftKit\tmp-find\fixture60_malformed_json_20260324_144027
+[fixture60-repro 2026-03-24T18:40:27.618Z] Fixture range: 58-60
+[fixture60-repro 2026-03-24T18:40:27.618Z] Fixture count: 3
+[fixture60-repro 2026-03-24T18:40:30.261Z] Fixture 58/60: 58. Combat Tick/Damage Search
+[fixture60-repro 2026-03-24T18:40:30.261Z] Source path: C:\Users\denys\Documents\GitHub\SiftKit\eval\fixtures\ai_core_60_tests\raw\58_combat_tick_damage_search.txt
+[fixture60-repro 2026-03-24T18:40:30.261Z] Input chars: 973289
+[fixture60-repro 2026-03-24T18:40:30.262Z] Chunk threshold: 690509
+[fixture60-repro 2026-03-24T18:40:30.262Z] Chunk count: 2
+[fixture60-repro 2026-03-24T18:41:50.239Z] Fixture 58 chunk 1/2 parsed prompt_tokens=188959 output_tokens=116
+[fixture60-repro 2026-03-24T18:42:29.869Z] Fixture 58 chunk 2/2 parsed prompt_tokens=104653 output_tokens=162
+[fixture60-repro 2026-03-24T18:42:31.622Z] Fixture 59/60: 59. Unlock/Research/Upgrade Search
+[fixture60-repro 2026-03-24T18:42:31.623Z] Source path: C:\Users\denys\Documents\GitHub\SiftKit\eval\fixtures\ai_core_60_tests\raw\59_unlock_research_upgrade_search.txt
+[fixture60-repro 2026-03-24T18:42:31.623Z] Input chars: 1083114
+[fixture60-repro 2026-03-24T18:42:31.623Z] Chunk threshold: 690509
+[fixture60-repro 2026-03-24T18:42:31.623Z] Chunk count: 2
+[fixture60-repro 2026-03-24T18:44:15.832Z] Fixture 59 chunk 1/2 parsed prompt_tokens=188695 output_tokens=504
+[fixture60-repro 2026-03-24T18:45:15.865Z] Fixture 59 chunk 2/2 parsed prompt_tokens=143363 output_tokens=198
+[fixture60-repro 2026-03-24T18:45:19.278Z] Fixture 60/60: 60. Entity Families Search
+[fixture60-repro 2026-03-24T18:45:19.278Z] Source path: C:\Users\denys\Documents\GitHub\SiftKit\eval\fixtures\ai_core_60_tests\raw\60_entity_families_search.txt
+[fixture60-repro 2026-03-24T18:45:19.278Z] Input chars: 1540542
+[fixture60-repro 2026-03-24T18:45:19.278Z] Chunk threshold: 690509
+[fixture60-repro 2026-03-24T18:45:19.279Z] Chunk count: 3
+[fixture60-repro 2026-03-24T18:47:03.268Z] Fixture 60 chunk 1/3 parsed prompt_tokens=189485 output_tokens=466
+[fixture60-repro 2026-03-24T18:48:08.860Z] Fixture 60 chunk 2/3 parsed prompt_tokens=188920 output_tokens=393
+[fixture60-repro 2026-03-24T18:48:40.700Z] Fixture 60 chunk 3/3 parsed prompt_tokens=83754 output_tokens=543
+[fixture60-repro 2026-03-24T18:48:40.703Z] Completed without malformed chunk payloads.
+[fixture60-repro 2026-03-24T18:48:40.705Z] Lock release warning: SiftKit status/config server is not reachable at http://127.0.0.1:4765/health. Start the separate server process and stop issuing further siftkit commands until it is available.

@@ -1,4 +1,5 @@
 /.npm-cache
+/.siftkit
 /eval
 /node_modules
 /thinking_bench/qwen35-best-only-search

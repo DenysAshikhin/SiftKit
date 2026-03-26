@@ -1,0 +1,20 @@
+[fixture-debug 2026-03-23T21:04:12.034Z] Log path: C:\Users\denys\Documents\GitHub\SiftKit\tmp-find\fixture_48_debug_20260323_170412.log
+[fixture-debug 2026-03-23T21:04:12.035Z] Fixture index: 48
+[fixture-debug 2026-03-23T21:04:12.035Z] Fixture name: 48. Holistic Review Packet
+[fixture-debug 2026-03-23T21:04:12.035Z] Fixture path: C:\Users\denys\Documents\GitHub\SiftKit\eval\fixtures\ai_core_60_tests\raw\48_holistic_review_packet.txt
+[fixture-debug 2026-03-23T21:04:12.035Z] Input chars: 1094606
+[fixture-debug 2026-03-23T21:04:12.035Z] Question: Summarize this holistic review packet JSON. Focus on the major sections, the kind of evidence bundled into it, and what workflow it supports.
+[fixture-debug 2026-03-23T21:04:12.036Z] Format: text
+[fixture-debug 2026-03-23T21:04:12.036Z] Policy profile: general
+[fixture-debug 2026-03-23T21:04:12.036Z] Request timeout seconds: 120
+[fixture-debug 2026-03-23T21:04:12.036Z] Calling summarizeRequest...
+[siftkit-trace 2026-03-23T21:04:12.037Z] summary summarizeRequest start input_chars=1094606
+[siftkit-trace 2026-03-23T21:04:12.037Z] execution-lock acquire start timeout_ms=300000
+[fixture-debug 2026-03-23T21:04:12.043Z] summarizeRequest failed in 6.2ms
+StatusServerUnavailableError: SiftKit status/config server is not reachable at http://127.0.0.1:4765/health. Start the separate server process and stop issuing further siftkit commands until it is available.
+    at toStatusServerUnavailableError (C:\Users\denys\Documents\GitHub\SiftKit\dist\config.js:489:12)
+    at tryAcquireExecutionLease (C:\Users\denys\Documents\GitHub\SiftKit\dist\config.js:526:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async acquireExecutionLock (C:\Users\denys\Documents\GitHub\SiftKit\dist\execution-lock.js:56:23)
+    at async withExecutionLock (C:\Users\denys\Documents\GitHub\SiftKit\dist\execution-lock.js:91:18)
+    at async main (C:\Users\denys\Documents\GitHub\SiftKit\scripts\run-benchmark-fixture-debug.js:108:20)

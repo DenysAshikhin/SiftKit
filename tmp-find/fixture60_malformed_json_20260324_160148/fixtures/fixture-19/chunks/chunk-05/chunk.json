@@ -1,0 +1,16 @@
+{
+  "index": 5,
+  "chunkPath": "5/14",
+  "inputCharacters": 383287,
+  "promptCharacters": 386079,
+  "promptTokens": 139729,
+  "outputCharacters": 2194,
+  "outputTokens": 714,
+  "promptPath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_160148\\fixtures\\fixture-19\\chunks\\chunk-05\\prompt.txt",
+  "responsePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_160148\\fixtures\\fixture-19\\chunks\\chunk-05\\response.txt",
+  "parsed": true,
+  "classification": "summary",
+  "rawReviewRequired": true,
+  "outputPreview": "Raw review required.\n\nScript errors found in multiple logs, primarily involving `res://managers/enemy/Enemy_Manager.gd` and shader parameter calls:\n\n- **File: `.godot_logs\\main_game_smoke_direct_probe_log_20260309_122557_640.log`**\n  - Repeated `SCRIPT ERROR: Invalid call. Nonexistent function '_update_shader_param' in base 'Nil'.` (e.g., lines 532, 534, ..., 3806).\n  - Repeated `SCRIPT ERROR: Parse Error: Could not parse global class \"EnemyManager\" from \"res://managers/enemy/Enemy_Manager.gd\".`",
+  "error": null
+}

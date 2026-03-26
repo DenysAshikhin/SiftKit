@@ -1,0 +1,16 @@
+{
+  "index": 7,
+  "chunkPath": "7/14",
+  "inputCharacters": 379804,
+  "promptCharacters": 382596,
+  "promptTokens": 139071,
+  "outputCharacters": 617,
+  "outputTokens": 145,
+  "promptPath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_160148\\fixtures\\fixture-19\\chunks\\chunk-07\\prompt.txt",
+  "responsePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_160148\\fixtures\\fixture-19\\chunks\\chunk-07\\response.txt",
+  "parsed": true,
+  "classification": "summary",
+  "rawReviewRequired": true,
+  "outputPreview": "Raw review required. Multiple SCRIPT ERROR markers found across logs, primarily involving 'get_sector_stats' called on 'Nil', 'float' and 'Nil' operand errors in operator '*', '_update_shader_param' calls on 'Nil', and parse/compile failures for global class 'EnemyManager' from 'res://managers/enemy/Enemy_Manager.gd'. Other errors include invalid property access to 'SETTING_DICT', 'saver', 'progression', 'PRESTIGE', 'RESETTING', 'shop_Health_final_cost', 'shop_Shield_Regen_final_cost', and inval",
+  "error": null
+}

@@ -13,7 +13,8 @@ export const SIFT_PREVIOUS_DEFAULT_MODEL = 'qwen3.5-4b-q8_0';
 export const SIFT_DEFAULT_LLAMA_MODEL = 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
 export const SIFT_DEFAULT_LLAMA_BASE_URL = 'http://127.0.0.1:8097';
 export const SIFT_DEFAULT_LLAMA_MODEL_PATH = 'D:\\personal\\models\\Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
-export const SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-35B-4bit-150k-no-thinking.ps1';
+export const SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-35B-4bit-150k-no-thinking.ps1';
+export const SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k.ps1';
 export const SIFT_DEFAULT_LLAMA_SHUTDOWN_SCRIPT = 'C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\scripts\\stop-llama-server.ps1';
 export const SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS = 32_000;
 export const SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN = 2.5;
@@ -294,6 +295,29 @@ function isRuntimeRootWritable(candidate: string | null | undefined): boolean {
   }
 }
 
+function findNearestSiftKitRepoRoot(startPath = process.cwd()): string | null {
+  let currentPath = path.resolve(startPath);
+  for (;;) {
+    const packagePath = path.join(currentPath, 'package.json');
+    if (fs.existsSync(packagePath)) {
+      try {
+        const parsed = parseJsonText<{ name?: unknown }>(fs.readFileSync(packagePath, 'utf8'));
+        if (parsed?.name === 'siftkit') {
+          return currentPath;
+        }
+      } catch {
+        // Ignore malformed package.json files while walking upward.
+      }
+    }
+
+    const parentPath = path.dirname(currentPath);
+    if (parentPath === currentPath) {
+      return null;
+    }
+    currentPath = parentPath;
+  }
+}
+
 export function getRuntimeRoot(): string {
   const configuredStatusPath = process.env.sift_kit_status;
   if (configuredStatusPath && configuredStatusPath.trim()) {
@@ -307,6 +331,10 @@ export function getRuntimeRoot(): string {
   }
 
   const candidates: string[] = [];
+  const repoRoot = findNearestSiftKitRepoRoot();
+  if (repoRoot) {
+    candidates.push(path.resolve(repoRoot, '.siftkit'));
+  }
   if (process.env.USERPROFILE?.trim()) {
     candidates.push(path.resolve(process.env.USERPROFILE, '.siftkit'));
   }
@@ -688,6 +716,9 @@ export async function ensureStatusServerReachable(): Promise<void> {
 
 export async function notifyStatusBackend(options: {
   running: boolean;
+  requestId?: string | null;
+  terminalState?: 'completed' | 'failed' | null;
+  errorMessage?: string | null;
   promptCharacterCount?: number | null;
   promptTokenCount?: number | null;
   rawInputCharacterCount?: number | null;
@@ -712,6 +743,15 @@ export async function notifyStatusBackend(options: {
     updatedAtUtc: new Date().toISOString(),
   };
 
+  if (options.requestId && options.requestId.trim()) {
+    body.requestId = options.requestId.trim();
+  }
+  if (!options.running && options.terminalState) {
+    body.terminalState = options.terminalState;
+  }
+  if (!options.running && options.errorMessage && options.errorMessage.trim()) {
+    body.errorMessage = options.errorMessage.trim();
+  }
   if (options.promptCharacterCount !== undefined && options.promptCharacterCount !== null) {
     body.promptCharacterCount = options.promptCharacterCount;
   }
@@ -850,7 +890,7 @@ function getDefaultConfigObject(): SiftConfig {
       LlamaCpp: {
         StartupScript: SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT,
         ShutdownScript: SIFT_DEFAULT_LLAMA_SHUTDOWN_SCRIPT,
-        StartupTimeoutMs: 120_000,
+        StartupTimeoutMs: 600_000,
         HealthcheckTimeoutMs: 2_000,
         HealthcheckIntervalMs: 1_000,
       },
@@ -1077,12 +1117,16 @@ function normalizeConfig(config: SiftConfig): { config: SiftConfig; info: Normal
     updated.Server.LlamaCpp.StartupScript = defaults.Server?.LlamaCpp?.StartupScript ?? null;
     changed = true;
   }
+  if (updated.Server.LlamaCpp.StartupScript === SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT) {
+    updated.Server.LlamaCpp.StartupScript = defaults.Server?.LlamaCpp?.StartupScript ?? null;
+    changed = true;
+  }
   if (!Object.prototype.hasOwnProperty.call(updated.Server.LlamaCpp, 'ShutdownScript')) {
     updated.Server.LlamaCpp.ShutdownScript = defaults.Server?.LlamaCpp?.ShutdownScript ?? null;
     changed = true;
   }
   if (!Object.prototype.hasOwnProperty.call(updated.Server.LlamaCpp, 'StartupTimeoutMs')) {
-    updated.Server.LlamaCpp.StartupTimeoutMs = defaults.Server?.LlamaCpp?.StartupTimeoutMs ?? 120_000;
+    updated.Server.LlamaCpp.StartupTimeoutMs = defaults.Server?.LlamaCpp?.StartupTimeoutMs ?? 600_000;
     changed = true;
   }
   if (!Object.prototype.hasOwnProperty.call(updated.Server.LlamaCpp, 'HealthcheckTimeoutMs')) {

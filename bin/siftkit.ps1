@@ -127,10 +127,33 @@ if ($script:PipelineBuffer.Count -gt 0 -and $commandName -eq 'summary' -and -not
 
 try {
     $cliPath = Get-SiftTsCliPath
+    $previousSourceKind = $env:SIFTKIT_SUMMARY_SOURCE_KIND
+    $previousCommandExitCode = $env:SIFTKIT_SUMMARY_COMMAND_EXIT_CODE
+    if ($tempInputPath) {
+        $env:SIFTKIT_SUMMARY_SOURCE_KIND = 'command-output'
+        if ($LASTEXITCODE -ne $null) {
+            $env:SIFTKIT_SUMMARY_COMMAND_EXIT_CODE = [string]$LASTEXITCODE
+        }
+        else {
+            $env:SIFTKIT_SUMMARY_COMMAND_EXIT_CODE = '0'
+        }
+    }
     & node $cliPath @forwardedArgs
     exit $LASTEXITCODE
 }
 finally {
+    if ($null -eq $previousSourceKind) {
+        Remove-Item Env:\SIFTKIT_SUMMARY_SOURCE_KIND -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:SIFTKIT_SUMMARY_SOURCE_KIND = $previousSourceKind
+    }
+    if ($null -eq $previousCommandExitCode) {
+        Remove-Item Env:\SIFTKIT_SUMMARY_COMMAND_EXIT_CODE -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:SIFTKIT_SUMMARY_COMMAND_EXIT_CODE = $previousCommandExitCode
+    }
     if ($tempInputPath -and (Test-Path -LiteralPath $tempInputPath)) {
         Remove-Item -LiteralPath $tempInputPath -Force -ErrorAction SilentlyContinue
     }

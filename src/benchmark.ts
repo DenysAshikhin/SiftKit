@@ -52,7 +52,7 @@ export type BenchmarkRunResult = {
   Results: BenchmarkCaseResult[];
 };
 
-const DEFAULT_REQUEST_TIMEOUT_SECONDS = 600;
+const DEFAULT_REQUEST_TIMEOUT_SECONDS = 1800;
 const BENCHMARK_HEARTBEAT_MS = 15_000;
 
 class FatalBenchmarkError extends Error {
@@ -400,24 +400,14 @@ export async function runBenchmarkSuite(options: BenchmarkRunnerOptions = {}): P
         const caseDurationMs = Number(process.hrtime.bigint() - caseStartedAtHr) / 1_000_000;
         clearInterval(heartbeat);
         const message = error instanceof Error ? error.message : String(error);
-        if (error instanceof FatalBenchmarkError || isTimeoutError(error)) {
-          fatalError = message;
-          fatalException = error;
-          process.stdout.write(`Fixture ${index + 1}/${manifest.length} [${fixtureLabel}] failed fatally after ${formatElapsed(caseDurationMs)}\n`);
-          break;
-        }
-
-        results.push({
-          Prompt: prompt,
-          Output: null,
-          DurationMs: roundDuration(caseDurationMs),
-          PolicyDecision: 'provider-error',
-          Classification: null,
-          RawReviewRequired: false,
-          ModelCallSucceeded: false,
-          Error: message,
-        });
-        process.stdout.write(`Fixture ${index + 1}/${manifest.length} [${fixtureLabel}] recorded provider error in ${formatElapsed(caseDurationMs)}\n`);
+        fatalError = error instanceof FatalBenchmarkError || isTimeoutError(error)
+          ? message
+          : `Benchmark fixture '${fixtureLabel}' failed: ${message}`;
+        fatalException = error;
+        process.stdout.write(
+          `Fixture ${index + 1}/${manifest.length} [${fixtureLabel}] failed fatally after ${formatElapsed(caseDurationMs)}: ${message}\n`
+        );
+        break;
       }
     }
   } finally {
@@ -439,7 +429,7 @@ export async function runBenchmarkSuite(options: BenchmarkRunnerOptions = {}): P
 
   saveContentAtomically(outputPath, JSON.stringify(artifact, null, 2));
   if (fatalException !== null) {
-    throw fatalException;
+    throw new FatalBenchmarkError(fatalError ?? (fatalException instanceof Error ? fatalException.message : String(fatalException)));
   }
 
   return artifact;

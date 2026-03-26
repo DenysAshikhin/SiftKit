@@ -9,6 +9,14 @@ let activeLeaseToken: string | null = null;
 let activeLockDepth = 0;
 let activeHeartbeat: NodeJS.Timeout | null = null;
 
+function traceExecutionLock(message: string): void {
+  if (process.env.SIFTKIT_TRACE_SUMMARY !== '1') {
+    return;
+  }
+
+  process.stderr.write(`[siftkit-trace ${new Date().toISOString()}] execution-lock ${message}\n`);
+}
+
 function sleepMs(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -49,11 +57,13 @@ export async function acquireExecutionLock(): Promise<{
 }> {
   if (activeLeaseToken) {
     activeLockDepth += 1;
+    traceExecutionLock(`reenter token=${activeLeaseToken} depth=${activeLockDepth}`);
     return { token: activeLeaseToken };
   }
 
   const timeoutMs = getExecutionLockTimeoutMilliseconds();
   const startedAt = Date.now();
+  traceExecutionLock(`acquire start timeout_ms=${timeoutMs}`);
 
   while (true) {
     const lease = await tryAcquireExecutionLease();
@@ -61,15 +71,18 @@ export async function acquireExecutionLock(): Promise<{
       activeLeaseToken = lease.token;
       activeLockDepth = 1;
       startHeartbeat(lease.token);
+      traceExecutionLock(`acquire success token=${lease.token} elapsed_ms=${Date.now() - startedAt}`);
       return { token: lease.token };
     }
 
     const state = await getExecutionServerState();
     if (Date.now() - startedAt >= timeoutMs) {
+      traceExecutionLock(`acquire timeout elapsed_ms=${Date.now() - startedAt}`);
       throw new Error(`SiftKit is busy. Timed out after ${timeoutMs} ms waiting for the server to report idle.`);
     }
 
     if (!state.busy) {
+      traceExecutionLock('acquire retry server_not_busy');
       continue;
     }
 
@@ -86,11 +99,13 @@ export function releaseExecutionLock(lock: {
 
   activeLockDepth -= 1;
   if (activeLockDepth > 0) {
+    traceExecutionLock(`release deferred token=${lock.token} depth=${activeLockDepth}`);
     return;
   }
 
   stopHeartbeat();
   activeLeaseToken = null;
+  traceExecutionLock(`release token=${lock.token}`);
   return releaseExecutionLease(lock.token);
 }
 

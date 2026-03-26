@@ -1,0 +1,73 @@
+[fixture-debug 2026-03-24T00:12:36.447Z] Log path: C:\Users\denys\Documents\GitHub\SiftKit\tmp-find\fixture_47_debug_20260323_201236.log
+[fixture-debug 2026-03-24T00:12:36.448Z] Fixture index: 47
+[fixture-debug 2026-03-24T00:12:36.448Z] Fixture name: 47. Grouped Unused Assets Verification
+[fixture-debug 2026-03-24T00:12:36.454Z] Fixture path: C:\Users\denys\Documents\GitHub\SiftKit\eval\fixtures\ai_core_60_tests\raw\47_grouped_unused_assets_verification.txt
+[fixture-debug 2026-03-24T00:12:36.455Z] Input chars: 551051
+[fixture-debug 2026-03-24T00:12:36.456Z] Question: Summarize this grouped unused-assets report. Explain how it is organized, the biggest unused categories, and what cleanup conclusions it does and does not support.
+[fixture-debug 2026-03-24T00:12:36.458Z] Format: text
+[fixture-debug 2026-03-24T00:12:36.459Z] Policy profile: general
+[fixture-debug 2026-03-24T00:12:36.459Z] Request timeout seconds: 300
+[fixture-debug 2026-03-24T00:12:36.460Z] Calling summarizeRequest...
+[siftkit-trace 2026-03-24T00:12:36.461Z] summary summarizeRequest start input_chars=551051
+[siftkit-trace 2026-03-24T00:12:36.461Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-03-24T00:12:36.472Z] execution-lock acquire success token=057bee7b-5b89-4523-9a93-6948b887d420 elapsed_ms=10
+[siftkit-trace 2026-03-24T00:12:36.472Z] summary loadConfig start
+[siftkit-trace 2026-03-24T00:12:36.481Z] summary loadConfig done
+[siftkit-trace 2026-03-24T00:12:36.486Z] summary decision ready backend=llama.cpp model=Qwen3.5-35B-A3B-UD-Q4_K_L.gguf raw_review_required=false chars=551051 lines=6055
+[siftkit-trace 2026-03-24T00:12:36.487Z] summary invokeSummaryCore start
+[siftkit-trace 2026-03-24T00:12:36.487Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=551051 chunk_threshold=553613
+[siftkit-trace 2026-03-24T00:12:36.488Z] summary preflight start phase=leaf chunk=undefined/undefined prompt_chars=553370 effective_prompt_limit=148976
+[siftkit-trace 2026-03-24T00:12:36.488Z] llama-cpp tokenize start chars=553370
+[siftkit-trace 2026-03-24T00:12:36.789Z] llama-cpp tokenize done elapsed_ms=301 tokens=173521
+[siftkit-trace 2026-03-24T00:12:36.789Z] summary preflight done phase=leaf chunk=undefined/undefined prompt_tokens=173521
+[siftkit-trace 2026-03-24T00:12:36.789Z] summary preflight recurse phase=leaf chunk=undefined/undefined reduced_chunk_threshold=449448
+[siftkit-trace 2026-03-24T00:12:36.789Z] summary invokeSummaryCore start phase=leaf chunk=none input_chars=551051 chunk_threshold=449448
+[siftkit-trace 2026-03-24T00:12:36.790Z] summary chunk split start phase=leaf chunk=none input_chars=551051
+[siftkit-trace 2026-03-24T00:12:36.790Z] llama-cpp tokenize start chars=452304
+[siftkit-trace 2026-03-24T00:12:37.026Z] llama-cpp tokenize done elapsed_ms=236 tokens=140923
+[siftkit-trace 2026-03-24T00:12:37.026Z] llama-cpp tokenize start chars=477987
+[siftkit-trace 2026-03-24T00:12:37.263Z] llama-cpp tokenize done elapsed_ms=237 tokens=148831
+[siftkit-trace 2026-03-24T00:12:37.263Z] llama-cpp tokenize start chars=78776
+[siftkit-trace 2026-03-24T00:12:37.303Z] llama-cpp tokenize done elapsed_ms=40 tokens=25411
+[siftkit-trace 2026-03-24T00:12:37.303Z] summary chunk split done phase=leaf chunk=none chunk_count=2
+[siftkit-trace 2026-03-24T00:12:37.303Z] summary invokeSummaryCore start phase=leaf chunk=1/2 input_chars=475131 chunk_threshold=475131
+[siftkit-trace 2026-03-24T00:12:37.304Z] summary preflight start phase=leaf chunk=1/2 prompt_chars=477981 effective_prompt_limit=148976
+[siftkit-trace 2026-03-24T00:12:37.304Z] llama-cpp tokenize start chars=477981
+[siftkit-trace 2026-03-24T00:12:37.530Z] llama-cpp tokenize done elapsed_ms=226 tokens=148832
+[siftkit-trace 2026-03-24T00:12:37.530Z] summary preflight done phase=leaf chunk=1/2 prompt_tokens=148832
+[siftkit-trace 2026-03-24T00:12:37.531Z] summary notify running=true phase=leaf chunk=1/2 raw_chars=551051 chunk_chars=475131 prompt_chars=477981
+[siftkit-trace 2026-03-24T00:12:37.547Z] summary provider start backend=llama.cpp model=Qwen3.5-35B-A3B-UD-Q4_K_L.gguf phase=leaf chunk=1/2 timeout_s=300
+[siftkit-trace 2026-03-24T00:12:37.549Z] llama-cpp generate start model=Qwen3.5-35B-A3B-UD-Q4_K_L.gguf timeout_s=300 prompt_chars=477981 base_url=http://127.0.0.1:8097
+[siftkit-trace 2026-03-24T00:14:29.485Z] llama-cpp generate done elapsed_ms=111936 prompt_tokens=148844 completion_tokens=179 thinking_tokens=null output_chars=802
+[siftkit-trace 2026-03-24T00:14:29.485Z] summary provider done phase=leaf chunk=1/2 output_chars=802 output_tokens=179 thinking_tokens=null
+[siftkit-trace 2026-03-24T00:14:29.486Z] summary notify running=false phase=leaf chunk=1/2 duration_ms=111939
+[siftkit-trace 2026-03-24T00:14:29.488Z] summary invokeSummaryCore start phase=leaf chunk=2/2 input_chars=75920 chunk_threshold=449448
+[siftkit-trace 2026-03-24T00:14:29.489Z] summary preflight start phase=leaf chunk=2/2 prompt_chars=78770 effective_prompt_limit=148976
+[siftkit-trace 2026-03-24T00:14:29.489Z] llama-cpp tokenize start chars=78770
+[siftkit-trace 2026-03-24T00:14:29.532Z] llama-cpp tokenize done elapsed_ms=43 tokens=25412
+[siftkit-trace 2026-03-24T00:14:29.532Z] summary preflight done phase=leaf chunk=2/2 prompt_tokens=25412
+[siftkit-trace 2026-03-24T00:14:29.533Z] summary notify running=true phase=leaf chunk=2/2 raw_chars=551051 chunk_chars=75920 prompt_chars=78770
+[siftkit-trace 2026-03-24T00:14:29.535Z] summary provider start backend=llama.cpp model=Qwen3.5-35B-A3B-UD-Q4_K_L.gguf phase=leaf chunk=2/2 timeout_s=300
+[siftkit-trace 2026-03-24T00:14:29.535Z] llama-cpp generate start model=Qwen3.5-35B-A3B-UD-Q4_K_L.gguf timeout_s=300 prompt_chars=78770 base_url=http://127.0.0.1:8097
+[siftkit-trace 2026-03-24T00:15:09.093Z] llama-cpp generate done elapsed_ms=39558 prompt_tokens=25424 completion_tokens=263 thinking_tokens=null output_chars=1170
+[siftkit-trace 2026-03-24T00:15:09.094Z] summary provider done phase=leaf chunk=2/2 output_chars=1170 output_tokens=263 thinking_tokens=null
+[siftkit-trace 2026-03-24T00:15:09.094Z] summary notify running=false phase=leaf chunk=2/2 duration_ms=39559
+[siftkit-trace 2026-03-24T00:15:09.097Z] summary invokeSummaryCore start phase=merge chunk=none input_chars=1941 chunk_threshold=449448
+[siftkit-trace 2026-03-24T00:15:09.101Z] summary preflight start phase=merge chunk=none prompt_chars=4363 effective_prompt_limit=148976
+[siftkit-trace 2026-03-24T00:15:09.101Z] llama-cpp tokenize start chars=4363
+[siftkit-trace 2026-03-24T00:15:09.105Z] llama-cpp tokenize done elapsed_ms=4 tokens=918
+[siftkit-trace 2026-03-24T00:15:09.106Z] summary preflight done phase=merge chunk=none prompt_tokens=918
+[siftkit-trace 2026-03-24T00:15:09.106Z] summary notify running=true phase=merge chunk=none raw_chars=551051 chunk_chars=1941 prompt_chars=4363
+[siftkit-trace 2026-03-24T00:15:09.108Z] summary provider start backend=llama.cpp model=Qwen3.5-35B-A3B-UD-Q4_K_L.gguf phase=merge chunk=none timeout_s=300
+[siftkit-trace 2026-03-24T00:15:09.108Z] llama-cpp generate start model=Qwen3.5-35B-A3B-UD-Q4_K_L.gguf timeout_s=300 prompt_chars=4363 base_url=http://127.0.0.1:8097
+[siftkit-trace 2026-03-24T00:15:27.783Z] llama-cpp generate done elapsed_ms=18675 prompt_tokens=930 completion_tokens=244 thinking_tokens=null output_chars=1015
+[siftkit-trace 2026-03-24T00:15:27.783Z] summary provider done phase=merge chunk=none output_chars=1015 output_tokens=244 thinking_tokens=null
+[siftkit-trace 2026-03-24T00:15:27.784Z] summary notify running=false phase=merge chunk=none duration_ms=18676
+[siftkit-trace 2026-03-24T00:15:27.786Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-03-24T00:15:27.786Z] execution-lock release token=057bee7b-5b89-4523-9a93-6948b887d420
+[fixture-debug 2026-03-24T00:15:27.788Z] summarizeRequest completed in 171.328s
+[fixture-debug 2026-03-24T00:15:27.788Z] Result classification: summary
+[fixture-debug 2026-03-24T00:15:27.788Z] Model call succeeded: true
+[fixture-debug 2026-03-24T00:15:27.789Z] Raw review required: true
+[fixture-debug 2026-03-24T00:15:27.789Z] Summary chars: 935
+[fixture-debug 2026-03-24T00:15:27.789Z] Summary preview:

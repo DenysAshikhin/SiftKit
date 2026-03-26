@@ -71,8 +71,25 @@ function Invoke-RetryableCommand {
             $env:npm_config_cache = Get-SiftKitNpmCachePath
             Push-Location $script:RepoRoot
             try {
-                $outputLines = & $resolvedFilePath @ArgumentList 2>&1
-                $exitCode = if ($null -ne $LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+                $previousErrorActionPreference = $ErrorActionPreference
+                $hasNativeErrorPreference = Test-Path Variable:\PSNativeCommandUseErrorActionPreference
+                if ($hasNativeErrorPreference) {
+                    $previousNativeErrorPreference = $PSNativeCommandUseErrorActionPreference
+                }
+                try {
+                    $ErrorActionPreference = 'Continue'
+                    if ($hasNativeErrorPreference) {
+                        $PSNativeCommandUseErrorActionPreference = $false
+                    }
+                    $outputLines = & $resolvedFilePath @ArgumentList 2>&1
+                    $exitCode = if ($null -ne $LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+                }
+                finally {
+                    if ($hasNativeErrorPreference) {
+                        $PSNativeCommandUseErrorActionPreference = $previousNativeErrorPreference
+                    }
+                    $ErrorActionPreference = $previousErrorActionPreference
+                }
             }
             finally {
                 Pop-Location

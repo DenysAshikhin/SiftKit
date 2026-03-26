@@ -1,0 +1,48 @@
+{
+  "ok": true,
+  "fixtureIndex": 58,
+  "sourcePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\eval\\fixtures\\ai_core_60_tests\\raw\\58_combat_tick_damage_search.txt",
+  "fixtureName": "58. Combat Tick/Damage Search",
+  "backend": "llama.cpp",
+  "model": "Qwen3.5-9B-Q8_0.gguf",
+  "requestTimeoutSeconds": 1800,
+  "rawReviewRequired": false,
+  "chunkThreshold": 690509,
+  "effectivePromptLimit": 190000,
+  "chunkCount": 2,
+  "malformedChunk": null,
+  "chunks": [
+    {
+      "index": 1,
+      "chunkPath": "1/2",
+      "inputCharacters": 621591,
+      "promptCharacters": 624434,
+      "promptTokens": 188959,
+      "outputCharacters": 536,
+      "outputTokens": 125,
+      "promptPath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_141712\\fixtures\\fixture-58\\chunks\\chunk-01\\prompt.txt",
+      "responsePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_141712\\fixtures\\fixture-58\\chunks\\chunk-01\\response.txt",
+      "parsed": true,
+      "classification": "summary",
+      "rawReviewRequired": true,
+      "outputPreview": "The input provides a partial code slice (Chunk 1/2) containing evidence for targeting, attack cadence, and tick-driven combat logic. Main files identified are Globals\\Drones.gd and Globals\\Frigates.gd for targeting priorities; entities\\unit\\Unit.gd and managers\\player\\Player_Manager.gd for core logic ticks; and Globals\\utils\\CombatUtils.gd for global target resolution. The slice is truncated mid-stream, so full scope verification requires raw review.",
+      "error": null
+    },
+    {
+      "index": 2,
+      "chunkPath": "2/2",
+      "inputCharacters": 351698,
+      "promptCharacters": 354541,
+      "promptTokens": 104653,
+      "outputCharacters": 755,
+      "outputTokens": 184,
+      "promptPath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_141712\\fixtures\\fixture-58\\chunks\\chunk-02\\prompt.txt",
+      "responsePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_141712\\fixtures\\fixture-58\\chunks\\chunk-02\\response.txt",
+      "parsed": true,
+      "classification": "summary",
+      "rawReviewRequired": true,
+      "outputPreview": "Combat tick/damage logic is governed by `Global.combat._trigger_damage` (centralized damage routing), entity-specific `_core_logic_tick` loops for targeting cadence (`drone_flat.gd`, `scanilus.gd`, `necrotilus.gd`, `bastionlus.gd`), and projectile/burst spawning within those ticks. Targeting files include `entities/drone_flat/drone_flat.gd` (mode states, target acquisition, bookkeeping), `entities/laser/Las8F38.tmp` (laser targeting cadence), and boss files for their specific attack patterns. Sh",
+      "error": null
+    }
+  ]
+}

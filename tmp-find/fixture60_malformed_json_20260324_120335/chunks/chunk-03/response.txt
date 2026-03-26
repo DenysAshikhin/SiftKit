@@ -1,0 +1,5 @@
+{
+"classification": "summary",
+"raw_review_required": true,
+"output": "Entity-family ownership is concentrated in `tests/integration/entities/{entity}_flat/` for runtime behavior and `tests/integration/tech_options/{entity}_techs/` for tech catalogs. Drone ownership is detailed in `test_drone_flat_tech_spawn_and_on_kill.gd`, `test_drone_flat_init_respawn_and_populate.gd`, and `test_drone_flat_core_tick_and_targeting.gd`. Frigate ownership resides in `test_frigate_flat_init_respawn.gd` and `test_frigate_flat_damage_shield_health.gd`. Support ownership is found in `test_support_cross_manager_cleanup_and_threaded_backlog.gd`, `test_support_flat_links_callbacks_damage.gd`, and `test_support_flat_init_respawn.gd`. Mothership ownership is located in `tests/integration/tech_options/mothership_techs/catalog/test_catalog.gd`. Capital-ship ownership is tested in `tests/integration/entities/bosses/{boss_name}_runtime.gd` and `test_necrotilus_targets_capital_when_no_unit_found`, with spawn harness logic in `harness/test_harness_env.gd`. Raw review required."
+}

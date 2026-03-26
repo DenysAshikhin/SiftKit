@@ -248,6 +248,12 @@ async function runSummary(options: {
     policyProfile: (parsed.profile as Parameters<typeof summarizeRequest>[0]['policyProfile']) || 'general',
     backend: parsed.backend,
     model: parsed.model,
+    sourceKind: process.env.SIFTKIT_SUMMARY_SOURCE_KIND === 'command-output' || Boolean(options.stdinText?.trim())
+      ? 'command-output'
+      : 'standalone',
+    commandExitCode: process.env.SIFTKIT_SUMMARY_COMMAND_EXIT_CODE?.trim()
+      ? Number.parseInt(process.env.SIFTKIT_SUMMARY_COMMAND_EXIT_CODE, 10)
+      : undefined,
   });
   options.stdout.write(`${result.Summary}\n`);
   return 0;

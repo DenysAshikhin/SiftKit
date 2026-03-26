@@ -1,0 +1,16 @@
+{
+  "index": 4,
+  "chunkPath": "4/14",
+  "inputCharacters": 365480,
+  "promptCharacters": 368272,
+  "promptTokens": 138516,
+  "outputCharacters": 1068,
+  "outputTokens": 303,
+  "promptPath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_160148\\fixtures\\fixture-19\\chunks\\chunk-04\\prompt.txt",
+  "responsePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_160148\\fixtures\\fixture-19\\chunks\\chunk-04\\response.txt",
+  "parsed": true,
+  "classification": "summary",
+  "rawReviewRequired": true,
+  "outputPreview": "Raw review required. Logs show extensive SCRIPT ERRORS grouped by file: res://managers/enemy/Enemy_Manager.gd has repeated Parse Errors for global class \"EnemyManager\" and Compile Errors for depended scripts. main_game_smoke_20260309_122557_640.log (lines 2400+) reports Invalid call for '_update_shader_param' in base 'Nil'. main_game_smoke_direct_probe_log files (20260206) report Invalid access to 'prestige_count', 'SETTING_DICT', and 'frigate_loop' on 'Nil' or 'previously freed'; repeated Inval",
+  "error": null
+}

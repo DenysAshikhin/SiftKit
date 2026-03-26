@@ -1,0 +1,16 @@
+{
+  "index": 11,
+  "chunkPath": "11/14",
+  "inputCharacters": 358505,
+  "promptCharacters": 361298,
+  "promptTokens": 138537,
+  "outputCharacters": 2464,
+  "outputTokens": 578,
+  "promptPath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_160148\\fixtures\\fixture-19\\chunks\\chunk-11\\prompt.txt",
+  "responsePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_160148\\fixtures\\fixture-19\\chunks\\chunk-11\\response.txt",
+  "parsed": true,
+  "classification": "summary",
+  "rawReviewRequired": true,
+  "outputPreview": "Raw review required.\n\nScript errors are pervasive across multiple files, primarily indicating unresolved references and invalid state access. Key findings grouped by file include:\n\n- res://managers/enemy/Enemy_Manager.gd: Persistent \"SCRIPT ERROR: Parse Error: Could not parse global class 'EnemyManager'\" causing cascading \"Compile Error: Failed to compile depended scripts.\"\n- manual_test.log: Repeated invalid accesses to 'SETTING_DICT', 'ion_bullet_visibility', and 'value_multiplier' on Nil or D",
+  "error": null
+}

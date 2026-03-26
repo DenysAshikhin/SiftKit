@@ -6,7 +6,7 @@
     "siftkit": "bin/siftkit.js"
   },
   "scripts": {
-    "start": "nodemon --signal SIGINT .\\siftKitStatus\\index.js",
+    "start": "powershell -NoLogo -NoProfile -Command \"$env:sift_kit_status = Join-Path (Get-Location) '.siftkit\\status\\inference.txt'; $env:SIFTKIT_STATUS_PATH = $env:sift_kit_status; $env:SIFTKIT_CONFIG_PATH = Join-Path (Get-Location) '.siftkit\\config.json'; nodemon --signal SIGINT .\\siftKitStatus\\index.js\"",
     "build": "tsc -p .\\tsconfig.json",
     "benchmark": "tsx .\\src\\benchmark.ts",
     "benchmark:matrix": "tsx .\\src\\benchmark-matrix.ts",

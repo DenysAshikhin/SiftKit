@@ -1,0 +1,16 @@
+{
+  "index": 1,
+  "chunkPath": "1/3",
+  "inputCharacters": 607888,
+  "promptCharacters": 610742,
+  "promptTokens": 189485,
+  "outputCharacters": 1007,
+  "outputTokens": 263,
+  "promptPath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_141712\\fixtures\\fixture-60\\chunks\\chunk-01\\prompt.txt",
+  "responsePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_141712\\fixtures\\fixture-60\\chunks\\chunk-01\\response.txt",
+  "parsed": false,
+  "classification": null,
+  "rawReviewRequired": null,
+  "outputPreview": null,
+  "error": "Provider returned an invalid SiftKit decision payload: Unterminated string in JSON at position 1007 (line 1 column 1008)"
+}

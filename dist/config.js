@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MissingObservedBudgetError = exports.StatusServerUnavailableError = exports.SIFT_DEFAULT_PROMPT_PREFIX = exports.SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN = exports.SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS = exports.SIFT_DEFAULT_LLAMA_SHUTDOWN_SCRIPT = exports.SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_DEFAULT_LLAMA_MODEL_PATH = exports.SIFT_DEFAULT_LLAMA_BASE_URL = exports.SIFT_DEFAULT_LLAMA_MODEL = exports.SIFT_PREVIOUS_DEFAULT_MODEL = exports.SIFT_PREVIOUS_DEFAULT_NUM_CTX = exports.SIFT_LEGACY_DERIVED_NUM_CTX = exports.SIFT_LEGACY_DEFAULT_NUM_CTX = exports.SIFT_DEFAULT_NUM_CTX = exports.SIFTKIT_VERSION = void 0;
+exports.MissingObservedBudgetError = exports.StatusServerUnavailableError = exports.SIFT_DEFAULT_PROMPT_PREFIX = exports.SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN = exports.SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS = exports.SIFT_DEFAULT_LLAMA_SHUTDOWN_SCRIPT = exports.SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_DEFAULT_LLAMA_MODEL_PATH = exports.SIFT_DEFAULT_LLAMA_BASE_URL = exports.SIFT_DEFAULT_LLAMA_MODEL = exports.SIFT_PREVIOUS_DEFAULT_MODEL = exports.SIFT_PREVIOUS_DEFAULT_NUM_CTX = exports.SIFT_LEGACY_DERIVED_NUM_CTX = exports.SIFT_LEGACY_DEFAULT_NUM_CTX = exports.SIFT_DEFAULT_NUM_CTX = exports.SIFTKIT_VERSION = void 0;
 exports.ensureDirectory = ensureDirectory;
 exports.saveContentAtomically = saveContentAtomically;
 exports.getRuntimeRoot = getRuntimeRoot;
@@ -78,7 +78,8 @@ exports.SIFT_PREVIOUS_DEFAULT_MODEL = 'qwen3.5-4b-q8_0';
 exports.SIFT_DEFAULT_LLAMA_MODEL = 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
 exports.SIFT_DEFAULT_LLAMA_BASE_URL = 'http://127.0.0.1:8097';
 exports.SIFT_DEFAULT_LLAMA_MODEL_PATH = 'D:\\personal\\models\\Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
-exports.SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-35B-4bit-150k-no-thinking.ps1';
+exports.SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-35B-4bit-150k-no-thinking.ps1';
+exports.SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k.ps1';
 exports.SIFT_DEFAULT_LLAMA_SHUTDOWN_SCRIPT = 'C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\scripts\\stop-llama-server.ps1';
 exports.SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS = 32_000;
 exports.SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN = 2.5;
@@ -234,6 +235,28 @@ function isRuntimeRootWritable(candidate) {
         return false;
     }
 }
+function findNearestSiftKitRepoRoot(startPath = process.cwd()) {
+    let currentPath = path.resolve(startPath);
+    for (;;) {
+        const packagePath = path.join(currentPath, 'package.json');
+        if (fs.existsSync(packagePath)) {
+            try {
+                const parsed = parseJsonText(fs.readFileSync(packagePath, 'utf8'));
+                if (parsed?.name === 'siftkit') {
+                    return currentPath;
+                }
+            }
+            catch {
+                // Ignore malformed package.json files while walking upward.
+            }
+        }
+        const parentPath = path.dirname(currentPath);
+        if (parentPath === currentPath) {
+            return null;
+        }
+        currentPath = parentPath;
+    }
+}
 function getRuntimeRoot() {
     const configuredStatusPath = process.env.sift_kit_status;
     if (configuredStatusPath && configuredStatusPath.trim()) {
@@ -245,6 +268,10 @@ function getRuntimeRoot() {
         return path.resolve(statusDirectory);
     }
     const candidates = [];
+    const repoRoot = findNearestSiftKitRepoRoot();
+    if (repoRoot) {
+        candidates.push(path.resolve(repoRoot, '.siftkit'));
+    }
     if (process.env.USERPROFILE?.trim()) {
         candidates.push(path.resolve(process.env.USERPROFILE, '.siftkit'));
     }
@@ -574,6 +601,15 @@ async function notifyStatusBackend(options) {
         statusPath: getInferenceStatusPath(),
         updatedAtUtc: new Date().toISOString(),
     };
+    if (options.requestId && options.requestId.trim()) {
+        body.requestId = options.requestId.trim();
+    }
+    if (!options.running && options.terminalState) {
+        body.terminalState = options.terminalState;
+    }
+    if (!options.running && options.errorMessage && options.errorMessage.trim()) {
+        body.errorMessage = options.errorMessage.trim();
+    }
     if (options.promptCharacterCount !== undefined && options.promptCharacterCount !== null) {
         body.promptCharacterCount = options.promptCharacterCount;
     }
@@ -706,7 +742,7 @@ function getDefaultConfigObject() {
             LlamaCpp: {
                 StartupScript: exports.SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT,
                 ShutdownScript: exports.SIFT_DEFAULT_LLAMA_SHUTDOWN_SCRIPT,
-                StartupTimeoutMs: 120_000,
+                StartupTimeoutMs: 600_000,
                 HealthcheckTimeoutMs: 2_000,
                 HealthcheckIntervalMs: 1_000,
             },
@@ -923,12 +959,16 @@ function normalizeConfig(config) {
         updated.Server.LlamaCpp.StartupScript = defaults.Server?.LlamaCpp?.StartupScript ?? null;
         changed = true;
     }
+    if (updated.Server.LlamaCpp.StartupScript === exports.SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT) {
+        updated.Server.LlamaCpp.StartupScript = defaults.Server?.LlamaCpp?.StartupScript ?? null;
+        changed = true;
+    }
     if (!Object.prototype.hasOwnProperty.call(updated.Server.LlamaCpp, 'ShutdownScript')) {
         updated.Server.LlamaCpp.ShutdownScript = defaults.Server?.LlamaCpp?.ShutdownScript ?? null;
         changed = true;
     }
     if (!Object.prototype.hasOwnProperty.call(updated.Server.LlamaCpp, 'StartupTimeoutMs')) {
-        updated.Server.LlamaCpp.StartupTimeoutMs = defaults.Server?.LlamaCpp?.StartupTimeoutMs ?? 120_000;
+        updated.Server.LlamaCpp.StartupTimeoutMs = defaults.Server?.LlamaCpp?.StartupTimeoutMs ?? 600_000;
         changed = true;
     }
     if (!Object.prototype.hasOwnProperty.call(updated.Server.LlamaCpp, 'HealthcheckTimeoutMs')) {

@@ -1,0 +1,12 @@
+[fixture-debug 2026-03-23T20:41:05.898Z] Log path: C:\Users\denys\Documents\GitHub\SiftKit\tmp-find\fixture_48_debug_20260323_164105.log
+[fixture-debug 2026-03-23T20:41:05.899Z] Fixture index: 48
+[fixture-debug 2026-03-23T20:41:05.900Z] Fixture name: 48. Holistic Review Packet
+[fixture-debug 2026-03-23T20:41:05.900Z] Fixture path: C:\Users\denys\Documents\GitHub\SiftKit\eval\fixtures\ai_core_60_tests\raw\48_holistic_review_packet.txt
+[fixture-debug 2026-03-23T20:41:05.900Z] Input chars: 1094606
+[fixture-debug 2026-03-23T20:41:05.900Z] Question: Summarize this holistic review packet JSON. Focus on the major sections, the kind of evidence bundled into it, and what workflow it supports.
+[fixture-debug 2026-03-23T20:41:05.901Z] Format: text
+[fixture-debug 2026-03-23T20:41:05.901Z] Policy profile: general
+[fixture-debug 2026-03-23T20:41:05.901Z] Request timeout seconds: 600
+[fixture-debug 2026-03-23T20:41:05.901Z] Calling summarizeRequest...
+[siftkit-trace 2026-03-23T20:41:05.902Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-03-23T20:41:05.911Z] execution-lock acquire success token=d4d9899e-e189-4a5b-a944-71aa31a4de06 elapsed_ms=9

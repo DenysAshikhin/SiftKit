@@ -1,0 +1,16 @@
+{
+  "index": 2,
+  "chunkPath": "2/3",
+  "inputCharacters": 642994,
+  "promptCharacters": 645848,
+  "promptTokens": 188920,
+  "outputCharacters": 1526,
+  "outputTokens": 393,
+  "promptPath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_144027\\fixtures\\fixture-60\\chunks\\chunk-02\\prompt.txt",
+  "responsePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_144027\\fixtures\\fixture-60\\chunks\\chunk-02\\response.txt",
+  "parsed": true,
+  "classification": "summary",
+  "rawReviewRequired": true,
+  "outputPreview": "Summary of entity-family matches by main files:\n\n- **Drone**: Ownership and runtime logic are primarily in `entities/drone_flat/drone_flat.gd` (spawn, movement, combat, necromancy, equipment) with test helpers in `tests/support/tech_options/helpers/drone/equipment.gd`, `core_stats.gd`, and `death_lifecycle.gd`. Tech definitions are tracked via `Unlocks.UNLOCK_MAP.drone_unlocks`.\n\n- **Frigate**: Main runtime logic resides in `entities/frigate_flat/frigate.gd` (movement, lasers, necromancy, shield",
+  "error": null
+}

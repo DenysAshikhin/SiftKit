@@ -1,0 +1,5 @@
+{
+"classification": "summary",
+"raw_review_required": true,
+"output": "The input is a partial code slice containing definitions for targeting logic, attack cadence, and tick-driven combat behavior. Main files identified are Globals/Global.gd (targeting registry and clearing), Globals/Drones.gd and Globals/Frigates.gd (attack cadence and damage exports), entities/unit/Unit.gd (tick-driven debuff/combat statuses), and managers/player/Player_Manager.gd (unit spawning/ticking). Raw review required."
+}

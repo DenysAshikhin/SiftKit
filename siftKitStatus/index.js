@@ -8,17 +8,18 @@ const crypto = require('node:crypto');
 const DEFAULT_LLAMA_MODEL = 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
 const DEFAULT_LLAMA_BASE_URL = 'http://127.0.0.1:8097';
 const DEFAULT_LLAMA_MODEL_PATH = 'D:\\personal\\models\\Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
-const DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-35B-4bit-150k-no-thinking.ps1';
+const PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-35B-4bit-150k-no-thinking.ps1';
+const DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k.ps1';
 const DEFAULT_LLAMA_SHUTDOWN_SCRIPT = 'C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\scripts\\stop-llama-server.ps1';
 const { spawn, spawnSync } = require('node:child_process');
 const Database = require('better-sqlite3');
 
-const EXECUTION_LEASE_STALE_MS = 10_000;
-const IDLE_SUMMARY_DELAY_MS = getPositiveIntegerFromEnv('SIFTKIT_IDLE_SUMMARY_DELAY_MS', 60_000);
+const EXECUTION_LEASE_STALE_MS = getPositiveIntegerFromEnv('SIFTKIT_EXECUTION_LEASE_STALE_MS', 10_000);
+const IDLE_SUMMARY_DELAY_MS = getPositiveIntegerFromEnv('SIFTKIT_IDLE_SUMMARY_DELAY_MS', 600_000);
 const GPU_LOCK_POLL_DELAY_MS = 100;
 const LLAMA_STARTUP_GRACE_DELAY_MS = 2_000;
-const MAX_LLAMA_STARTUP_TIMEOUT_MS = 30_000;
-const DEFAULT_LLAMA_STARTUP_TIMEOUT_MS = 120_000;
+const MAX_LLAMA_STARTUP_TIMEOUT_MS = 600_000;
+const DEFAULT_LLAMA_STARTUP_TIMEOUT_MS = 600_000;
 const DEFAULT_LLAMA_HEALTHCHECK_TIMEOUT_MS = 2_000;
 const DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS = 1_000;
 const MANAGED_LLAMA_LOG_ALERT_PATTERN = /\b(?:warn(?:ing)?|error|exception|fatal)\b/iu;
@@ -58,6 +59,29 @@ function getPositiveIntegerFromEnv(name, fallback) {
   return parsedValue;
 }
 
+function findNearestSiftKitRepoRoot(startPath = process.cwd()) {
+  let currentPath = path.resolve(startPath);
+  for (;;) {
+    const packagePath = path.join(currentPath, 'package.json');
+    if (fs.existsSync(packagePath)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+        if (parsed && parsed.name === 'siftkit') {
+          return currentPath;
+        }
+      } catch {
+        // Ignore malformed package.json files while walking upward.
+      }
+    }
+
+    const parentPath = path.dirname(currentPath);
+    if (parentPath === currentPath) {
+      return null;
+    }
+    currentPath = parentPath;
+  }
+}
+
 function getRuntimeRoot() {
   const configuredPath = process.env.sift_kit_status || process.env.SIFTKIT_STATUS_PATH;
   if (configuredPath && configuredPath.trim()) {
@@ -68,6 +92,11 @@ function getRuntimeRoot() {
     }
 
     return statusDirectory;
+  }
+
+  const repoRoot = findNearestSiftKitRepoRoot();
+  if (repoRoot) {
+    return path.join(repoRoot, '.siftkit');
   }
 
   return path.join(process.env.USERPROFILE || os.homedir(), '.siftkit');
@@ -363,6 +392,9 @@ function normalizeConfig(input) {
   }
   if (!Object.prototype.hasOwnProperty.call(merged.Server.LlamaCpp, 'StartupScript')) {
     merged.Server.LlamaCpp.StartupScript = null;
+  }
+  if (merged.Server.LlamaCpp.StartupScript === PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT) {
+    merged.Server.LlamaCpp.StartupScript = DEFAULT_LLAMA_STARTUP_SCRIPT;
   }
   if (!Object.prototype.hasOwnProperty.call(merged.Server.LlamaCpp, 'ShutdownScript')) {
     merged.Server.LlamaCpp.ShutdownScript = null;
@@ -753,6 +785,9 @@ function persistIdleSummarySnapshot(database, snapshot) {
 function buildStatusRequestLogMessage({
   running,
   statusPath,
+  requestId = null,
+  terminalState = null,
+  errorMessage = null,
   characterCount = null,
   promptCharacterCount = null,
   promptTokenCount = null,
@@ -787,6 +822,30 @@ function buildStatusRequestLogMessage({
       logMessage += ` chunk ${String(chunkPath)}`;
     } else if (chunkIndex !== null && chunkTotal !== null) {
       logMessage += ` chunk ${chunkIndex}/${chunkTotal}`;
+    }
+  } else if (terminalState === 'failed') {
+    if (rawInputCharacterCount !== null) {
+      logMessage += ` raw_chars=${formatInteger(rawInputCharacterCount)}`;
+    }
+    if (promptCharacterCount !== null) {
+      logMessage += ` prompt=${formatInteger(promptCharacterCount)}`;
+      if (promptTokenCount !== null) {
+        logMessage += ` (${formatInteger(promptTokenCount)})`;
+      }
+    }
+    if (chunkPath !== null) {
+      logMessage += ` chunk ${String(chunkPath)}`;
+    } else if (chunkIndex !== null && chunkTotal !== null) {
+      logMessage += ` chunk ${chunkIndex}/${chunkTotal}`;
+    }
+    logMessage += ' failed';
+    if (elapsedMs !== null) {
+      logMessage += ` elapsed=${formatElapsed(elapsedMs)}`;
+    } else if (totalElapsedMs !== null) {
+      logMessage += ` elapsed=${formatElapsed(totalElapsedMs)}`;
+    }
+    if (errorMessage) {
+      logMessage += ` error=${String(errorMessage)}`;
     }
   } else if (totalElapsedMs !== null) {
     logMessage += ` total_elapsed=${formatElapsed(totalElapsedMs)}`;
@@ -839,6 +898,9 @@ function parseRunning(bodyText) {
 
 function parseStatusMetadata(bodyText) {
   const metadata = {
+    requestId: null,
+    terminalState: null,
+    errorMessage: null,
     promptCharacterCount: null,
     promptTokenCount: null,
     rawInputCharacterCount: null,
@@ -862,6 +924,15 @@ function parseStatusMetadata(bodyText) {
 
   try {
     const parsed = JSON.parse(bodyText);
+    if (typeof parsed.requestId === 'string' && parsed.requestId.trim()) {
+      metadata.requestId = parsed.requestId.trim();
+    }
+    if (parsed.terminalState === 'completed' || parsed.terminalState === 'failed') {
+      metadata.terminalState = parsed.terminalState;
+    }
+    if (typeof parsed.errorMessage === 'string' && parsed.errorMessage.trim()) {
+      metadata.errorMessage = parsed.errorMessage.trim();
+    }
     if (Number.isFinite(parsed.promptCharacterCount) && parsed.promptCharacterCount >= 0) {
       metadata.promptCharacterCount = parsed.promptCharacterCount;
     } else if (Number.isFinite(parsed.characterCount) && parsed.characterCount >= 0) {
@@ -961,7 +1032,8 @@ function startStatusServer(options = {}) {
   writeConfig(configPath, readConfig(configPath));
   let metrics = readMetrics(metricsPath);
   writeMetrics(metricsPath, metrics);
-  const activeRunsByStatusPath = new Map();
+  const activeRunsByRequestId = new Map();
+  const activeRequestIdByStatusPath = new Map();
   let pendingIdleSummaryMetadata = {
     inputCharactersPerContextToken: null,
     chunkThresholdCharacters: null,
@@ -1046,6 +1118,7 @@ function startStatusServer(options = {}) {
         SIFTKIT_SERVER_STATUS_URL: `${getServiceBaseUrl()}/status`,
         SIFTKIT_SERVER_HEALTH_URL: `${getServiceBaseUrl()}/health`,
         SIFTKIT_SERVER_RUNTIME_ROOT: getRuntimeRoot(),
+        SIFTKIT_MANAGED_LLAMA_STARTUP: '1',
         SIFTKIT_LLAMA_SCRIPT_STDOUT_PATH: logPaths.scriptStdoutPath,
         SIFTKIT_LLAMA_SCRIPT_STDERR_PATH: logPaths.scriptStderrPath,
         SIFTKIT_LLAMA_STDOUT_PATH: logPaths.llamaStdoutPath,
@@ -1521,7 +1594,44 @@ function startStatusServer(options = {}) {
   }
 
   function hasActiveRuns() {
-    return activeRunsByStatusPath.has(statusPath);
+    return activeRequestIdByStatusPath.has(statusPath);
+  }
+
+  function getResolvedRequestId(metadata, currentStatusPath) {
+    if (metadata.requestId) {
+      return metadata.requestId;
+    }
+
+    return `legacy:${currentStatusPath}`;
+  }
+
+  function clearRunState(requestId) {
+    const runState = activeRunsByRequestId.get(requestId);
+    if (!runState) {
+      return null;
+    }
+
+    activeRunsByRequestId.delete(requestId);
+    if (activeRequestIdByStatusPath.get(runState.statusPath) === requestId) {
+      activeRequestIdByStatusPath.delete(runState.statusPath);
+    }
+    return runState;
+  }
+
+  function logAbandonedRun(runState, now) {
+    logLine(buildStatusRequestLogMessage({
+      running: false,
+      requestId: runState.requestId,
+      terminalState: 'failed',
+      errorMessage: 'Abandoned because a new request started before terminal status.',
+      rawInputCharacterCount: runState.rawInputCharacterCount,
+      promptCharacterCount: runState.promptCharacterCount,
+      promptTokenCount: runState.promptTokenCount,
+      chunkIndex: runState.chunkIndex,
+      chunkTotal: runState.chunkTotal,
+      chunkPath: runState.chunkPath,
+      totalElapsedMs: now - runState.overallStartedAt,
+    }));
   }
 
   function hasSiftKitGpuDemand() {
@@ -1540,8 +1650,12 @@ function startStatusServer(options = {}) {
     return sharedStatus === STATUS_FOREIGN_LOCK ? STATUS_FOREIGN_LOCK : STATUS_FALSE;
   }
 
+  function writePublishedStatus(publishedStatus = getPublishedStatusText()) {
+    writeText(statusPath, disableManagedLlamaStartup ? STATUS_TRUE : publishedStatus);
+  }
+
   function publishStatus() {
-    writeText(statusPath, getPublishedStatusText());
+    writePublishedStatus();
   }
 
   function releaseSiftKitGpuLockIfIdle() {
@@ -1757,81 +1871,105 @@ function startStatusServer(options = {}) {
       }
 
       const metadata = parseStatusMetadata(bodyText);
+      const requestId = getResolvedRequestId(metadata, statusPath);
       let elapsedMs = null;
       let totalElapsedMs = null;
       let requestCompleted = false;
+      let suppressLogLine = false;
+      let runState = activeRunsByRequestId.get(requestId) || null;
       if (running) {
         clearIdleSummaryTimer();
         const now = Date.now();
-        const existingRun = activeRunsByStatusPath.get(statusPath);
-        const needsGpuLock = !existingRun;
-        const isChunkedRequest = metadata.chunkIndex !== null && metadata.chunkTotal !== null;
+        const activeRequestId = activeRequestIdByStatusPath.get(statusPath) || null;
+        const activeRun = activeRequestId ? activeRunsByRequestId.get(activeRequestId) : null;
+        const needsGpuLock = !activeRun;
         if (metadata.inputCharactersPerContextToken !== null) {
           pendingIdleSummaryMetadata.inputCharactersPerContextToken = metadata.inputCharactersPerContextToken;
         }
         if (metadata.chunkThresholdCharacters !== null) {
           pendingIdleSummaryMetadata.chunkThresholdCharacters = metadata.chunkThresholdCharacters;
         }
-        let runState = existingRun;
-
+        if (activeRun && activeRequestId !== requestId) {
+          logAbandonedRun(activeRun, now);
+          clearRunState(activeRequestId);
+        }
+        runState = activeRunsByRequestId.get(requestId) || null;
         if (!runState) {
           runState = {
+            requestId,
+            statusPath,
             overallStartedAt: now,
             currentRequestStartedAt: now,
-            sawChunked: false,
-            lastChunkIndex: null,
-            lastChunkTotal: null,
-            pendingFinalMerge: false,
+            stepCount: 1,
             rawInputCharacterCount: metadata.rawInputCharacterCount,
             promptCharacterCount: metadata.promptCharacterCount,
-            outputTokensTotal: 0
+            promptTokenCount: metadata.promptTokenCount,
+            outputTokensTotal: 0,
+            chunkIndex: metadata.chunkIndex,
+            chunkTotal: metadata.chunkTotal,
+            chunkPath: metadata.chunkPath,
           };
         } else {
           runState.currentRequestStartedAt = now;
+          runState.stepCount = Number.isFinite(runState.stepCount) ? runState.stepCount + 1 : 1;
           if (runState.rawInputCharacterCount === null && metadata.rawInputCharacterCount !== null) {
             runState.rawInputCharacterCount = metadata.rawInputCharacterCount;
           }
           if (metadata.promptCharacterCount !== null) {
             runState.promptCharacterCount = metadata.promptCharacterCount;
           }
+          if (metadata.promptTokenCount !== null) {
+            runState.promptTokenCount = metadata.promptTokenCount;
+          }
+          if (metadata.chunkIndex !== null) {
+            runState.chunkIndex = metadata.chunkIndex;
+          }
+          if (metadata.chunkTotal !== null) {
+            runState.chunkTotal = metadata.chunkTotal;
+          }
+          if (metadata.chunkPath !== null) {
+            runState.chunkPath = metadata.chunkPath;
+          }
         }
 
-        if (isChunkedRequest) {
-          runState.sawChunked = true;
-          runState.lastChunkIndex = metadata.chunkIndex;
-          runState.lastChunkTotal = metadata.chunkTotal;
-          runState.pendingFinalMerge = false;
-        } else if (runState.sawChunked) {
-          runState.pendingFinalMerge = true;
-        }
-
-        activeRunsByStatusPath.set(statusPath, runState);
+        activeRunsByRequestId.set(requestId, runState);
+        activeRequestIdByStatusPath.set(statusPath, requestId);
         if (needsGpuLock) {
           await ensureSiftKitGpuLockAcquired();
         }
       } else {
-        const runState = activeRunsByStatusPath.get(statusPath);
         if (runState && Number.isFinite(runState.currentRequestStartedAt)) {
           const now = Date.now();
           const resolvedOutputTokens = metadata.outputTokens ?? 0;
+          suppressLogLine = metadata.terminalState === null && runState.stepCount === 1;
           elapsedMs = now - runState.currentRequestStartedAt;
           runState.outputTokensTotal += resolvedOutputTokens;
+          if (metadata.rawInputCharacterCount === null && runState.rawInputCharacterCount !== null) {
+            metadata.rawInputCharacterCount = runState.rawInputCharacterCount;
+          }
           if (metadata.promptCharacterCount === null && runState.promptCharacterCount !== null) {
             metadata.promptCharacterCount = runState.promptCharacterCount;
           }
-          if (runState.sawChunked) {
-            if (runState.pendingFinalMerge) {
-              totalElapsedMs = now - runState.overallStartedAt;
-              metadata.rawInputCharacterCount = runState.rawInputCharacterCount;
-              metadata.totalOutputTokens = runState.outputTokensTotal;
-              activeRunsByStatusPath.delete(statusPath);
-              requestCompleted = true;
-            }
-          } else {
-            metadata.rawInputCharacterCount = runState.rawInputCharacterCount;
+          if (metadata.promptTokenCount === null && runState.promptTokenCount !== null) {
+            metadata.promptTokenCount = runState.promptTokenCount;
+          }
+          if (metadata.chunkIndex === null && runState.chunkIndex !== null) {
+            metadata.chunkIndex = runState.chunkIndex;
+          }
+          if (metadata.chunkTotal === null && runState.chunkTotal !== null) {
+            metadata.chunkTotal = runState.chunkTotal;
+          }
+          if (metadata.chunkPath === null && runState.chunkPath !== null) {
+            metadata.chunkPath = runState.chunkPath;
+          }
+          if (metadata.terminalState === 'completed') {
+            totalElapsedMs = now - runState.overallStartedAt;
             metadata.totalOutputTokens = runState.outputTokensTotal;
-            activeRunsByStatusPath.delete(statusPath);
+            clearRunState(requestId);
             requestCompleted = true;
+          } else if (metadata.terminalState === 'failed') {
+            totalElapsedMs = now - runState.overallStartedAt;
+            clearRunState(requestId);
           }
         }
         metrics = normalizeMetrics({
@@ -1841,7 +1979,10 @@ function startStatusServer(options = {}) {
           inputTokensTotal: metrics.inputTokensTotal + (metadata.inputTokens ?? 0),
           outputTokensTotal: metrics.outputTokensTotal + (metadata.outputTokens ?? 0),
           thinkingTokensTotal: metrics.thinkingTokensTotal + (metadata.thinkingTokens ?? 0),
-          requestDurationMsTotal: metrics.requestDurationMsTotal + (metadata.requestDurationMs ?? elapsedMs ?? 0),
+          requestDurationMsTotal: metrics.requestDurationMsTotal + (
+            metadata.requestDurationMs
+            ?? (metadata.terminalState ? 0 : (elapsedMs ?? 0))
+          ),
           completedRequestCount: metrics.completedRequestCount + (requestCompleted ? 1 : 0),
           updatedAtUtc: new Date().toISOString()
         });
@@ -1854,6 +1995,9 @@ function startStatusServer(options = {}) {
       const logMessage = buildStatusRequestLogMessage({
         running,
         statusPath,
+        requestId,
+        terminalState: metadata.terminalState,
+        errorMessage: metadata.errorMessage,
         promptCharacterCount: metadata.promptCharacterCount,
         promptTokenCount: metadata.promptTokenCount,
         rawInputCharacterCount: metadata.rawInputCharacterCount,
@@ -1869,9 +2013,11 @@ function startStatusServer(options = {}) {
         outputTokens: metadata.outputTokens,
         totalOutputTokens: metadata.totalOutputTokens ?? null
       });
-      logLine(logMessage);
+      if (!suppressLogLine) {
+        logLine(logMessage);
+      }
       const publishedStatus = getPublishedStatusText();
-      writeText(statusPath, publishedStatus);
+      writePublishedStatus(publishedStatus);
       sendJson(res, 200, { ok: true, running: publishedStatus === STATUS_TRUE, status: publishedStatus, statusPath, configPath });
       return;
     }

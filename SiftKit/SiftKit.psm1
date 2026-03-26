@@ -20,10 +20,15 @@ function Get-SiftTsRuntimePath {
         [string]$RelativePath
     )
 
-    $candidatePaths = @(
-        (Get-SiftRepoPath -RelativePath (Join-Path -Path 'dist' -ChildPath $RelativePath)),
-        (Join-Path -Path (Get-SiftKitRoot) -ChildPath (Join-Path -Path 'dist' -ChildPath $RelativePath))
-    )
+    $relativeCandidates = @($RelativePath)
+    if ($RelativePath -like 'src\*' -or $RelativePath -like 'src/*') {
+        $relativeCandidates += $RelativePath.Substring(4)
+    }
+
+    $candidatePaths = foreach ($candidateRelativePath in ($relativeCandidates | Select-Object -Unique)) {
+        (Get-SiftRepoPath -RelativePath (Join-Path -Path 'dist' -ChildPath $candidateRelativePath))
+        (Join-Path -Path (Get-SiftKitRoot) -ChildPath (Join-Path -Path 'dist' -ChildPath $candidateRelativePath))
+    }
 
     foreach ($runtimePath in $candidatePaths) {
         if (Test-Path -LiteralPath $runtimePath) {

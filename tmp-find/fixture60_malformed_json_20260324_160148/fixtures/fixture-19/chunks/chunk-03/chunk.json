@@ -1,0 +1,16 @@
+{
+  "index": 3,
+  "chunkPath": "3/14",
+  "inputCharacters": 358383,
+  "promptCharacters": 361175,
+  "promptTokens": 138082,
+  "outputCharacters": 1293,
+  "outputTokens": 378,
+  "promptPath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_160148\\fixtures\\fixture-19\\chunks\\chunk-03\\prompt.txt",
+  "responsePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_160148\\fixtures\\fixture-19\\chunks\\chunk-03\\response.txt",
+  "parsed": true,
+  "classification": "summary",
+  "rawReviewRequired": true,
+  "outputPreview": "Raw review required. Multiple SCRIPT ERROR markers found across logs: 'Invalid call. Nonexistent function _update_shader_param in base Nil' and 'Parse Error: Could not parse global class EnemyManager from res://managers/enemy/Enemy_Manager.gd' appear repeatedly in .godot_logs\\main_game_smoke_20260309_123005_582.log, .godot_logs\\main_game_smoke_20260309_122557_640.log, and others; 'Compile Error: Failed to compile depended scripts' also recurs in these files. Additional errors include 'Invalid ca",
+  "error": null
+}

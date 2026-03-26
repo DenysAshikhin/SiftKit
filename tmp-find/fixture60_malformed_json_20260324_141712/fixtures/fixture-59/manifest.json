@@ -1,0 +1,48 @@
+{
+  "ok": true,
+  "fixtureIndex": 59,
+  "sourcePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\eval\\fixtures\\ai_core_60_tests\\raw\\59_unlock_research_upgrade_search.txt",
+  "fixtureName": "59. Unlock/Research/Upgrade Search",
+  "backend": "llama.cpp",
+  "model": "Qwen3.5-9B-Q8_0.gguf",
+  "requestTimeoutSeconds": 1800,
+  "rawReviewRequired": false,
+  "chunkThreshold": 690509,
+  "effectivePromptLimit": 190000,
+  "chunkCount": 2,
+  "malformedChunk": null,
+  "chunks": [
+    {
+      "index": 1,
+      "chunkPath": "1/2",
+      "inputCharacters": 604857,
+      "promptCharacters": 607699,
+      "promptTokens": 188695,
+      "outputCharacters": 650,
+      "outputTokens": 159,
+      "promptPath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_141712\\fixtures\\fixture-59\\chunks\\chunk-01\\prompt.txt",
+      "responsePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_141712\\fixtures\\fixture-59\\chunks\\chunk-01\\response.txt",
+      "parsed": true,
+      "classification": "summary",
+      "rawReviewRequired": true,
+      "outputPreview": "Tech state is managed by `Unlocks` across four main categories: `mothership_unlocks`, `drone_unlocks`, `support_unlocks`, and `frigate_unlocks`. The primary files governing unlock state are `Globals/Unlocks.gd` (definitions and logic) and `classes/bases.gd` (upgrade mapping). Tech-tree UI and upgrade presentation are handled by `scenes/ui/upgrades/upgrade_canvas.gd`, `scenes/ui/upgrades/upgrade_table/Upgrade_Table.tscn`, and `tests/support/tutorial_ui_actions.gd`. Test and support helpers reside",
+      "error": null
+    },
+    {
+      "index": 2,
+      "chunkPath": "2/2",
+      "inputCharacters": 478257,
+      "promptCharacters": 481099,
+      "promptTokens": 143363,
+      "outputCharacters": 1066,
+      "outputTokens": 269,
+      "promptPath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_141712\\fixtures\\fixture-59\\chunks\\chunk-02\\prompt.txt",
+      "responsePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_141712\\fixtures\\fixture-59\\chunks\\chunk-02\\response.txt",
+      "parsed": true,
+      "classification": "summary",
+      "rawReviewRequired": true,
+      "outputPreview": "The input contains extensive evidence of a unified unlock/research/upgrade system managed by the `Unlocks` singleton, categorized into `mothership_unlocks`, `drone_unlocks`, `support_unlocks`, and `frigate_unlocks`. The main files identified for this architecture are:\n\n- **Unlock State**: `Unlocks.UNLOCK_MAP` (dictionary) and `Unlocks.TIER_UNLOCK_MAP` (for tier gating), accessed globally via `Unlocks.get_tech(category, key)`.\n- **Tech-Tree UI**: `scenes/ui/tech_tree/tech_tree.tscn` (root layout ",
+      "error": null
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "index": 1,
+  "chunkPath": "1/2",
+  "inputCharacters": 621591,
+  "promptCharacters": 624434,
+  "promptTokens": 188959,
+  "outputCharacters": 502,
+  "outputTokens": 116,
+  "promptPath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_144027\\fixtures\\fixture-58\\chunks\\chunk-01\\prompt.txt",
+  "responsePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_144027\\fixtures\\fixture-58\\chunks\\chunk-01\\response.txt",
+  "parsed": true,
+  "classification": "summary",
+  "rawReviewRequired": true,
+  "outputPreview": "The input is a partial code slice containing definitions for targeting logic, attack cadence, and tick-driven combat behavior. Main files identified are Globals/Global.gd (targeting registry and clearing), Globals/Drones.gd and Globals/Frigates.gd (attack cadence and damage exports), entities/unit/Unit.gd (tick-driven debuff/combat statuses), and managers/player/Player_Manager.gd (unit spawning/ticking). Raw review required.",
+  "error": null
+}

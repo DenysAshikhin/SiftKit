@@ -1,0 +1,21 @@
+[fixture60-repro 2026-03-24T20:22:09.644Z] Output root: C:\Users\denys\Documents\GitHub\SiftKit\tmp-find\fixture60_malformed_json_20260324_162209
+[fixture60-repro 2026-03-24T20:22:09.644Z] Fixture range: 17-19
+[fixture60-repro 2026-03-24T20:22:09.645Z] Fixture count: 3
+[fixture60-repro 2026-03-24T20:22:09.648Z] Fixture 17/19: 17. Autorun Error Log
+[fixture60-repro 2026-03-24T20:22:09.648Z] Source path: C:\Users\denys\Documents\GitHub\SiftKit\eval\fixtures\ai_core_60_tests\raw\17_autorun_error_log.txt
+[fixture60-repro 2026-03-24T20:22:09.648Z] Input chars: 6941
+[fixture60-repro 2026-03-24T20:22:09.648Z] Chunk threshold: 280000
+[fixture60-repro 2026-03-24T20:22:09.648Z] Chunk count: 1
+[fixture60-repro 2026-03-24T20:22:18.912Z] Fixture 17 chunk 1/1 parsed prompt_tokens=2579 output_tokens=347
+[fixture60-repro 2026-03-24T20:22:18.920Z] Fixture 18/19: 18. Autorun Output Log
+[fixture60-repro 2026-03-24T20:22:18.920Z] Source path: C:\Users\denys\Documents\GitHub\SiftKit\eval\fixtures\ai_core_60_tests\raw\18_autorun_output_log.txt
+[fixture60-repro 2026-03-24T20:22:18.921Z] Input chars: 1365
+[fixture60-repro 2026-03-24T20:22:18.921Z] Chunk threshold: 280000
+[fixture60-repro 2026-03-24T20:22:18.921Z] Chunk count: 1
+[fixture60-repro 2026-03-24T20:22:23.379Z] Fixture 18 chunk 1/1 parsed prompt_tokens=1100 output_tokens=154
+[fixture60-repro 2026-03-24T20:22:32.144Z] Fixture 19/19: 19. Script Error And Crash Marker Scan
+[fixture60-repro 2026-03-24T20:22:32.145Z] Source path: C:\Users\denys\Documents\GitHub\SiftKit\eval\fixtures\ai_core_60_tests\raw\19_script_error_and_crash_marker_scan.txt
+[fixture60-repro 2026-03-24T20:22:32.145Z] Input chars: 4999973
+[fixture60-repro 2026-03-24T20:22:32.145Z] Chunk threshold: 280000
+[fixture60-repro 2026-03-24T20:22:32.145Z] Chunk count: 14
+[fixture60-repro 2026-03-24T20:22:42.954Z] Lock release warning: SiftKit status/config server is not reachable at http://127.0.0.1:4765/health. Start the separate server process and stop issuing further siftkit commands until it is available.

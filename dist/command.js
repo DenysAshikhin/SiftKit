@@ -237,7 +237,10 @@ async function analyzeCommandOutput(request) {
     const reducerProfile = request.ReducerProfile || 'smart';
     const format = request.Format || 'text';
     const policyProfile = request.PolicyProfile || 'general';
-    const decision = (0, summary_js_1.getSummaryDecision)(combinedText, question, riskLevel, config);
+    const decision = (0, summary_js_1.getSummaryDecision)(combinedText, question, riskLevel, config, {
+        sourceKind: 'command-output',
+        commandExitCode: request.ExitCode,
+    });
     const reducedText = reduceText(combinedText, reducerProfile);
     const deterministicExcerpt = (0, summary_js_1.getDeterministicExcerpt)(combinedText, question);
     let reducedLogPath = null;

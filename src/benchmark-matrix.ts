@@ -413,7 +413,7 @@ export function readMatrixManifest(options: MatrixCliOptions): ResolvedMatrixMan
   const manifestPromptPrefixFile = resolveOptionalPathFromBase(raw.promptPrefixFile ?? null, manifestDirectory);
   const requestTimeoutSeconds = options.requestTimeoutSeconds
     ?? getOptionalPositiveInt(raw.requestTimeoutSeconds ?? null, 'requestTimeoutSeconds')
-    ?? 600;
+    ?? 1800;
 
   if (!fs.existsSync(fixtureRoot)) {
     throw new Error(`Fixture root does not exist: ${fixtureRoot}`);

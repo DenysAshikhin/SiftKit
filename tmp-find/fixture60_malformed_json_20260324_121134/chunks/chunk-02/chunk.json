@@ -1,0 +1,16 @@
+{
+  "index": 2,
+  "chunkPath": "2/3",
+  "inputCharacters": 643216,
+  "promptCharacters": 646070,
+  "promptTokens": 188986,
+  "outputCharacters": 1011,
+  "outputTokens": 226,
+  "promptPath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_121134\\chunks\\chunk-02\\prompt.txt",
+  "responsePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_121134\\chunks\\chunk-02\\response.txt",
+  "parsed": true,
+  "classification": "summary",
+  "rawReviewRequired": true,
+  "outputPreview": "Entity-family ownership is tracked across runtime code and tests via dedicated helper scripts and entity files: drones use `tests/support/tech_options/helpers/drone_unlocks_helper.gd` and `entities/drone_flat/drone_flat.gd`; supports use `tests/support/tech_options/helpers/support_unlocks_helper.gd` and `entities/support_flat/support_flat.gd`; frigates use `tests/support/tech_options/helpers/frigate_unlocks_helper.gd` and `entities/frigate_flat/frigate.gd`; motherships are configured via `tests/",
+  "error": null
+}

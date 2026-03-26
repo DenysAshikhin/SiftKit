@@ -1,0 +1,16 @@
+{
+  "index": 2,
+  "chunkPath": "2/2",
+  "inputCharacters": 351698,
+  "promptCharacters": 354541,
+  "promptTokens": 104653,
+  "outputCharacters": 760,
+  "outputTokens": 162,
+  "promptPath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_144027\\fixtures\\fixture-58\\chunks\\chunk-02\\prompt.txt",
+  "responsePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\tmp-find\\fixture60_malformed_json_20260324_144027\\fixtures\\fixture-58\\chunks\\chunk-02\\response.txt",
+  "parsed": true,
+  "classification": "summary",
+  "rawReviewRequired": true,
+  "outputPreview": "The input contains extensive test code and source snippets for drone combat logic, specifically targeting `entities/drone_flat/drone_flat.gd` as the main file for targeting, attack cadence (via `_core_logic_tick`, `lived_ticks`, `target_tick`), projectile logic (`bullet.gd`, `DEFAULT_STATS['damage']`), and tick-driven behavior. Key systems verified include Shield Duality damage spreading (`tests/.../shield_systems.gd`), tech unlock modifiers for targeting modes (`target_lead_1`, `targetting_*`),",
+  "error": null
+}

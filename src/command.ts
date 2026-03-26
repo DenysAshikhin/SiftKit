@@ -268,7 +268,10 @@ export async function analyzeCommandOutput(request: CommandAnalysisRequest): Pro
   const reducerProfile = request.ReducerProfile || 'smart';
   const format = request.Format || 'text';
   const policyProfile = request.PolicyProfile || 'general';
-  const decision = getSummaryDecision(combinedText, question, riskLevel, config);
+  const decision = getSummaryDecision(combinedText, question, riskLevel, config, {
+    sourceKind: 'command-output',
+    commandExitCode: request.ExitCode,
+  });
   const reducedText = reduceText(combinedText, reducerProfile);
   const deterministicExcerpt = getDeterministicExcerpt(combinedText, question);
 

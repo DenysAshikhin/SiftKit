@@ -1,0 +1,55 @@
+[2026-03-23T20:06:02.697Z] Trace log: C:\Users\denys\Documents\GitHub\SiftKit\tmp-find\case48_step_trace_20260323_160602.log
+[2026-03-23T20:06:02.698Z] Fixture index: 48
+[2026-03-23T20:06:02.698Z] Per-step timeout: 30s
+[2026-03-23T20:06:02.699Z] START load config
+[2026-03-23T20:06:02.716Z] DONE  load config in 16.8ms
+[2026-03-23T20:06:02.716Z] START read fixture manifest
+[2026-03-23T20:06:02.717Z] DONE  read fixture manifest in 0.2ms
+[2026-03-23T20:06:02.717Z] START read fixture input 48_holistic_review_packet.txt
+[2026-03-23T20:06:02.719Z] DONE  read fixture input 48_holistic_review_packet.txt in 1.8ms
+[2026-03-23T20:06:02.719Z] Fixture name: 48. Holistic Review Packet
+[2026-03-23T20:06:02.720Z] Fixture file: C:\Users\denys\Documents\GitHub\SiftKit\eval\fixtures\ai_core_60_tests\raw\48_holistic_review_packet.txt
+[2026-03-23T20:06:02.720Z] Input chars: 1094606
+[2026-03-23T20:06:02.720Z] Model: Qwen3.5-9B-Q8_0.gguf
+[2026-03-23T20:06:02.720Z] Chunk threshold chars: 754034
+[2026-03-23T20:06:02.720Z] Effective prompt limit tokens: 198976
+[2026-03-23T20:06:02.721Z] START acquire execution lock
+[2026-03-23T20:06:02.723Z] DONE  acquire execution lock in 2.6ms
+[2026-03-23T20:06:02.724Z] Execution lock token: c6308a6f-9f5e-40fc-9dcf-2dffb8f49dac
+[2026-03-23T20:06:02.724Z] START build full prompt
+[2026-03-23T20:06:02.725Z] DONE  build full prompt in 0.6ms
+[2026-03-23T20:06:02.725Z] Full prompt chars: 1096903
+[2026-03-23T20:06:02.725Z] START tokenize full prompt
+[2026-03-23T20:06:03.249Z] DONE  tokenize full prompt in 524.3ms
+[2026-03-23T20:06:03.250Z] Full prompt tokens: 282360
+[2026-03-23T20:06:03.250Z] START inspect token-aware chunk planning
+[2026-03-23T20:06:03.250Z] PLAN chunk offset=0 remaining=1094606 initialCandidate=754034
+[2026-03-23T20:06:03.250Z] START tokenize prompt chunkCandidate offset=0 len=754034 attempt=1 chars=756862
+[2026-03-23T20:06:03.611Z] DONE  tokenize prompt chunkCandidate offset=0 len=754034 attempt=1 chars=756862 in 360.2ms
+[2026-03-23T20:06:03.611Z] INFO  chunkCandidate offset=0 len=754034 attempt=1 promptChars=756862 promptTokens=187868
+[2026-03-23T20:06:03.612Z] START tokenize prompt chunkCandidate offset=0 len=798617 attempt=2 chars=801445
+[2026-03-23T20:06:03.968Z] DONE  tokenize prompt chunkCandidate offset=0 len=798617 attempt=2 chars=801445 in 356.2ms
+[2026-03-23T20:06:03.969Z] INFO  chunkCandidate offset=0 len=798617 attempt=2 promptChars=801445 promptTokens=199611
+[2026-03-23T20:06:03.969Z] START tokenize prompt chunkCandidate offset=0 len=776325 attempt=3 chars=779153
+[2026-03-23T20:06:04.358Z] DONE  tokenize prompt chunkCandidate offset=0 len=776325 attempt=3 chars=779153 in 388.9ms
+[2026-03-23T20:06:04.359Z] INFO  chunkCandidate offset=0 len=776325 attempt=3 promptChars=779153 promptTokens=193747
+[2026-03-23T20:06:04.359Z] START tokenize prompt chunkCandidate offset=0 len=787471 attempt=4 chars=790299
+[2026-03-23T20:06:04.706Z] DONE  tokenize prompt chunkCandidate offset=0 len=787471 attempt=4 chars=790299 in 346.1ms
+[2026-03-23T20:06:04.706Z] INFO  chunkCandidate offset=0 len=787471 attempt=4 promptChars=790299 promptTokens=196629
+[2026-03-23T20:06:04.706Z] START tokenize prompt chunkCandidate offset=0 len=793044 attempt=5 chars=795872
+[2026-03-23T20:06:05.069Z] DONE  tokenize prompt chunkCandidate offset=0 len=793044 attempt=5 chars=795872 in 362.3ms
+[2026-03-23T20:06:05.069Z] INFO  chunkCandidate offset=0 len=793044 attempt=5 promptChars=795872 promptTokens=198081
+[2026-03-23T20:06:05.069Z] ACCEPT chunk index=1 offset=0 len=793044
+[2026-03-23T20:06:05.070Z] PLAN chunk offset=793044 remaining=301562 initialCandidate=301562
+[2026-03-23T20:06:05.070Z] START tokenize prompt chunkCandidate offset=793044 len=301562 attempt=1 chars=304390
+[2026-03-23T20:06:05.208Z] DONE  tokenize prompt chunkCandidate offset=793044 len=301562 attempt=1 chars=304390 in 138.0ms
+[2026-03-23T20:06:05.209Z] INFO  chunkCandidate offset=793044 len=301562 attempt=1 promptChars=304390 promptTokens=84997
+[2026-03-23T20:06:05.209Z] ACCEPT chunk index=2 offset=793044 len=301562
+[2026-03-23T20:06:05.209Z] DONE  inspect token-aware chunk planning in 1.959s
+[2026-03-23T20:06:05.209Z] Planned chunks: 2
+[2026-03-23T20:06:05.209Z] START build chunk 1 prompt
+[2026-03-23T20:06:05.210Z] DONE  build chunk 1 prompt in 0.3ms
+[2026-03-23T20:06:05.210Z] Chunk 1 prompt chars: 795872
+[2026-03-23T20:06:05.210Z] START provider chunk 1/2 request
+[2026-03-23T20:06:35.221Z] START release execution lock
+[2026-03-23T20:06:35.222Z] DONE  release execution lock in 1.2ms
