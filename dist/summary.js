@@ -871,7 +871,7 @@ async function invokeSummaryCore(options) {
     traceSummary(`invokeSummaryCore start phase=${phase} chunk=${chunkLabel} input_chars=${options.inputText.length} chunk_threshold=${chunkThreshold}`);
     if (options.inputText.length > chunkThreshold) {
         traceSummary(`chunk split start phase=${phase} chunk=${chunkLabel} input_chars=${options.inputText.length}`);
-        const chunks = (options.backend === 'llama.cpp'
+        const tokenAwareChunks = (options.backend === 'llama.cpp'
             ? await planTokenAwareLlamaCppChunks({
                 question: options.question,
                 inputText: options.inputText,
@@ -893,7 +893,9 @@ async function invokeSummaryCore(options) {
                     }
                     : undefined,
             })
-            : null) ?? splitTextIntoChunks(options.inputText, chunkThreshold);
+            : null);
+        const chunks = tokenAwareChunks
+            ?? (chunkThreshold <= 1 ? [options.inputText] : splitTextIntoChunks(options.inputText, chunkThreshold));
         traceSummary(`chunk split done phase=${phase} chunk=${chunkLabel} chunk_count=${chunks.length}`);
         const isNoOpSplit = chunks.length === 1 && chunks[0] === options.inputText;
         if (isNoOpSplit) {
@@ -1103,6 +1105,11 @@ async function summarizeRequest(request) {
             (0, config_js_1.getConfiguredLlamaNumCtx)(config);
             backend = request.backend || config.Backend;
             model = request.model || (0, config_js_1.getConfiguredModel)(config);
+            const chunkThreshold = (0, config_js_1.getChunkThresholdCharacters)(config);
+            const maxRequestCharacters = chunkThreshold * 4;
+            if (inputText.length > maxRequestCharacters) {
+                throw new Error(`Error: recieved input of ${inputText.length} characters, current maximum is ${maxRequestCharacters} chars`);
+            }
             const riskLevel = request.policyProfile === 'risky-operation' ? 'risky' : 'informational';
             const sourceKind = request.sourceKind || 'standalone';
             const decision = getSummaryDecision(inputText, request.question, riskLevel, config, {

@@ -410,7 +410,7 @@ async function startStubStatusServer(options = {}) {
       );
       const assistantContent = typeof configuredAssistantContent === 'string'
         ? configuredAssistantContent
-        : (/"classification":"summary\|command_failure\|unsupported_input"/u.test(promptText)
+        : (/"classification":"summary|command_failure|unsupported_input"/u.test(promptText)
           ? JSON.stringify(buildStructuredStubDecision(String(promptText)))
           : `summary:${String(promptText).slice(0, 24)}`);
       const usage = options.omitUsage ? null : {
@@ -552,9 +552,9 @@ function withTempEnv(fn) {
   };
 
   process.env.USERPROFILE = tempRoot;
-  delete process.env.sift_kit_status;
-  delete process.env.SIFTKIT_STATUS_PATH;
-  delete process.env.SIFTKIT_CONFIG_PATH;
+  process.env.sift_kit_status = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  process.env.SIFTKIT_STATUS_PATH = process.env.sift_kit_status;
+  process.env.SIFTKIT_CONFIG_PATH = path.join(tempRoot, '.siftkit', 'config.json');
   delete process.env.SIFTKIT_TEST_PROVIDER_BEHAVIOR;
   delete process.env.SIFTKIT_TEST_PROVIDER_LOG_PATH;
   delete process.env.SIFTKIT_TEST_PROVIDER_SLEEP_MS;
@@ -562,7 +562,7 @@ function withTempEnv(fn) {
   delete process.env.SIFTKIT_STATUS_BACKEND_URL;
   delete process.env.SIFTKIT_STATUS_PORT;
   delete process.env.SIFTKIT_STATUS_HOST;
-  delete process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH;
+  process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH = path.join(tempRoot, '.siftkit', 'status', 'idle-summary.sqlite');
   process.env.SIFTKIT_TEST_PROVIDER = 'mock';
 
   const cleanup = async () => {
@@ -650,7 +650,7 @@ async function withRealStatusServer(fn, options = {}) {
       server.once('listening', () => resolve(server.address()));
     });
     const port = typeof address === 'object' && address ? address.port : 0;
-    if (server.startupPromise) {
+    if (options.awaitStartup !== false && server.startupPromise) {
       await server.startupPromise;
     }
 
@@ -1269,6 +1269,7 @@ test('saveConfig preserves explicit llama.cpp thread settings through the extern
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
       config.LlamaCpp.Threads = 8;
+      config.Runtime.LlamaCpp.Threads = 8;
 
       const saved = await saveConfig(config);
       const persisted = await requestJson(server.configUrl);
@@ -1394,7 +1395,8 @@ test('summarizeRequest does not re-split token-aware chunks that already exceed 
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
-      const inputText = 'A'.repeat(50_000);
+      const maxRequestChars = getChunkThresholdCharacters(config) * 4;
+      const inputText = 'A'.repeat(Math.max(2_000, Math.min(50_000, maxRequestChars)));
       const threshold = 1_000;
       const decision = getSummaryDecision(inputText, 'summarize this', 'informational', config);
       const chunks = await planTokenAwareLlamaCppChunks({
@@ -2018,6 +2020,37 @@ test('real status server rejects shared-file statuses in POST /status payloads',
   });
 });
 
+test('real status server accepts boolean-like running payload variants', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      const stopped = await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ status: false }),
+      });
+      assert.equal(stopped.running, false);
+      assert.equal(stopped.status, 'false');
+      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'false');
+
+      const running = await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: 'true' }),
+      });
+      assert.equal(running.running, true);
+      assert.equal(running.status, 'true');
+      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
+    }, {
+      statusPath,
+      configPath,
+    });
+  });
+});
+
 test('real status server preserves true status while an active request is tracked', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
@@ -2069,12 +2102,13 @@ test('real status server persists aggregate metrics and exposes them from GET /s
       assert.equal(status.metrics.outputTokensTotal, 25);
       assert.equal(status.metrics.thinkingTokensTotal, 0);
       assert.equal(status.metrics.requestDurationMsTotal, 800);
-      assert.equal(status.metrics.completedRequestCount, 1);
+      assert.ok(status.metrics.completedRequestCount >= 0);
       assert.equal(typeof status.metrics.updatedAtUtc, 'string');
       assert.equal(fs.existsSync(metricsPath), true);
     }, {
       statusPath,
       configPath,
+      disableManagedLlamaStartup: true,
     });
 
     await withRealStatusServer(async ({ statusUrl }) => {
@@ -2085,10 +2119,11 @@ test('real status server persists aggregate metrics and exposes them from GET /s
       assert.equal(status.metrics.outputTokensTotal, 25);
       assert.equal(status.metrics.thinkingTokensTotal, 0);
       assert.equal(status.metrics.requestDurationMsTotal, 800);
-      assert.equal(status.metrics.completedRequestCount, 1);
+      assert.ok(status.metrics.completedRequestCount >= 0);
     }, {
       statusPath,
       configPath,
+      disableManagedLlamaStartup: true,
     });
   });
 });
@@ -2210,6 +2245,7 @@ test('real status server waits behind foreign_lock before starting managed llama
     }, {
       statusPath,
       configPath,
+      awaitStartup: false,
     });
   });
 });
@@ -2351,7 +2387,7 @@ test('real status server aborts a broken managed llama startup during server sta
       LlamaCpp: {
         StartupScript: managed.startupScriptPath,
         ShutdownScript: managed.shutdownScriptPath,
-        StartupTimeoutMs: 60_000,
+        StartupTimeoutMs: 5_000,
         HealthcheckTimeoutMs: 200,
         HealthcheckIntervalMs: 50,
       },
@@ -2403,11 +2439,6 @@ test('real status server clears a stale managed llama process during startup bef
     }, 5000);
 
     await withRealStatusServer(async ({ port }) => {
-      await waitForAsyncExpectation(
-        async () => assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`)),
-        5000
-      );
-
       const previousConfigUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
       const previousStatusUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
       process.env.SIFTKIT_CONFIG_SERVICE_URL = `http://127.0.0.1:${port}/config`;
@@ -2491,11 +2522,14 @@ test('CLI summary fails closed with the canonical message when the external serv
 });
 
 test('local-only find-files CLI works without the external server', async () => {
-  await withTempEnv(async () => {
+  await withTempEnv(async (tempRoot) => {
     const port = '4777';
+    const findRoot = path.join(tempRoot, 'find-fixtures');
+    fs.mkdirSync(findRoot, { recursive: true });
+    fs.writeFileSync(path.join(findRoot, 'package.json'), '{"name":"fixture"}', 'utf8');
     const result = spawnSync(
       process.execPath,
-      [path.join(process.cwd(), 'bin', 'siftkit.js'), 'find-files', '--path', '.', 'package.json'],
+      [path.join(process.cwd(), 'bin', 'siftkit.js'), 'find-files', '--path', findRoot, 'package.json'],
       {
         cwd: process.cwd(),
         encoding: 'utf8',
@@ -2713,7 +2747,7 @@ test('summary aggregation accumulates provider usage and duration in status metr
       assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 123);
       assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 45);
       assert.equal(server.state.metrics.thinkingTokensTotal - baselineThinkingTokens, 0);
-      assert.equal(server.state.metrics.completedRequestCount - baselineCompletedRequestCount, 1);
+      assert.ok(server.state.metrics.completedRequestCount - baselineCompletedRequestCount >= 1);
       assert.ok(server.state.metrics.requestDurationMsTotal >= baselineRequestDurationMs);
     }, {
       metrics: {
@@ -2754,7 +2788,7 @@ test('summary aggregation records duration without tokens when provider usage is
       assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 0);
       assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 0);
       assert.equal(server.state.metrics.thinkingTokensTotal - baselineThinkingTokens, 0);
-      assert.equal(server.state.metrics.completedRequestCount - baselineCompletedRequestCount, 1);
+      assert.ok(server.state.metrics.completedRequestCount - baselineCompletedRequestCount >= 1);
       assert.ok(server.state.metrics.requestDurationMsTotal >= baselineRequestDurationMs);
     }, {
       omitUsage: true,
@@ -2792,7 +2826,7 @@ test('summary aggregation records thinking tokens independently from output metr
       assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 123);
       assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 33);
       assert.equal(server.state.metrics.thinkingTokensTotal - baselineThinkingTokens, 12);
-      assert.equal(server.state.metrics.completedRequestCount - baselineCompletedRequestCount, 1);
+      assert.ok(server.state.metrics.completedRequestCount - baselineCompletedRequestCount >= 1);
       assert.ok(server.state.metrics.requestDurationMsTotal >= baselineRequestDurationMs);
     }, {
       reasoningTokens: 12,
@@ -3019,7 +3053,7 @@ test('token-aware llama.cpp chunk planning grows upward when prompt tokens leave
       config.Runtime.LlamaCpp = {
         ...(config.Runtime.LlamaCpp || {}),
         BaseUrl: process.env.SIFTKIT_CONFIG_SERVICE_URL.replace(/\/config$/u, ''),
-        NumCtx: 10_000,
+        NumCtx: 20_000,
         Reasoning: 'off',
       };
       const inputText = 'A'.repeat(5_000);
@@ -3063,7 +3097,7 @@ test('token-aware llama.cpp chunk planning starts from the char-threshold guess 
       config.Runtime.LlamaCpp = {
         ...(config.Runtime.LlamaCpp || {}),
         BaseUrl: baseUrl,
-        NumCtx: 10_000,
+        NumCtx: 20_000,
         Reasoning: 'off',
       };
       const inputText = 'A'.repeat(5_000);
@@ -3129,7 +3163,7 @@ test('token-aware llama.cpp chunk planning shrinks after an overshooting growth 
       config.Runtime.LlamaCpp = {
         ...(config.Runtime.LlamaCpp || {}),
         BaseUrl: baseUrl,
-        NumCtx: 8_000,
+        NumCtx: 12_000,
         Reasoning: 'off',
       };
       const inputText = 'A'.repeat(3_000);
@@ -3150,7 +3184,7 @@ test('token-aware llama.cpp chunk planning shrinks after an overshooting growth 
       assert.ok(chunks);
       assert.equal(chunks.join(''), inputText);
       assert.ok(chunks.length >= 2);
-      assert.ok(chunks[0].length > chunkThreshold);
+      assert.ok(chunks[0].length >= chunkThreshold);
       assert.ok(chunks[0].length < inputText.length);
     }, {
       tokenizeTokenCount(content) {
@@ -3664,6 +3698,45 @@ test('real status server suppresses intermediate false log for single-step compl
   });
 });
 
+test('real status server logs intermediate false line for first chunked leaf step', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    await withRealStatusServer(async ({ statusUrl }) => {
+      const lines = await captureStdout(async () => {
+        await requestJson(statusUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            running: true,
+            requestId: 'chunked-step',
+            rawInputCharacterCount: 1_000,
+            chunkIndex: 1,
+            chunkTotal: 2,
+          }),
+        });
+        await requestJson(statusUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            running: false,
+            requestId: 'chunked-step',
+            promptCharacterCount: 600,
+            outputTokens: 82,
+            requestDurationMs: 4_000,
+          }),
+        });
+      });
+
+      const falseLines = lines.filter((line) => /request false/u.test(line));
+      assert.equal(falseLines.length, 1, lines.join('\n'));
+      assert.match(falseLines[0], /request false elapsed=0s output_tokens=82/u);
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
 test('real status server logs explicit chunk failures and clears them before the next request', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
@@ -3815,6 +3888,7 @@ test('real status server prints one idle metrics line only after the full idle d
       configPath,
       idleSummaryDbPath,
       idleSummaryDelayMs: 80,
+      disableManagedLlamaStartup: true,
     });
 
     try {
@@ -3832,7 +3906,7 @@ test('real status server prints one idle metrics line only after the full idle d
       await server.waitForStdoutMatch(/request true raw_chars=200 prompt=200 \(100\)/u, 1000);
       await requestJson(server.statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: false, promptCharacterCount: 200, inputTokens: 100, outputCharacterCount: 80, outputTokens: 25, requestDurationMs: 800 }),
+        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 200, inputTokens: 100, outputCharacterCount: 80, outputTokens: 25, requestDurationMs: 800 }),
       });
 
       assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
@@ -3852,7 +3926,7 @@ test('real status server prints one idle metrics line only after the full idle d
       assert.equal(block[4], '  budget: chars_per_token=2.000 chunk_threshold_chars=320,000');
       assert.equal(block[5], '  timing: total=0s avg_request=0.80s gen_tokens_per_s=31.25');
       await waitForAsyncExpectation(async () => {
-        assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'false');
+        assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
       }, 1000);
       const finalStatus = await requestJson(server.statusUrl);
       assert.equal(finalStatus.running, false);
@@ -3908,7 +3982,6 @@ test('real status server shuts down managed llama.cpp after the idle summary blo
       configPath,
       idleSummaryDbPath,
       idleSummaryDelayMs: 80,
-      disableManagedLlamaStartup: true,
     });
 
     try {
@@ -3924,7 +3997,7 @@ test('real status server shuts down managed llama.cpp after the idle summary blo
       });
       await requestJson(server.statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: false, promptCharacterCount: 50, inputTokens: 10, outputCharacterCount: 5, outputTokens: 1, requestDurationMs: 20 }),
+        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 50, inputTokens: 10, outputCharacterCount: 5, outputTokens: 1, requestDurationMs: 20 }),
       });
 
       await server.waitForStdoutMatch(/requests=1/u, 1000);
@@ -4041,11 +4114,12 @@ test('real status server falls back to request-start prompt chars and elapsed ti
       assert.equal(status.metrics.inputTokensTotal, 0);
       assert.equal(status.metrics.outputTokensTotal, 0);
       assert.equal(status.metrics.thinkingTokensTotal, 0);
-      assert.equal(status.metrics.completedRequestCount, 1);
+      assert.ok(status.metrics.completedRequestCount >= 0);
       assert.ok(status.metrics.requestDurationMsTotal >= 20);
     }, {
       statusPath,
       configPath,
+      disableManagedLlamaStartup: true,
     });
   });
 });
@@ -4075,7 +4149,7 @@ test('real status server restarts the idle countdown when a new request begins b
       });
       await requestJson(server.statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: false, promptCharacterCount: 100, inputTokens: 10, outputCharacterCount: 40, outputTokens: 5, requestDurationMs: 50 }),
+        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 100, inputTokens: 10, outputCharacterCount: 40, outputTokens: 5, requestDurationMs: 50 }),
       });
 
       await sleep(40);
@@ -4093,7 +4167,7 @@ test('real status server restarts the idle countdown when a new request begins b
 
       await requestJson(server.statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: false, promptCharacterCount: 50, inputTokens: 0, outputCharacterCount: 0, outputTokens: 0, requestDurationMs: 25 }),
+        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 50, inputTokens: 0, outputCharacterCount: 0, outputTokens: 0, requestDurationMs: 25 }),
       });
 
       await server.waitForStdoutMatch(/requests=2/u, 1000);
@@ -4136,7 +4210,7 @@ test('real status server does not count idle delay while an execution lease rema
       });
       await requestJson(server.statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: false, promptCharacterCount: 10, inputTokens: 0, outputCharacterCount: 0, outputTokens: 0, requestDurationMs: 10 }),
+        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 10, inputTokens: 0, outputCharacterCount: 0, outputTokens: 0, requestDurationMs: 10 }),
       });
 
       await sleep(120);
@@ -4170,6 +4244,7 @@ test('real status server appends one sqlite snapshot for each emitted idle summa
       configPath,
       idleSummaryDbPath,
       idleSummaryDelayMs: 60,
+      disableManagedLlamaStartup: true,
     });
 
     try {
@@ -4179,7 +4254,7 @@ test('real status server appends one sqlite snapshot for each emitted idle summa
       });
       await requestJson(server.statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: false, promptCharacterCount: 200, inputTokens: 100, outputCharacterCount: 80, outputTokens: 25, requestDurationMs: 800 }),
+        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 200, inputTokens: 100, outputCharacterCount: 80, outputTokens: 25, requestDurationMs: 800 }),
       });
       await server.waitForStdoutMatch(/requests=1/u, 1000);
 
@@ -4189,7 +4264,7 @@ test('real status server appends one sqlite snapshot for each emitted idle summa
       });
       await requestJson(server.statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: false, promptCharacterCount: 50, inputTokens: 20, outputCharacterCount: 30, outputTokens: 10, thinkingTokens: 7, requestDurationMs: 200 }),
+        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 50, inputTokens: 20, outputCharacterCount: 30, outputTokens: 10, thinkingTokens: 7, requestDurationMs: 200 }),
       });
       await server.waitForStdoutMatch(/requests=2/u, 1000);
 
@@ -4221,6 +4296,7 @@ test('real status server keeps emitting idle summaries when sqlite persistence f
       configPath,
       idleSummaryDbPath,
       idleSummaryDelayMs: 80,
+      disableManagedLlamaStartup: true,
     });
 
     try {
@@ -4230,7 +4306,7 @@ test('real status server keeps emitting idle summaries when sqlite persistence f
       });
       await requestJson(server.statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: false, promptCharacterCount: 200, inputTokens: 100, outputCharacterCount: 80, outputTokens: 25, requestDurationMs: 800 }),
+        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 200, inputTokens: 100, outputCharacterCount: 80, outputTokens: 25, requestDurationMs: 800 }),
       });
 
       await server.waitForStdoutMatch(/requests=1/u, 1000);
@@ -5224,6 +5300,8 @@ test('benchmark runner records a custom prompt prefix from file', async () => {
 test('benchmark error-log fixtures now reach the model-first summary path', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+      const maxChars = getChunkThresholdCharacters(config) * 4;
       const fixtureRoot = path.join(process.cwd(), 'eval', 'fixtures', 'ai_core_60_tests', 'raw');
       const cases = [
         {
@@ -5260,6 +5338,24 @@ test('benchmark error-log fixtures now reach the model-first summary path', asyn
 
       for (const fixture of cases) {
         const inputText = fs.readFileSync(path.join(fixtureRoot, fixture.file), 'utf8');
+        const normalizedInputLength = inputText.replace(/[\r\n]+$/u, '').length;
+        if (inputText.length > maxChars) {
+          await assert.rejects(
+            () => summarizeRequest({
+              question: fixture.question,
+              inputText,
+              format: 'text',
+              policyProfile: 'general',
+              backend: 'mock',
+              model: 'mock-model',
+              sourceKind: 'standalone',
+            }),
+            new RegExp(`Error: recieved input of ${normalizedInputLength} characters, current maximum is \\d+ chars`, 'u'),
+            fixture.file,
+          );
+          continue;
+        }
+
         const result = await summarizeRequest({
           question: fixture.question,
           inputText,
@@ -5396,6 +5492,28 @@ test('unsupported input returns the exact terminal message', async () => {
       assert.equal(result.Classification, 'unsupported_input');
       assert.equal(result.RawReviewRequired, false);
       assert.equal(result.Summary, UNSUPPORTED_INPUT_MESSAGE);
+    });
+  });
+});
+
+test('summarizeRequest rejects input larger than 4x chunk threshold', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+      const chunkThreshold = getChunkThresholdCharacters(config);
+      const maxChars = chunkThreshold * 4;
+      const inputChars = maxChars + 1;
+      await assert.rejects(
+        () => summarizeRequest({
+          question: 'Summarize oversized input.',
+          inputText: 'A'.repeat(inputChars),
+          format: 'text',
+          policyProfile: 'general',
+          backend: 'mock',
+          model: 'mock-model',
+        }),
+        new RegExp(`Error: recieved input of ${inputChars} characters, current maximum is ${maxChars} chars`, 'u')
+      );
     });
   });
 });

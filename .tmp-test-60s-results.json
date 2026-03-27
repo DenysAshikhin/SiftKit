@@ -1,0 +1,582 @@
+[
+    {
+        "name":  "getConfigPath prefers a repo-local .siftkit runtime when running inside the siftkit repo",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "loadConfig uses the fixed bootstrap chars-per-token budget before observed telemetry exists",
+        "status":  "fail",
+        "exitCode":  1
+    },
+    {
+        "name":  "loadConfig immediately switches from bootstrap fallback to observed telemetry when totals appear",
+        "status":  "fail",
+        "exitCode":  1
+    },
+    {
+        "name":  "loadConfig normalizes legacy defaults and derives effective budgets from the external server",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "loadConfig removes legacy chunk threshold ratio from loaded and persisted config",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "loadConfig fails closed when observed telemetry previously existed and status metrics later become unusable",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "loadConfig fails closed when observed telemetry previously existed and the status backend later becomes unavailable",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "loadConfig derives effective budgets from aggregate prompt character and token totals",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "saveConfig preserves explicit llama.cpp thread settings through the external server",
+        "status":  "fail",
+        "exitCode":  1
+    },
+    {
+        "name":  "summarizeRequest recursively merges oversized mock summaries when the external server is available",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "summarizeRequest splits using the observed aggregate chars-per-token average",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "summarizeRequest does not recurse forever when token-aware planning returns a single full-size chunk",
+        "status":  "timeout",
+        "exitCode":  null
+    },
+    {
+        "name":  "summarizeRequest does not re-split token-aware chunks that already exceed the original char threshold",
+        "status":  "fail",
+        "exitCode":  1
+    },
+    {
+        "name":  "summarizeRequest fails closed when observed telemetry existed and the status snapshot later becomes unusable",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "concurrent oversized CLI summary requests are serialized until the first request fully completes",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "runCommand saves a raw log and respects no-summarize mode when the external server is available",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "saveConfig fails closed with the canonical message when the external server is unreachable",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "status notification failures fail closed with the canonical message",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "withExecutionLock acquires and releases execution control through the server",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "withExecutionLock waits for the server to release execution control before starting",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server clears stale true status once during startup",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server initializes a missing status file to false",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server health reports disableManagedLlamaStartup mode when flagged",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server passes managed startup env flag to startup scripts",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server migrates the legacy default startup script to the current default",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server with disableManagedLlamaStartup skips managed llama bootstrap during server startup",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server with disableManagedLlamaStartup does not trigger managed startup from GET /config",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server with disableManagedLlamaStartup keeps the shared status file pinned to true across request lifecycle",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server with disableManagedLlamaStartup leaves an externally started llama running across boot and close",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server preserves foreign_lock while siftkit is idle",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server publishes lock_requested while waiting on a foreign_lock",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server rejects shared-file statuses in POST /status payloads",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server preserves true status while an active request is tracked",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server persists aggregate metrics and exposes them from GET /status",
+        "status":  "fail",
+        "exitCode":  1
+    },
+    {
+        "name":  "real status server starts managed llama.cpp during server startup before serving requests",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server waits behind foreign_lock before starting managed llama.cpp",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server keeps published true status while managed llama stays ready",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server keeps startup status true when the startup script calls config before launch",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server fails closed during startup when managed llama logs contain warnings",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server aborts a broken managed llama startup during server startup within the capped timeout",
+        "status":  "timeout",
+        "exitCode":  null
+    },
+    {
+        "name":  "real status server clears a stale managed llama process during startup before serving requests",
+        "status":  "fail",
+        "exitCode":  1
+    },
+    {
+        "name":  "real status server falls back to zeroed metrics when the metrics cache is invalid",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "CLI summary fails closed with the canonical message when the external server is unreachable",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "local-only find-files CLI works without the external server",
+        "status":  "fail",
+        "exitCode":  1
+    },
+    {
+        "name":  "llama.cpp provider lists models and parses chat completions from the stub server",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "llama.cpp provider returns null usage when the server omits token usage",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "llama.cpp provider records thinking tokens separately from completion usage",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "llama.cpp provider forwards reasoning mode to chat template kwargs",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "llama.cpp provider omits chat template reasoning override in auto mode",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "llama.cpp provider includes per-request grammar when structured output is enabled",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "llama.cpp provider gets answer content from qwen-style servers when reasoning is off",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "llama.cpp provider accepts count-only tokenize responses",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "summary aggregation accumulates provider usage and duration in status metrics",
+        "status":  "fail",
+        "exitCode":  1
+    },
+    {
+        "name":  "summary aggregation records duration without tokens when provider usage is absent",
+        "status":  "fail",
+        "exitCode":  1
+    },
+    {
+        "name":  "summary aggregation records thinking tokens independently from output metrics",
+        "status":  "fail",
+        "exitCode":  1
+    },
+    {
+        "name":  "summary retries with smaller chunks when llama.cpp rejects an oversized prompt and tokenization is unavailable",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "summary resizes llama.cpp chunks before the first chat request when prompt tokenization exceeds context",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "summary posts the preflight prompt token count in running status updates",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "summarizeRequest recovers malformed structured llama.cpp JSON when the expected fields are present",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "summarizeRequest enables per-request grammar for structured llama.cpp decisions",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "summary flattens token-aware llama.cpp chunking across sibling boundaries",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "token-aware llama.cpp chunk planning grows upward when prompt tokens leave slack",
+        "status":  "fail",
+        "exitCode":  1
+    },
+    {
+        "name":  "token-aware llama.cpp chunk planning starts from the char-threshold guess before growing upward",
+        "status":  "fail",
+        "exitCode":  1
+    },
+    {
+        "name":  "token-aware llama.cpp chunk planning shrinks after an overshooting growth probe and still stays above the initial guess",
+        "status":  "fail",
+        "exitCode":  1
+    },
+    {
+        "name":  "token-aware llama.cpp chunk planning keeps adjusting until accepted chunks are within 2000 tokens of the limit",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "token-aware llama.cpp chunk planning leaves a 15k token reserve when reasoning is on",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "live llama token-aware chunk planning preserves the 5m benchmark fixture without chat completion",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "idle metrics formatter emits ANSI colors when enabled on a TTY",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "idle metrics formatter disables ANSI colors when NO_COLOR is set",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "idle metrics formatter disables ANSI colors when stdout is not a TTY",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "idle metrics formatter reports n/a averages when no requests completed",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "idle metrics formatter groups large values, formats days in elapsed durations, and includes budget details when present",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "request status log groups large running counts and uses colon elapsed durations",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server accumulates provider payload totals across a chunked request while counting one completed request",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server suppresses intermediate false log for single-step completed requests",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server logs explicit chunk failures and clears them before the next request",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server marks a stale active request as abandoned when a new request id starts",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server prints one idle metrics line only after the full idle delay",
+        "status":  "fail",
+        "exitCode":  1
+    },
+    {
+        "name":  "real status server shuts down managed llama.cpp after the idle summary block is emitted",
+        "status":  "fail",
+        "exitCode":  1
+    },
+    {
+        "name":  "real status server close() stops managed llama.cpp",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "real status server falls back to request-start prompt chars and elapsed time when completion payload is minimal",
+        "status":  "fail",
+        "exitCode":  1
+    },
+    {
+        "name":  "real status server restarts the idle countdown when a new request begins before the prior delay expires",
+        "status":  "fail",
+        "exitCode":  1
+    },
+    {
+        "name":  "real status server does not count idle delay while an execution lease remains active",
+        "status":  "fail",
+        "exitCode":  1
+    },
+    {
+        "name":  "real status server appends one sqlite snapshot for each emitted idle summary",
+        "status":  "fail",
+        "exitCode":  1
+    },
+    {
+        "name":  "real status server keeps emitting idle summaries when sqlite persistence fails",
+        "status":  "fail",
+        "exitCode":  1
+    },
+    {
+        "name":  "benchmark runner writes prompt, output, classification metadata, per-case duration, and total duration",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "benchmark runner times out fatally and writes a partial artifact",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "benchmark runner uses a 30 minute default request timeout when omitted",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "benchmark runner fails fast on provider errors and writes the fatal error text",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "run-benchmark-fixture-debug writes an artifact for fixture mode",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "run-benchmark-fixture-debug supports direct file mode",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "run-benchmark-fixture-debug writes failure artifacts and exits nonzero on summarize errors",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "repro-fixture60-malformed-json writes chunk artifacts and stops on malformed chunk payload",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "repro-fixture60-malformed-json writes a completed manifest for valid chunk responses",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "repro-fixture60-malformed-json can run a fixture range and stop on a later malformed fixture",
+        "status":  "timeout",
+        "exitCode":  null
+    },
+    {
+        "name":  "benchmark matrix respects per-run launcher overrides and script-owned reasoning",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "benchmark matrix defaults request timeout to 30 minutes when omitted",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "benchmark matrix marks interrupted runs failed, preserves benchmark log paths, and restores baseline",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "benchmark matrix launch signature changes for script and context changes but ignores metadata-only reasoning when script-owned",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "benchmark matrix passes reasoning by default when the launcher supports it",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "buildPrompt prepends promptPrefix when provided",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "buildPrompt wraps generated chunk slices as inert literal input",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "benchmark runner records a custom prompt prefix from file",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "benchmark error-log fixtures now reach the model-first summary path",
+        "status":  "fail",
+        "exitCode":  1
+    },
+    {
+        "name":  "pass markers with zero failed still use the model summary path",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "getSummaryDecision keeps command-output raw review false for sparse error-like text with zero exit code",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "getSummaryDecision requires raw review for command-output with non-zero exit code",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "getSummaryDecision requires raw review for command-output with dense error signals",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "runCommand classifies missing executables as command failures with raw review required",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "unsupported input returns the exact terminal message",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "summarizeRequest rejects input larger than 4x chunk threshold",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "command-output never surfaces unsupported_input for non-empty input",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "chunked malformed JSON slices retry with stricter chunk guidance instead of surfacing unsupported_input",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "chunked unsupported-input leaf retries fall back to a conservative local summary after repeated failures",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "provider failures hard fail instead of falling back to a deterministic raw excerpt",
+        "status":  "pass",
+        "exitCode":  0
+    },
+    {
+        "name":  "llama.cpp provider surfaces HTTP 400 errors when grammar-constrained requests are rejected",
+        "status":  "pass",
+        "exitCode":  0
+    }
+]

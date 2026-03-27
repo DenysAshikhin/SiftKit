@@ -1187,7 +1187,7 @@ async function invokeSummaryCore(options: {
   );
   if (options.inputText.length > chunkThreshold) {
     traceSummary(`chunk split start phase=${phase} chunk=${chunkLabel} input_chars=${options.inputText.length}`);
-    const chunks = (
+    const tokenAwareChunks = (
       options.backend === 'llama.cpp'
         ? await planTokenAwareLlamaCppChunks({
           question: options.question,
@@ -1211,7 +1211,9 @@ async function invokeSummaryCore(options: {
             : undefined,
         })
         : null
-    ) ?? splitTextIntoChunks(options.inputText, chunkThreshold);
+    );
+    const chunks = tokenAwareChunks
+      ?? (chunkThreshold <= 1 ? [options.inputText] : splitTextIntoChunks(options.inputText, chunkThreshold));
     traceSummary(`chunk split done phase=${phase} chunk=${chunkLabel} chunk_count=${chunks.length}`);
     const isNoOpSplit = chunks.length === 1 && chunks[0] === options.inputText;
     if (isNoOpSplit) {
@@ -1447,6 +1449,13 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
       getConfiguredLlamaNumCtx(config);
       backend = request.backend || config.Backend;
       model = request.model || getConfiguredModel(config);
+      const chunkThreshold = getChunkThresholdCharacters(config);
+      const maxRequestCharacters = chunkThreshold * 4;
+      if (inputText.length > maxRequestCharacters) {
+        throw new Error(
+          `Error: recieved input of ${inputText.length} characters, current maximum is ${maxRequestCharacters} chars`
+        );
+      }
       const riskLevel = request.policyProfile === 'risky-operation' ? 'risky' : 'informational';
       const sourceKind = request.sourceKind || 'standalone';
       const decision = getSummaryDecision(inputText, request.question, riskLevel, config, {

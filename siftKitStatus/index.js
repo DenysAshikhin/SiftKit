@@ -875,16 +875,28 @@ function parseRunning(bodyText) {
     return null;
   }
 
-  try {
-    const parsed = JSON.parse(bodyText);
-    if (typeof parsed.running === 'boolean') {
-      return parsed.running;
+  const parseBooleanLikeStatus = (value) => {
+    if (typeof value === 'boolean') {
+      return value;
     }
-    if (typeof parsed.status === 'string') {
-      const normalized = normalizeStatusText(parsed.status);
+    if (typeof value === 'string') {
+      const normalized = normalizeStatusText(value);
       if (normalized === STATUS_TRUE || normalized === STATUS_FALSE) {
         return normalized === STATUS_TRUE;
       }
+    }
+    return null;
+  };
+
+  try {
+    const parsed = JSON.parse(bodyText);
+    const running = parseBooleanLikeStatus(parsed.running);
+    if (running !== null) {
+      return running;
+    }
+    const status = parseBooleanLikeStatus(parsed.status);
+    if (status !== null) {
+      return status;
     }
   } catch {
     const normalized = normalizeStatusText(bodyText);
@@ -1941,7 +1953,11 @@ function startStatusServer(options = {}) {
         if (runState && Number.isFinite(runState.currentRequestStartedAt)) {
           const now = Date.now();
           const resolvedOutputTokens = metadata.outputTokens ?? 0;
-          suppressLogLine = metadata.terminalState === null && runState.stepCount === 1;
+          const isSingleStepNonChunk = runState.stepCount === 1
+            && runState.chunkIndex === null
+            && runState.chunkTotal === null
+            && runState.chunkPath === null;
+          suppressLogLine = metadata.terminalState === null && isSingleStepNonChunk;
           elapsedMs = now - runState.currentRequestStartedAt;
           runState.outputTokensTotal += resolvedOutputTokens;
           if (metadata.rawInputCharacterCount === null && runState.rawInputCharacterCount !== null) {
