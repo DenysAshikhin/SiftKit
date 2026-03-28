@@ -237,6 +237,62 @@ function ensureDirectory(dirPath: string): string {
   return dirPath;
 }
 
+const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+function isLauncherLogFile(fileName: string): boolean {
+  return /^launcher_.*_(stdout|stderr)\.log$/u.test(fileName);
+}
+
+function collectLauncherLogPaths(rootDirectory: string): string[] {
+  const pending = [rootDirectory];
+  const launcherLogPaths: string[] = [];
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current) {
+      continue;
+    }
+    let entries: fs.Dirent[] = [];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const entryPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(entryPath);
+        continue;
+      }
+      if (entry.isFile() && isLauncherLogFile(entry.name)) {
+        launcherLogPaths.push(entryPath);
+      }
+    }
+  }
+
+  return launcherLogPaths;
+}
+
+export function pruneOldLauncherLogs(rootDirectory: string, nowMs = Date.now()): number {
+  const launcherLogPaths = collectLauncherLogPaths(rootDirectory);
+  let deletedCount = 0;
+  for (const logPath of launcherLogPaths) {
+    try {
+      const stat = fs.statSync(logPath);
+      if (nowMs - stat.mtimeMs <= ONE_WEEK_MS) {
+        continue;
+      }
+      fs.unlinkSync(logPath);
+      deletedCount += 1;
+    } catch {
+      continue;
+    }
+  }
+
+  return deletedCount;
+}
+
 function writeJsonFile(filePath: string, value: unknown): void {
   ensureDirectory(path.dirname(filePath));
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
@@ -752,6 +808,7 @@ async function forceStopLlamaServer(sessionDirectory: string): Promise<void> {
 }
 
 async function startLlamaLauncher(manifest: ResolvedMatrixManifest, target: ResolvedMatrixTarget, sessionDirectory: string): Promise<LaunchResult> {
+  pruneOldLauncherLogs(manifest.resultsRoot);
   const stdoutPath = path.join(sessionDirectory, `launcher_${target.index}_${target.id}_stdout.log`);
   const stderrPath = path.join(sessionDirectory, `launcher_${target.index}_${target.id}_stderr.log`);
   const args = buildLauncherArgs(manifest, target);

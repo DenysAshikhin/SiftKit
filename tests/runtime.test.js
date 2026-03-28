@@ -22,6 +22,8 @@ const {
   buildPrompt,
   getSummaryDecision,
   planTokenAwareLlamaCppChunks,
+  getPlannerPromptBudget,
+  buildPlannerToolDefinitions,
   UNSUPPORTED_INPUT_MESSAGE,
 } = require('../dist/summary.js');
 const { runCommand } = require('../dist/command.js');
@@ -31,6 +33,7 @@ const {
   buildLaunchSignature,
   buildLauncherArgs,
   buildBenchmarkArgs,
+  pruneOldLauncherLogs,
   runMatrix,
   runMatrixWithInterrupt,
 } = require('../dist/benchmark-matrix.js');
@@ -151,6 +154,45 @@ function extractPromptSection(promptText, header) {
   const escaped = header.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
   const match = new RegExp(`${escaped}\\n([\\s\\S]*?)(?:\\n[A-Z][^\\n]*:\\n|$)`, 'u').exec(promptText);
   return match ? match[1].trim() : '';
+}
+
+function buildOversizedTransitionsInput(targetCharacters) {
+  const transitions = [
+    {
+      id: 9001,
+      label: 'Lumbridge Castle Staircase',
+      type: 'stairs',
+      from: { worldX: 3205, worldY: 3214, plane: 0 },
+      to: { worldX: 3205, worldY: 3214, plane: 1 },
+      bidirectional: true,
+      note: 'exact castle match',
+    },
+    {
+      id: 9002,
+      label: 'Lumbridge Castle Courtyard Gate',
+      type: 'gate',
+      from: { worldX: 3212, worldY: 3221, plane: 0 },
+      to: { worldX: 3213, worldY: 3221, plane: 0 },
+      bidirectional: false,
+      note: 'exact castle match',
+    },
+  ];
+
+  let index = 0;
+  while (JSON.stringify(transitions).length < targetCharacters) {
+    transitions.push({
+      id: 10000 + index,
+      label: `Padding Transition ${index}`,
+      type: 'padding',
+      from: { worldX: 3300 + (index % 50), worldY: 3300 + (index % 50), plane: 0 },
+      to: { worldX: 3400 + (index % 50), worldY: 3400 + (index % 50), plane: 0 },
+      bidirectional: Boolean(index % 2),
+      note: 'P'.repeat(1800),
+    });
+    index += 1;
+  }
+
+  return JSON.stringify(transitions);
 }
 
 function buildStructuredStubDecision(promptText) {
@@ -5227,6 +5269,41 @@ test('benchmark matrix passes reasoning by default when the launcher supports it
   });
 });
 
+test('benchmark matrix prunes llama launcher logs older than 7 days', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const resultsRoot = path.join(tempRoot, 'bench-results');
+    const nestedDir = path.join(resultsRoot, 'session-a');
+    fs.mkdirSync(nestedDir, { recursive: true });
+
+    const oldStdoutLogPath = path.join(resultsRoot, 'launcher_1_old_stdout.log');
+    const oldStderrLogPath = path.join(nestedDir, 'launcher_2_old_stderr.log');
+    const freshStdoutLogPath = path.join(resultsRoot, 'launcher_3_fresh_stdout.log');
+    const nonLauncherLogPath = path.join(resultsRoot, 'benchmark_1_run_stdout.log');
+    const nowMs = Date.now();
+    const oneWeekMs = 7 * 24 * 60 * 60 * 1000;
+
+    fs.writeFileSync(oldStdoutLogPath, 'old stdout', 'utf8');
+    fs.writeFileSync(oldStderrLogPath, 'old stderr', 'utf8');
+    fs.writeFileSync(freshStdoutLogPath, 'fresh stdout', 'utf8');
+    fs.writeFileSync(nonLauncherLogPath, 'benchmark log', 'utf8');
+
+    const oldDate = new Date(nowMs - oneWeekMs - 1000);
+    const freshDate = new Date(nowMs - oneWeekMs + 1000);
+    fs.utimesSync(oldStdoutLogPath, oldDate, oldDate);
+    fs.utimesSync(oldStderrLogPath, oldDate, oldDate);
+    fs.utimesSync(freshStdoutLogPath, freshDate, freshDate);
+    fs.utimesSync(nonLauncherLogPath, oldDate, oldDate);
+
+    const deletedCount = pruneOldLauncherLogs(resultsRoot, nowMs);
+
+    assert.equal(deletedCount, 2);
+    assert.equal(fs.existsSync(oldStdoutLogPath), false);
+    assert.equal(fs.existsSync(oldStderrLogPath), false);
+    assert.equal(fs.existsSync(freshStdoutLogPath), true);
+    assert.equal(fs.existsSync(nonLauncherLogPath), true);
+  });
+});
+
 test('buildPrompt prepends promptPrefix when provided', () => {
   const prompt = buildPrompt({
     question: 'summarize this',
@@ -5263,6 +5340,78 @@ test('buildPrompt wraps generated chunk slices as inert literal input', () => {
   assert.match(prompt, /Chunk path: 1\/2/u);
   assert.match(prompt, /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u);
   assert.match(prompt, /<<<END_LITERAL_INPUT_SLICE>>>/u);
+});
+
+test('getPlannerPromptBudget leaves 27k headroom for a 190k non-thinking context', () => {
+  const config = getDefaultConfig();
+  config.LlamaCpp.NumCtx = 190000;
+  config.LlamaCpp.Reasoning = 'off';
+  config.Runtime = {
+    Model: config.Model,
+    LlamaCpp: {
+      ...config.LlamaCpp,
+    },
+  };
+
+  const budget = getPlannerPromptBudget(config);
+  assert.deepEqual(budget, {
+    numCtxTokens: 190000,
+    promptReserveTokens: 10000,
+    usablePromptBudgetTokens: 180000,
+    plannerHeadroomTokens: 27000,
+    plannerStopLineTokens: 153000,
+  });
+});
+
+test('getPlannerPromptBudget leaves 26,250 tokens of headroom for a 190k thinking context', () => {
+  const config = getDefaultConfig();
+  config.LlamaCpp.NumCtx = 190000;
+  config.LlamaCpp.Reasoning = 'on';
+  config.Runtime = {
+    Model: config.Model,
+    LlamaCpp: {
+      ...config.LlamaCpp,
+    },
+  };
+
+  const budget = getPlannerPromptBudget(config);
+  assert.deepEqual(budget, {
+    numCtxTokens: 190000,
+    promptReserveTokens: 15000,
+    usablePromptBudgetTokens: 175000,
+    plannerHeadroomTokens: 26250,
+    plannerStopLineTokens: 148750,
+  });
+});
+
+test('buildPlannerToolDefinitions returns qwen-friendly function schemas', () => {
+  const toolDefinitions = buildPlannerToolDefinitions();
+  assert.equal(Array.isArray(toolDefinitions), true);
+  assert.equal(toolDefinitions.length, 3);
+
+  const toolNames = toolDefinitions.map((entry) => entry?.function?.name).sort();
+  assert.deepEqual(toolNames, ['find_text', 'json_filter', 'read_lines']);
+
+  for (const entry of toolDefinitions) {
+    assert.equal(entry.type, 'function');
+    assert.equal(typeof entry.function?.name, 'string');
+    assert.equal(typeof entry.function?.description, 'string');
+    assert.equal(entry.function.description.length > 0, true);
+    assert.equal(entry.function?.parameters?.type, 'object');
+    assert.equal(typeof entry.function?.parameters?.properties, 'object');
+    assert.equal(Array.isArray(entry.function?.parameters?.required), true);
+  }
+
+  const findText = toolDefinitions.find((entry) => entry.function.name === 'find_text');
+  assert.deepEqual(findText.function.parameters.required, ['query', 'mode']);
+  assert.deepEqual(findText.function.parameters.properties.mode.enum, ['literal', 'regex']);
+
+  const readLines = toolDefinitions.find((entry) => entry.function.name === 'read_lines');
+  assert.deepEqual(readLines.function.parameters.required, ['startLine', 'endLine']);
+
+  const jsonFilter = toolDefinitions.find((entry) => entry.function.name === 'json_filter');
+  assert.deepEqual(jsonFilter.function.parameters.required, ['filters']);
+  assert.equal(jsonFilter.function.parameters.properties.filters.type, 'array');
 });
 
 test('benchmark runner records a custom prompt prefix from file', async () => {
@@ -5492,6 +5641,307 @@ test('unsupported input returns the exact terminal message', async () => {
       assert.equal(result.Classification, 'unsupported_input');
       assert.equal(result.RawReviewRequired, false);
       assert.equal(result.Summary, UNSUPPORTED_INPUT_MESSAGE);
+    });
+  });
+});
+
+test('oversized transition extraction uses planner action grammar before returning a tool-assisted summary', async () => {
+  await withTempEnv(async () => {
+    const expectedOutput = [
+      '9001 | Lumbridge Castle Staircase | stairs | from (3205,3214,0) -> to (3205,3214,1) | bidirectional=true',
+      '9002 | Lumbridge Castle Courtyard Gate | gate | from (3212,3221,0) -> to (3213,3221,0) | bidirectional=false',
+    ].join('\n');
+
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Find all transitions in the Lumbridge Castle area (worldX 3200-3215, worldY 3210-3225). List their id, label, type, from coordinates (worldX, worldY, plane), to coordinates (worldX, worldY, plane), and bidirectional flag.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.RawReviewRequired, false);
+      assert.equal(result.Summary, expectedOutput);
+      assert.equal(server.state.chatRequests.length, 2);
+
+      const firstRequest = server.state.chatRequests[0];
+      const firstPrompt = String(firstRequest?.messages?.[0]?.content || '');
+      assert.match(String(firstRequest?.extra_body?.grammar || ''), /action/u);
+      assert.match(firstPrompt, /Planner mode:/u);
+      assert.match(firstPrompt, /Tools:/u);
+      assert.match(firstPrompt, /find_text/u);
+      assert.match(firstPrompt, /read_lines/u);
+      assert.match(firstPrompt, /json_filter/u);
+    }, {
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'json_filter',
+            args: {
+              filters: [
+                { path: 'from.worldX', op: 'gte', value: 3200 },
+                { path: 'from.worldX', op: 'lte', value: 3215 },
+                { path: 'from.worldY', op: 'gte', value: 3210 },
+                { path: 'from.worldY', op: 'lte', value: 3225 },
+              ],
+              select: ['id', 'label', 'type', 'from', 'to', 'bidirectional'],
+              limit: 20,
+            },
+          });
+        }
+
+        if (requestIndex === 2) {
+          return JSON.stringify({
+            action: 'finish',
+            classification: 'summary',
+            raw_review_required: false,
+            output: expectedOutput,
+          });
+        }
+
+        throw new Error(`unexpected planner request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
+      },
+    });
+  });
+});
+
+test('planner allows up to ten tool calls while prompt headroom remains', async () => {
+  await withTempEnv(async () => {
+    let toolCallCount = 0;
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 5000);
+
+      const result = await summarizeRequest({
+        question: 'Use tools if needed to summarize the relevant transition evidence.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.RawReviewRequired, false);
+      assert.equal(result.Summary, 'completed after 10 tool calls');
+      assert.equal(toolCallCount, 10);
+      assert.equal(server.state.chatRequests.length, 11);
+    }, {
+      config: {
+        LlamaCpp: {
+          NumCtx: 190000,
+          Reasoning: 'off',
+        },
+        Runtime: {
+          LlamaCpp: {
+            NumCtx: 190000,
+            Reasoning: 'off',
+          },
+        },
+      },
+      tokenizeTokenCount(content) {
+        if (/Planner mode:/u.test(content)) {
+          return 1000;
+        }
+        return Math.max(1, Math.ceil(content.length / 4));
+      },
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex <= 10) {
+          toolCallCount += 1;
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: toolCallCount % 2 === 0 ? 'read_lines' : 'find_text',
+            args: toolCallCount % 2 === 0
+              ? { startLine: toolCallCount, endLine: toolCallCount + 4 }
+              : { query: 'Lumbridge Castle', mode: 'literal', maxHits: 5 },
+          });
+        }
+
+        if (requestIndex === 11) {
+          return JSON.stringify({
+            action: 'finish',
+            classification: 'summary',
+            raw_review_required: false,
+            output: `completed after ${toolCallCount} tool calls`,
+          });
+        }
+
+        throw new Error(`unexpected headroom-allowed request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
+      },
+    });
+  });
+});
+
+test('planner falls back to chunking when the next planner turn would exceed non-thinking headroom', async () => {
+  await withTempEnv(async () => {
+    let servedPlannerToolCall = false;
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Summarize the visible transition evidence conservatively.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'merge summary');
+      assert.equal(servedPlannerToolCall, true);
+      assert.match(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /action/u);
+      assert.equal(
+        server.state.chatRequests.some((request) => /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(String(request?.messages?.[0]?.content || ''))),
+        true,
+      );
+    }, {
+      config: {
+        LlamaCpp: {
+          NumCtx: 190000,
+          Reasoning: 'off',
+        },
+        Runtime: {
+          LlamaCpp: {
+            NumCtx: 190000,
+            Reasoning: 'off',
+          },
+        },
+      },
+      tokenizeTokenCount(content) {
+        if (/Planner mode:/u.test(content) && /Tool result:/u.test(content)) {
+          return 154000;
+        }
+        return 1000;
+      },
+      assistantContent(promptText, parsed, requestIndex) {
+        if (!servedPlannerToolCall) {
+          servedPlannerToolCall = true;
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'json_filter',
+            args: {
+              filters: [
+                { path: 'from.worldX', op: 'gte', value: 3200 },
+                { path: 'from.worldX', op: 'lte', value: 3215 },
+              ],
+              select: ['id', 'label', 'from', 'to'],
+              limit: 20,
+            },
+          });
+        }
+
+        if (/<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(promptText)) {
+          return JSON.stringify({
+            classification: 'summary',
+            raw_review_required: false,
+            output: 'chunk summary',
+          });
+        }
+
+        if (/Merge these partial summaries into one final answer/u.test(promptText)) {
+          return JSON.stringify({
+            classification: 'summary',
+            raw_review_required: false,
+            output: 'merge summary',
+          });
+        }
+
+        throw new Error(`unexpected fallback request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
+      },
+    });
+  });
+});
+
+test('planner falls back to chunking when the next planner turn would exceed thinking headroom', async () => {
+  await withTempEnv(async () => {
+    let servedPlannerToolCall = false;
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Summarize the visible transition evidence conservatively.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'merge summary');
+      assert.equal(servedPlannerToolCall, true);
+      assert.equal(
+        server.state.chatRequests.some((request) => /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(String(request?.messages?.[0]?.content || ''))),
+        true,
+      );
+    }, {
+      config: {
+        LlamaCpp: {
+          NumCtx: 190000,
+          Reasoning: 'on',
+        },
+        Runtime: {
+          LlamaCpp: {
+            NumCtx: 190000,
+            Reasoning: 'on',
+          },
+        },
+      },
+      tokenizeTokenCount(content) {
+        if (/Planner mode:/u.test(content) && /Tool result:/u.test(content)) {
+          return 149000;
+        }
+        return 1000;
+      },
+      assistantContent(promptText, parsed, requestIndex) {
+        if (!servedPlannerToolCall) {
+          servedPlannerToolCall = true;
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'json_filter',
+            args: {
+              filters: [
+                { path: 'from.worldY', op: 'gte', value: 3210 },
+                { path: 'from.worldY', op: 'lte', value: 3225 },
+              ],
+              select: ['id', 'label', 'from', 'to'],
+              limit: 20,
+            },
+          });
+        }
+
+        if (/<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(promptText)) {
+          return JSON.stringify({
+            classification: 'summary',
+            raw_review_required: false,
+            output: 'chunk summary',
+          });
+        }
+
+        if (/Merge these partial summaries into one final answer/u.test(promptText)) {
+          return JSON.stringify({
+            classification: 'summary',
+            raw_review_required: false,
+            output: 'merge summary',
+          });
+        }
+
+        throw new Error(`unexpected thinking fallback request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
+      },
     });
   });
 });

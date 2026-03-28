@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.pruneOldLauncherLogs = pruneOldLauncherLogs;
 exports.readMatrixManifest = readMatrixManifest;
 exports.buildLaunchSignature = buildLaunchSignature;
 exports.buildLauncherArgs = buildLauncherArgs;
@@ -113,6 +114,56 @@ function readJsonFile(filePath) {
 function ensureDirectory(dirPath) {
     fs.mkdirSync(dirPath, { recursive: true });
     return dirPath;
+}
+const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+function isLauncherLogFile(fileName) {
+    return /^launcher_.*_(stdout|stderr)\.log$/u.test(fileName);
+}
+function collectLauncherLogPaths(rootDirectory) {
+    const pending = [rootDirectory];
+    const launcherLogPaths = [];
+    while (pending.length > 0) {
+        const current = pending.pop();
+        if (!current) {
+            continue;
+        }
+        let entries = [];
+        try {
+            entries = fs.readdirSync(current, { withFileTypes: true });
+        }
+        catch {
+            continue;
+        }
+        for (const entry of entries) {
+            const entryPath = path.join(current, entry.name);
+            if (entry.isDirectory()) {
+                pending.push(entryPath);
+                continue;
+            }
+            if (entry.isFile() && isLauncherLogFile(entry.name)) {
+                launcherLogPaths.push(entryPath);
+            }
+        }
+    }
+    return launcherLogPaths;
+}
+function pruneOldLauncherLogs(rootDirectory, nowMs = Date.now()) {
+    const launcherLogPaths = collectLauncherLogPaths(rootDirectory);
+    let deletedCount = 0;
+    for (const logPath of launcherLogPaths) {
+        try {
+            const stat = fs.statSync(logPath);
+            if (nowMs - stat.mtimeMs <= ONE_WEEK_MS) {
+                continue;
+            }
+            fs.unlinkSync(logPath);
+            deletedCount += 1;
+        }
+        catch {
+            continue;
+        }
+    }
+    return deletedCount;
 }
 function writeJsonFile(filePath, value) {
     ensureDirectory(path.dirname(filePath));
@@ -543,6 +594,7 @@ async function forceStopLlamaServer(sessionDirectory) {
     await new Promise((resolve) => setTimeout(resolve, 1_000));
 }
 async function startLlamaLauncher(manifest, target, sessionDirectory) {
+    pruneOldLauncherLogs(manifest.resultsRoot);
     const stdoutPath = path.join(sessionDirectory, `launcher_${target.index}_${target.id}_stdout.log`);
     const stderrPath = path.join(sessionDirectory, `launcher_${target.index}_${target.id}_stderr.log`);
     const args = buildLauncherArgs(manifest, target);
