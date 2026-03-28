@@ -673,11 +673,6 @@ function buildPlannerPrompt(options) {
         'Question:',
         options.question,
     ];
-    for (let index = 0; index < options.plannerThoughts.length; index += 1) {
-        sections.push('');
-        sections.push(`Previous thinking ${index + 1}:`);
-        sections.push(truncatePlannerText(options.plannerThoughts[index]));
-    }
     for (const toolResult of options.toolResults) {
         sections.push('');
         sections.push(`Tool call: ${toolResult.toolName} ${JSON.stringify(toolResult.args)}`);
@@ -1382,7 +1377,6 @@ async function invokePlannerMode(options) {
         return null;
     }
     const toolDefinitions = buildPlannerToolDefinitions();
-    const plannerThoughts = [];
     const toolResults = [];
     const debugRecorder = createPlannerDebugRecorder({
         requestId: options.requestId,
@@ -1402,7 +1396,6 @@ async function invokePlannerMode(options) {
             commandExitCode: options.commandExitCode,
             rawReviewRequired: options.rawReviewRequired,
             toolDefinitions,
-            plannerThoughts,
             toolResults,
         });
         const promptTokenCount = (await (0, llama_cpp_js_1.countLlamaCppTokens)(options.config, prompt)) ?? estimatePromptTokenCount(options.config, prompt);
@@ -1452,12 +1445,6 @@ async function invokePlannerMode(options) {
                 thinkingProcess: providerResponse.reasoningText,
                 responseText: providerResponse.text,
             });
-            const trimmedThinking = typeof providerResponse.reasoningText === 'string'
-                ? providerResponse.reasoningText.trim()
-                : '';
-            if (trimmedThinking) {
-                plannerThoughts.push(trimmedThinking);
-            }
             let action;
             try {
                 action = parsePlannerAction(providerResponse.text);

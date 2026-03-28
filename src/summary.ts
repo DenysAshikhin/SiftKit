@@ -897,7 +897,6 @@ function buildPlannerPrompt(options: {
   commandExitCode?: number | null;
   rawReviewRequired: boolean;
   toolDefinitions: PlannerToolDefinition[];
-  plannerThoughts: string[];
   toolResults: Array<{ toolName: PlannerToolName; args: Record<string, unknown>; result: unknown; resultText: string }>;
 }): string {
   const allowUnsupportedInput = options.sourceKind !== 'command-output';
@@ -947,12 +946,6 @@ function buildPlannerPrompt(options: {
     'Question:',
     options.question,
   ];
-
-  for (let index = 0; index < options.plannerThoughts.length; index += 1) {
-    sections.push('');
-    sections.push(`Previous thinking ${index + 1}:`);
-    sections.push(truncatePlannerText(options.plannerThoughts[index]));
-  }
 
   for (const toolResult of options.toolResults) {
     sections.push('');
@@ -1825,7 +1818,6 @@ async function invokePlannerMode(options: {
   }
 
   const toolDefinitions = buildPlannerToolDefinitions();
-  const plannerThoughts: string[] = [];
   const toolResults: Array<{ toolName: PlannerToolName; args: Record<string, unknown>; result: unknown; resultText: string }> = [];
   const debugRecorder = createPlannerDebugRecorder({
     requestId: options.requestId,
@@ -1846,7 +1838,6 @@ async function invokePlannerMode(options: {
       commandExitCode: options.commandExitCode,
       rawReviewRequired: options.rawReviewRequired,
       toolDefinitions,
-      plannerThoughts,
       toolResults,
     });
     const promptTokenCount = (
@@ -1907,12 +1898,6 @@ async function invokePlannerMode(options: {
         thinkingProcess: providerResponse.reasoningText,
         responseText: providerResponse.text,
       });
-      const trimmedThinking = typeof providerResponse.reasoningText === 'string'
-        ? providerResponse.reasoningText.trim()
-        : '';
-      if (trimmedThinking) {
-        plannerThoughts.push(trimmedThinking);
-      }
 
       let action: PlannerAction;
       try {

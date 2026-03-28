@@ -1,0 +1,37 @@
+# Unlocks.gd Summary
+
+## Progression/Unlock Data Ownership
+Unlocks.gd owns the following progression systems:
+
+- **OBJECT_KEYS** (lines 3-177+): Constant dictionary mapping game resource keys to string identifiers including drolium_combat, drolium, slag_combat, slag_total, ochium, yetrium, thorium, osnium, research_points, permanent_upgrades_count, mothership_damage_split, mothership_damage_split_shield, mothership_damage_split_hull, achievement_tiers_unlocked, tech_max_selections_active, outpost_max_trade_routes, and others.
+
+- **OBJECT_MAP** (lines 181+): Maps OBJECT_KEYS to objective data structures containing name, is_time (boolean), amount (float), and sort (1=total, 2=max, 3=min) properties.
+
+- **OBJECT_MAP_PRESTIGE** (line 179): Empty dictionary var for prestige-based objective tracking.
+
+- **TIER_UNLOCK_MAP** (lines 1336-1412): Dictionary containing tiered unlock data organized by category:
+  - mothership_unlocks: tier entries with tier, unlocked (boolean), num_unlocked (int), required (int)
+  - drone_unlocks: similar tier structure
+  - support_unlocks: similar tier structure
+
+- **UNLOCK_MAP** (lines 1416+): Main unlock definitions dictionary with categories: mothership_unlocks, support_unlocks, drone_unlocks, tech_unlocks. Each unlock entry contains:
+  - base_amount, level, max_level
+  - description: function returning formatted string with cost and effect details
+  - value, get_value: function for calculating values
+  - options: current_selection, overcharge.level, overcharge.base_amount
+  - cost: references to OBJECTIVE_MAP keys
+
+## Unlock Definition Grouping
+Unlocks are grouped by:
+
+1. **Type/Category**: mothership_unlocks, drone_unlocks, support_unlocks, tech_unlocks
+2. **Tier Level**: TIER_UNLOCK_MAP organizes unlocks into tier 1, 2, 3 entries with unlock thresholds
+3. **Overcharge Levels**: Individual unlocks have overcharge configurations (e.g., lines 6179, 7579, 7625 show max_level values)
+
+## Systems Depending on Unlocks
+
+- **get_objective_title(key)** (lines 8176-8179): Function that returns OBJECTIVE_MAP[key].name for objective display
+- **get_rqmt_amount(stat_key)** (lines 8777-8787): Calculates requirement amounts using Unlocks.OBJECTIVE_MAP[stat_key].sort logic (1=total, 2=max, 3=min) and iterates through Unlocks.OBJECT_MAP_PRESTIGE for prestige adjustments
+- **UNLOCK_MAP descriptions** (lines 6180, 6181, 6183, 7580, 7581, 7626, 7627): All unlock descriptions call Unlocks.get_objective_title(UNLOCK_MAP[...].cost) to format cost text
+- **Tech passive unlocks** (line 8663-8665): References Unlocks.get_objective_is_time() for tech cost calculations
+Raw review required.
