@@ -33,9 +33,11 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MissingObservedBudgetError = exports.StatusServerUnavailableError = exports.SIFT_DEFAULT_PROMPT_PREFIX = exports.SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN = exports.SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS = exports.SIFT_DEFAULT_LLAMA_SHUTDOWN_SCRIPT = exports.SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_DEFAULT_LLAMA_MODEL_PATH = exports.SIFT_DEFAULT_LLAMA_BASE_URL = exports.SIFT_DEFAULT_LLAMA_MODEL = exports.SIFT_PREVIOUS_DEFAULT_MODEL = exports.SIFT_PREVIOUS_DEFAULT_NUM_CTX = exports.SIFT_LEGACY_DERIVED_NUM_CTX = exports.SIFT_LEGACY_DEFAULT_NUM_CTX = exports.SIFT_DEFAULT_NUM_CTX = exports.SIFTKIT_VERSION = void 0;
+exports.MissingObservedBudgetError = exports.StatusServerUnavailableError = exports.SIFT_DEFAULT_PROMPT_PREFIX = exports.SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN = exports.SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS = exports.SIFT_DEFAULT_LLAMA_SHUTDOWN_SCRIPT = exports.SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_DEFAULT_LLAMA_MODEL_PATH = exports.SIFT_DEFAULT_LLAMA_BASE_URL = exports.SIFT_DEFAULT_LLAMA_MODEL = exports.SIFT_PREVIOUS_DEFAULT_MODEL = exports.SIFT_PREVIOUS_DEFAULT_NUM_CTX = exports.SIFT_LEGACY_DERIVED_NUM_CTX = exports.SIFT_LEGACY_DEFAULT_NUM_CTX = exports.SIFT_DEFAULT_NUM_CTX = exports.SIFTKIT_VERSION = void 0;
 exports.ensureDirectory = ensureDirectory;
 exports.saveContentAtomically = saveContentAtomically;
+exports.getRepoLocalRuntimeRoot = getRepoLocalRuntimeRoot;
+exports.getRepoLocalLogsPath = getRepoLocalLogsPath;
 exports.getRuntimeRoot = getRuntimeRoot;
 exports.initializeRuntime = initializeRuntime;
 exports.getDefaultNumCtx = getDefaultNumCtx;
@@ -79,7 +81,9 @@ exports.SIFT_DEFAULT_LLAMA_MODEL = 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
 exports.SIFT_DEFAULT_LLAMA_BASE_URL = 'http://127.0.0.1:8097';
 exports.SIFT_DEFAULT_LLAMA_MODEL_PATH = 'D:\\personal\\models\\Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
 exports.SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-35B-4bit-150k-no-thinking.ps1';
-exports.SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k.ps1';
+exports.SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k.ps1';
+exports.SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k-thinking.ps1';
+exports.SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT = 'C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\scripts\\start-qwen35-9b-q8-200k-thinking-managed.ps1';
 exports.SIFT_DEFAULT_LLAMA_SHUTDOWN_SCRIPT = 'C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\scripts\\stop-llama-server.ps1';
 exports.SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS = 32_000;
 exports.SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN = 2.5;
@@ -256,6 +260,14 @@ function findNearestSiftKitRepoRoot(startPath = process.cwd()) {
         }
         currentPath = parentPath;
     }
+}
+function getRepoLocalRuntimeRoot() {
+    const repoRoot = findNearestSiftKitRepoRoot();
+    return repoRoot ? path.resolve(repoRoot, '.siftkit') : null;
+}
+function getRepoLocalLogsPath() {
+    const runtimeRoot = getRepoLocalRuntimeRoot();
+    return runtimeRoot ? path.resolve(runtimeRoot, 'logs') : null;
 }
 function getRuntimeRoot() {
     const configuredStatusPath = process.env.sift_kit_status;
@@ -959,7 +971,9 @@ function normalizeConfig(config) {
         updated.Server.LlamaCpp.StartupScript = defaults.Server?.LlamaCpp?.StartupScript ?? null;
         changed = true;
     }
-    if (updated.Server.LlamaCpp.StartupScript === exports.SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT) {
+    if (updated.Server.LlamaCpp.StartupScript === exports.SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT
+        || updated.Server.LlamaCpp.StartupScript === exports.SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT
+        || updated.Server.LlamaCpp.StartupScript === exports.SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT) {
         updated.Server.LlamaCpp.StartupScript = defaults.Server?.LlamaCpp?.StartupScript ?? null;
         changed = true;
     }

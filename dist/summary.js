@@ -37,10 +37,13 @@ exports.UNSUPPORTED_INPUT_MESSAGE = void 0;
 exports.getDeterministicExcerpt = getDeterministicExcerpt;
 exports.getSummaryDecision = getSummaryDecision;
 exports.planTokenAwareLlamaCppChunks = planTokenAwareLlamaCppChunks;
+exports.getPlannerPromptBudget = getPlannerPromptBudget;
+exports.buildPlannerToolDefinitions = buildPlannerToolDefinitions;
 exports.buildPrompt = buildPrompt;
 exports.summarizeRequest = summarizeRequest;
 exports.readSummaryInput = readSummaryInput;
 const fs = __importStar(require("node:fs"));
+const path = __importStar(require("node:path"));
 const node_crypto_1 = require("node:crypto");
 const config_js_1 = require("./config.js");
 const execution_lock_js_1 = require("./execution-lock.js");
@@ -263,7 +266,7 @@ async function countPromptTokensForChunk(options) {
     return (0, llama_cpp_js_1.countLlamaCppTokens)(options.config, prompt);
 }
 async function planTokenAwareLlamaCppChunks(options) {
-    const effectivePromptLimit = (0, config_js_1.getConfiguredLlamaNumCtx)(options.config) - getLlamaCppPromptTokenReserve(options.config);
+    const effectivePromptLimit = getPlannerPromptBudget(options.config).usablePromptBudgetTokens;
     if (effectivePromptLimit <= 0) {
         return null;
     }
@@ -353,15 +356,48 @@ const LLAMA_CPP_NON_THINKING_PROMPT_TOKEN_RESERVE = 10_000;
 const LLAMA_CPP_THINKING_PROMPT_TOKEN_RESERVE = 15_000;
 const LLAMA_CPP_PROMPT_TOKEN_TARGET_TOLERANCE = 2000;
 const MAX_TOKEN_AWARE_CHUNK_ADJUSTMENTS = 8;
+const MAX_PLANNER_TOOL_CALLS = 20;
+const MIN_PLANNER_HEADROOM_TOKENS = 4000;
+const PLANNER_HEADROOM_RATIO = 0.15;
+const PLANNER_TRIGGER_CONTEXT_RATIO = 0.4;
+const MAX_PLANNER_TOOL_RESULT_CHARACTERS = 12_000;
+const MAX_PLANNER_PREVIEW_CHARACTERS = 600;
+let nextLlamaCppSlotId = 0;
 function getLlamaCppPromptTokenReserve(config) {
     const reasoning = (0, config_js_1.getConfiguredLlamaSetting)(config, 'Reasoning');
     return reasoning === 'off'
         ? LLAMA_CPP_NON_THINKING_PROMPT_TOKEN_RESERVE
         : LLAMA_CPP_THINKING_PROMPT_TOKEN_RESERVE;
 }
+function allocateLlamaCppSlotId(config) {
+    const configuredSlots = (0, config_js_1.getConfiguredLlamaSetting)(config, 'ParallelSlots');
+    const slotCount = Math.max(1, Math.floor(Number(configuredSlots) || 1));
+    const slotId = nextLlamaCppSlotId % slotCount;
+    nextLlamaCppSlotId = (nextLlamaCppSlotId + 1) % slotCount;
+    return slotId;
+}
+function getPlannerPromptBudget(config) {
+    const numCtxTokens = (0, config_js_1.getConfiguredLlamaNumCtx)(config);
+    const promptReserveTokens = getLlamaCppPromptTokenReserve(config);
+    const usablePromptBudgetTokens = Math.max(numCtxTokens - promptReserveTokens, 0);
+    const plannerHeadroomTokens = Math.max(Math.ceil(usablePromptBudgetTokens * PLANNER_HEADROOM_RATIO), MIN_PLANNER_HEADROOM_TOKENS);
+    return {
+        numCtxTokens,
+        promptReserveTokens,
+        usablePromptBudgetTokens,
+        plannerHeadroomTokens,
+        plannerStopLineTokens: Math.max(usablePromptBudgetTokens - plannerHeadroomTokens, 0),
+    };
+}
+function estimatePromptTokenCount(config, text) {
+    return Math.max(1, Math.ceil(text.length / Math.max((0, config_js_1.getEffectiveInputCharactersPerContextToken)(config), 0.1)));
+}
 function getLlamaCppChunkThresholdCharacters(config) {
     const reserveChars = Math.ceil(getLlamaCppPromptTokenReserve(config) * (0, config_js_1.getEffectiveInputCharactersPerContextToken)(config));
     return Math.max((0, config_js_1.getChunkThresholdCharacters)(config) - reserveChars, 1);
+}
+function getPlannerActivationThresholdCharacters(config) {
+    return Math.max(1, Math.floor((0, config_js_1.getConfiguredLlamaNumCtx)(config) * (0, config_js_1.getEffectiveInputCharactersPerContextToken)(config) * PLANNER_TRIGGER_CONTEXT_RATIO));
 }
 function getTokenAwareChunkThreshold(options) {
     if (options.inputLength <= 1
@@ -372,6 +408,591 @@ function getTokenAwareChunkThreshold(options) {
     const scaledThreshold = Math.floor(options.inputLength * (options.effectivePromptLimit / options.promptTokenCount) * 0.95);
     const reducedThreshold = Math.max(1, Math.min(options.inputLength - 1, scaledThreshold));
     return reducedThreshold < options.inputLength ? reducedThreshold : null;
+}
+function buildPlannerToolDefinitions() {
+    return [
+        {
+            type: 'function',
+            function: {
+                name: 'find_text',
+                description: 'Search the input text for a literal string or regex and return matching lines with optional surrounding context. Regex patterns must be valid JavaScript regex source without surrounding slashes; do not escape ordinary quotes unless the regex itself requires it. Example: {"query":"Lumbridge","mode":"literal","maxHits":5,"contextLines":1}',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        query: { type: 'string', description: 'The literal text or regex pattern to search for.' },
+                        mode: { type: 'string', enum: ['literal', 'regex'], description: 'Whether query is treated as literal text or regex.' },
+                        maxHits: { type: 'integer', description: 'Maximum number of matching locations to return.' },
+                        contextLines: { type: 'integer', description: 'Number of surrounding lines to include before and after each hit.' },
+                    },
+                    required: ['query', 'mode'],
+                },
+            },
+        },
+        {
+            type: 'function',
+            function: {
+                name: 'read_lines',
+                description: 'Read a specific 1-based line range from the input text. Example: {"startLine":1340,"endLine":1405}',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        startLine: { type: 'integer', description: 'Inclusive 1-based start line.' },
+                        endLine: { type: 'integer', description: 'Inclusive 1-based end line.' },
+                    },
+                    required: ['startLine', 'endLine'],
+                },
+            },
+        },
+        {
+            type: 'function',
+            function: {
+                name: 'json_filter',
+                description: 'Parse JSON, filter array items by field conditions, and project only the selected fields. Use separate filters for gte/lte bounds; each filter value should be a single scalar value, not an object containing multiple operators. Do not use "value":{"gte":3200,"lte":3215}. Example: {"filters":[{"path":"from.worldX","op":"gte","value":3200},{"path":"from.worldX","op":"lte","value":3215}],"select":["id","label","from","to","bidirectional"],"limit":20}',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        collectionPath: { type: 'string', description: 'Optional dot-path to the array collection. Omit for a root array.' },
+                        filters: {
+                            type: 'array',
+                            description: 'Field predicates applied to each item in the collection.',
+                            items: {
+                                type: 'object',
+                                properties: {
+                                    path: { type: 'string' },
+                                    op: { type: 'string', enum: ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'contains', 'exists'] },
+                                    value: {},
+                                },
+                                required: ['path', 'op'],
+                            },
+                        },
+                        select: {
+                            type: 'array',
+                            description: 'Optional list of dot-path fields to project from each matched item.',
+                            items: { type: 'string' },
+                        },
+                        limit: { type: 'integer', description: 'Maximum number of matched items to return.' },
+                    },
+                    required: ['filters'],
+                },
+            },
+        },
+    ];
+}
+function getRecord(value) {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+function getPlannerToolName(value) {
+    return value === 'find_text' || value === 'read_lines' || value === 'json_filter'
+        ? value
+        : null;
+}
+function getFiniteInteger(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+}
+function getValueByPath(value, pathText) {
+    if (!pathText.trim()) {
+        return value;
+    }
+    const segments = pathText.split('.').map((segment) => segment.trim()).filter(Boolean);
+    let current = value;
+    for (const segment of segments) {
+        if (Array.isArray(current)) {
+            const index = Number.parseInt(segment, 10);
+            if (!Number.isFinite(index) || index < 0 || index >= current.length) {
+                return undefined;
+            }
+            current = current[index];
+            continue;
+        }
+        if (!current || typeof current !== 'object' || !(segment in current)) {
+            return undefined;
+        }
+        current = current[segment];
+    }
+    return current;
+}
+function setValueByPath(target, pathText, value) {
+    const segments = pathText.split('.').map((segment) => segment.trim()).filter(Boolean);
+    if (segments.length === 0) {
+        return;
+    }
+    let current = target;
+    for (let index = 0; index < segments.length - 1; index += 1) {
+        const segment = segments[index];
+        const next = getRecord(current[segment]);
+        if (next) {
+            current = next;
+            continue;
+        }
+        current[segment] = {};
+        current = current[segment];
+    }
+    current[segments[segments.length - 1]] = value;
+}
+function truncatePlannerText(text) {
+    if (text.length <= MAX_PLANNER_TOOL_RESULT_CHARACTERS) {
+        return text;
+    }
+    return `${text.slice(0, MAX_PLANNER_TOOL_RESULT_CHARACTERS)}\n... [truncated ${text.length - MAX_PLANNER_TOOL_RESULT_CHARACTERS} chars]`;
+}
+function formatNumberedLineBlock(lines, startLine) {
+    return lines
+        .map((line, index) => `${startLine + index}: ${line}`)
+        .join('\n');
+}
+function formatCompactJsonBlock(values) {
+    return values.map((value) => JSON.stringify(value)).join('\n');
+}
+function formatPlannerToolResultHeader(value) {
+    const tool = typeof value.tool === 'string' ? value.tool : '';
+    if (tool === 'read_lines') {
+        return `read_lines startLine=${value.startLine} endLine=${value.endLine} lineCount=${value.lineCount}`;
+    }
+    if (tool === 'find_text') {
+        return `find_text mode=${value.mode} query=${JSON.stringify(value.query)} hitCount=${value.hitCount}`;
+    }
+    if (tool === 'json_filter') {
+        return `json_filter collectionPath=${value.collectionPath} matchedCount=${value.matchedCount}`;
+    }
+    return null;
+}
+function formatPlannerResult(value) {
+    const record = getRecord(value);
+    if (record && typeof record.text === 'string') {
+        const header = formatPlannerToolResultHeader(record);
+        return truncatePlannerText(header ? `${header}\n${record.text}` : record.text);
+    }
+    return truncatePlannerText(JSON.stringify(value, null, 2));
+}
+function buildPlannerDocumentProfile(inputText) {
+    const lines = inputText.replace(/\r\n/gu, '\n').split('\n');
+    const profileLines = [
+        `chars=${inputText.length}`,
+        `lines=${inputText.trim() ? lines.length : 0}`,
+    ];
+    const preview = truncatePlannerText(inputText.slice(0, MAX_PLANNER_PREVIEW_CHARACTERS));
+    try {
+        const parsed = JSON.parse(inputText);
+        if (Array.isArray(parsed)) {
+            profileLines.push('json=parseable');
+            profileLines.push('top_level=array');
+            profileLines.push(`array_length=${parsed.length}`);
+            const sampleKeys = parsed.length > 0 && getRecord(parsed[0])
+                ? Object.keys(getRecord(parsed[0])).slice(0, 10)
+                : [];
+            if (sampleKeys.length > 0) {
+                profileLines.push(`sample_keys=${sampleKeys.join(',')}`);
+            }
+        }
+        else if (getRecord(parsed)) {
+            profileLines.push('json=parseable');
+            profileLines.push('top_level=object');
+            const objectKeys = Object.keys(getRecord(parsed)).slice(0, 10);
+            if (objectKeys.length > 0) {
+                profileLines.push(`object_keys=${objectKeys.join(',')}`);
+            }
+        }
+        else {
+            profileLines.push('json=parseable');
+            profileLines.push(`top_level=${typeof parsed}`);
+        }
+    }
+    catch {
+        profileLines.push('json=unparseable');
+        profileLines.push('top_level=text');
+    }
+    profileLines.push('preview:');
+    profileLines.push(preview);
+    return profileLines.join('\n');
+}
+function buildPlannerPrompt(options) {
+    const allowUnsupportedInput = options.sourceKind !== 'command-output';
+    const sections = [
+        'You are SiftKit, a conservative shell-output compressor for Codex workflows.',
+        '',
+        'Planner mode:',
+        '- The full input is too large for a direct pass, so inspect only the minimum evidence needed.',
+        '- If the document profile or current tool results are already sufficient, finish immediately.',
+        '- Request at most one tool call per response.',
+        '- Return only a valid JSON object. No markdown fences.',
+        '- Use separate filters for gte/lte bounds in json_filter; do not combine multiple operators inside one filter value.',
+        '- Do not use "value":{"gte":3200,"lte":3215}. Use one filter per bound with a scalar value.',
+        '- Regex patterns must be valid JavaScript regex source for find_text. Do not add unnecessary escapes for ordinary quotes.',
+        '',
+        'Available actions:',
+        '{"action":"tool","tool_name":"find_text|read_lines|json_filter","args":{...}}',
+        allowUnsupportedInput
+            ? '{"action":"finish","classification":"summary|command_failure|unsupported_input","raw_review_required":true,"output":"final answer text"}'
+            : '{"action":"finish","classification":"summary|command_failure","raw_review_required":true,"output":"final answer text"}',
+        '',
+        'Example tool calls:',
+        '{"action":"tool","tool_name":"find_text","args":{"query":"Lumbridge","mode":"literal","maxHits":5,"contextLines":1}}',
+        '{"action":"tool","tool_name":"read_lines","args":{"startLine":1340,"endLine":1405}}',
+        'Bad json_filter example: {"action":"tool","tool_name":"json_filter","args":{"filters":[{"path":"from.worldX","op":"gte","value":{"gte":3200,"lte":3215}}]}}',
+        '{"action":"tool","tool_name":"json_filter","args":{"filters":[{"path":"from.worldX","op":"gte","value":3200},{"path":"from.worldX","op":"lte","value":3215},{"path":"from.worldY","op":"gte","value":3210},{"path":"from.worldY","op":"lte","value":3225}],"select":["id","label","type","from","to","bidirectional"],"limit":20}}',
+        '',
+        'Source handling:',
+        getSourceInstructions(options.sourceKind, options.commandExitCode),
+        '',
+        'Risk handling:',
+        options.rawReviewRequired
+            ? 'Raw-log review is likely required. Set raw_review_required to true unless the visible evidence clearly proves otherwise.'
+            : 'Set raw_review_required based on the visible evidence. Use true for risky, incomplete, or failure-related output.',
+        '',
+        'Tools:',
+        ...options.toolDefinitions.map((tool) => `${tool.function.name}: ${tool.function.description}\nparameters=${JSON.stringify(tool.function.parameters)}`),
+        '',
+        'Document profile:',
+        buildPlannerDocumentProfile(options.inputText),
+        '',
+        'Question:',
+        options.question,
+    ];
+    for (const toolResult of options.toolResults) {
+        sections.push('');
+        sections.push(`Tool call: ${toolResult.toolName} ${JSON.stringify(toolResult.args)}`);
+        sections.push('Tool result:');
+        sections.push(toolResult.resultText);
+    }
+    const promptPrefix = options.promptPrefix?.trim();
+    return promptPrefix
+        ? [promptPrefix, '', ...sections].join('\n')
+        : sections.join('\n');
+}
+function parsePlannerAction(text) {
+    let parsed;
+    try {
+        parsed = JSON.parse(stripCodeFence(text));
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Provider returned an invalid planner payload: ${message}`);
+    }
+    const action = typeof parsed.action === 'string' ? parsed.action.trim().toLowerCase() : '';
+    if (action === 'tool') {
+        const toolName = getPlannerToolName(parsed.tool_name);
+        const args = getRecord(parsed.args);
+        if (!toolName || !args) {
+            throw new Error('Provider returned an invalid planner tool action.');
+        }
+        return {
+            action: 'tool',
+            tool_name: toolName,
+            args,
+        };
+    }
+    if (action === 'finish') {
+        const classification = typeof parsed.classification === 'string'
+            ? parsed.classification.trim().toLowerCase()
+            : '';
+        const output = typeof parsed.output === 'string' ? parsed.output.trim() : '';
+        if (!['summary', 'command_failure', 'unsupported_input'].includes(classification) || !output) {
+            throw new Error('Provider returned an invalid planner finish action.');
+        }
+        return {
+            action: 'finish',
+            classification: classification,
+            rawReviewRequired: Boolean(parsed.raw_review_required ?? parsed.rawReviewRequired ?? false),
+            output,
+        };
+    }
+    throw new Error('Provider returned an unknown planner action.');
+}
+function executeFindTextTool(inputText, args) {
+    const query = typeof args.query === 'string' ? args.query : '';
+    const mode = args.mode === 'regex' ? 'regex' : args.mode === 'literal' ? 'literal' : null;
+    if (!query.trim() || !mode) {
+        throw new Error('find_text requires query and mode.');
+    }
+    const maxHits = Math.max(1, Math.min(getFiniteInteger(args.maxHits) ?? 5, 20));
+    const contextLines = Math.max(0, Math.min(getFiniteInteger(args.contextLines) ?? 0, 3));
+    const lines = inputText.replace(/\r\n/gu, '\n').split('\n');
+    const matcher = mode === 'regex'
+        ? new RegExp(query, 'u')
+        : null;
+    const hitBlocks = [];
+    let hitCount = 0;
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        const matched = mode === 'literal'
+            ? line.includes(query)
+            : Boolean(matcher?.test(line));
+        if (!matched) {
+            continue;
+        }
+        hitCount += 1;
+        const start = Math.max(0, index - contextLines);
+        const end = Math.min(lines.length - 1, index + contextLines);
+        hitBlocks.push(formatNumberedLineBlock(lines.slice(start, end + 1), start + 1));
+        if (hitCount >= maxHits) {
+            break;
+        }
+    }
+    return {
+        tool: 'find_text',
+        mode,
+        query,
+        hitCount,
+        text: hitBlocks.join('\n\n'),
+    };
+}
+function executeReadLinesTool(inputText, args) {
+    const startLine = Math.max(getFiniteInteger(args.startLine) ?? 1, 1);
+    const endLine = Math.max(getFiniteInteger(args.endLine) ?? startLine, startLine);
+    const lines = inputText.replace(/\r\n/gu, '\n').split('\n');
+    const clampedStart = Math.min(startLine, lines.length || 1);
+    const clampedEnd = Math.min(endLine, lines.length || clampedStart);
+    const selectedLines = lines.slice(clampedStart - 1, clampedEnd);
+    return {
+        tool: 'read_lines',
+        startLine: clampedStart,
+        endLine: clampedEnd,
+        lineCount: selectedLines.length,
+        text: formatNumberedLineBlock(selectedLines, clampedStart),
+    };
+}
+function normalizeJsonFilterFilters(filters) {
+    const normalized = [];
+    for (const filter of filters) {
+        const pathText = typeof filter.path === 'string' ? filter.path : '';
+        const op = typeof filter.op === 'string' ? filter.op : '';
+        const nestedBounds = getRecord(filter.value);
+        const nestedEntries = nestedBounds
+            ? Object.entries(nestedBounds).filter((entry) => ['eq', 'neq', 'gt', 'gte', 'lt', 'lte'].includes(entry[0]))
+            : [];
+        if (pathText && op && nestedEntries.length > 0) {
+            for (const [nestedOp, nestedValue] of nestedEntries) {
+                normalized.push({
+                    path: pathText,
+                    op: nestedOp,
+                    value: nestedValue,
+                });
+            }
+            continue;
+        }
+        normalized.push(filter);
+    }
+    return normalized;
+}
+function matchesJsonFilter(item, filter) {
+    const pathText = typeof filter.path === 'string' ? filter.path : '';
+    const op = typeof filter.op === 'string' ? filter.op : '';
+    const expected = filter.value;
+    const actual = getValueByPath(item, pathText);
+    switch (op) {
+        case 'eq':
+            return actual === expected;
+        case 'neq':
+            return actual !== expected;
+        case 'gt':
+            if (getRecord(expected)) {
+                throw new Error('json_filter gt requires a scalar value.');
+            }
+            return Number(actual) > Number(expected);
+        case 'gte':
+            if (getRecord(expected)) {
+                throw new Error('json_filter gte requires a scalar value.');
+            }
+            return Number(actual) >= Number(expected);
+        case 'lt':
+            if (getRecord(expected)) {
+                throw new Error('json_filter lt requires a scalar value.');
+            }
+            return Number(actual) < Number(expected);
+        case 'lte':
+            if (getRecord(expected)) {
+                throw new Error('json_filter lte requires a scalar value.');
+            }
+            return Number(actual) <= Number(expected);
+        case 'contains':
+            return Array.isArray(actual)
+                ? actual.includes(expected)
+                : String(actual ?? '').includes(String(expected ?? ''));
+        case 'exists':
+            return expected === false ? actual === undefined : actual !== undefined;
+        default:
+            throw new Error(`Unsupported json_filter op: ${op}`);
+    }
+}
+function projectJsonFilterItem(item, select) {
+    if (!select || select.length === 0) {
+        return item;
+    }
+    const projected = {};
+    for (const pathText of select) {
+        setValueByPath(projected, pathText, getValueByPath(item, pathText));
+    }
+    return projected;
+}
+function executeJsonFilterTool(inputText, args) {
+    const parsed = JSON.parse(inputText);
+    const filters = Array.isArray(args.filters)
+        ? normalizeJsonFilterFilters(args.filters.map((item) => getRecord(item)).filter(Boolean))
+        : [];
+    if (filters.length === 0) {
+        throw new Error('json_filter requires at least one filter.');
+    }
+    const collectionPath = typeof args.collectionPath === 'string' ? args.collectionPath : '';
+    const collection = collectionPath ? getValueByPath(parsed, collectionPath) : parsed;
+    if (!Array.isArray(collection)) {
+        throw new Error('json_filter collection is not an array.');
+    }
+    const select = Array.isArray(args.select)
+        ? args.select.filter((value) => typeof value === 'string' && value.trim().length > 0)
+        : null;
+    const limit = Math.max(1, Math.min(getFiniteInteger(args.limit) ?? 10, 50));
+    const matches = [];
+    for (const item of collection) {
+        if (!filters.every((filter) => matchesJsonFilter(item, filter))) {
+            continue;
+        }
+        matches.push(projectJsonFilterItem(item, select));
+        if (matches.length >= limit) {
+            break;
+        }
+    }
+    return {
+        tool: 'json_filter',
+        collectionPath: collectionPath || '$',
+        matchedCount: matches.length,
+        text: formatCompactJsonBlock(matches),
+    };
+}
+function executePlannerTool(inputText, action) {
+    switch (action.tool_name) {
+        case 'find_text':
+            return executeFindTextTool(inputText, action.args);
+        case 'read_lines':
+            return executeReadLinesTool(inputText, action.args);
+        case 'json_filter':
+            return executeJsonFilterTool(inputText, action.args);
+        default:
+            throw new Error(`Unsupported planner tool: ${String(action.tool_name)}`);
+    }
+}
+function createPlannerDebugRecorder(options) {
+    const debugPath = getPlannerDebugPath(options.requestId);
+    updatePlannerDebugDump(options.requestId, () => ({
+        requestId: options.requestId,
+        command: options.commandText ?? null,
+        question: options.question,
+        sourceKind: options.sourceKind,
+        commandExitCode: options.commandExitCode ?? null,
+        inputText: options.inputText,
+        events: [],
+        final: null,
+    }));
+    return {
+        path: debugPath,
+        record(event) {
+            updatePlannerDebugDump(options.requestId, (payload) => ({
+                ...payload,
+                events: [...(Array.isArray(payload.events) ? payload.events : []), event],
+            }));
+        },
+        finish(result) {
+            updatePlannerDebugDump(options.requestId, (payload) => ({
+                ...payload,
+                final: result,
+            }));
+        },
+    };
+}
+function getPlannerDebugPath(requestId) {
+    const repoLogsPath = (0, config_js_1.getRepoLocalLogsPath)();
+    const logsPath = repoLogsPath ? fs.mkdirSync(repoLogsPath, { recursive: true }) || repoLogsPath : (0, config_js_1.initializeRuntime)().Logs;
+    return path.join(logsPath, `planner_debug_${requestId}.json`);
+}
+function getPlannerFailedLogsPath() {
+    const repoLogsPath = (0, config_js_1.getRepoLocalLogsPath)();
+    const logsPath = repoLogsPath ? fs.mkdirSync(repoLogsPath, { recursive: true }) || repoLogsPath : (0, config_js_1.initializeRuntime)().Logs;
+    return path.join(logsPath, 'failed');
+}
+function getSummaryRequestLogsPath() {
+    const repoLogsPath = (0, config_js_1.getRepoLocalLogsPath)();
+    const logsPath = repoLogsPath ? fs.mkdirSync(repoLogsPath, { recursive: true }) || repoLogsPath : (0, config_js_1.initializeRuntime)().Logs;
+    return path.join(logsPath, 'requests');
+}
+function getPlannerFailedPath(requestId) {
+    return path.join(getPlannerFailedLogsPath(), `request_failed_${requestId}.json`);
+}
+function getSummaryRequestLogPath(requestId) {
+    return path.join(getSummaryRequestLogsPath(), `request_${requestId}.json`);
+}
+function readPlannerDebugPayload(requestId) {
+    const debugPath = getPlannerDebugPath(requestId);
+    if (!fs.existsSync(debugPath)) {
+        return {};
+    }
+    try {
+        return JSON.parse(fs.readFileSync(debugPath, 'utf8'));
+    }
+    catch {
+        return {};
+    }
+}
+function updatePlannerDebugDump(requestId, update) {
+    const debugPath = getPlannerDebugPath(requestId);
+    const payload = readPlannerDebugPayload(requestId);
+    (0, config_js_1.saveContentAtomically)(debugPath, `${JSON.stringify(update(payload), null, 2)}\n`);
+}
+function finalizePlannerDebugDump(options) {
+    const debugPath = getPlannerDebugPath(options.requestId);
+    if (!fs.existsSync(debugPath)) {
+        return;
+    }
+    updatePlannerDebugDump(options.requestId, (payload) => ({
+        ...payload,
+        final: {
+            ...(getRecord(payload.final) ?? {}),
+            finalOutput: options.finalOutput,
+            classification: options.classification,
+            rawReviewRequired: options.rawReviewRequired,
+            providerError: options.providerError ?? null,
+        },
+    }));
+}
+function buildPlannerFailureErrorMessage(options) {
+    const debugPath = getPlannerDebugPath(options.requestId);
+    const final = getRecord(readPlannerDebugPayload(options.requestId).final);
+    const reason = options.reason
+        || (typeof final?.reason === 'string' ? final.reason : null)
+        || 'planner_failed';
+    const debugSuffix = fs.existsSync(debugPath)
+        ? ` Planner debug dump: ${debugPath}`
+        : '';
+    return `Planner mode failed: ${reason}.${debugSuffix}`;
+}
+function writeFailedRequestDump(options) {
+    const failedPath = getPlannerFailedPath(options.requestId);
+    (0, config_js_1.saveContentAtomically)(failedPath, `${JSON.stringify({
+        requestId: options.requestId,
+        command: options.command ?? null,
+        question: options.question,
+        inputText: options.inputText,
+        error: options.error,
+        providerError: options.providerError ?? options.error,
+        plannerDebugPath: fs.existsSync(getPlannerDebugPath(options.requestId)) ? getPlannerDebugPath(options.requestId) : null,
+    }, null, 2)}\n`);
+}
+function writeSummaryRequestDump(options) {
+    const requestLogPath = getSummaryRequestLogPath(options.requestId);
+    (0, config_js_1.saveContentAtomically)(requestLogPath, `${JSON.stringify({
+        requestId: options.requestId,
+        command: options.command ?? null,
+        question: options.question,
+        inputText: options.inputText,
+        backend: options.backend,
+        model: options.model,
+        classification: options.classification ?? null,
+        rawReviewRequired: options.rawReviewRequired ?? null,
+        summary: options.summary ?? null,
+        providerError: options.providerError ?? null,
+        error: options.error ?? null,
+        plannerDebugPath: fs.existsSync(getPlannerDebugPath(options.requestId)) ? getPlannerDebugPath(options.requestId) : null,
+        failedRequestPath: fs.existsSync(getPlannerFailedPath(options.requestId)) ? getPlannerFailedPath(options.requestId) : null,
+    }, null, 2)}\n`);
 }
 function appendTestProviderEvent(event) {
     const logPath = process.env.SIFTKIT_TEST_PROVIDER_LOG_PATH;
@@ -590,6 +1211,7 @@ async function invokeProviderSummary(options) {
             model: options.model,
             prompt: options.prompt,
             timeoutSeconds: options.requestTimeoutSeconds ?? 600,
+            slotId: options.slotId ?? undefined,
             structuredOutput: {
                 kind: 'siftkit-decision-json',
                 allowUnsupportedInput: options.backend !== 'llama.cpp' || options.phase === 'leaf' && options.chunkPath !== null,
@@ -617,6 +1239,226 @@ async function invokeProviderSummary(options) {
             requestDurationMs: Date.now() - startedAt,
         });
     }
+}
+async function invokePlannerProviderAction(options) {
+    traceSummary(`notify running=true phase=planner chunk=none raw_chars=${options.rawInputCharacterCount} `
+        + `chunk_chars=${options.chunkInputCharacterCount} prompt_chars=${options.prompt.length}`);
+    await (0, config_js_1.notifyStatusBackend)({
+        running: true,
+        requestId: options.requestId,
+        promptCharacterCount: options.prompt.length,
+        promptTokenCount: options.promptTokenCount,
+        rawInputCharacterCount: options.rawInputCharacterCount,
+        chunkInputCharacterCount: options.chunkInputCharacterCount,
+        budgetSource: options.config.Effective?.BudgetSource ?? null,
+        inputCharactersPerContextToken: options.config.Effective?.InputCharactersPerContextToken ?? null,
+        chunkThresholdCharacters: options.config.Effective?.ChunkThresholdCharacters ?? null,
+        phase: 'planner',
+    });
+    const startedAt = Date.now();
+    let inputTokens = null;
+    let outputCharacterCount = null;
+    let outputTokens = null;
+    let thinkingTokens = null;
+    try {
+        const response = await (0, llama_cpp_js_1.generateLlamaCppResponse)({
+            config: options.config,
+            model: options.model,
+            prompt: options.prompt,
+            timeoutSeconds: options.requestTimeoutSeconds ?? 600,
+            slotId: options.slotId ?? undefined,
+            structuredOutput: {
+                kind: 'siftkit-planner-action-json',
+                tools: options.toolDefinitions,
+            },
+            overrides: options.llamaCppOverrides,
+        });
+        inputTokens = response.usage?.promptTokens ?? null;
+        outputCharacterCount = response.text.length;
+        outputTokens = response.usage?.completionTokens ?? null;
+        thinkingTokens = response.usage?.thinkingTokens ?? null;
+        return {
+            text: response.text,
+            reasoningText: response.reasoningText,
+        };
+    }
+    finally {
+        traceSummary(`notify running=false phase=planner chunk=none duration_ms=${Date.now() - startedAt}`);
+        await (0, config_js_1.notifyStatusBackend)({
+            running: false,
+            requestId: options.requestId,
+            promptCharacterCount: options.prompt.length,
+            inputTokens,
+            outputCharacterCount,
+            outputTokens,
+            thinkingTokens,
+            requestDurationMs: Date.now() - startedAt,
+        });
+    }
+}
+async function invokePlannerMode(options) {
+    if (options.backend !== 'llama.cpp') {
+        return null;
+    }
+    const promptBudget = getPlannerPromptBudget(options.config);
+    if (promptBudget.plannerStopLineTokens <= 0) {
+        return null;
+    }
+    const toolDefinitions = buildPlannerToolDefinitions();
+    const toolResults = [];
+    const debugRecorder = createPlannerDebugRecorder({
+        requestId: options.requestId,
+        question: options.question,
+        inputText: options.inputText,
+        sourceKind: options.sourceKind,
+        commandExitCode: options.commandExitCode,
+        commandText: options.debugCommand,
+    });
+    let invalidActionCount = 0;
+    while (toolResults.length <= MAX_PLANNER_TOOL_CALLS) {
+        const prompt = buildPlannerPrompt({
+            question: options.question,
+            inputText: options.inputText,
+            promptPrefix: options.promptPrefix,
+            sourceKind: options.sourceKind,
+            commandExitCode: options.commandExitCode,
+            rawReviewRequired: options.rawReviewRequired,
+            toolDefinitions,
+            toolResults,
+        });
+        const promptTokenCount = (await (0, llama_cpp_js_1.countLlamaCppTokens)(options.config, prompt)) ?? estimatePromptTokenCount(options.config, prompt);
+        debugRecorder.record({
+            kind: 'planner_prompt',
+            prompt,
+            promptTokenCount,
+            toolCallCount: toolResults.length,
+            plannerBudget: promptBudget,
+        });
+        if (promptTokenCount > promptBudget.plannerStopLineTokens) {
+            debugRecorder.finish({
+                status: 'failed',
+                reason: 'planner_headroom_exceeded',
+                promptTokenCount,
+                plannerBudget: promptBudget,
+            });
+            return null;
+        }
+        let providerResponse;
+        try {
+            providerResponse = await invokePlannerProviderAction({
+                requestId: options.requestId,
+                slotId: options.slotId,
+                config: options.config,
+                model: options.model,
+                prompt,
+                promptTokenCount,
+                rawInputCharacterCount: options.inputText.length,
+                chunkInputCharacterCount: options.inputText.length,
+                toolDefinitions,
+                requestTimeoutSeconds: options.requestTimeoutSeconds,
+                llamaCppOverrides: options.llamaCppOverrides,
+            });
+        }
+        catch (error) {
+            debugRecorder.finish({
+                status: 'failed',
+                reason: getErrorMessage(error),
+            });
+            return null;
+        }
+        debugRecorder.record({
+            kind: 'planner_model_response',
+            thinkingProcess: providerResponse.reasoningText,
+            responseText: providerResponse.text,
+        });
+        let action;
+        try {
+            action = parsePlannerAction(providerResponse.text);
+        }
+        catch (error) {
+            invalidActionCount += 1;
+            debugRecorder.record({
+                kind: 'planner_invalid_response',
+                error: getErrorMessage(error),
+            });
+            if (invalidActionCount >= 2) {
+                debugRecorder.finish({
+                    status: 'failed',
+                    reason: 'planner_invalid_response_limit',
+                });
+                return null;
+            }
+            continue;
+        }
+        if (action.action === 'finish') {
+            if (action.classification === 'unsupported_input' && options.sourceKind === 'command-output') {
+                const fallbackDecision = normalizeStructuredDecision(buildConservativeDirectFallbackDecision({
+                    inputText: options.inputText,
+                    question: options.question,
+                    format: options.format,
+                    sourceKind: options.sourceKind,
+                }), options.format);
+                debugRecorder.finish({
+                    status: 'completed',
+                    command: options.debugCommand ?? null,
+                    finalOutput: fallbackDecision.output,
+                    classification: fallbackDecision.classification,
+                    rawReviewRequired: fallbackDecision.rawReviewRequired,
+                });
+                return fallbackDecision;
+            }
+            const decision = normalizeStructuredDecision({
+                classification: action.classification,
+                rawReviewRequired: action.rawReviewRequired,
+                output: action.output,
+            }, options.format);
+            debugRecorder.finish({
+                status: 'completed',
+                command: options.debugCommand ?? null,
+                finalOutput: decision.output,
+                classification: decision.classification,
+                rawReviewRequired: decision.rawReviewRequired,
+            });
+            return decision;
+        }
+        if (toolResults.length >= MAX_PLANNER_TOOL_CALLS) {
+            debugRecorder.finish({
+                status: 'failed',
+                reason: 'planner_tool_call_limit',
+            });
+            return null;
+        }
+        let result;
+        try {
+            result = executePlannerTool(options.inputText, action);
+        }
+        catch (error) {
+            debugRecorder.finish({
+                status: 'failed',
+                reason: getErrorMessage(error),
+                toolCall: action,
+            });
+            return null;
+        }
+        debugRecorder.record({
+            kind: 'planner_tool',
+            command: `${action.tool_name} ${JSON.stringify(action.args)}`,
+            toolName: action.tool_name,
+            args: action.args,
+            output: result,
+        });
+        toolResults.push({
+            toolName: action.tool_name,
+            args: action.args,
+            result,
+            resultText: formatPlannerResult(result),
+        });
+    }
+    debugRecorder.finish({
+        status: 'failed',
+        reason: 'planner_exhausted_without_finish',
+    });
+    return null;
 }
 function getSourceInstructions(sourceKind, commandExitCode) {
     if (sourceKind === 'command-output') {
@@ -867,84 +1709,39 @@ async function invokeSummaryCore(options) {
     const chunkThreshold = Math.max(1, Math.floor(options.chunkThresholdOverride ?? (options.backend === 'llama.cpp'
         ? getLlamaCppChunkThresholdCharacters(options.config)
         : (0, config_js_1.getChunkThresholdCharacters)(options.config))));
+    const plannerActivationThreshold = options.backend === 'llama.cpp'
+        ? Math.min(chunkThreshold, getPlannerActivationThresholdCharacters(options.config))
+        : chunkThreshold;
     const chunkLabel = options.chunkPath ?? (options.chunkIndex !== null && options.chunkTotal !== null ? `${options.chunkIndex}/${options.chunkTotal}` : 'none');
-    traceSummary(`invokeSummaryCore start phase=${phase} chunk=${chunkLabel} input_chars=${options.inputText.length} chunk_threshold=${chunkThreshold}`);
-    if (options.inputText.length > chunkThreshold) {
-        traceSummary(`chunk split start phase=${phase} chunk=${chunkLabel} input_chars=${options.inputText.length}`);
-        const tokenAwareChunks = (options.backend === 'llama.cpp'
-            ? await planTokenAwareLlamaCppChunks({
+    traceSummary(`invokeSummaryCore start phase=${phase} chunk=${chunkLabel} input_chars=${options.inputText.length} `
+        + `chunk_threshold=${chunkThreshold} planner_threshold=${plannerActivationThreshold}`);
+    if (options.inputText.length > plannerActivationThreshold) {
+        if (phase === 'leaf' && !options.chunkContext) {
+            const plannerDecision = await invokePlannerMode({
+                requestId: options.requestId,
+                slotId: options.slotId,
                 question: options.question,
                 inputText: options.inputText,
                 format: options.format,
-                policyProfile: options.policyProfile,
+                backend: options.backend,
+                model: options.model,
+                config: options.config,
                 rawReviewRequired: options.rawReviewRequired,
-                promptPrefix: options.promptPrefix,
                 sourceKind: options.sourceKind,
                 commandExitCode: options.commandExitCode,
-                config: options.config,
-                chunkThreshold,
-                phase,
-                chunkContext: phase === 'leaf'
-                    ? {
-                        isGeneratedChunk: true,
-                        mayBeTruncated: true,
-                        retryMode: 'default',
-                        chunkPath: options.chunkPath ?? null,
-                    }
-                    : undefined,
-            })
-            : null);
-        const chunks = tokenAwareChunks
-            ?? (chunkThreshold <= 1 ? [options.inputText] : splitTextIntoChunks(options.inputText, chunkThreshold));
-        traceSummary(`chunk split done phase=${phase} chunk=${chunkLabel} chunk_count=${chunks.length}`);
-        const isNoOpSplit = chunks.length === 1 && chunks[0] === options.inputText;
-        if (isNoOpSplit) {
-            traceSummary(`chunk split noop phase=${phase} chunk=${chunkLabel}`);
-        }
-        if (!isNoOpSplit) {
-            const chunkDecisions = [];
-            for (let index = 0; index < chunks.length; index += 1) {
-                const chunkPath = appendChunkPath(options.chunkPath ?? null, index + 1, chunks.length);
-                const decision = await invokeSummaryCore({
-                    ...options,
-                    inputText: chunks[index],
-                    rootInputCharacterCount,
-                    phase,
-                    chunkIndex: index + 1,
-                    chunkTotal: chunks.length,
-                    chunkPath,
-                    chunkThresholdOverride: Math.max(chunkThreshold, chunks[index].length),
-                    chunkContext: {
-                        isGeneratedChunk: true,
-                        mayBeTruncated: true,
-                        retryMode: 'default',
-                        chunkPath,
-                    },
-                });
-                chunkDecisions.push(decision);
-            }
-            const mergeSections = [];
-            for (let index = 0; index < chunkDecisions.length; index += 1) {
-                mergeSections.push(`Chunk ${index + 1}:`);
-                mergeSections.push(`classification=${chunkDecisions[index].classification}`);
-                mergeSections.push(`raw_review_required=${chunkDecisions[index].rawReviewRequired}`);
-                mergeSections.push(chunkDecisions[index].output);
-                if (index < chunkDecisions.length - 1) {
-                    mergeSections.push('');
-                }
-            }
-            return invokeSummaryCore({
-                ...options,
-                question: `Merge these partial summaries into one final answer for the original question: ${options.question}`,
-                inputText: mergeSections.join('\n'),
-                rawReviewRequired: options.rawReviewRequired || chunkDecisions.some((decision) => decision.rawReviewRequired),
-                rootInputCharacterCount,
-                phase: 'merge',
-                chunkIndex: null,
-                chunkTotal: null,
-                chunkPath: null,
+                debugCommand: options.debugCommand,
+                promptPrefix: options.promptPrefix,
+                requestTimeoutSeconds: options.requestTimeoutSeconds,
+                llamaCppOverrides: options.llamaCppOverrides,
             });
+            if (plannerDecision) {
+                return plannerDecision;
+            }
+            throw new Error(buildPlannerFailureErrorMessage({
+                requestId: options.requestId,
+            }));
         }
+        throw new Error(`Planner mode is required for oversized input but is unavailable for phase=${phase}.`);
     }
     const allowUnsupportedInput = options.sourceKind !== 'command-output'
         && (options.backend !== 'llama.cpp' || isInternalChunkLeaf(options));
@@ -962,7 +1759,7 @@ async function invokeSummaryCore(options) {
         allowUnsupportedInput,
     });
     const effectivePromptLimit = options.backend === 'llama.cpp'
-        ? (0, config_js_1.getConfiguredLlamaNumCtx)(options.config) - getLlamaCppPromptTokenReserve(options.config)
+        ? getPlannerPromptBudget(options.config).usablePromptBudgetTokens
         : null;
     traceSummary(`preflight start phase=${phase} chunk=${chunkLabel} prompt_chars=${prompt.length} `
         + `effective_prompt_limit=${effectivePromptLimit ?? 'null'}`);
@@ -990,6 +1787,7 @@ async function invokeSummaryCore(options) {
     try {
         const rawResponse = await invokeProviderSummary({
             requestId: options.requestId,
+            slotId: options.slotId,
             backend: options.backend,
             config: options.config,
             model: options.model,
@@ -1105,11 +1903,6 @@ async function summarizeRequest(request) {
             (0, config_js_1.getConfiguredLlamaNumCtx)(config);
             backend = request.backend || config.Backend;
             model = request.model || (0, config_js_1.getConfiguredModel)(config);
-            const chunkThreshold = (0, config_js_1.getChunkThresholdCharacters)(config);
-            const maxRequestCharacters = chunkThreshold * 4;
-            if (inputText.length > maxRequestCharacters) {
-                throw new Error(`Error: recieved input of ${inputText.length} characters, current maximum is ${maxRequestCharacters} chars`);
-            }
             const riskLevel = request.policyProfile === 'risky-operation' ? 'risky' : 'informational';
             const sourceKind = request.sourceKind || 'standalone';
             const decision = getSummaryDecision(inputText, request.question, riskLevel, config, {
@@ -1124,7 +1917,7 @@ async function summarizeRequest(request) {
                 const excerpt = getDeterministicExcerpt(inputText, request.question)
                     || inputText.trim().split(/\r?\n/u).slice(0, 3).join('\n');
                 const passed = Number(request.commandExitCode) === 0;
-                return {
+                const result = {
                     RequestId: requestId,
                     WasSummarized: true,
                     PolicyDecision: 'deterministic-pass-fail',
@@ -1138,15 +1931,31 @@ async function summarizeRequest(request) {
                     ModelCallSucceeded: true,
                     ProviderError: null,
                 };
+                writeSummaryRequestDump({
+                    requestId,
+                    question: request.question,
+                    inputText,
+                    command: request.debugCommand ?? null,
+                    backend,
+                    model,
+                    classification: result.Classification,
+                    rawReviewRequired: result.RawReviewRequired,
+                    summary: result.Summary,
+                    providerError: result.ProviderError,
+                    error: null,
+                });
+                return result;
             }
             traceSummary(`decision ready backend=${backend} model=${model} raw_review_required=${decision.RawReviewRequired} `
                 + `chars=${decision.CharacterCount} lines=${decision.LineCount}`);
+            const slotId = backend === 'llama.cpp' ? allocateLlamaCppSlotId(config) : null;
             const effectivePromptPrefix = request.promptPrefix !== undefined
                 ? request.promptPrefix
                 : (0, config_js_1.getConfiguredPromptPrefix)(config);
             traceSummary('invokeSummaryCore start');
             const modelDecision = await invokeSummaryCore({
                 requestId,
+                slotId,
                 question: request.question,
                 inputText,
                 format: request.format,
@@ -1157,6 +1966,7 @@ async function summarizeRequest(request) {
                 rawReviewRequired: decision.RawReviewRequired,
                 sourceKind,
                 commandExitCode: request.commandExitCode,
+                debugCommand: request.debugCommand,
                 promptPrefix: effectivePromptPrefix,
                 requestTimeoutSeconds: request.requestTimeoutSeconds,
                 llamaCppOverrides: request.llamaCppOverrides,
@@ -1173,7 +1983,14 @@ async function summarizeRequest(request) {
             catch {
                 traceSummary(`terminal status post failed request_id=${requestId} state=completed`);
             }
-            return {
+            finalizePlannerDebugDump({
+                requestId,
+                finalOutput: modelDecision.output.trim(),
+                classification: modelDecision.classification,
+                rawReviewRequired: modelDecision.rawReviewRequired,
+                providerError: null,
+            });
+            const result = {
                 RequestId: requestId,
                 WasSummarized: modelDecision.classification !== 'unsupported_input',
                 PolicyDecision: getPolicyDecision(modelDecision.classification),
@@ -1185,6 +2002,20 @@ async function summarizeRequest(request) {
                 ModelCallSucceeded: true,
                 ProviderError: null,
             };
+            writeSummaryRequestDump({
+                requestId,
+                question: request.question,
+                inputText,
+                command: request.debugCommand ?? null,
+                backend,
+                model,
+                classification: result.Classification,
+                rawReviewRequired: result.RawReviewRequired,
+                summary: result.Summary,
+                providerError: result.ProviderError,
+                error: null,
+            });
+            return result;
         }
         catch (error) {
             const failureContext = getSummaryFailureContext(error);
@@ -1208,6 +2039,34 @@ async function summarizeRequest(request) {
                     traceSummary(`terminal status post failed request_id=${requestId} state=failed`);
                 }
             }
+            finalizePlannerDebugDump({
+                requestId,
+                finalOutput: getErrorMessage(error),
+                classification: 'command_failure',
+                rawReviewRequired: true,
+                providerError: getErrorMessage(error),
+            });
+            writeFailedRequestDump({
+                requestId,
+                question: request.question,
+                inputText,
+                command: request.debugCommand ?? null,
+                error: getErrorMessage(error),
+                providerError: getErrorMessage(error),
+            });
+            writeSummaryRequestDump({
+                requestId,
+                question: request.question,
+                inputText,
+                command: request.debugCommand ?? null,
+                backend,
+                model,
+                classification: 'command_failure',
+                rawReviewRequired: true,
+                summary: null,
+                providerError: getErrorMessage(error),
+                error: getErrorMessage(error),
+            });
             throw error;
         }
     });

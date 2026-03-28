@@ -102,6 +102,31 @@ function getStructuredOutputGrammar(structuredOutput) {
             'ws ::= [ \\t\\n\\r]*',
         ].join('\n');
     }
+    if (structuredOutput.kind === 'siftkit-planner-action-json') {
+        return [
+            'root ::= tool_action | finish_action',
+            'tool_action ::= "{" ws "\\"action\\"" ws ":" ws "\\"tool\\"" ws "," ws "\\"tool_name\\"" ws ":" ws tool_name ws "," ws "\\"args\\"" ws ":" ws value ws "}"',
+            'finish_action ::= "{" ws "\\"action\\"" ws ":" ws "\\"finish\\"" ws "," ws "\\"classification\\"" ws ":" ws classification ws "," ws "\\"raw_review_required\\"" ws ":" ws boolean ws "," ws "\\"output\\"" ws ":" ws string ws "}"',
+            'tool_name ::= "\\"find_text\\"" | "\\"read_lines\\"" | "\\"json_filter\\""',
+            'classification ::= "\\"summary\\"" | "\\"command_failure\\"" | "\\"unsupported_input\\""',
+            'value ::= object | array | string | number | boolean | "null"',
+            'object ::= "{" ws members? ws "}"',
+            'members ::= pair (ws "," ws pair)*',
+            'pair ::= string ws ":" ws value',
+            'array ::= "[" ws elements? ws "]"',
+            'elements ::= value (ws "," ws value)*',
+            'boolean ::= "true" | "false"',
+            'number ::= "-"? int frac? exp?',
+            'int ::= "0" | [1-9] [0-9]*',
+            'frac ::= "." [0-9]+',
+            'exp ::= [eE] [+-]? [0-9]+',
+            'string ::= "\\"" char* "\\""',
+            'char ::= [^"\\\\\\x7F\\x00-\\x1F] | "\\\\" escape',
+            'escape ::= ["\\\\/bfnrt] | "u" hex hex hex hex',
+            'hex ::= [0-9a-fA-F]',
+            'ws ::= [ \\t\\n\\r]*',
+        ].join('\n');
+    }
     return null;
 }
 function requestJson(options) {
@@ -183,6 +208,41 @@ function getTextContent(content) {
     return content
         .map((part) => (part?.type === 'text' || !part?.type) ? String(part?.text || '') : '')
         .join('');
+}
+function parseToolArguments(argumentsValue) {
+    if (typeof argumentsValue === 'string') {
+        try {
+            const parsed = JSON.parse(argumentsValue);
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+                ? parsed
+                : null;
+        }
+        catch {
+            return null;
+        }
+    }
+    if (argumentsValue && typeof argumentsValue === 'object' && !Array.isArray(argumentsValue)) {
+        return argumentsValue;
+    }
+    return null;
+}
+function getStructuredToolCallText(structuredOutput, choice) {
+    if (structuredOutput?.kind !== 'siftkit-planner-action-json') {
+        return '';
+    }
+    const toolCall = choice?.message?.tool_calls?.[0]
+        ?? choice?.tool_calls?.[0]
+        ?? (choice?.message?.function_call ? { function: choice.message.function_call } : undefined);
+    const toolName = typeof toolCall?.function?.name === 'string' ? toolCall.function.name.trim() : '';
+    const args = parseToolArguments(toolCall?.function?.arguments);
+    if (!toolName || !args) {
+        return '';
+    }
+    return JSON.stringify({
+        action: 'tool',
+        tool_name: toolName,
+        args,
+    });
 }
 async function countLlamaCppTokens(config, content) {
     if (!content.trim()) {
@@ -273,6 +333,13 @@ async function generateLlamaCppResponse(options) {
                 content: options.prompt,
             },
         ],
+        cache_prompt: true,
+        ...(Number.isInteger(options.slotId) ? { id_slot: Number(options.slotId) } : {}),
+        ...(options.structuredOutput?.kind === 'siftkit-planner-action-json'
+            && Array.isArray(options.structuredOutput.tools)
+            && options.structuredOutput.tools.length > 0
+            ? { tools: options.structuredOutput.tools }
+            : {}),
         ...(resolvedTemperature === undefined ? {} : { temperature: Number(resolvedTemperature) }),
         ...(resolvedTopP === undefined ? {} : { top_p: Number(resolvedTopP) }),
         ...(resolvedMaxTokens === undefined || resolvedMaxTokens === null ? {} : { max_tokens: Number(resolvedMaxTokens) }),
@@ -318,9 +385,12 @@ async function generateLlamaCppResponse(options) {
     const firstChoice = response.body.choices?.[0];
     const messageText = getTextContent(firstChoice?.message?.content);
     const reasoningText = getTextContent(firstChoice?.message?.reasoning_content);
-    const text = (messageText || firstChoice?.text || '').trim();
+    const toolCallText = getStructuredToolCallText(options.structuredOutput, firstChoice);
+    const text = (messageText || toolCallText || firstChoice?.text || '').trim();
     if (!text) {
-        throw new Error('llama.cpp did not return a response body.');
+        const rawResponseText = response.rawText.trim();
+        traceLlamaCpp(`generate empty_body elapsed_ms=${Date.now() - startedAt} raw=${JSON.stringify(rawResponseText.slice(0, 2000))}`);
+        throw new Error(`llama.cpp did not return a response body. Raw response: ${rawResponseText.slice(0, 2000) || '<empty>'}`);
     }
     const rawUsage = response.body.usage;
     const thinkingTokens = getThinkingTokenCount(rawUsage)
@@ -339,5 +409,6 @@ async function generateLlamaCppResponse(options) {
     return {
         text,
         usage,
+        reasoningText: reasoningText.trim() || null,
     };
 }

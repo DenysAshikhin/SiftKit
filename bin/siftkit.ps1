@@ -91,14 +91,6 @@ if ($null -ne $InputObject) {
     }
 }
 
-foreach ($item in $input) {
-    if ($null -ne $item) {
-        if ($item -isnot [string] -or $item -ne '') {
-            [void]$script:PipelineBuffer.Add($item)
-        }
-    }
-}
-
 $commandName = Get-SiftCommandName -Args $CliArgs
 $forwardedArgs = @($CliArgs)
 $tempInputPath = $null

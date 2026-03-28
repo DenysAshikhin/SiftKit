@@ -13,8 +13,13 @@ const {
   getConfigPath,
   getExecutionServerState,
   getChunkThresholdCharacters,
+  getConfiguredLlamaNumCtx,
+  getEffectiveInputCharactersPerContextToken,
+  initializeRuntime,
   getStatusServerUnavailableMessage,
+  SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT,
   SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT,
+  SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT,
   SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT,
 } = require('../dist/config.js');
 const {
@@ -193,6 +198,18 @@ function buildOversizedTransitionsInput(targetCharacters) {
   }
 
   return JSON.stringify(transitions);
+}
+
+function getRepoPlannerLogsPath() {
+  return path.join(process.cwd(), '.siftkit', 'logs');
+}
+
+function getRepoFailedLogsPath() {
+  return path.join(process.cwd(), '.siftkit', 'logs', 'failed');
+}
+
+function getRepoRequestLogsPath() {
+  return path.join(process.cwd(), '.siftkit', 'logs', 'requests');
 }
 
 function buildStructuredStubDecision(promptText) {
@@ -450,6 +467,12 @@ async function startStubStatusServer(options = {}) {
         parsed,
         state.chatRequests.length,
       );
+      const configuredReasoningContent = resolveAssistantContent(
+        options.assistantReasoningContent,
+        String(promptText),
+        parsed,
+        state.chatRequests.length,
+      );
       const assistantContent = typeof configuredAssistantContent === 'string'
         ? configuredAssistantContent
         : (/"classification":"summary|command_failure|unsupported_input"/u.test(promptText)
@@ -465,6 +488,14 @@ async function startStubStatusServer(options = {}) {
           },
         }),
       };
+      const configuredChatResponse = typeof options.chatResponse === 'function'
+        ? options.chatResponse(String(promptText), parsed, state.chatRequests.length)
+        : null;
+      if (configuredChatResponse && typeof configuredChatResponse === 'object') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(configuredChatResponse));
+        return;
+      }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         id: 'chatcmpl-test',
@@ -475,6 +506,9 @@ async function startStubStatusServer(options = {}) {
             message: {
               role: 'assistant',
               content: assistantContent,
+              ...(typeof configuredReasoningContent === 'string'
+                ? { reasoning_content: configuredReasoningContent }
+                : {}),
             },
           },
         ],
@@ -1208,6 +1242,50 @@ test('loadConfig normalizes legacy defaults and derives effective budgets from t
   });
 });
 
+test('default managed startup script points to the repo-owned 9b thinking launcher', () => {
+  assert.match(
+    SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT,
+    /scripts[\\/]+start-qwen35-9b-q8-200k-thinking-managed\.ps1$/iu,
+  );
+  assert.equal(fs.existsSync(SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT), true);
+});
+
+test('loadConfig migrates the former 9b non-thinking startup script to the current default', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+
+      assert.equal(config.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
+    }, {
+      config: {
+        Server: {
+          LlamaCpp: {
+            StartupScript: SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT,
+          },
+        },
+      },
+    });
+  });
+});
+
+test('loadConfig migrates the broken external 9b thinking startup script to the current default', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+
+      assert.equal(config.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
+    }, {
+      config: {
+        Server: {
+          LlamaCpp: {
+            StartupScript: SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT,
+          },
+        },
+      },
+    });
+  });
+});
+
 test('loadConfig removes legacy chunk threshold ratio from loaded and persisted config', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
@@ -1810,6 +1888,79 @@ test('real status server migrates the legacy default startup script to the curre
     config.Server = {
       LlamaCpp: {
         StartupScript: SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ configUrl }) => {
+      const loadedConfig = await requestJson(configUrl);
+
+      assert.equal(loadedConfig.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
+      const persistedConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      assert.equal(persistedConfig.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
+test('real status server defaults new config to the current thinking startup script', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+
+    await withRealStatusServer(async ({ configUrl }) => {
+      const loadedConfig = await requestJson(configUrl);
+
+      assert.equal(loadedConfig.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
+      const persistedConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      assert.equal(persistedConfig.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
+test('real status server migrates the former 9b non-thinking startup script to the current default', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ configUrl }) => {
+      const loadedConfig = await requestJson(configUrl);
+
+      assert.equal(loadedConfig.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
+      const persistedConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      assert.equal(persistedConfig.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
+test('real status server migrates the broken external 9b thinking startup script to the current default', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT,
       },
     };
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
@@ -2702,6 +2853,26 @@ test('llama.cpp provider omits chat template reasoning override in auto mode', a
   });
 });
 
+test('llama.cpp provider enables explicit prompt caching on a supplied slot', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+
+      await generateLlamaCppResponse({
+        config,
+        model: config.Model,
+        prompt: 'test prompt body',
+        timeoutSeconds: 5,
+        slotId: 7,
+      });
+
+      assert.equal(server.state.chatRequests.length, 1);
+      assert.equal(server.state.chatRequests[0].cache_prompt, true);
+      assert.equal(server.state.chatRequests[0].id_slot, 7);
+    });
+  });
+});
+
 test('llama.cpp provider includes per-request grammar when structured output is enabled', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
@@ -2746,6 +2917,58 @@ test('llama.cpp provider gets answer content from qwen-style servers when reason
         }
 
         return '';
+      },
+    });
+  });
+});
+
+test('llama.cpp provider reconstructs planner tool actions from empty-content tool_calls responses', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+
+      const summary = await generateLlamaCppResponse({
+        config,
+        model: config.Model,
+        prompt: 'test prompt body',
+        timeoutSeconds: 5,
+        structuredOutput: {
+          kind: 'siftkit-planner-action-json',
+          tools: buildPlannerToolDefinitions(),
+        },
+      });
+
+      assert.equal(summary.text, '{"action":"tool","tool_name":"json_filter","args":{"filters":[{"path":"from.worldX","op":"gte","value":3200}]}}');
+    }, {
+      chatResponse() {
+        return {
+          id: 'chatcmpl-test',
+          object: 'chat.completion',
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: '',
+                tool_calls: [
+                  {
+                    id: 'call_1',
+                    type: 'function',
+                    function: {
+                      name: 'json_filter',
+                      arguments: '{"filters":[{"path":"from.worldX","op":"gte","value":3200}]}',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+          usage: {
+            prompt_tokens: 123,
+            completion_tokens: 45,
+            total_tokens: 168,
+          },
+        };
       },
     });
   });
@@ -5405,13 +5628,26 @@ test('buildPlannerToolDefinitions returns qwen-friendly function schemas', () =>
   const findText = toolDefinitions.find((entry) => entry.function.name === 'find_text');
   assert.deepEqual(findText.function.parameters.required, ['query', 'mode']);
   assert.deepEqual(findText.function.parameters.properties.mode.enum, ['literal', 'regex']);
+  assert.match(findText.function.description, /valid javascript regex/i);
+  assert.match(findText.function.description, /do not escape ordinary quotes/i);
+  assert.match(findText.function.description, /example:/i);
+  assert.match(findText.function.description, /\"query\":\"Lumbridge\"/i);
 
   const readLines = toolDefinitions.find((entry) => entry.function.name === 'read_lines');
   assert.deepEqual(readLines.function.parameters.required, ['startLine', 'endLine']);
+  assert.match(readLines.function.description, /example:/i);
+  assert.match(readLines.function.description, /\"startLine\":1340/i);
 
   const jsonFilter = toolDefinitions.find((entry) => entry.function.name === 'json_filter');
   assert.deepEqual(jsonFilter.function.parameters.required, ['filters']);
   assert.equal(jsonFilter.function.parameters.properties.filters.type, 'array');
+  assert.match(jsonFilter.function.description, /use separate filters/i);
+  assert.match(jsonFilter.function.description, /scalar value/i);
+  assert.match(jsonFilter.function.description, /example:/i);
+  assert.match(jsonFilter.function.description, /\"path\":\"from\.worldX\"/i);
+  assert.match(jsonFilter.function.description, /\"value\":3200/i);
+  assert.match(jsonFilter.function.description, /do not use/i);
+  assert.match(jsonFilter.function.description, /\"value\":\{\"gte\":3200,\"lte\":3215\}/i);
 });
 
 test('benchmark runner records a custom prompt prefix from file', async () => {
@@ -5679,6 +5915,13 @@ test('oversized transition extraction uses planner action grammar before returni
       assert.match(firstPrompt, /find_text/u);
       assert.match(firstPrompt, /read_lines/u);
       assert.match(firstPrompt, /json_filter/u);
+      assert.match(firstPrompt, /Use separate filters for gte\/lte bounds/u);
+      assert.match(firstPrompt, /Do not use "value":\{"gte":3200,"lte":3215\}/u);
+      assert.match(firstPrompt, /Regex patterns must be valid JavaScript regex/u);
+      assert.match(firstPrompt, /Example tool calls:/u);
+      assert.match(firstPrompt, /"tool_name":"find_text"/u);
+      assert.match(firstPrompt, /"tool_name":"read_lines"/u);
+      assert.match(firstPrompt, /"tool_name":"json_filter"/u);
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
@@ -5713,7 +5956,538 @@ test('oversized transition extraction uses planner action grammar before returni
   });
 });
 
-test('planner allows up to ten tool calls while prompt headroom remains', async () => {
+test('planner accepts inputs larger than the former four-chunk cap when it can answer via tools', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput((threshold * 5) + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Find all transitions in the Lumbridge Castle area (worldX 3200-3215, worldY 3210-3225).',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'oversized planner success');
+      assert.equal(server.state.chatRequests.length, 1);
+      assert.equal(
+        server.state.chatRequests.some((request) => /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(String(request?.messages?.[0]?.content || ''))),
+        false,
+      );
+    }, {
+      assistantContent() {
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'oversized planner success',
+        });
+      },
+    });
+  });
+});
+
+test('planner writes a debug dump with input, thinking, tool calls, tool output, and final output', async () => {
+  await withTempEnv(async () => {
+    const plannerLogsPath = getRepoPlannerLogsPath();
+    fs.mkdirSync(plannerLogsPath, { recursive: true });
+    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Find all transitions in the Lumbridge Castle area.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+        debugCommand: 'cat transitions.json | siftkit "Find all transitions in the Lumbridge Castle area."',
+      });
+
+      assert.equal(result.Classification, 'summary');
+    }, {
+      assistantReasoningContent(promptText, parsed, requestIndex) {
+        return requestIndex === 1
+          ? 'I should use json_filter to isolate Lumbridge Castle transitions.'
+          : 'I have enough evidence to answer now.';
+      },
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'json_filter',
+            args: {
+              filters: [
+                { path: 'from.worldX', op: 'gte', value: 3200 },
+                { path: 'from.worldX', op: 'lte', value: 3215 },
+              ],
+              select: ['id', 'label', 'from', 'to', 'bidirectional'],
+              limit: 20,
+            },
+          });
+        }
+
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'debug dump summary',
+        });
+      },
+    });
+
+    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
+    const added = after.filter((entry) => !before.has(entry));
+    assert.equal(added.length, 1);
+
+    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    assert.equal(debugDump.command, 'cat transitions.json | siftkit "Find all transitions in the Lumbridge Castle area."');
+    assert.equal(typeof debugDump.inputText, 'string');
+    assert.match(debugDump.inputText, /Lumbridge Castle Staircase/u);
+    assert.equal(Array.isArray(debugDump.events), true);
+    assert.equal(debugDump.events.some((event) => event.kind === 'planner_model_response' && /json_filter/u.test(String(event.thinkingProcess || ''))), true);
+    assert.equal(debugDump.events.some((event) => event.kind === 'planner_tool' && event.command === 'json_filter {"filters":[{"path":"from.worldX","op":"gte","value":3200},{"path":"from.worldX","op":"lte","value":3215}],"select":["id","label","from","to","bidirectional"],"limit":20}'), true);
+    assert.equal(debugDump.events.some((event) => event.kind === 'planner_tool' && typeof event.output?.text === 'string' && /Lumbridge Castle Staircase/u.test(event.output.text)), true);
+    assert.equal(debugDump.final.finalOutput, 'debug dump summary');
+  });
+});
+
+test('planner json_filter accepts combined gte and lte bounds in one filter value', async () => {
+  await withTempEnv(async () => {
+    const plannerLogsPath = getRepoPlannerLogsPath();
+    fs.mkdirSync(plannerLogsPath, { recursive: true });
+    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Find all transitions in the Lumbridge Castle area.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'combined bounds worked');
+    }, {
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'json_filter',
+            args: {
+              filters: [
+                { path: 'from.worldX', op: 'gte', value: { gte: 3200, lte: 3215 } },
+                { path: 'from.worldY', op: 'gte', value: { gte: 3210, lte: 3225 } },
+              ],
+              select: ['id', 'label', 'type', 'from', 'to', 'bidirectional'],
+              limit: 100,
+            },
+          });
+        }
+
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'combined bounds worked',
+        });
+      },
+    });
+
+    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
+    const added = after.filter((entry) => !before.has(entry));
+    assert.equal(added.length, 1);
+
+    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    const jsonFilterEvent = debugDump.events.find((event) => event.kind === 'planner_tool' && event.toolName === 'json_filter');
+    assert.equal(jsonFilterEvent.output.matchedCount, 2);
+    assert.match(jsonFilterEvent.output.text, /Lumbridge Castle Staircase/u);
+    assert.match(jsonFilterEvent.output.text, /Lumbridge Castle Courtyard Gate/u);
+  });
+});
+
+test('summarizeRequest writes a repo-local request log for successful calls', async () => {
+  await withTempEnv(async () => {
+    const requestLogsPath = getRepoRequestLogsPath();
+    fs.mkdirSync(requestLogsPath, { recursive: true });
+    const before = new Set(fs.readdirSync(requestLogsPath));
+
+    await withStubServer(async () => {
+      const result = await summarizeRequest({
+        question: 'Summarize this short input.',
+        inputText: 'Line one.\nLine two.',
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'mock',
+        model: 'mock-model',
+        debugCommand: 'echo short input | siftkit "Summarize this short input."',
+      });
+
+      assert.equal(result.Classification, 'summary');
+    });
+
+    const after = fs.readdirSync(requestLogsPath);
+    const added = after.filter((entry) => !before.has(entry));
+    assert.equal(added.length, 1);
+
+    const requestDump = JSON.parse(fs.readFileSync(path.join(requestLogsPath, added[0]), 'utf8'));
+    assert.equal(typeof requestDump.requestId, 'string');
+    assert.equal(requestDump.command, 'echo short input | siftkit "Summarize this short input."');
+    assert.equal(requestDump.question, 'Summarize this short input.');
+    assert.equal(requestDump.inputText, 'Line one.\nLine two.');
+    assert.equal(requestDump.classification, 'summary');
+    assert.equal(requestDump.backend, 'mock');
+    assert.equal(requestDump.model, 'mock-model');
+    assert.equal(typeof requestDump.summary, 'string');
+    assert.equal(requestDump.error, null);
+  });
+});
+
+test('planner failures write a failed artifact under the repo-local failed logs folder', async () => {
+  await withTempEnv(async () => {
+    const failedLogsPath = getRepoFailedLogsPath();
+    fs.mkdirSync(failedLogsPath, { recursive: true });
+    const before = new Set(fs.readdirSync(failedLogsPath));
+
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+
+      await assert.rejects(
+        () => summarizeRequest({
+          question: 'Find all transitions in the Lumbridge Castle area.',
+          inputText,
+          format: 'text',
+          policyProfile: 'general',
+          backend: 'llama.cpp',
+          model: 'mock-model',
+          debugCommand: 'type transitions.json | siftkit "Find all transitions in the Lumbridge Castle area."',
+        }),
+        /planner/i,
+      );
+    }, {
+      assistantContent() {
+        return '{';
+      },
+    });
+
+    const after = fs.readdirSync(failedLogsPath);
+    const added = after.filter((entry) => !before.has(entry));
+    assert.equal(added.length, 1);
+
+    const failedDump = JSON.parse(fs.readFileSync(path.join(failedLogsPath, added[0]), 'utf8'));
+    assert.equal(typeof failedDump.requestId, 'string');
+    assert.equal(failedDump.command, 'type transitions.json | siftkit "Find all transitions in the Lumbridge Castle area."');
+    assert.equal(typeof failedDump.error, 'string');
+    assert.match(failedDump.error, /planner/i);
+    assert.equal(failedDump.providerError, failedDump.error);
+    assert.equal(typeof failedDump.inputText, 'string');
+  });
+});
+
+test('powershell shim preserves pipeline order for oversized planner input', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const plannerLogsPath = getRepoPlannerLogsPath();
+    fs.mkdirSync(plannerLogsPath, { recursive: true });
+    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputPath = path.join(tempRoot, 'pipeline-transitions.json');
+      fs.writeFileSync(inputPath, buildOversizedTransitionsInput(threshold + 1000), 'utf8');
+
+      const shimPath = path.join(process.cwd(), 'bin', 'siftkit.ps1').replace(/'/gu, "''");
+      const escapedInputPath = inputPath.replace(/'/gu, "''");
+      const commandText = [
+        `Get-Content -LiteralPath '${escapedInputPath}'`,
+        '|',
+        `& '${shimPath}'`,
+        "'Find all transitions in the Lumbridge Castle area.'",
+        '--backend llama.cpp',
+        '--model mock-model',
+      ].join(' ');
+      const result = await spawnProcess('powershell.exe', [
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-Command', commandText,
+      ], {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          SIFTKIT_STATUS_BACKEND_URL: process.env.SIFTKIT_STATUS_BACKEND_URL,
+          SIFTKIT_CONFIG_SERVICE_URL: process.env.SIFTKIT_CONFIG_SERVICE_URL,
+        },
+      });
+
+      assert.equal(result.code, 0, result.stderr || result.stdout);
+    }, {
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return JSON.stringify({
+            action: 'finish',
+            classification: 'summary',
+            raw_review_required: false,
+            output: 'planner succeeded',
+          });
+        }
+
+        throw new Error(`unexpected powershell shim request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
+      },
+    });
+
+    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
+    const added = after.filter((entry) => !before.has(entry));
+    assert.equal(added.length, 1);
+
+    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    assert.match(debugDump.inputText, /^\[/u);
+    assert.doesNotMatch(debugDump.inputText, /^\]\r?\n\[/u);
+  });
+});
+
+test('planner debug dumps always write to the repo-local logs directory', async () => {
+  await withTempEnv(async () => {
+    const plannerLogsPath = getRepoPlannerLogsPath();
+    fs.mkdirSync(plannerLogsPath, { recursive: true });
+    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Find all transitions in the Lumbridge Castle area.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+    }, {
+      assistantContent() {
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'repo-local debug dump',
+        });
+      },
+    });
+
+    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
+    const added = after.filter((entry) => !before.has(entry));
+    assert.equal(added.length, 1);
+  });
+});
+
+test('planner read_lines tool results use a compact numbered text block', async () => {
+  await withTempEnv(async () => {
+    const plannerLogsPath = getRepoPlannerLogsPath();
+    fs.mkdirSync(plannerLogsPath, { recursive: true });
+    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Read the relevant lines and summarize them.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(server.state.chatRequests.length, 2);
+      const followupPrompt = String(server.state.chatRequests[1]?.messages?.[0]?.content || '');
+      assert.doesNotMatch(followupPrompt, /"lines"\s*:\s*\[/u);
+      assert.doesNotMatch(followupPrompt, /"line"\s*:/u);
+      assert.match(followupPrompt, /lineCount=/u);
+      assert.match(followupPrompt, /^\d+: /mu);
+    }, {
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'read_lines',
+            args: {
+              startLine: 2,
+              endLine: 5,
+            },
+          });
+        }
+
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'compact read_lines summary',
+        });
+      },
+    });
+
+    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
+    const added = after.filter((entry) => !before.has(entry));
+    assert.equal(added.length, 1);
+
+    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    const toolEvent = debugDump.events.find((event) => event.kind === 'planner_tool' && event.toolName === 'read_lines');
+    assert.equal(Array.isArray(toolEvent?.output?.lines), false);
+    assert.equal(typeof toolEvent?.output?.text, 'string');
+    assert.match(toolEvent.output.text, /^\d+: /u);
+  });
+});
+
+test('planner find_text and json_filter results use compact text blocks in prompts and debug dumps', async () => {
+  await withTempEnv(async () => {
+    const plannerLogsPath = getRepoPlannerLogsPath();
+    fs.mkdirSync(plannerLogsPath, { recursive: true });
+    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Use find_text and json_filter, then summarize.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(server.state.chatRequests.length, 3);
+      const secondPrompt = String(server.state.chatRequests[1]?.messages?.[0]?.content || '');
+      assert.doesNotMatch(secondPrompt, /"hits"\s*:\s*\[/u);
+      assert.doesNotMatch(secondPrompt, /"context"\s*:\s*\[/u);
+      assert.match(secondPrompt, /hitCount=/u);
+      const thirdPrompt = String(server.state.chatRequests[2]?.messages?.[0]?.content || '');
+      assert.doesNotMatch(thirdPrompt, /"results"\s*:\s*\[/u);
+      assert.match(thirdPrompt, /matchedCount=/u);
+    }, {
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'find_text',
+            args: {
+              query: 'Lumbridge Castle',
+              mode: 'literal',
+              maxHits: 2,
+              contextLines: 1,
+            },
+          });
+        }
+
+        if (requestIndex === 2) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'json_filter',
+            args: {
+              filters: [
+                { path: 'from.worldX', op: 'gte', value: 3200 },
+                { path: 'from.worldX', op: 'lte', value: 3215 },
+              ],
+              select: ['id', 'label', 'from', 'to', 'bidirectional'],
+              limit: 5,
+            },
+          });
+        }
+
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'compact framing summary',
+        });
+      },
+    });
+
+    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
+    const added = after.filter((entry) => !before.has(entry));
+    assert.equal(added.length, 1);
+
+    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    const findTextEvent = debugDump.events.find((event) => event.kind === 'planner_tool' && event.toolName === 'find_text');
+    assert.equal(Array.isArray(findTextEvent?.output?.hits), false);
+    assert.equal(typeof findTextEvent?.output?.text, 'string');
+    assert.match(findTextEvent.output.text, /^\d+: /u);
+    const jsonFilterEvent = debugDump.events.find((event) => event.kind === 'planner_tool' && event.toolName === 'json_filter');
+    assert.equal(Array.isArray(jsonFilterEvent?.output?.results), false);
+    assert.equal(typeof jsonFilterEvent?.output?.text, 'string');
+    assert.match(jsonFilterEvent.output.text, /"id"/u);
+  });
+});
+
+test('planner activates once input exceeds 40 percent of context length even before chunking would start', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const plannerActivationThreshold = Math.floor(
+        getConfiguredLlamaNumCtx(config) * getEffectiveInputCharactersPerContextToken(config) * 0.4
+      );
+      const chunkThreshold = getChunkThresholdCharacters(config);
+      assert.ok(plannerActivationThreshold < chunkThreshold);
+      const inputText = buildOversizedTransitionsInput(plannerActivationThreshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Find the relevant Lumbridge Castle transitions.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'planner activated before chunk threshold');
+      assert.equal(server.state.chatRequests.length, 1);
+      assert.match(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /action/u);
+      assert.equal(
+        /Planner mode:/u.test(String(server.state.chatRequests[0]?.messages?.[0]?.content || '')),
+        true,
+      );
+      assert.equal(inputText.length < chunkThreshold, true);
+    }, {
+      assistantContent() {
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'planner activated before chunk threshold',
+        });
+      },
+    });
+  });
+});
+
+test('planner allows up to twenty tool calls while prompt headroom remains', async () => {
   await withTempEnv(async () => {
     let toolCallCount = 0;
     await withStubServer(async (server) => {
@@ -5732,9 +6506,9 @@ test('planner allows up to ten tool calls while prompt headroom remains', async 
 
       assert.equal(result.Classification, 'summary');
       assert.equal(result.RawReviewRequired, false);
-      assert.equal(result.Summary, 'completed after 10 tool calls');
-      assert.equal(toolCallCount, 10);
-      assert.equal(server.state.chatRequests.length, 11);
+      assert.equal(result.Summary, 'completed after 20 tool calls');
+      assert.equal(toolCallCount, 20);
+      assert.equal(server.state.chatRequests.length, 21);
     }, {
       config: {
         LlamaCpp: {
@@ -5755,7 +6529,7 @@ test('planner allows up to ten tool calls while prompt headroom remains', async 
         return Math.max(1, Math.ceil(content.length / 4));
       },
       assistantContent(promptText, parsed, requestIndex) {
-        if (requestIndex <= 10) {
+        if (requestIndex <= 20) {
           toolCallCount += 1;
           return JSON.stringify({
             action: 'tool',
@@ -5766,7 +6540,7 @@ test('planner allows up to ten tool calls while prompt headroom remains', async 
           });
         }
 
-        if (requestIndex === 11) {
+        if (requestIndex === 21) {
           return JSON.stringify({
             action: 'finish',
             classification: 'summary',
@@ -5781,16 +6555,23 @@ test('planner allows up to ten tool calls while prompt headroom remains', async 
   });
 });
 
-test('planner falls back to chunking when the next planner turn would exceed non-thinking headroom', async () => {
+test('planner reuses one slot within a request and assigns a new slot to the next request', async () => {
   await withTempEnv(async () => {
-    let servedPlannerToolCall = false;
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
       const threshold = getChunkThresholdCharacters(config);
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
 
-      const result = await summarizeRequest({
-        question: 'Summarize the visible transition evidence conservatively.',
+      const first = await summarizeRequest({
+        question: 'Find the relevant Lumbridge Castle transitions.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+      const second = await summarizeRequest({
+        question: 'Find the relevant Lumbridge Castle transitions again.',
         inputText,
         format: 'text',
         policyProfile: 'general',
@@ -5798,13 +6579,78 @@ test('planner falls back to chunking when the next planner turn would exceed non
         model: 'mock-model',
       });
 
-      assert.equal(result.Classification, 'summary');
-      assert.equal(result.Summary, 'merge summary');
+      assert.equal(first.Classification, 'summary');
+      assert.equal(second.Classification, 'summary');
+      assert.equal(server.state.chatRequests.length, 4);
+      assert.equal(server.state.chatRequests[0].id_slot, server.state.chatRequests[1].id_slot);
+      assert.equal(server.state.chatRequests[2].id_slot, server.state.chatRequests[3].id_slot);
+      assert.notEqual(server.state.chatRequests[0].id_slot, server.state.chatRequests[2].id_slot);
+    }, {
+      config: {
+        LlamaCpp: {
+          ParallelSlots: 4,
+        },
+        Runtime: {
+          LlamaCpp: {
+            ParallelSlots: 4,
+          },
+        },
+      },
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1 || requestIndex === 3) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'json_filter',
+            args: {
+              filters: [
+                { path: 'from.worldX', op: 'gte', value: 3200 },
+                { path: 'from.worldX', op: 'lte', value: 3215 },
+              ],
+              select: ['id', 'label', 'from', 'to'],
+              limit: 5,
+            },
+          });
+        }
+
+        if (requestIndex === 2 || requestIndex === 4) {
+          return JSON.stringify({
+            action: 'finish',
+            classification: 'summary',
+            raw_review_required: false,
+            output: `request ${requestIndex / 2} finished`,
+          });
+        }
+
+        throw new Error(`unexpected slot request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
+      },
+    });
+  });
+});
+
+test('planner fails fast when the next planner turn would exceed non-thinking headroom', async () => {
+  await withTempEnv(async () => {
+    let servedPlannerToolCall = false;
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+
+      await assert.rejects(
+        () => summarizeRequest({
+          question: 'Summarize the visible transition evidence conservatively.',
+          inputText,
+          format: 'text',
+          policyProfile: 'general',
+          backend: 'llama.cpp',
+          model: 'mock-model',
+        }),
+        /Planner mode failed: planner_headroom_exceeded/u,
+      );
       assert.equal(servedPlannerToolCall, true);
       assert.match(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /action/u);
       assert.equal(
         server.state.chatRequests.some((request) => /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(String(request?.messages?.[0]?.content || ''))),
-        true,
+        false,
       );
     }, {
       config: {
@@ -5842,29 +6688,13 @@ test('planner falls back to chunking when the next planner turn would exceed non
           });
         }
 
-        if (/<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(promptText)) {
-          return JSON.stringify({
-            classification: 'summary',
-            raw_review_required: false,
-            output: 'chunk summary',
-          });
-        }
-
-        if (/Merge these partial summaries into one final answer/u.test(promptText)) {
-          return JSON.stringify({
-            classification: 'summary',
-            raw_review_required: false,
-            output: 'merge summary',
-          });
-        }
-
         throw new Error(`unexpected fallback request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
       },
     });
   });
 });
 
-test('planner falls back to chunking when the next planner turn would exceed thinking headroom', async () => {
+test('planner fails fast when the next planner turn would exceed thinking headroom', async () => {
   await withTempEnv(async () => {
     let servedPlannerToolCall = false;
     await withStubServer(async (server) => {
@@ -5872,21 +6702,21 @@ test('planner falls back to chunking when the next planner turn would exceed thi
       const threshold = getChunkThresholdCharacters(config);
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
 
-      const result = await summarizeRequest({
-        question: 'Summarize the visible transition evidence conservatively.',
-        inputText,
-        format: 'text',
-        policyProfile: 'general',
-        backend: 'llama.cpp',
-        model: 'mock-model',
-      });
-
-      assert.equal(result.Classification, 'summary');
-      assert.equal(result.Summary, 'merge summary');
+      await assert.rejects(
+        () => summarizeRequest({
+          question: 'Summarize the visible transition evidence conservatively.',
+          inputText,
+          format: 'text',
+          policyProfile: 'general',
+          backend: 'llama.cpp',
+          model: 'mock-model',
+        }),
+        /Planner mode failed: planner_headroom_exceeded/u,
+      );
       assert.equal(servedPlannerToolCall, true);
       assert.equal(
         server.state.chatRequests.some((request) => /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(String(request?.messages?.[0]?.content || ''))),
-        true,
+        false,
       );
     }, {
       config: {
@@ -5924,46 +6754,70 @@ test('planner falls back to chunking when the next planner turn would exceed thi
           });
         }
 
-        if (/<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(promptText)) {
-          return JSON.stringify({
-            classification: 'summary',
-            raw_review_required: false,
-            output: 'chunk summary',
-          });
-        }
-
-        if (/Merge these partial summaries into one final answer/u.test(promptText)) {
-          return JSON.stringify({
-            classification: 'summary',
-            raw_review_required: false,
-            output: 'merge summary',
-          });
-        }
-
         throw new Error(`unexpected thinking fallback request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
       },
     });
   });
 });
 
-test('summarizeRequest rejects input larger than 4x chunk threshold', async () => {
+test('planner fails fast when the planner response body is empty', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+
+      await assert.rejects(
+        () => summarizeRequest({
+          question: 'Find all transitions in the Lumbridge Castle area.',
+          inputText,
+          format: 'text',
+          policyProfile: 'general',
+          backend: 'llama.cpp',
+          model: 'mock-model',
+        }),
+        /Planner mode failed: llama\.cpp did not return a response body\./u,
+      );
+      assert.equal(server.state.chatRequests.length, 1);
+      assert.match(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /action/u);
+      assert.equal(
+        server.state.chatRequests.some((request) => /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(String(request?.messages?.[0]?.content || ''))),
+        false,
+      );
+    }, {
+      assistantContent() {
+        return '';
+      },
+    });
+  });
+});
+
+test('summarizeRequest no longer rejects input larger than 4x chunk threshold when planner mode can handle it', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
       const chunkThreshold = getChunkThresholdCharacters(config);
-      const maxChars = chunkThreshold * 4;
-      const inputChars = maxChars + 1;
-      await assert.rejects(
-        () => summarizeRequest({
-          question: 'Summarize oversized input.',
-          inputText: 'A'.repeat(inputChars),
-          format: 'text',
-          policyProfile: 'general',
-          backend: 'mock',
-          model: 'mock-model',
-        }),
-        new RegExp(`Error: recieved input of ${inputChars} characters, current maximum is ${maxChars} chars`, 'u')
-      );
+      const inputChars = (chunkThreshold * 4) + 1;
+      const result = await summarizeRequest({
+        question: 'Summarize oversized input.',
+        inputText: buildOversizedTransitionsInput(inputChars),
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'oversized input accepted');
+    }, {
+      assistantContent() {
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'oversized input accepted',
+        });
+      },
     });
   });
 });

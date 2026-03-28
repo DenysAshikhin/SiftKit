@@ -9,7 +9,9 @@ const DEFAULT_LLAMA_MODEL = 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
 const DEFAULT_LLAMA_BASE_URL = 'http://127.0.0.1:8097';
 const DEFAULT_LLAMA_MODEL_PATH = 'D:\\personal\\models\\Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
 const PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-35B-4bit-150k-no-thinking.ps1';
-const DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k.ps1';
+const FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k.ps1';
+const BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k-thinking.ps1';
+const DEFAULT_LLAMA_STARTUP_SCRIPT = 'C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\scripts\\start-qwen35-9b-q8-200k-thinking-managed.ps1';
 const DEFAULT_LLAMA_SHUTDOWN_SCRIPT = 'C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\scripts\\stop-llama-server.ps1';
 const { spawn, spawnSync } = require('node:child_process');
 const Database = require('better-sqlite3');
@@ -393,7 +395,11 @@ function normalizeConfig(input) {
   if (!Object.prototype.hasOwnProperty.call(merged.Server.LlamaCpp, 'StartupScript')) {
     merged.Server.LlamaCpp.StartupScript = null;
   }
-  if (merged.Server.LlamaCpp.StartupScript === PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT) {
+  if (
+    merged.Server.LlamaCpp.StartupScript === PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT
+    || merged.Server.LlamaCpp.StartupScript === FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT
+    || merged.Server.LlamaCpp.StartupScript === BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT
+  ) {
     merged.Server.LlamaCpp.StartupScript = DEFAULT_LLAMA_STARTUP_SCRIPT;
   }
   if (!Object.prototype.hasOwnProperty.call(merged.Server.LlamaCpp, 'ShutdownScript')) {

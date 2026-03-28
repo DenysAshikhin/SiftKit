@@ -34,6 +34,7 @@ export type CommandResult = {
 export type CommandAnalysisRequest = {
   ExitCode: number;
   CombinedText: string;
+  CommandText?: string;
   Question?: string;
   RiskLevel?: 'informational' | 'debug' | 'risky';
   ReducerProfile?: 'smart' | 'errors' | 'tail' | 'diff' | 'none';
@@ -308,6 +309,7 @@ export async function analyzeCommandOutput(request: CommandAnalysisRequest): Pro
     model,
     sourceKind: 'command-output',
     commandExitCode: request.ExitCode,
+    debugCommand: request.CommandText,
   });
   const summaryText = summaryResult.RawReviewRequired && summaryResult.Classification !== 'unsupported_input' && summaryResult.Summary.trim()
     ? `${summaryResult.Summary.trim()}\nRaw log: ${rawLogPath}`
@@ -333,6 +335,7 @@ export async function runCommand(request: CommandRequest): Promise<CommandResult
     return analyzeCommandOutput({
       ExitCode: processResult.ExitCode,
       CombinedText: processResult.Combined,
+      CommandText: [request.Command, ...(request.ArgumentList || [])].join(' '),
       Question: request.Question,
       RiskLevel: request.RiskLevel,
       ReducerProfile: request.ReducerProfile,

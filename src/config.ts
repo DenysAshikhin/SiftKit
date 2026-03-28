@@ -14,7 +14,9 @@ export const SIFT_DEFAULT_LLAMA_MODEL = 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
 export const SIFT_DEFAULT_LLAMA_BASE_URL = 'http://127.0.0.1:8097';
 export const SIFT_DEFAULT_LLAMA_MODEL_PATH = 'D:\\personal\\models\\Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
 export const SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-35B-4bit-150k-no-thinking.ps1';
-export const SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k.ps1';
+export const SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k.ps1';
+export const SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k-thinking.ps1';
+export const SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT = 'C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\scripts\\start-qwen35-9b-q8-200k-thinking-managed.ps1';
 export const SIFT_DEFAULT_LLAMA_SHUTDOWN_SCRIPT = 'C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\scripts\\stop-llama-server.ps1';
 export const SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS = 32_000;
 export const SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN = 2.5;
@@ -316,6 +318,16 @@ function findNearestSiftKitRepoRoot(startPath = process.cwd()): string | null {
     }
     currentPath = parentPath;
   }
+}
+
+export function getRepoLocalRuntimeRoot(): string | null {
+  const repoRoot = findNearestSiftKitRepoRoot();
+  return repoRoot ? path.resolve(repoRoot, '.siftkit') : null;
+}
+
+export function getRepoLocalLogsPath(): string | null {
+  const runtimeRoot = getRepoLocalRuntimeRoot();
+  return runtimeRoot ? path.resolve(runtimeRoot, 'logs') : null;
 }
 
 export function getRuntimeRoot(): string {
@@ -726,7 +738,7 @@ export async function notifyStatusBackend(options: {
   budgetSource?: string | null;
   inputCharactersPerContextToken?: number | null;
   chunkThresholdCharacters?: number | null;
-  phase?: 'leaf' | 'merge';
+  phase?: 'leaf' | 'merge' | 'planner';
   chunkIndex?: number | null;
   chunkTotal?: number | null;
   chunkPath?: string | null;
@@ -1117,7 +1129,11 @@ function normalizeConfig(config: SiftConfig): { config: SiftConfig; info: Normal
     updated.Server.LlamaCpp.StartupScript = defaults.Server?.LlamaCpp?.StartupScript ?? null;
     changed = true;
   }
-  if (updated.Server.LlamaCpp.StartupScript === SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT) {
+  if (
+    updated.Server.LlamaCpp.StartupScript === SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT
+    || updated.Server.LlamaCpp.StartupScript === SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT
+    || updated.Server.LlamaCpp.StartupScript === SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT
+  ) {
     updated.Server.LlamaCpp.StartupScript = defaults.Server?.LlamaCpp?.StartupScript ?? null;
     changed = true;
   }

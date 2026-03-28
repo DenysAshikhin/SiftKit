@@ -274,6 +274,7 @@ async function analyzeCommandOutput(request) {
         model,
         sourceKind: 'command-output',
         commandExitCode: request.ExitCode,
+        debugCommand: request.CommandText,
     });
     const summaryText = summaryResult.RawReviewRequired && summaryResult.Classification !== 'unsupported_input' && summaryResult.Summary.trim()
         ? `${summaryResult.Summary.trim()}\nRaw log: ${rawLogPath}`
@@ -297,6 +298,7 @@ async function runCommand(request) {
         return analyzeCommandOutput({
             ExitCode: processResult.ExitCode,
             CombinedText: processResult.Combined,
+            CommandText: [request.Command, ...(request.ArgumentList || [])].join(' '),
             Question: request.Question,
             RiskLevel: request.RiskLevel,
             ReducerProfile: request.ReducerProfile,
