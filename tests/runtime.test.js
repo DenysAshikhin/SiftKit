@@ -3108,6 +3108,102 @@ test('summary aggregation records thinking tokens independently from output metr
   });
 });
 
+test('planner token accounting treats tool-step completion tokens as thinking and finish-step tokens as output', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+      const baselineInputTokens = server.state.metrics.inputTokensTotal;
+      const baselineOutputTokens = server.state.metrics.outputTokensTotal;
+      const baselineThinkingTokens = server.state.metrics.thinkingTokensTotal;
+
+      const result = await summarizeRequest({
+        question: 'Find all transitions in the Lumbridge Castle area.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'final planner answer');
+      assert.equal(server.state.chatRequests.length, 2);
+      assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 36);
+      assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 21);
+      assert.equal(server.state.metrics.thinkingTokensTotal - baselineThinkingTokens, 15);
+    }, {
+      chatResponse(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return {
+            id: 'chatcmpl-test',
+            object: 'chat.completion',
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: 'assistant',
+                  content: JSON.stringify({
+                    action: 'tool',
+                    tool_name: 'json_filter',
+                    args: {
+                      filters: [
+                        { path: 'from.worldX', op: 'gte', value: 3200 },
+                        { path: 'from.worldX', op: 'lte', value: 3215 },
+                      ],
+                      select: ['id', 'label'],
+                      limit: 20,
+                    },
+                  }),
+                },
+              },
+            ],
+            usage: {
+              prompt_tokens: 17,
+              completion_tokens: 15,
+              total_tokens: 32,
+            },
+          };
+        }
+
+        return {
+          id: 'chatcmpl-test',
+          object: 'chat.completion',
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: JSON.stringify({
+                  action: 'finish',
+                  classification: 'summary',
+                  raw_review_required: false,
+                  output: 'final planner answer',
+                }),
+              },
+            },
+          ],
+          usage: {
+            prompt_tokens: 19,
+            completion_tokens: 21,
+            total_tokens: 40,
+          },
+        };
+      },
+      metrics: {
+        inputCharactersTotal: 3_461_904,
+        inputTokensTotal: 1_865_267,
+        outputCharactersTotal: 0,
+        outputTokensTotal: 0,
+        thinkingTokensTotal: 0,
+        completedRequestCount: 0,
+        requestDurationMsTotal: 0,
+      },
+    });
+  });
+});
+
 test('summary retries with smaller chunks when llama.cpp rejects an oversized prompt and tokenization is unavailable', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
@@ -4766,6 +4862,7 @@ test('benchmark runner fails fast on provider errors and writes the fatal error 
 
 test('run-benchmark-fixture-debug writes an artifact for fixture mode', async () => {
   await withTempEnv(async (tempRoot) => {
+    const longSummary = `fixture-debug-full-summary:${'X'.repeat(1300)}:END`;
     await withStubServer(async () => {
       const fixtureRoot = path.join(tempRoot, 'bench-fixtures');
       const outputRoot = path.join(tempRoot, 'fixture-debug-output');
@@ -4797,8 +4894,21 @@ test('run-benchmark-fixture-debug writes an artifact for fixture mode', async ()
       assert.equal(artifact.ok, true);
       assert.equal(typeof artifact.requestId, 'string');
       assert.equal(artifact.classification, 'summary');
+      assert.equal(artifact.summary, longSummary);
+      assert.equal(artifact.summaryPreview, longSummary.slice(0, 1000));
+      assert.equal(fs.readFileSync(path.join(outputRoot, 'summary.txt'), 'utf8'), longSummary);
       assert.match(stdoutText, /Request id:/u);
+      assert.match(stdoutText, /Summary path:/u);
+      assert.match(stdoutText, /:END/u);
       assert.match(stderrText, /siftkit-trace/u);
+    }, {
+      assistantContent() {
+        return JSON.stringify({
+          classification: 'summary',
+          raw_review_required: false,
+          output: longSummary,
+        });
+      },
     });
   });
 });
@@ -6061,6 +6171,70 @@ test('planner writes a debug dump with input, thinking, tool calls, tool output,
   });
 });
 
+test('planner forwards prior thinking into the next planner prompt for fixture 31', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const fixturePath = path.join(
+        process.cwd(),
+        'eval',
+        'fixtures',
+        'ai_core_60_tests',
+        'raw',
+        '31_full_unlocks_ownership.txt',
+      );
+      const inputText = fs.readFileSync(fixturePath, 'utf8');
+
+      const result = await summarizeRequest({
+        question: 'Summarize Unlocks.gd: what progression/unlock data it owns, how unlock definitions are grouped, and which systems depend on it.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'fixture31 thinking-forwarded');
+      assert.equal(server.state.chatRequests.length, 2);
+      const secondPrompt = String(server.state.chatRequests[1]?.messages?.[0]?.content || '');
+      assert.match(secondPrompt, /Previous thinking 1:/u);
+      assert.match(secondPrompt, /THINK31 step1: inspect unlock ownership/u);
+      assert.match(secondPrompt, /Tool call:/u);
+      assert.match(secondPrompt, /read_lines/u);
+    }, {
+      assistantReasoningContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return 'THINK31 step1: inspect unlock ownership';
+        }
+        return 'THINK31 step2: finalize summary';
+      },
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'read_lines',
+            args: {
+              startLine: 1,
+              endLine: 80,
+            },
+          });
+        }
+
+        if (requestIndex === 2) {
+          return JSON.stringify({
+            action: 'finish',
+            classification: 'summary',
+            raw_review_required: false,
+            output: 'fixture31 thinking-forwarded',
+          });
+        }
+
+        throw new Error(`unexpected fixture31 request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
+      },
+    });
+  });
+});
+
 test('planner json_filter accepts combined gte and lte bounds in one filter value', async () => {
   await withTempEnv(async () => {
     const plannerLogsPath = getRepoPlannerLogsPath();
@@ -6487,7 +6661,7 @@ test('planner activates once input exceeds 40 percent of context length even bef
   });
 });
 
-test('planner allows up to twenty tool calls while prompt headroom remains', async () => {
+test('planner allows up to thirty tool calls while prompt headroom remains and shows remaining budget in prompt', async () => {
   await withTempEnv(async () => {
     let toolCallCount = 0;
     await withStubServer(async (server) => {
@@ -6506,9 +6680,11 @@ test('planner allows up to twenty tool calls while prompt headroom remains', asy
 
       assert.equal(result.Classification, 'summary');
       assert.equal(result.RawReviewRequired, false);
-      assert.equal(result.Summary, 'completed after 20 tool calls');
-      assert.equal(toolCallCount, 20);
-      assert.equal(server.state.chatRequests.length, 21);
+      assert.equal(result.Summary, 'completed after 30 tool calls');
+      assert.equal(toolCallCount, 30);
+      assert.equal(server.state.chatRequests.length, 31);
+      assert.match(String(server.state.chatRequests[0]?.messages?.[0]?.content || ''), /Tool-call budget remaining: 30/u);
+      assert.match(String(server.state.chatRequests[1]?.messages?.[0]?.content || ''), /Tool-call budget remaining: 29/u);
     }, {
       config: {
         LlamaCpp: {
@@ -6529,7 +6705,7 @@ test('planner allows up to twenty tool calls while prompt headroom remains', asy
         return Math.max(1, Math.ceil(content.length / 4));
       },
       assistantContent(promptText, parsed, requestIndex) {
-        if (requestIndex <= 20) {
+        if (requestIndex <= 30) {
           toolCallCount += 1;
           return JSON.stringify({
             action: 'tool',
@@ -6540,7 +6716,7 @@ test('planner allows up to twenty tool calls while prompt headroom remains', asy
           });
         }
 
-        if (requestIndex === 21) {
+        if (requestIndex === 31) {
           return JSON.stringify({
             action: 'finish',
             classification: 'summary',
@@ -6755,6 +6931,58 @@ test('planner fails fast when the next planner turn would exceed thinking headro
         }
 
         throw new Error(`unexpected thinking fallback request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
+      },
+    });
+  });
+});
+
+test('planner find_text auto-normalizes lone regex braces like var.*Unlocks.*=.*{', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const filler = buildOversizedTransitionsInput(threshold + 1000);
+      const inputText = `${filler}\nvar Unlocks = {`;
+
+      const result = await summarizeRequest({
+        question: 'Summarize the visible transition evidence conservatively.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.RawReviewRequired, false);
+      assert.equal(result.Summary, 'planner recovered from invalid regex');
+      assert.equal(server.state.chatRequests.length, 2);
+      assert.match(String(server.state.chatRequests[1]?.messages?.[0]?.content || ''), /hitCount=1/u);
+    }, {
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'find_text',
+            args: {
+              query: 'var.*Unlocks.*=.*{',
+              mode: 'regex',
+              maxHits: 3,
+              contextLines: 2,
+            },
+          });
+        }
+
+        if (requestIndex === 2) {
+          return JSON.stringify({
+            action: 'finish',
+            classification: 'summary',
+            raw_review_required: false,
+            output: 'planner recovered from invalid regex',
+          });
+        }
+
+        throw new Error(`unexpected invalid-regex request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
       },
     });
   });

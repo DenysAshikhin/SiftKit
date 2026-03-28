@@ -356,7 +356,7 @@ const LLAMA_CPP_NON_THINKING_PROMPT_TOKEN_RESERVE = 10_000;
 const LLAMA_CPP_THINKING_PROMPT_TOKEN_RESERVE = 15_000;
 const LLAMA_CPP_PROMPT_TOKEN_TARGET_TOLERANCE = 2000;
 const MAX_TOKEN_AWARE_CHUNK_ADJUSTMENTS = 8;
-const MAX_PLANNER_TOOL_CALLS = 20;
+const MAX_PLANNER_TOOL_CALLS = 30;
 const MIN_PLANNER_HEADROOM_TOKENS = 4000;
 const PLANNER_HEADROOM_RATIO = 0.15;
 const PLANNER_TRIGGER_CONTEXT_RATIO = 0.4;
@@ -490,6 +490,25 @@ function getFiniteInteger(value) {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
 }
+function isRegexCharEscaped(text, index) {
+    let slashCount = 0;
+    for (let cursor = index - 1; cursor >= 0 && text[cursor] === '\\'; cursor -= 1) {
+        slashCount += 1;
+    }
+    return slashCount % 2 === 1;
+}
+function escapeUnescapedRegexBraces(query) {
+    let normalized = '';
+    for (let index = 0; index < query.length; index += 1) {
+        const char = query[index];
+        if ((char === '{' || char === '}') && !isRegexCharEscaped(query, index)) {
+            normalized += `\\${char}`;
+            continue;
+        }
+        normalized += char;
+    }
+    return normalized;
+}
 function getValueByPath(value, pathText) {
     if (!pathText.trim()) {
         return value;
@@ -608,6 +627,7 @@ function buildPlannerDocumentProfile(inputText) {
 }
 function buildPlannerPrompt(options) {
     const allowUnsupportedInput = options.sourceKind !== 'command-output';
+    const remainingToolCalls = Math.max(MAX_PLANNER_TOOL_CALLS - options.toolResults.length, 0);
     const sections = [
         'You are SiftKit, a conservative shell-output compressor for Codex workflows.',
         '',
@@ -615,6 +635,10 @@ function buildPlannerPrompt(options) {
         '- The full input is too large for a direct pass, so inspect only the minimum evidence needed.',
         '- If the document profile or current tool results are already sufficient, finish immediately.',
         '- Request at most one tool call per response.',
+        `- Tool-call budget remaining: ${remainingToolCalls}.`,
+        ...(remainingToolCalls > 0
+            ? [`- You have ${remainingToolCalls} tool call${remainingToolCalls === 1 ? '' : 's'} left; finish once evidence is sufficient.`]
+            : ['- Tool-call budget is exhausted. Return action="finish" now.']),
         '- Return only a valid JSON object. No markdown fences.',
         '- Use separate filters for gte/lte bounds in json_filter; do not combine multiple operators inside one filter value.',
         '- Do not use "value":{"gte":3200,"lte":3215}. Use one filter per bound with a scalar value.',
@@ -649,6 +673,11 @@ function buildPlannerPrompt(options) {
         'Question:',
         options.question,
     ];
+    for (let index = 0; index < options.plannerThoughts.length; index += 1) {
+        sections.push('');
+        sections.push(`Previous thinking ${index + 1}:`);
+        sections.push(truncatePlannerText(options.plannerThoughts[index]));
+    }
     for (const toolResult of options.toolResults) {
         sections.push('');
         sections.push(`Tool call: ${toolResult.toolName} ${JSON.stringify(toolResult.args)}`);
@@ -708,9 +737,36 @@ function executeFindTextTool(inputText, args) {
     const maxHits = Math.max(1, Math.min(getFiniteInteger(args.maxHits) ?? 5, 20));
     const contextLines = Math.max(0, Math.min(getFiniteInteger(args.contextLines) ?? 0, 3));
     const lines = inputText.replace(/\r\n/gu, '\n').split('\n');
-    const matcher = mode === 'regex'
-        ? new RegExp(query, 'u')
-        : null;
+    let matcher = null;
+    let normalizedQuery = null;
+    if (mode === 'regex') {
+        try {
+            matcher = new RegExp(query, 'u');
+        }
+        catch (error) {
+            const escapedBraceQuery = escapeUnescapedRegexBraces(query);
+            if (escapedBraceQuery !== query) {
+                try {
+                    matcher = new RegExp(escapedBraceQuery, 'u');
+                    normalizedQuery = escapedBraceQuery;
+                }
+                catch {
+                    // Preserve original parser error below when fallback still fails.
+                }
+            }
+            if (!matcher) {
+                const errorText = `find_text invalid regex: ${getErrorMessage(error)}.`;
+                return {
+                    tool: 'find_text',
+                    mode,
+                    query,
+                    hitCount: 0,
+                    error: errorText,
+                    text: errorText,
+                };
+            }
+        }
+    }
     const hitBlocks = [];
     let hitCount = 0;
     for (let index = 0; index < lines.length; index += 1) {
@@ -733,6 +789,7 @@ function executeFindTextTool(inputText, args) {
         tool: 'find_text',
         mode,
         query,
+        normalizedQuery,
         hitCount,
         text: hitBlocks.join('\n\n'),
     };
@@ -1161,6 +1218,17 @@ function getMockSummary(prompt, question, phase) {
     }
     return toMockDecision(decision);
 }
+function sumTokenCounts(...values) {
+    let total = 0;
+    let hasValue = false;
+    for (const value of values) {
+        if (Number.isFinite(value)) {
+            total += Number(value);
+            hasValue = true;
+        }
+    }
+    return hasValue ? total : null;
+}
 async function invokeProviderSummary(options) {
     const chunkLabel = options.chunkPath ?? (options.chunkIndex !== null && options.chunkTotal !== null ? `${options.chunkIndex}/${options.chunkTotal}` : 'none');
     traceSummary(`notify running=true phase=${options.phase} chunk=${chunkLabel} raw_chars=${options.rawInputCharacterCount} `
@@ -1227,6 +1295,7 @@ async function invokeProviderSummary(options) {
         return response.text.trim();
     }
     finally {
+        const countOutputTokensAsThinking = options.phase === 'leaf' && options.chunkPath !== null;
         traceSummary(`notify running=false phase=${options.phase} chunk=${chunkLabel} duration_ms=${Date.now() - startedAt}`);
         await (0, config_js_1.notifyStatusBackend)({
             running: false,
@@ -1234,8 +1303,10 @@ async function invokeProviderSummary(options) {
             promptCharacterCount: options.promptCharacterCount,
             inputTokens,
             outputCharacterCount,
-            outputTokens,
-            thinkingTokens,
+            outputTokens: countOutputTokensAsThinking ? null : outputTokens,
+            thinkingTokens: countOutputTokensAsThinking
+                ? sumTokenCounts(thinkingTokens, outputTokens)
+                : thinkingTokens,
             requestDurationMs: Date.now() - startedAt,
         });
     }
@@ -1280,9 +1351,14 @@ async function invokePlannerProviderAction(options) {
         return {
             text: response.text,
             reasoningText: response.reasoningText,
+            inputTokens,
+            outputCharacterCount,
+            outputTokens,
+            thinkingTokens,
+            requestDurationMs: Date.now() - startedAt,
         };
     }
-    finally {
+    catch (error) {
         traceSummary(`notify running=false phase=planner chunk=none duration_ms=${Date.now() - startedAt}`);
         await (0, config_js_1.notifyStatusBackend)({
             running: false,
@@ -1294,6 +1370,7 @@ async function invokePlannerProviderAction(options) {
             thinkingTokens,
             requestDurationMs: Date.now() - startedAt,
         });
+        throw error;
     }
 }
 async function invokePlannerMode(options) {
@@ -1305,6 +1382,7 @@ async function invokePlannerMode(options) {
         return null;
     }
     const toolDefinitions = buildPlannerToolDefinitions();
+    const plannerThoughts = [];
     const toolResults = [];
     const debugRecorder = createPlannerDebugRecorder({
         requestId: options.requestId,
@@ -1324,6 +1402,7 @@ async function invokePlannerMode(options) {
             commandExitCode: options.commandExitCode,
             rawReviewRequired: options.rawReviewRequired,
             toolDefinitions,
+            plannerThoughts,
             toolResults,
         });
         const promptTokenCount = (await (0, llama_cpp_js_1.countLlamaCppTokens)(options.config, prompt)) ?? estimatePromptTokenCount(options.config, prompt);
@@ -1366,93 +1445,118 @@ async function invokePlannerMode(options) {
             });
             return null;
         }
-        debugRecorder.record({
-            kind: 'planner_model_response',
-            thinkingProcess: providerResponse.reasoningText,
-            responseText: providerResponse.text,
-        });
-        let action;
+        let countOutputTokens = false;
         try {
-            action = parsePlannerAction(providerResponse.text);
-        }
-        catch (error) {
-            invalidActionCount += 1;
             debugRecorder.record({
-                kind: 'planner_invalid_response',
-                error: getErrorMessage(error),
+                kind: 'planner_model_response',
+                thinkingProcess: providerResponse.reasoningText,
+                responseText: providerResponse.text,
             });
-            if (invalidActionCount >= 2) {
-                debugRecorder.finish({
-                    status: 'failed',
-                    reason: 'planner_invalid_response_limit',
-                });
-                return null;
+            const trimmedThinking = typeof providerResponse.reasoningText === 'string'
+                ? providerResponse.reasoningText.trim()
+                : '';
+            if (trimmedThinking) {
+                plannerThoughts.push(trimmedThinking);
             }
-            continue;
-        }
-        if (action.action === 'finish') {
-            if (action.classification === 'unsupported_input' && options.sourceKind === 'command-output') {
-                const fallbackDecision = normalizeStructuredDecision(buildConservativeDirectFallbackDecision({
-                    inputText: options.inputText,
-                    question: options.question,
-                    format: options.format,
-                    sourceKind: options.sourceKind,
-                }), options.format);
+            let action;
+            try {
+                action = parsePlannerAction(providerResponse.text);
+            }
+            catch (error) {
+                invalidActionCount += 1;
+                debugRecorder.record({
+                    kind: 'planner_invalid_response',
+                    error: getErrorMessage(error),
+                });
+                if (invalidActionCount >= 2) {
+                    debugRecorder.finish({
+                        status: 'failed',
+                        reason: 'planner_invalid_response_limit',
+                    });
+                    return null;
+                }
+                continue;
+            }
+            if (action.action === 'finish') {
+                if (action.classification === 'unsupported_input' && options.sourceKind === 'command-output') {
+                    const fallbackDecision = normalizeStructuredDecision(buildConservativeDirectFallbackDecision({
+                        inputText: options.inputText,
+                        question: options.question,
+                        format: options.format,
+                        sourceKind: options.sourceKind,
+                    }), options.format);
+                    debugRecorder.finish({
+                        status: 'completed',
+                        command: options.debugCommand ?? null,
+                        finalOutput: fallbackDecision.output,
+                        classification: fallbackDecision.classification,
+                        rawReviewRequired: fallbackDecision.rawReviewRequired,
+                    });
+                    return fallbackDecision;
+                }
+                countOutputTokens = true;
+                const decision = normalizeStructuredDecision({
+                    classification: action.classification,
+                    rawReviewRequired: action.rawReviewRequired,
+                    output: action.output,
+                }, options.format);
                 debugRecorder.finish({
                     status: 'completed',
                     command: options.debugCommand ?? null,
-                    finalOutput: fallbackDecision.output,
-                    classification: fallbackDecision.classification,
-                    rawReviewRequired: fallbackDecision.rawReviewRequired,
+                    finalOutput: decision.output,
+                    classification: decision.classification,
+                    rawReviewRequired: decision.rawReviewRequired,
                 });
-                return fallbackDecision;
+                return decision;
             }
-            const decision = normalizeStructuredDecision({
-                classification: action.classification,
-                rawReviewRequired: action.rawReviewRequired,
-                output: action.output,
-            }, options.format);
-            debugRecorder.finish({
-                status: 'completed',
-                command: options.debugCommand ?? null,
-                finalOutput: decision.output,
-                classification: decision.classification,
-                rawReviewRequired: decision.rawReviewRequired,
+            if (toolResults.length >= MAX_PLANNER_TOOL_CALLS) {
+                debugRecorder.finish({
+                    status: 'failed',
+                    reason: 'planner_tool_call_limit',
+                });
+                return null;
+            }
+            let result;
+            try {
+                result = executePlannerTool(options.inputText, action);
+            }
+            catch (error) {
+                debugRecorder.finish({
+                    status: 'failed',
+                    reason: getErrorMessage(error),
+                    toolCall: action,
+                });
+                return null;
+            }
+            debugRecorder.record({
+                kind: 'planner_tool',
+                command: `${action.tool_name} ${JSON.stringify(action.args)}`,
+                toolName: action.tool_name,
+                args: action.args,
+                output: result,
             });
-            return decision;
-        }
-        if (toolResults.length >= MAX_PLANNER_TOOL_CALLS) {
-            debugRecorder.finish({
-                status: 'failed',
-                reason: 'planner_tool_call_limit',
+            toolResults.push({
+                toolName: action.tool_name,
+                args: action.args,
+                result,
+                resultText: formatPlannerResult(result),
             });
-            return null;
         }
-        let result;
-        try {
-            result = executePlannerTool(options.inputText, action);
-        }
-        catch (error) {
-            debugRecorder.finish({
-                status: 'failed',
-                reason: getErrorMessage(error),
-                toolCall: action,
+        finally {
+            traceSummary(`notify running=false phase=planner chunk=none duration_ms=${providerResponse.requestDurationMs}`);
+            await (0, config_js_1.notifyStatusBackend)({
+                running: false,
+                requestId: options.requestId,
+                promptCharacterCount: prompt.length,
+                inputTokens: providerResponse.inputTokens,
+                outputCharacterCount: providerResponse.outputCharacterCount,
+                outputTokens: countOutputTokens ? providerResponse.outputTokens : null,
+                thinkingTokens: countOutputTokens
+                    ? providerResponse.thinkingTokens
+                    : sumTokenCounts(providerResponse.thinkingTokens, providerResponse.outputTokens),
+                requestDurationMs: providerResponse.requestDurationMs,
             });
-            return null;
         }
-        debugRecorder.record({
-            kind: 'planner_tool',
-            command: `${action.tool_name} ${JSON.stringify(action.args)}`,
-            toolName: action.tool_name,
-            args: action.args,
-            output: result,
-        });
-        toolResults.push({
-            toolName: action.tool_name,
-            args: action.args,
-            result,
-            resultText: formatPlannerResult(result),
-        });
     }
     debugRecorder.finish({
         status: 'failed',

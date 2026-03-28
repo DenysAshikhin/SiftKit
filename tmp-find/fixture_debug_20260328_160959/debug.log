@@ -1,0 +1,33 @@
+[fixture-debug 2026-03-28T20:09:59.755Z] Output root: C:\Users\denys\Documents\GitHub\SiftKit\tmp-find\fixture_debug_20260328_160959
+[fixture-debug 2026-03-28T20:09:59.756Z] Log path: C:\Users\denys\Documents\GitHub\SiftKit\tmp-find\fixture_debug_20260328_160959\debug.log
+[fixture-debug 2026-03-28T20:09:59.757Z] Source path: C:\Users\denys\Documents\GitHub\SiftKit\eval\fixtures\ai_core_60_tests\raw\31_full_unlocks_ownership.txt
+[fixture-debug 2026-03-28T20:09:59.757Z] Input chars: 281469
+[fixture-debug 2026-03-28T20:09:59.758Z] Question: Summarize Unlocks.gd: what progression/unlock data it owns, how unlock definitions are grouped, and which systems depend on it.
+[fixture-debug 2026-03-28T20:09:59.758Z] Format: text
+[fixture-debug 2026-03-28T20:09:59.759Z] Policy profile: general
+[fixture-debug 2026-03-28T20:09:59.760Z] Request timeout seconds: 600
+[fixture-debug 2026-03-28T20:09:59.760Z] Calling summarizeRequest...
+[siftkit-trace 2026-03-28T20:09:59.761Z] summary summarizeRequest start input_chars=281469
+[siftkit-trace 2026-03-28T20:09:59.761Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-03-28T20:09:59.769Z] execution-lock acquire success token=5abd1a8f-ae3a-42ca-9480-041b1d009125 elapsed_ms=8
+[siftkit-trace 2026-03-28T20:09:59.770Z] summary loadConfig start
+[siftkit-trace 2026-03-28T20:09:59.778Z] summary loadConfig done
+[siftkit-trace 2026-03-28T20:09:59.789Z] summary decision ready backend=llama.cpp model=Qwen3.5-9B-Q8_0.gguf raw_review_required=false chars=281469 lines=9209
+[siftkit-trace 2026-03-28T20:09:59.791Z] summary invokeSummaryCore start
+[siftkit-trace 2026-03-28T20:09:59.792Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=281469 chunk_threshold=547434 planner_threshold=238880
+[siftkit-trace 2026-03-28T20:09:59.799Z] llama-cpp tokenize start chars=5628
+[siftkit-trace 2026-03-28T20:09:59.801Z] llama-cpp tokenize http_error elapsed_ms=2 status=503
+[siftkit-trace 2026-03-28T20:09:59.807Z] summary notify running=true phase=planner chunk=none raw_chars=281469 chunk_chars=281469 prompt_chars=5628
+[siftkit-trace 2026-03-28T20:09:59.822Z] llama-cpp generate start model=Qwen3.5-9B-Q8_0.gguf timeout_s=600 prompt_chars=5628 base_url=http://127.0.0.1:8097
+[siftkit-trace 2026-03-28T20:09:59.824Z] llama-cpp generate http_error elapsed_ms=2 status=503
+[siftkit-trace 2026-03-28T20:09:59.825Z] summary notify running=false phase=planner chunk=none duration_ms=3
+[siftkit-trace 2026-03-28T20:09:59.854Z] execution-lock release token=5abd1a8f-ae3a-42ca-9480-041b1d009125
+[fixture-debug 2026-03-28T20:09:59.857Z] summarizeRequest failed in 96.1ms
+[fixture-debug 2026-03-28T20:09:59.858Z] Artifact path: C:\Users\denys\Documents\GitHub\SiftKit\tmp-find\fixture_debug_20260328_160959\result.json
+Error: Planner mode failed: llama.cpp generate failed with HTTP 503: {"error":{"message":"Loading model","type":"unavailable_error","code":503}}. Planner debug dump: C:\Users\denys\Documents\GitHub\SiftKit\.siftkit\logs\planner_debug_59ef8e4e-4add-438c-a7e9-f91409b56d10.json
+    at invokeSummaryCore (C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:1844:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:2060:35
+    at async withExecutionLock (C:\Users\denys\Documents\GitHub\SiftKit\dist\execution-lock.js:93:16)
+    at async runDebugRequest (C:\Users\denys\Documents\GitHub\SiftKit\scripts\run-benchmark-fixture-debug.js:170:20)
+    at async main (C:\Users\denys\Documents\GitHub\SiftKit\scripts\run-benchmark-fixture31.js:8:18)

@@ -1,0 +1,128 @@
+[fixture-debug 2026-03-28T20:29:46.229Z] Output root: C:\Users\denys\Documents\GitHub\SiftKit\tmp-find\fixture_debug_20260328_162946
+[fixture-debug 2026-03-28T20:29:46.231Z] Log path: C:\Users\denys\Documents\GitHub\SiftKit\tmp-find\fixture_debug_20260328_162946\debug.log
+[fixture-debug 2026-03-28T20:29:46.232Z] Source path: C:\Users\denys\Documents\GitHub\SiftKit\eval\fixtures\ai_core_60_tests\raw\31_full_unlocks_ownership.txt
+[fixture-debug 2026-03-28T20:29:46.233Z] Input chars: 281469
+[fixture-debug 2026-03-28T20:29:46.233Z] Question: Summarize Unlocks.gd: what progression/unlock data it owns, how unlock definitions are grouped, and which systems depend on it.
+[fixture-debug 2026-03-28T20:29:46.234Z] Format: text
+[fixture-debug 2026-03-28T20:29:46.234Z] Policy profile: general
+[fixture-debug 2026-03-28T20:29:46.236Z] Request timeout seconds: 600
+[fixture-debug 2026-03-28T20:29:46.236Z] Calling summarizeRequest...
+[siftkit-trace 2026-03-28T20:29:46.239Z] summary summarizeRequest start input_chars=281469
+[siftkit-trace 2026-03-28T20:29:46.241Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-03-28T20:29:46.249Z] execution-lock acquire success token=429d9ff8-a860-471b-bd7f-ab0766227a48 elapsed_ms=8
+[siftkit-trace 2026-03-28T20:29:46.250Z] summary loadConfig start
+[siftkit-trace 2026-03-28T20:29:46.268Z] summary loadConfig done
+[siftkit-trace 2026-03-28T20:29:46.280Z] summary decision ready backend=llama.cpp model=Qwen3.5-9B-Q8_0.gguf raw_review_required=false chars=281469 lines=9209
+[siftkit-trace 2026-03-28T20:29:46.282Z] summary invokeSummaryCore start
+[siftkit-trace 2026-03-28T20:29:46.284Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=281469 chunk_threshold=381567 planner_threshold=172535
+[siftkit-trace 2026-03-28T20:29:46.291Z] llama-cpp tokenize start chars=5628
+[siftkit-trace 2026-03-28T20:29:46.298Z] llama-cpp tokenize done elapsed_ms=7 tokens=1405
+[siftkit-trace 2026-03-28T20:29:46.304Z] summary notify running=true phase=planner chunk=none raw_chars=281469 chunk_chars=281469 prompt_chars=5628
+[siftkit-trace 2026-03-28T20:29:46.322Z] llama-cpp generate start model=Qwen3.5-9B-Q8_0.gguf timeout_s=600 prompt_chars=5628 base_url=http://127.0.0.1:8097
+[siftkit-trace 2026-03-28T20:29:52.964Z] llama-cpp tokenize start chars=531
+[siftkit-trace 2026-03-28T20:29:52.967Z] llama-cpp tokenize done elapsed_ms=3 tokens=124
+[siftkit-trace 2026-03-28T20:29:52.972Z] llama-cpp generate done elapsed_ms=6650 prompt_tokens=2312 completion_tokens=65 thinking_tokens=124 output_chars=115
+[siftkit-trace 2026-03-28T20:29:52.987Z] summary notify running=false phase=planner chunk=none duration_ms=6650
+[siftkit-trace 2026-03-28T20:29:52.992Z] llama-cpp tokenize start chars=8923
+[siftkit-trace 2026-03-28T20:29:52.999Z] llama-cpp tokenize done elapsed_ms=7 tokens=2546
+[siftkit-trace 2026-03-28T20:29:53.006Z] summary notify running=true phase=planner chunk=none raw_chars=281469 chunk_chars=281469 prompt_chars=8923
+[siftkit-trace 2026-03-28T20:29:53.009Z] llama-cpp generate start model=Qwen3.5-9B-Q8_0.gguf timeout_s=600 prompt_chars=8923 base_url=http://127.0.0.1:8097
+[siftkit-trace 2026-03-28T20:30:01.937Z] llama-cpp tokenize start chars=879
+[siftkit-trace 2026-03-28T20:30:01.940Z] llama-cpp tokenize done elapsed_ms=3 tokens=207
+[siftkit-trace 2026-03-28T20:30:01.941Z] llama-cpp generate done elapsed_ms=8932 prompt_tokens=3453 completion_tokens=65 thinking_tokens=207 output_chars=120
+[siftkit-trace 2026-03-28T20:30:01.959Z] summary notify running=false phase=planner chunk=none duration_ms=8932
+[siftkit-trace 2026-03-28T20:30:01.963Z] llama-cpp tokenize start chars=9988
+[siftkit-trace 2026-03-28T20:30:01.974Z] llama-cpp tokenize done elapsed_ms=11 tokens=2807
+[siftkit-trace 2026-03-28T20:30:01.982Z] summary notify running=true phase=planner chunk=none raw_chars=281469 chunk_chars=281469 prompt_chars=9988
+[siftkit-trace 2026-03-28T20:30:01.986Z] llama-cpp generate start model=Qwen3.5-9B-Q8_0.gguf timeout_s=600 prompt_chars=9988 base_url=http://127.0.0.1:8097
+[siftkit-trace 2026-03-28T20:30:21.737Z] llama-cpp tokenize start chars=2073
+[siftkit-trace 2026-03-28T20:30:21.741Z] llama-cpp tokenize done elapsed_ms=4 tokens=525
+[siftkit-trace 2026-03-28T20:30:21.746Z] llama-cpp generate done elapsed_ms=19760 prompt_tokens=3713 completion_tokens=64 thinking_tokens=525 output_chars=119
+[siftkit-trace 2026-03-28T20:30:21.763Z] summary notify running=false phase=planner chunk=none duration_ms=19761
+[siftkit-trace 2026-03-28T20:30:21.767Z] llama-cpp tokenize start chars=12290
+[siftkit-trace 2026-03-28T20:30:21.778Z] llama-cpp tokenize done elapsed_ms=11 tokens=3398
+[siftkit-trace 2026-03-28T20:30:21.786Z] summary notify running=true phase=planner chunk=none raw_chars=281469 chunk_chars=281469 prompt_chars=12290
+[siftkit-trace 2026-03-28T20:30:21.789Z] llama-cpp generate start model=Qwen3.5-9B-Q8_0.gguf timeout_s=600 prompt_chars=12290 base_url=http://127.0.0.1:8097
+[siftkit-trace 2026-03-28T20:30:30.694Z] llama-cpp tokenize start chars=890
+[siftkit-trace 2026-03-28T20:30:30.697Z] llama-cpp tokenize done elapsed_ms=3 tokens=202
+[siftkit-trace 2026-03-28T20:30:30.703Z] llama-cpp generate done elapsed_ms=8914 prompt_tokens=4305 completion_tokens=66 thinking_tokens=202 output_chars=119
+[siftkit-trace 2026-03-28T20:30:30.719Z] summary notify running=false phase=planner chunk=none duration_ms=8914
+[siftkit-trace 2026-03-28T20:30:30.724Z] llama-cpp tokenize start chars=13364
+[siftkit-trace 2026-03-28T20:30:30.736Z] llama-cpp tokenize done elapsed_ms=12 tokens=3656
+[siftkit-trace 2026-03-28T20:30:30.745Z] summary notify running=true phase=planner chunk=none raw_chars=281469 chunk_chars=281469 prompt_chars=13364
+[siftkit-trace 2026-03-28T20:30:30.748Z] llama-cpp generate start model=Qwen3.5-9B-Q8_0.gguf timeout_s=600 prompt_chars=13364 base_url=http://127.0.0.1:8097
+[siftkit-trace 2026-03-28T20:30:43.467Z] llama-cpp tokenize start chars=1513
+[siftkit-trace 2026-03-28T20:30:43.470Z] llama-cpp tokenize done elapsed_ms=3 tokens=338
+[siftkit-trace 2026-03-28T20:30:43.474Z] llama-cpp generate done elapsed_ms=12726 prompt_tokens=4562 completion_tokens=65 thinking_tokens=338 output_chars=120
+[siftkit-trace 2026-03-28T20:30:43.492Z] summary notify running=false phase=planner chunk=none duration_ms=12727
+[siftkit-trace 2026-03-28T20:30:43.497Z] llama-cpp tokenize start chars=15063
+[siftkit-trace 2026-03-28T20:30:43.509Z] llama-cpp tokenize done elapsed_ms=12 tokens=4047
+[siftkit-trace 2026-03-28T20:30:43.517Z] summary notify running=true phase=planner chunk=none raw_chars=281469 chunk_chars=281469 prompt_chars=15063
+[siftkit-trace 2026-03-28T20:30:43.521Z] llama-cpp generate start model=Qwen3.5-9B-Q8_0.gguf timeout_s=600 prompt_chars=15063 base_url=http://127.0.0.1:8097
+[siftkit-trace 2026-03-28T20:30:59.561Z] llama-cpp tokenize start chars=1749
+[siftkit-trace 2026-03-28T20:30:59.564Z] llama-cpp tokenize done elapsed_ms=3 tokens=399
+[siftkit-trace 2026-03-28T20:30:59.569Z] llama-cpp generate done elapsed_ms=16048 prompt_tokens=4953 completion_tokens=71 thinking_tokens=399 output_chars=135
+[siftkit-trace 2026-03-28T20:30:59.587Z] summary notify running=false phase=planner chunk=none duration_ms=16049
+[siftkit-trace 2026-03-28T20:30:59.592Z] llama-cpp tokenize start chars=17028
+[siftkit-trace 2026-03-28T20:30:59.604Z] llama-cpp tokenize done elapsed_ms=12 tokens=4511
+[siftkit-trace 2026-03-28T20:30:59.613Z] summary notify running=true phase=planner chunk=none raw_chars=281469 chunk_chars=281469 prompt_chars=17028
+[siftkit-trace 2026-03-28T20:30:59.617Z] llama-cpp generate start model=Qwen3.5-9B-Q8_0.gguf timeout_s=600 prompt_chars=17028 base_url=http://127.0.0.1:8097
+[siftkit-trace 2026-03-28T20:31:11.287Z] llama-cpp tokenize start chars=1349
+[siftkit-trace 2026-03-28T20:31:11.291Z] llama-cpp tokenize done elapsed_ms=4 tokens=316
+[siftkit-trace 2026-03-28T20:31:11.299Z] llama-cpp generate done elapsed_ms=11682 prompt_tokens=5417 completion_tokens=64 thinking_tokens=316 output_chars=113
+[siftkit-trace 2026-03-28T20:31:11.316Z] summary notify running=false phase=planner chunk=none duration_ms=11683
+[siftkit-trace 2026-03-28T20:31:11.328Z] llama-cpp tokenize start chars=19197
+[siftkit-trace 2026-03-28T20:31:11.339Z] llama-cpp tokenize done elapsed_ms=12 tokens=5132
+[siftkit-trace 2026-03-28T20:31:11.348Z] summary notify running=true phase=planner chunk=none raw_chars=281469 chunk_chars=281469 prompt_chars=19197
+[siftkit-trace 2026-03-28T20:31:11.353Z] llama-cpp generate start model=Qwen3.5-9B-Q8_0.gguf timeout_s=600 prompt_chars=19197 base_url=http://127.0.0.1:8097
+[siftkit-trace 2026-03-28T20:31:25.211Z] llama-cpp tokenize start chars=1533
+[siftkit-trace 2026-03-28T20:31:25.214Z] llama-cpp tokenize done elapsed_ms=3 tokens=365
+[siftkit-trace 2026-03-28T20:31:25.217Z] llama-cpp generate done elapsed_ms=13864 prompt_tokens=6039 completion_tokens=66 thinking_tokens=365 output_chars=124
+[siftkit-trace 2026-03-28T20:31:25.237Z] summary notify running=false phase=planner chunk=none duration_ms=13865
+[siftkit-trace 2026-03-28T20:31:25.241Z] llama-cpp tokenize start chars=20924
+[siftkit-trace 2026-03-28T20:31:25.257Z] llama-cpp tokenize done elapsed_ms=16 tokens=5553
+[siftkit-trace 2026-03-28T20:31:25.266Z] summary notify running=true phase=planner chunk=none raw_chars=281469 chunk_chars=281469 prompt_chars=20924
+[siftkit-trace 2026-03-28T20:31:25.270Z] llama-cpp generate start model=Qwen3.5-9B-Q8_0.gguf timeout_s=600 prompt_chars=20924 base_url=http://127.0.0.1:8097
+[siftkit-trace 2026-03-28T20:31:44.862Z] llama-cpp tokenize start chars=2238
+[siftkit-trace 2026-03-28T20:31:44.865Z] llama-cpp tokenize done elapsed_ms=3 tokens=534
+[siftkit-trace 2026-03-28T20:31:44.871Z] llama-cpp generate done elapsed_ms=19601 prompt_tokens=6459 completion_tokens=66 thinking_tokens=534 output_chars=120
+[siftkit-trace 2026-03-28T20:31:44.891Z] summary notify running=false phase=planner chunk=none duration_ms=19602
+[siftkit-trace 2026-03-28T20:31:44.897Z] llama-cpp tokenize start chars=23347
+[siftkit-trace 2026-03-28T20:31:44.913Z] llama-cpp tokenize done elapsed_ms=16 tokens=6141
+[siftkit-trace 2026-03-28T20:31:44.923Z] summary notify running=true phase=planner chunk=none raw_chars=281469 chunk_chars=281469 prompt_chars=23347
+[siftkit-trace 2026-03-28T20:31:44.925Z] llama-cpp generate start model=Qwen3.5-9B-Q8_0.gguf timeout_s=600 prompt_chars=23347 base_url=http://127.0.0.1:8097
+[siftkit-trace 2026-03-28T20:32:06.283Z] llama-cpp tokenize start chars=2525
+[siftkit-trace 2026-03-28T20:32:06.287Z] llama-cpp tokenize done elapsed_ms=4 tokens=594
+[siftkit-trace 2026-03-28T20:32:06.292Z] llama-cpp generate done elapsed_ms=21367 prompt_tokens=7047 completion_tokens=41 thinking_tokens=594 output_chars=78
+[siftkit-trace 2026-03-28T20:32:06.313Z] summary notify running=false phase=planner chunk=none duration_ms=21368
+[siftkit-trace 2026-03-28T20:32:06.321Z] llama-cpp tokenize start chars=28234
+[siftkit-trace 2026-03-28T20:32:06.342Z] llama-cpp tokenize done elapsed_ms=21 tokens=7605
+[siftkit-trace 2026-03-28T20:32:06.351Z] summary notify running=true phase=planner chunk=none raw_chars=281469 chunk_chars=281469 prompt_chars=28234
+[siftkit-trace 2026-03-28T20:32:06.354Z] llama-cpp generate start model=Qwen3.5-9B-Q8_0.gguf timeout_s=600 prompt_chars=28234 base_url=http://127.0.0.1:8097
+[siftkit-trace 2026-03-28T20:32:25.501Z] llama-cpp tokenize start chars=1799
+[siftkit-trace 2026-03-28T20:32:25.503Z] llama-cpp tokenize done elapsed_ms=2 tokens=508
+[siftkit-trace 2026-03-28T20:32:25.508Z] llama-cpp generate done elapsed_ms=19154 prompt_tokens=8512 completion_tokens=46 thinking_tokens=508 output_chars=83
+[siftkit-trace 2026-03-28T20:32:25.527Z] summary notify running=false phase=planner chunk=none duration_ms=19154
+[siftkit-trace 2026-03-28T20:32:25.531Z] llama-cpp tokenize start chars=32539
+[siftkit-trace 2026-03-28T20:32:25.554Z] llama-cpp tokenize done elapsed_ms=23 tokens=9101
+[siftkit-trace 2026-03-28T20:32:25.563Z] summary notify running=true phase=planner chunk=none raw_chars=281469 chunk_chars=281469 prompt_chars=32539
+[siftkit-trace 2026-03-28T20:32:25.566Z] llama-cpp generate start model=Qwen3.5-9B-Q8_0.gguf timeout_s=600 prompt_chars=32539 base_url=http://127.0.0.1:8097
+[siftkit-trace 2026-03-28T20:32:41.029Z] llama-cpp tokenize start chars=1386
+[siftkit-trace 2026-03-28T20:32:41.031Z] llama-cpp tokenize done elapsed_ms=2 tokens=398
+[siftkit-trace 2026-03-28T20:32:41.035Z] llama-cpp generate done elapsed_ms=15469 prompt_tokens=10008 completion_tokens=71 thinking_tokens=398 output_chars=118
+[siftkit-trace 2026-03-28T20:32:41.056Z] summary notify running=false phase=planner chunk=none duration_ms=15470
+[siftkit-trace 2026-03-28T20:32:41.060Z] llama-cpp tokenize start chars=34108
+[siftkit-trace 2026-03-28T20:32:41.084Z] llama-cpp tokenize done elapsed_ms=24 tokens=9562
+[siftkit-trace 2026-03-28T20:32:41.094Z] summary notify running=true phase=planner chunk=none raw_chars=281469 chunk_chars=281469 prompt_chars=34108
+[siftkit-trace 2026-03-28T20:32:41.097Z] llama-cpp generate start model=Qwen3.5-9B-Q8_0.gguf timeout_s=600 prompt_chars=34108 base_url=http://127.0.0.1:8097
+[siftkit-trace 2026-03-28T20:33:15.658Z] llama-cpp tokenize start chars=1490
+[siftkit-trace 2026-03-28T20:33:15.661Z] llama-cpp tokenize done elapsed_ms=3 tokens=405
+[siftkit-trace 2026-03-28T20:33:15.662Z] llama-cpp generate done elapsed_ms=34565 prompt_tokens=10468 completion_tokens=723 thinking_tokens=405 output_chars=2693
+[siftkit-trace 2026-03-28T20:33:15.681Z] summary notify running=false phase=planner chunk=none duration_ms=34565
+[siftkit-trace 2026-03-28T20:33:15.683Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-03-28T20:33:15.701Z] execution-lock release token=429d9ff8-a860-471b-bd7f-ab0766227a48
+[fixture-debug 2026-03-28T20:33:15.704Z] summarizeRequest completed in 209.465s
+[fixture-debug 2026-03-28T20:33:15.705Z] Request id: ceb20167-8326-4784-b2b3-e944a2f8246e
+[fixture-debug 2026-03-28T20:33:15.706Z] Result classification: summary
+[fixture-debug 2026-03-28T20:33:15.706Z] Summary path: C:\Users\denys\Documents\GitHub\SiftKit\tmp-find\fixture_debug_20260328_162946\summary.txt
+[fixture-debug 2026-03-28T20:33:15.707Z] Artifact path: C:\Users\denys\Documents\GitHub\SiftKit\tmp-find\fixture_debug_20260328_162946\result.json

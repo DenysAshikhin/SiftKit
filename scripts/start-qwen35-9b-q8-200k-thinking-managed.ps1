@@ -11,14 +11,14 @@ param(
     [int]$Port = 8097,
     [string]$LlamaCppRoot = 'C:\Users\denys\Documents\GitHub\llamacpp',
     [string]$ModelPath = 'D:\personal\models\Qwen3.5-9B-Q8_0.gguf',
-    [int]$ContextSize = 180000,
+    [int]$ContextSize = 130000,
     [int]$GpuLayers = 999,
     [int]$Threads = 22,
     [bool]$FlashAttention = $true,
     [int]$ParallelSlots = 1,
-    [int]$BatchSize = 4096,
-    [int]$UBatchSize = 4096,
-    [int]$CacheRam = 2048,
+    [int]$BatchSize = 2048,
+    [int]$UBatchSize = 2048,
+    [int]$CacheRam = 4096,
     [int]$MaxTokens = 15000
 )
 

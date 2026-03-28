@@ -146,6 +146,7 @@ async function runDebugRequest(argv, options = {}) {
   const outputRoot = args.outputRoot || path.join(repoRoot, 'tmp-find', `fixture_debug_${getTimestamp()}`);
   const logPath = path.join(outputRoot, 'debug.log');
   const artifactPath = path.join(outputRoot, 'result.json');
+  const summaryPath = path.join(outputRoot, 'summary.txt');
   const stdoutTarget = options.stdout || process.stdout;
   const stderrTarget = options.stderr || process.stderr;
   const logger = createLogger(logPath, stdoutTarget, stderrTarget);
@@ -183,16 +184,19 @@ async function runDebugRequest(argv, options = {}) {
       classification: result.Classification,
       rawReviewRequired: result.RawReviewRequired,
       modelCallSucceeded: result.ModelCallSucceeded,
+      summary: result.Summary,
       summaryPreview: result.Summary.slice(0, 1000),
       providerError: result.ProviderError,
     };
     fs.mkdirSync(outputRoot, { recursive: true });
+    fs.writeFileSync(summaryPath, result.Summary, 'utf8');
     fs.writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
     logger.log(`summarizeRequest completed in ${formatDurationMs(durationMs)}`);
     logger.log(`Request id: ${result.RequestId}`);
     logger.log(`Result classification: ${result.Classification}`);
+    logger.log(`Summary path: ${summaryPath}`);
     logger.log(`Artifact path: ${artifactPath}`);
-    stdoutTarget.write(`${result.Summary.slice(0, 1000)}\n`);
+    stdoutTarget.write(result.Summary.endsWith('\n') ? result.Summary : `${result.Summary}\n`);
     return {
       exitCode: 0,
       artifactPath,

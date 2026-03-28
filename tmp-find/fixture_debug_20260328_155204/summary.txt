@@ -1,0 +1,57 @@
+## Unlocks.gd Progression System Summary
+
+### Progression/Unlock Data Owned
+
+**Primary Data Structures:**
+
+1. **UNLOCK_MAP** (line 1416+) - Main progression database containing:
+   - `mothership_unlocks` - Mothership upgrade definitions
+   - `support_unlocks` - Support unit upgrade definitions  
+   - `drone_unlocks` - Drone upgrade definitions
+   - `frigates_unlocks` - Frigate upgrade definitions
+   
+   Each unlock entry contains:
+   - `tier` (1-3) - Progression tier
+   - `icon` - Asset path (e.g., `res://assets/images/random_pics/main_icon2.png`)
+   - `description` - Human-readable text with upgrade details
+   - `passive_unlocks` - Array of unlock criteria objects with `unlock_criteria` (OBJECT_KEYS reference) and `unlock_amount`
+   - `active_unlocks` - Array of purchase criteria with `purchase_criteria` (OBJECT_KEYS or string) and `purchase_amount`
+   - `overcharge` - {} (placeholder for overcharge mechanics)
+   - `options` - {} (placeholder for options)
+
+2. **TIER_UNLOCK_MAP** (line 1336+) - Tier-based unlock definitions:
+   - `mothership_unlocks` array
+   - Individual shop items: `shop_Laser_Damage`, `shop_Laser_Delay`, `shop_Health`, `shop_Health_Regen`, etc.
+   - Each has `unlocked` boolean flag
+
+3. **OBJECTIVE_MAP** (line 181+) - Objective tracking metadata:
+   - Maps stat keys (via OBJECT_KEYS) to: `name`, `is_time`, `amount`, `sort`, `icon`
+   - `sort` values: 1=total, 2=max, 3=min
+
+4. **OBJECT_MAP_PRESTIGE** (line 179) - Empty object for prestige-related objectives
+
+5. **OBJECT_KEYS** (line 3+) - Constant mapping of stat names to internal keys (e.g., `mothership_laser_kill`, `drolium_mined`, `boss_killed`)
+
+### How Unlock Definitions Are Grouped
+
+1. **By Type**: mothership_unlocks, support_unlocks, drone_unlocks, frigates_unlocks
+2. **By Tier**: tier 1, 2, 3 progression gates
+3. **By Objective Type**: tracked via OBJECTIVE_MAP with sort logic
+4. **By Prestige**: OBJECT_MAP_PRESTIGE for prestige-specific objectives
+
+### Systems That Depend on Unlocks.gd
+
+1. **Objective Display System** - Uses `Unlocks.get_objective_title()` (seen at line 6180, 7580) to display cost/title text
+2. **Stat Calculation System** - Uses `Unlocks.get_total_stat()` (line 8776) with OBJECTIVE_MAP for sorting logic
+3. **Prestige System** - Iterates over `Unlocks.OBJECT_MAP_PRESTIGE` (line 8779) to accumulate stats
+4. **Unlock Criteria Validation** - References `UNLOCK_MAP['mothership_unlocks']`, `UNLOCK_MAP['support_unlocks']`, etc. throughout the codebase (lines 6178, 7578, 7624)
+5. **Tier Unlock System** - Uses `TIER_UNLOCK_MAP` for tier-based progression
+6. **Shop System** - Individual shop items like `shop_Laser_Delay` (lines 1427, 3621) reference unlock definitions
+
+**Key Dependencies:**
+- `OBJECT_KEYS` - Required for all stat key references
+- `OBJECTIVE_MAP` - Required for objective metadata and sorting
+- `UNLOCK_MAP` - Central hub for all unlock definitions
+- `TIER_UNLOCK_MAP` - Tier-specific unlock data
+- `OBJECT_MAP_PRESTIGE` - Prestige objective tracking
+Raw review required.
