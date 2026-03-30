@@ -359,7 +359,7 @@ const MAX_TOKEN_AWARE_CHUNK_ADJUSTMENTS = 8;
 const MAX_PLANNER_TOOL_CALLS = 30;
 const MIN_PLANNER_HEADROOM_TOKENS = 4000;
 const PLANNER_HEADROOM_RATIO = 0.15;
-const PLANNER_TRIGGER_CONTEXT_RATIO = 0.4;
+const PLANNER_TRIGGER_CONTEXT_RATIO = 0.75;
 const MAX_PLANNER_TOOL_RESULT_CHARACTERS = 12_000;
 const MAX_PLANNER_PREVIEW_CHARACTERS = 600;
 let nextLlamaCppSlotId = 0;
@@ -628,6 +628,9 @@ function buildPlannerDocumentProfile(inputText) {
 function buildPlannerPrompt(options) {
     const allowUnsupportedInput = options.sourceKind !== 'command-output';
     const remainingToolCalls = Math.max(MAX_PLANNER_TOOL_CALLS - options.toolResults.length, 0);
+    const lastInvalidResponseError = typeof options.lastInvalidResponseError === 'string'
+        ? options.lastInvalidResponseError.trim().replace(/\s+/gu, ' ')
+        : '';
     const sections = [
         'You are SiftKit, a conservative shell-output compressor for Codex workflows.',
         '',
@@ -642,7 +645,14 @@ function buildPlannerPrompt(options) {
         '- Return only a valid JSON object. No markdown fences.',
         '- Use separate filters for gte/lte bounds in json_filter; do not combine multiple operators inside one filter value.',
         '- Do not use "value":{"gte":3200,"lte":3215}. Use one filter per bound with a scalar value.',
+        '- Never emit JSON schema fragments like {"type":"integer"} as argument values. Use concrete literals.',
         '- Regex patterns must be valid JavaScript regex source for find_text. Do not add unnecessary escapes for ordinary quotes.',
+        ...(lastInvalidResponseError
+            ? [
+                `- Previous response was invalid: ${lastInvalidResponseError}`,
+                '- Retry with one corrected JSON action and concrete literal argument values.',
+            ]
+            : []),
         '',
         'Available actions:',
         '{"action":"tool","tool_name":"find_text|read_lines|json_filter","args":{...}}',
@@ -665,7 +675,7 @@ function buildPlannerPrompt(options) {
             : 'Set raw_review_required based on the visible evidence. Use true for risky, incomplete, or failure-related output.',
         '',
         'Tools:',
-        ...options.toolDefinitions.map((tool) => `${tool.function.name}: ${tool.function.description}\nparameters=${JSON.stringify(tool.function.parameters)}`),
+        ...options.toolDefinitions.map((tool) => `${tool.function.name}: ${tool.function.description}`),
         '',
         'Document profile:',
         buildPlannerDocumentProfile(options.inputText),
@@ -951,20 +961,28 @@ function createPlannerDebugRecorder(options) {
         },
     };
 }
+const plannerDebugPayloadByRequestId = new Map();
+const plannerFailedArtifactByRequestId = new Set();
+function getRuntimeLogsPath() {
+    const statusPath = process.env.sift_kit_status || process.env.SIFTKIT_STATUS_PATH || '';
+    if (statusPath && statusPath.trim()) {
+        const absoluteStatusPath = path.resolve(statusPath.trim());
+        const statusDirectory = path.dirname(absoluteStatusPath);
+        const runtimeRoot = path.basename(statusDirectory).toLowerCase() === 'status'
+            ? path.dirname(statusDirectory)
+            : statusDirectory;
+        return path.join(runtimeRoot, 'logs');
+    }
+    return path.join(process.cwd(), '.siftkit', 'logs');
+}
 function getPlannerDebugPath(requestId) {
-    const repoLogsPath = (0, config_js_1.getRepoLocalLogsPath)();
-    const logsPath = repoLogsPath ? fs.mkdirSync(repoLogsPath, { recursive: true }) || repoLogsPath : (0, config_js_1.initializeRuntime)().Logs;
-    return path.join(logsPath, `planner_debug_${requestId}.json`);
+    return path.join(getRuntimeLogsPath(), `planner_debug_${requestId}.json`);
 }
 function getPlannerFailedLogsPath() {
-    const repoLogsPath = (0, config_js_1.getRepoLocalLogsPath)();
-    const logsPath = repoLogsPath ? fs.mkdirSync(repoLogsPath, { recursive: true }) || repoLogsPath : (0, config_js_1.initializeRuntime)().Logs;
-    return path.join(logsPath, 'failed');
+    return path.join(getRuntimeLogsPath(), 'failed');
 }
 function getSummaryRequestLogsPath() {
-    const repoLogsPath = (0, config_js_1.getRepoLocalLogsPath)();
-    const logsPath = repoLogsPath ? fs.mkdirSync(repoLogsPath, { recursive: true }) || repoLogsPath : (0, config_js_1.initializeRuntime)().Logs;
-    return path.join(logsPath, 'requests');
+    return path.join(getRuntimeLogsPath(), 'requests');
 }
 function getPlannerFailedPath(requestId) {
     return path.join(getPlannerFailedLogsPath(), `request_failed_${requestId}.json`);
@@ -973,27 +991,22 @@ function getSummaryRequestLogPath(requestId) {
     return path.join(getSummaryRequestLogsPath(), `request_${requestId}.json`);
 }
 function readPlannerDebugPayload(requestId) {
-    const debugPath = getPlannerDebugPath(requestId);
-    if (!fs.existsSync(debugPath)) {
-        return {};
-    }
-    try {
-        return JSON.parse(fs.readFileSync(debugPath, 'utf8'));
-    }
-    catch {
-        return {};
-    }
+    return plannerDebugPayloadByRequestId.get(requestId) ?? {};
 }
 function updatePlannerDebugDump(requestId, update) {
-    const debugPath = getPlannerDebugPath(requestId);
     const payload = readPlannerDebugPayload(requestId);
-    (0, config_js_1.saveContentAtomically)(debugPath, `${JSON.stringify(update(payload), null, 2)}\n`);
+    plannerDebugPayloadByRequestId.set(requestId, update(payload));
 }
-function finalizePlannerDebugDump(options) {
-    const debugPath = getPlannerDebugPath(options.requestId);
-    if (!fs.existsSync(debugPath)) {
-        return;
-    }
+async function postSummaryArtifact(options) {
+    await (0, config_js_1.notifyStatusBackend)({
+        running: false,
+        requestId: options.requestId,
+        artifactType: options.artifactType,
+        artifactRequestId: options.requestId,
+        artifactPayload: options.artifactPayload,
+    });
+}
+async function finalizePlannerDebugDump(options) {
     updatePlannerDebugDump(options.requestId, (payload) => ({
         ...payload,
         final: {
@@ -1004,6 +1017,15 @@ function finalizePlannerDebugDump(options) {
             providerError: options.providerError ?? null,
         },
     }));
+    const payload = readPlannerDebugPayload(options.requestId);
+    if (Object.keys(payload).length === 0) {
+        return;
+    }
+    await postSummaryArtifact({
+        requestId: options.requestId,
+        artifactType: 'planner_debug',
+        artifactPayload: payload,
+    });
 }
 function buildPlannerFailureErrorMessage(options) {
     const debugPath = getPlannerDebugPath(options.requestId);
@@ -1016,35 +1038,42 @@ function buildPlannerFailureErrorMessage(options) {
         : '';
     return `Planner mode failed: ${reason}.${debugSuffix}`;
 }
-function writeFailedRequestDump(options) {
-    const failedPath = getPlannerFailedPath(options.requestId);
-    (0, config_js_1.saveContentAtomically)(failedPath, `${JSON.stringify({
+async function writeFailedRequestDump(options) {
+    await postSummaryArtifact({
         requestId: options.requestId,
-        command: options.command ?? null,
-        question: options.question,
-        inputText: options.inputText,
-        error: options.error,
-        providerError: options.providerError ?? options.error,
-        plannerDebugPath: fs.existsSync(getPlannerDebugPath(options.requestId)) ? getPlannerDebugPath(options.requestId) : null,
-    }, null, 2)}\n`);
+        artifactType: 'planner_failed',
+        artifactPayload: {
+            requestId: options.requestId,
+            command: options.command ?? null,
+            question: options.question,
+            inputText: options.inputText,
+            error: options.error,
+            providerError: options.providerError ?? options.error,
+            plannerDebugPath: plannerDebugPayloadByRequestId.has(options.requestId) ? getPlannerDebugPath(options.requestId) : null,
+        },
+    });
+    plannerFailedArtifactByRequestId.add(options.requestId);
 }
-function writeSummaryRequestDump(options) {
-    const requestLogPath = getSummaryRequestLogPath(options.requestId);
-    (0, config_js_1.saveContentAtomically)(requestLogPath, `${JSON.stringify({
+async function writeSummaryRequestDump(options) {
+    await postSummaryArtifact({
         requestId: options.requestId,
-        command: options.command ?? null,
-        question: options.question,
-        inputText: options.inputText,
-        backend: options.backend,
-        model: options.model,
-        classification: options.classification ?? null,
-        rawReviewRequired: options.rawReviewRequired ?? null,
-        summary: options.summary ?? null,
-        providerError: options.providerError ?? null,
-        error: options.error ?? null,
-        plannerDebugPath: fs.existsSync(getPlannerDebugPath(options.requestId)) ? getPlannerDebugPath(options.requestId) : null,
-        failedRequestPath: fs.existsSync(getPlannerFailedPath(options.requestId)) ? getPlannerFailedPath(options.requestId) : null,
-    }, null, 2)}\n`);
+        artifactType: 'summary_request',
+        artifactPayload: {
+            requestId: options.requestId,
+            command: options.command ?? null,
+            question: options.question,
+            inputText: options.inputText,
+            backend: options.backend,
+            model: options.model,
+            classification: options.classification ?? null,
+            rawReviewRequired: options.rawReviewRequired ?? null,
+            summary: options.summary ?? null,
+            providerError: options.providerError ?? null,
+            error: options.error ?? null,
+            plannerDebugPath: plannerDebugPayloadByRequestId.has(options.requestId) ? getPlannerDebugPath(options.requestId) : null,
+            failedRequestPath: plannerFailedArtifactByRequestId.has(options.requestId) ? getPlannerFailedPath(options.requestId) : null,
+        },
+    });
 }
 function appendTestProviderEvent(event) {
     const logPath = process.env.SIFTKIT_TEST_PROVIDER_LOG_PATH;
@@ -1052,6 +1081,10 @@ function appendTestProviderEvent(event) {
         return;
     }
     fs.appendFileSync(logPath, `${JSON.stringify(event)}\n`, { encoding: 'utf8' });
+}
+function clearSummaryArtifactState(requestId) {
+    plannerDebugPayloadByRequestId.delete(requestId);
+    plannerFailedArtifactByRequestId.delete(requestId);
 }
 function traceSummary(message) {
     if (process.env.SIFTKIT_TRACE_SUMMARY !== '1') {
@@ -1275,6 +1308,7 @@ async function invokeProviderSummary(options) {
             prompt: options.prompt,
             timeoutSeconds: options.requestTimeoutSeconds ?? 600,
             slotId: options.slotId ?? undefined,
+            reasoningOverride: options.reasoningOverride,
             structuredOutput: {
                 kind: 'siftkit-decision-json',
                 allowUnsupportedInput: options.backend !== 'llama.cpp' || options.phase === 'leaf' && options.chunkPath !== null,
@@ -1387,6 +1421,7 @@ async function invokePlannerMode(options) {
         commandText: options.debugCommand,
     });
     let invalidActionCount = 0;
+    let lastInvalidResponseError = null;
     while (toolResults.length <= MAX_PLANNER_TOOL_CALLS) {
         const prompt = buildPlannerPrompt({
             question: options.question,
@@ -1397,6 +1432,7 @@ async function invokePlannerMode(options) {
             rawReviewRequired: options.rawReviewRequired,
             toolDefinitions,
             toolResults,
+            lastInvalidResponseError,
         });
         const promptTokenCount = (await (0, llama_cpp_js_1.countLlamaCppTokens)(options.config, prompt)) ?? estimatePromptTokenCount(options.config, prompt);
         debugRecorder.record({
@@ -1451,9 +1487,10 @@ async function invokePlannerMode(options) {
             }
             catch (error) {
                 invalidActionCount += 1;
+                lastInvalidResponseError = getErrorMessage(error);
                 debugRecorder.record({
                     kind: 'planner_invalid_response',
-                    error: getErrorMessage(error),
+                    error: lastInvalidResponseError,
                 });
                 if (invalidActionCount >= 2) {
                     debugRecorder.finish({
@@ -1508,12 +1545,21 @@ async function invokePlannerMode(options) {
                 result = executePlannerTool(options.inputText, action);
             }
             catch (error) {
-                debugRecorder.finish({
-                    status: 'failed',
-                    reason: getErrorMessage(error),
+                invalidActionCount += 1;
+                lastInvalidResponseError = getErrorMessage(error);
+                debugRecorder.record({
+                    kind: 'planner_invalid_response',
+                    error: lastInvalidResponseError,
                     toolCall: action,
                 });
-                return null;
+                if (invalidActionCount >= 2) {
+                    debugRecorder.finish({
+                        status: 'failed',
+                        reason: 'planner_invalid_response_limit',
+                    });
+                    return null;
+                }
+                continue;
             }
             debugRecorder.record({
                 kind: 'planner_tool',
@@ -1522,6 +1568,7 @@ async function invokePlannerMode(options) {
                 args: action.args,
                 output: result,
             });
+            lastInvalidResponseError = null;
             toolResults.push({
                 toolName: action.tool_name,
                 args: action.args,
@@ -1803,6 +1850,8 @@ async function invokeSummaryCore(options) {
     const plannerActivationThreshold = options.backend === 'llama.cpp'
         ? Math.min(chunkThreshold, getPlannerActivationThresholdCharacters(options.config))
         : chunkThreshold;
+    const enforceNonToolOneShot = options.backend === 'llama.cpp'
+        && options.inputText.length <= plannerActivationThreshold;
     const chunkLabel = options.chunkPath ?? (options.chunkIndex !== null && options.chunkTotal !== null ? `${options.chunkIndex}/${options.chunkTotal}` : 'none');
     traceSummary(`invokeSummaryCore start phase=${phase} chunk=${chunkLabel} input_chars=${options.inputText.length} `
         + `chunk_threshold=${chunkThreshold} planner_threshold=${plannerActivationThreshold}`);
@@ -1892,6 +1941,7 @@ async function invokeSummaryCore(options) {
             chunkIndex: options.chunkIndex ?? null,
             chunkTotal: options.chunkTotal ?? null,
             chunkPath: options.chunkPath ?? null,
+            reasoningOverride: enforceNonToolOneShot ? 'off' : undefined,
             requestTimeoutSeconds: options.requestTimeoutSeconds,
             llamaCppOverrides: options.llamaCppOverrides,
         });
@@ -2022,7 +2072,7 @@ async function summarizeRequest(request) {
                     ModelCallSucceeded: true,
                     ProviderError: null,
                 };
-                writeSummaryRequestDump({
+                await writeSummaryRequestDump({
                     requestId,
                     question: request.question,
                     inputText,
@@ -2035,6 +2085,7 @@ async function summarizeRequest(request) {
                     providerError: result.ProviderError,
                     error: null,
                 });
+                clearSummaryArtifactState(requestId);
                 return result;
             }
             traceSummary(`decision ready backend=${backend} model=${model} raw_review_required=${decision.RawReviewRequired} `
@@ -2074,7 +2125,7 @@ async function summarizeRequest(request) {
             catch {
                 traceSummary(`terminal status post failed request_id=${requestId} state=completed`);
             }
-            finalizePlannerDebugDump({
+            await finalizePlannerDebugDump({
                 requestId,
                 finalOutput: modelDecision.output.trim(),
                 classification: modelDecision.classification,
@@ -2093,7 +2144,7 @@ async function summarizeRequest(request) {
                 ModelCallSucceeded: true,
                 ProviderError: null,
             };
-            writeSummaryRequestDump({
+            await writeSummaryRequestDump({
                 requestId,
                 question: request.question,
                 inputText,
@@ -2106,6 +2157,7 @@ async function summarizeRequest(request) {
                 providerError: result.ProviderError,
                 error: null,
             });
+            clearSummaryArtifactState(requestId);
             return result;
         }
         catch (error) {
@@ -2130,34 +2182,24 @@ async function summarizeRequest(request) {
                     traceSummary(`terminal status post failed request_id=${requestId} state=failed`);
                 }
             }
-            finalizePlannerDebugDump({
+            await finalizePlannerDebugDump({
                 requestId,
                 finalOutput: getErrorMessage(error),
                 classification: 'command_failure',
                 rawReviewRequired: true,
                 providerError: getErrorMessage(error),
             });
-            writeFailedRequestDump({
-                requestId,
-                question: request.question,
-                inputText,
-                command: request.debugCommand ?? null,
-                error: getErrorMessage(error),
-                providerError: getErrorMessage(error),
-            });
-            writeSummaryRequestDump({
-                requestId,
-                question: request.question,
-                inputText,
-                command: request.debugCommand ?? null,
-                backend,
-                model,
-                classification: 'command_failure',
-                rawReviewRequired: true,
-                summary: null,
-                providerError: getErrorMessage(error),
-                error: getErrorMessage(error),
-            });
+            if (/planner/iu.test(getErrorMessage(error))) {
+                await writeFailedRequestDump({
+                    requestId,
+                    question: request.question,
+                    inputText,
+                    command: request.debugCommand ?? null,
+                    error: getErrorMessage(error),
+                    providerError: getErrorMessage(error),
+                });
+            }
+            clearSummaryArtifactState(requestId);
             throw error;
         }
     });

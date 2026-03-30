@@ -1,4 +1,4 @@
-const test = require('node:test');
+﻿const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -200,16 +200,29 @@ function buildOversizedTransitionsInput(targetCharacters) {
   return JSON.stringify(transitions);
 }
 
-function getRepoPlannerLogsPath() {
-  return path.join(process.cwd(), '.siftkit', 'logs');
+function getRuntimeRootFromStatusPath(statusPath) {
+  const absoluteStatusPath = path.resolve(statusPath);
+  const statusDirectory = path.dirname(absoluteStatusPath);
+  if (path.basename(statusDirectory).toLowerCase() === 'status') {
+    return path.dirname(statusDirectory);
+  }
+
+  return statusDirectory;
 }
 
-function getRepoFailedLogsPath() {
-  return path.join(process.cwd(), '.siftkit', 'logs', 'failed');
+function getPlannerLogsPath() {
+  const statusPath = process.env.sift_kit_status || process.env.SIFTKIT_STATUS_PATH;
+  return statusPath && statusPath.trim()
+    ? path.join(getRuntimeRootFromStatusPath(statusPath), 'logs')
+    : path.join(process.cwd(), '.siftkit', 'logs');
 }
 
-function getRepoRequestLogsPath() {
-  return path.join(process.cwd(), '.siftkit', 'logs', 'requests');
+function getFailedLogsPath() {
+  return path.join(getPlannerLogsPath(), 'failed');
+}
+
+function getRequestLogsPath() {
+  return path.join(getPlannerLogsPath(), 'requests');
 }
 
 function buildStructuredStubDecision(promptText) {
@@ -257,6 +270,42 @@ function readBody(req) {
     req.on('data', (chunk) => chunks.push(chunk));
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
   });
+}
+
+function resolveArtifactLogPathFromStatusPost(parsedBody) {
+  if (!parsedBody || typeof parsedBody !== 'object') {
+    return null;
+  }
+
+  const artifactType = typeof parsedBody.artifactType === 'string'
+    ? parsedBody.artifactType.trim()
+    : '';
+  const artifactRequestId = typeof parsedBody.artifactRequestId === 'string'
+    ? parsedBody.artifactRequestId.trim()
+    : '';
+  if (!artifactType || !artifactRequestId) {
+    return null;
+  }
+
+  const statusPath = typeof parsedBody.statusPath === 'string' && parsedBody.statusPath.trim()
+    ? parsedBody.statusPath
+    : (process.env.sift_kit_status || process.env.SIFTKIT_STATUS_PATH || '');
+  if (!statusPath) {
+    return null;
+  }
+
+  const logsPath = path.join(getRuntimeRootFromStatusPath(statusPath), 'logs');
+  if (artifactType === 'summary_request') {
+    return path.join(logsPath, 'requests', `request_${artifactRequestId}.json`);
+  }
+  if (artifactType === 'planner_failed') {
+    return path.join(logsPath, 'failed', `request_failed_${artifactRequestId}.json`);
+  }
+  if (artifactType === 'planner_debug') {
+    return path.join(logsPath, `planner_debug_${artifactRequestId}.json`);
+  }
+
+  return null;
 }
 
 function requestJson(url, options = {}) {
@@ -369,6 +418,7 @@ async function startStubStatusServer(options = {}) {
   const state = {
     config: mergeConfig(getDefaultConfig(), options.config || {}),
     statusPosts: [],
+    artifactPosts: [],
     chatRequests: [],
     tokenizeRequests: [],
     running: Boolean(options.running),
@@ -535,9 +585,30 @@ async function startStubStatusServer(options = {}) {
 
       const bodyText = await readBody(req);
       const parsed = bodyText ? JSON.parse(bodyText) : {};
+      const artifactPath = resolveArtifactLogPathFromStatusPost(parsed);
+      const hasArtifactPayload = artifactPath !== null;
+      if (hasArtifactPayload && options.failArtifactPosts) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'artifact unavailable' }));
+        return;
+      }
+      if (hasArtifactPayload && (!parsed.artifactPayload || typeof parsed.artifactPayload !== 'object' || Array.isArray(parsed.artifactPayload))) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'artifact payload must be a JSON object' }));
+        return;
+      }
+      if (hasArtifactPayload) {
+        fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
+        fs.writeFileSync(artifactPath, `${JSON.stringify(parsed.artifactPayload, null, 2)}\n`, 'utf8');
+        state.artifactPosts.push({
+          type: parsed.artifactType,
+          requestId: parsed.artifactRequestId,
+          path: artifactPath,
+        });
+      }
       state.statusPosts.push(parsed);
       state.running = Boolean(parsed.running);
-      if (!parsed.running) {
+      if (!parsed.running && !hasArtifactPayload) {
         state.metrics.inputCharactersTotal += Number.isFinite(parsed.promptCharacterCount) ? Number(parsed.promptCharacterCount) : 0;
         state.metrics.outputCharactersTotal += Number.isFinite(parsed.outputCharacterCount) ? Number(parsed.outputCharacterCount) : 0;
         state.metrics.inputTokensTotal += Number.isFinite(parsed.inputTokens) ? Number(parsed.inputTokens) : 0;
@@ -1485,7 +1556,10 @@ test('summarizeRequest does not recurse forever when token-aware planning return
       assert.equal(result.WasSummarized, true);
       assert.equal(result.Classification, 'summary');
       assert.equal(server.state.chatRequests.length, 1);
-      assert.equal(server.state.statusPosts.length, 3);
+      assert.equal(
+        server.state.statusPosts.filter((post) => !post.artifactType).length,
+        3,
+      );
     }, {
       config: {
         LlamaCpp: {
@@ -2849,6 +2923,31 @@ test('llama.cpp provider omits chat template reasoning override in auto mode', a
       assert.equal(server.state.chatRequests.length, 1);
       assert.equal('chat_template_kwargs' in server.state.chatRequests[0], false);
       assert.equal('reasoning_budget' in server.state.chatRequests[0].extra_body, false);
+    });
+  });
+});
+
+test('llama.cpp provider per-call reasoning override takes precedence over config reasoning', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      config.Runtime ??= {};
+      config.Runtime.LlamaCpp ??= {};
+      config.Runtime.LlamaCpp.Reasoning = 'on';
+
+      await generateLlamaCppResponse({
+        config,
+        model: config.Model,
+        prompt: 'test prompt body',
+        timeoutSeconds: 5,
+        reasoningOverride: 'off',
+      });
+
+      assert.equal(server.state.chatRequests.length, 1);
+      assert.deepEqual(server.state.chatRequests[0].chat_template_kwargs, {
+        enable_thinking: false,
+      });
+      assert.equal(server.state.chatRequests[0].extra_body.reasoning_budget, 0);
     });
   });
 });
@@ -5717,6 +5816,125 @@ test('getPlannerPromptBudget leaves 26,250 tokens of headroom for a 190k thinkin
   });
 });
 
+test('summary below planner threshold runs one-shot with forced non-thinking', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const plannerThreshold = Math.floor(
+        getConfiguredLlamaNumCtx(config) * getEffectiveInputCharactersPerContextToken(config) * 0.75
+      );
+      const inputText = 'A'.repeat(Math.max(plannerThreshold - 10, 1));
+
+      config.Runtime ??= {};
+      config.Runtime.LlamaCpp ??= {};
+      config.Runtime.LlamaCpp.Reasoning = 'on';
+      await saveConfig(config);
+
+      const result = await summarizeRequest({
+        question: 'summarize this',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.WasSummarized, true);
+      assert.equal(server.state.chatRequests.length, 1);
+      assert.deepEqual(server.state.chatRequests[0].chat_template_kwargs, {
+        enable_thinking: false,
+      });
+      assert.equal(server.state.chatRequests[0].extra_body.reasoning_budget, 0);
+      assert.match(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /classification/u);
+      assert.doesNotMatch(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /tool_name/u);
+    });
+  });
+});
+
+test('summary above planner threshold uses planner flow without forced non-thinking override', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const plannerThreshold = Math.floor(
+        getConfiguredLlamaNumCtx(config) * getEffectiveInputCharactersPerContextToken(config) * 0.75
+      );
+      const inputText = buildOversizedTransitionsInput(plannerThreshold + 100);
+
+      config.Runtime ??= {};
+      config.Runtime.LlamaCpp ??= {};
+      config.Runtime.LlamaCpp.Reasoning = 'on';
+      await saveConfig(config);
+
+      const result = await summarizeRequest({
+        question: 'Summarize the visible transition evidence conservatively.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.WasSummarized, true);
+      assert.equal(server.state.chatRequests.length >= 1, true);
+      assert.deepEqual(server.state.chatRequests[0].chat_template_kwargs, {
+        enable_thinking: true,
+      });
+      assert.equal('reasoning_budget' in server.state.chatRequests[0].extra_body, false);
+      assert.match(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /tool_name/u);
+    }, {
+      assistantContent(promptText, parsed) {
+        if (String(parsed?.extra_body?.grammar || '').includes('tool_name')) {
+          return JSON.stringify({
+            action: 'finish',
+            classification: 'summary',
+            raw_review_required: false,
+            output: 'planner finish',
+          });
+        }
+
+        return '{"classification":"summary","raw_review_required":false,"output":"ok"}';
+      },
+    });
+  });
+});
+
+test('planner activation threshold at exactly 75% stays on non-planner path', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const plannerThreshold = Math.floor(
+        getConfiguredLlamaNumCtx(config) * getEffectiveInputCharactersPerContextToken(config) * 0.75
+      );
+
+      const nonPlannerInput = 'A'.repeat(Math.max(plannerThreshold, 1));
+
+      await summarizeRequest({
+        question: 'summarize this',
+        inputText: nonPlannerInput,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+      const nonPlannerRequest = server.state.chatRequests[server.state.chatRequests.length - 1];
+      assert.doesNotMatch(String(nonPlannerRequest?.extra_body?.grammar || ''), /tool_name/u);
+    }, {
+      assistantContent(promptText, parsed) {
+        if (String(parsed?.extra_body?.grammar || '').includes('tool_name')) {
+          return JSON.stringify({
+            action: 'finish',
+            classification: 'summary',
+            raw_review_required: false,
+            output: 'planner finish',
+          });
+        }
+
+        return '{"classification":"summary","raw_review_required":false,"output":"ok"}';
+      },
+    });
+  });
+});
+
 test('buildPlannerToolDefinitions returns qwen-friendly function schemas', () => {
   const toolDefinitions = buildPlannerToolDefinitions();
   assert.equal(Array.isArray(toolDefinitions), true);
@@ -6027,11 +6245,13 @@ test('oversized transition extraction uses planner action grammar before returni
       assert.match(firstPrompt, /json_filter/u);
       assert.match(firstPrompt, /Use separate filters for gte\/lte bounds/u);
       assert.match(firstPrompt, /Do not use "value":\{"gte":3200,"lte":3215\}/u);
+      assert.match(firstPrompt, /Never emit JSON schema fragments like \{"type":"integer"\}/u);
       assert.match(firstPrompt, /Regex patterns must be valid JavaScript regex/u);
       assert.match(firstPrompt, /Example tool calls:/u);
       assert.match(firstPrompt, /"tool_name":"find_text"/u);
       assert.match(firstPrompt, /"tool_name":"read_lines"/u);
       assert.match(firstPrompt, /"tool_name":"json_filter"/u);
+      assert.equal(/parameters=/u.test(firstPrompt), false);
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
@@ -6104,7 +6324,7 @@ test('planner accepts inputs larger than the former four-chunk cap when it can a
 
 test('planner writes a debug dump with input, thinking, tool calls, tool output, and final output', async () => {
   await withTempEnv(async () => {
-    const plannerLogsPath = getRepoPlannerLogsPath();
+    const plannerLogsPath = getPlannerLogsPath();
     fs.mkdirSync(plannerLogsPath, { recursive: true });
     const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
 
@@ -6173,7 +6393,7 @@ test('planner writes a debug dump with input, thinking, tool calls, tool output,
 
 test('planner json_filter accepts combined gte and lte bounds in one filter value', async () => {
   await withTempEnv(async () => {
-    const plannerLogsPath = getRepoPlannerLogsPath();
+    const plannerLogsPath = getPlannerLogsPath();
     fs.mkdirSync(plannerLogsPath, { recursive: true });
     const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
 
@@ -6231,9 +6451,144 @@ test('planner json_filter accepts combined gte and lte bounds in one filter valu
   });
 });
 
-test('summarizeRequest writes a repo-local request log for successful calls', async () => {
+test('planner retries malformed json_filter schema-placeholder args once and then succeeds', async () => {
   await withTempEnv(async () => {
-    const requestLogsPath = getRepoRequestLogsPath();
+    const plannerLogsPath = getPlannerLogsPath();
+    fs.mkdirSync(plannerLogsPath, { recursive: true });
+    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Find ladder transitions near worldX 3228-3230 and worldY 3210-3215. Return full objects.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'recovered malformed planner tool args');
+    }, {
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'json_filter',
+            args: {
+              filters: [
+                { path: 'from.worldX', op: 'gte', value: { type: 'integer' } },
+                { path: 'from.worldX', op: 'lte', value: { type: 'integer' } },
+                { path: 'from.worldY', op: 'gte', value: { type: 'integer' } },
+                { path: 'from.worldY', op: 'lte', value: { type: 'integer' } },
+              ],
+              limit: 100,
+            },
+          });
+        }
+
+        if (requestIndex === 2) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'json_filter',
+            args: {
+              filters: [
+                { path: 'from.worldX', op: 'gte', value: 3228 },
+                { path: 'from.worldX', op: 'lte', value: 3230 },
+                { path: 'from.worldY', op: 'gte', value: 3210 },
+                { path: 'from.worldY', op: 'lte', value: 3215 },
+              ],
+              limit: 100,
+            },
+          });
+        }
+
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'recovered malformed planner tool args',
+        });
+      },
+    });
+
+    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
+    const added = after.filter((entry) => !before.has(entry));
+    assert.equal(added.length, 1);
+
+    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    assert.equal(
+      debugDump.events.some((event) => event.kind === 'planner_invalid_response' && /json_filter gte requires a scalar value\./u.test(String(event.error || ''))),
+      true,
+    );
+    assert.equal(
+      debugDump.events.some((event) => event.kind === 'planner_tool' && event.toolName === 'json_filter' && /"value":3228/u.test(String(event.command || ''))),
+      true,
+    );
+    assert.equal(debugDump.final.finalOutput, 'recovered malformed planner tool args');
+  });
+});
+
+test('planner malformed json_filter schema-placeholder args fail on invalid response limit after retry', async () => {
+  await withTempEnv(async () => {
+    const plannerLogsPath = getPlannerLogsPath();
+    fs.mkdirSync(plannerLogsPath, { recursive: true });
+    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+
+      await assert.rejects(
+        () => summarizeRequest({
+          question: 'Find ladder transitions near worldX 3228-3230 and worldY 3210-3215. Return full objects.',
+          inputText,
+          format: 'text',
+          policyProfile: 'general',
+          backend: 'llama.cpp',
+          model: 'mock-model',
+        }),
+        /planner_invalid_response_limit/u,
+      );
+    }, {
+      assistantContent() {
+        return JSON.stringify({
+          action: 'tool',
+          tool_name: 'json_filter',
+          args: {
+            filters: [
+              { path: 'from.worldX', op: 'gte', value: { type: 'integer' } },
+              { path: 'from.worldX', op: 'lte', value: { type: 'integer' } },
+              { path: 'from.worldY', op: 'gte', value: { type: 'integer' } },
+              { path: 'from.worldY', op: 'lte', value: { type: 'integer' } },
+            ],
+            limit: 100,
+          },
+        });
+      },
+    });
+
+    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
+    const added = after.filter((entry) => !before.has(entry));
+    assert.equal(added.length, 1);
+
+    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    assert.equal(debugDump.final.reason, 'planner_invalid_response_limit');
+    assert.equal(
+      debugDump.events.filter((event) => event.kind === 'planner_invalid_response').length,
+      2,
+    );
+  });
+});
+
+test('summarizeRequest writes a request artifact through status posts for successful calls', async () => {
+  await withTempEnv(async () => {
+    const requestLogsPath = getRequestLogsPath();
     fs.mkdirSync(requestLogsPath, { recursive: true });
     const before = new Set(fs.readdirSync(requestLogsPath));
 
@@ -6268,13 +6623,14 @@ test('summarizeRequest writes a repo-local request log for successful calls', as
   });
 });
 
-test('planner failures write a failed artifact under the repo-local failed logs folder', async () => {
+test('planner failures write failed artifacts through status posts', async () => {
   await withTempEnv(async () => {
-    const failedLogsPath = getRepoFailedLogsPath();
+    const failedLogsPath = getFailedLogsPath();
     fs.mkdirSync(failedLogsPath, { recursive: true });
     const before = new Set(fs.readdirSync(failedLogsPath));
+    let statusPosts = [];
 
-    await withStubServer(async () => {
+    await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
       const threshold = getChunkThresholdCharacters(config);
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
@@ -6291,6 +6647,7 @@ test('planner failures write a failed artifact under the repo-local failed logs 
         }),
         /planner/i,
       );
+      statusPosts = server.state.statusPosts.slice();
     }, {
       assistantContent() {
         return '{';
@@ -6300,20 +6657,47 @@ test('planner failures write a failed artifact under the repo-local failed logs 
     const after = fs.readdirSync(failedLogsPath);
     const added = after.filter((entry) => !before.has(entry));
     assert.equal(added.length, 1);
-
     const failedDump = JSON.parse(fs.readFileSync(path.join(failedLogsPath, added[0]), 'utf8'));
     assert.equal(typeof failedDump.requestId, 'string');
+    assert.equal(failedDump.question, 'Find all transitions in the Lumbridge Castle area.');
     assert.equal(failedDump.command, 'type transitions.json | siftkit "Find all transitions in the Lumbridge Castle area."');
     assert.equal(typeof failedDump.error, 'string');
-    assert.match(failedDump.error, /planner/i);
-    assert.equal(failedDump.providerError, failedDump.error);
-    assert.equal(typeof failedDump.inputText, 'string');
+    assert.equal(typeof failedDump.providerError, 'string');
+    assert.equal(
+      statusPosts.some((post) => (
+        post.running === false
+        && post.terminalState === 'failed'
+        && typeof post.errorMessage === 'string'
+        && /planner/i.test(post.errorMessage)
+      )),
+      true,
+    );
+  });
+});
+
+test('artifact upload failures fail closed with the canonical message', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async () => {
+      await assert.rejects(
+        () => summarizeRequest({
+          question: 'Summarize this short input.',
+          inputText: 'Line one.\nLine two.',
+          format: 'text',
+          policyProfile: 'general',
+          backend: 'mock',
+          model: 'mock-model',
+        }),
+        new RegExp(getStatusServerUnavailableMessage().replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u')
+      );
+    }, {
+      failArtifactPosts: true,
+    });
   });
 });
 
 test('powershell shim preserves pipeline order for oversized planner input', async () => {
   await withTempEnv(async (tempRoot) => {
-    const plannerLogsPath = getRepoPlannerLogsPath();
+    const plannerLogsPath = getPlannerLogsPath();
     fs.mkdirSync(plannerLogsPath, { recursive: true });
     const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
 
@@ -6374,7 +6758,7 @@ test('powershell shim preserves pipeline order for oversized planner input', asy
 
 test('planner debug dumps always write to the repo-local logs directory', async () => {
   await withTempEnv(async () => {
-    const plannerLogsPath = getRepoPlannerLogsPath();
+    const plannerLogsPath = getPlannerLogsPath();
     fs.mkdirSync(plannerLogsPath, { recursive: true });
     const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
 
@@ -6412,7 +6796,7 @@ test('planner debug dumps always write to the repo-local logs directory', async 
 
 test('planner read_lines tool results use a compact numbered text block', async () => {
   await withTempEnv(async () => {
-    const plannerLogsPath = getRepoPlannerLogsPath();
+    const plannerLogsPath = getPlannerLogsPath();
     fs.mkdirSync(plannerLogsPath, { recursive: true });
     const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
 
@@ -6473,7 +6857,7 @@ test('planner read_lines tool results use a compact numbered text block', async 
 
 test('planner find_text and json_filter results use compact text blocks in prompts and debug dumps', async () => {
   await withTempEnv(async () => {
-    const plannerLogsPath = getRepoPlannerLogsPath();
+    const plannerLogsPath = getPlannerLogsPath();
     fs.mkdirSync(plannerLogsPath, { recursive: true });
     const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
 
@@ -6555,12 +6939,12 @@ test('planner find_text and json_filter results use compact text blocks in promp
   });
 });
 
-test('planner activates once input exceeds 40 percent of context length even before chunking would start', async () => {
+test('planner activates once input exceeds 75 percent of context length even before chunking would start', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
       const plannerActivationThreshold = Math.floor(
-        getConfiguredLlamaNumCtx(config) * getEffectiveInputCharactersPerContextToken(config) * 0.4
+        getConfiguredLlamaNumCtx(config) * getEffectiveInputCharactersPerContextToken(config) * 0.75
       );
       const chunkThreshold = getChunkThresholdCharacters(config);
       assert.ok(plannerActivationThreshold < chunkThreshold);
@@ -7144,3 +7528,4 @@ test('llama.cpp provider surfaces HTTP 400 errors when grammar-constrained reque
     });
   });
 });
+

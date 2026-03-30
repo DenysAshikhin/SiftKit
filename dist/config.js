@@ -672,6 +672,18 @@ async function notifyStatusBackend(options) {
     if (!options.running && options.requestDurationMs !== undefined && options.requestDurationMs !== null) {
         body.requestDurationMs = options.requestDurationMs;
     }
+    if (!options.running && options.artifactType) {
+        body.artifactType = options.artifactType;
+    }
+    if (!options.running && options.artifactRequestId && options.artifactRequestId.trim()) {
+        body.artifactRequestId = options.artifactRequestId.trim();
+    }
+    if (!options.running
+        && options.artifactPayload
+        && typeof options.artifactPayload === 'object'
+        && !Array.isArray(options.artifactPayload)) {
+        body.artifactPayload = options.artifactPayload;
+    }
     try {
         await requestJson({
             url: getStatusBackendUrl(),

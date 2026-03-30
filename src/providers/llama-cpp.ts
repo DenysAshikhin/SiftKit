@@ -417,6 +417,7 @@ export async function generateLlamaCppResponse(options: {
   timeoutSeconds: number;
   slotId?: number;
   structuredOutput?: LlamaCppStructuredOutput;
+  reasoningOverride?: 'on' | 'off' | 'auto';
   overrides?: Pick<
     RuntimeLlamaCppConfig,
     'Temperature' | 'TopP' | 'TopK' | 'MinP' | 'PresencePenalty' | 'RepetitionPenalty' | 'MaxTokens'
@@ -430,7 +431,8 @@ export async function generateLlamaCppResponse(options: {
   const resolvedMinP = options.overrides?.MinP ?? getConfiguredLlamaSetting<number>(options.config, 'MinP');
   const resolvedPresencePenalty = options.overrides?.PresencePenalty ?? getConfiguredLlamaSetting<number>(options.config, 'PresencePenalty');
   const resolvedRepetitionPenalty = options.overrides?.RepetitionPenalty ?? getConfiguredLlamaSetting<number>(options.config, 'RepetitionPenalty');
-  const resolvedReasoning = getConfiguredLlamaSetting<'on' | 'off' | 'auto'>(options.config, 'Reasoning');
+  const resolvedReasoning = options.reasoningOverride
+    ?? getConfiguredLlamaSetting<'on' | 'off' | 'auto'>(options.config, 'Reasoning');
   const structuredOutputGrammar = getStructuredOutputGrammar(options.structuredOutput);
   const requestBody = JSON.stringify({
     model: options.model,

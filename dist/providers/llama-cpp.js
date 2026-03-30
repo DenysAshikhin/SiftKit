@@ -323,7 +323,8 @@ async function generateLlamaCppResponse(options) {
     const resolvedMinP = options.overrides?.MinP ?? (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'MinP');
     const resolvedPresencePenalty = options.overrides?.PresencePenalty ?? (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'PresencePenalty');
     const resolvedRepetitionPenalty = options.overrides?.RepetitionPenalty ?? (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'RepetitionPenalty');
-    const resolvedReasoning = (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'Reasoning');
+    const resolvedReasoning = options.reasoningOverride
+        ?? (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'Reasoning');
     const structuredOutputGrammar = getStructuredOutputGrammar(options.structuredOutput);
     const requestBody = JSON.stringify({
         model: options.model,

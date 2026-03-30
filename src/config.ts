@@ -747,6 +747,9 @@ export async function notifyStatusBackend(options: {
   outputTokens?: number | null;
   thinkingTokens?: number | null;
   requestDurationMs?: number | null;
+  artifactType?: 'summary_request' | 'planner_debug' | 'planner_failed' | null;
+  artifactRequestId?: string | null;
+  artifactPayload?: Record<string, unknown> | null;
 }): Promise<void> {
   const body: Record<string, unknown> = {
     running: options.running,
@@ -815,6 +818,20 @@ export async function notifyStatusBackend(options: {
   }
   if (!options.running && options.requestDurationMs !== undefined && options.requestDurationMs !== null) {
     body.requestDurationMs = options.requestDurationMs;
+  }
+  if (!options.running && options.artifactType) {
+    body.artifactType = options.artifactType;
+  }
+  if (!options.running && options.artifactRequestId && options.artifactRequestId.trim()) {
+    body.artifactRequestId = options.artifactRequestId.trim();
+  }
+  if (
+    !options.running
+    && options.artifactPayload
+    && typeof options.artifactPayload === 'object'
+    && !Array.isArray(options.artifactPayload)
+  ) {
+    body.artifactPayload = options.artifactPayload;
   }
 
   try {

@@ -933,7 +933,10 @@ function parseStatusMetadata(bodyText) {
     outputCharacterCount: null,
     outputTokens: null,
     thinkingTokens: null,
-    requestDurationMs: null
+    requestDurationMs: null,
+    artifactType: null,
+    artifactRequestId: null,
+    artifactPayload: null,
   };
 
   if (!bodyText || !bodyText.trim()) {
@@ -998,6 +1001,23 @@ function parseStatusMetadata(bodyText) {
     if (Number.isFinite(parsed.requestDurationMs) && parsed.requestDurationMs >= 0) {
       metadata.requestDurationMs = parsed.requestDurationMs;
     }
+    if (
+      parsed.artifactType === 'summary_request'
+      || parsed.artifactType === 'planner_debug'
+      || parsed.artifactType === 'planner_failed'
+    ) {
+      metadata.artifactType = parsed.artifactType;
+    }
+    if (typeof parsed.artifactRequestId === 'string' && parsed.artifactRequestId.trim()) {
+      metadata.artifactRequestId = parsed.artifactRequestId.trim();
+    }
+    if (
+      parsed.artifactPayload
+      && typeof parsed.artifactPayload === 'object'
+      && !Array.isArray(parsed.artifactPayload)
+    ) {
+      metadata.artifactPayload = parsed.artifactPayload;
+    }
   } catch {
     return metadata;
   }
@@ -1036,6 +1056,57 @@ function parseJsonBody(bodyText) {
 function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(payload));
+}
+
+function saveContentAtomically(targetPath, content) {
+  ensureDirectory(targetPath);
+  let lastError = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const tempPath = path.join(
+      path.dirname(targetPath),
+      `${process.pid}-${Date.now()}-${attempt}-${Math.random().toString(16).slice(2)}.tmp`
+    );
+    try {
+      fs.writeFileSync(tempPath, content, 'utf8');
+      fs.renameSync(tempPath, targetPath);
+      return;
+    } catch (error) {
+      lastError = error;
+      try {
+        fs.rmSync(tempPath, { force: true });
+      } catch {
+        // Ignore cleanup failures.
+      }
+      if (!error || typeof error !== 'object') {
+        break;
+      }
+      const code = String(error.code || '');
+      if ((code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY') || attempt === 4) {
+        break;
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(`Failed to save ${targetPath}.`);
+}
+
+function getStatusArtifactPath(metadata) {
+  if (!metadata.artifactType || !metadata.artifactRequestId) {
+    return null;
+  }
+
+  const logsPath = path.join(getRuntimeRoot(), 'logs');
+  if (metadata.artifactType === 'summary_request') {
+    return path.join(logsPath, 'requests', `request_${metadata.artifactRequestId}.json`);
+  }
+  if (metadata.artifactType === 'planner_debug') {
+    return path.join(logsPath, `planner_debug_${metadata.artifactRequestId}.json`);
+  }
+  if (metadata.artifactType === 'planner_failed') {
+    return path.join(logsPath, 'failed', `request_failed_${metadata.artifactRequestId}.json`);
+  }
+
+  return null;
 }
 
 function startStatusServer(options = {}) {
@@ -1889,6 +1960,47 @@ function startStatusServer(options = {}) {
       }
 
       const metadata = parseStatusMetadata(bodyText);
+      if (metadata.artifactType !== null) {
+        if (!metadata.artifactRequestId) {
+          sendJson(res, 400, { error: 'Expected artifactRequestId when artifactType is provided.' });
+          return;
+        }
+        if (!metadata.artifactPayload) {
+          sendJson(res, 400, { error: 'Expected artifactPayload object when artifactType is provided.' });
+          return;
+        }
+        const artifactPath = getStatusArtifactPath(metadata);
+        if (!artifactPath) {
+          sendJson(res, 400, { error: 'Unsupported artifactType.' });
+          return;
+        }
+        try {
+          saveContentAtomically(artifactPath, `${JSON.stringify(metadata.artifactPayload, null, 2)}\n`);
+        } catch (error) {
+          sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+          return;
+        }
+      }
+      const isArtifactOnlyPost = metadata.artifactType !== null
+        && metadata.terminalState === null
+        && metadata.errorMessage === null
+        && metadata.promptCharacterCount === null
+        && metadata.promptTokenCount === null
+        && metadata.rawInputCharacterCount === null
+        && metadata.chunkInputCharacterCount === null
+        && metadata.chunkIndex === null
+        && metadata.chunkTotal === null
+        && metadata.chunkPath === null
+        && metadata.inputTokens === null
+        && metadata.outputCharacterCount === null
+        && metadata.outputTokens === null
+        && metadata.thinkingTokens === null
+        && metadata.requestDurationMs === null;
+      if (isArtifactOnlyPost) {
+        const publishedStatus = getPublishedStatusText();
+        sendJson(res, 200, { ok: true, running: publishedStatus === STATUS_TRUE, status: publishedStatus, statusPath, configPath });
+        return;
+      }
       const requestId = getResolvedRequestId(metadata, statusPath);
       let elapsedMs = null;
       let totalElapsedMs = null;
