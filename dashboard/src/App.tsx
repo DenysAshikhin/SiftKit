@@ -255,6 +255,73 @@ function formatRunEventPayload(event: { kind: string; payload: unknown }): strin
   return [...scalarLines, '', ...blockLines].join('\n').trim();
 }
 
+type RepoSearchChatStep = {
+  id: string;
+  prompt: string | null;
+  command: string;
+  output: string;
+};
+
+function buildRepoSearchChatSteps(events: RunDetailResponse['events']): RepoSearchChatStep[] {
+  const stepsFromScorecard: RepoSearchChatStep[] = [];
+  for (const event of events) {
+    if (event.kind !== 'run_done' || !isRecord(event.payload)) {
+      continue;
+    }
+    const scorecard = isRecord(event.payload.scorecard) ? event.payload.scorecard : null;
+    const tasks = scorecard && Array.isArray(scorecard.tasks) ? scorecard.tasks : [];
+    for (let taskIndex = 0; taskIndex < tasks.length; taskIndex += 1) {
+      const task = tasks[taskIndex];
+      if (!isRecord(task)) {
+        continue;
+      }
+      const question = readStringField(task, 'question');
+      const commands = Array.isArray(task.commands) ? task.commands : [];
+      for (let commandIndex = 0; commandIndex < commands.length; commandIndex += 1) {
+        const commandRecord = commands[commandIndex];
+        if (!isRecord(commandRecord)) {
+          continue;
+        }
+        const command = readStringField(commandRecord, 'command');
+        const output = readStringField(commandRecord, 'output');
+        if (!command || !output) {
+          continue;
+        }
+        stepsFromScorecard.push({
+          id: `task-${taskIndex + 1}-step-${commandIndex + 1}`,
+          prompt: commandIndex === 0 ? question : null,
+          command,
+          output,
+        });
+      }
+    }
+  }
+  if (stepsFromScorecard.length > 0) {
+    return stepsFromScorecard;
+  }
+
+  const stepsFromTurns: RepoSearchChatStep[] = [];
+  for (const event of events) {
+    if (event.kind !== 'turn_command_result' || !isRecord(event.payload)) {
+      continue;
+    }
+    const taskId = readStringField(event.payload, 'taskId');
+    const turn = event.payload.turn;
+    const command = readStringField(event.payload, 'command');
+    const output = readStringField(event.payload, 'insertedResultText') || readStringField(event.payload, 'output');
+    if (!taskId || !Number.isFinite(turn as number) || !command || !output) {
+      continue;
+    }
+    stepsFromTurns.push({
+      id: `${taskId}-step-${String(turn)}`,
+      prompt: null,
+      command,
+      output,
+    });
+  }
+  return stepsFromTurns;
+}
+
 type SeriesPoint = {
   label: string;
   value: number;
@@ -404,6 +471,7 @@ export function App() {
   const [statusFilter, setStatusFilter] = useState(params.get('status') || '');
   const [selectedRunId, setSelectedRunId] = useState(params.get('run') || '');
   const [selectedRunDetail, setSelectedRunDetail] = useState<RunDetailResponse | null>(null);
+  const [repoSearchSimpleFlow, setRepoSearchSimpleFlow] = useState(true);
   const runsSignatureRef = useRef<string>('');
   const runsLoadedRef = useRef<boolean>(false);
 
@@ -436,6 +504,10 @@ export function App() {
   const recentIdlePoints = idleSummarySnapshots
     .slice(0, 20)
     .reverse();
+  const isRepoSearchRunSelected = selectedRunDetail
+    ? classifyRunGroup(selectedRunDetail.run.kind) === 'repo_search'
+    : false;
+  const repoSearchChatSteps = selectedRunDetail ? buildRepoSearchChatSteps(selectedRunDetail.events) : [];
   const isThinkingEnabledForCurrentSession = selectedSession?.thinkingEnabled !== false;
   const chatMode = selectedSession?.mode === 'plan' ? 'plan' : 'chat';
 
@@ -840,6 +912,47 @@ export function App() {
               <input placeholder="Search runs" value={search} onChange={(event) => setSearch(event.target.value)} />
               <input placeholder="Kind filter" value={kindFilter} onChange={(event) => setKindFilter(event.target.value)} />
               <input placeholder="Status filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} />
+              <div className="filter-pill-row">
+                <span className="filter-pill-label">Kind</span>
+                <button
+                  type="button"
+                  className={`filter-pill kind summary ${kindFilter === 'summary' ? 'active' : ''}`}
+                  onClick={() => setKindFilter((previous) => (previous === 'summary' ? '' : 'summary'))}
+                >
+                  Summary
+                </button>
+                <button
+                  type="button"
+                  className={`filter-pill kind repo_search ${kindFilter === 'repo_search' ? 'active' : ''}`}
+                  onClick={() => setKindFilter((previous) => (previous === 'repo_search' ? '' : 'repo_search'))}
+                >
+                  Repo Search
+                </button>
+              </div>
+              <div className="filter-pill-row">
+                <span className="filter-pill-label">Status</span>
+                <button
+                  type="button"
+                  className={`filter-pill status completed ${statusFilter === 'completed' ? 'active' : ''}`}
+                  onClick={() => setStatusFilter((previous) => (previous === 'completed' ? '' : 'completed'))}
+                >
+                  Completed
+                </button>
+                <button
+                  type="button"
+                  className={`filter-pill status failed ${statusFilter === 'failed' ? 'active' : ''}`}
+                  onClick={() => setStatusFilter((previous) => (previous === 'failed' ? '' : 'failed'))}
+                >
+                  Failed
+                </button>
+                <button
+                  type="button"
+                  className={`filter-pill status running ${statusFilter === 'running' ? 'active' : ''}`}
+                  onClick={() => setStatusFilter((previous) => (previous === 'running' ? '' : 'running'))}
+                >
+                  Running
+                </button>
+              </div>
             </div>
             {runsLoading && <p className="hint">Loading runs...</p>}
             {runsError && <p className="error">{runsError}</p>}
@@ -897,16 +1010,62 @@ export function App() {
                   </details>
                   );
                 })()}
-                {selectedRunDetail.events.map((event, index) => (
-                  <details key={`${event.kind}-${index}`} className="detail-card" open={index === 0}>
-                    <summary>{event.kind} {event.at ? `| ${formatDate(event.at)}` : ''}</summary>
-                    <div className="markdown-body">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {formatRunEventPayload(event)}
-                      </ReactMarkdown>
-                    </div>
-                  </details>
-                ))}
+                {isRepoSearchRunSelected ? (
+                  <div className="run-view-toggle-row">
+                    <button
+                      type="button"
+                      className={repoSearchSimpleFlow ? 'active' : ''}
+                      onClick={() => setRepoSearchSimpleFlow(true)}
+                    >
+                      Simplified Flow
+                    </button>
+                    <button
+                      type="button"
+                      className={!repoSearchSimpleFlow ? 'active' : ''}
+                      onClick={() => setRepoSearchSimpleFlow(false)}
+                    >
+                      Raw Events
+                    </button>
+                  </div>
+                ) : null}
+                {isRepoSearchRunSelected && repoSearchSimpleFlow ? (
+                  repoSearchChatSteps.length > 0 ? (
+                    repoSearchChatSteps.map((step, index) => (
+                      <details key={step.id} className="detail-card simple-flow-card" open={index === 0}>
+                        <summary>Step {index + 1}</summary>
+                        <div className="simple-flow-body">
+                          {step.prompt ? (
+                            <section className="simple-flow-section">
+                              <h4>Prompt</h4>
+                              <pre>{step.prompt}</pre>
+                            </section>
+                          ) : null}
+                          <section className="simple-flow-section">
+                            <h4>Command</h4>
+                            <pre className="simple-flow-command">{step.command}</pre>
+                          </section>
+                          <section className="simple-flow-section">
+                            <h4>Output</h4>
+                            <pre>{step.output}</pre>
+                          </section>
+                        </div>
+                      </details>
+                    ))
+                  ) : (
+                    <p className="hint">No simplified steps found. Switch to Raw Events for full transcript details.</p>
+                  )
+                ) : (
+                  selectedRunDetail.events.map((event, index) => (
+                    <details key={`${event.kind}-${index}`} className="detail-card" open={index === 0}>
+                      <summary>{event.kind} {event.at ? `| ${formatDate(event.at)}` : ''}</summary>
+                      <div className="markdown-body">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {formatRunEventPayload(event)}
+                        </ReactMarkdown>
+                      </div>
+                    </details>
+                  ))
+                )}
               </>
             ) : (
               <p className="hint">Select a run to inspect details.</p>

@@ -128,6 +128,56 @@ button {
   margin-bottom: 10px;
 }
 
+.filter-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-pill-label {
+  color: var(--ink-dim);
+  font-size: 0.8rem;
+  min-width: 42px;
+}
+
+.filter-pill {
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 0.8rem;
+  line-height: 1.2;
+  background: #10202f;
+}
+
+.filter-pill.active {
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+.filter-pill.kind.summary {
+  border-color: #4f86b5;
+  color: #9cd6ff;
+}
+
+.filter-pill.kind.repo_search {
+  border-color: #7f66b8;
+  color: #d0b8ff;
+}
+
+.filter-pill.status.completed {
+  border-color: #2f8f63;
+  color: #7ce4ae;
+}
+
+.filter-pill.status.failed {
+  border-color: #a84c53;
+  color: #ff9da3;
+}
+
+.filter-pill.status.running {
+  border-color: #b48b3a;
+  color: #ffd287;
+}
+
 input,
 textarea {
   width: 100%;
@@ -259,6 +309,45 @@ textarea {
 .detail-card summary {
   cursor: pointer;
   color: var(--accent);
+}
+
+.run-view-toggle-row {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 10px;
+}
+
+.run-view-toggle-row button.active {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.simple-flow-card {
+  border-color: #36506a;
+  background: #102434;
+}
+
+.simple-flow-body {
+  display: grid;
+  gap: 10px;
+}
+
+.simple-flow-section h4 {
+  margin: 0 0 6px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #a8c4dc;
+  text-transform: uppercase;
+}
+
+.simple-flow-section pre {
+  margin: 0;
+  max-height: 260px;
+}
+
+.simple-flow-command {
+  border-left: 3px solid var(--accent);
 }
 
 .final-output-card {
