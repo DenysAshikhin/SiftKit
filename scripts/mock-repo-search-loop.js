@@ -12,6 +12,7 @@ const {
   getConfiguredModel,
   getConfiguredLlamaBaseUrl,
   getConfiguredLlamaNumCtx,
+  getConfiguredLlamaSetting,
   getEffectiveInputCharactersPerContextToken,
 } = require('../dist/config.js');
 const { listLlamaCppModels, countLlamaCppTokens } = require('../dist/providers/llama-cpp.js');
@@ -23,6 +24,9 @@ const MIN_TOOL_CALLS_BEFORE_FINISH = 5;
 const THINKING_BUFFER_RATIO = 0.15;
 const THINKING_BUFFER_MIN_TOKENS = 4000;
 const PER_TOOL_RESULT_RATIO = 0.10;
+const DEFAULT_REPO_SEARCH_REQUEST_MAX_TOKENS = 2048;
+const ZERO_OUTPUT_FORCE_THRESHOLD = 10;
+const FORCED_FINISH_MAX_ATTEMPTS = 3;
 
 function createJsonlLogger(filePath) {
   const target = path.resolve(filePath);
@@ -74,7 +78,7 @@ function createJsonlLogger(filePath) {
  * @typedef {{
  *   id: string,
  *   question: string,
- *   reason: 'finish' | 'max_turns' | 'invalid_response_limit' | 'mock_responses_exhausted' | 'duplicate_failed_command',
+ *   reason: 'finish' | 'max_turns' | 'invalid_response_limit' | 'mock_responses_exhausted' | 'forced_finish_attempt_limit',
  *   turnsUsed: number,
  *   safetyRejects: number,
  *   invalidResponses: number,
@@ -307,7 +311,7 @@ async function requestPlannerAction(options) {
       messages: [{ role: 'user', content: options.prompt }],
       temperature: 0.1,
       top_p: 0.95,
-      max_tokens: 2048,
+      max_tokens: options.requestMaxTokens,
       chat_template_kwargs: {
         enable_thinking: options.thinkingEnabled !== false,
       },
@@ -399,7 +403,7 @@ async function requestFinishValidation(options) {
       messages: [{ role: 'user', content: options.prompt }],
       temperature: 0.1,
       top_p: 0.95,
-      max_tokens: 250,
+      max_tokens: options.requestMaxTokens,
       chat_template_kwargs: {
         enable_thinking: true,
       },
@@ -498,7 +502,7 @@ async function requestTerminalSynthesis(options) {
       messages: [{ role: 'user', content: options.prompt }],
       temperature: 0.1,
       top_p: 0.95,
-      max_tokens: 2048,
+      max_tokens: options.requestMaxTokens,
       chat_template_kwargs: {
         enable_thinking: true,
       },
@@ -919,6 +923,20 @@ function buildTaskPrompt(options) {
     `Task: ${options.question}`,
     `Tool-call turns completed so far: ${options.toolCallTurns}`,
   ];
+  if (Number.isFinite(options.zeroOutputRemaining) && options.zeroOutputRemaining >= 0) {
+    if (options.zeroOutputRemaining > 0) {
+      sections.push(
+        `Zero-output warning: ${options.zeroOutputRemaining} more zero-output command(s) and you will be forced to answer.`
+      );
+    } else {
+      sections.push(
+        `Zero-output limit reached: you must return a finish action now (forced finish attempts remaining: ${options.forcedFinishAttemptsRemaining || 0}).`
+      );
+    }
+  }
+  if ((options.forcedFinishAttemptsRemaining || 0) > 0) {
+    sections.push('Forced finish mode: return {"action":"finish",...} now. Tool calls are blocked.');
+  }
 
   if (options.history.length > 0) {
     sections.push('', 'Previous tool calls/results:');
@@ -952,6 +970,18 @@ function estimateTokenCount(config, text) {
   return Math.max(1, Math.ceil(String(text || '').length / charsPerToken));
 }
 
+function resolveRepoSearchRequestMaxTokens(options = {}) {
+  const explicitMaxTokens = Number(options.requestMaxTokens);
+  if (Number.isFinite(explicitMaxTokens) && explicitMaxTokens > 0) {
+    return Math.floor(explicitMaxTokens);
+  }
+  const configuredMaxTokens = Number(getConfiguredLlamaSetting(options.config || {}, 'MaxTokens'));
+  if (Number.isFinite(configuredMaxTokens) && configuredMaxTokens > 0) {
+    return Math.floor(Math.min(configuredMaxTokens, DEFAULT_REPO_SEARCH_REQUEST_MAX_TOKENS));
+  }
+  return DEFAULT_REPO_SEARCH_REQUEST_MAX_TOKENS;
+}
+
 async function countTokensWithFallback(config, text) {
   try {
     const tokenCount = await countLlamaCppTokens(config, text);
@@ -977,7 +1007,7 @@ async function runTaskLoop(task, options) {
   let turnsUsed = 0;
   let mockResponseIndex = 0;
   let thinkingEnabled = false;
-  const failedCommands = new Set();
+  const attemptedCommands = new Set();
   const minToolCallsBeforeFinish = Math.max(0, Number(options.minToolCallsBeforeFinish ?? MIN_TOOL_CALLS_BEFORE_FINISH));
   const totalContextTokens = Math.max(
     1,
@@ -989,16 +1019,22 @@ async function runTaskLoop(task, options) {
   );
   const usablePromptTokens = Math.max(totalContextTokens - thinkingBufferTokens, 0);
   const perToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * PER_TOOL_RESULT_RATIO));
+  const requestMaxTokens = resolveRepoSearchRequestMaxTokens(options);
+  let zeroOutputStreak = 0;
+  let forcedFinishAttemptsRemaining = 0;
 
   for (let turn = 1; turn <= maxTurns; turn += 1) {
     turnsUsed = turn;
-    const plannerThinkingEnabled = thinkingEnabled || (((commands.length + 1) % 5) === 0);
+    const inForcedFinishMode = forcedFinishAttemptsRemaining > 0;
+    const plannerThinkingEnabled = inForcedFinishMode ? true : (thinkingEnabled || (((commands.length + 1) % 5) === 0));
     const prompt = buildTaskPrompt({
       question: task.question,
       turn,
       maxTurns,
       history,
       toolCallTurns: commands.length,
+      zeroOutputRemaining: Math.max(ZERO_OUTPUT_FORCE_THRESHOLD - zeroOutputStreak, 0),
+      forcedFinishAttemptsRemaining,
     });
     options.logger?.write({
       kind: 'turn_model_request',
@@ -1021,6 +1057,7 @@ async function runTaskLoop(task, options) {
       mockResponses: options.mockResponses,
       mockResponseIndex,
       thinkingEnabled: plannerThinkingEnabled,
+      requestMaxTokens,
     });
     if (typeof response.nextMockResponseIndex === 'number') {
       mockResponseIndex = response.nextMockResponseIndex;
@@ -1116,6 +1153,7 @@ async function runTaskLoop(task, options) {
         timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
         mockResponses: options.mockResponses,
         mockResponseIndex,
+        requestMaxTokens,
       });
       if (typeof validationResponse.nextMockResponseIndex === 'number') {
         mockResponseIndex = validationResponse.nextMockResponseIndex;
@@ -1196,11 +1234,56 @@ async function runTaskLoop(task, options) {
     }
 
     const command = action.args.command;
+    if (attemptedCommands.has(command)) {
+      const duplicateReason = 'Exact command was already executed';
+      commandFailures += 1;
+      options.logger?.write({
+        kind: 'turn_command_duplicate_blocked',
+        taskId: task.id,
+        turn,
+        command,
+        reason: duplicateReason,
+      });
+      commands.push({
+        command,
+        safe: false,
+        reason: duplicateReason,
+        exitCode: null,
+        output: `Rejected command: ${duplicateReason}`,
+      });
+      history.push({ command, resultText: `Rejected command: ${duplicateReason}` });
+      continue;
+    }
+    attemptedCommands.add(command);
+    if (inForcedFinishMode) {
+      forcedFinishAttemptsRemaining = Math.max(forcedFinishAttemptsRemaining - 1, 0);
+      const forcedReason = `Forced finish mode active. Return a finish action now. Attempts remaining: ${forcedFinishAttemptsRemaining}.`;
+      commandFailures += 1;
+      options.logger?.write({
+        kind: 'turn_forced_finish_tool_blocked',
+        taskId: task.id,
+        turn,
+        command,
+        attemptsRemaining: forcedFinishAttemptsRemaining,
+      });
+      commands.push({
+        command,
+        safe: false,
+        reason: forcedReason,
+        exitCode: null,
+        output: `Rejected command: ${forcedReason}`,
+      });
+      history.push({ command, resultText: `Rejected command: ${forcedReason}` });
+      if (forcedFinishAttemptsRemaining === 0) {
+        reason = 'forced_finish_attempt_limit';
+        break;
+      }
+      continue;
+    }
     const normalized = normalizePlannerCommand(command);
     if (normalized.rejected) {
       safetyRejects += 1;
       const rejection = `Rejected command: ${normalized.rejectedReason}`;
-      failedCommands.add(command);
       options.logger?.write({
         kind: 'turn_command_safety',
         taskId: task.id,
@@ -1232,7 +1315,6 @@ async function runTaskLoop(task, options) {
     if (!safety.safe) {
       safetyRejects += 1;
       const rejection = `Rejected command: ${safety.reason}`;
-      failedCommands.add(commandToRun);
       commands.push({
         command: commandToRun,
         safe: false,
@@ -1244,29 +1326,6 @@ async function runTaskLoop(task, options) {
       continue;
     }
 
-    if (failedCommands.has(commandToRun)) {
-      const rejectionReason = 'duplicate failed command blocked; command already failed earlier in this task';
-      const rejection = `Rejected command: ${rejectionReason}`;
-      commandFailures += 1;
-      options.logger?.write({
-        kind: 'turn_command_duplicate_failed_blocked',
-        taskId: task.id,
-        turn,
-        command: commandToRun,
-        reason: rejectionReason,
-      });
-      commands.push({
-        command: commandToRun,
-        safe: false,
-        reason: rejectionReason,
-        exitCode: null,
-        output: rejection,
-      });
-      history.push({ command: commandToRun, resultText: rejection });
-      reason = 'duplicate_failed_command';
-      break;
-    }
-
     const executed = await executeRepoCommand(commandToRun, options.repoRoot, options.mockCommandResults || null);
     const baseOutput = `${String(executed.output || '')}`.trim();
     const outputWithRewriteNote = normalized.rewritten && normalized.note
@@ -1274,7 +1333,35 @@ async function runTaskLoop(task, options) {
       : baseOutput;
     if (Number(executed.exitCode) !== 0) {
       commandFailures += 1;
-      failedCommands.add(commandToRun);
+    }
+    if (outputWithRewriteNote.length === 0) {
+      zeroOutputStreak += 1;
+      const remainingBeforeForce = Math.max(ZERO_OUTPUT_FORCE_THRESHOLD - zeroOutputStreak, 0);
+      const warningText = remainingBeforeForce > 0
+        ? `Zero-output warning: ${remainingBeforeForce} more zero-output command(s) and you will be forced to answer.`
+        : `Zero-output limit reached: you are now forced to answer within ${FORCED_FINISH_MAX_ATTEMPTS} attempt(s).`;
+      history.push({
+        command: '[zero-output-warning]',
+        resultText: warningText,
+      });
+      options.logger?.write({
+        kind: 'turn_zero_output_countdown',
+        taskId: task.id,
+        turn,
+        zeroOutputStreak,
+        remainingBeforeForce,
+      });
+      if (remainingBeforeForce === 0 && forcedFinishAttemptsRemaining === 0) {
+        forcedFinishAttemptsRemaining = FORCED_FINISH_MAX_ATTEMPTS;
+        options.logger?.write({
+          kind: 'turn_forced_finish_mode_started',
+          taskId: task.id,
+          turn,
+          attemptsRemaining: forcedFinishAttemptsRemaining,
+        });
+      }
+    } else {
+      zeroOutputStreak = 0;
     }
     let resultText = `exit_code=${executed.exitCode}\n${outputWithRewriteNote}`.trim();
     const useEstimatedTokensOnly = Array.isArray(options.mockResponses);
@@ -1331,6 +1418,7 @@ async function runTaskLoop(task, options) {
         timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
         mockResponses: options.mockResponses,
         mockResponseIndex,
+        requestMaxTokens,
       });
       if (typeof synthesisResponse.nextMockResponseIndex === 'number') {
         mockResponseIndex = synthesisResponse.nextMockResponseIndex;
@@ -1467,6 +1555,10 @@ async function runMockRepoSearch(options = {}) {
     }]
     : TASK_PACK;
   const tasks = [];
+  const requestMaxTokens = resolveRepoSearchRequestMaxTokens({
+    config,
+    requestMaxTokens: options.requestMaxTokens,
+  });
   for (const task of tasksToRun) {
     const result = await runTaskLoop(task, {
       repoRoot,
@@ -1478,6 +1570,7 @@ async function runMockRepoSearch(options = {}) {
       maxTurns: options.maxTurns || DEFAULT_MAX_TURNS,
       maxInvalidResponses: options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES,
       minToolCallsBeforeFinish: options.minToolCallsBeforeFinish,
+      requestMaxTokens,
       mockResponses: options.mockResponses,
       mockCommandResults: options.mockCommandResults,
       logger: options.logger || null,
@@ -1554,6 +1647,7 @@ module.exports = {
   buildScorecard,
   assertConfiguredModelPresent,
   runMockRepoSearch,
+  resolveRepoSearchRequestMaxTokens,
   estimateTokenCount,
   countTokensWithFallback,
 };

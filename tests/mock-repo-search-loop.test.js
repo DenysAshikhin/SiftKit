@@ -8,6 +8,7 @@ const {
   buildScorecard,
   assertConfiguredModelPresent,
   runMockRepoSearch,
+  resolveRepoSearchRequestMaxTokens,
 } = require('../scripts/mock-repo-search-loop.js');
 
 test('assertConfiguredModelPresent hard-fails when configured model is missing', () => {
@@ -40,6 +41,29 @@ test('runMockRepoSearch does not fail on model inventory mismatch', async () => 
   });
 
   assert.equal(scorecard.verdict, 'pass');
+});
+
+test('resolveRepoSearchRequestMaxTokens reuses one cap source for repo-search requests', () => {
+  assert.equal(resolveRepoSearchRequestMaxTokens({}), 2048);
+  assert.equal(resolveRepoSearchRequestMaxTokens({ requestMaxTokens: 1025.9 }), 1025);
+  assert.equal(resolveRepoSearchRequestMaxTokens({
+    config: {
+      Runtime: {
+        LlamaCpp: {
+          MaxTokens: 1536,
+        },
+      },
+    },
+  }), 1536);
+  assert.equal(resolveRepoSearchRequestMaxTokens({
+    config: {
+      Runtime: {
+        LlamaCpp: {
+          MaxTokens: 15000,
+        },
+      },
+    },
+  }), 2048);
 });
 
 test('parsePlannerAction parses valid tool action', () => {
@@ -548,20 +572,22 @@ test('runTaskLoop keeps thinking on and can still hit max turns after validation
   assert.equal(result.reason, 'max_turns');
 });
 
-test('runTaskLoop blocks duplicate commands that already failed and forces terminal synthesis', async () => {
+test('runTaskLoop blocks exact duplicate commands with explicit error message', async () => {
   const result = await runTaskLoop(
     {
-      id: 'task-duplicate-failed-command',
+      id: 'task-duplicate-command',
       question: 'Find planner text.',
       signals: [],
     },
     {
       maxTurns: 5,
       maxInvalidResponses: 3,
+      minToolCallsBeforeFinish: 0,
       mockResponses: [
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
-        'best-effort summary after duplicate failure',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
         'rg -n "planner" src': { exitCode: 2, stdout: '', stderr: 'boom' },
@@ -569,13 +595,52 @@ test('runTaskLoop blocks duplicate commands that already failed and forces termi
     }
   );
 
-  assert.equal(result.reason, 'duplicate_failed_command');
-  assert.equal(result.turnsUsed, 2);
+  assert.equal(result.reason, 'finish');
+  assert.equal(result.turnsUsed, 3);
   assert.equal(result.commandFailures, 2);
   assert.equal(result.commands.length, 2);
   assert.equal(result.commands[1].safe, false);
-  assert.match(String(result.commands[1].reason || ''), /duplicate failed command blocked/u);
-  assert.equal(result.finalOutput, 'best-effort summary after duplicate failure');
+  assert.equal(String(result.commands[1].reason || ''), 'Exact command was already executed');
+  assert.equal(result.finalOutput, 'done');
+});
+
+test('runTaskLoop forces finish mode after ten zero-output commands', async () => {
+  const events = [];
+  const mockResponses = [];
+  const mockCommandResults = {};
+  for (let index = 1; index <= 10; index += 1) {
+    const command = `rg -n q${index} src`;
+    mockResponses.push(`{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"${command}"}}`);
+    mockCommandResults[command] = { exitCode: 0, stdout: '', stderr: '' };
+  }
+  mockResponses.push('{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n forced src"}}');
+  mockResponses.push('{"action":"finish","output":"forced conclusion"}');
+  const result = await runTaskLoop(
+    {
+      id: 'task-zero-output-force-finish',
+      question: 'Find planner text.',
+      signals: [],
+    },
+    {
+      maxTurns: 12,
+      maxInvalidResponses: 3,
+      minToolCallsBeforeFinish: 0,
+      mockResponses,
+      mockCommandResults,
+      logger: {
+        write(event) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const forcedStart = events.find((event) => event.kind === 'turn_forced_finish_mode_started');
+  assert.ok(forcedStart);
+  const turn11Request = events.find((event) => event.kind === 'turn_model_request' && event.turn === 11);
+  assert.equal(turn11Request.thinkingEnabled, true);
+  assert.equal(result.reason, 'finish');
+  assert.equal(result.finalOutput, 'forced conclusion');
 });
 
 test('runTaskLoop enables thinking on every fifth tool-call turn', async () => {
