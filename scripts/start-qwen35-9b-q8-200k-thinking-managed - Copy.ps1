@@ -10,14 +10,14 @@ param(
     [string]$BindHost = '127.0.0.1',
     [int]$Port = 8097,
     [string]$LlamaCppRoot = 'C:\Users\denys\Documents\GitHub\llamacpp',
-    [string]$ModelPath = 'D:\personal\models\Qwen3.5-27B-Q4_K_M.gguf',
-    [int]$ContextSize = 70000,
+    [string]$ModelPath = 'D:\personal\models\Qwen3.5-9B-Q8_0.gguf',
+    [int]$ContextSize = 130000,
     [int]$GpuLayers = 999,
     [int]$Threads = 22,
     [bool]$FlashAttention = $true,
     [int]$ParallelSlots = 1,
-    [int]$BatchSize = 1024,
-    [int]$UBatchSize = 1024,
+    [int]$BatchSize = 2048,
+    [int]$UBatchSize = 2048,
     [int]$CacheRam = 4096,
     [int]$MaxTokens = 15000
 )
@@ -53,7 +53,6 @@ $presencePenalty = 0.0
 $repetitionPenalty = 1.0
 $reasoning = 'on'
 $reasoningBudget = 10000
-$syncOnly = $env:SIFTKIT_MANAGED_LLAMA_SYNC_ONLY -eq '1'
 
 if ($ConfigUrl) {
     Set-Json -Url $ConfigUrl -Body @{
@@ -80,11 +79,6 @@ if ($ConfigUrl) {
             }
         }
     }
-}
-
-if ($syncOnly) {
-    Write-Output "managed_sync_only=1"
-    exit 0
 }
 
 Write-Output "managed_startup=$($env:SIFTKIT_MANAGED_LLAMA_STARTUP)"

@@ -447,7 +447,7 @@ function buildPlannerToolDefinitions() {
             type: 'function',
             function: {
                 name: 'json_filter',
-                description: 'Parse JSON, filter array items by field conditions, and project only the selected fields. Use separate filters for gte/lte bounds; each filter value should be a single scalar value, not an object containing multiple operators. Do not use "value":{"gte":3200,"lte":3215}. Example: {"filters":[{"path":"from.worldX","op":"gte","value":3200},{"path":"from.worldX","op":"lte","value":3215}],"select":["id","label","from","to","bidirectional"],"limit":20}',
+                description: 'Parse JSON, filter array items by field conditions, and project only the selected fields. Use collectionPath when the root JSON value is an object with an array under a child key; for example use {"collectionPath":"states","filters":[{"path":"timestamp","op":"gte","value":"2026-03-30T18:40:00Z"},{"path":"timestamp","op":"lte","value":"2026-03-30T18:50:00Z"}],"select":["timestamp","lifecycle_state","bridge_state","scenario_id","step_id","state_json"],"limit":100} for a root object with a states array. Use separate filters for gte/lte bounds; each filter value should be a single scalar value, not an object containing multiple operators. Do not use "value":{"gte":3200,"lte":3215}. Example: {"filters":[{"path":"from.worldX","op":"gte","value":3200},{"path":"from.worldX","op":"lte","value":3215}],"select":["id","label","from","to","bidirectional"],"limit":20}',
                 parameters: {
                     type: 'object',
                     properties: {
@@ -584,6 +584,9 @@ function formatPlannerResult(value) {
     }
     return truncatePlannerText(JSON.stringify(value, null, 2));
 }
+function formatPlannerToolResultTokenGuardError(resultTokens) {
+    return `Error: tool call results in ${resultTokens} tokens (more than 70% of remaining tokens). Try again with a more limited tool call)`;
+}
 function buildPlannerDocumentProfile(inputText) {
     const lines = inputText.replace(/\r\n/gu, '\n').split('\n');
     const profileLines = [
@@ -607,9 +610,23 @@ function buildPlannerDocumentProfile(inputText) {
         else if (getRecord(parsed)) {
             profileLines.push('json=parseable');
             profileLines.push('top_level=object');
-            const objectKeys = Object.keys(getRecord(parsed)).slice(0, 10);
+            const parsedRecord = getRecord(parsed);
+            const objectKeys = Object.keys(parsedRecord).slice(0, 10);
             if (objectKeys.length > 0) {
                 profileLines.push(`object_keys=${objectKeys.join(',')}`);
+            }
+            const objectArrayPaths = objectKeys.filter((key) => Array.isArray(parsedRecord[key]));
+            if (objectArrayPaths.length > 0) {
+                profileLines.push(`object_array_paths=${objectArrayPaths.join(',')}`);
+                const firstArrayPath = objectArrayPaths[0];
+                const firstArray = parsedRecord[firstArrayPath];
+                const sampleItem = Array.isArray(firstArray) ? getRecord(firstArray[0]) : null;
+                if (sampleItem) {
+                    const sampleItemKeys = Object.keys(sampleItem).slice(0, 10);
+                    if (sampleItemKeys.length > 0) {
+                        profileLines.push(`${firstArrayPath}_sample_keys=${sampleItemKeys.join(',')}`);
+                    }
+                }
             }
         }
         else {
@@ -645,6 +662,7 @@ function buildPlannerPrompt(options) {
         '- Return only a valid JSON object. No markdown fences.',
         '- Use separate filters for gte/lte bounds in json_filter; do not combine multiple operators inside one filter value.',
         '- Do not use "value":{"gte":3200,"lte":3215}. Use one filter per bound with a scalar value.',
+        '- When the document profile shows top_level=object with object_array_paths=..., use collectionPath to target that array and filter item fields relative to each array element.',
         '- Never emit JSON schema fragments like {"type":"integer"} as argument values. Use concrete literals.',
         '- Regex patterns must be valid JavaScript regex source for find_text. Do not add unnecessary escapes for ordinary quotes.',
         ...(lastInvalidResponseError
@@ -657,13 +675,14 @@ function buildPlannerPrompt(options) {
         'Available actions:',
         '{"action":"tool","tool_name":"find_text|read_lines|json_filter","args":{...}}',
         allowUnsupportedInput
-            ? '{"action":"finish","classification":"summary|command_failure|unsupported_input","raw_review_required":true,"output":"final answer text"}'
-            : '{"action":"finish","classification":"summary|command_failure","raw_review_required":true,"output":"final answer text"}',
+            ? '{"action":"finish","classification":"summary|command_failure|unsupported_input","raw_review_required":true|false,"output":"final answer text"}'
+            : '{"action":"finish","classification":"summary|command_failure","raw_review_required":true|false,"output":"final answer text"}',
         '',
         'Example tool calls:',
         '{"action":"tool","tool_name":"find_text","args":{"query":"Lumbridge","mode":"literal","maxHits":5,"contextLines":1}}',
         '{"action":"tool","tool_name":"read_lines","args":{"startLine":1340,"endLine":1405}}',
         'Bad json_filter example: {"action":"tool","tool_name":"json_filter","args":{"filters":[{"path":"from.worldX","op":"gte","value":{"gte":3200,"lte":3215}}]}}',
+        '{"action":"tool","tool_name":"json_filter","args":{"collectionPath":"states","filters":[{"path":"timestamp","op":"gte","value":"2026-03-30T18:40:00Z"},{"path":"timestamp","op":"lte","value":"2026-03-30T18:50:00Z"}],"select":["timestamp","lifecycle_state","bridge_state","scenario_id","step_id","state_json"],"limit":100}}',
         '{"action":"tool","tool_name":"json_filter","args":{"filters":[{"path":"from.worldX","op":"gte","value":3200},{"path":"from.worldX","op":"lte","value":3215},{"path":"from.worldY","op":"gte","value":3210},{"path":"from.worldY","op":"lte","value":3225}],"select":["id","label","type","from","to","bidirectional"],"limit":20}}',
         '',
         'Source handling:',
@@ -672,7 +691,7 @@ function buildPlannerPrompt(options) {
         'Risk handling:',
         options.rawReviewRequired
             ? 'Raw-log review is likely required. Set raw_review_required to true unless the visible evidence clearly proves otherwise.'
-            : 'Set raw_review_required based on the visible evidence. Use true for risky, incomplete, or failure-related output.',
+            : 'Set raw_review_required to false unless the output contains genuine errors, failures, or incomplete results that warrant manual inspection.',
         '',
         'Tools:',
         ...options.toolDefinitions.map((tool) => `${tool.function.name}: ${tool.function.description}`),
@@ -837,6 +856,42 @@ function normalizeJsonFilterFilters(filters) {
     }
     return normalized;
 }
+function compareJsonFilterOrdered(actual, expected, op) {
+    if (getRecord(expected) || Array.isArray(expected)) {
+        throw new Error(`json_filter ${op} requires a scalar value.`);
+    }
+    if (typeof actual === 'string' && typeof expected === 'string') {
+        switch (op) {
+            case 'gt':
+                return actual > expected;
+            case 'gte':
+                return actual >= expected;
+            case 'lt':
+                return actual < expected;
+            case 'lte':
+                return actual <= expected;
+            default:
+                return false;
+        }
+    }
+    const actualNumber = Number(actual);
+    const expectedNumber = Number(expected);
+    if (!Number.isFinite(actualNumber) || !Number.isFinite(expectedNumber)) {
+        return false;
+    }
+    switch (op) {
+        case 'gt':
+            return actualNumber > expectedNumber;
+        case 'gte':
+            return actualNumber >= expectedNumber;
+        case 'lt':
+            return actualNumber < expectedNumber;
+        case 'lte':
+            return actualNumber <= expectedNumber;
+        default:
+            return false;
+    }
+}
 function matchesJsonFilter(item, filter) {
     const pathText = typeof filter.path === 'string' ? filter.path : '';
     const op = typeof filter.op === 'string' ? filter.op : '';
@@ -848,25 +903,13 @@ function matchesJsonFilter(item, filter) {
         case 'neq':
             return actual !== expected;
         case 'gt':
-            if (getRecord(expected)) {
-                throw new Error('json_filter gt requires a scalar value.');
-            }
-            return Number(actual) > Number(expected);
+            return compareJsonFilterOrdered(actual, expected, 'gt');
         case 'gte':
-            if (getRecord(expected)) {
-                throw new Error('json_filter gte requires a scalar value.');
-            }
-            return Number(actual) >= Number(expected);
+            return compareJsonFilterOrdered(actual, expected, 'gte');
         case 'lt':
-            if (getRecord(expected)) {
-                throw new Error('json_filter lt requires a scalar value.');
-            }
-            return Number(actual) < Number(expected);
+            return compareJsonFilterOrdered(actual, expected, 'lt');
         case 'lte':
-            if (getRecord(expected)) {
-                throw new Error('json_filter lte requires a scalar value.');
-            }
-            return Number(actual) <= Number(expected);
+            return compareJsonFilterOrdered(actual, expected, 'lte');
         case 'contains':
             return Array.isArray(actual)
                 ? actual.includes(expected)
@@ -1066,7 +1109,7 @@ async function writeSummaryRequestDump(options) {
             backend: options.backend,
             model: options.model,
             classification: options.classification ?? null,
-            rawReviewRequired: options.rawReviewRequired ?? null,
+            ...(options.rawReviewRequired ? { rawReviewRequired: true } : {}),
             summary: options.summary ?? null,
             providerError: options.providerError ?? null,
             error: options.error ?? null,
@@ -1568,12 +1611,19 @@ async function invokePlannerMode(options) {
                 args: action.args,
                 output: result,
             });
+            const formattedResultText = formatPlannerResult(result);
+            const remainingPromptTokens = Math.max(promptBudget.plannerStopLineTokens - promptTokenCount, 0);
+            const resultTokenCount = (await (0, llama_cpp_js_1.countLlamaCppTokens)(options.config, formattedResultText)) ?? estimatePromptTokenCount(options.config, formattedResultText);
+            const normalizedResultTokenCount = Math.max(0, Math.ceil(resultTokenCount));
+            const promptResultText = normalizedResultTokenCount > (remainingPromptTokens * 0.7)
+                ? formatPlannerToolResultTokenGuardError(normalizedResultTokenCount)
+                : formattedResultText;
             lastInvalidResponseError = null;
             toolResults.push({
                 toolName: action.tool_name,
                 args: action.args,
                 result,
-                resultText: formatPlannerResult(result),
+                resultText: promptResultText,
             });
         }
         finally {
@@ -1620,7 +1670,7 @@ function buildPrompt(options) {
     const profilePrompt = PROMPT_PROFILES[options.policyProfile] || PROMPT_PROFILES.general;
     const rawReviewPrompt = options.rawReviewRequired
         ? 'Raw-log review is likely required. Set raw_review_required to true unless the input clearly proves otherwise.'
-        : 'Set raw_review_required based on the evidence. Use true for risky, incomplete, or failure-related output.';
+        : 'Set raw_review_required to false unless the output contains genuine errors, failures, or incomplete results that warrant manual inspection.';
     const outputFormatPrompt = options.format === 'json'
         ? 'The output field must be valid JSON text, not markdown.'
         : 'The output field must be concise plain text with the conclusion first.';
@@ -1673,8 +1723,8 @@ function buildPrompt(options) {
         '',
         'Response JSON shape:',
         allowUnsupportedInput
-            ? '{"classification":"summary|command_failure|unsupported_input","raw_review_required":true,"output":"final answer text"}'
-            : '{"classification":"summary|command_failure","raw_review_required":true,"output":"final answer text"}',
+            ? '{"classification":"summary|command_failure|unsupported_input","raw_review_required":true|false,"output":"final answer text"}'
+            : '{"classification":"summary|command_failure","raw_review_required":true|false,"output":"final answer text"}',
         '',
         'Source handling:',
         getSourceInstructions(options.sourceKind || 'standalone', options.commandExitCode),

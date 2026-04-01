@@ -1105,6 +1105,9 @@ function getStatusArtifactPath(metadata) {
   if (metadata.artifactType === 'planner_failed') {
     return path.join(logsPath, 'failed', `request_failed_${metadata.artifactRequestId}.json`);
   }
+  if (metadata.artifactType === 'request_abandoned') {
+    return path.join(logsPath, 'abandoned', `request_abandoned_${metadata.artifactRequestId}.json`);
+  }
 
   return null;
 }
@@ -1187,7 +1190,8 @@ function startStatusServer(options = {}) {
       };
   }
 
-  function spawnManagedScript(scriptPath, purpose, logPaths = createManagedLlamaLogPaths(purpose)) {
+  function spawnManagedScript(scriptPath, purpose, options = {}) {
+    const logPaths = options.logPaths || createManagedLlamaLogPaths(purpose);
     let invocation;
     try {
       invocation = getManagedScriptInvocation(scriptPath);
@@ -1208,6 +1212,7 @@ function startStatusServer(options = {}) {
         SIFTKIT_SERVER_HEALTH_URL: `${getServiceBaseUrl()}/health`,
         SIFTKIT_SERVER_RUNTIME_ROOT: getRuntimeRoot(),
         SIFTKIT_MANAGED_LLAMA_STARTUP: '1',
+        ...(options.syncOnly ? { SIFTKIT_MANAGED_LLAMA_SYNC_ONLY: '1' } : {}),
         SIFTKIT_LLAMA_SCRIPT_STDOUT_PATH: logPaths.scriptStdoutPath,
         SIFTKIT_LLAMA_SCRIPT_STDERR_PATH: logPaths.scriptStderrPath,
         SIFTKIT_LLAMA_STDOUT_PATH: logPaths.llamaStdoutPath,
@@ -1228,6 +1233,33 @@ function startStatusServer(options = {}) {
       child,
       logPaths,
     };
+  }
+
+  async function syncManagedLlamaConfigFromStartupScriptIfNeeded() {
+    const config = readConfig(configPath);
+    if (config.Backend !== 'llama.cpp') {
+      return;
+    }
+
+    const managed = getManagedLlamaConfig(config);
+    if (!managed.StartupScript) {
+      return;
+    }
+
+    logLine(`llama_sync startup_script script=${managed.StartupScript}`);
+    const launched = spawnManagedScript(managed.StartupScript, 'startup-sync', { syncOnly: true });
+    managedLlamaLastStartupLogs = launched.logPaths;
+    await new Promise((resolve, reject) => {
+      launched.child.once('error', reject);
+      launched.child.once('exit', (code) => {
+        if ((code ?? 0) !== 0) {
+          reject(new Error(`Configured llama.cpp startup script exited with code ${code} during config sync.`));
+          return;
+        }
+        resolve();
+      });
+    });
+    logLine(`llama_sync startup_script done script=${managed.StartupScript}`);
   }
 
   function collectManagedLlamaLogEntries(logPaths) {
@@ -1721,6 +1753,27 @@ function startStatusServer(options = {}) {
       chunkPath: runState.chunkPath,
       totalElapsedMs: now - runState.overallStartedAt,
     }));
+
+    const logsPath = path.join(getRuntimeRoot(), 'logs');
+    const abandonedPath = path.join(logsPath, 'abandoned', `request_abandoned_${runState.requestId}.json`);
+    try {
+      saveContentAtomically(abandonedPath, JSON.stringify({
+        requestId: runState.requestId,
+        reason: 'Abandoned because a new request started before terminal status.',
+        abandonedAtUtc: new Date(now).toISOString(),
+        totalElapsedMs: now - runState.overallStartedAt,
+        stepCount: runState.stepCount,
+        rawInputCharacterCount: runState.rawInputCharacterCount,
+        promptCharacterCount: runState.promptCharacterCount,
+        promptTokenCount: runState.promptTokenCount,
+        outputTokensTotal: runState.outputTokensTotal,
+        chunkIndex: runState.chunkIndex,
+        chunkTotal: runState.chunkTotal,
+        chunkPath: runState.chunkPath,
+      }, null, 2) + '\n');
+    } catch {
+      // Best-effort — don't fail the incoming request.
+    }
   }
 
   function hasSiftKitGpuDemand() {
@@ -2209,6 +2262,7 @@ function startStatusServer(options = {}) {
   server.listen(Number.isFinite(requestedPort) ? requestedPort : 4765, host, async () => {
     try {
       if (!disableManagedLlamaStartup) {
+        await syncManagedLlamaConfigFromStartupScriptIfNeeded();
         await clearPreexistingManagedLlamaIfNeeded();
         bootstrapManagedLlamaStartup = true;
         try {

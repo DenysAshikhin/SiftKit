@@ -200,6 +200,76 @@ function buildOversizedTransitionsInput(targetCharacters) {
   return JSON.stringify(transitions);
 }
 
+function buildOversizedRunnerStateHistoryInput(targetCharacters) {
+  const states = [
+    {
+      timestamp: '2026-03-30T18:39:59Z',
+      lifecycle_state: 'idle',
+      bridge_state: 'connected',
+      scenario_id: null,
+      step_id: null,
+      state_json: JSON.stringify({
+        navigation: { status: 'idle' },
+        blocker: null,
+      }),
+    },
+    {
+      timestamp: '2026-03-30T18:42:57Z',
+      lifecycle_state: 'running',
+      bridge_state: 'connected',
+      scenario_id: 'poi_verification',
+      step_id: 'walk_to_door',
+      state_json: JSON.stringify({
+        navigation: { status: 'navigating' },
+        blocker: { type: 'door', action: 'open' },
+      }),
+    },
+    {
+      timestamp: '2026-03-30T18:45:22Z',
+      lifecycle_state: 'paused',
+      bridge_state: 'connected',
+      scenario_id: 'poi_verification',
+      step_id: 'walk_to_door',
+      state_json: JSON.stringify({
+        navigation: { status: 'blocked' },
+        blocker: { type: 'door', action: 'open', failureReason: 'Hover confirmation failed for Open on Door.' },
+      }),
+    },
+    {
+      timestamp: '2026-03-30T18:50:01Z',
+      lifecycle_state: 'idle',
+      bridge_state: 'connected',
+      scenario_id: null,
+      step_id: null,
+      state_json: JSON.stringify({
+        navigation: { status: 'failed' },
+        blocker: null,
+      }),
+    },
+  ];
+
+  let index = 0;
+  while (JSON.stringify({ count: states.length, states }).length < targetCharacters) {
+    states.push({
+      timestamp: `2026-03-30T19:${String(index % 60).padStart(2, '0')}:00Z`,
+      lifecycle_state: 'idle',
+      bridge_state: 'connected',
+      scenario_id: `padding_${index}`,
+      step_id: `padding_step_${index}`,
+      state_json: JSON.stringify({
+        navigation: { status: 'idle' },
+        note: 'P'.repeat(1800),
+      }),
+    });
+    index += 1;
+  }
+
+  return JSON.stringify({
+    count: states.length,
+    states,
+  });
+}
+
 function getRuntimeRootFromStatusPath(statusPath) {
   const absoluteStatusPath = path.resolve(statusPath);
   const statusDirectory = path.dirname(absoluteStatusPath);
@@ -1044,6 +1114,8 @@ function writeManagedLlamaScripts(tempRoot, port, modelId = 'managed-test-model'
   const shutdownScriptPath = path.join(tempRoot, 'stop-llama.ps1');
   const pidFilePath = path.join(tempRoot, 'fake-llama.pid');
   const readyFilePath = path.join(tempRoot, 'fake-llama.ready');
+  const syncOnlyMarkerPath = path.join(tempRoot, 'fake-llama.sync-only');
+  const launchMarkerPath = path.join(tempRoot, 'fake-llama.launch');
 
   fs.writeFileSync(fakeServerPath, `
 const http = require('node:http');
@@ -1100,6 +1172,36 @@ $llamaLogLine = ${toSingleQuotedPowerShellLiteral(options.llamaLogLine || '')}
 $launchHangingProcess = ${options.launchHangingProcess ? '$true' : '$false'}
 $preflightConfigGet = ${options.preflightConfigGet ? '$true' : '$false'}
 $emitManagedStartupFlag = ${options.emitManagedStartupFlag ? '$true' : '$false'}
+$supportsSyncOnly = ${options.supportsSyncOnly === false ? '$false' : '$true'}
+$syncOnlyModel = ${toSingleQuotedPowerShellLiteral(options.syncOnlyModel || '')}
+$syncOnlyMarkerPath = ${toSingleQuotedPowerShellLiteral(syncOnlyMarkerPath)}
+$launchMarkerPath = ${toSingleQuotedPowerShellLiteral(launchMarkerPath)}
+$writeLaunchMarker = ${options.writeLaunchMarker ? '$true' : '$false'}
+
+function Set-Json {
+  param(
+    [string]$Url,
+    [object]$Body
+  )
+
+  $json = $Body | ConvertTo-Json -Depth 20
+  Invoke-RestMethod -Uri $Url -Method Put -ContentType 'application/json' -Body $json -TimeoutSec 10 | Out-Null
+}
+
+$syncOnly = $supportsSyncOnly -and ($env:SIFTKIT_MANAGED_LLAMA_SYNC_ONLY -eq '1')
+if ($syncOnly) {
+  Set-Content -LiteralPath $syncOnlyMarkerPath -Value '1' -Encoding utf8 -NoNewline
+  if ($ConfigUrl -and $syncOnlyModel) {
+    $config = Invoke-RestMethod -Uri $ConfigUrl -Method Get -TimeoutSec 10
+    if (-not $config.Runtime) {
+      $config | Add-Member -MemberType NoteProperty -Name Runtime -Value @{} -Force
+    }
+    $config.Model = $syncOnlyModel
+    $config.Runtime.Model = $syncOnlyModel
+    Set-Json -Url $ConfigUrl -Body $config
+  }
+  exit 0
+}
 
 if (Test-Path -LiteralPath $pidFile) {
   try {
@@ -1128,6 +1230,10 @@ if ($preflightConfigGet -and $ConfigUrl) {
   }
   catch {
   }
+}
+
+if ($writeLaunchMarker) {
+  Set-Content -LiteralPath $launchMarkerPath -Value '1' -Encoding utf8 -NoNewline
 }
 
 $child = if ($launchHangingProcess) {
@@ -1170,6 +1276,8 @@ exit 0
     shutdownScriptPath,
     pidFilePath,
     readyFilePath,
+    syncOnlyMarkerPath,
+    launchMarkerPath,
   };
 }
 
@@ -2593,6 +2701,100 @@ test('real status server keeps startup status true when the startup script calls
       statusPath,
       configPath,
     });
+  });
+});
+
+test('real status server runs startup script in sync-only mode during startup to refresh config', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
+      supportsSyncOnly: true,
+      syncOnlyModel: 'script-model',
+    });
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Runtime.Model = 'initial-model';
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: null,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    runPowerShellScript(managed.startupScriptPath);
+    await waitForAsyncExpectation(async () => {
+      const models = await requestJson(`${managed.baseUrl}/v1/models`);
+      assert.equal(models.data[0].id, 'managed-test-model');
+    }, 5000);
+
+    await withRealStatusServer(async ({ configUrl }) => {
+      await waitForAsyncExpectation(async () => {
+        const loadedConfig = await requestJson(configUrl);
+        assert.equal(loadedConfig.Runtime.Model, 'script-model');
+      }, 5000);
+      assert.equal(fs.existsSync(managed.syncOnlyMarkerPath), true);
+    }, {
+      statusPath,
+      configPath,
+    });
+
+    runPowerShellScript(managed.shutdownScriptPath);
+    await waitForAsyncExpectation(async () => {
+      await assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`));
+    }, 5000);
+  });
+});
+
+test('real status server sync-only startup pass does not launch a second llama process', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
+      supportsSyncOnly: true,
+      syncOnlyModel: 'script-model',
+      writeLaunchMarker: true,
+    });
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: null,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    runPowerShellScript(managed.startupScriptPath);
+    await waitForAsyncExpectation(async () => {
+      const models = await requestJson(`${managed.baseUrl}/v1/models`);
+      assert.equal(models.data[0].id, 'managed-test-model');
+    }, 5000);
+    fs.rmSync(managed.launchMarkerPath, { force: true });
+
+    await withRealStatusServer(async () => {
+      await waitForAsyncExpectation(async () => {
+        assert.equal(fs.existsSync(managed.syncOnlyMarkerPath), true);
+      }, 5000);
+      assert.equal(fs.existsSync(managed.launchMarkerPath), false);
+    }, {
+      statusPath,
+      configPath,
+    });
+
+    runPowerShellScript(managed.shutdownScriptPath);
+    await waitForAsyncExpectation(async () => {
+      await assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`));
+    }, 5000);
   });
 });
 
@@ -5974,6 +6176,11 @@ test('buildPlannerToolDefinitions returns qwen-friendly function schemas', () =>
   assert.match(jsonFilter.function.description, /example:/i);
   assert.match(jsonFilter.function.description, /\"path\":\"from\.worldX\"/i);
   assert.match(jsonFilter.function.description, /\"value\":3200/i);
+  assert.match(jsonFilter.function.description, /collectionPath/i);
+  assert.match(jsonFilter.function.description, /root object/i);
+  assert.match(jsonFilter.function.description, /"collectionPath":"states"/i);
+  assert.match(jsonFilter.function.description, /"path":"timestamp"/i);
+  assert.match(jsonFilter.function.description, /"value":"2026-03-30T18:40:00Z"/i);
   assert.match(jsonFilter.function.description, /do not use/i);
   assert.match(jsonFilter.function.description, /\"value\":\{\"gte\":3200,\"lte\":3215\}/i);
 });
@@ -6586,6 +6793,74 @@ test('planner malformed json_filter schema-placeholder args fail on invalid resp
   });
 });
 
+test('planner json_filter supports scalar timestamp ranges on object-root array collections', async () => {
+  await withTempEnv(async () => {
+    const plannerLogsPath = getPlannerLogsPath();
+    fs.mkdirSync(plannerLogsPath, { recursive: true });
+    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedRunnerStateHistoryInput(threshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Summarize runner_state_history between 2026-03-30T18:40:00Z and 18:50:00Z.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'timestamp filter worked');
+      const firstPrompt = String(server.state.chatRequests[0]?.messages?.[0]?.content || '');
+      assert.match(firstPrompt, /collectionPath/i);
+      assert.match(firstPrompt, /"collectionPath":"states"/u);
+      assert.match(firstPrompt, /object_array_paths=states/u);
+    }, {
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'json_filter',
+            args: {
+              collectionPath: 'states',
+              filters: [
+                { path: 'timestamp', op: 'gte', value: '2026-03-30T18:40:00Z' },
+                { path: 'timestamp', op: 'lte', value: '2026-03-30T18:50:00Z' },
+              ],
+              select: ['timestamp', 'lifecycle_state', 'bridge_state', 'scenario_id', 'step_id', 'state_json'],
+              limit: 10,
+            },
+          });
+        }
+
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'timestamp filter worked',
+        });
+      },
+    });
+
+    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
+    const added = after.filter((entry) => !before.has(entry));
+    assert.equal(added.length, 1);
+
+    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    const jsonFilterEvent = debugDump.events.find((event) => event.kind === 'planner_tool' && event.toolName === 'json_filter');
+    assert.equal(jsonFilterEvent.output.collectionPath, 'states');
+    assert.equal(jsonFilterEvent.output.matchedCount, 2);
+    assert.match(jsonFilterEvent.output.text, /2026-03-30T18:42:57Z/u);
+    assert.match(jsonFilterEvent.output.text, /2026-03-30T18:45:22Z/u);
+    assert.doesNotMatch(jsonFilterEvent.output.text, /2026-03-30T18:39:59Z/u);
+    assert.doesNotMatch(jsonFilterEvent.output.text, /2026-03-30T18:50:01Z/u);
+  });
+});
+
 test('summarizeRequest writes a request artifact through status posts for successful calls', async () => {
   await withTempEnv(async () => {
     const requestLogsPath = getRequestLogsPath();
@@ -6936,6 +7211,232 @@ test('planner find_text and json_filter results use compact text blocks in promp
     assert.equal(Array.isArray(jsonFilterEvent?.output?.results), false);
     assert.equal(typeof jsonFilterEvent?.output?.text, 'string');
     assert.match(jsonFilterEvent.output.text, /"id"/u);
+  });
+});
+
+test('planner replaces oversized tool results with an error stub when they exceed 70 percent of remaining stop-line tokens', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Read some lines, then summarize.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'tool output guard applied');
+      assert.equal(server.state.chatRequests.length, 2);
+      const secondPrompt = String(server.state.chatRequests[1]?.messages?.[0]?.content || '');
+      assert.match(
+        secondPrompt,
+        /Error: tool call results in 4000 tokens \(more than 70% of remaining tokens\)\. Try again with a more limited tool call\)/u,
+      );
+      assert.doesNotMatch(secondPrompt, /lineCount=/u);
+      assert.doesNotMatch(secondPrompt, /^\d+: /mu);
+    }, {
+      config: {
+        LlamaCpp: {
+          NumCtx: 190000,
+          Reasoning: 'off',
+        },
+        Runtime: {
+          LlamaCpp: {
+            NumCtx: 190000,
+            Reasoning: 'off',
+          },
+        },
+      },
+      tokenizeTokenCount(content) {
+        if (/^read_lines startLine=/mu.test(content)) {
+          return 4000;
+        }
+        if (/Planner mode:/u.test(content)) {
+          return 150000;
+        }
+        return Math.max(1, Math.ceil(content.length / 4));
+      },
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'read_lines',
+            args: {
+              startLine: 2,
+              endLine: 5,
+            },
+          });
+        }
+
+        if (requestIndex === 2) {
+          return JSON.stringify({
+            action: 'finish',
+            classification: 'summary',
+            raw_review_required: false,
+            output: 'tool output guard applied',
+          });
+        }
+
+        throw new Error(`unexpected guarded planner request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
+      },
+    });
+  });
+});
+
+test('planner keeps tool results when they stay within 70 percent of remaining stop-line tokens', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Read some lines, then summarize.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'tool output kept');
+      assert.equal(server.state.chatRequests.length, 2);
+      const secondPrompt = String(server.state.chatRequests[1]?.messages?.[0]?.content || '');
+      assert.match(secondPrompt, /lineCount=/u);
+      assert.match(secondPrompt, /^\d+: /mu);
+      assert.doesNotMatch(secondPrompt, /Error: tool call results in \d+ tokens \(more than 70% of remaining tokens\)\. Try again with a more limited tool call\)/u);
+    }, {
+      config: {
+        LlamaCpp: {
+          NumCtx: 190000,
+          Reasoning: 'off',
+        },
+        Runtime: {
+          LlamaCpp: {
+            NumCtx: 190000,
+            Reasoning: 'off',
+          },
+        },
+      },
+      tokenizeTokenCount(content) {
+        if (/^read_lines startLine=/mu.test(content)) {
+          return 1200;
+        }
+        if (/Planner mode:/u.test(content)) {
+          return 150000;
+        }
+        return Math.max(1, Math.ceil(content.length / 4));
+      },
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'read_lines',
+            args: {
+              startLine: 2,
+              endLine: 5,
+            },
+          });
+        }
+
+        if (requestIndex === 2) {
+          return JSON.stringify({
+            action: 'finish',
+            classification: 'summary',
+            raw_review_required: false,
+            output: 'tool output kept',
+          });
+        }
+
+        throw new Error(`unexpected normal planner request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
+      },
+    });
+  });
+});
+
+test('planner falls back to estimated tokens for oversized tool-result guard when tokenize is unavailable', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Read many lines, then summarize conservatively.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'estimated token guard applied');
+      assert.equal(server.state.chatRequests.length, 2);
+      assert.equal(
+        server.state.tokenizeRequests.some((request) => /^read_lines startLine=/mu.test(String(request?.content || ''))),
+        true,
+      );
+      const secondPrompt = String(server.state.chatRequests[1]?.messages?.[0]?.content || '');
+      const guardMessageMatch = secondPrompt.match(
+        /Error: tool call results in (\d+) tokens \(more than 70% of remaining tokens\)\. Try again with a more limited tool call\)/u,
+      );
+      assert.ok(guardMessageMatch);
+      assert.ok(Number(guardMessageMatch[1]) > 0);
+      assert.doesNotMatch(secondPrompt, /lineCount=/u);
+    }, {
+      config: {
+        LlamaCpp: {
+          NumCtx: 190000,
+          Reasoning: 'off',
+        },
+        Runtime: {
+          LlamaCpp: {
+            NumCtx: 190000,
+            Reasoning: 'off',
+          },
+        },
+      },
+      tokenizeTokenCount(content) {
+        if (/^read_lines startLine=/mu.test(content)) {
+          return -1;
+        }
+        if (/Planner mode:/u.test(content)) {
+          return 150000;
+        }
+        return Math.max(1, Math.ceil(content.length / 4));
+      },
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'read_lines',
+            args: {
+              startLine: 1,
+              endLine: 4000,
+            },
+          });
+        }
+
+        if (requestIndex === 2) {
+          return JSON.stringify({
+            action: 'finish',
+            classification: 'summary',
+            raw_review_required: false,
+            output: 'estimated token guard applied',
+          });
+        }
+
+        throw new Error(`unexpected estimated-token request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
+      },
+    });
   });
 });
 
