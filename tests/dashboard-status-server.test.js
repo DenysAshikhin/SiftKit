@@ -287,7 +287,7 @@ test('package start script launches the dedicated dual-server start runner', () 
   assert.match(packageJson.scripts.start, /scripts[\\/]+start-dev\.js/u);
 });
 
-test('repo-search and dashboard chat messages are mutually exclusive', async () => {
+test('repo-search and dashboard chat messages serialize by waiting', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-lock-'));
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
@@ -332,6 +332,7 @@ test('repo-search and dashboard chat messages are mutually exclusive', async () 
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
           '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"x\\" src"}}',
+          '{"action":"finish","output":"done","confidence":0.9}',
         ],
         mockCommandResults: {
           'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 2000 },
@@ -340,14 +341,18 @@ test('repo-search and dashboard chat messages are mutually exclusive', async () 
     });
 
     await new Promise((resolve) => setTimeout(resolve, 100));
+    const blockedChatStart = Date.now();
     const blockedChat = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
       method: 'POST',
+      timeoutMs: 15000,
       body: JSON.stringify({
-        content: 'should fail while repo-search is running',
+        content: 'should wait while repo-search is running',
+        assistantContent: 'stored assistant response',
       }),
     });
-    assert.equal(blockedChat.statusCode, 409);
-    assert.equal(blockedChat.body.busy, true);
+    const blockedChatElapsedMs = Date.now() - blockedChatStart;
+    assert.equal(blockedChat.statusCode, 200);
+    assert.equal(blockedChatElapsedMs >= 1000, true);
 
     await delayedRepoSearch;
   } finally {

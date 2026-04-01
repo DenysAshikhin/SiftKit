@@ -3026,6 +3026,15 @@ function startStatusServer(options = {}) {
     return lock;
   }
 
+  async function acquireModelRequestWithWait(kind) {
+    let lock = acquireModelRequest(kind);
+    while (!lock) {
+      await sleep(25);
+      lock = acquireModelRequest(kind);
+    }
+    return lock;
+  }
+
   function releaseModelRequest(token) {
     if (!activeModelRequest || activeModelRequest.token !== token) {
       return false;
@@ -3214,11 +3223,7 @@ function startStatusServer(options = {}) {
     }
 
     if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/messages$/u.test(pathname)) {
-      const modelRequestLock = acquireModelRequest('dashboard_chat');
-      if (!modelRequestLock) {
-        sendJson(res, 409, { error: 'Model request already in progress.', busy: true, activeModelRequest });
-        return;
-      }
+      const modelRequestLock = await acquireModelRequestWithWait('dashboard_chat');
       const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/messages$/u, ''));
       const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
       if (!session) {
@@ -3272,11 +3277,7 @@ function startStatusServer(options = {}) {
     }
 
     if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/plan$/u.test(pathname)) {
-      const modelRequestLock = acquireModelRequest('dashboard_plan');
-      if (!modelRequestLock) {
-        sendJson(res, 409, { error: 'Model request already in progress.', busy: true, activeModelRequest });
-        return;
-      }
+      const modelRequestLock = await acquireModelRequestWithWait('dashboard_plan');
       const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/plan$/u, ''));
       const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
       if (!session) {
@@ -3360,11 +3361,7 @@ function startStatusServer(options = {}) {
     }
 
     if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/messages\/stream$/u.test(pathname)) {
-      const modelRequestLock = acquireModelRequest('dashboard_chat');
-      if (!modelRequestLock) {
-        sendJson(res, 409, { error: 'Model request already in progress.', busy: true, activeModelRequest });
-        return;
-      }
+      const modelRequestLock = await acquireModelRequestWithWait('dashboard_chat');
       const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/messages\/stream$/u, ''));
       const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
       if (!session) {
@@ -3522,11 +3519,7 @@ function startStatusServer(options = {}) {
     }
 
     if (req.method === 'POST' && req.url === '/repo-search') {
-      const modelRequestLock = acquireModelRequest('repo_search');
-      if (!modelRequestLock) {
-        sendJson(res, 409, { error: 'Model request already in progress.', busy: true, activeModelRequest });
-        return;
-      }
+      const modelRequestLock = await acquireModelRequestWithWait('repo_search');
       let parsedBody;
       try {
         parsedBody = parseJsonBody(await readBody(req));
