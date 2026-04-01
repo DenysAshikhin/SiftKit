@@ -1,0 +1,318 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const http = require('node:http');
+
+const { startStatusServer } = require('../siftKitStatus/index.js');
+
+function requestJson(url, options = {}) {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const request = http.request(
+      {
+        protocol: target.protocol,
+        hostname: target.hostname,
+        port: target.port,
+        path: `${target.pathname}${target.search}`,
+        method: options.method || 'GET',
+        headers: options.body ? {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(options.body, 'utf8'),
+        } : undefined,
+      },
+      (response) => {
+        let responseText = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => {
+          responseText += chunk;
+        });
+        response.on('end', () => {
+          resolve({
+            statusCode: response.statusCode || 0,
+            body: responseText ? JSON.parse(responseText) : {},
+          });
+        });
+      }
+    );
+    request.on('error', reject);
+    request.setTimeout(Number(options.timeoutMs || 4000), () => {
+      request.destroy(new Error('request timeout'));
+    });
+    if (options.body) {
+      request.write(options.body);
+    }
+    request.end();
+  });
+}
+
+function writeJson(targetPath, payload) {
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.writeFileSync(targetPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+}
+
+test('dashboard endpoints expose runs, details, metrics, and chat sessions', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-status-'));
+  const runtimeRoot = path.join(tempRoot, '.siftkit');
+  const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
+  const configPath = path.join(runtimeRoot, 'config.json');
+  const logsRoot = path.join(runtimeRoot, 'logs');
+  const requestsRoot = path.join(logsRoot, 'requests');
+  const failedRoot = path.join(logsRoot, 'failed');
+  const abandonedRoot = path.join(logsRoot, 'abandoned');
+  const repoSearchFailedRoot = path.join(logsRoot, 'repo_search', 'failed');
+  const repoSearchPassRoot = path.join(logsRoot, 'repo_search', 'succesful');
+  fs.mkdirSync(repoSearchPassRoot, { recursive: true });
+
+  writeJson(path.join(requestsRoot, 'request_req-summary.json'), {
+    requestId: 'req-summary',
+    question: 'Summarize build output',
+    backend: 'llama.cpp',
+    model: 'Qwen3.5-9B-Q8_0.gguf',
+    summary: 'Build was successful.',
+    createdAtUtc: '2026-04-01T10:00:00.000Z',
+    inputTokens: 123,
+    outputTokens: 45,
+    thinkingTokens: 9,
+    requestDurationMs: 3000,
+  });
+  writeJson(path.join(logsRoot, 'planner_debug_req-summary.json'), {
+    final: {
+      finalOutput: 'Build was successful.',
+      classification: 'summary',
+      rawReviewRequired: false,
+      providerError: null,
+    },
+  });
+  writeJson(path.join(failedRoot, 'request_failed_req-failed.json'), {
+    requestId: 'req-failed',
+    question: 'Analyze flaky test failure',
+    error: 'timeout',
+    createdAtUtc: '2026-04-01T10:05:00.000Z',
+    inputTokens: 50,
+    outputTokens: 0,
+    thinkingTokens: 0,
+    requestDurationMs: 1000,
+  });
+  writeJson(path.join(abandonedRoot, 'request_abandoned_req-abandoned.json'), {
+    requestId: 'req-abandoned',
+    terminalState: 'failed',
+    reason: 'Abandoned because a new request started before terminal status.',
+    createdAtUtc: '2026-04-01T10:10:00.000Z',
+    promptCharacterCount: 1200,
+    outputTokensTotal: 12,
+  });
+  writeJson(path.join(repoSearchFailedRoot, 'request_req-repo.json'), {
+    requestId: 'req-repo',
+    prompt: 'find failing test',
+    repoRoot: tempRoot,
+    verdict: 'fail',
+    totals: { commandsExecuted: 1 },
+    createdAtUtc: '2026-04-01T10:15:00.000Z',
+  });
+  fs.writeFileSync(
+    path.join(repoSearchFailedRoot, 'request_req-repo.jsonl'),
+    [
+      JSON.stringify({ at: '2026-04-01T10:15:01.000Z', kind: 'turn_prompt', prompt: 'find failing test' }),
+      JSON.stringify({ at: '2026-04-01T10:15:02.000Z', kind: 'turn_model_response', text: '{"action":"finish"}', thinkingText: 'reasoning' }),
+      JSON.stringify({ at: '2026-04-01T10:15:03.000Z', kind: 'run_done', scorecard: { verdict: 'fail' } }),
+    ].join('\n') + '\n',
+    'utf8'
+  );
+
+  const envBackup = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const health = await requestJson(`${baseUrl}/status`);
+    assert.equal(health.statusCode, 200);
+
+    const runsResponse = await requestJson(`${baseUrl}/dashboard/runs`);
+    assert.equal(runsResponse.statusCode, 200);
+    assert.equal(Array.isArray(runsResponse.body.runs), true);
+    assert.ok(runsResponse.body.runs.length >= 4);
+    const runKinds = new Set(runsResponse.body.runs.map((run) => run.kind));
+    assert.equal(runKinds.has('summary_request'), true);
+    assert.equal(runKinds.has('failed_request'), true);
+    assert.equal(runKinds.has('request_abandoned'), true);
+    assert.equal(runKinds.has('repo_search'), true);
+
+    const detailResponse = await requestJson(`${baseUrl}/dashboard/runs/req-repo`);
+    assert.equal(detailResponse.statusCode, 200);
+    assert.equal(detailResponse.body.run.id, 'req-repo');
+    assert.equal(Array.isArray(detailResponse.body.events), true);
+    assert.equal(detailResponse.body.events.some((event) => event.kind === 'turn_model_response'), true);
+
+    const metricsResponse = await requestJson(`${baseUrl}/dashboard/metrics/timeseries`);
+    assert.equal(metricsResponse.statusCode, 200);
+    assert.equal(Array.isArray(metricsResponse.body.days), true);
+    assert.equal(metricsResponse.body.days.length > 0, true);
+    assert.equal(metricsResponse.body.days[0].runs >= 1, true);
+
+    const idleSummaryResponse = await requestJson(`${baseUrl}/dashboard/metrics/idle-summary`);
+    assert.equal(idleSummaryResponse.statusCode, 200);
+    assert.equal(Array.isArray(idleSummaryResponse.body.snapshots), true);
+    assert.equal(Object.prototype.hasOwnProperty.call(idleSummaryResponse.body, 'latest'), true);
+
+    const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Session A',
+        model: 'Qwen3.5-9B-Q8_0.gguf',
+        contextWindowTokens: 10000,
+      }),
+    });
+    assert.equal(createSession.statusCode, 200);
+    assert.equal(typeof createSession.body.session.id, 'string');
+    assert.equal(createSession.body.session.contextWindowTokens, 150000);
+    const sessionId = createSession.body.session.id;
+
+    const appendMessage = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({
+        content: 'a'.repeat(26000),
+        assistantContent: 'stored assistant response',
+      }),
+    });
+    assert.equal(appendMessage.statusCode, 200);
+    assert.equal(Array.isArray(appendMessage.body.session.messages), true);
+    assert.equal(appendMessage.body.session.messages.length, 2);
+    assert.equal(appendMessage.body.contextUsage.warnThresholdTokens, 15000);
+    assert.equal(appendMessage.body.contextUsage.shouldCondense, false);
+
+    const condenseResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/condense`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    assert.equal(condenseResponse.statusCode, 200);
+    assert.equal(typeof condenseResponse.body.session.condensedSummary, 'string');
+    assert.match(condenseResponse.body.session.condensedSummary, /stored assistant response/u);
+
+    const sessionsResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions`);
+    assert.equal(sessionsResponse.statusCode, 200);
+    assert.equal(sessionsResponse.body.sessions.length, 1);
+
+    const sessionDetail = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
+    assert.equal(sessionDetail.statusCode, 200);
+    assert.equal(sessionDetail.body.session.id, sessionId);
+
+    const deleteSession = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`, {
+      method: 'DELETE',
+    });
+    assert.equal(deleteSession.statusCode, 200);
+    assert.equal(deleteSession.body.deleted, true);
+
+    const sessionsAfterDelete = await requestJson(`${baseUrl}/dashboard/chat/sessions`);
+    assert.equal(sessionsAfterDelete.statusCode, 200);
+    assert.equal(sessionsAfterDelete.body.sessions.length, 0);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('package start script launches the dedicated dual-server start runner', () => {
+  const packageJsonPath = path.join(process.cwd(), 'package.json');
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+  assert.equal(typeof packageJson.scripts?.start, 'string');
+  assert.match(packageJson.scripts.start, /scripts[\\/]+start-dev\.js/u);
+});
+
+test('repo-search and dashboard chat messages are mutually exclusive', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-lock-'));
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Locked session',
+        model: 'Qwen3.5-9B-Q8_0.gguf',
+        contextWindowTokens: 10000,
+      }),
+    });
+    const sessionId = createSession.body.session.id;
+
+    const delayedRepoSearch = requestJson(`${baseUrl}/repo-search`, {
+      method: 'POST',
+      timeoutMs: 15000,
+      body: JSON.stringify({
+        prompt: 'find x',
+        repoRoot: process.cwd(),
+        model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+        maxTurns: 1,
+        simulateWorkMs: 1200,
+        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        mockResponses: [
+          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"x\\" src"}}',
+        ],
+        mockCommandResults: {
+          'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 2000 },
+        },
+      }),
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const blockedChat = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({
+        content: 'should fail while repo-search is running',
+      }),
+    });
+    assert.equal(blockedChat.statusCode, 409);
+    assert.equal(blockedChat.body.busy, true);
+
+    await delayedRepoSearch;
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});

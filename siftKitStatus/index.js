@@ -515,6 +515,55 @@ function requestText(url, timeoutMs) {
   });
 }
 
+function requestJson(url, options = {}) {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const transport = target.protocol === 'https:' ? https : http;
+    const body = typeof options.body === 'string' ? options.body : '';
+    const request = transport.request({
+      protocol: target.protocol,
+      hostname: target.hostname,
+      port: target.port || (target.protocol === 'https:' ? 443 : 80),
+      path: `${target.pathname}${target.search}`,
+      method: options.method || 'GET',
+      headers: body ? {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body, 'utf8'),
+      } : undefined,
+    }, (response) => {
+      let responseText = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => {
+        responseText += chunk;
+      });
+      response.on('end', () => {
+        if (!responseText.trim()) {
+          resolve({ statusCode: response.statusCode || 0, body: {}, rawText: '' });
+          return;
+        }
+        try {
+          resolve({
+            statusCode: response.statusCode || 0,
+            body: JSON.parse(responseText),
+            rawText: responseText,
+          });
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+
+    request.setTimeout(Number(options.timeoutMs || 60000), () => {
+      request.destroy(new Error(`Request timed out after ${Number(options.timeoutMs || 60000)} ms.`));
+    });
+    request.on('error', reject);
+    if (body) {
+      request.write(body);
+    }
+    request.end();
+  });
+}
+
 function getCompatRuntimeLlamaCpp(config) {
   return config?.Runtime?.LlamaCpp ?? config?.LlamaCpp ?? {};
 }
@@ -1152,6 +1201,881 @@ function getStatusArtifactPath(metadata) {
   return null;
 }
 
+function safeReadJson(targetPath) {
+  try {
+    return JSON.parse(fs.readFileSync(targetPath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function listFiles(targetPath) {
+  if (!fs.existsSync(targetPath)) {
+    return [];
+  }
+  const entries = fs.readdirSync(targetPath, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isFile())
+    .map((entry) => path.join(targetPath, entry.name));
+}
+
+function getIsoDateFromStat(targetPath) {
+  try {
+    return fs.statSync(targetPath).mtime.toISOString();
+  } catch {
+    return new Date(0).toISOString();
+  }
+}
+
+function parseRequestIdFromFileName(fileName) {
+  const match = /request_(.+)\.json$/iu.exec(fileName);
+  return match ? match[1] : null;
+}
+
+function normalizeRunRecord(record) {
+  return {
+    id: String(record.id),
+    kind: String(record.kind),
+    status: String(record.status),
+    startedAtUtc: record.startedAtUtc || null,
+    finishedAtUtc: record.finishedAtUtc || null,
+    title: String(record.title || ''),
+    model: record.model || null,
+    backend: record.backend || null,
+    inputTokens: Number.isFinite(record.inputTokens) ? Number(record.inputTokens) : null,
+    outputTokens: Number.isFinite(record.outputTokens) ? Number(record.outputTokens) : null,
+    thinkingTokens: Number.isFinite(record.thinkingTokens) ? Number(record.thinkingTokens) : null,
+    durationMs: Number.isFinite(record.durationMs) ? Number(record.durationMs) : null,
+    rawPaths: record.rawPaths && typeof record.rawPaths === 'object' ? record.rawPaths : {},
+  };
+}
+
+function loadDashboardRuns(runtimeRoot) {
+  const logsRoot = path.join(runtimeRoot, 'logs');
+  const byId = new Map();
+
+  for (const requestPath of listFiles(path.join(logsRoot, 'requests'))) {
+    const fileName = path.basename(requestPath);
+    if (!/^request_.+\.json$/iu.test(fileName)) {
+      continue;
+    }
+    const payload = safeReadJson(requestPath);
+    if (!payload || typeof payload !== 'object') {
+      continue;
+    }
+    const requestId = typeof payload.requestId === 'string' && payload.requestId.trim()
+      ? payload.requestId.trim()
+      : parseRequestIdFromFileName(fileName);
+    if (!requestId) {
+      continue;
+    }
+    const plannerPath = path.join(logsRoot, `planner_debug_${requestId}.json`);
+    const failedPath = path.join(logsRoot, 'failed', `request_failed_${requestId}.json`);
+    const startedAtUtc = (
+      typeof payload.createdAtUtc === 'string' && payload.createdAtUtc.trim()
+        ? payload.createdAtUtc
+        : getIsoDateFromStat(requestPath)
+    );
+    byId.set(requestId, normalizeRunRecord({
+      id: requestId,
+      kind: 'summary_request',
+      status: payload.error ? 'failed' : 'completed',
+      startedAtUtc,
+      finishedAtUtc: startedAtUtc,
+      title: payload.question || payload.prompt || `Summary request ${requestId}`,
+      model: payload.model || null,
+      backend: payload.backend || null,
+      inputTokens: payload.inputTokens ?? null,
+      outputTokens: payload.outputTokens ?? null,
+      thinkingTokens: payload.thinkingTokens ?? null,
+      durationMs: payload.requestDurationMs ?? null,
+      rawPaths: {
+        request: requestPath,
+        plannerDebug: fs.existsSync(plannerPath) ? plannerPath : null,
+        failedRequest: fs.existsSync(failedPath) ? failedPath : null,
+      },
+    }));
+  }
+
+  for (const failedPath of listFiles(path.join(logsRoot, 'failed'))) {
+    const fileName = path.basename(failedPath);
+    const match = /^request_failed_(.+)\.json$/iu.exec(fileName);
+    if (!match) {
+      continue;
+    }
+    const payload = safeReadJson(failedPath);
+    if (!payload || typeof payload !== 'object') {
+      continue;
+    }
+    const requestId = typeof payload.requestId === 'string' && payload.requestId.trim() ? payload.requestId.trim() : match[1];
+    const startedAtUtc = (
+      typeof payload.createdAtUtc === 'string' && payload.createdAtUtc.trim()
+        ? payload.createdAtUtc
+        : getIsoDateFromStat(failedPath)
+    );
+    if (!byId.has(requestId)) {
+      byId.set(requestId, normalizeRunRecord({
+        id: requestId,
+        kind: 'failed_request',
+        status: 'failed',
+        startedAtUtc,
+        finishedAtUtc: startedAtUtc,
+        title: payload.question || `Failed request ${requestId}`,
+        model: payload.model || null,
+        backend: payload.backend || null,
+        inputTokens: payload.inputTokens ?? null,
+        outputTokens: payload.outputTokens ?? null,
+        thinkingTokens: payload.thinkingTokens ?? null,
+        durationMs: payload.requestDurationMs ?? null,
+        rawPaths: { failedRequest: failedPath },
+      }));
+    }
+  }
+
+  for (const abandonedPath of listFiles(path.join(logsRoot, 'abandoned'))) {
+    const fileName = path.basename(abandonedPath);
+    const match = /^request_abandoned_(.+)\.json$/iu.exec(fileName);
+    if (!match) {
+      continue;
+    }
+    const payload = safeReadJson(abandonedPath);
+    if (!payload || typeof payload !== 'object') {
+      continue;
+    }
+    const requestId = typeof payload.requestId === 'string' && payload.requestId.trim() ? payload.requestId.trim() : match[1];
+    const startedAtUtc = (
+      typeof payload.createdAtUtc === 'string' && payload.createdAtUtc.trim()
+        ? payload.createdAtUtc
+        : getIsoDateFromStat(abandonedPath)
+    );
+    if (!byId.has(requestId)) {
+      byId.set(requestId, normalizeRunRecord({
+        id: requestId,
+        kind: 'request_abandoned',
+        status: 'failed',
+        startedAtUtc,
+        finishedAtUtc: startedAtUtc,
+        title: payload.reason || `Abandoned request ${requestId}`,
+        model: null,
+        backend: null,
+        inputTokens: payload.promptTokenCount ?? null,
+        outputTokens: payload.outputTokensTotal ?? null,
+        thinkingTokens: null,
+        durationMs: payload.totalElapsedMs ?? null,
+        rawPaths: { abandonedRequest: abandonedPath },
+      }));
+    }
+  }
+
+  for (const folderName of ['failed', 'succesful']) {
+    for (const artifactPath of listFiles(path.join(logsRoot, 'repo_search', folderName))) {
+      const fileName = path.basename(artifactPath);
+      if (!/^request_.+\.json$/iu.test(fileName)) {
+        continue;
+      }
+      const payload = safeReadJson(artifactPath);
+      if (!payload || typeof payload !== 'object') {
+        continue;
+      }
+      const requestId = typeof payload.requestId === 'string' && payload.requestId.trim()
+        ? payload.requestId.trim()
+        : parseRequestIdFromFileName(fileName);
+      if (!requestId) {
+        continue;
+      }
+      const startedAtUtc = (
+        typeof payload.createdAtUtc === 'string' && payload.createdAtUtc.trim()
+          ? payload.createdAtUtc
+          : getIsoDateFromStat(artifactPath)
+      );
+      byId.set(requestId, normalizeRunRecord({
+        id: requestId,
+        kind: 'repo_search',
+        status: payload.error || payload.verdict === 'fail' ? 'failed' : 'completed',
+        startedAtUtc,
+        finishedAtUtc: startedAtUtc,
+        title: payload.prompt || `Repo search ${requestId}`,
+        model: payload.model || null,
+        backend: 'llama.cpp',
+        inputTokens: null,
+        outputTokens: null,
+        thinkingTokens: null,
+        durationMs: null,
+        rawPaths: {
+          repoSearch: artifactPath,
+          transcript: (
+            typeof payload.transcriptPath === 'string' && payload.transcriptPath.trim()
+          )
+            ? payload.transcriptPath
+            : (() => {
+              const siblingTranscriptPath = artifactPath.replace(/\.json$/iu, '.jsonl');
+              return fs.existsSync(siblingTranscriptPath) ? siblingTranscriptPath : null;
+            })(),
+        },
+      }));
+    }
+  }
+
+  return Array.from(byId.values()).sort((left, right) => {
+    const leftTime = Date.parse(left.startedAtUtc || '1970-01-01T00:00:00.000Z');
+    const rightTime = Date.parse(right.startedAtUtc || '1970-01-01T00:00:00.000Z');
+    return rightTime - leftTime;
+  });
+}
+
+function readJsonlEvents(transcriptPath) {
+  if (!transcriptPath || typeof transcriptPath !== 'string' || !fs.existsSync(transcriptPath)) {
+    return [];
+  }
+  const content = fs.readFileSync(transcriptPath, 'utf8');
+  return content
+    .split(/\r?\n/gu)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        const parsed = JSON.parse(line);
+        return {
+          kind: typeof parsed.kind === 'string' ? parsed.kind : 'event',
+          at: typeof parsed.at === 'string' ? parsed.at : null,
+          payload: parsed,
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
+function buildDashboardRunDetail(runtimeRoot, runId) {
+  const runs = loadDashboardRuns(runtimeRoot);
+  const run = runs.find((entry) => entry.id === runId) || null;
+  if (!run) {
+    return null;
+  }
+  const events = [];
+  if (run.rawPaths && typeof run.rawPaths === 'object') {
+    if (run.rawPaths.transcript) {
+      events.push(...readJsonlEvents(run.rawPaths.transcript));
+    }
+    if (run.rawPaths.request) {
+      const payload = safeReadJson(run.rawPaths.request);
+      if (payload) {
+        events.push({ kind: 'summary_request', at: run.startedAtUtc, payload });
+      }
+    }
+    if (run.rawPaths.plannerDebug) {
+      const payload = safeReadJson(run.rawPaths.plannerDebug);
+      if (payload) {
+        events.push({ kind: 'planner_debug', at: run.startedAtUtc, payload });
+      }
+    }
+    if (run.rawPaths.failedRequest) {
+      const payload = safeReadJson(run.rawPaths.failedRequest);
+      if (payload) {
+        events.push({ kind: 'failed_request', at: run.startedAtUtc, payload });
+      }
+    }
+    if (run.rawPaths.abandonedRequest) {
+      const payload = safeReadJson(run.rawPaths.abandonedRequest);
+      if (payload) {
+        events.push({ kind: 'request_abandoned', at: run.startedAtUtc, payload });
+      }
+    }
+    if (run.rawPaths.repoSearch) {
+      const payload = safeReadJson(run.rawPaths.repoSearch);
+      if (payload) {
+        events.push({ kind: 'repo_search', at: run.startedAtUtc, payload });
+      }
+    }
+  }
+  return { run, events };
+}
+
+function buildDashboardDailyMetricsFromRuns(runtimeRoot) {
+  const runs = loadDashboardRuns(runtimeRoot);
+  const byDay = new Map();
+  for (const run of runs) {
+    const startedAt = run.startedAtUtc || new Date(0).toISOString();
+    const day = startedAt.slice(0, 10);
+    const current = byDay.get(day) || {
+      date: day,
+      runs: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      thinkingTokens: 0,
+      successCount: 0,
+      failureCount: 0,
+      durationTotalMs: 0,
+      durationCount: 0,
+    };
+    current.runs += 1;
+    current.inputTokens += Number(run.inputTokens || 0);
+    current.outputTokens += Number(run.outputTokens || 0);
+    current.thinkingTokens += Number(run.thinkingTokens || 0);
+    if (run.status === 'completed') {
+      current.successCount += 1;
+    } else {
+      current.failureCount += 1;
+    }
+    if (Number.isFinite(run.durationMs) && run.durationMs >= 0) {
+      current.durationTotalMs += run.durationMs;
+      current.durationCount += 1;
+    }
+    byDay.set(day, current);
+  }
+  return Array.from(byDay.values())
+    .sort((left, right) => left.date.localeCompare(right.date))
+    .map((entry) => ({
+      date: entry.date,
+      runs: entry.runs,
+      inputTokens: entry.inputTokens,
+      outputTokens: entry.outputTokens,
+      thinkingTokens: entry.thinkingTokens,
+      successCount: entry.successCount,
+      failureCount: entry.failureCount,
+      avgDurationMs: entry.durationCount > 0 ? Math.round(entry.durationTotalMs / entry.durationCount) : 0,
+    }));
+}
+
+function buildDashboardDailyMetricsFromIdleSnapshots(database) {
+  if (!database) {
+    return [];
+  }
+  const rows = database
+    .prepare(`
+      SELECT
+        emitted_at_utc,
+        completed_request_count,
+        input_tokens_total,
+        output_tokens_total,
+        thinking_tokens_total,
+        request_duration_ms_total
+      FROM idle_summary_snapshots
+      ORDER BY emitted_at_utc ASC, id ASC
+    `)
+    .all();
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return [];
+  }
+
+  const byDay = new Map();
+  let previous = null;
+  for (const row of rows) {
+    const emittedAtUtc = typeof row.emitted_at_utc === 'string' ? row.emitted_at_utc : null;
+    if (!emittedAtUtc) {
+      continue;
+    }
+    const day = emittedAtUtc.slice(0, 10);
+    const current = byDay.get(day) || {
+      date: day,
+      runs: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      thinkingTokens: 0,
+      successCount: 0,
+      failureCount: 0,
+      durationTotalMs: 0,
+      durationCount: 0,
+    };
+
+    const completedRequestCount = Number(row.completed_request_count) || 0;
+    const inputTokensTotal = Number(row.input_tokens_total) || 0;
+    const outputTokensTotal = Number(row.output_tokens_total) || 0;
+    const thinkingTokensTotal = Number(row.thinking_tokens_total) || 0;
+    const requestDurationMsTotal = Number(row.request_duration_ms_total) || 0;
+
+    const deltaRuns = Math.max(0, previous ? completedRequestCount - previous.completedRequestCount : completedRequestCount);
+    const deltaInput = Math.max(0, previous ? inputTokensTotal - previous.inputTokensTotal : inputTokensTotal);
+    const deltaOutput = Math.max(0, previous ? outputTokensTotal - previous.outputTokensTotal : outputTokensTotal);
+    const deltaThinking = Math.max(0, previous ? thinkingTokensTotal - previous.thinkingTokensTotal : thinkingTokensTotal);
+    const deltaDuration = Math.max(0, previous ? requestDurationMsTotal - previous.requestDurationMsTotal : requestDurationMsTotal);
+
+    current.runs += deltaRuns;
+    current.inputTokens += deltaInput;
+    current.outputTokens += deltaOutput;
+    current.thinkingTokens += deltaThinking;
+    current.durationTotalMs += deltaDuration;
+    current.durationCount += deltaRuns;
+
+    byDay.set(day, current);
+    previous = {
+      completedRequestCount,
+      inputTokensTotal,
+      outputTokensTotal,
+      thinkingTokensTotal,
+      requestDurationMsTotal,
+    };
+  }
+
+  return Array.from(byDay.values())
+    .sort((left, right) => left.date.localeCompare(right.date))
+    .map((entry) => ({
+      date: entry.date,
+      runs: entry.runs,
+      inputTokens: entry.inputTokens,
+      outputTokens: entry.outputTokens,
+      thinkingTokens: entry.thinkingTokens,
+      successCount: entry.successCount,
+      failureCount: entry.failureCount,
+      avgDurationMs: entry.durationCount > 0 ? Math.round(entry.durationTotalMs / entry.durationCount) : 0,
+    }));
+}
+
+function buildDashboardDailyMetrics(runtimeRoot, idleSummaryDatabase) {
+  const snapshotDays = buildDashboardDailyMetricsFromIdleSnapshots(idleSummaryDatabase);
+  if (snapshotDays.length > 0) {
+    const runDays = buildDashboardDailyMetricsFromRuns(runtimeRoot);
+    const runByDay = new Map(runDays.map((day) => [day.date, day]));
+    return snapshotDays.map((day) => {
+      const runDay = runByDay.get(day.date);
+      if (!runDay) {
+        return day;
+      }
+      return {
+        ...day,
+        successCount: runDay.successCount,
+        failureCount: runDay.failureCount,
+      };
+    });
+  }
+  return buildDashboardDailyMetricsFromRuns(runtimeRoot);
+}
+
+function normalizeIdleSummarySnapshotRow(row) {
+  if (!row || typeof row !== 'object') {
+    return null;
+  }
+  const snapshot = {
+    emittedAtUtc: typeof row.emitted_at_utc === 'string' ? row.emitted_at_utc : null,
+    completedRequestCount: Number(row.completed_request_count) || 0,
+    inputCharactersTotal: Number(row.input_characters_total) || 0,
+    outputCharactersTotal: Number(row.output_characters_total) || 0,
+    inputTokensTotal: Number(row.input_tokens_total) || 0,
+    outputTokensTotal: Number(row.output_tokens_total) || 0,
+    thinkingTokensTotal: Number(row.thinking_tokens_total) || 0,
+    savedTokens: Number(row.saved_tokens) || 0,
+    savedPercent: Number.isFinite(row.saved_percent) ? Number(row.saved_percent) : null,
+    compressionRatio: Number.isFinite(row.compression_ratio) ? Number(row.compression_ratio) : null,
+    requestDurationMsTotal: Number(row.request_duration_ms_total) || 0,
+    avgRequestMs: Number.isFinite(row.avg_request_ms) ? Number(row.avg_request_ms) : null,
+    avgTokensPerSecond: Number.isFinite(row.avg_tokens_per_second) ? Number(row.avg_tokens_per_second) : null,
+    summaryText: '',
+  };
+  snapshot.summaryText = buildIdleSummarySnapshotMessage(snapshot);
+  return snapshot;
+}
+
+function estimateTokenCount(value) {
+  const text = String(value || '');
+  if (!text.trim()) {
+    return 0;
+  }
+  return Math.max(1, Math.ceil(text.length / 4));
+}
+
+function getChatSessionsRoot(runtimeRoot) {
+  return path.join(runtimeRoot, 'chat', 'sessions');
+}
+
+function listChatSessionPaths(runtimeRoot) {
+  return listFiles(getChatSessionsRoot(runtimeRoot))
+    .filter((targetPath) => /^session_.+\.json$/iu.test(path.basename(targetPath)));
+}
+
+function readChatSessionFromPath(targetPath) {
+  const payload = safeReadJson(targetPath);
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+  if (typeof payload.id !== 'string' || !payload.id.trim()) {
+    return null;
+  }
+  if (typeof payload.thinkingEnabled !== 'boolean') {
+    payload.thinkingEnabled = true;
+  }
+  return payload;
+}
+
+function readChatSessions(runtimeRoot) {
+  return listChatSessionPaths(runtimeRoot)
+    .map(readChatSessionFromPath)
+    .filter(Boolean)
+    .sort((left, right) => String(right.updatedAtUtc || '').localeCompare(String(left.updatedAtUtc || '')));
+}
+
+function getChatSessionPath(runtimeRoot, sessionId) {
+  return path.join(getChatSessionsRoot(runtimeRoot), `session_${sessionId}.json`);
+}
+
+function saveChatSession(runtimeRoot, session) {
+  const targetPath = getChatSessionPath(runtimeRoot, session.id);
+  saveContentAtomically(targetPath, `${JSON.stringify(session, null, 2)}\n`);
+}
+
+function buildContextUsage(session) {
+  const contextWindowTokens = Math.max(1, Number(session.contextWindowTokens || 150000));
+  const usedTokens = Array.isArray(session.messages)
+    ? session.messages.reduce((sum, message) => {
+      const inputTokens = Number(message.inputTokensEstimate || 0);
+      const outputTokens = Number(message.outputTokensEstimate || 0);
+      const thinkingTokens = Number(message.thinkingTokens || 0);
+      return sum + inputTokens + outputTokens + thinkingTokens;
+    }, 0)
+    : 0;
+  const remainingTokens = Math.max(contextWindowTokens - usedTokens, 0);
+  const warnThresholdTokens = Math.max(5000, Math.ceil(contextWindowTokens * 0.1));
+  return {
+    contextWindowTokens,
+    usedTokens,
+    remainingTokens,
+    warnThresholdTokens,
+    shouldCondense: remainingTokens <= warnThresholdTokens,
+  };
+}
+
+function appendChatMessages(runtimeRoot, session, content, assistantContent) {
+  const now = new Date().toISOString();
+  const messages = Array.isArray(session.messages) ? session.messages.slice() : [];
+  messages.push({
+    id: crypto.randomUUID(),
+    role: 'user',
+    content,
+    inputTokensEstimate: estimateTokenCount(content),
+    outputTokensEstimate: 0,
+    thinkingTokens: 0,
+    createdAtUtc: now,
+    sourceRunId: null,
+  });
+  const assistantText = typeof assistantContent === 'string' && assistantContent.trim()
+    ? assistantContent
+    : 'No assistantContent provided.';
+  messages.push({
+    id: crypto.randomUUID(),
+    role: 'assistant',
+    content: assistantText,
+    inputTokensEstimate: 0,
+    outputTokensEstimate: estimateTokenCount(assistantText),
+    thinkingTokens: 0,
+    createdAtUtc: now,
+    sourceRunId: null,
+  });
+  const updated = {
+    ...session,
+    updatedAtUtc: now,
+    messages,
+  };
+  saveChatSession(runtimeRoot, updated);
+  return updated;
+}
+
+function resolveActiveChatModel(config, session) {
+  if (typeof session?.model === 'string' && session.model.trim()) {
+    return session.model.trim();
+  }
+  if (typeof config?.Runtime?.Model === 'string' && config.Runtime.Model.trim()) {
+    return config.Runtime.Model.trim();
+  }
+  if (typeof config?.Model === 'string' && config.Model.trim()) {
+    return config.Model.trim();
+  }
+  return DEFAULT_LLAMA_MODEL;
+}
+
+function getChatUsageValue(value) {
+  return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : null;
+}
+
+function getTextContent(value) {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (!Array.isArray(value)) {
+    return '';
+  }
+  return value
+    .map((part) => (part && typeof part === 'object' && (part.type === 'text' || !part.type)) ? String(part.text || '') : '')
+    .join('');
+}
+
+function getThinkingTokensFromUsage(usage) {
+  if (!usage || typeof usage !== 'object') {
+    return null;
+  }
+  const completionDetails = usage.completion_tokens_details && typeof usage.completion_tokens_details === 'object'
+    ? usage.completion_tokens_details
+    : null;
+  const outputDetails = usage.output_tokens_details && typeof usage.output_tokens_details === 'object'
+    ? usage.output_tokens_details
+    : null;
+  const sources = [completionDetails, outputDetails, usage];
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') {
+      continue;
+    }
+    const reasoningTokens = getChatUsageValue(source.reasoning_tokens) ?? 0;
+    const thinkingTokens = getChatUsageValue(source.thinking_tokens) ?? 0;
+    if (
+      Object.prototype.hasOwnProperty.call(source, 'reasoning_tokens')
+      || Object.prototype.hasOwnProperty.call(source, 'thinking_tokens')
+    ) {
+      return reasoningTokens + thinkingTokens;
+    }
+  }
+  return null;
+}
+
+function getChoiceText(choice) {
+  const content = choice?.message?.content ?? choice?.text ?? '';
+  return getTextContent(content).trim();
+}
+
+function getChoiceReasoningText(choice) {
+  const content = choice?.message?.reasoning_content ?? '';
+  return getTextContent(content).trim();
+}
+
+function buildChatCompletionRequest(config, session, userContent, options = {}) {
+  const model = resolveActiveChatModel(config, session);
+  const baseUrl = getLlamaBaseUrl(config);
+  if (!baseUrl) {
+    throw new Error('llama.cpp base URL is not configured.');
+  }
+  const runtimeLlama = getCompatRuntimeLlamaCpp(config);
+  const priorMessages = Array.isArray(session.messages) ? session.messages : [];
+  const messages = [
+    { role: 'system', content: 'general, coder friendly assistant' },
+    // Only feed chat-visible message content back into history; never include prior thinking traces.
+    ...priorMessages.map((message) => ({
+      role: message.role === 'assistant' ? 'assistant' : 'user',
+      content: String(message.content || ''),
+    })),
+    { role: 'user', content: userContent },
+  ];
+  const thinkingEnabled = options.thinkingEnabled !== false;
+  return {
+    url: `${baseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
+    model,
+    body: {
+      model,
+      messages,
+      stream: Boolean(options.stream),
+      cache_prompt: true,
+      ...(Number.isFinite(runtimeLlama?.Temperature) ? { temperature: Number(runtimeLlama.Temperature) } : {}),
+      ...(Number.isFinite(runtimeLlama?.TopP) ? { top_p: Number(runtimeLlama.TopP) } : {}),
+      ...(Number.isFinite(runtimeLlama?.MaxTokens) ? { max_tokens: Number(runtimeLlama.MaxTokens) } : {}),
+      chat_template_kwargs: {
+        enable_thinking: thinkingEnabled,
+      },
+      extra_body: {
+        ...(Number.isFinite(runtimeLlama?.TopK) ? { top_k: Number(runtimeLlama.TopK) } : {}),
+        ...(Number.isFinite(runtimeLlama?.MinP) ? { min_p: Number(runtimeLlama.MinP) } : {}),
+        ...(Number.isFinite(runtimeLlama?.PresencePenalty) ? { presence_penalty: Number(runtimeLlama.PresencePenalty) } : {}),
+        ...(Number.isFinite(runtimeLlama?.RepetitionPenalty) ? { repeat_penalty: Number(runtimeLlama.RepetitionPenalty) } : {}),
+        ...(thinkingEnabled ? {} : { reasoning_budget: 0 }),
+      },
+    },
+  };
+}
+
+async function generateChatAssistantMessage(config, session, userContent) {
+  const request = buildChatCompletionRequest(config, session, userContent, {
+    thinkingEnabled: session.thinkingEnabled !== false,
+    stream: false,
+  });
+  const response = await requestJson(request.url, {
+    method: 'POST',
+    timeoutMs: 600000,
+    body: JSON.stringify(request.body),
+  });
+  if (response.statusCode >= 400) {
+    const detail = String(response.rawText || '').trim();
+    throw new Error(`llama.cpp chat failed with HTTP ${response.statusCode}${detail ? `: ${detail}` : '.'}`);
+  }
+  const choice = Array.isArray(response.body?.choices) ? response.body.choices[0] : null;
+  const assistantContent = getChoiceText(choice);
+  const thinkingContent = getChoiceReasoningText(choice);
+  if (!assistantContent) {
+    throw new Error('llama.cpp chat returned an empty assistant message.');
+  }
+  const usage = response.body?.usage && typeof response.body.usage === 'object' ? response.body.usage : {};
+  return {
+    assistantContent,
+    thinkingContent,
+    usage: {
+      promptTokens: getChatUsageValue(usage.prompt_tokens),
+      completionTokens: getChatUsageValue(usage.completion_tokens),
+      thinkingTokens: getThinkingTokensFromUsage(usage),
+    },
+  };
+}
+
+function appendChatMessagesWithUsage(runtimeRoot, session, content, assistantContent, usage = {}, thinkingContent = '') {
+  const now = new Date().toISOString();
+  const messages = Array.isArray(session.messages) ? session.messages.slice() : [];
+  const userTokens = getChatUsageValue(usage.promptTokens) ?? estimateTokenCount(content);
+  const outputTokens = getChatUsageValue(usage.completionTokens) ?? estimateTokenCount(assistantContent);
+  const thinkingTokens = getChatUsageValue(usage.thinkingTokens) ?? 0;
+  messages.push({
+    id: crypto.randomUUID(),
+    role: 'user',
+    content,
+    inputTokensEstimate: userTokens,
+    outputTokensEstimate: 0,
+    thinkingTokens: 0,
+    createdAtUtc: now,
+    sourceRunId: null,
+  });
+  messages.push({
+    id: crypto.randomUUID(),
+    role: 'assistant',
+    content: assistantContent,
+    inputTokensEstimate: 0,
+    outputTokensEstimate: outputTokens,
+    thinkingTokens,
+    thinkingContent: String(thinkingContent || ''),
+    createdAtUtc: now,
+    sourceRunId: null,
+  });
+  const updated = {
+    ...session,
+    updatedAtUtc: now,
+    messages,
+  };
+  saveChatSession(runtimeRoot, updated);
+  return updated;
+}
+
+async function streamChatAssistantMessage(config, session, userContent, onProgress) {
+  const requestConfig = buildChatCompletionRequest(config, session, userContent, {
+    thinkingEnabled: session.thinkingEnabled !== false,
+    stream: true,
+  });
+  const target = new URL(requestConfig.url);
+  const transport = target.protocol === 'https:' ? https : http;
+  return new Promise((resolve, reject) => {
+    const request = transport.request({
+      protocol: target.protocol,
+      hostname: target.hostname,
+      port: target.port || (target.protocol === 'https:' ? 443 : 80),
+      path: `${target.pathname}${target.search}`,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(JSON.stringify(requestConfig.body), 'utf8'),
+      },
+    }, (response) => {
+      if ((response.statusCode || 0) >= 400) {
+        let body = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => {
+          body += chunk;
+        });
+        response.on('end', () => {
+          reject(new Error(`llama.cpp chat stream failed with HTTP ${response.statusCode || 0}${body.trim() ? `: ${body.trim()}` : '.'}`));
+        });
+        return;
+      }
+
+      let rawBuffer = '';
+      let assistantContent = '';
+      let thinkingContent = '';
+      let finalUsage = {};
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => {
+        rawBuffer += chunk;
+        let boundary = rawBuffer.indexOf('\n\n');
+        while (boundary >= 0) {
+          const packet = rawBuffer.slice(0, boundary);
+          rawBuffer = rawBuffer.slice(boundary + 2);
+          boundary = rawBuffer.indexOf('\n\n');
+          const lines = packet
+            .split(/\r?\n/gu)
+            .map((line) => line.trim())
+            .filter(Boolean);
+          const dataLine = lines.find((line) => line.startsWith('data:'));
+          if (!dataLine) {
+            continue;
+          }
+          const dataValue = dataLine.slice(5).trim();
+          if (dataValue === '[DONE]') {
+            continue;
+          }
+          try {
+            const parsed = JSON.parse(dataValue);
+            const choice = Array.isArray(parsed?.choices) ? parsed.choices[0] : null;
+            const delta = choice?.delta && typeof choice.delta === 'object' ? choice.delta : {};
+            const deltaThinking = getTextContent(delta.reasoning_content);
+            const deltaAnswer = getTextContent(delta.content);
+            if (deltaThinking) {
+              thinkingContent += deltaThinking;
+            }
+            if (deltaAnswer) {
+              assistantContent += deltaAnswer;
+            }
+            if (parsed?.usage && typeof parsed.usage === 'object') {
+              finalUsage = {
+                promptTokens: getChatUsageValue(parsed.usage.prompt_tokens),
+                completionTokens: getChatUsageValue(parsed.usage.completion_tokens),
+                thinkingTokens: getThinkingTokensFromUsage(parsed.usage),
+              };
+            }
+            if (typeof onProgress === 'function') {
+              onProgress({
+                assistantContent,
+                thinkingContent,
+              });
+            }
+          } catch {
+            // Ignore malformed stream chunks.
+          }
+        }
+      });
+      response.on('end', () => {
+        if (!assistantContent.trim()) {
+          reject(new Error('llama.cpp chat stream returned an empty assistant message.'));
+          return;
+        }
+        resolve({
+          assistantContent: assistantContent.trim(),
+          thinkingContent: thinkingContent.trim(),
+          usage: finalUsage,
+        });
+      });
+    });
+    request.setTimeout(600000, () => {
+      request.destroy(new Error('llama.cpp chat stream timed out.'));
+    });
+    request.on('error', reject);
+    request.write(JSON.stringify(requestConfig.body));
+    request.end();
+  });
+}
+
+function condenseChatSession(runtimeRoot, session) {
+  const now = new Date().toISOString();
+  const messages = Array.isArray(session.messages) ? session.messages.slice() : [];
+  const keptCount = Math.min(messages.length, 2);
+  const startIndex = Math.max(messages.length - keptCount, 0);
+  const sourceMessages = startIndex > 0 ? messages.slice(0, startIndex) : messages;
+  const condensedText = sourceMessages
+    .map((message) => `${message.role}: ${String(message.content || '')}`)
+    .join('\n');
+  const condensedTail = condensedText.length > 2400 ? condensedText.slice(condensedText.length - 2400) : condensedText;
+  const nextMessages = messages.map((message, index) => ({
+    ...message,
+    compressedIntoSummary: index < startIndex,
+  }));
+  const updated = {
+    ...session,
+    updatedAtUtc: now,
+    condensedSummary: condensedTail || session.condensedSummary || '',
+    messages: nextMessages,
+  };
+  saveChatSession(runtimeRoot, updated);
+  return updated;
+}
+
 function startStatusServer(options = {}) {
   const disableManagedLlamaStartup = Boolean(options.disableManagedLlamaStartup);
   const host = process.env.SIFTKIT_STATUS_HOST || '127.0.0.1';
@@ -1166,6 +2090,7 @@ function startStatusServer(options = {}) {
   writeMetrics(metricsPath, metrics);
   const activeRunsByRequestId = new Map();
   const activeRequestIdByStatusPath = new Map();
+  let activeModelRequest = null;
   let pendingIdleSummaryMetadata = {
     inputCharactersPerContextToken: null,
     chunkThresholdCharacters: null,
@@ -1975,7 +2900,332 @@ function startStatusServer(options = {}) {
     return true;
   }
 
+  function acquireModelRequest(kind) {
+    if (activeModelRequest) {
+      return null;
+    }
+    const lock = {
+      token: crypto.randomUUID(),
+      kind: String(kind),
+      startedAtUtc: new Date().toISOString(),
+    };
+    activeModelRequest = lock;
+    return lock;
+  }
+
+  function releaseModelRequest(token) {
+    if (!activeModelRequest || activeModelRequest.token !== token) {
+      return false;
+    }
+    activeModelRequest = null;
+    return true;
+  }
+
   server = http.createServer(async (req, res) => {
+    const requestUrl = new URL(req.url || '/', 'http://127.0.0.1');
+    const pathname = requestUrl.pathname;
+    const runtimeRoot = getRuntimeRoot();
+
+    if (req.method === 'GET' && pathname === '/dashboard/runs') {
+      const query = requestUrl.searchParams;
+      const search = (query.get('search') || '').trim().toLowerCase();
+      const kind = (query.get('kind') || '').trim().toLowerCase();
+      const statusFilter = (query.get('status') || '').trim().toLowerCase();
+      const runs = loadDashboardRuns(runtimeRoot).filter((run) => {
+        if (kind && String(run.kind).toLowerCase() !== kind) {
+          return false;
+        }
+        if (statusFilter && String(run.status).toLowerCase() !== statusFilter) {
+          return false;
+        }
+        if (!search) {
+          return true;
+        }
+        return String(run.title || '').toLowerCase().includes(search) || String(run.id).toLowerCase().includes(search);
+      });
+      sendJson(res, 200, { runs, total: runs.length });
+      return;
+    }
+
+    if (req.method === 'GET' && /^\/dashboard\/runs\/[^/]+$/u.test(pathname)) {
+      const runId = decodeURIComponent(pathname.replace(/^\/dashboard\/runs\//u, ''));
+      const detail = buildDashboardRunDetail(runtimeRoot, runId);
+      if (!detail) {
+        sendJson(res, 404, { error: 'Run not found.' });
+        return;
+      }
+      sendJson(res, 200, detail);
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/dashboard/metrics/timeseries') {
+      const days = buildDashboardDailyMetrics(
+        runtimeRoot,
+        fs.existsSync(idleSummarySnapshotsPath) ? getIdleSummaryDatabase() : null
+      );
+      sendJson(res, 200, { days });
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/dashboard/metrics/idle-summary') {
+      if (!fs.existsSync(idleSummarySnapshotsPath)) {
+        sendJson(res, 200, { latest: null, snapshots: [] });
+        return;
+      }
+      const limitValue = Number(requestUrl.searchParams.get('limit') || 30);
+      const limit = Math.max(1, Math.min(200, Number.isFinite(limitValue) ? Math.floor(limitValue) : 30));
+      const rows = getIdleSummaryDatabase()
+        .prepare(`
+          SELECT
+            emitted_at_utc,
+            completed_request_count,
+            input_characters_total,
+            output_characters_total,
+            input_tokens_total,
+            output_tokens_total,
+            thinking_tokens_total,
+            saved_tokens,
+            saved_percent,
+            compression_ratio,
+            request_duration_ms_total,
+            avg_request_ms,
+            avg_tokens_per_second
+          FROM idle_summary_snapshots
+          ORDER BY id DESC
+          LIMIT ?
+        `)
+        .all(limit);
+      const snapshots = rows
+        .map(normalizeIdleSummarySnapshotRow)
+        .filter(Boolean);
+      sendJson(res, 200, { latest: snapshots[0] || null, snapshots });
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/dashboard/chat/sessions') {
+      sendJson(res, 200, { sessions: readChatSessions(runtimeRoot) });
+      return;
+    }
+
+    if (req.method === 'GET' && /^\/dashboard\/chat\/sessions\/[^/]+$/u.test(pathname)) {
+      const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, ''));
+      const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+      if (!session) {
+        sendJson(res, 404, { error: 'Session not found.' });
+        return;
+      }
+      sendJson(res, 200, { session, contextUsage: buildContextUsage(session) });
+      return;
+    }
+
+    if (req.method === 'PUT' && /^\/dashboard\/chat\/sessions\/[^/]+$/u.test(pathname)) {
+      const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, ''));
+      const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
+      const session = readChatSessionFromPath(sessionPath);
+      if (!session) {
+        sendJson(res, 404, { error: 'Session not found.' });
+        return;
+      }
+      let parsedBody;
+      try {
+        parsedBody = parseJsonBody(await readBody(req));
+      } catch {
+        sendJson(res, 400, { error: 'Expected valid JSON object.' });
+        return;
+      }
+      const updated = {
+        ...session,
+        updatedAtUtc: new Date().toISOString(),
+      };
+      if (typeof parsedBody.title === 'string' && parsedBody.title.trim()) {
+        updated.title = parsedBody.title.trim();
+      }
+      if (typeof parsedBody.thinkingEnabled === 'boolean') {
+        updated.thinkingEnabled = parsedBody.thinkingEnabled;
+      }
+      saveChatSession(runtimeRoot, updated);
+      sendJson(res, 200, { session: updated, contextUsage: buildContextUsage(updated) });
+      return;
+    }
+
+    if (req.method === 'DELETE' && /^\/dashboard\/chat\/sessions\/[^/]+$/u.test(pathname)) {
+      const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, ''));
+      const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
+      if (!fs.existsSync(sessionPath)) {
+        sendJson(res, 404, { error: 'Session not found.' });
+        return;
+      }
+      try {
+        fs.rmSync(sessionPath, { force: true });
+      } catch (error) {
+        sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+        return;
+      }
+      sendJson(res, 200, { ok: true, deleted: true, id: sessionId });
+      return;
+    }
+
+    if (req.method === 'POST' && pathname === '/dashboard/chat/sessions') {
+      let parsedBody;
+      try {
+        parsedBody = parseJsonBody(await readBody(req));
+      } catch {
+        sendJson(res, 400, { error: 'Expected valid JSON object.' });
+        return;
+      }
+      const now = new Date().toISOString();
+      const session = {
+        id: crypto.randomUUID(),
+        title: typeof parsedBody.title === 'string' && parsedBody.title.trim() ? parsedBody.title.trim() : 'New Session',
+        model: typeof parsedBody.model === 'string' && parsedBody.model.trim()
+          ? parsedBody.model.trim()
+          : readConfig(configPath)?.Runtime?.Model || null,
+        contextWindowTokens: Number(readConfig(configPath)?.Runtime?.LlamaCpp?.NumCtx || 150000),
+        thinkingEnabled: readConfig(configPath)?.Runtime?.LlamaCpp?.Reasoning !== 'off',
+        condensedSummary: '',
+        createdAtUtc: now,
+        updatedAtUtc: now,
+        messages: [],
+      };
+      saveChatSession(runtimeRoot, session);
+      sendJson(res, 200, { session, contextUsage: buildContextUsage(session) });
+      return;
+    }
+
+    if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/messages$/u.test(pathname)) {
+      const modelRequestLock = acquireModelRequest('dashboard_chat');
+      if (!modelRequestLock) {
+        sendJson(res, 409, { error: 'Model request already in progress.', busy: true, activeModelRequest });
+        return;
+      }
+      const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/messages$/u, ''));
+      const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+      if (!session) {
+        releaseModelRequest(modelRequestLock.token);
+        sendJson(res, 404, { error: 'Session not found.' });
+        return;
+      }
+      let parsedBody;
+      try {
+        parsedBody = parseJsonBody(await readBody(req));
+      } catch {
+        releaseModelRequest(modelRequestLock.token);
+        sendJson(res, 400, { error: 'Expected valid JSON object.' });
+        return;
+      }
+      if (typeof parsedBody.content !== 'string' || !parsedBody.content.trim()) {
+        releaseModelRequest(modelRequestLock.token);
+        sendJson(res, 400, { error: 'Expected content.' });
+        return;
+      }
+      try {
+        const userContent = parsedBody.content.trim();
+        let assistantContent;
+        let usage;
+        let thinkingContent = '';
+        if (typeof parsedBody.assistantContent === 'string' && parsedBody.assistantContent.trim()) {
+          assistantContent = parsedBody.assistantContent.trim();
+          usage = {};
+        } else {
+          const config = readConfig(configPath);
+          const generated = await generateChatAssistantMessage(config, session, userContent);
+          assistantContent = generated.assistantContent;
+          usage = generated.usage;
+          thinkingContent = generated.thinkingContent || '';
+        }
+        const updatedSession = appendChatMessagesWithUsage(
+          runtimeRoot,
+          session,
+          userContent,
+          assistantContent,
+          usage,
+          thinkingContent
+        );
+        sendJson(res, 200, { session: updatedSession, contextUsage: buildContextUsage(updatedSession) });
+      } catch (error) {
+        sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+      } finally {
+        releaseModelRequest(modelRequestLock.token);
+      }
+      return;
+    }
+
+    if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/messages\/stream$/u.test(pathname)) {
+      const modelRequestLock = acquireModelRequest('dashboard_chat');
+      if (!modelRequestLock) {
+        sendJson(res, 409, { error: 'Model request already in progress.', busy: true, activeModelRequest });
+        return;
+      }
+      const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/messages\/stream$/u, ''));
+      const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+      if (!session) {
+        releaseModelRequest(modelRequestLock.token);
+        sendJson(res, 404, { error: 'Session not found.' });
+        return;
+      }
+      let parsedBody;
+      try {
+        parsedBody = parseJsonBody(await readBody(req));
+      } catch {
+        releaseModelRequest(modelRequestLock.token);
+        sendJson(res, 400, { error: 'Expected valid JSON object.' });
+        return;
+      }
+      if (typeof parsedBody.content !== 'string' || !parsedBody.content.trim()) {
+        releaseModelRequest(modelRequestLock.token);
+        sendJson(res, 400, { error: 'Expected content.' });
+        return;
+      }
+
+      const writeSse = (eventName, payload) => {
+        res.write(`event: ${eventName}\n`);
+        res.write(`data: ${JSON.stringify(payload)}\n\n`);
+      };
+
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      });
+      res.write('\n');
+
+      try {
+        const userContent = parsedBody.content.trim();
+        const config = readConfig(configPath);
+        const generated = await streamChatAssistantMessage(config, session, userContent, (progress) => {
+          writeSse('thinking', { thinking: progress.thinkingContent });
+          writeSse('answer', { answer: progress.assistantContent });
+        });
+        const updatedSession = appendChatMessagesWithUsage(
+          runtimeRoot,
+          session,
+          userContent,
+          generated.assistantContent,
+          generated.usage,
+          generated.thinkingContent
+        );
+        writeSse('done', { session: updatedSession, contextUsage: buildContextUsage(updatedSession) });
+      } catch (error) {
+        writeSse('error', { error: error instanceof Error ? error.message : String(error) });
+      } finally {
+        releaseModelRequest(modelRequestLock.token);
+        res.end();
+      }
+      return;
+    }
+
+    if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/condense$/u.test(pathname)) {
+      const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/condense$/u, ''));
+      const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+      if (!session) {
+        sendJson(res, 404, { error: 'Session not found.' });
+        return;
+      }
+      const updatedSession = condenseChatSession(runtimeRoot, session);
+      sendJson(res, 200, { session: updatedSession, contextUsage: buildContextUsage(updatedSession) });
+      return;
+    }
+
     if (req.method === 'GET' && req.url === '/health') {
       sendJson(res, 200, {
         ok: true,
@@ -2063,17 +3313,27 @@ function startStatusServer(options = {}) {
     }
 
     if (req.method === 'POST' && req.url === '/repo-search') {
+      const modelRequestLock = acquireModelRequest('repo_search');
+      if (!modelRequestLock) {
+        sendJson(res, 409, { error: 'Model request already in progress.', busy: true, activeModelRequest });
+        return;
+      }
       let parsedBody;
       try {
         parsedBody = parseJsonBody(await readBody(req));
       } catch {
+        releaseModelRequest(modelRequestLock.token);
         sendJson(res, 400, { error: 'Expected valid JSON object.' });
         return;
       }
 
       if (typeof parsedBody.prompt !== 'string' || !parsedBody.prompt.trim()) {
+        releaseModelRequest(modelRequestLock.token);
         sendJson(res, 400, { error: 'Expected prompt.' });
         return;
+      }
+      if (Number.isFinite(Number(parsedBody.simulateWorkMs)) && Number(parsedBody.simulateWorkMs) > 0) {
+        await sleep(Math.max(1, Math.trunc(Number(parsedBody.simulateWorkMs))));
       }
 
       try {
@@ -2106,6 +3366,8 @@ function startStatusServer(options = {}) {
         sendJson(res, 200, result);
       } catch (error) {
         sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+      } finally {
+        releaseModelRequest(modelRequestLock.token);
       }
       return;
     }

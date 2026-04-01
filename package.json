@@ -6,8 +6,10 @@
     "siftkit": "bin/siftkit.js"
   },
   "scripts": {
-    "start": "powershell -NoLogo -NoProfile -Command \"$env:sift_kit_status = Join-Path (Get-Location) '.siftkit\\status\\inference.txt'; $env:SIFTKIT_STATUS_PATH = $env:sift_kit_status; $env:SIFTKIT_CONFIG_PATH = Join-Path (Get-Location) '.siftkit\\config.json'; nodemon --signal SIGINT .\\siftKitStatus\\index.js\"",
-    "build": "tsc -p .\\tsconfig.json",
+    "start": "node .\\scripts\\start-dev.js",
+    "start:status": "powershell -NoLogo -NoProfile -Command \"$env:sift_kit_status = Join-Path (Get-Location) '.siftkit\\status\\inference.txt'; $env:SIFTKIT_STATUS_PATH = $env:sift_kit_status; $env:SIFTKIT_CONFIG_PATH = Join-Path (Get-Location) '.siftkit\\config.json'; nodemon --signal SIGINT --watch .\\siftKitStatus --ext js,json .\\siftKitStatus\\index.js\"",
+    "start:dashboard": "npm --prefix .\\dashboard run dev",
+    "build": "tsc -p .\\tsconfig.json && npm --prefix .\\dashboard run build",
     "benchmark": "tsx .\\src\\benchmark.ts",
     "benchmark:fixture31": "node .\\scripts\\run-benchmark-fixture31.js",
     "benchmark:matrix": "tsx .\\src\\benchmark-matrix.ts",
@@ -36,7 +38,10 @@
   ],
   "nodemonConfig": {
     "ignore": [
-      "eval/**"
+      "eval/**",
+      ".siftkit/**",
+      "dashboard/**",
+      "dist/**"
     ]
   },
   "license": "UNLICENSED",
