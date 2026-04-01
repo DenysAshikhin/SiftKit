@@ -6906,6 +6906,157 @@ test('planner json_filter supports scalar timestamp ranges on object-root array 
   });
 });
 
+test('planner json_filter falls back to embedded JSON in command-output text and reports ignored prefix', async () => {
+  await withTempEnv(async () => {
+    const plannerLogsPath = getPlannerLogsPath();
+    fs.mkdirSync(plannerLogsPath, { recursive: true });
+    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const embedded = JSON.stringify({
+        openHandles: [],
+        wasInterrupted: false,
+        testResults: [
+          {
+            name: 'C:\\repo\\apps\\runner\\src\\__tests__\\navigation\\slow.test.ts',
+            perfStats: { runtime: 91024 },
+            status: 'passed',
+          },
+          {
+            name: 'C:\\repo\\apps\\runner\\src\\__tests__\\navigation\\fast.test.ts',
+            perfStats: { runtime: 421 },
+            status: 'passed',
+          },
+        ],
+      });
+      const mixedInput = [
+        'A worker process has failed to exit gracefully and has been force exited.',
+        '',
+        'Test Suites: 57 passed, 57 total',
+        `Time:        135.456 s`,
+        embedded,
+      ].join('\n');
+      const inputText = `${mixedInput}\n${buildOversizedTransitionsInput(Math.max(1000, threshold - mixedInput.length + 1000))}`;
+
+      const result = await summarizeRequest({
+        question: 'Extract names and runtime.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+        sourceKind: 'command-output',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'fallback parse worked');
+      assert.equal(server.state.chatRequests.length, 2);
+      const followupPrompt = String(server.state.chatRequests[1]?.messages?.[0]?.content || '');
+      assert.match(followupPrompt, /json_filter ignored "/u);
+      assert.match(followupPrompt, /due to not being valid json, here is the parsed valid section:/u);
+      assert.match(followupPrompt, /"testResults"/u);
+    }, {
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'json_filter',
+            args: {
+              collectionPath: 'testResults',
+              filters: [{ path: 'name', op: 'exists' }],
+              select: ['name', 'perfStats.runtime', 'status'],
+              limit: 5,
+            },
+          });
+        }
+
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'fallback parse worked',
+        });
+      },
+    });
+
+    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
+    const added = after.filter((entry) => !before.has(entry));
+    assert.equal(added.length, 1);
+
+    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    const jsonFilterEvent = debugDump.events.find((event) => event.kind === 'planner_tool' && event.toolName === 'json_filter');
+    assert.equal(Boolean(jsonFilterEvent?.output?.usedFallback), true);
+    assert.match(String(jsonFilterEvent?.output?.ignoredPrefixPreview || ''), /A worker process has failed to exit gracefully/u);
+    assert.match(String(jsonFilterEvent?.output?.parsedSectionPreview || ''), /"testResults"/u);
+  });
+});
+
+test('planner surfaces explicit invalid-json message when json_filter fallback cannot parse any valid section', async () => {
+  await withTempEnv(async () => {
+    const plannerLogsPath = getPlannerLogsPath();
+    fs.mkdirSync(plannerLogsPath, { recursive: true });
+    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const badPrefix = [
+        'A worker process has failed to exit gracefully.',
+        'Test Suites: 57 passed, 57 total',
+        'Time: 135.456 s',
+      ].join('\n');
+      const noJsonText = `${badPrefix}\n${'x'.repeat(Math.max(1, threshold + 1000 - badPrefix.length))}`;
+
+      const result = await summarizeRequest({
+        question: 'Extract json info.',
+        inputText: noJsonText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+        sourceKind: 'command-output',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'recovered after invalid json tool call');
+      assert.equal(server.state.chatRequests.length, 2);
+      const secondPrompt = String(server.state.chatRequests[1]?.messages?.[0]?.content || '');
+      assert.match(secondPrompt, /Previous response was invalid: json_filter input is not valid JSON to parse\./u);
+    }, {
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'json_filter',
+            args: {
+              filters: [{ path: 'name', op: 'exists' }],
+              select: ['name'],
+              limit: 5,
+            },
+          });
+        }
+
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'recovered after invalid json tool call',
+        });
+      },
+    });
+
+    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
+    const added = after.filter((entry) => !before.has(entry));
+    assert.equal(added.length, 1);
+
+    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    const invalidEvent = debugDump.events.find((event) => event.kind === 'planner_invalid_response');
+    assert.match(String(invalidEvent?.error || ''), /json_filter input is not valid JSON to parse\./u);
+  });
+});
+
 test('summarizeRequest writes a request artifact through status posts for successful calls', async () => {
   await withTempEnv(async () => {
     const requestLogsPath = getRequestLogsPath();

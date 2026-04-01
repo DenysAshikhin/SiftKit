@@ -362,6 +362,7 @@ const PLANNER_HEADROOM_RATIO = 0.15;
 const PLANNER_TRIGGER_CONTEXT_RATIO = 0.75;
 const MAX_PLANNER_TOOL_RESULT_CHARACTERS = 12_000;
 const MAX_PLANNER_PREVIEW_CHARACTERS = 600;
+const MAX_JSON_FALLBACK_PREVIEW_CHARACTERS = 200;
 let nextLlamaCppSlotId = 0;
 function getLlamaCppPromptTokenReserve(config) {
     const reasoning = (0, config_js_1.getConfiguredLlamaSetting)(config, 'Reasoning');
@@ -572,7 +573,18 @@ function formatPlannerToolResultHeader(value) {
         return `find_text mode=${value.mode} query=${JSON.stringify(value.query)} hitCount=${value.hitCount}`;
     }
     if (tool === 'json_filter') {
-        return `json_filter collectionPath=${value.collectionPath} matchedCount=${value.matchedCount}`;
+        const base = `json_filter collectionPath=${value.collectionPath} matchedCount=${value.matchedCount}`;
+        const usedFallback = value.usedFallback === true;
+        if (!usedFallback) {
+            return base;
+        }
+        const ignoredPrefixPreview = typeof value.ignoredPrefixPreview === 'string'
+            ? value.ignoredPrefixPreview
+            : '';
+        const parsedSectionPreview = typeof value.parsedSectionPreview === 'string'
+            ? value.parsedSectionPreview
+            : '';
+        return `${base}\njson_filter ignored "${ignoredPrefixPreview}" due to not being valid json, here is the parsed valid section: "${parsedSectionPreview}"`;
     }
     return null;
 }
@@ -930,8 +942,99 @@ function projectJsonFilterItem(item, select) {
     }
     return projected;
 }
+function toJsonFallbackPreview(text) {
+    const normalized = text.replace(/\s+/gu, ' ').trim();
+    if (!normalized) {
+        return '';
+    }
+    if (normalized.length <= MAX_JSON_FALLBACK_PREVIEW_CHARACTERS) {
+        return normalized;
+    }
+    return `${normalized.slice(0, MAX_JSON_FALLBACK_PREVIEW_CHARACTERS)}...`;
+}
+function findBalancedJsonEndIndex(inputText, startIndex) {
+    const startChar = inputText[startIndex];
+    if (startChar !== '{' && startChar !== '[') {
+        return -1;
+    }
+    let stackDepth = 0;
+    let inString = false;
+    let escaping = false;
+    for (let index = startIndex; index < inputText.length; index += 1) {
+        const char = inputText[index];
+        if (inString) {
+            if (escaping) {
+                escaping = false;
+            }
+            else if (char === '\\') {
+                escaping = true;
+            }
+            else if (char === '"') {
+                inString = false;
+            }
+            continue;
+        }
+        if (char === '"') {
+            inString = true;
+            continue;
+        }
+        if (char === '{' || char === '[') {
+            stackDepth += 1;
+            continue;
+        }
+        if (char === '}' || char === ']') {
+            stackDepth -= 1;
+            if (stackDepth === 0) {
+                return index + 1;
+            }
+            if (stackDepth < 0) {
+                return -1;
+            }
+        }
+    }
+    return -1;
+}
+function parseJsonForJsonFilter(inputText) {
+    try {
+        return {
+            parsed: JSON.parse(inputText),
+            usedFallback: false,
+            ignoredPrefixPreview: null,
+            parsedSectionPreview: null,
+        };
+    }
+    catch {
+        // Fall through to embedded JSON scan.
+    }
+    const candidatePattern = /[\[{]/gu;
+    for (const match of inputText.matchAll(candidatePattern)) {
+        const startIndex = typeof match.index === 'number' ? match.index : -1;
+        if (startIndex < 0) {
+            continue;
+        }
+        const endIndex = findBalancedJsonEndIndex(inputText, startIndex);
+        if (endIndex <= startIndex) {
+            continue;
+        }
+        const candidate = inputText.slice(startIndex, endIndex);
+        try {
+            const parsed = JSON.parse(candidate);
+            return {
+                parsed,
+                usedFallback: true,
+                ignoredPrefixPreview: toJsonFallbackPreview(inputText.slice(0, startIndex)),
+                parsedSectionPreview: toJsonFallbackPreview(candidate),
+            };
+        }
+        catch {
+            // Continue scanning for first valid JSON section.
+        }
+    }
+    throw new Error('json_filter input is not valid JSON to parse.');
+}
 function executeJsonFilterTool(inputText, args) {
-    const parsed = JSON.parse(inputText);
+    const parsedContext = parseJsonForJsonFilter(inputText);
+    const parsed = parsedContext.parsed;
     const filters = Array.isArray(args.filters)
         ? normalizeJsonFilterFilters(args.filters.map((item) => getRecord(item)).filter(Boolean))
         : [];
@@ -961,6 +1064,9 @@ function executeJsonFilterTool(inputText, args) {
         tool: 'json_filter',
         collectionPath: collectionPath || '$',
         matchedCount: matches.length,
+        usedFallback: parsedContext.usedFallback,
+        ignoredPrefixPreview: parsedContext.usedFallback ? parsedContext.ignoredPrefixPreview : undefined,
+        parsedSectionPreview: parsedContext.usedFallback ? parsedContext.parsedSectionPreview : undefined,
         text: formatCompactJsonBlock(matches),
     };
 }
