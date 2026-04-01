@@ -55,6 +55,18 @@ test('repo-search help works without server startup', async () => {
   assert.match(stdout.read(), /repo-search/u);
 });
 
+test('repo-search rejects unknown flags before startup checks', async () => {
+  const stdout = makeCaptureStream();
+  const stderr = makeCaptureStream();
+  const code = await runCli({
+    argv: ['repo-search', '--prmopt', 'find planner tools'],
+    stdout: stdout.stream,
+    stderr: stderr.stream,
+  });
+  assert.equal(code, 1);
+  assert.match(stderr.read(), /Unknown option for repo-search: --prmopt/u);
+});
+
 test('summary requires stdin, --text, or --file', async () => {
   const stdout = makeCaptureStream();
   const stderr = makeCaptureStream();

@@ -128,3 +128,108 @@ test('status server stays responsive while repo-search is running', async () => 
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 });
+
+test('repo-search endpoint reloads executor module per request', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-reload-'));
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const repoSearchModulePath = require.resolve('../dist/repo-search.js');
+  const priorCacheEntry = require.cache[repoSearchModulePath];
+
+  try {
+    require.cache[repoSearchModulePath] = {
+      id: repoSearchModulePath,
+      filename: repoSearchModulePath,
+      loaded: true,
+      exports: {
+        executeRepoSearchRequest: async () => ({
+          requestId: 'cache-hit',
+          transcriptPath: '',
+          artifactPath: '',
+          scorecard: {
+            runId: 'cache-hit',
+            model: 'cache-hit',
+            tasks: [{
+              id: 'repo-search',
+              question: 'cache-hit',
+              reason: 'finish',
+              turnsUsed: 0,
+              safetyRejects: 0,
+              invalidResponses: 0,
+              commandFailures: 0,
+              commands: [],
+              finalOutput: 'CACHE_HIT_OUTPUT',
+              passed: true,
+              missingSignals: [],
+            }],
+            totals: {
+              tasks: 1,
+              passed: 1,
+              failed: 0,
+              commandsExecuted: 0,
+              safetyRejects: 0,
+              invalidResponses: 0,
+              commandFailures: 0,
+            },
+            verdict: 'pass',
+            failureReasons: [],
+          },
+        }),
+      },
+    };
+
+    const response = await requestJson(`${baseUrl}/repo-search`, {
+      method: 'POST',
+      timeoutMs: 15000,
+      body: JSON.stringify({
+        prompt: 'find x',
+        repoRoot: process.cwd(),
+        model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+        maxTurns: 1,
+        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        mockResponses: [
+          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"x\\" src"}}',
+        ],
+        mockCommandResults: {
+          'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '' },
+        },
+      }),
+    });
+
+    assert.equal(response.statusCode, 200);
+    const finalOutput = String(response.body?.scorecard?.tasks?.[0]?.finalOutput || '');
+    assert.notEqual(finalOutput, 'CACHE_HIT_OUTPUT');
+  } finally {
+    if (priorCacheEntry) {
+      require.cache[repoSearchModulePath] = priorCacheEntry;
+    } else {
+      delete require.cache[repoSearchModulePath];
+    }
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});

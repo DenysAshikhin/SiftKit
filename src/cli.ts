@@ -131,6 +131,27 @@ function getCommandArgs(argv: string[]): string[] {
   return argv.slice(1);
 }
 
+function validateRepoSearchTokens(tokens: string[]): void {
+  const flagsWithValues = new Set(['--prompt', '-prompt', '--model', '--max-turns', '--log-file']);
+  const helpFlags = new Set(['-h', '--h', '--help', '-help']);
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (helpFlags.has(token)) {
+      continue;
+    }
+    if (flagsWithValues.has(token)) {
+      if (tokens[index + 1] === undefined) {
+        throw new Error(`Missing value for repo-search option: ${token}`);
+      }
+      index += 1;
+      continue;
+    }
+    if (token.startsWith('-')) {
+      throw new Error(`Unknown option for repo-search: ${token}`);
+    }
+  }
+}
+
 function parseArguments(tokens: string[]): ParsedArgs {
   const parsed: ParsedArgs = {
     positionals: [],
@@ -750,6 +771,9 @@ export async function runCli(options: CliRunOptions): Promise<number> {
   const commandArgs = getCommandArgs(options.argv);
   const commandHelpRequested = commandArgs.some((token) => token === '-h' || token === '--h' || token === '--help' || token === '-help');
   try {
+    if (commandName === 'repo-search') {
+      validateRepoSearchTokens(commandArgs);
+    }
     if (commandName === 'repo-search' && commandHelpRequested) {
       return await runRepoSearchCli({ argv: options.argv, stdout });
     }

@@ -16,7 +16,7 @@ const {
 } = require('../dist/config.js');
 const { listLlamaCppModels, countLlamaCppTokens } = require('../dist/providers/llama-cpp.js');
 
-const DEFAULT_MAX_TURNS = 30;
+const DEFAULT_MAX_TURNS = 60;
 const DEFAULT_MAX_INVALID_RESPONSES = 3;
 const DEFAULT_TIMEOUT_MS = 30000;
 const MIN_TOOL_CALLS_BEFORE_FINISH = 5;
@@ -74,7 +74,7 @@ function createJsonlLogger(filePath) {
  * @typedef {{
  *   id: string,
  *   question: string,
- *   reason: 'finish' | 'max_turns' | 'invalid_response_limit' | 'mock_responses_exhausted',
+ *   reason: 'finish' | 'max_turns' | 'invalid_response_limit' | 'mock_responses_exhausted' | 'duplicate_failed_command',
  *   turnsUsed: number,
  *   safetyRejects: number,
  *   invalidResponses: number,
@@ -218,6 +218,19 @@ function plannerGrammar() {
   ].join('\n');
 }
 
+function finishValidationGrammar() {
+  return [
+    'root ::= object',
+    'object ::= "{" ws "\\"verdict\\"" ws ":" ws verdict ws "," ws "\\"reason\\"" ws ":" ws string ws "}"',
+    'verdict ::= "\\"pass\\"" | "\\"fail\\""',
+    'string ::= "\\"" char* "\\""',
+    'char ::= [^"\\\\\\x7F\\x00-\\x1F] | "\\\\" escape',
+    'escape ::= ["\\\\/bfnrt] | "u" hex hex hex hex',
+    'hex ::= [0-9a-fA-F]',
+    'ws ::= [ \\t\\n\\r]*',
+  ].join('\n');
+}
+
 function actionFromToolCall(choice) {
   const toolCall = choice?.message?.tool_calls?.[0]
     ?? choice?.tool_calls?.[0]
@@ -294,10 +307,14 @@ async function requestPlannerAction(options) {
       messages: [{ role: 'user', content: options.prompt }],
       temperature: 0.1,
       top_p: 0.95,
-      max_tokens: 700,
+      max_tokens: 2048,
+      chat_template_kwargs: {
+        enable_thinking: options.thinkingEnabled !== false,
+      },
       extra_body: {
         grammar: plannerGrammar(),
         tools: TOOL_DEFINITIONS,
+        ...(options.thinkingEnabled === false ? { reasoning_budget: 0 } : {}),
       },
     }),
   });
@@ -317,6 +334,191 @@ async function requestPlannerAction(options) {
   const synthesized = actionFromToolCall(firstChoice);
   return {
     text: (text || synthesized || '').trim(),
+    thinkingText,
+    mockExhausted: false,
+  };
+}
+
+function parseFinishValidationResponse(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(stripCodeFence(text));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Provider returned an invalid finish validation payload: ${message}`);
+  }
+
+  const verdict = typeof parsed.verdict === 'string' ? parsed.verdict.trim().toLowerCase() : '';
+  if (verdict !== 'pass' && verdict !== 'fail') {
+    throw new Error('Provider returned an invalid finish validation payload.');
+  }
+  if (typeof parsed.reason !== 'string' || !parsed.reason.trim()) {
+    throw new Error('Provider returned an invalid finish validation payload.');
+  }
+  return {
+    verdict,
+    reason: parsed.reason.trim(),
+  };
+}
+
+function buildFinishValidationPrompt(options) {
+  const sections = [
+    'You are validating a repo-search answer against gathered evidence.',
+    'Return exactly one JSON object: {"verdict":"pass"|"fail","reason":"<short reason>"}',
+    'Question: is the answer valid? is the answer well supported/justified?',
+    '',
+    `Task: ${options.question}`,
+    `Proposed answer: ${options.finalOutput}`,
+    '',
+    'Evidence from tool calls and inserted results:',
+    options.evidenceText || '[none]',
+  ];
+  return sections.join('\n');
+}
+
+async function requestFinishValidation(options) {
+  if (Array.isArray(options.mockResponses)) {
+    const index = options.mockResponseIndex || 0;
+    if (index >= options.mockResponses.length) {
+      return { text: '', thinkingText: '', mockExhausted: true };
+    }
+    return {
+      text: options.mockResponses[index],
+      thinkingText: '',
+      mockExhausted: false,
+      nextMockResponseIndex: index + 1,
+    };
+  }
+
+  const response = await requestJson({
+    url: `${options.baseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
+    method: 'POST',
+    timeoutMs: options.timeoutMs,
+    body: JSON.stringify({
+      model: options.model,
+      messages: [{ role: 'user', content: options.prompt }],
+      temperature: 0.1,
+      top_p: 0.95,
+      max_tokens: 250,
+      chat_template_kwargs: {
+        enable_thinking: true,
+      },
+      extra_body: {
+        grammar: finishValidationGrammar(),
+      },
+    }),
+  });
+
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    const detail = response.rawText ? `: ${response.rawText.slice(0, 400)}` : '.';
+    throw new Error(`llama.cpp finish validation request failed with HTTP ${response.statusCode}${detail}`);
+  }
+
+  const firstChoice = response.body?.choices?.[0] || {};
+  const text = normalizeProviderText(firstChoice?.message?.content)
+    || normalizeProviderText(firstChoice?.text)
+    || '';
+  const thinkingText = normalizeProviderText(firstChoice?.message?.reasoning_content)
+    || normalizeProviderText(firstChoice?.reasoning_content)
+    || '';
+  return {
+    text: text.trim(),
+    thinkingText,
+    mockExhausted: false,
+  };
+}
+
+function buildTerminalSynthesisPrompt(options) {
+  const evidenceText = options.history.length > 0
+    ? options.history.map((item) => `Command: ${item.command}\nResult: ${item.resultText}`).join('\n\n')
+    : '[none]';
+  return [
+    'You are finalizing a repo-search run that terminated before finish validation passed.',
+    'Write a best-effort final answer from available evidence.',
+    'Rules:',
+    '- Be explicit about uncertainty.',
+    '- Include concrete file:line evidence when present.',
+    '- Keep it concise and directly answer the task question.',
+    '',
+    `Task: ${options.question}`,
+    `Termination reason: ${options.reason}`,
+    '',
+    'Evidence from tool calls and inserted results:',
+    evidenceText,
+  ].join('\n');
+}
+
+function buildTerminalSynthesisFallback(options) {
+  const lines = [];
+  if (options.commands.length > 0) {
+    for (let index = options.commands.length - 1; index >= 0; index -= 1) {
+      const command = options.commands[index];
+      const output = String(command.output || '').trim();
+      if (!output) {
+        continue;
+      }
+      const singleLine = output.split(/\r?\n/u).find((line) => line.trim()) || '';
+      if (singleLine) {
+        lines.push(`Latest evidence (${command.command}): ${singleLine}`);
+      }
+      if (lines.length >= 2) {
+        break;
+      }
+    }
+  }
+  if (lines.length === 0) {
+    lines.push('No usable evidence was captured from tool calls.');
+  }
+  return [
+    `Best-effort result (terminated: ${options.reason}).`,
+    ...lines,
+  ].join('\n');
+}
+
+async function requestTerminalSynthesis(options) {
+  if (Array.isArray(options.mockResponses)) {
+    const index = options.mockResponseIndex || 0;
+    if (index >= options.mockResponses.length) {
+      return { text: '', thinkingText: '', mockExhausted: true };
+    }
+    return {
+      text: options.mockResponses[index],
+      thinkingText: '',
+      mockExhausted: false,
+      nextMockResponseIndex: index + 1,
+    };
+  }
+
+  const response = await requestJson({
+    url: `${options.baseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
+    method: 'POST',
+    timeoutMs: options.timeoutMs,
+    body: JSON.stringify({
+      model: options.model,
+      messages: [{ role: 'user', content: options.prompt }],
+      temperature: 0.1,
+      top_p: 0.95,
+      max_tokens: 2048,
+      chat_template_kwargs: {
+        enable_thinking: true,
+      },
+    }),
+  });
+
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    const detail = response.rawText ? `: ${response.rawText.slice(0, 400)}` : '.';
+    throw new Error(`llama.cpp terminal synthesis request failed with HTTP ${response.statusCode}${detail}`);
+  }
+
+  const firstChoice = response.body?.choices?.[0] || {};
+  const text = normalizeProviderText(firstChoice?.message?.content)
+    || normalizeProviderText(firstChoice?.text)
+    || '';
+  const thinkingText = normalizeProviderText(firstChoice?.message?.reasoning_content)
+    || normalizeProviderText(firstChoice?.reasoning_content)
+    || '';
+  return {
+    text: text.trim(),
     thinkingText,
     mockExhausted: false,
   };
@@ -529,6 +731,46 @@ function evaluateCommandSafety(command, repoRoot = '') {
   return { safe: true, reason: null };
 }
 
+function normalizePlannerCommand(command) {
+  const trimmed = String(command || '').trim();
+  if (!trimmed) {
+    return { command: trimmed, rewritten: false, note: '' };
+  }
+  if (!/^rg(?:\s|$)/iu.test(trimmed)) {
+    return { command: trimmed, rewritten: false, note: '' };
+  }
+
+  const hasTsxType = /(?:^|\s)--type\s+tsx\b/iu.test(trimmed);
+  if (!hasTsxType) {
+    return { command: trimmed, rewritten: false, note: '' };
+  }
+  if (/(?:^|\s)--glob(?:\s|$)/iu.test(trimmed)) {
+    return {
+      command: trimmed,
+      rewritten: false,
+      note: '',
+      rejected: true,
+      rejectedReason: 'unsupported rg type flag: --type tsx; use --glob "*.tsx" or --type ts',
+    };
+  }
+
+  const hasTsType = /(?:^|\s)--type\s+ts\b/iu.test(trimmed);
+  let rewritten = trimmed
+    .replace(/\s--type\s+tsx\b/giu, '')
+    .replace(/\s--type\s+ts\b/giu, '');
+  rewritten = `${rewritten} --glob "*.tsx"`;
+  if (hasTsType) {
+    rewritten = `${rewritten} --glob "*.ts"`;
+  }
+  rewritten = rewritten.trim();
+
+  return {
+    command: rewritten,
+    rewritten: true,
+    note: `note: original command failed compatibility check; ran '${rewritten}' instead`,
+  };
+}
+
 function executeRepoCommand(command, repoRoot, mockCommandResults) {
   if (mockCommandResults && Object.prototype.hasOwnProperty.call(mockCommandResults, command)) {
     const result = mockCommandResults[command];
@@ -595,6 +837,38 @@ function buildTaskPrompt(options) {
     'Return exactly one JSON action per turn.',
     'Allowed tool: {"action":"tool","tool_name":"run_repo_cmd","args":{"command":"..."}}',
     'Finish format: {"action":"finish","output":"...","confidence":0.0-1.0}',
+    '',
+    'You are a repository search agent. Your job is to answer the task using concrete repository evidence from tool calls.',
+    '',
+    'Core behavior:',
+    '- Prioritize factual, file-grounded conclusions over speculation.',
+    '- Treat "no evidence of X found" as a valid outcome when supported by comprehensive search.',
+    '- Never fabricate file paths, line numbers, commands, or findings.',
+    '',
+    'Evidence rules:',
+    '- Every substantive claim must be backed by concrete evidence from executed commands.',
+    '- Prefer production source evidence over tests, coverage, generated artifacts, or docs unless explicitly requested.',
+    '- If evidence is weak, partial, or ambiguous, explicitly say so.',
+    '',
+    'Search discipline:',
+    '- Use iterative searches and targeted file inspection.',
+    '- Avoid repeating failed commands.',
+    '- Adjust strategy when searches are too broad, noisy, or low-signal.',
+    '- Keep commands efficient and focused on the task objective.',
+    '',
+    'Final response requirements:',
+    '- Always produce a final answer, even if incomplete.',
+    '- If evidence is sufficient: give a direct verdict and provide file:line evidence with brief justification.',
+    '- If evidence is insufficient: explicitly state insufficiency, summarize searches and findings, identify blockers/gaps, and provide a best-effort conclusion with clear uncertainty.',
+    '',
+    'Output style:',
+    '- Concise, structured, and directly tied to the question.',
+    '- Include concrete file:line references when available.',
+    '- Distinguish clearly between confirmed evidence, reasonable inference, and unknown/not proven.',
+    '',
+    'Return exactly one JSON action per turn.',
+    'Allowed tool action: {"action":"tool","tool_name":"run_repo_cmd","args":{"command":"..."}}',
+    'Finish action format: {"action":"finish","output":"...","confidence":0.0-1.0}',
     `Turn ${options.turn} of ${options.maxTurns}.`,
     '',
     'Rules:',
@@ -628,6 +902,19 @@ function buildTaskPrompt(options) {
     '- `ls -la`',
     '- `head`, `find`, `xargs`, `grep`',
     '- `rg --type-all`',
+    '',
+    'What not to do (examples):',
+    '- Do not start with coverage/test-only noise first (for example `rg -n "buildFullGraph" coverage`).',
+    '- Do not run the same failed command again without changing it.',
+    '- Do not claim mutations from read-only operations like `.map`, `.filter`, or `.length`.',
+    '- Do not answer without concrete `file:line` evidence.',
+    '- Do not search outside the repo root path.',
+    '- Invalid tool usage example: `{"action":"tool","tool_name":"read_lines","args":{"path":"src/app.ts"}}`.',
+    '- Invalid args example: `{"action":"tool","tool_name":"run_repo_cmd","args":{"cmd":"rg -n \\"x\\" src"}}`.',
+    '- Invalid args example: `{"action":"tool","tool_name":"run_repo_cmd","args":{}}`.',
+    '- Invalid mixed-type example: `{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"x\\" --type ts --type tsx src"}}`.',
+    '- Invalid command parameter example: `{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"x\\" src; del file.txt"}}`.',
+    '- Invalid command parameter example: `{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content src\\\\x.ts | Out-File out.txt"}}`.',
     '',
     `Task: ${options.question}`,
     `Tool-call turns completed so far: ${options.toolCallTurns}`,
@@ -684,10 +971,13 @@ async function runTaskLoop(task, options) {
   const commands = [];
   let finalOutput = '';
   let invalidResponses = 0;
+  let commandFailures = 0;
   let safetyRejects = 0;
   let reason = 'max_turns';
   let turnsUsed = 0;
   let mockResponseIndex = 0;
+  let thinkingEnabled = false;
+  const failedCommands = new Set();
   const minToolCallsBeforeFinish = Math.max(0, Number(options.minToolCallsBeforeFinish ?? MIN_TOOL_CALLS_BEFORE_FINISH));
   const totalContextTokens = Math.max(
     1,
@@ -702,12 +992,19 @@ async function runTaskLoop(task, options) {
 
   for (let turn = 1; turn <= maxTurns; turn += 1) {
     turnsUsed = turn;
+    const plannerThinkingEnabled = thinkingEnabled || (((commands.length + 1) % 5) === 0);
     const prompt = buildTaskPrompt({
       question: task.question,
       turn,
       maxTurns,
       history,
       toolCallTurns: commands.length,
+    });
+    options.logger?.write({
+      kind: 'turn_model_request',
+      taskId: task.id,
+      turn,
+      thinkingEnabled: plannerThinkingEnabled,
     });
     options.logger?.write({
       kind: 'turn_prompt',
@@ -723,6 +1020,7 @@ async function runTaskLoop(task, options) {
       timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
       mockResponses: options.mockResponses,
       mockResponseIndex,
+      thinkingEnabled: plannerThinkingEnabled,
     });
     if (typeof response.nextMockResponseIndex === 'number') {
       mockResponseIndex = response.nextMockResponseIndex;
@@ -786,37 +1084,199 @@ async function runTaskLoop(task, options) {
         });
         continue;
       }
-      finalOutput = action.output;
-      reason = 'finish';
-      break;
+      if (plannerThinkingEnabled) {
+        options.logger?.write({
+          kind: 'turn_finish_validation_skipped',
+          taskId: task.id,
+          turn,
+          reason: 'planner_already_thinking',
+        });
+        finalOutput = action.output;
+        reason = 'finish';
+        break;
+      }
+      options.logger?.write({
+        kind: 'turn_finish_validation_requested',
+        taskId: task.id,
+        turn,
+        thinkingEnabled: true,
+      });
+      const evidenceText = history
+        .map((item) => `Command: ${item.command}\nResult: ${item.resultText}`)
+        .join('\n\n');
+      const validationPrompt = buildFinishValidationPrompt({
+        question: task.question,
+        finalOutput: action.output,
+        evidenceText,
+      });
+      const validationResponse = await requestFinishValidation({
+        baseUrl: options.baseUrl,
+        model: options.model,
+        prompt: validationPrompt,
+        timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
+        mockResponses: options.mockResponses,
+        mockResponseIndex,
+      });
+      if (typeof validationResponse.nextMockResponseIndex === 'number') {
+        mockResponseIndex = validationResponse.nextMockResponseIndex;
+      }
+      options.logger?.write({
+        kind: 'turn_finish_validation_raw_response',
+        taskId: task.id,
+        turn,
+        text: validationResponse.text,
+        thinkingText: validationResponse.thinkingText || '',
+        mockExhausted: Boolean(validationResponse.mockExhausted),
+      });
+      if (validationResponse.mockExhausted) {
+        reason = 'mock_responses_exhausted';
+        break;
+      }
+      let validationResult;
+      try {
+        validationResult = parseFinishValidationResponse(validationResponse.text);
+      } catch (error) {
+        invalidResponses += 1;
+        options.logger?.write({
+          kind: 'turn_action_invalid',
+          taskId: task.id,
+          turn,
+          invalidResponses,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        if (invalidResponses >= maxInvalidResponses) {
+          reason = 'invalid_response_limit';
+          break;
+        }
+        if (!thinkingEnabled) {
+          thinkingEnabled = true;
+          options.logger?.write({
+            kind: 'turn_thinking_mode_switched',
+            taskId: task.id,
+            turn,
+            fromThinkingEnabled: false,
+            toThinkingEnabled: true,
+            reason: 'validation_invalid',
+          });
+        }
+        history.push({
+          command: '[finish validation invalid]',
+          resultText: `Invalid finish validation: ${error instanceof Error ? error.message : String(error)}`,
+        });
+        continue;
+      }
+      options.logger?.write({
+        kind: 'turn_finish_validation_result',
+        taskId: task.id,
+        turn,
+        verdict: validationResult.verdict,
+        reason: validationResult.reason,
+      });
+      if (validationResult.verdict === 'pass') {
+        finalOutput = action.output;
+        reason = 'finish';
+        break;
+      }
+      history.push({
+        command: '[finish validation failed]',
+        resultText: `Validation failed: ${validationResult.reason}`,
+      });
+      if (!thinkingEnabled) {
+        thinkingEnabled = true;
+        options.logger?.write({
+          kind: 'turn_thinking_mode_switched',
+          taskId: task.id,
+          turn,
+          fromThinkingEnabled: false,
+          toThinkingEnabled: true,
+          reason: 'validation_fail',
+        });
+      }
+      continue;
     }
 
     const command = action.args.command;
-    const safety = evaluateCommandSafety(command, options.repoRoot);
-    options.logger?.write({
-      kind: 'turn_command_safety',
-      taskId: task.id,
-      turn,
-      command,
-      safe: safety.safe,
-      reason: safety.reason,
-    });
-    if (!safety.safe) {
+    const normalized = normalizePlannerCommand(command);
+    if (normalized.rejected) {
       safetyRejects += 1;
-      const rejection = `Rejected command: ${safety.reason}`;
+      const rejection = `Rejected command: ${normalized.rejectedReason}`;
+      failedCommands.add(command);
+      options.logger?.write({
+        kind: 'turn_command_safety',
+        taskId: task.id,
+        turn,
+        command,
+        safe: false,
+        reason: normalized.rejectedReason,
+      });
       commands.push({
         command,
         safe: false,
-        reason: safety.reason,
+        reason: normalized.rejectedReason,
         exitCode: null,
         output: rejection,
       });
       history.push({ command, resultText: rejection });
       continue;
     }
+    const commandToRun = normalized.command;
+    const safety = evaluateCommandSafety(commandToRun, options.repoRoot);
+    options.logger?.write({
+      kind: 'turn_command_safety',
+      taskId: task.id,
+      turn,
+      command: commandToRun,
+      safe: safety.safe,
+      reason: safety.reason,
+    });
+    if (!safety.safe) {
+      safetyRejects += 1;
+      const rejection = `Rejected command: ${safety.reason}`;
+      failedCommands.add(commandToRun);
+      commands.push({
+        command: commandToRun,
+        safe: false,
+        reason: safety.reason,
+        exitCode: null,
+        output: rejection,
+      });
+      history.push({ command: commandToRun, resultText: rejection });
+      continue;
+    }
 
-    const executed = await executeRepoCommand(command, options.repoRoot, options.mockCommandResults || null);
-    let resultText = `exit_code=${executed.exitCode}\n${executed.output}`.trim();
+    if (failedCommands.has(commandToRun)) {
+      const rejectionReason = 'duplicate failed command blocked; command already failed earlier in this task';
+      const rejection = `Rejected command: ${rejectionReason}`;
+      commandFailures += 1;
+      options.logger?.write({
+        kind: 'turn_command_duplicate_failed_blocked',
+        taskId: task.id,
+        turn,
+        command: commandToRun,
+        reason: rejectionReason,
+      });
+      commands.push({
+        command: commandToRun,
+        safe: false,
+        reason: rejectionReason,
+        exitCode: null,
+        output: rejection,
+      });
+      history.push({ command: commandToRun, resultText: rejection });
+      reason = 'duplicate_failed_command';
+      break;
+    }
+
+    const executed = await executeRepoCommand(commandToRun, options.repoRoot, options.mockCommandResults || null);
+    const baseOutput = `${String(executed.output || '')}`.trim();
+    const outputWithRewriteNote = normalized.rewritten && normalized.note
+      ? `${normalized.note}\n${baseOutput}`.trim()
+      : baseOutput;
+    if (Number(executed.exitCode) !== 0) {
+      commandFailures += 1;
+      failedCommands.add(commandToRun);
+    }
+    let resultText = `exit_code=${executed.exitCode}\n${outputWithRewriteNote}`.trim();
     const useEstimatedTokensOnly = Array.isArray(options.mockResponses);
     const promptTokenCount = useEstimatedTokensOnly
       ? estimateTokenCount(options.config, prompt)
@@ -832,9 +1292,9 @@ async function runTaskLoop(task, options) {
       kind: 'turn_command_result',
       taskId: task.id,
       turn,
-      command,
+      command: commandToRun,
       exitCode: executed.exitCode,
-      output: executed.output,
+      output: outputWithRewriteNote,
       promptTokenCount,
       resultTokenCount,
       perToolCapTokens,
@@ -842,17 +1302,72 @@ async function runTaskLoop(task, options) {
       insertedResultText: resultText,
     });
     commands.push({
-      command,
+      command: commandToRun,
       safe: true,
       reason: null,
       exitCode: executed.exitCode,
-      output: executed.output,
+      output: outputWithRewriteNote,
     });
-    history.push({ command, resultText });
+    history.push({ command: commandToRun, resultText });
+  }
+
+  if (!String(finalOutput || '').trim()) {
+    let usedFallback = false;
+    const synthesisPrompt = buildTerminalSynthesisPrompt({
+      question: task.question,
+      reason,
+      history,
+    });
+    options.logger?.write({
+      kind: 'task_terminal_synthesis_requested',
+      taskId: task.id,
+      reason,
+    });
+    try {
+      const synthesisResponse = await requestTerminalSynthesis({
+        baseUrl: options.baseUrl,
+        model: options.model,
+        prompt: synthesisPrompt,
+        timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
+        mockResponses: options.mockResponses,
+        mockResponseIndex,
+      });
+      if (typeof synthesisResponse.nextMockResponseIndex === 'number') {
+        mockResponseIndex = synthesisResponse.nextMockResponseIndex;
+      }
+      options.logger?.write({
+        kind: 'task_terminal_synthesis_raw_response',
+        taskId: task.id,
+        text: synthesisResponse.text,
+        thinkingText: synthesisResponse.thinkingText || '',
+        mockExhausted: Boolean(synthesisResponse.mockExhausted),
+      });
+      if (!synthesisResponse.mockExhausted && String(synthesisResponse.text || '').trim()) {
+        finalOutput = String(synthesisResponse.text).trim();
+      } else {
+        usedFallback = true;
+        finalOutput = buildTerminalSynthesisFallback({ reason, commands });
+      }
+    } catch (error) {
+      options.logger?.write({
+        kind: 'task_terminal_synthesis_error',
+        taskId: task.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      usedFallback = true;
+      finalOutput = buildTerminalSynthesisFallback({ reason, commands });
+    }
+    options.logger?.write({
+      kind: 'task_terminal_synthesis_result',
+      taskId: task.id,
+      usedFallback,
+      finalOutput,
+    });
   }
 
   const evidenceParts = [finalOutput, ...commands.map((item) => item.output)];
   const signalCheck = evaluateTaskSignals(task, evidenceParts.join('\n'));
+  const passed = signalCheck.passed && commandFailures === 0;
   options.logger?.write({
     kind: 'task_done',
     taskId: task.id,
@@ -860,7 +1375,8 @@ async function runTaskLoop(task, options) {
     turnsUsed,
     safetyRejects,
     invalidResponses,
-    passed: signalCheck.passed,
+    commandFailures,
+    passed,
     missingSignals: signalCheck.missingSignals,
   });
 
@@ -871,9 +1387,10 @@ async function runTaskLoop(task, options) {
     turnsUsed,
     safetyRejects,
     invalidResponses,
+    commandFailures,
     commands,
     finalOutput,
-    passed: signalCheck.passed,
+    passed,
     missingSignals: signalCheck.missingSignals,
   };
 }
@@ -886,11 +1403,24 @@ function buildScorecard(options) {
     commandsExecuted: options.tasks.reduce((sum, task) => sum + task.commands.length, 0),
     safetyRejects: options.tasks.reduce((sum, task) => sum + task.safetyRejects, 0),
     invalidResponses: options.tasks.reduce((sum, task) => sum + task.invalidResponses, 0),
+    commandFailures: options.tasks.reduce((sum, task) => sum + Number(task.commandFailures || 0), 0),
   };
 
-  const failureReasons = options.tasks
-    .filter((task) => !task.passed)
-    .map((task) => `${task.id}: missing signals [${task.missingSignals.join(', ')}]`);
+  const failureReasons = [];
+  for (const task of options.tasks) {
+    if (task.passed) {
+      continue;
+    }
+    if (Array.isArray(task.missingSignals) && task.missingSignals.length > 0) {
+      failureReasons.push(`${task.id}: missing signals [${task.missingSignals.join(', ')}]`);
+    }
+    if (Number(task.commandFailures || 0) > 0) {
+      failureReasons.push(`${task.id}: command failures ${Number(task.commandFailures || 0)}`);
+    }
+    if ((task.missingSignals?.length || 0) === 0 && Number(task.commandFailures || 0) === 0) {
+      failureReasons.push(`${task.id}: task failed`);
+    }
+  }
 
   return {
     runId: options.runId,
@@ -947,6 +1477,9 @@ async function runMockRepoSearch(options = {}) {
       timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
       maxTurns: options.maxTurns || DEFAULT_MAX_TURNS,
       maxInvalidResponses: options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES,
+      minToolCallsBeforeFinish: options.minToolCallsBeforeFinish,
+      mockResponses: options.mockResponses,
+      mockCommandResults: options.mockCommandResults,
       logger: options.logger || null,
     });
     tasks.push(result);

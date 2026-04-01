@@ -2189,6 +2189,16 @@ function buildPlanMarkdownFromRepoSearch(userPrompt, repoRoot, result) {
   return lines.join('\n');
 }
 
+function loadRepoSearchExecutor() {
+  const modulePath = require.resolve('../dist/repo-search.js');
+  delete require.cache[modulePath];
+  const loadedModule = require(modulePath);
+  if (!loadedModule || typeof loadedModule.executeRepoSearchRequest !== 'function') {
+    throw new Error('repo-search module does not export executeRepoSearchRequest.');
+  }
+  return loadedModule.executeRepoSearchRequest;
+}
+
 function startStatusServer(options = {}) {
   const disableManagedLlamaStartup = Boolean(options.disableManagedLlamaStartup);
   const host = process.env.SIFTKIT_STATUS_HOST || '127.0.0.1';
@@ -3309,7 +3319,7 @@ function startStatusServer(options = {}) {
       }
 
       try {
-        const { executeRepoSearchRequest } = require('../dist/repo-search.js');
+        const executeRepoSearchRequest = loadRepoSearchExecutor();
         const result = await executeRepoSearchRequest({
           prompt: buildPlanRequestPrompt(parsedBody.content.trim()),
           repoRoot: resolvedRepoRoot,
@@ -3539,7 +3549,7 @@ function startStatusServer(options = {}) {
       }
 
       try {
-        const { executeRepoSearchRequest } = require('../dist/repo-search.js');
+        const executeRepoSearchRequest = loadRepoSearchExecutor();
         const result = await executeRepoSearchRequest({
           prompt: parsedBody.prompt,
           repoRoot: typeof parsedBody.repoRoot === 'string' && parsedBody.repoRoot.trim()
