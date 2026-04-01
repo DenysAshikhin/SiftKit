@@ -742,6 +742,7 @@ export async function ensureStatusServerReachable(): Promise<void> {
 
 export async function notifyStatusBackend(options: {
   running: boolean;
+  statusBackendUrl?: string | null;
   requestId?: string | null;
   terminalState?: 'completed' | 'failed' | null;
   errorMessage?: string | null;
@@ -850,7 +851,7 @@ export async function notifyStatusBackend(options: {
 
   try {
     await requestJson({
-      url: getStatusBackendUrl(),
+      url: (options.statusBackendUrl && options.statusBackendUrl.trim()) ? options.statusBackendUrl.trim() : getStatusBackendUrl(),
       method: 'POST',
       timeoutMs: 2000,
       body: JSON.stringify(body),

@@ -698,7 +698,7 @@ async function notifyStatusBackend(options) {
     }
     try {
         await requestJson({
-            url: getStatusBackendUrl(),
+            url: (options.statusBackendUrl && options.statusBackendUrl.trim()) ? options.statusBackendUrl.trim() : getStatusBackendUrl(),
             method: 'POST',
             timeoutMs: 2000,
             body: JSON.stringify(body),

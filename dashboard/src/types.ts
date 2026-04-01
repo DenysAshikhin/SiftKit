@@ -88,6 +88,8 @@ export type ChatSession = {
   model: string | null;
   contextWindowTokens: number;
   thinkingEnabled?: boolean;
+  mode?: 'chat' | 'plan';
+  planRepoRoot?: string;
   condensedSummary: string;
   createdAtUtc: string;
   updatedAtUtc: string;

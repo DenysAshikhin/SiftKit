@@ -37,6 +37,29 @@ exports.executeRepoSearchRequest = executeRepoSearchRequest;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const node_crypto_1 = require("node:crypto");
+const config_js_1 = require("./config.js");
+function traceRepoSearch(message) {
+    if (process.env.SIFTKIT_TRACE_REPO_SEARCH !== '1') {
+        return;
+    }
+    process.stderr.write(`[siftkit-trace ${new Date().toISOString()}] repo-search ${message}\n`);
+}
+function getOutputCharacterCount(scorecard) {
+    const tasks = (scorecard
+        && typeof scorecard === 'object'
+        && !Array.isArray(scorecard)
+        && Array.isArray(scorecard.tasks))
+        ? scorecard.tasks
+        : [];
+    if (tasks.length === 0) {
+        return 0;
+    }
+    const outputText = tasks
+        .map((task) => (typeof task?.finalOutput === 'string' ? task.finalOutput.trim() : ''))
+        .filter((value) => value.length > 0)
+        .join('\n\n');
+    return outputText.length;
+}
 function getRuntimeLogsPath() {
     const statusPath = process.env.sift_kit_status || process.env.SIFTKIT_STATUS_PATH || '';
     if (statusPath && statusPath.trim()) {
@@ -86,8 +109,24 @@ async function executeRepoSearchRequest(request) {
     if (!prompt) {
         throw new Error('A --prompt is required for repo-search.');
     }
+    const startedAt = Date.now();
     const repoRoot = path.resolve(String(request.repoRoot || process.cwd()));
     const requestId = (0, node_crypto_1.randomUUID)();
+    traceRepoSearch(`execute start request_id=${requestId} prompt_chars=${prompt.length}`);
+    try {
+        await (0, config_js_1.notifyStatusBackend)({
+            running: true,
+            statusBackendUrl: request.statusBackendUrl,
+            requestId,
+            rawInputCharacterCount: prompt.length,
+            promptCharacterCount: prompt.length,
+            chunkInputCharacterCount: prompt.length,
+            chunkPath: 'repo-search',
+        });
+    }
+    catch {
+        traceRepoSearch(`notify running=true failed request_id=${requestId}`);
+    }
     const folders = ensureRepoSearchLogFolders();
     const tempTranscriptPath = request.logFile
         ? path.resolve(request.logFile)
@@ -122,6 +161,23 @@ async function executeRepoSearchRequest(request) {
             scorecard,
         };
         fs.writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
+        const outputCharacterCount = getOutputCharacterCount(scorecard);
+        try {
+            await (0, config_js_1.notifyStatusBackend)({
+                running: false,
+                statusBackendUrl: request.statusBackendUrl,
+                requestId,
+                terminalState: 'completed',
+                promptCharacterCount: prompt.length,
+                outputCharacterCount,
+                requestDurationMs: Date.now() - startedAt,
+            });
+        }
+        catch {
+            traceRepoSearch(`notify running=false failed request_id=${requestId} state=completed`);
+        }
+        traceRepoSearch(`execute done request_id=${requestId} verdict=${String(scorecard?.verdict ?? 'unknown')} `
+            + `duration_ms=${Date.now() - startedAt} output_chars=${outputCharacterCount}`);
         return {
             requestId,
             transcriptPath,
@@ -144,6 +200,22 @@ async function executeRepoSearchRequest(request) {
             transcriptPath,
         };
         fs.writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
+        try {
+            await (0, config_js_1.notifyStatusBackend)({
+                running: false,
+                statusBackendUrl: request.statusBackendUrl,
+                requestId,
+                terminalState: 'failed',
+                errorMessage: message,
+                promptCharacterCount: prompt.length,
+                outputCharacterCount: 0,
+                requestDurationMs: Date.now() - startedAt,
+            });
+        }
+        catch {
+            traceRepoSearch(`notify running=false failed request_id=${requestId} state=failed`);
+        }
+        traceRepoSearch(`execute failed request_id=${requestId} duration_ms=${Date.now() - startedAt} error=${message}`);
         throw error;
     }
 }

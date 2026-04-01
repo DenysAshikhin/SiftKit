@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   condenseChatSession,
+  createPlanMessage,
   createChatSession,
   deleteChatSession,
   getChatSession,
@@ -196,6 +197,64 @@ function normalizeFinalOutputText(rawOutput: string): string {
     .replace(/\\t/gu, '\t');
 }
 
+function formatRunEventPayload(event: { kind: string; payload: unknown }): string {
+  if (!isRecord(event.payload)) {
+    return '```json\n' + JSON.stringify(event.payload, null, 2) + '\n```';
+  }
+  const payload = event.payload as Record<string, unknown>;
+  const scalarLines: string[] = [];
+  const blockLines: string[] = [];
+  const preferredTextFields = [
+    'prompt',
+    'text',
+    'thinkingText',
+    'output',
+    'insertedResultText',
+    'error',
+    'warning',
+  ];
+
+  if (typeof payload.taskId === 'string' && payload.taskId.trim()) {
+    scalarLines.push(`- Task: \`${payload.taskId}\``);
+  }
+  if (Number.isFinite(payload.turn as number)) {
+    scalarLines.push(`- Turn: ${String(payload.turn)}`);
+  }
+  if (typeof payload.command === 'string' && payload.command.trim()) {
+    scalarLines.push(`- Command: \`${payload.command.trim()}\``);
+  }
+
+  for (const field of preferredTextFields) {
+    const value = payload[field];
+    if (typeof value !== 'string' || !value.trim()) {
+      continue;
+    }
+    blockLines.push(`**${field}**`);
+    blockLines.push('```text');
+    blockLines.push(normalizeFinalOutputText(value));
+    blockLines.push('```');
+  }
+
+  const remaining: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (key === 'taskId' || key === 'turn' || key === 'command' || preferredTextFields.includes(key)) {
+      continue;
+    }
+    remaining[key] = value;
+  }
+  if (Object.keys(remaining).length > 0) {
+    blockLines.push('**metadata**');
+    blockLines.push('```json');
+    blockLines.push(JSON.stringify(remaining, null, 2));
+    blockLines.push('```');
+  }
+
+  if (scalarLines.length === 0 && blockLines.length === 0) {
+    return '```json\n' + JSON.stringify(payload, null, 2) + '\n```';
+  }
+  return [...scalarLines, '', ...blockLines].join('\n').trim();
+}
+
 type SeriesPoint = {
   label: string;
   value: number;
@@ -361,6 +420,7 @@ export function App() {
   const [chatBusy, setChatBusy] = useState(false);
   const [thinkingDraft, setThinkingDraft] = useState('');
   const [answerDraft, setAnswerDraft] = useState('');
+  const [planRepoRootInput, setPlanRepoRootInput] = useState('');
   const groupedRuns = runs.reduce<Record<RunGroupKey, RunRecord[]>>((accumulator, run) => {
     const key = classifyRunGroup(run.kind);
     accumulator[key].push(run);
@@ -377,6 +437,7 @@ export function App() {
     .slice(0, 20)
     .reverse();
   const isThinkingEnabledForCurrentSession = selectedSession?.thinkingEnabled !== false;
+  const chatMode = selectedSession?.mode === 'plan' ? 'plan' : 'chat';
 
   useEffect(() => {
     writeSearchParams({
@@ -542,6 +603,10 @@ export function App() {
     };
   }, [selectedSessionId]);
 
+  useEffect(() => {
+    setPlanRepoRootInput(selectedSession?.planRepoRoot || '');
+  }, [selectedSession?.id, selectedSession?.planRepoRoot]);
+
   async function onCreateSession() {
     setChatBusy(true);
     setChatError(null);
@@ -591,6 +656,31 @@ export function App() {
     }
   }
 
+  async function onSendPlan() {
+    if (!selectedSessionId || !chatInput.trim()) {
+      return;
+    }
+    setChatBusy(true);
+    setChatError(null);
+    setThinkingDraft('');
+    setAnswerDraft('');
+    try {
+      const response = await createPlanMessage(selectedSessionId, {
+        content: chatInput.trim(),
+        repoRoot: planRepoRootInput.trim() || selectedSession?.planRepoRoot || '',
+      });
+      setSelectedSession(response.session);
+      setContextUsage(response.contextUsage);
+      setChatInput('');
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setThinkingDraft('');
+      setAnswerDraft('');
+      setChatBusy(false);
+    }
+  }
+
   async function onToggleThinking(value: boolean) {
     if (!selectedSessionId) {
       return;
@@ -603,6 +693,47 @@ export function App() {
       });
       setSelectedSession(response.session);
       setContextUsage(response.contextUsage);
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
+  async function onUpdateSessionMode(mode: 'chat' | 'plan') {
+    if (!selectedSessionId) {
+      return;
+    }
+    setChatBusy(true);
+    setChatError(null);
+    try {
+      const response = await updateChatSession(selectedSessionId, {
+        mode,
+      });
+      setSelectedSession(response.session);
+      setContextUsage(response.contextUsage);
+      setPlanRepoRootInput(response.session.planRepoRoot || '');
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
+  async function onSavePlanRepoRoot() {
+    if (!selectedSessionId || !planRepoRootInput.trim()) {
+      return;
+    }
+    setChatBusy(true);
+    setChatError(null);
+    try {
+      const response = await updateChatSession(selectedSessionId, {
+        mode: 'plan',
+        planRepoRoot: planRepoRootInput.trim(),
+      });
+      setSelectedSession(response.session);
+      setContextUsage(response.contextUsage);
+      setPlanRepoRootInput(response.session.planRepoRoot || '');
     } catch (error) {
       setChatError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -769,7 +900,11 @@ export function App() {
                 {selectedRunDetail.events.map((event, index) => (
                   <details key={`${event.kind}-${index}`} className="detail-card" open={index === 0}>
                     <summary>{event.kind} {event.at ? `| ${formatDate(event.at)}` : ''}</summary>
-                    <pre>{JSON.stringify(event.payload, null, 2)}</pre>
+                    <div className="markdown-body">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {formatRunEventPayload(event)}
+                      </ReactMarkdown>
+                    </div>
                   </details>
                 ))}
               </>
@@ -900,6 +1035,41 @@ export function App() {
                     disabled={chatBusy}
                   />
                 </div>
+                <div className="chat-mode-row">
+                  <button
+                    type="button"
+                    className={chatMode === 'chat' ? 'active' : ''}
+                    onClick={() => { void onUpdateSessionMode('chat'); }}
+                    disabled={chatBusy}
+                  >
+                    Chat
+                  </button>
+                  <button
+                    type="button"
+                    className={chatMode === 'plan' ? 'active' : ''}
+                    onClick={() => { void onUpdateSessionMode('plan'); }}
+                    disabled={chatBusy}
+                  >
+                    Plan
+                  </button>
+                </div>
+                {chatMode === 'plan' ? (
+                  <div className="plan-root-row">
+                    <input
+                      placeholder="Repo folder path for plan mode..."
+                      value={planRepoRootInput}
+                      onChange={(event) => setPlanRepoRootInput(event.target.value)}
+                      disabled={chatBusy}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => { void onSavePlanRepoRoot(); }}
+                      disabled={chatBusy || !planRepoRootInput.trim()}
+                    >
+                      Save Folder
+                    </button>
+                  </div>
+                ) : null}
                 {contextUsage && (
                   <div className={contextUsage.shouldCondense ? 'usage warning' : 'usage'}>
                     <strong>
@@ -959,12 +1129,14 @@ export function App() {
                 )}
                 <div className="composer">
                   <textarea
-                    placeholder="Send a local chat message..."
+                    placeholder={chatMode === 'plan' ? 'Describe the feature to plan (plan mode runs repo-search)...' : 'Send a local chat message...'}
                     value={chatInput}
                     onChange={(event) => setChatInput(event.target.value)}
                     rows={4}
                   />
-                  <button onClick={() => { void onSendMessage(); }} disabled={chatBusy || !chatInput.trim()}>Send</button>
+                  <button onClick={() => { if (chatMode === 'plan') { void onSendPlan(); return; } void onSendMessage(); }} disabled={chatBusy || !chatInput.trim()}>
+                    {chatMode === 'plan' ? 'Generate Plan' : 'Send'}
+                  </button>
                 </div>
                 {chatError && <p className="error">{chatError}</p>}
               </>

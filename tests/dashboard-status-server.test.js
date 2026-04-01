@@ -181,6 +181,8 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     assert.equal(createSession.statusCode, 200);
     assert.equal(typeof createSession.body.session.id, 'string');
     assert.equal(createSession.body.session.contextWindowTokens, 150000);
+    assert.equal(createSession.body.session.mode, 'chat');
+    assert.equal(createSession.body.session.planRepoRoot, process.cwd());
     const sessionId = createSession.body.session.id;
 
     const appendMessage = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
@@ -195,6 +197,50 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     assert.equal(appendMessage.body.session.messages.length, 2);
     assert.equal(appendMessage.body.contextUsage.warnThresholdTokens, 15000);
     assert.equal(appendMessage.body.contextUsage.shouldCondense, false);
+
+    const updateSession = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        mode: 'plan',
+        planRepoRoot: tempRoot,
+      }),
+    });
+    assert.equal(updateSession.statusCode, 200);
+    assert.equal(updateSession.body.session.mode, 'plan');
+    assert.equal(updateSession.body.session.planRepoRoot, tempRoot);
+
+    const planMessage = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/plan`, {
+      method: 'POST',
+      timeoutMs: 15000,
+      body: JSON.stringify({
+        content: 'Add a mode toggle to the dashboard chat panel.',
+        repoRoot: tempRoot,
+        maxTurns: 1,
+        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        mockResponses: [
+          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"dashboard\\" ."}}',
+          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content package.json"}}',
+          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"chat\\" dashboard/src"}}',
+          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"sessions\\" siftKitStatus/index.js"}}',
+          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"/dashboard/chat/sessions\\" siftKitStatus/index.js"}}',
+          '{"action":"finish","output":"Plan: update dashboard/src/App.tsx and siftKitStatus/index.js; include a risks section for endpoint lock contention and stale repo-root paths.","confidence":0.92}',
+        ],
+        mockCommandResults: {
+          'rg -n "dashboard" .': { exitCode: 0, stdout: 'dashboard/src/App.tsx:1:import { useEffect }', stderr: '' },
+          'Get-Content package.json': { exitCode: 0, stdout: '{\"name\":\"siftkit\"}', stderr: '' },
+          'rg -n "chat" dashboard/src': { exitCode: 0, stdout: 'dashboard/src/App.tsx:568:                <div className=\"chat-log\">', stderr: '' },
+          'rg -n "sessions" siftKitStatus/index.js': { exitCode: 0, stdout: 'siftKitStatus/index.js:3005:    if (req.method === \'GET\' && pathname === \'/dashboard/chat/sessions\') {', stderr: '' },
+          'rg -n "/dashboard/chat/sessions" siftKitStatus/index.js': { exitCode: 0, stdout: 'siftKitStatus/index.js:3068:    if (req.method === \'POST\' && pathname === \'/dashboard/chat/sessions\') {', stderr: '' },
+        },
+      }),
+    });
+    assert.equal(planMessage.statusCode, 200);
+    assert.equal(planMessage.body.session.messages.length >= 4, true);
+    const latestMessage = planMessage.body.session.messages[planMessage.body.session.messages.length - 1];
+    assert.equal(latestMessage.role, 'assistant');
+    assert.match(latestMessage.content, /^# Implementation Plan/mu);
+    assert.match(latestMessage.content, /Critical Review/mu);
+    assert.match(latestMessage.content, /## Artifacts/mu);
 
     const condenseResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/condense`, {
       method: 'POST',
@@ -304,6 +350,59 @@ test('repo-search and dashboard chat messages are mutually exclusive', async () 
     assert.equal(blockedChat.body.busy, true);
 
     await delayedRepoSearch;
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('plan endpoint rejects missing or invalid repo root', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-plan-root-'));
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Plan Session',
+        model: 'Qwen3.5-9B-Q8_0.gguf',
+      }),
+    });
+    const sessionId = createSession.body.session.id;
+    const missingRootResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/plan`, {
+      method: 'POST',
+      body: JSON.stringify({
+        content: 'create plan',
+        repoRoot: path.join(tempRoot, 'missing'),
+      }),
+    });
+    assert.equal(missingRootResponse.statusCode, 400);
+    assert.match(String(missingRootResponse.body.error || ''), /Expected existing repoRoot directory/u);
   } finally {
     await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     for (const [key, value] of Object.entries(envBackup)) {

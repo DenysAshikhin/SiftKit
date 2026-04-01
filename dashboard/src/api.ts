@@ -73,7 +73,7 @@ export function createChatSession(payload: {
 
 export function updateChatSession(
   sessionId: string,
-  payload: { title?: string; thinkingEnabled?: boolean }
+  payload: { title?: string; thinkingEnabled?: boolean; mode?: 'chat' | 'plan'; planRepoRoot?: string }
 ): Promise<ChatSessionResponse> {
   return fetchJson<ChatSessionResponse>(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}`, {
     method: 'PUT',
@@ -176,5 +176,21 @@ export function condenseChatSession(sessionId: string): Promise<ChatSessionRespo
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: '{}',
+  });
+}
+
+export function createPlanMessage(
+  sessionId: string,
+  payload: {
+    content: string;
+    repoRoot?: string;
+    model?: string;
+    maxTurns?: number;
+  }
+): Promise<ChatSessionResponse> {
+  return fetchJson<ChatSessionResponse>(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/plan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
   });
 }

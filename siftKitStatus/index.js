@@ -1694,6 +1694,12 @@ function readChatSessionFromPath(targetPath) {
   if (typeof payload.thinkingEnabled !== 'boolean') {
     payload.thinkingEnabled = true;
   }
+  if (payload.mode !== 'plan') {
+    payload.mode = 'chat';
+  }
+  if (typeof payload.planRepoRoot !== 'string' || !payload.planRepoRoot.trim()) {
+    payload.planRepoRoot = process.cwd();
+  }
   return payload;
 }
 
@@ -2074,6 +2080,113 @@ function condenseChatSession(runtimeRoot, session) {
   };
   saveChatSession(runtimeRoot, updated);
   return updated;
+}
+
+function buildPlanRequestPrompt(userPrompt) {
+  const task = String(userPrompt || '').trim();
+  return [
+    'You are creating an implementation plan from repository evidence.',
+    'Search thoroughly before finishing.',
+    'Required output format (Markdown):',
+    '1. Goal',
+    '2. Current State (with explicit file paths)',
+    '3. Implementation Plan (numbered steps)',
+    '4. Code Evidence (each bullet must include file path + line numbers + a code sample)',
+    '5. Critical Review (risks, flaws, better alternatives, edge cases, missing tests)',
+    '6. Validation Plan (tests + checks)',
+    'Constraints:',
+    '- Be critical; call out any concerns clearly.',
+    '- Use concrete line references like path/to/file.ts:123.',
+    '- Include short code samples for the referenced lines.',
+    '- Prefer precise, executable steps over broad advice.',
+    '',
+    `Task: ${task}`,
+  ].join('\n');
+}
+
+function truncatePlanEvidence(value, maxLength = 700) {
+  const text = String(value || '').trim();
+  if (!text) {
+    return '';
+  }
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, maxLength)}\n... (truncated)`;
+}
+
+function buildPlanMarkdownFromRepoSearch(userPrompt, repoRoot, result) {
+  const scorecard = result && typeof result.scorecard === 'object' ? result.scorecard : {};
+  const tasks = Array.isArray(scorecard.tasks) ? scorecard.tasks : [];
+  const primaryTask = tasks[0] && typeof tasks[0] === 'object' ? tasks[0] : null;
+  const modelOutput = typeof primaryTask?.finalOutput === 'string' && primaryTask.finalOutput.trim()
+    ? primaryTask.finalOutput.trim()
+    : 'No final planner output was produced.';
+  const commandEvidence = [];
+  for (const task of tasks) {
+    if (!task || typeof task !== 'object' || !Array.isArray(task.commands)) {
+      continue;
+    }
+    for (const command of task.commands) {
+      if (!command || typeof command !== 'object') {
+        continue;
+      }
+      const commandText = typeof command.command === 'string' ? command.command.trim() : '';
+      const outputText = truncatePlanEvidence(command.output);
+      if (!commandText || !outputText) {
+        continue;
+      }
+      commandEvidence.push({
+        command: commandText,
+        output: outputText,
+      });
+      if (commandEvidence.length >= 6) {
+        break;
+      }
+    }
+    if (commandEvidence.length >= 6) {
+      break;
+    }
+  }
+
+  const lines = [
+    '# Implementation Plan',
+    '',
+    '## Request',
+    userPrompt,
+    '',
+    '## Target Repo Root',
+    `\`${repoRoot}\``,
+    '',
+    '## Planner Output',
+    modelOutput,
+    '',
+    '## Code Evidence',
+  ];
+  if (commandEvidence.length === 0) {
+    lines.push('- No command evidence was captured.');
+  } else {
+    for (const entry of commandEvidence) {
+      lines.push(`- Command: \`${entry.command}\``);
+      lines.push('```text');
+      lines.push(entry.output);
+      lines.push('```');
+    }
+  }
+
+  lines.push('', '## Critical Review');
+  const missingSignals = Array.isArray(primaryTask?.missingSignals) ? primaryTask.missingSignals : [];
+  if (missingSignals.length > 0) {
+    lines.push(`- Missing expected evidence signals: ${missingSignals.join(', ')}`);
+  } else {
+    lines.push('- Verify that proposed changes preserve existing behavior and test coverage.');
+  }
+  lines.push('- Check for hidden coupling between chat flow state, session persistence, and model-request locking.');
+  lines.push('- Validate repo-root input carefully to avoid running searches outside intended workspace.');
+  lines.push('', '## Artifacts');
+  lines.push(`- Transcript: \`${String(result?.transcriptPath || '')}\``);
+  lines.push(`- Artifact: \`${String(result?.artifactPath || '')}\``);
+  return lines.join('\n');
 }
 
 function startStatusServer(options = {}) {
@@ -3043,6 +3156,12 @@ function startStatusServer(options = {}) {
       if (typeof parsedBody.thinkingEnabled === 'boolean') {
         updated.thinkingEnabled = parsedBody.thinkingEnabled;
       }
+      if (typeof parsedBody.mode === 'string' && (parsedBody.mode === 'chat' || parsedBody.mode === 'plan')) {
+        updated.mode = parsedBody.mode;
+      }
+      if (typeof parsedBody.planRepoRoot === 'string' && parsedBody.planRepoRoot.trim()) {
+        updated.planRepoRoot = path.resolve(parsedBody.planRepoRoot.trim());
+      }
       saveChatSession(runtimeRoot, updated);
       sendJson(res, 200, { session: updated, contextUsage: buildContextUsage(updated) });
       return;
@@ -3082,6 +3201,8 @@ function startStatusServer(options = {}) {
           : readConfig(configPath)?.Runtime?.Model || null,
         contextWindowTokens: Number(readConfig(configPath)?.Runtime?.LlamaCpp?.NumCtx || 150000),
         thinkingEnabled: readConfig(configPath)?.Runtime?.LlamaCpp?.Reasoning !== 'off',
+        mode: 'chat',
+        planRepoRoot: process.cwd(),
         condensedSummary: '',
         createdAtUtc: now,
         updatedAtUtc: now,
@@ -3142,6 +3263,94 @@ function startStatusServer(options = {}) {
           thinkingContent
         );
         sendJson(res, 200, { session: updatedSession, contextUsage: buildContextUsage(updatedSession) });
+      } catch (error) {
+        sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+      } finally {
+        releaseModelRequest(modelRequestLock.token);
+      }
+      return;
+    }
+
+    if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/plan$/u.test(pathname)) {
+      const modelRequestLock = acquireModelRequest('dashboard_plan');
+      if (!modelRequestLock) {
+        sendJson(res, 409, { error: 'Model request already in progress.', busy: true, activeModelRequest });
+        return;
+      }
+      const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/plan$/u, ''));
+      const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+      if (!session) {
+        releaseModelRequest(modelRequestLock.token);
+        sendJson(res, 404, { error: 'Session not found.' });
+        return;
+      }
+      let parsedBody;
+      try {
+        parsedBody = parseJsonBody(await readBody(req));
+      } catch {
+        releaseModelRequest(modelRequestLock.token);
+        sendJson(res, 400, { error: 'Expected valid JSON object.' });
+        return;
+      }
+      if (typeof parsedBody.content !== 'string' || !parsedBody.content.trim()) {
+        releaseModelRequest(modelRequestLock.token);
+        sendJson(res, 400, { error: 'Expected content.' });
+        return;
+      }
+      const requestedRepoRoot = typeof parsedBody.repoRoot === 'string' && parsedBody.repoRoot.trim()
+        ? parsedBody.repoRoot.trim()
+        : (typeof session.planRepoRoot === 'string' && session.planRepoRoot.trim() ? session.planRepoRoot.trim() : process.cwd());
+      const resolvedRepoRoot = path.resolve(requestedRepoRoot);
+      if (!fs.existsSync(resolvedRepoRoot) || !fs.statSync(resolvedRepoRoot).isDirectory()) {
+        releaseModelRequest(modelRequestLock.token);
+        sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
+        return;
+      }
+
+      try {
+        const { executeRepoSearchRequest } = require('../dist/repo-search.js');
+        const result = await executeRepoSearchRequest({
+          prompt: buildPlanRequestPrompt(parsedBody.content.trim()),
+          repoRoot: resolvedRepoRoot,
+          config: readConfig(configPath),
+          model: typeof parsedBody.model === 'string' && parsedBody.model.trim() ? parsedBody.model.trim() : undefined,
+          maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
+          logFile: typeof parsedBody.logFile === 'string' && parsedBody.logFile.trim() ? parsedBody.logFile.trim() : undefined,
+          availableModels: Array.isArray(parsedBody.availableModels)
+            ? parsedBody.availableModels.map((value) => String(value))
+            : undefined,
+          mockResponses: Array.isArray(parsedBody.mockResponses)
+            ? parsedBody.mockResponses.map((value) => String(value))
+            : undefined,
+          mockCommandResults: (
+            parsedBody.mockCommandResults
+            && typeof parsedBody.mockCommandResults === 'object'
+            && !Array.isArray(parsedBody.mockCommandResults)
+          ) ? parsedBody.mockCommandResults : undefined,
+        });
+        const assistantContent = buildPlanMarkdownFromRepoSearch(parsedBody.content.trim(), resolvedRepoRoot, result);
+        const updatedSession = appendChatMessagesWithUsage(
+          runtimeRoot,
+          {
+            ...session,
+            mode: 'plan',
+            planRepoRoot: resolvedRepoRoot,
+          },
+          parsedBody.content.trim(),
+          assistantContent,
+          {},
+          ''
+        );
+        sendJson(res, 200, {
+          session: updatedSession,
+          contextUsage: buildContextUsage(updatedSession),
+          repoSearch: {
+            requestId: result.requestId,
+            transcriptPath: result.transcriptPath,
+            artifactPath: result.artifactPath,
+            scorecard: result.scorecard,
+          },
+        });
       } catch (error) {
         sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
       } finally {
@@ -3343,6 +3552,7 @@ function startStatusServer(options = {}) {
           repoRoot: typeof parsedBody.repoRoot === 'string' && parsedBody.repoRoot.trim()
             ? parsedBody.repoRoot.trim()
             : process.cwd(),
+          statusBackendUrl: `${getServiceBaseUrl()}/status`,
           config: readConfig(configPath),
           model: typeof parsedBody.model === 'string' && parsedBody.model.trim()
             ? parsedBody.model.trim()

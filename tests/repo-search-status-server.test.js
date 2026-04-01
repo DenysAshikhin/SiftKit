@@ -70,6 +70,12 @@ test('status server stays responsive while repo-search is running', async () => 
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
+    const baselineStatus = await requestJson(`${baseUrl}/status`);
+    const baselineMetrics = baselineStatus.body?.metrics || {};
+    const baselineCompleted = Number(baselineMetrics.completedRequestCount || 0);
+    const baselineInputChars = Number(baselineMetrics.inputCharactersTotal || 0);
+    const baselineDurationMs = Number(baselineMetrics.requestDurationMsTotal || 0);
+
     const delayedRequest = requestJson(`${baseUrl}/repo-search`, {
       method: 'POST',
       timeoutMs: 15000,
@@ -100,6 +106,16 @@ test('status server stays responsive while repo-search is running', async () => 
     const searchResponse = await delayedRequest;
     assert.ok(searchResponse.statusCode >= 200 && searchResponse.statusCode < 600);
     assert.equal(typeof searchResponse.body, 'object');
+
+    const finalStatus = await requestJson(`${baseUrl}/status`);
+    const finalMetrics = finalStatus.body?.metrics || {};
+    if (searchResponse.statusCode >= 200 && searchResponse.statusCode < 300) {
+      assert.ok(Number(finalMetrics.completedRequestCount || 0) >= baselineCompleted + 1);
+    } else {
+      assert.ok(Number(finalMetrics.completedRequestCount || 0) >= baselineCompleted);
+    }
+    assert.ok(Number(finalMetrics.inputCharactersTotal || 0) >= baselineInputChars + 'find x'.length);
+    assert.ok(Number(finalMetrics.requestDurationMsTotal || 0) > baselineDurationMs);
   } finally {
     await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     for (const [key, value] of Object.entries(envBackup)) {
