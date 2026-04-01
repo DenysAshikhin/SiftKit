@@ -35,6 +35,8 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.runCli = runCli;
 const fs = __importStar(require("node:fs"));
+const http = __importStar(require("node:http"));
+const https = __importStar(require("node:https"));
 const node_util_1 = require("node:util");
 const config_js_1 = require("./config.js");
 const find_files_js_1 = require("./find-files.js");
@@ -44,8 +46,13 @@ const command_js_1 = require("./command.js");
 const eval_js_1 = require("./eval.js");
 const install_js_1 = require("./install.js");
 const interactive_js_1 = require("./interactive.js");
+const repo_search_js_1 = require("./repo-search.js");
 const KNOWN_COMMANDS = new Set([
     'summary',
+    'repo-search',
+    'internal',
+]);
+const BLOCKED_PUBLIC_COMMANDS = new Set([
     'run',
     'find-files',
     'install',
@@ -56,7 +63,6 @@ const KNOWN_COMMANDS = new Set([
     'config-get',
     'config-set',
     'capture-internal',
-    'internal',
 ]);
 function showHelp(stdout) {
     stdout.write([
@@ -64,18 +70,9 @@ function showHelp(stdout) {
         '',
         'Usage:',
         '  siftkit "question"',
-        '  some-command | siftkit "question"',
         '  siftkit summary --question "..." [--text "..."] [--file path]',
-        '  siftkit run --command pytest --arg -q --question "did tests pass?"',
-        '  siftkit find-files [--path dir] [--full-path] pattern [pattern...]',
-        '  siftkit install',
-        '  siftkit test',
-        '  siftkit eval',
-        '  siftkit codex-policy',
-        '  siftkit install-global',
-        '  siftkit config-get',
-        '  siftkit config-set --key Backend --value mock',
-        '  siftkit capture-internal --command git --arg rebase --arg -i --question "..."',
+        '  siftkit repo-search --prompt "find x y z in this repo"',
+        '  siftkit -prompt "find x y z in this repo"',
         '',
     ].join('\n'));
 }
@@ -88,6 +85,7 @@ const SERVER_DEPENDENT_COMMANDS = new Set([
     'config-get',
     'config-set',
     'capture-internal',
+    'repo-search',
 ]);
 const SERVER_DEPENDENT_INTERNAL_OPS = new Set([
     'install',
@@ -99,15 +97,22 @@ const SERVER_DEPENDENT_INTERNAL_OPS = new Set([
     'command-analyze',
     'eval',
     'interactive-capture',
+    'repo-search',
 ]);
 function getCommandName(argv) {
     if (argv.length > 0 && KNOWN_COMMANDS.has(argv[0])) {
         return argv[0];
     }
+    if (argv[0] === '--prompt' || argv[0] === '-prompt') {
+        return 'repo-search';
+    }
     return 'summary';
 }
 function getCommandArgs(argv) {
     const commandName = getCommandName(argv);
+    if (commandName === 'repo-search' && (argv[0] === '--prompt' || argv[0] === '-prompt')) {
+        return argv;
+    }
     if (commandName === 'summary' && (argv.length === 0 || !KNOWN_COMMANDS.has(argv[0]))) {
         return argv;
     }
@@ -193,6 +198,16 @@ function parseArguments(tokens) {
             case '--op':
                 parsed.op = tokens[++index];
                 break;
+            case '--prompt':
+            case '-prompt':
+                parsed.prompt = tokens[++index];
+                break;
+            case '--max-turns':
+                parsed.maxTurns = Number(tokens[++index]);
+                break;
+            case '--log-file':
+                parsed.logFile = tokens[++index];
+                break;
             default:
                 parsed.positionals.push(token);
                 break;
@@ -208,6 +223,60 @@ function formatPsList(value) {
         return `${key} : ${rendered}`;
     }).join('\n')}\n`;
 }
+function getRepoSearchServiceUrl() {
+    const target = new URL((0, config_js_1.getStatusBackendUrl)());
+    target.pathname = '/repo-search';
+    target.search = '';
+    target.hash = '';
+    return target.toString();
+}
+function requestJson(options) {
+    return new Promise((resolve, reject) => {
+        const target = new URL(options.url);
+        const transport = target.protocol === 'https:' ? https : http;
+        const request = transport.request({
+            protocol: target.protocol,
+            hostname: target.hostname,
+            port: target.port || (target.protocol === 'https:' ? 443 : 80),
+            path: `${target.pathname}${target.search}`,
+            method: options.method,
+            headers: options.body ? {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(options.body, 'utf8'),
+            } : undefined,
+        }, (response) => {
+            let responseText = '';
+            response.setEncoding('utf8');
+            response.on('data', (chunk) => {
+                responseText += chunk;
+            });
+            response.on('end', () => {
+                if ((response.statusCode || 0) >= 400) {
+                    reject(new Error(`HTTP ${response.statusCode}: ${responseText}`));
+                    return;
+                }
+                if (!responseText.trim()) {
+                    resolve({});
+                    return;
+                }
+                try {
+                    resolve(JSON.parse(responseText));
+                }
+                catch (error) {
+                    reject(error);
+                }
+            });
+        });
+        request.setTimeout(options.timeoutMs, () => {
+            request.destroy(new Error(`Request timed out after ${options.timeoutMs} ms.`));
+        });
+        request.on('error', reject);
+        if (options.body) {
+            request.write(options.body);
+        }
+        request.end();
+    });
+}
 async function runSummary(options) {
     const parsed = parseArguments(getCommandArgs(options.argv));
     const question = parsed.question || parsed.positionals[0];
@@ -220,8 +289,7 @@ async function runSummary(options) {
         stdinText: options.stdinText,
     });
     if ((!parsed.file || parsed.file.length === 0) && !inputText?.trim()) {
-        options.stdout.write('No output received.\n');
-        return 0;
+        throw new Error('stdin, --text or --file required');
     }
     const result = await (0, summary_js_1.summarizeRequest)({
         question,
@@ -407,6 +475,45 @@ async function runCaptureInternalCli(options) {
     options.stdout.write(`${String(result.OutputText)}\n`);
     return 0;
 }
+async function runRepoSearchCli(options) {
+    const tokens = getCommandArgs(options.argv);
+    if (tokens.some((token) => token === '-h' || token === '--h' || token === '--help' || token === '-help')) {
+        options.stdout.write('Usage: siftkit repo-search --prompt "find x y z in this repo" [--model <model>] [--max-turns <n>] [--log-file <path>]\n'
+            + 'Shortcut: siftkit -prompt "find x y z in this repo"\n');
+        return 0;
+    }
+    const parsed = parseArguments(tokens);
+    const prompt = (parsed.prompt || parsed.question || parsed.positionals.join(' ')).trim();
+    if (!prompt) {
+        throw new Error('A --prompt is required for repo-search.');
+    }
+    const response = await requestJson({
+        url: getRepoSearchServiceUrl(),
+        method: 'POST',
+        timeoutMs: 10 * 60 * 1000,
+        body: JSON.stringify({
+            prompt,
+            repoRoot: process.cwd(),
+            model: parsed.model,
+            maxTurns: parsed.maxTurns,
+            logFile: parsed.logFile,
+        }),
+    });
+    const scorecard = response.scorecard && typeof response.scorecard === 'object'
+        ? response.scorecard
+        : null;
+    const finalOutputs = Array.isArray(scorecard?.tasks)
+        ? scorecard.tasks
+            .map((task) => (typeof task?.finalOutput === 'string' ? task.finalOutput.trim() : ''))
+            .filter((value) => value.length > 0)
+        : [];
+    if (finalOutputs.length > 0) {
+        options.stdout.write(`${finalOutputs.join('\n\n')}\n`);
+        return 0;
+    }
+    options.stdout.write(`${JSON.stringify(response.scorecard, null, 2)}\n`);
+    return 0;
+}
 function readRequestFile(filePath) {
     const text = fs.readFileSync(filePath, 'utf8');
     const normalized = text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
@@ -512,6 +619,20 @@ async function runInternal(options) {
                 PolicyProfile: request.PolicyProfile,
             });
             break;
+        case 'repo-search':
+            result = await (0, repo_search_js_1.executeRepoSearchRequest)({
+                prompt: String(request.Prompt || ''),
+                repoRoot: String(request.RepoRoot || process.cwd()),
+                model: request.Model ? String(request.Model) : undefined,
+                maxTurns: request.MaxTurns === undefined ? undefined : Number(request.MaxTurns),
+                logFile: request.LogFile ? String(request.LogFile) : undefined,
+                availableModels: Array.isArray(request.AvailableModels) ? request.AvailableModels.map(String) : undefined,
+                mockResponses: Array.isArray(request.MockResponses) ? request.MockResponses.map(String) : undefined,
+                mockCommandResults: (request.MockCommandResults
+                    && typeof request.MockCommandResults === 'object'
+                    && !Array.isArray(request.MockCommandResults)) ? request.MockCommandResults : undefined,
+            });
+            break;
         default:
             throw new Error(`Unknown internal op: ${parsed.op}`);
     }
@@ -521,12 +642,21 @@ async function runInternal(options) {
 async function runCli(options) {
     const stdout = options.stdout || process.stdout;
     const stderr = options.stderr || process.stderr;
-    if (options.argv.length === 0 || ['help', '--help', '-h'].includes(options.argv[0])) {
+    if (options.argv.length === 0 || ['help', '--help', '--h', '-h', '-help'].includes(options.argv[0])) {
         showHelp(stdout);
         return 0;
     }
     const commandName = getCommandName(options.argv);
+    if (BLOCKED_PUBLIC_COMMANDS.has(options.argv[0])) {
+        stderr.write(`Command '${options.argv[0]}' is not exposed in this CLI build. Available commands: summary, repo-search, help.\n`);
+        return 1;
+    }
+    const commandArgs = getCommandArgs(options.argv);
+    const commandHelpRequested = commandArgs.some((token) => token === '-h' || token === '--h' || token === '--help' || token === '-help');
     try {
+        if (commandName === 'repo-search' && commandHelpRequested) {
+            return await runRepoSearchCli({ argv: options.argv, stdout });
+        }
         if (SERVER_DEPENDENT_COMMANDS.has(commandName)) {
             await (0, config_js_1.ensureStatusServerReachable)();
         }
@@ -549,6 +679,8 @@ async function runCli(options) {
                 return await runInstallGlobalCli({ argv: options.argv, stdout });
             case 'capture-internal':
                 return await runCaptureInternalCli({ argv: options.argv, stdout });
+            case 'repo-search':
+                return await runRepoSearchCli({ argv: options.argv, stdout });
             case 'find-files':
                 return await runFindFiles({ argv: options.argv, stdout });
             case 'test':

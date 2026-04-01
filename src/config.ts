@@ -395,6 +395,20 @@ function getFinitePositiveNumber(value: unknown): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function normalizeWindowsPath(value: string): string {
+  return value.replace(/\//gu, '\\').toLowerCase();
+}
+
+function isLegacyManagedStartupScriptPath(value: unknown): boolean {
+  if (typeof value !== 'string' || !value.trim()) {
+    return false;
+  }
+  const normalized = normalizeWindowsPath(value.trim());
+  return normalized === normalizeWindowsPath(SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT)
+    || normalized === normalizeWindowsPath(SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT)
+    || normalized === normalizeWindowsPath(SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT);
+}
+
 export function getConfiguredModel(config: SiftConfig): string {
   const model = config.Runtime?.Model ?? config.Model;
   if (typeof model === 'string' && model.trim()) {
@@ -1146,11 +1160,7 @@ function normalizeConfig(config: SiftConfig): { config: SiftConfig; info: Normal
     updated.Server.LlamaCpp.StartupScript = defaults.Server?.LlamaCpp?.StartupScript ?? null;
     changed = true;
   }
-  if (
-    updated.Server.LlamaCpp.StartupScript === SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT
-    || updated.Server.LlamaCpp.StartupScript === SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT
-    || updated.Server.LlamaCpp.StartupScript === SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT
-  ) {
+  if (isLegacyManagedStartupScriptPath(updated.Server.LlamaCpp.StartupScript)) {
     updated.Server.LlamaCpp.StartupScript = defaults.Server?.LlamaCpp?.StartupScript ?? null;
     changed = true;
   }

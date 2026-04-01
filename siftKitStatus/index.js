@@ -149,6 +149,36 @@ function writeText(targetPath, content) {
   fs.writeFileSync(targetPath, content, 'utf8');
 }
 
+function terminateProcessTree(pid, options = {}) {
+  const processObject = options.processObject || process;
+  const spawnSyncImpl = options.spawnSyncImpl || spawnSync;
+  const numericPid = Number(pid);
+  if (!Number.isFinite(numericPid) || numericPid <= 0) {
+    return false;
+  }
+
+  if (processObject.platform === 'win32') {
+    try {
+      const result = spawnSyncImpl('taskkill', ['/PID', String(Math.trunc(numericPid)), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      if ((result?.status ?? 1) === 0) {
+        return true;
+      }
+    } catch {
+      // Fall back to process.kill below.
+    }
+  }
+
+  try {
+    processObject.kill(Math.trunc(numericPid), 'SIGTERM');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function normalizeStatusText(value) {
   const normalized = String(value || '').trim().toLowerCase();
   if (
@@ -300,6 +330,20 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function normalizeWindowsPath(value) {
+  return String(value || '').replace(/\//gu, '\\').toLowerCase();
+}
+
+function isLegacyManagedStartupScriptPath(value) {
+  if (typeof value !== 'string' || !value.trim()) {
+    return false;
+  }
+  const normalized = normalizeWindowsPath(value.trim());
+  return normalized === normalizeWindowsPath(PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT)
+    || normalized === normalizeWindowsPath(FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT)
+    || normalized === normalizeWindowsPath(BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT);
+}
+
 function mergeConfig(baseValue, patchValue) {
   if (Array.isArray(baseValue) && Array.isArray(patchValue)) {
     return patchValue.slice();
@@ -395,11 +439,7 @@ function normalizeConfig(input) {
   if (!Object.prototype.hasOwnProperty.call(merged.Server.LlamaCpp, 'StartupScript')) {
     merged.Server.LlamaCpp.StartupScript = null;
   }
-  if (
-    merged.Server.LlamaCpp.StartupScript === PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT
-    || merged.Server.LlamaCpp.StartupScript === FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT
-    || merged.Server.LlamaCpp.StartupScript === BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT
-  ) {
+  if (isLegacyManagedStartupScriptPath(merged.Server.LlamaCpp.StartupScript)) {
     merged.Server.LlamaCpp.StartupScript = DEFAULT_LLAMA_STARTUP_SCRIPT;
   }
   if (!Object.prototype.hasOwnProperty.call(merged.Server.LlamaCpp, 'ShutdownScript')) {
@@ -1524,7 +1564,7 @@ function startStatusServer(options = {}) {
     return readConfig(configPath);
   }
 
-  async function shutdownManagedLlamaIfNeeded() {
+  async function shutdownManagedLlamaIfNeeded(options = {}) {
     if (disableManagedLlamaStartup) {
       managedLlamaReady = false;
       releaseSiftKitGpuLockIfIdle();
@@ -1540,6 +1580,11 @@ function startStatusServer(options = {}) {
     if (!baseUrl) {
       return;
     }
+    const force = Boolean(options.force);
+    const timeoutMs = Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0
+      ? Number(options.timeoutMs)
+      : getManagedLlamaConfig(config).StartupTimeoutMs;
+    const shutdownDeadline = Date.now() + timeoutMs;
 
     if (managedLlamaStartupPromise) {
       await managedLlamaStartupPromise;
@@ -1547,13 +1592,18 @@ function startStatusServer(options = {}) {
     if (managedLlamaShutdownPromise) {
       return managedLlamaShutdownPromise;
     }
-    if (!await isLlamaServerReachable(config)) {
+
+    const managed = getManagedLlamaConfig(config);
+    const hasActiveHostProcess = Boolean(
+      managedLlamaHostProcess
+      && managedLlamaHostProcess.exitCode === null
+      && managedLlamaHostProcess.signalCode === null
+    );
+    if (!managed.ShutdownScript && !hasActiveHostProcess) {
       managedLlamaReady = false;
       releaseSiftKitGpuLockIfIdle();
       return;
     }
-
-    const managed = getManagedLlamaConfig(config);
     managedLlamaShutdownPromise = (async () => {
       if (managed.ShutdownScript) {
         logLine(`llama_stop stopping script=${managed.ShutdownScript}`);
@@ -1568,16 +1618,24 @@ function startStatusServer(options = {}) {
             resolve();
           });
         });
-      } else if (managedLlamaHostProcess && managedLlamaHostProcess.exitCode === null && managedLlamaHostProcess.signalCode === null) {
-        logLine(`llama_stop stopping pid=${managedLlamaHostProcess.pid ?? 0}`);
-        managedLlamaHostProcess.kill('SIGTERM');
+      } else if (hasActiveHostProcess) {
+        const hostPid = managedLlamaHostProcess?.pid ?? 0;
+        logLine(`llama_stop stopping pid=${hostPid}`);
+        terminateProcessTree(hostPid);
       } else {
         process.stderr.write('[siftKitStatus] llama.cpp is still reachable but no shutdown script is configured and no managed host process is active.\n');
         return;
       }
 
       try {
-        await waitForLlamaServerReachability(config, false);
+        await waitForLlamaServerReachability(config, false, shutdownDeadline);
+      } catch (error) {
+        if (force && hasActiveHostProcess) {
+          const hostPid = managedLlamaHostProcess?.pid ?? 0;
+          terminateProcessTree(hostPid);
+          return;
+        }
+        throw error;
       } finally {
         managedLlamaReady = false;
         managedLlamaHostProcess = null;
@@ -1666,7 +1724,7 @@ function startStatusServer(options = {}) {
       if (disableManagedLlamaStartup) {
         return;
       }
-      await shutdownManagedLlamaIfNeeded();
+      await shutdownManagedLlamaIfNeeded({ force: true, timeoutMs: 10000 });
     } catch (error) {
       process.stderr.write(`[siftKitStatus] Failed to stop managed llama.cpp during server exit: ${error.message}\n`);
     } finally {
@@ -2004,6 +2062,54 @@ function startStatusServer(options = {}) {
       return;
     }
 
+    if (req.method === 'POST' && req.url === '/repo-search') {
+      let parsedBody;
+      try {
+        parsedBody = parseJsonBody(await readBody(req));
+      } catch {
+        sendJson(res, 400, { error: 'Expected valid JSON object.' });
+        return;
+      }
+
+      if (typeof parsedBody.prompt !== 'string' || !parsedBody.prompt.trim()) {
+        sendJson(res, 400, { error: 'Expected prompt.' });
+        return;
+      }
+
+      try {
+        const { executeRepoSearchRequest } = require('../dist/repo-search.js');
+        const result = await executeRepoSearchRequest({
+          prompt: parsedBody.prompt,
+          repoRoot: typeof parsedBody.repoRoot === 'string' && parsedBody.repoRoot.trim()
+            ? parsedBody.repoRoot.trim()
+            : process.cwd(),
+          config: readConfig(configPath),
+          model: typeof parsedBody.model === 'string' && parsedBody.model.trim()
+            ? parsedBody.model.trim()
+            : undefined,
+          maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
+          logFile: typeof parsedBody.logFile === 'string' && parsedBody.logFile.trim()
+            ? parsedBody.logFile.trim()
+            : undefined,
+          availableModels: Array.isArray(parsedBody.availableModels)
+            ? parsedBody.availableModels.map((value) => String(value))
+            : undefined,
+          mockResponses: Array.isArray(parsedBody.mockResponses)
+            ? parsedBody.mockResponses.map((value) => String(value))
+            : undefined,
+          mockCommandResults: (
+            parsedBody.mockCommandResults
+            && typeof parsedBody.mockCommandResults === 'object'
+            && !Array.isArray(parsedBody.mockCommandResults)
+          ) ? parsedBody.mockCommandResults : undefined,
+        });
+        sendJson(res, 200, result);
+      } catch (error) {
+        sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+      }
+      return;
+    }
+
     if (req.method === 'POST' && req.url === '/status') {
       const bodyText = await readBody(req);
       const running = parseRunning(bodyText);
@@ -2306,6 +2412,7 @@ module.exports = {
   getIdleSummarySnapshotsPath,
   getMetricsPath,
   getStatusPath,
+  terminateProcessTree,
   supportsAnsiColor,
   startStatusServer
 };
@@ -2315,16 +2422,36 @@ if (require.main === module) {
     disableManagedLlamaStartup: process.argv.includes('--disable-managed-llama-startup'),
   });
   let shuttingDown = false;
+  let forcedExitTimer = null;
   const shutdown = async (signal = 'SIGTERM') => {
     if (shuttingDown) {
+      process.stderr.write('[siftKitStatus] Shutdown already in progress; forcing immediate exit.\n');
+      if (typeof server.shutdownManagedLlamaForProcessExitSync === 'function') {
+        server.shutdownManagedLlamaForProcessExitSync();
+      }
+      process.exit(signal === 'SIGINT' ? 130 : 1);
       return;
     }
     shuttingDown = true;
+    forcedExitTimer = setTimeout(() => {
+      process.stderr.write('[siftKitStatus] Graceful shutdown timed out; forcing process exit.\n');
+      if (typeof server.shutdownManagedLlamaForProcessExitSync === 'function') {
+        server.shutdownManagedLlamaForProcessExitSync();
+      }
+      process.exit(signal === 'SIGINT' ? 130 : 1);
+    }, 15000);
+    if (typeof forcedExitTimer.unref === 'function') {
+      forcedExitTimer.unref();
+    }
     try {
       if (typeof server.shutdownManagedLlamaForServerExit === 'function') {
         await server.shutdownManagedLlamaForServerExit();
       }
     } finally {
+      if (forcedExitTimer) {
+        clearTimeout(forcedExitTimer);
+        forcedExitTimer = null;
+      }
       server.close(() => {
         if (signal === 'SIGUSR2') {
           process.kill(process.pid, 'SIGUSR2');

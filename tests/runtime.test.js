@@ -1465,6 +1465,24 @@ test('loadConfig migrates the broken external 9b thinking startup script to the 
   });
 });
 
+test('loadConfig migrates legacy startup script path regardless of Windows path casing', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+
+      assert.equal(config.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
+    }, {
+      config: {
+        Server: {
+          LlamaCpp: {
+            StartupScript: String(SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT).toLowerCase(),
+          },
+        },
+      },
+    });
+  });
+});
+
 test('loadConfig removes legacy chunk threshold ratio from loaded and persisted config', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
@@ -2070,6 +2088,33 @@ test('real status server migrates the legacy default startup script to the curre
     config.Server = {
       LlamaCpp: {
         StartupScript: SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ configUrl }) => {
+      const loadedConfig = await requestJson(configUrl);
+
+      assert.equal(loadedConfig.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
+      const persistedConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      assert.equal(persistedConfig.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
+test('real status server migrates legacy startup script path regardless of Windows path casing', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: String(SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT).toLowerCase(),
       },
     };
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
