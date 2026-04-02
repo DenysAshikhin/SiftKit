@@ -1646,7 +1646,6 @@ async function runTaskLoop(task, options) {
     THINKING_BUFFER_MIN_TOKENS
   );
   const usablePromptTokens = Math.max(totalContextTokens - thinkingBufferTokens, 0);
-  const perToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * PER_TOOL_RESULT_RATIO));
   const requestMaxTokens = resolveRepoSearchRequestMaxTokens(options);
   const followupOnNonThinkingFinish = options.enforceThinkingFinish === true;
   let zeroOutputStreak = 0;
@@ -1978,6 +1977,11 @@ async function runTaskLoop(task, options) {
     const resultTokenCount = useEstimatedTokensOnly
       ? estimateTokenCount(options.config, resultText)
       : await countTokensWithFallback(options.config, resultText);
+    const dynamicPerToolRatio = Math.max(
+      PER_TOOL_RESULT_RATIO,
+      Number(commands.length) / Number(maxTurns)
+    );
+    const perToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * dynamicPerToolRatio));
     const remainingTokenAllowance = Math.max(usablePromptTokens - promptTokenCount, 0);
     if (resultTokenCount > perToolCapTokens || resultTokenCount > remainingTokenAllowance) {
       resultText = `Error: requested output would consume ${resultTokenCount} tokens, remaining token allowance: ${remainingTokenAllowance}, per tool call allowance: ${perToolCapTokens}`;

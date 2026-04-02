@@ -602,6 +602,10 @@ test('runTaskLoop stops on invalid response limit', async () => {
 
 test('runTaskLoop replaces oversized tool output with token allowance error', async () => {
   const events = [];
+  const totalContextTokens = 20000;
+  const thinkingBufferTokens = Math.max(Math.ceil(totalContextTokens * 0.15), 4000);
+  const usablePromptTokens = Math.max(totalContextTokens - thinkingBufferTokens, 0);
+  const baselinePerToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * 0.10));
   const result = await runTaskLoop(
     {
       id: 'task-token-guard',
@@ -612,7 +616,7 @@ test('runTaskLoop replaces oversized tool output with token allowance error', as
       maxTurns: 3,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
-      totalContextTokens: 120,
+      totalContextTokens,
       mockResponses: [
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
         '{"action":"finish","output":"done"}',
@@ -621,7 +625,7 @@ test('runTaskLoop replaces oversized tool output with token allowance error', as
       mockCommandResults: {
         'rg -n "planner" src': {
           exitCode: 0,
-          stdout: 'x'.repeat(2000),
+          stdout: 'x'.repeat(10000),
           stderr: '',
         },
       },
@@ -635,6 +639,98 @@ test('runTaskLoop replaces oversized tool output with token allowance error', as
 
   const commandEvent = events.find((event) => event.kind === 'turn_command_result');
   assert.equal(typeof commandEvent?.insertedResultText, 'string');
+  assert.equal(commandEvent?.perToolCapTokens, baselinePerToolCapTokens);
+  assert.match(
+    String(commandEvent?.insertedResultText || ''),
+    /^Error: requested output would consume \d+ tokens, remaining token allowance: \d+, per tool call allowance: \d+$/u
+  );
+  assert.equal(result.reason, 'finish');
+});
+
+test('runTaskLoop increases per-tool cap as tool-call progress grows', async () => {
+  const events = [];
+  const totalContextTokens = 20000;
+  const thinkingBufferTokens = Math.max(Math.ceil(totalContextTokens * 0.15), 4000);
+  const usablePromptTokens = Math.max(totalContextTokens - thinkingBufferTokens, 0);
+  const baselinePerToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * 0.10));
+  const expectedThirdCommandCap = Math.max(1, Math.floor(usablePromptTokens * (2 / 10)));
+  const result = await runTaskLoop(
+    {
+      id: 'task-dynamic-cap-growth',
+      question: 'Find planner text.',
+      signals: ['done'],
+    },
+    {
+      maxTurns: 10,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"summary\\" src"}}',
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"repo\\" src"}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'rg -n "planner" src': { exitCode: 0, stdout: 'planner hit', stderr: '' },
+        'rg -n "summary" src': { exitCode: 0, stdout: 'summary hit', stderr: '' },
+        'rg -n "repo" src': { exitCode: 0, stdout: 'repo hit', stderr: '' },
+      },
+      logger: {
+        write(event) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
+  assert.equal(commandEvents.length, 3);
+  assert.equal(commandEvents[0].perToolCapTokens, baselinePerToolCapTokens);
+  assert.equal(commandEvents[2].perToolCapTokens, expectedThirdCommandCap);
+  assert.equal(commandEvents[2].perToolCapTokens > commandEvents[0].perToolCapTokens, true);
+  assert.equal(result.reason, 'finish');
+});
+
+test('runTaskLoop still rejects tool output that exceeds remaining token allowance', async () => {
+  const events = [];
+  const totalContextTokens = 20000;
+  const oversizedQuestion = 'Q'.repeat(70000);
+  const result = await runTaskLoop(
+    {
+      id: 'task-remaining-token-guard',
+      question: oversizedQuestion,
+      signals: ['done'],
+    },
+    {
+      maxTurns: 10,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'rg -n "planner" src': {
+          exitCode: 0,
+          stdout: 'x'.repeat(1200),
+          stderr: '',
+        },
+      },
+      logger: {
+        write(event) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const commandEvent = events.find((event) => event.kind === 'turn_command_result');
+  assert.equal(typeof commandEvent?.insertedResultText, 'string');
+  assert.equal(commandEvent?.perToolCapTokens > commandEvent?.remainingTokenAllowance, true);
   assert.match(
     String(commandEvent?.insertedResultText || ''),
     /^Error: requested output would consume \d+ tokens, remaining token allowance: \d+, per tool call allowance: \d+$/u
