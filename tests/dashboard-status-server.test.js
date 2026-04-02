@@ -75,6 +75,8 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     inputTokens: 123,
     outputTokens: 45,
     thinkingTokens: 9,
+    promptCacheTokens: 80,
+    promptEvalTokens: 40,
     requestDurationMs: 3000,
   });
   writeJson(path.join(logsRoot, 'planner_debug_req-summary.json'), {
@@ -93,6 +95,8 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     inputTokens: 50,
     outputTokens: 0,
     thinkingTokens: 0,
+    promptCacheTokens: 0,
+    promptEvalTokens: 20,
     requestDurationMs: 1000,
   });
   writeJson(path.join(abandonedRoot, 'request_abandoned_req-abandoned.json'), {
@@ -166,6 +170,12 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     assert.equal(Array.isArray(metricsResponse.body.days), true);
     assert.equal(metricsResponse.body.days.length > 0, true);
     assert.equal(metricsResponse.body.days[0].runs >= 1, true);
+    assert.equal(Number.isFinite(metricsResponse.body.days[0].promptCacheTokens), true);
+    assert.equal(Number.isFinite(metricsResponse.body.days[0].promptEvalTokens), true);
+    assert.equal(Number.isFinite(metricsResponse.body.days[0].cacheHitRate), true);
+    assert.equal(metricsResponse.body.days[0].promptCacheTokens, 80);
+    assert.equal(metricsResponse.body.days[0].promptEvalTokens, 60);
+    assert.equal(Math.round(metricsResponse.body.days[0].cacheHitRate * 1000) / 1000, 0.571);
 
     const idleSummaryResponse = await requestJson(`${baseUrl}/dashboard/metrics/idle-summary`);
     assert.equal(idleSummaryResponse.statusCode, 200);

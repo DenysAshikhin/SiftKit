@@ -50,11 +50,11 @@ const repo_search_js_1 = require("./repo-search.js");
 const KNOWN_COMMANDS = new Set([
     'summary',
     'repo-search',
+    'find-files',
     'internal',
 ]);
 const BLOCKED_PUBLIC_COMMANDS = new Set([
     'run',
-    'find-files',
     'install',
     'test',
     'eval',

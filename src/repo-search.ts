@@ -66,6 +66,18 @@ function getOutputCharacterCount(scorecard: unknown): number {
   return outputText.length;
 }
 
+function getNumericTotal(scorecard: unknown, key: string): number | null {
+  if (!scorecard || typeof scorecard !== 'object' || Array.isArray(scorecard)) {
+    return null;
+  }
+  const totals = (scorecard as { totals?: unknown }).totals;
+  if (!totals || typeof totals !== 'object' || Array.isArray(totals)) {
+    return null;
+  }
+  const rawValue = (totals as Record<string, unknown>)[key];
+  return Number.isFinite(rawValue) && Number(rawValue) >= 0 ? Number(rawValue) : null;
+}
+
 function getRuntimeLogsPath(): string {
   const statusPath = process.env.sift_kit_status || process.env.SIFTKIT_STATUS_PATH || '';
   if (statusPath && statusPath.trim()) {
@@ -217,6 +229,9 @@ export async function executeRepoSearchRequest(request: RepoSearchExecutionReque
     };
     fs.writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
     const outputCharacterCount = getOutputCharacterCount(scorecard);
+    const promptTokens = getNumericTotal(scorecard, 'promptTokens');
+    const promptCacheTokens = getNumericTotal(scorecard, 'promptCacheTokens');
+    const promptEvalTokens = getNumericTotal(scorecard, 'promptEvalTokens');
     try {
       await notifyStatusBackend({
         running: false,
@@ -224,7 +239,10 @@ export async function executeRepoSearchRequest(request: RepoSearchExecutionReque
         requestId,
         terminalState: 'completed',
         promptCharacterCount: prompt.length,
+        inputTokens: promptTokens,
         outputCharacterCount,
+        promptCacheTokens,
+        promptEvalTokens,
         requestDurationMs: Date.now() - startedAt,
       });
     } catch {

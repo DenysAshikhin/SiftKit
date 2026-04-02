@@ -15,7 +15,12 @@ import {
   notifyStatusBackend,
 } from './config.js';
 import { withExecutionLock } from './execution-lock.js';
-import { countLlamaCppTokens, generateLlamaCppResponse } from './providers/llama-cpp.js';
+import {
+  countLlamaCppTokens,
+  generateLlamaCppChatResponse,
+  generateLlamaCppResponse,
+  type LlamaCppChatMessage,
+} from './providers/llama-cpp.js';
 
 export type SummaryPolicyProfile = 'general' | 'pass-fail' | 'unique-errors' | 'buried-critical' | 'json-extraction' | 'diff-summary' | 'risky-operation';
 export type SummarySourceKind = 'standalone' | 'command-output';
@@ -575,6 +580,7 @@ const PLANNER_TRIGGER_CONTEXT_RATIO = 0.75;
 const MAX_PLANNER_TOOL_RESULT_CHARACTERS = 12_000;
 const MAX_PLANNER_PREVIEW_CHARACTERS = 600;
 const MAX_JSON_FALLBACK_PREVIEW_CHARACTERS = 200;
+const PLANNER_FALLBACK_TO_CHUNKS = 'fallback_to_chunks';
 let nextLlamaCppSlotId = 0;
 
 function getLlamaCppPromptTokenReserve(config: SiftConfig): number {
@@ -916,22 +922,14 @@ function buildPlannerDocumentProfile(inputText: string): string {
   return profileLines.join('\n');
 }
 
-function buildPlannerPrompt(options: {
-  question: string;
-  inputText: string;
+function buildPlannerSystemPrompt(options: {
   promptPrefix?: string;
   sourceKind: SummarySourceKind;
   commandExitCode?: number | null;
   rawReviewRequired: boolean;
   toolDefinitions: PlannerToolDefinition[];
-  toolResults: Array<{ toolName: PlannerToolName; args: Record<string, unknown>; result: unknown; resultText: string }>;
-  lastInvalidResponseError?: string | null;
 }): string {
   const allowUnsupportedInput = options.sourceKind !== 'command-output';
-  const remainingToolCalls = Math.max(MAX_PLANNER_TOOL_CALLS - options.toolResults.length, 0);
-  const lastInvalidResponseError = typeof options.lastInvalidResponseError === 'string'
-    ? options.lastInvalidResponseError.trim().replace(/\s+/gu, ' ')
-    : '';
   const sections = [
     'You are SiftKit, a conservative shell-output compressor for Codex workflows.',
     '',
@@ -939,22 +937,12 @@ function buildPlannerPrompt(options: {
     '- The full input is too large for a direct pass, so inspect only the minimum evidence needed.',
     '- If the document profile or current tool results are already sufficient, finish immediately.',
     '- Request at most one tool call per response.',
-    `- Tool-call budget remaining: ${remainingToolCalls}.`,
-    ...(remainingToolCalls > 0
-      ? [`- You have ${remainingToolCalls} tool call${remainingToolCalls === 1 ? '' : 's'} left; finish once evidence is sufficient.`]
-      : ['- Tool-call budget is exhausted. Return action="finish" now.']),
     '- Return only a valid JSON object. No markdown fences.',
     '- Use separate filters for gte/lte bounds in json_filter; do not combine multiple operators inside one filter value.',
     '- Do not use "value":{"gte":3200,"lte":3215}. Use one filter per bound with a scalar value.',
     '- When the document profile shows top_level=object with object_array_paths=..., use collectionPath to target that array and filter item fields relative to each array element.',
     '- Never emit JSON schema fragments like {"type":"integer"} as argument values. Use concrete literals.',
     '- Regex patterns must be valid JavaScript regex source for find_text. Do not add unnecessary escapes for ordinary quotes.',
-    ...(lastInvalidResponseError
-      ? [
-        `- Previous response was invalid: ${lastInvalidResponseError}`,
-        '- Retry with one corrected JSON action and concrete literal argument values.',
-      ]
-      : []),
     '',
     'Available actions:',
     '{"action":"tool","tool_name":"find_text|read_lines|json_filter","args":{...}}',
@@ -979,25 +967,69 @@ function buildPlannerPrompt(options: {
     '',
     'Tools:',
     ...options.toolDefinitions.map((tool) => `${tool.function.name}: ${tool.function.description}`),
-    '',
-    'Document profile:',
-    buildPlannerDocumentProfile(options.inputText),
-    '',
-    'Question:',
-    options.question,
   ];
-
-  for (const toolResult of options.toolResults) {
-    sections.push('');
-    sections.push(`Tool call: ${toolResult.toolName} ${JSON.stringify(toolResult.args)}`);
-    sections.push('Tool result:');
-    sections.push(toolResult.resultText);
-  }
 
   const promptPrefix = options.promptPrefix?.trim();
   return promptPrefix
     ? [promptPrefix, '', ...sections].join('\n')
     : sections.join('\n');
+}
+
+function buildPlannerInitialUserPrompt(options: {
+  question: string;
+  inputText: string;
+}): string {
+  return [
+    'Document profile:',
+    buildPlannerDocumentProfile(options.inputText),
+    '',
+    'Question:',
+    options.question,
+    '',
+    'Use tools to inspect the full input when needed.',
+  ].join('\n');
+}
+
+function buildPlannerInvalidResponseUserPrompt(message: string): string {
+  return [
+    `Previous response was invalid: ${message.trim().replace(/\s+/gu, ' ')}`,
+    'Retry with one corrected JSON action and concrete literal argument values.',
+  ].join('\n');
+}
+
+function renderPlannerTranscript(messages: LlamaCppChatMessage[]): string {
+  return messages.map((message) => {
+    const sections: string[] = [];
+    if (typeof message.content === 'string' && message.content) {
+      sections.push(message.content);
+    }
+    if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
+      for (const toolCall of message.tool_calls) {
+        sections.push(`Tool call: ${toolCall.function?.name ?? ''} ${String(toolCall.function?.arguments ?? '')}`.trim());
+      }
+    }
+    if (message.role === 'tool' && typeof message.content === 'string' && message.content) {
+      return `[tool]\nTool result:\n${message.content}`;
+    }
+    return sections.join('\n');
+  }).join('\n\n');
+}
+
+function buildPlannerAssistantToolMessage(action: PlannerToolCall, toolCallId: string): LlamaCppChatMessage {
+  return {
+    role: 'assistant',
+    content: '',
+    tool_calls: [
+      {
+        id: toolCallId,
+        type: 'function',
+        function: {
+          name: action.tool_name,
+          arguments: JSON.stringify(action.args),
+        },
+      },
+    ],
+  };
 }
 
 function parsePlannerAction(text: string): PlannerAction {
@@ -1850,6 +1882,8 @@ async function invokeProviderSummary(options: {
   let outputCharacterCount: number | null = null;
   let outputTokens: number | null = null;
   let thinkingTokens: number | null = null;
+  let promptCacheTokens: number | null = null;
+  let promptEvalTokens: number | null = null;
   try {
     if (options.backend === 'mock') {
       const rawSleep = process.env.SIFTKIT_TEST_PROVIDER_SLEEP_MS;
@@ -1891,6 +1925,8 @@ async function invokeProviderSummary(options: {
     outputCharacterCount = response.text.length;
     outputTokens = response.usage?.completionTokens ?? null;
     thinkingTokens = response.usage?.thinkingTokens ?? null;
+    promptCacheTokens = response.usage?.promptCacheTokens ?? null;
+    promptEvalTokens = response.usage?.promptEvalTokens ?? null;
     traceSummary(
       `provider done phase=${options.phase} chunk=${chunkLabel} output_chars=${outputCharacterCount} `
       + `output_tokens=${outputTokens ?? 'null'} thinking_tokens=${thinkingTokens ?? 'null'}`
@@ -1909,6 +1945,8 @@ async function invokeProviderSummary(options: {
       thinkingTokens: countOutputTokensAsThinking
         ? sumTokenCounts(thinkingTokens, outputTokens)
         : thinkingTokens,
+      promptCacheTokens,
+      promptEvalTokens,
       requestDurationMs: Date.now() - startedAt,
     });
   }
@@ -1919,7 +1957,8 @@ async function invokePlannerProviderAction(options: {
   slotId: number | null;
   config: SiftConfig;
   model: string;
-  prompt: string;
+  messages: LlamaCppChatMessage[];
+  promptText: string;
   promptTokenCount: number;
   rawInputCharacterCount: number;
   chunkInputCharacterCount: number;
@@ -1933,16 +1972,18 @@ async function invokePlannerProviderAction(options: {
   outputCharacterCount: number | null;
   outputTokens: number | null;
   thinkingTokens: number | null;
+  promptCacheTokens: number | null;
+  promptEvalTokens: number | null;
   requestDurationMs: number;
 }> {
   traceSummary(
     `notify running=true phase=planner chunk=none raw_chars=${options.rawInputCharacterCount} `
-    + `chunk_chars=${options.chunkInputCharacterCount} prompt_chars=${options.prompt.length}`
+    + `chunk_chars=${options.chunkInputCharacterCount} prompt_chars=${options.promptText.length}`
   );
   await notifyStatusBackend({
     running: true,
     requestId: options.requestId,
-    promptCharacterCount: options.prompt.length,
+    promptCharacterCount: options.promptText.length,
     promptTokenCount: options.promptTokenCount,
     rawInputCharacterCount: options.rawInputCharacterCount,
     chunkInputCharacterCount: options.chunkInputCharacterCount,
@@ -1956,13 +1997,17 @@ async function invokePlannerProviderAction(options: {
   let outputCharacterCount: number | null = null;
   let outputTokens: number | null = null;
   let thinkingTokens: number | null = null;
+  let promptCacheTokens: number | null = null;
+  let promptEvalTokens: number | null = null;
   try {
-    const response = await generateLlamaCppResponse({
+    const response = await generateLlamaCppChatResponse({
       config: options.config,
       model: options.model,
-      prompt: options.prompt,
+      messages: options.messages,
       timeoutSeconds: options.requestTimeoutSeconds ?? 600,
       slotId: options.slotId ?? undefined,
+      cachePrompt: true,
+      tools: options.toolDefinitions,
       structuredOutput: {
         kind: 'siftkit-planner-action-json',
         tools: options.toolDefinitions,
@@ -1973,6 +2018,8 @@ async function invokePlannerProviderAction(options: {
     outputCharacterCount = response.text.length;
     outputTokens = response.usage?.completionTokens ?? null;
     thinkingTokens = response.usage?.thinkingTokens ?? null;
+    promptCacheTokens = response.usage?.promptCacheTokens ?? null;
+    promptEvalTokens = response.usage?.promptEvalTokens ?? null;
     return {
       text: response.text,
       reasoningText: response.reasoningText,
@@ -1980,6 +2027,8 @@ async function invokePlannerProviderAction(options: {
       outputCharacterCount,
       outputTokens,
       thinkingTokens,
+      promptCacheTokens,
+      promptEvalTokens,
       requestDurationMs: Date.now() - startedAt,
     };
   } catch (error) {
@@ -1987,11 +2036,13 @@ async function invokePlannerProviderAction(options: {
     await notifyStatusBackend({
       running: false,
       requestId: options.requestId,
-      promptCharacterCount: options.prompt.length,
+      promptCharacterCount: options.promptText.length,
       inputTokens,
       outputCharacterCount,
       outputTokens,
       thinkingTokens,
+      promptCacheTokens,
+      promptEvalTokens,
       requestDurationMs: Date.now() - startedAt,
     });
     throw error;
@@ -2014,7 +2065,7 @@ async function invokePlannerMode(options: {
   promptPrefix?: string;
   requestTimeoutSeconds?: number;
   llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
-}): Promise<StructuredModelDecision | null> {
+}): Promise<StructuredModelDecision | null | typeof PLANNER_FALLBACK_TO_CHUNKS> {
   if (options.backend !== 'llama.cpp') {
     return null;
   }
@@ -2026,6 +2077,25 @@ async function invokePlannerMode(options: {
 
   const toolDefinitions = buildPlannerToolDefinitions();
   const toolResults: Array<{ toolName: PlannerToolName; args: Record<string, unknown>; result: unknown; resultText: string }> = [];
+  const messages: LlamaCppChatMessage[] = [
+    {
+      role: 'system',
+      content: buildPlannerSystemPrompt({
+        promptPrefix: options.promptPrefix,
+        sourceKind: options.sourceKind,
+        commandExitCode: options.commandExitCode,
+        rawReviewRequired: options.rawReviewRequired,
+        toolDefinitions,
+      }),
+    },
+    {
+      role: 'user',
+      content: buildPlannerInitialUserPrompt({
+        question: options.question,
+        inputText: options.inputText,
+      }),
+    },
+  ];
   const debugRecorder = createPlannerDebugRecorder({
     requestId: options.requestId,
     question: options.question,
@@ -2035,20 +2105,9 @@ async function invokePlannerMode(options: {
     commandText: options.debugCommand,
   });
   let invalidActionCount = 0;
-  let lastInvalidResponseError: string | null = null;
 
   while (toolResults.length <= MAX_PLANNER_TOOL_CALLS) {
-    const prompt = buildPlannerPrompt({
-      question: options.question,
-      inputText: options.inputText,
-      promptPrefix: options.promptPrefix,
-      sourceKind: options.sourceKind,
-      commandExitCode: options.commandExitCode,
-      rawReviewRequired: options.rawReviewRequired,
-      toolDefinitions,
-      toolResults,
-      lastInvalidResponseError,
-    });
+    const prompt = renderPlannerTranscript(messages);
     const promptTokenCount = (
       await countLlamaCppTokens(options.config, prompt)
     ) ?? estimatePromptTokenCount(options.config, prompt);
@@ -2076,6 +2135,8 @@ async function invokePlannerMode(options: {
       outputCharacterCount: number | null;
       outputTokens: number | null;
       thinkingTokens: number | null;
+      promptCacheTokens: number | null;
+      promptEvalTokens: number | null;
       requestDurationMs: number;
     };
     try {
@@ -2084,7 +2145,8 @@ async function invokePlannerMode(options: {
         slotId: options.slotId,
         config: options.config,
         model: options.model,
-        prompt,
+        messages,
+        promptText: prompt,
         promptTokenCount,
         rawInputCharacterCount: options.inputText.length,
         chunkInputCharacterCount: options.inputText.length,
@@ -2112,11 +2174,28 @@ async function invokePlannerMode(options: {
       try {
         action = parsePlannerAction(providerResponse.text);
       } catch (error) {
+        if (toolResults.length === 0 && tryRecoverStructuredModelDecision(providerResponse.text)) {
+          debugRecorder.finish({
+            status: 'fallback',
+            reason: 'planner_non_action_response',
+          });
+          return PLANNER_FALLBACK_TO_CHUNKS;
+        }
         invalidActionCount += 1;
-        lastInvalidResponseError = getErrorMessage(error);
+        const invalidResponseError = getErrorMessage(error);
+        if (providerResponse.text.trim()) {
+          messages.push({
+            role: 'assistant',
+            content: providerResponse.text,
+          });
+        }
+        messages.push({
+          role: 'user',
+          content: buildPlannerInvalidResponseUserPrompt(invalidResponseError),
+        });
         debugRecorder.record({
           kind: 'planner_invalid_response',
-          error: lastInvalidResponseError,
+          error: invalidResponseError,
         });
         if (invalidActionCount >= 2) {
           debugRecorder.finish({
@@ -2178,10 +2257,15 @@ async function invokePlannerMode(options: {
         result = executePlannerTool(options.inputText, action);
       } catch (error) {
         invalidActionCount += 1;
-        lastInvalidResponseError = getErrorMessage(error);
+        const invalidResponseError = getErrorMessage(error);
+        messages.push(buildPlannerAssistantToolMessage(action, `invalid_call_${invalidActionCount}`));
+        messages.push({
+          role: 'user',
+          content: buildPlannerInvalidResponseUserPrompt(invalidResponseError),
+        });
         debugRecorder.record({
           kind: 'planner_invalid_response',
-          error: lastInvalidResponseError,
+          error: invalidResponseError,
           toolCall: action,
         });
         if (invalidActionCount >= 2) {
@@ -2210,7 +2294,13 @@ async function invokePlannerMode(options: {
       const promptResultText = normalizedResultTokenCount > (remainingPromptTokens * 0.7)
         ? formatPlannerToolResultTokenGuardError(normalizedResultTokenCount)
         : formattedResultText;
-      lastInvalidResponseError = null;
+      const toolCallId = `call_${toolResults.length + 1}`;
+      messages.push(buildPlannerAssistantToolMessage(action, toolCallId));
+      messages.push({
+        role: 'tool',
+        tool_call_id: toolCallId,
+        content: promptResultText,
+      });
       toolResults.push({
         toolName: action.tool_name,
         args: action.args,
@@ -2229,6 +2319,8 @@ async function invokePlannerMode(options: {
         thinkingTokens: countOutputTokens
           ? providerResponse.thinkingTokens
           : sumTokenCounts(providerResponse.thinkingTokens, providerResponse.outputTokens),
+        promptCacheTokens: providerResponse.promptCacheTokens,
+        promptEvalTokens: providerResponse.promptEvalTokens,
         requestDurationMs: providerResponse.requestDurationMs,
       });
     }
@@ -2568,8 +2660,11 @@ async function invokeSummaryCore(options: {
         : getChunkThresholdCharacters(options.config)
     ))
   );
+  const llamaPromptBudget = options.backend === 'llama.cpp'
+    ? getPlannerPromptBudget(options.config)
+    : null;
   const plannerActivationThreshold = options.backend === 'llama.cpp'
-    ? Math.min(chunkThreshold, getPlannerActivationThresholdCharacters(options.config))
+    ? getPlannerActivationThresholdCharacters(options.config)
     : chunkThreshold;
   const enforceNonToolOneShot = options.backend === 'llama.cpp'
     && options.inputText.length <= plannerActivationThreshold;
@@ -2580,33 +2675,113 @@ async function invokeSummaryCore(options: {
     `invokeSummaryCore start phase=${phase} chunk=${chunkLabel} input_chars=${options.inputText.length} `
     + `chunk_threshold=${chunkThreshold} planner_threshold=${plannerActivationThreshold}`
   );
-  if (options.inputText.length > plannerActivationThreshold) {
-    if (phase === 'leaf' && !options.chunkContext) {
-      const plannerDecision = await invokePlannerMode({
-        requestId: options.requestId,
-        slotId: options.slotId,
-        question: options.question,
-        inputText: options.inputText,
-        format: options.format,
-        backend: options.backend,
-        model: options.model,
-        config: options.config,
-        rawReviewRequired: options.rawReviewRequired,
-        sourceKind: options.sourceKind,
-        commandExitCode: options.commandExitCode,
-        debugCommand: options.debugCommand,
-        promptPrefix: options.promptPrefix,
-        requestTimeoutSeconds: options.requestTimeoutSeconds,
-        llamaCppOverrides: options.llamaCppOverrides,
-      });
-      if (plannerDecision) {
-        return plannerDecision;
-      }
+  const isTopLevelLlamaPass = options.backend === 'llama.cpp'
+    && phase === 'leaf'
+    && !options.chunkContext
+    && options.chunkThresholdOverride == null;
+  const plannerBudgetAvailable = options.backend === 'llama.cpp'
+    && (llamaPromptBudget?.plannerStopLineTokens ?? 0) > 0;
+  if (
+    isTopLevelLlamaPass
+    && plannerBudgetAvailable
+    && options.inputText.length > plannerActivationThreshold
+  ) {
+    const plannerDecision = await invokePlannerMode({
+      requestId: options.requestId,
+      slotId: options.slotId,
+      question: options.question,
+      inputText: options.inputText,
+      format: options.format,
+      backend: options.backend,
+      model: options.model,
+      config: options.config,
+      rawReviewRequired: options.rawReviewRequired,
+      sourceKind: options.sourceKind,
+      commandExitCode: options.commandExitCode,
+      debugCommand: options.debugCommand,
+      promptPrefix: options.promptPrefix,
+      requestTimeoutSeconds: options.requestTimeoutSeconds,
+      llamaCppOverrides: options.llamaCppOverrides,
+    });
+    if (plannerDecision === PLANNER_FALLBACK_TO_CHUNKS) {
+      // Fall through to normal chunking/provider flow.
+    } else if (plannerDecision) {
+      return plannerDecision;
+    } else {
       throw new Error(buildPlannerFailureErrorMessage({
         requestId: options.requestId,
       }));
     }
-    throw new Error(`Planner mode is required for oversized input but is unavailable for phase=${phase}.`);
+  }
+  if (
+    options.inputText.length > chunkThreshold
+    && !(options.backend === 'llama.cpp' && (llamaPromptBudget?.usablePromptBudgetTokens ?? 0) <= 0)
+  ) {
+    const plannedChunks = options.backend === 'llama.cpp'
+      ? await planTokenAwareLlamaCppChunks({
+        question: options.question,
+        inputText: options.inputText,
+        format: options.format,
+        policyProfile: options.policyProfile,
+        rawReviewRequired: options.rawReviewRequired,
+        promptPrefix: options.promptPrefix,
+        sourceKind: options.sourceKind,
+        commandExitCode: options.commandExitCode,
+        config: options.config,
+        chunkThreshold,
+        phase,
+        chunkContext: options.chunkContext,
+      })
+      : null;
+    const chunks = plannedChunks && plannedChunks.length > 1
+      ? plannedChunks
+      : splitTextIntoChunks(options.inputText, chunkThreshold);
+    if (chunks.length > 1) {
+      const chunkDecisions: StructuredModelDecision[] = [];
+      for (let index = 0; index < chunks.length; index += 1) {
+        const childChunkPath = appendChunkPath(options.chunkPath ?? null, index + 1, chunks.length);
+        chunkDecisions.push(await invokeSummaryCore({
+          ...options,
+          inputText: chunks[index],
+          phase,
+        chunkIndex: index + 1,
+        chunkTotal: chunks.length,
+        chunkPath: childChunkPath,
+        rootInputCharacterCount,
+        chunkThresholdOverride: chunkThreshold,
+        chunkContext: {
+          isGeneratedChunk: true,
+          mayBeTruncated: true,
+            retryMode: 'default',
+            chunkPath: childChunkPath,
+          },
+        }));
+      }
+      const mergeLines = chunkDecisions
+        .map((decision, index) => JSON.stringify({
+          chunk: index + 1,
+          classification: decision.classification,
+          raw_review_required: decision.rawReviewRequired,
+          output: decision.output,
+        }));
+      const mergeRequiresRawReview = chunkDecisions.some((decision) => decision.rawReviewRequired);
+      const mergeInput = [
+        `raw_review_required=${mergeRequiresRawReview ? 'true' : 'false'}`,
+        ...mergeLines,
+      ].join('\n');
+      return invokeSummaryCore({
+        ...options,
+        question: options.question,
+        inputText: mergeInput,
+        phase: 'merge',
+        chunkIndex: options.chunkIndex ?? null,
+        chunkTotal: options.chunkTotal ?? null,
+        chunkPath: options.chunkPath ?? null,
+        rootInputCharacterCount,
+        chunkThresholdOverride: chunkThreshold,
+        chunkContext: undefined,
+      });
+    }
   }
 
   const allowUnsupportedInput = options.sourceKind !== 'command-output'
@@ -2625,7 +2800,7 @@ async function invokeSummaryCore(options: {
     allowUnsupportedInput,
   });
   const effectivePromptLimit = options.backend === 'llama.cpp'
-    ? getPlannerPromptBudget(options.config).usablePromptBudgetTokens
+    ? (llamaPromptBudget?.usablePromptBudgetTokens ?? 0)
     : null;
   traceSummary(
     `preflight start phase=${phase} chunk=${chunkLabel} prompt_chars=${prompt.length} `
@@ -2650,6 +2825,7 @@ async function invokeSummaryCore(options: {
     );
     return invokeSummaryCore({
       ...options,
+      rootInputCharacterCount,
       chunkThresholdOverride: preflightChunkThreshold,
       chunkIndex: options.chunkIndex ?? null,
       chunkTotal: options.chunkTotal ?? null,
@@ -2684,6 +2860,7 @@ async function invokeSummaryCore(options: {
         if (options.chunkContext?.retryMode !== 'strict') {
           return invokeSummaryCore({
             ...options,
+            rootInputCharacterCount,
             chunkContext: {
               ...(options.chunkContext ?? {
                 isGeneratedChunk: true,
@@ -2754,6 +2931,7 @@ async function invokeSummaryCore(options: {
 
     return invokeSummaryCore({
       ...options,
+      rootInputCharacterCount,
       chunkThresholdOverride: reducedThreshold,
       chunkIndex: options.chunkIndex ?? null,
       chunkTotal: options.chunkTotal ?? null,
@@ -2794,6 +2972,10 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
       model = request.model || getConfiguredModel(config);
       const riskLevel = request.policyProfile === 'risky-operation' ? 'risky' : 'informational';
       const sourceKind = request.sourceKind || 'standalone';
+      const maxInputCharacters = getChunkThresholdCharacters(config) * 4;
+      if (backend !== 'llama.cpp' && inputText.length > maxInputCharacters) {
+        throw new Error(`Error: recieved input of ${inputText.length} characters, current maximum is ${maxInputCharacters} chars`);
+      }
       const decision = getSummaryDecision(inputText, request.question, riskLevel, config, {
         sourceKind,
         commandExitCode: request.commandExitCode,

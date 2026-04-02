@@ -206,6 +206,8 @@ function getDefaultMetrics() {
     inputTokensTotal: 0,
     outputTokensTotal: 0,
     thinkingTokensTotal: 0,
+    promptCacheTokensTotal: 0,
+    promptEvalTokensTotal: 0,
     requestDurationMsTotal: 0,
     completedRequestCount: 0,
     updatedAtUtc: null
@@ -232,6 +234,12 @@ function normalizeMetrics(input) {
   }
   if (Number.isFinite(input.thinkingTokensTotal) && input.thinkingTokensTotal >= 0) {
     metrics.thinkingTokensTotal = Number(input.thinkingTokensTotal);
+  }
+  if (Number.isFinite(input.promptCacheTokensTotal) && input.promptCacheTokensTotal >= 0) {
+    metrics.promptCacheTokensTotal = Number(input.promptCacheTokensTotal);
+  }
+  if (Number.isFinite(input.promptEvalTokensTotal) && input.promptEvalTokensTotal >= 0) {
+    metrics.promptEvalTokensTotal = Number(input.promptEvalTokensTotal);
   }
   if (Number.isFinite(input.requestDurationMsTotal) && input.requestDurationMsTotal >= 0) {
     metrics.requestDurationMsTotal = Number(input.requestDurationMsTotal);
@@ -772,6 +780,8 @@ function buildIdleSummarySnapshot(metrics, emittedAt = new Date()) {
   const inputTokensTotal = Number(metrics.inputTokensTotal) || 0;
   const outputTokensTotal = Number(metrics.outputTokensTotal) || 0;
   const thinkingTokensTotal = Number(metrics.thinkingTokensTotal) || 0;
+  const promptCacheTokensTotal = Number(metrics.promptCacheTokensTotal) || 0;
+  const promptEvalTokensTotal = Number(metrics.promptEvalTokensTotal) || 0;
   const inputCharactersTotal = Number(metrics.inputCharactersTotal) || 0;
   const outputCharactersTotal = Number(metrics.outputCharactersTotal) || 0;
   const requestDurationMsTotal = Number(metrics.requestDurationMsTotal) || 0;
@@ -796,6 +806,8 @@ function buildIdleSummarySnapshot(metrics, emittedAt = new Date()) {
     inputTokensTotal,
     outputTokensTotal,
     thinkingTokensTotal,
+    promptCacheTokensTotal,
+    promptEvalTokensTotal,
     inputCharactersTotal,
     outputCharactersTotal,
     requestDurationMsTotal,
@@ -847,6 +859,8 @@ function ensureIdleSummarySnapshotsTable(database) {
       input_tokens_total INTEGER NOT NULL,
       output_tokens_total INTEGER NOT NULL,
       thinking_tokens_total INTEGER NOT NULL,
+      prompt_cache_tokens_total INTEGER NOT NULL DEFAULT 0,
+      prompt_eval_tokens_total INTEGER NOT NULL DEFAULT 0,
       saved_tokens INTEGER NOT NULL,
       saved_percent REAL,
       compression_ratio REAL,
@@ -861,6 +875,12 @@ function ensureIdleSummarySnapshotsTable(database) {
   if (!existingColumns.includes('thinking_tokens_total')) {
     database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN thinking_tokens_total INTEGER NOT NULL DEFAULT 0;');
   }
+  if (!existingColumns.includes('prompt_cache_tokens_total')) {
+    database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN prompt_cache_tokens_total INTEGER NOT NULL DEFAULT 0;');
+  }
+  if (!existingColumns.includes('prompt_eval_tokens_total')) {
+    database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN prompt_eval_tokens_total INTEGER NOT NULL DEFAULT 0;');
+  }
 }
 
 function persistIdleSummarySnapshot(database, snapshot) {
@@ -873,13 +893,15 @@ function persistIdleSummarySnapshot(database, snapshot) {
       input_tokens_total,
       output_tokens_total,
       thinking_tokens_total,
+      prompt_cache_tokens_total,
+      prompt_eval_tokens_total,
       saved_tokens,
       saved_percent,
       compression_ratio,
       request_duration_ms_total,
       avg_request_ms,
       avg_tokens_per_second
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     snapshot.emittedAtUtc,
     snapshot.completedRequestCount,
@@ -888,6 +910,8 @@ function persistIdleSummarySnapshot(database, snapshot) {
     snapshot.inputTokensTotal,
     snapshot.outputTokensTotal,
     snapshot.thinkingTokensTotal,
+    snapshot.promptCacheTokensTotal,
+    snapshot.promptEvalTokensTotal,
     snapshot.savedTokens,
     normalizeSqlNumber(snapshot.savedPercent),
     normalizeSqlNumber(snapshot.compressionRatio),
@@ -1064,6 +1088,8 @@ function parseStatusMetadata(bodyText) {
     outputCharacterCount: null,
     outputTokens: null,
     thinkingTokens: null,
+    promptCacheTokens: null,
+    promptEvalTokens: null,
     requestDurationMs: null,
     artifactType: null,
     artifactRequestId: null,
@@ -1128,6 +1154,12 @@ function parseStatusMetadata(bodyText) {
     }
     if (Number.isFinite(parsed.thinkingTokens) && parsed.thinkingTokens >= 0) {
       metadata.thinkingTokens = parsed.thinkingTokens;
+    }
+    if (Number.isFinite(parsed.promptCacheTokens) && parsed.promptCacheTokens >= 0) {
+      metadata.promptCacheTokens = parsed.promptCacheTokens;
+    }
+    if (Number.isFinite(parsed.promptEvalTokens) && parsed.promptEvalTokens >= 0) {
+      metadata.promptEvalTokens = parsed.promptEvalTokens;
     }
     if (Number.isFinite(parsed.requestDurationMs) && parsed.requestDurationMs >= 0) {
       metadata.requestDurationMs = parsed.requestDurationMs;
@@ -1306,6 +1338,8 @@ function normalizeRunRecord(record) {
     inputTokens: Number.isFinite(record.inputTokens) ? Number(record.inputTokens) : null,
     outputTokens: Number.isFinite(record.outputTokens) ? Number(record.outputTokens) : null,
     thinkingTokens: Number.isFinite(record.thinkingTokens) ? Number(record.thinkingTokens) : null,
+    promptCacheTokens: Number.isFinite(record.promptCacheTokens) ? Number(record.promptCacheTokens) : null,
+    promptEvalTokens: Number.isFinite(record.promptEvalTokens) ? Number(record.promptEvalTokens) : null,
     durationMs: Number.isFinite(record.durationMs) ? Number(record.durationMs) : null,
     rawPaths: record.rawPaths && typeof record.rawPaths === 'object' ? record.rawPaths : {},
   };
@@ -1349,6 +1383,8 @@ function loadDashboardRuns(runtimeRoot) {
       inputTokens: payload.inputTokens ?? null,
       outputTokens: payload.outputTokens ?? null,
       thinkingTokens: payload.thinkingTokens ?? null,
+      promptCacheTokens: payload.promptCacheTokens ?? null,
+      promptEvalTokens: payload.promptEvalTokens ?? null,
       durationMs: payload.requestDurationMs ?? null,
       rawPaths: {
         request: requestPath,
@@ -1387,6 +1423,8 @@ function loadDashboardRuns(runtimeRoot) {
         inputTokens: payload.inputTokens ?? null,
         outputTokens: payload.outputTokens ?? null,
         thinkingTokens: payload.thinkingTokens ?? null,
+        promptCacheTokens: payload.promptCacheTokens ?? null,
+        promptEvalTokens: payload.promptEvalTokens ?? null,
         durationMs: payload.requestDurationMs ?? null,
         rawPaths: { failedRequest: failedPath },
       }));
@@ -1422,6 +1460,8 @@ function loadDashboardRuns(runtimeRoot) {
         inputTokens: payload.promptTokenCount ?? null,
         outputTokens: payload.outputTokensTotal ?? null,
         thinkingTokens: null,
+        promptCacheTokens: null,
+        promptEvalTokens: null,
         durationMs: payload.totalElapsedMs ?? null,
         rawPaths: { abandonedRequest: abandonedPath },
       }));
@@ -1462,6 +1502,8 @@ function loadDashboardRuns(runtimeRoot) {
         inputTokens: null,
         outputTokens: null,
         thinkingTokens: null,
+        promptCacheTokens: null,
+        promptEvalTokens: null,
         durationMs: getTranscriptDurationMs(transcriptPath),
         rawPaths: {
           repoSearch: artifactPath,
@@ -1547,6 +1589,87 @@ function buildDashboardRunDetail(runtimeRoot, runId) {
   return { run, events };
 }
 
+function getPromptCacheHitRate(promptCacheTokens, promptEvalTokens) {
+  const cacheTokens = Number(promptCacheTokens) || 0;
+  const evalTokens = Number(promptEvalTokens) || 0;
+  const totalPromptTokens = cacheTokens + evalTokens;
+  if (totalPromptTokens <= 0) {
+    return null;
+  }
+  return cacheTokens / totalPromptTokens;
+}
+
+function getCurrentUtcDateKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function getSnapshotTotalsBeforeDate(database, dateKey) {
+  if (!database) {
+    return null;
+  }
+  const row = database
+    .prepare(`
+      SELECT
+        completed_request_count,
+        input_tokens_total,
+        output_tokens_total,
+        thinking_tokens_total,
+        prompt_cache_tokens_total,
+        prompt_eval_tokens_total,
+        request_duration_ms_total
+      FROM idle_summary_snapshots
+      WHERE emitted_at_utc < ?
+      ORDER BY emitted_at_utc DESC, id DESC
+      LIMIT 1
+    `)
+    .get(`${dateKey}T00:00:00.000Z`);
+  if (!row || typeof row !== 'object') {
+    return null;
+  }
+  return {
+    completedRequestCount: Number(row.completed_request_count) || 0,
+    inputTokensTotal: Number(row.input_tokens_total) || 0,
+    outputTokensTotal: Number(row.output_tokens_total) || 0,
+    thinkingTokensTotal: Number(row.thinking_tokens_total) || 0,
+    promptCacheTokensTotal: Number(row.prompt_cache_tokens_total) || 0,
+    promptEvalTokensTotal: Number(row.prompt_eval_tokens_total) || 0,
+    requestDurationMsTotal: Number(row.request_duration_ms_total) || 0,
+  };
+}
+
+function buildLiveTodayMetrics(currentMetrics, idleSummaryDatabase) {
+  const day = getCurrentUtcDateKey();
+  const totals = normalizeMetrics(currentMetrics);
+  const baseline = getSnapshotTotalsBeforeDate(idleSummaryDatabase, day);
+  const completedRequestCount = Number(totals.completedRequestCount) || 0;
+  const inputTokensTotal = Number(totals.inputTokensTotal) || 0;
+  const outputTokensTotal = Number(totals.outputTokensTotal) || 0;
+  const thinkingTokensTotal = Number(totals.thinkingTokensTotal) || 0;
+  const promptCacheTokensTotal = Number(totals.promptCacheTokensTotal) || 0;
+  const promptEvalTokensTotal = Number(totals.promptEvalTokensTotal) || 0;
+  const requestDurationMsTotal = Number(totals.requestDurationMsTotal) || 0;
+  const runs = Math.max(0, completedRequestCount - (baseline ? baseline.completedRequestCount : 0));
+  const inputTokens = Math.max(0, inputTokensTotal - (baseline ? baseline.inputTokensTotal : 0));
+  const outputTokens = Math.max(0, outputTokensTotal - (baseline ? baseline.outputTokensTotal : 0));
+  const thinkingTokens = Math.max(0, thinkingTokensTotal - (baseline ? baseline.thinkingTokensTotal : 0));
+  const promptCacheTokens = Math.max(0, promptCacheTokensTotal - (baseline ? baseline.promptCacheTokensTotal : 0));
+  const promptEvalTokens = Math.max(0, promptEvalTokensTotal - (baseline ? baseline.promptEvalTokensTotal : 0));
+  const durationTotalMs = Math.max(0, requestDurationMsTotal - (baseline ? baseline.requestDurationMsTotal : 0));
+  return {
+    date: day,
+    runs,
+    inputTokens,
+    outputTokens,
+    thinkingTokens,
+    promptCacheTokens,
+    promptEvalTokens,
+    cacheHitRate: getPromptCacheHitRate(promptCacheTokens, promptEvalTokens),
+    successCount: 0,
+    failureCount: 0,
+    avgDurationMs: runs > 0 ? Math.round(durationTotalMs / runs) : 0,
+  };
+}
+
 function buildDashboardDailyMetricsFromRuns(runtimeRoot) {
   const runs = loadDashboardRuns(runtimeRoot);
   const byDay = new Map();
@@ -1559,6 +1682,8 @@ function buildDashboardDailyMetricsFromRuns(runtimeRoot) {
       inputTokens: 0,
       outputTokens: 0,
       thinkingTokens: 0,
+      promptCacheTokens: 0,
+      promptEvalTokens: 0,
       successCount: 0,
       failureCount: 0,
       durationTotalMs: 0,
@@ -1568,6 +1693,8 @@ function buildDashboardDailyMetricsFromRuns(runtimeRoot) {
     current.inputTokens += Number(run.inputTokens || 0);
     current.outputTokens += Number(run.outputTokens || 0);
     current.thinkingTokens += Number(run.thinkingTokens || 0);
+    current.promptCacheTokens += Number(run.promptCacheTokens || 0);
+    current.promptEvalTokens += Number(run.promptEvalTokens || 0);
     if (run.status === 'completed') {
       current.successCount += 1;
     } else {
@@ -1587,6 +1714,9 @@ function buildDashboardDailyMetricsFromRuns(runtimeRoot) {
       inputTokens: entry.inputTokens,
       outputTokens: entry.outputTokens,
       thinkingTokens: entry.thinkingTokens,
+      promptCacheTokens: entry.promptCacheTokens,
+      promptEvalTokens: entry.promptEvalTokens,
+      cacheHitRate: getPromptCacheHitRate(entry.promptCacheTokens, entry.promptEvalTokens),
       successCount: entry.successCount,
       failureCount: entry.failureCount,
       avgDurationMs: entry.durationCount > 0 ? Math.round(entry.durationTotalMs / entry.durationCount) : 0,
@@ -1605,6 +1735,8 @@ function buildDashboardDailyMetricsFromIdleSnapshots(database) {
         input_tokens_total,
         output_tokens_total,
         thinking_tokens_total,
+        prompt_cache_tokens_total,
+        prompt_eval_tokens_total,
         request_duration_ms_total
       FROM idle_summary_snapshots
       ORDER BY emitted_at_utc ASC, id ASC
@@ -1628,6 +1760,8 @@ function buildDashboardDailyMetricsFromIdleSnapshots(database) {
       inputTokens: 0,
       outputTokens: 0,
       thinkingTokens: 0,
+      promptCacheTokens: 0,
+      promptEvalTokens: 0,
       successCount: 0,
       failureCount: 0,
       durationTotalMs: 0,
@@ -1638,18 +1772,24 @@ function buildDashboardDailyMetricsFromIdleSnapshots(database) {
     const inputTokensTotal = Number(row.input_tokens_total) || 0;
     const outputTokensTotal = Number(row.output_tokens_total) || 0;
     const thinkingTokensTotal = Number(row.thinking_tokens_total) || 0;
+    const promptCacheTokensTotal = Number(row.prompt_cache_tokens_total) || 0;
+    const promptEvalTokensTotal = Number(row.prompt_eval_tokens_total) || 0;
     const requestDurationMsTotal = Number(row.request_duration_ms_total) || 0;
 
     const deltaRuns = Math.max(0, previous ? completedRequestCount - previous.completedRequestCount : completedRequestCount);
     const deltaInput = Math.max(0, previous ? inputTokensTotal - previous.inputTokensTotal : inputTokensTotal);
     const deltaOutput = Math.max(0, previous ? outputTokensTotal - previous.outputTokensTotal : outputTokensTotal);
     const deltaThinking = Math.max(0, previous ? thinkingTokensTotal - previous.thinkingTokensTotal : thinkingTokensTotal);
+    const deltaPromptCache = Math.max(0, previous ? promptCacheTokensTotal - previous.promptCacheTokensTotal : promptCacheTokensTotal);
+    const deltaPromptEval = Math.max(0, previous ? promptEvalTokensTotal - previous.promptEvalTokensTotal : promptEvalTokensTotal);
     const deltaDuration = Math.max(0, previous ? requestDurationMsTotal - previous.requestDurationMsTotal : requestDurationMsTotal);
 
     current.runs += deltaRuns;
     current.inputTokens += deltaInput;
     current.outputTokens += deltaOutput;
     current.thinkingTokens += deltaThinking;
+    current.promptCacheTokens += deltaPromptCache;
+    current.promptEvalTokens += deltaPromptEval;
     current.durationTotalMs += deltaDuration;
     current.durationCount += deltaRuns;
 
@@ -1659,6 +1799,8 @@ function buildDashboardDailyMetricsFromIdleSnapshots(database) {
       inputTokensTotal,
       outputTokensTotal,
       thinkingTokensTotal,
+      promptCacheTokensTotal,
+      promptEvalTokensTotal,
       requestDurationMsTotal,
     };
   }
@@ -1671,18 +1813,22 @@ function buildDashboardDailyMetricsFromIdleSnapshots(database) {
       inputTokens: entry.inputTokens,
       outputTokens: entry.outputTokens,
       thinkingTokens: entry.thinkingTokens,
+      promptCacheTokens: entry.promptCacheTokens,
+      promptEvalTokens: entry.promptEvalTokens,
+      cacheHitRate: getPromptCacheHitRate(entry.promptCacheTokens, entry.promptEvalTokens),
       successCount: entry.successCount,
       failureCount: entry.failureCount,
       avgDurationMs: entry.durationCount > 0 ? Math.round(entry.durationTotalMs / entry.durationCount) : 0,
     }));
 }
 
-function buildDashboardDailyMetrics(runtimeRoot, idleSummaryDatabase) {
+function buildDashboardDailyMetrics(runtimeRoot, idleSummaryDatabase, currentMetrics) {
+  const runDays = buildDashboardDailyMetricsFromRuns(runtimeRoot);
+  const runByDay = new Map(runDays.map((day) => [day.date, day]));
+  const liveToday = buildLiveTodayMetrics(currentMetrics, idleSummaryDatabase);
   const snapshotDays = buildDashboardDailyMetricsFromIdleSnapshots(idleSummaryDatabase);
   if (snapshotDays.length > 0) {
-    const runDays = buildDashboardDailyMetricsFromRuns(runtimeRoot);
-    const runByDay = new Map(runDays.map((day) => [day.date, day]));
-    return snapshotDays.map((day) => {
+    const merged = snapshotDays.map((day) => {
       const runDay = runByDay.get(day.date);
       if (!runDay) {
         return day;
@@ -1693,8 +1839,19 @@ function buildDashboardDailyMetrics(runtimeRoot, idleSummaryDatabase) {
         failureCount: runDay.failureCount,
       };
     });
+    const todayRunDay = runByDay.get(liveToday.date);
+    const liveTodayMerged = todayRunDay
+      ? { ...liveToday, successCount: todayRunDay.successCount, failureCount: todayRunDay.failureCount }
+      : liveToday;
+    const mergedWithoutToday = merged.filter((day) => day.date !== liveToday.date);
+    return [...mergedWithoutToday, liveTodayMerged].sort((left, right) => left.date.localeCompare(right.date));
   }
-  return buildDashboardDailyMetricsFromRuns(runtimeRoot);
+  const todayRunDay = runByDay.get(liveToday.date);
+  const liveTodayMerged = todayRunDay
+    ? { ...liveToday, successCount: todayRunDay.successCount, failureCount: todayRunDay.failureCount }
+    : liveToday;
+  const runDaysWithoutToday = runDays.filter((day) => day.date !== liveToday.date);
+  return [...runDaysWithoutToday, liveTodayMerged].sort((left, right) => left.date.localeCompare(right.date));
 }
 
 function normalizeIdleSummarySnapshotRow(row) {
@@ -1709,6 +1866,8 @@ function normalizeIdleSummarySnapshotRow(row) {
     inputTokensTotal: Number(row.input_tokens_total) || 0,
     outputTokensTotal: Number(row.output_tokens_total) || 0,
     thinkingTokensTotal: Number(row.thinking_tokens_total) || 0,
+    promptCacheTokensTotal: Number(row.prompt_cache_tokens_total) || 0,
+    promptEvalTokensTotal: Number(row.prompt_eval_tokens_total) || 0,
     savedTokens: Number(row.saved_tokens) || 0,
     savedPercent: Number.isFinite(row.saved_percent) ? Number(row.saved_percent) : null,
     compressionRatio: Number.isFinite(row.compression_ratio) ? Number(row.compression_ratio) : null,
@@ -1920,6 +2079,65 @@ function getThinkingTokensFromUsage(usage) {
   return null;
 }
 
+function getPromptCacheTokensFromUsage(usage) {
+  if (!usage || typeof usage !== 'object') {
+    return null;
+  }
+  const promptDetails = usage.prompt_tokens_details && typeof usage.prompt_tokens_details === 'object'
+    ? usage.prompt_tokens_details
+    : null;
+  const inputDetails = usage.input_tokens_details && typeof usage.input_tokens_details === 'object'
+    ? usage.input_tokens_details
+    : null;
+  const sources = [promptDetails, inputDetails, usage];
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') {
+      continue;
+    }
+    const cachedTokens = getChatUsageValue(source.cached_tokens);
+    if (cachedTokens !== null) {
+      return cachedTokens;
+    }
+  }
+  return null;
+}
+
+function getPromptEvalTokensFromUsage(usage) {
+  if (!usage || typeof usage !== 'object') {
+    return null;
+  }
+  const promptDetails = usage.prompt_tokens_details && typeof usage.prompt_tokens_details === 'object'
+    ? usage.prompt_tokens_details
+    : null;
+  const inputDetails = usage.input_tokens_details && typeof usage.input_tokens_details === 'object'
+    ? usage.input_tokens_details
+    : null;
+  const sources = [promptDetails, inputDetails, usage];
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') {
+      continue;
+    }
+    const explicitPromptEvalTokens = getChatUsageValue(source.prompt_eval_tokens);
+    if (explicitPromptEvalTokens !== null) {
+      return explicitPromptEvalTokens;
+    }
+    const explicitNonCachedTokens = getChatUsageValue(source.non_cached_tokens);
+    if (explicitNonCachedTokens !== null) {
+      return explicitNonCachedTokens;
+    }
+    const llamaPromptTokens = getChatUsageValue(source.prompt_n);
+    if (llamaPromptTokens !== null) {
+      return llamaPromptTokens;
+    }
+  }
+  const promptTokens = getChatUsageValue(usage.prompt_tokens);
+  const promptCacheTokens = getPromptCacheTokensFromUsage(usage);
+  if (promptTokens !== null && promptCacheTokens !== null) {
+    return Math.max(promptTokens - promptCacheTokens, 0);
+  }
+  return null;
+}
+
 function getChoiceText(choice) {
   const content = choice?.message?.content ?? choice?.text ?? '';
   return getTextContent(content).trim();
@@ -2011,6 +2229,8 @@ async function generateChatAssistantMessage(config, session, userContent) {
       promptTokens: getChatUsageValue(usage.prompt_tokens),
       completionTokens: getChatUsageValue(usage.completion_tokens),
       thinkingTokens: getThinkingTokensFromUsage(usage),
+      promptCacheTokens: getPromptCacheTokensFromUsage(usage),
+      promptEvalTokens: getPromptEvalTokensFromUsage(usage),
     },
   };
 }
@@ -2046,6 +2266,8 @@ function appendChatMessagesWithUsage(runtimeRoot, session, content, assistantCon
     inputTokensEstimate: 0,
     outputTokensEstimate: outputTokens,
     thinkingTokens,
+    promptCacheTokens: getChatUsageValue(usage.promptCacheTokens),
+    promptEvalTokens: getChatUsageValue(usage.promptEvalTokens),
     associatedToolTokens,
     thinkingContent: String(thinkingContent || ''),
     createdAtUtc: now,
@@ -2142,6 +2364,8 @@ async function streamChatAssistantMessage(config, session, userContent, onProgre
                 promptTokens: getChatUsageValue(parsed.usage.prompt_tokens),
                 completionTokens: getChatUsageValue(parsed.usage.completion_tokens),
                 thinkingTokens: getThinkingTokensFromUsage(parsed.usage),
+                promptCacheTokens: getPromptCacheTokensFromUsage(parsed.usage),
+                promptEvalTokens: getPromptEvalTokensFromUsage(parsed.usage),
               };
             }
             if (typeof onProgress === 'function') {
@@ -2314,6 +2538,18 @@ function buildPlanMarkdownFromRepoSearch(userPrompt, repoRoot, result) {
   lines.push(`- Transcript: \`${String(result?.transcriptPath || '')}\``);
   lines.push(`- Artifact: \`${String(result?.artifactPath || '')}\``);
   return lines.join('\n');
+}
+
+function getScorecardTotal(scorecard, key) {
+  if (!scorecard || typeof scorecard !== 'object') {
+    return null;
+  }
+  const totals = scorecard.totals;
+  if (!totals || typeof totals !== 'object') {
+    return null;
+  }
+  const value = totals[key];
+  return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : null;
 }
 
 function truncateToolContextOutput(value, maxLength = 1400) {
@@ -3333,7 +3569,8 @@ function startStatusServer(options = {}) {
     if (req.method === 'GET' && pathname === '/dashboard/metrics/timeseries') {
       const days = buildDashboardDailyMetrics(
         runtimeRoot,
-        fs.existsSync(idleSummarySnapshotsPath) ? getIdleSummaryDatabase() : null
+        fs.existsSync(idleSummarySnapshotsPath) ? getIdleSummaryDatabase() : null,
+        metrics
       );
       sendJson(res, 200, { days });
       return;
@@ -3356,6 +3593,8 @@ function startStatusServer(options = {}) {
             input_tokens_total,
             output_tokens_total,
             thinking_tokens_total,
+            prompt_cache_tokens_total,
+            prompt_eval_tokens_total,
             saved_tokens,
             saved_percent,
             compression_ratio,
@@ -3600,7 +3839,10 @@ function startStatusServer(options = {}) {
           },
           parsedBody.content.trim(),
           assistantContent,
-          {},
+          {
+            promptCacheTokens: getScorecardTotal(result?.scorecard, 'promptCacheTokens'),
+            promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
+          },
           '',
           {
             toolContextContents,
@@ -3722,7 +3964,10 @@ function startStatusServer(options = {}) {
           },
           parsedBody.content.trim(),
           assistantContent,
-          {},
+          {
+            promptCacheTokens: getScorecardTotal(result?.scorecard, 'promptCacheTokens'),
+            promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
+          },
           '',
           {
             toolContextContents,
@@ -3845,7 +4090,10 @@ function startStatusServer(options = {}) {
           },
           parsedBody.content.trim(),
           assistantContent,
-          {},
+          {
+            promptCacheTokens: getScorecardTotal(result?.scorecard, 'promptCacheTokens'),
+            promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
+          },
           '',
           {
             toolContextContents,
@@ -4155,6 +4403,8 @@ function startStatusServer(options = {}) {
         && metadata.outputCharacterCount === null
         && metadata.outputTokens === null
         && metadata.thinkingTokens === null
+        && metadata.promptCacheTokens === null
+        && metadata.promptEvalTokens === null
         && metadata.requestDurationMs === null;
       if (isArtifactOnlyPost) {
         const publishedStatus = getPublishedStatusText();
@@ -4273,6 +4523,8 @@ function startStatusServer(options = {}) {
           inputTokensTotal: metrics.inputTokensTotal + (metadata.inputTokens ?? 0),
           outputTokensTotal: metrics.outputTokensTotal + (metadata.outputTokens ?? 0),
           thinkingTokensTotal: metrics.thinkingTokensTotal + (metadata.thinkingTokens ?? 0),
+          promptCacheTokensTotal: metrics.promptCacheTokensTotal + (metadata.promptCacheTokens ?? 0),
+          promptEvalTokensTotal: metrics.promptEvalTokensTotal + (metadata.promptEvalTokens ?? 0),
           requestDurationMsTotal: metrics.requestDurationMsTotal + (
             metadata.requestDurationMs
             ?? (metadata.terminalState ? 0 : (elapsedMs ?? 0))

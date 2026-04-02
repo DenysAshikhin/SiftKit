@@ -763,6 +763,8 @@ export async function notifyStatusBackend(options: {
   outputCharacterCount?: number | null;
   outputTokens?: number | null;
   thinkingTokens?: number | null;
+  promptCacheTokens?: number | null;
+  promptEvalTokens?: number | null;
   requestDurationMs?: number | null;
   artifactType?: 'summary_request' | 'planner_debug' | 'planner_failed' | null;
   artifactRequestId?: string | null;
@@ -832,6 +834,12 @@ export async function notifyStatusBackend(options: {
   }
   if (!options.running && options.thinkingTokens !== undefined && options.thinkingTokens !== null) {
     body.thinkingTokens = options.thinkingTokens;
+  }
+  if (!options.running && options.promptCacheTokens !== undefined && options.promptCacheTokens !== null) {
+    body.promptCacheTokens = options.promptCacheTokens;
+  }
+  if (!options.running && options.promptEvalTokens !== undefined && options.promptEvalTokens !== null) {
+    body.promptEvalTokens = options.promptEvalTokens;
   }
   if (!options.running && options.requestDurationMs !== undefined && options.requestDurationMs !== null) {
     body.requestDurationMs = options.requestDurationMs;

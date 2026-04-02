@@ -117,6 +117,47 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function getChatRequestText(request) {
+  if (!request || !Array.isArray(request.messages)) {
+    return '';
+  }
+
+  return request.messages.map((message) => {
+    const parts = [];
+    if (typeof message.content === 'string' && message.content) {
+      parts.push(message.content);
+    }
+    if (Array.isArray(message.content)) {
+      const text = message.content
+        .map((part) => (part && typeof part === 'object' && typeof part.text === 'string') ? part.text : '')
+        .join('');
+      if (text) {
+        parts.push(text);
+      }
+    }
+    if (Array.isArray(message.tool_calls)) {
+      for (const toolCall of message.tool_calls) {
+        if (toolCall?.function?.name) {
+          parts.push(String(toolCall.function.name));
+        }
+        if (toolCall?.function?.arguments) {
+          parts.push(String(toolCall.function.arguments));
+        }
+      }
+    }
+    if (message.function_call?.name) {
+      parts.push(String(message.function_call.name));
+    }
+    if (message.function_call?.arguments) {
+      parts.push(String(message.function_call.arguments));
+    }
+    if (typeof message.tool_call_id === 'string' && message.tool_call_id) {
+      parts.push(message.tool_call_id);
+    }
+    return parts.join('\n');
+  }).join('\n');
+}
+
 function setManagedLlamaBaseUrl(config, baseUrl) {
   config.LlamaCpp.BaseUrl = baseUrl;
   config.Runtime ??= {};
@@ -571,7 +612,7 @@ async function startStubStatusServer(options = {}) {
     if (req.method === 'POST' && req.url === '/v1/chat/completions') {
       const bodyText = await readBody(req);
       const parsed = bodyText ? JSON.parse(bodyText) : {};
-      const promptText = parsed?.messages?.[0]?.content || '';
+      const promptText = getChatRequestText(parsed);
       state.chatRequests.push(parsed);
       if (Number.isFinite(options.chatDelayMs) && Number(options.chatDelayMs) > 0) {
         await sleep(Number(options.chatDelayMs));
@@ -3610,7 +3651,7 @@ test('summary retries with smaller chunks when llama.cpp rejects an oversized pr
       assert.match(result.Summary, /^summary:/u);
       assert.ok(server.state.tokenizeRequests.length >= 1);
       assert.ok(server.state.chatRequests.length >= 3);
-      const promptLengths = server.state.chatRequests.map((request) => String(request?.messages?.[0]?.content || '').length);
+      const promptLengths = server.state.chatRequests.map((request) => getChatRequestText(request).length);
       assert.ok(promptLengths.some((length) => length > 80000));
       assert.ok(promptLengths.some((length) => length <= 80000));
     }, {
@@ -3644,7 +3685,7 @@ test('summary resizes llama.cpp chunks before the first chat request when prompt
       assert.match(result.Summary, /^summary:/u);
       assert.ok(server.state.tokenizeRequests.length >= 3);
       assert.ok(server.state.chatRequests.length >= 3);
-      const promptLengths = server.state.chatRequests.map((request) => String(request?.messages?.[0]?.content || '').length);
+      const promptLengths = server.state.chatRequests.map((request) => getChatRequestText(request).length);
       assert.ok(promptLengths.every((length) => length < 128000));
       assert.ok(promptLengths.some((length) => length > 70000));
     }, {
@@ -6532,7 +6573,7 @@ test('oversized transition extraction uses planner action grammar before returni
       assert.equal(server.state.chatRequests.length, 2);
 
       const firstRequest = server.state.chatRequests[0];
-      const firstPrompt = String(firstRequest?.messages?.[0]?.content || '');
+      const firstPrompt = getChatRequestText(firstRequest);
       assert.match(String(firstRequest?.extra_body?.grammar || ''), /action/u);
       assert.match(firstPrompt, /Planner mode:/u);
       assert.match(firstPrompt, /Tools:/u);
@@ -6602,7 +6643,7 @@ test('planner accepts inputs larger than the former four-chunk cap when it can a
       assert.equal(result.Summary, 'oversized planner success');
       assert.equal(server.state.chatRequests.length, 1);
       assert.equal(
-        server.state.chatRequests.some((request) => /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(String(request?.messages?.[0]?.content || ''))),
+        server.state.chatRequests.some((request) => /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(getChatRequestText(request))),
         false,
       );
     }, {
@@ -6612,6 +6653,41 @@ test('planner accepts inputs larger than the former four-chunk cap when it can a
           classification: 'summary',
           raw_review_required: false,
           output: 'oversized planner success',
+        });
+      },
+    });
+  });
+});
+
+test('planner handles oversized monolithic JSON instead of forcing chunk fallback', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = JSON.stringify({
+        blob: 'X'.repeat(threshold + 1000),
+      });
+
+      const result = await summarizeRequest({
+        question: 'Summarize this oversized JSON payload.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'planner handled monolithic json');
+      assert.equal(server.state.chatRequests.length, 1);
+      assert.match(getChatRequestText(server.state.chatRequests[0]), /Planner mode:/u);
+    }, {
+      assistantContent() {
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'planner handled monolithic json',
         });
       },
     });
@@ -6904,7 +6980,7 @@ test('planner json_filter supports scalar timestamp ranges on object-root array 
 
       assert.equal(result.Classification, 'summary');
       assert.equal(result.Summary, 'timestamp filter worked');
-      const firstPrompt = String(server.state.chatRequests[0]?.messages?.[0]?.content || '');
+      const firstPrompt = getChatRequestText(server.state.chatRequests[0]);
       assert.match(firstPrompt, /collectionPath/i);
       assert.match(firstPrompt, /"collectionPath":"states"/u);
       assert.match(firstPrompt, /object_array_paths=states/u);
@@ -6997,7 +7073,7 @@ test('planner json_filter falls back to embedded JSON in command-output text and
       assert.equal(result.Classification, 'summary');
       assert.equal(result.Summary, 'fallback parse worked');
       assert.equal(server.state.chatRequests.length, 2);
-      const followupPrompt = String(server.state.chatRequests[1]?.messages?.[0]?.content || '');
+      const followupPrompt = getChatRequestText(server.state.chatRequests[1]);
       assert.match(followupPrompt, /json_filter ignored "/u);
       assert.match(followupPrompt, /due to not being valid json, here is the parsed valid section:/u);
       assert.match(followupPrompt, /"testResults"/u);
@@ -7066,7 +7142,7 @@ test('planner surfaces explicit invalid-json message when json_filter fallback c
       assert.equal(result.Classification, 'summary');
       assert.equal(result.Summary, 'recovered after invalid json tool call');
       assert.equal(server.state.chatRequests.length, 2);
-      const secondPrompt = String(server.state.chatRequests[1]?.messages?.[0]?.content || '');
+      const secondPrompt = getChatRequestText(server.state.chatRequests[1]);
       assert.match(secondPrompt, /Previous response was invalid: json_filter input is not valid JSON to parse\./u);
     }, {
       assistantContent(promptText, parsed, requestIndex) {
@@ -7331,7 +7407,7 @@ test('planner read_lines tool results use a compact numbered text block', async 
 
       assert.equal(result.Classification, 'summary');
       assert.equal(server.state.chatRequests.length, 2);
-      const followupPrompt = String(server.state.chatRequests[1]?.messages?.[0]?.content || '');
+      const followupPrompt = getChatRequestText(server.state.chatRequests[1]);
       assert.doesNotMatch(followupPrompt, /"lines"\s*:\s*\[/u);
       assert.doesNotMatch(followupPrompt, /"line"\s*:/u);
       assert.match(followupPrompt, /lineCount=/u);
@@ -7392,11 +7468,11 @@ test('planner find_text and json_filter results use compact text blocks in promp
 
       assert.equal(result.Classification, 'summary');
       assert.equal(server.state.chatRequests.length, 3);
-      const secondPrompt = String(server.state.chatRequests[1]?.messages?.[0]?.content || '');
+      const secondPrompt = getChatRequestText(server.state.chatRequests[1]);
       assert.doesNotMatch(secondPrompt, /"hits"\s*:\s*\[/u);
       assert.doesNotMatch(secondPrompt, /"context"\s*:\s*\[/u);
       assert.match(secondPrompt, /hitCount=/u);
-      const thirdPrompt = String(server.state.chatRequests[2]?.messages?.[0]?.content || '');
+      const thirdPrompt = getChatRequestText(server.state.chatRequests[2]);
       assert.doesNotMatch(thirdPrompt, /"results"\s*:\s*\[/u);
       assert.match(thirdPrompt, /matchedCount=/u);
     }, {
@@ -7473,7 +7549,7 @@ test('planner replaces oversized tool results with an error stub when they excee
       assert.equal(result.Classification, 'summary');
       assert.equal(result.Summary, 'tool output guard applied');
       assert.equal(server.state.chatRequests.length, 2);
-      const secondPrompt = String(server.state.chatRequests[1]?.messages?.[0]?.content || '');
+      const secondPrompt = getChatRequestText(server.state.chatRequests[1]);
       assert.match(
         secondPrompt,
         /Error: tool call results in 4000 tokens \(more than 70% of remaining tokens\)\. Try again with a more limited tool call\)/u,
@@ -7548,7 +7624,7 @@ test('planner keeps tool results when they stay within 70 percent of remaining s
       assert.equal(result.Classification, 'summary');
       assert.equal(result.Summary, 'tool output kept');
       assert.equal(server.state.chatRequests.length, 2);
-      const secondPrompt = String(server.state.chatRequests[1]?.messages?.[0]?.content || '');
+      const secondPrompt = getChatRequestText(server.state.chatRequests[1]);
       assert.match(secondPrompt, /lineCount=/u);
       assert.match(secondPrompt, /^\d+: /mu);
       assert.doesNotMatch(secondPrompt, /Error: tool call results in \d+ tokens \(more than 70% of remaining tokens\)\. Try again with a more limited tool call\)/u);
@@ -7624,7 +7700,7 @@ test('planner falls back to estimated tokens for oversized tool-result guard whe
         server.state.tokenizeRequests.some((request) => /^read_lines startLine=/mu.test(String(request?.content || ''))),
         true,
       );
-      const secondPrompt = String(server.state.chatRequests[1]?.messages?.[0]?.content || '');
+      const secondPrompt = getChatRequestText(server.state.chatRequests[1]);
       const guardMessageMatch = secondPrompt.match(
         /Error: tool call results in (\d+) tokens \(more than 70% of remaining tokens\)\. Try again with a more limited tool call\)/u,
       );
@@ -7705,7 +7781,7 @@ test('planner activates once input exceeds 75 percent of context length even bef
       assert.equal(server.state.chatRequests.length, 1);
       assert.match(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /action/u);
       assert.equal(
-        /Planner mode:/u.test(String(server.state.chatRequests[0]?.messages?.[0]?.content || '')),
+        /Planner mode:/u.test(getChatRequestText(server.state.chatRequests[0])),
         true,
       );
       assert.equal(inputText.length < chunkThreshold, true);
@@ -7722,7 +7798,7 @@ test('planner activates once input exceeds 75 percent of context length even bef
   });
 });
 
-test('planner allows up to thirty tool calls while prompt headroom remains and shows remaining budget in prompt', async () => {
+test('planner allows up to thirty tool calls while prompt headroom remains without visible budget counters', async () => {
   await withTempEnv(async () => {
     let toolCallCount = 0;
     await withStubServer(async (server) => {
@@ -7744,8 +7820,8 @@ test('planner allows up to thirty tool calls while prompt headroom remains and s
       assert.equal(result.Summary, 'completed after 30 tool calls');
       assert.equal(toolCallCount, 30);
       assert.equal(server.state.chatRequests.length, 31);
-      assert.match(String(server.state.chatRequests[0]?.messages?.[0]?.content || ''), /Tool-call budget remaining: 30/u);
-      assert.match(String(server.state.chatRequests[1]?.messages?.[0]?.content || ''), /Tool-call budget remaining: 29/u);
+      assert.doesNotMatch(getChatRequestText(server.state.chatRequests[0]), /Tool-call budget remaining:/u);
+      assert.doesNotMatch(getChatRequestText(server.state.chatRequests[1]), /Tool-call budget remaining:/u);
     }, {
       config: {
         LlamaCpp: {
@@ -7886,7 +7962,7 @@ test('planner fails fast when the next planner turn would exceed non-thinking he
       assert.equal(servedPlannerToolCall, true);
       assert.match(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /action/u);
       assert.equal(
-        server.state.chatRequests.some((request) => /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(String(request?.messages?.[0]?.content || ''))),
+        server.state.chatRequests.some((request) => /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(getChatRequestText(request))),
         false,
       );
     }, {
@@ -7903,7 +7979,7 @@ test('planner fails fast when the next planner turn would exceed non-thinking he
         },
       },
       tokenizeTokenCount(content) {
-        if (/Planner mode:/u.test(content) && /Tool result:/u.test(content)) {
+        if (/Planner mode:/u.test(content) && /\[tool\]/u.test(content)) {
           return 154000;
         }
         return 1000;
@@ -7952,7 +8028,7 @@ test('planner fails fast when the next planner turn would exceed thinking headro
       );
       assert.equal(servedPlannerToolCall, true);
       assert.equal(
-        server.state.chatRequests.some((request) => /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(String(request?.messages?.[0]?.content || ''))),
+        server.state.chatRequests.some((request) => /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(getChatRequestText(request))),
         false,
       );
     }, {
@@ -7969,7 +8045,7 @@ test('planner fails fast when the next planner turn would exceed thinking headro
         },
       },
       tokenizeTokenCount(content) {
-        if (/Planner mode:/u.test(content) && /Tool result:/u.test(content)) {
+        if (/Planner mode:/u.test(content) && /\[tool\]/u.test(content)) {
           return 149000;
         }
         return 1000;
@@ -8018,7 +8094,7 @@ test('planner find_text auto-normalizes lone regex braces like var.*Unlocks.*=.*
       assert.equal(result.RawReviewRequired, false);
       assert.equal(result.Summary, 'planner recovered from invalid regex');
       assert.equal(server.state.chatRequests.length, 2);
-      assert.match(String(server.state.chatRequests[1]?.messages?.[0]?.content || ''), /hitCount=1/u);
+      assert.match(getChatRequestText(server.state.chatRequests[1]), /hitCount=1/u);
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
@@ -8070,7 +8146,7 @@ test('planner fails fast when the planner response body is empty', async () => {
       assert.equal(server.state.chatRequests.length, 1);
       assert.match(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /action/u);
       assert.equal(
-        server.state.chatRequests.some((request) => /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(String(request?.messages?.[0]?.content || ''))),
+        server.state.chatRequests.some((request) => /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(getChatRequestText(request))),
         false,
       );
     }, {
@@ -8153,8 +8229,8 @@ test('chunked malformed JSON slices retry with stricter chunk guidance instead o
       assert.equal(result.WasSummarized, true);
       assert.equal(result.Classification, 'summary');
       assert.ok(server.state.chatRequests.length >= 4);
-      const firstPrompt = String(server.state.chatRequests[0]?.messages?.[0]?.content || '');
-      const secondPrompt = String(server.state.chatRequests[1]?.messages?.[0]?.content || '');
+      const firstPrompt = getChatRequestText(server.state.chatRequests[0]);
+      const secondPrompt = getChatRequestText(server.state.chatRequests[1]);
       assert.match(firstPrompt, /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u);
       assert.doesNotMatch(firstPrompt, /Returning "unsupported_input" for this chunk is invalid/u);
       assert.match(secondPrompt, /Returning "unsupported_input" for this chunk is invalid/u);
@@ -8204,7 +8280,7 @@ test('chunked unsupported-input leaf retries fall back to a conservative local s
       assert.equal(result.WasSummarized, true);
       assert.equal(result.Classification, 'summary');
       assert.equal(server.state.chatRequests.length, 5);
-      const mergePrompt = String(server.state.chatRequests[4]?.messages?.[0]?.content || '');
+      const mergePrompt = getChatRequestText(server.state.chatRequests[4]);
       assert.match(mergePrompt, /partial slice of a larger supported input/u);
       assert.match(mergePrompt, /raw_review_required=true/u);
     }, {

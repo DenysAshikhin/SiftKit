@@ -54,12 +54,12 @@ type ParsedArgs = {
 const KNOWN_COMMANDS = new Set([
   'summary',
   'repo-search',
+  'find-files',
   'internal',
 ]);
 
 const BLOCKED_PUBLIC_COMMANDS = new Set([
   'run',
-  'find-files',
   'install',
   'test',
   'eval',

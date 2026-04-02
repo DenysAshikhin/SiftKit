@@ -1,0 +1,1715 @@
+✔ getConfigPath prefers a repo-local .siftkit runtime when running inside the siftkit repo (4.0926ms)
+✔ loadConfig uses the fixed bootstrap chars-per-token budget before observed telemetry exists (32.0041ms)
+✔ loadConfig immediately switches from bootstrap fallback to observed telemetry when totals appear (13.017ms)
+✔ loadConfig normalizes legacy defaults and derives effective budgets from the external server (9.6367ms)
+✔ default managed startup script points to the repo-owned 9b thinking launcher (0.374ms)
+✔ loadConfig migrates the former 9b non-thinking startup script to the current default (6.6596ms)
+✔ loadConfig migrates the broken external 9b thinking startup script to the current default (6.6353ms)
+✔ loadConfig migrates legacy startup script path regardless of Windows path casing (7.0082ms)
+✔ loadConfig removes legacy chunk threshold ratio from loaded and persisted config (10.7198ms)
+✔ loadConfig fails closed when observed telemetry previously existed and status metrics later become unusable (12.9347ms)
+✔ loadConfig fails closed when observed telemetry previously existed and the status backend later becomes unavailable (13.4288ms)
+✔ loadConfig derives effective budgets from aggregate prompt character and token totals (6.9485ms)
+✔ saveConfig preserves explicit llama.cpp thread settings through the external server (6.9513ms)
+✖ summarizeRequest recursively merges oversized mock summaries when the external server is available (35.9689ms)
+✖ summarizeRequest splits using the observed aggregate chars-per-token average (20.8871ms)
+✖ summarizeRequest does not recurse forever when token-aware planning returns a single full-size chunk (10.4151ms)
+✖ summarizeRequest does not re-split token-aware chunks that already exceed the original char threshold (34.3205ms)
+✔ summarizeRequest fails closed when observed telemetry existed and the status snapshot later becomes unusable (14.6213ms)
+✖ concurrent oversized CLI summary requests are serialized until the first request fully completes (355.67ms)
+✔ runCommand saves a raw log and respects no-summarize mode when the external server is available (54.3073ms)
+✔ saveConfig fails closed with the canonical message when the external server is unreachable (2.6125ms)
+✔ status notification failures fail closed with the canonical message (9.3141ms)
+✔ withExecutionLock acquires and releases execution control through the server (3.4483ms)
+{"ok":true,"port":13552,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-vkWCt1\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-vkWCt1\\config.json"}
+✔ withExecutionLock waits for the server to release execution control before starting (523.6629ms)
+{"ok":true,"port":13553,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-BFZuVp\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-BFZuVp\\config.json"}
+✔ real status server clears stale true status once during startup (262.661ms)
+{"ok":true,"port":13555,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-5o8Y4k\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-5o8Y4k\\config.json"}
+✔ real status server initializes a missing status file to false (6.487ms)
+✔ real status server health reports disableManagedLlamaStartup mode when flagged (4.814ms)
+2026-04-02 13:06:25 llama_sync startup_script script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-n8qoMa\start-llama.ps1
+2026-04-02 13:06:26 llama_sync startup_script done script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-n8qoMa\start-llama.ps1
+2026-04-02 13:06:28 llama_start starting script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-n8qoMa\start-llama.ps1
+2026-04-02 13:06:28 llama_start verbose_logging=off verbose_args=[]
+2026-04-02 13:06:28 llama_start ready base_url=http://127.0.0.1:13557
+{"ok":true,"port":13558,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-n8qoMa\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-n8qoMa\\config.json"}
+2026-04-02 13:06:28 llama_stop stopping script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-n8qoMa\stop-llama.ps1
+2026-04-02 13:06:29 llama_stop offline base_url=http://127.0.0.1:13557
+✔ real status server passes managed startup env flag to startup scripts (3389.885ms)
+2026-04-02 13:06:29 llama_sync startup_script script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-82cuMv\start-llama.ps1
+2026-04-02 13:06:29 llama_sync startup_script done script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-82cuMv\start-llama.ps1
+2026-04-02 13:06:31 llama_start starting script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-82cuMv\start-llama.ps1
+2026-04-02 13:06:31 llama_start verbose_logging=on verbose_args=["--verbose"]
+2026-04-02 13:06:32 llama_start ready base_url=http://127.0.0.1:13502
+{"ok":true,"port":13504,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-82cuMv\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-82cuMv\\config.json"}
+2026-04-02 13:06:32 llama_stop stopping script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-82cuMv\stop-llama.ps1
+2026-04-02 13:06:32 llama_stop offline base_url=http://127.0.0.1:13502
+{"ok":true,"port":13547,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-hk24b0\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-hk24b0\\config.json"}
+✔ real status server passes managed verbose env settings to startup scripts (3406.3192ms)
+{"ok":true,"port":13550,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-NjvJw8\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-NjvJw8\\config.json"}
+✔ real status server migrates the legacy default startup script to the current default (6.3878ms)
+{"ok":true,"port":13552,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-pZ49iU\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-pZ49iU\\config.json"}
+✔ real status server migrates legacy startup script path regardless of Windows path casing (5.9718ms)
+{"ok":true,"port":13556,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-c4jJPa\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-c4jJPa\\config.json"}
+✔ real status server defaults new config to the current thinking startup script (4.6123ms)
+{"ok":true,"port":13558,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-hOLOKa\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-hOLOKa\\config.json"}
+✔ real status server migrates the former 9b non-thinking startup script to the current default (6.2826ms)
+✔ real status server migrates the broken external 9b thinking startup script to the current default (6.4926ms)
+{"ok":true,"port":13561,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-bXh46k\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-bXh46k\\config.json"}
+✔ real status server with disableManagedLlamaStartup skips managed llama bootstrap during server startup (265.0833ms)
+{"ok":true,"port":13566,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-3p65oA\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-3p65oA\\config.json"}
+{"ok":true,"port":13568,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-YdDLNk\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-YdDLNk\\config.json"}
+✔ real status server with disableManagedLlamaStartup does not trigger managed startup from GET /config (266.3016ms)
+2026-04-02 13:06:33 request true raw_chars=25
+2026-04-02 13:06:33 request false total_elapsed=0s output_tokens=1
+✔ real status server with disableManagedLlamaStartup keeps the shared status file pinned to true across request lifecycle (7.3151ms)
+{"ok":true,"port":13574,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-NflPA2\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-NflPA2\\config.json"}
+{"ok":true,"port":13575,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-mUwsXz\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-mUwsXz\\config.json"}
+✔ real status server with disableManagedLlamaStartup leaves an externally started llama running across boot and close (86.883ms)
+{"ok":true,"port":13579,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-5ETBds\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-5ETBds\\config.json"}
+✔ real status server preserves foreign_lock while siftkit is idle (360.5043ms)
+2026-04-02 13:06:33 request true raw_chars=25
+{"ok":true,"port":13582,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-AfxN8c\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-AfxN8c\\config.json"}
+✔ real status server publishes lock_requested while waiting on a foreign_lock (111.1119ms)
+{"ok":true,"port":13584,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-tR6y3J\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-tR6y3J\\config.json"}
+✔ real status server rejects shared-file statuses in POST /status payloads (6.3657ms)
+2026-04-02 13:06:33 request false
+2026-04-02 13:06:33 request true
+{"ok":true,"port":13586,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-DdAtGM\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-DdAtGM\\config.json"}
+✔ real status server accepts boolean-like running payload variants (6.7817ms)
+2026-04-02 13:06:33 request true
+{"ok":true,"port":13590,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-n5yQzM\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-n5yQzM\\config.json"}
+✔ real status server preserves true status while an active request is tracked (360.9863ms)
+2026-04-02 13:06:34 request true raw_chars=400
+{"ok":true,"port":13592,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-n5yQzM\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-n5yQzM\\config.json"}
+✔ real status server persists aggregate metrics and exposes them from GET /status (9.2302ms)
+2026-04-02 13:06:34 llama_sync startup_script script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-G3tAgV\start-llama.ps1
+2026-04-02 13:06:34 llama_sync startup_script done script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-G3tAgV\start-llama.ps1
+2026-04-02 13:06:36 llama_start starting script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-G3tAgV\start-llama.ps1
+2026-04-02 13:06:36 llama_start verbose_logging=off verbose_args=[]
+2026-04-02 13:06:36 llama_start ready base_url=http://127.0.0.1:13594
+{"ok":true,"port":13595,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-G3tAgV\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-G3tAgV\\config.json"}
+2026-04-02 13:06:36 llama_stop stopping script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-G3tAgV\stop-llama.ps1
+2026-04-02 13:06:37 llama_stop offline base_url=http://127.0.0.1:13594
+✔ real status server starts managed llama.cpp during server startup before serving requests (3542.9012ms)
+2026-04-02 13:06:37 llama_sync startup_script script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-IUFfDj\start-llama.ps1
+2026-04-02 13:06:38 llama_sync startup_script done script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-IUFfDj\start-llama.ps1
+2026-04-02 13:06:40 llama_start starting script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-IUFfDj\start-llama.ps1
+2026-04-02 13:06:40 llama_start verbose_logging=off verbose_args=[]
+2026-04-02 13:06:40 llama_start ready base_url=http://127.0.0.1:1724
+2026-04-02 13:06:40 llama_stop stopping script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-IUFfDj\stop-llama.ps1
+{"ok":true,"port":1725,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-IUFfDj\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-IUFfDj\\config.json"}
+2026-04-02 13:06:40 llama_stop offline base_url=http://127.0.0.1:1724
+✔ real status server waits behind foreign_lock before starting managed llama.cpp (3405.9397ms)
+2026-04-02 13:06:40 llama_sync startup_script script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-W4BcjO\start-llama.ps1
+2026-04-02 13:06:41 llama_sync startup_script done script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-W4BcjO\start-llama.ps1
+2026-04-02 13:06:43 llama_start starting script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-W4BcjO\start-llama.ps1
+2026-04-02 13:06:43 llama_start verbose_logging=off verbose_args=[]
+2026-04-02 13:06:43 llama_start ready base_url=http://127.0.0.1:26899
+{"ok":true,"port":26900,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-W4BcjO\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-W4BcjO\\config.json"}
+2026-04-02 13:06:44 llama_stop stopping script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-W4BcjO\stop-llama.ps1
+2026-04-02 13:06:44 llama_stop offline base_url=http://127.0.0.1:26899
+✔ real status server keeps published true status while managed llama stays ready (3745.1302ms)
+2026-04-02 13:06:44 llama_sync startup_script script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-MWISO3\start-llama.ps1
+2026-04-02 13:06:45 llama_sync startup_script done script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-MWISO3\start-llama.ps1
+2026-04-02 13:06:47 llama_start starting script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-MWISO3\start-llama.ps1
+2026-04-02 13:06:47 llama_start verbose_logging=off verbose_args=[]
+2026-04-02 13:06:47 llama_start ready base_url=http://127.0.0.1:26927
+{"ok":true,"port":26928,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-MWISO3\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-MWISO3\\config.json"}
+2026-04-02 13:06:47 llama_stop stopping script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-MWISO3\stop-llama.ps1
+2026-04-02 13:06:48 llama_stop offline base_url=http://127.0.0.1:26927
+✔ real status server keeps startup status true when the startup script calls config before launch (3403.4245ms)
+2026-04-02 13:06:48 llama_sync startup_script script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-tb84KX\start-llama.ps1
+2026-04-02 13:06:49 llama_sync startup_script done script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-tb84KX\start-llama.ps1
+[siftKitStatus] llama.cpp is already reachable at http://127.0.0.1:26957 during server startup, but no shutdown script is configured for stale-process cleanup.
+{"ok":true,"port":26963,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-tb84KX\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-tb84KX\\config.json"}
+✔ real status server runs startup script in sync-only mode during startup to refresh config (1233.1146ms)
+2026-04-02 13:06:49 llama_sync startup_script script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-MxzuPr\start-llama.ps1
+2026-04-02 13:06:50 llama_sync startup_script done script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-MxzuPr\start-llama.ps1
+[siftKitStatus] llama.cpp is already reachable at http://127.0.0.1:47957 during server startup, but no shutdown script is configured for stale-process cleanup.
+{"ok":true,"port":47963,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-MxzuPr\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-MxzuPr\\config.json"}
+✔ real status server sync-only startup pass does not launch a second llama process (1152.7314ms)
+✔ real status server fails closed during startup when managed llama logs contain warnings (3468.851ms)
+✔ real status server aborts a broken managed llama startup during server startup within the capped timeout (6353.8468ms)
+2026-04-02 13:07:00 llama_sync startup_script script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-YeZWHU\start-llama.ps1
+2026-04-02 13:07:01 llama_sync startup_script done script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-YeZWHU\start-llama.ps1
+2026-04-02 13:07:01 llama_stop startup_cleanup script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-YeZWHU\stop-llama.ps1
+2026-04-02 13:07:01 llama_stop stopping script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-YeZWHU\stop-llama.ps1
+2026-04-02 13:07:01 llama_stop offline base_url=http://127.0.0.1:48067
+2026-04-02 13:07:03 llama_start starting script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-YeZWHU\start-llama.ps1
+2026-04-02 13:07:03 llama_start verbose_logging=off verbose_args=[]
+2026-04-02 13:07:04 llama_start ready base_url=http://127.0.0.1:48067
+{"ok":true,"port":48073,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-YeZWHU\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-YeZWHU\\config.json"}
+2026-04-02 13:07:04 llama_stop stopping script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-YeZWHU\stop-llama.ps1
+2026-04-02 13:07:04 llama_stop offline base_url=http://127.0.0.1:48067
+2026-04-02 13:07:04 llama_sync startup_script script=C:\Users\denys\Documents\GitHub\SiftKit\scripts\start-qwen35-9b-q8-200k-thinking-managed.ps1
+✔ real status server clears a stale managed llama process during startup before serving requests (4151.4033ms)
+2026-04-02 13:07:04 llama_sync startup_script done script=C:\Users\denys\Documents\GitHub\SiftKit\scripts\start-qwen35-9b-q8-200k-thinking-managed.ps1
+2026-04-02 13:07:06 llama_start starting script=C:\Users\denys\Documents\GitHub\SiftKit\scripts\start-qwen35-9b-q8-200k-thinking-managed.ps1
+2026-04-02 13:07:06 llama_start verbose_logging=off verbose_args=[]
+✖ real status server falls back to zeroed metrics when the metrics cache is invalid (10002.7508ms)
+✔ CLI summary fails closed with the canonical message when the external server is unreachable (58.2544ms)
+✖ local-only find-files CLI works without the external server (57.305ms)
+✔ llama.cpp provider lists models and parses chat completions from the stub server (10.9944ms)
+✔ llama.cpp provider returns null usage when the server omits token usage (7.4262ms)
+✔ llama.cpp provider records thinking tokens separately from completion usage (8.7829ms)
+✔ llama.cpp provider forwards reasoning mode to chat template kwargs (9.2478ms)
+✔ llama.cpp provider omits chat template reasoning override in auto mode (8.7962ms)
+✔ llama.cpp provider per-call reasoning override takes precedence over config reasoning (8.6042ms)
+✔ llama.cpp provider enables explicit prompt caching on a supplied slot (8.3102ms)
+✔ llama.cpp provider includes per-request grammar when structured output is enabled (10.2785ms)
+✔ llama.cpp provider gets answer content from qwen-style servers when reasoning is off (7.9257ms)
+✔ llama.cpp provider reconstructs planner tool actions from empty-content tool_calls responses (8.7793ms)
+✔ llama.cpp provider accepts count-only tokenize responses (8.779ms)
+✔ summary aggregation accumulates provider usage and duration in status metrics (12.0217ms)
+✔ summary aggregation records duration without tokens when provider usage is absent (14.2307ms)
+✔ summary aggregation records thinking tokens independently from output metrics (13.4238ms)
+✔ planner token accounting treats tool-step completion tokens as thinking and finish-step tokens as output (45.9519ms)
+✖ summary retries with smaller chunks when llama.cpp rejects an oversized prompt and tokenization is unavailable (24.7487ms)
+✖ summary resizes llama.cpp chunks before the first chat request when prompt tokenization exceeds context (24.0277ms)
+✔ summary posts the preflight prompt token count in running status updates (13.5244ms)
+✔ summarizeRequest recovers malformed structured llama.cpp JSON when the expected fields are present (13.5858ms)
+✔ summarizeRequest enables per-request grammar for structured llama.cpp decisions (12.7657ms)
+✖ summary flattens token-aware llama.cpp chunking across sibling boundaries (37.0555ms)
+✔ token-aware llama.cpp chunk planning grows upward when prompt tokens leave slack (6.8752ms)
+✔ token-aware llama.cpp chunk planning starts from the char-threshold guess before growing upward (3.9299ms)
+✔ token-aware llama.cpp chunk planning shrinks after an overshooting growth probe and still stays above the initial guess (4.0022ms)
+✔ token-aware llama.cpp chunk planning keeps adjusting until accepted chunks are within 2000 tokens of the limit (5.2054ms)
+{"ok":true,"port":44762,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-AS1aU1\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-AS1aU1\\config.json"}
+✔ token-aware llama.cpp chunk planning leaves a 15k token reserve when reasoning is on (3.6887ms)
+﹣ live llama token-aware chunk planning preserves the 5m benchmark fixture without chat completion (0.1022ms) # SKIP
+✔ idle metrics formatter emits ANSI colors when enabled on a TTY (0.4225ms)
+✔ idle metrics formatter disables ANSI colors when NO_COLOR is set (0.0995ms)
+✔ idle metrics formatter disables ANSI colors when stdout is not a TTY (0.0905ms)
+✔ idle metrics formatter reports n/a averages when no requests completed (0.1123ms)
+✔ idle metrics formatter groups large values, formats days in elapsed durations, and includes budget details when present (12.5646ms)
+✔ request status log groups large running counts and uses colon elapsed durations (0.4111ms)
+2026-04-02 13:07:14 request true raw_chars=1,000 chunk 1/2
+2026-04-02 13:07:14 request false elapsed=0s output_tokens=2
+2026-04-02 13:07:14 request true raw_chars=1,000 chunk 2/2
+2026-04-02 13:07:14 request false elapsed=0s output_tokens=3
+2026-04-02 13:07:14 request true raw_chars=1,000
+2026-04-02 13:07:14 request false elapsed=0s output_tokens=1
+2026-04-02 13:07:14 request false total_elapsed=0s output_tokens=6
+{"ok":true,"port":44764,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-VlTsfc\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-VlTsfc\\config.json"}
+✔ real status server accumulates provider payload totals across a chunked request while counting one completed request (12.317ms)
+2026-04-02 13:07:14 request true raw_chars=426 prompt=468 (86)
+2026-04-02 13:07:14 request false total_elapsed=0s output_tokens=130
+{"ok":true,"port":44766,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-CRYUKt\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-CRYUKt\\config.json"}
+✔ real status server suppresses intermediate false log for single-step completed requests (7.7184ms)
+2026-04-02 13:07:14 request true raw_chars=1,000 chunk 1/2
+2026-04-02 13:07:14 request false elapsed=0s output_tokens=82
+{"ok":true,"port":44768,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-ob32Oy\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-ob32Oy\\config.json"}
+✔ real status server logs intermediate false line for first chunked leaf step (6.789ms)
+2026-04-02 13:07:14 request true raw_chars=3,322,607 prompt=342,395 (147,694) chunk 1/10
+2026-04-02 13:07:14 request false elapsed=0s
+2026-04-02 13:07:14 request false raw_chars=3,322,607 prompt=342,395 (147,694) chunk 1/10 failed elapsed=0s error=leaf chunk failed
+2026-04-02 13:07:14 request true raw_chars=281,469 prompt=283,752 (99,240)
+2026-04-02 13:07:14 request false total_elapsed=0s output_tokens=154
+{"ok":true,"port":44770,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-E4NX8l\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-E4NX8l\\config.json"}
+✔ real status server logs explicit chunk failures and clears them before the next request (10.2937ms)
+2026-04-02 13:07:14 request true raw_chars=3,322,607 prompt=342,395 (147,694) chunk 1/10
+2026-04-02 13:07:14 request false elapsed=0s
+2026-04-02 13:07:14 request false raw_chars=3,322,607 prompt=342,395 (147,694) chunk 1/10 failed elapsed=0s error=Abandoned because a new request started before terminal status.
+2026-04-02 13:07:14 request true raw_chars=281,469 prompt=283,752 (99,240)
+✔ real status server marks a stale active request as abandoned when a new request id starts (8.3789ms)
+2026-04-02 13:07:15 llama_start ready base_url=http://127.0.0.1:8097
+{"ok":true,"port":6886,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-xaEzgb\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-xaEzgb\\config.json"}
+2026-04-02 13:07:15 llama_stop stopping script=C:\Users\denys\Documents\GitHub\SiftKit\scripts\stop-llama-server.ps1
+✔ real status server prints one idle metrics line only after the full idle delay (199.9081ms)
+2026-04-02 13:07:15 llama_stop offline base_url=http://127.0.0.1:8097
+✔ real status server shuts down managed llama.cpp after the idle summary block is emitted (3621.8422ms)
+2026-04-02 13:07:18 llama_sync startup_script script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-0xO1Al\start-llama.ps1
+2026-04-02 13:07:19 llama_sync startup_script done script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-0xO1Al\start-llama.ps1
+2026-04-02 13:07:21 llama_start starting script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-0xO1Al\start-llama.ps1
+2026-04-02 13:07:21 llama_start verbose_logging=off verbose_args=[]
+2026-04-02 13:07:21 llama_start ready base_url=http://127.0.0.1:44806
+{"ok":true,"port":44807,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-0xO1Al\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-0xO1Al\\config.json"}
+2026-04-02 13:07:21 llama_stop stopping script=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-0xO1Al\stop-llama.ps1
+2026-04-02 13:07:22 llama_stop offline base_url=http://127.0.0.1:44806
+{"ok":true,"port":44836,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-eEha9r\\status\\inference.txt","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-eEha9r\\config.json"}
+✔ real status server close() stops managed llama.cpp (3482.5749ms)
+2026-04-02 13:07:22 request true raw_chars=300 prompt=420
+✔ real status server falls back to request-start prompt chars and elapsed time when completion payload is minimal (35.9462ms)
+✔ real status server restarts the idle countdown when a new request begins before the prior delay expires (302.8769ms)
+✔ real status server does not count idle delay while an execution lease remains active (297.1344ms)
+✔ real status server appends one sqlite snapshot for each emitted idle summary (236.2669ms)
+✔ real status server keeps emitting idle summaries when sqlite persistence fails (173.7871ms)
+Fixture 1/2 [summarized-case] start
+Fixture 1/2 [summarized-case] completed in 0s
+Fixture 2/2 [raw-case] start
+Fixture 2/2 [raw-case] completed in 0s
+✔ benchmark runner writes prompt, output, classification metadata, per-case duration, and total duration (21.594ms)
+Fixture 1/1 [timeout-case] start
+Fixture 1/1 [timeout-case] failed fatally after 0s: Benchmark fixture 'timeout-case' timed out after 0.01 seconds.
+✔ benchmark runner times out fatally and writes a partial artifact (22.6451ms)
+Fixture 1/1 [default-timeout-case] start
+Fixture 1/1 [default-timeout-case] completed in 0s
+✔ benchmark runner uses a 30 minute default request timeout when omitted (14.2736ms)
+Fixture 1/1 [provider-error-case] start
+Fixture 1/1 [provider-error-case] failed fatally after 0s: mock provider failure
+✔ benchmark runner fails fast on provider errors and writes the fatal error text (12.3294ms)
+[fixture-debug 2026-04-02T17:07:23.425Z] Output root: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-GuGmiz\file-debug-output
+[fixture-debug 2026-04-02T17:07:23.426Z] Log path: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-GuGmiz\file-debug-output\debug.log
+[fixture-debug 2026-04-02T17:07:23.426Z] Source path: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-GuGmiz\input.txt
+[fixture-debug 2026-04-02T17:07:23.426Z] Input chars: 600
+[fixture-debug 2026-04-02T17:07:23.426Z] Question: summarize this
+[fixture-debug 2026-04-02T17:07:23.426Z] Format: text
+[fixture-debug 2026-04-02T17:07:23.426Z] Policy profile: general
+[fixture-debug 2026-04-02T17:07:23.427Z] Request timeout seconds: 600
+[fixture-debug 2026-04-02T17:07:23.427Z] Calling summarizeRequest...
+[siftkit-trace 2026-04-02T17:07:23.427Z] summary summarizeRequest start input_chars=600
+[siftkit-trace 2026-04-02T17:07:23.427Z] execution-lock reenter token=lease-1775149643365 depth=2
+[siftkit-trace 2026-04-02T17:07:23.427Z] summary loadConfig start
+✔ run-benchmark-fixture-debug writes an artifact for fixture mode (17.2542ms)
+[siftkit-trace 2026-04-02T17:07:23.432Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:23.432Z] summary decision ready backend=llama.cpp model=qwen3.5-9b-instruct-q4_k_m raw_review_required=false chars=600 lines=1
+[siftkit-trace 2026-04-02T17:07:23.433Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:23.433Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=600 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:23.433Z] summary preflight start phase=leaf chunk=undefined/undefined prompt_chars=2478 effective_prompt_limit=118000
+[siftkit-trace 2026-04-02T17:07:23.433Z] llama-cpp tokenize start chars=2478
+[siftkit-trace 2026-04-02T17:07:23.434Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:23.434Z] summary preflight done phase=leaf chunk=undefined/undefined prompt_tokens=null
+[siftkit-trace 2026-04-02T17:07:23.434Z] summary notify running=true phase=leaf chunk=none raw_chars=600 chunk_chars=600 prompt_chars=2478
+[siftkit-trace 2026-04-02T17:07:23.434Z] summary provider start backend=llama.cpp model=qwen3.5-9b-instruct-q4_k_m phase=leaf chunk=none timeout_s=600
+[siftkit-trace 2026-04-02T17:07:23.435Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=600 prompt_chars=2478 base_url=http://127.0.0.1:44860
+[siftkit-trace 2026-04-02T17:07:23.435Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=100
+[siftkit-trace 2026-04-02T17:07:23.435Z] summary provider done phase=leaf chunk=none output_chars=100 output_tokens=45 thinking_tokens=null
+[siftkit-trace 2026-04-02T17:07:23.435Z] summary notify running=false phase=leaf chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:23.436Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:23.438Z] execution-lock release deferred token=lease-1775149643365 depth=1
+[fixture-debug 2026-04-02T17:07:23.438Z] summarizeRequest completed in 10.7ms
+[fixture-debug 2026-04-02T17:07:23.438Z] Request id: d7ec2292-1cb3-4986-b9c5-379b9f6d5b83
+[fixture-debug 2026-04-02T17:07:23.438Z] Result classification: summary
+[fixture-debug 2026-04-02T17:07:23.439Z] Summary path: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-GuGmiz\file-debug-output\summary.txt
+[fixture-debug 2026-04-02T17:07:23.439Z] Artifact path: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-GuGmiz\file-debug-output\result.json
+summary:Preserve exact technical
+[fixture-debug 2026-04-02T17:07:23.443Z] Output root: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-3chUSk\file-debug-failure-output
+[fixture-debug 2026-04-02T17:07:23.443Z] Log path: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-3chUSk\file-debug-failure-output\debug.log
+[fixture-debug 2026-04-02T17:07:23.443Z] Source path: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-3chUSk\input.txt
+[fixture-debug 2026-04-02T17:07:23.444Z] Input chars: 600
+[fixture-debug 2026-04-02T17:07:23.444Z] Question: summarize this
+[fixture-debug 2026-04-02T17:07:23.444Z] Format: text
+[fixture-debug 2026-04-02T17:07:23.444Z] Policy profile: general
+[fixture-debug 2026-04-02T17:07:23.444Z] Request timeout seconds: 600
+[fixture-debug 2026-04-02T17:07:23.444Z] Calling summarizeRequest...
+✔ run-benchmark-fixture-debug supports direct file mode (17.3735ms)
+[fixture-debug 2026-04-02T17:07:23.453Z] summarizeRequest failed in 8.3ms
+[fixture-debug 2026-04-02T17:07:23.453Z] Artifact path: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-3chUSk\file-debug-failure-output\result.json
+✔ run-benchmark-fixture-debug writes failure artifacts and exits nonzero on summarize errors (14.3487ms)
+[fixture60-repro 2026-04-02T17:07:23.467Z] Output root: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-wbO2y2\fixture60-repro-output
+[fixture60-repro 2026-04-02T17:07:23.467Z] Fixture range: 1-1
+[fixture60-repro 2026-04-02T17:07:23.467Z] Fixture count: 1
+[siftkit-trace 2026-04-02T17:07:23.468Z] execution-lock reenter token=lease-1775149643365 depth=2
+[siftkit-trace 2026-04-02T17:07:23.468Z] llama-cpp tokenize start chars=6681
+[siftkit-trace 2026-04-02T17:07:23.468Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[fixture60-repro 2026-04-02T17:07:23.469Z] Fixture 1/1: fixture60-repro-case
+[fixture60-repro 2026-04-02T17:07:23.469Z] Source path: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-wbO2y2\bench-fixtures\case1.txt
+[fixture60-repro 2026-04-02T17:07:23.469Z] Input chars: 11000
+[fixture60-repro 2026-04-02T17:07:23.470Z] Chunk threshold: 3711
+[fixture60-repro 2026-04-02T17:07:23.470Z] Chunk count: 3
+[siftkit-trace 2026-04-02T17:07:23.470Z] llama-cpp tokenize start chars=6675
+[siftkit-trace 2026-04-02T17:07:23.470Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:23.470Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=1800 prompt_chars=6675 base_url=http://127.0.0.1:44864
+[siftkit-trace 2026-04-02T17:07:23.471Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=83
+[fixture60-repro 2026-04-02T17:07:23.472Z] Fixture 1 chunk 1/3 parsed prompt_tokens=null output_tokens=45
+[siftkit-trace 2026-04-02T17:07:23.473Z] llama-cpp tokenize start chars=6675
+[siftkit-trace 2026-04-02T17:07:23.473Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:23.473Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=1800 prompt_chars=6675 base_url=http://127.0.0.1:44864
+[siftkit-trace 2026-04-02T17:07:23.474Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=72
+[fixture60-repro 2026-04-02T17:07:23.475Z] Fixture 1 chunk 2/3 malformed: Provider returned an invalid SiftKit decision payload: Unterminated string in JSON at position 72 (line 1 column 73)
+[siftkit-trace 2026-04-02T17:07:23.475Z] execution-lock release deferred token=lease-1775149643365 depth=1
+✔ repro-fixture60-malformed-json writes chunk artifacts and stops on malformed chunk payload (23.6074ms)
+[fixture60-repro 2026-04-02T17:07:23.490Z] Output root: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-2x7eFU\fixture60-repro-success-output
+[fixture60-repro 2026-04-02T17:07:23.491Z] Fixture range: 1-1
+[siftkit-trace 2026-04-02T17:07:23.491Z] execution-lock reenter token=lease-1775149643365 depth=2
+[fixture60-repro 2026-04-02T17:07:23.491Z] Fixture count: 1
+[siftkit-trace 2026-04-02T17:07:23.491Z] llama-cpp tokenize start chars=6681
+[siftkit-trace 2026-04-02T17:07:23.492Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[fixture60-repro 2026-04-02T17:07:23.492Z] Fixture 1/1: fixture60-repro-case
+[fixture60-repro 2026-04-02T17:07:23.493Z] Source path: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-2x7eFU\bench-fixtures\case1.txt
+[fixture60-repro 2026-04-02T17:07:23.493Z] Input chars: 11000
+[fixture60-repro 2026-04-02T17:07:23.493Z] Chunk threshold: 3711
+[fixture60-repro 2026-04-02T17:07:23.493Z] Chunk count: 3
+[siftkit-trace 2026-04-02T17:07:23.493Z] llama-cpp tokenize start chars=6675
+[siftkit-trace 2026-04-02T17:07:23.494Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:23.494Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=1800 prompt_chars=6675 base_url=http://127.0.0.1:44866
+[siftkit-trace 2026-04-02T17:07:23.494Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=83
+[fixture60-repro 2026-04-02T17:07:23.496Z] Fixture 1 chunk 1/3 parsed prompt_tokens=null output_tokens=45
+[siftkit-trace 2026-04-02T17:07:23.497Z] llama-cpp tokenize start chars=6675
+[siftkit-trace 2026-04-02T17:07:23.498Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:23.498Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=1800 prompt_chars=6675 base_url=http://127.0.0.1:44866
+[siftkit-trace 2026-04-02T17:07:23.498Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=83
+[fixture60-repro 2026-04-02T17:07:23.499Z] Fixture 1 chunk 2/3 parsed prompt_tokens=null output_tokens=45
+[siftkit-trace 2026-04-02T17:07:23.501Z] llama-cpp tokenize start chars=6542
+[siftkit-trace 2026-04-02T17:07:23.501Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:23.501Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=1800 prompt_chars=6542 base_url=http://127.0.0.1:44866
+[siftkit-trace 2026-04-02T17:07:23.502Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=83
+[fixture60-repro 2026-04-02T17:07:23.503Z] Fixture 1 chunk 3/3 parsed prompt_tokens=null output_tokens=45
+[fixture60-repro 2026-04-02T17:07:23.505Z] Completed without malformed chunk payloads.
+[siftkit-trace 2026-04-02T17:07:23.505Z] execution-lock release deferred token=lease-1775149643365 depth=1
+✔ repro-fixture60-malformed-json writes a completed manifest for valid chunk responses (30.5102ms)
+[fixture60-repro 2026-04-02T17:07:23.522Z] Output root: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-Ncsa7o\fixture60-repro-range-output
+[fixture60-repro 2026-04-02T17:07:23.523Z] Fixture range: 1-2
+[fixture60-repro 2026-04-02T17:07:23.523Z] Fixture count: 2
+[siftkit-trace 2026-04-02T17:07:23.523Z] execution-lock reenter token=lease-1775149643365 depth=2
+[siftkit-trace 2026-04-02T17:07:23.523Z] llama-cpp tokenize start chars=6685
+[siftkit-trace 2026-04-02T17:07:23.524Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[fixture60-repro 2026-04-02T17:07:23.524Z] Fixture 1/2: fixture-1
+[fixture60-repro 2026-04-02T17:07:23.524Z] Source path: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-Ncsa7o\bench-fixtures\case1.txt
+[fixture60-repro 2026-04-02T17:07:23.525Z] Input chars: 11000
+[fixture60-repro 2026-04-02T17:07:23.525Z] Chunk threshold: 3711
+[fixture60-repro 2026-04-02T17:07:23.525Z] Chunk count: 3
+[siftkit-trace 2026-04-02T17:07:23.525Z] llama-cpp tokenize start chars=6679
+[siftkit-trace 2026-04-02T17:07:23.525Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:23.525Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=1800 prompt_chars=6679 base_url=http://127.0.0.1:44868
+[siftkit-trace 2026-04-02T17:07:23.526Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=85
+[fixture60-repro 2026-04-02T17:07:23.527Z] Fixture 1 chunk 1/3 parsed prompt_tokens=null output_tokens=45
+[siftkit-trace 2026-04-02T17:07:23.528Z] llama-cpp tokenize start chars=6679
+[siftkit-trace 2026-04-02T17:07:23.529Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:23.529Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=1800 prompt_chars=6679 base_url=http://127.0.0.1:44868
+[siftkit-trace 2026-04-02T17:07:23.529Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=85
+[fixture60-repro 2026-04-02T17:07:23.530Z] Fixture 1 chunk 2/3 parsed prompt_tokens=null output_tokens=45
+[siftkit-trace 2026-04-02T17:07:23.531Z] llama-cpp tokenize start chars=6546
+[siftkit-trace 2026-04-02T17:07:23.531Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:23.531Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=1800 prompt_chars=6546 base_url=http://127.0.0.1:44868
+[siftkit-trace 2026-04-02T17:07:23.532Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=85
+[fixture60-repro 2026-04-02T17:07:23.532Z] Fixture 1 chunk 3/3 parsed prompt_tokens=null output_tokens=45
+[siftkit-trace 2026-04-02T17:07:23.534Z] llama-cpp tokenize start chars=6685
+[siftkit-trace 2026-04-02T17:07:23.534Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[fixture60-repro 2026-04-02T17:07:23.535Z] Fixture 2/2: fixture-2
+[fixture60-repro 2026-04-02T17:07:23.535Z] Source path: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-Ncsa7o\bench-fixtures\case2.txt
+[fixture60-repro 2026-04-02T17:07:23.535Z] Input chars: 11000
+[fixture60-repro 2026-04-02T17:07:23.535Z] Chunk threshold: 3711
+[fixture60-repro 2026-04-02T17:07:23.536Z] Chunk count: 3
+[siftkit-trace 2026-04-02T17:07:23.536Z] llama-cpp tokenize start chars=6679
+[siftkit-trace 2026-04-02T17:07:23.536Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:23.536Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=1800 prompt_chars=6679 base_url=http://127.0.0.1:44868
+[siftkit-trace 2026-04-02T17:07:23.537Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=85
+[fixture60-repro 2026-04-02T17:07:23.538Z] Fixture 2 chunk 1/3 parsed prompt_tokens=null output_tokens=45
+[siftkit-trace 2026-04-02T17:07:23.539Z] llama-cpp tokenize start chars=6679
+[siftkit-trace 2026-04-02T17:07:23.539Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:23.539Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=1800 prompt_chars=6679 base_url=http://127.0.0.1:44868
+[siftkit-trace 2026-04-02T17:07:23.540Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=72
+[fixture60-repro 2026-04-02T17:07:23.541Z] Fixture 2 chunk 2/3 malformed: Provider returned an invalid SiftKit decision payload: Unterminated string in JSON at position 72 (line 1 column 73)
+Provider returned an invalid SiftKit decision payload: Unterminated string in JSON at position 72 (line 1 column 73)
+[siftkit-trace 2026-04-02T17:07:23.541Z] execution-lock release deferred token=lease-1775149643365 depth=1
+✔ repro-fixture60-malformed-json can run a fixture range and stop on a later malformed fixture (37.3936ms)
+✔ benchmark matrix respects per-run launcher overrides and script-owned reasoning (5.2268ms)
+✔ benchmark matrix defaults request timeout to 30 minutes when omitted (2.981ms)
+Restarting llama-server for [baseline] baseline
+[siftkit-trace 2026-04-02T17:07:23.570Z] summary notify running=false phase=leaf chunk=none duration_ms=201
+[siftkit-trace 2026-04-02T17:07:23.571Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:23.574Z] execution-lock release token=lease-1775149643365
+Running [interrupt-run] interrupt run
+Restarting llama-server for [baseline] baseline
+✔ benchmark matrix marks interrupted runs failed, preserves benchmark log paths, and restores baseline (6302.4021ms)
+✔ benchmark matrix launch signature changes for script and context changes but ignores metadata-only reasoning when script-owned (7.8269ms)
+✔ benchmark matrix passes reasoning by default when the launcher supports it (3.5654ms)
+✔ benchmark matrix prunes llama launcher logs older than 7 days (3.4115ms)
+✔ buildPrompt prepends promptPrefix when provided (0.1555ms)
+✔ buildPrompt wraps generated chunk slices as inert literal input (0.0964ms)
+✔ getPlannerPromptBudget leaves 27k headroom for a 190k non-thinking context (0.0836ms)
+✔ getPlannerPromptBudget leaves 26,250 tokens of headroom for a 190k thinking context (0.0597ms)
+[siftkit-trace 2026-04-02T17:07:29.880Z] summary summarizeRequest start input_chars=178164
+[siftkit-trace 2026-04-02T17:07:29.880Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:29.880Z] execution-lock acquire success token=lease-1775149649880 elapsed_ms=0
+[siftkit-trace 2026-04-02T17:07:29.881Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:29.883Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:29.886Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=178164 lines=1
+[siftkit-trace 2026-04-02T17:07:29.886Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:29.886Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=178164 chunk_threshold=209725 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:29.887Z] summary preflight start phase=leaf chunk=undefined/undefined prompt_chars=180042 effective_prompt_limit=113000
+[siftkit-trace 2026-04-02T17:07:29.887Z] llama-cpp tokenize start chars=180042
+[siftkit-trace 2026-04-02T17:07:29.888Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:29.888Z] summary preflight done phase=leaf chunk=undefined/undefined prompt_tokens=null
+[siftkit-trace 2026-04-02T17:07:29.888Z] summary notify running=true phase=leaf chunk=none raw_chars=178164 chunk_chars=178164 prompt_chars=180042
+[siftkit-trace 2026-04-02T17:07:29.888Z] summary provider start backend=llama.cpp model=mock-model phase=leaf chunk=none timeout_s=600
+[siftkit-trace 2026-04-02T17:07:29.888Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=180042 base_url=http://127.0.0.1:35609
+[siftkit-trace 2026-04-02T17:07:29.890Z] llama-cpp generate done elapsed_ms=2 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=100
+[siftkit-trace 2026-04-02T17:07:29.890Z] summary provider done phase=leaf chunk=none output_chars=100 output_tokens=45 thinking_tokens=null
+[siftkit-trace 2026-04-02T17:07:29.890Z] summary notify running=false phase=leaf chunk=none duration_ms=2
+[siftkit-trace 2026-04-02T17:07:29.890Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:29.893Z] execution-lock release token=lease-1775149649880
+✔ summary below planner threshold runs one-shot with forced non-thinking (21.9073ms)
+[siftkit-trace 2026-04-02T17:07:29.912Z] summary summarizeRequest start input_chars=179102
+[siftkit-trace 2026-04-02T17:07:29.912Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:29.912Z] execution-lock acquire success token=lease-1775149649912 elapsed_ms=0
+[siftkit-trace 2026-04-02T17:07:29.912Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:29.915Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:29.918Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=179102 lines=1
+[siftkit-trace 2026-04-02T17:07:29.918Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:29.918Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=179102 chunk_threshold=209725 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:29.918Z] llama-cpp tokenize start chars=5206
+[siftkit-trace 2026-04-02T17:07:29.919Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:29.919Z] summary notify running=true phase=planner chunk=none raw_chars=179102 chunk_chars=179102 prompt_chars=5206
+[siftkit-trace 2026-04-02T17:07:29.919Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5204 base_url=http://127.0.0.1:35611
+[siftkit-trace 2026-04-02T17:07:29.920Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=100
+[siftkit-trace 2026-04-02T17:07:29.920Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:29.920Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:29.925Z] execution-lock release token=lease-1775149649912
+✔ summary above planner threshold uses planner flow without forced non-thinking override (32.5882ms)
+[siftkit-trace 2026-04-02T17:07:29.936Z] summary summarizeRequest start input_chars=178174
+[siftkit-trace 2026-04-02T17:07:29.936Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:29.937Z] execution-lock acquire success token=lease-1775149649937 elapsed_ms=1
+[siftkit-trace 2026-04-02T17:07:29.937Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:29.940Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:29.943Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=178174 lines=1
+[siftkit-trace 2026-04-02T17:07:29.943Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:29.943Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=178174 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:29.943Z] summary preflight start phase=leaf chunk=undefined/undefined prompt_chars=180052 effective_prompt_limit=118000
+[siftkit-trace 2026-04-02T17:07:29.943Z] llama-cpp tokenize start chars=180052
+[siftkit-trace 2026-04-02T17:07:29.945Z] llama-cpp tokenize http_error elapsed_ms=2 status=503
+[siftkit-trace 2026-04-02T17:07:29.945Z] summary preflight done phase=leaf chunk=undefined/undefined prompt_tokens=null
+[siftkit-trace 2026-04-02T17:07:29.945Z] summary notify running=true phase=leaf chunk=none raw_chars=178174 chunk_chars=178174 prompt_chars=180052
+[siftkit-trace 2026-04-02T17:07:29.945Z] summary provider start backend=llama.cpp model=mock-model phase=leaf chunk=none timeout_s=600
+[siftkit-trace 2026-04-02T17:07:29.945Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=180052 base_url=http://127.0.0.1:35613
+[siftkit-trace 2026-04-02T17:07:29.946Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=70
+[siftkit-trace 2026-04-02T17:07:29.946Z] summary provider done phase=leaf chunk=none output_chars=70 output_tokens=45 thinking_tokens=null
+[siftkit-trace 2026-04-02T17:07:29.946Z] summary notify running=false phase=leaf chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:29.947Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:29.950Z] execution-lock release token=lease-1775149649937
+✔ planner activation threshold at exactly 75% stays on non-planner path (29.9832ms)
+✔ buildPlannerToolDefinitions returns qwen-friendly function schemas (0.6388ms)
+Fixture 1/1 [summarized-case] start
+[siftkit-trace 2026-04-02T17:07:29.966Z] summary summarizeRequest start input_chars=600
+[siftkit-trace 2026-04-02T17:07:29.966Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:29.966Z] execution-lock acquire success token=lease-1775149649966 elapsed_ms=0
+[siftkit-trace 2026-04-02T17:07:29.966Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:29.970Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:29.970Z] summary decision ready backend=mock model=mock-model raw_review_required=false chars=600 lines=1
+[siftkit-trace 2026-04-02T17:07:29.970Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:29.970Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=600 chunk_threshold=237565 planner_threshold=237565
+[siftkit-trace 2026-04-02T17:07:29.970Z] summary preflight start phase=leaf chunk=undefined/undefined prompt_chars=2738 effective_prompt_limit=null
+[siftkit-trace 2026-04-02T17:07:29.970Z] summary preflight done phase=leaf chunk=undefined/undefined prompt_tokens=null
+[siftkit-trace 2026-04-02T17:07:29.970Z] summary notify running=true phase=leaf chunk=none raw_chars=600 chunk_chars=600 prompt_chars=2738
+[siftkit-trace 2026-04-02T17:07:29.970Z] summary notify running=false phase=leaf chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:29.971Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:29.973Z] execution-lock release token=lease-1775149649966
+Fixture 1/1 [summarized-case] completed in 0s
+✔ benchmark runner records a custom prompt prefix from file (17.3221ms)
+[siftkit-trace 2026-04-02T17:07:29.981Z] summary summarizeRequest start input_chars=6939
+[siftkit-trace 2026-04-02T17:07:29.981Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:29.981Z] execution-lock acquire success token=lease-1775149649981 elapsed_ms=0
+[siftkit-trace 2026-04-02T17:07:29.981Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:29.983Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:29.984Z] summary decision ready backend=mock model=mock-model raw_review_required=true chars=6939 lines=81
+[siftkit-trace 2026-04-02T17:07:29.984Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:29.984Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=6939 chunk_threshold=237565 planner_threshold=237565
+[siftkit-trace 2026-04-02T17:07:29.984Z] summary preflight start phase=leaf chunk=undefined/undefined prompt_chars=9477 effective_prompt_limit=null
+[siftkit-trace 2026-04-02T17:07:29.984Z] summary preflight done phase=leaf chunk=undefined/undefined prompt_tokens=null
+[siftkit-trace 2026-04-02T17:07:29.984Z] summary notify running=true phase=leaf chunk=none raw_chars=6939 chunk_chars=6939 prompt_chars=9477
+[siftkit-trace 2026-04-02T17:07:29.984Z] summary notify running=false phase=leaf chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:29.984Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:29.986Z] execution-lock release token=lease-1775149649981
+[siftkit-trace 2026-04-02T17:07:29.987Z] summary summarizeRequest start input_chars=1363
+[siftkit-trace 2026-04-02T17:07:29.987Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:29.987Z] execution-lock acquire success token=lease-1775149649987 elapsed_ms=0
+[siftkit-trace 2026-04-02T17:07:29.987Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:29.989Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:29.989Z] summary decision ready backend=mock model=mock-model raw_review_required=true chars=1363 lines=13
+[siftkit-trace 2026-04-02T17:07:29.989Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:29.989Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=1363 chunk_threshold=238216 planner_threshold=238216
+[siftkit-trace 2026-04-02T17:07:29.989Z] summary preflight start phase=leaf chunk=undefined/undefined prompt_chars=3859 effective_prompt_limit=null
+[siftkit-trace 2026-04-02T17:07:29.989Z] summary preflight done phase=leaf chunk=undefined/undefined prompt_tokens=null
+[siftkit-trace 2026-04-02T17:07:29.989Z] summary notify running=true phase=leaf chunk=none raw_chars=1363 chunk_chars=1363 prompt_chars=3859
+[siftkit-trace 2026-04-02T17:07:29.990Z] summary notify running=false phase=leaf chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:29.990Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:29.992Z] execution-lock release token=lease-1775149649987
+[siftkit-trace 2026-04-02T17:07:30.001Z] summary summarizeRequest start input_chars=4999971
+[siftkit-trace 2026-04-02T17:07:30.001Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:30.002Z] execution-lock acquire success token=lease-1775149650001 elapsed_ms=1
+[siftkit-trace 2026-04-02T17:07:30.002Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:30.005Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:30.045Z] summary decision ready backend=mock model=mock-model raw_review_required=true chars=4999971 lines=33058
+[siftkit-trace 2026-04-02T17:07:30.045Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:30.045Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=4999971 chunk_threshold=238480 planner_threshold=238480
+[siftkit-trace 2026-04-02T17:07:30.083Z] execution-lock release token=lease-1775149650001
+[siftkit-trace 2026-04-02T17:07:30.088Z] summary summarizeRequest start input_chars=222
+[siftkit-trace 2026-04-02T17:07:30.088Z] execution-lock acquire start timeout_ms=300000
+✖ benchmark error-log fixtures now reach the model-first summary path (111.129ms)
+[siftkit-trace 2026-04-02T17:07:30.090Z] execution-lock acquire success token=lease-1775149650090 elapsed_ms=2
+[siftkit-trace 2026-04-02T17:07:30.090Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:30.097Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:30.097Z] summary decision ready backend=mock model=mock-model raw_review_required=false chars=222 lines=3
+[siftkit-trace 2026-04-02T17:07:30.097Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:30.097Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=222 chunk_threshold=237565 planner_threshold=237565
+[siftkit-trace 2026-04-02T17:07:30.097Z] summary preflight start phase=leaf chunk=undefined/undefined prompt_chars=2708 effective_prompt_limit=null
+[siftkit-trace 2026-04-02T17:07:30.097Z] summary preflight done phase=leaf chunk=undefined/undefined prompt_tokens=null
+[siftkit-trace 2026-04-02T17:07:30.097Z] summary notify running=true phase=leaf chunk=none raw_chars=222 chunk_chars=222 prompt_chars=2708
+[siftkit-trace 2026-04-02T17:07:30.098Z] summary notify running=false phase=leaf chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:30.098Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:30.100Z] execution-lock release token=lease-1775149650090
+[siftkit-trace 2026-04-02T17:07:30.104Z] execution-lock acquire start timeout_ms=300000
+✔ pass markers with zero failed still use the model summary path (14.947ms)
+✔ getSummaryDecision keeps command-output raw review false for sparse error-like text with zero exit code (0.4019ms)
+✔ getSummaryDecision requires raw review for command-output with non-zero exit code (0.1004ms)
+✔ getSummaryDecision requires raw review for command-output with dense error signals (0.2438ms)
+[siftkit-trace 2026-04-02T17:07:30.105Z] execution-lock acquire success token=lease-1775149650105 elapsed_ms=1
+[siftkit-trace 2026-04-02T17:07:30.202Z] summary summarizeRequest start input_chars=73
+[siftkit-trace 2026-04-02T17:07:30.202Z] execution-lock reenter token=lease-1775149650105 depth=2
+[siftkit-trace 2026-04-02T17:07:30.202Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:30.206Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:30.206Z] summary decision ready backend=mock model=mock-model raw_review_required=true chars=73 lines=1
+[siftkit-trace 2026-04-02T17:07:30.206Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:30.206Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=73 chunk_threshold=237565 planner_threshold=237565
+[siftkit-trace 2026-04-02T17:07:30.206Z] summary preflight start phase=leaf chunk=undefined/undefined prompt_chars=2085 effective_prompt_limit=null
+[siftkit-trace 2026-04-02T17:07:30.206Z] summary preflight done phase=leaf chunk=undefined/undefined prompt_tokens=null
+[siftkit-trace 2026-04-02T17:07:30.206Z] summary notify running=true phase=leaf chunk=none raw_chars=73 chunk_chars=73 prompt_chars=2085
+[siftkit-trace 2026-04-02T17:07:30.206Z] summary notify running=false phase=leaf chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:30.207Z] summary invokeSummaryCore done classification=command_failure
+[siftkit-trace 2026-04-02T17:07:30.209Z] execution-lock release deferred token=lease-1775149650105 depth=1
+[siftkit-trace 2026-04-02T17:07:30.209Z] execution-lock release token=lease-1775149650105
+[siftkit-trace 2026-04-02T17:07:30.213Z] summary summarizeRequest start input_chars=26
+[siftkit-trace 2026-04-02T17:07:30.213Z] execution-lock acquire start timeout_ms=300000
+✔ runCommand classifies missing executables as command failures with raw review required (109.0334ms)
+[siftkit-trace 2026-04-02T17:07:30.214Z] execution-lock acquire success token=lease-1775149650214 elapsed_ms=1
+[siftkit-trace 2026-04-02T17:07:30.214Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:30.218Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:30.218Z] summary decision ready backend=mock model=mock-model raw_review_required=false chars=26 lines=1
+[siftkit-trace 2026-04-02T17:07:30.218Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:30.218Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=26 chunk_threshold=237565 planner_threshold=237565
+[siftkit-trace 2026-04-02T17:07:30.218Z] summary preflight start phase=leaf chunk=undefined/undefined prompt_chars=2478 effective_prompt_limit=null
+[siftkit-trace 2026-04-02T17:07:30.218Z] summary preflight done phase=leaf chunk=undefined/undefined prompt_tokens=null
+[siftkit-trace 2026-04-02T17:07:30.218Z] summary notify running=true phase=leaf chunk=none raw_chars=26 chunk_chars=26 prompt_chars=2478
+[siftkit-trace 2026-04-02T17:07:30.219Z] summary notify running=false phase=leaf chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:30.219Z] summary invokeSummaryCore done classification=unsupported_input
+[siftkit-trace 2026-04-02T17:07:30.221Z] execution-lock release token=lease-1775149650214
+✔ unsupported input returns the exact terminal message (11.3149ms)
+[siftkit-trace 2026-04-02T17:07:30.244Z] summary summarizeRequest start input_chars=238687
+[siftkit-trace 2026-04-02T17:07:30.244Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:30.245Z] execution-lock acquire success token=lease-1775149650244 elapsed_ms=1
+[siftkit-trace 2026-04-02T17:07:30.245Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:30.249Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:30.254Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=238687 lines=1
+[siftkit-trace 2026-04-02T17:07:30.254Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:30.254Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=238687 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:30.254Z] llama-cpp tokenize start chars=5371
+[siftkit-trace 2026-04-02T17:07:30.255Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:30.255Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=5371
+[siftkit-trace 2026-04-02T17:07:30.256Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5369 base_url=http://127.0.0.1:35627
+[siftkit-trace 2026-04-02T17:07:30.257Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=322
+[siftkit-trace 2026-04-02T17:07:30.257Z] llama-cpp tokenize start chars=403
+[siftkit-trace 2026-04-02T17:07:30.258Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:30.258Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:30.258Z] llama-cpp tokenize start chars=6085
+[siftkit-trace 2026-04-02T17:07:30.258Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:30.259Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=6085
+[siftkit-trace 2026-04-02T17:07:30.259Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5772 base_url=http://127.0.0.1:35627
+[siftkit-trace 2026-04-02T17:07:30.259Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=300
+[siftkit-trace 2026-04-02T17:07:30.259Z] summary notify running=false phase=planner chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:30.260Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:30.266Z] execution-lock release token=lease-1775149650244
+✔ oversized transition extraction uses planner action grammar before returning a tool-assisted summary (45.3434ms)
+[siftkit-trace 2026-04-02T17:07:30.779Z] summary summarizeRequest start input_chars=1190221
+[siftkit-trace 2026-04-02T17:07:30.779Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:30.780Z] execution-lock acquire success token=lease-1775149650780 elapsed_ms=1
+[siftkit-trace 2026-04-02T17:07:30.780Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:30.783Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:30.804Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=1190221 lines=1
+[siftkit-trace 2026-04-02T17:07:30.804Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:30.804Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=1190221 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:30.805Z] llama-cpp tokenize start chars=5238
+[siftkit-trace 2026-04-02T17:07:30.806Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:30.806Z] summary notify running=true phase=planner chunk=none raw_chars=1190221 chunk_chars=1190221 prompt_chars=5238
+[siftkit-trace 2026-04-02T17:07:30.807Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5236 base_url=http://127.0.0.1:35629
+[siftkit-trace 2026-04-02T17:07:30.807Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=111
+[siftkit-trace 2026-04-02T17:07:30.807Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:30.807Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:30.821Z] execution-lock release token=lease-1775149650780
+✔ planner accepts inputs larger than the former four-chunk cap when it can answer via tools (555.4156ms)
+[siftkit-trace 2026-04-02T17:07:30.842Z] summary summarizeRequest start input_chars=238687
+[siftkit-trace 2026-04-02T17:07:30.842Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:30.843Z] execution-lock acquire success token=lease-1775149650843 elapsed_ms=1
+[siftkit-trace 2026-04-02T17:07:30.843Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:30.846Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:30.849Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=238687 lines=1
+[siftkit-trace 2026-04-02T17:07:30.849Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:30.849Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=238687 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:30.850Z] llama-cpp tokenize start chars=5200
+[siftkit-trace 2026-04-02T17:07:30.850Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:30.850Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=5200
+[siftkit-trace 2026-04-02T17:07:30.850Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5198 base_url=http://127.0.0.1:35633
+[siftkit-trace 2026-04-02T17:07:30.851Z] llama-cpp tokenize start chars=65
+[siftkit-trace 2026-04-02T17:07:30.851Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:30.851Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=221
+[siftkit-trace 2026-04-02T17:07:30.852Z] llama-cpp tokenize start chars=373
+[siftkit-trace 2026-04-02T17:07:30.852Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:30.852Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:30.852Z] llama-cpp tokenize start chars=5783
+[siftkit-trace 2026-04-02T17:07:30.853Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:30.853Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=5783
+[siftkit-trace 2026-04-02T17:07:30.853Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5571 base_url=http://127.0.0.1:35633
+[siftkit-trace 2026-04-02T17:07:30.854Z] llama-cpp tokenize start chars=37
+[siftkit-trace 2026-04-02T17:07:30.854Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:30.854Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=104
+[siftkit-trace 2026-04-02T17:07:30.854Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:30.854Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:30.858Z] execution-lock release token=lease-1775149650843
+✔ planner writes a debug dump with input, thinking, tool calls, tool output, and final output (37.1847ms)
+[siftkit-trace 2026-04-02T17:07:30.882Z] summary summarizeRequest start input_chars=238687
+[siftkit-trace 2026-04-02T17:07:30.882Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:30.882Z] execution-lock acquire success token=lease-1775149650882 elapsed_ms=0
+[siftkit-trace 2026-04-02T17:07:30.882Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:30.885Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:30.889Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=238687 lines=1
+[siftkit-trace 2026-04-02T17:07:30.889Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:30.889Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=238687 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:30.889Z] llama-cpp tokenize start chars=5200
+[siftkit-trace 2026-04-02T17:07:30.890Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:30.890Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=5200
+[siftkit-trace 2026-04-02T17:07:30.890Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5198 base_url=http://127.0.0.1:35635
+[siftkit-trace 2026-04-02T17:07:30.890Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=267
+[siftkit-trace 2026-04-02T17:07:30.891Z] llama-cpp tokenize start chars=403
+[siftkit-trace 2026-04-02T17:07:30.891Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:30.891Z] summary notify running=false phase=planner chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:30.892Z] llama-cpp tokenize start chars=5859
+[siftkit-trace 2026-04-02T17:07:30.892Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:30.892Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=5859
+[siftkit-trace 2026-04-02T17:07:30.892Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5601 base_url=http://127.0.0.1:35635
+[siftkit-trace 2026-04-02T17:07:30.893Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=108
+[siftkit-trace 2026-04-02T17:07:30.893Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:30.893Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:30.897Z] execution-lock release token=lease-1775149650882
+✔ planner json_filter accepts combined gte and lte bounds in one filter value (38.9182ms)
+[siftkit-trace 2026-04-02T17:07:30.916Z] summary summarizeRequest start input_chars=238687
+[siftkit-trace 2026-04-02T17:07:30.916Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:30.916Z] execution-lock acquire success token=lease-1775149650916 elapsed_ms=0
+[siftkit-trace 2026-04-02T17:07:30.916Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:30.919Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:30.923Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=238687 lines=1
+[siftkit-trace 2026-04-02T17:07:30.923Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:30.923Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=238687 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:30.923Z] llama-cpp tokenize start chars=5238
+[siftkit-trace 2026-04-02T17:07:30.923Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:30.923Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=5238
+[siftkit-trace 2026-04-02T17:07:30.924Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5236 base_url=http://127.0.0.1:35637
+[siftkit-trace 2026-04-02T17:07:30.924Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=320
+[siftkit-trace 2026-04-02T17:07:30.925Z] summary notify running=false phase=planner chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:30.925Z] llama-cpp tokenize start chars=5680
+[siftkit-trace 2026-04-02T17:07:30.925Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:30.926Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=5680
+[siftkit-trace 2026-04-02T17:07:30.926Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5382 base_url=http://127.0.0.1:35637
+[siftkit-trace 2026-04-02T17:07:30.926Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=264
+[siftkit-trace 2026-04-02T17:07:30.927Z] llama-cpp tokenize start chars=44
+[siftkit-trace 2026-04-02T17:07:30.927Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:30.927Z] summary notify running=false phase=planner chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:30.928Z] llama-cpp tokenize start chars=5977
+[siftkit-trace 2026-04-02T17:07:30.928Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:30.928Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=5977
+[siftkit-trace 2026-04-02T17:07:30.928Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5426 base_url=http://127.0.0.1:35637
+[siftkit-trace 2026-04-02T17:07:30.929Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=123
+[siftkit-trace 2026-04-02T17:07:30.929Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:30.929Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:30.933Z] execution-lock release token=lease-1775149650916
+✔ planner retries malformed json_filter schema-placeholder args once and then succeeds (35.9004ms)
+[siftkit-trace 2026-04-02T17:07:30.951Z] summary summarizeRequest start input_chars=238687
+[siftkit-trace 2026-04-02T17:07:30.951Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:30.951Z] execution-lock acquire success token=lease-1775149650951 elapsed_ms=0
+[siftkit-trace 2026-04-02T17:07:30.951Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:30.954Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:30.957Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=238687 lines=1
+[siftkit-trace 2026-04-02T17:07:30.957Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:30.957Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=238687 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:30.958Z] llama-cpp tokenize start chars=5238
+[siftkit-trace 2026-04-02T17:07:30.958Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:30.958Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=5238
+[siftkit-trace 2026-04-02T17:07:30.958Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5236 base_url=http://127.0.0.1:35639
+[siftkit-trace 2026-04-02T17:07:30.959Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=320
+[siftkit-trace 2026-04-02T17:07:30.959Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:30.960Z] llama-cpp tokenize start chars=5680
+[siftkit-trace 2026-04-02T17:07:30.960Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:30.960Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=5680
+[siftkit-trace 2026-04-02T17:07:30.960Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5382 base_url=http://127.0.0.1:35639
+[siftkit-trace 2026-04-02T17:07:30.961Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=320
+[siftkit-trace 2026-04-02T17:07:30.961Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:30.969Z] execution-lock release token=lease-1775149650951
+✔ planner malformed json_filter schema-placeholder args fail on invalid response limit after retry (36.0044ms)
+[siftkit-trace 2026-04-02T17:07:30.987Z] summary summarizeRequest start input_chars=240446
+[siftkit-trace 2026-04-02T17:07:30.987Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:30.987Z] execution-lock acquire success token=lease-1775149650987 elapsed_ms=0
+[siftkit-trace 2026-04-02T17:07:30.987Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:30.990Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:30.994Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=240446 lines=1
+[siftkit-trace 2026-04-02T17:07:30.994Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:30.994Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=240446 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:30.994Z] llama-cpp tokenize start chars=5295
+[siftkit-trace 2026-04-02T17:07:30.995Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:30.995Z] summary notify running=true phase=planner chunk=none raw_chars=240446 chunk_chars=240446 prompt_chars=5295
+[siftkit-trace 2026-04-02T17:07:30.995Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5293 base_url=http://127.0.0.1:35641
+[siftkit-trace 2026-04-02T17:07:30.995Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=320
+[siftkit-trace 2026-04-02T17:07:30.996Z] llama-cpp tokenize start chars=634
+[siftkit-trace 2026-04-02T17:07:30.996Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:30.996Z] summary notify running=false phase=planner chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:30.996Z] llama-cpp tokenize start chars=6238
+[siftkit-trace 2026-04-02T17:07:30.997Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:30.997Z] summary notify running=true phase=planner chunk=none raw_chars=240446 chunk_chars=240446 prompt_chars=6238
+[siftkit-trace 2026-04-02T17:07:30.997Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5927 base_url=http://127.0.0.1:35641
+[siftkit-trace 2026-04-02T17:07:30.998Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=109
+[siftkit-trace 2026-04-02T17:07:30.998Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:30.998Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:31.002Z] execution-lock release token=lease-1775149650987
+✔ planner json_filter supports scalar timestamp ranges on object-root array collections (32.634ms)
+[siftkit-trace 2026-04-02T17:07:31.020Z] summary summarizeRequest start input_chars=239122
+[siftkit-trace 2026-04-02T17:07:31.020Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:31.020Z] execution-lock acquire success token=lease-1775149651020 elapsed_ms=0
+[siftkit-trace 2026-04-02T17:07:31.020Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:31.023Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:31.027Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=239122 lines=6
+[siftkit-trace 2026-04-02T17:07:31.027Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:31.027Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=239122 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:31.027Z] llama-cpp tokenize start chars=5219
+[siftkit-trace 2026-04-02T17:07:31.028Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:31.028Z] summary notify running=true phase=planner chunk=none raw_chars=239122 chunk_chars=239122 prompt_chars=5219
+[siftkit-trace 2026-04-02T17:07:31.028Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5217 base_url=http://127.0.0.1:35643
+[siftkit-trace 2026-04-02T17:07:31.029Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=182
+[siftkit-trace 2026-04-02T17:07:31.029Z] llama-cpp tokenize start chars=713
+[siftkit-trace 2026-04-02T17:07:31.029Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:31.029Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.029Z] llama-cpp tokenize start chars=6103
+[siftkit-trace 2026-04-02T17:07:31.030Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:31.030Z] summary notify running=true phase=planner chunk=none raw_chars=239122 chunk_chars=239122 prompt_chars=6103
+[siftkit-trace 2026-04-02T17:07:31.030Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5930 base_url=http://127.0.0.1:35643
+[siftkit-trace 2026-04-02T17:07:31.030Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=107
+[siftkit-trace 2026-04-02T17:07:31.030Z] summary notify running=false phase=planner chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:31.031Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:31.036Z] execution-lock release token=lease-1775149651020
+✔ planner json_filter falls back to embedded JSON in command-output text and reports ignored prefix (34.7045ms)
+[siftkit-trace 2026-04-02T17:07:31.044Z] summary summarizeRequest start input_chars=238566
+[siftkit-trace 2026-04-02T17:07:31.045Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:31.045Z] execution-lock acquire success token=lease-1775149651045 elapsed_ms=0
+[siftkit-trace 2026-04-02T17:07:31.045Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:31.047Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:31.048Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=238566 lines=4
+[siftkit-trace 2026-04-02T17:07:31.048Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:31.048Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=238566 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:31.048Z] llama-cpp tokenize start chars=5211
+[siftkit-trace 2026-04-02T17:07:31.048Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:31.048Z] summary notify running=true phase=planner chunk=none raw_chars=238566 chunk_chars=238566 prompt_chars=5211
+[siftkit-trace 2026-04-02T17:07:31.049Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5209 base_url=http://127.0.0.1:35645
+[siftkit-trace 2026-04-02T17:07:31.049Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=122
+[siftkit-trace 2026-04-02T17:07:31.049Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.049Z] llama-cpp tokenize start chars=5460
+[siftkit-trace 2026-04-02T17:07:31.050Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:31.050Z] summary notify running=true phase=planner chunk=none raw_chars=238566 chunk_chars=238566 prompt_chars=5460
+[siftkit-trace 2026-04-02T17:07:31.050Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5360 base_url=http://127.0.0.1:35645
+[siftkit-trace 2026-04-02T17:07:31.050Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=124
+[siftkit-trace 2026-04-02T17:07:31.050Z] summary notify running=false phase=planner chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:31.051Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:31.059Z] execution-lock release token=lease-1775149651045
+[siftkit-trace 2026-04-02T17:07:31.063Z] summary summarizeRequest start input_chars=19
+[siftkit-trace 2026-04-02T17:07:31.063Z] execution-lock acquire start timeout_ms=300000
+✔ planner surfaces explicit invalid-json message when json_filter fallback cannot parse any valid section (21.8865ms)
+[siftkit-trace 2026-04-02T17:07:31.064Z] execution-lock acquire success token=lease-1775149651064 elapsed_ms=1
+[siftkit-trace 2026-04-02T17:07:31.064Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:31.067Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:31.067Z] summary decision ready backend=mock model=mock-model raw_review_required=false chars=19 lines=2
+[siftkit-trace 2026-04-02T17:07:31.067Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:31.067Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=19 chunk_threshold=237565 planner_threshold=237565
+[siftkit-trace 2026-04-02T17:07:31.067Z] summary preflight start phase=leaf chunk=undefined/undefined prompt_chars=2465 effective_prompt_limit=null
+[siftkit-trace 2026-04-02T17:07:31.067Z] summary preflight done phase=leaf chunk=undefined/undefined prompt_tokens=null
+[siftkit-trace 2026-04-02T17:07:31.067Z] summary notify running=true phase=leaf chunk=none raw_chars=19 chunk_chars=19 prompt_chars=2465
+[siftkit-trace 2026-04-02T17:07:31.067Z] summary notify running=false phase=leaf chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:31.067Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:31.069Z] execution-lock release token=lease-1775149651064
+✔ summarizeRequest writes a request artifact through status posts for successful calls (10.0179ms)
+[siftkit-trace 2026-04-02T17:07:31.086Z] summary summarizeRequest start input_chars=238687
+[siftkit-trace 2026-04-02T17:07:31.086Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:31.087Z] execution-lock acquire success token=lease-1775149651086 elapsed_ms=1
+[siftkit-trace 2026-04-02T17:07:31.087Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:31.089Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:31.093Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=238687 lines=1
+[siftkit-trace 2026-04-02T17:07:31.093Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:31.093Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=238687 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:31.093Z] llama-cpp tokenize start chars=5200
+[siftkit-trace 2026-04-02T17:07:31.094Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:31.094Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=5200
+[siftkit-trace 2026-04-02T17:07:31.094Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5198 base_url=http://127.0.0.1:35649
+[siftkit-trace 2026-04-02T17:07:31.094Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=1
+[siftkit-trace 2026-04-02T17:07:31.094Z] summary notify running=false phase=planner chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:31.095Z] llama-cpp tokenize start chars=5426
+[siftkit-trace 2026-04-02T17:07:31.095Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:31.095Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=5426
+[siftkit-trace 2026-04-02T17:07:31.095Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5420 base_url=http://127.0.0.1:35649
+[siftkit-trace 2026-04-02T17:07:31.096Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=1
+[siftkit-trace 2026-04-02T17:07:31.096Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.100Z] execution-lock release token=lease-1775149651086
+[siftkit-trace 2026-04-02T17:07:31.103Z] summary summarizeRequest start input_chars=19
+[siftkit-trace 2026-04-02T17:07:31.103Z] execution-lock acquire start timeout_ms=300000
+✔ planner failures write failed artifacts through status posts (31.2099ms)
+[siftkit-trace 2026-04-02T17:07:31.104Z] execution-lock acquire success token=lease-1775149651104 elapsed_ms=1
+[siftkit-trace 2026-04-02T17:07:31.104Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:31.107Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:31.107Z] summary decision ready backend=mock model=mock-model raw_review_required=false chars=19 lines=2
+[siftkit-trace 2026-04-02T17:07:31.107Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:31.107Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=19 chunk_threshold=237565 planner_threshold=237565
+[siftkit-trace 2026-04-02T17:07:31.107Z] summary preflight start phase=leaf chunk=undefined/undefined prompt_chars=2465 effective_prompt_limit=null
+[siftkit-trace 2026-04-02T17:07:31.107Z] summary preflight done phase=leaf chunk=undefined/undefined prompt_tokens=null
+[siftkit-trace 2026-04-02T17:07:31.107Z] summary notify running=true phase=leaf chunk=none raw_chars=19 chunk_chars=19 prompt_chars=2465
+[siftkit-trace 2026-04-02T17:07:31.108Z] summary notify running=false phase=leaf chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:31.108Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:31.109Z] execution-lock release token=lease-1775149651104
+✔ artifact upload failures fail closed with the canonical message (7.774ms)
+✔ powershell shim preserves pipeline order for oversized planner input (486.4647ms)
+[siftkit-trace 2026-04-02T17:07:31.622Z] summary summarizeRequest start input_chars=238687
+[siftkit-trace 2026-04-02T17:07:31.622Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:31.623Z] execution-lock acquire success token=lease-1775149651623 elapsed_ms=1
+[siftkit-trace 2026-04-02T17:07:31.623Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:31.626Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:31.630Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=238687 lines=1
+[siftkit-trace 2026-04-02T17:07:31.630Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:31.630Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=238687 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:31.630Z] llama-cpp tokenize start chars=5200
+[siftkit-trace 2026-04-02T17:07:31.630Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:31.631Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=5200
+[siftkit-trace 2026-04-02T17:07:31.631Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5198 base_url=http://127.0.0.1:35658
+[siftkit-trace 2026-04-02T17:07:31.631Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=107
+[siftkit-trace 2026-04-02T17:07:31.631Z] summary notify running=false phase=planner chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:31.632Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:31.636Z] execution-lock release token=lease-1775149651623
+✔ planner debug dumps always write to the repo-local logs directory (41.4998ms)
+[siftkit-trace 2026-04-02T17:07:31.652Z] summary summarizeRequest start input_chars=238687
+[siftkit-trace 2026-04-02T17:07:31.652Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:31.653Z] execution-lock acquire success token=lease-1775149651652 elapsed_ms=0
+[siftkit-trace 2026-04-02T17:07:31.653Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:31.655Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:31.658Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=238687 lines=1
+[siftkit-trace 2026-04-02T17:07:31.658Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:31.658Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=238687 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:31.659Z] llama-cpp tokenize start chars=5193
+[siftkit-trace 2026-04-02T17:07:31.659Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:31.659Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=5193
+[siftkit-trace 2026-04-02T17:07:31.660Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5191 base_url=http://127.0.0.1:35660
+[siftkit-trace 2026-04-02T17:07:31.660Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=77
+[siftkit-trace 2026-04-02T17:07:31.660Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.661Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:31.661Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.661Z] llama-cpp tokenize start chars=17288
+[siftkit-trace 2026-04-02T17:07:31.661Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:31.661Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=17288
+[siftkit-trace 2026-04-02T17:07:31.662Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=17220 base_url=http://127.0.0.1:35660
+[siftkit-trace 2026-04-02T17:07:31.662Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=112
+[siftkit-trace 2026-04-02T17:07:31.662Z] summary notify running=false phase=planner chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:31.662Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:31.668Z] execution-lock release token=lease-1775149651652
+✔ planner read_lines tool results use a compact numbered text block (32.3286ms)
+[siftkit-trace 2026-04-02T17:07:31.689Z] summary summarizeRequest start input_chars=238687
+[siftkit-trace 2026-04-02T17:07:31.689Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:31.690Z] execution-lock acquire success token=lease-1775149651690 elapsed_ms=1
+[siftkit-trace 2026-04-02T17:07:31.690Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:31.692Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:31.696Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=238687 lines=1
+[siftkit-trace 2026-04-02T17:07:31.696Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:31.696Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=238687 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:31.696Z] llama-cpp tokenize start chars=5196
+[siftkit-trace 2026-04-02T17:07:31.697Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:31.697Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=5196
+[siftkit-trace 2026-04-02T17:07:31.697Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5194 base_url=http://127.0.0.1:35662
+[siftkit-trace 2026-04-02T17:07:31.697Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=123
+[siftkit-trace 2026-04-02T17:07:31.698Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.698Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:31.698Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.698Z] llama-cpp tokenize start chars=17337
+[siftkit-trace 2026-04-02T17:07:31.699Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:31.699Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=17337
+[siftkit-trace 2026-04-02T17:07:31.699Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=17223 base_url=http://127.0.0.1:35662
+[siftkit-trace 2026-04-02T17:07:31.700Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=220
+[siftkit-trace 2026-04-02T17:07:31.700Z] llama-cpp tokenize start chars=373
+[siftkit-trace 2026-04-02T17:07:31.700Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:31.700Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.701Z] llama-cpp tokenize start chars=17919
+[siftkit-trace 2026-04-02T17:07:31.701Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:31.701Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=17919
+[siftkit-trace 2026-04-02T17:07:31.701Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=17596 base_url=http://127.0.0.1:35662
+[siftkit-trace 2026-04-02T17:07:31.702Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=109
+[siftkit-trace 2026-04-02T17:07:31.702Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.702Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:31.709Z] execution-lock release token=lease-1775149651690
+✔ planner find_text and json_filter results use compact text blocks in prompts and debug dumps (41.9284ms)
+[siftkit-trace 2026-04-02T17:07:31.757Z] summary summarizeRequest start input_chars=353904
+[siftkit-trace 2026-04-02T17:07:31.757Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:31.757Z] execution-lock acquire success token=lease-1775149651757 elapsed_ms=0
+[siftkit-trace 2026-04-02T17:07:31.757Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:31.761Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:31.767Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=353904 lines=1
+[siftkit-trace 2026-04-02T17:07:31.767Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:31.767Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=353904 chunk_threshold=334076 planner_threshold=264477
+[siftkit-trace 2026-04-02T17:07:31.767Z] llama-cpp tokenize start chars=5182
+[siftkit-trace 2026-04-02T17:07:31.768Z] llama-cpp tokenize done elapsed_ms=1 tokens=150000
+[siftkit-trace 2026-04-02T17:07:31.768Z] summary notify running=true phase=planner chunk=none raw_chars=353904 chunk_chars=353904 prompt_chars=5182
+[siftkit-trace 2026-04-02T17:07:31.768Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5180 base_url=http://127.0.0.1:35664
+[siftkit-trace 2026-04-02T17:07:31.769Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=77
+[siftkit-trace 2026-04-02T17:07:31.769Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.769Z] llama-cpp tokenize done elapsed_ms=0 tokens=4000
+[siftkit-trace 2026-04-02T17:07:31.769Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.770Z] llama-cpp tokenize start chars=5365
+[siftkit-trace 2026-04-02T17:07:31.770Z] llama-cpp tokenize done elapsed_ms=0 tokens=150000
+[siftkit-trace 2026-04-02T17:07:31.770Z] summary notify running=true phase=planner chunk=none raw_chars=353904 chunk_chars=353904 prompt_chars=5365
+[siftkit-trace 2026-04-02T17:07:31.770Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5297 base_url=http://127.0.0.1:35664
+[siftkit-trace 2026-04-02T17:07:31.771Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=111
+[siftkit-trace 2026-04-02T17:07:31.771Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.771Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:31.778Z] execution-lock release token=lease-1775149651757
+✔ planner replaces oversized tool results with an error stub when they exceed 70 percent of remaining stop-line tokens (67.286ms)
+[siftkit-trace 2026-04-02T17:07:31.814Z] summary summarizeRequest start input_chars=353904
+[siftkit-trace 2026-04-02T17:07:31.814Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:31.814Z] execution-lock acquire success token=lease-1775149651814 elapsed_ms=0
+[siftkit-trace 2026-04-02T17:07:31.815Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:31.817Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:31.822Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=353904 lines=1
+[siftkit-trace 2026-04-02T17:07:31.822Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:31.822Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=353904 chunk_threshold=334076 planner_threshold=264477
+[siftkit-trace 2026-04-02T17:07:31.823Z] llama-cpp tokenize start chars=5182
+[siftkit-trace 2026-04-02T17:07:31.823Z] llama-cpp tokenize done elapsed_ms=0 tokens=150000
+[siftkit-trace 2026-04-02T17:07:31.823Z] summary notify running=true phase=planner chunk=none raw_chars=353904 chunk_chars=353904 prompt_chars=5182
+[siftkit-trace 2026-04-02T17:07:31.824Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5180 base_url=http://127.0.0.1:35666
+[siftkit-trace 2026-04-02T17:07:31.824Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=77
+[siftkit-trace 2026-04-02T17:07:31.824Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.825Z] llama-cpp tokenize done elapsed_ms=1 tokens=1200
+[siftkit-trace 2026-04-02T17:07:31.825Z] summary notify running=false phase=planner chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:31.825Z] llama-cpp tokenize start chars=17277
+[siftkit-trace 2026-04-02T17:07:31.825Z] llama-cpp tokenize done elapsed_ms=0 tokens=1200
+[siftkit-trace 2026-04-02T17:07:31.825Z] summary notify running=true phase=planner chunk=none raw_chars=353904 chunk_chars=353904 prompt_chars=17277
+[siftkit-trace 2026-04-02T17:07:31.826Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=17209 base_url=http://127.0.0.1:35666
+[siftkit-trace 2026-04-02T17:07:31.826Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=102
+[siftkit-trace 2026-04-02T17:07:31.826Z] summary notify running=false phase=planner chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:31.826Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:31.833Z] execution-lock release token=lease-1775149651814
+✔ planner keeps tool results when they stay within 70 percent of remaining stop-line tokens (55.5055ms)
+[siftkit-trace 2026-04-02T17:07:31.865Z] summary summarizeRequest start input_chars=353904
+[siftkit-trace 2026-04-02T17:07:31.865Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:31.866Z] execution-lock acquire success token=lease-1775149651865 elapsed_ms=1
+[siftkit-trace 2026-04-02T17:07:31.866Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:31.869Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:31.874Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=353904 lines=1
+[siftkit-trace 2026-04-02T17:07:31.874Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:31.874Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=353904 chunk_threshold=334076 planner_threshold=264477
+[siftkit-trace 2026-04-02T17:07:31.875Z] llama-cpp tokenize start chars=5197
+[siftkit-trace 2026-04-02T17:07:31.875Z] llama-cpp tokenize done elapsed_ms=0 tokens=150000
+[siftkit-trace 2026-04-02T17:07:31.875Z] summary notify running=true phase=planner chunk=none raw_chars=353904 chunk_chars=353904 prompt_chars=5197
+[siftkit-trace 2026-04-02T17:07:31.875Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5195 base_url=http://127.0.0.1:35670
+[siftkit-trace 2026-04-02T17:07:31.876Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=80
+[siftkit-trace 2026-04-02T17:07:31.876Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.876Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:31.876Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.877Z] llama-cpp tokenize start chars=5383
+[siftkit-trace 2026-04-02T17:07:31.877Z] llama-cpp tokenize done elapsed_ms=0 tokens=150000
+[siftkit-trace 2026-04-02T17:07:31.877Z] summary notify running=true phase=planner chunk=none raw_chars=353904 chunk_chars=353904 prompt_chars=5383
+[siftkit-trace 2026-04-02T17:07:31.877Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5312 base_url=http://127.0.0.1:35670
+[siftkit-trace 2026-04-02T17:07:31.878Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=115
+[siftkit-trace 2026-04-02T17:07:31.878Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.878Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:31.885Z] execution-lock release token=lease-1775149651865
+✔ planner falls back to estimated tokens for oversized tool-result guard when tokenize is unavailable (51.5885ms)
+[siftkit-trace 2026-04-02T17:07:31.897Z] summary summarizeRequest start input_chars=181088
+[siftkit-trace 2026-04-02T17:07:31.897Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:31.897Z] execution-lock acquire success token=lease-1775149651897 elapsed_ms=0
+[siftkit-trace 2026-04-02T17:07:31.897Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:31.900Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:31.903Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=181088 lines=1
+[siftkit-trace 2026-04-02T17:07:31.903Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:31.903Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=181088 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:31.903Z] llama-cpp tokenize start chars=5196
+[siftkit-trace 2026-04-02T17:07:31.903Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:31.903Z] summary notify running=true phase=planner chunk=none raw_chars=181088 chunk_chars=181088 prompt_chars=5196
+[siftkit-trace 2026-04-02T17:07:31.904Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5194 base_url=http://127.0.0.1:35672
+[siftkit-trace 2026-04-02T17:07:31.904Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=126
+[siftkit-trace 2026-04-02T17:07:31.904Z] summary notify running=false phase=planner chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:31.905Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:31.908Z] execution-lock release token=lease-1775149651897
+✔ planner activates once input exceeds 75 percent of context length even before chunking would start (22.4986ms)
+[siftkit-trace 2026-04-02T17:07:31.940Z] summary summarizeRequest start input_chars=357877
+[siftkit-trace 2026-04-02T17:07:31.940Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:31.941Z] execution-lock acquire success token=lease-1775149651940 elapsed_ms=1
+[siftkit-trace 2026-04-02T17:07:31.941Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:31.943Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:31.948Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=357877 lines=1
+[siftkit-trace 2026-04-02T17:07:31.948Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:31.948Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=357877 chunk_threshold=334076 planner_threshold=264477
+[siftkit-trace 2026-04-02T17:07:31.949Z] llama-cpp tokenize start chars=5216
+[siftkit-trace 2026-04-02T17:07:31.949Z] llama-cpp tokenize done elapsed_ms=0 tokens=1000
+[siftkit-trace 2026-04-02T17:07:31.949Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=5216
+[siftkit-trace 2026-04-02T17:07:31.949Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5214 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:31.950Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=106
+[siftkit-trace 2026-04-02T17:07:31.950Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.950Z] llama-cpp tokenize done elapsed_ms=0 tokens=3008
+[siftkit-trace 2026-04-02T17:07:31.950Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.951Z] llama-cpp tokenize start chars=17340
+[siftkit-trace 2026-04-02T17:07:31.951Z] llama-cpp tokenize done elapsed_ms=0 tokens=1000
+[siftkit-trace 2026-04-02T17:07:31.951Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=17340
+[siftkit-trace 2026-04-02T17:07:31.951Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=17243 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:31.952Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=77
+[siftkit-trace 2026-04-02T17:07:31.952Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.952Z] llama-cpp tokenize done elapsed_ms=0 tokens=3008
+[siftkit-trace 2026-04-02T17:07:31.952Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.953Z] llama-cpp tokenize start chars=29435
+[siftkit-trace 2026-04-02T17:07:31.953Z] llama-cpp tokenize done elapsed_ms=0 tokens=1000
+[siftkit-trace 2026-04-02T17:07:31.953Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=29435
+[siftkit-trace 2026-04-02T17:07:31.953Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=29272 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:31.954Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=106
+[siftkit-trace 2026-04-02T17:07:31.954Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.954Z] llama-cpp tokenize done elapsed_ms=0 tokens=3008
+[siftkit-trace 2026-04-02T17:07:31.954Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.955Z] llama-cpp tokenize start chars=41559
+[siftkit-trace 2026-04-02T17:07:31.955Z] llama-cpp tokenize done elapsed_ms=0 tokens=1000
+[siftkit-trace 2026-04-02T17:07:31.955Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=41559
+[siftkit-trace 2026-04-02T17:07:31.955Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=41301 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:31.956Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=77
+[siftkit-trace 2026-04-02T17:07:31.956Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.956Z] llama-cpp tokenize done elapsed_ms=0 tokens=3008
+[siftkit-trace 2026-04-02T17:07:31.956Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.957Z] llama-cpp tokenize start chars=53654
+[siftkit-trace 2026-04-02T17:07:31.957Z] llama-cpp tokenize done elapsed_ms=0 tokens=1000
+[siftkit-trace 2026-04-02T17:07:31.957Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=53654
+[siftkit-trace 2026-04-02T17:07:31.957Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=53330 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:31.958Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=106
+[siftkit-trace 2026-04-02T17:07:31.958Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.958Z] llama-cpp tokenize done elapsed_ms=0 tokens=3008
+[siftkit-trace 2026-04-02T17:07:31.958Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.959Z] llama-cpp tokenize start chars=65778
+[siftkit-trace 2026-04-02T17:07:31.959Z] llama-cpp tokenize done elapsed_ms=0 tokens=1000
+[siftkit-trace 2026-04-02T17:07:31.959Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=65778
+[siftkit-trace 2026-04-02T17:07:31.960Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=65359 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:31.960Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=78
+[siftkit-trace 2026-04-02T17:07:31.960Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.961Z] llama-cpp tokenize done elapsed_ms=1 tokens=3008
+[siftkit-trace 2026-04-02T17:07:31.961Z] summary notify running=false phase=planner chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:31.961Z] llama-cpp tokenize start chars=77874
+[siftkit-trace 2026-04-02T17:07:31.962Z] llama-cpp tokenize done elapsed_ms=1 tokens=1000
+[siftkit-trace 2026-04-02T17:07:31.962Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=77874
+[siftkit-trace 2026-04-02T17:07:31.962Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=77388 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:31.963Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=106
+[siftkit-trace 2026-04-02T17:07:31.963Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.963Z] llama-cpp tokenize done elapsed_ms=0 tokens=3008
+[siftkit-trace 2026-04-02T17:07:31.963Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.963Z] llama-cpp tokenize start chars=89998
+[siftkit-trace 2026-04-02T17:07:31.964Z] llama-cpp tokenize done elapsed_ms=1 tokens=1000
+[siftkit-trace 2026-04-02T17:07:31.964Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=89998
+[siftkit-trace 2026-04-02T17:07:31.964Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=89417 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:31.965Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=78
+[siftkit-trace 2026-04-02T17:07:31.965Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.965Z] llama-cpp tokenize done elapsed_ms=0 tokens=3008
+[siftkit-trace 2026-04-02T17:07:31.965Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.965Z] llama-cpp tokenize start chars=102094
+[siftkit-trace 2026-04-02T17:07:31.966Z] llama-cpp tokenize done elapsed_ms=1 tokens=1000
+[siftkit-trace 2026-04-02T17:07:31.966Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=102094
+[siftkit-trace 2026-04-02T17:07:31.966Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=101446 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:31.967Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=106
+[siftkit-trace 2026-04-02T17:07:31.967Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.967Z] llama-cpp tokenize done elapsed_ms=0 tokens=3008
+[siftkit-trace 2026-04-02T17:07:31.967Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.968Z] llama-cpp tokenize start chars=114218
+[siftkit-trace 2026-04-02T17:07:31.968Z] llama-cpp tokenize done elapsed_ms=0 tokens=1000
+[siftkit-trace 2026-04-02T17:07:31.968Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=114218
+[siftkit-trace 2026-04-02T17:07:31.969Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=113475 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:31.969Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=79
+[siftkit-trace 2026-04-02T17:07:31.970Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.970Z] llama-cpp tokenize done elapsed_ms=0 tokens=3008
+[siftkit-trace 2026-04-02T17:07:31.970Z] summary notify running=false phase=planner chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:31.970Z] llama-cpp tokenize start chars=126315
+[siftkit-trace 2026-04-02T17:07:31.971Z] llama-cpp tokenize done elapsed_ms=1 tokens=1000
+[siftkit-trace 2026-04-02T17:07:31.971Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=126315
+[siftkit-trace 2026-04-02T17:07:31.971Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=125504 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:31.972Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=106
+[siftkit-trace 2026-04-02T17:07:31.972Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.973Z] llama-cpp tokenize done elapsed_ms=1 tokens=3008
+[siftkit-trace 2026-04-02T17:07:31.973Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.973Z] llama-cpp tokenize start chars=138439
+[siftkit-trace 2026-04-02T17:07:31.974Z] llama-cpp tokenize done elapsed_ms=1 tokens=1000
+[siftkit-trace 2026-04-02T17:07:31.974Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=138439
+[siftkit-trace 2026-04-02T17:07:31.974Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=137533 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:31.975Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=79
+[siftkit-trace 2026-04-02T17:07:31.975Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.976Z] llama-cpp tokenize done elapsed_ms=1 tokens=3008
+[siftkit-trace 2026-04-02T17:07:31.976Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.976Z] llama-cpp tokenize start chars=150536
+[siftkit-trace 2026-04-02T17:07:31.977Z] llama-cpp tokenize done elapsed_ms=1 tokens=1000
+[siftkit-trace 2026-04-02T17:07:31.977Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=150536
+[siftkit-trace 2026-04-02T17:07:31.978Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=149562 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:31.978Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=106
+[siftkit-trace 2026-04-02T17:07:31.978Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.979Z] llama-cpp tokenize done elapsed_ms=1 tokens=3008
+[siftkit-trace 2026-04-02T17:07:31.979Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.979Z] llama-cpp tokenize start chars=162660
+[siftkit-trace 2026-04-02T17:07:31.980Z] llama-cpp tokenize done elapsed_ms=1 tokens=1000
+[siftkit-trace 2026-04-02T17:07:31.980Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=162660
+[siftkit-trace 2026-04-02T17:07:31.981Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=161591 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:31.981Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=79
+[siftkit-trace 2026-04-02T17:07:31.982Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.982Z] llama-cpp tokenize done elapsed_ms=0 tokens=3008
+[siftkit-trace 2026-04-02T17:07:31.982Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.982Z] llama-cpp tokenize start chars=174757
+[siftkit-trace 2026-04-02T17:07:31.983Z] llama-cpp tokenize done elapsed_ms=1 tokens=1000
+[siftkit-trace 2026-04-02T17:07:31.983Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=174757
+[siftkit-trace 2026-04-02T17:07:31.984Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=173620 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:31.985Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=106
+[siftkit-trace 2026-04-02T17:07:31.985Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.985Z] llama-cpp tokenize done elapsed_ms=0 tokens=3008
+[siftkit-trace 2026-04-02T17:07:31.985Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.985Z] llama-cpp tokenize start chars=186881
+[siftkit-trace 2026-04-02T17:07:31.987Z] llama-cpp tokenize done elapsed_ms=2 tokens=1000
+[siftkit-trace 2026-04-02T17:07:31.987Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=186881
+[siftkit-trace 2026-04-02T17:07:31.987Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=185649 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:31.988Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=79
+[siftkit-trace 2026-04-02T17:07:31.989Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.989Z] llama-cpp tokenize done elapsed_ms=0 tokens=3008
+[siftkit-trace 2026-04-02T17:07:31.989Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.989Z] llama-cpp tokenize start chars=198978
+[siftkit-trace 2026-04-02T17:07:31.990Z] llama-cpp tokenize done elapsed_ms=1 tokens=1000
+[siftkit-trace 2026-04-02T17:07:31.990Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=198978
+[siftkit-trace 2026-04-02T17:07:31.991Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=197678 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:31.992Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=106
+[siftkit-trace 2026-04-02T17:07:31.992Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.993Z] llama-cpp tokenize done elapsed_ms=1 tokens=3008
+[siftkit-trace 2026-04-02T17:07:31.993Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:31.993Z] llama-cpp tokenize start chars=211102
+[siftkit-trace 2026-04-02T17:07:31.994Z] llama-cpp tokenize done elapsed_ms=1 tokens=1000
+[siftkit-trace 2026-04-02T17:07:31.994Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=211102
+[siftkit-trace 2026-04-02T17:07:31.995Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=209707 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:31.997Z] llama-cpp generate done elapsed_ms=2 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=79
+[siftkit-trace 2026-04-02T17:07:31.997Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:31.997Z] llama-cpp tokenize done elapsed_ms=0 tokens=3008
+[siftkit-trace 2026-04-02T17:07:31.997Z] summary notify running=false phase=planner chunk=none duration_ms=2
+[siftkit-trace 2026-04-02T17:07:31.998Z] llama-cpp tokenize start chars=223199
+[siftkit-trace 2026-04-02T17:07:31.999Z] llama-cpp tokenize done elapsed_ms=1 tokens=1000
+[siftkit-trace 2026-04-02T17:07:31.999Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=223199
+[siftkit-trace 2026-04-02T17:07:32.003Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=221736 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:32.005Z] llama-cpp generate done elapsed_ms=2 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=106
+[siftkit-trace 2026-04-02T17:07:32.005Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:32.005Z] llama-cpp tokenize done elapsed_ms=0 tokens=3008
+[siftkit-trace 2026-04-02T17:07:32.006Z] summary notify running=false phase=planner chunk=none duration_ms=6
+[siftkit-trace 2026-04-02T17:07:32.006Z] llama-cpp tokenize start chars=235323
+[siftkit-trace 2026-04-02T17:07:32.007Z] llama-cpp tokenize done elapsed_ms=1 tokens=1000
+[siftkit-trace 2026-04-02T17:07:32.007Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=235323
+[siftkit-trace 2026-04-02T17:07:32.008Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=233765 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:32.010Z] llama-cpp generate done elapsed_ms=2 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=79
+[siftkit-trace 2026-04-02T17:07:32.010Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:32.010Z] llama-cpp tokenize done elapsed_ms=0 tokens=3008
+[siftkit-trace 2026-04-02T17:07:32.010Z] summary notify running=false phase=planner chunk=none duration_ms=2
+[siftkit-trace 2026-04-02T17:07:32.011Z] llama-cpp tokenize start chars=247420
+[siftkit-trace 2026-04-02T17:07:32.012Z] llama-cpp tokenize done elapsed_ms=1 tokens=1000
+[siftkit-trace 2026-04-02T17:07:32.012Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=247420
+[siftkit-trace 2026-04-02T17:07:32.012Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=245794 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:32.013Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=106
+[siftkit-trace 2026-04-02T17:07:32.014Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:32.014Z] llama-cpp tokenize done elapsed_ms=0 tokens=3008
+[siftkit-trace 2026-04-02T17:07:32.014Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:32.014Z] llama-cpp tokenize start chars=259544
+[siftkit-trace 2026-04-02T17:07:32.015Z] llama-cpp tokenize done elapsed_ms=1 tokens=1000
+[siftkit-trace 2026-04-02T17:07:32.015Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=259544
+[siftkit-trace 2026-04-02T17:07:32.016Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=257823 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:32.017Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=79
+[siftkit-trace 2026-04-02T17:07:32.017Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:32.018Z] llama-cpp tokenize done elapsed_ms=1 tokens=3008
+[siftkit-trace 2026-04-02T17:07:32.018Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:32.018Z] llama-cpp tokenize start chars=271641
+[siftkit-trace 2026-04-02T17:07:32.019Z] llama-cpp tokenize done elapsed_ms=1 tokens=1000
+[siftkit-trace 2026-04-02T17:07:32.019Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=271641
+[siftkit-trace 2026-04-02T17:07:32.020Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=269852 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:32.021Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=106
+[siftkit-trace 2026-04-02T17:07:32.021Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:32.022Z] llama-cpp tokenize done elapsed_ms=1 tokens=3008
+[siftkit-trace 2026-04-02T17:07:32.022Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:32.022Z] llama-cpp tokenize start chars=283765
+[siftkit-trace 2026-04-02T17:07:32.023Z] llama-cpp tokenize done elapsed_ms=1 tokens=1000
+[siftkit-trace 2026-04-02T17:07:32.023Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=283765
+[siftkit-trace 2026-04-02T17:07:32.024Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=281881 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:32.025Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=79
+[siftkit-trace 2026-04-02T17:07:32.026Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:32.026Z] llama-cpp tokenize done elapsed_ms=0 tokens=3008
+[siftkit-trace 2026-04-02T17:07:32.026Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:32.026Z] llama-cpp tokenize start chars=295862
+[siftkit-trace 2026-04-02T17:07:32.028Z] llama-cpp tokenize done elapsed_ms=2 tokens=1000
+[siftkit-trace 2026-04-02T17:07:32.028Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=295862
+[siftkit-trace 2026-04-02T17:07:32.029Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=293910 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:32.030Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=106
+[siftkit-trace 2026-04-02T17:07:32.030Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:32.031Z] llama-cpp tokenize done elapsed_ms=1 tokens=3008
+[siftkit-trace 2026-04-02T17:07:32.031Z] summary notify running=false phase=planner chunk=none duration_ms=2
+[siftkit-trace 2026-04-02T17:07:32.031Z] llama-cpp tokenize start chars=307986
+[siftkit-trace 2026-04-02T17:07:32.032Z] llama-cpp tokenize done elapsed_ms=1 tokens=1000
+[siftkit-trace 2026-04-02T17:07:32.032Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=307986
+[siftkit-trace 2026-04-02T17:07:32.033Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=305939 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:32.035Z] llama-cpp generate done elapsed_ms=2 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=79
+[siftkit-trace 2026-04-02T17:07:32.035Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:32.035Z] llama-cpp tokenize done elapsed_ms=0 tokens=3008
+[siftkit-trace 2026-04-02T17:07:32.035Z] summary notify running=false phase=planner chunk=none duration_ms=2
+[siftkit-trace 2026-04-02T17:07:32.035Z] llama-cpp tokenize start chars=320083
+[siftkit-trace 2026-04-02T17:07:32.037Z] llama-cpp tokenize done elapsed_ms=2 tokens=1000
+[siftkit-trace 2026-04-02T17:07:32.037Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=320083
+[siftkit-trace 2026-04-02T17:07:32.038Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=317968 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:32.040Z] llama-cpp generate done elapsed_ms=2 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=106
+[siftkit-trace 2026-04-02T17:07:32.040Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:32.040Z] llama-cpp tokenize done elapsed_ms=0 tokens=3008
+[siftkit-trace 2026-04-02T17:07:32.040Z] summary notify running=false phase=planner chunk=none duration_ms=3
+[siftkit-trace 2026-04-02T17:07:32.041Z] llama-cpp tokenize start chars=332207
+[siftkit-trace 2026-04-02T17:07:32.043Z] llama-cpp tokenize done elapsed_ms=2 tokens=1000
+[siftkit-trace 2026-04-02T17:07:32.043Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=332207
+[siftkit-trace 2026-04-02T17:07:32.044Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=329997 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:32.046Z] llama-cpp generate done elapsed_ms=2 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=79
+[siftkit-trace 2026-04-02T17:07:32.046Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:32.046Z] llama-cpp tokenize done elapsed_ms=0 tokens=3008
+[siftkit-trace 2026-04-02T17:07:32.046Z] summary notify running=false phase=planner chunk=none duration_ms=3
+[siftkit-trace 2026-04-02T17:07:32.047Z] llama-cpp tokenize start chars=344304
+[siftkit-trace 2026-04-02T17:07:32.048Z] llama-cpp tokenize done elapsed_ms=1 tokens=1000
+[siftkit-trace 2026-04-02T17:07:32.049Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=344304
+[siftkit-trace 2026-04-02T17:07:32.050Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=342026 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:32.051Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=106
+[siftkit-trace 2026-04-02T17:07:32.051Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:32.051Z] llama-cpp tokenize done elapsed_ms=0 tokens=3008
+[siftkit-trace 2026-04-02T17:07:32.051Z] summary notify running=false phase=planner chunk=none duration_ms=2
+[siftkit-trace 2026-04-02T17:07:32.052Z] llama-cpp tokenize start chars=356428
+[siftkit-trace 2026-04-02T17:07:32.053Z] llama-cpp tokenize done elapsed_ms=1 tokens=1000
+[siftkit-trace 2026-04-02T17:07:32.053Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=356428
+[siftkit-trace 2026-04-02T17:07:32.058Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=354055 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:32.061Z] llama-cpp generate done elapsed_ms=3 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=79
+[siftkit-trace 2026-04-02T17:07:32.061Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:32.061Z] llama-cpp tokenize done elapsed_ms=0 tokens=3008
+[siftkit-trace 2026-04-02T17:07:32.061Z] summary notify running=false phase=planner chunk=none duration_ms=7
+[siftkit-trace 2026-04-02T17:07:32.061Z] llama-cpp tokenize start chars=368525
+[siftkit-trace 2026-04-02T17:07:32.063Z] llama-cpp tokenize done elapsed_ms=2 tokens=1000
+[siftkit-trace 2026-04-02T17:07:32.063Z] summary notify running=true phase=planner chunk=none raw_chars=357877 chunk_chars=357877 prompt_chars=368525
+[siftkit-trace 2026-04-02T17:07:32.064Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=366084 base_url=http://127.0.0.1:35674
+[siftkit-trace 2026-04-02T17:07:32.065Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=115
+[siftkit-trace 2026-04-02T17:07:32.065Z] summary notify running=false phase=planner chunk=none duration_ms=2
+[siftkit-trace 2026-04-02T17:07:32.066Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:32.174Z] execution-lock release token=lease-1775149651940
+✔ planner allows up to thirty tool calls while prompt headroom remains without visible budget counters (268.3583ms)
+[siftkit-trace 2026-04-02T17:07:32.211Z] summary summarizeRequest start input_chars=238687
+[siftkit-trace 2026-04-02T17:07:32.211Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:32.212Z] execution-lock acquire success token=lease-1775149652211 elapsed_ms=1
+[siftkit-trace 2026-04-02T17:07:32.212Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:32.214Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:32.218Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=238687 lines=1
+[siftkit-trace 2026-04-02T17:07:32.218Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:32.218Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=238687 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:32.218Z] llama-cpp tokenize start chars=5197
+[siftkit-trace 2026-04-02T17:07:32.219Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:32.219Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=5197
+[siftkit-trace 2026-04-02T17:07:32.219Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5195 base_url=http://127.0.0.1:35676
+[siftkit-trace 2026-04-02T17:07:32.220Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=204
+[siftkit-trace 2026-04-02T17:07:32.220Z] llama-cpp tokenize start chars=330
+[siftkit-trace 2026-04-02T17:07:32.221Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:32.221Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:32.221Z] llama-cpp tokenize start chars=5720
+[siftkit-trace 2026-04-02T17:07:32.221Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:32.221Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=5720
+[siftkit-trace 2026-04-02T17:07:32.222Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5525 base_url=http://127.0.0.1:35676
+[siftkit-trace 2026-04-02T17:07:32.222Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=104
+[siftkit-trace 2026-04-02T17:07:32.222Z] summary notify running=false phase=planner chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:32.222Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:32.227Z] execution-lock release token=lease-1775149652211
+[siftkit-trace 2026-04-02T17:07:32.227Z] summary summarizeRequest start input_chars=238687
+[siftkit-trace 2026-04-02T17:07:32.227Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:32.227Z] execution-lock acquire success token=lease-1775149652227 elapsed_ms=0
+[siftkit-trace 2026-04-02T17:07:32.227Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:32.230Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:32.233Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=238687 lines=1
+[siftkit-trace 2026-04-02T17:07:32.233Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:32.233Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=238687 chunk_threshold=219667 planner_threshold=178712
+[siftkit-trace 2026-04-02T17:07:32.234Z] llama-cpp tokenize start chars=5203
+[siftkit-trace 2026-04-02T17:07:32.234Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:32.234Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=5203
+[siftkit-trace 2026-04-02T17:07:32.234Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5201 base_url=http://127.0.0.1:35676
+[siftkit-trace 2026-04-02T17:07:32.235Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=204
+[siftkit-trace 2026-04-02T17:07:32.235Z] llama-cpp tokenize start chars=330
+[siftkit-trace 2026-04-02T17:07:32.235Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:32.235Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:32.236Z] llama-cpp tokenize start chars=5726
+[siftkit-trace 2026-04-02T17:07:32.236Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:32.236Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=5726
+[siftkit-trace 2026-04-02T17:07:32.236Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5531 base_url=http://127.0.0.1:35676
+[siftkit-trace 2026-04-02T17:07:32.237Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=104
+[siftkit-trace 2026-04-02T17:07:32.237Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:32.237Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:32.241Z] execution-lock release token=lease-1775149652227
+✔ planner reuses one slot within a request and assigns a new slot to the next request (64.7913ms)
+[siftkit-trace 2026-04-02T17:07:32.275Z] summary summarizeRequest start input_chars=353904
+[siftkit-trace 2026-04-02T17:07:32.275Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-02T17:07:32.275Z] execution-lock acquire success token=lease-1775149652275 elapsed_ms=0
+[siftkit-trace 2026-04-02T17:07:32.275Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:32.279Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:32.285Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=353904 lines=1
+[siftkit-trace 2026-04-02T17:07:32.285Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:32.285Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=353904 chunk_threshold=334076 planner_threshold=264477
+[siftkit-trace 2026-04-02T17:07:32.285Z] llama-cpp tokenize start chars=5207
+[siftkit-trace 2026-04-02T17:07:32.286Z] llama-cpp tokenize done elapsed_ms=1 tokens=1000
+[siftkit-trace 2026-04-02T17:07:32.286Z] summary notify running=true phase=planner chunk=none raw_chars=353904 chunk_chars=353904 prompt_chars=5207
+[siftkit-trace 2026-04-02T17:07:32.286Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5205 base_url=http://127.0.0.1:35678
+[siftkit-trace 2026-04-02T17:07:32.286Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=205
+[siftkit-trace 2026-04-02T17:07:32.287Z] llama-cpp tokenize start chars=330
+[siftkit-trace 2026-04-02T17:07:32.287Z] llama-cpp tokenize done elapsed_ms=0 tokens=1000
+[siftkit-trace 2026-04-02T17:07:32.287Z] summary notify running=false phase=planner chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:32.288Z] llama-cpp tokenize start chars=5731
+[siftkit-trace 2026-04-02T17:07:32.288Z] llama-cpp tokenize done elapsed_ms=0 tokens=1000
+[siftkit-trace 2026-04-02T17:07:32.288Z] summary notify running=true phase=planner chunk=none raw_chars=353904 chunk_chars=353904 prompt_chars=5731
+[siftkit-trace 2026-04-02T17:07:32.288Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5535 base_url=http://127.0.0.1:35678
+✖ planner fails fast when the next planner turn would exceed non-thinking headroom (46.1307ms)
+[siftkit-trace 2026-04-02T17:07:32.331Z] summary summarizeRequest start input_chars=353904
+[siftkit-trace 2026-04-02T17:07:32.331Z] execution-lock reenter token=lease-1775149652275 depth=2
+✖ planner fails fast when the next planner turn would exceed thinking headroom (55.2468ms)
+[siftkit-trace 2026-04-02T17:07:32.331Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:32.334Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:32.340Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=353904 lines=1
+[siftkit-trace 2026-04-02T17:07:32.340Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:32.340Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=353904 chunk_threshold=324796 planner_threshold=264477
+[siftkit-trace 2026-04-02T17:07:32.340Z] llama-cpp tokenize start chars=5207
+[siftkit-trace 2026-04-02T17:07:32.341Z] llama-cpp tokenize done elapsed_ms=1 tokens=1000
+[siftkit-trace 2026-04-02T17:07:32.341Z] summary notify running=true phase=planner chunk=none raw_chars=353904 chunk_chars=353904 prompt_chars=5207
+[siftkit-trace 2026-04-02T17:07:32.341Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5205 base_url=http://127.0.0.1:35680
+[siftkit-trace 2026-04-02T17:07:32.342Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=205
+[siftkit-trace 2026-04-02T17:07:32.343Z] llama-cpp tokenize start chars=330
+[siftkit-trace 2026-04-02T17:07:32.343Z] llama-cpp tokenize done elapsed_ms=0 tokens=1000
+[siftkit-trace 2026-04-02T17:07:32.343Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:32.343Z] llama-cpp tokenize start chars=5731
+[siftkit-trace 2026-04-02T17:07:32.343Z] llama-cpp tokenize done elapsed_ms=0 tokens=1000
+[siftkit-trace 2026-04-02T17:07:32.343Z] summary notify running=true phase=planner chunk=none raw_chars=353904 chunk_chars=353904 prompt_chars=5731
+[siftkit-trace 2026-04-02T17:07:32.344Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5535 base_url=http://127.0.0.1:35680
+[siftkit-trace 2026-04-02T17:07:32.362Z] summary summarizeRequest start input_chars=238703
+[siftkit-trace 2026-04-02T17:07:32.362Z] execution-lock reenter token=lease-1775149652275 depth=3
+[siftkit-trace 2026-04-02T17:07:32.362Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:32.386Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:32.389Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=238703 lines=2
+[siftkit-trace 2026-04-02T17:07:32.389Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:32.389Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=238703 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:32.390Z] llama-cpp tokenize start chars=5138
+[siftkit-trace 2026-04-02T17:07:32.390Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:32.390Z] summary notify running=true phase=planner chunk=none raw_chars=238703 chunk_chars=238703 prompt_chars=5138
+[siftkit-trace 2026-04-02T17:07:32.390Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5136 base_url=http://127.0.0.1:35682
+[siftkit-trace 2026-04-02T17:07:32.391Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=123
+[siftkit-trace 2026-04-02T17:07:32.391Z] llama-cpp tokenize start chars=12029
+[siftkit-trace 2026-04-02T17:07:32.392Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:32.392Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:32.392Z] llama-cpp tokenize start chars=17279
+[siftkit-trace 2026-04-02T17:07:32.392Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:32.392Z] summary notify running=true phase=planner chunk=none raw_chars=238703 chunk_chars=238703 prompt_chars=17279
+[siftkit-trace 2026-04-02T17:07:32.393Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=17165 base_url=http://127.0.0.1:35682
+[siftkit-trace 2026-04-02T17:07:32.393Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=122
+[siftkit-trace 2026-04-02T17:07:32.393Z] summary notify running=false phase=planner chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:32.393Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:32.399Z] execution-lock release deferred token=lease-1775149652275 depth=2
+✔ planner find_text auto-normalizes lone regex braces like var.*Unlocks.*=.*{ (56.1044ms)
+[siftkit-trace 2026-04-02T17:07:32.418Z] summary summarizeRequest start input_chars=238687
+[siftkit-trace 2026-04-02T17:07:32.418Z] execution-lock reenter token=lease-1775149652275 depth=3
+[siftkit-trace 2026-04-02T17:07:32.418Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:32.420Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:32.424Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=238687 lines=1
+[siftkit-trace 2026-04-02T17:07:32.424Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:32.424Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=238687 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:32.424Z] llama-cpp tokenize start chars=5200
+[siftkit-trace 2026-04-02T17:07:32.425Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:32.425Z] summary notify running=true phase=planner chunk=none raw_chars=238687 chunk_chars=238687 prompt_chars=5200
+[siftkit-trace 2026-04-02T17:07:32.425Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5198 base_url=http://127.0.0.1:35684
+[siftkit-trace 2026-04-02T17:07:32.425Z] llama-cpp generate empty_body elapsed_ms=0 raw="{\"id\":\"chatcmpl-test\",\"object\":\"chat.completion\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"\"}}],\"usage\":{\"prompt_tokens\":123,\"completion_tokens\":45,\"total_tokens\":168}}"
+[siftkit-trace 2026-04-02T17:07:32.425Z] summary notify running=false phase=planner chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:32.430Z] execution-lock release deferred token=lease-1775149652275 depth=2
+✔ planner fails fast when the planner response body is empty (31.1708ms)
+[siftkit-trace 2026-04-02T17:07:32.663Z] summary summarizeRequest start input_chars=951841
+[siftkit-trace 2026-04-02T17:07:32.663Z] execution-lock reenter token=lease-1775149652275 depth=3
+[siftkit-trace 2026-04-02T17:07:32.663Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:32.666Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:32.679Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=951841 lines=1
+[siftkit-trace 2026-04-02T17:07:32.679Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:32.680Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=951841 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:32.680Z] llama-cpp tokenize start chars=5176
+[siftkit-trace 2026-04-02T17:07:32.681Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:32.681Z] summary notify running=true phase=planner chunk=none raw_chars=951841 chunk_chars=951841 prompt_chars=5176
+[siftkit-trace 2026-04-02T17:07:32.681Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5174 base_url=http://127.0.0.1:35688
+[siftkit-trace 2026-04-02T17:07:32.682Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=110
+[siftkit-trace 2026-04-02T17:07:32.682Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:32.682Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:32.692Z] execution-lock release deferred token=lease-1775149652275 depth=2
+[siftkit-trace 2026-04-02T17:07:32.695Z] summary summarizeRequest start input_chars=26
+[siftkit-trace 2026-04-02T17:07:32.695Z] execution-lock reenter token=lease-1775149652275 depth=3
+[siftkit-trace 2026-04-02T17:07:32.695Z] summary loadConfig start
+✔ summarizeRequest no longer rejects input larger than 4x chunk threshold when planner mode can handle it (262.4415ms)
+[siftkit-trace 2026-04-02T17:07:32.699Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:32.699Z] summary decision ready backend=mock model=mock-model raw_review_required=false chars=26 lines=1
+[siftkit-trace 2026-04-02T17:07:32.699Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:32.699Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=26 chunk_threshold=237565 planner_threshold=237565
+[siftkit-trace 2026-04-02T17:07:32.699Z] summary preflight start phase=leaf chunk=undefined/undefined prompt_chars=2050 effective_prompt_limit=null
+[siftkit-trace 2026-04-02T17:07:32.699Z] summary preflight done phase=leaf chunk=undefined/undefined prompt_tokens=null
+[siftkit-trace 2026-04-02T17:07:32.699Z] summary notify running=true phase=leaf chunk=none raw_chars=26 chunk_chars=26 prompt_chars=2050
+[siftkit-trace 2026-04-02T17:07:32.699Z] summary notify running=false phase=leaf chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:32.700Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-02T17:07:32.702Z] execution-lock release deferred token=lease-1775149652275 depth=2
+✔ command-output never surfaces unsupported_input for non-empty input (15.6581ms)
+[siftkit-trace 2026-04-02T17:07:32.723Z] summary summarizeRequest start input_chars=237719
+[siftkit-trace 2026-04-02T17:07:32.723Z] execution-lock reenter token=lease-1775149652275 depth=3
+[siftkit-trace 2026-04-02T17:07:32.723Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:32.726Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:32.733Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=237719 lines=1
+[siftkit-trace 2026-04-02T17:07:32.733Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:32.733Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=237719 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:32.733Z] llama-cpp tokenize start chars=5196
+[siftkit-trace 2026-04-02T17:07:32.734Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:32.734Z] summary notify running=true phase=planner chunk=none raw_chars=237719 chunk_chars=237719 prompt_chars=5196
+[siftkit-trace 2026-04-02T17:07:32.734Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5194 base_url=http://127.0.0.1:35692
+[siftkit-trace 2026-04-02T17:07:32.735Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=87
+[siftkit-trace 2026-04-02T17:07:32.735Z] summary notify running=false phase=planner chunk=none duration_ms=1
+[siftkit-trace 2026-04-02T17:07:32.735Z] llama-cpp tokenize start chars=5437
+[siftkit-trace 2026-04-02T17:07:32.736Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:32.736Z] summary notify running=true phase=planner chunk=none raw_chars=237719 chunk_chars=237719 prompt_chars=5437
+[siftkit-trace 2026-04-02T17:07:32.736Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5431 base_url=http://127.0.0.1:35692
+[siftkit-trace 2026-04-02T17:07:32.736Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=87
+[siftkit-trace 2026-04-02T17:07:32.736Z] summary notify running=false phase=planner chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:32.742Z] execution-lock release deferred token=lease-1775149652275 depth=2
+✖ chunked malformed JSON slices retry with stricter chunk guidance instead of surfacing unsupported_input (33.7148ms)
+[siftkit-trace 2026-04-02T17:07:32.749Z] summary summarizeRequest start input_chars=237719
+[siftkit-trace 2026-04-02T17:07:32.749Z] execution-lock reenter token=lease-1775149652275 depth=3
+[siftkit-trace 2026-04-02T17:07:32.749Z] summary loadConfig start
+[siftkit-trace 2026-04-02T17:07:32.752Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:32.755Z] summary decision ready backend=llama.cpp model=mock-model raw_review_required=false chars=237719 lines=1
+[siftkit-trace 2026-04-02T17:07:32.755Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:32.755Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=237719 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-02T17:07:32.756Z] llama-cpp tokenize start chars=5206
+[siftkit-trace 2026-04-02T17:07:32.756Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-02T17:07:32.756Z] summary notify running=true phase=planner chunk=none raw_chars=237719 chunk_chars=237719 prompt_chars=5206
+[siftkit-trace 2026-04-02T17:07:32.757Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5204 base_url=http://127.0.0.1:35694
+[siftkit-trace 2026-04-02T17:07:32.757Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=81
+[siftkit-trace 2026-04-02T17:07:32.757Z] summary notify running=false phase=planner chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:32.757Z] llama-cpp tokenize start chars=5441
+[siftkit-trace 2026-04-02T17:07:32.758Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-02T17:07:32.758Z] summary notify running=true phase=planner chunk=none raw_chars=237719 chunk_chars=237719 prompt_chars=5441
+[siftkit-trace 2026-04-02T17:07:32.758Z] llama-cpp generate start model=mock-model timeout_s=600 prompt_chars=5435 base_url=http://127.0.0.1:35694
+[siftkit-trace 2026-04-02T17:07:32.758Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null output_chars=81
+[siftkit-trace 2026-04-02T17:07:32.758Z] summary notify running=false phase=planner chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:32.763Z] execution-lock release deferred token=lease-1775149652275 depth=2
+[siftkit-trace 2026-04-02T17:07:32.766Z] summary summarizeRequest start input_chars=5000
+[siftkit-trace 2026-04-02T17:07:32.766Z] execution-lock reenter token=lease-1775149652275 depth=3
+[siftkit-trace 2026-04-02T17:07:32.766Z] summary loadConfig start
+✖ chunked unsupported-input leaf retries fall back to a conservative local summary after repeated failures (20.7278ms)
+[siftkit-trace 2026-04-02T17:07:32.769Z] summary loadConfig done
+[siftkit-trace 2026-04-02T17:07:32.769Z] summary decision ready backend=mock model=mock-model raw_review_required=false chars=5000 lines=1
+[siftkit-trace 2026-04-02T17:07:32.769Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-02T17:07:32.769Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=5000 chunk_threshold=237565 planner_threshold=237565
+[siftkit-trace 2026-04-02T17:07:32.769Z] summary preflight start phase=leaf chunk=undefined/undefined prompt_chars=7451 effective_prompt_limit=null
+[siftkit-trace 2026-04-02T17:07:32.769Z] summary preflight done phase=leaf chunk=undefined/undefined prompt_tokens=null
+[siftkit-trace 2026-04-02T17:07:32.769Z] summary notify running=true phase=leaf chunk=none raw_chars=5000 chunk_chars=5000 prompt_chars=7451
+[siftkit-trace 2026-04-02T17:07:32.770Z] summary notify running=false phase=leaf chunk=none duration_ms=0
+[siftkit-trace 2026-04-02T17:07:32.771Z] execution-lock release deferred token=lease-1775149652275 depth=2
+✔ provider failures hard fail instead of falling back to a deterministic raw excerpt (7.5043ms)
+[siftkit-trace 2026-04-02T17:07:32.777Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=5 prompt_chars=16 base_url=http://127.0.0.1:35698
+[siftkit-trace 2026-04-02T17:07:32.777Z] llama-cpp generate http_error elapsed_ms=0 status=400
+✔ llama.cpp provider surfaces HTTP 400 errors when grammar-constrained requests are rejected (6.8622ms)
+ℹ tests 166
+ℹ suites 0
+ℹ pass 150
+ℹ fail 14
+ℹ cancelled 1
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 305959.6825
+
+✖ failing tests:
+
+test at tests\runtime.test.js:1648:1
+✖ summarizeRequest recursively merges oversized mock summaries when the external server is available (35.9689ms)
+  Error: Planner mode failed: planner_failed.
+      at invokeSummaryCore (C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:2092:19)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:2310:35
+      at async withExecutionLock (C:\Users\denys\Documents\GitHub\SiftKit\dist\execution-lock.js:93:16)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:1657:22
+      at async withStubServer (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:847:12)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:1650:5
+      at async TestContext.<anonymous> (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:1649:3)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+
+test at tests\runtime.test.js:1681:1
+✖ summarizeRequest splits using the observed aggregate chars-per-token average (20.8871ms)
+  Error: Planner mode failed: planner_failed.
+      at invokeSummaryCore (C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:2092:19)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:2310:35
+      at async withExecutionLock (C:\Users\denys\Documents\GitHub\SiftKit\dist\execution-lock.js:93:16)
+      at async withStubServer.metrics.inputCharactersTotal (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:1690:22)
+      at async withStubServer (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:847:12)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:1683:5
+      at async TestContext.<anonymous> (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:1682:3)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+
+test at tests\runtime.test.js:1720:1
+✖ summarizeRequest does not recurse forever when token-aware planning returns a single full-size chunk (10.4151ms)
+  Error: Planner mode failed: planner_failed.
+      at invokeSummaryCore (C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:2092:19)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:2310:35
+      at async withExecutionLock (C:\Users\denys\Documents\GitHub\SiftKit\dist\execution-lock.js:93:16)
+      at async withStubServer.config.LlamaCpp.NumCtx (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:1723:22)
+      at async withStubServer (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:847:12)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:1722:5
+      at async TestContext.<anonymous> (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:1721:3)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+
+test at tests\runtime.test.js:1762:1
+✖ summarizeRequest does not re-split token-aware chunks that already exceed the original char threshold (34.3205ms)
+  Error: Planner mode failed: planner_failed.
+      at invokeSummaryCore (C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:2092:19)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:2310:35
+      at async withExecutionLock (C:\Users\denys\Documents\GitHub\SiftKit\dist\execution-lock.js:93:16)
+      at async withStubServer.config.LlamaCpp.NumCtx (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:1785:22)
+      at async withStubServer (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:847:12)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:1764:5
+      at async TestContext.<anonymous> (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:1763:3)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+
+test at tests\runtime.test.js:1866:1
+✖ concurrent oversized CLI summary requests are serialized until the first request fully completes (355.67ms)
+  Error: ENOENT: no such file or directory, open 'C:\Users\denys\AppData\Local\Temp\siftkit-node-test-TElwZ6\provider-events-concurrent.jsonl'
+      at Object.readFileSync (node:fs:440:20)
+      at withSummaryTestServer.running (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:1921:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async withStubServer (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:847:12)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:1868:5
+      at async TestContext.<anonymous> (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:1867:3)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7) {
+    errno: -4058,
+    code: 'ENOENT',
+    syscall: 'open',
+    path: 'C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-TElwZ6\\provider-events-concurrent.jsonl'
+  }
+
+test at tests\runtime.test.js:3071:1
+✖ real status server falls back to zeroed metrics when the metrics cache is invalid (10002.7508ms)
+  'test timed out after 10000ms'
+
+test at tests\runtime.test.js:3123:1
+✖ local-only find-files CLI works without the external server (57.305ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  1 !== 0
+  
+      at C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:3144:12
+      at C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:838:17
+      at async TestContext.<anonymous> (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:3124:3)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests\runtime.test.js:3638:1
+✖ summary retries with smaller chunks when llama.cpp rejects an oversized prompt and tokenization is unavailable (24.7487ms)
+  Error: Planner mode failed: planner_invalid_response_limit.
+      at invokeSummaryCore (C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:2092:19)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:2310:35
+      at async withExecutionLock (C:\Users\denys\Documents\GitHub\SiftKit\dist\execution-lock.js:93:16)
+      at async withStubServer.rejectPromptCharsOver (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:3641:22)
+      at async withStubServer (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:847:12)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:3640:5
+      at async TestContext.<anonymous> (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:3639:3)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+
+test at tests\runtime.test.js:3672:1
+✖ summary resizes llama.cpp chunks before the first chat request when prompt tokenization exceeds context (24.0277ms)
+  Error: Planner mode failed: planner_invalid_response_limit.
+      at invokeSummaryCore (C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:2092:19)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:2310:35
+      at async withExecutionLock (C:\Users\denys\Documents\GitHub\SiftKit\dist\execution-lock.js:93:16)
+      at async withStubServer.tokenizeCharsPerToken (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:3675:22)
+      at async withStubServer (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:847:12)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:3674:5
+      at async TestContext.<anonymous> (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:3673:3)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+
+test at tests\runtime.test.js:3800:1
+✖ summary flattens token-aware llama.cpp chunking across sibling boundaries (37.0555ms)
+  Error: Planner mode failed: planner_invalid_response_limit.
+      at invokeSummaryCore (C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:2092:19)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:2310:35
+      at async withExecutionLock (C:\Users\denys\Documents\GitHub\SiftKit\dist\execution-lock.js:93:16)
+      at async withStubServer.tokenizeCharsPerToken (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:3805:22)
+      at async withStubServer (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:847:12)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:3802:5
+      at async TestContext.<anonymous> (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:3801:3)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+
+test at tests\runtime.test.js:6350:1
+✖ benchmark error-log fixtures now reach the model-first summary path (111.129ms)
+  AssertionError [ERR_ASSERTION]: 19_script_error_and_crash_marker_scan.txt
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:6393:11
+      at async withStubServer (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:847:12)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:6352:5
+      at async TestContext.<anonymous> (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:6351:3)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: Error: Planner mode failed: planner_failed.
+        at invokeSummaryCore (C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:2092:19)
+        at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+        at async C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:2310:35
+        at async withExecutionLock (C:\Users\denys\Documents\GitHub\SiftKit\dist\execution-lock.js:93:16)
+        at async waitForActual (node:assert:646:5)
+        at async strict.rejects (node:assert:769:25)
+        at async C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:6393:11
+        at async withStubServer (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:847:12)
+        at async C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:6352:5
+        at async TestContext.<anonymous> (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:6351:3),
+    expected: /Error: recieved input of 4999971 characters, current maximum is \d+ chars/u,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at tests\runtime.test.js:7908:1
+✖ planner fails fast when the next planner turn would exceed non-thinking headroom (46.1307ms)
+  Error: unexpected fallback request 2: Preserve exact technical anchors from the input when they matter: file paths, function names, symbols, commands, error t
+      at assistantContent (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:7969:15)
+      at resolveAssistantContent (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:367:12)
+      at Server.<anonymous> (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:625:42)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+
+test at tests\runtime.test.js:7975:1
+✖ planner fails fast when the next planner turn would exceed thinking headroom (55.2468ms)
+  Error: unexpected thinking fallback request 2: Preserve exact technical anchors from the input when they matter: file paths, function names, symbols, commands, error t
+      at assistantContent (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:8035:15)
+      at resolveAssistantContent (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:367:12)
+      at Server.<anonymous> (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:625:42)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+
+test at tests\runtime.test.js:8177:1
+✖ chunked malformed JSON slices retry with stricter chunk guidance instead of surfacing unsupported_input (33.7148ms)
+  Error: Planner mode failed: planner_invalid_response_limit.
+      at invokeSummaryCore (C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:2092:19)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:2310:35
+      at async withExecutionLock (C:\Users\denys\Documents\GitHub\SiftKit\dist\execution-lock.js:93:16)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:8185:22
+      at async withStubServer (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:847:12)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:8180:5
+      at async TestContext.<anonymous> (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:8178:3)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+
+test at tests\runtime.test.js:8229:1
+✖ chunked unsupported-input leaf retries fall back to a conservative local summary after repeated failures (20.7278ms)
+  Error: Planner mode failed: planner_invalid_response_limit.
+      at invokeSummaryCore (C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:2092:19)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\dist\summary.js:2310:35
+      at async withExecutionLock (C:\Users\denys\Documents\GitHub\SiftKit\dist\execution-lock.js:93:16)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:8236:22
+      at async withStubServer (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:847:12)
+      at async C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:8231:5
+      at async TestContext.<anonymous> (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime.test.js:8230:3)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)

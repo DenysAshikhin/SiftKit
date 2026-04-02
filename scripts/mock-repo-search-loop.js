@@ -29,6 +29,7 @@ const ZERO_OUTPUT_FORCE_THRESHOLD = 10;
 const FORCED_FINISH_MAX_ATTEMPTS = 3;
 const TRANSIENT_PROVIDER_ERROR_CODES = ['ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ECONNABORTED'];
 const NON_THINKING_FINISH_FOLLOWUP_PROMPT = 'Are you sure you have enough evidence and did not get tunnel-visioned?';
+let nextLlamaCppSlotId = 0;
 
 function createJsonlLogger(filePath) {
   const target = path.resolve(filePath);
@@ -107,6 +108,14 @@ const TOOL_DEFINITIONS = [
     },
   },
 ];
+
+function allocateLlamaCppSlotId(config) {
+  const configuredSlots = getConfiguredLlamaSetting(config || {}, 'ParallelSlots');
+  const slotCount = Math.max(1, Math.floor(Number(configuredSlots) || 1));
+  const slotId = nextLlamaCppSlotId % slotCount;
+  nextLlamaCppSlotId = (nextLlamaCppSlotId + 1) % slotCount;
+  return slotId;
+}
 
 const TASK_PACK = [
   {
@@ -390,6 +399,31 @@ function normalizeProviderText(value) {
   return '';
 }
 
+function getUsageNumber(value) {
+  return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : null;
+}
+
+function getPromptUsageFromResponseBody(body) {
+  const usage = body && typeof body === 'object' ? body.usage : null;
+  const timings = body && typeof body === 'object' ? body.timings : null;
+  const verboseTimings = body && typeof body === 'object' && body.__verbose && typeof body.__verbose === 'object'
+    ? body.__verbose.timings
+    : null;
+  const promptTokens = getUsageNumber(usage?.prompt_tokens);
+  const promptCacheTokens = getUsageNumber(timings?.cache_n)
+    ?? getUsageNumber(verboseTimings?.cache_n)
+    ?? getUsageNumber(usage?.prompt_tokens_details?.cached_tokens)
+    ?? getUsageNumber(usage?.input_tokens_details?.cached_tokens);
+  const promptEvalTokens = getUsageNumber(timings?.prompt_n)
+    ?? getUsageNumber(verboseTimings?.prompt_n)
+    ?? (promptTokens !== null && promptCacheTokens !== null ? Math.max(promptTokens - promptCacheTokens, 0) : null);
+  return {
+    promptTokens,
+    promptCacheTokens,
+    promptEvalTokens,
+  };
+}
+
 async function requestPlannerAction(options) {
   if (Array.isArray(options.mockResponses)) {
     const index = options.mockResponseIndex || 0;
@@ -412,16 +446,18 @@ async function requestPlannerAction(options) {
     logger: options.logger || null,
     body: JSON.stringify({
       model: options.model,
-      messages: [{ role: 'user', content: options.prompt }],
+      messages: options.messages,
+      cache_prompt: true,
+      ...(Number.isInteger(options.slotId) ? { id_slot: Number(options.slotId) } : {}),
       temperature: 0.1,
       top_p: 0.95,
       max_tokens: options.requestMaxTokens,
+      tools: TOOL_DEFINITIONS,
       chat_template_kwargs: {
         enable_thinking: options.thinkingEnabled !== false,
       },
       extra_body: {
         grammar: plannerGrammar(),
-        tools: TOOL_DEFINITIONS,
         ...(options.thinkingEnabled === false ? { reasoning_budget: 0 } : {}),
       },
     }),
@@ -440,10 +476,14 @@ async function requestPlannerAction(options) {
     || normalizeProviderText(firstChoice?.reasoning_content)
     || '';
   const synthesized = actionFromToolCall(firstChoice);
+  const promptUsage = getPromptUsageFromResponseBody(response.body);
   return {
     text: (text || synthesized || '').trim(),
     thinkingText,
     mockExhausted: false,
+    promptTokens: promptUsage.promptTokens,
+    promptCacheTokens: promptUsage.promptCacheTokens,
+    promptEvalTokens: promptUsage.promptEvalTokens,
   };
 }
 
@@ -454,17 +494,19 @@ function requestPlannerActionStreaming(options, onThinkingDelta) {
 
   const bodyJson = JSON.stringify({
     model: options.model,
-    messages: [{ role: 'user', content: options.prompt }],
+    messages: options.messages,
+    cache_prompt: true,
+    ...(Number.isInteger(options.slotId) ? { id_slot: Number(options.slotId) } : {}),
     temperature: 0.1,
     top_p: 0.95,
     max_tokens: options.requestMaxTokens,
     stream: true,
+    tools: TOOL_DEFINITIONS,
     chat_template_kwargs: {
       enable_thinking: options.thinkingEnabled !== false,
     },
     extra_body: {
       grammar: plannerGrammar(),
-      tools: TOOL_DEFINITIONS,
       ...(options.thinkingEnabled === false ? { reasoning_budget: 0 } : {}),
     },
   });
@@ -529,6 +571,9 @@ function requestPlannerActionStreaming(options, onThinkingDelta) {
       let contentText = '';
       let thinkingText = '';
       let toolCalls = [];
+      let promptTokens = null;
+      let promptCacheTokens = null;
+      let promptEvalTokens = null;
       response.setEncoding('utf8');
       response.on('data', (chunk) => {
         rawBuffer += chunk;
@@ -544,6 +589,16 @@ function requestPlannerActionStreaming(options, onThinkingDelta) {
           if (dataValue === '[DONE]') continue;
           try {
             const parsed = JSON.parse(dataValue);
+            const parsedPromptUsage = getPromptUsageFromResponseBody(parsed);
+            if (parsedPromptUsage.promptTokens !== null) {
+              promptTokens = parsedPromptUsage.promptTokens;
+            }
+            if (parsedPromptUsage.promptCacheTokens !== null) {
+              promptCacheTokens = parsedPromptUsage.promptCacheTokens;
+            }
+            if (parsedPromptUsage.promptEvalTokens !== null) {
+              promptEvalTokens = parsedPromptUsage.promptEvalTokens;
+            }
             const choice = Array.isArray(parsed?.choices) ? parsed.choices[0] : null;
             const delta = choice?.delta && typeof choice.delta === 'object' ? choice.delta : {};
             const deltaThinking = typeof delta.reasoning_content === 'string' ? delta.reasoning_content : '';
@@ -593,6 +648,9 @@ function requestPlannerActionStreaming(options, onThinkingDelta) {
           text: text.trim ? text.trim() : text,
           thinkingText: thinkingText.trim(),
           mockExhausted: false,
+          promptTokens,
+          promptCacheTokens,
+          promptEvalTokens,
         });
       });
     });
@@ -709,10 +767,14 @@ async function requestFinishValidation(options) {
   const thinkingText = normalizeProviderText(firstChoice?.message?.reasoning_content)
     || normalizeProviderText(firstChoice?.reasoning_content)
     || '';
+  const promptUsage = getPromptUsageFromResponseBody(response.body);
   return {
     text: text.trim(),
     thinkingText,
     mockExhausted: false,
+    promptTokens: promptUsage.promptTokens,
+    promptCacheTokens: promptUsage.promptCacheTokens,
+    promptEvalTokens: promptUsage.promptEvalTokens,
   };
 }
 
@@ -807,10 +869,14 @@ async function requestTerminalSynthesis(options) {
   const thinkingText = normalizeProviderText(firstChoice?.message?.reasoning_content)
     || normalizeProviderText(firstChoice?.reasoning_content)
     || '';
+  const promptUsage = getPromptUsageFromResponseBody(response.body);
   return {
     text: text.trim(),
     thinkingText,
     mockExhausted: false,
+    promptTokens: promptUsage.promptTokens,
+    promptCacheTokens: promptUsage.promptCacheTokens,
+    promptEvalTokens: promptUsage.promptEvalTokens,
   };
 }
 
@@ -1461,8 +1527,8 @@ function executeRepoCommand(command, repoRoot, mockCommandResults) {
   });
 }
 
-function buildTaskPrompt(options) {
-  const sections = [
+function buildTaskSystemPrompt() {
+  return [
     'You are running as a repo-search planner.',
     'Return exactly one JSON action per turn.',
     'Allowed tool: {"action":"tool","tool_name":"run_repo_cmd","args":{"command":"..."}}',
@@ -1499,7 +1565,6 @@ function buildTaskPrompt(options) {
     'Return exactly one JSON action per turn.',
     'Allowed tool action: {"action":"tool","tool_name":"run_repo_cmd","args":{"command":"..."}}',
     'Finish action format: {"action":"finish","output":"...","confidence":0.0-1.0}',
-    `Turn ${options.turn} of ${options.maxTurns}.`,
     '',
     'Rules:',
     '- Use only read-only commands.',
@@ -1545,35 +1610,53 @@ function buildTaskPrompt(options) {
     '- Invalid mixed-type example: `{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"x\\" --type ts --type tsx src"}}`.',
     '- Invalid command parameter example: `{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"x\\" src; del file.txt"}}`.',
     '- Invalid command parameter example: `{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content src\\\\x.ts | Out-File out.txt"}}`.',
-    '',
-    `Task: ${options.question}`,
-    `Tool-call turns completed so far: ${options.toolCallTurns}`,
-    `Tool-call budget remaining: ${Math.max(Number(options.maxTurns || 0) - Number(options.toolCallTurns || 0), 0)}`,
-  ];
-  if (Number.isFinite(options.zeroOutputRemaining) && options.zeroOutputRemaining >= 0) {
-    if (options.zeroOutputRemaining > 0) {
-      sections.push(
-        `Zero-output warning: ${options.zeroOutputRemaining} more zero-output command(s) and you will be forced to answer.`
-      );
-    } else {
-      sections.push(
-        `Zero-output limit reached: you must return a finish action now (forced finish attempts remaining: ${options.forcedFinishAttemptsRemaining || 0}).`
-      );
-    }
-  }
-  if ((options.forcedFinishAttemptsRemaining || 0) > 0) {
-    sections.push('Forced finish mode: return {"action":"finish",...} now. Tool calls are blocked.');
-  }
+  ].join('\n');
+}
 
-  if (options.history.length > 0) {
-    sections.push('', 'Previous tool calls/results:');
-    for (const item of options.history) {
-      sections.push(`Command: ${item.command}`);
-      sections.push(`Result: ${item.resultText}`);
-    }
-  }
+function buildTaskInitialUserPrompt(question) {
+  return `Task: ${question}`;
+}
 
-  return sections.join('\n');
+function buildRepoSearchAssistantToolMessage(command, toolCallId) {
+  return {
+    role: 'assistant',
+    content: '',
+    tool_calls: [
+      {
+        id: toolCallId,
+        type: 'function',
+        function: {
+          name: 'run_repo_cmd',
+          arguments: JSON.stringify({ command }),
+        },
+      },
+    ],
+  };
+}
+
+function renderTaskTranscript(messages) {
+  return messages.map((message) => {
+    const sections = [`[${String(message.role || 'unknown')}]`];
+    if (typeof message.content === 'string' && message.content) {
+      sections.push(message.content);
+    }
+    if (Array.isArray(message.tool_calls)) {
+      for (const toolCall of message.tool_calls) {
+        sections.push(JSON.stringify({
+          id: toolCall.id || null,
+          type: toolCall.type || 'function',
+          function: {
+            name: toolCall.function?.name || '',
+            arguments: toolCall.function?.arguments || {},
+          },
+        }));
+      }
+    }
+    if (typeof message.tool_call_id === 'string' && message.tool_call_id) {
+      sections.push(`tool_call_id=${message.tool_call_id}`);
+    }
+    return sections.join('\n');
+  }).join('\n\n');
 }
 
 function evaluateTaskSignals(task, evidenceText) {
@@ -1635,6 +1718,9 @@ async function runTaskLoop(task, options) {
   let turnsUsed = 0;
   let mockResponseIndex = 0;
   let forceThinkingOnNextTurn = false;
+  let modelPromptTokens = 0;
+  let modelPromptCacheTokens = 0;
+  let modelPromptEvalTokens = 0;
   const attemptedCommands = new Set();
   const minToolCallsBeforeFinish = Math.max(0, Number(options.minToolCallsBeforeFinish ?? MIN_TOOL_CALLS_BEFORE_FINISH));
   const totalContextTokens = Math.max(
@@ -1652,6 +1738,11 @@ async function runTaskLoop(task, options) {
   let forcedFinishAttemptsRemaining = 0;
   let previousPlannerThinkingEnabled = null;
   let nonThinkingFinishFollowupUsed = false;
+  const slotId = allocateLlamaCppSlotId(options.config || {});
+  const messages = [
+    { role: 'system', content: buildTaskSystemPrompt() },
+    { role: 'user', content: buildTaskInitialUserPrompt(task.question) },
+  ];
 
   for (let turn = 1; turn <= maxTurns; turn += 1) {
     turnsUsed = turn;
@@ -1662,15 +1753,7 @@ async function runTaskLoop(task, options) {
     if (forceThinkingOnNextTurn && !inForcedFinishMode) {
       forceThinkingOnNextTurn = false;
     }
-    const prompt = buildTaskPrompt({
-      question: task.question,
-      turn,
-      maxTurns,
-      history,
-      toolCallTurns: commands.length,
-      zeroOutputRemaining: Math.max(ZERO_OUTPUT_FORCE_THRESHOLD - zeroOutputStreak, 0),
-      forcedFinishAttemptsRemaining,
-    });
+    const prompt = renderTaskTranscript(messages);
     options.logger?.write({
       kind: 'turn_model_request',
       taskId: task.id,
@@ -1687,7 +1770,8 @@ async function runTaskLoop(task, options) {
     const plannerRequestOptions = {
       baseUrl: options.baseUrl,
       model: options.model,
-      prompt,
+      messages,
+      slotId,
       timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
       mockResponses: options.mockResponses,
       mockResponseIndex,
@@ -1737,7 +1821,19 @@ async function runTaskLoop(task, options) {
       text: response.text,
       thinkingText: response.thinkingText || '',
       mockExhausted: Boolean(response.mockExhausted),
+      promptTokens: Number.isFinite(response.promptTokens) ? Number(response.promptTokens) : null,
+      promptCacheTokens: Number.isFinite(response.promptCacheTokens) ? Number(response.promptCacheTokens) : null,
+      promptEvalTokens: Number.isFinite(response.promptEvalTokens) ? Number(response.promptEvalTokens) : null,
     });
+    if (Number.isFinite(response.promptTokens) && Number(response.promptTokens) >= 0) {
+      modelPromptTokens += Number(response.promptTokens);
+    }
+    if (Number.isFinite(response.promptCacheTokens) && Number(response.promptCacheTokens) >= 0) {
+      modelPromptCacheTokens += Number(response.promptCacheTokens);
+    }
+    if (Number.isFinite(response.promptEvalTokens) && Number(response.promptEvalTokens) >= 0) {
+      modelPromptEvalTokens += Number(response.promptEvalTokens);
+    }
     if (response.mockExhausted) {
       reason = 'mock_responses_exhausted';
       break;
@@ -1754,6 +1850,13 @@ async function runTaskLoop(task, options) {
       });
     } catch (error) {
       invalidResponses += 1;
+      if (String(response.text || '').trim()) {
+        messages.push({ role: 'assistant', content: String(response.text).trim() });
+      }
+      messages.push({
+        role: 'user',
+        content: `Invalid action: ${error instanceof Error ? error.message : String(error)}. Return exactly one valid JSON action.`,
+      });
       options.logger?.write({
         kind: 'turn_action_invalid',
         taskId: task.id,
@@ -1775,6 +1878,14 @@ async function runTaskLoop(task, options) {
     if (action.action === 'finish') {
       if (commands.length < minToolCallsBeforeFinish) {
         const warning = 'that was a shallow search, there might be more hidden references/usages. Dive deeper';
+        messages.push({
+          role: 'assistant',
+          content: response.text,
+        });
+        messages.push({
+          role: 'user',
+          content: warning,
+        });
         history.push({
           command: '[finish rejected]',
           resultText: warning,
@@ -1791,6 +1902,14 @@ async function runTaskLoop(task, options) {
       }
       if (followupOnNonThinkingFinish && !plannerThinkingEnabled && !nonThinkingFinishFollowupUsed) {
         nonThinkingFinishFollowupUsed = true;
+        messages.push({
+          role: 'assistant',
+          content: response.text,
+        });
+        messages.push({
+          role: 'user',
+          content: NON_THINKING_FINISH_FOLLOWUP_PROMPT,
+        });
         history.push({
           command: '[follow-up]',
           resultText: NON_THINKING_FINISH_FOLLOWUP_PROMPT,
@@ -1817,6 +1936,7 @@ async function runTaskLoop(task, options) {
     }
 
     const command = action.args.command;
+    const toolCallId = `call_${commands.length + 1}`;
     if (attemptedCommands.has(command)) {
       const duplicateReason = 'Exact command was already executed';
       commandFailures += 1;
@@ -1833,6 +1953,12 @@ async function runTaskLoop(task, options) {
         reason: duplicateReason,
         exitCode: null,
         output: `Rejected command: ${duplicateReason}`,
+      });
+      messages.push(buildRepoSearchAssistantToolMessage(command, toolCallId));
+      messages.push({
+        role: 'tool',
+        tool_call_id: toolCallId,
+        content: `Rejected command: ${duplicateReason}`,
       });
       history.push({ command, resultText: `Rejected command: ${duplicateReason}` });
       continue;
@@ -1855,6 +1981,12 @@ async function runTaskLoop(task, options) {
         reason: forcedReason,
         exitCode: null,
         output: `Rejected command: ${forcedReason}`,
+      });
+      messages.push(buildRepoSearchAssistantToolMessage(command, toolCallId));
+      messages.push({
+        role: 'tool',
+        tool_call_id: toolCallId,
+        content: `Rejected command: ${forcedReason}`,
       });
       history.push({ command, resultText: `Rejected command: ${forcedReason}` });
       if (forcedFinishAttemptsRemaining === 0) {
@@ -1882,6 +2014,12 @@ async function runTaskLoop(task, options) {
         exitCode: null,
         output: rejection,
       });
+      messages.push(buildRepoSearchAssistantToolMessage(command, toolCallId));
+      messages.push({
+        role: 'tool',
+        tool_call_id: toolCallId,
+        content: rejection,
+      });
       history.push({ command, resultText: rejection });
       continue;
     }
@@ -1904,6 +2042,12 @@ async function runTaskLoop(task, options) {
         reason: safety.reason,
         exitCode: null,
         output: rejection,
+      });
+      messages.push(buildRepoSearchAssistantToolMessage(commandToRun, toolCallId));
+      messages.push({
+        role: 'tool',
+        tool_call_id: toolCallId,
+        content: rejection,
       });
       history.push({ command: commandToRun, resultText: rejection });
       continue;
@@ -1963,6 +2107,10 @@ async function runTaskLoop(task, options) {
       });
       if (remainingBeforeForce === 0 && forcedFinishAttemptsRemaining === 0) {
         forcedFinishAttemptsRemaining = FORCED_FINISH_MAX_ATTEMPTS;
+        messages.push({
+          role: 'user',
+          content: 'Forced finish mode active. Return {"action":"finish",...} now. Tool calls are blocked.',
+        });
         options.logger?.write({
           kind: 'turn_forced_finish_mode_started',
           taskId: task.id,
@@ -2006,6 +2154,12 @@ async function runTaskLoop(task, options) {
       exitCode: executed.exitCode,
       output: outputWithRewriteNote,
     });
+    messages.push(buildRepoSearchAssistantToolMessage(commandToRun, toolCallId));
+    messages.push({
+      role: 'tool',
+      tool_call_id: toolCallId,
+      content: resultText,
+    });
     history.push({ command: commandToRun, resultText });
   }
 
@@ -2041,7 +2195,19 @@ async function runTaskLoop(task, options) {
         text: synthesisResponse.text,
         thinkingText: synthesisResponse.thinkingText || '',
         mockExhausted: Boolean(synthesisResponse.mockExhausted),
+        promptTokens: Number.isFinite(synthesisResponse.promptTokens) ? Number(synthesisResponse.promptTokens) : null,
+        promptCacheTokens: Number.isFinite(synthesisResponse.promptCacheTokens) ? Number(synthesisResponse.promptCacheTokens) : null,
+        promptEvalTokens: Number.isFinite(synthesisResponse.promptEvalTokens) ? Number(synthesisResponse.promptEvalTokens) : null,
       });
+      if (Number.isFinite(synthesisResponse.promptTokens) && Number(synthesisResponse.promptTokens) >= 0) {
+        modelPromptTokens += Number(synthesisResponse.promptTokens);
+      }
+      if (Number.isFinite(synthesisResponse.promptCacheTokens) && Number(synthesisResponse.promptCacheTokens) >= 0) {
+        modelPromptCacheTokens += Number(synthesisResponse.promptCacheTokens);
+      }
+      if (Number.isFinite(synthesisResponse.promptEvalTokens) && Number(synthesisResponse.promptEvalTokens) >= 0) {
+        modelPromptEvalTokens += Number(synthesisResponse.promptEvalTokens);
+      }
       if (!synthesisResponse.mockExhausted && String(synthesisResponse.text || '').trim()) {
         finalOutput = String(synthesisResponse.text).trim();
       } else {
@@ -2092,6 +2258,9 @@ async function runTaskLoop(task, options) {
     finalOutput,
     passed,
     missingSignals: signalCheck.missingSignals,
+    promptTokens: modelPromptTokens,
+    promptCacheTokens: modelPromptCacheTokens,
+    promptEvalTokens: modelPromptEvalTokens,
   };
 }
 
@@ -2104,6 +2273,9 @@ function buildScorecard(options) {
     safetyRejects: options.tasks.reduce((sum, task) => sum + task.safetyRejects, 0),
     invalidResponses: options.tasks.reduce((sum, task) => sum + task.invalidResponses, 0),
     commandFailures: options.tasks.reduce((sum, task) => sum + Number(task.commandFailures || 0), 0),
+    promptTokens: options.tasks.reduce((sum, task) => sum + Number(task.promptTokens || 0), 0),
+    promptCacheTokens: options.tasks.reduce((sum, task) => sum + Number(task.promptCacheTokens || 0), 0),
+    promptEvalTokens: options.tasks.reduce((sum, task) => sum + Number(task.promptEvalTokens || 0), 0),
   };
 
   const failureReasons = [];

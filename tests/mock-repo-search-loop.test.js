@@ -515,12 +515,12 @@ test('runTaskLoop stops at max turns when model keeps asking for tools', async (
   assert.equal(result.commands.length, 2);
 });
 
-test('runTaskLoop prompt includes remaining tool-call budget each turn', async () => {
+test('runTaskLoop prompt omits visible tool-call budget counters', async () => {
   const events = [];
   const result = await runTaskLoop(
     {
-      id: 'task-budget-remaining',
-      question: 'Track tool budget.',
+      id: 'task-budget-hidden',
+      question: 'Track tool usage.',
       signals: [],
     },
     {
@@ -546,10 +546,133 @@ test('runTaskLoop prompt includes remaining tool-call budget each turn', async (
 
   const prompts = events.filter((event) => event.kind === 'turn_prompt').map((event) => String(event.prompt || ''));
   assert.equal(prompts.length >= 3, true);
-  assert.match(prompts[0], /Tool-call budget remaining: 3/u);
-  assert.match(prompts[1], /Tool-call budget remaining: 2/u);
-  assert.match(prompts[2], /Tool-call budget remaining: 1/u);
+  assert.doesNotMatch(prompts[0], /Tool-call budget remaining:/u);
+  assert.doesNotMatch(prompts[1], /Tool-call budget remaining:/u);
+  assert.doesNotMatch(prompts[2], /Tool-call budget remaining:/u);
   assert.equal(result.reason, 'finish');
+});
+
+test('runTaskLoop sends append-only chat requests with explicit cache_prompt and a pinned slot', async () => {
+  const chatRequests = [];
+  let requestCount = 0;
+  const server = http.createServer(async (req, res) => {
+    if (req.method === 'POST' && req.url === '/tokenize') {
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
+      req.on('end', () => {
+        const parsed = JSON.parse(body || '{}');
+        const content = String(parsed.content || '');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ count: Math.max(1, Math.ceil(content.length / 4)) }));
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/v1/chat/completions') {
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
+      req.on('end', () => {
+        requestCount += 1;
+        const parsed = JSON.parse(body || '{}');
+        chatRequests.push(parsed);
+        const content = requestCount === 1
+          ? JSON.stringify({
+            action: 'tool',
+            tool_name: 'run_repo_cmd',
+            args: { command: 'rg -n "planner" src' },
+          })
+          : JSON.stringify({
+            action: 'finish',
+            output: 'done',
+          });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          id: 'chatcmpl-test',
+          object: 'chat.completion',
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content,
+              },
+            },
+          ],
+          usage: {
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            total_tokens: 15,
+          },
+        }));
+      });
+      return;
+    }
+
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${Number(address.port)}`;
+
+  try {
+    const result = await runTaskLoop(
+      {
+        id: 'task-chat-transcript',
+        question: 'Find planner text.',
+        signals: [],
+      },
+      {
+        repoRoot: process.cwd(),
+        baseUrl,
+        model: 'mock-model',
+        config: {
+          Runtime: {
+            LlamaCpp: {
+              BaseUrl: baseUrl,
+              NumCtx: 70000,
+              ParallelSlots: 4,
+              Reasoning: 'off',
+            },
+          },
+          LlamaCpp: {
+            BaseUrl: baseUrl,
+            NumCtx: 70000,
+            ParallelSlots: 4,
+            Reasoning: 'off',
+          },
+        },
+        maxTurns: 2,
+        maxInvalidResponses: 2,
+        minToolCallsBeforeFinish: 0,
+        requestMaxTokens: 256,
+        mockCommandResults: {
+          'rg -n "planner" src': { exitCode: 0, stdout: 'planner hit', stderr: '' },
+        },
+      }
+    );
+
+    assert.equal(result.reason, 'finish');
+    assert.equal(chatRequests.length, 2);
+    assert.equal(chatRequests[0].cache_prompt, true);
+    assert.equal(chatRequests[1].cache_prompt, true);
+    assert.equal(Number.isInteger(chatRequests[0].id_slot), true);
+    assert.equal(chatRequests[0].id_slot, chatRequests[1].id_slot);
+    assert.equal(Array.isArray(chatRequests[0].tools), true);
+    assert.equal(chatRequests[0].tools[0]?.function?.name, 'run_repo_cmd');
+    assert.equal(chatRequests[1].messages.length > chatRequests[0].messages.length, true);
+    assert.doesNotMatch(JSON.stringify(chatRequests[0].messages), /Tool-call budget remaining:/u);
+    assert.doesNotMatch(JSON.stringify(chatRequests[1].messages), /Tool-call budget remaining:/u);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
 });
 
 test('runTaskLoop synthesizes final output on terminal max_turns', async () => {

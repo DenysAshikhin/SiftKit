@@ -71,6 +71,36 @@ function getMessageTokenCount(message: ChatSession['messages'][number]): number 
     + Number(message.thinkingTokens || 0);
 }
 
+function getSessionPromptCacheStats(session: ChatSession | null): {
+  promptCacheTokens: number;
+  promptEvalTokens: number;
+  cacheHitRate: number | null;
+} {
+  if (!session || !Array.isArray(session.messages)) {
+    return {
+      promptCacheTokens: 0,
+      promptEvalTokens: 0,
+      cacheHitRate: null,
+    };
+  }
+  const promptCacheTokens = session.messages.reduce((sum, message) => (
+    Number.isFinite(message.promptCacheTokens) && Number(message.promptCacheTokens) >= 0
+      ? sum + Number(message.promptCacheTokens)
+      : sum
+  ), 0);
+  const promptEvalTokens = session.messages.reduce((sum, message) => (
+    Number.isFinite(message.promptEvalTokens) && Number(message.promptEvalTokens) >= 0
+      ? sum + Number(message.promptEvalTokens)
+      : sum
+  ), 0);
+  const totalPromptTokens = promptCacheTokens + promptEvalTokens;
+  return {
+    promptCacheTokens,
+    promptEvalTokens,
+    cacheHitRate: totalPromptTokens > 0 ? (promptCacheTokens / totalPromptTokens) : null,
+  };
+}
+
 function classifyRunGroup(kind: string): RunGroupKey {
   const normalized = kind.trim().toLowerCase();
   if (normalized.includes('repo_search')) {
@@ -572,6 +602,7 @@ export function App() {
   const repoSearchChatSteps = selectedRunDetail ? buildRepoSearchChatSteps(selectedRunDetail.events) : [];
   const isThinkingEnabledForCurrentSession = selectedSession?.thinkingEnabled !== false;
   const chatMode = selectedSession?.mode === 'plan' ? 'plan' : selectedSession?.mode === 'repo-search' ? 'repo-search' : 'chat';
+  const sessionPromptCacheStats = getSessionPromptCacheStats(selectedSession);
 
   useEffect(() => {
     writeSearchParams({
@@ -1256,6 +1287,32 @@ export function App() {
                 { key: 'duration', title: 'Avg Duration', unit: 'ms', color: '#8bc0ff', points: metrics.map((day) => ({ label: day.date, value: day.avgDurationMs })) },
               ]}
             />
+            <InteractiveGraph
+              title="Prompt Cache Hit Rate"
+              series={[
+                {
+                  key: 'cache-hit-rate',
+                  title: 'Cache Hit Rate',
+                  unit: '%',
+                  color: '#71d36a',
+                  points: metrics.map((day) => ({ label: day.date, value: Number.isFinite(day.cacheHitRate) ? Number(day.cacheHitRate) * 100 : 0 })),
+                },
+                {
+                  key: 'cache-tokens',
+                  title: 'Cache Tokens',
+                  unit: 'tok',
+                  color: '#4fbf90',
+                  points: metrics.map((day) => ({ label: day.date, value: day.promptCacheTokens })),
+                },
+                {
+                  key: 'prompt-eval-tokens',
+                  title: 'Prompt Eval Tokens',
+                  unit: 'tok',
+                  color: '#6ec8ff',
+                  points: metrics.map((day) => ({ label: day.date, value: day.promptEvalTokens })),
+                },
+              ]}
+            />
             {idleSummarySnapshots.length > 1 ? (
               <InteractiveGraph
                 title="Recent Snapshot Totals"
@@ -1352,6 +1409,13 @@ export function App() {
             {selectedSession ? (
               <>
                 <h2>{selectedSession.title}</h2>
+                <p className="hint">
+                  Prompt Cache Hit Rate: {formatPercent(sessionPromptCacheStats.cacheHitRate)}
+                  {' | '}
+                  Cache Tokens: {formatNumber(sessionPromptCacheStats.promptCacheTokens)}
+                  {' | '}
+                  Prompt Eval Tokens: {formatNumber(sessionPromptCacheStats.promptEvalTokens)}
+                </p>
                 <div className="chat-mode-row">
                   <button
                     type="button"

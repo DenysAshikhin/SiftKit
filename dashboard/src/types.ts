@@ -12,6 +12,8 @@ export type RunRecord = {
   inputTokens: number | null;
   outputTokens: number | null;
   thinkingTokens: number | null;
+  promptCacheTokens: number | null;
+  promptEvalTokens: number | null;
   durationMs: number | null;
   rawPaths: Record<string, string | null>;
 };
@@ -38,6 +40,9 @@ export type MetricDay = {
   inputTokens: number;
   outputTokens: number;
   thinkingTokens: number;
+  promptCacheTokens: number;
+  promptEvalTokens: number;
+  cacheHitRate: number | null;
   successCount: number;
   failureCount: number;
   avgDurationMs: number;
@@ -55,6 +60,8 @@ export type IdleSummarySnapshot = {
   inputTokensTotal: number;
   outputTokensTotal: number;
   thinkingTokensTotal: number;
+  promptCacheTokensTotal: number;
+  promptEvalTokensTotal: number;
   savedTokens: number;
   savedPercent: number | null;
   compressionRatio: number | null;
@@ -76,6 +83,8 @@ export type ChatMessage = {
   inputTokensEstimate: number;
   outputTokensEstimate: number;
   thinkingTokens: number;
+  promptCacheTokens?: number | null;
+  promptEvalTokens?: number | null;
   associatedToolTokens?: number;
   thinkingContent?: string;
   createdAtUtc: string;

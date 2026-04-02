@@ -37,6 +37,7 @@ exports.countLlamaCppTokens = countLlamaCppTokens;
 exports.listLlamaCppModels = listLlamaCppModels;
 exports.getLlamaCppProviderStatus = getLlamaCppProviderStatus;
 exports.generateLlamaCppResponse = generateLlamaCppResponse;
+exports.generateLlamaCppChatResponse = generateLlamaCppChatResponse;
 const http = __importStar(require("node:http"));
 const https = __importStar(require("node:https"));
 const config_js_1 = require("../config.js");
@@ -315,6 +316,26 @@ async function getLlamaCppProviderStatus(config) {
     return status;
 }
 async function generateLlamaCppResponse(options) {
+    return generateLlamaCppChatResponse({
+        config: options.config,
+        model: options.model,
+        messages: [
+            {
+                role: 'user',
+                content: options.prompt,
+            },
+        ],
+        timeoutSeconds: options.timeoutSeconds,
+        slotId: options.slotId,
+        structuredOutput: options.structuredOutput,
+        reasoningOverride: options.reasoningOverride,
+        overrides: options.overrides,
+    });
+}
+function getPromptTimingValue(value) {
+    return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : null;
+}
+async function generateLlamaCppChatResponse(options) {
     const baseUrl = (0, config_js_1.getConfiguredLlamaBaseUrl)(options.config);
     const resolvedTemperature = options.overrides?.Temperature ?? (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'Temperature');
     const resolvedTopP = options.overrides?.TopP ?? (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'TopP');
@@ -326,21 +347,22 @@ async function generateLlamaCppResponse(options) {
     const resolvedReasoning = options.reasoningOverride
         ?? (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'Reasoning');
     const structuredOutputGrammar = getStructuredOutputGrammar(options.structuredOutput);
+    const promptChars = options.messages.reduce((total, message) => {
+        return total + getTextContent(message.content).length;
+    }, 0);
     const requestBody = JSON.stringify({
         model: options.model,
-        messages: [
-            {
-                role: 'user',
-                content: options.prompt,
-            },
-        ],
-        cache_prompt: true,
+        messages: options.messages,
+        cache_prompt: options.cachePrompt ?? true,
         ...(Number.isInteger(options.slotId) ? { id_slot: Number(options.slotId) } : {}),
-        ...(options.structuredOutput?.kind === 'siftkit-planner-action-json'
-            && Array.isArray(options.structuredOutput.tools)
-            && options.structuredOutput.tools.length > 0
-            ? { tools: options.structuredOutput.tools }
-            : {}),
+        ...(Array.isArray(options.tools)
+            && options.tools.length > 0
+            ? { tools: options.tools }
+            : options.structuredOutput?.kind === 'siftkit-planner-action-json'
+                && Array.isArray(options.structuredOutput.tools)
+                && options.structuredOutput.tools.length > 0
+                ? { tools: options.structuredOutput.tools }
+                : {}),
         ...(resolvedTemperature === undefined ? {} : { temperature: Number(resolvedTemperature) }),
         ...(resolvedTopP === undefined ? {} : { top_p: Number(resolvedTopP) }),
         ...(resolvedMaxTokens === undefined || resolvedMaxTokens === null ? {} : { max_tokens: Number(resolvedMaxTokens) }),
@@ -361,7 +383,7 @@ async function generateLlamaCppResponse(options) {
     let response;
     const startedAt = Date.now();
     traceLlamaCpp(`generate start model=${options.model} timeout_s=${options.timeoutSeconds} `
-        + `prompt_chars=${options.prompt.length} base_url=${baseUrl}`);
+        + `prompt_chars=${promptChars} base_url=${baseUrl}`);
     try {
         response = await requestJson({
             url: `${baseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
@@ -394,18 +416,27 @@ async function generateLlamaCppResponse(options) {
         throw new Error(`llama.cpp did not return a response body. Raw response: ${rawResponseText.slice(0, 2000) || '<empty>'}`);
     }
     const rawUsage = response.body.usage;
+    const promptTokens = getUsageValue(rawUsage?.prompt_tokens);
+    const promptCacheTokens = getPromptTimingValue(response.body.timings?.cache_n)
+        ?? getUsageValue(rawUsage?.prompt_tokens_details?.cached_tokens)
+        ?? getUsageValue(rawUsage?.input_tokens_details?.cached_tokens);
+    const promptEvalTokens = getPromptTimingValue(response.body.timings?.prompt_n)
+        ?? (promptTokens !== null && promptCacheTokens !== null ? Math.max(promptTokens - promptCacheTokens, 0) : null);
     const thinkingTokens = getThinkingTokenCount(rawUsage)
         ?? (reasoningText.trim() ? await countLlamaCppTokens(options.config, reasoningText) : null);
-    const usage = rawUsage
+    const usage = (rawUsage || promptCacheTokens !== null || promptEvalTokens !== null)
         ? {
-            promptTokens: getUsageValue(rawUsage.prompt_tokens),
-            completionTokens: subtractThinkingTokens(getUsageValue(rawUsage.completion_tokens), thinkingTokens),
-            totalTokens: getUsageValue(rawUsage.total_tokens),
+            promptTokens,
+            completionTokens: subtractThinkingTokens(getUsageValue(rawUsage?.completion_tokens), thinkingTokens),
+            totalTokens: getUsageValue(rawUsage?.total_tokens),
             thinkingTokens,
+            promptCacheTokens,
+            promptEvalTokens,
         }
         : null;
     traceLlamaCpp(`generate done elapsed_ms=${Date.now() - startedAt} prompt_tokens=${usage?.promptTokens ?? 'null'} `
         + `completion_tokens=${usage?.completionTokens ?? 'null'} thinking_tokens=${usage?.thinkingTokens ?? 'null'} `
+        + `cache_tokens=${usage?.promptCacheTokens ?? 'null'} prompt_eval_tokens=${usage?.promptEvalTokens ?? 'null'} `
         + `output_chars=${text.length}`);
     return {
         text,
