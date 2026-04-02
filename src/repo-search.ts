@@ -14,6 +14,7 @@ type RepoSearchExecutionRequest = {
   statusBackendUrl?: string;
   config?: Record<string, unknown>;
   model?: string;
+  requestMaxTokens?: number;
   maxTurns?: number;
   logFile?: string;
   availableModels?: string[];
@@ -144,6 +145,7 @@ export async function executeRepoSearchRequest(request: RepoSearchExecutionReque
       repoRoot: string;
       config?: Record<string, unknown>;
       model?: string;
+      requestMaxTokens?: number;
       maxTurns?: number;
       taskPrompt: string;
       logger: JsonLogger;
@@ -158,6 +160,7 @@ export async function executeRepoSearchRequest(request: RepoSearchExecutionReque
       repoRoot,
       config: request.config,
       model: request.model,
+      requestMaxTokens: request.requestMaxTokens,
       maxTurns: request.maxTurns,
       taskPrompt: prompt,
       logger,
@@ -174,6 +177,7 @@ export async function executeRepoSearchRequest(request: RepoSearchExecutionReque
       prompt,
       repoRoot,
       model: request.model ?? null,
+      requestMaxTokens: request.requestMaxTokens ?? null,
       maxTurns: request.maxTurns ?? null,
       verdict: scorecard?.verdict ?? 'unknown',
       totals: scorecard?.totals ?? null,
@@ -215,6 +219,7 @@ export async function executeRepoSearchRequest(request: RepoSearchExecutionReque
       prompt,
       repoRoot,
       model: request.model ?? null,
+      requestMaxTokens: request.requestMaxTokens ?? null,
       maxTurns: request.maxTurns ?? null,
       error: message,
       transcriptPath,

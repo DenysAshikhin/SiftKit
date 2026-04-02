@@ -241,6 +241,11 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     assert.match(latestMessage.content, /^# Implementation Plan/mu);
     assert.match(latestMessage.content, /Critical Review/mu);
     assert.match(latestMessage.content, /## Artifacts/mu);
+    const plannerArtifact = JSON.parse(fs.readFileSync(planMessage.body.repoSearch.artifactPath, 'utf8'));
+    assert.equal(plannerArtifact.requestMaxTokens, 10000);
+    assert.match(plannerArtifact.prompt, /Start with a short "Summary of Request and Approach"/u);
+    assert.match(plannerArtifact.prompt, /Open Questions \(if any\)/u);
+    assert.match(plannerArtifact.prompt, /misalignment between the request and existing repository behavior/u);
 
     const condenseResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/condense`, {
       method: 'POST',

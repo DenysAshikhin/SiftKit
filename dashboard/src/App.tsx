@@ -1184,16 +1184,6 @@ export function App() {
             {selectedSession ? (
               <>
                 <h2>{selectedSession.title}</h2>
-                <div className="thinking-toggle-row">
-                  <label htmlFor="thinking-toggle">Thinking</label>
-                  <input
-                    id="thinking-toggle"
-                    type="checkbox"
-                    checked={selectedSession.thinkingEnabled !== false}
-                    onChange={(event) => { void onToggleThinking(event.target.checked); }}
-                    disabled={chatBusy}
-                  />
-                </div>
                 <div className="chat-mode-row">
                   <button
                     type="button"
@@ -1212,6 +1202,18 @@ export function App() {
                     Plan
                   </button>
                 </div>
+                {chatMode === 'chat' ? (
+                  <div className="thinking-toggle-row">
+                    <label htmlFor="thinking-toggle">Thinking</label>
+                    <input
+                      id="thinking-toggle"
+                      type="checkbox"
+                      checked={selectedSession.thinkingEnabled !== false}
+                      onChange={(event) => { void onToggleThinking(event.target.checked); }}
+                      disabled={chatBusy}
+                    />
+                  </div>
+                ) : null}
                 {chatMode === 'plan' ? (
                   <div className="plan-root-row">
                     <input
@@ -1250,7 +1252,7 @@ export function App() {
                   {selectedSession.messages.map((message) => (
                     <article key={message.id} className={`msg ${message.role}`}>
                       <header>{message.role} | {formatDate(message.createdAtUtc)}</header>
-                      {message.role === 'assistant' && message.thinkingContent ? (
+                      {chatMode === 'chat' && message.role === 'assistant' && message.thinkingContent ? (
                         <details className="thinking-box">
                           <summary>Thinking</summary>
                           <pre>{message.thinkingContent}</pre>
@@ -1270,7 +1272,7 @@ export function App() {
                 </div>
                 {chatBusy && (thinkingDraft || answerDraft) && (
                   <div className="live-stream-boxes">
-                    {isThinkingEnabledForCurrentSession && (
+                    {chatMode === 'chat' && isThinkingEnabledForCurrentSession && (
                       <section className="live-box thinking">
                         <h3>Thinking</h3>
                         <pre>{thinkingDraft || '...'}</pre>
