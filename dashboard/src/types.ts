@@ -97,7 +97,7 @@ export type ChatSession = {
   model: string | null;
   contextWindowTokens: number;
   thinkingEnabled?: boolean;
-  mode?: 'chat' | 'plan';
+  mode?: 'chat' | 'plan' | 'repo-search';
   planRepoRoot?: string;
   condensedSummary: string;
   createdAtUtc: string;

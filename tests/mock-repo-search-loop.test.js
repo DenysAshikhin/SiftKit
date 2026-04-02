@@ -180,7 +180,7 @@ test('runTaskLoop rewrites unsupported rg --type tsx and annotates output', asyn
 
   const commandResult = events.find((event) => event.kind === 'turn_command_result');
   assert.equal(commandResult.command, 'rg -n "foo" src --glob "*.tsx"');
-  assert.match(String(commandResult.output || ''), /original command failed compatibility check/u);
+  assert.match(String(commandResult.output || ''), /rewrote --type tsx to --glob/u);
   assert.equal(result.reason, 'finish');
   assert.equal(result.commandFailures, 0);
   assert.equal(result.passed, true);
@@ -216,7 +216,7 @@ test('runTaskLoop rewrites mixed rg --type ts and --type tsx flags', async () =>
 
   const commandResult = events.find((event) => event.kind === 'turn_command_result');
   assert.equal(commandResult.command, 'rg -n "foo" src --glob "*.tsx" --glob "*.ts"');
-  assert.match(String(commandResult.output || ''), /original command failed compatibility check/u);
+  assert.match(String(commandResult.output || ''), /rewrote --type tsx to --glob/u);
   assert.equal(result.reason, 'finish');
   assert.equal(result.commandFailures, 0);
   assert.equal(result.passed, true);
@@ -278,6 +278,84 @@ test('runTaskLoop counts non-zero command exits as command failures but not inva
   });
   assert.equal(scorecard.totals.commandFailures, 1);
   assert.equal(scorecard.verdict, 'fail');
+});
+
+test('runTaskLoop does not count rg exit code 1 (no matches) as a command failure', async () => {
+  const task = await runTaskLoop(
+    {
+      id: 'task-rg-no-match',
+      question: 'Find better-sqlite3 usage.',
+      signals: [],
+    },
+    {
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"better-sqlite3\\" src --type ts"}}',
+        '{"action":"finish","output":"no matches found"}',
+        '{"verdict":"pass","reason":"valid no-results answer"}',
+      ],
+      mockCommandResults: {
+        'rg -n "better-sqlite3" src --type ts': { exitCode: 1, stdout: '', stderr: '' },
+      },
+    }
+  );
+
+  assert.equal(task.commandFailures, 0);
+  assert.equal(task.passed, true);
+});
+
+test('runTaskLoop does not count grep exit code 1 (no matches) as a command failure', async () => {
+  const task = await runTaskLoop(
+    {
+      id: 'task-grep-no-match',
+      question: 'Find TODO comments.',
+      signals: [],
+    },
+    {
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"grep -rn \\"TODO\\" src"}}',
+        '{"action":"finish","output":"no TODOs found"}',
+        '{"verdict":"pass","reason":"valid no-results answer"}',
+      ],
+      mockCommandResults: {
+        'grep -rn "TODO" src': { exitCode: 1, stdout: '', stderr: '' },
+      },
+    }
+  );
+
+  assert.equal(task.commandFailures, 0);
+  assert.equal(task.passed, true);
+});
+
+test('runTaskLoop still counts exit code 1 from non-search commands as a command failure', async () => {
+  const task = await runTaskLoop(
+    {
+      id: 'task-non-search-exit1',
+      question: 'Check git log.',
+      signals: [],
+    },
+    {
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"git log --oneline"}}',
+        '{"action":"finish","output":"failed"}',
+        '{"verdict":"pass","reason":"ok"}',
+      ],
+      mockCommandResults: {
+        'git log --oneline': { exitCode: 1, stdout: '', stderr: 'error' },
+      },
+    }
+  );
+
+  assert.equal(task.commandFailures, 1);
+  assert.equal(task.passed, false);
 });
 
 test('runTaskLoop stops on finish action', async () => {

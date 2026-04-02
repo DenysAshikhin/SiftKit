@@ -343,6 +343,131 @@ async function requestPlannerAction(options) {
   };
 }
 
+function requestPlannerActionStreaming(options, onThinkingDelta) {
+  if (Array.isArray(options.mockResponses)) {
+    return requestPlannerAction(options);
+  }
+
+  const bodyJson = JSON.stringify({
+    model: options.model,
+    messages: [{ role: 'user', content: options.prompt }],
+    temperature: 0.1,
+    top_p: 0.95,
+    max_tokens: options.requestMaxTokens,
+    stream: true,
+    chat_template_kwargs: {
+      enable_thinking: options.thinkingEnabled !== false,
+    },
+    extra_body: {
+      grammar: plannerGrammar(),
+      tools: TOOL_DEFINITIONS,
+      ...(options.thinkingEnabled === false ? { reasoning_budget: 0 } : {}),
+    },
+  });
+
+  const target = new URL(`${options.baseUrl.replace(/\/$/u, '')}/v1/chat/completions`);
+  const transport = target.protocol === 'https:' ? https : http;
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const request = transport.request({
+      protocol: target.protocol,
+      hostname: target.hostname,
+      port: target.port || (target.protocol === 'https:' ? 443 : 80),
+      path: `${target.pathname}${target.search}`,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(bodyJson, 'utf8'),
+      },
+    }, (response) => {
+      if ((response.statusCode || 0) >= 400) {
+        let body = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => { body += chunk; });
+        response.on('end', () => {
+          if (!settled) {
+            settled = true;
+            reject(new Error(`llama.cpp planner stream failed with HTTP ${response.statusCode}${body.trim() ? `: ${body.trim().slice(0, 400)}` : '.'}`));
+          }
+        });
+        return;
+      }
+
+      let rawBuffer = '';
+      let contentText = '';
+      let thinkingText = '';
+      let toolCalls = [];
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => {
+        rawBuffer += chunk;
+        let boundary = rawBuffer.indexOf('\n\n');
+        while (boundary >= 0) {
+          const packet = rawBuffer.slice(0, boundary);
+          rawBuffer = rawBuffer.slice(boundary + 2);
+          boundary = rawBuffer.indexOf('\n\n');
+          const lines = packet.split(/\r?\n/gu).map((l) => l.trim()).filter(Boolean);
+          const dataLine = lines.find((l) => l.startsWith('data:'));
+          if (!dataLine) continue;
+          const dataValue = dataLine.slice(5).trim();
+          if (dataValue === '[DONE]') continue;
+          try {
+            const parsed = JSON.parse(dataValue);
+            const choice = Array.isArray(parsed?.choices) ? parsed.choices[0] : null;
+            const delta = choice?.delta && typeof choice.delta === 'object' ? choice.delta : {};
+            const deltaThinking = typeof delta.reasoning_content === 'string' ? delta.reasoning_content : '';
+            const deltaContent = typeof delta.content === 'string' ? delta.content : '';
+            if (delta.tool_calls && Array.isArray(delta.tool_calls)) {
+              for (const tc of delta.tool_calls) {
+                const idx = tc.index ?? 0;
+                if (!toolCalls[idx]) toolCalls[idx] = { name: '', arguments: '' };
+                if (tc.function?.name) toolCalls[idx].name += tc.function.name;
+                if (tc.function?.arguments) toolCalls[idx].arguments += tc.function.arguments;
+              }
+            }
+            if (deltaThinking) {
+              thinkingText += deltaThinking;
+              if (typeof onThinkingDelta === 'function') {
+                onThinkingDelta(thinkingText);
+              }
+            }
+            if (deltaContent) {
+              contentText += deltaContent;
+            }
+          } catch { /* ignore malformed chunks */ }
+        }
+      });
+      response.on('end', () => {
+        if (settled) return;
+        settled = true;
+        let synthesized = null;
+        if (toolCalls.length > 0 && toolCalls[0].name === 'run_repo_cmd') {
+          let args;
+          try { args = JSON.parse(toolCalls[0].arguments); } catch { args = null; }
+          if (args && typeof args.command === 'string') {
+            synthesized = JSON.stringify({ action: 'tool', tool_name: 'run_repo_cmd', args: { command: args.command } });
+          }
+        }
+        const text = contentText.trim() || synthesized || '';
+        resolve({
+          text: text.trim ? text.trim() : text,
+          thinkingText: thinkingText.trim(),
+          mockExhausted: false,
+        });
+      });
+    });
+
+    request.on('error', (err) => {
+      if (!settled) { settled = true; reject(err); }
+    });
+    request.setTimeout(options.timeoutMs, () => {
+      request.destroy(new Error(`Request timed out after ${options.timeoutMs} ms.`));
+    });
+    request.write(bodyJson);
+    request.end();
+  });
+}
+
 function parseFinishValidationResponse(text) {
   let parsed;
   try {
@@ -985,6 +1110,73 @@ function evaluateCommandSafety(command, repoRoot = '') {
   return { safe: true, reason: null };
 }
 
+function extractRgPattern(commandStr) {
+  const tokens = tokenizeSegment(commandStr);
+  if (!tokens.length || tokens[0].toLowerCase() !== 'rg') {
+    return null;
+  }
+  const rgValueOptions = new Set([
+    '-e', '--regexp', '-f', '--file', '-g', '--glob', '--iglob',
+    '-t', '--type', '--type-not', '--type-add', '--type-clear',
+    '-m', '--max-count', '-A', '-B', '-C', '--context',
+    '--max-filesize', '--engine', '--encoding', '--sort', '--sortr', '--threads',
+  ]);
+  const rgPatternOptions = new Set(['-e', '--regexp']);
+  let patternByOption = false;
+  let index = 1;
+  while (index < tokens.length) {
+    const token = tokens[index];
+    if (token === '--') {
+      index += 1;
+      break;
+    }
+    if (token.startsWith('-')) {
+      const normalized = token.toLowerCase();
+      if (rgValueOptions.has(normalized)) {
+        if (rgPatternOptions.has(normalized)) {
+          patternByOption = true;
+        }
+        index += 2;
+        continue;
+      }
+      index += 1;
+      continue;
+    }
+    if (!patternByOption) {
+      return token;
+    }
+    index += 1;
+  }
+  if (index < tokens.length && !patternByOption) {
+    return tokens[index];
+  }
+  return null;
+}
+
+function looksLikeWindowsPathLiteral(pattern) {
+  return /[a-zA-Z]:\\/u.test(pattern);
+}
+
+function rewriteRgWithFixedStrings(commandStr, pattern) {
+  const hasFixedFlag = /(?:^|\s)(?:-F|--fixed-strings)(?:\s|$)/u.test(commandStr);
+  if (hasFixedFlag) {
+    return null;
+  }
+  const alternatives = pattern.split('|').filter(Boolean);
+  if (alternatives.length <= 1) {
+    const escapedPattern = pattern.replace(/"/gu, '\\"');
+    return commandStr.replace(
+      `"${pattern}"`, `"${escapedPattern}"`
+    ).replace(/^(rg\s)/iu, '$1-F ');
+  }
+  const quotedAlternatives = alternatives.map((alt) => `-e "${alt.replace(/"/gu, '\\"')}"`).join(' ');
+  const withoutPattern = commandStr.replace(
+    new RegExp(`(["'])${pattern.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}\\1`),
+    ''
+  ).replace(/^(rg)\s+/iu, `$1 -F ${quotedAlternatives} `).replace(/\s{2,}/gu, ' ').trim();
+  return withoutPattern;
+}
+
 function normalizePlannerCommand(command) {
   const trimmed = String(command || '').trim();
   if (!trimmed) {
@@ -994,35 +1186,58 @@ function normalizePlannerCommand(command) {
     return { command: trimmed, rewritten: false, note: '' };
   }
 
-  const hasTsxType = /(?:^|\s)--type\s+tsx\b/iu.test(trimmed);
-  if (!hasTsxType) {
-    return { command: trimmed, rewritten: false, note: '' };
-  }
-  if (/(?:^|\s)--glob(?:\s|$)/iu.test(trimmed)) {
-    return {
-      command: trimmed,
-      rewritten: false,
-      note: '',
-      rejected: true,
-      rejectedReason: 'unsupported rg type flag: --type tsx; use --glob "*.tsx" or --type ts',
-    };
+  let current = trimmed;
+  let wasRewritten = false;
+  let notes = [];
+
+  const hasTsxType = /(?:^|\s)--type\s+tsx\b/iu.test(current);
+  if (hasTsxType) {
+    if (/(?:^|\s)--glob(?:\s|$)/iu.test(current)) {
+      return {
+        command: current,
+        rewritten: false,
+        note: '',
+        rejected: true,
+        rejectedReason: 'unsupported rg type flag: --type tsx; use --glob "*.tsx" or --type ts',
+      };
+    }
+    const hasTsType = /(?:^|\s)--type\s+ts\b/iu.test(current);
+    current = current
+      .replace(/\s--type\s+tsx\b/giu, '')
+      .replace(/\s--type\s+ts\b/giu, '');
+    current = `${current} --glob "*.tsx"`;
+    if (hasTsType) {
+      current = `${current} --glob "*.ts"`;
+    }
+    current = current.trim();
+    wasRewritten = true;
+    notes.push('rewrote --type tsx to --glob');
   }
 
-  const hasTsType = /(?:^|\s)--type\s+ts\b/iu.test(trimmed);
-  let rewritten = trimmed
-    .replace(/\s--type\s+tsx\b/giu, '')
-    .replace(/\s--type\s+ts\b/giu, '');
-  rewritten = `${rewritten} --glob "*.tsx"`;
-  if (hasTsType) {
-    rewritten = `${rewritten} --glob "*.ts"`;
+  const rgPattern = extractRgPattern(current);
+  if (rgPattern && looksLikeWindowsPathLiteral(rgPattern)) {
+    const rewritten = rewriteRgWithFixedStrings(current, rgPattern);
+    if (rewritten) {
+      current = rewritten;
+      wasRewritten = true;
+      notes.push('added -F for Windows path literal pattern');
+    }
   }
-  rewritten = rewritten.trim();
 
+  if (!wasRewritten) {
+    return { command: current, rewritten: false, note: '' };
+  }
   return {
-    command: rewritten,
+    command: current,
     rewritten: true,
-    note: `note: original command failed compatibility check; ran '${rewritten}' instead`,
+    note: `note: ${notes.join('; ')}; ran '${current}' instead`,
   };
+}
+
+function isSearchNoMatchExit(command, exitCode) {
+  if (exitCode !== 1) return false;
+  const trimmed = command.trimStart();
+  return /^(rg|grep|egrep|fgrep|diff|find)\b/u.test(trimmed);
 }
 
 function executeRepoCommand(command, repoRoot, mockCommandResults) {
@@ -1301,7 +1516,7 @@ async function runTaskLoop(task, options) {
       prompt,
     });
 
-    const response = await requestPlannerAction({
+    const plannerRequestOptions = {
       baseUrl: options.baseUrl,
       model: options.model,
       prompt,
@@ -1310,7 +1525,12 @@ async function runTaskLoop(task, options) {
       mockResponseIndex,
       thinkingEnabled: plannerThinkingEnabled,
       requestMaxTokens,
-    });
+    };
+    const response = options.onProgress
+      ? await requestPlannerActionStreaming(plannerRequestOptions, (accumulatedThinking) => {
+        options.onProgress({ kind: 'thinking', turn, maxTurns, thinkingText: accumulatedThinking });
+      })
+      : await requestPlannerAction(plannerRequestOptions);
     if (typeof response.nextMockResponseIndex === 'number') {
       mockResponseIndex = response.nextMockResponseIndex;
     }
@@ -1322,9 +1542,6 @@ async function runTaskLoop(task, options) {
       thinkingText: response.thinkingText || '',
       mockExhausted: Boolean(response.mockExhausted),
     });
-    if (options.onProgress && response.thinkingText) {
-      options.onProgress({ kind: 'thinking', turn, maxTurns, thinkingText: response.thinkingText });
-    }
     if (response.mockExhausted) {
       reason = 'mock_responses_exhausted';
       break;
@@ -1516,7 +1733,7 @@ async function runTaskLoop(task, options) {
     const outputWithRewriteNote = normalized.rewritten && normalized.note
       ? `${normalized.note}\n${baseOutput}`.trim()
       : baseOutput;
-    if (Number(executed.exitCode) !== 0) {
+    if (Number(executed.exitCode) !== 0 && !isSearchNoMatchExit(commandToRun, executed.exitCode)) {
       commandFailures += 1;
     }
     if (outputWithRewriteNote.length === 0) {

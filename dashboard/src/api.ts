@@ -73,7 +73,7 @@ export function createChatSession(payload: {
 
 export function updateChatSession(
   sessionId: string,
-  payload: { title?: string; thinkingEnabled?: boolean; mode?: 'chat' | 'plan'; planRepoRoot?: string }
+  payload: { title?: string; thinkingEnabled?: boolean; mode?: 'chat' | 'plan' | 'repo-search'; planRepoRoot?: string }
 ): Promise<ChatSessionResponse> {
   return fetchJson<ChatSessionResponse>(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}`, {
     method: 'PUT',
@@ -215,6 +215,98 @@ export async function streamPlanMessage(
   onToolEvent: (event: { kind: 'tool_start' | 'tool_result'; turn: number; maxTurns: number; command: string; exitCode?: number; outputSnippet?: string }) => void,
 ): Promise<ChatSessionResponse> {
   const response = await fetch(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/plan/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Request failed (${response.status}): ${text}`);
+  }
+  if (!response.body) {
+    throw new Error('Streaming response body was empty.');
+  }
+
+  const decoder = new TextDecoder();
+  const reader = response.body.getReader();
+  let buffer = '';
+  let finalResponse: ChatSessionResponse | null = null;
+
+  const handlePacket = (packet: string): void => {
+    const lines = packet
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const eventLine = lines.find((line) => line.startsWith('event:'));
+    const dataLine = lines.find((line) => line.startsWith('data:'));
+    if (!dataLine) {
+      return;
+    }
+    const eventName = eventLine ? eventLine.slice(6).trim() : 'message';
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(dataLine.slice(5).trim());
+    } catch {
+      return;
+    }
+    if (eventName === 'thinking' && parsed && typeof parsed === 'object') {
+      onThinking(String((parsed as { thinking?: unknown }).thinking || ''));
+      return;
+    }
+    if ((eventName === 'tool_start' || eventName === 'tool_result') && parsed && typeof parsed === 'object') {
+      const p = parsed as { kind?: string; turn?: number; maxTurns?: number; command?: string; exitCode?: number; outputSnippet?: string };
+      const evt: { kind: 'tool_start' | 'tool_result'; turn: number; maxTurns: number; command: string; exitCode?: number; outputSnippet?: string } = {
+        kind: eventName as 'tool_start' | 'tool_result',
+        turn: Number(p.turn ?? 0),
+        maxTurns: Number(p.maxTurns ?? 0),
+        command: String(p.command ?? ''),
+      };
+      if (typeof p.exitCode === 'number') { evt.exitCode = p.exitCode; }
+      if (typeof p.outputSnippet === 'string') { evt.outputSnippet = p.outputSnippet; }
+      onToolEvent(evt);
+      return;
+    }
+    if (eventName === 'done') {
+      finalResponse = parsed as ChatSessionResponse;
+      return;
+    }
+    if (eventName === 'error' && parsed && typeof parsed === 'object') {
+      throw new Error(String((parsed as { error?: unknown }).error || 'stream error'));
+    }
+  };
+
+  for (;;) {
+    const next = await reader.read();
+    if (next.done) {
+      break;
+    }
+    buffer += decoder.decode(next.value, { stream: true });
+    let boundary = buffer.indexOf('\n\n');
+    while (boundary >= 0) {
+      const packet = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      handlePacket(packet);
+      boundary = buffer.indexOf('\n\n');
+    }
+  }
+  if (!finalResponse) {
+    throw new Error('Missing final streaming payload.');
+  }
+  return finalResponse;
+}
+
+export async function streamRepoSearchMessage(
+  sessionId: string,
+  payload: {
+    content: string;
+    repoRoot?: string;
+    model?: string;
+    maxTurns?: number;
+  },
+  onThinking: (thinkingText: string) => void,
+  onToolEvent: (event: { kind: 'tool_start' | 'tool_result'; turn: number; maxTurns: number; command: string; exitCode?: number; outputSnippet?: string }) => void,
+): Promise<ChatSessionResponse> {
+  const response = await fetch(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-search/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

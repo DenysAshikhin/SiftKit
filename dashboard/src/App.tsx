@@ -13,6 +13,7 @@ import {
   getRunDetail,
   getRuns,
   streamChatMessage,
+  streamRepoSearchMessage,
   updateChatSession,
 } from './api';
 import ReactMarkdown from 'react-markdown';
@@ -518,7 +519,7 @@ export function App() {
     : false;
   const repoSearchChatSteps = selectedRunDetail ? buildRepoSearchChatSteps(selectedRunDetail.events) : [];
   const isThinkingEnabledForCurrentSession = selectedSession?.thinkingEnabled !== false;
-  const chatMode = selectedSession?.mode === 'plan' ? 'plan' : 'chat';
+  const chatMode = selectedSession?.mode === 'plan' ? 'plan' : selectedSession?.mode === 'repo-search' ? 'repo-search' : 'chat';
 
   useEffect(() => {
     writeSearchParams({
@@ -790,6 +791,59 @@ export function App() {
     }
   }
 
+  async function onSendRepoSearch() {
+    if (!selectedSessionId || !chatInput.trim()) {
+      return;
+    }
+    setChatBusy(true);
+    setChatError(null);
+    setThinkingDraft('');
+    setAnswerDraft('');
+    setPlanToolCalls([]);
+    try {
+      const response = await streamRepoSearchMessage(
+        selectedSessionId,
+        {
+          content: chatInput.trim(),
+          repoRoot: planRepoRootInput.trim() || selectedSession?.planRepoRoot || '',
+        },
+        (thinkingText) => {
+          setThinkingDraft(thinkingText);
+        },
+        (toolEvent) => {
+          if (toolEvent.kind === 'tool_start') {
+            setPlanToolCalls((prev) => [
+              ...prev,
+              { turn: toolEvent.turn, maxTurns: toolEvent.maxTurns, command: toolEvent.command, status: 'running' },
+            ]);
+          } else if (toolEvent.kind === 'tool_result') {
+            setPlanToolCalls((prev) => {
+              const updated = [...prev];
+              const last = updated.length > 0 ? updated[updated.length - 1] : null;
+              if (last && last.command === toolEvent.command && last.status === 'running') {
+                const entry: typeof last = { ...last, status: 'done' };
+                if (typeof toolEvent.exitCode === 'number') { entry.exitCode = toolEvent.exitCode; }
+                if (typeof toolEvent.outputSnippet === 'string') { entry.outputSnippet = toolEvent.outputSnippet; }
+                updated[updated.length - 1] = entry;
+              }
+              return updated;
+            });
+          }
+        },
+      );
+      setSelectedSession(response.session);
+      setContextUsage(response.contextUsage);
+      setChatInput('');
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setThinkingDraft('');
+      setAnswerDraft('');
+      setPlanToolCalls([]);
+      setChatBusy(false);
+    }
+  }
+
   async function onToggleThinking(value: boolean) {
     if (!selectedSessionId) {
       return;
@@ -809,7 +863,7 @@ export function App() {
     }
   }
 
-  async function onUpdateSessionMode(mode: 'chat' | 'plan') {
+  async function onUpdateSessionMode(mode: 'chat' | 'plan' | 'repo-search') {
     if (!selectedSessionId) {
       return;
     }
@@ -837,7 +891,7 @@ export function App() {
     setChatError(null);
     try {
       const response = await updateChatSession(selectedSessionId, {
-        mode: 'plan',
+        mode: chatMode === 'repo-search' ? 'repo-search' : 'plan',
         planRepoRoot: planRepoRootInput.trim(),
       });
       setSelectedSession(response.session);
@@ -1259,6 +1313,14 @@ export function App() {
                   >
                     Plan
                   </button>
+                  <button
+                    type="button"
+                    className={chatMode === 'repo-search' ? 'active' : ''}
+                    onClick={() => { void onUpdateSessionMode('repo-search'); }}
+                    disabled={chatBusy}
+                  >
+                    Repo Search
+                  </button>
                 </div>
                 {chatMode === 'chat' ? (
                   <div className="thinking-toggle-row">
@@ -1272,10 +1334,10 @@ export function App() {
                     />
                   </div>
                 ) : null}
-                {chatMode === 'plan' ? (
+                {(chatMode === 'plan' || chatMode === 'repo-search') ? (
                   <div className="plan-root-row">
                     <input
-                      placeholder="Repo folder path for plan mode..."
+                      placeholder="Repo folder path..."
                       value={planRepoRootInput}
                       onChange={(event) => setPlanRepoRootInput(event.target.value)}
                       disabled={chatBusy}
@@ -1354,13 +1416,13 @@ export function App() {
                 </div>
                 {chatBusy && (thinkingDraft || answerDraft || planToolCalls.length > 0) && (
                   <div className="live-stream-boxes">
-                    {((chatMode === 'chat' && isThinkingEnabledForCurrentSession) || (chatMode === 'plan' && thinkingDraft)) && (
+                    {((chatMode === 'chat' && isThinkingEnabledForCurrentSession) || ((chatMode === 'plan' || chatMode === 'repo-search') && thinkingDraft)) && (
                       <section className="live-box thinking">
-                        <h3>{chatMode === 'plan' ? 'Plan Thinking' : 'Thinking'}</h3>
+                        <h3>{chatMode === 'plan' ? 'Plan Thinking' : chatMode === 'repo-search' ? 'Search Thinking' : 'Thinking'}</h3>
                         <pre>{thinkingDraft || '...'}</pre>
                       </section>
                     )}
-                    {chatMode === 'plan' && planToolCalls.length > 0 && (
+                    {(chatMode === 'plan' || chatMode === 'repo-search') && planToolCalls.length > 0 && (
                       <section className="live-box tool-calls">
                         <h3>Queries ({planToolCalls.length})</h3>
                         <ul className="tool-call-list">
@@ -1395,13 +1457,13 @@ export function App() {
                 )}
                 <div className="composer">
                   <textarea
-                    placeholder={chatMode === 'plan' ? 'Describe the feature to plan (plan mode runs repo-search)...' : 'Send a local chat message...'}
+                    placeholder={chatMode === 'plan' ? 'Describe the feature to plan (plan mode runs repo-search)...' : chatMode === 'repo-search' ? 'Enter a repo search query...' : 'Send a local chat message...'}
                     value={chatInput}
                     onChange={(event) => setChatInput(event.target.value)}
                     rows={4}
                   />
-                  <button onClick={() => { if (chatMode === 'plan') { void onSendPlan(); return; } void onSendMessage(); }} disabled={chatBusy || !chatInput.trim()}>
-                    {chatMode === 'plan' ? 'Generate Plan' : 'Send'}
+                  <button onClick={() => { if (chatMode === 'plan') { void onSendPlan(); return; } if (chatMode === 'repo-search') { void onSendRepoSearch(); return; } void onSendMessage(); }} disabled={chatBusy || !chatInput.trim()}>
+                    {chatMode === 'plan' ? 'Generate Plan' : chatMode === 'repo-search' ? 'Search' : 'Send'}
                   </button>
                 </div>
                 {chatError && <p className="error">{chatError}</p>}

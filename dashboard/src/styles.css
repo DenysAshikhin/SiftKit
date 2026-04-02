@@ -15,6 +15,8 @@
 
 body {
   margin: 0;
+  height: 100vh;
+  overflow: hidden;
   font-family: "Space Grotesk", "Segoe UI", sans-serif;
   color: var(--ink);
   background:
@@ -24,9 +26,11 @@ body {
 }
 
 .app-shell {
-  max-width: 1400px;
-  margin: 0 auto;
   padding: 20px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .topbar h1 {
@@ -111,6 +115,8 @@ button {
   display: grid;
   grid-template-columns: 340px 1fr;
   gap: 14px;
+  flex: 1;
+  min-height: 0;
 }
 
 .panel {
@@ -119,7 +125,9 @@ button {
   background: #132537cc;
   backdrop-filter: blur(4px);
   padding: 14px;
-  min-height: 420px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .filters {
@@ -599,8 +607,9 @@ pre {
 .chat-log {
   display: grid;
   gap: 10px;
-  max-height: 420px;
-  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding-right: 6px;
 }
 
