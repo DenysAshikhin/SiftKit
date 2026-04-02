@@ -706,6 +706,52 @@ pre {
   border-color: #2f7a61;
 }
 
+.live-box.tool-calls {
+  border-color: #7a6f2b;
+}
+
+.live-box.tool-calls .tool-call-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.live-box.tool-calls li code {
+  font-size: 0.85rem;
+  background: #0a1520;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.live-box.tool-calls .tool-spinner {
+  color: #7a6f2b;
+  font-style: italic;
+}
+
+.live-box.tool-calls .tool-snippet {
+  margin: 2px 0 0;
+  font-size: 0.78rem;
+  color: #8899aa;
+  white-space: pre-wrap;
+  max-height: 2.8em;
+  overflow: hidden;
+}
+
+.live-box.tool-calls .exit-ok {
+  color: #2f7a61;
+  font-size: 0.78rem;
+}
+
+.live-box.tool-calls .exit-fail {
+  color: #c24040;
+  font-size: 0.78rem;
+}
+
 .composer {
   margin-top: 12px;
   display: grid;

@@ -3486,6 +3486,123 @@ function startStatusServer(options = {}) {
       return;
     }
 
+    if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/plan\/stream$/u.test(pathname)) {
+      const modelRequestLock = await acquireModelRequestWithWait('dashboard_plan_stream');
+      const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/plan\/stream$/u, ''));
+      const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+      if (!session) {
+        releaseModelRequest(modelRequestLock.token);
+        sendJson(res, 404, { error: 'Session not found.' });
+        return;
+      }
+      let parsedBody;
+      try {
+        parsedBody = parseJsonBody(await readBody(req));
+      } catch {
+        releaseModelRequest(modelRequestLock.token);
+        sendJson(res, 400, { error: 'Expected valid JSON object.' });
+        return;
+      }
+      if (typeof parsedBody.content !== 'string' || !parsedBody.content.trim()) {
+        releaseModelRequest(modelRequestLock.token);
+        sendJson(res, 400, { error: 'Expected content.' });
+        return;
+      }
+      const requestedRepoRoot = typeof parsedBody.repoRoot === 'string' && parsedBody.repoRoot.trim()
+        ? parsedBody.repoRoot.trim()
+        : (typeof session.planRepoRoot === 'string' && session.planRepoRoot.trim() ? session.planRepoRoot.trim() : process.cwd());
+      const resolvedRepoRoot = path.resolve(requestedRepoRoot);
+      if (!fs.existsSync(resolvedRepoRoot) || !fs.statSync(resolvedRepoRoot).isDirectory()) {
+        releaseModelRequest(modelRequestLock.token);
+        sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
+        return;
+      }
+
+      let clientDisconnected = false;
+      req.on('close', () => { clientDisconnected = true; });
+
+      const writeSse = (eventName, payload) => {
+        if (clientDisconnected) return;
+        try {
+          res.write(`event: ${eventName}\n`);
+          res.write(`data: ${JSON.stringify(payload)}\n\n`);
+        } catch { /* client gone */ }
+      };
+
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      });
+      res.write('\n');
+
+      try {
+        const executeRepoSearchRequest = loadRepoSearchExecutor();
+        const result = await executeRepoSearchRequest({
+          prompt: buildPlanRequestPrompt(parsedBody.content.trim()),
+          repoRoot: resolvedRepoRoot,
+          config: readConfig(configPath),
+          model: typeof parsedBody.model === 'string' && parsedBody.model.trim() ? parsedBody.model.trim() : undefined,
+          requestMaxTokens: 10000,
+          maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
+          logFile: typeof parsedBody.logFile === 'string' && parsedBody.logFile.trim() ? parsedBody.logFile.trim() : undefined,
+          availableModels: Array.isArray(parsedBody.availableModels)
+            ? parsedBody.availableModels.map((value) => String(value))
+            : undefined,
+          mockResponses: Array.isArray(parsedBody.mockResponses)
+            ? parsedBody.mockResponses.map((value) => String(value))
+            : undefined,
+          mockCommandResults: (
+            parsedBody.mockCommandResults
+            && typeof parsedBody.mockCommandResults === 'object'
+            && !Array.isArray(parsedBody.mockCommandResults)
+          ) ? parsedBody.mockCommandResults : undefined,
+          onProgress(event) {
+            if (event.kind === 'thinking') {
+              writeSse('thinking', { thinking: event.thinkingText || '' });
+            } else if (event.kind === 'tool_start') {
+              writeSse('tool_start', { turn: event.turn, maxTurns: event.maxTurns, command: event.command });
+            } else if (event.kind === 'tool_result') {
+              writeSse('tool_result', { turn: event.turn, maxTurns: event.maxTurns, command: event.command, exitCode: event.exitCode, outputSnippet: event.outputSnippet });
+            }
+          },
+        });
+        const assistantContent = buildPlanMarkdownFromRepoSearch(parsedBody.content.trim(), resolvedRepoRoot, result);
+        const toolContextContents = buildToolContextFromRepoSearchResult(result);
+        const updatedSession = appendChatMessagesWithUsage(
+          runtimeRoot,
+          {
+            ...session,
+            mode: 'plan',
+            planRepoRoot: resolvedRepoRoot,
+          },
+          parsedBody.content.trim(),
+          assistantContent,
+          {},
+          '',
+          {
+            toolContextContents,
+          }
+        );
+        writeSse('done', {
+          session: updatedSession,
+          contextUsage: buildContextUsage(updatedSession),
+          repoSearch: {
+            requestId: result.requestId,
+            transcriptPath: result.transcriptPath,
+            artifactPath: result.artifactPath,
+            scorecard: result.scorecard,
+          },
+        });
+      } catch (error) {
+        writeSse('error', { error: error instanceof Error ? error.message : String(error) });
+      } finally {
+        releaseModelRequest(modelRequestLock.token);
+        res.end();
+      }
+      return;
+    }
+
     if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/tool-context\/clear$/u.test(pathname)) {
       const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/tool-context\/clear$/u, ''));
       const sessionPath = getChatSessionPath(runtimeRoot, sessionId);

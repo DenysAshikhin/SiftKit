@@ -1322,6 +1322,9 @@ async function runTaskLoop(task, options) {
       thinkingText: response.thinkingText || '',
       mockExhausted: Boolean(response.mockExhausted),
     });
+    if (options.onProgress && response.thinkingText) {
+      options.onProgress({ kind: 'thinking', turn, maxTurns, thinkingText: response.thinkingText });
+    }
     if (response.mockExhausted) {
       reason = 'mock_responses_exhausted';
       break;
@@ -1501,8 +1504,15 @@ async function runTaskLoop(task, options) {
       continue;
     }
 
+    if (options.onProgress) {
+      options.onProgress({ kind: 'tool_start', turn, maxTurns, command: commandToRun });
+    }
     const executed = await executeRepoCommand(commandToRun, options.repoRoot, options.mockCommandResults || null);
     const baseOutput = `${String(executed.output || '')}`.trim();
+    if (options.onProgress) {
+      const snippet = baseOutput.length > 200 ? baseOutput.slice(0, 200) + '...' : baseOutput;
+      options.onProgress({ kind: 'tool_result', turn, maxTurns, command: commandToRun, exitCode: executed.exitCode, outputSnippet: snippet });
+    }
     const outputWithRewriteNote = normalized.rewritten && normalized.note
       ? `${normalized.note}\n${baseOutput}`.trim()
       : baseOutput;
@@ -1750,6 +1760,7 @@ async function runMockRepoSearch(options = {}) {
       mockResponses: options.mockResponses,
       mockCommandResults: options.mockCommandResults,
       logger: options.logger || null,
+      onProgress: options.onProgress || null,
     });
     tasks.push(result);
   }

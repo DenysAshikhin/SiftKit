@@ -3,6 +3,7 @@ import {
   clearToolContext,
   condenseChatSession,
   createPlanMessage,
+  streamPlanMessage,
   createChatSession,
   deleteChatSession,
   getChatSession,
@@ -496,6 +497,7 @@ export function App() {
   const [thinkingDraft, setThinkingDraft] = useState('');
   const [answerDraft, setAnswerDraft] = useState('');
   const [planRepoRootInput, setPlanRepoRootInput] = useState('');
+  const [planToolCalls, setPlanToolCalls] = useState<Array<{ turn: number; maxTurns: number; command: string; exitCode?: number; outputSnippet?: string; status: 'running' | 'done' }>>([]);
   const groupedRuns = runs.reduce<Record<RunGroupKey, RunRecord[]>>((accumulator, run) => {
     const key = classifyRunGroup(run.kind);
     accumulator[key].push(run);
@@ -743,11 +745,38 @@ export function App() {
     setChatError(null);
     setThinkingDraft('');
     setAnswerDraft('');
+    setPlanToolCalls([]);
     try {
-      const response = await createPlanMessage(selectedSessionId, {
-        content: chatInput.trim(),
-        repoRoot: planRepoRootInput.trim() || selectedSession?.planRepoRoot || '',
-      });
+      const response = await streamPlanMessage(
+        selectedSessionId,
+        {
+          content: chatInput.trim(),
+          repoRoot: planRepoRootInput.trim() || selectedSession?.planRepoRoot || '',
+        },
+        (thinkingText) => {
+          setThinkingDraft(thinkingText);
+        },
+        (toolEvent) => {
+          if (toolEvent.kind === 'tool_start') {
+            setPlanToolCalls((prev) => [
+              ...prev,
+              { turn: toolEvent.turn, maxTurns: toolEvent.maxTurns, command: toolEvent.command, status: 'running' },
+            ]);
+          } else if (toolEvent.kind === 'tool_result') {
+            setPlanToolCalls((prev) => {
+              const updated = [...prev];
+              const last = updated.length > 0 ? updated[updated.length - 1] : null;
+              if (last && last.command === toolEvent.command && last.status === 'running') {
+                const entry: typeof last = { ...last, status: 'done' };
+                if (typeof toolEvent.exitCode === 'number') { entry.exitCode = toolEvent.exitCode; }
+                if (typeof toolEvent.outputSnippet === 'string') { entry.outputSnippet = toolEvent.outputSnippet; }
+                updated[updated.length - 1] = entry;
+              }
+              return updated;
+            });
+          }
+        },
+      );
       setSelectedSession(response.session);
       setContextUsage(response.contextUsage);
       setChatInput('');
@@ -756,6 +785,7 @@ export function App() {
     } finally {
       setThinkingDraft('');
       setAnswerDraft('');
+      setPlanToolCalls([]);
       setChatBusy(false);
     }
   }
@@ -1322,22 +1352,45 @@ export function App() {
                     </article>
                   ))}
                 </div>
-                {chatBusy && (thinkingDraft || answerDraft) && (
+                {chatBusy && (thinkingDraft || answerDraft || planToolCalls.length > 0) && (
                   <div className="live-stream-boxes">
-                    {chatMode === 'chat' && isThinkingEnabledForCurrentSession && (
+                    {((chatMode === 'chat' && isThinkingEnabledForCurrentSession) || (chatMode === 'plan' && thinkingDraft)) && (
                       <section className="live-box thinking">
-                        <h3>Thinking</h3>
+                        <h3>{chatMode === 'plan' ? 'Plan Thinking' : 'Thinking'}</h3>
                         <pre>{thinkingDraft || '...'}</pre>
                       </section>
                     )}
-                    <section className="live-box answer">
-                      <h3>Answer</h3>
-                      <div className="markdown-body">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {answerDraft || '...'}
-                        </ReactMarkdown>
-                      </div>
-                    </section>
+                    {chatMode === 'plan' && planToolCalls.length > 0 && (
+                      <section className="live-box tool-calls">
+                        <h3>Queries ({planToolCalls.length})</h3>
+                        <ul className="tool-call-list">
+                          {planToolCalls.map((tc, i) => (
+                            <li key={i} className={tc.status === 'running' ? 'tool-running' : 'tool-done'}>
+                              <code>{tc.command}</code>
+                              {tc.status === 'running' && <span className="tool-spinner"> ...</span>}
+                              {tc.status === 'done' && tc.outputSnippet && (
+                                <pre className="tool-snippet">{tc.outputSnippet}</pre>
+                              )}
+                              {tc.status === 'done' && typeof tc.exitCode === 'number' && (
+                                <span className={tc.exitCode === 0 ? 'exit-ok' : 'exit-fail'}>
+                                  {' '}exit {tc.exitCode}
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    )}
+                    {chatMode === 'chat' && (
+                      <section className="live-box answer">
+                        <h3>Answer</h3>
+                        <div className="markdown-body">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {answerDraft || '...'}
+                          </ReactMarkdown>
+                        </div>
+                      </section>
+                    )}
                   </div>
                 )}
                 <div className="composer">

@@ -145,6 +145,7 @@ async function executeRepoSearchRequest(request) {
             availableModels: request.availableModels,
             mockResponses: request.mockResponses,
             mockCommandResults: request.mockCommandResults,
+            onProgress: request.onProgress ?? null,
         });
         const targetFolder = scorecard?.verdict === 'pass' ? folders.successful : folders.failed;
         const transcriptPath = path.join(targetFolder, `request_${requestId}.jsonl`);
