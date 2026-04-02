@@ -222,6 +222,40 @@ test('runTaskLoop rewrites mixed rg --type ts and --type tsx flags', async () =>
   assert.equal(result.passed, true);
 });
 
+test('runTaskLoop reports prompt tokens and elapsed time on command progress events', async () => {
+  const progressEvents = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-progress-metadata',
+      question: 'Find planner text.',
+      signals: ['planner'],
+    },
+    {
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'rg -n "planner" src': { exitCode: 0, stdout: 'planner hit', stderr: '' },
+      },
+      onProgress(event) {
+        progressEvents.push(event);
+      },
+    }
+  );
+
+  const toolStart = progressEvents.find((event) => event.kind === 'tool_start');
+  assert.equal(typeof toolStart?.command, 'string');
+  assert.equal(Number.isFinite(toolStart?.promptTokenCount), true);
+  assert.equal(Number.isFinite(toolStart?.elapsedMs), true);
+  assert.equal(Number(toolStart?.elapsedMs) >= 0, true);
+  assert.equal(result.reason, 'finish');
+});
+
 test('runTaskLoop rejects unsupported rg type rewrite when not safe to rewrite', async () => {
   const result = await runTaskLoop(
     {

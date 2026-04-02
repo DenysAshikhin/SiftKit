@@ -965,6 +965,28 @@ function logLine(message, date = new Date()) {
   process.stdout.write(`${formatTimestamp(date)} ${message}\n`);
 }
 
+function normalizeRepoSearchCommandForLog(command) {
+  return String(command || '').replace(/\s+/gu, ' ').trim();
+}
+
+function buildRepoSearchProgressLogMessage(event, mode) {
+  const commandText = normalizeRepoSearchCommandForLog(event?.command);
+  if (!commandText) {
+    return null;
+  }
+  const resolvedMode = String(mode || 'repo_search').trim() || 'repo_search';
+  const turnLabel = Number.isFinite(Number(event?.turn))
+    ? `${Math.max(1, Math.trunc(Number(event.turn)))}/${Number.isFinite(Number(event?.maxTurns)) ? Math.max(1, Math.trunc(Number(event.maxTurns))) : '?'}`
+    : '?/?';
+  const promptTokenCount = Number.isFinite(Number(event?.promptTokenCount))
+    ? formatInteger(Math.max(0, Math.trunc(Number(event.promptTokenCount))))
+    : 'null';
+  const elapsedMs = Number.isFinite(Number(event?.elapsedMs))
+    ? Math.max(0, Math.trunc(Number(event.elapsedMs)))
+    : 0;
+  return `${resolvedMode} command turn=${turnLabel} prompt_tokens=${promptTokenCount} elapsed=${formatElapsed(elapsedMs)} command=${commandText}`;
+}
+
 function parseRunning(bodyText) {
   if (!bodyText || !bodyText.trim()) {
     return null;
@@ -2193,11 +2215,13 @@ function buildPlanMarkdownFromRepoSearch(userPrompt, repoRoot, result) {
     ? primaryTask.finalOutput.trim()
     : 'No final planner output was produced.';
   const commandEvidence = [];
-  for (const task of tasks) {
+  for (let taskIndex = tasks.length - 1; taskIndex >= 0; taskIndex -= 1) {
+    const task = tasks[taskIndex];
     if (!task || typeof task !== 'object' || !Array.isArray(task.commands)) {
       continue;
     }
-    for (const command of task.commands) {
+    for (let commandIndex = task.commands.length - 1; commandIndex >= 0; commandIndex -= 1) {
+      const command = task.commands[commandIndex];
       if (!command || typeof command !== 'object') {
         continue;
       }
@@ -3507,6 +3531,14 @@ function startStatusServer(options = {}) {
             && typeof parsedBody.mockCommandResults === 'object'
             && !Array.isArray(parsedBody.mockCommandResults)
           ) ? parsedBody.mockCommandResults : undefined,
+          onProgress(event) {
+            if (event.kind === 'tool_start') {
+              const logMessage = buildRepoSearchProgressLogMessage(event, 'planner');
+              if (logMessage) {
+                logLine(logMessage);
+              }
+            }
+          },
         });
         const assistantContent = buildPlanMarkdownFromRepoSearch(parsedBody.content.trim(), resolvedRepoRoot, result);
         const toolContextContents = buildToolContextFromRepoSearchResult(result);
@@ -3615,6 +3647,12 @@ function startStatusServer(options = {}) {
             && !Array.isArray(parsedBody.mockCommandResults)
           ) ? parsedBody.mockCommandResults : undefined,
           onProgress(event) {
+            if (event.kind === 'tool_start') {
+              const logMessage = buildRepoSearchProgressLogMessage(event, 'planner');
+              if (logMessage) {
+                logLine(logMessage);
+              }
+            }
             if (event.kind === 'thinking') {
               writeSse('thinking', { thinking: event.thinkingText || '' });
             } else if (event.kind === 'tool_start') {
@@ -3732,6 +3770,12 @@ function startStatusServer(options = {}) {
             && !Array.isArray(parsedBody.mockCommandResults)
           ) ? parsedBody.mockCommandResults : undefined,
           onProgress(event) {
+            if (event.kind === 'tool_start') {
+              const logMessage = buildRepoSearchProgressLogMessage(event, 'repo_search');
+              if (logMessage) {
+                logLine(logMessage);
+              }
+            }
             if (event.kind === 'thinking') {
               writeSse('thinking', { thinking: event.thinkingText || '' });
             } else if (event.kind === 'tool_start') {
@@ -4000,6 +4044,14 @@ function startStatusServer(options = {}) {
             && typeof parsedBody.mockCommandResults === 'object'
             && !Array.isArray(parsedBody.mockCommandResults)
           ) ? parsedBody.mockCommandResults : undefined,
+          onProgress(event) {
+            if (event.kind === 'tool_start') {
+              const logMessage = buildRepoSearchProgressLogMessage(event, 'repo_search');
+              if (logMessage) {
+                logLine(logMessage);
+              }
+            }
+          },
         });
         sendJson(res, 200, result);
       } catch (error) {
@@ -4304,6 +4356,7 @@ function startStatusServer(options = {}) {
 
 module.exports = {
   buildIdleMetricsLogMessage,
+  buildRepoSearchProgressLogMessage,
   buildIdleSummarySnapshot,
   buildStatusRequestLogMessage,
   colorize,

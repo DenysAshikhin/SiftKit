@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
 
-const { startStatusServer } = require('../siftKitStatus/index.js');
+const { startStatusServer, buildRepoSearchProgressLogMessage } = require('../siftKitStatus/index.js');
 
 function requestJson(url, options = {}) {
   return new Promise((resolve, reject) => {
@@ -127,6 +127,29 @@ test('status server stays responsive while repo-search is running', async () => 
     }
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test('buildRepoSearchProgressLogMessage formats planner and repo-search command progress lines', () => {
+  assert.match(
+    buildRepoSearchProgressLogMessage({
+      turn: 2,
+      maxTurns: 9,
+      promptTokenCount: 1234,
+      elapsedMs: 2500,
+      command: 'rg -n "planner" src',
+    }, 'repo_search'),
+    /^repo_search command turn=2\/9 prompt_tokens=1,234 elapsed=2s command=rg -n "planner" src$/u
+  );
+  assert.match(
+    buildRepoSearchProgressLogMessage({
+      turn: 1,
+      maxTurns: 2,
+      promptTokenCount: 88,
+      elapsedMs: 0,
+      command: 'rg -n "dashboard" .',
+    }, 'planner'),
+    /^planner command turn=1\/2 prompt_tokens=88 elapsed=0s command=rg -n "dashboard" \.$/u
+  );
 });
 
 test('repo-search endpoint reloads executor module per request', async () => {

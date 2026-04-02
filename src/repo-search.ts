@@ -20,7 +20,17 @@ type RepoSearchExecutionRequest = {
   availableModels?: string[];
   mockResponses?: string[];
   mockCommandResults?: Record<string, { exitCode?: number; stdout?: string; stderr?: string; delayMs?: number }>;
-  onProgress?: (event: { kind: string; turn?: number; maxTurns?: number; thinkingText?: string; command?: string; outputSnippet?: string; exitCode?: number }) => void;
+  onProgress?: (event: {
+    kind: string;
+    turn?: number;
+    maxTurns?: number;
+    thinkingText?: string;
+    command?: string;
+    outputSnippet?: string;
+    exitCode?: number;
+    promptTokenCount?: number;
+    elapsedMs?: number;
+  }) => void;
 };
 
 type RepoSearchExecutionResult = {
@@ -153,7 +163,17 @@ export async function executeRepoSearchRequest(request: RepoSearchExecutionReque
       availableModels?: string[];
       mockResponses?: string[];
       mockCommandResults?: Record<string, { exitCode?: number; stdout?: string; stderr?: string; delayMs?: number }>;
-      onProgress?: ((event: { kind: string; turn?: number; maxTurns?: number; thinkingText?: string; command?: string; outputSnippet?: string; exitCode?: number }) => void) | null;
+      onProgress?: ((event: {
+        kind: string;
+        turn?: number;
+        maxTurns?: number;
+        thinkingText?: string;
+        command?: string;
+        outputSnippet?: string;
+        exitCode?: number;
+        promptTokenCount?: number;
+        elapsedMs?: number;
+      }) => void) | null;
     }) => Promise<Record<string, unknown>>;
   };
 
@@ -169,7 +189,14 @@ export async function executeRepoSearchRequest(request: RepoSearchExecutionReque
       availableModels: request.availableModels,
       mockResponses: request.mockResponses,
       mockCommandResults: request.mockCommandResults,
-      onProgress: request.onProgress ?? null,
+      onProgress: request.onProgress
+        ? (event) => {
+          request.onProgress({
+            ...event,
+            elapsedMs: Number.isFinite(event?.elapsedMs) ? Number(event.elapsedMs) : (Date.now() - startedAt),
+          });
+        }
+        : null,
     });
     const targetFolder = scorecard?.verdict === 'pass' ? folders.successful : folders.failed;
     const transcriptPath = path.join(targetFolder, `request_${requestId}.jsonl`);

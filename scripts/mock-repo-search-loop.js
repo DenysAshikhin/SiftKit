@@ -1461,6 +1461,7 @@ async function countTokensWithFallback(config, text) {
 }
 
 async function runTaskLoop(task, options) {
+  const taskStartedAt = Date.now();
   const maxTurns = Math.max(1, Number(options.maxTurns || DEFAULT_MAX_TURNS));
   const maxInvalidResponses = Math.max(1, Number(options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES));
   const history = [];
@@ -1721,14 +1722,34 @@ async function runTaskLoop(task, options) {
       continue;
     }
 
+    const useEstimatedTokensOnly = Array.isArray(options.mockResponses);
+    const promptTokenCount = useEstimatedTokensOnly
+      ? estimateTokenCount(options.config, prompt)
+      : await countTokensWithFallback(options.config, prompt);
     if (options.onProgress) {
-      options.onProgress({ kind: 'tool_start', turn, maxTurns, command: commandToRun });
+      options.onProgress({
+        kind: 'tool_start',
+        turn,
+        maxTurns,
+        command: commandToRun,
+        promptTokenCount,
+        elapsedMs: Date.now() - taskStartedAt,
+      });
     }
     const executed = await executeRepoCommand(commandToRun, options.repoRoot, options.mockCommandResults || null);
     const baseOutput = `${String(executed.output || '')}`.trim();
     if (options.onProgress) {
       const snippet = baseOutput.length > 200 ? baseOutput.slice(0, 200) + '...' : baseOutput;
-      options.onProgress({ kind: 'tool_result', turn, maxTurns, command: commandToRun, exitCode: executed.exitCode, outputSnippet: snippet });
+      options.onProgress({
+        kind: 'tool_result',
+        turn,
+        maxTurns,
+        command: commandToRun,
+        exitCode: executed.exitCode,
+        outputSnippet: snippet,
+        promptTokenCount,
+        elapsedMs: Date.now() - taskStartedAt,
+      });
     }
     const outputWithRewriteNote = normalized.rewritten && normalized.note
       ? `${normalized.note}\n${baseOutput}`.trim()
@@ -1766,10 +1787,6 @@ async function runTaskLoop(task, options) {
       zeroOutputStreak = 0;
     }
     let resultText = `exit_code=${executed.exitCode}\n${outputWithRewriteNote}`.trim();
-    const useEstimatedTokensOnly = Array.isArray(options.mockResponses);
-    const promptTokenCount = useEstimatedTokensOnly
-      ? estimateTokenCount(options.config, prompt)
-      : await countTokensWithFallback(options.config, prompt);
     const resultTokenCount = useEstimatedTokensOnly
       ? estimateTokenCount(options.config, resultText)
       : await countTokensWithFallback(options.config, resultText);
