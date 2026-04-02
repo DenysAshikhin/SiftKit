@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  clearToolContext,
   condenseChatSession,
   createPlanMessage,
   createChatSession,
@@ -60,6 +61,12 @@ function formatDate(value: string | null): string {
     return value;
   }
   return date.toLocaleString();
+}
+
+function getMessageTokenCount(message: ChatSession['messages'][number]): number {
+  return Number(message.inputTokensEstimate || 0)
+    + Number(message.outputTokensEstimate || 0)
+    + Number(message.thinkingTokens || 0);
 }
 
 function classifyRunGroup(kind: string): RunGroupKey {
@@ -830,6 +837,27 @@ export function App() {
     }
   }
 
+  async function onClearToolContext() {
+    if (!selectedSessionId) {
+      return;
+    }
+    const confirmed = window.confirm('Discard all hidden tool-call context for this session?');
+    if (!confirmed) {
+      return;
+    }
+    setChatBusy(true);
+    setChatError(null);
+    try {
+      const response = await clearToolContext(selectedSessionId);
+      setSelectedSession(response.session);
+      setContextUsage(response.contextUsage);
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
   async function onDeleteSession() {
     if (!selectedSessionId) {
       return;
@@ -1234,9 +1262,25 @@ export function App() {
                 {contextUsage && (
                   <div className={contextUsage.shouldCondense ? 'usage warning' : 'usage'}>
                     <strong>
-                      Context: {formatNumber(contextUsage.usedTokens)} / {formatNumber(contextUsage.contextWindowTokens)} tokens
+                      <span title="Chat-visible token usage in this session, excluding hidden tool-call context.">
+                        Context: {formatNumber(contextUsage.chatUsedTokens)} / {formatNumber(contextUsage.contextWindowTokens)} tokens
+                      </span>
                     </strong>
-                    <span>Remaining: {formatNumber(contextUsage.remainingTokens)} | Warn at: {formatNumber(contextUsage.warnThresholdTokens)}</span>
+                    <span title="Format: chat_tokens (total_tokens_including_hidden_tool_context).">
+                      Remaining: {formatNumber(contextUsage.remainingTokens)}
+                      {' | '}
+                      {formatNumber(contextUsage.chatUsedTokens)} ({formatNumber(contextUsage.totalUsedTokens)} with tools)
+                      {' | '}
+                      Warn at: {formatNumber(contextUsage.warnThresholdTokens)}
+                    </span>
+                    <div className="usage-actions">
+                      <button
+                        onClick={() => { void onClearToolContext(); }}
+                        disabled={chatBusy || Number(contextUsage.toolUsedTokens || 0) <= 0}
+                      >
+                        Discard Tool Context
+                      </button>
+                    </div>
                     {contextUsage.shouldCondense && (
                       <button onClick={() => { void onCondense(); }} disabled={chatBusy}>Condense Now</button>
                     )}
@@ -1251,7 +1295,15 @@ export function App() {
                 <div className="chat-log">
                   {selectedSession.messages.map((message) => (
                     <article key={message.id} className={`msg ${message.role}`}>
-                      <header>{message.role} | {formatDate(message.createdAtUtc)}</header>
+                      <header className="msg-header">
+                        <span>{message.role} | {formatDate(message.createdAtUtc)}</span>
+                        <span
+                          className="msg-tokens"
+                          title="Format: tokens_for_message (associated hidden tool-call tokens)."
+                        >
+                          {formatNumber(getMessageTokenCount(message))} ({formatNumber(Number(message.associatedToolTokens || 0))})
+                        </span>
+                      </header>
                       {chatMode === 'chat' && message.role === 'assistant' && message.thinkingContent ? (
                         <details className="thinking-box">
                           <summary>Thinking</summary>

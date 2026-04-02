@@ -586,6 +586,11 @@ pre {
   margin-bottom: 10px;
 }
 
+.usage-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .usage.warning {
   border-color: var(--accent-warn);
   box-shadow: inset 0 0 0 1px var(--accent-warn);
@@ -616,6 +621,18 @@ pre {
 .msg header {
   color: var(--ink-dim);
   font-size: 0.85rem;
+}
+
+.msg-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.msg-tokens {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .user-message {

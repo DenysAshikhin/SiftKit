@@ -236,8 +236,12 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     });
     assert.equal(planMessage.statusCode, 200);
     assert.equal(planMessage.body.session.messages.length >= 4, true);
+    assert.equal(Array.isArray(planMessage.body.session.hiddenToolContexts), true);
+    assert.equal(planMessage.body.session.hiddenToolContexts.length >= 1, true);
+    assert.equal(planMessage.body.contextUsage.totalUsedTokens > planMessage.body.contextUsage.chatUsedTokens, true);
     const latestMessage = planMessage.body.session.messages[planMessage.body.session.messages.length - 1];
     assert.equal(latestMessage.role, 'assistant');
+    assert.equal(Number(latestMessage.associatedToolTokens || 0) > 0, true);
     assert.match(latestMessage.content, /^# Implementation Plan/mu);
     assert.match(latestMessage.content, /Critical Review/mu);
     assert.match(latestMessage.content, /## Artifacts/mu);
@@ -246,6 +250,16 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     assert.match(plannerArtifact.prompt, /Start with a short "Summary of Request and Approach"/u);
     assert.match(plannerArtifact.prompt, /Open Questions \(if any\)/u);
     assert.match(plannerArtifact.prompt, /misalignment between the request and existing repository behavior/u);
+
+    const clearToolContextResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/tool-context/clear`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    assert.equal(clearToolContextResponse.statusCode, 200);
+    assert.equal(Array.isArray(clearToolContextResponse.body.session.hiddenToolContexts), true);
+    assert.equal(clearToolContextResponse.body.session.hiddenToolContexts.length, 0);
+    assert.equal(clearToolContextResponse.body.contextUsage.toolUsedTokens, 0);
+    assert.equal(clearToolContextResponse.body.contextUsage.totalUsedTokens, clearToolContextResponse.body.contextUsage.chatUsedTokens);
 
     const condenseResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/condense`, {
       method: 'POST',
@@ -415,6 +429,133 @@ test('plan endpoint rejects missing or invalid repo root', async () => {
     assert.match(String(missingRootResponse.body.error || ''), /Expected existing repoRoot directory/u);
   } finally {
     await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('chat completion receives hidden tool context while keeping it out of visible chat history', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-toolctx-'));
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  let capturedChatRequest = null;
+  const llamaServer = http.createServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    let raw = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => {
+      raw += chunk;
+    });
+    req.on('end', () => {
+      capturedChatRequest = JSON.parse(raw);
+      const responseBody = {
+        choices: [
+          {
+            message: {
+              content: 'ack',
+              reasoning_content: '',
+            },
+          },
+        ],
+        usage: {
+          prompt_tokens: 20,
+          completion_tokens: 4,
+          completion_tokens_details: {
+            reasoning_tokens: 0,
+          },
+        },
+      };
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(responseBody));
+    });
+  });
+  await new Promise((resolve, reject) => llamaServer.listen(0, '127.0.0.1', (error) => (error ? reject(error) : resolve())));
+  const llamaAddress = llamaServer.address();
+  writeJson(configPath, {
+    Runtime: {
+      Model: 'Qwen3.5-9B-Q8_0.gguf',
+      LlamaCpp: {
+        BaseUrl: `http://127.0.0.1:${llamaAddress.port}`,
+        NumCtx: 85000,
+      },
+    },
+  });
+
+  const envBackup = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Tool Context Session',
+        model: 'Qwen3.5-9B-Q8_0.gguf',
+      }),
+    });
+    const sessionId = createSession.body.session.id;
+    const planMessage = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/plan`, {
+      method: 'POST',
+      timeoutMs: 15000,
+      body: JSON.stringify({
+        content: 'audit release gaps',
+        repoRoot: tempRoot,
+        maxTurns: 1,
+        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        mockResponses: [
+          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"name\\" package.json"}}',
+          '{"action":"finish","output":"done","confidence":0.9}',
+        ],
+        mockCommandResults: {
+          'rg -n "name" package.json': { exitCode: 0, stdout: 'package.json:2:  "name": "siftkit"', stderr: '' },
+        },
+      }),
+    });
+    assert.equal(planMessage.statusCode, 200);
+    assert.equal(planMessage.body.session.hiddenToolContexts.length >= 1, true);
+
+    const chatReply = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
+      method: 'POST',
+      timeoutMs: 15000,
+      body: JSON.stringify({
+        content: 'use prior evidence and summarize next steps',
+      }),
+    });
+    assert.equal(chatReply.statusCode, 200);
+    assert.equal(capturedChatRequest !== null, true);
+    assert.equal(Array.isArray(capturedChatRequest.messages), true);
+    const systemMessages = capturedChatRequest.messages.filter((message) => message && message.role === 'system');
+    const hiddenToolSystemMessage = systemMessages.find((message) => String(message.content || '').includes('Internal tool-call context from prior session steps.'));
+    assert.equal(Boolean(hiddenToolSystemMessage), true);
+    assert.match(String(hiddenToolSystemMessage.content || ''), /Command: rg -n "name" package\.json/u);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await new Promise((resolve, reject) => llamaServer.close((error) => (error ? reject(error) : resolve())));
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];

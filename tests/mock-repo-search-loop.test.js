@@ -96,6 +96,16 @@ test('parsePlannerAction rejects invalid payloads', () => {
   );
 });
 
+test('parsePlannerAction recovers malformed escaped command payloads', () => {
+  const malformed = '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"D:\\\\\\\\|C:\\\\\\\\|\\\\\\\\\\\\\\\\" src --type ts | Select-Object -First 30"}}';
+  const action = parsePlannerAction(malformed);
+  assert.deepEqual(action, {
+    action: 'tool',
+    tool_name: 'run_repo_cmd',
+    args: { command: 'rg -n "D:\\\\|C:\\\\|\\\\\\\\" src --type ts | Select-Object -First 30' },
+  });
+});
+
 test('evaluateCommandSafety allows allowlisted read-only commands', () => {
   assert.equal(evaluateCommandSafety('rg -n "planner" src').safe, true);
   assert.equal(evaluateCommandSafety('git status --short').safe, true);
@@ -108,6 +118,26 @@ test('evaluateCommandSafety allows allowlisted read-only commands', () => {
   assert.equal(
     evaluateCommandSafety('Get-ChildItem -Recurse -Filter *.ts -Name | Where-Object { $_ -notmatch \'node_modules\' } | Select-Object -First 30').safe,
     true
+  );
+});
+
+test('evaluateCommandSafety treats drive-letter regex literals as patterns, not repo-escape paths', () => {
+  const repoRoot = 'C:\\Users\\denys\\Documents\\GitHub\\SiftKit';
+  assert.equal(
+    evaluateCommandSafety('rg -n "D:\\\\|C:\\\\Users\\\\denys" . --type js --type ts --type ps1 --type json', repoRoot).safe,
+    true
+  );
+  assert.equal(
+    evaluateCommandSafety('Select-String -Path "src\\*.ts" -Pattern "C:\\\\Users\\\\denys|D:\\\\personal"', repoRoot).safe,
+    true
+  );
+  assert.equal(
+    evaluateCommandSafety('rg -n "planner" C:\\Windows\\System32 --type ts', repoRoot).safe,
+    false
+  );
+  assert.equal(
+    evaluateCommandSafety('Get-Content D:\\personal\\models\\config.json', repoRoot).safe,
+    false
   );
 });
 
@@ -334,6 +364,43 @@ test('runTaskLoop stops at max turns when model keeps asking for tools', async (
   assert.equal(result.commands.length, 2);
 });
 
+test('runTaskLoop prompt includes remaining tool-call budget each turn', async () => {
+  const events = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-budget-remaining',
+      question: 'Track tool budget.',
+      signals: [],
+    },
+    {
+      maxTurns: 3,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"summary\\" src"}}',
+        '{"action":"finish","output":"done"}',
+      ],
+      mockCommandResults: {
+        'rg -n "planner" src': { exitCode: 0, stdout: 'planner hit', stderr: '' },
+        'rg -n "summary" src': { exitCode: 0, stdout: 'summary hit', stderr: '' },
+      },
+      logger: {
+        write(event) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const prompts = events.filter((event) => event.kind === 'turn_prompt').map((event) => String(event.prompt || ''));
+  assert.equal(prompts.length >= 3, true);
+  assert.match(prompts[0], /Tool-call budget remaining: 3/u);
+  assert.match(prompts[1], /Tool-call budget remaining: 2/u);
+  assert.match(prompts[2], /Tool-call budget remaining: 1/u);
+  assert.equal(result.reason, 'finish');
+});
+
 test('runTaskLoop synthesizes final output on terminal max_turns', async () => {
   const result = await runTaskLoop(
     {
@@ -424,7 +491,7 @@ test('runTaskLoop replaces oversized tool output with token allowance error', as
   assert.equal(result.reason, 'finish');
 });
 
-test('runTaskLoop uses non-thinking planner turns, then thinking validation, and stops on validation pass', async () => {
+test('runTaskLoop rejects non-thinking finish and accepts finish after thinking retry', async () => {
   const events = [];
   const result = await runTaskLoop(
     {
@@ -436,10 +503,11 @@ test('runTaskLoop uses non-thinking planner turns, then thinking validation, and
       maxTurns: 3,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
+      enforceThinkingFinish: true,
       mockResponses: [
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
         '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
+        '{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
         'rg -n "planner" src': { exitCode: 0, stdout: 'done', stderr: '' },
@@ -453,19 +521,20 @@ test('runTaskLoop uses non-thinking planner turns, then thinking validation, and
   );
 
   const turnRequests = events.filter((event) => event.kind === 'turn_model_request');
-  assert.equal(turnRequests.length, 2);
+  assert.equal(turnRequests.length, 3);
   assert.equal(turnRequests[0].thinkingEnabled, false);
   assert.equal(turnRequests[1].thinkingEnabled, false);
+  assert.equal(turnRequests[2].thinkingEnabled, true);
 
-  const validationRequest = events.find((event) => event.kind === 'turn_finish_validation_requested');
-  assert.equal(validationRequest.thinkingEnabled, true);
-  const validationResult = events.find((event) => event.kind === 'turn_finish_validation_result');
-  assert.equal(validationResult.verdict, 'pass');
+  const finishRejected = events.find((event) => event.kind === 'turn_finish_rejected_non_thinking');
+  assert.equal(Boolean(finishRejected), true);
+  const switchEvent = events.find((event) => event.kind === 'turn_thinking_mode_switched');
+  assert.equal(switchEvent.reason, 'finish_non_thinking_rejected');
   assert.equal(result.reason, 'finish');
   assert.equal(result.finalOutput, 'done');
 });
 
-test('runTaskLoop switches to thinking mode after validation fail and can finish later', async () => {
+test('runTaskLoop switches to thinking mode after non-thinking finish rejection and can finish later', async () => {
   const events = [];
   const result = await runTaskLoop(
     {
@@ -477,10 +546,10 @@ test('runTaskLoop switches to thinking mode after validation fail and can finish
       maxTurns: 5,
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
+      enforceThinkingFinish: true,
       mockResponses: [
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
-        '{"action":"finish","output":"first answer"}',
-        '{"verdict":"fail","reason":"not enough evidence"}',
+        '{"action":"finish","output":"rejected answer"}',
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"final answer\\" src"}}',
         '{"action":"finish","output":"final answer"}',
       ],
@@ -504,15 +573,15 @@ test('runTaskLoop switches to thinking mode after validation fail and can finish
   assert.equal(turnRequests[1].thinkingEnabled, false);
   assert.equal(turnRequests[2].thinkingEnabled, true);
   assert.equal(turnRequests[3].thinkingEnabled, true);
-  const validationRequests = events.filter((event) => event.kind === 'turn_finish_validation_requested');
-  assert.equal(validationRequests.length, 1);
+  const rejectedFinishEvents = events.filter((event) => event.kind === 'turn_finish_rejected_non_thinking');
+  assert.equal(rejectedFinishEvents.length, 1);
   const skippedValidation = events.find((event) => event.kind === 'turn_finish_validation_skipped');
   assert.equal(Boolean(skippedValidation), true);
   assert.equal(result.reason, 'finish');
   assert.equal(result.finalOutput, 'final answer');
 });
 
-test('runTaskLoop counts malformed validation response toward invalid response limit', async () => {
+test('runTaskLoop counts malformed response after non-thinking finish rejection toward invalid response limit', async () => {
   const result = await runTaskLoop(
     {
       id: 'task-validation-invalid',
@@ -523,6 +592,7 @@ test('runTaskLoop counts malformed validation response toward invalid response l
       maxTurns: 3,
       maxInvalidResponses: 1,
       minToolCallsBeforeFinish: 0,
+      enforceThinkingFinish: true,
       mockResponses: [
         '{"action":"finish","output":"done"}',
         'not-json',
@@ -535,7 +605,7 @@ test('runTaskLoop counts malformed validation response toward invalid response l
   assert.equal(result.invalidResponses, 1);
 });
 
-test('runTaskLoop keeps thinking on and can still hit max turns after validation failure', async () => {
+test('runTaskLoop keeps thinking on and can still hit max turns after non-thinking finish rejection', async () => {
   const events = [];
   const result = await runTaskLoop(
     {
@@ -547,9 +617,9 @@ test('runTaskLoop keeps thinking on and can still hit max turns after validation
       maxTurns: 3,
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
+      enforceThinkingFinish: true,
       mockResponses: [
         '{"action":"finish","output":"first answer"}',
-        '{"verdict":"fail","reason":"need more evidence"}',
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
       ],

@@ -76,10 +76,19 @@ export type ChatMessage = {
   inputTokensEstimate: number;
   outputTokensEstimate: number;
   thinkingTokens: number;
+  associatedToolTokens?: number;
   thinkingContent?: string;
   createdAtUtc: string;
   sourceRunId: string | null;
   compressedIntoSummary?: boolean;
+};
+
+export type HiddenToolContext = {
+  id: string;
+  content: string;
+  tokenEstimate: number;
+  sourceMessageId: string | null;
+  createdAtUtc: string;
 };
 
 export type ChatSession = {
@@ -94,11 +103,15 @@ export type ChatSession = {
   createdAtUtc: string;
   updatedAtUtc: string;
   messages: ChatMessage[];
+  hiddenToolContexts?: HiddenToolContext[];
 };
 
 export type ContextUsage = {
   contextWindowTokens: number;
   usedTokens: number;
+  chatUsedTokens: number;
+  toolUsedTokens: number;
+  totalUsedTokens: number;
   remainingTokens: number;
   warnThresholdTokens: number;
   shouldCondense: boolean;

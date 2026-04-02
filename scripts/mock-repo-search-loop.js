@@ -17,9 +17,9 @@ const {
 } = require('../dist/config.js');
 const { listLlamaCppModels, countLlamaCppTokens } = require('../dist/providers/llama-cpp.js');
 
-const DEFAULT_MAX_TURNS = 60;
+const DEFAULT_MAX_TURNS = 45;
 const DEFAULT_MAX_INVALID_RESPONSES = 3;
-const DEFAULT_TIMEOUT_MS = 30000;
+const DEFAULT_TIMEOUT_MS = 120000;
 const MIN_TOOL_CALLS_BEFORE_FINISH = 5;
 const THINKING_BUFFER_RATIO = 0.15;
 const THINKING_BUFFER_MIN_TOKENS = 4000;
@@ -529,10 +529,15 @@ async function requestTerminalSynthesis(options) {
 }
 
 function parsePlannerAction(text) {
+  const normalized = stripCodeFence(text);
   let parsed;
   try {
-    parsed = JSON.parse(stripCodeFence(text));
+    parsed = JSON.parse(normalized);
   } catch (error) {
+    const recovered = tryRecoverMalformedPlannerToolAction(normalized);
+    if (recovered) {
+      return recovered;
+    }
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Provider returned an invalid planner payload: ${message}`);
   }
@@ -567,6 +572,80 @@ function parsePlannerAction(text) {
   }
 
   throw new Error('Provider returned an unknown planner action.');
+}
+
+function decodeJsonStringLoose(raw) {
+  let decoded = '';
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (ch !== '\\') {
+      decoded += ch;
+      continue;
+    }
+    if (i + 1 >= raw.length) {
+      decoded += '\\';
+      continue;
+    }
+    const next = raw[i + 1];
+    i += 1;
+    if (next === '"' || next === '\\' || next === '/') {
+      decoded += next;
+      continue;
+    }
+    if (next === 'b') {
+      decoded += '\b';
+      continue;
+    }
+    if (next === 'f') {
+      decoded += '\f';
+      continue;
+    }
+    if (next === 'n') {
+      decoded += '\n';
+      continue;
+    }
+    if (next === 'r') {
+      decoded += '\r';
+      continue;
+    }
+    if (next === 't') {
+      decoded += '\t';
+      continue;
+    }
+    if (next === 'u' && i + 4 < raw.length) {
+      const hex = raw.slice(i + 1, i + 5);
+      if (/^[0-9a-fA-F]{4}$/u.test(hex)) {
+        decoded += String.fromCharCode(Number.parseInt(hex, 16));
+        i += 4;
+        continue;
+      }
+    }
+    // Keep going for non-standard escape sequences by dropping the backslash.
+    decoded += next;
+  }
+  return decoded;
+}
+
+function tryRecoverMalformedPlannerToolAction(rawText) {
+  if (
+    !/"action"\s*:\s*"tool"/iu.test(rawText)
+    || !/"tool_name"\s*:\s*"run_repo_cmd"/iu.test(rawText)
+  ) {
+    return null;
+  }
+  const commandMatch = /"command"\s*:\s*"([\s\S]*)"\s*\}\s*\}\s*$/u.exec(rawText);
+  if (!commandMatch || typeof commandMatch[1] !== 'string') {
+    return null;
+  }
+  const recoveredCommand = decodeJsonStringLoose(commandMatch[1]).trim();
+  if (!recoveredCommand) {
+    return null;
+  }
+  return {
+    action: 'tool',
+    tool_name: 'run_repo_cmd',
+    args: { command: recoveredCommand },
+  };
 }
 
 function hasBlockedOperator(command) {
@@ -608,22 +687,193 @@ function normalizeRepoRoot(repoRoot) {
     .toLowerCase();
 }
 
+function tokenizeSegment(segment) {
+  const tokens = [];
+  let current = '';
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < segment.length; i += 1) {
+    const ch = segment[i];
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      continue;
+    }
+    if (!inSingle && !inDouble && /\s/u.test(ch)) {
+      if (current) {
+        tokens.push(current);
+        current = '';
+      }
+      continue;
+    }
+    current += ch;
+  }
+  if (current) {
+    tokens.push(current);
+  }
+  return tokens;
+}
+
+function normalizePathCandidate(value) {
+  return String(value || '').trim().replace(/^['"]|['"]$/gu, '');
+}
+
+function isPathOutsideRepo(pathCandidate, normalizedRepoRoot) {
+  const token = normalizePathCandidate(pathCandidate).replace(/\//gu, '\\');
+  if (!token) {
+    return false;
+  }
+  if (/\.\.[\\/]/u.test(token)) {
+    return true;
+  }
+  if (/^\\\\[a-z0-9_.-]+\\/iu.test(token)) {
+    return true;
+  }
+  if (/^[a-zA-Z]:\\/u.test(token)) {
+    return token.toLowerCase().startsWith(normalizedRepoRoot) === false;
+  }
+  return false;
+}
+
+function collectOptionPaths(tokens, optionConfig) {
+  const paths = [];
+  const command = (tokens[0] || '').toLowerCase();
+  if (!command) {
+    return paths;
+  }
+  const config = optionConfig[command];
+  if (!config) {
+    return paths;
+  }
+  const {
+    valueOptions,
+    pathOptions,
+    positionalArePaths,
+    rgPatternOptions,
+  } = config;
+  let index = 1;
+  let rgPatternProvidedByOption = false;
+  let rgPatternConsumed = false;
+
+  while (index < tokens.length) {
+    const token = tokens[index];
+    if (token === '--') {
+      index += 1;
+      break;
+    }
+    if (token.startsWith('-')) {
+      const normalized = token.toLowerCase();
+      if (valueOptions.has(normalized)) {
+        const next = tokens[index + 1];
+        if (next) {
+          if (pathOptions.has(normalized)) {
+            paths.push(next);
+          }
+          if (command === 'rg' && rgPatternOptions.has(normalized)) {
+            rgPatternProvidedByOption = true;
+          }
+        }
+        index += 2;
+        continue;
+      }
+      index += 1;
+      continue;
+    }
+    if (command === 'rg') {
+      if (!rgPatternProvidedByOption && !rgPatternConsumed) {
+        rgPatternConsumed = true;
+      } else {
+        paths.push(token);
+      }
+    } else if (positionalArePaths) {
+      paths.push(token);
+    }
+    index += 1;
+  }
+
+  for (; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (command === 'rg') {
+      if (!rgPatternProvidedByOption && !rgPatternConsumed) {
+        rgPatternConsumed = true;
+      } else {
+        paths.push(token);
+      }
+    } else if (positionalArePaths) {
+      paths.push(token);
+    }
+  }
+  return paths;
+}
+
 function referencesPathOutsideRepo(command, repoRoot) {
   const normalizedRepoRoot = normalizeRepoRoot(repoRoot);
   if (!normalizedRepoRoot) {
     return false;
   }
-  if (/\.\.[\\/]/u.test(command)) {
-    return true;
-  }
-  if (/\\\\[a-z0-9_.-]+\\/iu.test(command)) {
-    return true;
-  }
-  const absolutePathMatches = command.match(/[a-zA-Z]:\\[^"'`\s|;<>]*/gu) || [];
-  for (const match of absolutePathMatches) {
-    const normalizedMatch = String(match).replace(/\//gu, '\\').toLowerCase();
-    if (!normalizedMatch.startsWith(normalizedRepoRoot)) {
-      return true;
+
+  const pathOptionConfig = {
+    rg: {
+      valueOptions: new Set([
+        '-e', '--regexp',
+        '-f', '--file',
+        '-g', '--glob',
+        '--iglob',
+        '-t', '--type',
+        '-t', '--type-not',
+        '--type-add',
+        '--type-clear',
+        '-m', '--max-count',
+        '-A', '-B', '-C',
+        '--context',
+        '--max-filesize',
+        '--engine',
+        '--encoding',
+        '--sort',
+        '--sortr',
+        '--threads',
+      ]),
+      pathOptions: new Set(['-f', '--file']),
+      positionalArePaths: true,
+      rgPatternOptions: new Set(['-e', '--regexp']),
+    },
+    'get-content': {
+      valueOptions: new Set(['-path', '-literalpath', '-encoding', '-delimiter', '-filter', '-include', '-exclude', '-raw', '-readcount', '-totalcount', '-tail']),
+      pathOptions: new Set(['-path', '-literalpath']),
+      positionalArePaths: true,
+      rgPatternOptions: new Set(),
+    },
+    'get-childitem': {
+      valueOptions: new Set(['-path', '-literalpath', '-filter', '-include', '-exclude', '-name', '-file', '-directory', '-recurse', '-depth', '-force']),
+      pathOptions: new Set(['-path', '-literalpath']),
+      positionalArePaths: true,
+      rgPatternOptions: new Set(),
+    },
+    ls: {
+      valueOptions: new Set(['-path', '-literalpath', '-filter', '-include', '-exclude', '-name', '-file', '-directory', '-recurse', '-depth', '-force']),
+      pathOptions: new Set(['-path', '-literalpath']),
+      positionalArePaths: true,
+      rgPatternOptions: new Set(),
+    },
+    'select-string': {
+      valueOptions: new Set(['-path', '-literalpath', '-pattern', '-simplematch', '-encoding', '-caseSensitive', '-allmatches', '-notmatch']),
+      pathOptions: new Set(['-path', '-literalpath']),
+      positionalArePaths: false,
+      rgPatternOptions: new Set(),
+    },
+  };
+
+  const segments = splitTopLevelPipes(command);
+  for (const segment of segments) {
+    const tokens = tokenizeSegment(segment);
+    const pathCandidates = collectOptionPaths(tokens, pathOptionConfig);
+    for (const candidate of pathCandidates) {
+      if (isPathOutsideRepo(candidate, normalizedRepoRoot)) {
+        return true;
+      }
     }
   }
   return false;
@@ -922,6 +1172,7 @@ function buildTaskPrompt(options) {
     '',
     `Task: ${options.question}`,
     `Tool-call turns completed so far: ${options.toolCallTurns}`,
+    `Tool-call budget remaining: ${Math.max(Number(options.maxTurns || 0) - Number(options.toolCallTurns || 0), 0)}`,
   ];
   if (Number.isFinite(options.zeroOutputRemaining) && options.zeroOutputRemaining >= 0) {
     if (options.zeroOutputRemaining > 0) {
@@ -1020,6 +1271,7 @@ async function runTaskLoop(task, options) {
   const usablePromptTokens = Math.max(totalContextTokens - thinkingBufferTokens, 0);
   const perToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * PER_TOOL_RESULT_RATIO));
   const requestMaxTokens = resolveRepoSearchRequestMaxTokens(options);
+  const rejectNonThinkingFinish = options.enforceThinkingFinish === true;
   let zeroOutputStreak = 0;
   let forcedFinishAttemptsRemaining = 0;
 
@@ -1121,71 +1373,17 @@ async function runTaskLoop(task, options) {
         });
         continue;
       }
-      if (plannerThinkingEnabled) {
+      if (rejectNonThinkingFinish && !plannerThinkingEnabled) {
+        history.push({
+          command: '[finish rejected]',
+          resultText: 'Rejected finish from non-thinking turn. Re-run finish with thinking enabled.',
+        });
         options.logger?.write({
-          kind: 'turn_finish_validation_skipped',
+          kind: 'turn_finish_rejected_non_thinking',
           taskId: task.id,
           turn,
-          reason: 'planner_already_thinking',
+          warning: 'Rejected finish from non-thinking turn. Re-run finish with thinking enabled.',
         });
-        finalOutput = action.output;
-        reason = 'finish';
-        break;
-      }
-      options.logger?.write({
-        kind: 'turn_finish_validation_requested',
-        taskId: task.id,
-        turn,
-        thinkingEnabled: true,
-      });
-      const evidenceText = history
-        .map((item) => `Command: ${item.command}\nResult: ${item.resultText}`)
-        .join('\n\n');
-      const validationPrompt = buildFinishValidationPrompt({
-        question: task.question,
-        finalOutput: action.output,
-        evidenceText,
-      });
-      const validationResponse = await requestFinishValidation({
-        baseUrl: options.baseUrl,
-        model: options.model,
-        prompt: validationPrompt,
-        timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
-        mockResponses: options.mockResponses,
-        mockResponseIndex,
-        requestMaxTokens,
-      });
-      if (typeof validationResponse.nextMockResponseIndex === 'number') {
-        mockResponseIndex = validationResponse.nextMockResponseIndex;
-      }
-      options.logger?.write({
-        kind: 'turn_finish_validation_raw_response',
-        taskId: task.id,
-        turn,
-        text: validationResponse.text,
-        thinkingText: validationResponse.thinkingText || '',
-        mockExhausted: Boolean(validationResponse.mockExhausted),
-      });
-      if (validationResponse.mockExhausted) {
-        reason = 'mock_responses_exhausted';
-        break;
-      }
-      let validationResult;
-      try {
-        validationResult = parseFinishValidationResponse(validationResponse.text);
-      } catch (error) {
-        invalidResponses += 1;
-        options.logger?.write({
-          kind: 'turn_action_invalid',
-          taskId: task.id,
-          turn,
-          invalidResponses,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        if (invalidResponses >= maxInvalidResponses) {
-          reason = 'invalid_response_limit';
-          break;
-        }
         if (!thinkingEnabled) {
           thinkingEnabled = true;
           options.logger?.write({
@@ -1194,43 +1392,20 @@ async function runTaskLoop(task, options) {
             turn,
             fromThinkingEnabled: false,
             toThinkingEnabled: true,
-            reason: 'validation_invalid',
+            reason: 'finish_non_thinking_rejected',
           });
         }
-        history.push({
-          command: '[finish validation invalid]',
-          resultText: `Invalid finish validation: ${error instanceof Error ? error.message : String(error)}`,
-        });
         continue;
       }
       options.logger?.write({
-        kind: 'turn_finish_validation_result',
+        kind: 'turn_finish_validation_skipped',
         taskId: task.id,
         turn,
-        verdict: validationResult.verdict,
-        reason: validationResult.reason,
+        reason: 'planner_already_thinking',
       });
-      if (validationResult.verdict === 'pass') {
-        finalOutput = action.output;
-        reason = 'finish';
-        break;
-      }
-      history.push({
-        command: '[finish validation failed]',
-        resultText: `Validation failed: ${validationResult.reason}`,
-      });
-      if (!thinkingEnabled) {
-        thinkingEnabled = true;
-        options.logger?.write({
-          kind: 'turn_thinking_mode_switched',
-          taskId: task.id,
-          turn,
-          fromThinkingEnabled: false,
-          toThinkingEnabled: true,
-          reason: 'validation_fail',
-        });
-      }
-      continue;
+      finalOutput = action.output;
+      reason = 'finish';
+      break;
     }
 
     const command = action.args.command;
@@ -1571,6 +1746,7 @@ async function runMockRepoSearch(options = {}) {
       maxInvalidResponses: options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES,
       minToolCallsBeforeFinish: options.minToolCallsBeforeFinish,
       requestMaxTokens,
+      enforceThinkingFinish: true,
       mockResponses: options.mockResponses,
       mockCommandResults: options.mockCommandResults,
       logger: options.logger || null,

@@ -1700,6 +1700,33 @@ function readChatSessionFromPath(targetPath) {
   if (typeof payload.planRepoRoot !== 'string' || !payload.planRepoRoot.trim()) {
     payload.planRepoRoot = process.cwd();
   }
+  if (!Array.isArray(payload.hiddenToolContexts)) {
+    payload.hiddenToolContexts = [];
+  } else {
+    payload.hiddenToolContexts = payload.hiddenToolContexts
+      .filter((entry) => entry && typeof entry === 'object')
+      .map((entry) => {
+        const content = typeof entry.content === 'string' ? entry.content.trim() : '';
+        if (!content) {
+          return null;
+        }
+        const tokenEstimate = Number.isFinite(entry.tokenEstimate) && Number(entry.tokenEstimate) >= 0
+          ? Number(entry.tokenEstimate)
+          : estimateTokenCount(content);
+        return {
+          id: typeof entry.id === 'string' && entry.id.trim() ? entry.id : crypto.randomUUID(),
+          content,
+          tokenEstimate,
+          sourceMessageId: typeof entry.sourceMessageId === 'string' && entry.sourceMessageId.trim()
+            ? entry.sourceMessageId
+            : null,
+          createdAtUtc: typeof entry.createdAtUtc === 'string' && entry.createdAtUtc.trim()
+            ? entry.createdAtUtc
+            : new Date().toISOString(),
+        };
+      })
+      .filter(Boolean);
+  }
   return payload;
 }
 
@@ -1721,7 +1748,7 @@ function saveChatSession(runtimeRoot, session) {
 
 function buildContextUsage(session) {
   const contextWindowTokens = Math.max(1, Number(session.contextWindowTokens || 150000));
-  const usedTokens = Array.isArray(session.messages)
+  const chatUsedTokens = Array.isArray(session.messages)
     ? session.messages.reduce((sum, message) => {
       const inputTokens = Number(message.inputTokensEstimate || 0);
       const outputTokens = Number(message.outputTokensEstimate || 0);
@@ -1729,11 +1756,18 @@ function buildContextUsage(session) {
       return sum + inputTokens + outputTokens + thinkingTokens;
     }, 0)
     : 0;
-  const remainingTokens = Math.max(contextWindowTokens - usedTokens, 0);
+  const toolUsedTokens = Array.isArray(session.hiddenToolContexts)
+    ? session.hiddenToolContexts.reduce((sum, entry) => sum + (Number(entry?.tokenEstimate) || 0), 0)
+    : 0;
+  const totalUsedTokens = chatUsedTokens + toolUsedTokens;
+  const remainingTokens = Math.max(contextWindowTokens - totalUsedTokens, 0);
   const warnThresholdTokens = Math.max(5000, Math.ceil(contextWindowTokens * 0.1));
   return {
     contextWindowTokens,
-    usedTokens,
+    usedTokens: chatUsedTokens,
+    chatUsedTokens,
+    toolUsedTokens,
+    totalUsedTokens,
     remainingTokens,
     warnThresholdTokens,
     shouldCondense: remainingTokens <= warnThresholdTokens,
@@ -1849,8 +1883,18 @@ function buildChatCompletionRequest(config, session, userContent, options = {}) 
   }
   const runtimeLlama = getCompatRuntimeLlamaCpp(config);
   const priorMessages = Array.isArray(session.messages) ? session.messages : [];
+  const hiddenToolContexts = Array.isArray(session.hiddenToolContexts)
+    ? session.hiddenToolContexts
+      .map((entry) => (entry && typeof entry.content === 'string' ? entry.content.trim() : ''))
+      .filter(Boolean)
+    : [];
+  const hiddenToolContextText = hiddenToolContexts.join('\n\n');
   const messages = [
     { role: 'system', content: 'general, coder friendly assistant' },
+    ...(hiddenToolContextText ? [{
+      role: 'system',
+      content: `Internal tool-call context from prior session steps. Use this as additional evidence only when relevant.\n\n${hiddenToolContextText}`,
+    }] : []),
     // Only feed chat-visible message content back into history; never include prior thinking traces.
     ...priorMessages.map((message) => ({
       role: message.role === 'assistant' ? 'assistant' : 'user',
@@ -1916,12 +1960,18 @@ async function generateChatAssistantMessage(config, session, userContent) {
   };
 }
 
-function appendChatMessagesWithUsage(runtimeRoot, session, content, assistantContent, usage = {}, thinkingContent = '') {
+function appendChatMessagesWithUsage(runtimeRoot, session, content, assistantContent, usage = {}, thinkingContent = '', options = {}) {
   const now = new Date().toISOString();
   const messages = Array.isArray(session.messages) ? session.messages.slice() : [];
   const userTokens = getChatUsageValue(usage.promptTokens) ?? estimateTokenCount(content);
   const outputTokens = getChatUsageValue(usage.completionTokens) ?? estimateTokenCount(assistantContent);
   const thinkingTokens = getChatUsageValue(usage.thinkingTokens) ?? 0;
+  const toolContextContents = Array.isArray(options.toolContextContents)
+    ? options.toolContextContents
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+    : [];
+  const hiddenToolContexts = Array.isArray(session.hiddenToolContexts) ? session.hiddenToolContexts.slice() : [];
   messages.push({
     id: crypto.randomUUID(),
     role: 'user',
@@ -1932,21 +1982,34 @@ function appendChatMessagesWithUsage(runtimeRoot, session, content, assistantCon
     createdAtUtc: now,
     sourceRunId: null,
   });
+  const assistantMessageId = crypto.randomUUID();
+  const associatedToolTokens = toolContextContents.reduce((sum, value) => sum + estimateTokenCount(value), 0);
   messages.push({
-    id: crypto.randomUUID(),
+    id: assistantMessageId,
     role: 'assistant',
     content: assistantContent,
     inputTokensEstimate: 0,
     outputTokensEstimate: outputTokens,
     thinkingTokens,
+    associatedToolTokens,
     thinkingContent: String(thinkingContent || ''),
     createdAtUtc: now,
     sourceRunId: null,
   });
+  for (const value of toolContextContents) {
+    hiddenToolContexts.push({
+      id: crypto.randomUUID(),
+      content: value,
+      tokenEstimate: estimateTokenCount(value),
+      sourceMessageId: assistantMessageId,
+      createdAtUtc: now,
+    });
+  }
   const updated = {
     ...session,
     updatedAtUtc: now,
     messages,
+    hiddenToolContexts,
   };
   saveChatSession(runtimeRoot, updated);
   return updated;
@@ -2194,6 +2257,46 @@ function buildPlanMarkdownFromRepoSearch(userPrompt, repoRoot, result) {
   lines.push(`- Transcript: \`${String(result?.transcriptPath || '')}\``);
   lines.push(`- Artifact: \`${String(result?.artifactPath || '')}\``);
   return lines.join('\n');
+}
+
+function truncateToolContextOutput(value, maxLength = 1400) {
+  const text = String(value || '').trim();
+  if (!text) {
+    return '';
+  }
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, maxLength)}\n... (truncated)`;
+}
+
+function buildToolContextFromRepoSearchResult(result) {
+  const scorecard = result && typeof result.scorecard === 'object' ? result.scorecard : {};
+  const tasks = Array.isArray(scorecard.tasks) ? scorecard.tasks : [];
+  const contexts = [];
+  for (const task of tasks) {
+    if (!task || typeof task !== 'object' || !Array.isArray(task.commands)) {
+      continue;
+    }
+    for (const command of task.commands) {
+      if (!command || typeof command !== 'object') {
+        continue;
+      }
+      const commandText = typeof command.command === 'string' ? command.command.trim() : '';
+      if (!commandText) {
+        continue;
+      }
+      const outputText = truncateToolContextOutput(command.output);
+      const exitCode = Number.isFinite(command.exitCode) ? Number(command.exitCode) : null;
+      contexts.push([
+        `Command: ${commandText}`,
+        `Exit Code: ${exitCode === null ? 'n/a' : String(exitCode)}`,
+        'Result:',
+        outputText || '(empty output)',
+      ].join('\n'));
+    }
+  }
+  return contexts;
 }
 
 function loadRepoSearchExecutor() {
@@ -3233,6 +3336,7 @@ function startStatusServer(options = {}) {
         createdAtUtc: now,
         updatedAtUtc: now,
         messages: [],
+        hiddenToolContexts: [],
       };
       saveChatSession(runtimeRoot, session);
       sendJson(res, 200, { session, contextUsage: buildContextUsage(session) });
@@ -3348,6 +3452,7 @@ function startStatusServer(options = {}) {
           ) ? parsedBody.mockCommandResults : undefined,
         });
         const assistantContent = buildPlanMarkdownFromRepoSearch(parsedBody.content.trim(), resolvedRepoRoot, result);
+        const toolContextContents = buildToolContextFromRepoSearchResult(result);
         const updatedSession = appendChatMessagesWithUsage(
           runtimeRoot,
           {
@@ -3358,7 +3463,10 @@ function startStatusServer(options = {}) {
           parsedBody.content.trim(),
           assistantContent,
           {},
-          ''
+          '',
+          {
+            toolContextContents,
+          }
         );
         sendJson(res, 200, {
           session: updatedSession,
@@ -3375,6 +3483,24 @@ function startStatusServer(options = {}) {
       } finally {
         releaseModelRequest(modelRequestLock.token);
       }
+      return;
+    }
+
+    if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/tool-context\/clear$/u.test(pathname)) {
+      const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/tool-context\/clear$/u, ''));
+      const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
+      const session = readChatSessionFromPath(sessionPath);
+      if (!session) {
+        sendJson(res, 404, { error: 'Session not found.' });
+        return;
+      }
+      const updatedSession = {
+        ...session,
+        updatedAtUtc: new Date().toISOString(),
+        hiddenToolContexts: [],
+      };
+      saveChatSession(runtimeRoot, updatedSession);
+      sendJson(res, 200, { session: updatedSession, contextUsage: buildContextUsage(updatedSession) });
       return;
     }
 

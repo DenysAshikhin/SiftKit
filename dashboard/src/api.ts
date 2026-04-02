@@ -179,6 +179,14 @@ export function condenseChatSession(sessionId: string): Promise<ChatSessionRespo
   });
 }
 
+export function clearToolContext(sessionId: string): Promise<ChatSessionResponse> {
+  return fetchJson<ChatSessionResponse>(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/tool-context/clear`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+}
+
 export function createPlanMessage(
   sessionId: string,
   payload: {
