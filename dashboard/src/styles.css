@@ -335,6 +335,18 @@ textarea {
   background: #102434;
 }
 
+.simple-flow-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.simple-flow-summary-meta {
+  color: #a8c4dc;
+  font-size: 0.8rem;
+}
+
 .simple-flow-body {
   display: grid;
   gap: 10px;

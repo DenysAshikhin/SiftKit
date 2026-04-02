@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const http = require('node:http');
 
 const {
   parsePlannerAction,
@@ -254,6 +255,44 @@ test('runTaskLoop reports prompt tokens and elapsed time on command progress eve
   assert.equal(Number.isFinite(toolStart?.elapsedMs), true);
   assert.equal(Number(toolStart?.elapsedMs) >= 0, true);
   assert.equal(result.reason, 'finish');
+});
+
+test('runTaskLoop logs provider request error details and surfaces enriched network failures', async () => {
+  const events = [];
+  await assert.rejects(
+    () => runTaskLoop(
+      {
+        id: 'task-provider-network-error',
+        question: 'Trigger a provider request failure.',
+        signals: [],
+      },
+      {
+        baseUrl: 'http://127.0.0.1:1',
+        model: 'mock-model',
+        maxTurns: 1,
+        maxInvalidResponses: 1,
+        minToolCallsBeforeFinish: 0,
+        logger: {
+          write(event) {
+            events.push(event);
+          },
+        },
+      }
+    ),
+    /provider request failed stage=planner_action/u
+  );
+
+  const startEvent = events.find((event) => event.kind === 'provider_request_start');
+  assert.equal(startEvent?.stage, 'planner_action');
+  assert.equal(startEvent?.method, 'POST');
+  assert.equal(startEvent?.path, '/v1/chat/completions');
+
+  const errorEvent = events.find((event) => event.kind === 'provider_request_error');
+  assert.equal(errorEvent?.stage, 'planner_action');
+  assert.equal(typeof errorEvent?.elapsedMs, 'number');
+  assert.equal(errorEvent?.elapsedMs >= 0, true);
+  assert.equal(typeof errorEvent?.error, 'object');
+  assert.equal(typeof errorEvent?.error?.message, 'string');
 });
 
 test('runTaskLoop rejects unsupported rg type rewrite when not safe to rewrite', async () => {
@@ -603,7 +642,7 @@ test('runTaskLoop replaces oversized tool output with token allowance error', as
   assert.equal(result.reason, 'finish');
 });
 
-test('runTaskLoop rejects non-thinking finish and accepts finish after thinking retry', async () => {
+test('runTaskLoop follows up once after non-thinking finish and then accepts thinking finish', async () => {
   const events = [];
   const result = await runTaskLoop(
     {
@@ -617,13 +656,10 @@ test('runTaskLoop rejects non-thinking finish and accepts finish after thinking 
       minToolCallsBeforeFinish: 0,
       enforceThinkingFinish: true,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
         '{"action":"finish","output":"done"}',
         '{"action":"finish","output":"done"}',
       ],
-      mockCommandResults: {
-        'rg -n "planner" src': { exitCode: 0, stdout: 'done', stderr: '' },
-      },
+      mockCommandResults: {},
       logger: {
         write(event) {
           events.push(event);
@@ -633,20 +669,26 @@ test('runTaskLoop rejects non-thinking finish and accepts finish after thinking 
   );
 
   const turnRequests = events.filter((event) => event.kind === 'turn_model_request');
-  assert.equal(turnRequests.length, 3);
+  assert.equal(turnRequests.length, 2);
   assert.equal(turnRequests[0].thinkingEnabled, false);
-  assert.equal(turnRequests[1].thinkingEnabled, false);
-  assert.equal(turnRequests[2].thinkingEnabled, true);
+  assert.equal(turnRequests[1].thinkingEnabled, true);
 
-  const finishRejected = events.find((event) => event.kind === 'turn_finish_rejected_non_thinking');
-  assert.equal(Boolean(finishRejected), true);
-  const switchEvent = events.find((event) => event.kind === 'turn_thinking_mode_switched');
-  assert.equal(switchEvent.reason, 'finish_non_thinking_rejected');
+  const followupEvent = events.find((event) => event.kind === 'turn_non_thinking_finish_followup');
+  assert.equal(Boolean(followupEvent), true);
+  assert.equal(
+    followupEvent.followupPrompt,
+    'Are you sure you have enough evidence and did not get tunnel-visioned?'
+  );
+
+  const secondPrompt = events
+    .filter((event) => event.kind === 'turn_prompt')
+    .map((event) => String(event.prompt || ''))[1];
+  assert.match(secondPrompt, /Are you sure you have enough evidence and did not get tunnel-visioned\?/u);
   assert.equal(result.reason, 'finish');
   assert.equal(result.finalOutput, 'done');
 });
 
-test('runTaskLoop switches to thinking mode after non-thinking finish rejection and can finish later', async () => {
+test('runTaskLoop triggers non-thinking finish follow-up only once', async () => {
   const events = [];
   const result = await runTaskLoop(
     {
@@ -660,13 +702,11 @@ test('runTaskLoop switches to thinking mode after non-thinking finish rejection 
       minToolCallsBeforeFinish: 0,
       enforceThinkingFinish: true,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
-        '{"action":"finish","output":"rejected answer"}',
+        '{"action":"finish","output":"final answer"}',
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"final answer\\" src"}}',
         '{"action":"finish","output":"final answer"}',
       ],
       mockCommandResults: {
-        'rg -n "planner" src': { exitCode: 0, stdout: 'planner', stderr: '' },
         'rg -n "final answer" src': { exitCode: 0, stdout: 'final answer', stderr: '' },
       },
       logger: {
@@ -677,23 +717,20 @@ test('runTaskLoop switches to thinking mode after non-thinking finish rejection 
     }
   );
 
-  const switchEvent = events.find((event) => event.kind === 'turn_thinking_mode_switched');
-  assert.equal(Boolean(switchEvent), true);
+  const followupEvents = events.filter((event) => event.kind === 'turn_non_thinking_finish_followup');
+  assert.equal(followupEvents.length, 1);
   const turnRequests = events.filter((event) => event.kind === 'turn_model_request');
-  assert.equal(turnRequests.length, 4);
+  assert.equal(turnRequests.length, 3);
   assert.equal(turnRequests[0].thinkingEnabled, false);
-  assert.equal(turnRequests[1].thinkingEnabled, false);
-  assert.equal(turnRequests[2].thinkingEnabled, true);
-  assert.equal(turnRequests[3].thinkingEnabled, true);
-  const rejectedFinishEvents = events.filter((event) => event.kind === 'turn_finish_rejected_non_thinking');
-  assert.equal(rejectedFinishEvents.length, 1);
+  assert.equal(turnRequests[1].thinkingEnabled, true);
+  assert.equal(turnRequests[2].thinkingEnabled, false);
   const skippedValidation = events.find((event) => event.kind === 'turn_finish_validation_skipped');
   assert.equal(Boolean(skippedValidation), true);
   assert.equal(result.reason, 'finish');
   assert.equal(result.finalOutput, 'final answer');
 });
 
-test('runTaskLoop counts malformed response after non-thinking finish rejection toward invalid response limit', async () => {
+test('runTaskLoop counts malformed response after non-thinking finish follow-up toward invalid response limit', async () => {
   const result = await runTaskLoop(
     {
       id: 'task-validation-invalid',
@@ -717,7 +754,7 @@ test('runTaskLoop counts malformed response after non-thinking finish rejection 
   assert.equal(result.invalidResponses, 1);
 });
 
-test('runTaskLoop keeps thinking on and can still hit max turns after non-thinking finish rejection', async () => {
+test('runTaskLoop forces thinking on after non-thinking finish follow-up and can still hit max turns', async () => {
   const events = [];
   const result = await runTaskLoop(
     {
@@ -733,10 +770,11 @@ test('runTaskLoop keeps thinking on and can still hit max turns after non-thinki
       mockResponses: [
         '{"action":"finish","output":"first answer"}',
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner2\\" src"}}',
       ],
       mockCommandResults: {
         'rg -n "planner" src': { exitCode: 0, stdout: 'planner', stderr: '' },
+        'rg -n "planner2" src': { exitCode: 0, stdout: 'planner2', stderr: '' },
       },
       logger: {
         write(event) {
@@ -750,8 +788,98 @@ test('runTaskLoop keeps thinking on and can still hit max turns after non-thinki
   assert.equal(turnRequests.length, 3);
   assert.equal(turnRequests[0].thinkingEnabled, false);
   assert.equal(turnRequests[1].thinkingEnabled, true);
-  assert.equal(turnRequests[2].thinkingEnabled, true);
+  assert.equal(turnRequests[2].thinkingEnabled, false);
   assert.equal(result.reason, 'max_turns');
+});
+
+test('runTaskLoop retries once on transient provider reset after thinking-mode switch', async () => {
+  const events = [];
+  const requestBodies = [];
+  let requestCount = 0;
+  const server = http.createServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', () => {
+      requestCount += 1;
+      requestBodies.push(JSON.parse(body));
+
+      if (requestCount === 5) {
+        req.socket.destroy();
+        return;
+      }
+
+      const toolIndex = requestCount <= 4 ? requestCount : null;
+      const content = toolIndex === null
+        ? '{"action":"finish","output":"done","confidence":0.9}'
+        : `{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"q${toolIndex}\\" src"}}`;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({
+        choices: [
+          {
+            message: {
+              content,
+            },
+          },
+        ],
+      }));
+    });
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const result = await runTaskLoop(
+      {
+        id: 'task-retry-on-switch',
+        question: 'Find planner text.',
+        signals: ['done'],
+      },
+      {
+        baseUrl,
+        model: 'mock-model',
+        maxTurns: 6,
+        maxInvalidResponses: 2,
+        minToolCallsBeforeFinish: 0,
+        mockCommandResults: {
+          'rg -n "q1" src': { exitCode: 0, stdout: 'q1', stderr: '' },
+          'rg -n "q2" src': { exitCode: 0, stdout: 'q2', stderr: '' },
+          'rg -n "q3" src': { exitCode: 0, stdout: 'q3', stderr: '' },
+          'rg -n "q4" src': { exitCode: 0, stdout: 'q4', stderr: '' },
+        },
+        logger: {
+          write(event) {
+            events.push(event);
+          },
+        },
+      }
+    );
+
+    assert.equal(result.reason, 'finish');
+    assert.equal(result.finalOutput, 'done');
+    assert.equal(requestCount, 6);
+    assert.equal(Boolean(requestBodies[0]?.extra_body?.reasoning_budget === 0), true);
+    assert.equal(Boolean(requestBodies[1]?.chat_template_kwargs?.enable_thinking), false);
+    assert.equal(Boolean(requestBodies[2]?.chat_template_kwargs?.enable_thinking), false);
+    assert.equal(Boolean(requestBodies[3]?.chat_template_kwargs?.enable_thinking), false);
+    assert.equal(Boolean(requestBodies[4]?.chat_template_kwargs?.enable_thinking), true);
+    assert.equal(Boolean(requestBodies[5]?.chat_template_kwargs?.enable_thinking), true);
+    const retryEvent = events.find((event) => event.kind === 'provider_request_retry');
+    assert.equal(Boolean(retryEvent), true);
+    assert.equal(retryEvent.turn, 5);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 test('runTaskLoop blocks exact duplicate commands with explicit error message', async () => {

@@ -178,6 +178,7 @@ export async function executeRepoSearchRequest(request: RepoSearchExecutionReque
   };
 
   try {
+    const progressCallback = request.onProgress;
     const scorecard = await module.runMockRepoSearch({
       repoRoot,
       config: request.config,
@@ -189,9 +190,9 @@ export async function executeRepoSearchRequest(request: RepoSearchExecutionReque
       availableModels: request.availableModels,
       mockResponses: request.mockResponses,
       mockCommandResults: request.mockCommandResults,
-      onProgress: request.onProgress
+      onProgress: progressCallback
         ? (event) => {
-          request.onProgress({
+          progressCallback({
             ...event,
             elapsedMs: Number.isFinite(event?.elapsedMs) ? Number(event.elapsedMs) : (Date.now() - startedAt),
           });

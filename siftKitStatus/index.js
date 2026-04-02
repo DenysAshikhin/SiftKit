@@ -321,6 +321,8 @@ function getDefaultConfig() {
         StartupTimeoutMs: DEFAULT_LLAMA_STARTUP_TIMEOUT_MS,
         HealthcheckTimeoutMs: DEFAULT_LLAMA_HEALTHCHECK_TIMEOUT_MS,
         HealthcheckIntervalMs: DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS,
+        VerboseLogging: false,
+        VerboseArgs: [],
       }
     }
   };
@@ -454,6 +456,18 @@ function normalizeConfig(input) {
   if (!Object.prototype.hasOwnProperty.call(merged.Server.LlamaCpp, 'HealthcheckIntervalMs')) {
     merged.Server.LlamaCpp.HealthcheckIntervalMs = DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS;
   }
+  if (!Object.prototype.hasOwnProperty.call(merged.Server.LlamaCpp, 'VerboseLogging')) {
+    merged.Server.LlamaCpp.VerboseLogging = false;
+  }
+  if (!Object.prototype.hasOwnProperty.call(merged.Server.LlamaCpp, 'VerboseArgs')) {
+    merged.Server.LlamaCpp.VerboseArgs = [];
+  }
+  merged.Server.LlamaCpp.VerboseLogging = Boolean(merged.Server.LlamaCpp.VerboseLogging);
+  merged.Server.LlamaCpp.VerboseArgs = Array.isArray(merged.Server.LlamaCpp.VerboseArgs)
+    ? merged.Server.LlamaCpp.VerboseArgs
+      .filter((value) => typeof value === 'string' && value.trim().length > 0)
+      .map((value) => value.trim())
+    : [];
   return merged;
 }
 
@@ -582,6 +596,12 @@ function getManagedLlamaConfig(config) {
     StartupTimeoutMs: getManagedStartupTimeoutMs(serverLlama.StartupTimeoutMs, defaults.StartupTimeoutMs),
     HealthcheckTimeoutMs: getFinitePositiveInteger(serverLlama.HealthcheckTimeoutMs, defaults.HealthcheckTimeoutMs),
     HealthcheckIntervalMs: getFinitePositiveInteger(serverLlama.HealthcheckIntervalMs, defaults.HealthcheckIntervalMs),
+    VerboseLogging: Boolean(serverLlama.VerboseLogging),
+    VerboseArgs: Array.isArray(serverLlama.VerboseArgs)
+      ? serverLlama.VerboseArgs
+        .filter((value) => typeof value === 'string' && value.trim().length > 0)
+        .map((value) => value.trim())
+      : [],
   };
 }
 
@@ -1254,6 +1274,25 @@ function parseRequestIdFromFileName(fileName) {
   return match ? match[1] : null;
 }
 
+function getRepoSearchTranscriptPath(payload, artifactPath) {
+  if (typeof payload?.transcriptPath === 'string' && payload.transcriptPath.trim()) {
+    return payload.transcriptPath;
+  }
+  const siblingTranscriptPath = artifactPath.replace(/\.json$/iu, '.jsonl');
+  return fs.existsSync(siblingTranscriptPath) ? siblingTranscriptPath : null;
+}
+
+function getTranscriptDurationMs(transcriptPath) {
+  const events = readJsonlEvents(transcriptPath);
+  const eventTimes = events
+    .map((event) => Date.parse(event.at || ''))
+    .filter((time) => Number.isFinite(time));
+  if (eventTimes.length < 2) {
+    return null;
+  }
+  return Math.max(0, Math.max(...eventTimes) - Math.min(...eventTimes));
+}
+
 function normalizeRunRecord(record) {
   return {
     id: String(record.id),
@@ -1405,6 +1444,7 @@ function loadDashboardRuns(runtimeRoot) {
       if (!requestId) {
         continue;
       }
+      const transcriptPath = getRepoSearchTranscriptPath(payload, artifactPath);
       const startedAtUtc = (
         typeof payload.createdAtUtc === 'string' && payload.createdAtUtc.trim()
           ? payload.createdAtUtc
@@ -1422,17 +1462,10 @@ function loadDashboardRuns(runtimeRoot) {
         inputTokens: null,
         outputTokens: null,
         thinkingTokens: null,
-        durationMs: null,
+        durationMs: getTranscriptDurationMs(transcriptPath),
         rawPaths: {
           repoSearch: artifactPath,
-          transcript: (
-            typeof payload.transcriptPath === 'string' && payload.transcriptPath.trim()
-          )
-            ? payload.transcriptPath
-            : (() => {
-              const siblingTranscriptPath = artifactPath.replace(/\.json$/iu, '.jsonl');
-              return fs.existsSync(siblingTranscriptPath) ? siblingTranscriptPath : null;
-            })(),
+          transcript: transcriptPath,
         },
       }));
     }
@@ -2496,6 +2529,8 @@ function startStatusServer(options = {}) {
         SIFTKIT_LLAMA_SCRIPT_STDERR_PATH: logPaths.scriptStderrPath,
         SIFTKIT_LLAMA_STDOUT_PATH: logPaths.llamaStdoutPath,
         SIFTKIT_LLAMA_STDERR_PATH: logPaths.llamaStderrPath,
+        SIFTKIT_LLAMA_VERBOSE_LOGGING: options.managedVerboseLogging ? '1' : '0',
+        SIFTKIT_LLAMA_VERBOSE_ARGS_JSON: JSON.stringify(Array.isArray(options.managedVerboseArgs) ? options.managedVerboseArgs : []),
       },
       stdio: ['ignore', stdoutFd, stderrFd],
       windowsHide: true,
@@ -2526,7 +2561,11 @@ function startStatusServer(options = {}) {
     }
 
     logLine(`llama_sync startup_script script=${managed.StartupScript}`);
-    const launched = spawnManagedScript(managed.StartupScript, 'startup-sync', { syncOnly: true });
+    const launched = spawnManagedScript(managed.StartupScript, 'startup-sync', {
+      syncOnly: true,
+      managedVerboseLogging: managed.VerboseLogging,
+      managedVerboseArgs: managed.VerboseArgs,
+    });
     managedLlamaLastStartupLogs = launched.logPaths;
     await new Promise((resolve, reject) => {
       launched.child.once('error', reject);
@@ -2673,7 +2712,10 @@ function startStatusServer(options = {}) {
 
     if (managed.ShutdownScript) {
       logLine(`llama_stop startup_abort script=${managed.ShutdownScript}`);
-      const stopChild = spawnManagedScript(managed.ShutdownScript, 'shutdown').child;
+      const stopChild = spawnManagedScript(managed.ShutdownScript, 'shutdown', {
+        managedVerboseLogging: managed.VerboseLogging,
+        managedVerboseArgs: managed.VerboseArgs,
+      }).child;
       await new Promise((resolve, reject) => {
         stopChild.once('error', reject);
         stopChild.once('exit', (code) => {
@@ -2763,7 +2805,11 @@ function startStatusServer(options = {}) {
     managedLlamaStarting = true;
     managedLlamaStartupPromise = (async () => {
       logLine(`llama_start starting script=${managed.StartupScript}`);
-      const launched = spawnManagedScript(managed.StartupScript, 'startup');
+      logLine(`llama_start verbose_logging=${managed.VerboseLogging ? 'on' : 'off'} verbose_args=${JSON.stringify(managed.VerboseArgs)}`);
+      const launched = spawnManagedScript(managed.StartupScript, 'startup', {
+        managedVerboseLogging: managed.VerboseLogging,
+        managedVerboseArgs: managed.VerboseArgs,
+      });
       managedLlamaHostProcess = launched.child;
       managedLlamaLastStartupLogs = launched.logPaths;
       try {
@@ -2846,7 +2892,10 @@ function startStatusServer(options = {}) {
     managedLlamaShutdownPromise = (async () => {
       if (managed.ShutdownScript) {
         logLine(`llama_stop stopping script=${managed.ShutdownScript}`);
-        const stopChild = spawnManagedScript(managed.ShutdownScript, 'shutdown').child;
+        const stopChild = spawnManagedScript(managed.ShutdownScript, 'shutdown', {
+          managedVerboseLogging: managed.VerboseLogging,
+          managedVerboseArgs: managed.VerboseArgs,
+        }).child;
         await new Promise((resolve, reject) => {
           stopChild.once('error', reject);
           stopChild.once('exit', (code) => {

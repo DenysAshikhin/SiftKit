@@ -27,6 +27,8 @@ const PER_TOOL_RESULT_RATIO = 0.10;
 const DEFAULT_REPO_SEARCH_REQUEST_MAX_TOKENS = 2048;
 const ZERO_OUTPUT_FORCE_THRESHOLD = 10;
 const FORCED_FINISH_MAX_ATTEMPTS = 3;
+const TRANSIENT_PROVIDER_ERROR_CODES = ['ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ECONNABORTED'];
+const NON_THINKING_FINISH_FOLLOWUP_PROMPT = 'Are you sure you have enough evidence and did not get tunnel-visioned?';
 
 function createJsonlLogger(filePath) {
   const target = path.resolve(filePath);
@@ -134,18 +136,84 @@ const TASK_PACK = [
   },
 ];
 
+function serializeNetworkError(error) {
+  const source = error && typeof error === 'object' ? error : {};
+  const message = source instanceof Error ? source.message : String(source || '');
+  const code = typeof source.code === 'string' ? source.code : null;
+  const errno = typeof source.errno === 'number' || typeof source.errno === 'string'
+    ? source.errno
+    : null;
+  const syscall = typeof source.syscall === 'string' ? source.syscall : null;
+  const address = typeof source.address === 'string' ? source.address : null;
+  const port = Number.isFinite(Number(source.port)) ? Number(source.port) : null;
+  return {
+    message: message || 'unknown error',
+    code,
+    errno,
+    syscall,
+    address,
+    port,
+  };
+}
+
+function buildProviderErrorMessage(options, details) {
+  const stage = String(options.stage || 'unknown');
+  const method = String(options.method || 'GET').toUpperCase();
+  const url = String(options.url || '');
+  const parts = [
+    `provider request failed stage=${stage}`,
+    `method=${method}`,
+    `url=${url}`,
+    `error=${details.message}`,
+  ];
+  if (details.code) {
+    parts.push(`code=${details.code}`);
+  }
+  if (details.errno !== null) {
+    parts.push(`errno=${details.errno}`);
+  }
+  if (details.syscall) {
+    parts.push(`syscall=${details.syscall}`);
+  }
+  if (details.address) {
+    parts.push(`address=${details.address}`);
+  }
+  if (details.port !== null) {
+    parts.push(`port=${details.port}`);
+  }
+  return parts.join(' ');
+}
+
+function isTransientProviderError(error) {
+  const message = String(
+    error instanceof Error ? error.message : (error ?? '')
+  ).toUpperCase();
+  return TRANSIENT_PROVIDER_ERROR_CODES.some((code) => message.includes(code));
+}
+
 function requestJson(options) {
   return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
     let settled = false;
     const target = new URL(options.url);
+    const method = String(options.method || 'GET').toUpperCase();
+    const stage = String(options.stage || 'provider_request');
+    const urlPath = `${target.pathname}${target.search}`;
+    options.logger?.write({
+      kind: 'provider_request_start',
+      stage,
+      method,
+      url: options.url,
+      path: urlPath,
+    });
     const transport = target.protocol === 'https:' ? https : http;
     const request = transport.request(
       {
         protocol: target.protocol,
         hostname: target.hostname,
         port: target.port || (target.protocol === 'https:' ? 443 : 80),
-        path: `${target.pathname}${target.search}`,
-        method: options.method,
+        path: urlPath,
+        method,
         headers: options.body ? {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(options.body, 'utf8'),
@@ -162,6 +230,16 @@ function requestJson(options) {
             return;
           }
           settled = true;
+          const elapsedMs = Date.now() - startedAt;
+          options.logger?.write({
+            kind: 'provider_request_done',
+            stage,
+            method,
+            url: options.url,
+            path: urlPath,
+            statusCode: response.statusCode || 0,
+            elapsedMs,
+          });
           if (!responseText.trim()) {
             resolve({ statusCode: response.statusCode || 0, body: {}, rawText: '' });
             return;
@@ -173,6 +251,15 @@ function requestJson(options) {
               rawText: responseText,
             });
           } catch (error) {
+            options.logger?.write({
+              kind: 'provider_request_error',
+              stage,
+              method,
+              url: options.url,
+              path: urlPath,
+              elapsedMs,
+              error: serializeNetworkError(error),
+            });
             reject(error);
           }
         });
@@ -184,7 +271,22 @@ function requestJson(options) {
         return;
       }
       settled = true;
-      reject(error);
+      const elapsedMs = Date.now() - startedAt;
+      const serializedError = serializeNetworkError(error);
+      options.logger?.write({
+        kind: 'provider_request_error',
+        stage,
+        method,
+        url: options.url,
+        path: urlPath,
+        elapsedMs,
+        error: serializedError,
+      });
+      reject(new Error(buildProviderErrorMessage({
+        stage,
+        method,
+        url: options.url,
+      }, serializedError)));
     });
 
     request.setTimeout(options.timeoutMs, () => {
@@ -306,6 +408,8 @@ async function requestPlannerAction(options) {
     url: `${options.baseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
     method: 'POST',
     timeoutMs: options.timeoutMs,
+    stage: 'planner_action',
+    logger: options.logger || null,
     body: JSON.stringify({
       model: options.model,
       messages: [{ role: 'user', content: options.prompt }],
@@ -369,13 +473,24 @@ function requestPlannerActionStreaming(options, onThinkingDelta) {
   const transport = target.protocol === 'https:' ? https : http;
 
   return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    const stage = 'planner_action';
+    const method = 'POST';
+    const urlPath = `${target.pathname}${target.search}`;
+    options.logger?.write({
+      kind: 'provider_request_start',
+      stage,
+      method,
+      url: target.toString(),
+      path: urlPath,
+    });
     let settled = false;
     const request = transport.request({
       protocol: target.protocol,
       hostname: target.hostname,
       port: target.port || (target.protocol === 'https:' ? 443 : 80),
-      path: `${target.pathname}${target.search}`,
-      method: 'POST',
+      path: urlPath,
+      method,
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(bodyJson, 'utf8'),
@@ -388,7 +503,23 @@ function requestPlannerActionStreaming(options, onThinkingDelta) {
         response.on('end', () => {
           if (!settled) {
             settled = true;
-            reject(new Error(`llama.cpp planner stream failed with HTTP ${response.statusCode}${body.trim() ? `: ${body.trim().slice(0, 400)}` : '.'}`));
+            const serialized = serializeNetworkError(new Error(
+              `llama.cpp planner stream failed with HTTP ${response.statusCode}${body.trim() ? `: ${body.trim().slice(0, 400)}` : '.'}`
+            ));
+            options.logger?.write({
+              kind: 'provider_request_error',
+              stage,
+              method,
+              url: target.toString(),
+              path: urlPath,
+              elapsedMs: Date.now() - startedAt,
+              error: serialized,
+            });
+            reject(new Error(buildProviderErrorMessage({
+              stage,
+              method,
+              url: target.toString(),
+            }, serialized)));
           }
         });
         return;
@@ -440,6 +571,15 @@ function requestPlannerActionStreaming(options, onThinkingDelta) {
       response.on('end', () => {
         if (settled) return;
         settled = true;
+        options.logger?.write({
+          kind: 'provider_request_done',
+          stage,
+          method,
+          url: target.toString(),
+          path: urlPath,
+          statusCode: response.statusCode || 0,
+          elapsedMs: Date.now() - startedAt,
+        });
         let synthesized = null;
         if (toolCalls.length > 0 && toolCalls[0].name === 'run_repo_cmd') {
           let args;
@@ -458,7 +598,24 @@ function requestPlannerActionStreaming(options, onThinkingDelta) {
     });
 
     request.on('error', (err) => {
-      if (!settled) { settled = true; reject(err); }
+      if (!settled) {
+        settled = true;
+        const serialized = serializeNetworkError(err);
+        options.logger?.write({
+          kind: 'provider_request_error',
+          stage,
+          method,
+          url: target.toString(),
+          path: urlPath,
+          elapsedMs: Date.now() - startedAt,
+          error: serialized,
+        });
+        reject(new Error(buildProviderErrorMessage({
+          stage,
+          method,
+          url: target.toString(),
+        }, serialized)));
+      }
     });
     request.setTimeout(options.timeoutMs, () => {
       request.destroy(new Error(`Request timed out after ${options.timeoutMs} ms.`));
@@ -523,6 +680,8 @@ async function requestFinishValidation(options) {
     url: `${options.baseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
     method: 'POST',
     timeoutMs: options.timeoutMs,
+    stage: 'finish_validation',
+    logger: options.logger || null,
     body: JSON.stringify({
       model: options.model,
       messages: [{ role: 'user', content: options.prompt }],
@@ -622,6 +781,8 @@ async function requestTerminalSynthesis(options) {
     url: `${options.baseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
     method: 'POST',
     timeoutMs: options.timeoutMs,
+    stage: 'terminal_synthesis',
+    logger: options.logger || null,
     body: JSON.stringify({
       model: options.model,
       messages: [{ role: 'user', content: options.prompt }],
@@ -1473,7 +1634,7 @@ async function runTaskLoop(task, options) {
   let reason = 'max_turns';
   let turnsUsed = 0;
   let mockResponseIndex = 0;
-  let thinkingEnabled = false;
+  let forceThinkingOnNextTurn = false;
   const attemptedCommands = new Set();
   const minToolCallsBeforeFinish = Math.max(0, Number(options.minToolCallsBeforeFinish ?? MIN_TOOL_CALLS_BEFORE_FINISH));
   const totalContextTokens = Math.max(
@@ -1487,14 +1648,21 @@ async function runTaskLoop(task, options) {
   const usablePromptTokens = Math.max(totalContextTokens - thinkingBufferTokens, 0);
   const perToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * PER_TOOL_RESULT_RATIO));
   const requestMaxTokens = resolveRepoSearchRequestMaxTokens(options);
-  const rejectNonThinkingFinish = options.enforceThinkingFinish === true;
+  const followupOnNonThinkingFinish = options.enforceThinkingFinish === true;
   let zeroOutputStreak = 0;
   let forcedFinishAttemptsRemaining = 0;
+  let previousPlannerThinkingEnabled = null;
+  let nonThinkingFinishFollowupUsed = false;
 
   for (let turn = 1; turn <= maxTurns; turn += 1) {
     turnsUsed = turn;
     const inForcedFinishMode = forcedFinishAttemptsRemaining > 0;
-    const plannerThinkingEnabled = inForcedFinishMode ? true : (thinkingEnabled || (((commands.length + 1) % 5) === 0));
+    const plannerThinkingEnabled = inForcedFinishMode
+      ? true
+      : (forceThinkingOnNextTurn || (((commands.length + 1) % 5) === 0));
+    if (forceThinkingOnNextTurn && !inForcedFinishMode) {
+      forceThinkingOnNextTurn = false;
+    }
     const prompt = buildTaskPrompt({
       question: task.question,
       turn,
@@ -1526,12 +1694,40 @@ async function runTaskLoop(task, options) {
       mockResponseIndex,
       thinkingEnabled: plannerThinkingEnabled,
       requestMaxTokens,
+      logger: options.logger || null,
     };
-    const response = options.onProgress
-      ? await requestPlannerActionStreaming(plannerRequestOptions, (accumulatedThinking) => {
-        options.onProgress({ kind: 'thinking', turn, maxTurns, thinkingText: accumulatedThinking });
-      })
-      : await requestPlannerAction(plannerRequestOptions);
+    const switchedThinkingMode = previousPlannerThinkingEnabled !== null
+      && previousPlannerThinkingEnabled !== plannerThinkingEnabled;
+    const maxProviderAttempts = switchedThinkingMode ? 2 : 1;
+    let providerAttempt = 0;
+    let response = null;
+    while (providerAttempt < maxProviderAttempts) {
+      providerAttempt += 1;
+      try {
+        response = options.onProgress
+          ? await requestPlannerActionStreaming(plannerRequestOptions, (accumulatedThinking) => {
+            options.onProgress({ kind: 'thinking', turn, maxTurns, thinkingText: accumulatedThinking });
+          })
+          : await requestPlannerAction(plannerRequestOptions);
+        break;
+      } catch (error) {
+        const shouldRetry = providerAttempt < maxProviderAttempts && isTransientProviderError(error);
+        if (!shouldRetry) {
+          throw error;
+        }
+        options.logger?.write({
+          kind: 'provider_request_retry',
+          taskId: task.id,
+          turn,
+          stage: 'planner_action',
+          attempt: providerAttempt,
+          nextAttempt: providerAttempt + 1,
+          thinkingEnabled: plannerThinkingEnabled,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    previousPlannerThinkingEnabled = plannerThinkingEnabled;
     if (typeof response.nextMockResponseIndex === 'number') {
       mockResponseIndex = response.nextMockResponseIndex;
     }
@@ -1594,28 +1790,20 @@ async function runTaskLoop(task, options) {
         });
         continue;
       }
-      if (rejectNonThinkingFinish && !plannerThinkingEnabled) {
+      if (followupOnNonThinkingFinish && !plannerThinkingEnabled && !nonThinkingFinishFollowupUsed) {
+        nonThinkingFinishFollowupUsed = true;
         history.push({
-          command: '[finish rejected]',
-          resultText: 'Rejected finish from non-thinking turn. Re-run finish with thinking enabled.',
+          command: '[follow-up]',
+          resultText: NON_THINKING_FINISH_FOLLOWUP_PROMPT,
         });
+        forceThinkingOnNextTurn = true;
         options.logger?.write({
-          kind: 'turn_finish_rejected_non_thinking',
+          kind: 'turn_non_thinking_finish_followup',
           taskId: task.id,
           turn,
-          warning: 'Rejected finish from non-thinking turn. Re-run finish with thinking enabled.',
+          followupPrompt: NON_THINKING_FINISH_FOLLOWUP_PROMPT,
+          forcedThinkingOnNextTurn: true,
         });
-        if (!thinkingEnabled) {
-          thinkingEnabled = true;
-          options.logger?.write({
-            kind: 'turn_thinking_mode_switched',
-            taskId: task.id,
-            turn,
-            fromThinkingEnabled: false,
-            toThinkingEnabled: true,
-            reason: 'finish_non_thinking_rejected',
-          });
-        }
         continue;
       }
       options.logger?.write({
@@ -1838,6 +2026,7 @@ async function runTaskLoop(task, options) {
         mockResponses: options.mockResponses,
         mockResponseIndex,
         requestMaxTokens,
+        logger: options.logger || null,
       });
       if (typeof synthesisResponse.nextMockResponseIndex === 'number') {
         mockResponseIndex = synthesisResponse.nextMockResponseIndex;

@@ -134,6 +134,7 @@ async function executeRepoSearchRequest(request) {
     const logger = createJsonLogger(tempTranscriptPath);
     const module = require('../scripts/mock-repo-search-loop.js');
     try {
+        const progressCallback = request.onProgress;
         const scorecard = await module.runMockRepoSearch({
             repoRoot,
             config: request.config,
@@ -145,9 +146,9 @@ async function executeRepoSearchRequest(request) {
             availableModels: request.availableModels,
             mockResponses: request.mockResponses,
             mockCommandResults: request.mockCommandResults,
-            onProgress: request.onProgress
+            onProgress: progressCallback
                 ? (event) => {
-                    request.onProgress({
+                    progressCallback({
                         ...event,
                         elapsedMs: Number.isFinite(event?.elapsedMs) ? Number(event.elapsedMs) : (Date.now() - startedAt),
                     });

@@ -152,6 +152,8 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     assert.equal(runKinds.has('failed_request'), true);
     assert.equal(runKinds.has('request_abandoned'), true);
     assert.equal(runKinds.has('repo_search'), true);
+    const repoRun = runsResponse.body.runs.find((run) => run.id === 'req-repo');
+    assert.equal(Number(repoRun?.durationMs), 2000);
 
     const detailResponse = await requestJson(`${baseUrl}/dashboard/runs/req-repo`);
     assert.equal(detailResponse.statusCode, 200);

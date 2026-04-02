@@ -118,6 +118,20 @@ function formatSecondsFromMs(value: number | null): string {
   return `${(Number(value) / 1000).toFixed(2)}s`;
 }
 
+function formatDurationHms(value: number | null): string {
+  if (!Number.isFinite(value)) {
+    return '-';
+  }
+  const totalSeconds = Math.max(0, Math.round(Number(value) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const hh = String(hours).padStart(2, '0');
+  const mm = String(minutes).padStart(2, '0');
+  const ss = String(seconds).padStart(2, '0');
+  return `${hh}:${mm}:${ss} (${hh}h ${mm}m ${ss}s)`;
+}
+
 function formatShortTime(value: string | null): string {
   if (!value) {
     return '-';
@@ -136,6 +150,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function readStringField(record: Record<string, unknown>, key: string): string | null {
   const value = record[key];
   return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function readNumberField(record: Record<string, unknown>, key: string): number | null {
+  const value = record[key];
+  return Number.isFinite(value) ? Number(value) : null;
+}
+
+function formatCompactTokenCount(value: number): string {
+  if (value >= 1000) {
+    return `${Math.round(value / 1000)}k`;
+  }
+  return String(Math.round(value));
+}
+
+function formatStepContextUsed(payload: Record<string, unknown>): string | null {
+  const promptTokenCount = readNumberField(payload, 'promptTokenCount');
+  const remainingTokenAllowance = readNumberField(payload, 'remainingTokenAllowance');
+  if (promptTokenCount === null || remainingTokenAllowance === null) {
+    return null;
+  }
+  const totalBudget = promptTokenCount + remainingTokenAllowance;
+  if (!Number.isFinite(totalBudget) || totalBudget <= 0) {
+    return null;
+  }
+  const usedPercent = Math.max(0, Math.min(100, Math.round((promptTokenCount / totalBudget) * 100)));
+  return `${formatCompactTokenCount(promptTokenCount)} (${usedPercent}%)`;
 }
 
 function extractRunFinalOutput(detail: RunDetailResponse): string | null {
@@ -269,10 +309,20 @@ type RepoSearchChatStep = {
   prompt: string | null;
   command: string;
   output: string;
+  contextUsed: string | null;
 };
 
 function buildRepoSearchChatSteps(events: RunDetailResponse['events']): RepoSearchChatStep[] {
+  const contextUsedByCommandOrder: Array<string | null> = [];
+  for (const event of events) {
+    if (event.kind !== 'turn_command_result' || !isRecord(event.payload)) {
+      continue;
+    }
+    contextUsedByCommandOrder.push(formatStepContextUsed(event.payload));
+  }
+
   const stepsFromScorecard: RepoSearchChatStep[] = [];
+  let contextUsedIndex = 0;
   for (const event of events) {
     if (event.kind !== 'run_done' || !isRecord(event.payload)) {
       continue;
@@ -301,6 +351,7 @@ function buildRepoSearchChatSteps(events: RunDetailResponse['events']): RepoSear
           prompt: commandIndex === 0 ? question : null,
           command,
           output,
+          contextUsed: contextUsedByCommandOrder[contextUsedIndex++] ?? null,
         });
       }
     }
@@ -326,6 +377,7 @@ function buildRepoSearchChatSteps(events: RunDetailResponse['events']): RepoSear
       prompt: null,
       command,
       output,
+      contextUsed: formatStepContextUsed(event.payload),
     });
   }
   return stepsFromTurns;
@@ -1104,7 +1156,7 @@ export function App() {
                   {' '}
                   <span className={`run-chip status ${String(selectedRunDetail.run.status).toLowerCase()}`}>{selectedRunDetail.run.status}</span>
                 </p>
-                <p className="hint">Started: {formatDate(selectedRunDetail.run.startedAtUtc)} | Duration: {formatNumber(selectedRunDetail.run.durationMs)} ms</p>
+                <p className="hint">Started: {formatDate(selectedRunDetail.run.startedAtUtc)} | Duration: {formatDurationHms(selectedRunDetail.run.durationMs)}</p>
                 {(() => {
                   const finalOutput = extractRunFinalOutput(selectedRunDetail);
                   if (!finalOutput) {
@@ -1144,7 +1196,11 @@ export function App() {
                   repoSearchChatSteps.length > 0 ? (
                     repoSearchChatSteps.map((step, index) => (
                       <details key={step.id} className="detail-card simple-flow-card" open={index === 0}>
-                        <summary>Step {index + 1}</summary>
+                        <summary className="simple-flow-summary">
+                          <span>Step {index + 1}</span>
+                          <span className="simple-flow-summary-meta">{step.contextUsed || '-'}
+                          </span>
+                        </summary>
                         <div className="simple-flow-body">
                           {step.prompt ? (
                             <section className="simple-flow-section">

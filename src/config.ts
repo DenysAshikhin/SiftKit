@@ -46,6 +46,8 @@ export type ServerManagedLlamaCppConfig = {
   StartupTimeoutMs?: number | null;
   HealthcheckTimeoutMs?: number | null;
   HealthcheckIntervalMs?: number | null;
+  VerboseLogging?: boolean | null;
+  VerboseArgs?: string[] | null;
 };
 
 export type SiftConfig = {
@@ -937,6 +939,8 @@ function getDefaultConfigObject(): SiftConfig {
         StartupTimeoutMs: 600_000,
         HealthcheckTimeoutMs: 2_000,
         HealthcheckIntervalMs: 1_000,
+        VerboseLogging: false,
+        VerboseArgs: [],
       },
     },
     Paths: runtimePaths,
@@ -1006,6 +1010,10 @@ function toPersistedConfigObject(config: SiftConfig): Omit<SiftConfig, 'Paths' |
         StartupTimeoutMs: config.Server?.LlamaCpp?.StartupTimeoutMs ?? null,
         HealthcheckTimeoutMs: config.Server?.LlamaCpp?.HealthcheckTimeoutMs ?? null,
         HealthcheckIntervalMs: config.Server?.LlamaCpp?.HealthcheckIntervalMs ?? null,
+        VerboseLogging: config.Server?.LlamaCpp?.VerboseLogging ?? null,
+        VerboseArgs: Array.isArray(config.Server?.LlamaCpp?.VerboseArgs)
+          ? config.Server.LlamaCpp.VerboseArgs.map((value) => String(value))
+          : null,
       },
     },
   };
@@ -1179,6 +1187,35 @@ function normalizeConfig(config: SiftConfig): { config: SiftConfig; info: Normal
   }
   if (!Object.prototype.hasOwnProperty.call(updated.Server.LlamaCpp, 'HealthcheckIntervalMs')) {
     updated.Server.LlamaCpp.HealthcheckIntervalMs = defaults.Server?.LlamaCpp?.HealthcheckIntervalMs ?? 1_000;
+    changed = true;
+  }
+  const serverLlama = updated.Server.LlamaCpp;
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'VerboseLogging')) {
+    serverLlama.VerboseLogging = defaults.Server?.LlamaCpp?.VerboseLogging ?? false;
+    changed = true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'VerboseArgs')) {
+    serverLlama.VerboseArgs = Array.isArray(defaults.Server?.LlamaCpp?.VerboseArgs)
+      ? [...defaults.Server.LlamaCpp.VerboseArgs]
+      : [];
+    changed = true;
+  }
+  if (typeof serverLlama.VerboseLogging !== 'boolean') {
+    serverLlama.VerboseLogging = Boolean(serverLlama.VerboseLogging);
+    changed = true;
+  }
+  const normalizedVerboseArgs = Array.isArray(serverLlama.VerboseArgs)
+    ? serverLlama.VerboseArgs
+      .filter((value) => typeof value === 'string' && value.trim().length > 0)
+      .map((value) => value.trim())
+    : [];
+  const currentVerboseArgs = Array.isArray(serverLlama.VerboseArgs) ? serverLlama.VerboseArgs : [];
+  if (
+    !Array.isArray(serverLlama.VerboseArgs)
+    || normalizedVerboseArgs.length !== currentVerboseArgs.length
+    || normalizedVerboseArgs.some((value, index) => value !== currentVerboseArgs[index])
+  ) {
+    serverLlama.VerboseArgs = normalizedVerboseArgs;
     changed = true;
   }
 

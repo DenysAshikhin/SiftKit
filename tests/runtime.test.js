@@ -1172,6 +1172,7 @@ $llamaLogLine = ${toSingleQuotedPowerShellLiteral(options.llamaLogLine || '')}
 $launchHangingProcess = ${options.launchHangingProcess ? '$true' : '$false'}
 $preflightConfigGet = ${options.preflightConfigGet ? '$true' : '$false'}
 $emitManagedStartupFlag = ${options.emitManagedStartupFlag ? '$true' : '$false'}
+$emitVerboseEnvFlags = ${options.emitVerboseEnvFlags ? '$true' : '$false'}
 $supportsSyncOnly = ${options.supportsSyncOnly === false ? '$false' : '$true'}
 $syncOnlyModel = ${toSingleQuotedPowerShellLiteral(options.syncOnlyModel || '')}
 $syncOnlyMarkerPath = ${toSingleQuotedPowerShellLiteral(syncOnlyMarkerPath)}
@@ -1220,6 +1221,10 @@ if ($startupLogLine) {
 }
 if ($emitManagedStartupFlag) {
   Write-Output \"managed_startup=$($env:SIFTKIT_MANAGED_LLAMA_STARTUP)\"
+}
+if ($emitVerboseEnvFlags) {
+  Write-Output \"verbose_logging_env=$($env:SIFTKIT_LLAMA_VERBOSE_LOGGING)\"
+  Write-Output \"verbose_args_env=$($env:SIFTKIT_LLAMA_VERBOSE_ARGS_JSON)\"
 }
 if ($llamaLogLine -and $env:SIFTKIT_LLAMA_STDOUT_PATH) {
   Set-Content -LiteralPath $env:SIFTKIT_LLAMA_STDOUT_PATH -Value $llamaLogLine -Encoding utf8 -NoNewline
@@ -1400,6 +1405,8 @@ test('loadConfig normalizes legacy defaults and derives effective budgets from t
       assert.equal(config.Effective.ChunkThresholdCharacters, 237565);
       assert.equal(config.Thresholds.MaxInputCharacters, undefined);
       assert.equal(config.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
+      assert.equal(config.Server.LlamaCpp.VerboseLogging, false);
+      assert.deepEqual(config.Server.LlamaCpp.VerboseArgs, []);
     }, {
       config: {
         LlamaCpp: null,
@@ -2071,6 +2078,43 @@ test('real status server passes managed startup env flag to startup scripts', as
       await waitForAsyncExpectation(() => {
         const dump = fs.readFileSync(startupDumpPath, 'utf8');
         assert.match(dump, /managed_startup=1/u);
+      });
+    }, {
+      statusPath,
+      configPath,
+    });
+  });
+});
+
+test('real status server passes managed verbose env settings to startup scripts', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
+      emitVerboseEnvFlags: true,
+    });
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+        VerboseLogging: true,
+        VerboseArgs: ['--verbose'],
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async () => {
+      const startupDumpPath = path.join(tempRoot, 'logs', 'managed-llama', 'latest-startup.log');
+      await waitForAsyncExpectation(() => {
+        const dump = fs.readFileSync(startupDumpPath, 'utf8');
+        assert.match(dump, /verbose_logging_env=1/u);
+        assert.match(dump, /verbose_args_env=\["--verbose"\]/u);
       });
     }, {
       statusPath,

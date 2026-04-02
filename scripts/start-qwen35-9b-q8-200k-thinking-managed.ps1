@@ -54,6 +54,25 @@ $repetitionPenalty = 1.0
 $reasoning = 'on'
 $reasoningBudget = 10000
 $syncOnly = $env:SIFTKIT_MANAGED_LLAMA_SYNC_ONLY -eq '1'
+$verboseLogging = $env:SIFTKIT_LLAMA_VERBOSE_LOGGING -eq '1'
+$verboseArgs = @()
+if ($env:SIFTKIT_LLAMA_VERBOSE_ARGS_JSON) {
+    try {
+        $parsedVerboseArgs = ConvertFrom-Json -InputObject $env:SIFTKIT_LLAMA_VERBOSE_ARGS_JSON
+        if ($parsedVerboseArgs -is [System.Array]) {
+            foreach ($value in $parsedVerboseArgs) {
+                if ($value -is [string] -and $value.Trim().Length -gt 0) {
+                    $verboseArgs += $value.Trim()
+                }
+            }
+        }
+    }
+    catch {
+    }
+}
+if ($verboseLogging -and $verboseArgs.Count -eq 0) {
+    $verboseArgs += '--verbose'
+}
 
 if ($ConfigUrl) {
     Set-Json -Url $ConfigUrl -Body @{
@@ -91,6 +110,12 @@ Write-Output "managed_startup=$($env:SIFTKIT_MANAGED_LLAMA_STARTUP)"
 Write-Output "model_path=$resolvedModelPath"
 Write-Output "base_url=$BaseUrl"
 Write-Output "reasoning=$reasoning"
+if ($verboseLogging) {
+    Write-Output "verbose_logging=on"
+} else {
+    Write-Output "verbose_logging=off"
+}
+Write-Output "verbose_args=$([string]::Join(' ', $verboseArgs))"
 
 $arguments = @(
     '-m', $resolvedModelPath,
@@ -115,6 +140,9 @@ $arguments = @(
 
 if ($FlashAttention) {
     $arguments += @('-fa', 'on')
+}
+if ($verboseLogging -and $verboseArgs.Count -gt 0) {
+    $arguments += $verboseArgs
 }
 
 $startInfo = @{
