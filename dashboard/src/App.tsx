@@ -576,6 +576,7 @@ export function App() {
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
   const [chatInput, setChatInput] = useState('');
   const [chatError, setChatError] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
   const [chatBusy, setChatBusy] = useState(false);
   const [thinkingDraft, setThinkingDraft] = useState('');
   const [answerDraft, setAnswerDraft] = useState('');
@@ -1424,15 +1425,25 @@ export function App() {
           <section className="panel">
             {selectedSession ? (
               <>
-                <h2>{selectedSession.title}</h2>
-                <p className="hint">
-                  Prompt Cache Hit Rate: {formatPercent(sessionPromptCacheStats.cacheHitRate)}
-                  {' | '}
-                  Cache Tokens: {formatNumber(sessionPromptCacheStats.promptCacheTokens)}
-                  {' | '}
-                  Prompt Eval Tokens: {formatNumber(sessionPromptCacheStats.promptEvalTokens)}
-                </p>
+                <div className="session-header-row">
+                  <h2>{selectedSession.title}</h2>
+                  <span className="hint">
+                    Cache: {formatPercent(sessionPromptCacheStats.cacheHitRate)}
+                    {' | '}
+                    {formatNumber(sessionPromptCacheStats.promptCacheTokens)} cached
+                    {' | '}
+                    {formatNumber(sessionPromptCacheStats.promptEvalTokens)} eval
+                  </span>
+                </div>
                 <div className="chat-mode-row">
+                  <button
+                    type="button"
+                    className={showSettings ? 'active settings-toggle' : 'settings-toggle'}
+                    onClick={() => setShowSettings((prev) => !prev)}
+                    title="Toggle settings"
+                  >
+                    &#9881;
+                  </button>
                   <button
                     type="button"
                     className={chatMode === 'chat' ? 'active' : ''}
@@ -1457,89 +1468,98 @@ export function App() {
                   >
                     Repo Search
                   </button>
-                </div>
-                {chatMode === 'chat' ? (
-                  <div className="thinking-toggle-row">
-                    <label htmlFor="thinking-toggle">Thinking</label>
-                    <input
-                      id="thinking-toggle"
-                      type="checkbox"
-                      checked={selectedSession.thinkingEnabled !== false}
-                      onChange={(event) => { void onToggleThinking(event.target.checked); }}
-                      disabled={chatBusy}
-                    />
-                  </div>
-                ) : null}
-                {(chatMode === 'plan' || chatMode === 'repo-search') ? (
-                  <div className="plan-root-row">
-                    <input
-                      placeholder="Repo folder path..."
-                      value={planRepoRootInput}
-                      onChange={(event) => setPlanRepoRootInput(event.target.value)}
-                      disabled={chatBusy}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => { void onSavePlanRepoRoot(); }}
-                      disabled={chatBusy || !planRepoRootInput.trim()}
-                    >
-                      Save Folder
-                    </button>
-                  </div>
-                ) : null}
-                {(chatMode === 'plan' || chatMode === 'repo-search') ? (
-                  <div className="plan-root-row">
-                    <label htmlFor="max-turns-input" title="Maximum number of tool calls before stopping">Max Turns</label>
-                    <input
-                      id="max-turns-input"
-                      type="number"
-                      min="1"
-                      max="200"
-                      style={{ width: '70px' }}
-                      value={planMaxTurnsInput}
-                      onChange={(event) => setPlanMaxTurnsInput(event.target.value)}
-                      disabled={chatBusy}
-                    />
-                    <label htmlFor="thinking-interval-input" title="Force a thinking step every N tool calls">Think Every</label>
-                    <input
-                      id="thinking-interval-input"
-                      type="number"
-                      min="1"
-                      max="50"
-                      style={{ width: '70px' }}
-                      value={planThinkingIntervalInput}
-                      onChange={(event) => setPlanThinkingIntervalInput(event.target.value)}
-                      disabled={chatBusy}
-                    />
-                    <span className="hint" style={{ fontSize: '0.75rem' }}>steps</span>
-                  </div>
-                ) : null}
-                {contextUsage && (
-                  <div className={contextUsage.shouldCondense ? 'usage warning' : 'usage'}>
-                    <strong>
-                      <span title="Chat-visible token usage in this session, excluding hidden tool-call context.">
-                        Context: {formatNumber(contextUsage.chatUsedTokens)} / {formatNumber(contextUsage.contextWindowTokens)} tokens
-                      </span>
-                    </strong>
-                    <span title="Format: chat_tokens (total_tokens_including_hidden_tool_context).">
-                      Remaining: {formatNumber(contextUsage.remainingTokens)}
-                      {' | '}
-                      {formatNumber(contextUsage.chatUsedTokens)} ({formatNumber(contextUsage.totalUsedTokens)} with tools)
-                      {' | '}
-                      Warn at: {formatNumber(contextUsage.warnThresholdTokens)}
+                  {(chatMode === 'plan' || chatMode === 'repo-search') && !showSettings && (
+                    <span className="hint settings-summary" title="Click the gear icon to adjust">
+                      {planMaxTurnsInput ? `${planMaxTurnsInput} turns` : ''}{planMaxTurnsInput && planThinkingIntervalInput ? ', ' : ''}{planThinkingIntervalInput ? `think every ${planThinkingIntervalInput}` : ''}
                     </span>
-                    <div className="usage-actions">
-                      <button
-                        onClick={() => { void onClearToolContext(); }}
-                        disabled={chatBusy || Number(contextUsage.toolUsedTokens || 0) <= 0}
-                      >
-                        Discard Tool Context
-                      </button>
-                    </div>
-                    {contextUsage.shouldCondense && (
-                      <button onClick={() => { void onCondense(); }} disabled={chatBusy}>Condense Now</button>
+                  )}
+                </div>
+                {showSettings && (
+                  <>
+                    {chatMode === 'chat' ? (
+                      <div className="thinking-toggle-row">
+                        <label htmlFor="thinking-toggle">Thinking</label>
+                        <input
+                          id="thinking-toggle"
+                          type="checkbox"
+                          checked={selectedSession.thinkingEnabled !== false}
+                          onChange={(event) => { void onToggleThinking(event.target.checked); }}
+                          disabled={chatBusy}
+                        />
+                      </div>
+                    ) : null}
+                    {(chatMode === 'plan' || chatMode === 'repo-search') ? (
+                      <div className="plan-root-row">
+                        <input
+                          placeholder="Repo folder path..."
+                          value={planRepoRootInput}
+                          onChange={(event) => setPlanRepoRootInput(event.target.value)}
+                          disabled={chatBusy}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => { void onSavePlanRepoRoot(); }}
+                          disabled={chatBusy || !planRepoRootInput.trim()}
+                        >
+                          Save Folder
+                        </button>
+                      </div>
+                    ) : null}
+                    {(chatMode === 'plan' || chatMode === 'repo-search') ? (
+                      <div className="settings-inline-row">
+                        <label htmlFor="max-turns-input" title="Maximum number of tool calls before stopping">Max Turns</label>
+                        <input
+                          id="max-turns-input"
+                          type="number"
+                          min="1"
+                          max="200"
+                          style={{ width: '70px' }}
+                          value={planMaxTurnsInput}
+                          onChange={(event) => setPlanMaxTurnsInput(event.target.value)}
+                          disabled={chatBusy}
+                        />
+                        <label htmlFor="thinking-interval-input" title="Force a thinking step every N tool calls">Think Every</label>
+                        <input
+                          id="thinking-interval-input"
+                          type="number"
+                          min="1"
+                          max="50"
+                          style={{ width: '70px' }}
+                          value={planThinkingIntervalInput}
+                          onChange={(event) => setPlanThinkingIntervalInput(event.target.value)}
+                          disabled={chatBusy}
+                        />
+                        <span className="hint" style={{ fontSize: '0.75rem' }}>steps</span>
+                      </div>
+                    ) : null}
+                    {contextUsage && (
+                      <div className={contextUsage.shouldCondense ? 'usage warning' : 'usage'}>
+                        <strong>
+                          <span title="Chat-visible token usage in this session, excluding hidden tool-call context.">
+                            Context: {formatNumber(contextUsage.chatUsedTokens)} / {formatNumber(contextUsage.contextWindowTokens)} tokens
+                          </span>
+                        </strong>
+                        <span title="Format: chat_tokens (total_tokens_including_hidden_tool_context).">
+                          Remaining: {formatNumber(contextUsage.remainingTokens)}
+                          {' | '}
+                          {formatNumber(contextUsage.chatUsedTokens)} ({formatNumber(contextUsage.totalUsedTokens)} with tools)
+                          {' | '}
+                          Warn at: {formatNumber(contextUsage.warnThresholdTokens)}
+                        </span>
+                        <div className="usage-actions">
+                          <button
+                            onClick={() => { void onClearToolContext(); }}
+                            disabled={chatBusy || Number(contextUsage.toolUsedTokens || 0) <= 0}
+                          >
+                            Discard Tool Context
+                          </button>
+                        </div>
+                        {contextUsage.shouldCondense && (
+                          <button onClick={() => { void onCondense(); }} disabled={chatBusy}>Condense Now</button>
+                        )}
+                      </div>
                     )}
-                  </div>
+                  </>
                 )}
                 {selectedSession.condensedSummary && (
                   <details className="detail-card">

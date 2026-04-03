@@ -579,6 +579,23 @@ pre {
   height: 16px;
 }
 
+.session-header-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.session-header-row h2 {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.session-header-row .hint {
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
 .chat-mode-row {
   display: flex;
   gap: 8px;
@@ -588,6 +605,23 @@ pre {
 .chat-mode-row button.active {
   border-color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.settings-toggle {
+  font-size: 1.1rem;
+  padding: 4px 8px;
+}
+
+.settings-summary {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.settings-inline-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 .plan-root-row {
