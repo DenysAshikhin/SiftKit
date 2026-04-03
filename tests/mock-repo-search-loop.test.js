@@ -169,7 +169,7 @@ test('runTaskLoop rewrites unsupported rg --type tsx and annotates output', asyn
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "foo" src --glob "*.tsx"': { exitCode: 0, stdout: 'tsx hit', stderr: '' },
+        'rg -n "foo" src --type ts': { exitCode: 0, stdout: 'tsx hit', stderr: '' },
       },
       logger: {
         write(event) {
@@ -180,8 +180,8 @@ test('runTaskLoop rewrites unsupported rg --type tsx and annotates output', asyn
   );
 
   const commandResult = events.find((event) => event.kind === 'turn_command_result');
-  assert.equal(commandResult.command, 'rg -n "foo" src --glob "*.tsx"');
-  assert.match(String(commandResult.output || ''), /rewrote --type tsx to --glob/u);
+  assert.equal(commandResult.command, 'rg -n "foo" src --type ts');
+  assert.match(String(commandResult.output || ''), /rewrote unsupported --type tsx to valid types/u);
   assert.equal(result.reason, 'finish');
   assert.equal(result.commandFailures, 0);
   assert.equal(result.passed, true);
@@ -205,7 +205,7 @@ test('runTaskLoop rewrites mixed rg --type ts and --type tsx flags', async () =>
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "foo" src --glob "*.tsx" --glob "*.ts"': { exitCode: 0, stdout: 'mixed hit', stderr: '' },
+        'rg -n "foo" src --type ts': { exitCode: 0, stdout: 'mixed hit', stderr: '' },
       },
       logger: {
         write(event) {
@@ -216,8 +216,8 @@ test('runTaskLoop rewrites mixed rg --type ts and --type tsx flags', async () =>
   );
 
   const commandResult = events.find((event) => event.kind === 'turn_command_result');
-  assert.equal(commandResult.command, 'rg -n "foo" src --glob "*.tsx" --glob "*.ts"');
-  assert.match(String(commandResult.output || ''), /rewrote --type tsx to --glob/u);
+  assert.equal(commandResult.command, 'rg -n "foo" src --type ts');
+  assert.match(String(commandResult.output || ''), /rewrote unsupported --type tsx to valid types/u);
   assert.equal(result.reason, 'finish');
   assert.equal(result.commandFailures, 0);
   assert.equal(result.passed, true);
@@ -295,27 +295,111 @@ test('runTaskLoop logs provider request error details and surfaces enriched netw
   assert.equal(typeof errorEvent?.error?.message, 'string');
 });
 
-test('runTaskLoop rejects unsupported rg type rewrite when not safe to rewrite', async () => {
+test('runTaskLoop rewrites unsupported rg --type tsx even when --glob is present', async () => {
+  const events = [];
   const result = await runTaskLoop(
     {
-      id: 'task-rewrite-reject',
+      id: 'task-rewrite-with-glob',
       question: 'Find tsx hits.',
-      signals: [],
+      signals: ['tsx glob hit'],
     },
     {
-      maxTurns: 1,
+      maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"foo\\" --type tsx --glob \\"*.tsx\\" src"}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
       ],
-      mockCommandResults: {},
+      mockCommandResults: {
+        'rg -n "foo" --glob "*.tsx" src --type ts': { exitCode: 0, stdout: 'tsx glob hit', stderr: '' },
+      },
+      logger: {
+        write(event) {
+          events.push(event);
+        },
+      },
     }
   );
 
-  assert.equal(result.commands.length, 1);
-  assert.equal(result.commands[0].safe, false);
-  assert.match(String(result.commands[0].output || ''), /use --glob "\*\.tsx" or --type ts/u);
+  const commandResult = events.find((event) => event.kind === 'turn_command_result');
+  assert.equal(commandResult.command, 'rg -n "foo" --glob "*.tsx" src --type ts');
+  assert.match(String(commandResult.output || ''), /rewrote unsupported --type tsx to valid types/u);
+  assert.equal(result.reason, 'finish');
+  assert.equal(result.commandFailures, 0);
+});
+
+test('runTaskLoop rewrites unsupported rg --type jsx to --type js', async () => {
+  const events = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-rewrite-jsx',
+      question: 'Find jsx hits.',
+      signals: ['jsx hit'],
+    },
+    {
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"foo\\" --type jsx src"}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'rg -n "foo" src --type js': { exitCode: 0, stdout: 'jsx hit', stderr: '' },
+      },
+      logger: {
+        write(event) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const commandResult = events.find((event) => event.kind === 'turn_command_result');
+  assert.equal(commandResult.command, 'rg -n "foo" src --type js');
+  assert.match(String(commandResult.output || ''), /rewrote unsupported --type jsx to valid types/u);
+  assert.equal(result.reason, 'finish');
+  assert.equal(result.commandFailures, 0);
+  assert.equal(result.passed, true);
+});
+
+test('runTaskLoop rewrites mixed --type jsx and --type tsx to --type js and --type ts', async () => {
+  const events = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-rewrite-jsx-tsx',
+      question: 'Find jsx and tsx hits.',
+      signals: ['both hit'],
+    },
+    {
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"foo\\" --type jsx --type tsx src"}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'rg -n "foo" src --type js --type ts': { exitCode: 0, stdout: 'both hit', stderr: '' },
+      },
+      logger: {
+        write(event) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const commandResult = events.find((event) => event.kind === 'turn_command_result');
+  assert.equal(commandResult.command, 'rg -n "foo" src --type js --type ts');
+  assert.match(String(commandResult.output || ''), /rewrote unsupported --type jsx, tsx to valid types/u);
+  assert.equal(result.reason, 'finish');
+  assert.equal(result.commandFailures, 0);
+  assert.equal(result.passed, true);
 });
 
 test('runTaskLoop counts non-zero command exits as command failures but not invalid responses', async () => {

@@ -375,6 +375,12 @@ export async function streamRepoSearchMessage(
       onToolEvent(evt);
       return;
     }
+    if (eventName === 'answer' && parsed && typeof parsed === 'object') {
+      if (onAnswer) {
+        onAnswer(String((parsed as { answer?: unknown }).answer || ''));
+      }
+      return;
+    }
     if (eventName === 'done') {
       finalResponse = parsed as ChatSessionResponse;
       return;

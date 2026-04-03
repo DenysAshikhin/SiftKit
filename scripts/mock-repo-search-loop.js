@@ -601,7 +601,10 @@ function requestPlannerActionStreaming(options, onThinkingDelta) {
             }
             const choice = Array.isArray(parsed?.choices) ? parsed.choices[0] : null;
             const delta = choice?.delta && typeof choice.delta === 'object' ? choice.delta : {};
-            const deltaThinking = typeof delta.reasoning_content === 'string' ? delta.reasoning_content : '';
+            const message = choice?.message && typeof choice.message === 'object' ? choice.message : {};
+            const deltaThinking = typeof delta.reasoning_content === 'string' ? delta.reasoning_content
+              : typeof message.reasoning_content === 'string' ? message.reasoning_content
+              : '';
             const deltaContent = typeof delta.content === 'string' ? delta.content : '';
             if (delta.tool_calls && Array.isArray(delta.tool_calls)) {
               for (const tc of delta.tool_calls) {
@@ -1417,28 +1420,25 @@ function normalizePlannerCommand(command) {
   let wasRewritten = false;
   let notes = [];
 
-  const hasTsxType = /(?:^|\s)--type\s+tsx\b/iu.test(current);
-  if (hasTsxType) {
-    if (/(?:^|\s)--glob(?:\s|$)/iu.test(current)) {
-      return {
-        command: current,
-        rewritten: false,
-        note: '',
-        rejected: true,
-        rejectedReason: 'unsupported rg type flag: --type tsx; use --glob "*.tsx" or --type ts',
-      };
+  const unsupportedTypeMap = { tsx: 'ts', jsx: 'js' };
+  const typeMatches = [...current.matchAll(/(?:^|\s)--type\s+(\S+)/giu)];
+  const unsupportedTypes = typeMatches
+    .map((m) => m[1].toLowerCase())
+    .filter((t) => t in unsupportedTypeMap);
+
+  if (unsupportedTypes.length > 0) {
+    const allTypes = typeMatches.map((m) => m[1].toLowerCase());
+    const finalTypes = new Set();
+    for (const t of allTypes) {
+      finalTypes.add(unsupportedTypeMap[t] || t);
     }
-    const hasTsType = /(?:^|\s)--type\s+ts\b/iu.test(current);
-    current = current
-      .replace(/\s--type\s+tsx\b/giu, '')
-      .replace(/\s--type\s+ts\b/giu, '');
-    current = `${current} --glob "*.tsx"`;
-    if (hasTsType) {
-      current = `${current} --glob "*.ts"`;
+    current = current.replace(/\s--type\s+\S+/giu, '');
+    for (const t of finalTypes) {
+      current = `${current} --type ${t}`;
     }
     current = current.trim();
     wasRewritten = true;
-    notes.push('rewrote --type tsx to --glob');
+    notes.push(`rewrote unsupported --type ${unsupportedTypes.join(', ')} to valid types`);
   }
 
   const rgPattern = extractRgPattern(current);
@@ -1620,7 +1620,7 @@ function buildTaskSystemPrompt(repoRoot) {
     '- Invalid tool usage example: `{"action":"tool","tool_name":"read_lines","args":{"path":"src/app.ts"}}`.',
     '- Invalid args example: `{"action":"tool","tool_name":"run_repo_cmd","args":{"cmd":"rg -n \\"x\\" src"}}`.',
     '- Invalid args example: `{"action":"tool","tool_name":"run_repo_cmd","args":{}}`.',
-    '- Invalid mixed-type example: `{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"x\\" --type ts --type tsx src"}}`.',
+    '- Note: `--type tsx` and `--type jsx` are auto-corrected to `--type ts` and `--type js` respectively.',
     '- Invalid command parameter example: `{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"x\\" src; del file.txt"}}`.',
     '- Invalid command parameter example: `{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content src\\\\x.ts | Out-File out.txt"}}`.',
     ...(agentsContent ? ['', '--- agents.md (project-specific instructions) ---', '', agentsContent] : []),
@@ -1824,6 +1824,9 @@ async function runTaskLoop(task, options) {
           error: error instanceof Error ? error.message : String(error),
         });
       }
+    }
+    if (response.thinkingText && options.onProgress) {
+      options.onProgress({ kind: 'thinking', turn, maxTurns, thinkingText: response.thinkingText });
     }
     previousPlannerThinkingEnabled = plannerThinkingEnabled;
     if (typeof response.nextMockResponseIndex === 'number') {
