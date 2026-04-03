@@ -636,6 +636,68 @@ test('runTaskLoop prompt omits visible tool-call budget counters', async () => {
   assert.equal(result.reason, 'finish');
 });
 
+test('runTaskLoop prompt includes anti-loop and larger single-file read guidance', async () => {
+  const events = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-prompt-single-file-guidance',
+      question: 'Find planner text.',
+      signals: [],
+    },
+    {
+      maxTurns: 1,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: ['{"action":"finish","output":"done"}'],
+      mockCommandResults: {},
+      logger: {
+        write(event) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const prompt = events.find((event) => event.kind === 'turn_prompt')?.prompt || '';
+  assert.match(prompt, /Single-file read strategy:/u);
+  assert.match(prompt, /Start with `rg -n` to find anchors/u);
+  assert.match(prompt, /read a larger section in one call/u);
+  assert.match(prompt, /Prefer `Get-Content <file> -Raw` for full-file inspection when manageable/u);
+  assert.match(prompt, /Do not issue multiple consecutive reads of the same file with only small `-Skip\/-First` changes/u);
+  assert.match(prompt, /If a command returns an output token-allocation error, switch to stronger anchors/u);
+  assert.equal(result.reason, 'finish');
+});
+
+test('runTaskLoop prompt examples use larger reads and anchor-first flow', async () => {
+  const events = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-prompt-example-guidance',
+      question: 'Find planner text.',
+      signals: [],
+    },
+    {
+      maxTurns: 1,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: ['{"action":"finish","output":"done"}'],
+      mockCommandResults: {},
+      logger: {
+        write(event) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const prompt = events.find((event) => event.kind === 'turn_prompt')?.prompt || '';
+  assert.doesNotMatch(prompt, /Get-Content src\\\\summary\.ts \| Select-Object -First 80/u);
+  assert.match(prompt, /Get-Content src\\\\summary\.ts \| Select-Object -First 240/u);
+  assert.match(prompt, /rg -n \\"invokePlannerMode\\" src\\\\summary\.ts/u);
+  assert.match(prompt, /Get-Content src\\\\summary\.ts \| Select-Object -Skip 860 -First 240/u);
+  assert.equal(result.reason, 'finish');
+});
+
 test('runTaskLoop sends append-only chat requests with explicit cache_prompt and a pinned slot', async () => {
   const chatRequests = [];
   let requestCount = 0;
