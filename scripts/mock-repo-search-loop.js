@@ -29,6 +29,8 @@ const ZERO_OUTPUT_FORCE_THRESHOLD = 10;
 const FORCED_FINISH_MAX_ATTEMPTS = 3;
 const TRANSIENT_PROVIDER_ERROR_CODES = ['ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ECONNABORTED'];
 const NON_THINKING_FINISH_FOLLOWUP_PROMPT = 'Are you sure you have enough evidence and did not get tunnel-visioned?';
+const COMPRESSED_HISTORY_MARKER = '[COMPRESSED HISTORICAL EVIDENCE]';
+const BASELINE_IGNORED_NAMES = ['.git', 'node_modules', '.node_modules'];
 let nextLlamaCppSlotId = 0;
 
 function createJsonlLogger(filePath) {
@@ -1407,47 +1409,241 @@ function rewriteRgWithFixedStrings(commandStr, pattern) {
   return withoutPattern;
 }
 
-function normalizePlannerCommand(command) {
+function normalizePathForComparison(value) {
+  return String(value || '').replace(/\//gu, '\\').toLowerCase();
+}
+
+function extractIgnoreNameFromGitignoreLine(line) {
+  const trimmed = String(line || '').trim();
+  if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('!')) {
+    return '';
+  }
+  const normalized = trimmed
+    .replace(/\\/gu, '/')
+    .replace(/^\/+/u, '')
+    .replace(/\/+$/u, '');
+  if (!normalized || /[*?\[\]]/u.test(normalized)) {
+    return '';
+  }
+  const firstSegment = normalized.split('/').filter(Boolean)[0] || '';
+  if (!firstSegment || firstSegment === '.' || firstSegment === '..') {
+    return '';
+  }
+  return firstSegment;
+}
+
+function buildIgnorePolicy(repoRoot) {
+  if (!repoRoot) {
+    return {
+      names: [],
+      namesLower: new Set(),
+    };
+  }
+
+  const names = [];
+  const seen = new Set();
+  const addName = (value) => {
+    const token = String(value || '').trim();
+    if (!token) return;
+    const key = token.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    names.push(token);
+  };
+
+  for (const baseline of BASELINE_IGNORED_NAMES) {
+    addName(baseline);
+  }
+
+  if (repoRoot) {
+    const gitignorePath = path.join(repoRoot, '.gitignore');
+    try {
+      if (fs.existsSync(gitignorePath)) {
+        const lines = fs.readFileSync(gitignorePath, 'utf8').split(/\r?\n/gu);
+        for (const line of lines) {
+          const name = extractIgnoreNameFromGitignoreLine(line);
+          if (name) {
+            addName(name);
+          }
+        }
+      }
+    } catch {
+      // Ignore policy is best-effort.
+    }
+  }
+
+  return {
+    names,
+    namesLower: new Set(names.map((name) => name.toLowerCase())),
+  };
+}
+
+function hasIgnoreDisablingRgFlag(command) {
+  return /(?:^|\s)(?:-u|-uu|-uuu)(?:\s|$)|(?:^|\s)--no-ignore(?:-[a-z]+)*(?:\s|$)/iu.test(command);
+}
+
+function rgAlreadyHasIgnoreGlob(command, ignoreName) {
+  const escaped = ignoreName.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  return new RegExp(`(?:^|\\s)(?:-g|--glob)\\s+["'][^"']*${escaped}[^"']*["']`, 'iu').test(command);
+}
+
+function appendToFirstSegment(command, addition) {
+  const segments = splitTopLevelPipes(command);
+  if (!segments.length) {
+    return command;
+  }
+  segments[0] = `${segments[0]} ${addition}`.trim();
+  return segments.join(' | ');
+}
+
+function extractPathsForCommandSegment(segment, commandName) {
+  const configByCommand = {
+    'get-content': {
+      valueOptions: new Set(['-path', '-literalpath', '-encoding', '-delimiter', '-filter', '-include', '-exclude', '-raw', '-readcount', '-totalcount', '-tail']),
+      pathOptions: new Set(['-path', '-literalpath']),
+      positionalArePaths: true,
+      rgPatternOptions: new Set(),
+    },
+    'select-string': {
+      valueOptions: new Set(['-path', '-literalpath', '-pattern', '-simplematch', '-encoding', '-caseSensitive', '-allmatches', '-notmatch']),
+      pathOptions: new Set(['-path', '-literalpath']),
+      positionalArePaths: false,
+      rgPatternOptions: new Set(),
+    },
+  };
+  const config = configByCommand[commandName];
+  if (!config) {
+    return [];
+  }
+  return collectOptionPaths(tokenizeSegment(segment), { [commandName]: config });
+}
+
+function pathIsIgnoredByPolicy(pathCandidate, ignorePolicy, repoRoot) {
+  if (!ignorePolicy || !ignorePolicy.namesLower || !pathCandidate) {
+    return false;
+  }
+  const normalizedRepoRoot = normalizePathForComparison(repoRoot).replace(/\\+$/u, '');
+  let normalizedPath = normalizePathCandidate(pathCandidate).replace(/\//gu, '\\');
+  if (!normalizedPath) {
+    return false;
+  }
+  if (normalizedRepoRoot && /^[a-zA-Z]:\\/u.test(normalizedPath)) {
+    const candidateLower = normalizePathForComparison(normalizedPath);
+    if (candidateLower.startsWith(normalizedRepoRoot)) {
+      normalizedPath = normalizedPath.slice(normalizedRepoRoot.length).replace(/^\\+/u, '');
+    }
+  }
+  const segments = normalizedPath.split(/[\\/]+/u).filter(Boolean);
+  for (const segment of segments) {
+    if (/[*?\[\]]/u.test(segment)) {
+      continue;
+    }
+    if (ignorePolicy.namesLower.has(segment.toLowerCase())) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function normalizePlannerCommand(command, options = {}) {
   const trimmed = String(command || '').trim();
   if (!trimmed) {
     return { command: trimmed, rewritten: false, note: '' };
   }
-  if (!/^rg(?:\s|$)/iu.test(trimmed)) {
-    return { command: trimmed, rewritten: false, note: '' };
-  }
+  const ignorePolicy = options.ignorePolicy || buildIgnorePolicy(options.repoRoot);
+  const commandToken = getFirstToken(trimmed);
 
   let current = trimmed;
   let wasRewritten = false;
   let notes = [];
 
-  const unsupportedTypeMap = { tsx: 'ts', jsx: 'js' };
-  const typeMatches = [...current.matchAll(/(?:^|\s)--type\s+(\S+)/giu)];
-  const unsupportedTypes = typeMatches
-    .map((m) => m[1].toLowerCase())
-    .filter((t) => t in unsupportedTypeMap);
-
-  if (unsupportedTypes.length > 0) {
-    const allTypes = typeMatches.map((m) => m[1].toLowerCase());
-    const finalTypes = new Set();
-    for (const t of allTypes) {
-      finalTypes.add(unsupportedTypeMap[t] || t);
+  if (commandToken === 'rg') {
+    if (hasIgnoreDisablingRgFlag(current)) {
+      return {
+        command: current,
+        rewritten: false,
+        note: '',
+        rejected: true,
+        rejectedReason: 'ignore-disabling rg flags are not allowed',
+      };
     }
-    current = current.replace(/\s--type\s+\S+/giu, '');
-    for (const t of finalTypes) {
-      current = `${current} --type ${t}`;
-    }
-    current = current.trim();
-    wasRewritten = true;
-    notes.push(`rewrote unsupported --type ${unsupportedTypes.join(', ')} to valid types`);
-  }
 
-  const rgPattern = extractRgPattern(current);
-  if (rgPattern && looksLikeWindowsPathLiteral(rgPattern)) {
-    const rewritten = rewriteRgWithFixedStrings(current, rgPattern);
-    if (rewritten) {
-      current = rewritten;
+    const unsupportedTypeMap = { tsx: 'ts', jsx: 'js' };
+    const typeMatches = [...current.matchAll(/(?:^|\s)--type\s+(\S+)/giu)];
+    const unsupportedTypes = typeMatches
+      .map((m) => m[1].toLowerCase())
+      .filter((t) => t in unsupportedTypeMap);
+
+    if (unsupportedTypes.length > 0) {
+      const allTypes = typeMatches.map((m) => m[1].toLowerCase());
+      const finalTypes = new Set();
+      for (const t of allTypes) {
+        finalTypes.add(unsupportedTypeMap[t] || t);
+      }
+      current = current.replace(/\s--type\s+\S+/giu, '');
+      for (const t of finalTypes) {
+        current = `${current} --type ${t}`;
+      }
+      current = current.trim();
       wasRewritten = true;
-      notes.push('added -F for Windows path literal pattern');
+      notes.push(`rewrote unsupported --type ${unsupportedTypes.join(', ')} to valid types`);
+    }
+
+    const rgPattern = extractRgPattern(current);
+    if (rgPattern && looksLikeWindowsPathLiteral(rgPattern)) {
+      const rewritten = rewriteRgWithFixedStrings(current, rgPattern);
+      if (rewritten) {
+        current = rewritten;
+        wasRewritten = true;
+        notes.push('added -F for Windows path literal pattern');
+      }
+    }
+
+    if (Array.isArray(ignorePolicy.names) && ignorePolicy.names.length > 0) {
+      const missingNames = ignorePolicy.names.filter((name) => !rgAlreadyHasIgnoreGlob(current, name));
+      if (missingNames.length > 0) {
+        const globArgs = missingNames
+          .map((name) => `--glob "!**/${name.replace(/"/gu, '\\"')}/**"`)
+          .join(' ');
+        current = `${current} ${globArgs}`.trim();
+        notes.push('added ignore globs from ignore policy');
+        wasRewritten = true;
+      }
+    }
+  } else if (commandToken === 'get-childitem' || commandToken === 'ls') {
+    if (Array.isArray(ignorePolicy.names) && ignorePolicy.names.length > 0 && !/(?:^|\s)-exclude(?:\s|$)/iu.test(current)) {
+      current = appendToFirstSegment(current, `-Exclude ${ignorePolicy.names.join(',')}`);
+      notes.push('added -Exclude from ignore policy');
+      wasRewritten = true;
+    }
+  } else if (commandToken === 'select-string') {
+    const hasPathOption = /(?:^|\s)-(?:path|literalpath)(?:\s|$)/iu.test(current);
+    if (
+      hasPathOption
+      && Array.isArray(ignorePolicy.names)
+      && ignorePolicy.names.length > 0
+      && !/(?:^|\s)-exclude(?:\s|$)/iu.test(current)
+    ) {
+      current = appendToFirstSegment(current, `-Exclude ${ignorePolicy.names.join(',')}`);
+      notes.push('added -Exclude from ignore policy');
+      wasRewritten = true;
+    }
+  } else if (commandToken === 'get-content') {
+    const segments = splitTopLevelPipes(current);
+    for (const segment of segments) {
+      if (getFirstToken(segment) !== 'get-content') {
+        continue;
+      }
+      const pathCandidates = extractPathsForCommandSegment(segment, 'get-content');
+      if (pathCandidates.some((candidate) => pathIsIgnoredByPolicy(candidate, ignorePolicy, options.repoRoot))) {
+        return {
+          command: current,
+          rewritten: false,
+          note: '',
+          rejected: true,
+          rejectedReason: 'command targets a path ignored by policy',
+        };
+      }
     }
   }
 
@@ -1583,6 +1779,7 @@ function buildTaskSystemPrompt(repoRoot) {
     '- Use only read-only commands.',
     '- This is a Windows machine so stick to PowerShell-valid commands only.',
     '- Prefer rg for search.',
+    '- Ignored paths from `.gitignore` are auto-filtered by runtime policy.',
     '- One command per turn.',
     '- Finish when you have enough evidence.',
     '- Minimum depth rule: do at least 5 tool-call turns before finishing.',
@@ -1727,6 +1924,132 @@ async function countTokensWithFallback(config, text) {
   return estimateTokenCount(config, text);
 }
 
+async function preflightPlannerPromptBudget(options = {}) {
+  const totalContextTokens = Math.max(1, Number(options.totalContextTokens || 0));
+  const thinkingBufferTokens = Math.max(0, Number(options.thinkingBufferTokens || 0));
+  const requestMaxTokens = Math.max(0, Number(options.requestMaxTokens || 0));
+  const promptText = typeof options.prompt === 'string'
+    ? options.prompt
+    : renderTaskTranscript(Array.isArray(options.messages) ? options.messages : []);
+  const promptTokenCount = await countTokensWithFallback(options.config, promptText);
+  const maxPromptBudget = Math.max(totalContextTokens - thinkingBufferTokens - requestMaxTokens, 0);
+  const overflowTokens = Math.max(promptTokenCount - maxPromptBudget, 0);
+  return {
+    ok: overflowTokens === 0,
+    promptTokenCount,
+    maxPromptBudget,
+    overflowTokens,
+  };
+}
+
+function summarizeMessageForCompaction(message) {
+  if (!message || typeof message !== 'object') {
+    return '';
+  }
+  const role = String(message.role || 'unknown');
+  const content = typeof message.content === 'string'
+    ? message.content.replace(/\s+/gu, ' ').trim()
+    : '';
+  const trimmedContent = content.length > 220 ? `${content.slice(0, 220)}...` : content;
+  const toolCallCount = Array.isArray(message.tool_calls) ? message.tool_calls.length : 0;
+  const toolCallSuffix = toolCallCount > 0 ? ` | tool_calls=${toolCallCount}` : '';
+  const toolCallIdSuffix = typeof message.tool_call_id === 'string' && message.tool_call_id
+    ? ` | tool_call_id=${message.tool_call_id}`
+    : '';
+  return `[${role}] ${trimmedContent || '(no content)'}${toolCallSuffix}${toolCallIdSuffix}`.trim();
+}
+
+function buildCompressedHistorySummary(droppedMessages) {
+  const sampled = droppedMessages.slice(-8).map((message) => summarizeMessageForCompaction(message)).filter(Boolean);
+  const body = sampled.length > 0 ? sampled.join('\n') : '(no retained details)';
+  const droppedCount = droppedMessages.length;
+  return [
+    `${COMPRESSED_HISTORY_MARKER}`,
+    `Dropped older planner messages: ${droppedCount}.`,
+    'Use this as compressed prior context only:',
+    body,
+  ].join('\n');
+}
+
+function buildCompactedMessages(messages, keptIndices) {
+  const keptOrdered = messages
+    .map((message, index) => ({ message, index }))
+    .filter((entry) => keptIndices.has(entry.index))
+    .map((entry) => ({ ...entry.message }));
+  const droppedMessages = messages.filter((_, index) => !keptIndices.has(index));
+  if (droppedMessages.length === 0) {
+    return {
+      messages: keptOrdered,
+      droppedMessageCount: 0,
+      summaryInserted: false,
+    };
+  }
+  const summaryMessage = {
+    role: 'assistant',
+    content: buildCompressedHistorySummary(droppedMessages),
+  };
+  const insertAt = keptOrdered[0] && String(keptOrdered[0].role || '') === 'system' ? 1 : 0;
+  const compacted = [
+    ...keptOrdered.slice(0, insertAt),
+    summaryMessage,
+    ...keptOrdered.slice(insertAt),
+  ];
+  return {
+    messages: compacted,
+    droppedMessageCount: droppedMessages.length,
+    summaryInserted: true,
+  };
+}
+
+async function compactPlannerMessagesOnce(options = {}) {
+  const sourceMessages = Array.isArray(options.messages) ? options.messages : [];
+  const maxPromptBudget = Math.max(0, Number(options.maxPromptBudget || 0));
+  if (sourceMessages.length === 0) {
+    return {
+      messages: [],
+      droppedMessageCount: 0,
+      summaryInserted: false,
+      promptTokenCount: 0,
+    };
+  }
+  const requiredIndices = new Set();
+  if (String(sourceMessages[0]?.role || '') === 'system') {
+    requiredIndices.add(0);
+  }
+  for (let index = sourceMessages.length - 1; index >= 0; index -= 1) {
+    if (String(sourceMessages[index]?.role || '') === 'user') {
+      requiredIndices.add(index);
+      break;
+    }
+  }
+  let selectedIndices = new Set(requiredIndices);
+  const candidateIndices = [];
+  for (let index = sourceMessages.length - 1; index >= 0; index -= 1) {
+    if (!requiredIndices.has(index)) {
+      candidateIndices.push(index);
+    }
+  }
+
+  for (const index of candidateIndices) {
+    const tentativeIndices = new Set(selectedIndices);
+    tentativeIndices.add(index);
+    const tentative = buildCompactedMessages(sourceMessages, tentativeIndices).messages;
+    const tentativePromptTokens = await countTokensWithFallback(options.config, renderTaskTranscript(tentative));
+    if (tentativePromptTokens <= maxPromptBudget) {
+      selectedIndices = tentativeIndices;
+    }
+  }
+
+  const compacted = buildCompactedMessages(sourceMessages, selectedIndices);
+  const promptTokenCount = await countTokensWithFallback(options.config, renderTaskTranscript(compacted.messages));
+  return {
+    messages: compacted.messages,
+    droppedMessageCount: compacted.droppedMessageCount,
+    summaryInserted: compacted.summaryInserted,
+    promptTokenCount,
+  };
+}
+
 async function runTaskLoop(task, options) {
   const taskStartedAt = Date.now();
   const maxTurns = Math.max(1, Number(options.maxTurns || DEFAULT_MAX_TURNS));
@@ -1763,6 +2086,7 @@ async function runTaskLoop(task, options) {
   let previousPlannerThinkingEnabled = null;
   let nonThinkingFinishFollowupUsed = false;
   const slotId = allocateLlamaCppSlotId(options.config || {});
+  const ignorePolicy = buildIgnorePolicy(options.repoRoot);
   const messages = [
     { role: 'system', content: buildTaskSystemPrompt(options.repoRoot) },
     { role: 'user', content: buildTaskInitialUserPrompt(task.question) },
@@ -1777,7 +2101,82 @@ async function runTaskLoop(task, options) {
     if (forceThinkingOnNextTurn && !inForcedFinishMode) {
       forceThinkingOnNextTurn = false;
     }
-    const prompt = renderTaskTranscript(messages);
+    let prompt = renderTaskTranscript(messages);
+    let preflight = await preflightPlannerPromptBudget({
+      config: options.config,
+      prompt,
+      totalContextTokens,
+      thinkingBufferTokens,
+      requestMaxTokens,
+    });
+    options.logger?.write({
+      kind: 'turn_preflight_budget',
+      taskId: task.id,
+      turn,
+      promptTokenCount: preflight.promptTokenCount,
+      maxPromptBudget: preflight.maxPromptBudget,
+      overflowTokens: preflight.overflowTokens,
+      ok: preflight.ok,
+      compacted: false,
+    });
+    if (!preflight.ok) {
+      const compacted = await compactPlannerMessagesOnce({
+        messages,
+        config: options.config,
+        maxPromptBudget: preflight.maxPromptBudget,
+      });
+      messages.splice(0, messages.length, ...compacted.messages);
+      prompt = renderTaskTranscript(messages);
+      const afterCompaction = await preflightPlannerPromptBudget({
+        config: options.config,
+        prompt,
+        totalContextTokens,
+        thinkingBufferTokens,
+        requestMaxTokens,
+      });
+      options.logger?.write({
+        kind: 'turn_preflight_compaction_applied',
+        taskId: task.id,
+        turn,
+        beforePromptTokenCount: preflight.promptTokenCount,
+        afterPromptTokenCount: afterCompaction.promptTokenCount,
+        maxPromptBudget: afterCompaction.maxPromptBudget,
+        droppedMessageCount: compacted.droppedMessageCount,
+        summaryInserted: compacted.summaryInserted,
+      });
+      options.logger?.write({
+        kind: 'turn_preflight_budget',
+        taskId: task.id,
+        turn,
+        promptTokenCount: afterCompaction.promptTokenCount,
+        maxPromptBudget: afterCompaction.maxPromptBudget,
+        overflowTokens: afterCompaction.overflowTokens,
+        ok: afterCompaction.ok,
+        compacted: true,
+      });
+      preflight = afterCompaction;
+    }
+    if (!preflight.ok) {
+      const overflowError = new Error(
+        `planner_preflight_overflow prompt_tokens=${preflight.promptTokenCount} `
+        + `max_prompt_tokens=${preflight.maxPromptBudget} overflow_tokens=${preflight.overflowTokens} `
+        + `request_max_tokens=${requestMaxTokens} total_context_tokens=${totalContextTokens} `
+        + `thinking_buffer_tokens=${thinkingBufferTokens}`
+      );
+      options.logger?.write({
+        kind: 'turn_preflight_overflow_fail',
+        taskId: task.id,
+        turn,
+        promptTokenCount: preflight.promptTokenCount,
+        maxPromptBudget: preflight.maxPromptBudget,
+        overflowTokens: preflight.overflowTokens,
+        requestMaxTokens,
+        totalContextTokens,
+        thinkingBufferTokens,
+        error: overflowError.message,
+      });
+      throw overflowError;
+    }
     options.logger?.write({
       kind: 'turn_model_request',
       taskId: task.id,
@@ -2022,7 +2421,10 @@ async function runTaskLoop(task, options) {
       }
       continue;
     }
-    const normalized = normalizePlannerCommand(command);
+    const normalized = normalizePlannerCommand(command, {
+      repoRoot: options.repoRoot,
+      ignorePolicy,
+    });
     if (normalized.rejected) {
       safetyRejects += 1;
       const rejection = `Rejected command: ${normalized.rejectedReason}`;
@@ -2464,4 +2866,6 @@ module.exports = {
   resolveRepoSearchRequestMaxTokens,
   estimateTokenCount,
   countTokensWithFallback,
+  preflightPlannerPromptBudget,
+  compactPlannerMessagesOnce,
 };

@@ -71,6 +71,12 @@ function getMessageTokenCount(message: ChatSession['messages'][number]): number 
     + Number(message.thinkingTokens || 0);
 }
 
+function isMessageTokenEstimateFallback(message: ChatSession['messages'][number]): boolean {
+  return message.inputTokensEstimated === true
+    || message.outputTokensEstimated === true
+    || message.thinkingTokensEstimated === true;
+}
+
 function getSessionPromptCacheStats(session: ChatSession | null): {
   promptCacheTokens: number;
   promptEvalTokens: number;
@@ -583,7 +589,16 @@ export function App() {
   const [planRepoRootInput, setPlanRepoRootInput] = useState('');
   const [planMaxTurnsInput, setPlanMaxTurnsInput] = useState('45');
   const [planThinkingIntervalInput, setPlanThinkingIntervalInput] = useState('5');
-  const [planToolCalls, setPlanToolCalls] = useState<Array<{ turn: number; maxTurns: number; command: string; exitCode?: number; outputSnippet?: string; status: 'running' | 'done' }>>([]);
+  const [planToolCalls, setPlanToolCalls] = useState<Array<{
+    turn: number;
+    maxTurns: number;
+    command: string;
+    exitCode?: number;
+    outputSnippet?: string;
+    promptTokenCount?: number;
+    status: 'running' | 'done';
+  }>>([]);
+  const [liveToolPromptTokenCount, setLiveToolPromptTokenCount] = useState<number | null>(null);
   const groupedRuns = runs.reduce<Record<RunGroupKey, RunRecord[]>>((accumulator, run) => {
     const key = classifyRunGroup(run.kind);
     accumulator[key].push(run);
@@ -833,6 +848,7 @@ export function App() {
     setThinkingDraft('');
     setAnswerDraft('');
     setPlanToolCalls([]);
+    setLiveToolPromptTokenCount(null);
     try {
       const parsedMaxTurns = Number(planMaxTurnsInput);
       const parsedThinkingInterval = Number(planThinkingIntervalInput);
@@ -849,11 +865,23 @@ export function App() {
         },
         (toolEvent) => {
           if (toolEvent.kind === 'tool_start') {
+            if (typeof toolEvent.promptTokenCount === 'number') {
+              setLiveToolPromptTokenCount(toolEvent.promptTokenCount);
+            }
             setPlanToolCalls((prev) => [
               ...prev,
-              { turn: toolEvent.turn, maxTurns: toolEvent.maxTurns, command: toolEvent.command, status: 'running' },
+              {
+                turn: toolEvent.turn,
+                maxTurns: toolEvent.maxTurns,
+                command: toolEvent.command,
+                ...(typeof toolEvent.promptTokenCount === 'number' ? { promptTokenCount: toolEvent.promptTokenCount } : {}),
+                status: 'running',
+              },
             ]);
           } else if (toolEvent.kind === 'tool_result') {
+            if (typeof toolEvent.promptTokenCount === 'number') {
+              setLiveToolPromptTokenCount(toolEvent.promptTokenCount);
+            }
             setPlanToolCalls((prev) => {
               const updated = [...prev];
               const last = updated.length > 0 ? updated[updated.length - 1] : null;
@@ -861,6 +889,7 @@ export function App() {
                 const entry: typeof last = { ...last, status: 'done' };
                 if (typeof toolEvent.exitCode === 'number') { entry.exitCode = toolEvent.exitCode; }
                 if (typeof toolEvent.outputSnippet === 'string') { entry.outputSnippet = toolEvent.outputSnippet; }
+                if (typeof toolEvent.promptTokenCount === 'number') { entry.promptTokenCount = toolEvent.promptTokenCount; }
                 updated[updated.length - 1] = entry;
               }
               return updated;
@@ -880,6 +909,7 @@ export function App() {
       setThinkingDraft('');
       setAnswerDraft('');
       setPlanToolCalls([]);
+      setLiveToolPromptTokenCount(null);
       setChatBusy(false);
     }
   }
@@ -893,6 +923,7 @@ export function App() {
     setThinkingDraft('');
     setAnswerDraft('');
     setPlanToolCalls([]);
+    setLiveToolPromptTokenCount(null);
     try {
       const parsedMaxTurnsRS = Number(planMaxTurnsInput);
       const parsedThinkingIntervalRS = Number(planThinkingIntervalInput);
@@ -909,11 +940,23 @@ export function App() {
         },
         (toolEvent) => {
           if (toolEvent.kind === 'tool_start') {
+            if (typeof toolEvent.promptTokenCount === 'number') {
+              setLiveToolPromptTokenCount(toolEvent.promptTokenCount);
+            }
             setPlanToolCalls((prev) => [
               ...prev,
-              { turn: toolEvent.turn, maxTurns: toolEvent.maxTurns, command: toolEvent.command, status: 'running' },
+              {
+                turn: toolEvent.turn,
+                maxTurns: toolEvent.maxTurns,
+                command: toolEvent.command,
+                ...(typeof toolEvent.promptTokenCount === 'number' ? { promptTokenCount: toolEvent.promptTokenCount } : {}),
+                status: 'running',
+              },
             ]);
           } else if (toolEvent.kind === 'tool_result') {
+            if (typeof toolEvent.promptTokenCount === 'number') {
+              setLiveToolPromptTokenCount(toolEvent.promptTokenCount);
+            }
             setPlanToolCalls((prev) => {
               const updated = [...prev];
               const last = updated.length > 0 ? updated[updated.length - 1] : null;
@@ -921,6 +964,7 @@ export function App() {
                 const entry: typeof last = { ...last, status: 'done' };
                 if (typeof toolEvent.exitCode === 'number') { entry.exitCode = toolEvent.exitCode; }
                 if (typeof toolEvent.outputSnippet === 'string') { entry.outputSnippet = toolEvent.outputSnippet; }
+                if (typeof toolEvent.promptTokenCount === 'number') { entry.promptTokenCount = toolEvent.promptTokenCount; }
                 updated[updated.length - 1] = entry;
               }
               return updated;
@@ -940,6 +984,7 @@ export function App() {
       setThinkingDraft('');
       setAnswerDraft('');
       setPlanToolCalls([]);
+      setLiveToolPromptTokenCount(null);
       setChatBusy(false);
     }
   }
@@ -1546,6 +1591,16 @@ export function App() {
                           {' | '}
                           Warn at: {formatNumber(contextUsage.warnThresholdTokens)}
                         </span>
+                        {(chatMode === 'plan' || chatMode === 'repo-search') && Number.isFinite(liveToolPromptTokenCount) ? (
+                          <span title="Latest backend prompt_tokens for an active plan/repo-search tool step.">
+                            Live Step Prompt Tokens (backend): {formatNumber(liveToolPromptTokenCount)}
+                          </span>
+                        ) : null}
+                        {Number(contextUsage.estimatedTokenFallbackTokens || 0) > 0 ? (
+                          <span title="These session totals include local fallback estimates where backend usage was unavailable.">
+                            Estimated Fallback: {formatNumber(Number(contextUsage.estimatedTokenFallbackTokens || 0))} tokens
+                          </span>
+                        ) : null}
                         <div className="usage-actions">
                           <button
                             onClick={() => { void onClearToolContext(); }}
@@ -1576,7 +1631,10 @@ export function App() {
                           className="msg-tokens"
                           title="Format: tokens_for_message (associated hidden tool-call tokens)."
                         >
-                          {formatNumber(getMessageTokenCount(message))} ({formatNumber(Number(message.associatedToolTokens || 0))})
+                          {formatNumber(getMessageTokenCount(message))}
+                          {isMessageTokenEstimateFallback(message) ? ' est.' : ''}
+                          {' '}
+                          ({formatNumber(Number(message.associatedToolTokens || 0))})
                         </span>
                       </header>
                       {chatMode === 'chat' && message.role === 'assistant' && message.thinkingContent ? (

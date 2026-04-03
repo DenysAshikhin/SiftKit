@@ -1,6 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const {
   parsePlannerAction,
@@ -10,7 +13,15 @@ const {
   assertConfiguredModelPresent,
   runMockRepoSearch,
   resolveRepoSearchRequestMaxTokens,
+  preflightPlannerPromptBudget,
+  compactPlannerMessagesOnce,
 } = require('../scripts/mock-repo-search-loop.js');
+
+function createTempRepoRoot(gitignoreText = '') {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-ignore-'));
+  fs.writeFileSync(path.join(root, '.gitignore'), gitignoreText, 'utf8');
+  return root;
+}
 
 test('assertConfiguredModelPresent hard-fails when configured model is missing', () => {
   assert.throws(
@@ -698,6 +709,187 @@ test('runTaskLoop prompt examples use larger reads and anchor-first flow', async
   assert.equal(result.reason, 'finish');
 });
 
+test('runTaskLoop prompt states ignored paths are auto-filtered by runtime policy', async () => {
+  const events = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-prompt-ignore-policy',
+      question: 'Find planner text.',
+      signals: [],
+    },
+    {
+      maxTurns: 1,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: ['{"action":"finish","output":"done"}'],
+      mockCommandResults: {},
+      logger: {
+        write(event) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const prompt = events.find((event) => event.kind === 'turn_prompt')?.prompt || '';
+  assert.match(prompt, /Ignored paths from `.gitignore` are auto-filtered by runtime policy/u);
+  assert.equal(result.reason, 'finish');
+});
+
+test('runTaskLoop rewrites Get-ChildItem recurse command to include ignore excludes', async () => {
+  const events = [];
+  const repoRoot = createTempRepoRoot('/custom_ignored\n');
+  try {
+    const result = await runTaskLoop(
+      {
+        id: 'task-ignore-get-childitem',
+        question: 'List source files.',
+        signals: ['listed'],
+      },
+      {
+        repoRoot,
+        maxTurns: 2,
+        maxInvalidResponses: 2,
+        minToolCallsBeforeFinish: 0,
+        mockResponses: [
+          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-ChildItem src -Recurse -Filter *.ts"}}',
+          '{"action":"finish","output":"done"}',
+          '{"verdict":"pass","reason":"supported"}',
+        ],
+        mockCommandResults: {
+          'Get-ChildItem src -Recurse -Filter *.ts -Exclude .git,node_modules,.node_modules,custom_ignored': {
+            exitCode: 0,
+            stdout: 'listed',
+            stderr: '',
+          },
+        },
+        logger: {
+          write(event) {
+            events.push(event);
+          },
+        },
+      }
+    );
+
+    const commandResult = events.find((event) => event.kind === 'turn_command_result');
+    assert.equal(
+      commandResult.command,
+      'Get-ChildItem src -Recurse -Filter *.ts -Exclude .git,node_modules,.node_modules,custom_ignored'
+    );
+    assert.match(String(commandResult.output || ''), /added -Exclude from ignore policy/u);
+    assert.equal(result.reason, 'finish');
+    assert.equal(result.passed, true);
+  } finally {
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('runTaskLoop rewrites Select-String path scan to include ignore excludes', async () => {
+  const events = [];
+  const repoRoot = createTempRepoRoot('/custom_ignored\n');
+  try {
+    const result = await runTaskLoop(
+      {
+        id: 'task-ignore-select-string',
+        question: 'Find planner text.',
+        signals: ['hit'],
+      },
+      {
+        repoRoot,
+        maxTurns: 2,
+        maxInvalidResponses: 2,
+        minToolCallsBeforeFinish: 0,
+        mockResponses: [
+          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Select-String -Path \\"src\\\\*.ts\\" -Pattern \\"planner\\""}}',
+          '{"action":"finish","output":"done"}',
+          '{"verdict":"pass","reason":"supported"}',
+        ],
+        mockCommandResults: {
+          'Select-String -Path "src\\*.ts" -Pattern "planner" -Exclude .git,node_modules,.node_modules,custom_ignored': {
+            exitCode: 0,
+            stdout: 'hit',
+            stderr: '',
+          },
+        },
+        logger: {
+          write(event) {
+            events.push(event);
+          },
+        },
+      }
+    );
+
+    const commandResult = events.find((event) => event.kind === 'turn_command_result');
+    assert.equal(
+      commandResult.command,
+      'Select-String -Path "src\\*.ts" -Pattern "planner" -Exclude .git,node_modules,.node_modules,custom_ignored'
+    );
+    assert.match(String(commandResult.output || ''), /added -Exclude from ignore policy/u);
+    assert.equal(result.reason, 'finish');
+    assert.equal(result.passed, true);
+  } finally {
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('runTaskLoop rejects rg ignore-disabling flags', async () => {
+  const result = await runTaskLoop(
+    {
+      id: 'task-ignore-rg-no-ignore',
+      question: 'Find planner text.',
+      signals: [],
+    },
+    {
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src --no-ignore"}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {},
+    }
+  );
+
+  assert.equal(result.reason, 'finish');
+  assert.equal(result.commands.length, 1);
+  assert.equal(result.commands[0].safe, false);
+  assert.equal(result.commands[0].reason, 'ignore-disabling rg flags are not allowed');
+});
+
+test('runTaskLoop rejects Get-Content reads under ignored directories', async () => {
+  const repoRoot = createTempRepoRoot('');
+  try {
+    const result = await runTaskLoop(
+      {
+        id: 'task-ignore-get-content',
+        question: 'Read ignored file.',
+        signals: [],
+      },
+      {
+        repoRoot,
+        maxTurns: 2,
+        maxInvalidResponses: 2,
+        minToolCallsBeforeFinish: 0,
+        mockResponses: [
+          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content node_modules\\\\leftpad\\\\index.js"}}',
+          '{"action":"finish","output":"done"}',
+          '{"verdict":"pass","reason":"supported"}',
+        ],
+        mockCommandResults: {},
+      }
+    );
+
+    assert.equal(result.reason, 'finish');
+    assert.equal(result.commands.length, 1);
+    assert.equal(result.commands[0].safe, false);
+    assert.equal(result.commands[0].reason, 'command targets a path ignored by policy');
+  } finally {
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
 test('runTaskLoop sends append-only chat requests with explicit cache_prompt and a pinned slot', async () => {
   const chatRequests = [];
   let requestCount = 0;
@@ -916,6 +1108,118 @@ test('runTaskLoop replaces oversized tool output with token allowance error', as
   assert.equal(result.reason, 'finish');
 });
 
+test('preflightPlannerPromptBudget reports overflow against context budget', async () => {
+  const preflight = await preflightPlannerPromptBudget({
+    messages: [
+      { role: 'system', content: 'system' },
+      { role: 'user', content: 'x'.repeat(10000) },
+    ],
+    totalContextTokens: 7000,
+    thinkingBufferTokens: 4000,
+    requestMaxTokens: 2000,
+  });
+
+  assert.equal(preflight.ok, false);
+  assert.equal(preflight.maxPromptBudget, 1000);
+  assert.equal(preflight.promptTokenCount > preflight.maxPromptBudget, true);
+  assert.equal(preflight.overflowTokens > 0, true);
+});
+
+test('compactPlannerMessagesOnce preserves system and latest user intent', async () => {
+  const messages = [
+    { role: 'system', content: 'system message' },
+    { role: 'user', content: 'first user intent' },
+    { role: 'assistant', content: 'older assistant details ' + 'a'.repeat(2000) },
+    { role: 'tool', content: 'older tool output ' + 'b'.repeat(4000), tool_call_id: 'call_1' },
+    { role: 'user', content: 'latest user intent must remain' },
+    { role: 'assistant', content: 'most recent assistant context' },
+  ];
+  const compacted = await compactPlannerMessagesOnce({
+    messages,
+    maxPromptBudget: 600,
+  });
+  const transcript = compacted.messages.map((message) => String(message.content || '')).join('\n');
+
+  assert.equal(compacted.droppedMessageCount > 0, true);
+  assert.equal(compacted.summaryInserted, true);
+  assert.match(transcript, /\[COMPRESSED HISTORICAL EVIDENCE\]/u);
+  assert.match(transcript, /latest user intent must remain/u);
+  assert.match(String(compacted.messages[0]?.role || ''), /^system$/u);
+});
+
+test('runTaskLoop fails with planner_preflight_overflow before provider request when compaction cannot fit', async () => {
+  const events = [];
+  await assert.rejects(
+    () => runTaskLoop(
+      {
+        id: 'task-preflight-overflow-hard-fail',
+        question: 'Q'.repeat(12000),
+        signals: [],
+      },
+      {
+        baseUrl: 'http://127.0.0.1:1',
+        model: 'mock-model',
+        maxTurns: 1,
+        maxInvalidResponses: 1,
+        minToolCallsBeforeFinish: 0,
+        totalContextTokens: 7000,
+        requestMaxTokens: 2000,
+        logger: {
+          write(event) {
+            events.push(event);
+          },
+        },
+      }
+    ),
+    /planner_preflight_overflow/u
+  );
+
+  const providerStart = events.find((event) => event.kind === 'provider_request_start');
+  assert.equal(Boolean(providerStart), false);
+  const overflowEvent = events.find((event) => event.kind === 'turn_preflight_overflow_fail');
+  assert.equal(Boolean(overflowEvent), true);
+  assert.equal(Number(overflowEvent.overflowTokens) > 0, true);
+});
+
+test('runTaskLoop applies one-pass compaction and continues when compacted prompt fits', async () => {
+  const events = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-preflight-compaction-success',
+      question: 'Find planner references.',
+      signals: ['done'],
+    },
+    {
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens: 60000,
+      requestMaxTokens: 48500,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'rg -n "planner" src': { exitCode: 0, stdout: 'x'.repeat(20000), stderr: '' },
+      },
+      logger: {
+        write(event) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const compactionEvents = events.filter((event) => event.kind === 'turn_preflight_compaction_applied');
+  assert.equal(compactionEvents.length >= 1, true);
+  assert.equal(compactionEvents[0].droppedMessageCount > 0, true);
+  const promptEvents = events.filter((event) => event.kind === 'turn_prompt');
+  assert.equal(promptEvents.some((event) => String(event.prompt || '').includes('[COMPRESSED HISTORICAL EVIDENCE]')), true);
+  assert.equal(result.reason, 'finish');
+  assert.equal(result.finalOutput, 'done');
+});
+
 test('runTaskLoop increases per-tool cap as tool-call progress grows', async () => {
   const events = [];
   const totalContextTokens = 20000;
@@ -964,8 +1268,8 @@ test('runTaskLoop increases per-tool cap as tool-call progress grows', async () 
 
 test('runTaskLoop still rejects tool output that exceeds remaining token allowance', async () => {
   const events = [];
-  const totalContextTokens = 20000;
-  const oversizedQuestion = 'Q'.repeat(70000);
+  const totalContextTokens = 30000;
+  const oversizedQuestion = 'Q'.repeat(90000);
   const result = await runTaskLoop(
     {
       id: 'task-remaining-token-guard',
@@ -977,6 +1281,7 @@ test('runTaskLoop still rejects tool output that exceeds remaining token allowan
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       totalContextTokens,
+      requestMaxTokens: 1000,
       mockResponses: [
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
         '{"action":"finish","output":"done"}',
@@ -985,7 +1290,7 @@ test('runTaskLoop still rejects tool output that exceeds remaining token allowan
       mockCommandResults: {
         'rg -n "planner" src': {
           exitCode: 0,
-          stdout: 'x'.repeat(1200),
+          stdout: 'x'.repeat(10000),
           stderr: '',
         },
       },

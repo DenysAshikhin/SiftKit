@@ -220,7 +220,15 @@ export async function streamPlanMessage(
     thinkingInterval?: number;
   },
   onThinking: (thinkingText: string) => void,
-  onToolEvent: (event: { kind: 'tool_start' | 'tool_result'; turn: number; maxTurns: number; command: string; exitCode?: number; outputSnippet?: string }) => void,
+  onToolEvent: (event: {
+    kind: 'tool_start' | 'tool_result';
+    turn: number;
+    maxTurns: number;
+    command: string;
+    exitCode?: number;
+    outputSnippet?: string;
+    promptTokenCount?: number;
+  }) => void,
   onAnswer?: (answerText: string) => void,
 ): Promise<ChatSessionResponse> {
   const response = await fetch(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/plan/stream`, {
@@ -263,8 +271,24 @@ export async function streamPlanMessage(
       return;
     }
     if ((eventName === 'tool_start' || eventName === 'tool_result') && parsed && typeof parsed === 'object') {
-      const p = parsed as { kind?: string; turn?: number; maxTurns?: number; command?: string; exitCode?: number; outputSnippet?: string };
-      const evt: { kind: 'tool_start' | 'tool_result'; turn: number; maxTurns: number; command: string; exitCode?: number; outputSnippet?: string } = {
+      const p = parsed as {
+        kind?: string;
+        turn?: number;
+        maxTurns?: number;
+        command?: string;
+        exitCode?: number;
+        outputSnippet?: string;
+        promptTokenCount?: number;
+      };
+      const evt: {
+        kind: 'tool_start' | 'tool_result';
+        turn: number;
+        maxTurns: number;
+        command: string;
+        exitCode?: number;
+        outputSnippet?: string;
+        promptTokenCount?: number;
+      } = {
         kind: eventName as 'tool_start' | 'tool_result',
         turn: Number(p.turn ?? 0),
         maxTurns: Number(p.maxTurns ?? 0),
@@ -272,6 +296,7 @@ export async function streamPlanMessage(
       };
       if (typeof p.exitCode === 'number') { evt.exitCode = p.exitCode; }
       if (typeof p.outputSnippet === 'string') { evt.outputSnippet = p.outputSnippet; }
+      if (typeof p.promptTokenCount === 'number') { evt.promptTokenCount = p.promptTokenCount; }
       onToolEvent(evt);
       return;
     }
@@ -320,7 +345,15 @@ export async function streamRepoSearchMessage(
     thinkingInterval?: number;
   },
   onThinking: (thinkingText: string) => void,
-  onToolEvent: (event: { kind: 'tool_start' | 'tool_result'; turn: number; maxTurns: number; command: string; exitCode?: number; outputSnippet?: string }) => void,
+  onToolEvent: (event: {
+    kind: 'tool_start' | 'tool_result';
+    turn: number;
+    maxTurns: number;
+    command: string;
+    exitCode?: number;
+    outputSnippet?: string;
+    promptTokenCount?: number;
+  }) => void,
   onAnswer?: (answerText: string) => void,
 ): Promise<ChatSessionResponse> {
   const response = await fetch(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-search/stream`, {
@@ -363,8 +396,24 @@ export async function streamRepoSearchMessage(
       return;
     }
     if ((eventName === 'tool_start' || eventName === 'tool_result') && parsed && typeof parsed === 'object') {
-      const p = parsed as { kind?: string; turn?: number; maxTurns?: number; command?: string; exitCode?: number; outputSnippet?: string };
-      const evt: { kind: 'tool_start' | 'tool_result'; turn: number; maxTurns: number; command: string; exitCode?: number; outputSnippet?: string } = {
+      const p = parsed as {
+        kind?: string;
+        turn?: number;
+        maxTurns?: number;
+        command?: string;
+        exitCode?: number;
+        outputSnippet?: string;
+        promptTokenCount?: number;
+      };
+      const evt: {
+        kind: 'tool_start' | 'tool_result';
+        turn: number;
+        maxTurns: number;
+        command: string;
+        exitCode?: number;
+        outputSnippet?: string;
+        promptTokenCount?: number;
+      } = {
         kind: eventName as 'tool_start' | 'tool_result',
         turn: Number(p.turn ?? 0),
         maxTurns: Number(p.maxTurns ?? 0),
@@ -372,6 +421,7 @@ export async function streamRepoSearchMessage(
       };
       if (typeof p.exitCode === 'number') { evt.exitCode = p.exitCode; }
       if (typeof p.outputSnippet === 'string') { evt.outputSnippet = p.outputSnippet; }
+      if (typeof p.promptTokenCount === 'number') { evt.promptTokenCount = p.promptTokenCount; }
       onToolEvent(evt);
       return;
     }

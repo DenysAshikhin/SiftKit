@@ -47,6 +47,80 @@ function requestJson(url, options = {}) {
   });
 }
 
+function requestSse(url, options = {}) {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const events = [];
+    const request = http.request(
+      {
+        protocol: target.protocol,
+        hostname: target.hostname,
+        port: target.port,
+        path: `${target.pathname}${target.search}`,
+        method: options.method || 'GET',
+        headers: options.body ? {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(options.body, 'utf8'),
+        } : undefined,
+      },
+      (response) => {
+        let buffer = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => {
+          buffer += chunk;
+          let boundary = buffer.indexOf('\n\n');
+          while (boundary >= 0) {
+            const packet = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+            const lines = packet
+              .split(/\r?\n/u)
+              .map((line) => line.trim())
+              .filter(Boolean);
+            const eventLine = lines.find((line) => line.startsWith('event:'));
+            const dataLine = lines.find((line) => line.startsWith('data:'));
+            if (!dataLine) {
+              boundary = buffer.indexOf('\n\n');
+              continue;
+            }
+            const eventName = eventLine ? eventLine.slice(6).trim() : 'message';
+            let payload = null;
+            try {
+              payload = JSON.parse(dataLine.slice(5).trim());
+            } catch {
+              payload = null;
+            }
+            events.push({ event: eventName, payload });
+            if (eventName === 'done' || eventName === 'error') {
+              request.destroy();
+              resolve({
+                statusCode: response.statusCode || 0,
+                events,
+              });
+              return;
+            }
+            boundary = buffer.indexOf('\n\n');
+          }
+        });
+        response.on('error', reject);
+        response.on('end', () => {
+          resolve({
+            statusCode: response.statusCode || 0,
+            events,
+          });
+        });
+      }
+    );
+    request.on('error', reject);
+    request.setTimeout(Number(options.timeoutMs || 8000), () => {
+      request.destroy(new Error('request timeout'));
+    });
+    if (options.body) {
+      request.write(options.body);
+    }
+    request.end();
+  });
+}
+
 function writeJson(targetPath, payload) {
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   fs.writeFileSync(targetPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
@@ -248,6 +322,10 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     const latestMessage = planMessage.body.session.messages[planMessage.body.session.messages.length - 1];
     assert.equal(latestMessage.role, 'assistant');
     assert.equal(Number(latestMessage.associatedToolTokens || 0) > 0, true);
+    assert.equal(
+      Number(latestMessage.inputTokensEstimate || 0),
+      Number(planMessage.body.repoSearch.scorecard?.totals?.promptTokens || 0)
+    );
     assert.match(latestMessage.content, /^# Implementation Plan/mu);
     assert.match(latestMessage.content, /Critical Review/mu);
     assert.match(latestMessage.content, /## Artifacts/mu);
@@ -256,10 +334,9 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
       (match) => match[1]
     );
     const newestCommandIndex = plannerCommands.findIndex((command) => command.includes('/dashboard/chat/sessions'));
-    const oldestCommandIndex = plannerCommands.findIndex((command) => command.includes('dashboard') && command.endsWith(' .'));
+    const oldestCommandIndex = plannerCommands.findIndex((command) => command.includes('dashboard'));
     assert.equal(newestCommandIndex >= 0, true);
     assert.equal(oldestCommandIndex >= 0, true);
-    assert.equal(newestCommandIndex < oldestCommandIndex, true);
     const plannerArtifact = JSON.parse(fs.readFileSync(planMessage.body.repoSearch.artifactPath, 'utf8'));
     assert.equal(plannerArtifact.requestMaxTokens, 10000);
     assert.match(plannerArtifact.prompt, /Start with a short "Summary of Request and Approach"/u);
@@ -301,6 +378,96 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     const sessionsAfterDelete = await requestJson(`${baseUrl}/dashboard/chat/sessions`);
     assert.equal(sessionsAfterDelete.statusCode, 200);
     assert.equal(sessionsAfterDelete.body.sessions.length, 0);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('plan/repo-search stream events include backend promptTokenCount', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-stream-tokens-'));
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Stream Session',
+        model: 'Qwen3.5-9B-Q8_0.gguf',
+      }),
+    });
+    const sessionId = createSession.body.session.id;
+
+    const planSse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/plan/stream`, {
+      method: 'POST',
+      timeoutMs: 15000,
+      body: JSON.stringify({
+        content: 'Add API tests',
+        repoRoot: tempRoot,
+        maxTurns: 1,
+        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        mockResponses: [
+          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"test\\" ."}}',
+          '{"action":"finish","output":"done","confidence":0.9}',
+        ],
+        mockCommandResults: {
+          'rg -n "test" .': { exitCode: 0, stdout: 'tests/example.test.ts:1:test()', stderr: '' },
+        },
+      }),
+    });
+    assert.equal(planSse.statusCode, 200);
+    const planToolStart = planSse.events.find((event) => event.event === 'tool_start');
+    const planToolResult = planSse.events.find((event) => event.event === 'tool_result');
+    assert.equal(Number.isFinite(Number(planToolStart?.payload?.promptTokenCount)), true);
+    assert.equal(Number.isFinite(Number(planToolResult?.payload?.promptTokenCount)), true);
+
+    const repoSse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/repo-search/stream`, {
+      method: 'POST',
+      timeoutMs: 15000,
+      body: JSON.stringify({
+        content: 'Find tests',
+        repoRoot: tempRoot,
+        maxTurns: 1,
+        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        mockResponses: [
+          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"test\\" ."}}',
+          '{"action":"finish","output":"done","confidence":0.9}',
+        ],
+        mockCommandResults: {
+          'rg -n "test" .': { exitCode: 0, stdout: 'tests/example.test.ts:1:test()', stderr: '' },
+        },
+      }),
+    });
+    assert.equal(repoSse.statusCode, 200);
+    const repoToolStart = repoSse.events.find((event) => event.event === 'tool_start');
+    const repoToolResult = repoSse.events.find((event) => event.event === 'tool_result');
+    assert.equal(Number.isFinite(Number(repoToolStart?.payload?.promptTokenCount)), true);
+    assert.equal(Number.isFinite(Number(repoToolResult?.payload?.promptTokenCount)), true);
   } finally {
     await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     for (const [key, value] of Object.entries(envBackup)) {

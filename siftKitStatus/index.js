@@ -1962,13 +1962,24 @@ function saveChatSession(runtimeRoot, session) {
 
 function buildContextUsage(session) {
   const contextWindowTokens = Math.max(1, Number(session.contextWindowTokens || 150000));
-  const chatUsedTokens = Array.isArray(session.messages)
+  const estimatedTokenFallbackTokens = Array.isArray(session.messages)
     ? session.messages.reduce((sum, message) => {
       const inputTokens = Number(message.inputTokensEstimate || 0);
       const outputTokens = Number(message.outputTokensEstimate || 0);
       const thinkingTokens = Number(message.thinkingTokens || 0);
-      return sum + inputTokens + outputTokens + thinkingTokens;
+      const inputEstimated = message?.inputTokensEstimated === true ? inputTokens : 0;
+      const outputEstimated = message?.outputTokensEstimated === true ? outputTokens : 0;
+      const thinkingEstimated = message?.thinkingTokensEstimated === true ? thinkingTokens : 0;
+      return sum + inputEstimated + outputEstimated + thinkingEstimated;
     }, 0)
+    : 0;
+  const chatUsedTokens = Array.isArray(session.messages)
+    ? session.messages.reduce((sum, message) => (
+      sum
+      + Number(message.inputTokensEstimate || 0)
+      + Number(message.outputTokensEstimate || 0)
+      + Number(message.thinkingTokens || 0)
+    ), 0)
     : 0;
   const toolUsedTokens = Array.isArray(session.hiddenToolContexts)
     ? session.hiddenToolContexts.reduce((sum, entry) => sum + (Number(entry?.tokenEstimate) || 0), 0)
@@ -1985,6 +1996,7 @@ function buildContextUsage(session) {
     remainingTokens,
     warnThresholdTokens,
     shouldCondense: remainingTokens <= warnThresholdTokens,
+    estimatedTokenFallbackTokens,
   };
 }
 
@@ -2237,9 +2249,12 @@ async function generateChatAssistantMessage(config, session, userContent) {
 function appendChatMessagesWithUsage(runtimeRoot, session, content, assistantContent, usage = {}, thinkingContent = '', options = {}) {
   const now = new Date().toISOString();
   const messages = Array.isArray(session.messages) ? session.messages.slice() : [];
-  const userTokens = getChatUsageValue(usage.promptTokens) ?? estimateTokenCount(content);
-  const outputTokens = getChatUsageValue(usage.completionTokens) ?? estimateTokenCount(assistantContent);
-  const thinkingTokens = getChatUsageValue(usage.thinkingTokens) ?? 0;
+  const promptTokens = getChatUsageValue(usage.promptTokens);
+  const completionTokens = getChatUsageValue(usage.completionTokens);
+  const usageThinkingTokens = getChatUsageValue(usage.thinkingTokens);
+  const userTokens = promptTokens ?? estimateTokenCount(content);
+  const outputTokens = completionTokens ?? estimateTokenCount(assistantContent);
+  const thinkingTokens = usageThinkingTokens ?? 0;
   const toolContextContents = Array.isArray(options.toolContextContents)
     ? options.toolContextContents
       .map((value) => String(value || '').trim())
@@ -2253,6 +2268,9 @@ function appendChatMessagesWithUsage(runtimeRoot, session, content, assistantCon
     inputTokensEstimate: userTokens,
     outputTokensEstimate: 0,
     thinkingTokens: 0,
+    inputTokensEstimated: promptTokens === null,
+    outputTokensEstimated: false,
+    thinkingTokensEstimated: false,
     createdAtUtc: now,
     sourceRunId: null,
   });
@@ -2265,6 +2283,9 @@ function appendChatMessagesWithUsage(runtimeRoot, session, content, assistantCon
     inputTokensEstimate: 0,
     outputTokensEstimate: outputTokens,
     thinkingTokens,
+    inputTokensEstimated: false,
+    outputTokensEstimated: completionTokens === null,
+    thinkingTokensEstimated: usageThinkingTokens === null,
     promptCacheTokens: getChatUsageValue(usage.promptCacheTokens),
     promptEvalTokens: getChatUsageValue(usage.promptEvalTokens),
     associatedToolTokens,
@@ -3840,6 +3861,7 @@ function startStatusServer(options = {}) {
           parsedBody.content.trim(),
           assistantContent,
           {
+            promptTokens: getScorecardTotal(result?.scorecard, 'promptTokens'),
             promptCacheTokens: getScorecardTotal(result?.scorecard, 'promptCacheTokens'),
             promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
           },
@@ -3948,10 +3970,22 @@ function startStatusServer(options = {}) {
             if (event.kind === 'thinking') {
               writeSse('thinking', { thinking: event.thinkingText || '' });
             } else if (event.kind === 'tool_start') {
-              writeSse('tool_start', { turn: event.turn, maxTurns: event.maxTurns, command: event.command });
+              writeSse('tool_start', {
+                turn: event.turn,
+                maxTurns: event.maxTurns,
+                command: event.command,
+                promptTokenCount: Number.isFinite(event.promptTokenCount) ? Number(event.promptTokenCount) : null,
+              });
               writeSse('answer', { answer: `Planning step ${event.turn}/${event.maxTurns}: running \`${event.command}\`...` });
             } else if (event.kind === 'tool_result') {
-              writeSse('tool_result', { turn: event.turn, maxTurns: event.maxTurns, command: event.command, exitCode: event.exitCode, outputSnippet: event.outputSnippet });
+              writeSse('tool_result', {
+                turn: event.turn,
+                maxTurns: event.maxTurns,
+                command: event.command,
+                exitCode: event.exitCode,
+                outputSnippet: event.outputSnippet,
+                promptTokenCount: Number.isFinite(event.promptTokenCount) ? Number(event.promptTokenCount) : null,
+              });
               writeSse('answer', { answer: `Planning step ${event.turn}/${event.maxTurns}: \`${event.command}\` finished (exit ${event.exitCode ?? '?'})` });
             }
           },
@@ -3968,6 +4002,7 @@ function startStatusServer(options = {}) {
           parsedBody.content.trim(),
           assistantContent,
           {
+            promptTokens: getScorecardTotal(result?.scorecard, 'promptTokens'),
             promptCacheTokens: getScorecardTotal(result?.scorecard, 'promptCacheTokens'),
             promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
           },
@@ -4077,10 +4112,22 @@ function startStatusServer(options = {}) {
             if (event.kind === 'thinking') {
               writeSse('thinking', { thinking: event.thinkingText || '' });
             } else if (event.kind === 'tool_start') {
-              writeSse('tool_start', { turn: event.turn, maxTurns: event.maxTurns, command: event.command });
+              writeSse('tool_start', {
+                turn: event.turn,
+                maxTurns: event.maxTurns,
+                command: event.command,
+                promptTokenCount: Number.isFinite(event.promptTokenCount) ? Number(event.promptTokenCount) : null,
+              });
               writeSse('answer', { answer: `Search step ${event.turn}/${event.maxTurns}: running \`${event.command}\`...` });
             } else if (event.kind === 'tool_result') {
-              writeSse('tool_result', { turn: event.turn, maxTurns: event.maxTurns, command: event.command, exitCode: event.exitCode, outputSnippet: event.outputSnippet });
+              writeSse('tool_result', {
+                turn: event.turn,
+                maxTurns: event.maxTurns,
+                command: event.command,
+                exitCode: event.exitCode,
+                outputSnippet: event.outputSnippet,
+                promptTokenCount: Number.isFinite(event.promptTokenCount) ? Number(event.promptTokenCount) : null,
+              });
               writeSse('answer', { answer: `Search step ${event.turn}/${event.maxTurns}: \`${event.command}\` finished (exit ${event.exitCode ?? '?'})` });
             }
           },
@@ -4097,6 +4144,7 @@ function startStatusServer(options = {}) {
           parsedBody.content.trim(),
           assistantContent,
           {
+            promptTokens: getScorecardTotal(result?.scorecard, 'promptTokens'),
             promptCacheTokens: getScorecardTotal(result?.scorecard, 'promptCacheTokens'),
             promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
           },

@@ -83,6 +83,9 @@ export type ChatMessage = {
   inputTokensEstimate: number;
   outputTokensEstimate: number;
   thinkingTokens: number;
+  inputTokensEstimated?: boolean;
+  outputTokensEstimated?: boolean;
+  thinkingTokensEstimated?: boolean;
   promptCacheTokens?: number | null;
   promptEvalTokens?: number | null;
   associatedToolTokens?: number;
@@ -124,6 +127,7 @@ export type ContextUsage = {
   remainingTokens: number;
   warnThresholdTokens: number;
   shouldCondense: boolean;
+  estimatedTokenFallbackTokens?: number;
 };
 
 export type ChatSessionResponse = {
