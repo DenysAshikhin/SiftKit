@@ -142,6 +142,12 @@ export async function streamChatMessage(
       onAnswer(String((parsed as { answer?: unknown }).answer || ''));
       return;
     }
+    if (eventName === 'answer' && parsed && typeof parsed === 'object') {
+      if (onAnswer) {
+        onAnswer(String((parsed as { answer?: unknown }).answer || ''));
+      }
+      return;
+    }
     if (eventName === 'done') {
       finalResponse = parsed as ChatSessionResponse;
       return;
@@ -194,6 +200,7 @@ export function createPlanMessage(
     repoRoot?: string;
     model?: string;
     maxTurns?: number;
+    thinkingInterval?: number;
   }
 ): Promise<ChatSessionResponse> {
   return fetchJson<ChatSessionResponse>(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/plan`, {
@@ -210,9 +217,11 @@ export async function streamPlanMessage(
     repoRoot?: string;
     model?: string;
     maxTurns?: number;
+    thinkingInterval?: number;
   },
   onThinking: (thinkingText: string) => void,
   onToolEvent: (event: { kind: 'tool_start' | 'tool_result'; turn: number; maxTurns: number; command: string; exitCode?: number; outputSnippet?: string }) => void,
+  onAnswer?: (answerText: string) => void,
 ): Promise<ChatSessionResponse> {
   const response = await fetch(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/plan/stream`, {
     method: 'POST',
@@ -266,6 +275,12 @@ export async function streamPlanMessage(
       onToolEvent(evt);
       return;
     }
+    if (eventName === 'answer' && parsed && typeof parsed === 'object') {
+      if (onAnswer) {
+        onAnswer(String((parsed as { answer?: unknown }).answer || ''));
+      }
+      return;
+    }
     if (eventName === 'done') {
       finalResponse = parsed as ChatSessionResponse;
       return;
@@ -302,9 +317,11 @@ export async function streamRepoSearchMessage(
     repoRoot?: string;
     model?: string;
     maxTurns?: number;
+    thinkingInterval?: number;
   },
   onThinking: (thinkingText: string) => void,
   onToolEvent: (event: { kind: 'tool_start' | 'tool_result'; turn: number; maxTurns: number; command: string; exitCode?: number; outputSnippet?: string }) => void,
+  onAnswer?: (answerText: string) => void,
 ): Promise<ChatSessionResponse> {
   const response = await fetch(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-search/stream`, {
     method: 'POST',

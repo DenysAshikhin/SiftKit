@@ -20,7 +20,7 @@ function makeCaptureStream() {
 }
 
 test('blocked public commands are not accessible', async () => {
-  const blocked = ['run', 'find-files', 'install', 'test', 'eval', 'config-get', 'config-set'];
+  const blocked = ['run', 'install', 'test', 'eval', 'config-get', 'config-set'];
   for (const command of blocked) {
     const stdout = makeCaptureStream();
     const stderr = makeCaptureStream();

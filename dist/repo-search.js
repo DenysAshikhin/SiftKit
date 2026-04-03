@@ -152,6 +152,7 @@ async function executeRepoSearchRequest(request) {
             model: request.model,
             requestMaxTokens: request.requestMaxTokens,
             maxTurns: request.maxTurns,
+            thinkingInterval: request.thinkingInterval,
             taskPrompt: prompt,
             logger,
             availableModels: request.availableModels,

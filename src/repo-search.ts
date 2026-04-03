@@ -16,6 +16,7 @@ type RepoSearchExecutionRequest = {
   model?: string;
   requestMaxTokens?: number;
   maxTurns?: number;
+  thinkingInterval?: number;
   logFile?: string;
   availableModels?: string[];
   mockResponses?: string[];
@@ -170,6 +171,7 @@ export async function executeRepoSearchRequest(request: RepoSearchExecutionReque
       model?: string;
       requestMaxTokens?: number;
       maxTurns?: number;
+      thinkingInterval?: number;
       taskPrompt: string;
       logger: JsonLogger;
       availableModels?: string[];
@@ -197,6 +199,7 @@ export async function executeRepoSearchRequest(request: RepoSearchExecutionReque
       model: request.model,
       requestMaxTokens: request.requestMaxTokens,
       maxTurns: request.maxTurns,
+      thinkingInterval: request.thinkingInterval,
       taskPrompt: prompt,
       logger,
       availableModels: request.availableModels,

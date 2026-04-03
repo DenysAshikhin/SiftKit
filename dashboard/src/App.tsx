@@ -580,6 +580,8 @@ export function App() {
   const [thinkingDraft, setThinkingDraft] = useState('');
   const [answerDraft, setAnswerDraft] = useState('');
   const [planRepoRootInput, setPlanRepoRootInput] = useState('');
+  const [planMaxTurnsInput, setPlanMaxTurnsInput] = useState('45');
+  const [planThinkingIntervalInput, setPlanThinkingIntervalInput] = useState('5');
   const [planToolCalls, setPlanToolCalls] = useState<Array<{ turn: number; maxTurns: number; command: string; exitCode?: number; outputSnippet?: string; status: 'running' | 'done' }>>([]);
   const groupedRuns = runs.reduce<Record<RunGroupKey, RunRecord[]>>((accumulator, run) => {
     const key = classifyRunGroup(run.kind);
@@ -831,11 +833,15 @@ export function App() {
     setAnswerDraft('');
     setPlanToolCalls([]);
     try {
+      const parsedMaxTurns = Number(planMaxTurnsInput);
+      const parsedThinkingInterval = Number(planThinkingIntervalInput);
       const response = await streamPlanMessage(
         selectedSessionId,
         {
           content: chatInput.trim(),
           repoRoot: planRepoRootInput.trim() || selectedSession?.planRepoRoot || '',
+          ...(Number.isFinite(parsedMaxTurns) && parsedMaxTurns > 0 ? { maxTurns: parsedMaxTurns } : {}),
+          ...(Number.isFinite(parsedThinkingInterval) && parsedThinkingInterval > 0 ? { thinkingInterval: parsedThinkingInterval } : {}),
         },
         (thinkingText) => {
           setThinkingDraft(thinkingText);
@@ -859,6 +865,9 @@ export function App() {
               return updated;
             });
           }
+        },
+        (answerText) => {
+          setAnswerDraft(answerText);
         },
       );
       setSelectedSession(response.session);
@@ -884,11 +893,15 @@ export function App() {
     setAnswerDraft('');
     setPlanToolCalls([]);
     try {
+      const parsedMaxTurnsRS = Number(planMaxTurnsInput);
+      const parsedThinkingIntervalRS = Number(planThinkingIntervalInput);
       const response = await streamRepoSearchMessage(
         selectedSessionId,
         {
           content: chatInput.trim(),
           repoRoot: planRepoRootInput.trim() || selectedSession?.planRepoRoot || '',
+          ...(Number.isFinite(parsedMaxTurnsRS) && parsedMaxTurnsRS > 0 ? { maxTurns: parsedMaxTurnsRS } : {}),
+          ...(Number.isFinite(parsedThinkingIntervalRS) && parsedThinkingIntervalRS > 0 ? { thinkingInterval: parsedThinkingIntervalRS } : {}),
         },
         (thinkingText) => {
           setThinkingDraft(thinkingText);
@@ -912,6 +925,9 @@ export function App() {
               return updated;
             });
           }
+        },
+        (answerText) => {
+          setAnswerDraft(answerText);
         },
       );
       setSelectedSession(response.session);
@@ -1471,6 +1487,33 @@ export function App() {
                     </button>
                   </div>
                 ) : null}
+                {(chatMode === 'plan' || chatMode === 'repo-search') ? (
+                  <div className="plan-root-row">
+                    <label htmlFor="max-turns-input" title="Maximum number of tool calls before stopping">Max Turns</label>
+                    <input
+                      id="max-turns-input"
+                      type="number"
+                      min="1"
+                      max="200"
+                      style={{ width: '70px' }}
+                      value={planMaxTurnsInput}
+                      onChange={(event) => setPlanMaxTurnsInput(event.target.value)}
+                      disabled={chatBusy}
+                    />
+                    <label htmlFor="thinking-interval-input" title="Force a thinking step every N tool calls">Think Every</label>
+                    <input
+                      id="thinking-interval-input"
+                      type="number"
+                      min="1"
+                      max="50"
+                      style={{ width: '70px' }}
+                      value={planThinkingIntervalInput}
+                      onChange={(event) => setPlanThinkingIntervalInput(event.target.value)}
+                      disabled={chatBusy}
+                    />
+                    <span className="hint" style={{ fontSize: '0.75rem' }}>steps</span>
+                  </div>
+                ) : null}
                 {contextUsage && (
                   <div className={contextUsage.shouldCondense ? 'usage warning' : 'usage'}>
                     <strong>
@@ -1546,7 +1589,7 @@ export function App() {
                       <section className="live-box tool-calls">
                         <h3>Queries ({planToolCalls.length})</h3>
                         <ul className="tool-call-list">
-                          {planToolCalls.map((tc, i) => (
+                          {[...planToolCalls].reverse().map((tc, i) => (
                             <li key={i} className={tc.status === 'running' ? 'tool-running' : 'tool-done'}>
                               <code>{tc.command}</code>
                               {tc.status === 'running' && <span className="tool-spinner"> ...</span>}
@@ -1563,9 +1606,9 @@ export function App() {
                         </ul>
                       </section>
                     )}
-                    {chatMode === 'chat' && (
+                    {(chatMode === 'chat' || ((chatMode === 'plan' || chatMode === 'repo-search') && answerDraft)) && (
                       <section className="live-box answer">
-                        <h3>Answer</h3>
+                        <h3>{chatMode === 'plan' ? 'Plan Progress' : chatMode === 'repo-search' ? 'Search Progress' : 'Answer'}</h3>
                         <div className="markdown-body">
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>
                             {answerDraft || '...'}

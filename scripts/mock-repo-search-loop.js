@@ -1527,7 +1527,20 @@ function executeRepoCommand(command, repoRoot, mockCommandResults) {
   });
 }
 
-function buildTaskSystemPrompt() {
+function readAgentsMd(repoRoot) {
+  if (!repoRoot) return '';
+  const agentsPath = path.join(repoRoot, 'agents.md');
+  try {
+    if (fs.existsSync(agentsPath)) {
+      const content = fs.readFileSync(agentsPath, 'utf8').trim();
+      if (content) return content;
+    }
+  } catch { /* ignore read errors */ }
+  return '';
+}
+
+function buildTaskSystemPrompt(repoRoot) {
+  const agentsContent = readAgentsMd(repoRoot);
   return [
     'You are running as a repo-search planner.',
     'Return exactly one JSON action per turn.',
@@ -1610,6 +1623,7 @@ function buildTaskSystemPrompt() {
     '- Invalid mixed-type example: `{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"x\\" --type ts --type tsx src"}}`.',
     '- Invalid command parameter example: `{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"x\\" src; del file.txt"}}`.',
     '- Invalid command parameter example: `{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content src\\\\x.ts | Out-File out.txt"}}`.',
+    ...(agentsContent ? ['', '--- agents.md (project-specific instructions) ---', '', agentsContent] : []),
   ].join('\n');
 }
 
@@ -1723,6 +1737,7 @@ async function runTaskLoop(task, options) {
   let modelPromptEvalTokens = 0;
   const attemptedCommands = new Set();
   const minToolCallsBeforeFinish = Math.max(0, Number(options.minToolCallsBeforeFinish ?? MIN_TOOL_CALLS_BEFORE_FINISH));
+  const thinkingInterval = Math.max(1, Math.floor(Number(options.thinkingInterval || 5)));
   const totalContextTokens = Math.max(
     1,
     Number(options.totalContextTokens || (options.config ? getConfiguredLlamaNumCtx(options.config) : 32000))
@@ -1740,7 +1755,7 @@ async function runTaskLoop(task, options) {
   let nonThinkingFinishFollowupUsed = false;
   const slotId = allocateLlamaCppSlotId(options.config || {});
   const messages = [
-    { role: 'system', content: buildTaskSystemPrompt() },
+    { role: 'system', content: buildTaskSystemPrompt(options.repoRoot) },
     { role: 'user', content: buildTaskInitialUserPrompt(task.question) },
   ];
 
@@ -1749,7 +1764,7 @@ async function runTaskLoop(task, options) {
     const inForcedFinishMode = forcedFinishAttemptsRemaining > 0;
     const plannerThinkingEnabled = inForcedFinishMode
       ? true
-      : (forceThinkingOnNextTurn || (((commands.length + 1) % 5) === 0));
+      : (forceThinkingOnNextTurn || (((commands.length + 1) % thinkingInterval) === 0));
     if (forceThinkingOnNextTurn && !inForcedFinishMode) {
       forceThinkingOnNextTurn = false;
     }
@@ -2354,6 +2369,7 @@ async function runMockRepoSearch(options = {}) {
       maxTurns: options.maxTurns || DEFAULT_MAX_TURNS,
       maxInvalidResponses: options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES,
       minToolCallsBeforeFinish: options.minToolCallsBeforeFinish,
+      thinkingInterval: options.thinkingInterval,
       requestMaxTokens,
       enforceThinkingFinish: true,
       mockResponses: options.mockResponses,

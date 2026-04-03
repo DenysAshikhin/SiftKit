@@ -2162,12 +2162,11 @@ function buildChatCompletionRequest(config, session, userContent, options = {}) 
       .filter(Boolean)
     : [];
   const hiddenToolContextText = hiddenToolContexts.join('\n\n');
+  const systemContent = hiddenToolContextText
+    ? `general, coder friendly assistant\n\nInternal tool-call context from prior session steps. Use this as additional evidence only when relevant.\n\n${hiddenToolContextText}`
+    : 'general, coder friendly assistant';
   const messages = [
-    { role: 'system', content: 'general, coder friendly assistant' },
-    ...(hiddenToolContextText ? [{
-      role: 'system',
-      content: `Internal tool-call context from prior session steps. Use this as additional evidence only when relevant.\n\n${hiddenToolContextText}`,
-    }] : []),
+    { role: 'system', content: systemContent },
     // Only feed chat-visible message content back into history; never include prior thinking traces.
     ...priorMessages.map((message) => ({
       role: message.role === 'assistant' ? 'assistant' : 'user',
@@ -3807,6 +3806,7 @@ function startStatusServer(options = {}) {
           model: typeof parsedBody.model === 'string' && parsedBody.model.trim() ? parsedBody.model.trim() : undefined,
           requestMaxTokens: 10000,
           maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
+          thinkingInterval: Number.isFinite(Number(parsedBody.thinkingInterval)) ? Number(parsedBody.thinkingInterval) : undefined,
           logFile: typeof parsedBody.logFile === 'string' && parsedBody.logFile.trim() ? parsedBody.logFile.trim() : undefined,
           availableModels: Array.isArray(parsedBody.availableModels)
             ? parsedBody.availableModels.map((value) => String(value))
@@ -3925,6 +3925,7 @@ function startStatusServer(options = {}) {
           model: typeof parsedBody.model === 'string' && parsedBody.model.trim() ? parsedBody.model.trim() : undefined,
           requestMaxTokens: 10000,
           maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
+          thinkingInterval: Number.isFinite(Number(parsedBody.thinkingInterval)) ? Number(parsedBody.thinkingInterval) : undefined,
           logFile: typeof parsedBody.logFile === 'string' && parsedBody.logFile.trim() ? parsedBody.logFile.trim() : undefined,
           availableModels: Array.isArray(parsedBody.availableModels)
             ? parsedBody.availableModels.map((value) => String(value))
@@ -3948,8 +3949,10 @@ function startStatusServer(options = {}) {
               writeSse('thinking', { thinking: event.thinkingText || '' });
             } else if (event.kind === 'tool_start') {
               writeSse('tool_start', { turn: event.turn, maxTurns: event.maxTurns, command: event.command });
+              writeSse('answer', { answer: `Planning step ${event.turn}/${event.maxTurns}: running \`${event.command}\`...` });
             } else if (event.kind === 'tool_result') {
               writeSse('tool_result', { turn: event.turn, maxTurns: event.maxTurns, command: event.command, exitCode: event.exitCode, outputSnippet: event.outputSnippet });
+              writeSse('answer', { answer: `Planning step ${event.turn}/${event.maxTurns}: \`${event.command}\` finished (exit ${event.exitCode ?? '?'})` });
             }
           },
         });
@@ -4051,6 +4054,7 @@ function startStatusServer(options = {}) {
           model: typeof parsedBody.model === 'string' && parsedBody.model.trim() ? parsedBody.model.trim() : undefined,
           requestMaxTokens: 10000,
           maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
+          thinkingInterval: Number.isFinite(Number(parsedBody.thinkingInterval)) ? Number(parsedBody.thinkingInterval) : undefined,
           logFile: typeof parsedBody.logFile === 'string' && parsedBody.logFile.trim() ? parsedBody.logFile.trim() : undefined,
           availableModels: Array.isArray(parsedBody.availableModels)
             ? parsedBody.availableModels.map((value) => String(value))
@@ -4074,8 +4078,10 @@ function startStatusServer(options = {}) {
               writeSse('thinking', { thinking: event.thinkingText || '' });
             } else if (event.kind === 'tool_start') {
               writeSse('tool_start', { turn: event.turn, maxTurns: event.maxTurns, command: event.command });
+              writeSse('answer', { answer: `Search step ${event.turn}/${event.maxTurns}: running \`${event.command}\`...` });
             } else if (event.kind === 'tool_result') {
               writeSse('tool_result', { turn: event.turn, maxTurns: event.maxTurns, command: event.command, exitCode: event.exitCode, outputSnippet: event.outputSnippet });
+              writeSse('answer', { answer: `Search step ${event.turn}/${event.maxTurns}: \`${event.command}\` finished (exit ${event.exitCode ?? '?'})` });
             }
           },
         });
@@ -4327,6 +4333,7 @@ function startStatusServer(options = {}) {
             ? parsedBody.model.trim()
             : undefined,
           maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
+          thinkingInterval: Number.isFinite(Number(parsedBody.thinkingInterval)) ? Number(parsedBody.thinkingInterval) : undefined,
           logFile: typeof parsedBody.logFile === 'string' && parsedBody.logFile.trim()
             ? parsedBody.logFile.trim()
             : undefined,

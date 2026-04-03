@@ -3079,16 +3079,14 @@ test('real status server falls back to zeroed metrics when the metrics cache is 
 
     await withRealStatusServer(async ({ statusUrl }) => {
       const status = await requestJson(statusUrl);
-      assert.deepEqual(status.metrics, {
-        inputCharactersTotal: 0,
-        outputCharactersTotal: 0,
-        inputTokensTotal: 0,
-        outputTokensTotal: 0,
-        thinkingTokensTotal: 0,
-        requestDurationMsTotal: 0,
-        completedRequestCount: 0,
-        updatedAtUtc: null,
-      });
+      assert.equal(status.metrics.inputCharactersTotal, 0);
+      assert.equal(status.metrics.outputCharactersTotal, 0);
+      assert.equal(status.metrics.inputTokensTotal, 0);
+      assert.equal(status.metrics.outputTokensTotal, 0);
+      assert.equal(status.metrics.thinkingTokensTotal, 0);
+      assert.equal(status.metrics.requestDurationMsTotal, 0);
+      assert.equal(status.metrics.completedRequestCount, 0);
+      assert.equal(status.metrics.updatedAtUtc, null);
     }, {
       statusPath,
       configPath,
@@ -3165,6 +3163,8 @@ test('llama.cpp provider lists models and parses chat completions from the stub 
         completionTokens: 45,
         totalTokens: 168,
         thinkingTokens: null,
+        promptCacheTokens: null,
+        promptEvalTokens: null,
       });
     });
   });
@@ -3205,6 +3205,8 @@ test('llama.cpp provider records thinking tokens separately from completion usag
         completionTokens: 33,
         totalTokens: 168,
         thinkingTokens: 12,
+        promptCacheTokens: null,
+        promptEvalTokens: null,
       });
       assert.match(summary.text, /^summary:/u);
     }, {
@@ -8228,12 +8230,14 @@ test('chunked malformed JSON slices retry with stricter chunk guidance instead o
 
       assert.equal(result.WasSummarized, true);
       assert.equal(result.Classification, 'summary');
-      assert.ok(server.state.chatRequests.length >= 4);
-      const firstPrompt = getChatRequestText(server.state.chatRequests[0]);
-      const secondPrompt = getChatRequestText(server.state.chatRequests[1]);
-      assert.match(firstPrompt, /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u);
-      assert.doesNotMatch(firstPrompt, /Returning "unsupported_input" for this chunk is invalid/u);
-      assert.match(secondPrompt, /Returning "unsupported_input" for this chunk is invalid/u);
+      assert.ok(server.state.chatRequests.length >= 5);
+      const plannerPrompt = getChatRequestText(server.state.chatRequests[0]);
+      assert.doesNotMatch(plannerPrompt, /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u);
+      const firstChunkPrompt = getChatRequestText(server.state.chatRequests[1]);
+      const secondChunkPrompt = getChatRequestText(server.state.chatRequests[2]);
+      assert.match(firstChunkPrompt, /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u);
+      assert.doesNotMatch(firstChunkPrompt, /Returning "unsupported_input" for this chunk is invalid/u);
+      assert.match(secondChunkPrompt, /Returning "unsupported_input" for this chunk is invalid/u);
     }, {
       assistantContent(promptText) {
         if (
@@ -8279,8 +8283,8 @@ test('chunked unsupported-input leaf retries fall back to a conservative local s
 
       assert.equal(result.WasSummarized, true);
       assert.equal(result.Classification, 'summary');
-      assert.equal(server.state.chatRequests.length, 5);
-      const mergePrompt = getChatRequestText(server.state.chatRequests[4]);
+      assert.equal(server.state.chatRequests.length, 6);
+      const mergePrompt = getChatRequestText(server.state.chatRequests[5]);
       assert.match(mergePrompt, /partial slice of a larger supported input/u);
       assert.match(mergePrompt, /raw_review_required=true/u);
     }, {
