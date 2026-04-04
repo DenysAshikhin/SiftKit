@@ -43,11 +43,11 @@ exports.buildPrompt = buildPrompt;
 exports.summarizeRequest = summarizeRequest;
 exports.readSummaryInput = readSummaryInput;
 const fs = __importStar(require("node:fs"));
-const path = __importStar(require("node:path"));
 const node_crypto_1 = require("node:crypto");
 const config_js_1 = require("./config.js");
 const execution_lock_js_1 = require("./execution-lock.js");
 const errors_js_1 = require("./lib/errors.js");
+const paths_js_1 = require("./config/paths.js");
 const llama_cpp_js_1 = require("./providers/llama-cpp.js");
 exports.UNSUPPORTED_INPUT_MESSAGE = 'The command/input is either unsupported or failed. Please verify the command that it is supported in the current environment and returns proper input. If it does, raise an explicit error to the user and stop futher processing.';
 const PROMPT_PROFILES = {
@@ -1106,7 +1106,7 @@ function executePlannerTool(inputText, action) {
     }
 }
 function createPlannerDebugRecorder(options) {
-    const debugPath = getPlannerDebugPath(options.requestId);
+    const debugPath = (0, paths_js_1.getPlannerDebugPath)(options.requestId);
     updatePlannerDebugDump(options.requestId, () => ({
         requestId: options.requestId,
         command: options.commandText ?? null,
@@ -1135,33 +1135,6 @@ function createPlannerDebugRecorder(options) {
 }
 const plannerDebugPayloadByRequestId = new Map();
 const plannerFailedArtifactByRequestId = new Set();
-function getRuntimeLogsPath() {
-    const statusPath = process.env.sift_kit_status || process.env.SIFTKIT_STATUS_PATH || '';
-    if (statusPath && statusPath.trim()) {
-        const absoluteStatusPath = path.resolve(statusPath.trim());
-        const statusDirectory = path.dirname(absoluteStatusPath);
-        const runtimeRoot = path.basename(statusDirectory).toLowerCase() === 'status'
-            ? path.dirname(statusDirectory)
-            : statusDirectory;
-        return path.join(runtimeRoot, 'logs');
-    }
-    return path.join(process.cwd(), '.siftkit', 'logs');
-}
-function getPlannerDebugPath(requestId) {
-    return path.join(getRuntimeLogsPath(), `planner_debug_${requestId}.json`);
-}
-function getPlannerFailedLogsPath() {
-    return path.join(getRuntimeLogsPath(), 'failed');
-}
-function getSummaryRequestLogsPath() {
-    return path.join(getRuntimeLogsPath(), 'requests');
-}
-function getPlannerFailedPath(requestId) {
-    return path.join(getPlannerFailedLogsPath(), `request_failed_${requestId}.json`);
-}
-function getSummaryRequestLogPath(requestId) {
-    return path.join(getSummaryRequestLogsPath(), `request_${requestId}.json`);
-}
 function readPlannerDebugPayload(requestId) {
     return plannerDebugPayloadByRequestId.get(requestId) ?? {};
 }
@@ -1200,7 +1173,7 @@ async function finalizePlannerDebugDump(options) {
     });
 }
 function buildPlannerFailureErrorMessage(options) {
-    const debugPath = getPlannerDebugPath(options.requestId);
+    const debugPath = (0, paths_js_1.getPlannerDebugPath)(options.requestId);
     const final = getRecord(readPlannerDebugPayload(options.requestId).final);
     const reason = options.reason
         || (typeof final?.reason === 'string' ? final.reason : null)
@@ -1221,7 +1194,7 @@ async function writeFailedRequestDump(options) {
             inputText: options.inputText,
             error: options.error,
             providerError: options.providerError ?? options.error,
-            plannerDebugPath: plannerDebugPayloadByRequestId.has(options.requestId) ? getPlannerDebugPath(options.requestId) : null,
+            plannerDebugPath: plannerDebugPayloadByRequestId.has(options.requestId) ? (0, paths_js_1.getPlannerDebugPath)(options.requestId) : null,
         },
     });
     plannerFailedArtifactByRequestId.add(options.requestId);
@@ -1242,8 +1215,8 @@ async function writeSummaryRequestDump(options) {
             summary: options.summary ?? null,
             providerError: options.providerError ?? null,
             error: options.error ?? null,
-            plannerDebugPath: plannerDebugPayloadByRequestId.has(options.requestId) ? getPlannerDebugPath(options.requestId) : null,
-            failedRequestPath: plannerFailedArtifactByRequestId.has(options.requestId) ? getPlannerFailedPath(options.requestId) : null,
+            plannerDebugPath: plannerDebugPayloadByRequestId.has(options.requestId) ? (0, paths_js_1.getPlannerDebugPath)(options.requestId) : null,
+            failedRequestPath: plannerFailedArtifactByRequestId.has(options.requestId) ? (0, paths_js_1.getPlannerFailedPath)(options.requestId) : null,
         },
     });
 }

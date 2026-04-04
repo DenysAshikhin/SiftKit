@@ -1,42 +1,6 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.saveContentAtomically = exports.ensureDirectory = exports.MissingObservedBudgetError = exports.StatusServerUnavailableError = exports.SIFT_DEFAULT_PROMPT_PREFIX = exports.SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN = exports.SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS = exports.SIFT_DEFAULT_LLAMA_SHUTDOWN_SCRIPT = exports.SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_DEFAULT_LLAMA_MODEL_PATH = exports.SIFT_DEFAULT_LLAMA_BASE_URL = exports.SIFT_DEFAULT_LLAMA_MODEL = exports.SIFT_PREVIOUS_DEFAULT_MODEL = exports.SIFT_PREVIOUS_DEFAULT_NUM_CTX = exports.SIFT_LEGACY_DERIVED_NUM_CTX = exports.SIFT_LEGACY_DEFAULT_NUM_CTX = exports.SIFT_DEFAULT_NUM_CTX = exports.SIFTKIT_VERSION = void 0;
-exports.getRepoLocalRuntimeRoot = getRepoLocalRuntimeRoot;
-exports.getRepoLocalLogsPath = getRepoLocalLogsPath;
-exports.getRuntimeRoot = getRuntimeRoot;
+exports.getConfigPath = exports.getInferenceStatusPath = exports.getRuntimeRoot = exports.getRepoLocalLogsPath = exports.getRepoLocalRuntimeRoot = exports.saveContentAtomically = exports.ensureDirectory = exports.MissingObservedBudgetError = exports.StatusServerUnavailableError = exports.SIFT_DEFAULT_PROMPT_PREFIX = exports.SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN = exports.SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS = exports.SIFT_DEFAULT_LLAMA_SHUTDOWN_SCRIPT = exports.SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_DEFAULT_LLAMA_MODEL_PATH = exports.SIFT_DEFAULT_LLAMA_BASE_URL = exports.SIFT_DEFAULT_LLAMA_MODEL = exports.SIFT_PREVIOUS_DEFAULT_MODEL = exports.SIFT_PREVIOUS_DEFAULT_NUM_CTX = exports.SIFT_LEGACY_DERIVED_NUM_CTX = exports.SIFT_LEGACY_DEFAULT_NUM_CTX = exports.SIFT_DEFAULT_NUM_CTX = exports.SIFTKIT_VERSION = void 0;
 exports.initializeRuntime = initializeRuntime;
 exports.getDefaultNumCtx = getDefaultNumCtx;
 exports.getConfiguredModel = getConfiguredModel;
@@ -48,7 +12,6 @@ exports.getDerivedMaxInputCharacters = getDerivedMaxInputCharacters;
 exports.getEffectiveInputCharactersPerContextToken = getEffectiveInputCharactersPerContextToken;
 exports.getEffectiveMaxInputCharacters = getEffectiveMaxInputCharacters;
 exports.getChunkThresholdCharacters = getChunkThresholdCharacters;
-exports.getInferenceStatusPath = getInferenceStatusPath;
 exports.getStatusBackendUrl = getStatusBackendUrl;
 exports.getExecutionServiceUrl = getExecutionServiceUrl;
 exports.getStatusServerHealthUrl = getStatusServerHealthUrl;
@@ -60,17 +23,14 @@ exports.releaseExecutionLease = releaseExecutionLease;
 exports.ensureStatusServerReachable = ensureStatusServerReachable;
 exports.notifyStatusBackend = notifyStatusBackend;
 exports.getConfigServiceUrl = getConfigServiceUrl;
-exports.getConfigPath = getConfigPath;
 exports.saveConfig = saveConfig;
 exports.loadConfig = loadConfig;
 exports.setTopLevelConfigKey = setTopLevelConfigKey;
-const fs = __importStar(require("node:fs"));
-const os = __importStar(require("node:os"));
-const path = __importStar(require("node:path"));
 const http_js_1 = require("./lib/http.js");
-const json_js_1 = require("./lib/json.js");
 const fs_js_1 = require("./lib/fs.js");
 const paths_js_1 = require("./lib/paths.js");
+const paths_js_2 = require("./config/paths.js");
+const observed_budget_js_1 = require("./state/observed-budget.js");
 exports.SIFTKIT_VERSION = '0.1.0';
 exports.SIFT_DEFAULT_NUM_CTX = 128_000;
 exports.SIFT_LEGACY_DEFAULT_NUM_CTX = 16_384;
@@ -130,73 +90,12 @@ function deriveServiceUrl(configuredUrl, nextPath) {
 }
 exports.ensureDirectory = fs_js_1.ensureDirectory;
 exports.saveContentAtomically = fs_js_1.saveContentAtomically;
-function isRuntimeRootWritable(candidate) {
-    if (!candidate || !candidate.trim()) {
-        return false;
-    }
-    try {
-        const fullPath = path.resolve(candidate);
-        (0, exports.ensureDirectory)(fullPath);
-        const probePath = path.join(fullPath, `${Math.random().toString(16).slice(2)}.tmp`);
-        (0, fs_js_1.writeUtf8NoBom)(probePath, 'probe');
-        fs.rmSync(probePath, { force: true });
-        return true;
-    }
-    catch {
-        return false;
-    }
-}
-function getRepoLocalRuntimeRoot() {
-    const repoRoot = (0, paths_js_1.findNearestSiftKitRepoRoot)();
-    return repoRoot ? path.resolve(repoRoot, '.siftkit') : null;
-}
-function getRepoLocalLogsPath() {
-    const runtimeRoot = getRepoLocalRuntimeRoot();
-    return runtimeRoot ? path.resolve(runtimeRoot, 'logs') : null;
-}
-function getRuntimeRoot() {
-    const configuredStatusPath = process.env.sift_kit_status;
-    if (configuredStatusPath && configuredStatusPath.trim()) {
-        const absoluteStatusPath = path.resolve(configuredStatusPath);
-        const statusDirectory = path.dirname(absoluteStatusPath);
-        if (path.basename(statusDirectory).toLowerCase() === 'status') {
-            return path.resolve(path.dirname(statusDirectory));
-        }
-        return path.resolve(statusDirectory);
-    }
-    const candidates = [];
-    const repoRoot = (0, paths_js_1.findNearestSiftKitRepoRoot)();
-    if (repoRoot) {
-        candidates.push(path.resolve(repoRoot, '.siftkit'));
-    }
-    if (process.env.USERPROFILE?.trim()) {
-        candidates.push(path.resolve(process.env.USERPROFILE, '.siftkit'));
-    }
-    if (process.cwd()) {
-        candidates.push(path.resolve(process.cwd(), '.codex', 'siftkit'));
-    }
-    for (const candidate of candidates) {
-        if (isRuntimeRootWritable(candidate)) {
-            return candidate;
-        }
-    }
-    if (candidates.length > 0) {
-        return candidates[0];
-    }
-    return path.resolve(os.tmpdir(), 'siftkit');
-}
+exports.getRepoLocalRuntimeRoot = paths_js_2.getRepoLocalRuntimeRoot;
+exports.getRepoLocalLogsPath = paths_js_2.getRepoLocalLogsPath;
+exports.getRuntimeRoot = paths_js_2.getRuntimeRoot;
 function initializeRuntime() {
-    const runtimeRoot = (0, exports.ensureDirectory)(getRuntimeRoot());
-    const logs = (0, exports.ensureDirectory)(path.join(runtimeRoot, 'logs'));
-    const evalRoot = (0, exports.ensureDirectory)(path.join(runtimeRoot, 'eval'));
-    const evalFixtures = (0, exports.ensureDirectory)(path.join(evalRoot, 'fixtures'));
-    const evalResults = (0, exports.ensureDirectory)(path.join(evalRoot, 'results'));
-    return {
-        RuntimeRoot: runtimeRoot,
-        Logs: logs,
-        EvalFixtures: evalFixtures,
-        EvalResults: evalResults,
-    };
+    const paths = (0, paths_js_2.initializeRuntime)();
+    return paths;
 }
 function getDefaultNumCtx() {
     return exports.SIFT_DEFAULT_NUM_CTX;
@@ -285,16 +184,7 @@ function getEffectiveMaxInputCharacters(config) {
 function getChunkThresholdCharacters(config) {
     return Math.max(getEffectiveMaxInputCharacters(config), 1);
 }
-function getInferenceStatusPath() {
-    const configuredPath = process.env.sift_kit_status;
-    if (configuredPath && configuredPath.trim()) {
-        return path.resolve(configuredPath);
-    }
-    return path.resolve(getRuntimeRoot(), 'status', 'inference.txt');
-}
-function getObservedBudgetStatePath() {
-    return path.resolve(getRuntimeRoot(), 'metrics', 'observed-budget.json');
-}
+exports.getInferenceStatusPath = paths_js_2.getInferenceStatusPath;
 function getStatusBackendUrl() {
     const configuredUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
     if (configuredUrl && configuredUrl.trim()) {
@@ -316,49 +206,6 @@ async function getStatusSnapshot() {
         throw toStatusServerUnavailableError();
     }
 }
-function getDefaultObservedBudgetState() {
-    return {
-        observedTelemetrySeen: false,
-        lastKnownCharsPerToken: null,
-        updatedAtUtc: null,
-    };
-}
-function normalizeObservedBudgetState(input) {
-    const fallback = getDefaultObservedBudgetState();
-    if (!input || typeof input !== 'object') {
-        return fallback;
-    }
-    const parsed = input;
-    const lastKnownCharsPerToken = Number(parsed.lastKnownCharsPerToken);
-    return {
-        observedTelemetrySeen: parsed.observedTelemetrySeen === true && Number.isFinite(lastKnownCharsPerToken) && lastKnownCharsPerToken > 0,
-        lastKnownCharsPerToken: Number.isFinite(lastKnownCharsPerToken) && lastKnownCharsPerToken > 0 ? lastKnownCharsPerToken : null,
-        updatedAtUtc: typeof parsed.updatedAtUtc === 'string' && parsed.updatedAtUtc.trim() ? parsed.updatedAtUtc : null,
-    };
-}
-function readObservedBudgetState() {
-    const statePath = getObservedBudgetStatePath();
-    if (!fs.existsSync(statePath)) {
-        return getDefaultObservedBudgetState();
-    }
-    try {
-        return normalizeObservedBudgetState((0, json_js_1.parseJsonText)(fs.readFileSync(statePath, 'utf8')));
-    }
-    catch {
-        return getDefaultObservedBudgetState();
-    }
-}
-function writeObservedBudgetState(state) {
-    (0, exports.saveContentAtomically)(getObservedBudgetStatePath(), `${JSON.stringify(normalizeObservedBudgetState(state), null, 2)}\n`);
-}
-function tryWriteObservedBudgetState(state) {
-    try {
-        writeObservedBudgetState(state);
-    }
-    catch {
-        // Observed-budget persistence is advisory. Request execution should continue.
-    }
-}
 function getObservedInputCharactersPerContextToken(snapshot) {
     const inputCharactersTotal = Number(snapshot?.metrics?.inputCharactersTotal);
     const inputTokensTotal = Number(snapshot?.metrics?.inputTokensTotal);
@@ -371,7 +218,7 @@ function getObservedInputCharactersPerContextToken(snapshot) {
     return inputCharactersTotal / inputTokensTotal;
 }
 async function resolveInputCharactersPerContextToken() {
-    const persistedState = readObservedBudgetState();
+    const persistedState = (0, observed_budget_js_1.readObservedBudgetState)();
     let snapshot;
     try {
         snapshot = await getStatusSnapshot();
@@ -387,7 +234,7 @@ async function resolveInputCharactersPerContextToken() {
     }
     const observedValue = getObservedInputCharactersPerContextToken(snapshot);
     if (observedValue !== null) {
-        tryWriteObservedBudgetState({
+        (0, observed_budget_js_1.tryWriteObservedBudgetState)({
             observedTelemetrySeen: true,
             lastKnownCharsPerToken: observedValue,
             updatedAtUtc: new Date().toISOString(),
@@ -504,7 +351,7 @@ async function notifyStatusBackend(options) {
     const body = {
         running: options.running,
         status: options.running ? 'true' : 'false',
-        statusPath: getInferenceStatusPath(),
+        statusPath: (0, exports.getInferenceStatusPath)(),
         updatedAtUtc: new Date().toISOString(),
     };
     if (options.requestId && options.requestId.trim()) {
@@ -603,9 +450,7 @@ function getConfigServiceUrl() {
     }
     return deriveServiceUrl(getStatusBackendUrl(), '/config');
 }
-function getConfigPath() {
-    return path.join(getRuntimeRoot(), 'config.json');
-}
+exports.getConfigPath = paths_js_2.getConfigPath;
 function getDefaultConfigObject() {
     const runtimePaths = initializeRuntime();
     return {
@@ -981,7 +826,7 @@ async function addEffectiveConfigProperties(config, info) {
             NumCtx: numCtx,
             InputCharactersPerContextToken: effectiveBudget.value,
             ObservedTelemetrySeen: effectiveBudget.budgetSource !== 'ColdStartFixedCharsPerToken',
-            ObservedTelemetryUpdatedAtUtc: readObservedBudgetState().updatedAtUtc,
+            ObservedTelemetryUpdatedAtUtc: (0, observed_budget_js_1.readObservedBudgetState)().updatedAtUtc,
             MaxInputCharacters: maxInputCharacters,
             ChunkThresholdCharacters: maxInputCharacters,
             LegacyMaxInputCharactersRemoved: info.legacyMaxInputCharactersRemoved,

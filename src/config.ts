@@ -1,18 +1,23 @@
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
 import { requestJson } from './lib/http.js';
-import { parseJsonText } from './lib/json.js';
 import {
   ensureDirectory as libEnsureDirectory,
   saveContentAtomically as libSaveContentAtomically,
-  writeUtf8NoBom,
-  isRetryableFsError,
 } from './lib/fs.js';
+import { normalizeWindowsPath } from './lib/paths.js';
 import {
-  findNearestSiftKitRepoRoot,
-  normalizeWindowsPath,
-} from './lib/paths.js';
+  getConfigPath as libGetConfigPath,
+  getInferenceStatusPath as libGetInferenceStatusPath,
+  getRepoLocalLogsPath as libGetRepoLocalLogsPath,
+  getRepoLocalRuntimeRoot as libGetRepoLocalRuntimeRoot,
+  getRuntimeRoot as libGetRuntimeRoot,
+  initializeRuntime as libInitializeRuntime,
+  type RuntimePaths,
+} from './config/paths.js';
+import {
+  readObservedBudgetState,
+  tryWriteObservedBudgetState,
+  type ObservedBudgetState as StateObservedBudgetState,
+} from './state/observed-budget.js';
 
 export const SIFTKIT_VERSION = '0.1.0';
 export const SIFT_DEFAULT_NUM_CTX = 128_000;
@@ -124,11 +129,7 @@ type StatusSnapshotResponse = {
   metrics?: StatusMetricsSnapshot;
 };
 
-type ObservedBudgetState = {
-  observedTelemetrySeen: boolean;
-  lastKnownCharsPerToken: number | null;
-  updatedAtUtc: string | null;
-};
+type ObservedBudgetState = StateObservedBudgetState;
 
 const RUNTIME_OWNED_LLAMA_CPP_KEYS = [
   'BaseUrl',
@@ -177,84 +178,13 @@ function deriveServiceUrl(configuredUrl: string, nextPath: string): string {
 
 export const ensureDirectory = libEnsureDirectory;
 export const saveContentAtomically = libSaveContentAtomically;
-
-function isRuntimeRootWritable(candidate: string | null | undefined): boolean {
-  if (!candidate || !candidate.trim()) {
-    return false;
-  }
-
-  try {
-    const fullPath = path.resolve(candidate);
-    ensureDirectory(fullPath);
-    const probePath = path.join(fullPath, `${Math.random().toString(16).slice(2)}.tmp`);
-    writeUtf8NoBom(probePath, 'probe');
-    fs.rmSync(probePath, { force: true });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export function getRepoLocalRuntimeRoot(): string | null {
-  const repoRoot = findNearestSiftKitRepoRoot();
-  return repoRoot ? path.resolve(repoRoot, '.siftkit') : null;
-}
-
-export function getRepoLocalLogsPath(): string | null {
-  const runtimeRoot = getRepoLocalRuntimeRoot();
-  return runtimeRoot ? path.resolve(runtimeRoot, 'logs') : null;
-}
-
-export function getRuntimeRoot(): string {
-  const configuredStatusPath = process.env.sift_kit_status;
-  if (configuredStatusPath && configuredStatusPath.trim()) {
-    const absoluteStatusPath = path.resolve(configuredStatusPath);
-    const statusDirectory = path.dirname(absoluteStatusPath);
-    if (path.basename(statusDirectory).toLowerCase() === 'status') {
-      return path.resolve(path.dirname(statusDirectory));
-    }
-
-    return path.resolve(statusDirectory);
-  }
-
-  const candidates: string[] = [];
-  const repoRoot = findNearestSiftKitRepoRoot();
-  if (repoRoot) {
-    candidates.push(path.resolve(repoRoot, '.siftkit'));
-  }
-  if (process.env.USERPROFILE?.trim()) {
-    candidates.push(path.resolve(process.env.USERPROFILE, '.siftkit'));
-  }
-  if (process.cwd()) {
-    candidates.push(path.resolve(process.cwd(), '.codex', 'siftkit'));
-  }
-
-  for (const candidate of candidates) {
-    if (isRuntimeRootWritable(candidate)) {
-      return candidate;
-    }
-  }
-
-  if (candidates.length > 0) {
-    return candidates[0];
-  }
-
-  return path.resolve(os.tmpdir(), 'siftkit');
-}
+export const getRepoLocalRuntimeRoot = libGetRepoLocalRuntimeRoot;
+export const getRepoLocalLogsPath = libGetRepoLocalLogsPath;
+export const getRuntimeRoot = libGetRuntimeRoot;
 
 export function initializeRuntime(): NonNullable<SiftConfig['Paths']> {
-  const runtimeRoot = ensureDirectory(getRuntimeRoot());
-  const logs = ensureDirectory(path.join(runtimeRoot, 'logs'));
-  const evalRoot = ensureDirectory(path.join(runtimeRoot, 'eval'));
-  const evalFixtures = ensureDirectory(path.join(evalRoot, 'fixtures'));
-  const evalResults = ensureDirectory(path.join(evalRoot, 'results'));
-
-  return {
-    RuntimeRoot: runtimeRoot,
-    Logs: logs,
-    EvalFixtures: evalFixtures,
-    EvalResults: evalResults,
-  };
+  const paths: RuntimePaths = libInitializeRuntime();
+  return paths;
 }
 
 export function getDefaultNumCtx(): number {
@@ -367,18 +297,7 @@ export function getChunkThresholdCharacters(config: SiftConfig): number {
   return Math.max(getEffectiveMaxInputCharacters(config), 1);
 }
 
-export function getInferenceStatusPath(): string {
-  const configuredPath = process.env.sift_kit_status;
-  if (configuredPath && configuredPath.trim()) {
-    return path.resolve(configuredPath);
-  }
-
-  return path.resolve(getRuntimeRoot(), 'status', 'inference.txt');
-}
-
-function getObservedBudgetStatePath(): string {
-  return path.resolve(getRuntimeRoot(), 'metrics', 'observed-budget.json');
-}
+export const getInferenceStatusPath = libGetInferenceStatusPath;
 
 export function getStatusBackendUrl(): string {
   const configuredUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
@@ -400,57 +319,6 @@ async function getStatusSnapshot(): Promise<StatusSnapshotResponse> {
     });
   } catch {
     throw toStatusServerUnavailableError();
-  }
-}
-
-function getDefaultObservedBudgetState(): ObservedBudgetState {
-  return {
-    observedTelemetrySeen: false,
-    lastKnownCharsPerToken: null,
-    updatedAtUtc: null,
-  };
-}
-
-function normalizeObservedBudgetState(input: unknown): ObservedBudgetState {
-  const fallback = getDefaultObservedBudgetState();
-  if (!input || typeof input !== 'object') {
-    return fallback;
-  }
-
-  const parsed = input as Record<string, unknown>;
-  const lastKnownCharsPerToken = Number(parsed.lastKnownCharsPerToken);
-  return {
-    observedTelemetrySeen: parsed.observedTelemetrySeen === true && Number.isFinite(lastKnownCharsPerToken) && lastKnownCharsPerToken > 0,
-    lastKnownCharsPerToken: Number.isFinite(lastKnownCharsPerToken) && lastKnownCharsPerToken > 0 ? lastKnownCharsPerToken : null,
-    updatedAtUtc: typeof parsed.updatedAtUtc === 'string' && parsed.updatedAtUtc.trim() ? parsed.updatedAtUtc : null,
-  };
-}
-
-function readObservedBudgetState(): ObservedBudgetState {
-  const statePath = getObservedBudgetStatePath();
-  if (!fs.existsSync(statePath)) {
-    return getDefaultObservedBudgetState();
-  }
-
-  try {
-    return normalizeObservedBudgetState(parseJsonText<ObservedBudgetState>(fs.readFileSync(statePath, 'utf8')));
-  } catch {
-    return getDefaultObservedBudgetState();
-  }
-}
-
-function writeObservedBudgetState(state: ObservedBudgetState): void {
-  saveContentAtomically(
-    getObservedBudgetStatePath(),
-    `${JSON.stringify(normalizeObservedBudgetState(state), null, 2)}\n`
-  );
-}
-
-function tryWriteObservedBudgetState(state: ObservedBudgetState): void {
-  try {
-    writeObservedBudgetState(state);
-  } catch {
-    // Observed-budget persistence is advisory. Request execution should continue.
   }
 }
 
@@ -749,9 +617,7 @@ export function getConfigServiceUrl(): string {
   return deriveServiceUrl(getStatusBackendUrl(), '/config');
 }
 
-export function getConfigPath(): string {
-  return path.join(getRuntimeRoot(), 'config.json');
-}
+export const getConfigPath = libGetConfigPath;
 
 function getDefaultConfigObject(): SiftConfig {
   const runtimePaths = initializeRuntime();

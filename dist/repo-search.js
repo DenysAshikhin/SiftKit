@@ -38,6 +38,7 @@ const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const node_crypto_1 = require("node:crypto");
 const config_js_1 = require("./config.js");
+const paths_js_1 = require("./config/paths.js");
 function traceRepoSearch(message) {
     if (process.env.SIFTKIT_TRACE_REPO_SEARCH !== '1') {
         return;
@@ -71,22 +72,10 @@ function getNumericTotal(scorecard, key) {
     const rawValue = totals[key];
     return Number.isFinite(rawValue) && Number(rawValue) >= 0 ? Number(rawValue) : null;
 }
-function getRuntimeLogsPath() {
-    const statusPath = process.env.sift_kit_status || process.env.SIFTKIT_STATUS_PATH || '';
-    if (statusPath && statusPath.trim()) {
-        const absoluteStatusPath = path.resolve(statusPath.trim());
-        const statusDirectory = path.dirname(absoluteStatusPath);
-        const runtimeRoot = path.basename(statusDirectory).toLowerCase() === 'status'
-            ? path.dirname(statusDirectory)
-            : statusDirectory;
-        return path.join(runtimeRoot, 'logs');
-    }
-    return path.join(process.cwd(), '.siftkit', 'logs');
-}
 function ensureRepoSearchLogFolders() {
-    const root = path.join(getRuntimeLogsPath(), 'repo_search');
-    const successful = path.join(root, 'succesful');
-    const failed = path.join(root, 'failed');
+    const root = (0, paths_js_1.getRepoSearchLogRoot)();
+    const successful = (0, paths_js_1.getRepoSearchSuccessfulDirectory)();
+    const failed = (0, paths_js_1.getRepoSearchFailedDirectory)();
     fs.mkdirSync(successful, { recursive: true });
     fs.mkdirSync(failed, { recursive: true });
     return { root, successful, failed };

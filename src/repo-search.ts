@@ -2,6 +2,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { notifyStatusBackend } from './config.js';
+import {
+  getRepoSearchFailedDirectory,
+  getRepoSearchLogRoot,
+  getRepoSearchSuccessfulDirectory,
+} from './config/paths.js';
 
 type JsonLogger = {
   path: string;
@@ -79,28 +84,14 @@ function getNumericTotal(scorecard: unknown, key: string): number | null {
   return Number.isFinite(rawValue) && Number(rawValue) >= 0 ? Number(rawValue) : null;
 }
 
-function getRuntimeLogsPath(): string {
-  const statusPath = process.env.sift_kit_status || process.env.SIFTKIT_STATUS_PATH || '';
-  if (statusPath && statusPath.trim()) {
-    const absoluteStatusPath = path.resolve(statusPath.trim());
-    const statusDirectory = path.dirname(absoluteStatusPath);
-    const runtimeRoot = path.basename(statusDirectory).toLowerCase() === 'status'
-      ? path.dirname(statusDirectory)
-      : statusDirectory;
-    return path.join(runtimeRoot, 'logs');
-  }
-
-  return path.join(process.cwd(), '.siftkit', 'logs');
-}
-
 function ensureRepoSearchLogFolders(): {
   root: string;
   successful: string;
   failed: string;
 } {
-  const root = path.join(getRuntimeLogsPath(), 'repo_search');
-  const successful = path.join(root, 'succesful');
-  const failed = path.join(root, 'failed');
+  const root = getRepoSearchLogRoot();
+  const successful = getRepoSearchSuccessfulDirectory();
+  const failed = getRepoSearchFailedDirectory();
   fs.mkdirSync(successful, { recursive: true });
   fs.mkdirSync(failed, { recursive: true });
   return { root, successful, failed };

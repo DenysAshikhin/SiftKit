@@ -17,6 +17,11 @@ import {
 import { withExecutionLock } from './execution-lock.js';
 import { getErrorMessage } from './lib/errors.js';
 import {
+  getPlannerDebugPath,
+  getPlannerFailedPath,
+  getSummaryRequestLogPath,
+} from './config/paths.js';
+import {
   countLlamaCppTokens,
   generateLlamaCppChatResponse,
   generateLlamaCppResponse,
@@ -1465,40 +1470,6 @@ function createPlannerDebugRecorder(options: {
 
 const plannerDebugPayloadByRequestId = new Map<string, Record<string, unknown>>();
 const plannerFailedArtifactByRequestId = new Set<string>();
-
-function getRuntimeLogsPath(): string {
-  const statusPath = process.env.sift_kit_status || process.env.SIFTKIT_STATUS_PATH || '';
-  if (statusPath && statusPath.trim()) {
-    const absoluteStatusPath = path.resolve(statusPath.trim());
-    const statusDirectory = path.dirname(absoluteStatusPath);
-    const runtimeRoot = path.basename(statusDirectory).toLowerCase() === 'status'
-      ? path.dirname(statusDirectory)
-      : statusDirectory;
-    return path.join(runtimeRoot, 'logs');
-  }
-
-  return path.join(process.cwd(), '.siftkit', 'logs');
-}
-
-function getPlannerDebugPath(requestId: string): string {
-  return path.join(getRuntimeLogsPath(), `planner_debug_${requestId}.json`);
-}
-
-function getPlannerFailedLogsPath(): string {
-  return path.join(getRuntimeLogsPath(), 'failed');
-}
-
-function getSummaryRequestLogsPath(): string {
-  return path.join(getRuntimeLogsPath(), 'requests');
-}
-
-function getPlannerFailedPath(requestId: string): string {
-  return path.join(getPlannerFailedLogsPath(), `request_failed_${requestId}.json`);
-}
-
-function getSummaryRequestLogPath(requestId: string): string {
-  return path.join(getSummaryRequestLogsPath(), `request_${requestId}.json`);
-}
 
 function readPlannerDebugPayload(requestId: string): Record<string, unknown> {
   return plannerDebugPayloadByRequestId.get(requestId) ?? {};
