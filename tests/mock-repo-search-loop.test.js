@@ -1108,6 +1108,53 @@ test('runTaskLoop replaces oversized tool output with token allowance error', as
   assert.equal(result.reason, 'finish');
 });
 
+test('runTaskLoop prints a red console warning when tool output exceeds allowance', async () => {
+  const writes = [];
+  const originalWrite = process.stderr.write;
+  process.stderr.write = ((chunk, encoding, callback) => {
+    writes.push(Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk));
+    if (typeof callback === 'function') {
+      callback();
+    } else if (typeof encoding === 'function') {
+      encoding();
+    }
+    return true;
+  });
+  try {
+    const totalContextTokens = 20000;
+    await runTaskLoop(
+      {
+        id: 'task-token-guard-console-warning',
+        question: 'Find planner text.',
+        signals: ['done'],
+      },
+      {
+        maxTurns: 2,
+        maxInvalidResponses: 2,
+        minToolCallsBeforeFinish: 0,
+        totalContextTokens,
+        mockResponses: [
+          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
+          '{"action":"finish","output":"done"}',
+          '{"verdict":"pass","reason":"supported"}',
+        ],
+        mockCommandResults: {
+          'rg -n "planner" src': {
+            exitCode: 0,
+            stdout: 'x'.repeat(10000),
+            stderr: '',
+          },
+        },
+      }
+    );
+  } finally {
+    process.stderr.write = originalWrite;
+  }
+
+  const redWarning = writes.find((line) => /\x1b\[31m.*requested output would consume/u.test(line));
+  assert.equal(Boolean(redWarning), true);
+});
+
 test('preflightPlannerPromptBudget reports overflow against context budget', async () => {
   const preflight = await preflightPlannerPromptBudget({
     messages: [

@@ -31,6 +31,8 @@ const TRANSIENT_PROVIDER_ERROR_CODES = ['ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ECO
 const NON_THINKING_FINISH_FOLLOWUP_PROMPT = 'Are you sure you have enough evidence and did not get tunnel-visioned?';
 const COMPRESSED_HISTORY_MARKER = '[COMPRESSED HISTORICAL EVIDENCE]';
 const BASELINE_IGNORED_NAMES = ['.git', 'node_modules', '.node_modules'];
+const ANSI_RED = '\x1b[31m';
+const ANSI_RESET = '\x1b[0m';
 let nextLlamaCppSlotId = 0;
 
 function createJsonlLogger(filePath) {
@@ -193,6 +195,13 @@ function buildProviderErrorMessage(options, details) {
     parts.push(`port=${details.port}`);
   }
   return parts.join(' ');
+}
+
+function writeRedConsoleLine(message) {
+  if (!message) {
+    return;
+  }
+  process.stderr.write(`${ANSI_RED}${String(message)}${ANSI_RESET}\n`);
 }
 
 function isTransientProviderError(error) {
@@ -2562,6 +2571,7 @@ async function runTaskLoop(task, options) {
     const remainingTokenAllowance = Math.max(usablePromptTokens - promptTokenCount, 0);
     if (resultTokenCount > perToolCapTokens || resultTokenCount > remainingTokenAllowance) {
       resultText = `Error: requested output would consume ${resultTokenCount} tokens, remaining token allowance: ${remainingTokenAllowance}, per tool call allowance: ${perToolCapTokens}`;
+      writeRedConsoleLine(`repo_search warning: ${resultText}`);
     }
     options.logger?.write({
       kind: 'turn_command_result',
