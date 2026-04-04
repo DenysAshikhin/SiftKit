@@ -1,0 +1,49 @@
+import { getErrorMessage } from '../../lib/errors.js';
+import { stripCodeFence } from '../structured.js';
+import type {
+  PlannerAction,
+  SummaryClassification,
+} from '../types.js';
+import { getRecord } from './json-filter.js';
+import { getPlannerToolName } from './tools.js';
+
+export function parsePlannerAction(text: string): PlannerAction {
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(stripCodeFence(text)) as Record<string, unknown>;
+  } catch (error) {
+    throw new Error(`Provider returned an invalid planner payload: ${getErrorMessage(error)}`);
+  }
+
+  const action = typeof parsed.action === 'string' ? parsed.action.trim().toLowerCase() : '';
+  if (action === 'tool') {
+    const toolName = getPlannerToolName(parsed.tool_name);
+    const args = getRecord(parsed.args);
+    if (!toolName || !args) {
+      throw new Error('Provider returned an invalid planner tool action.');
+    }
+    return {
+      action: 'tool',
+      tool_name: toolName,
+      args,
+    };
+  }
+
+  if (action === 'finish') {
+    const classification = typeof parsed.classification === 'string'
+      ? parsed.classification.trim().toLowerCase()
+      : '';
+    const output = typeof parsed.output === 'string' ? parsed.output.trim() : '';
+    if (!['summary', 'command_failure', 'unsupported_input'].includes(classification) || !output) {
+      throw new Error('Provider returned an invalid planner finish action.');
+    }
+    return {
+      action: 'finish',
+      classification: classification as SummaryClassification,
+      rawReviewRequired: Boolean(parsed.raw_review_required ?? parsed.rawReviewRequired ?? false),
+      output,
+    };
+  }
+
+  throw new Error('Provider returned an unknown planner action.');
+}
