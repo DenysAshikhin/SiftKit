@@ -15,6 +15,7 @@ import {
   notifyStatusBackend,
 } from './config.js';
 import { withExecutionLock } from './execution-lock.js';
+import { getErrorMessage } from './lib/errors.js';
 import {
   countLlamaCppTokens,
   generateLlamaCppChatResponse,
@@ -180,10 +181,6 @@ function normalizeInputText(text: string | null | undefined): string | null {
   }
 
   return text.replace(/[\r\n]+$/u, '');
-}
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function getSummaryFailureContext(error: unknown): SummaryFailureContext | null {

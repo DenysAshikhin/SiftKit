@@ -1,0 +1,41 @@
+/**
+ * Returns a compact UTC timestamp string suitable for filenames:
+ * `YYYYMMDD_HHMMSS_fff`.
+ */
+export function getUtcTimestamp(): string {
+  const current = new Date();
+  const yyyy = current.getUTCFullYear();
+  const MM = String(current.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(current.getUTCDate()).padStart(2, '0');
+  const hh = String(current.getUTCHours()).padStart(2, '0');
+  const mm = String(current.getUTCMinutes()).padStart(2, '0');
+  const ss = String(current.getUTCSeconds()).padStart(2, '0');
+  const fff = String(current.getUTCMilliseconds()).padStart(3, '0');
+  return `${yyyy}${MM}${dd}_${hh}${mm}${ss}_${fff}`;
+}
+
+/**
+ * Returns a compact local-time timestamp string suitable for filenames:
+ * `YYYYMMDD_HHMMSS_fff`.
+ */
+export function getLocalTimestamp(): string {
+  const current = new Date();
+  const yyyy = current.getFullYear();
+  const MM = String(current.getMonth() + 1).padStart(2, '0');
+  const dd = String(current.getDate()).padStart(2, '0');
+  const hh = String(current.getHours()).padStart(2, '0');
+  const mm = String(current.getMinutes()).padStart(2, '0');
+  const ss = String(current.getSeconds()).padStart(2, '0');
+  const fff = String(current.getMilliseconds()).padStart(3, '0');
+  return `${yyyy}${MM}${dd}_${hh}${mm}${ss}_${fff}`;
+}
+
+/** Formats a duration in milliseconds as `Xm YYs` or `Ys`. */
+export function formatElapsed(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0
+    ? `${minutes}m ${String(seconds).padStart(2, '0')}s`
+    : `${seconds}s`;
+}

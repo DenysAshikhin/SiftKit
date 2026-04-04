@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getConfiguredModel, initializeRuntime, loadConfig, saveContentAtomically, type RuntimeLlamaCppConfig } from './config.js';
 import { buildPrompt, summarizeRequest, type SummaryClassification, type SummaryRequest } from './summary.js';
+import { formatElapsed, getLocalTimestamp } from './lib/time.js';
 
 type BenchmarkFixture = {
   Name: string;
@@ -159,25 +160,13 @@ function getValidatedRequestTimeoutSeconds(options: BenchmarkRunnerOptions): num
   return timeoutSeconds;
 }
 
-function getTimestamp(): string {
-  const current = new Date();
-  const yyyy = current.getFullYear();
-  const MM = String(current.getMonth() + 1).padStart(2, '0');
-  const dd = String(current.getDate()).padStart(2, '0');
-  const hh = String(current.getHours()).padStart(2, '0');
-  const mm = String(current.getMinutes()).padStart(2, '0');
-  const ss = String(current.getSeconds()).padStart(2, '0');
-  const fff = String(current.getMilliseconds()).padStart(3, '0');
-  return `${yyyy}${MM}${dd}_${hh}${mm}${ss}_${fff}`;
-}
-
 function getDefaultOutputPath(fixtureRoot?: string): string {
   if (fixtureRoot && fixtureRoot.trim()) {
-    return path.join(path.resolve(fixtureRoot), `benchmark_run_${getTimestamp()}.json`);
+    return path.join(path.resolve(fixtureRoot), `benchmark_run_${getLocalTimestamp()}.json`);
   }
 
   const paths = initializeRuntime();
-  return path.join(paths.EvalResults, `benchmark_run_${getTimestamp()}.json`);
+  return path.join(paths.EvalResults, `benchmark_run_${getLocalTimestamp()}.json`);
 }
 
 function getPromptLabel(options: {
@@ -199,15 +188,6 @@ function getPromptLabel(options: {
 
 function roundDuration(durationMs: number): number {
   return Math.round(durationMs * 1000) / 1000;
-}
-
-function formatElapsed(durationMs: number): string {
-  const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return minutes > 0
-    ? `${minutes}m ${String(seconds).padStart(2, '0')}s`
-    : `${seconds}s`;
 }
 
 function buildBenchmarkArtifact(options: {

@@ -11,3 +11,5 @@ Avoid overengineering of solutions where not 100% necessary.
 Ensure as close to 100% branch coverage as possible.
 
 Follow TDD (Test Driven Development) exclusively.
+
+Make sure everything is typescript and types. Ensure everything possible has explicit types and avoie generics/any wherever possible.

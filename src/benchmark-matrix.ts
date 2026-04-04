@@ -1,8 +1,10 @@
 import * as fs from 'node:fs';
-import * as http from 'node:http';
-import * as https from 'node:https';
 import * as path from 'node:path';
 import { spawn } from 'node:child_process';
+import { requestJson } from './lib/http.js';
+import { ensureDirectory, readJsonFile, writeJsonFile } from './lib/fs.js';
+import { resolveOptionalPathFromBase, resolvePathFromBase } from './lib/paths.js';
+import { getUtcTimestamp } from './lib/time.js';
 
 type BenchmarkSampling = {
   temperature: number;
@@ -131,13 +133,6 @@ type MatrixIndex = {
   runs: RunEntry[];
 };
 
-type HttpOptions = {
-  url: string;
-  method: 'GET' | 'PUT';
-  timeoutMs: number;
-  body?: string;
-};
-
 type ConfigRecord = Record<string, unknown> & {
   Backend?: string;
   Model?: string;
@@ -169,73 +164,6 @@ const powerShellExe = process.env.ComSpec?.toLowerCase().includes('cmd.exe')
   ? 'powershell.exe'
   : 'powershell.exe';
 const nodeExe = process.execPath;
-
-function parseJsonText<T>(text: string): T {
-  const normalized = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
-  return JSON.parse(normalized) as T;
-}
-
-function requestJson<T>(options: HttpOptions): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const target = new URL(options.url);
-    const transport = target.protocol === 'https:' ? https : http;
-    const request = transport.request(
-      {
-        protocol: target.protocol,
-        hostname: target.hostname,
-        port: target.port || (target.protocol === 'https:' ? 443 : 80),
-        path: `${target.pathname}${target.search}`,
-        method: options.method,
-        headers: options.body ? {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(options.body, 'utf8'),
-        } : undefined,
-      },
-      (response) => {
-        let responseText = '';
-        response.setEncoding('utf8');
-        response.on('data', (chunk: string) => {
-          responseText += chunk;
-        });
-        response.on('end', () => {
-          if ((response.statusCode || 0) >= 400) {
-            reject(new Error(`HTTP ${response.statusCode}: ${responseText}`));
-            return;
-          }
-
-          if (!responseText.trim()) {
-            resolve({} as T);
-            return;
-          }
-
-          try {
-            resolve(parseJsonText<T>(responseText));
-          } catch (error) {
-            reject(error);
-          }
-        });
-      }
-    );
-
-    request.setTimeout(options.timeoutMs, () => {
-      request.destroy(new Error(`Request timed out after ${options.timeoutMs} ms.`));
-    });
-    request.on('error', reject);
-    if (options.body) {
-      request.write(options.body);
-    }
-    request.end();
-  });
-}
-
-function readJsonFile<T>(filePath: string): T {
-  return parseJsonText<T>(fs.readFileSync(filePath, 'utf8'));
-}
-
-function ensureDirectory(dirPath: string): string {
-  fs.mkdirSync(dirPath, { recursive: true });
-  return dirPath;
-}
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -293,11 +221,6 @@ export function pruneOldLauncherLogs(rootDirectory: string, nowMs = Date.now()):
   return deletedCount;
 }
 
-function writeJsonFile(filePath: string, value: unknown): void {
-  ensureDirectory(path.dirname(filePath));
-  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-}
-
 function readTrimmedFileText(filePath: string): string {
   if (!fs.existsSync(filePath)) {
     return '';
@@ -305,36 +228,6 @@ function readTrimmedFileText(filePath: string): string {
 
   const content = fs.readFileSync(filePath, 'utf8');
   return content.trim();
-}
-
-function getUtcTimestamp(): string {
-  const current = new Date();
-  const yyyy = current.getUTCFullYear();
-  const MM = String(current.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(current.getUTCDate()).padStart(2, '0');
-  const hh = String(current.getUTCHours()).padStart(2, '0');
-  const mm = String(current.getUTCMinutes()).padStart(2, '0');
-  const ss = String(current.getUTCSeconds()).padStart(2, '0');
-  const fff = String(current.getUTCMilliseconds()).padStart(3, '0');
-  return `${yyyy}${MM}${dd}_${hh}${mm}${ss}_${fff}`;
-}
-
-function resolvePathFromBase(targetPath: string, baseDirectory: string): string {
-  if (!targetPath.trim()) {
-    throw new Error('Path value cannot be empty.');
-  }
-
-  return path.isAbsolute(targetPath)
-    ? path.resolve(targetPath)
-    : path.resolve(baseDirectory, targetPath);
-}
-
-function resolveOptionalPathFromBase(targetPath: string | null | undefined, baseDirectory: string): string | null {
-  if (targetPath === null || targetPath === undefined || !String(targetPath).trim()) {
-    return null;
-  }
-
-  return resolvePathFromBase(String(targetPath).trim(), baseDirectory);
 }
 
 function resolveModelPathForStartScript(modelPath: string, startScriptPath: string): string {

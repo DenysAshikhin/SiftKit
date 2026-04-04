@@ -47,6 +47,7 @@ const path = __importStar(require("node:path"));
 const node_crypto_1 = require("node:crypto");
 const config_js_1 = require("./config.js");
 const execution_lock_js_1 = require("./execution-lock.js");
+const errors_js_1 = require("./lib/errors.js");
 const llama_cpp_js_1 = require("./providers/llama-cpp.js");
 exports.UNSUPPORTED_INPUT_MESSAGE = 'The command/input is either unsupported or failed. Please verify the command that it is supported in the current environment and returns proper input. If it does, raise an explicit error to the user and stop futher processing.';
 const PROMPT_PROFILES = {
@@ -88,9 +89,6 @@ function normalizeInputText(text) {
         return null;
     }
     return text.replace(/[\r\n]+$/u, '');
-}
-function getErrorMessage(error) {
-    return error instanceof Error ? error.message : String(error);
 }
 function getSummaryFailureContext(error) {
     if (!error || typeof error !== 'object') {
@@ -816,7 +814,7 @@ function executeFindTextTool(inputText, args) {
                 }
             }
             if (!matcher) {
-                const errorText = `find_text invalid regex: ${getErrorMessage(error)}.`;
+                const errorText = `find_text invalid regex: ${(0, errors_js_1.getErrorMessage)(error)}.`;
                 return {
                     tool: 'find_text',
                     mode,
@@ -1669,7 +1667,7 @@ async function invokePlannerMode(options) {
         catch (error) {
             debugRecorder.finish({
                 status: 'failed',
-                reason: getErrorMessage(error),
+                reason: (0, errors_js_1.getErrorMessage)(error),
             });
             return null;
         }
@@ -1693,7 +1691,7 @@ async function invokePlannerMode(options) {
                     return PLANNER_FALLBACK_TO_CHUNKS;
                 }
                 invalidActionCount += 1;
-                const invalidResponseError = getErrorMessage(error);
+                const invalidResponseError = (0, errors_js_1.getErrorMessage)(error);
                 if (providerResponse.text.trim()) {
                     messages.push({
                         role: 'assistant',
@@ -1762,7 +1760,7 @@ async function invokePlannerMode(options) {
             }
             catch (error) {
                 invalidActionCount += 1;
-                const invalidResponseError = getErrorMessage(error);
+                const invalidResponseError = (0, errors_js_1.getErrorMessage)(error);
                 messages.push(buildPlannerAssistantToolMessage(action, `invalid_call_${invalidActionCount}`));
                 messages.push({
                     role: 'user',
@@ -2492,7 +2490,7 @@ async function summarizeRequest(request) {
                         running: false,
                         requestId,
                         terminalState: 'failed',
-                        errorMessage: getErrorMessage(error),
+                        errorMessage: (0, errors_js_1.getErrorMessage)(error),
                         promptCharacterCount: failureContext?.promptCharacterCount ?? null,
                         promptTokenCount: failureContext?.promptTokenCount ?? null,
                         rawInputCharacterCount: failureContext?.rawInputCharacterCount ?? inputText.length,
@@ -2508,19 +2506,19 @@ async function summarizeRequest(request) {
             }
             await finalizePlannerDebugDump({
                 requestId,
-                finalOutput: getErrorMessage(error),
+                finalOutput: (0, errors_js_1.getErrorMessage)(error),
                 classification: 'command_failure',
                 rawReviewRequired: true,
-                providerError: getErrorMessage(error),
+                providerError: (0, errors_js_1.getErrorMessage)(error),
             });
-            if (/planner/iu.test(getErrorMessage(error))) {
+            if (/planner/iu.test((0, errors_js_1.getErrorMessage)(error))) {
                 await writeFailedRequestDump({
                     requestId,
                     question: request.question,
                     inputText,
                     command: request.debugCommand ?? null,
-                    error: getErrorMessage(error),
-                    providerError: getErrorMessage(error),
+                    error: (0, errors_js_1.getErrorMessage)(error),
+                    providerError: (0, errors_js_1.getErrorMessage)(error),
                 });
             }
             clearSummaryArtifactState(requestId);

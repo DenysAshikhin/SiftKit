@@ -35,9 +35,8 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.runCli = runCli;
 const fs = __importStar(require("node:fs"));
-const http = __importStar(require("node:http"));
-const https = __importStar(require("node:https"));
 const node_util_1 = require("node:util");
+const http_js_1 = require("./lib/http.js");
 const config_js_1 = require("./config.js");
 const find_files_js_1 = require("./find-files.js");
 const llama_cpp_js_1 = require("./providers/llama-cpp.js");
@@ -250,53 +249,6 @@ function getRepoSearchServiceUrl() {
     target.hash = '';
     return target.toString();
 }
-function requestJson(options) {
-    return new Promise((resolve, reject) => {
-        const target = new URL(options.url);
-        const transport = target.protocol === 'https:' ? https : http;
-        const request = transport.request({
-            protocol: target.protocol,
-            hostname: target.hostname,
-            port: target.port || (target.protocol === 'https:' ? 443 : 80),
-            path: `${target.pathname}${target.search}`,
-            method: options.method,
-            headers: options.body ? {
-                'Content-Type': 'application/json',
-                'Content-Length': Buffer.byteLength(options.body, 'utf8'),
-            } : undefined,
-        }, (response) => {
-            let responseText = '';
-            response.setEncoding('utf8');
-            response.on('data', (chunk) => {
-                responseText += chunk;
-            });
-            response.on('end', () => {
-                if ((response.statusCode || 0) >= 400) {
-                    reject(new Error(`HTTP ${response.statusCode}: ${responseText}`));
-                    return;
-                }
-                if (!responseText.trim()) {
-                    resolve({});
-                    return;
-                }
-                try {
-                    resolve(JSON.parse(responseText));
-                }
-                catch (error) {
-                    reject(error);
-                }
-            });
-        });
-        request.setTimeout(options.timeoutMs, () => {
-            request.destroy(new Error(`Request timed out after ${options.timeoutMs} ms.`));
-        });
-        request.on('error', reject);
-        if (options.body) {
-            request.write(options.body);
-        }
-        request.end();
-    });
-}
 async function runSummary(options) {
     const parsed = parseArguments(getCommandArgs(options.argv));
     const question = parsed.question || parsed.positionals[0];
@@ -507,7 +459,7 @@ async function runRepoSearchCli(options) {
     if (!prompt) {
         throw new Error('A --prompt is required for repo-search.');
     }
-    const response = await requestJson({
+    const response = await (0, http_js_1.requestJson)({
         url: getRepoSearchServiceUrl(),
         method: 'POST',
         timeoutMs: 10 * 60 * 1000,

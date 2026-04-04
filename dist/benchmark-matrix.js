@@ -41,10 +41,12 @@ exports.buildBenchmarkArgs = buildBenchmarkArgs;
 exports.runMatrixWithInterrupt = runMatrixWithInterrupt;
 exports.runMatrix = runMatrix;
 const fs = __importStar(require("node:fs"));
-const http = __importStar(require("node:http"));
-const https = __importStar(require("node:https"));
 const path = __importStar(require("node:path"));
 const node_child_process_1 = require("node:child_process");
+const http_js_1 = require("./lib/http.js");
+const fs_js_1 = require("./lib/fs.js");
+const paths_js_1 = require("./lib/paths.js");
+const time_js_1 = require("./lib/time.js");
 class MatrixInterruptedError extends Error {
     constructor(signal) {
         super(`Benchmark matrix interrupted by ${signal}.`);
@@ -57,64 +59,6 @@ const powerShellExe = process.env.ComSpec?.toLowerCase().includes('cmd.exe')
     ? 'powershell.exe'
     : 'powershell.exe';
 const nodeExe = process.execPath;
-function parseJsonText(text) {
-    const normalized = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
-    return JSON.parse(normalized);
-}
-function requestJson(options) {
-    return new Promise((resolve, reject) => {
-        const target = new URL(options.url);
-        const transport = target.protocol === 'https:' ? https : http;
-        const request = transport.request({
-            protocol: target.protocol,
-            hostname: target.hostname,
-            port: target.port || (target.protocol === 'https:' ? 443 : 80),
-            path: `${target.pathname}${target.search}`,
-            method: options.method,
-            headers: options.body ? {
-                'Content-Type': 'application/json',
-                'Content-Length': Buffer.byteLength(options.body, 'utf8'),
-            } : undefined,
-        }, (response) => {
-            let responseText = '';
-            response.setEncoding('utf8');
-            response.on('data', (chunk) => {
-                responseText += chunk;
-            });
-            response.on('end', () => {
-                if ((response.statusCode || 0) >= 400) {
-                    reject(new Error(`HTTP ${response.statusCode}: ${responseText}`));
-                    return;
-                }
-                if (!responseText.trim()) {
-                    resolve({});
-                    return;
-                }
-                try {
-                    resolve(parseJsonText(responseText));
-                }
-                catch (error) {
-                    reject(error);
-                }
-            });
-        });
-        request.setTimeout(options.timeoutMs, () => {
-            request.destroy(new Error(`Request timed out after ${options.timeoutMs} ms.`));
-        });
-        request.on('error', reject);
-        if (options.body) {
-            request.write(options.body);
-        }
-        request.end();
-    });
-}
-function readJsonFile(filePath) {
-    return parseJsonText(fs.readFileSync(filePath, 'utf8'));
-}
-function ensureDirectory(dirPath) {
-    fs.mkdirSync(dirPath, { recursive: true });
-    return dirPath;
-}
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 function isLauncherLogFile(fileName) {
     return /^launcher_.*_(stdout|stderr)\.log$/u.test(fileName);
@@ -165,41 +109,12 @@ function pruneOldLauncherLogs(rootDirectory, nowMs = Date.now()) {
     }
     return deletedCount;
 }
-function writeJsonFile(filePath, value) {
-    ensureDirectory(path.dirname(filePath));
-    fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-}
 function readTrimmedFileText(filePath) {
     if (!fs.existsSync(filePath)) {
         return '';
     }
     const content = fs.readFileSync(filePath, 'utf8');
     return content.trim();
-}
-function getUtcTimestamp() {
-    const current = new Date();
-    const yyyy = current.getUTCFullYear();
-    const MM = String(current.getUTCMonth() + 1).padStart(2, '0');
-    const dd = String(current.getUTCDate()).padStart(2, '0');
-    const hh = String(current.getUTCHours()).padStart(2, '0');
-    const mm = String(current.getUTCMinutes()).padStart(2, '0');
-    const ss = String(current.getUTCSeconds()).padStart(2, '0');
-    const fff = String(current.getUTCMilliseconds()).padStart(3, '0');
-    return `${yyyy}${MM}${dd}_${hh}${mm}${ss}_${fff}`;
-}
-function resolvePathFromBase(targetPath, baseDirectory) {
-    if (!targetPath.trim()) {
-        throw new Error('Path value cannot be empty.');
-    }
-    return path.isAbsolute(targetPath)
-        ? path.resolve(targetPath)
-        : path.resolve(baseDirectory, targetPath);
-}
-function resolveOptionalPathFromBase(targetPath, baseDirectory) {
-    if (targetPath === null || targetPath === undefined || !String(targetPath).trim()) {
-        return null;
-    }
-    return resolvePathFromBase(String(targetPath).trim(), baseDirectory);
 }
 function resolveModelPathForStartScript(modelPath, startScriptPath) {
     return path.isAbsolute(modelPath)
@@ -299,18 +214,18 @@ function getSelectedRuns(enabledRuns, requestedRunIds) {
     return selected;
 }
 function readMatrixManifest(options) {
-    const resolvedManifestPath = resolvePathFromBase(options.manifestPath, repoRoot);
+    const resolvedManifestPath = (0, paths_js_1.resolvePathFromBase)(options.manifestPath, repoRoot);
     if (!fs.existsSync(resolvedManifestPath)) {
         throw new Error(`Manifest file not found: ${resolvedManifestPath}`);
     }
-    const raw = readJsonFile(resolvedManifestPath);
+    const raw = (0, fs_js_1.readJsonFile)(resolvedManifestPath);
     const manifestDirectory = path.dirname(resolvedManifestPath);
-    const fixtureRoot = resolvePathFromBase(getRequiredString(raw.fixtureRoot, 'fixtureRoot'), manifestDirectory);
-    const startScript = resolvePathFromBase(getRequiredString(raw.startScript, 'startScript'), manifestDirectory);
-    const stopScript = resolveOptionalPathFromBase(raw.stopScript ?? null, manifestDirectory);
-    const resultsRoot = resolvePathFromBase(getRequiredString(raw.resultsRoot, 'resultsRoot'), manifestDirectory);
+    const fixtureRoot = (0, paths_js_1.resolvePathFromBase)(getRequiredString(raw.fixtureRoot, 'fixtureRoot'), manifestDirectory);
+    const startScript = (0, paths_js_1.resolvePathFromBase)(getRequiredString(raw.startScript, 'startScript'), manifestDirectory);
+    const stopScript = (0, paths_js_1.resolveOptionalPathFromBase)(raw.stopScript ?? null, manifestDirectory);
+    const resultsRoot = (0, paths_js_1.resolvePathFromBase)(getRequiredString(raw.resultsRoot, 'resultsRoot'), manifestDirectory);
     const configUrl = getRequiredString(raw.configUrl, 'configUrl');
-    const manifestPromptPrefixFile = resolveOptionalPathFromBase(raw.promptPrefixFile ?? null, manifestDirectory);
+    const manifestPromptPrefixFile = (0, paths_js_1.resolveOptionalPathFromBase)(raw.promptPrefixFile ?? null, manifestDirectory);
     const requestTimeoutSeconds = options.requestTimeoutSeconds
         ?? getOptionalPositiveInt(raw.requestTimeoutSeconds ?? null, 'requestTimeoutSeconds')
         ?? 1800;
@@ -377,9 +292,9 @@ function readMatrixManifest(options) {
             label: getRequiredString(rawRun.label, `runs[${runId}].label`),
             modelId: getRequiredString(rawRun.modelId, `runs[${runId}].modelId`),
             modelPath: getRequiredString(rawRun.modelPath, `runs[${runId}].modelPath`),
-            startScript: resolveOptionalPathFromBase(rawRun.startScript ?? null, manifestDirectory) ?? startScript,
+            startScript: (0, paths_js_1.resolveOptionalPathFromBase)(rawRun.startScript ?? null, manifestDirectory) ?? startScript,
             resolvedModelPath: '',
-            promptPrefixFile: resolveOptionalPathFromBase(rawRun.promptPrefixFile ?? null, manifestDirectory),
+            promptPrefixFile: (0, paths_js_1.resolveOptionalPathFromBase)(rawRun.promptPrefixFile ?? null, manifestDirectory),
             reasoning: (rawRun.reasoning ?? baseline.reasoning),
             contextSize: getOptionalInt(rawRun.contextSize, `runs[${runId}].contextSize`) ?? baseline.contextSize,
             maxTokens: getOptionalInt(rawRun.maxTokens, `runs[${runId}].maxTokens`) ?? baseline.maxTokens,
@@ -414,7 +329,7 @@ function readMatrixManifest(options) {
     if (selectedRuns.length === 0) {
         throw new Error('No runs were selected.');
     }
-    ensureDirectory(resultsRoot);
+    (0, fs_js_1.ensureDirectory)(resultsRoot);
     return {
         manifestPath: resolvedManifestPath,
         manifestDirectory,
@@ -475,14 +390,14 @@ function buildBenchmarkArgs(manifest, run, outputPath, promptPrefixFile) {
     return args;
 }
 async function invokeConfigGet(configUrl) {
-    return requestJson({
+    return (0, http_js_1.requestJson)({
         url: configUrl,
         method: 'GET',
         timeoutMs: 10_000,
     });
 }
 async function invokeConfigSet(configUrl, config) {
-    return requestJson({
+    return (0, http_js_1.requestJson)({
         url: configUrl,
         method: 'PUT',
         timeoutMs: 10_000,
@@ -505,7 +420,7 @@ function getRuntimeLlamaCppConfigValue(config, key) {
     return llamaCpp?.[key];
 }
 async function getLlamaModels(baseUrl) {
-    const response = await requestJson({
+    const response = await (0, http_js_1.requestJson)({
         url: `${baseUrl.replace(/\/$/u, '')}/v1/models`,
         method: 'GET',
         timeoutMs: 10_000,
@@ -536,8 +451,8 @@ async function waitForLlamaReadiness(baseUrl, expectedModelId, timeoutSeconds = 
 }
 function spawnAndWait(options) {
     return new Promise((resolve, reject) => {
-        ensureDirectory(path.dirname(options.stdoutPath));
-        ensureDirectory(path.dirname(options.stderrPath));
+        (0, fs_js_1.ensureDirectory)(path.dirname(options.stdoutPath));
+        (0, fs_js_1.ensureDirectory)(path.dirname(options.stderrPath));
         const stdout = fs.openSync(options.stdoutPath, 'w');
         const stderr = fs.openSync(options.stderrPath, 'w');
         const child = (0, node_child_process_1.spawn)(options.filePath, options.args, {
@@ -598,7 +513,7 @@ async function startLlamaLauncher(manifest, target, sessionDirectory) {
     const stdoutPath = path.join(sessionDirectory, `launcher_${target.index}_${target.id}_stdout.log`);
     const stderrPath = path.join(sessionDirectory, `launcher_${target.index}_${target.id}_stderr.log`);
     const args = buildLauncherArgs(manifest, target);
-    ensureDirectory(sessionDirectory);
+    (0, fs_js_1.ensureDirectory)(sessionDirectory);
     const stdoutFd = fs.openSync(stdoutPath, 'w');
     const stderrFd = fs.openSync(stderrPath, 'w');
     const child = (0, node_child_process_1.spawn)(powerShellExe, args, {
@@ -671,7 +586,7 @@ async function invokeBenchmarkProcess(manifest, run, outputPath, sessionDirector
     };
 }
 function writeMatrixIndex(filePath, index) {
-    writeJsonFile(filePath, index);
+    (0, fs_js_1.writeJsonFile)(filePath, index);
 }
 function getBenchmarkProcessPaths(sessionDirectory, run) {
     return {
@@ -712,7 +627,7 @@ async function withMatrixInterrupt(operation, interrupted) {
 async function runMatrixWithInterrupt(options, interruptSignalOverride) {
     const manifest = readMatrixManifest(options);
     const resolvedPromptPrefixFile = options.promptPrefixFile
-        ? resolvePathFromBase(options.promptPrefixFile, repoRoot)
+        ? (0, paths_js_1.resolvePathFromBase)(options.promptPrefixFile, repoRoot)
         : manifest.promptPrefixFile;
     if (resolvedPromptPrefixFile && !fs.existsSync(resolvedPromptPrefixFile)) {
         throw new Error(`Prompt prefix file does not exist: ${resolvedPromptPrefixFile}`);
@@ -728,14 +643,14 @@ async function runMatrixWithInterrupt(options, interruptSignalOverride) {
         process.stdout.write(`Run ids  : ${manifest.selectedRuns.map((run) => run.id).join(', ')}\n`);
         return;
     }
-    const sessionDirectory = path.join(manifest.resultsRoot, getUtcTimestamp());
-    ensureDirectory(sessionDirectory);
+    const sessionDirectory = path.join(manifest.resultsRoot, (0, time_js_1.getUtcTimestamp)());
+    (0, fs_js_1.ensureDirectory)(sessionDirectory);
     const snapshotPath = path.join(sessionDirectory, 'pre_run_config_snapshot.json');
     const resolvedManifestPath = path.join(sessionDirectory, 'resolved_manifest.json');
     const indexPath = path.join(sessionDirectory, 'matrix_index.json');
     const initialConfig = await invokeConfigGet(manifest.configUrl);
-    writeJsonFile(snapshotPath, initialConfig);
-    writeJsonFile(resolvedManifestPath, manifest);
+    (0, fs_js_1.writeJsonFile)(snapshotPath, initialConfig);
+    (0, fs_js_1.writeJsonFile)(resolvedManifestPath, manifest);
     const matrixIndex = {
         manifestPath: manifest.manifestPath,
         resolvedManifestPath,

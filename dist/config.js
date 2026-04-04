@@ -33,9 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MissingObservedBudgetError = exports.StatusServerUnavailableError = exports.SIFT_DEFAULT_PROMPT_PREFIX = exports.SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN = exports.SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS = exports.SIFT_DEFAULT_LLAMA_SHUTDOWN_SCRIPT = exports.SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_DEFAULT_LLAMA_MODEL_PATH = exports.SIFT_DEFAULT_LLAMA_BASE_URL = exports.SIFT_DEFAULT_LLAMA_MODEL = exports.SIFT_PREVIOUS_DEFAULT_MODEL = exports.SIFT_PREVIOUS_DEFAULT_NUM_CTX = exports.SIFT_LEGACY_DERIVED_NUM_CTX = exports.SIFT_LEGACY_DEFAULT_NUM_CTX = exports.SIFT_DEFAULT_NUM_CTX = exports.SIFTKIT_VERSION = void 0;
-exports.ensureDirectory = ensureDirectory;
-exports.saveContentAtomically = saveContentAtomically;
+exports.saveContentAtomically = exports.ensureDirectory = exports.MissingObservedBudgetError = exports.StatusServerUnavailableError = exports.SIFT_DEFAULT_PROMPT_PREFIX = exports.SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN = exports.SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS = exports.SIFT_DEFAULT_LLAMA_SHUTDOWN_SCRIPT = exports.SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT = exports.SIFT_DEFAULT_LLAMA_MODEL_PATH = exports.SIFT_DEFAULT_LLAMA_BASE_URL = exports.SIFT_DEFAULT_LLAMA_MODEL = exports.SIFT_PREVIOUS_DEFAULT_MODEL = exports.SIFT_PREVIOUS_DEFAULT_NUM_CTX = exports.SIFT_LEGACY_DERIVED_NUM_CTX = exports.SIFT_LEGACY_DEFAULT_NUM_CTX = exports.SIFT_DEFAULT_NUM_CTX = exports.SIFTKIT_VERSION = void 0;
 exports.getRepoLocalRuntimeRoot = getRepoLocalRuntimeRoot;
 exports.getRepoLocalLogsPath = getRepoLocalLogsPath;
 exports.getRuntimeRoot = getRuntimeRoot;
@@ -67,10 +65,12 @@ exports.saveConfig = saveConfig;
 exports.loadConfig = loadConfig;
 exports.setTopLevelConfigKey = setTopLevelConfigKey;
 const fs = __importStar(require("node:fs"));
-const http = __importStar(require("node:http"));
-const https = __importStar(require("node:https"));
 const os = __importStar(require("node:os"));
 const path = __importStar(require("node:path"));
+const http_js_1 = require("./lib/http.js");
+const json_js_1 = require("./lib/json.js");
+const fs_js_1 = require("./lib/fs.js");
+const paths_js_1 = require("./lib/paths.js");
 exports.SIFTKIT_VERSION = '0.1.0';
 exports.SIFT_DEFAULT_NUM_CTX = 128_000;
 exports.SIFT_LEGACY_DEFAULT_NUM_CTX = 16_384;
@@ -105,57 +105,6 @@ const RUNTIME_OWNED_LLAMA_CPP_KEYS = [
     'ParallelSlots',
     'Reasoning',
 ];
-function parseJsonText(text) {
-    const normalized = text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
-    return JSON.parse(normalized);
-}
-function requestJson(options) {
-    return new Promise((resolve, reject) => {
-        const target = new URL(options.url);
-        const transport = target.protocol === 'https:' ? https : http;
-        const request = transport.request({
-            protocol: target.protocol,
-            hostname: target.hostname,
-            port: target.port || (target.protocol === 'https:' ? 443 : 80),
-            path: `${target.pathname}${target.search}`,
-            method: options.method,
-            headers: options.body ? {
-                'Content-Type': 'application/json',
-                'Content-Length': Buffer.byteLength(options.body, 'utf8'),
-            } : undefined,
-        }, (response) => {
-            let responseText = '';
-            response.setEncoding('utf8');
-            response.on('data', (chunk) => {
-                responseText += chunk;
-            });
-            response.on('end', () => {
-                if ((response.statusCode || 0) >= 400) {
-                    reject(new Error(`HTTP ${response.statusCode}: ${responseText}`));
-                    return;
-                }
-                if (!responseText.trim()) {
-                    resolve({});
-                    return;
-                }
-                try {
-                    resolve(parseJsonText(responseText));
-                }
-                catch (error) {
-                    reject(error);
-                }
-            });
-        });
-        request.setTimeout(options.timeoutMs, () => {
-            request.destroy(new Error(`Request timed out after ${options.timeoutMs} ms.`));
-        });
-        request.on('error', reject);
-        if (options.body) {
-            request.write(options.body);
-        }
-        request.end();
-    });
-}
 class StatusServerUnavailableError extends Error {
     healthUrl;
     constructor(healthUrl) {
@@ -179,59 +128,17 @@ function deriveServiceUrl(configuredUrl, nextPath) {
     target.hash = '';
     return target.toString();
 }
-function ensureDirectory(dirPath) {
-    fs.mkdirSync(dirPath, { recursive: true });
-    return dirPath;
-}
-function writeUtf8NoBom(filePath, content) {
-    fs.writeFileSync(filePath, content, { encoding: 'utf8' });
-}
-function isRetryableFsError(error) {
-    if (!error || typeof error !== 'object') {
-        return false;
-    }
-    const code = 'code' in error ? String(error.code ?? '') : '';
-    return code === 'EPERM' || code === 'EACCES' || code === 'EBUSY';
-}
-function saveContentAtomically(filePath, content) {
-    const directory = path.dirname(filePath);
-    ensureDirectory(directory);
-    let lastError = null;
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-        const tempPath = path.join(directory, `${process.pid}-${Date.now()}-${attempt}-${Math.random().toString(16).slice(2)}.tmp`);
-        try {
-            writeUtf8NoBom(tempPath, content);
-            fs.renameSync(tempPath, filePath);
-            return;
-        }
-        catch (error) {
-            lastError = error;
-            try {
-                fs.rmSync(tempPath, { force: true });
-            }
-            catch {
-                // Ignore temp cleanup failures during retry handling.
-            }
-            if (!isRetryableFsError(error) || attempt === 4) {
-                break;
-            }
-        }
-    }
-    if (isRetryableFsError(lastError)) {
-        writeUtf8NoBom(filePath, content);
-        return;
-    }
-    throw lastError instanceof Error ? lastError : new Error(`Failed to save ${filePath} atomically.`);
-}
+exports.ensureDirectory = fs_js_1.ensureDirectory;
+exports.saveContentAtomically = fs_js_1.saveContentAtomically;
 function isRuntimeRootWritable(candidate) {
     if (!candidate || !candidate.trim()) {
         return false;
     }
     try {
         const fullPath = path.resolve(candidate);
-        ensureDirectory(fullPath);
+        (0, exports.ensureDirectory)(fullPath);
         const probePath = path.join(fullPath, `${Math.random().toString(16).slice(2)}.tmp`);
-        writeUtf8NoBom(probePath, 'probe');
+        (0, fs_js_1.writeUtf8NoBom)(probePath, 'probe');
         fs.rmSync(probePath, { force: true });
         return true;
     }
@@ -239,30 +146,8 @@ function isRuntimeRootWritable(candidate) {
         return false;
     }
 }
-function findNearestSiftKitRepoRoot(startPath = process.cwd()) {
-    let currentPath = path.resolve(startPath);
-    for (;;) {
-        const packagePath = path.join(currentPath, 'package.json');
-        if (fs.existsSync(packagePath)) {
-            try {
-                const parsed = parseJsonText(fs.readFileSync(packagePath, 'utf8'));
-                if (parsed?.name === 'siftkit') {
-                    return currentPath;
-                }
-            }
-            catch {
-                // Ignore malformed package.json files while walking upward.
-            }
-        }
-        const parentPath = path.dirname(currentPath);
-        if (parentPath === currentPath) {
-            return null;
-        }
-        currentPath = parentPath;
-    }
-}
 function getRepoLocalRuntimeRoot() {
-    const repoRoot = findNearestSiftKitRepoRoot();
+    const repoRoot = (0, paths_js_1.findNearestSiftKitRepoRoot)();
     return repoRoot ? path.resolve(repoRoot, '.siftkit') : null;
 }
 function getRepoLocalLogsPath() {
@@ -280,7 +165,7 @@ function getRuntimeRoot() {
         return path.resolve(statusDirectory);
     }
     const candidates = [];
-    const repoRoot = findNearestSiftKitRepoRoot();
+    const repoRoot = (0, paths_js_1.findNearestSiftKitRepoRoot)();
     if (repoRoot) {
         candidates.push(path.resolve(repoRoot, '.siftkit'));
     }
@@ -301,11 +186,11 @@ function getRuntimeRoot() {
     return path.resolve(os.tmpdir(), 'siftkit');
 }
 function initializeRuntime() {
-    const runtimeRoot = ensureDirectory(getRuntimeRoot());
-    const logs = ensureDirectory(path.join(runtimeRoot, 'logs'));
-    const evalRoot = ensureDirectory(path.join(runtimeRoot, 'eval'));
-    const evalFixtures = ensureDirectory(path.join(evalRoot, 'fixtures'));
-    const evalResults = ensureDirectory(path.join(evalRoot, 'results'));
+    const runtimeRoot = (0, exports.ensureDirectory)(getRuntimeRoot());
+    const logs = (0, exports.ensureDirectory)(path.join(runtimeRoot, 'logs'));
+    const evalRoot = (0, exports.ensureDirectory)(path.join(runtimeRoot, 'eval'));
+    const evalFixtures = (0, exports.ensureDirectory)(path.join(evalRoot, 'fixtures'));
+    const evalResults = (0, exports.ensureDirectory)(path.join(evalRoot, 'results'));
     return {
         RuntimeRoot: runtimeRoot,
         Logs: logs,
@@ -323,17 +208,14 @@ function getFinitePositiveNumber(value) {
     const parsed = Number(value);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
-function normalizeWindowsPath(value) {
-    return value.replace(/\//gu, '\\').toLowerCase();
-}
 function isLegacyManagedStartupScriptPath(value) {
     if (typeof value !== 'string' || !value.trim()) {
         return false;
     }
-    const normalized = normalizeWindowsPath(value.trim());
-    return normalized === normalizeWindowsPath(exports.SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT)
-        || normalized === normalizeWindowsPath(exports.SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT)
-        || normalized === normalizeWindowsPath(exports.SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT);
+    const normalized = (0, paths_js_1.normalizeWindowsPath)(value.trim());
+    return normalized === (0, paths_js_1.normalizeWindowsPath)(exports.SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT)
+        || normalized === (0, paths_js_1.normalizeWindowsPath)(exports.SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT)
+        || normalized === (0, paths_js_1.normalizeWindowsPath)(exports.SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT);
 }
 function getConfiguredModel(config) {
     const model = config.Runtime?.Model ?? config.Model;
@@ -424,7 +306,7 @@ function getStatusBackendUrl() {
 }
 async function getStatusSnapshot() {
     try {
-        return await requestJson({
+        return await (0, http_js_1.requestJson)({
             url: getStatusBackendUrl(),
             method: 'GET',
             timeoutMs: 2000,
@@ -460,14 +342,14 @@ function readObservedBudgetState() {
         return getDefaultObservedBudgetState();
     }
     try {
-        return normalizeObservedBudgetState(parseJsonText(fs.readFileSync(statePath, 'utf8')));
+        return normalizeObservedBudgetState((0, json_js_1.parseJsonText)(fs.readFileSync(statePath, 'utf8')));
     }
     catch {
         return getDefaultObservedBudgetState();
     }
 }
 function writeObservedBudgetState(state) {
-    saveContentAtomically(getObservedBudgetStatePath(), `${JSON.stringify(normalizeObservedBudgetState(state), null, 2)}\n`);
+    (0, exports.saveContentAtomically)(getObservedBudgetStatePath(), `${JSON.stringify(normalizeObservedBudgetState(state), null, 2)}\n`);
 }
 function tryWriteObservedBudgetState(state) {
     try {
@@ -541,7 +423,7 @@ function toStatusServerUnavailableError() {
 }
 async function getExecutionServerState() {
     try {
-        const response = await requestJson({
+        const response = await (0, http_js_1.requestJson)({
             url: getExecutionServiceUrl(),
             method: 'GET',
             timeoutMs: 2000,
@@ -559,7 +441,7 @@ async function getExecutionServerState() {
 }
 async function tryAcquireExecutionLease() {
     try {
-        const response = await requestJson({
+        const response = await (0, http_js_1.requestJson)({
             url: `${getExecutionServiceUrl().replace(/\/$/u, '')}/acquire`,
             method: 'POST',
             timeoutMs: 2000,
@@ -579,7 +461,7 @@ async function tryAcquireExecutionLease() {
 }
 async function refreshExecutionLease(token) {
     try {
-        await requestJson({
+        await (0, http_js_1.requestJson)({
             url: `${getExecutionServiceUrl().replace(/\/$/u, '')}/heartbeat`,
             method: 'POST',
             timeoutMs: 2000,
@@ -592,7 +474,7 @@ async function refreshExecutionLease(token) {
 }
 async function releaseExecutionLease(token) {
     try {
-        await requestJson({
+        await (0, http_js_1.requestJson)({
             url: `${getExecutionServiceUrl().replace(/\/$/u, '')}/release`,
             method: 'POST',
             timeoutMs: 2000,
@@ -605,7 +487,7 @@ async function releaseExecutionLease(token) {
 }
 async function ensureStatusServerReachable() {
     try {
-        const response = await requestJson({
+        const response = await (0, http_js_1.requestJson)({
             url: getStatusServerHealthUrl(),
             method: 'GET',
             timeoutMs: 2000,
@@ -703,7 +585,7 @@ async function notifyStatusBackend(options) {
         body.artifactPayload = options.artifactPayload;
     }
     try {
-        await requestJson({
+        await (0, http_js_1.requestJson)({
             url: (options.statusBackendUrl && options.statusBackendUrl.trim()) ? options.statusBackendUrl.trim() : getStatusBackendUrl(),
             method: 'POST',
             timeoutMs: 2000,
@@ -1109,7 +991,7 @@ async function addEffectiveConfigProperties(config, info) {
 }
 async function getConfigFromService() {
     try {
-        return await requestJson({
+        return await (0, http_js_1.requestJson)({
             url: getConfigServiceUrl(),
             method: 'GET',
             timeoutMs: 130_000,
@@ -1121,7 +1003,7 @@ async function getConfigFromService() {
 }
 async function setConfigInService(config) {
     try {
-        return await requestJson({
+        return await (0, http_js_1.requestJson)({
             url: getConfigServiceUrl(),
             method: 'PUT',
             timeoutMs: 2000,

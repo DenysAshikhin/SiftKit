@@ -1,8 +1,18 @@
 import * as fs from 'node:fs';
-import * as http from 'node:http';
-import * as https from 'node:https';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { requestJson } from './lib/http.js';
+import { parseJsonText } from './lib/json.js';
+import {
+  ensureDirectory as libEnsureDirectory,
+  saveContentAtomically as libSaveContentAtomically,
+  writeUtf8NoBom,
+  isRetryableFsError,
+} from './lib/fs.js';
+import {
+  findNearestSiftKitRepoRoot,
+  normalizeWindowsPath,
+} from './lib/paths.js';
 
 export const SIFTKIT_VERSION = '0.1.0';
 export const SIFT_DEFAULT_NUM_CTX = 128_000;
@@ -140,69 +150,6 @@ const RUNTIME_OWNED_LLAMA_CPP_KEYS = [
 
 type RuntimeOwnedLlamaCppKey = typeof RUNTIME_OWNED_LLAMA_CPP_KEYS[number];
 
-function parseJsonText<T>(text: string): T {
-  const normalized = text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
-  return JSON.parse(normalized) as T;
-}
-
-function requestJson<T>(options: {
-  url: string;
-  method: 'GET' | 'PUT' | 'POST';
-  timeoutMs: number;
-  body?: string;
-}): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const target = new URL(options.url);
-    const transport = target.protocol === 'https:' ? https : http;
-    const request = transport.request(
-      {
-        protocol: target.protocol,
-        hostname: target.hostname,
-        port: target.port || (target.protocol === 'https:' ? 443 : 80),
-        path: `${target.pathname}${target.search}`,
-        method: options.method,
-        headers: options.body ? {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(options.body, 'utf8'),
-        } : undefined,
-      },
-      (response) => {
-        let responseText = '';
-        response.setEncoding('utf8');
-        response.on('data', (chunk: string) => {
-          responseText += chunk;
-        });
-        response.on('end', () => {
-          if ((response.statusCode || 0) >= 400) {
-            reject(new Error(`HTTP ${response.statusCode}: ${responseText}`));
-            return;
-          }
-
-          if (!responseText.trim()) {
-            resolve({} as T);
-            return;
-          }
-
-          try {
-            resolve(parseJsonText<T>(responseText));
-          } catch (error) {
-            reject(error);
-          }
-        });
-      }
-    );
-
-    request.setTimeout(options.timeoutMs, () => {
-      request.destroy(new Error(`Request timed out after ${options.timeoutMs} ms.`));
-    });
-    request.on('error', reject);
-    if (options.body) {
-      request.write(options.body);
-    }
-    request.end();
-  });
-}
-
 export class StatusServerUnavailableError extends Error {
   healthUrl: string;
 
@@ -228,59 +175,8 @@ function deriveServiceUrl(configuredUrl: string, nextPath: string): string {
   return target.toString();
 }
 
-export function ensureDirectory(dirPath: string): string {
-  fs.mkdirSync(dirPath, { recursive: true });
-  return dirPath;
-}
-
-function writeUtf8NoBom(filePath: string, content: string): void {
-  fs.writeFileSync(filePath, content, { encoding: 'utf8' });
-}
-
-function isRetryableFsError(error: unknown): boolean {
-  if (!error || typeof error !== 'object') {
-    return false;
-  }
-
-  const code = 'code' in error ? String(error.code ?? '') : '';
-  return code === 'EPERM' || code === 'EACCES' || code === 'EBUSY';
-}
-
-export function saveContentAtomically(filePath: string, content: string): void {
-  const directory = path.dirname(filePath);
-  ensureDirectory(directory);
-  let lastError: unknown = null;
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const tempPath = path.join(
-      directory,
-      `${process.pid}-${Date.now()}-${attempt}-${Math.random().toString(16).slice(2)}.tmp`
-    );
-
-    try {
-      writeUtf8NoBom(tempPath, content);
-      fs.renameSync(tempPath, filePath);
-      return;
-    } catch (error) {
-      lastError = error;
-      try {
-        fs.rmSync(tempPath, { force: true });
-      } catch {
-        // Ignore temp cleanup failures during retry handling.
-      }
-
-      if (!isRetryableFsError(error) || attempt === 4) {
-        break;
-      }
-    }
-  }
-
-  if (isRetryableFsError(lastError)) {
-    writeUtf8NoBom(filePath, content);
-    return;
-  }
-
-  throw lastError instanceof Error ? lastError : new Error(`Failed to save ${filePath} atomically.`);
-}
+export const ensureDirectory = libEnsureDirectory;
+export const saveContentAtomically = libSaveContentAtomically;
 
 function isRuntimeRootWritable(candidate: string | null | undefined): boolean {
   if (!candidate || !candidate.trim()) {
@@ -296,29 +192,6 @@ function isRuntimeRootWritable(candidate: string | null | undefined): boolean {
     return true;
   } catch {
     return false;
-  }
-}
-
-function findNearestSiftKitRepoRoot(startPath = process.cwd()): string | null {
-  let currentPath = path.resolve(startPath);
-  for (;;) {
-    const packagePath = path.join(currentPath, 'package.json');
-    if (fs.existsSync(packagePath)) {
-      try {
-        const parsed = parseJsonText<{ name?: unknown }>(fs.readFileSync(packagePath, 'utf8'));
-        if (parsed?.name === 'siftkit') {
-          return currentPath;
-        }
-      } catch {
-        // Ignore malformed package.json files while walking upward.
-      }
-    }
-
-    const parentPath = path.dirname(currentPath);
-    if (parentPath === currentPath) {
-      return null;
-    }
-    currentPath = parentPath;
   }
 }
 
@@ -395,10 +268,6 @@ function getCompatRuntimeLlamaCpp(config: SiftConfig): RuntimeLlamaCppConfig {
 function getFinitePositiveNumber(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function normalizeWindowsPath(value: string): string {
-  return value.replace(/\//gu, '\\').toLowerCase();
 }
 
 function isLegacyManagedStartupScriptPath(value: unknown): boolean {

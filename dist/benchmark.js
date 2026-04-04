@@ -38,6 +38,7 @@ const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const config_js_1 = require("./config.js");
 const summary_js_1 = require("./summary.js");
+const time_js_1 = require("./lib/time.js");
 const DEFAULT_REQUEST_TIMEOUT_SECONDS = 1800;
 const BENCHMARK_HEARTBEAT_MS = 15_000;
 class FatalBenchmarkError extends Error {
@@ -132,23 +133,12 @@ function getValidatedRequestTimeoutSeconds(options) {
     }
     return timeoutSeconds;
 }
-function getTimestamp() {
-    const current = new Date();
-    const yyyy = current.getFullYear();
-    const MM = String(current.getMonth() + 1).padStart(2, '0');
-    const dd = String(current.getDate()).padStart(2, '0');
-    const hh = String(current.getHours()).padStart(2, '0');
-    const mm = String(current.getMinutes()).padStart(2, '0');
-    const ss = String(current.getSeconds()).padStart(2, '0');
-    const fff = String(current.getMilliseconds()).padStart(3, '0');
-    return `${yyyy}${MM}${dd}_${hh}${mm}${ss}_${fff}`;
-}
 function getDefaultOutputPath(fixtureRoot) {
     if (fixtureRoot && fixtureRoot.trim()) {
-        return path.join(path.resolve(fixtureRoot), `benchmark_run_${getTimestamp()}.json`);
+        return path.join(path.resolve(fixtureRoot), `benchmark_run_${(0, time_js_1.getLocalTimestamp)()}.json`);
     }
     const paths = (0, config_js_1.initializeRuntime)();
-    return path.join(paths.EvalResults, `benchmark_run_${getTimestamp()}.json`);
+    return path.join(paths.EvalResults, `benchmark_run_${(0, time_js_1.getLocalTimestamp)()}.json`);
 }
 function getPromptLabel(options) {
     if (options.fixture.SourceCommand?.trim()) {
@@ -165,14 +155,6 @@ function getPromptLabel(options) {
 }
 function roundDuration(durationMs) {
     return Math.round(durationMs * 1000) / 1000;
-}
-function formatElapsed(durationMs) {
-    const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return minutes > 0
-        ? `${minutes}m ${String(seconds).padStart(2, '0')}s`
-        : `${seconds}s`;
 }
 function buildBenchmarkArtifact(options) {
     const completedAt = new Date();
@@ -219,7 +201,7 @@ function createInterruptSignal() {
 function createFixtureHeartbeat(options) {
     const handle = setInterval(() => {
         const elapsedMs = Date.now() - options.startedAtMs;
-        process.stdout.write(`Fixture ${options.fixtureIndex}/${options.fixtureCount} [${options.fixtureLabel}] still running after ${formatElapsed(elapsedMs)}\n`);
+        process.stdout.write(`Fixture ${options.fixtureIndex}/${options.fixtureCount} [${options.fixtureLabel}] still running after ${(0, time_js_1.formatElapsed)(elapsedMs)}\n`);
     }, BENCHMARK_HEARTBEAT_MS);
     if (typeof handle.unref === 'function') {
         handle.unref();
@@ -310,7 +292,7 @@ async function runBenchmarkSuite(options = {}) {
                     ModelCallSucceeded: response.ModelCallSucceeded,
                     Error: response.ProviderError,
                 });
-                process.stdout.write(`Fixture ${index + 1}/${manifest.length} [${fixtureLabel}] completed in ${formatElapsed(caseDurationMs)}\n`);
+                process.stdout.write(`Fixture ${index + 1}/${manifest.length} [${fixtureLabel}] completed in ${(0, time_js_1.formatElapsed)(caseDurationMs)}\n`);
             }
             catch (error) {
                 const caseDurationMs = Number(process.hrtime.bigint() - caseStartedAtHr) / 1_000_000;
@@ -320,7 +302,7 @@ async function runBenchmarkSuite(options = {}) {
                     ? message
                     : `Benchmark fixture '${fixtureLabel}' failed: ${message}`;
                 fatalException = error;
-                process.stdout.write(`Fixture ${index + 1}/${manifest.length} [${fixtureLabel}] failed fatally after ${formatElapsed(caseDurationMs)}: ${message}\n`);
+                process.stdout.write(`Fixture ${index + 1}/${manifest.length} [${fixtureLabel}] failed fatally after ${(0, time_js_1.formatElapsed)(caseDurationMs)}: ${message}\n`);
                 break;
             }
         }

@@ -1,8 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as http from 'node:http';
-import * as https from 'node:https';
 import { inspect } from 'node:util';
+import { requestJson } from './lib/http.js';
 import { ensureStatusServerReachable, getConfiguredModel, getStatusBackendUrl, loadConfig, setTopLevelConfigKey, getConfigPath } from './config.js';
 import { findFiles } from './find-files.js';
 import { getLlamaCppProviderStatus, listLlamaCppModels } from './providers/llama-cpp.js';
@@ -267,62 +266,6 @@ function getRepoSearchServiceUrl(): string {
   target.search = '';
   target.hash = '';
   return target.toString();
-}
-
-function requestJson<T>(options: {
-  url: string;
-  method: 'GET' | 'POST' | 'PUT';
-  timeoutMs: number;
-  body?: string;
-}): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const target = new URL(options.url);
-    const transport = target.protocol === 'https:' ? https : http;
-    const request = transport.request(
-      {
-        protocol: target.protocol,
-        hostname: target.hostname,
-        port: target.port || (target.protocol === 'https:' ? 443 : 80),
-        path: `${target.pathname}${target.search}`,
-        method: options.method,
-        headers: options.body ? {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(options.body, 'utf8'),
-        } : undefined,
-      },
-      (response) => {
-        let responseText = '';
-        response.setEncoding('utf8');
-        response.on('data', (chunk: string) => {
-          responseText += chunk;
-        });
-        response.on('end', () => {
-          if ((response.statusCode || 0) >= 400) {
-            reject(new Error(`HTTP ${response.statusCode}: ${responseText}`));
-            return;
-          }
-          if (!responseText.trim()) {
-            resolve({} as T);
-            return;
-          }
-          try {
-            resolve(JSON.parse(responseText) as T);
-          } catch (error) {
-            reject(error);
-          }
-        });
-      }
-    );
-
-    request.setTimeout(options.timeoutMs, () => {
-      request.destroy(new Error(`Request timed out after ${options.timeoutMs} ms.`));
-    });
-    request.on('error', reject);
-    if (options.body) {
-      request.write(options.body);
-    }
-    request.end();
-  });
 }
 
 async function runSummary(options: {
