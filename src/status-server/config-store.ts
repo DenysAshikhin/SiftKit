@@ -1,0 +1,321 @@
+import * as fs from 'node:fs';
+import { normalizeWindowsPath as normalizeWindowsPathShared } from '../lib/paths.js';
+import { writeText } from './http-utils.js';
+
+type Dict = Record<string, unknown>;
+
+export const DEFAULT_LLAMA_MODEL = 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
+export const DEFAULT_LLAMA_BASE_URL = 'http://127.0.0.1:8097';
+export const DEFAULT_LLAMA_MODEL_PATH = 'D:\\personal\\models\\Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
+export const PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-35B-4bit-150k-no-thinking.ps1';
+export const FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k.ps1';
+export const BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k-thinking.ps1';
+export const DEFAULT_LLAMA_STARTUP_SCRIPT = 'C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\scripts\\start-qwen35-9b-q8-200k-thinking-managed.ps1';
+export const DEFAULT_LLAMA_SHUTDOWN_SCRIPT = 'C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\scripts\\stop-llama-server.ps1';
+
+export const MAX_LLAMA_STARTUP_TIMEOUT_MS = 600_000;
+export const DEFAULT_LLAMA_STARTUP_TIMEOUT_MS = 600_000;
+export const DEFAULT_LLAMA_HEALTHCHECK_TIMEOUT_MS = 2_000;
+export const DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS = 1_000;
+
+export const RUNTIME_OWNED_LLAMA_CPP_KEYS: readonly string[] = [
+  'BaseUrl',
+  'NumCtx',
+  'ModelPath',
+  'Temperature',
+  'TopP',
+  'TopK',
+  'MinP',
+  'PresencePenalty',
+  'RepetitionPenalty',
+  'MaxTokens',
+  'GpuLayers',
+  'Threads',
+  'FlashAttention',
+  'ParallelSlots',
+  'Reasoning',
+];
+
+export function getDefaultConfig(): Dict {
+  return {
+    Version: '0.1.0',
+    Backend: 'llama.cpp',
+    PolicyMode: 'conservative',
+    RawLogRetention: true,
+    PromptPrefix: 'Preserve exact technical anchors from the input when they matter: file paths, function names, symbols, commands, error text, and any line numbers or code references that are already present. Quote short code fragments exactly when that precision changes the meaning. Do not invent locations or line numbers that are not in the input.',
+    LlamaCpp: {
+      BaseUrl: DEFAULT_LLAMA_BASE_URL,
+      NumCtx: 150000,
+      ModelPath: DEFAULT_LLAMA_MODEL_PATH,
+      Temperature: 0.7,
+      TopP: 0.8,
+      TopK: 20,
+      MinP: 0.0,
+      PresencePenalty: 1.5,
+      RepetitionPenalty: 1.0,
+      MaxTokens: 15000,
+      FlashAttention: true,
+      ParallelSlots: 1,
+      Reasoning: 'off',
+    },
+    Runtime: {
+      Model: DEFAULT_LLAMA_MODEL,
+      LlamaCpp: {
+        BaseUrl: DEFAULT_LLAMA_BASE_URL,
+        NumCtx: 150000,
+        ModelPath: DEFAULT_LLAMA_MODEL_PATH,
+        Temperature: 0.7,
+        TopP: 0.8,
+        TopK: 20,
+        MinP: 0.0,
+        PresencePenalty: 1.5,
+        RepetitionPenalty: 1.0,
+        MaxTokens: 15000,
+        FlashAttention: true,
+        ParallelSlots: 1,
+        Reasoning: 'off',
+      },
+    },
+    Thresholds: {
+      MinCharactersForSummary: 500,
+      MinLinesForSummary: 16,
+      ChunkThresholdRatio: 1.0,
+    },
+    Interactive: {
+      Enabled: true,
+      WrappedCommands: ['git', 'less', 'vim', 'sqlite3'],
+      IdleTimeoutMs: 900000,
+      MaxTranscriptCharacters: 60000,
+      TranscriptRetention: true,
+    },
+    Server: {
+      LlamaCpp: {
+        StartupScript: DEFAULT_LLAMA_STARTUP_SCRIPT,
+        ShutdownScript: DEFAULT_LLAMA_SHUTDOWN_SCRIPT,
+        StartupTimeoutMs: DEFAULT_LLAMA_STARTUP_TIMEOUT_MS,
+        HealthcheckTimeoutMs: DEFAULT_LLAMA_HEALTHCHECK_TIMEOUT_MS,
+        HealthcheckIntervalMs: DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS,
+        VerboseLogging: false,
+        VerboseArgs: [],
+      },
+    },
+  };
+}
+
+export function normalizeWindowsPath(value: unknown): string {
+  return normalizeWindowsPathShared(String(value || ''));
+}
+
+export function isLegacyManagedStartupScriptPath(value: unknown): boolean {
+  if (typeof value !== 'string' || !value.trim()) {
+    return false;
+  }
+  const normalized = normalizeWindowsPath(value.trim());
+  return normalized === normalizeWindowsPath(PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT)
+    || normalized === normalizeWindowsPath(FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT)
+    || normalized === normalizeWindowsPath(BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT);
+}
+
+export function mergeConfig(baseValue: unknown, patchValue: unknown): unknown {
+  if (Array.isArray(baseValue) && Array.isArray(patchValue)) {
+    return patchValue.slice();
+  }
+  if (
+    baseValue &&
+    patchValue &&
+    typeof baseValue === 'object' &&
+    typeof patchValue === 'object' &&
+    !Array.isArray(baseValue) &&
+    !Array.isArray(patchValue)
+  ) {
+    const merged: Dict = { ...(baseValue as Dict) };
+    for (const [key, value] of Object.entries(patchValue as Dict)) {
+      if (key === 'Paths') {
+        continue;
+      }
+      merged[key] = key in merged ? mergeConfig(merged[key], value) : value;
+    }
+    return merged;
+  }
+  return patchValue;
+}
+
+export function normalizeConfig(input: unknown): Dict {
+  const merged = mergeConfig(getDefaultConfig(), input || {}) as Dict;
+  if (merged.Backend === 'ollama') {
+    merged.Backend = 'llama.cpp';
+  }
+  merged.LlamaCpp = (merged.LlamaCpp && typeof merged.LlamaCpp === 'object') ? merged.LlamaCpp : {};
+  merged.Runtime = (merged.Runtime && typeof merged.Runtime === 'object') ? merged.Runtime : {};
+  const runtime = merged.Runtime as Dict;
+  runtime.LlamaCpp = (runtime.LlamaCpp && typeof runtime.LlamaCpp === 'object') ? runtime.LlamaCpp : {};
+  const runtimeLlama = runtime.LlamaCpp as Dict;
+  const ollama = merged.Ollama as Dict | undefined;
+  if (ollama) {
+    if (ollama.BaseUrl !== undefined) {
+      runtimeLlama.BaseUrl = runtimeLlama.BaseUrl ?? ollama.BaseUrl;
+    }
+    if (ollama.NumCtx !== undefined) {
+      runtimeLlama.NumCtx = runtimeLlama.NumCtx ?? Number(ollama.NumCtx);
+    }
+    if (ollama.Temperature !== undefined) {
+      runtimeLlama.Temperature = runtimeLlama.Temperature ?? Number(ollama.Temperature);
+    }
+    if (ollama.TopP !== undefined) {
+      runtimeLlama.TopP = runtimeLlama.TopP ?? Number(ollama.TopP);
+    }
+    if (ollama.TopK !== undefined) {
+      runtimeLlama.TopK = runtimeLlama.TopK ?? Number(ollama.TopK);
+    }
+    if (ollama.MinP !== undefined) {
+      runtimeLlama.MinP = runtimeLlama.MinP ?? Number(ollama.MinP);
+    }
+    if (ollama.PresencePenalty !== undefined) {
+      runtimeLlama.PresencePenalty = runtimeLlama.PresencePenalty ?? Number(ollama.PresencePenalty);
+    }
+    if (ollama.RepetitionPenalty !== undefined) {
+      runtimeLlama.RepetitionPenalty = runtimeLlama.RepetitionPenalty ?? Number(ollama.RepetitionPenalty);
+    }
+    if (Object.prototype.hasOwnProperty.call(ollama, 'NumPredict')) {
+      runtimeLlama.MaxTokens = runtimeLlama.MaxTokens ?? ollama.NumPredict;
+    }
+  }
+  delete merged.Ollama;
+  delete merged.Paths;
+  merged.Server = (merged.Server && typeof merged.Server === 'object') ? merged.Server : {};
+  const server = merged.Server as Dict;
+  server.LlamaCpp = (server.LlamaCpp && typeof server.LlamaCpp === 'object') ? server.LlamaCpp : {};
+  const serverLlama = server.LlamaCpp as Dict;
+  if (typeof merged.Model === 'string' && merged.Model.trim() && !runtime.Model) {
+    runtime.Model = merged.Model;
+  }
+  delete merged.Model;
+  if ((!merged.PromptPrefix || !String(merged.PromptPrefix).trim()) && typeof runtime.PromptPrefix === 'string' && runtime.PromptPrefix.trim()) {
+    merged.PromptPrefix = runtime.PromptPrefix;
+  }
+  delete runtime.PromptPrefix;
+  if (!merged.PromptPrefix || !String(merged.PromptPrefix).trim()) {
+    merged.PromptPrefix = (getDefaultConfig() as Dict).PromptPrefix;
+  }
+  if (merged.Thresholds && typeof merged.Thresholds === 'object') {
+    delete (merged.Thresholds as Dict).MaxInputCharacters;
+  }
+  const llamaCpp = merged.LlamaCpp as Dict;
+  if (llamaCpp && typeof llamaCpp === 'object') {
+    for (const key of RUNTIME_OWNED_LLAMA_CPP_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(llamaCpp, key)) {
+        if (!Object.prototype.hasOwnProperty.call(runtimeLlama, key)) {
+          runtimeLlama[key] = llamaCpp[key];
+        }
+        delete llamaCpp[key];
+      }
+    }
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'StartupScript')) {
+    serverLlama.StartupScript = null;
+  }
+  if (isLegacyManagedStartupScriptPath(serverLlama.StartupScript)) {
+    serverLlama.StartupScript = DEFAULT_LLAMA_STARTUP_SCRIPT;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ShutdownScript')) {
+    serverLlama.ShutdownScript = null;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'StartupTimeoutMs')) {
+    serverLlama.StartupTimeoutMs = DEFAULT_LLAMA_STARTUP_TIMEOUT_MS;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'HealthcheckTimeoutMs')) {
+    serverLlama.HealthcheckTimeoutMs = DEFAULT_LLAMA_HEALTHCHECK_TIMEOUT_MS;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'HealthcheckIntervalMs')) {
+    serverLlama.HealthcheckIntervalMs = DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'VerboseLogging')) {
+    serverLlama.VerboseLogging = false;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'VerboseArgs')) {
+    serverLlama.VerboseArgs = [];
+  }
+  serverLlama.VerboseLogging = Boolean(serverLlama.VerboseLogging);
+  serverLlama.VerboseArgs = Array.isArray(serverLlama.VerboseArgs)
+    ? (serverLlama.VerboseArgs as unknown[])
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .map((value) => value.trim())
+    : [];
+  return merged;
+}
+
+export function readConfig(configPath: string): Dict {
+  if (!fs.existsSync(configPath)) {
+    return normalizeConfig({});
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    return normalizeConfig(parsed);
+  } catch {
+    return normalizeConfig({});
+  }
+}
+
+export function writeConfig(configPath: string, config: Dict): void {
+  writeText(configPath, `${JSON.stringify(normalizeConfig(config), null, 2)}\n`);
+}
+
+export function getFinitePositiveInteger(value: unknown, fallback: number): number {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+export function getManagedStartupTimeoutMs(value: unknown, fallback: number): number {
+  return Math.min(getFinitePositiveInteger(value, fallback), MAX_LLAMA_STARTUP_TIMEOUT_MS);
+}
+
+type ManagedLlamaConfig = {
+  StartupScript: string | null;
+  ShutdownScript: string | null;
+  StartupTimeoutMs: number;
+  HealthcheckTimeoutMs: number;
+  HealthcheckIntervalMs: number;
+  VerboseLogging: boolean;
+  VerboseArgs: string[];
+};
+
+export function getCompatRuntimeLlamaCpp(config: unknown): Dict {
+  const cfg = (config ?? {}) as Dict;
+  const runtime = (cfg.Runtime ?? {}) as Dict;
+  const runtimeLlama = runtime.LlamaCpp;
+  if (runtimeLlama && typeof runtimeLlama === 'object') {
+    return runtimeLlama as Dict;
+  }
+  const llama = cfg.LlamaCpp;
+  if (llama && typeof llama === 'object') {
+    return llama as Dict;
+  }
+  return {};
+}
+
+export function getLlamaBaseUrl(config: unknown): string | null {
+  const baseUrl = getCompatRuntimeLlamaCpp(config).BaseUrl;
+  return typeof baseUrl === 'string' && baseUrl.trim() ? baseUrl.trim() : null;
+}
+
+export function getManagedLlamaConfig(config: unknown): ManagedLlamaConfig {
+  const defaults = (getDefaultConfig().Server as Dict).LlamaCpp as Dict;
+  const cfg = (config ?? {}) as Dict;
+  const srv = (cfg.Server ?? {}) as Dict;
+  const serverLlama = (srv.LlamaCpp ?? {}) as Dict;
+  return {
+    StartupScript: typeof serverLlama.StartupScript === 'string' && serverLlama.StartupScript.trim() ? serverLlama.StartupScript.trim() : null,
+    ShutdownScript: typeof serverLlama.ShutdownScript === 'string' && serverLlama.ShutdownScript.trim() ? serverLlama.ShutdownScript.trim() : null,
+    StartupTimeoutMs: getManagedStartupTimeoutMs(serverLlama.StartupTimeoutMs, Number(defaults.StartupTimeoutMs)),
+    HealthcheckTimeoutMs: getFinitePositiveInteger(serverLlama.HealthcheckTimeoutMs, Number(defaults.HealthcheckTimeoutMs)),
+    HealthcheckIntervalMs: getFinitePositiveInteger(serverLlama.HealthcheckIntervalMs, Number(defaults.HealthcheckIntervalMs)),
+    VerboseLogging: Boolean(serverLlama.VerboseLogging),
+    VerboseArgs: Array.isArray(serverLlama.VerboseArgs)
+      ? (serverLlama.VerboseArgs as unknown[])
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .map((value) => value.trim())
+      : [],
+  };
+}
+
+export type { ManagedLlamaConfig };

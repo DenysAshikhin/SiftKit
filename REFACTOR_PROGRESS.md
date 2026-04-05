@@ -95,43 +95,34 @@ Slimmed files: `src/benchmark.ts` (429→16 lines barrel), `src/benchmark-matrix
 
 ---
 
+### ✅ Checkpoint 6a — `siftKitStatus/index.js` → `src/status-server/index.ts`
+Rewrote the 4782-line CommonJS file as a single TypeScript module (`src/status-server/index.ts`, 4756 lines) compiled to `dist/status-server/index.js`. Deleted `siftKitStatus/` entirely. `package.json#scripts.start:status` now points at the dist entry. All 367 tests still pass.
+
+### ✅ Checkpoint 6b — Extract submodules from `src/status-server/index.ts`
+`src/status-server/index.ts` went from **4756 → 3711 lines** (~22% reduction, ~1050 lines extracted). Seven new submodules:
+- `paths.ts` (60) — `getRuntimeRoot`, `getStatusPath`, `getConfigPath`, `getMetricsPath`, `getIdleSummarySnapshotsPath`, `getManagedLlamaLogRoot`
+- `formatting.ts` (104) — `ColorOptions`, `formatTimestamp`, `formatElapsed`, `formatGroupedNumber`, `formatInteger`, `formatMilliseconds`, `formatSeconds`, `formatPercentage`, `formatRatio`, `formatTokensPerSecond`, `supportsAnsiColor`, `colorize`
+- `http-utils.ts` (190) — `requestText`, `requestJson`, `readBody`, `sleep`, `parseJsonBody`, `sendJson`, `ensureDirectory`, `writeText`, `readTextIfExists`, `listFiles`, `saveContentAtomically`, `safeReadJson`, `getIsoDateFromStat`
+- `status-file.ts` (214) — `STATUS_TRUE/FALSE/LOCK_REQUESTED/FOREIGN_LOCK`, `normalizeStatusText`, `ensureStatusFile`, `readStatusText`, `parseRunning`, `StatusMetadata`, `parseStatusMetadata`
+- `metrics.ts` (88) — `Metrics`, `getDefaultMetrics`, `normalizeMetrics`, `readMetrics`, `writeMetrics`
+- `idle-summary.ts` (195) — `IdleSummarySnapshot`, `buildIdleSummarySnapshot`, `buildIdleSummarySnapshotMessage`, `buildIdleMetricsLogMessage`, `ensureIdleSummarySnapshotsTable`, `persistIdleSummarySnapshot`, sqlite schema + migrations
+- `config-store.ts` (321) — all `DEFAULT_LLAMA_*` / `*_STARTUP_SCRIPT` constants, `getDefaultConfig`, `mergeConfig`, `normalizeConfig`, `readConfig`, `writeConfig`, `getManagedLlamaConfig`, `getCompatRuntimeLlamaCpp`, `getLlamaBaseUrl`
+
+Public API preserved via re-exports from `index.ts` (`getStatusPath`, `getConfigPath`, `getMetricsPath`, `getIdleSummarySnapshotsPath`, `supportsAnsiColor`, `colorize`, `formatElapsed`, `buildIdleSummarySnapshot`, `buildIdleMetricsLogMessage`, `terminateProcessTree`, `startStatusServer`). 367/368 tests pass (1 skipped, baseline).
+
+---
+
 ## Remaining Checkpoints
 
-### ⏳ Checkpoint 6 — Rewrite `siftKitStatus/index.js` as `src/status-server/`
-**Source files to split:**
-- `src/benchmark.ts` (14 KB, ~18 functions) → `src/benchmark/` {types, args, fixtures, interrupt, report, runner}
-- `src/benchmark-matrix.ts` (37 KB, ~48 functions) → `src/benchmark-matrix/` {types, args, manifest, launcher, process, config-rpc, pruning, interrupt, runner}
-- `src/cli.ts` (28 KB, ~28 functions) → `src/cli/` {args, help, run-summary, run-install, run-config, run-find-files, run-test, run-command, run-eval, run-capture, run-repo-search, run-internal}
-- `src/repo-search.ts` (10 KB, ~8 functions) → `src/repo-search/` {types, logging, scorecard, execute}
+### ⏳ Checkpoint 6c — Move state modules to `src/state/` (in progress)
+**Completed so far:**
+- `src/state/jsonl-transcript.ts` (40) — `JsonlEvent`, `readJsonlEvents`, `getTranscriptDurationMs` (extracted from `status-server/index.ts`)
+- `src/state/chat-sessions.ts` (90) — `ChatMessage`, `ChatSession`, `estimateTokenCount`, `getChatSessionsRoot`, `listChatSessionPaths`, `readChatSessionFromPath`, `readChatSessions`, `getChatSessionPath`, `saveChatSession` (extracted from `status-server/index.ts`)
 
-**New `src/capture/` folder** — dedupe helpers currently copied between `src/command.ts`, `src/interactive.ts`, `src/eval.ts`:
-- `capture/command-path.ts` — `findCommandInPath`, `resolveExternalCommand`
-- `capture/artifacts.ts` — `getTimestamp`, `newArtifactPath`
-- `capture/process.ts` — `invokeProcess`, `quoteForPowerShell`, `captureWithTranscript`
-
-Then slim `src/command.ts`, `src/interactive.ts`, `src/eval.ts` to import from `capture/*`.
-
-4782-line CommonJS file → TypeScript modules under `src/status-server/`:
-- `index.ts` — bootstrap (HTTP server + route table)
-- `routes/` — `status.ts`, `config.ts`, `execution.ts`, `health.ts`, `dashboard.ts`, `chat.ts`, `repo-search.ts`
-- `modes/` — `chat-mode.ts`, `plan-mode.ts`, `repo-search-mode.ts` (chat endpoint dispatcher)
-- `llama-manager.ts` — managed llama.cpp startup/shutdown + health probes
-- `http-utils.ts` — `readBody`, `parseJsonBody`, `sendJson`
-- `formatting.ts` — log formatting helpers
-
-Plus new state modules (currently the status server owns these directly — move to `src/state/`):
-- `src/state/status-file.ts` — `<root>/status/inference.txt` I/O, `normalizeStatusText`, `ensureStatusFile`
-- `src/state/compression-metrics.ts` — `<root>/metrics/compression.json`
-- `src/state/idle-summary-db.ts` — sqlite open/schema/persist/query
-- `src/state/chat-sessions.ts` — `<root>/chat/sessions/*.json`
-- `src/state/summary-artifacts.ts` — request/failed/abandoned/planner-debug JSON I/O
-- `src/state/repo-search-transcripts.ts` — repo-search request JSON + `.jsonl`
-
-Delete the giant duplicated blocks at `siftKitStatus/index.js:273` (`getDefaultConfig`), `:384` (`normalizeConfig`), `:357` (`mergeConfig`) — route through `src/config/defaults.ts` + `src/config/normalization.ts` instead.
-
-Delete `siftKitStatus/index.js:107-141` path builders, `:1260-1322`, `:1891-1960` — use `src/config/paths.ts`.
-
-Update `package.json#scripts.start:status` to invoke `dist/status-server/index.js` (or `tsx src/status-server/index.ts` for dev).
+**Pending:**
+- Delete the duplicate local declarations in `src/status-server/index.ts` (chat-sessions block at lines ~969-1042 + `estimateTokenCount` at ~961) — the jsonl-transcript block was already removed.
+- Verify `npx tsc -p tsconfig.json --noEmit` clean and all 367 tests pass.
+- Optionally: extract remaining state-adjacent helpers (`compression-metrics.ts`, `summary-artifacts.ts`, `repo-search-transcripts.ts`) per plan.
 
 ### ⏳ Checkpoint 7 — JS → TS sweep (non-tests)
 Convert every remaining `.js` file to `.ts`:
