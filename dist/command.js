@@ -1,142 +1,12 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.analyzeCommandOutput = analyzeCommandOutput;
 exports.runCommand = runCommand;
-const fs = __importStar(require("node:fs"));
-const path = __importStar(require("node:path"));
-const node_child_process_1 = require("node:child_process");
 const config_js_1 = require("./config.js");
 const summary_js_1 = require("./summary.js");
 const execution_lock_js_1 = require("./execution-lock.js");
-function getTimestamp() {
-    const current = new Date();
-    const yyyy = current.getFullYear();
-    const MM = String(current.getMonth() + 1).padStart(2, '0');
-    const dd = String(current.getDate()).padStart(2, '0');
-    const hh = String(current.getHours()).padStart(2, '0');
-    const mm = String(current.getMinutes()).padStart(2, '0');
-    const ss = String(current.getSeconds()).padStart(2, '0');
-    const fff = String(current.getMilliseconds()).padStart(3, '0');
-    return `${yyyy}${MM}${dd}_${hh}${mm}${ss}_${fff}`;
-}
-function newArtifactPath(directory, prefix, extension) {
-    const safeExtension = extension.replace(/^\./u, '');
-    const suffix = `${getTimestamp()}_${process.pid}_${Math.random().toString(16).slice(2, 10)}`;
-    return path.join(directory, `${prefix}_${suffix}.${safeExtension}`);
-}
-function findCommandInPath(commandName) {
-    const pathEntries = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
-    const candidates = process.platform === 'win32' && !path.extname(commandName)
-        ? [commandName, `${commandName}.exe`, `${commandName}.cmd`, `${commandName}.bat`]
-        : [commandName];
-    for (const entry of pathEntries) {
-        for (const candidate of candidates) {
-            const fullPath = path.join(entry, candidate);
-            if (fs.existsSync(fullPath)) {
-                return fullPath;
-            }
-        }
-    }
-    if (process.platform === 'win32') {
-        const windowsRoot = process.env.WINDIR || 'C:\\Windows';
-        const extraCandidates = [
-            path.join(windowsRoot, 'System32', commandName),
-            path.join(windowsRoot, 'System32', `${commandName}.exe`),
-            path.join(windowsRoot, 'System32', 'WindowsPowerShell', 'v1.0', commandName),
-            path.join(windowsRoot, 'System32', 'WindowsPowerShell', 'v1.0', `${commandName}.exe`),
-        ];
-        for (const candidate of extraCandidates) {
-            if (fs.existsSync(candidate)) {
-                return candidate;
-            }
-        }
-    }
-    return null;
-}
-function resolveExternalCommand(commandName) {
-    if (path.isAbsolute(commandName) || commandName.includes('\\') || commandName.includes('/')) {
-        if (fs.existsSync(commandName)) {
-            return commandName;
-        }
-        throw new Error(`Unable to resolve external command: ${commandName}`);
-    }
-    const direct = (0, node_child_process_1.spawnSync)('where.exe', [commandName], { encoding: 'utf8', shell: false, windowsHide: true });
-    if (direct.status === 0 && direct.stdout.trim()) {
-        return direct.stdout.split(/\r?\n/u)[0].trim();
-    }
-    const fallback = findCommandInPath(commandName);
-    if (fallback) {
-        return fallback;
-    }
-    throw new Error(`Unable to resolve external command: ${commandName}`);
-}
-function invokeProcess(command, argumentList = []) {
-    const runChild = (executable, shell) => (0, node_child_process_1.spawnSync)(executable, argumentList, {
-        encoding: 'utf8',
-        shell,
-        windowsHide: true,
-        cwd: process.cwd(),
-    });
-    let result = runChild(command, false);
-    if (result.error && /ENOENT/iu.test(result.error.message || '')) {
-        try {
-            result = runChild(resolveExternalCommand(command), false);
-        }
-        catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            return {
-                ExitCode: 1,
-                StdOut: '',
-                StdErr: message,
-                Combined: message,
-            };
-        }
-    }
-    if (result.error && /EPERM|EACCES/iu.test(result.error.message || '')) {
-        result = runChild(command, true);
-    }
-    const stdout = result.stdout || '';
-    const stderr = `${result.stderr || ''}${result.error ? `${result.stderr ? '\n' : ''}${result.error.message}` : ''}`;
-    return {
-        ExitCode: typeof result.status === 'number' ? result.status : 1,
-        StdOut: stdout,
-        StdErr: stderr,
-        Combined: `${stdout}${stdout && stderr ? '\n' : ''}${stderr}`.trim(),
-    };
-}
+const artifacts_js_1 = require("./capture/artifacts.js");
+const process_js_1 = require("./capture/process.js");
 function compressRepeatedLines(lines) {
     if (lines.length === 0) {
         return [];
@@ -230,7 +100,7 @@ async function analyzeCommandOutput(request) {
     const model = request.Model || (0, config_js_1.getConfiguredModel)(config);
     const paths = (0, config_js_1.initializeRuntime)();
     const combinedText = request.CombinedText || '';
-    const rawLogPath = newArtifactPath(paths.Logs, 'command_raw', 'log');
+    const rawLogPath = (0, artifacts_js_1.newArtifactPath)(paths.Logs, 'command_raw', 'log');
     (0, config_js_1.saveContentAtomically)(rawLogPath, combinedText);
     const question = request.Question || 'Summarize the main result and any actionable failures.';
     const riskLevel = request.RiskLevel || 'informational';
@@ -245,7 +115,7 @@ async function analyzeCommandOutput(request) {
     const deterministicExcerpt = (0, summary_js_1.getDeterministicExcerpt)(combinedText, question);
     let reducedLogPath = null;
     if (reducedText !== combinedText) {
-        reducedLogPath = newArtifactPath(paths.Logs, 'command_reduced', 'log');
+        reducedLogPath = (0, artifacts_js_1.newArtifactPath)(paths.Logs, 'command_reduced', 'log');
         (0, config_js_1.saveContentAtomically)(reducedLogPath, reducedText);
     }
     if (request.NoSummarize || !decision.ShouldSummarize) {
@@ -294,7 +164,7 @@ async function analyzeCommandOutput(request) {
 }
 async function runCommand(request) {
     return (0, execution_lock_js_1.withExecutionLock)(async () => {
-        const processResult = invokeProcess(request.Command, request.ArgumentList || []);
+        const processResult = (0, process_js_1.invokeProcess)(request.Command, request.ArgumentList || []);
         return analyzeCommandOutput({
             ExitCode: processResult.ExitCode,
             CombinedText: processResult.Combined,

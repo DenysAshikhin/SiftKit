@@ -83,9 +83,21 @@ Planner subfolder:
 
 ---
 
+### ✅ Checkpoint 5 — Split benchmark / benchmark-matrix / cli / repo-search + `src/capture/`
+New dirs (28 modules):
+- `src/capture/` (3) — `artifacts.ts`, `command-path.ts`, `process.ts`. Deduped from `command.ts`/`interactive.ts`/`eval.ts`.
+- `src/benchmark/` (6) — `types.ts`, `args.ts`, `fixtures.ts`, `interrupt.ts`, `report.ts`, `runner.ts`.
+- `src/benchmark-matrix/` (9) — `types.ts`, `args.ts`, `pruning.ts`, `manifest.ts`, `process.ts`, `config-rpc.ts`, `launcher.ts`, `benchmark-runner.ts`, `interrupt.ts`, `runner.ts`.
+- `src/cli/` (11) — `args.ts`, `help.ts`, `run-summary.ts`, `run-install.ts`, `run-config.ts`, `run-find-files.ts`, `run-test.ts`, `run-command.ts`, `run-eval.ts`, `run-capture.ts`, `run-repo-search.ts`, `run-internal.ts`, `dispatch.ts`.
+- `src/repo-search/` (4) — `types.ts`, `logging.ts`, `scorecard.ts`, `execute.ts`.
+
+Slimmed files: `src/benchmark.ts` (429→16 lines barrel), `src/benchmark-matrix.ts` (1031→21), `src/cli.ts` (785→26), `src/repo-search.ts` (288→8), `src/command.ts` (349→240), `src/interactive.ts` (170→62), `src/eval.ts` (185→120). All 367 tests still pass.
+
+---
+
 ## Remaining Checkpoints
 
-### ⏳ Checkpoint 5 — Split benchmark / benchmark-matrix / cli / repo-search + add `src/capture/`
+### ⏳ Checkpoint 6 — Rewrite `siftKitStatus/index.js` as `src/status-server/`
 **Source files to split:**
 - `src/benchmark.ts` (14 KB, ~18 functions) → `src/benchmark/` {types, args, fixtures, interrupt, report, runner}
 - `src/benchmark-matrix.ts` (37 KB, ~48 functions) → `src/benchmark-matrix/` {types, args, manifest, launcher, process, config-rpc, pruning, interrupt, runner}
@@ -99,7 +111,6 @@ Planner subfolder:
 
 Then slim `src/command.ts`, `src/interactive.ts`, `src/eval.ts` to import from `capture/*`.
 
-### ⏳ Checkpoint 6 — Rewrite `siftKitStatus/index.js` as `src/status-server/`
 4782-line CommonJS file → TypeScript modules under `src/status-server/`:
 - `index.ts` — bootstrap (HTTP server + route table)
 - `routes/` — `status.ts`, `config.ts`, `execution.ts`, `health.ts`, `dashboard.ts`, `chat.ts`, `repo-search.ts`
@@ -165,6 +176,6 @@ Update `package.json`:
 9. Every `.siftkit/` state file (`config.json`, `status/inference.txt`, `status/idle-summary.sqlite`, `metrics/observed-budget.json`, `metrics/compression.json`, `logs/requests/*.json`, `logs/planner_debug_*.json`, `logs/failed/*.json`, `logs/abandoned/*.json`, `logs/repo_search/**/*.json*`, `chat/sessions/session_*.json`) is owned by exactly one module under `src/state/` or `src/config/`.
 
 ## Current Stats
-- Source files split: **38 new modules** (across lib, config, summary, state).
-- Lines removed as duplicates: ~700+ across `config.ts`/`summary.ts`/`benchmark-matrix.ts`/`cli.ts`/`benchmark.ts`/`repo-search.ts`.
-- No behavior changes. All 97 unit tests still pass.
+- Source files split: **66 new modules** (across lib, config, summary, state, capture, benchmark, benchmark-matrix, cli, repo-search).
+- Lines removed as duplicates: ~1600+ across the refactored files.
+- No behavior changes. All 367 unit tests pass.

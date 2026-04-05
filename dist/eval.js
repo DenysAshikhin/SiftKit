@@ -39,28 +39,13 @@ const path = __importStar(require("node:path"));
 const config_js_1 = require("./config.js");
 const summary_js_1 = require("./summary.js");
 const execution_lock_js_1 = require("./execution-lock.js");
+const artifacts_js_1 = require("./capture/artifacts.js");
 function getRepoRoot() {
     return path.resolve(__dirname, '..', '..');
 }
 function getFixtureManifest(fixtureRoot) {
     const manifestPath = path.join(fixtureRoot, 'fixtures.json');
     return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-}
-function getTimestamp() {
-    const current = new Date();
-    const yyyy = current.getFullYear();
-    const MM = String(current.getMonth() + 1).padStart(2, '0');
-    const dd = String(current.getDate()).padStart(2, '0');
-    const hh = String(current.getHours()).padStart(2, '0');
-    const mm = String(current.getMinutes()).padStart(2, '0');
-    const ss = String(current.getSeconds()).padStart(2, '0');
-    const fff = String(current.getMilliseconds()).padStart(3, '0');
-    return `${yyyy}${MM}${dd}_${hh}${mm}${ss}_${fff}`;
-}
-function newArtifactPath(directory, prefix, extension) {
-    const safeExtension = extension.replace(/^\./u, '');
-    const suffix = `${getTimestamp()}_${process.pid}_${Math.random().toString(16).slice(2, 10)}`;
-    return path.join(directory, `${prefix}_${suffix}.${safeExtension}`);
 }
 function getFixtureScore(summary, fixture, sourceLength) {
     const required = fixture.RequiredTerms || [];
@@ -163,7 +148,7 @@ async function runEvaluation(request) {
             });
         }
         const paths = (0, config_js_1.initializeRuntime)();
-        const resultPath = newArtifactPath(paths.EvalResults, 'evaluation', 'json');
+        const resultPath = (0, artifacts_js_1.newArtifactPath)(paths.EvalResults, 'evaluation', 'json');
         (0, config_js_1.saveContentAtomically)(resultPath, JSON.stringify(results, null, 2));
         return {
             Backend: backend,

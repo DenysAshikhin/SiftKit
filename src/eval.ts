@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { getConfiguredModel, initializeRuntime, loadConfig, saveContentAtomically } from './config.js';
 import { summarizeRequest } from './summary.js';
 import { withExecutionLock } from './execution-lock.js';
+import { newArtifactPath } from './capture/artifacts.js';
 
 export type EvalRequest = {
   FixtureRoot?: string;
@@ -28,24 +29,6 @@ function getRepoRoot(): string {
 function getFixtureManifest(fixtureRoot: string): Fixture[] {
   const manifestPath = path.join(fixtureRoot, 'fixtures.json');
   return JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Fixture[];
-}
-
-function getTimestamp(): string {
-  const current = new Date();
-  const yyyy = current.getFullYear();
-  const MM = String(current.getMonth() + 1).padStart(2, '0');
-  const dd = String(current.getDate()).padStart(2, '0');
-  const hh = String(current.getHours()).padStart(2, '0');
-  const mm = String(current.getMinutes()).padStart(2, '0');
-  const ss = String(current.getSeconds()).padStart(2, '0');
-  const fff = String(current.getMilliseconds()).padStart(3, '0');
-  return `${yyyy}${MM}${dd}_${hh}${mm}${ss}_${fff}`;
-}
-
-function newArtifactPath(directory: string, prefix: string, extension: string): string {
-  const safeExtension = extension.replace(/^\./u, '');
-  const suffix = `${getTimestamp()}_${process.pid}_${Math.random().toString(16).slice(2, 10)}`;
-  return path.join(directory, `${prefix}_${suffix}.${safeExtension}`);
 }
 
 function getFixtureScore(summary: string, fixture: Fixture, sourceLength: number): {
