@@ -8,8 +8,8 @@ export type ChatMessage = Dict;
 export type ChatSession = Dict & { id: string; messages?: ChatMessage[]; hiddenToolContexts?: Dict[] };
 
 export function estimateTokenCount(value: unknown): number {
-  const text = typeof value === 'string' ? value : JSON.stringify(value ?? '');
-  if (!text) {
+  const text = String(value || '');
+  if (!text.trim()) {
     return 0;
   }
   return Math.max(1, Math.ceil(text.length / 4));

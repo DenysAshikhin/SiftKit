@@ -64,6 +64,8 @@ const idle_summary_js_1 = require("./idle-summary.js");
 Object.defineProperty(exports, "buildIdleSummarySnapshot", { enumerable: true, get: function () { return idle_summary_js_1.buildIdleSummarySnapshot; } });
 Object.defineProperty(exports, "buildIdleMetricsLogMessage", { enumerable: true, get: function () { return idle_summary_js_1.buildIdleMetricsLogMessage; } });
 const config_store_js_1 = require("./config-store.js");
+const jsonl_transcript_js_1 = require("../state/jsonl-transcript.js");
+const chat_sessions_js_1 = require("../state/chat-sessions.js");
 function getPositiveIntegerFromEnv(name, fallback) {
     const rawValue = process.env[name];
     if (!rawValue || !rawValue.trim()) {
@@ -250,40 +252,6 @@ function getRepoSearchTranscriptPath(payload, artifactPath) {
     const siblingTranscriptPath = artifactPath.replace(/\.json$/iu, '.jsonl');
     return fs.existsSync(siblingTranscriptPath) ? siblingTranscriptPath : null;
 }
-function readJsonlEvents(transcriptPath) {
-    if (!transcriptPath || typeof transcriptPath !== 'string' || !fs.existsSync(transcriptPath)) {
-        return [];
-    }
-    const content = fs.readFileSync(transcriptPath, 'utf8');
-    const results = [];
-    for (const raw of content.split(/\r?\n/gu)) {
-        const line = raw.trim();
-        if (!line)
-            continue;
-        try {
-            const parsed = JSON.parse(line);
-            results.push({
-                kind: typeof parsed.kind === 'string' ? parsed.kind : 'event',
-                at: typeof parsed.at === 'string' ? parsed.at : null,
-                payload: parsed,
-            });
-        }
-        catch {
-            // skip malformed line
-        }
-    }
-    return results;
-}
-function getTranscriptDurationMs(transcriptPath) {
-    const events = readJsonlEvents(transcriptPath);
-    const eventTimes = events
-        .map((event) => Date.parse(event.at || ''))
-        .filter((time) => Number.isFinite(time));
-    if (eventTimes.length < 2) {
-        return null;
-    }
-    return Math.max(0, Math.max(...eventTimes) - Math.min(...eventTimes));
-}
 function normalizeRunRecord(record) {
     return {
         id: String(record.id),
@@ -450,7 +418,7 @@ function loadDashboardRuns(runtimeRoot) {
                 thinkingTokens: null,
                 promptCacheTokens: null,
                 promptEvalTokens: null,
-                durationMs: getTranscriptDurationMs(transcriptPath),
+                durationMs: (0, jsonl_transcript_js_1.getTranscriptDurationMs)(transcriptPath),
                 rawPaths: {
                     repoSearch: artifactPath,
                     transcript: transcriptPath,
@@ -474,7 +442,7 @@ function buildDashboardRunDetail(runtimeRoot, runId) {
     if (run.rawPaths && typeof run.rawPaths === 'object') {
         const raw = run.rawPaths;
         if (raw.transcript) {
-            events.push(...readJsonlEvents(raw.transcript));
+            events.push(...(0, jsonl_transcript_js_1.readJsonlEvents)(raw.transcript));
         }
         if (raw.request) {
             const payload = (0, http_utils_js_1.safeReadJson)(raw.request);
@@ -794,80 +762,7 @@ function normalizeIdleSummarySnapshotRow(row) {
     snapshot.summaryText = (0, idle_summary_js_1.buildIdleSummarySnapshotMessage)(snapshot);
     return snapshot;
 }
-function estimateTokenCount(value) {
-    const text = String(value || '');
-    if (!text.trim()) {
-        return 0;
-    }
-    return Math.max(1, Math.ceil(text.length / 4));
-}
-function getChatSessionsRoot(runtimeRoot) {
-    return path.join(runtimeRoot, 'chat', 'sessions');
-}
-function listChatSessionPaths(runtimeRoot) {
-    return (0, http_utils_js_1.listFiles)(getChatSessionsRoot(runtimeRoot))
-        .filter((targetPath) => /^session_.+\.json$/iu.test(path.basename(targetPath)));
-}
-function readChatSessionFromPath(targetPath) {
-    const payload = (0, http_utils_js_1.safeReadJson)(targetPath);
-    if (!payload || typeof payload !== 'object') {
-        return null;
-    }
-    if (typeof payload.id !== 'string' || !payload.id.trim()) {
-        return null;
-    }
-    if (typeof payload.thinkingEnabled !== 'boolean') {
-        payload.thinkingEnabled = true;
-    }
-    if (payload.mode !== 'plan') {
-        payload.mode = 'chat';
-    }
-    if (typeof payload.planRepoRoot !== 'string' || !payload.planRepoRoot.trim()) {
-        payload.planRepoRoot = process.cwd();
-    }
-    if (!Array.isArray(payload.hiddenToolContexts)) {
-        payload.hiddenToolContexts = [];
-    }
-    else {
-        payload.hiddenToolContexts = payload.hiddenToolContexts
-            .filter((entry) => Boolean(entry) && typeof entry === 'object')
-            .map((entry) => {
-            const content = typeof entry.content === 'string' ? entry.content.trim() : '';
-            if (!content) {
-                return null;
-            }
-            const tokenEstimate = Number.isFinite(entry.tokenEstimate) && Number(entry.tokenEstimate) >= 0
-                ? Number(entry.tokenEstimate)
-                : estimateTokenCount(content);
-            return {
-                id: typeof entry.id === 'string' && entry.id.trim() ? entry.id : crypto.randomUUID(),
-                content,
-                tokenEstimate,
-                sourceMessageId: typeof entry.sourceMessageId === 'string' && entry.sourceMessageId.trim()
-                    ? entry.sourceMessageId
-                    : null,
-                createdAtUtc: typeof entry.createdAtUtc === 'string' && entry.createdAtUtc.trim()
-                    ? entry.createdAtUtc
-                    : new Date().toISOString(),
-            };
-        })
-            .filter((entry) => entry !== null);
-    }
-    return payload;
-}
-function readChatSessions(runtimeRoot) {
-    return listChatSessionPaths(runtimeRoot)
-        .map(readChatSessionFromPath)
-        .filter((entry) => entry !== null)
-        .sort((left, right) => String(right.updatedAtUtc || '').localeCompare(String(left.updatedAtUtc || '')));
-}
-function getChatSessionPath(runtimeRoot, sessionId) {
-    return path.join(getChatSessionsRoot(runtimeRoot), `session_${sessionId}.json`);
-}
-function saveChatSession(runtimeRoot, session) {
-    const targetPath = getChatSessionPath(runtimeRoot, session.id);
-    (0, http_utils_js_1.saveContentAtomically)(targetPath, `${JSON.stringify(session, null, 2)}\n`);
-}
+// chat-session helpers moved to ../state/chat-sessions.ts
 function buildContextUsage(session) {
     const contextWindowTokens = Math.max(1, Number(session.contextWindowTokens || 150000));
     const estimatedTokenFallbackTokens = Array.isArray(session.messages)
@@ -1125,8 +1020,8 @@ function appendChatMessagesWithUsage(runtimeRoot, session, content, assistantCon
     const promptTokens = getChatUsageValue(usage.promptTokens);
     const completionTokens = getChatUsageValue(usage.completionTokens);
     const usageThinkingTokens = getChatUsageValue(usage.thinkingTokens);
-    const userTokens = promptTokens ?? estimateTokenCount(content);
-    const outputTokens = completionTokens ?? estimateTokenCount(assistantContent);
+    const userTokens = promptTokens ?? (0, chat_sessions_js_1.estimateTokenCount)(content);
+    const outputTokens = completionTokens ?? (0, chat_sessions_js_1.estimateTokenCount)(assistantContent);
     const thinkingTokens = usageThinkingTokens ?? 0;
     const toolContextContents = Array.isArray(options.toolContextContents)
         ? options.toolContextContents
@@ -1148,7 +1043,7 @@ function appendChatMessagesWithUsage(runtimeRoot, session, content, assistantCon
         sourceRunId: null,
     });
     const assistantMessageId = crypto.randomUUID();
-    const associatedToolTokens = toolContextContents.reduce((sum, value) => sum + estimateTokenCount(value), 0);
+    const associatedToolTokens = toolContextContents.reduce((sum, value) => sum + (0, chat_sessions_js_1.estimateTokenCount)(value), 0);
     messages.push({
         id: assistantMessageId,
         role: 'assistant',
@@ -1170,7 +1065,7 @@ function appendChatMessagesWithUsage(runtimeRoot, session, content, assistantCon
         hiddenToolContexts.push({
             id: crypto.randomUUID(),
             content: value,
-            tokenEstimate: estimateTokenCount(value),
+            tokenEstimate: (0, chat_sessions_js_1.estimateTokenCount)(value),
             sourceMessageId: assistantMessageId,
             createdAtUtc: now,
         });
@@ -1181,7 +1076,7 @@ function appendChatMessagesWithUsage(runtimeRoot, session, content, assistantCon
         messages,
         hiddenToolContexts,
     };
-    saveChatSession(runtimeRoot, updated);
+    (0, chat_sessions_js_1.saveChatSession)(runtimeRoot, updated);
     return updated;
 }
 async function streamChatAssistantMessage(config, session, userContent, onProgress) {
@@ -1312,7 +1207,7 @@ function condenseChatSession(runtimeRoot, session) {
         condensedSummary: condensedTail || session.condensedSummary || '',
         messages: nextMessages,
     };
-    saveChatSession(runtimeRoot, updated);
+    (0, chat_sessions_js_1.saveChatSession)(runtimeRoot, updated);
     return updated;
 }
 function buildPlanRequestPrompt(userPrompt) {
@@ -2396,12 +2291,12 @@ function startStatusServer(options = {}) {
             return;
         }
         if (req.method === 'GET' && pathname === '/dashboard/chat/sessions') {
-            (0, http_utils_js_1.sendJson)(res, 200, { sessions: readChatSessions(runtimeRoot) });
+            (0, http_utils_js_1.sendJson)(res, 200, { sessions: (0, chat_sessions_js_1.readChatSessions)(runtimeRoot) });
             return;
         }
         if (req.method === 'GET' && /^\/dashboard\/chat\/sessions\/[^/]+$/u.test(pathname)) {
             const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, ''));
-            const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+            const session = (0, chat_sessions_js_1.readChatSessionFromPath)((0, chat_sessions_js_1.getChatSessionPath)(runtimeRoot, sessionId));
             if (!session) {
                 (0, http_utils_js_1.sendJson)(res, 404, { error: 'Session not found.' });
                 return;
@@ -2411,8 +2306,8 @@ function startStatusServer(options = {}) {
         }
         if (req.method === 'PUT' && /^\/dashboard\/chat\/sessions\/[^/]+$/u.test(pathname)) {
             const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, ''));
-            const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
-            const session = readChatSessionFromPath(sessionPath);
+            const sessionPath = (0, chat_sessions_js_1.getChatSessionPath)(runtimeRoot, sessionId);
+            const session = (0, chat_sessions_js_1.readChatSessionFromPath)(sessionPath);
             if (!session) {
                 (0, http_utils_js_1.sendJson)(res, 404, { error: 'Session not found.' });
                 return;
@@ -2438,13 +2333,13 @@ function startStatusServer(options = {}) {
             if (typeof parsedBody.planRepoRoot === 'string' && parsedBody.planRepoRoot.trim()) {
                 updated.planRepoRoot = path.resolve(parsedBody.planRepoRoot.trim());
             }
-            saveChatSession(runtimeRoot, updated);
+            (0, chat_sessions_js_1.saveChatSession)(runtimeRoot, updated);
             (0, http_utils_js_1.sendJson)(res, 200, { session: updated, contextUsage: buildContextUsage(updated) });
             return;
         }
         if (req.method === 'DELETE' && /^\/dashboard\/chat\/sessions\/[^/]+$/u.test(pathname)) {
             const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, ''));
-            const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
+            const sessionPath = (0, chat_sessions_js_1.getChatSessionPath)(runtimeRoot, sessionId);
             if (!fs.existsSync(sessionPath)) {
                 (0, http_utils_js_1.sendJson)(res, 404, { error: 'Session not found.' });
                 return;
@@ -2488,14 +2383,14 @@ function startStatusServer(options = {}) {
                 messages: [],
                 hiddenToolContexts: [],
             };
-            saveChatSession(runtimeRoot, session);
+            (0, chat_sessions_js_1.saveChatSession)(runtimeRoot, session);
             (0, http_utils_js_1.sendJson)(res, 200, { session, contextUsage: buildContextUsage(session) });
             return;
         }
         if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/messages$/u.test(pathname)) {
             const modelRequestLock = await acquireModelRequestWithWait('dashboard_chat');
             const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/messages$/u, ''));
-            const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+            const session = (0, chat_sessions_js_1.readChatSessionFromPath)((0, chat_sessions_js_1.getChatSessionPath)(runtimeRoot, sessionId));
             if (!session) {
                 releaseModelRequest(modelRequestLock.token);
                 (0, http_utils_js_1.sendJson)(res, 404, { error: 'Session not found.' });
@@ -2545,7 +2440,7 @@ function startStatusServer(options = {}) {
         if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/plan$/u.test(pathname)) {
             const modelRequestLock = await acquireModelRequestWithWait('dashboard_plan');
             const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/plan$/u, ''));
-            const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+            const session = (0, chat_sessions_js_1.readChatSessionFromPath)((0, chat_sessions_js_1.getChatSessionPath)(runtimeRoot, sessionId));
             if (!session) {
                 releaseModelRequest(modelRequestLock.token);
                 (0, http_utils_js_1.sendJson)(res, 404, { error: 'Session not found.' });
@@ -2626,7 +2521,7 @@ function startStatusServer(options = {}) {
         if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/plan\/stream$/u.test(pathname)) {
             const modelRequestLock = await acquireModelRequestWithWait('dashboard_plan_stream');
             const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/plan\/stream$/u, ''));
-            const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+            const session = (0, chat_sessions_js_1.readChatSessionFromPath)((0, chat_sessions_js_1.getChatSessionPath)(runtimeRoot, sessionId));
             if (!session) {
                 releaseModelRequest(modelRequestLock.token);
                 (0, http_utils_js_1.sendJson)(res, 404, { error: 'Session not found.' });
@@ -2744,7 +2639,7 @@ function startStatusServer(options = {}) {
         if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/repo-search\/stream$/u.test(pathname)) {
             const modelRequestLock = await acquireModelRequestWithWait('dashboard_repo_search_stream');
             const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/repo-search\/stream$/u, ''));
-            const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+            const session = (0, chat_sessions_js_1.readChatSessionFromPath)((0, chat_sessions_js_1.getChatSessionPath)(runtimeRoot, sessionId));
             if (!session) {
                 releaseModelRequest(modelRequestLock.token);
                 (0, http_utils_js_1.sendJson)(res, 404, { error: 'Session not found.' });
@@ -2861,8 +2756,8 @@ function startStatusServer(options = {}) {
         }
         if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/tool-context\/clear$/u.test(pathname)) {
             const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/tool-context\/clear$/u, ''));
-            const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
-            const session = readChatSessionFromPath(sessionPath);
+            const sessionPath = (0, chat_sessions_js_1.getChatSessionPath)(runtimeRoot, sessionId);
+            const session = (0, chat_sessions_js_1.readChatSessionFromPath)(sessionPath);
             if (!session) {
                 (0, http_utils_js_1.sendJson)(res, 404, { error: 'Session not found.' });
                 return;
@@ -2872,14 +2767,14 @@ function startStatusServer(options = {}) {
                 updatedAtUtc: new Date().toISOString(),
                 hiddenToolContexts: [],
             };
-            saveChatSession(runtimeRoot, updatedSession);
+            (0, chat_sessions_js_1.saveChatSession)(runtimeRoot, updatedSession);
             (0, http_utils_js_1.sendJson)(res, 200, { session: updatedSession, contextUsage: buildContextUsage(updatedSession) });
             return;
         }
         if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/messages\/stream$/u.test(pathname)) {
             const modelRequestLock = await acquireModelRequestWithWait('dashboard_chat');
             const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/messages\/stream$/u, ''));
-            const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+            const session = (0, chat_sessions_js_1.readChatSessionFromPath)((0, chat_sessions_js_1.getChatSessionPath)(runtimeRoot, sessionId));
             if (!session) {
                 releaseModelRequest(modelRequestLock.token);
                 (0, http_utils_js_1.sendJson)(res, 404, { error: 'Session not found.' });
@@ -2926,7 +2821,7 @@ function startStatusServer(options = {}) {
         }
         if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/condense$/u.test(pathname)) {
             const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/condense$/u, ''));
-            const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+            const session = (0, chat_sessions_js_1.readChatSessionFromPath)((0, chat_sessions_js_1.getChatSessionPath)(runtimeRoot, sessionId));
             if (!session) {
                 (0, http_utils_js_1.sendJson)(res, 404, { error: 'Session not found.' });
                 return;

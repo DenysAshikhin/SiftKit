@@ -114,15 +114,15 @@ Public API preserved via re-exports from `index.ts` (`getStatusPath`, `getConfig
 
 ## Remaining Checkpoints
 
-### ⏳ Checkpoint 6c — Move state modules to `src/state/` (in progress)
-**Completed so far:**
-- `src/state/jsonl-transcript.ts` (40) — `JsonlEvent`, `readJsonlEvents`, `getTranscriptDurationMs` (extracted from `status-server/index.ts`)
-- `src/state/chat-sessions.ts` (90) — `ChatMessage`, `ChatSession`, `estimateTokenCount`, `getChatSessionsRoot`, `listChatSessionPaths`, `readChatSessionFromPath`, `readChatSessions`, `getChatSessionPath`, `saveChatSession` (extracted from `status-server/index.ts`)
+### ✅ Checkpoint 6c — Move state modules to `src/state/`
+`src/status-server/index.ts` went from **3711 → 3610 lines**. New modules:
+- `src/state/jsonl-transcript.ts` (39) — `JsonlEvent`, `readJsonlEvents`, `getTranscriptDurationMs`
+- `src/state/chat-sessions.ts` (88) — `ChatSession`, `ChatMessage`, `estimateTokenCount`, `getChatSessionsRoot`, `listChatSessionPaths`, `readChatSessionFromPath`, `readChatSessions`, `getChatSessionPath`, `saveChatSession`
 
-**Pending:**
-- Delete the duplicate local declarations in `src/status-server/index.ts` (chat-sessions block at lines ~969-1042 + `estimateTokenCount` at ~961) — the jsonl-transcript block was already removed.
-- Verify `npx tsc -p tsconfig.json --noEmit` clean and all 367 tests pass.
-- Optionally: extract remaining state-adjacent helpers (`compression-metrics.ts`, `summary-artifacts.ts`, `repo-search-transcripts.ts`) per plan.
+`npx tsc -p tsconfig.json --noEmit` clean; `npm run build` + `npm test` → 367/368 pass, 0 fail, 1 skipped (baseline).
+
+**Deferred for a follow-up pass** (not required by plan verification gates):
+- `compression-metrics.ts`, `summary-artifacts.ts`, `repo-search-transcripts.ts`, `idle-summary-db.ts` state owners — these are currently tied into `status-server/index.ts` via shared closures (active run state, managed-llama handle) and would require threading context through function signatures. Can be pulled out later without behavior change.
 
 ### ⏳ Checkpoint 7 — JS → TS sweep (non-tests)
 Convert every remaining `.js` file to `.ts`:
