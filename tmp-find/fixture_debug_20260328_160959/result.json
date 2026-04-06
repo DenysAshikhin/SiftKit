@@ -1,7 +1,0 @@
-{
-  "ok": false,
-  "durationMs": 96.0996,
-  "label": "31. Full Unlocks Ownership",
-  "sourcePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\eval\\fixtures\\ai_core_60_tests\\raw\\31_full_unlocks_ownership.txt",
-  "error": "Error: Planner mode failed: llama.cpp generate failed with HTTP 503: {\"error\":{\"message\":\"Loading model\",\"type\":\"unavailable_error\",\"code\":503}}. Planner debug dump: C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\.siftkit\\logs\\planner_debug_59ef8e4e-4add-438c-a7e9-f91409b56d10.json\n    at invokeSummaryCore (C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\dist\\summary.js:1844:19)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\dist\\summary.js:2060:35\n    at async withExecutionLock (C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\dist\\execution-lock.js:93:16)\n    at async runDebugRequest (C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\scripts\\run-benchmark-fixture-debug.js:170:20)\n    at async main (C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\scripts\\run-benchmark-fixture31.js:8:18)"
-}

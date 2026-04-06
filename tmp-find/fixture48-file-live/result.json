@@ -1,7 +1,0 @@
-{
-  "ok": false,
-  "durationMs": 602952.6931,
-  "label": "48_holistic_review_packet.txt",
-  "sourcePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\eval\\fixtures\\ai_core_60_tests\\raw\\48_holistic_review_packet.txt",
-  "error": "Error: llama.cpp generate timed out after 600 seconds.\n    at generateLlamaCppResponse (C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\dist\\providers\\llama-cpp.js:278:19)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async invokeProviderSummary (C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\dist\\summary.js:547:26)\n    at async invokeSummaryCore (C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\dist\\summary.js:899:29)\n    at async invokeSummaryCore (C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\dist\\summary.js:819:34)\n    at async C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\dist\\summary.js:1014:35\n    at async withExecutionLock (C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\dist\\execution-lock.js:93:16)\n    at async runDebugRequest (C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\scripts\\run-benchmark-fixture-debug.js:169:20)\n    at async main (C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\scripts\\run-benchmark-fixture-debug.js:227:18)"
-}

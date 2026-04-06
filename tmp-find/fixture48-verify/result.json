@@ -1,7 +1,0 @@
-{
-  "ok": false,
-  "durationMs": 197140.9498,
-  "label": "48. Holistic Review Packet",
-  "sourcePath": "C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\eval\\fixtures\\ai_core_60_tests\\raw\\48_holistic_review_packet.txt",
-  "error": "Error: read ECONNRESET\n    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)"
-}

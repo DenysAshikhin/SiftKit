@@ -1,9 +1,0 @@
-[fixture60-repro 2026-03-24T19:54:38.101Z] Output root: C:\Users\denys\Documents\GitHub\SiftKit\tmp-find\fixture60_malformed_json_20260324_155438
-[fixture60-repro 2026-03-24T19:54:38.102Z] Fixture range: 19-19
-[fixture60-repro 2026-03-24T19:54:38.102Z] Fixture count: 1
-[fixture60-repro 2026-03-24T19:54:46.780Z] Fixture 19/19: 19. Script Error And Crash Marker Scan
-[fixture60-repro 2026-03-24T19:54:46.780Z] Source path: C:\Users\denys\Documents\GitHub\SiftKit\eval\fixtures\ai_core_60_tests\raw\19_script_error_and_crash_marker_scan.txt
-[fixture60-repro 2026-03-24T19:54:46.780Z] Input chars: 4999973
-[fixture60-repro 2026-03-24T19:54:46.781Z] Chunk threshold: 280000
-[fixture60-repro 2026-03-24T19:54:46.781Z] Chunk count: 14
-[fixture60-repro 2026-03-24T20:01:26.288Z] Lock release warning: SiftKit status/config server is not reachable at http://127.0.0.1:4765/health. Start the separate server process and stop issuing further siftkit commands until it is available.

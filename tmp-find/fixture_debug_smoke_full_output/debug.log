@@ -1,9 +1,0 @@
-[fixture-debug 2026-03-28T19:49:12.353Z] Output root: C:\Users\denys\Documents\GitHub\SiftKit\tmp-find\fixture_debug_smoke_full_output
-[fixture-debug 2026-03-28T19:49:12.355Z] Log path: C:\Users\denys\Documents\GitHub\SiftKit\tmp-find\fixture_debug_smoke_full_output\debug.log
-[fixture-debug 2026-03-28T19:49:12.355Z] Source path: C:\Users\denys\Documents\GitHub\SiftKit\tmp-find\fixture_debug_smoke_full_output\input.txt
-[fixture-debug 2026-03-28T19:49:12.355Z] Input chars: 11
-[fixture-debug 2026-03-28T19:49:12.355Z] Question: summarize this
-[fixture-debug 2026-03-28T19:49:12.356Z] Format: text
-[fixture-debug 2026-03-28T19:49:12.356Z] Policy profile: general
-[fixture-debug 2026-03-28T19:49:12.357Z] Request timeout seconds: 600
-[fixture-debug 2026-03-28T19:49:12.357Z] Calling summarizeRequest...

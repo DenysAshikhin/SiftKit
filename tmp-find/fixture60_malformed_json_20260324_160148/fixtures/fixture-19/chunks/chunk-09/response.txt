@@ -1,5 +1,0 @@
-{
-  "classification": "summary",
-  "raw_review_required": true,
-  "output": "Raw review required. The logs contain pervasive SCRIPT ERRORS indicating a systemic failure where base objects are 'Nil' or 'previously freed'. Key issues include: 'Invalid call. Nonexistent function _update_shader_param in base Nil', 'Invalid call. Nonexistent function is_homebase in base previously freed', 'Parse Error: Could not parse global class EnemyManager from res://managers/enemy/Enemy_Manager.gd', and repeated 'Compile Error: Failed to compile depended scripts'. Additional errors involve invalid property access (e.g., boss_cores, progression) and operator mismatches involving 'Nil'."
-}
