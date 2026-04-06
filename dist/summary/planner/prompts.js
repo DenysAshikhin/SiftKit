@@ -5,6 +5,7 @@ exports.buildPlannerDocumentProfile = buildPlannerDocumentProfile;
 exports.buildPlannerSystemPrompt = buildPlannerSystemPrompt;
 exports.buildPlannerInitialUserPrompt = buildPlannerInitialUserPrompt;
 exports.buildPlannerInvalidResponseUserPrompt = buildPlannerInvalidResponseUserPrompt;
+exports.buildPlannerForcedFinishUserPrompt = buildPlannerForcedFinishUserPrompt;
 exports.renderPlannerTranscript = renderPlannerTranscript;
 exports.buildPlannerAssistantToolMessage = buildPlannerAssistantToolMessage;
 const prompt_js_1 = require("../prompt.js");
@@ -127,6 +128,12 @@ function buildPlannerInvalidResponseUserPrompt(message) {
     return [
         `Previous response was invalid: ${message.trim().replace(/\s+/gu, ' ')}`,
         'Retry with one corrected JSON action and concrete literal argument values.',
+    ].join('\n');
+}
+function buildPlannerForcedFinishUserPrompt() {
+    return [
+        'You have used all available tool calls.',
+        'Using only the evidence gathered so far, produce your final answer now.',
     ].join('\n');
 }
 function renderPlannerTranscript(messages) {

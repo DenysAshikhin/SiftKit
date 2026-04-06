@@ -144,6 +144,13 @@ export function buildPlannerInvalidResponseUserPrompt(message: string): string {
   ].join('\n');
 }
 
+export function buildPlannerForcedFinishUserPrompt(): string {
+  return [
+    'You have used all available tool calls.',
+    'Using only the evidence gathered so far, produce your final answer now.',
+  ].join('\n');
+}
+
 export function renderPlannerTranscript(messages: LlamaCppChatMessage[]): string {
   return messages.map((message) => {
     const sections: string[] = [];

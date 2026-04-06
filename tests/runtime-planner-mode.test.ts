@@ -276,9 +276,9 @@ test('summary above planner threshold uses planner flow without forced non-think
       assert.equal(result.WasSummarized, true);
       assert.equal(server.state.chatRequests.length >= 1, true);
       assert.deepEqual(server.state.chatRequests[0].chat_template_kwargs, {
-        enable_thinking: true,
+        enable_thinking: false,
       });
-      assert.equal('reasoning_budget' in server.state.chatRequests[0].extra_body, false);
+      assert.deepEqual(server.state.chatRequests[0].extra_body.reasoning_budget, 0);
       assert.match(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /tool_name/u);
     }, {
       assistantContent(promptText, parsed) {

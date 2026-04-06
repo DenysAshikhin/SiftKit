@@ -7,7 +7,10 @@ import { type StatusMetadata } from './status-file.js';
 import { type Metrics } from './metrics.js';
 import { type IdleSummarySnapshot, buildIdleSummarySnapshot, buildIdleMetricsLogMessage } from './idle-summary.js';
 import { type ManagedLlamaConfig } from './config-store.js';
+import { type StatusRequestLogInput, type RepoSearchProgressEvent, type RunRecord, type DailyMetrics, buildStatusRequestLogMessage, buildRepoSearchProgressLogMessage, getStatusArtifactPath, loadDashboardRuns, buildDashboardRunDetail, buildDashboardDailyMetrics, normalizeIdleSummarySnapshotRow } from './dashboard-runs.js';
 export { getStatusPath, getConfigPath, getMetricsPath, getIdleSummarySnapshotsPath, supportsAnsiColor, colorize, formatElapsed, buildIdleSummarySnapshot, buildIdleMetricsLogMessage, };
+export { buildStatusRequestLogMessage, buildRepoSearchProgressLogMessage, getStatusArtifactPath, loadDashboardRuns, buildDashboardRunDetail, buildDashboardDailyMetrics, normalizeIdleSummarySnapshotRow, };
+export type { StatusRequestLogInput, RepoSearchProgressEvent, RunRecord, DailyMetrics, };
 export type { ColorOptions, IdleSummarySnapshot, StatusMetadata, Metrics, RequestJsonOptions, JsonResponse, ManagedLlamaConfig };
 export type TerminateProcessTreeOptions = {
     processObject?: {
@@ -17,41 +20,6 @@ export type TerminateProcessTreeOptions = {
     spawnSyncImpl?: typeof spawnSync;
 };
 export declare function terminateProcessTree(pid: number | string, options?: TerminateProcessTreeOptions): boolean;
-export type StatusRequestLogInput = {
-    running: boolean;
-    statusPath?: string;
-    requestId?: string | null;
-    terminalState?: string | null;
-    errorMessage?: string | null;
-    characterCount?: number | null;
-    promptCharacterCount?: number | null;
-    promptTokenCount?: number | null;
-    rawInputCharacterCount?: number | null;
-    chunkInputCharacterCount?: number | null;
-    budgetSource?: string | null;
-    inputCharactersPerContextToken?: number | null;
-    chunkThresholdCharacters?: number | null;
-    chunkIndex?: number | null;
-    chunkTotal?: number | null;
-    chunkPath?: string | null;
-    elapsedMs?: number | null;
-    totalElapsedMs?: number | null;
-    outputTokens?: number | null;
-    totalOutputTokens?: number | null;
-};
-export declare function buildStatusRequestLogMessage(input: StatusRequestLogInput): string;
-export type RepoSearchProgressEvent = {
-    command?: unknown;
-    turn?: unknown;
-    maxTurns?: unknown;
-    promptTokenCount?: unknown;
-    elapsedMs?: unknown;
-    kind?: string;
-    thinkingText?: string;
-    exitCode?: number | null;
-    outputSnippet?: string;
-};
-export declare function buildRepoSearchProgressLogMessage(event: RepoSearchProgressEvent | null | undefined, mode: string): string | null;
 export type StartStatusServerOptions = {
     disableManagedLlamaStartup?: boolean;
 };

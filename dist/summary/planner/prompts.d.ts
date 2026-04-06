@@ -15,5 +15,6 @@ export declare function buildPlannerInitialUserPrompt(options: {
     inputText: string;
 }): string;
 export declare function buildPlannerInvalidResponseUserPrompt(message: string): string;
+export declare function buildPlannerForcedFinishUserPrompt(): string;
 export declare function renderPlannerTranscript(messages: LlamaCppChatMessage[]): string;
 export declare function buildPlannerAssistantToolMessage(action: PlannerToolCall, toolCallId: string): LlamaCppChatMessage;

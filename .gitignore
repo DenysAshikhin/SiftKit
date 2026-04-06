@@ -1,5 +1,6 @@
 /.npm-cache
 /.siftkit
+/coverage
 /eval
 /node_modules
 /thinking_bench/qwen35-best-only-search

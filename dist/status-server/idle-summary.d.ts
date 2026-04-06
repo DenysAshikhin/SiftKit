@@ -31,4 +31,17 @@ export declare function buildIdleMetricsLogMessage(metrics: Dict, colorOptions?:
 export declare function ensureIdleSummarySnapshotsTable(database: DatabaseInstance): void;
 export declare function persistIdleSummarySnapshot(database: DatabaseInstance, snapshot: IdleSummarySnapshot): void;
 export declare function normalizeIdleSummarySnapshotRowNumber(value: unknown): number | null;
+export type SnapshotTotals = {
+    completedRequestCount: number;
+    inputTokensTotal: number;
+    outputTokensTotal: number;
+    thinkingTokensTotal: number;
+    promptCacheTokensTotal: number;
+    promptEvalTokensTotal: number;
+    requestDurationMsTotal: number;
+};
+export declare function querySnapshotTotalsBeforeDate(database: DatabaseInstance | null, dateKey: string): SnapshotTotals | null;
+export type SnapshotTimeseriesRow = Dict;
+export declare function querySnapshotTimeseries(database: DatabaseInstance | null): SnapshotTimeseriesRow[];
+export declare function queryRecentSnapshots(database: DatabaseInstance, limit: number): Dict[];
 export {};

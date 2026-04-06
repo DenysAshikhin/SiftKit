@@ -193,3 +193,82 @@ export function persistIdleSummarySnapshot(database: DatabaseInstance, snapshot:
 export function normalizeIdleSummarySnapshotRowNumber(value: unknown): number | null {
   return normalizeSqlNumber(value);
 }
+
+export type SnapshotTotals = {
+  completedRequestCount: number;
+  inputTokensTotal: number;
+  outputTokensTotal: number;
+  thinkingTokensTotal: number;
+  promptCacheTokensTotal: number;
+  promptEvalTokensTotal: number;
+  requestDurationMsTotal: number;
+};
+
+export function querySnapshotTotalsBeforeDate(database: DatabaseInstance | null, dateKey: string): SnapshotTotals | null {
+  if (!database) {
+    return null;
+  }
+  const row = database
+    .prepare(`
+      SELECT
+        completed_request_count,
+        input_tokens_total,
+        output_tokens_total,
+        thinking_tokens_total,
+        prompt_cache_tokens_total,
+        prompt_eval_tokens_total,
+        request_duration_ms_total
+      FROM idle_summary_snapshots
+      WHERE emitted_at_utc < ?
+      ORDER BY emitted_at_utc DESC, id DESC
+      LIMIT 1
+    `)
+    .get(`${dateKey}T00:00:00.000Z`) as Dict | undefined;
+  if (!row || typeof row !== 'object') {
+    return null;
+  }
+  return {
+    completedRequestCount: Number(row.completed_request_count) || 0,
+    inputTokensTotal: Number(row.input_tokens_total) || 0,
+    outputTokensTotal: Number(row.output_tokens_total) || 0,
+    thinkingTokensTotal: Number(row.thinking_tokens_total) || 0,
+    promptCacheTokensTotal: Number(row.prompt_cache_tokens_total) || 0,
+    promptEvalTokensTotal: Number(row.prompt_eval_tokens_total) || 0,
+    requestDurationMsTotal: Number(row.request_duration_ms_total) || 0,
+  };
+}
+
+export type SnapshotTimeseriesRow = Dict;
+
+export function querySnapshotTimeseries(database: DatabaseInstance | null): SnapshotTimeseriesRow[] {
+  if (!database) {
+    return [];
+  }
+  return database
+    .prepare(`
+      SELECT
+        emitted_at_utc,
+        completed_request_count,
+        input_tokens_total,
+        output_tokens_total,
+        thinking_tokens_total,
+        prompt_cache_tokens_total,
+        prompt_eval_tokens_total,
+        request_duration_ms_total
+      FROM idle_summary_snapshots
+      ORDER BY emitted_at_utc ASC, id ASC
+    `)
+    .all() as Dict[];
+}
+
+export function queryRecentSnapshots(database: DatabaseInstance, limit: number): Dict[] {
+  return database
+    .prepare(`
+      SELECT emitted_at_utc, completed_request_count, input_characters_total, output_characters_total,
+             input_tokens_total, output_tokens_total, thinking_tokens_total, prompt_cache_tokens_total,
+             prompt_eval_tokens_total, saved_tokens, saved_percent, compression_ratio,
+             request_duration_ms_total, avg_request_ms, avg_tokens_per_second
+      FROM idle_summary_snapshots ORDER BY id DESC LIMIT ?
+    `)
+    .all(limit) as Dict[];
+}

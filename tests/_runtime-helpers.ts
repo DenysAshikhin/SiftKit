@@ -1,14 +1,14 @@
 // @ts-nocheck — Shared runtime test infrastructure. Full typing deferred.
 // Auto-generated from runtime.test.js infrastructure block.
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const http = require('node:http');
-const os = require('node:os');
-const path = require('node:path');
-const { spawn, spawnSync } = require('node:child_process');
-const Database = require('better-sqlite3');
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn, spawnSync } from 'node:child_process';
+import Database from 'better-sqlite3';
 
-const {
+import {
   loadConfig,
   saveConfig,
   getConfigPath,
@@ -22,8 +22,8 @@ const {
   SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT,
   SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT,
   SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT,
-} = require('../dist/config/index.js');
-const {
+} from '../dist/config/index.js';
+import {
   summarizeRequest,
   buildPrompt,
   getSummaryDecision,
@@ -31,10 +31,10 @@ const {
   getPlannerPromptBudget,
   buildPlannerToolDefinitions,
   UNSUPPORTED_INPUT_MESSAGE,
-} = require('../dist/summary.js');
-const { runCommand } = require('../dist/command.js');
-const { runBenchmarkSuite } = require('../dist/benchmark/index.js');
-const {
+} from '../dist/summary.js';
+import { runCommand } from '../dist/command.js';
+import { runBenchmarkSuite } from '../dist/benchmark/index.js';
+import {
   readMatrixManifest,
   buildLaunchSignature,
   buildLauncherArgs,
@@ -42,22 +42,22 @@ const {
   pruneOldLauncherLogs,
   runMatrix,
   runMatrixWithInterrupt,
-} = require('../dist/benchmark-matrix/index.js');
-const {
+} from '../dist/benchmark-matrix/index.js';
+import {
   countLlamaCppTokens,
   listLlamaCppModels,
   generateLlamaCppResponse,
-} = require('../dist/providers/llama-cpp.js');
-const { withExecutionLock } = require('../dist/execution-lock.js');
-const {
+} from '../dist/providers/llama-cpp.js';
+import { withExecutionLock } from '../dist/execution-lock.js';
+import {
   buildIdleMetricsLogMessage,
   buildStatusRequestLogMessage,
   formatElapsed,
   getIdleSummarySnapshotsPath,
   startStatusServer,
-} = require('../dist/status-server/index.js');
-const { runDebugRequest } = require('../dist/scripts/run-benchmark-fixture-debug.js');
-const { runFixture60MalformedJsonRepro } = require('../dist/scripts/repro-fixture60-malformed-json.js');
+} from '../dist/status-server/index.js';
+import { runDebugRequest } from '../dist/scripts/run-benchmark-fixture-debug.js';
+import { runFixture60MalformedJsonRepro } from '../dist/scripts/repro-fixture60-malformed-json.js';
 
 const TEST_USE_EXISTING_SERVER = process.env.SIFTKIT_TEST_USE_EXISTING_SERVER === '1';
 const EXISTING_SERVER_STATUS_URL = process.env.SIFTKIT_STATUS_BACKEND_URL;
@@ -1359,7 +1359,26 @@ function runPowerShellScript(scriptPath) {
 }
 
 
-module.exports = {
+export {
+  // Re-exports from dist modules (used by test files)
+  assert, fs, http, os, path, spawn, spawnSync, Database,
+  loadConfig, saveConfig, getConfigPath, getExecutionServerState,
+  getChunkThresholdCharacters, getConfiguredLlamaNumCtx,
+  getEffectiveInputCharactersPerContextToken, initializeRuntime,
+  getStatusServerUnavailableMessage,
+  SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT,
+  SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT,
+  summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks,
+  getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE,
+  runCommand, runBenchmarkSuite,
+  readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs,
+  pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt,
+  countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse,
+  withExecutionLock,
+  buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed,
+  getIdleSummarySnapshotsPath, startStatusServer,
+  runDebugRequest, runFixture60MalformedJsonRepro,
+  // Local helpers
   TEST_USE_EXISTING_SERVER, EXISTING_SERVER_STATUS_URL, EXISTING_SERVER_CONFIG_URL,
   RUN_LIVE_LLAMA_TOKENIZE_TESTS, LIVE_LLAMA_BASE_URL, LIVE_CONFIG_SERVICE_URL,
   FAST_LEASE_STALE_MS, FAST_LEASE_WAIT_MS,

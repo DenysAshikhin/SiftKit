@@ -1,0 +1,20 @@
+import type { SiftConfig } from '../../config/index.js';
+import type { StructuredModelDecision, SummaryRequest, SummarySourceKind } from '../types.js';
+export declare const PLANNER_FALLBACK_TO_CHUNKS = "fallback_to_chunks";
+export declare function invokePlannerMode(options: {
+    requestId: string;
+    slotId: number | null;
+    question: string;
+    inputText: string;
+    format: 'text' | 'json';
+    backend: string;
+    model: string;
+    config: SiftConfig;
+    rawReviewRequired: boolean;
+    sourceKind: SummarySourceKind;
+    commandExitCode?: number | null;
+    debugCommand?: string | null;
+    promptPrefix?: string;
+    requestTimeoutSeconds?: number;
+    llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
+}): Promise<StructuredModelDecision | null | typeof PLANNER_FALLBACK_TO_CHUNKS>;
