@@ -1,7 +1,6 @@
 import * as fs from 'node:fs';
+import type { Dict } from '../lib/types.js';
 import { writeText } from './http-utils.js';
-
-type Dict = Record<string, unknown>;
 
 export type Metrics = {
   inputCharactersTotal: number;

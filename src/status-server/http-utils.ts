@@ -1,9 +1,47 @@
+/**
+ * HTTP helpers for the status-server.
+ *
+ * Filesystem utilities have been moved to `lib/fs.ts`; this file now contains
+ * only HTTP client/server helpers and re-exports for backwards compatibility.
+ */
 import * as http from 'node:http';
 import * as https from 'node:https';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import type { Dict } from '../lib/types.js';
+import {
+  ensureDirectory as ensureDirectoryShared,
+  saveContentAtomically as saveContentAtomicallyShared,
+  readTextIfExists as readTextIfExistsShared,
+  listFiles as listFilesShared,
+  writeText as writeTextShared,
+  safeReadJson as safeReadJsonShared,
+  getIsoDateFromStat as getIsoDateFromStatShared,
+  sleep as sleepShared,
+} from '../lib/fs.js';
 
-type Dict = Record<string, unknown>;
+// Re-export shared utilities so existing consumers don't need to change their
+// import paths immediately.
+export const ensureDirectory = ensureDirectoryShared;
+export const saveContentAtomically = saveContentAtomicallyShared;
+export const listFiles = listFilesShared;
+export const writeText = writeTextShared;
+export const safeReadJson = safeReadJsonShared;
+export const getIsoDateFromStat = getIsoDateFromStatShared;
+export const sleep = sleepShared;
+
+/**
+ * Reads a file as UTF-8 text, returning empty string if missing or unreadable.
+ * (Wraps lib/fs readTextIfExists which returns null for missing files.)
+ */
+export function readTextIfExists(targetPath: string | null | undefined): string {
+  if (!targetPath) {
+    return '';
+  }
+  return readTextIfExistsShared(targetPath) ?? '';
+}
+
+// ---------------------------------------------------------------------------
+// HTTP request helpers (status-server-specific API shapes)
+// ---------------------------------------------------------------------------
 
 export type TextResponse = { statusCode: number; body: string };
 export type JsonResponse = { statusCode: number; body: unknown; rawText: string };
@@ -88,16 +126,16 @@ export function requestJson(url: string, options: RequestJsonOptions = {}): Prom
   });
 }
 
+// ---------------------------------------------------------------------------
+// Server-specific helpers
+// ---------------------------------------------------------------------------
+
 export function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
     req.on('data', (chunk: Buffer) => chunks.push(chunk));
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
   });
-}
-
-export function sleep(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 export function parseJsonBody(bodyText: string): Dict {
@@ -110,81 +148,4 @@ export function parseJsonBody(bodyText: string): Dict {
 export function sendJson(res: http.ServerResponse, statusCode: number, payload: unknown): void {
   res.writeHead(statusCode, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(payload));
-}
-
-export function ensureDirectory(targetPath: string): void {
-  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-}
-
-export function writeText(targetPath: string, content: string): void {
-  ensureDirectory(targetPath);
-  fs.writeFileSync(targetPath, content, 'utf8');
-}
-
-export function readTextIfExists(targetPath: string | null | undefined): string {
-  try {
-    if (!targetPath || !fs.existsSync(targetPath)) {
-      return '';
-    }
-    return fs.readFileSync(targetPath, 'utf8');
-  } catch {
-    return '';
-  }
-}
-
-export function listFiles(targetPath: string): string[] {
-  if (!fs.existsSync(targetPath)) {
-    return [];
-  }
-  const entries = fs.readdirSync(targetPath, { withFileTypes: true });
-  return entries
-    .filter((entry) => entry.isFile())
-    .map((entry) => path.join(targetPath, entry.name));
-}
-
-export function saveContentAtomically(targetPath: string, content: string): void {
-  ensureDirectory(targetPath);
-  let lastError: unknown = null;
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const tempPath = path.join(
-      path.dirname(targetPath),
-      `${process.pid}-${Date.now()}-${attempt}-${Math.random().toString(16).slice(2)}.tmp`
-    );
-    try {
-      fs.writeFileSync(tempPath, content, 'utf8');
-      fs.renameSync(tempPath, targetPath);
-      return;
-    } catch (error) {
-      lastError = error;
-      try {
-        fs.rmSync(tempPath, { force: true });
-      } catch {
-        // Ignore cleanup failures.
-      }
-      if (!error || typeof error !== 'object') {
-        break;
-      }
-      const code = String((error as { code?: unknown }).code || '');
-      if ((code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY') || attempt === 4) {
-        break;
-      }
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error(`Failed to save ${targetPath}.`);
-}
-
-export function safeReadJson(targetPath: string): Dict | null {
-  try {
-    return JSON.parse(fs.readFileSync(targetPath, 'utf8')) as Dict;
-  } catch {
-    return null;
-  }
-}
-
-export function getIsoDateFromStat(targetPath: string): string {
-  try {
-    return fs.statSync(targetPath).mtime.toISOString();
-  } catch {
-    return new Date(0).toISOString();
-  }
 }

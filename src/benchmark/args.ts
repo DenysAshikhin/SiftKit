@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { initializeRuntime } from '../config/index.js';
-import { buildPrompt } from '../summary.js';
+import { buildPrompt } from '../summary/prompt.js';
 import { getLocalTimestamp } from '../lib/time.js';
 import {
   DEFAULT_REQUEST_TIMEOUT_SECONDS,

@@ -23,15 +23,12 @@ import {
   SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT,
   SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT,
 } from '../dist/config/index.js';
-import {
-  summarizeRequest,
-  buildPrompt,
-  getSummaryDecision,
-  planTokenAwareLlamaCppChunks,
-  getPlannerPromptBudget,
-  buildPlannerToolDefinitions,
-  UNSUPPORTED_INPUT_MESSAGE,
-} from '../dist/summary.js';
+import { summarizeRequest, readSummaryInput } from '../dist/summary/core.js';
+import { buildPrompt } from '../dist/summary/prompt.js';
+import { getSummaryDecision } from '../dist/summary/decision.js';
+import { planTokenAwareLlamaCppChunks, getPlannerPromptBudget } from '../dist/summary/chunking.js';
+import { buildPlannerToolDefinitions } from '../dist/summary/planner/tools.js';
+import { UNSUPPORTED_INPUT_MESSAGE } from '../dist/summary/measure.js';
 import { runCommand } from '../dist/command.js';
 import { runBenchmarkSuite } from '../dist/benchmark/index.js';
 import {

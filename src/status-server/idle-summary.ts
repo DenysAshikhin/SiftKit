@@ -9,9 +9,9 @@ import {
   formatRatio,
   formatSeconds,
   formatTokensPerSecond,
-} from './formatting.js';
+} from '../lib/text-format.js';
 
-type Dict = Record<string, unknown>;
+import type { Dict } from '../lib/types.js';
 type DatabaseInstance = InstanceType<typeof Database>;
 
 export type IdleSummarySnapshot = {

@@ -5,3 +5,31 @@
 /node_modules
 /thinking_bench/qwen35-best-only-search
 /thinking_bench/results
+
+# Build artifacts
+/dist
+*.tgz
+
+# Test artifacts
+/tests/.test-modules
+/tests/.test-home
+/tests/.test-codex
+/tests/.test-bin
+
+# Temp/debug files
+.tmp-*
+runtime-*.log
+test-run.log
+trace.log
+*.tap.out.log
+*.tap.err.log
+
+# Temp directories
+/tmp-find
+/tmp-home
+/tmp-home-real
+/tmp-pswrap-home
+/.cli-smoke-home
+/.smoke-home
+/.shim-test
+/.codex

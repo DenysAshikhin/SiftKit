@@ -1,4 +1,4 @@
-import { readSummaryInput, summarizeRequest } from '../summary.js';
+import { readSummaryInput, summarizeRequest } from '../summary/core.js';
 import { getCommandArgs, parseArguments } from './args.js';
 
 export async function runSummary(options: {

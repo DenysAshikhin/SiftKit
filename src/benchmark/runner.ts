@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getConfiguredModel, loadConfig } from '../config/index.js';
 import { saveContentAtomically } from '../lib/fs.js';
-import { summarizeRequest } from '../summary.js';
+import { summarizeRequest } from '../summary/core.js';
 import { formatElapsed } from '../lib/time.js';
 import {
   getDefaultOutputPath,

@@ -14,7 +14,21 @@ function Reset-TestRoot {
     )
 
     if (Test-Path -LiteralPath $Path) {
-        Remove-Item -LiteralPath $Path -Recurse -Force
+        # Use robocopy /mir to handle paths that exceed MAX_PATH on Windows,
+        # then remove the now-empty directory.  Falls back to Remove-Item for
+        # non-Windows or when robocopy is unavailable.
+        $emptyDir = Join-Path ([System.IO.Path]::GetTempPath()) ('siftkit_empty_' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $emptyDir -Force
+        try {
+            $null = robocopy $emptyDir $Path /mir /r:0 /w:0 2>$null
+            Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+        }
+        catch {
+            Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        finally {
+            Remove-Item -LiteralPath $emptyDir -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 

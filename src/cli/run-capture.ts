@@ -1,5 +1,5 @@
 import { runInteractiveCapture } from '../interactive.js';
-import { summarizeRequest } from '../summary.js';
+import { summarizeRequest } from '../summary/core.js';
 import { getCommandArgs, parseArguments } from './args.js';
 
 export async function runCaptureInternalCli(options: {

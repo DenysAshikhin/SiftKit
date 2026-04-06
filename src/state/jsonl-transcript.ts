@@ -1,6 +1,5 @@
 import * as fs from 'node:fs';
-
-type Dict = Record<string, unknown>;
+import type { Dict } from '../lib/types.js';
 
 export type JsonlEvent = { kind: string; at: string | null; payload: Dict };
 

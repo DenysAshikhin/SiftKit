@@ -88,3 +88,28 @@ export function listFiles(targetPath: string): string[] {
     .filter((entry) => entry.isFile())
     .map((entry) => path.join(targetPath, entry.name));
 }
+
+export function writeText(targetPath: string, content: string): void {
+  ensureDirectory(path.dirname(targetPath));
+  fs.writeFileSync(targetPath, content, 'utf8');
+}
+
+export function safeReadJson(targetPath: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(fs.readFileSync(targetPath, 'utf8')) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+export function getIsoDateFromStat(targetPath: string): string {
+  try {
+    return fs.statSync(targetPath).mtime.toISOString();
+  } catch {
+    return new Date(0).toISOString();
+  }
+}
+
+export function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}

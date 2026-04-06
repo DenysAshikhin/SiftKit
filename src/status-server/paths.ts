@@ -1,5 +1,16 @@
-import * as os from 'node:os';
+/**
+ * Path resolution for the status-server. Delegates to `config/paths.ts` for
+ * the canonical runtime-root and status-file resolution, and adds only the
+ * server-specific paths (managed llama logs, re-export of env-var overrides).
+ */
 import * as path from 'node:path';
+import {
+  getRuntimeRoot as getRuntimeRootShared,
+  getInferenceStatusPath,
+  getConfigPath as getConfigPathShared,
+  getCompressionMetricsPath,
+  getIdleSummarySnapshotsPath as getIdleSummarySnapshotsPathShared,
+} from '../config/paths.js';
 import { findNearestSiftKitRepoRoot as findNearestSiftKitRepoRootShared } from '../lib/paths.js';
 
 export function findNearestSiftKitRepoRoot(startPath: string = process.cwd()): string | null {
@@ -7,28 +18,11 @@ export function findNearestSiftKitRepoRoot(startPath: string = process.cwd()): s
 }
 
 export function getRuntimeRoot(): string {
-  const configuredPath = process.env.sift_kit_status || process.env.SIFTKIT_STATUS_PATH;
-  if (configuredPath && configuredPath.trim()) {
-    const statusPath = path.resolve(configuredPath);
-    const statusDirectory = path.dirname(statusPath);
-    if (path.basename(statusDirectory).toLowerCase() === 'status') {
-      return path.dirname(statusDirectory);
-    }
-    return statusDirectory;
-  }
-  const repoRoot = findNearestSiftKitRepoRoot();
-  if (repoRoot) {
-    return path.join(repoRoot, '.siftkit');
-  }
-  return path.join(process.env.USERPROFILE || os.homedir(), '.siftkit');
+  return getRuntimeRootShared();
 }
 
 export function getStatusPath(): string {
-  const configuredPath = process.env.sift_kit_status || process.env.SIFTKIT_STATUS_PATH;
-  if (configuredPath && configuredPath.trim()) {
-    return path.resolve(configuredPath);
-  }
-  return path.join(getRuntimeRoot(), 'status', 'inference.txt');
+  return getInferenceStatusPath();
 }
 
 export function getConfigPath(): string {
@@ -36,7 +30,7 @@ export function getConfigPath(): string {
   if (configuredPath && configuredPath.trim()) {
     return path.resolve(configuredPath);
   }
-  return path.join(getRuntimeRoot(), 'config.json');
+  return getConfigPathShared();
 }
 
 export function getMetricsPath(): string {
@@ -44,7 +38,7 @@ export function getMetricsPath(): string {
   if (configuredPath && configuredPath.trim()) {
     return path.resolve(configuredPath);
   }
-  return path.join(getRuntimeRoot(), 'metrics', 'compression.json');
+  return getCompressionMetricsPath();
 }
 
 export function getIdleSummarySnapshotsPath(): string {
@@ -52,7 +46,7 @@ export function getIdleSummarySnapshotsPath(): string {
   if (configuredPath && configuredPath.trim()) {
     return path.resolve(configuredPath);
   }
-  return path.join(path.dirname(getStatusPath()), 'idle-summary.sqlite');
+  return getIdleSummarySnapshotsPathShared();
 }
 
 export function getManagedLlamaLogRoot(): string {

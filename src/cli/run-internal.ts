@@ -6,7 +6,7 @@ import { findFiles } from '../find-files.js';
 import { installCodexPolicy, installShellIntegration, installSiftKit } from '../install.js';
 import { runInteractiveCapture } from '../interactive.js';
 import { executeRepoSearchRequest } from '../repo-search/index.js';
-import { summarizeRequest } from '../summary.js';
+import { summarizeRequest } from '../summary/core.js';
 import { getCommandArgs, parseArguments, SERVER_DEPENDENT_INTERNAL_OPS } from './args.js';
 import { buildTestResult } from './run-test.js';
 

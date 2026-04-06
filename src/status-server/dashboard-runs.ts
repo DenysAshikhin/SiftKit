@@ -1,8 +1,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
+import type { Dict } from '../lib/types.js';
 import { getRuntimeRoot } from './paths.js';
-import { formatInteger, formatElapsed } from './formatting.js';
+import { formatInteger, formatElapsed } from '../lib/text-format.js';
 import { listFiles, safeReadJson, getIsoDateFromStat } from './http-utils.js';
 import { type Metrics, normalizeMetrics } from './metrics.js';
 import {
@@ -15,7 +16,6 @@ import {
 import { type StatusMetadata } from './status-file.js';
 import { type JsonlEvent, readJsonlEvents, getTranscriptDurationMs } from '../state/jsonl-transcript.js';
 
-type Dict = Record<string, unknown>;
 type DatabaseInstance = InstanceType<typeof Database>;
 
 export type StatusRequestLogInput = {

@@ -1,6 +1,7 @@
 import * as http from 'node:http';
 import * as https from 'node:https';
 import * as crypto from 'node:crypto';
+import type { Dict } from '../lib/types.js';
 import {
   type ChatSession,
   estimateTokenCount,
@@ -15,8 +16,6 @@ import {
   getLlamaBaseUrl,
   getCompatRuntimeLlamaCpp,
 } from './config-store.js';
-
-type Dict = Record<string, unknown>;
 
 export function buildContextUsage(session: ChatSession): Dict {
   const contextWindowTokens = Math.max(1, Number(session.contextWindowTokens || 150000));

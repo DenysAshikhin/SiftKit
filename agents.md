@@ -12,4 +12,4 @@ Ensure as close to 100% branch coverage as possible.
 
 Follow TDD (Test Driven Development) exclusively.
 
-Make sure everything is typescript and types. Ensure everything possible has explicit types and avoid unknown/generics/any wherever possible.
+Make sure everything is typescript and typed. Ensure everything possible has explicit types and avoid unknown/generics/any wherever possible.

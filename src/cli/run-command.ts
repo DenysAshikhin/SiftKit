@@ -1,5 +1,5 @@
 import { runCommand } from '../command.js';
-import { summarizeRequest } from '../summary.js';
+import { summarizeRequest } from '../summary/core.js';
 import { getCommandArgs, parseArguments } from './args.js';
 
 export async function runCommandCli(options: {
