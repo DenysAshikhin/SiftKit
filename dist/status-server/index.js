@@ -1431,7 +1431,7 @@ function buildRepoSearchMarkdown(userPrompt, repoRoot, result) {
     return lines.join('\n');
 }
 function loadRepoSearchExecutor() {
-    const modulePath = require.resolve('../repo-search.js');
+    const modulePath = require.resolve('../repo-search/index.js');
     delete require.cache[modulePath];
     const loadedModule = require(modulePath);
     if (!loadedModule || typeof loadedModule.executeRepoSearchRequest !== 'function') {

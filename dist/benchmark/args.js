@@ -41,7 +41,7 @@ exports.getDefaultOutputPath = getDefaultOutputPath;
 exports.getPromptLabel = getPromptLabel;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
-const config_js_1 = require("../config.js");
+const index_js_1 = require("../config/index.js");
 const summary_js_1 = require("../summary.js");
 const time_js_1 = require("../lib/time.js");
 const types_js_1 = require("./types.js");
@@ -131,7 +131,7 @@ function getDefaultOutputPath(fixtureRoot) {
     if (fixtureRoot && fixtureRoot.trim()) {
         return path.join(path.resolve(fixtureRoot), `benchmark_run_${(0, time_js_1.getLocalTimestamp)()}.json`);
     }
-    const paths = (0, config_js_1.initializeRuntime)();
+    const paths = (0, index_js_1.initializeRuntime)();
     return path.join(paths.EvalResults, `benchmark_run_${(0, time_js_1.getLocalTimestamp)()}.json`);
 }
 function getPromptLabel(options) {

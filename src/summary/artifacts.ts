@@ -1,5 +1,5 @@
 import * as fs from 'node:fs';
-import { notifyStatusBackend } from '../config.js';
+import { notifyStatusBackend } from '../config/index.js';
 import {
   getPlannerDebugPath,
   getPlannerFailedPath,

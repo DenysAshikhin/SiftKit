@@ -38,7 +38,8 @@ exports.installCodexPolicy = installCodexPolicy;
 exports.installShellIntegration = installShellIntegration;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
-const config_js_1 = require("./config.js");
+const index_js_1 = require("./config/index.js");
+const fs_js_1 = require("./lib/fs.js");
 const llama_cpp_js_1 = require("./providers/llama-cpp.js");
 const execution_lock_js_1 = require("./execution-lock.js");
 const CODEX_POLICY_START = '<!-- SiftKit Policy:Start -->';
@@ -57,7 +58,7 @@ function getShellIntegrationScript() {
     ].join('\n');
 }
 function copyDirectoryContents(source, destination) {
-    (0, config_js_1.ensureDirectory)(destination);
+    (0, fs_js_1.ensureDirectory)(destination);
     for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
         const sourcePath = path.join(source, entry.name);
         const destinationPath = path.join(destination, entry.name);
@@ -95,8 +96,8 @@ function getCodexPolicyBlock() {
 async function installSiftKit(force) {
     return (0, execution_lock_js_1.withExecutionLock)(async () => {
         void force;
-        const paths = (0, config_js_1.initializeRuntime)();
-        const config = await (0, config_js_1.loadConfig)({ ensure: true });
+        const paths = (0, index_js_1.initializeRuntime)();
+        const config = await (0, index_js_1.loadConfig)({ ensure: true });
         let models = [];
         let providerReachable = false;
         try {
@@ -111,13 +112,13 @@ async function installSiftKit(force) {
         }
         return {
             Installed: true,
-            ConfigPath: (0, config_js_1.getConfigPath)(),
+            ConfigPath: (0, index_js_1.getConfigPath)(),
             RuntimeRoot: paths.RuntimeRoot,
             LogsPath: paths.Logs,
             EvalResultsPath: paths.EvalResults,
             Backend: config.Backend,
-            Model: (0, config_js_1.getConfiguredModel)(config),
-            LlamaCppBaseUrl: (0, config_js_1.getConfiguredLlamaBaseUrl)(config),
+            Model: (0, index_js_1.getConfiguredModel)(config),
+            LlamaCppBaseUrl: (0, index_js_1.getConfiguredLlamaBaseUrl)(config),
             LlamaCppReachable: providerReachable,
             AvailableModels: models,
         };
@@ -125,7 +126,7 @@ async function installSiftKit(force) {
 }
 async function installCodexPolicy(codexHome, force) {
     const targetCodexHome = codexHome || path.join(process.env.USERPROFILE || '', '.codex');
-    (0, config_js_1.ensureDirectory)(targetCodexHome);
+    (0, fs_js_1.ensureDirectory)(targetCodexHome);
     const agentsPath = path.join(targetCodexHome, 'AGENTS.md');
     const policyBlock = getCodexPolicyBlock();
     let updated;
@@ -145,7 +146,7 @@ async function installCodexPolicy(codexHome, force) {
     else {
         updated = policyBlock;
     }
-    (0, config_js_1.saveContentAtomically)(agentsPath, updated.endsWith('\n') ? updated : `${updated}\n`);
+    (0, fs_js_1.saveContentAtomically)(agentsPath, updated.endsWith('\n') ? updated : `${updated}\n`);
     return {
         AgentsPath: agentsPath,
         Installed: true,
@@ -160,12 +161,12 @@ async function installShellIntegration(options) {
     const distSource = path.join(repoRoot, 'dist');
     const distTarget = path.join(moduleTarget, 'dist');
     const binSource = path.join(repoRoot, 'bin');
-    (0, config_js_1.ensureDirectory)(moduleInstallRoot);
-    (0, config_js_1.ensureDirectory)(binDir);
+    (0, fs_js_1.ensureDirectory)(moduleInstallRoot);
+    (0, fs_js_1.ensureDirectory)(binDir);
     if (fs.existsSync(moduleTarget) && options?.Force) {
         fs.rmSync(moduleTarget, { recursive: true, force: true });
     }
-    (0, config_js_1.ensureDirectory)(moduleTarget);
+    (0, fs_js_1.ensureDirectory)(moduleTarget);
     copyDirectoryContents(moduleSource, moduleTarget);
     if (fs.existsSync(distSource)) {
         copyDirectoryContents(distSource, distTarget);
@@ -173,7 +174,7 @@ async function installShellIntegration(options) {
     fs.copyFileSync(path.join(binSource, 'siftkit.ps1'), path.join(binDir, 'siftkit.ps1'));
     fs.copyFileSync(path.join(binSource, 'siftkit.cmd'), path.join(binDir, 'siftkit.cmd'));
     const shellIntegrationPath = path.join(binDir, 'siftkit-shell.ps1');
-    (0, config_js_1.saveContentAtomically)(shellIntegrationPath, getShellIntegrationScript());
+    (0, fs_js_1.saveContentAtomically)(shellIntegrationPath, getShellIntegrationScript());
     return {
         Installed: true,
         ModulePath: moduleTarget,

@@ -2,15 +2,15 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildTestResult = buildTestResult;
 exports.runTest = runTest;
-const config_js_1 = require("../config.js");
+const index_js_1 = require("../config/index.js");
 const llama_cpp_js_1 = require("../providers/llama-cpp.js");
 const args_js_1 = require("./args.js");
 async function buildTestResult() {
-    const config = await (0, config_js_1.loadConfig)({ ensure: true });
+    const config = await (0, index_js_1.loadConfig)({ ensure: true });
     let model = null;
     let modelError = null;
     try {
-        model = (0, config_js_1.getConfiguredModel)(config);
+        model = (0, index_js_1.getConfiguredModel)(config);
     }
     catch (error) {
         modelError = error instanceof Error ? error.message : String(error);
@@ -40,7 +40,7 @@ async function buildTestResult() {
     }
     return {
         Ready: issues.length === 0,
-        ConfigPath: (0, config_js_1.getConfigPath)(),
+        ConfigPath: (0, index_js_1.getConfigPath)(),
         RuntimeRoot: config.Paths?.RuntimeRoot,
         LogsPath: config.Paths?.Logs,
         EvalFixturesPath: config.Paths?.EvalFixtures,

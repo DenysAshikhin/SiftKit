@@ -3,7 +3,7 @@ import {
   refreshExecutionLease,
   releaseExecutionLease,
   tryAcquireExecutionLease,
-} from './config.js';
+} from './config/index.js';
 
 let activeLeaseToken: string | null = null;
 let activeLockDepth = 0;

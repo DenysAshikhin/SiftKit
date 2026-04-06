@@ -1,11 +1,11 @@
 import * as fs from 'node:fs';
-import { ensureStatusServerReachable, loadConfig, setTopLevelConfigKey } from '../config.js';
+import { ensureStatusServerReachable, loadConfig, setTopLevelConfigKey } from '../config/index.js';
 import { analyzeCommandOutput, runCommand } from '../command.js';
 import { runEvaluation } from '../eval.js';
 import { findFiles } from '../find-files.js';
 import { installCodexPolicy, installShellIntegration, installSiftKit } from '../install.js';
 import { runInteractiveCapture } from '../interactive.js';
-import { executeRepoSearchRequest } from '../repo-search.js';
+import { executeRepoSearchRequest } from '../repo-search/index.js';
 import { summarizeRequest } from '../summary.js';
 import { getCommandArgs, parseArguments, SERVER_DEPENDENT_INTERNAL_OPS } from './args.js';
 import { buildTestResult } from './run-test.js';

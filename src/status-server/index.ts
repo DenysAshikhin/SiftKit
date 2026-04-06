@@ -1656,7 +1656,7 @@ function buildRepoSearchMarkdown(userPrompt: string, repoRoot: string, result: D
 type RepoSearchExecuteFn = (request: Dict) => Promise<Dict>;
 
 function loadRepoSearchExecutor(): RepoSearchExecuteFn {
-  const modulePath = require.resolve('../repo-search.js');
+  const modulePath = require.resolve('../repo-search/index.js');
   delete require.cache[modulePath];
   const loadedModule = require(modulePath) as { executeRepoSearchRequest?: unknown };
   if (!loadedModule || typeof loadedModule.executeRepoSearchRequest !== 'function') {

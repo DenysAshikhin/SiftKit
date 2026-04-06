@@ -1,9 +1,11 @@
 import * as fs from 'node:fs';
-import { getConfiguredModel, initializeRuntime, loadConfig, saveContentAtomically } from './config.js';
+import { getConfiguredModel, initializeRuntime, loadConfig } from './config/index.js';
+import { saveContentAtomically } from './lib/fs.js';
 import { summarizeRequest } from './summary.js';
 import { newArtifactPath } from './capture/artifacts.js';
 import { resolveExternalCommand } from './capture/command-path.js';
 import { captureWithTranscript } from './capture/process.js';
+import type { SummaryClassification } from './summary/types.js';
 
 export type InteractiveCaptureRequest = {
   Command: string;
@@ -15,7 +17,18 @@ export type InteractiveCaptureRequest = {
   PolicyProfile?: 'general' | 'pass-fail' | 'unique-errors' | 'buried-critical' | 'json-extraction' | 'diff-summary' | 'risky-operation';
 };
 
-export async function runInteractiveCapture(request: InteractiveCaptureRequest): Promise<Record<string, unknown>> {
+export type InteractiveCaptureResult = {
+  ExitCode: number;
+  TranscriptPath: string;
+  WasSummarized: boolean;
+  RawReviewRequired: boolean;
+  OutputText: string;
+  Summary: string;
+  Classification: SummaryClassification;
+  PolicyDecision: string;
+};
+
+export async function runInteractiveCapture(request: InteractiveCaptureRequest): Promise<InteractiveCaptureResult> {
   const config = await loadConfig({ ensure: true });
   const backend = request.Backend || config.Backend;
   const model = request.Model || getConfiguredModel(config);

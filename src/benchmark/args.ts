@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { initializeRuntime } from '../config.js';
+import { initializeRuntime } from '../config/index.js';
 import { buildPrompt } from '../summary.js';
 import { getLocalTimestamp } from '../lib/time.js';
 import {

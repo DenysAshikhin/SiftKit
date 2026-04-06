@@ -1,4 +1,4 @@
-import { loadConfig, setTopLevelConfigKey } from '../config.js';
+import { loadConfig, setTopLevelConfigKey } from '../config/index.js';
 import { getCommandArgs, parseArguments } from './args.js';
 
 export async function runConfigGet(stdout: NodeJS.WritableStream): Promise<number> {

@@ -40,7 +40,7 @@ exports.generateLlamaCppResponse = generateLlamaCppResponse;
 exports.generateLlamaCppChatResponse = generateLlamaCppChatResponse;
 const http = __importStar(require("node:http"));
 const https = __importStar(require("node:https"));
-const config_js_1 = require("../config.js");
+const index_js_1 = require("../config/index.js");
 function traceLlamaCpp(message) {
     if (process.env.SIFTKIT_TRACE_SUMMARY !== '1') {
         return;
@@ -252,7 +252,7 @@ async function countLlamaCppTokens(config, content) {
     const startedAt = Date.now();
     traceLlamaCpp(`tokenize start chars=${content.length}`);
     try {
-        const baseUrl = (0, config_js_1.getConfiguredLlamaBaseUrl)(config);
+        const baseUrl = (0, index_js_1.getConfiguredLlamaBaseUrl)(config);
         const response = await requestJson({
             url: `${baseUrl.replace(/\/$/u, '')}/tokenize`,
             method: 'POST',
@@ -284,7 +284,7 @@ async function countLlamaCppTokens(config, content) {
     }
 }
 async function listLlamaCppModels(config) {
-    const baseUrl = (0, config_js_1.getConfiguredLlamaBaseUrl)(config);
+    const baseUrl = (0, index_js_1.getConfiguredLlamaBaseUrl)(config);
     const response = await requestJson({
         url: `${baseUrl.replace(/\/$/u, '')}/v1/models`,
         method: 'GET',
@@ -306,7 +306,7 @@ async function getLlamaCppProviderStatus(config) {
         Error: null,
     };
     try {
-        status.BaseUrl = (0, config_js_1.getConfiguredLlamaBaseUrl)(config);
+        status.BaseUrl = (0, index_js_1.getConfiguredLlamaBaseUrl)(config);
         await listLlamaCppModels(config);
         status.Reachable = true;
     }
@@ -336,16 +336,16 @@ function getPromptTimingValue(value) {
     return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : null;
 }
 async function generateLlamaCppChatResponse(options) {
-    const baseUrl = (0, config_js_1.getConfiguredLlamaBaseUrl)(options.config);
-    const resolvedTemperature = options.overrides?.Temperature ?? (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'Temperature');
-    const resolvedTopP = options.overrides?.TopP ?? (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'TopP');
-    const resolvedMaxTokens = options.overrides?.MaxTokens ?? (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'MaxTokens');
-    const resolvedTopK = options.overrides?.TopK ?? (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'TopK');
-    const resolvedMinP = options.overrides?.MinP ?? (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'MinP');
-    const resolvedPresencePenalty = options.overrides?.PresencePenalty ?? (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'PresencePenalty');
-    const resolvedRepetitionPenalty = options.overrides?.RepetitionPenalty ?? (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'RepetitionPenalty');
+    const baseUrl = (0, index_js_1.getConfiguredLlamaBaseUrl)(options.config);
+    const resolvedTemperature = options.overrides?.Temperature ?? (0, index_js_1.getConfiguredLlamaSetting)(options.config, 'Temperature');
+    const resolvedTopP = options.overrides?.TopP ?? (0, index_js_1.getConfiguredLlamaSetting)(options.config, 'TopP');
+    const resolvedMaxTokens = options.overrides?.MaxTokens ?? (0, index_js_1.getConfiguredLlamaSetting)(options.config, 'MaxTokens');
+    const resolvedTopK = options.overrides?.TopK ?? (0, index_js_1.getConfiguredLlamaSetting)(options.config, 'TopK');
+    const resolvedMinP = options.overrides?.MinP ?? (0, index_js_1.getConfiguredLlamaSetting)(options.config, 'MinP');
+    const resolvedPresencePenalty = options.overrides?.PresencePenalty ?? (0, index_js_1.getConfiguredLlamaSetting)(options.config, 'PresencePenalty');
+    const resolvedRepetitionPenalty = options.overrides?.RepetitionPenalty ?? (0, index_js_1.getConfiguredLlamaSetting)(options.config, 'RepetitionPenalty');
     const resolvedReasoning = options.reasoningOverride
-        ?? (0, config_js_1.getConfiguredLlamaSetting)(options.config, 'Reasoning');
+        ?? (0, index_js_1.getConfiguredLlamaSetting)(options.config, 'Reasoning');
     const structuredOutputGrammar = getStructuredOutputGrammar(options.structuredOutput);
     const promptChars = options.messages.reduce((total, message) => {
         return total + getTextContent(message.content).length;

@@ -1,0 +1,40 @@
+import { type SummaryClassification } from './summary.js';
+export type CommandRequest = {
+    Command: string;
+    ArgumentList?: string[];
+    Question?: string;
+    RiskLevel?: 'informational' | 'debug' | 'risky';
+    ReducerProfile?: 'smart' | 'errors' | 'tail' | 'diff' | 'none';
+    Format?: 'text' | 'json';
+    PolicyProfile?: 'general' | 'pass-fail' | 'unique-errors' | 'buried-critical' | 'json-extraction' | 'diff-summary' | 'risky-operation';
+    Backend?: string;
+    Model?: string;
+    NoSummarize?: boolean;
+};
+export type CommandResult = {
+    ExitCode: number;
+    RawLogPath: string;
+    ReducedLogPath: string | null;
+    WasSummarized: boolean;
+    PolicyDecision: string;
+    Classification: SummaryClassification | 'no-summarize';
+    RawReviewRequired: boolean;
+    ModelCallSucceeded: boolean;
+    ProviderError: string | null;
+    Summary: string | null;
+};
+export type CommandAnalysisRequest = {
+    ExitCode: number;
+    CombinedText: string;
+    CommandText?: string;
+    Question?: string;
+    RiskLevel?: 'informational' | 'debug' | 'risky';
+    ReducerProfile?: 'smart' | 'errors' | 'tail' | 'diff' | 'none';
+    Format?: 'text' | 'json';
+    PolicyProfile?: 'general' | 'pass-fail' | 'unique-errors' | 'buried-critical' | 'json-extraction' | 'diff-summary' | 'risky-operation';
+    Backend?: string;
+    Model?: string;
+    NoSummarize?: boolean;
+};
+export declare function analyzeCommandOutput(request: CommandAnalysisRequest): Promise<CommandResult>;
+export declare function runCommand(request: CommandRequest): Promise<CommandResult>;

@@ -1,0 +1,11 @@
+import { type RuntimeOwnedLlamaCppKey } from './constants.js';
+import type { RuntimeLlamaCppConfig, SiftConfig } from './types.js';
+export declare function getDefaultNumCtx(): number;
+export declare function getCompatRuntimeLlamaCpp(config: SiftConfig): RuntimeLlamaCppConfig;
+export declare function getFinitePositiveNumber(value: unknown): number | null;
+export declare function getConfiguredModel(config: SiftConfig): string;
+export declare function getConfiguredPromptPrefix(config: SiftConfig): string | undefined;
+export declare function getConfiguredLlamaBaseUrl(config: SiftConfig): string;
+export declare function getConfiguredLlamaNumCtx(config: SiftConfig): number;
+export declare function getConfiguredLlamaSetting<T>(config: SiftConfig, key: RuntimeOwnedLlamaCppKey): T | undefined;
+export declare function getMissingRuntimeFields(config: SiftConfig): string[];

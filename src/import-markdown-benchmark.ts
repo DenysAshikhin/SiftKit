@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { saveContentAtomically } from './config.js';
+import { saveContentAtomically } from './lib/fs.js';
 
 type ImportedFixture = {
   Name: string;

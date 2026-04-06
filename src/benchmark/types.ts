@@ -1,4 +1,4 @@
-import type { RuntimeLlamaCppConfig } from '../config.js';
+import type { RuntimeLlamaCppConfig } from '../config/index.js';
 import type { SummaryClassification, SummaryRequest } from '../summary.js';
 
 export type BenchmarkFixture = {

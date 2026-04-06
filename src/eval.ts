@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { getConfiguredModel, initializeRuntime, loadConfig, saveContentAtomically } from './config.js';
+import { getConfiguredModel, initializeRuntime, loadConfig } from './config/index.js';
+import { saveContentAtomically } from './lib/fs.js';
 import { summarizeRequest } from './summary.js';
 import { withExecutionLock } from './execution-lock.js';
 import { newArtifactPath } from './capture/artifacts.js';
@@ -72,19 +73,39 @@ function getFixtureScore(summary: string, fixture: Fixture, sourceLength: number
   };
 }
 
-export async function runEvaluation(request: EvalRequest): Promise<{
+export type EvalCaseResult = {
+  Name: string;
+  SourcePath: string;
+  WasSummarized: boolean;
+  PolicyDecision: string;
+  Classification: import('./summary/types.js').SummaryClassification;
+  RawReviewRequired: boolean;
+  ModelCallSucceeded: boolean;
+  Summary: string;
+  Recall: number | null;
+  Precision: number | null;
+  Faithfulness: number | null;
+  Format: number | null;
+  Compression: number | null;
+  Total: number | null;
+  Notes: string;
+};
+
+export type EvaluationResult = {
   Backend: string;
   Model: string;
   ResultPath: string;
-  Results: Array<Record<string, unknown>>;
-}> {
+  Results: EvalCaseResult[];
+};
+
+export async function runEvaluation(request: EvalRequest): Promise<EvaluationResult> {
   return withExecutionLock(async () => {
     const config = await loadConfig({ ensure: true });
     const backend = request.Backend || config.Backend;
     const model = request.Model || getConfiguredModel(config);
     const fixtureRoot = request.FixtureRoot || path.join(getRepoRoot(), 'eval', 'fixtures');
     const manifest = getFixtureManifest(fixtureRoot);
-    const results: Array<Record<string, unknown>> = [];
+    const results: EvalCaseResult[] = [];
 
     for (const fixture of manifest) {
       const sourcePath = path.join(fixtureRoot, fixture.File);

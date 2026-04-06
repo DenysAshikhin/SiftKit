@@ -4,7 +4,7 @@ exports.getExecutionLockTimeoutMilliseconds = getExecutionLockTimeoutMillisecond
 exports.acquireExecutionLock = acquireExecutionLock;
 exports.releaseExecutionLock = releaseExecutionLock;
 exports.withExecutionLock = withExecutionLock;
-const config_js_1 = require("./config.js");
+const index_js_1 = require("./config/index.js");
 let activeLeaseToken = null;
 let activeLockDepth = 0;
 let activeHeartbeat = null;
@@ -27,7 +27,7 @@ function stopHeartbeat() {
 function startHeartbeat(token) {
     stopHeartbeat();
     activeHeartbeat = setInterval(() => {
-        void (0, config_js_1.refreshExecutionLease)(token).catch(() => {
+        void (0, index_js_1.refreshExecutionLease)(token).catch(() => {
             // The owning operation will surface the canonical server-unavailable error.
         });
     }, 3_000);
@@ -53,7 +53,7 @@ async function acquireExecutionLock() {
     const startedAt = Date.now();
     traceExecutionLock(`acquire start timeout_ms=${timeoutMs}`);
     while (true) {
-        const lease = await (0, config_js_1.tryAcquireExecutionLease)();
+        const lease = await (0, index_js_1.tryAcquireExecutionLease)();
         if (lease.acquired && lease.token) {
             activeLeaseToken = lease.token;
             activeLockDepth = 1;
@@ -61,7 +61,7 @@ async function acquireExecutionLock() {
             traceExecutionLock(`acquire success token=${lease.token} elapsed_ms=${Date.now() - startedAt}`);
             return { token: lease.token };
         }
-        const state = await (0, config_js_1.getExecutionServerState)();
+        const state = await (0, index_js_1.getExecutionServerState)();
         if (Date.now() - startedAt >= timeoutMs) {
             traceExecutionLock(`acquire timeout elapsed_ms=${Date.now() - startedAt}`);
             throw new Error(`SiftKit is busy. Timed out after ${timeoutMs} ms waiting for the server to report idle.`);
@@ -85,7 +85,7 @@ function releaseExecutionLock(lock) {
     stopHeartbeat();
     activeLeaseToken = null;
     traceExecutionLock(`release token=${lock.token}`);
-    return (0, config_js_1.releaseExecutionLease)(lock.token);
+    return (0, index_js_1.releaseExecutionLease)(lock.token);
 }
 async function withExecutionLock(fn) {
     const lock = await acquireExecutionLock();

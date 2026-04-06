@@ -36,7 +36,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.runEvaluation = runEvaluation;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
-const config_js_1 = require("./config.js");
+const index_js_1 = require("./config/index.js");
+const fs_js_1 = require("./lib/fs.js");
 const summary_js_1 = require("./summary.js");
 const execution_lock_js_1 = require("./execution-lock.js");
 const artifacts_js_1 = require("./capture/artifacts.js");
@@ -78,9 +79,9 @@ function getFixtureScore(summary, fixture, sourceLength) {
 }
 async function runEvaluation(request) {
     return (0, execution_lock_js_1.withExecutionLock)(async () => {
-        const config = await (0, config_js_1.loadConfig)({ ensure: true });
+        const config = await (0, index_js_1.loadConfig)({ ensure: true });
         const backend = request.Backend || config.Backend;
-        const model = request.Model || (0, config_js_1.getConfiguredModel)(config);
+        const model = request.Model || (0, index_js_1.getConfiguredModel)(config);
         const fixtureRoot = request.FixtureRoot || path.join(getRepoRoot(), 'eval', 'fixtures');
         const manifest = getFixtureManifest(fixtureRoot);
         const results = [];
@@ -147,9 +148,9 @@ async function runEvaluation(request) {
                 Notes: 'Manual review required for real-log scoring.',
             });
         }
-        const paths = (0, config_js_1.initializeRuntime)();
+        const paths = (0, index_js_1.initializeRuntime)();
         const resultPath = (0, artifacts_js_1.newArtifactPath)(paths.EvalResults, 'evaluation', 'json');
-        (0, config_js_1.saveContentAtomically)(resultPath, JSON.stringify(results, null, 2));
+        (0, fs_js_1.saveContentAtomically)(resultPath, JSON.stringify(results, null, 2));
         return {
             Backend: backend,
             Model: model,

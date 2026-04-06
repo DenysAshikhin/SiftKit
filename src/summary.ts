@@ -11,7 +11,7 @@ import {
   getConfiguredModel,
   getConfiguredPromptPrefix,
   notifyStatusBackend,
-} from './config.js';
+} from './config/index.js';
 import { withExecutionLock } from './execution-lock.js';
 import { getErrorMessage } from './lib/errors.js';
 import {

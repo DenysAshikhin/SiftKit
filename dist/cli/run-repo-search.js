@@ -2,11 +2,11 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getRepoSearchServiceUrl = getRepoSearchServiceUrl;
 exports.runRepoSearchCli = runRepoSearchCli;
-const config_js_1 = require("../config.js");
+const index_js_1 = require("../config/index.js");
 const http_js_1 = require("../lib/http.js");
 const args_js_1 = require("./args.js");
 function getRepoSearchServiceUrl() {
-    const target = new URL((0, config_js_1.getStatusBackendUrl)());
+    const target = new URL((0, index_js_1.getStatusBackendUrl)());
     target.pathname = '/repo-search';
     target.search = '';
     target.hash = '';

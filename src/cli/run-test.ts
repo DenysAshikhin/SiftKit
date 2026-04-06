@@ -1,8 +1,32 @@
-import { getConfigPath, getConfiguredModel, loadConfig } from '../config.js';
+import { getConfigPath, getConfiguredModel, loadConfig } from '../config/index.js';
 import { getLlamaCppProviderStatus, listLlamaCppModels } from '../providers/llama-cpp.js';
 import { formatPsList } from './args.js';
 
-export async function buildTestResult(): Promise<Record<string, unknown>> {
+export type TestResult = {
+  Ready: boolean;
+  ConfigPath: string;
+  RuntimeRoot: string | undefined;
+  LogsPath: string | undefined;
+  EvalFixturesPath: string | undefined;
+  EvalResultsPath: string | undefined;
+  Backend: string;
+  Model: string | null;
+  LlamaCppBaseUrl: string | null;
+  LlamaCppReachable: boolean;
+  AvailableModels: string[];
+  ModelPresent: boolean | null;
+  EffectiveNumCtx: number | null;
+  EffectiveInputCharactersPerToken: number | null;
+  EffectiveBudgetSource: string | null;
+  EffectiveObservedTelemetrySeen: boolean | null;
+  EffectiveObservedTelemetryUpdatedAtUtc: string | null;
+  EffectiveMaxInputCharacters: number | null;
+  EffectiveChunkThresholdCharacters: number | null;
+  ProviderError: string | null;
+  Issues: string[];
+};
+
+export async function buildTestResult(): Promise<TestResult> {
   const config = await loadConfig({ ensure: true });
   let model: string | null = null;
   let modelError: string | null = null;

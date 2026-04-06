@@ -1,6 +1,6 @@
 import * as http from 'node:http';
 import * as https from 'node:https';
-import { getConfiguredLlamaBaseUrl, getConfiguredLlamaSetting, type RuntimeLlamaCppConfig, type SiftConfig } from '../config.js';
+import { getConfiguredLlamaBaseUrl, getConfiguredLlamaSetting, type RuntimeLlamaCppConfig, type SiftConfig } from '../config/index.js';
 
 type JsonRequestOptions = {
   url: string;
@@ -424,8 +424,15 @@ export async function listLlamaCppModels(config: SiftConfig): Promise<string[]> 
     .filter((value): value is string => Boolean(value && value.trim()));
 }
 
-export async function getLlamaCppProviderStatus(config: SiftConfig): Promise<Record<string, unknown>> {
-  const status: Record<string, unknown> = {
+export type LlamaCppProviderStatus = {
+  Available: boolean;
+  Reachable: boolean;
+  BaseUrl: string | null;
+  Error: string | null;
+};
+
+export async function getLlamaCppProviderStatus(config: SiftConfig): Promise<LlamaCppProviderStatus> {
+  const status: LlamaCppProviderStatus = {
     Available: true,
     Reachable: false,
     BaseUrl: null,

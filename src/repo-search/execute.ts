@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { notifyStatusBackend } from '../config.js';
+import { notifyStatusBackend } from '../config/index.js';
 import {
   createJsonLogger,
   ensureRepoSearchLogFolders,
@@ -65,7 +65,7 @@ export async function executeRepoSearchRequest(
     : path.join(folders.root, `request_${requestId}.jsonl`);
   const logger = createJsonLogger(tempTranscriptPath);
 
-  const module = require('../../scripts/mock-repo-search-loop.js') as MockRepoSearchModule;
+  const module = require('../scripts/mock-repo-search-loop.js') as MockRepoSearchModule;
 
   try {
     const progressCallback = request.onProgress;

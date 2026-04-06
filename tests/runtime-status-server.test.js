@@ -1,0 +1,1588 @@
+// @ts-nocheck — Split from runtime.test.js. Full TS typing deferred.
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const http = require('node:http');
+const os = require('node:os');
+const path = require('node:path');
+const { spawn, spawnSync } = require('node:child_process');
+const Database = require('better-sqlite3');
+
+const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage, SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT } = require('../dist/config/index.js');
+const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../dist/summary.js');
+const { runCommand } = require('../dist/command.js');
+const { runBenchmarkSuite } = require('../dist/benchmark/index.js');
+const { readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs, pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt } = require('../dist/benchmark-matrix/index.js');
+const { countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse } = require('../dist/providers/llama-cpp.js');
+const { withExecutionLock } = require('../dist/execution-lock.js');
+const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../dist/status-server/index.js');
+const { runDebugRequest } = require('../dist/scripts/run-benchmark-fixture-debug.js');
+const { runFixture60MalformedJsonRepro } = require('../dist/scripts/repro-fixture60-malformed-json.js');
+
+const {
+  TEST_USE_EXISTING_SERVER,
+  EXISTING_SERVER_STATUS_URL,
+  EXISTING_SERVER_CONFIG_URL,
+  RUN_LIVE_LLAMA_TOKENIZE_TESTS,
+  LIVE_LLAMA_BASE_URL,
+  LIVE_CONFIG_SERVICE_URL,
+  FAST_LEASE_STALE_MS,
+  FAST_LEASE_WAIT_MS,
+  deriveServiceUrl,
+  getDefaultConfig,
+  clone,
+  getChatRequestText,
+  setManagedLlamaBaseUrl,
+  mergeConfig,
+  extractPromptSection,
+  buildOversizedTransitionsInput,
+  buildOversizedRunnerStateHistoryInput,
+  getRuntimeRootFromStatusPath,
+  getPlannerLogsPath,
+  getFailedLogsPath,
+  getRequestLogsPath,
+  buildStructuredStubDecision,
+  resolveAssistantContent,
+  readBody,
+  resolveArtifactLogPathFromStatusPost,
+  requestJson,
+  sleep,
+  removeDirectoryWithRetries,
+  spawnProcess,
+  waitForTextMatch,
+  startStubStatusServer,
+  withTempEnv,
+  withStubServer,
+  withSummaryTestServer,
+  withRealStatusServer,
+  startStatusServerProcess,
+  stripAnsi,
+  captureStdout,
+  readIdleSummarySnapshots,
+  getIdleSummaryBlock,
+  getFreePort,
+  toSingleQuotedPowerShellLiteral,
+  writeManagedLlamaScripts,
+  waitForAsyncExpectation,
+  runPowerShellScript,
+} = require('./_runtime-helpers.js');
+
+test('status notification failures fail closed with the canonical message', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async () => {
+      await assert.rejects(
+        () => summarizeRequest({
+          question: 'summarize this',
+          inputText: 'A'.repeat(5000),
+          format: 'text',
+          policyProfile: 'general',
+          backend: 'mock',
+          model: 'mock-model',
+        }),
+        new RegExp(getStatusServerUnavailableMessage().replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u')
+      );
+    }, {
+      failStatusPosts: true,
+    });
+  });
+});
+
+test('real status server clears stale true status once during startup', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
+    fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+    fs.writeFileSync(statusPath, 'true', 'utf8');
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ statusPath: liveStatusPath }) => {
+      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'false');
+      await sleep(250);
+      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'false');
+    }, {
+      statusPath,
+      configPath,
+    });
+  });
+});
+
+test('real status server initializes a missing status file to false', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ statusUrl, statusPath: liveStatusPath }) => {
+      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'false');
+      const status = await requestJson(statusUrl);
+      assert.equal(status.running, false);
+      assert.equal(status.status, 'false');
+    }, {
+      statusPath,
+      configPath,
+    });
+  });
+});
+
+test('real status server health reports disableManagedLlamaStartup mode when flagged', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ healthUrl }) => {
+      const health = await requestJson(healthUrl);
+      assert.equal(health.ok, true);
+      assert.equal(health.disableManagedLlamaStartup, true);
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
+test('real status server with disableManagedLlamaStartup skips managed llama bootstrap during server startup', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      await sleep(250);
+      assert.equal(fs.existsSync(managed.readyFilePath), false);
+      const status = await requestJson(statusUrl);
+      assert.equal(status.running, false);
+      assert.equal(status.status, 'false');
+      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
+test('real status server with disableManagedLlamaStartup does not trigger managed startup from GET /config', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ configUrl }) => {
+      const loadedConfig = await requestJson(configUrl);
+      assert.equal(loadedConfig.Server.LlamaCpp.StartupScript, managed.startupScriptPath);
+      await sleep(250);
+      assert.equal(fs.existsSync(managed.readyFilePath), false);
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
+test('real status server with disableManagedLlamaStartup keeps the shared status file pinned to true across request lifecycle', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ statusUrl, statusPath: liveStatusPath }) => {
+      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'true');
+
+      await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: true, rawInputCharacterCount: 25 }),
+      });
+      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'true');
+
+      await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 25, inputTokens: 5, outputCharacterCount: 4, outputTokens: 1, requestDurationMs: 10 }),
+      });
+      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'true');
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
+test('real status server with disableManagedLlamaStartup leaves an externally started llama running across boot and close', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    const externalLlama = spawn(process.execPath, [managed.fakeServerPath], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+
+    try {
+      await waitForAsyncExpectation(async () => {
+        const models = await requestJson(`${managed.baseUrl}/v1/models`);
+        assert.equal(models.data[0].id, 'managed-test-model');
+      }, 5000);
+
+      await withRealStatusServer(async () => {
+        await waitForAsyncExpectation(async () => {
+          const models = await requestJson(`${managed.baseUrl}/v1/models`);
+          assert.equal(models.data[0].id, 'managed-test-model');
+        }, 1000);
+      }, {
+        statusPath,
+        configPath,
+        disableManagedLlamaStartup: true,
+      });
+
+      await waitForAsyncExpectation(async () => {
+        const models = await requestJson(`${managed.baseUrl}/v1/models`);
+        assert.equal(models.data[0].id, 'managed-test-model');
+      }, 1000);
+    } finally {
+      externalLlama.kill('SIGTERM');
+      await new Promise((resolve) => externalLlama.once('close', resolve));
+    }
+  });
+});
+
+test('real status server preserves foreign_lock while siftkit is idle', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
+    fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+    fs.writeFileSync(statusPath, 'foreign_lock', 'utf8');
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ statusUrl, statusPath: liveStatusPath }) => {
+      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'foreign_lock');
+      await sleep(FAST_LEASE_WAIT_MS);
+      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'foreign_lock');
+      const status = await requestJson(statusUrl);
+      assert.equal(status.running, false);
+      assert.equal(status.status, 'foreign_lock');
+    }, {
+      statusPath,
+      configPath,
+      executionLeaseStaleMs: FAST_LEASE_STALE_MS,
+    });
+  });
+});
+
+test('real status server publishes lock_requested while waiting on a foreign_lock', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
+    fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+    fs.writeFileSync(statusPath, 'foreign_lock', 'utf8');
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      const acquirePromise = requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: true, rawInputCharacterCount: 25 }),
+      });
+
+      await waitForAsyncExpectation(async () => {
+        assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'lock_requested');
+        const waitingStatus = await requestJson(statusUrl);
+        assert.equal(waitingStatus.running, false);
+        assert.equal(waitingStatus.status, 'lock_requested');
+      }, 2000);
+
+      fs.writeFileSync(statusPath, 'false', 'utf8');
+
+      const acquired = await acquirePromise;
+      assert.equal(acquired.running, true);
+      assert.equal(acquired.status, 'true');
+      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
+
+      await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: false, promptCharacterCount: 25, inputTokens: 5, outputCharacterCount: 4, outputTokens: 1, requestDurationMs: 10 }),
+      });
+    }, {
+      statusPath,
+      configPath,
+    });
+  });
+});
+
+test('real status server rejects shared-file statuses in POST /status payloads', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      await assert.rejects(() => requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ status: 'foreign_lock' }),
+      }), /Expected running=true\|false or status=true\|false\./u);
+    }, {
+      statusPath,
+      configPath,
+    });
+  });
+});
+
+test('real status server accepts boolean-like running payload variants', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      const stopped = await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ status: false }),
+      });
+      assert.equal(stopped.running, false);
+      assert.equal(stopped.status, 'false');
+      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'false');
+
+      const running = await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: 'true' }),
+      });
+      assert.equal(running.running, true);
+      assert.equal(running.status, 'true');
+      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
+    }, {
+      statusPath,
+      configPath,
+    });
+  });
+});
+
+test('real status server preserves true status while an active request is tracked', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ statusUrl, statusPath: liveStatusPath }) => {
+      await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: true }),
+      });
+
+      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'true');
+      await sleep(FAST_LEASE_WAIT_MS);
+      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'true');
+    }, {
+      statusPath,
+      configPath,
+      executionLeaseStaleMs: FAST_LEASE_STALE_MS,
+    });
+  });
+});
+
+test('real status server persists aggregate metrics and exposes them from GET /status', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const metricsPath = path.join(tempRoot, 'metrics', 'compression.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: true, rawInputCharacterCount: 400 }),
+      });
+      await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: false, promptCharacterCount: 410, inputTokens: 100, outputCharacterCount: 120, outputTokens: 25, requestDurationMs: 800 }),
+      });
+
+      const status = await requestJson(statusUrl);
+      assert.equal(status.metrics.inputCharactersTotal, 410);
+      assert.equal(status.metrics.outputCharactersTotal, 120);
+      assert.equal(status.metrics.inputTokensTotal, 100);
+      assert.equal(status.metrics.outputTokensTotal, 25);
+      assert.equal(status.metrics.thinkingTokensTotal, 0);
+      assert.equal(status.metrics.requestDurationMsTotal, 800);
+      assert.ok(status.metrics.completedRequestCount >= 0);
+      assert.equal(typeof status.metrics.updatedAtUtc, 'string');
+      assert.equal(fs.existsSync(metricsPath), true);
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      const status = await requestJson(statusUrl);
+      assert.equal(status.metrics.inputCharactersTotal, 410);
+      assert.equal(status.metrics.outputCharactersTotal, 120);
+      assert.equal(status.metrics.inputTokensTotal, 100);
+      assert.equal(status.metrics.outputTokensTotal, 25);
+      assert.equal(status.metrics.thinkingTokensTotal, 0);
+      assert.equal(status.metrics.requestDurationMsTotal, 800);
+      assert.ok(status.metrics.completedRequestCount >= 0);
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
+test('real status server starts managed llama.cpp during server startup before serving requests', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ port, statusUrl }) => {
+      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
+      await waitForAsyncExpectation(async () => {
+        const models = await requestJson(`${managed.baseUrl}/v1/models`);
+        assert.equal(models.data[0].id, 'managed-test-model');
+      }, 5000);
+      await waitForAsyncExpectation(async () => {
+        const status = await requestJson(statusUrl);
+        assert.equal(status.running, true);
+        assert.equal(status.status, 'true');
+        assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
+      }, 5000);
+      const latestStartupDumpPath = path.join(tempRoot, 'logs', 'managed-llama', 'latest-startup.log');
+      assert.equal(fs.existsSync(latestStartupDumpPath), true);
+      const latestStartupDumpText = fs.readFileSync(latestStartupDumpPath, 'utf8');
+      assert.match(latestStartupDumpText, /Result: ready/u);
+      assert.match(latestStartupDumpText, /startup_script_stdout/u);
+
+      const previousConfigUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
+      const previousStatusUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
+      process.env.SIFTKIT_CONFIG_SERVICE_URL = `http://127.0.0.1:${port}/config`;
+      process.env.SIFTKIT_STATUS_BACKEND_URL = statusUrl;
+
+      try {
+        const loadedConfig = await loadConfig({ ensure: true });
+        assert.equal(loadedConfig.LlamaCpp.BaseUrl, managed.baseUrl);
+        assert.equal(loadedConfig.Server.LlamaCpp.StartupScript, managed.startupScriptPath);
+      } finally {
+        if (previousConfigUrl === undefined) {
+          delete process.env.SIFTKIT_CONFIG_SERVICE_URL;
+        } else {
+          process.env.SIFTKIT_CONFIG_SERVICE_URL = previousConfigUrl;
+        }
+        if (previousStatusUrl === undefined) {
+          delete process.env.SIFTKIT_STATUS_BACKEND_URL;
+        } else {
+          process.env.SIFTKIT_STATUS_BACKEND_URL = previousStatusUrl;
+        }
+      }
+
+      assert.equal(fs.existsSync(managed.readyFilePath), true);
+    }, {
+      statusPath,
+      configPath,
+    });
+
+    await waitForAsyncExpectation(
+      async () => assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`)),
+      5000
+    );
+    await waitForAsyncExpectation(async () => {
+      assert.equal(fs.existsSync(managed.pidFilePath), false);
+    }, 5000);
+    await sleep(250);
+  });
+});
+
+test('real status server waits behind foreign_lock before starting managed llama.cpp', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+    fs.writeFileSync(statusPath, 'foreign_lock', 'utf8');
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      await waitForAsyncExpectation(async () => {
+        const status = await requestJson(statusUrl);
+        assert.equal(status.running, false);
+        assert.equal(status.status, 'lock_requested');
+        assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'lock_requested');
+      }, 2000);
+      assert.equal(fs.existsSync(managed.readyFilePath), false);
+
+      fs.writeFileSync(statusPath, 'false', 'utf8');
+
+      await waitForAsyncExpectation(async () => {
+        assert.equal(fs.existsSync(managed.readyFilePath), true);
+        const status = await requestJson(statusUrl);
+        assert.equal(status.running, true);
+        assert.equal(status.status, 'true');
+      }, 5000);
+    }, {
+      statusPath,
+      configPath,
+      awaitStartup: false,
+    });
+  });
+});
+
+test('real status server keeps published true status while managed llama stays ready', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      await waitForAsyncExpectation(async () => {
+        const models = await requestJson(`${managed.baseUrl}/v1/models`);
+        assert.equal(models.data[0].id, 'managed-test-model');
+      }, 5000);
+
+      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
+      await sleep(FAST_LEASE_WAIT_MS);
+
+      const status = await requestJson(statusUrl);
+      assert.equal(status.running, true);
+      assert.equal(status.status, 'true');
+      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
+    }, {
+      statusPath,
+      configPath,
+      executionLeaseStaleMs: FAST_LEASE_STALE_MS,
+    });
+  });
+});
+
+test('real status server sync-only startup pass does not launch a second llama process', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
+      supportsSyncOnly: true,
+      syncOnlyModel: 'script-model',
+      writeLaunchMarker: true,
+    });
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: null,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    runPowerShellScript(managed.startupScriptPath);
+    await waitForAsyncExpectation(async () => {
+      const models = await requestJson(`${managed.baseUrl}/v1/models`);
+      assert.equal(models.data[0].id, 'managed-test-model');
+    }, 5000);
+    fs.rmSync(managed.launchMarkerPath, { force: true });
+
+    await withRealStatusServer(async () => {
+      await waitForAsyncExpectation(async () => {
+        assert.equal(fs.existsSync(managed.syncOnlyMarkerPath), true);
+      }, 5000);
+      assert.equal(fs.existsSync(managed.launchMarkerPath), false);
+    }, {
+      statusPath,
+      configPath,
+    });
+
+    runPowerShellScript(managed.shutdownScriptPath);
+    await waitForAsyncExpectation(async () => {
+      await assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`));
+    }, 5000);
+  });
+});
+
+test('real status server fails closed during startup when managed llama logs contain warnings', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
+      llamaLogLine: 'warning: fake llama startup warning',
+    });
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await assert.rejects(
+      () => startStatusServerProcess({
+        statusPath,
+        configPath,
+      }),
+      /startup logs contained warning\/error markers/i
+    );
+
+    const managedLogRoot = path.join(tempRoot, 'logs', 'managed-llama');
+    const dumpFiles = fs.existsSync(managedLogRoot)
+      ? fs.readdirSync(managedLogRoot, { recursive: true })
+        .map((entry) => path.join(managedLogRoot, String(entry)))
+        .filter((entryPath) => /startup-scan-failure\.log$/u.test(entryPath))
+      : [];
+    assert.ok(dumpFiles.length > 0);
+    const dumpText = fs.readFileSync(dumpFiles[0], 'utf8');
+    assert.match(dumpText, /warning: fake llama startup warning/u);
+    const latestStartupDumpPath = path.join(tempRoot, 'logs', 'managed-llama', 'latest-startup.log');
+    assert.equal(fs.existsSync(latestStartupDumpPath), true);
+    assert.match(fs.readFileSync(latestStartupDumpPath, 'utf8'), /Result: failed/u);
+  });
+});
+
+test('real status server aborts a broken managed llama startup during server startup within the capped timeout', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
+      launchHangingProcess: true,
+    });
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5_000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    const startedAt = Date.now();
+    await assert.rejects(
+      () => startStatusServerProcess({
+        statusPath,
+        configPath,
+      }),
+      /Timed out waiting for llama\.cpp server .* to become ready/i
+    );
+    const elapsedMs = Date.now() - startedAt;
+    assert.ok(elapsedMs < 31_000);
+    assert.equal(fs.existsSync(managed.pidFilePath), false);
+    const latestStartupDumpPath = path.join(tempRoot, 'logs', 'managed-llama', 'latest-startup.log');
+    assert.equal(fs.existsSync(latestStartupDumpPath), true);
+    const latestStartupDumpText = fs.readFileSync(latestStartupDumpPath, 'utf8');
+    assert.match(latestStartupDumpText, /Result: failed/u);
+    assert.match(latestStartupDumpText, /Timed out waiting for llama\.cpp server/u);
+  });
+});
+
+test('real status server clears a stale managed llama process during startup before serving requests', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    runPowerShellScript(managed.startupScriptPath);
+    await waitForAsyncExpectation(async () => {
+      const models = await requestJson(`${managed.baseUrl}/v1/models`);
+      assert.equal(models.data[0].id, 'managed-test-model');
+    }, 5000);
+
+    await withRealStatusServer(async ({ port }) => {
+      const previousConfigUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
+      const previousStatusUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
+      process.env.SIFTKIT_CONFIG_SERVICE_URL = `http://127.0.0.1:${port}/config`;
+      process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${port}/status`;
+      try {
+        const loadedConfig = await loadConfig({ ensure: true });
+        assert.equal(loadedConfig.LlamaCpp.BaseUrl, managed.baseUrl);
+        await waitForAsyncExpectation(async () => {
+          const models = await requestJson(`${managed.baseUrl}/v1/models`);
+          assert.equal(models.data[0].id, 'managed-test-model');
+        }, 5000);
+      } finally {
+        if (previousConfigUrl === undefined) {
+          delete process.env.SIFTKIT_CONFIG_SERVICE_URL;
+        } else {
+          process.env.SIFTKIT_CONFIG_SERVICE_URL = previousConfigUrl;
+        }
+        if (previousStatusUrl === undefined) {
+          delete process.env.SIFTKIT_STATUS_BACKEND_URL;
+        } else {
+          process.env.SIFTKIT_STATUS_BACKEND_URL = previousStatusUrl;
+        }
+      }
+    }, {
+      statusPath,
+      configPath,
+    });
+  });
+});
+
+test('real status server falls back to zeroed metrics when the metrics cache is invalid', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const metricsPath = path.join(tempRoot, 'metrics', 'compression.json');
+
+    fs.mkdirSync(path.dirname(metricsPath), { recursive: true });
+    fs.writeFileSync(metricsPath, '{invalid-json', 'utf8');
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      const status = await requestJson(statusUrl);
+      assert.equal(status.metrics.inputCharactersTotal, 0);
+      assert.equal(status.metrics.outputCharactersTotal, 0);
+      assert.equal(status.metrics.inputTokensTotal, 0);
+      assert.equal(status.metrics.outputTokensTotal, 0);
+      assert.equal(status.metrics.thinkingTokensTotal, 0);
+      assert.equal(status.metrics.requestDurationMsTotal, 0);
+      assert.equal(status.metrics.completedRequestCount, 0);
+      assert.equal(status.metrics.updatedAtUtc, null);
+    }, {
+      statusPath,
+      configPath,
+    });
+  });
+});
+
+test('real status server accumulates provider payload totals across a chunked request while counting one completed request', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const requestId = 'chunked-request';
+
+    await withRealStatusServer(async (server) => {
+      const { statusUrl } = server;
+      await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: true, requestId, rawInputCharacterCount: 1000, chunkIndex: 1, chunkTotal: 2 }),
+      });
+      await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: false, requestId, promptCharacterCount: 600, inputTokens: 10, outputCharacterCount: 120, outputTokens: 2, requestDurationMs: 100 }),
+      });
+      await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: true, requestId, rawInputCharacterCount: 1000, chunkIndex: 2, chunkTotal: 2 }),
+      });
+      await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: false, requestId, promptCharacterCount: 610, inputTokens: 11, outputCharacterCount: 130, outputTokens: 3, requestDurationMs: 110 }),
+      });
+      await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: true, requestId, rawInputCharacterCount: 1000 }),
+      });
+      await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: false, requestId, promptCharacterCount: 400, inputTokens: 5, outputCharacterCount: 60, outputTokens: 1, requestDurationMs: 50 }),
+      });
+      await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: false, requestId, terminalState: 'completed', rawInputCharacterCount: 1000 }),
+      });
+
+      const status = await requestJson(statusUrl);
+      assert.equal(status.metrics.inputCharactersTotal, 1610);
+      assert.equal(status.metrics.outputCharactersTotal, 310);
+      assert.equal(status.metrics.inputTokensTotal, 26);
+      assert.equal(status.metrics.outputTokensTotal, 6);
+      assert.equal(status.metrics.thinkingTokensTotal, 0);
+      assert.equal(status.metrics.requestDurationMsTotal, 260);
+      assert.equal(status.metrics.completedRequestCount, 1);
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
+test('real status server suppresses intermediate false log for single-step completed requests', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    await withRealStatusServer(async ({ statusUrl }) => {
+      const lines = await captureStdout(async () => {
+        await requestJson(statusUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            running: true,
+            requestId: 'single-step',
+            rawInputCharacterCount: 426,
+            promptCharacterCount: 468,
+            promptTokenCount: 86,
+          }),
+        });
+        await requestJson(statusUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            running: false,
+            requestId: 'single-step',
+            promptCharacterCount: 468,
+            outputTokens: 130,
+            requestDurationMs: 1_000,
+          }),
+        });
+        await requestJson(statusUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            running: false,
+            requestId: 'single-step',
+            terminalState: 'completed',
+            rawInputCharacterCount: 426,
+          }),
+        });
+      });
+
+      const falseLines = lines.filter((line) => /request false/u.test(line));
+      assert.equal(falseLines.length, 1, lines.join('\n'));
+      assert.match(falseLines[0], /request false total_elapsed=0s output_tokens=130/u);
+      assert.equal(falseLines.some((line) => /request false elapsed=/u.test(line)), false, lines.join('\n'));
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
+test('real status server logs intermediate false line for first chunked leaf step', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    await withRealStatusServer(async ({ statusUrl }) => {
+      const lines = await captureStdout(async () => {
+        await requestJson(statusUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            running: true,
+            requestId: 'chunked-step',
+            rawInputCharacterCount: 1_000,
+            chunkIndex: 1,
+            chunkTotal: 2,
+          }),
+        });
+        await requestJson(statusUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            running: false,
+            requestId: 'chunked-step',
+            promptCharacterCount: 600,
+            outputTokens: 82,
+            requestDurationMs: 4_000,
+          }),
+        });
+      });
+
+      const falseLines = lines.filter((line) => /request false/u.test(line));
+      assert.equal(falseLines.length, 1, lines.join('\n'));
+      assert.match(falseLines[0], /request false elapsed=0s output_tokens=82/u);
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
+test('real status server logs explicit chunk failures and clears them before the next request', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    await withRealStatusServer(async ({ statusUrl }) => {
+      const lines = await captureStdout(async () => {
+        await requestJson(statusUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            running: true,
+            requestId: 'failed-request',
+            rawInputCharacterCount: 3_322_607,
+            promptCharacterCount: 342_395,
+            promptTokenCount: 147_694,
+            chunkIndex: 1,
+            chunkTotal: 10,
+            chunkPath: '1/10',
+          }),
+        });
+        await requestJson(statusUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            running: false,
+            requestId: 'failed-request',
+            promptCharacterCount: 342_395,
+            requestDurationMs: 91_000,
+          }),
+        });
+        await requestJson(statusUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            running: false,
+            requestId: 'failed-request',
+            terminalState: 'failed',
+            errorMessage: 'leaf chunk failed',
+            rawInputCharacterCount: 3_322_607,
+            promptCharacterCount: 342_395,
+            promptTokenCount: 147_694,
+            chunkIndex: 1,
+            chunkTotal: 10,
+            chunkPath: '1/10',
+          }),
+        });
+        await requestJson(statusUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            running: true,
+            requestId: 'next-request',
+            rawInputCharacterCount: 281_469,
+            promptCharacterCount: 283_752,
+            promptTokenCount: 99_240,
+          }),
+        });
+        await requestJson(statusUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            running: false,
+            requestId: 'next-request',
+            promptCharacterCount: 283_752,
+            outputTokens: 154,
+            requestDurationMs: 18_000,
+          }),
+        });
+        await requestJson(statusUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            running: false,
+            requestId: 'next-request',
+            terminalState: 'completed',
+            rawInputCharacterCount: 281_469,
+          }),
+        });
+      });
+
+      assert.ok(lines.some((line) => /request false raw_chars=3,322,607 prompt=342,395 \(147,694\) chunk 1\/10 failed elapsed=0s error=leaf chunk failed/u.test(line)), lines.join('\n'));
+      assert.ok(lines.some((line) => /request true raw_chars=281,469 prompt=283,752 \(99,240\)/u.test(line)), lines.join('\n'));
+      assert.ok(lines.some((line) => /request false total_elapsed=0s output_tokens=154/u.test(line)), lines.join('\n'));
+
+      const status = await requestJson(statusUrl);
+      assert.equal(status.metrics.completedRequestCount, 1);
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
+test('real status server marks a stale active request as abandoned when a new request id starts', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    await withRealStatusServer(async ({ statusUrl }) => {
+      const lines = await captureStdout(async () => {
+        await requestJson(statusUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            running: true,
+            requestId: 'stale-request',
+            rawInputCharacterCount: 3_322_607,
+            promptCharacterCount: 342_395,
+            promptTokenCount: 147_694,
+            chunkIndex: 1,
+            chunkTotal: 10,
+            chunkPath: '1/10',
+          }),
+        });
+        await requestJson(statusUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            running: false,
+            requestId: 'stale-request',
+            promptCharacterCount: 342_395,
+            requestDurationMs: 91_000,
+          }),
+        });
+        await requestJson(statusUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            running: true,
+            requestId: 'fresh-request',
+            rawInputCharacterCount: 281_469,
+            promptCharacterCount: 283_752,
+            promptTokenCount: 99_240,
+          }),
+        });
+      });
+
+      assert.ok(
+        lines.some((line) => /request false raw_chars=3,322,607 prompt=342,395 \(147,694\) chunk 1\/10 failed elapsed=0s error=Abandoned because a new request started before terminal status\./u.test(line)),
+        lines.join('\n'),
+      );
+      assert.ok(lines.some((line) => /request true raw_chars=281,469 prompt=283,752 \(99,240\)/u.test(line)), lines.join('\n'));
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
+test('real status server prints one idle metrics line only after the full idle delay', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const idleSummaryDbPath = path.join(tempRoot, 'status', 'idle-summary.sqlite');
+    const server = await startStatusServerProcess({
+      statusPath,
+      configPath,
+      idleSummaryDbPath,
+      idleSummaryDelayMs: 80,
+      disableManagedLlamaStartup: true,
+    });
+
+    try {
+      await requestJson(server.statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          running: true,
+          rawInputCharacterCount: 200,
+          promptCharacterCount: 200,
+          promptTokenCount: 100,
+          inputCharactersPerContextToken: 2,
+          chunkThresholdCharacters: 320_000,
+        }),
+      });
+      await server.waitForStdoutMatch(/request true raw_chars=200 prompt=200 \(100\)/u, 1000);
+      await requestJson(server.statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 200, inputTokens: 100, outputCharacterCount: 80, outputTokens: 25, requestDurationMs: 800 }),
+      });
+
+      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
+      const pendingStatus = await requestJson(server.statusUrl);
+      assert.equal(pendingStatus.running, true);
+      assert.equal(pendingStatus.status, 'true');
+
+      await sleep(30);
+      assert.equal(server.stdoutLines.some((line) => /idle_metrics/u.test(line)), false);
+
+      await server.waitForStdoutMatch(/requests=1/u, 1000);
+      const block = getIdleSummaryBlock(server.stdoutLines, /requests=1/u);
+      assert.match(block[0], /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} requests=1$/u);
+      assert.equal(block[1], '  input:  chars=200 tokens=100');
+      assert.equal(block[2], '  output: chars=80 tokens=25 avg_tokens_per_request=25.00');
+      assert.equal(block[3], '  saved:  tokens=75 pct=75.00% ratio=4.00x');
+      assert.equal(block[4], '  budget: chars_per_token=2.000 chunk_threshold_chars=320,000');
+      assert.equal(block[5], '  timing: total=0s avg_request=0.80s gen_tokens_per_s=31.25');
+      await waitForAsyncExpectation(async () => {
+        assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
+      }, 1000);
+      const finalStatus = await requestJson(server.statusUrl);
+      assert.equal(finalStatus.running, false);
+      assert.equal(finalStatus.status, 'false');
+
+      assert.equal(fs.existsSync(idleSummaryDbPath), true);
+      const rows = readIdleSummarySnapshots(idleSummaryDbPath);
+      assert.equal(rows.length, 1);
+      assert.match(rows[0].emitted_at_utc, /^\d{4}-\d{2}-\d{2}T/u);
+      assert.deepEqual({ ...rows[0], emitted_at_utc: '<iso>' }, {
+        emitted_at_utc: '<iso>',
+        completed_request_count: 1,
+        input_characters_total: 200,
+        output_characters_total: 80,
+        input_tokens_total: 100,
+        output_tokens_total: 25,
+        thinking_tokens_total: 0,
+        saved_tokens: 75,
+        saved_percent: 0.75,
+        compression_ratio: 4,
+        request_duration_ms_total: 800,
+        avg_request_ms: 800,
+        avg_tokens_per_second: 31.25,
+      });
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+test('real status server shuts down managed llama.cpp after the idle summary block is emitted', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const idleSummaryDbPath = path.join(tempRoot, 'status', 'idle-summary.sqlite');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    const server = await startStatusServerProcess({
+      statusPath,
+      configPath,
+      idleSummaryDbPath,
+      idleSummaryDelayMs: 80,
+    });
+
+    try {
+      await requestJson(server.configUrl);
+      await waitForAsyncExpectation(async () => {
+        const models = await requestJson(`${managed.baseUrl}/v1/models`);
+        assert.equal(models.data[0].id, 'managed-test-model');
+      }, 5000);
+
+      await requestJson(server.statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: true, rawInputCharacterCount: 50 }),
+      });
+      await requestJson(server.statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 50, inputTokens: 10, outputCharacterCount: 5, outputTokens: 1, requestDurationMs: 20 }),
+      });
+
+      await server.waitForStdoutMatch(/requests=1/u, 1000);
+      await waitForAsyncExpectation(
+        async () => assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`)),
+        5000
+      );
+      await waitForAsyncExpectation(async () => {
+        assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'false');
+      }, 5000);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+test('real status server close() stops managed llama.cpp', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const previous = {
+      SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+      SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+      sift_kit_status: process.env.sift_kit_status,
+      SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+      SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+      SIFTKIT_CONFIG_SERVICE_URL: process.env.SIFTKIT_CONFIG_SERVICE_URL,
+      SIFTKIT_STATUS_BACKEND_URL: process.env.SIFTKIT_STATUS_BACKEND_URL,
+    };
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+    process.env.SIFTKIT_STATUS_PORT = '0';
+    process.env.sift_kit_status = statusPath;
+    process.env.SIFTKIT_STATUS_PATH = statusPath;
+    process.env.SIFTKIT_CONFIG_PATH = configPath;
+
+    const server = startStatusServer();
+    try {
+      const address = await new Promise((resolve) => {
+        if (server.listening) {
+          resolve(server.address());
+          return;
+        }
+
+        server.once('listening', () => resolve(server.address()));
+      });
+      const port = typeof address === 'object' && address ? address.port : 0;
+      if (server.startupPromise) {
+        await server.startupPromise;
+      }
+      process.env.SIFTKIT_CONFIG_SERVICE_URL = `http://127.0.0.1:${port}/config`;
+      process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${port}/status`;
+
+      const loadedConfig = await loadConfig({ ensure: true });
+      assert.equal(loadedConfig.LlamaCpp.BaseUrl, managed.baseUrl);
+      await waitForAsyncExpectation(async () => {
+        const models = await requestJson(`${managed.baseUrl}/v1/models`);
+        assert.equal(models.data[0].id, 'managed-test-model');
+      }, 5000);
+    } finally {
+      await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
+
+    await waitForAsyncExpectation(
+      async () => assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`)),
+      5000
+    );
+    await waitForAsyncExpectation(async () => {
+      assert.equal(fs.existsSync(managed.pidFilePath), false);
+    }, 5000);
+  });
+});
+
+test('real status server falls back to request-start prompt chars and elapsed time when completion payload is minimal', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: true, rawInputCharacterCount: 300, promptCharacterCount: 420 }),
+      });
+      await sleep(20);
+      await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: false }),
+      });
+
+      const status = await requestJson(statusUrl);
+      assert.equal(status.metrics.inputCharactersTotal, 420);
+      assert.equal(status.metrics.outputCharactersTotal, 0);
+      assert.equal(status.metrics.inputTokensTotal, 0);
+      assert.equal(status.metrics.outputTokensTotal, 0);
+      assert.equal(status.metrics.thinkingTokensTotal, 0);
+      assert.ok(status.metrics.completedRequestCount >= 0);
+      assert.ok(status.metrics.requestDurationMsTotal >= 20);
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
+test('real status server restarts the idle countdown when a new request begins before the prior delay expires', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const idleSummaryDbPath = path.join(tempRoot, 'status', 'idle-summary.sqlite');
+    const server = await startStatusServerProcess({
+      statusPath,
+      configPath,
+      idleSummaryDbPath,
+      idleSummaryDelayMs: 80,
+      disableManagedLlamaStartup: true,
+    });
+
+    try {
+      await requestJson(server.statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          running: true,
+          rawInputCharacterCount: 100,
+          inputCharactersPerContextToken: 2,
+          chunkThresholdCharacters: 100,
+        }),
+      });
+      await requestJson(server.statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 100, inputTokens: 10, outputCharacterCount: 40, outputTokens: 5, requestDurationMs: 50 }),
+      });
+
+      await sleep(40);
+      await requestJson(server.statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          running: true,
+          rawInputCharacterCount: 50,
+          inputCharactersPerContextToken: 4,
+          chunkThresholdCharacters: 200,
+        }),
+      });
+      await sleep(60);
+      assert.equal(server.stdoutLines.some((line) => /idle_metrics/u.test(line)), false);
+
+      await requestJson(server.statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 50, inputTokens: 0, outputCharacterCount: 0, outputTokens: 0, requestDurationMs: 25 }),
+      });
+
+      await server.waitForStdoutMatch(/requests=2/u, 1000);
+      const block = getIdleSummaryBlock(server.stdoutLines, /requests=2/u);
+      assert.equal(block[1], '  input:  chars=150 tokens=10');
+      assert.equal(block[2], '  output: chars=40 tokens=5 avg_tokens_per_request=2.50');
+      assert.equal(block[3], '  saved:  tokens=5 pct=50.00% ratio=2.00x');
+      assert.equal(block[4], '  budget: chars_per_token=4.000 chunk_threshold_chars=200');
+      assert.equal(block[5], '  timing: total=0s avg_request=0.04s gen_tokens_per_s=66.67');
+      assert.equal(readIdleSummarySnapshots(idleSummaryDbPath).length, 1);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+test('real status server does not count idle delay while an execution lease remains active', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const idleSummaryDbPath = path.join(tempRoot, 'status', 'idle-summary.sqlite');
+    const server = await startStatusServerProcess({
+      statusPath,
+      configPath,
+      idleSummaryDbPath,
+      idleSummaryDelayMs: 80,
+      disableManagedLlamaStartup: true,
+    });
+
+    try {
+      const lease = await requestJson(`${server.executionUrl}/acquire`, {
+        method: 'POST',
+        body: JSON.stringify({ pid: process.pid }),
+      });
+      assert.equal(lease.acquired, true);
+
+      await requestJson(server.statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: true, rawInputCharacterCount: 10 }),
+      });
+      await requestJson(server.statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 10, inputTokens: 0, outputCharacterCount: 0, outputTokens: 0, requestDurationMs: 10 }),
+      });
+
+      await sleep(120);
+      assert.equal(server.stdoutLines.some((line) => /idle_metrics/u.test(line)), false);
+
+      await requestJson(`${server.executionUrl}/release`, {
+        method: 'POST',
+        body: JSON.stringify({ token: lease.token }),
+      });
+
+      await server.waitForStdoutMatch(/requests=1/u, 1000);
+      const block = getIdleSummaryBlock(server.stdoutLines, /requests=1/u);
+      assert.equal(block[1], '  input:  chars=10 tokens=0');
+      assert.equal(block[2], '  output: chars=0 tokens=0 avg_tokens_per_request=0.00');
+      assert.equal(block[3], '  saved:  tokens=0 pct=n/a ratio=n/a');
+      assert.equal(block[4], '  timing: total=0s avg_request=0.01s gen_tokens_per_s=n/a');
+      assert.equal(readIdleSummarySnapshots(idleSummaryDbPath).length, 1);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+test('real status server appends one sqlite snapshot for each emitted idle summary', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const idleSummaryDbPath = path.join(tempRoot, 'status', 'idle-summary.sqlite');
+    const server = await startStatusServerProcess({
+      statusPath,
+      configPath,
+      idleSummaryDbPath,
+      idleSummaryDelayMs: 60,
+      disableManagedLlamaStartup: true,
+    });
+
+    try {
+      await requestJson(server.statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: true, rawInputCharacterCount: 200 }),
+      });
+      await requestJson(server.statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 200, inputTokens: 100, outputCharacterCount: 80, outputTokens: 25, requestDurationMs: 800 }),
+      });
+      await server.waitForStdoutMatch(/requests=1/u, 1000);
+
+      await requestJson(server.statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: true, rawInputCharacterCount: 50 }),
+      });
+      await requestJson(server.statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 50, inputTokens: 20, outputCharacterCount: 30, outputTokens: 10, thinkingTokens: 7, requestDurationMs: 200 }),
+      });
+      await server.waitForStdoutMatch(/requests=2/u, 1000);
+
+      const rows = readIdleSummarySnapshots(idleSummaryDbPath);
+      assert.equal(rows.length, 2);
+      assert.equal(rows[0].completed_request_count, 1);
+      assert.equal(rows[1].completed_request_count, 2);
+      assert.equal(rows[1].input_characters_total, 250);
+      assert.equal(rows[1].input_tokens_total, 120);
+      assert.equal(rows[1].output_tokens_total, 35);
+      assert.equal(rows[1].thinking_tokens_total, 7);
+      assert.equal(rows[1].saved_tokens, 85);
+      assert.equal(rows[1].request_duration_ms_total, 1000);
+      assert.equal(rows[1].avg_request_ms, 500);
+      assert.equal(rows[1].avg_tokens_per_second, 35);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+test('real status server keeps emitting idle summaries when sqlite persistence fails', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const idleSummaryDbPath = path.join(tempRoot, 'status');
+    const server = await startStatusServerProcess({
+      statusPath,
+      configPath,
+      idleSummaryDbPath,
+      idleSummaryDelayMs: 80,
+      disableManagedLlamaStartup: true,
+    });
+
+    try {
+      await requestJson(server.statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: true, rawInputCharacterCount: 200 }),
+      });
+      await requestJson(server.statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 200, inputTokens: 100, outputCharacterCount: 80, outputTokens: 25, requestDurationMs: 800 }),
+      });
+
+      await server.waitForStdoutMatch(/requests=1/u, 1000);
+      assert.equal(server.stderrLines.some((line) => /Failed to persist idle summary snapshot/u.test(line)), true);
+    } finally {
+      await server.close();
+    }
+  });
+});
+

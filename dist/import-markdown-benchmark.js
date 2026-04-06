@@ -37,7 +37,7 @@ exports.importMarkdownBenchmark = importMarkdownBenchmark;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const node_child_process_1 = require("node:child_process");
-const config_js_1 = require("./config.js");
+const fs_js_1 = require("./lib/fs.js");
 function parseArguments(argv) {
     const parsed = {};
     for (let index = 0; index < argv.length; index += 1) {
@@ -120,7 +120,7 @@ function importMarkdownBenchmark(options) {
         const sourceCommand = stripSiftkitPipe(entry.Command);
         const fileName = `${entry.Index}_${slugify(entry.Name) || 'case'}.txt`;
         const rawOutput = runPowerShell(sourceCommand, repoRoot);
-        (0, config_js_1.saveContentAtomically)(path.join(rawDir, fileName), rawOutput);
+        (0, fs_js_1.saveContentAtomically)(path.join(rawDir, fileName), rawOutput);
         fixtures.push({
             Name: `${entry.Index}. ${entry.Name}`,
             File: path.join('raw', fileName).replace(/\\/gu, '/'),
@@ -131,8 +131,8 @@ function importMarkdownBenchmark(options) {
             AnswerKey: entry.AnswerKey,
         });
     }
-    (0, config_js_1.saveContentAtomically)(path.join(outputDir, 'fixtures.json'), `${JSON.stringify(fixtures, null, 2)}\n`);
-    (0, config_js_1.saveContentAtomically)(path.join(outputDir, 'README.md'), [
+    (0, fs_js_1.saveContentAtomically)(path.join(outputDir, 'fixtures.json'), `${JSON.stringify(fixtures, null, 2)}\n`);
+    (0, fs_js_1.saveContentAtomically)(path.join(outputDir, 'README.md'), [
         '# Imported Benchmark Fixtures',
         '',
         `Source suite: ${suiteFile}`,

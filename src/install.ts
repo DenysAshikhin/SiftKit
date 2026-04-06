@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { ensureDirectory, getConfigPath, getConfiguredLlamaBaseUrl, getConfiguredModel, initializeRuntime, loadConfig, saveContentAtomically } from './config.js';
+import { getConfigPath, getConfiguredLlamaBaseUrl, getConfiguredModel, initializeRuntime, loadConfig } from './config/index.js';
+import { ensureDirectory, saveContentAtomically } from './lib/fs.js';
 import { getLlamaCppProviderStatus, listLlamaCppModels } from './providers/llama-cpp.js';
 import { withExecutionLock } from './execution-lock.js';
 
@@ -62,7 +63,20 @@ function getCodexPolicyBlock(): string {
   ].join('\n');
 }
 
-export async function installSiftKit(force?: boolean): Promise<Record<string, unknown>> {
+export type InstallSiftKitResult = {
+  Installed: true;
+  ConfigPath: string;
+  RuntimeRoot: string;
+  LogsPath: string;
+  EvalResultsPath: string;
+  Backend: string;
+  Model: string | null;
+  LlamaCppBaseUrl: string | null;
+  LlamaCppReachable: boolean;
+  AvailableModels: string[];
+};
+
+export async function installSiftKit(force?: boolean): Promise<InstallSiftKitResult> {
   return withExecutionLock(async () => {
     void force;
     const paths = initializeRuntime();
@@ -95,7 +109,12 @@ export async function installSiftKit(force?: boolean): Promise<Record<string, un
   });
 }
 
-export async function installCodexPolicy(codexHome?: string, force?: boolean): Promise<Record<string, unknown>> {
+export type InstallCodexPolicyResult = {
+  AgentsPath: string;
+  Installed: true;
+};
+
+export async function installCodexPolicy(codexHome?: string, force?: boolean): Promise<InstallCodexPolicyResult> {
   const targetCodexHome = codexHome || path.join(process.env.USERPROFILE || '', '.codex');
   ensureDirectory(targetCodexHome);
   const agentsPath = path.join(targetCodexHome, 'AGENTS.md');
@@ -123,11 +142,22 @@ export async function installCodexPolicy(codexHome?: string, force?: boolean): P
   };
 }
 
+export type InstallShellIntegrationResult = {
+  Installed: true;
+  ModulePath: string;
+  BinDir: string;
+  PowerShellShim: string;
+  CmdShim: string;
+  ShellIntegrationScript: string;
+  PathHint: string;
+  ProfileHint: string;
+};
+
 export async function installShellIntegration(options?: {
   BinDir?: string;
   ModuleInstallRoot?: string;
   Force?: boolean;
-}): Promise<Record<string, unknown>> {
+}): Promise<InstallShellIntegrationResult> {
   const binDir = options?.BinDir || path.join(process.env.USERPROFILE || '', 'bin');
   const moduleInstallRoot = options?.ModuleInstallRoot || path.join(process.env.USERPROFILE || '', 'Documents', 'WindowsPowerShell', 'Modules');
   const moduleSource = getModuleRoot();

@@ -2,10 +2,10 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.runConfigGet = runConfigGet;
 exports.runConfigSet = runConfigSet;
-const config_js_1 = require("../config.js");
+const index_js_1 = require("../config/index.js");
 const args_js_1 = require("./args.js");
 async function runConfigGet(stdout) {
-    const config = await (0, config_js_1.loadConfig)({ ensure: true });
+    const config = await (0, index_js_1.loadConfig)({ ensure: true });
     stdout.write(`${JSON.stringify(config, null, 2)}\n`);
     return 0;
 }
@@ -14,7 +14,7 @@ async function runConfigSet(options) {
     if (!parsed.key) {
         throw new Error('A --key is required.');
     }
-    const config = await (0, config_js_1.setTopLevelConfigKey)(parsed.key, parsed.value ?? null);
+    const config = await (0, index_js_1.setTopLevelConfigKey)(parsed.key, parsed.value ?? null);
     options.stdout.write(`${JSON.stringify(config, null, 2)}\n`);
     return 0;
 }

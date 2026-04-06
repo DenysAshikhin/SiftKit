@@ -41,7 +41,7 @@ exports.summarizeRequest = summarizeRequest;
 exports.readSummaryInput = readSummaryInput;
 const fs = __importStar(require("node:fs"));
 const node_crypto_1 = require("node:crypto");
-const config_js_1 = require("./config.js");
+const index_js_1 = require("./config/index.js");
 const execution_lock_js_1 = require("./execution-lock.js");
 const errors_js_1 = require("./lib/errors.js");
 const llama_cpp_js_1 = require("./providers/llama-cpp.js");
@@ -226,20 +226,20 @@ const PLANNER_TRIGGER_CONTEXT_RATIO = 0.75;
 const PLANNER_FALLBACK_TO_CHUNKS = 'fallback_to_chunks';
 let nextLlamaCppSlotId = 0;
 function getLlamaCppPromptTokenReserve(config) {
-    const reasoning = (0, config_js_1.getConfiguredLlamaSetting)(config, 'Reasoning');
+    const reasoning = (0, index_js_1.getConfiguredLlamaSetting)(config, 'Reasoning');
     return reasoning === 'off'
         ? LLAMA_CPP_NON_THINKING_PROMPT_TOKEN_RESERVE
         : LLAMA_CPP_THINKING_PROMPT_TOKEN_RESERVE;
 }
 function allocateLlamaCppSlotId(config) {
-    const configuredSlots = (0, config_js_1.getConfiguredLlamaSetting)(config, 'ParallelSlots');
+    const configuredSlots = (0, index_js_1.getConfiguredLlamaSetting)(config, 'ParallelSlots');
     const slotCount = Math.max(1, Math.floor(Number(configuredSlots) || 1));
     const slotId = nextLlamaCppSlotId % slotCount;
     nextLlamaCppSlotId = (nextLlamaCppSlotId + 1) % slotCount;
     return slotId;
 }
 function getPlannerPromptBudget(config) {
-    const numCtxTokens = (0, config_js_1.getConfiguredLlamaNumCtx)(config);
+    const numCtxTokens = (0, index_js_1.getConfiguredLlamaNumCtx)(config);
     const promptReserveTokens = getLlamaCppPromptTokenReserve(config);
     const usablePromptBudgetTokens = Math.max(numCtxTokens - promptReserveTokens, 0);
     const plannerHeadroomTokens = Math.max(Math.ceil(usablePromptBudgetTokens * PLANNER_HEADROOM_RATIO), MIN_PLANNER_HEADROOM_TOKENS);
@@ -252,14 +252,14 @@ function getPlannerPromptBudget(config) {
     };
 }
 function estimatePromptTokenCount(config, text) {
-    return Math.max(1, Math.ceil(text.length / Math.max((0, config_js_1.getEffectiveInputCharactersPerContextToken)(config), 0.1)));
+    return Math.max(1, Math.ceil(text.length / Math.max((0, index_js_1.getEffectiveInputCharactersPerContextToken)(config), 0.1)));
 }
 function getLlamaCppChunkThresholdCharacters(config) {
-    const reserveChars = Math.ceil(getLlamaCppPromptTokenReserve(config) * (0, config_js_1.getEffectiveInputCharactersPerContextToken)(config));
-    return Math.max((0, config_js_1.getChunkThresholdCharacters)(config) - reserveChars, 1);
+    const reserveChars = Math.ceil(getLlamaCppPromptTokenReserve(config) * (0, index_js_1.getEffectiveInputCharactersPerContextToken)(config));
+    return Math.max((0, index_js_1.getChunkThresholdCharacters)(config) - reserveChars, 1);
 }
 function getPlannerActivationThresholdCharacters(config) {
-    return Math.max(1, Math.floor((0, config_js_1.getConfiguredLlamaNumCtx)(config) * (0, config_js_1.getEffectiveInputCharactersPerContextToken)(config) * PLANNER_TRIGGER_CONTEXT_RATIO));
+    return Math.max(1, Math.floor((0, index_js_1.getConfiguredLlamaNumCtx)(config) * (0, index_js_1.getEffectiveInputCharactersPerContextToken)(config) * PLANNER_TRIGGER_CONTEXT_RATIO));
 }
 function getTokenAwareChunkThreshold(options) {
     if (options.inputLength <= 1
@@ -286,7 +286,7 @@ async function invokeProviderSummary(options) {
     const chunkLabel = options.chunkPath ?? (options.chunkIndex !== null && options.chunkTotal !== null ? `${options.chunkIndex}/${options.chunkTotal}` : 'none');
     (0, artifacts_js_1.traceSummary)(`notify running=true phase=${options.phase} chunk=${chunkLabel} raw_chars=${options.rawInputCharacterCount} `
         + `chunk_chars=${options.chunkInputCharacterCount} prompt_chars=${options.promptCharacterCount}`);
-    await (0, config_js_1.notifyStatusBackend)({
+    await (0, index_js_1.notifyStatusBackend)({
         running: true,
         requestId: options.requestId,
         promptCharacterCount: options.promptCharacterCount,
@@ -355,7 +355,7 @@ async function invokeProviderSummary(options) {
     finally {
         const countOutputTokensAsThinking = options.phase === 'leaf' && options.chunkPath !== null;
         (0, artifacts_js_1.traceSummary)(`notify running=false phase=${options.phase} chunk=${chunkLabel} duration_ms=${Date.now() - startedAt}`);
-        await (0, config_js_1.notifyStatusBackend)({
+        await (0, index_js_1.notifyStatusBackend)({
             running: false,
             requestId: options.requestId,
             promptCharacterCount: options.promptCharacterCount,
@@ -374,7 +374,7 @@ async function invokeProviderSummary(options) {
 async function invokePlannerProviderAction(options) {
     (0, artifacts_js_1.traceSummary)(`notify running=true phase=planner chunk=none raw_chars=${options.rawInputCharacterCount} `
         + `chunk_chars=${options.chunkInputCharacterCount} prompt_chars=${options.promptText.length}`);
-    await (0, config_js_1.notifyStatusBackend)({
+    await (0, index_js_1.notifyStatusBackend)({
         running: true,
         requestId: options.requestId,
         promptCharacterCount: options.promptText.length,
@@ -428,7 +428,7 @@ async function invokePlannerProviderAction(options) {
     }
     catch (error) {
         (0, artifacts_js_1.traceSummary)(`notify running=false phase=planner chunk=none duration_ms=${Date.now() - startedAt}`);
-        await (0, config_js_1.notifyStatusBackend)({
+        await (0, index_js_1.notifyStatusBackend)({
             running: false,
             requestId: options.requestId,
             promptCharacterCount: options.promptText.length,
@@ -663,7 +663,7 @@ async function invokePlannerMode(options) {
         }
         finally {
             (0, artifacts_js_1.traceSummary)(`notify running=false phase=planner chunk=none duration_ms=${providerResponse.requestDurationMs}`);
-            await (0, config_js_1.notifyStatusBackend)({
+            await (0, index_js_1.notifyStatusBackend)({
                 running: false,
                 requestId: options.requestId,
                 promptCharacterCount: prompt.length,
@@ -690,7 +690,7 @@ async function invokeSummaryCore(options) {
     const phase = options.phase ?? 'leaf';
     const chunkThreshold = Math.max(1, Math.floor(options.chunkThresholdOverride ?? (options.backend === 'llama.cpp'
         ? getLlamaCppChunkThresholdCharacters(options.config)
-        : (0, config_js_1.getChunkThresholdCharacters)(options.config))));
+        : (0, index_js_1.getChunkThresholdCharacters)(options.config))));
     const llamaPromptBudget = options.backend === 'llama.cpp'
         ? getPlannerPromptBudget(options.config)
         : null;
@@ -966,15 +966,15 @@ async function summarizeRequest(request) {
         let model = request.model || 'unknown';
         try {
             (0, artifacts_js_1.traceSummary)('loadConfig start');
-            config = await (0, config_js_1.loadConfig)({ ensure: true });
+            config = await (0, index_js_1.loadConfig)({ ensure: true });
             (0, artifacts_js_1.traceSummary)('loadConfig done');
-            (0, config_js_1.getConfiguredLlamaBaseUrl)(config);
-            (0, config_js_1.getConfiguredLlamaNumCtx)(config);
+            (0, index_js_1.getConfiguredLlamaBaseUrl)(config);
+            (0, index_js_1.getConfiguredLlamaNumCtx)(config);
             backend = request.backend || config.Backend;
-            model = request.model || (0, config_js_1.getConfiguredModel)(config);
+            model = request.model || (0, index_js_1.getConfiguredModel)(config);
             const riskLevel = request.policyProfile === 'risky-operation' ? 'risky' : 'informational';
             const sourceKind = request.sourceKind || 'standalone';
-            const maxInputCharacters = (0, config_js_1.getChunkThresholdCharacters)(config) * 4;
+            const maxInputCharacters = (0, index_js_1.getChunkThresholdCharacters)(config) * 4;
             if (backend !== 'llama.cpp' && inputText.length > maxInputCharacters) {
                 throw new Error(`Error: recieved input of ${inputText.length} characters, current maximum is ${maxInputCharacters} chars`);
             }
@@ -1025,7 +1025,7 @@ async function summarizeRequest(request) {
             const slotId = backend === 'llama.cpp' ? allocateLlamaCppSlotId(config) : null;
             const effectivePromptPrefix = request.promptPrefix !== undefined
                 ? request.promptPrefix
-                : (0, config_js_1.getConfiguredPromptPrefix)(config);
+                : (0, index_js_1.getConfiguredPromptPrefix)(config);
             (0, artifacts_js_1.traceSummary)('invokeSummaryCore start');
             const modelDecision = await invokeSummaryCore({
                 requestId,
@@ -1047,7 +1047,7 @@ async function summarizeRequest(request) {
             });
             (0, artifacts_js_1.traceSummary)(`invokeSummaryCore done classification=${modelDecision.classification}`);
             try {
-                await (0, config_js_1.notifyStatusBackend)({
+                await (0, index_js_1.notifyStatusBackend)({
                     running: false,
                     requestId,
                     terminalState: 'completed',
@@ -1096,7 +1096,7 @@ async function summarizeRequest(request) {
             const failureContext = (0, artifacts_js_1.getSummaryFailureContext)(error);
             if (config !== null) {
                 try {
-                    await (0, config_js_1.notifyStatusBackend)({
+                    await (0, index_js_1.notifyStatusBackend)({
                         running: false,
                         requestId,
                         terminalState: 'failed',

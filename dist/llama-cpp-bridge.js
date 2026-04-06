@@ -34,7 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 const fs = __importStar(require("node:fs"));
-const config_js_1 = require("./config.js");
+const index_js_1 = require("./config/index.js");
 const llama_cpp_js_1 = require("./providers/llama-cpp.js");
 function parseArgs(argv) {
     const parsed = new Map();
@@ -112,7 +112,7 @@ async function main() {
     };
     const response = await (0, llama_cpp_js_1.generateLlamaCppResponse)({
         config,
-        model: (0, config_js_1.getConfiguredModel)(config),
+        model: (0, index_js_1.getConfiguredModel)(config),
         prompt,
         timeoutSeconds: Number(getRequiredArg(args, 'timeout-seconds')),
     });

@@ -1,4 +1,4 @@
-import { getStatusBackendUrl } from '../config.js';
+import { getStatusBackendUrl } from '../config/index.js';
 import { requestJson } from '../lib/http.js';
 import { getCommandArgs, parseArguments } from './args.js';
 

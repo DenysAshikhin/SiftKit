@@ -1,4 +1,4 @@
-import { ensureStatusServerReachable } from '../config.js';
+import { ensureStatusServerReachable } from '../config/index.js';
 import {
   BLOCKED_PUBLIC_COMMANDS,
   getCommandArgs,

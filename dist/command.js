@@ -2,7 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.analyzeCommandOutput = analyzeCommandOutput;
 exports.runCommand = runCommand;
-const config_js_1 = require("./config.js");
+const index_js_1 = require("./config/index.js");
+const fs_js_1 = require("./lib/fs.js");
 const summary_js_1 = require("./summary.js");
 const execution_lock_js_1 = require("./execution-lock.js");
 const artifacts_js_1 = require("./capture/artifacts.js");
@@ -95,13 +96,13 @@ function reduceText(text, reducerProfile) {
     }
 }
 async function analyzeCommandOutput(request) {
-    const config = await (0, config_js_1.loadConfig)({ ensure: true });
+    const config = await (0, index_js_1.loadConfig)({ ensure: true });
     const backend = request.Backend || config.Backend;
-    const model = request.Model || (0, config_js_1.getConfiguredModel)(config);
-    const paths = (0, config_js_1.initializeRuntime)();
+    const model = request.Model || (0, index_js_1.getConfiguredModel)(config);
+    const paths = (0, index_js_1.initializeRuntime)();
     const combinedText = request.CombinedText || '';
     const rawLogPath = (0, artifacts_js_1.newArtifactPath)(paths.Logs, 'command_raw', 'log');
-    (0, config_js_1.saveContentAtomically)(rawLogPath, combinedText);
+    (0, fs_js_1.saveContentAtomically)(rawLogPath, combinedText);
     const question = request.Question || 'Summarize the main result and any actionable failures.';
     const riskLevel = request.RiskLevel || 'informational';
     const reducerProfile = request.ReducerProfile || 'smart';
@@ -116,7 +117,7 @@ async function analyzeCommandOutput(request) {
     let reducedLogPath = null;
     if (reducedText !== combinedText) {
         reducedLogPath = (0, artifacts_js_1.newArtifactPath)(paths.Logs, 'command_reduced', 'log');
-        (0, config_js_1.saveContentAtomically)(reducedLogPath, reducedText);
+        (0, fs_js_1.saveContentAtomically)(reducedLogPath, reducedText);
     }
     if (request.NoSummarize || !decision.ShouldSummarize) {
         return {

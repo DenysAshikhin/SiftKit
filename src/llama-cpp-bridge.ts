@@ -1,5 +1,5 @@
 import * as fs from 'node:fs';
-import { getConfiguredModel, type SiftConfig } from './config.js';
+import { getConfiguredModel, type SiftConfig } from './config/index.js';
 import { generateLlamaCppResponse } from './providers/llama-cpp.js';
 
 type ArgMap = Map<string, string>;

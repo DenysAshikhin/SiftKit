@@ -46,7 +46,7 @@ exports.appendTestProviderEvent = appendTestProviderEvent;
 exports.clearSummaryArtifactState = clearSummaryArtifactState;
 exports.traceSummary = traceSummary;
 const fs = __importStar(require("node:fs"));
-const config_js_1 = require("../config.js");
+const index_js_1 = require("../config/index.js");
 const paths_js_1 = require("../config/paths.js");
 const json_filter_js_1 = require("./planner/json-filter.js");
 // ---------- failure context ---------- //
@@ -107,7 +107,7 @@ function createPlannerDebugRecorder(options) {
 }
 // ---------- artifact posting via status backend ---------- //
 async function postSummaryArtifact(options) {
-    await (0, config_js_1.notifyStatusBackend)({
+    await (0, index_js_1.notifyStatusBackend)({
         running: false,
         requestId: options.requestId,
         artifactType: options.artifactType,

@@ -37,7 +37,8 @@ exports.runBenchmarkSuite = runBenchmarkSuite;
 exports.main = main;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
-const config_js_1 = require("../config.js");
+const index_js_1 = require("../config/index.js");
+const fs_js_1 = require("../lib/fs.js");
 const summary_js_1 = require("../summary.js");
 const time_js_1 = require("../lib/time.js");
 const args_js_1 = require("./args.js");
@@ -49,9 +50,9 @@ async function runBenchmarkSuite(options = {}) {
     const fixtureRoot = path.resolve(options.fixtureRoot || path.join((0, args_js_1.getRepoRoot)(), 'eval', 'fixtures'));
     const outputPath = path.resolve(options.outputPath || (0, args_js_1.getDefaultOutputPath)(fixtureRoot));
     const manifest = (0, fixtures_js_1.getFixtureManifest)(fixtureRoot);
-    const config = await (0, config_js_1.loadConfig)({ ensure: true });
+    const config = await (0, index_js_1.loadConfig)({ ensure: true });
     const backend = options.backend || config.Backend;
-    const model = options.model || (0, config_js_1.getConfiguredModel)(config);
+    const model = options.model || (0, index_js_1.getConfiguredModel)(config);
     const promptPrefix = (0, args_js_1.resolvePromptPrefix)(options);
     const requestTimeoutSeconds = (0, args_js_1.getValidatedRequestTimeoutSeconds)(options);
     const startedAt = new Date();
@@ -135,7 +136,7 @@ async function runBenchmarkSuite(options = {}) {
         startedAtHr,
         fatalError,
     });
-    (0, config_js_1.saveContentAtomically)(outputPath, JSON.stringify(artifact, null, 2));
+    (0, fs_js_1.saveContentAtomically)(outputPath, JSON.stringify(artifact, null, 2));
     if (fatalException !== null) {
         throw new types_js_1.FatalBenchmarkError(fatalError ?? (fatalException instanceof Error ? fatalException.message : String(fatalException)));
     }

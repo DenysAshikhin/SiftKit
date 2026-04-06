@@ -37,7 +37,7 @@ exports.executeRepoSearchRequest = executeRepoSearchRequest;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const node_crypto_1 = require("node:crypto");
-const config_js_1 = require("../config.js");
+const index_js_1 = require("../config/index.js");
 const logging_js_1 = require("./logging.js");
 const scorecard_js_1 = require("./scorecard.js");
 async function executeRepoSearchRequest(request) {
@@ -50,7 +50,7 @@ async function executeRepoSearchRequest(request) {
     const requestId = (0, node_crypto_1.randomUUID)();
     (0, logging_js_1.traceRepoSearch)(`execute start request_id=${requestId} prompt_chars=${prompt.length}`);
     try {
-        await (0, config_js_1.notifyStatusBackend)({
+        await (0, index_js_1.notifyStatusBackend)({
             running: true,
             statusBackendUrl: request.statusBackendUrl,
             requestId,
@@ -68,7 +68,7 @@ async function executeRepoSearchRequest(request) {
         ? path.resolve(request.logFile)
         : path.join(folders.root, `request_${requestId}.jsonl`);
     const logger = (0, logging_js_1.createJsonLogger)(tempTranscriptPath);
-    const module = require('../../scripts/mock-repo-search-loop.js');
+    const module = require('../scripts/mock-repo-search-loop.js');
     try {
         const progressCallback = request.onProgress;
         const scorecard = await module.runMockRepoSearch({
@@ -114,7 +114,7 @@ async function executeRepoSearchRequest(request) {
         const promptCacheTokens = (0, scorecard_js_1.getNumericTotal)(scorecard, 'promptCacheTokens');
         const promptEvalTokens = (0, scorecard_js_1.getNumericTotal)(scorecard, 'promptEvalTokens');
         try {
-            await (0, config_js_1.notifyStatusBackend)({
+            await (0, index_js_1.notifyStatusBackend)({
                 running: false,
                 statusBackendUrl: request.statusBackendUrl,
                 requestId,
@@ -156,7 +156,7 @@ async function executeRepoSearchRequest(request) {
         };
         fs.writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
         try {
-            await (0, config_js_1.notifyStatusBackend)({
+            await (0, index_js_1.notifyStatusBackend)({
                 running: false,
                 statusBackendUrl: request.statusBackendUrl,
                 requestId,

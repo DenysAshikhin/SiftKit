@@ -1,0 +1,34 @@
+import Database from 'better-sqlite3';
+import { type ColorOptions } from './formatting.js';
+type Dict = Record<string, unknown>;
+type DatabaseInstance = InstanceType<typeof Database>;
+export type IdleSummarySnapshot = {
+    emittedAtUtc: string;
+    inputTokensTotal: number;
+    outputTokensTotal: number;
+    thinkingTokensTotal: number;
+    promptCacheTokensTotal: number;
+    promptEvalTokensTotal: number;
+    inputCharactersTotal: number;
+    outputCharactersTotal: number;
+    requestDurationMsTotal: number;
+    completedRequestCount: number;
+    savedTokens: number;
+    savedPercent: number;
+    compressionRatio: number;
+    avgOutputTokensPerRequest: number;
+    avgRequestMs: number;
+    avgTokensPerSecond: number;
+    inputCharactersPerContextToken: number | null;
+    chunkThresholdCharacters: number | null;
+};
+export type IdleSummarySnapshotRow = IdleSummarySnapshot & {
+    summaryText: string;
+};
+export declare function buildIdleSummarySnapshot(metrics: Dict, emittedAt?: Date): IdleSummarySnapshot;
+export declare function buildIdleSummarySnapshotMessage(snapshot: IdleSummarySnapshot, colorOptions?: ColorOptions): string;
+export declare function buildIdleMetricsLogMessage(metrics: Dict, colorOptions?: ColorOptions): string;
+export declare function ensureIdleSummarySnapshotsTable(database: DatabaseInstance): void;
+export declare function persistIdleSummarySnapshot(database: DatabaseInstance, snapshot: IdleSummarySnapshot): void;
+export declare function normalizeIdleSummarySnapshotRowNumber(value: unknown): number | null;
+export {};

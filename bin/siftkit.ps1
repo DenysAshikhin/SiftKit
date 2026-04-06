@@ -32,10 +32,10 @@ function Get-SiftTsCliPath {
     }
 
     $candidatePaths = @(
-        (Join-Path -Path (Split-Path -Path $module.ModuleBase -Parent) -ChildPath 'dist\cli.js'),
-        (Join-Path -Path $module.ModuleBase -ChildPath 'dist\cli.js'),
-        (Join-Path -Path (Split-Path -Path $module.ModuleBase -Parent) -ChildPath 'dist\src\cli.js'),
-        (Join-Path -Path $module.ModuleBase -ChildPath 'dist\src\cli.js')
+        (Join-Path -Path (Split-Path -Path $module.ModuleBase -Parent) -ChildPath 'dist\cli\index.js'),
+        (Join-Path -Path $module.ModuleBase -ChildPath 'dist\cli\index.js'),
+        (Join-Path -Path (Split-Path -Path $module.ModuleBase -Parent) -ChildPath 'dist\cli\dispatch.js'),
+        (Join-Path -Path $module.ModuleBase -ChildPath 'dist\cli\dispatch.js')
     )
 
     foreach ($candidate in $candidatePaths) {

@@ -1,4 +1,5 @@
-import { getConfiguredModel, initializeRuntime, loadConfig, saveContentAtomically } from './config.js';
+import { getConfiguredModel, initializeRuntime, loadConfig } from './config/index.js';
+import { saveContentAtomically } from './lib/fs.js';
 import { getDeterministicExcerpt, getSummaryDecision, summarizeRequest, type SummaryClassification } from './summary.js';
 import { withExecutionLock } from './execution-lock.js';
 import { newArtifactPath } from './capture/artifacts.js';

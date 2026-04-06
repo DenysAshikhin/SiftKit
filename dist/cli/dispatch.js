@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.runCli = runCli;
-const config_js_1 = require("../config.js");
+const index_js_1 = require("../config/index.js");
 const args_js_1 = require("./args.js");
 const help_js_1 = require("./help.js");
 const run_capture_js_1 = require("./run-capture.js");
@@ -36,7 +36,7 @@ async function runCli(options) {
             return await (0, run_repo_search_js_1.runRepoSearchCli)({ argv: options.argv, stdout });
         }
         if (args_js_1.SERVER_DEPENDENT_COMMANDS.has(commandName)) {
-            await (0, config_js_1.ensureStatusServerReachable)();
+            await (0, index_js_1.ensureStatusServerReachable)();
         }
         switch (commandName) {
             case 'summary':

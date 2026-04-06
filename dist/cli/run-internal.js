@@ -35,13 +35,13 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.runInternal = runInternal;
 const fs = __importStar(require("node:fs"));
-const config_js_1 = require("../config.js");
+const index_js_1 = require("../config/index.js");
 const command_js_1 = require("../command.js");
 const eval_js_1 = require("../eval.js");
 const find_files_js_1 = require("../find-files.js");
 const install_js_1 = require("../install.js");
 const interactive_js_1 = require("../interactive.js");
-const repo_search_js_1 = require("../repo-search.js");
+const index_js_2 = require("../repo-search/index.js");
 const summary_js_1 = require("../summary.js");
 const args_js_1 = require("./args.js");
 const run_test_js_1 = require("./run-test.js");
@@ -59,7 +59,7 @@ async function runInternal(options) {
         throw new Error('A --request-file is required.');
     }
     if (args_js_1.SERVER_DEPENDENT_INTERNAL_OPS.has(parsed.op)) {
-        await (0, config_js_1.ensureStatusServerReachable)();
+        await (0, index_js_1.ensureStatusServerReachable)();
     }
     const request = readRequestFile(parsed.requestFile);
     let result;
@@ -71,10 +71,10 @@ async function runInternal(options) {
             result = await (0, run_test_js_1.buildTestResult)();
             break;
         case 'config-get':
-            result = await (0, config_js_1.loadConfig)({ ensure: true });
+            result = await (0, index_js_1.loadConfig)({ ensure: true });
             break;
         case 'config-set':
-            result = await (0, config_js_1.setTopLevelConfigKey)(String(request.Key), request.Value);
+            result = await (0, index_js_1.setTopLevelConfigKey)(String(request.Key), request.Value);
             break;
         case 'summary': {
             const text = request.TextFile ? fs.readFileSync(String(request.TextFile), 'utf8') : String(request.Text || '');
@@ -151,7 +151,7 @@ async function runInternal(options) {
             });
             break;
         case 'repo-search':
-            result = await (0, repo_search_js_1.executeRepoSearchRequest)({
+            result = await (0, index_js_2.executeRepoSearchRequest)({
                 prompt: String(request.Prompt || ''),
                 repoRoot: String(request.RepoRoot || process.cwd()),
                 model: request.Model ? String(request.Model) : undefined,
