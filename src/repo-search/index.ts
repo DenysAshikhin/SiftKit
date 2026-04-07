@@ -16,7 +16,6 @@ export {
   evaluateCommandSafety,
   normalizePlannerCommand,
   buildIgnorePolicy,
-  extractIgnoreNameFromGitignoreLine,
   type IgnorePolicy,
   type NormalizedCommand,
   type SafetyResult,

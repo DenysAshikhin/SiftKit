@@ -1,84 +1,42 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-
 // ---------------------------------------------------------------------------
-// Ignore policy — built from .gitignore + baseline names
+// Ignore policy — hardcoded common dependency/build directories
 // ---------------------------------------------------------------------------
 
-const BASELINE_IGNORED_NAMES = ['.git', 'node_modules', '.node_modules'];
+const BASELINE_IGNORED_NAMES = [
+  // Version control
+  '.git',
+  // JavaScript / Node
+  'node_modules', '.node_modules', '.npm-cache', '.npm', '.pnpm-store', '.yarn',
+  // Python
+  '__pycache__', '.venv', 'venv', '.env', '.tox', '.pytest_cache', '.mypy_cache',
+  // Ruby
+  '.bundle', 'vendor',
+  // Java / Kotlin / Scala
+  'target',
+  // Rust
+  // (also 'target', already included above)
+  // Go
+  'pkg',
+  // Build outputs
+  'dist', 'build', 'out', 'coverage', '.cache',
+  // Misc tooling
+  'bower_components', '.parcel-cache', '.next', '.nuxt', '.svelte-kit',
+];
 
 export type IgnorePolicy = {
   names: string[];
   namesLower: Set<string>;
 };
 
-export function extractIgnoreNameFromGitignoreLine(line: string): string {
-  const trimmed = String(line || '').trim();
-  if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('!')) {
-    return '';
-  }
-
-  const normalized = trimmed
-    .replace(/\\/gu, '/')
-    .replace(/^\/+/u, '')
-    .replace(/\/+$/u, '');
-
-  if (!normalized || /[*?\[\]]/u.test(normalized)) {
-    return '';
-  }
-
-  const segments = normalized.split('/').filter(Boolean);
-  // Only extract top-level, whole-directory entries (e.g. "node_modules/",
-  // "dist/").  Nested paths like "apps/dashboard/public/tiles/" must NOT
-  // collapse to their first segment — that would exclude the entire parent
-  // directory from every search.
-  if (segments.length > 1) {
-    return '';
-  }
-
-  const firstSegment = segments[0] || '';
-  if (!firstSegment || firstSegment === '.' || firstSegment === '..') {
-    return '';
-  }
-
-  return firstSegment;
-}
-
-export function buildIgnorePolicy(repoRoot: string): IgnorePolicy {
-  if (!repoRoot) {
-    return { names: [], namesLower: new Set() };
-  }
-
+export function buildIgnorePolicy(_repoRoot: string): IgnorePolicy {
   const names: string[] = [];
   const seen = new Set<string>();
-  const addName = (value: string): void => {
-    const token = String(value || '').trim();
-    if (!token) return;
-    const key = token.toLowerCase();
-    if (seen.has(key)) return;
+
+  for (const name of BASELINE_IGNORED_NAMES) {
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
     seen.add(key);
-    names.push(token);
-  };
-
-  for (const baseline of BASELINE_IGNORED_NAMES) {
-    addName(baseline);
-  }
-
-  if (repoRoot) {
-    const gitignorePath = path.join(repoRoot, '.gitignore');
-    try {
-      if (fs.existsSync(gitignorePath)) {
-        const lines = fs.readFileSync(gitignorePath, 'utf8').split(/\r?\n/gu);
-        for (const line of lines) {
-          const name = extractIgnoreNameFromGitignoreLine(line);
-          if (name) {
-            addName(name);
-          }
-        }
-      }
-    } catch {
-      // Ignore policy is best-effort.
-    }
+    names.push(name);
   }
 
   return {
@@ -501,6 +459,13 @@ export function normalizePlannerCommand(
         wasRewritten = true;
         notes.push('added -F for Windows path literal pattern');
       }
+    }
+
+    // Bypass rg's own .gitignore/.ignore handling — we control exclusions via explicit globs
+    if (!/(?:^|\s)--no-ignore(?:\s|$)/iu.test(current)) {
+      current = `${current} --no-ignore`;
+      notes.push('added --no-ignore so rg searches gitignored paths');
+      wasRewritten = true;
     }
 
     // Append ignore policy globs
