@@ -11,7 +11,6 @@
     "start:dashboard": "npm --prefix .\\dashboard run dev",
     "build": "tsc -p .\\tsconfig.json && tsc -p .\\tsconfig.scripts.json && npm --prefix .\\dashboard run build",
     "benchmark": "tsx .\\src\\benchmark\\index.ts",
-    "benchmark:fixture31": "tsx .\\scripts\\run-benchmark-fixture31.ts",
     "benchmark:matrix": "tsx .\\src\\benchmark-matrix\\index.ts",
     "benchmark:import-md": "tsx .\\src\\import-markdown-benchmark.ts",
     "test": "npm run build && npx tsx --test .\\tests\\runtime-loadconfig.test.ts .\\tests\\runtime-summarize.test.ts .\\tests\\runtime-planner-token-aware.test.ts .\\tests\\runtime-planner-mode.test.ts .\\tests\\runtime-provider-llama.test.ts .\\tests\\runtime-status-server.test.ts .\\tests\\runtime-execution-lease.test.ts .\\tests\\runtime-metrics-aggregation.test.ts .\\tests\\runtime-cli.test.ts .\\tests\\runtime-benchmark.test.ts .\\tests\\cli-help.test.ts .\\tests\\cli-command-surface.test.ts .\\tests\\repo-search-cli.test.ts .\\tests\\status-server-shutdown.test.ts .\\tests\\mock-repo-search-loop.test.ts .\\tests\\repo-search-status-server.test.ts .\\tests\\dashboard-status-server.test.ts .\\tests\\find-files.test.ts .\\tests\\command.test.ts .\\tests\\cli-internal.test.ts .\\tests\\execution-lock.test.ts .\\tests\\repo-search.test.ts .\\tests\\eval.test.ts .\\tests\\install.test.ts .\\tests\\interactive.test.ts .\\tests\\config.test.ts .\\tests\\llama-cpp.test.ts .\\tests\\benchmark-matrix.test.ts",
