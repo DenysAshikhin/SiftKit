@@ -203,7 +203,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
   fs.writeFileSync(
     path.join(repoSearchFailedRoot, 'request_req-repo.jsonl'),
     [
-      JSON.stringify({ at: '2026-04-01T10:15:01.000Z', kind: 'turn_prompt', prompt: 'find failing test' }),
+      JSON.stringify({ at: '2026-04-01T10:15:01.000Z', kind: 'turn_new_messages', turn: 1, messages: [{ role: 'user', content: 'find failing test' }], promptTokenCount: 10 }),
       JSON.stringify({ at: '2026-04-01T10:15:02.000Z', kind: 'turn_model_response', text: '{"action":"finish"}', thinkingText: 'reasoning' }),
       JSON.stringify({ at: '2026-04-01T10:15:03.000Z', kind: 'run_done', scorecard: { verdict: 'fail' } }),
     ].join('\n') + '\n',

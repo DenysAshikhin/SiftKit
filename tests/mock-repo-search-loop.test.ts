@@ -642,11 +642,13 @@ test('runTaskLoop prompt omits visible tool-call budget counters', async () => {
     }
   );
 
-  const prompts = events.filter((event) => event.kind === 'turn_prompt').map((event) => String(event.prompt || ''));
-  assert.equal(prompts.length >= 3, true);
-  assert.doesNotMatch(prompts[0], /Tool-call budget remaining:/u);
-  assert.doesNotMatch(prompts[1], /Tool-call budget remaining:/u);
-  assert.doesNotMatch(prompts[2], /Tool-call budget remaining:/u);
+  const turnNewMessagesEvents = events.filter((event) => event.kind === 'turn_new_messages');
+  assert.equal(turnNewMessagesEvents.length >= 3, true);
+  const allMessageContent = turnNewMessagesEvents
+    .flatMap((event) => Array.isArray(event.messages) ? event.messages as Array<{ content?: unknown }> : [])
+    .map((m) => String(m.content || ''))
+    .join('\n');
+  assert.doesNotMatch(allMessageContent, /Tool-call budget remaining:/u);
   assert.equal(result.reason, 'finish');
 });
 
@@ -672,7 +674,8 @@ test('runTaskLoop prompt includes anti-loop and larger single-file read guidance
     }
   );
 
-  const prompt = events.find((event) => event.kind === 'turn_prompt')?.prompt || '';
+  const systemMessage = (events.find((event) => event.kind === 'turn_new_messages' && event.turn === 1)?.messages as Array<{ role?: string; content?: unknown }> | undefined)?.find((m) => m.role === 'system')?.content || '';
+  const prompt = String(systemMessage);
   assert.match(prompt, /Single-file read strategy:/u);
   assert.match(prompt, /Start with `rg -n` to find anchors/u);
   assert.match(prompt, /read a larger section in one call/u);
@@ -704,7 +707,8 @@ test('runTaskLoop prompt examples use larger reads and anchor-first flow', async
     }
   );
 
-  const prompt = events.find((event) => event.kind === 'turn_prompt')?.prompt || '';
+  const systemMessage2 = (events.find((event) => event.kind === 'turn_new_messages' && event.turn === 1)?.messages as Array<{ role?: string; content?: unknown }> | undefined)?.find((m) => m.role === 'system')?.content || '';
+  const prompt = String(systemMessage2);
   assert.doesNotMatch(prompt, /Get-Content src\\\\summary\.ts \| Select-Object -First 80/u);
   assert.match(prompt, /Get-Content src\\\\summary\.ts \| Select-Object -First 240/u);
   assert.match(prompt, /rg -n \\"invokePlannerMode\\" src\\\\summary\.ts/u);
@@ -734,8 +738,8 @@ test('runTaskLoop prompt states ignored paths are auto-filtered by runtime polic
     }
   );
 
-  const prompt = events.find((event) => event.kind === 'turn_prompt')?.prompt || '';
-  assert.match(prompt, /Ignored paths from `.gitignore` are auto-filtered by runtime policy/u);
+  const systemMessage3 = (events.find((event) => event.kind === 'turn_new_messages' && event.turn === 1)?.messages as Array<{ role?: string; content?: unknown }> | undefined)?.find((m) => m.role === 'system')?.content || '';
+  assert.match(String(systemMessage3), /Ignored paths from `.gitignore` are auto-filtered by runtime policy/u);
   assert.equal(result.reason, 'finish');
 });
 
@@ -1264,8 +1268,11 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
   const compactionEvents = events.filter((event) => event.kind === 'turn_preflight_compaction_applied');
   assert.equal(compactionEvents.length >= 1, true);
   assert.equal(compactionEvents[0].droppedMessageCount > 0, true);
-  const promptEvents = events.filter((event) => event.kind === 'turn_prompt');
-  assert.equal(promptEvents.some((event) => String(event.prompt || '').includes('[COMPRESSED HISTORICAL EVIDENCE]')), true);
+  const newMessagesEvents = events.filter((event) => event.kind === 'turn_new_messages');
+  const allCompactedContent = newMessagesEvents
+    .flatMap((event) => Array.isArray(event.messages) ? event.messages as Array<{ content?: unknown }> : [])
+    .map((m) => String(m.content || ''));
+  assert.equal(allCompactedContent.some((c) => c.includes('[COMPRESSED HISTORICAL EVIDENCE]')), true);
   assert.equal(result.reason, 'finish');
   assert.equal(result.finalOutput, 'done');
 });
@@ -1400,10 +1407,13 @@ test('runTaskLoop follows up once after non-thinking finish and then accepts thi
     'Are you sure you have enough evidence and did not get tunnel-visioned?'
   );
 
-  const secondPrompt = events
-    .filter((event) => event.kind === 'turn_prompt')
-    .map((event) => String(event.prompt || ''))[1];
-  assert.match(secondPrompt, /Are you sure you have enough evidence and did not get tunnel-visioned\?/u);
+  const followupContent = events
+    .filter((event) => event.kind === 'turn_new_messages')
+    .flatMap((event) => Array.isArray(event.messages) ? event.messages as Array<{ role?: string; content?: unknown }> : [])
+    .filter((m) => m.role === 'user')
+    .map((m) => String(m.content || ''))
+    .find((c) => c.includes('Are you sure')) || '';
+  assert.match(followupContent, /Are you sure you have enough evidence and did not get tunnel-visioned\?/u);
   assert.equal(result.reason, 'finish');
   assert.equal(result.finalOutput, 'done');
 });

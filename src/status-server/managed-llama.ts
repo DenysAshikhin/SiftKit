@@ -112,10 +112,39 @@ export function resolveManagedScriptPath(scriptPath: string | null, configPath: 
     : path.resolve(path.dirname(configPath), scriptPath);
 }
 
+const MANAGED_LLAMA_LOG_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 1 week
+
+function pruneOldManagedLlamaLogs(logsDir: string): void {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(logsDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  const cutoff = Date.now() - MANAGED_LLAMA_LOG_MAX_AGE_MS;
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    // Directory names start with an ISO timestamp with colons replaced by dashes:
+    // e.g. "2026-04-01T18-08-30-348Z-abc12345-startup"
+    const tsMatch = /^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d+Z)/u.exec(entry.name);
+    if (!tsMatch) continue;
+    const isoString = tsMatch[1].replace(/T(\d{2})-(\d{2})-(\d{2})-(\d+)Z$/u, 'T$1:$2:$3.$4Z');
+    const createdAt = Date.parse(isoString);
+    if (!Number.isFinite(createdAt) || createdAt >= cutoff) continue;
+    try {
+      fs.rmSync(path.join(logsDir, entry.name), { recursive: true, force: true });
+    } catch {
+      // Best-effort — ignore failures on individual directories.
+    }
+  }
+}
+
 export function createManagedLlamaLogPaths(purpose: string): ManagedLlamaLogPaths {
   const timestamp = new Date().toISOString().replace(/[:.]/gu, '-');
   const suffix = crypto.randomUUID().slice(0, 8);
-  const directory = path.join(getRuntimeRoot(), 'logs', 'managed-llama', `${timestamp}-${suffix}-${purpose}`);
+  const logsDir = path.join(getRuntimeRoot(), 'logs', 'managed-llama');
+  pruneOldManagedLlamaLogs(logsDir);
+  const directory = path.join(logsDir, `${timestamp}-${suffix}-${purpose}`);
   ensureDirectory(directory);
   return {
     directory,
@@ -124,7 +153,7 @@ export function createManagedLlamaLogPaths(purpose: string): ManagedLlamaLogPath
     llamaStdoutPath: path.join(directory, 'llama.stdout.log'),
     llamaStderrPath: path.join(directory, 'llama.stderr.log'),
     startupDumpPath: path.join(directory, 'startup-review.log'),
-    latestStartupDumpPath: path.join(getRuntimeRoot(), 'logs', 'managed-llama', 'latest-startup.log'),
+    latestStartupDumpPath: path.join(logsDir, 'latest-startup.log'),
     failureDumpPath: path.join(directory, 'startup-scan-failure.log'),
   };
 }

@@ -266,6 +266,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   let forcedFinishAttemptsRemaining = 0;
   let previousPlannerThinkingEnabled: boolean | null = null;
   let nonThinkingFinishFollowupUsed = false;
+  let lastLoggedMessageCount = 0;
   const slotId = options.config ? allocateLlamaCppSlotId(options.config) : 0;
   const ignorePolicy = buildIgnorePolicy(options.repoRoot);
   const bootstrapFileList = scanRepoFiles(options.repoRoot, ignorePolicy) || undefined;
@@ -305,6 +306,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         messages, config: options.config, maxPromptBudget: preflight.maxPromptBudget,
       });
       messages.splice(0, messages.length, ...compacted.messages);
+      lastLoggedMessageCount = 0;
       prompt = renderTaskTranscript(messages);
       const afterCompaction = await preflightPlannerPromptBudget({
         config: options.config, prompt, totalContextTokens, thinkingBufferTokens, requestMaxTokens,
@@ -337,7 +339,9 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
 
     options.logger?.write({ kind: 'turn_model_request', taskId: task.id, turn, thinkingEnabled: plannerThinkingEnabled });
-    options.logger?.write({ kind: 'turn_prompt', taskId: task.id, turn, prompt });
+    const newMessages = messages.slice(lastLoggedMessageCount);
+    lastLoggedMessageCount = messages.length;
+    options.logger?.write({ kind: 'turn_new_messages', taskId: task.id, turn, messages: newMessages, promptTokenCount: preflight.promptTokenCount });
 
     const switchedThinkingMode = previousPlannerThinkingEnabled !== null && previousPlannerThinkingEnabled !== plannerThinkingEnabled;
     const maxProviderAttempts = switchedThinkingMode ? 2 : 1;
