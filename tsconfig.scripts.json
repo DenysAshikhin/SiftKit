@@ -6,5 +6,8 @@
   },
   "include": [
     "scripts/**/*.ts"
+  ],
+  "exclude": [
+    "scripts/delete-logs.ts"
   ]
 }

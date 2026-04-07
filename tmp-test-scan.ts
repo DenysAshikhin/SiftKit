@@ -1,0 +1,12 @@
+import * as fs from 'node:fs';
+import { scanRepoFiles } from './src/repo-search/prompts.js';
+import { buildIgnorePolicy } from './src/repo-search/command-safety.js';
+const repoRoot = 'C:/Users/denys/Documents/GitHub/osrs_test';
+const policy = buildIgnorePolicy(repoRoot);
+const result = scanRepoFiles(repoRoot, policy);
+const lines = result.split('\n');
+const summaryIdx = lines.indexOf('--- Non-code file summary ---');
+const codeLines = summaryIdx !== -1 ? summaryIdx : lines.length;
+const header = `Code files: ${codeLines}\nTotal lines: ${lines.length}\n\n`;
+fs.writeFileSync('tmp-scan-output.txt', header + result, 'utf8');
+console.log(`${header}Written to tmp-scan-output.txt`);

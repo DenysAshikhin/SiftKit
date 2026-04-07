@@ -9,68 +9,70 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
+import { getRuntimeRoot } from '../src/config/paths.js';
 
 // ---------------------------------------------------------------------------
-// Resolve .siftkit/logs path
+// Recursive file walker
 // ---------------------------------------------------------------------------
 
-function getSiftKitLogsPath(): string {
-  const repoRoot = path.resolve(import.meta.dirname ?? __dirname, '..');
-  const repoLocal = path.join(repoRoot, '.siftkit', 'logs');
-  if (fs.existsSync(repoLocal)) {
-    return repoLocal;
-  }
-  const userProfile = process.env.USERPROFILE?.trim();
-  if (userProfile) {
-    const userLocal = path.join(userProfile, '.siftkit', 'logs');
-    if (fs.existsSync(userLocal)) {
-      return userLocal;
-    }
-  }
-  // Fall back to repo-local even if it doesn't exist yet
-  return repoLocal;
-}
-
-// ---------------------------------------------------------------------------
-// File/directory enumeration
-// ---------------------------------------------------------------------------
-
-function collectEntries(dir: string): string[] {
+function walkFiles(dir: string): string[] {
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
   } catch {
     return [];
   }
-  const paths: string[] = [];
+  const files: string[] = [];
   for (const entry of entries) {
-    paths.push(path.join(dir, entry.name));
+    const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      for (const nested of collectEntries(path.join(dir, entry.name))) {
-        paths.push(nested);
+      for (const nested of walkFiles(full)) {
+        files.push(nested);
       }
+    } else if (entry.isFile()) {
+      files.push(full);
     }
   }
-  return paths;
+  return files;
 }
 
 // ---------------------------------------------------------------------------
-// Deletion helpers
+// Remove empty directories (bottom-up)
 // ---------------------------------------------------------------------------
 
-function deleteEntry(entryPath: string): boolean {
+function pruneEmptyDirs(dir: string, root: string): number {
+  let removed = 0;
+  let entries: fs.Dirent[];
   try {
-    fs.rmSync(entryPath, { recursive: true, force: true });
-    return true;
+    entries = fs.readdirSync(dir, { withFileTypes: true });
   } catch {
-    return false;
+    return 0;
   }
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      removed += pruneEmptyDirs(path.join(dir, entry.name), root);
+    }
+  }
+  // Re-check after children may have been removed
+  if (dir !== root) {
+    try {
+      const remaining = fs.readdirSync(dir);
+      if (remaining.length === 0) {
+        fs.rmdirSync(dir);
+        removed += 1;
+      }
+    } catch { /* ignore */ }
+  }
+  return removed;
 }
 
-function isOlderThan(entryPath: string, thresholdMs: number): boolean {
+// ---------------------------------------------------------------------------
+// Age check
+// ---------------------------------------------------------------------------
+
+function isOlderThan(filePath: string, thresholdMs: number): boolean {
   try {
-    const stat = fs.statSync(entryPath);
+    const stat = fs.statSync(filePath);
     return stat.mtimeMs < thresholdMs;
   } catch {
     return false;
@@ -91,68 +93,38 @@ if (!deleteAll && (!Number.isFinite(days) || days < 0)) {
   process.exit(1);
 }
 
-const logsPath = getSiftKitLogsPath();
+const logsPath = path.join(getRuntimeRoot(), 'logs');
 
 if (!fs.existsSync(logsPath)) {
   process.stdout.write(`[delete-logs] Logs directory does not exist: ${logsPath}\n`);
   process.exit(0);
 }
 
-const thresholdMs = deleteAll ? Date.now() + 1 : Date.now() - days * 24 * 60 * 60 * 1000;
+const thresholdMs = deleteAll ? 0 : Date.now() - days * 24 * 60 * 60 * 1000;
 const label = deleteAll ? 'all logs' : `logs older than ${days} day${days === 1 ? '' : 's'}`;
 
 process.stdout.write(`[delete-logs] Scanning ${logsPath} (${label})\n`);
 
-// Collect top-level entries inside logs/ (each is either a file or a session directory)
-let topEntries: fs.Dirent[];
-try {
-  topEntries = fs.readdirSync(logsPath, { withFileTypes: true });
-} catch (error) {
-  process.stderr.write(`[delete-logs] Failed to read logs directory: ${(error as Error).message}\n`);
-  process.exit(1);
-}
-
+const allFiles = walkFiles(logsPath);
 let deletedFiles = 0;
-let deletedDirs = 0;
 let skipped = 0;
 
-for (const entry of topEntries) {
-  const entryPath = path.join(logsPath, entry.name);
-
-  if (entry.isDirectory()) {
-    // For subdirectories (requests, failed, abandoned, repo_search, managed-llama),
-    // recurse into them and delete individual items that are old enough.
-    let subEntries: fs.Dirent[];
-    try {
-      subEntries = fs.readdirSync(entryPath, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const sub of subEntries) {
-      const subPath = path.join(entryPath, sub.name);
-      if (!isOlderThan(subPath, thresholdMs)) {
-        skipped += 1;
-        continue;
-      }
-      if (deleteEntry(subPath)) {
-        if (sub.isDirectory()) {
-          deletedDirs += 1;
-        } else {
-          deletedFiles += 1;
-        }
-      }
-    }
-  } else if (entry.isFile()) {
-    if (!isOlderThan(entryPath, thresholdMs)) {
-      skipped += 1;
-      continue;
-    }
-    if (deleteEntry(entryPath)) {
-      deletedFiles += 1;
-    }
+for (const filePath of allFiles) {
+  if (!deleteAll && !isOlderThan(filePath, thresholdMs)) {
+    skipped += 1;
+    continue;
+  }
+  try {
+    fs.unlinkSync(filePath);
+    deletedFiles += 1;
+  } catch {
+    // File may be locked by a running process — skip silently
+    skipped += 1;
   }
 }
 
+const prunedDirs = pruneEmptyDirs(logsPath, logsPath);
+
 process.stdout.write(
-  `[delete-logs] Done. Deleted ${deletedFiles} file(s), ${deletedDirs} director${deletedDirs === 1 ? 'y' : 'ies'}. Skipped ${skipped} recent item(s).\n`
+  `[delete-logs] Done. Deleted ${deletedFiles} file(s), removed ${prunedDirs} empty director${prunedDirs === 1 ? 'y' : 'ies'}. Skipped ${skipped} item(s).\n`
 );

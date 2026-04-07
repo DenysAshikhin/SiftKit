@@ -8,13 +8,48 @@ import type { IgnorePolicy } from './command-safety.js';
 
 const SCAN_MAX_FILES = 3000;
 
-export function scanRepoFiles(repoRoot: string, ignorePolicy: IgnorePolicy): string {
-  const results: string[] = [];
+const NON_CODE_EXTENSIONS = new Set([
+  // Images
+  '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.svg', '.webp', '.tiff', '.tif',
+  // Fonts
+  '.woff', '.woff2', '.ttf', '.eot', '.otf',
+  // Audio / Video
+  '.mp3', '.mp4', '.wav', '.ogg', '.webm', '.avi', '.mov', '.flv',
+  // Archives / binaries
+  '.zip', '.tar', '.gz', '.bz2', '.xz', '.7z', '.rar',
+  '.bin', '.exe', '.dll', '.so', '.dylib', '.o', '.a',
+  '.jar', '.war', '.ear', '.class',
+  '.wasm',
+  // Data / model files
+  '.dat', '.db', '.sqlite', '.sqlite3',
+  '.parquet', '.arrow', '.feather',
+  '.onnx', '.pb', '.pt', '.pth', '.safetensors', '.gguf',
+  // Documents / misc
+  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+  '.pom',
+  // Logs
+  '.log',
+  // Map / tile data
+  '.pbf', '.mbtiles',
+]);
 
+function getExtension(fileName: string): string {
+  const dot = fileName.lastIndexOf('.');
+  return dot > 0 ? fileName.slice(dot).toLowerCase() : '';
+}
+
+type ScanResult = {
+  codeFiles: string[];
+  nonCodeCounts: Map<string, Map<string, number>>; // dir -> ext -> count
+};
+
+function scanRepoFilesRaw(repoRoot: string, ignorePolicy: IgnorePolicy): ScanResult {
+  const codeFiles: string[] = [];
+  const nonCodeCounts = new Map<string, Map<string, number>>();
   const ignoredPaths = ignorePolicy.paths ?? [];
 
   function walk(dir: string, relBase: string): void {
-    if (results.length >= SCAN_MAX_FILES) return;
+    if (codeFiles.length >= SCAN_MAX_FILES) return;
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -22,20 +57,133 @@ export function scanRepoFiles(repoRoot: string, ignorePolicy: IgnorePolicy): str
       return;
     }
     for (const entry of entries) {
-      if (results.length >= SCAN_MAX_FILES) return;
+      if (codeFiles.length >= SCAN_MAX_FILES) return;
       if (ignorePolicy.namesLower.has(entry.name.toLowerCase())) continue;
       const relPath = relBase ? `${relBase}/${entry.name}` : entry.name;
       if (ignoredPaths.some((p) => relPath === p || relPath.startsWith(`${p}/`))) continue;
       if (entry.isDirectory()) {
         walk(path.join(dir, entry.name), relPath);
       } else if (entry.isFile()) {
-        results.push(relPath);
+        const ext = getExtension(entry.name);
+        if (ext && NON_CODE_EXTENSIONS.has(ext)) {
+          const dirKey = relBase || '.';
+          let dirCounts = nonCodeCounts.get(dirKey);
+          if (!dirCounts) {
+            dirCounts = new Map<string, number>();
+            nonCodeCounts.set(dirKey, dirCounts);
+          }
+          dirCounts.set(ext, (dirCounts.get(ext) ?? 0) + 1);
+        } else {
+          codeFiles.push(relPath);
+        }
       }
     }
   }
 
   walk(repoRoot, '');
-  return results.sort().join('\n');
+  return { codeFiles, nonCodeCounts };
+}
+
+/**
+ * Collapse per-leaf-directory counts up to a summary depth.
+ * Directories that individually contain many files stay as-is,
+ * but many sibling directories each holding 1–2 files get merged
+ * under their shared parent (up to depth 3).
+ */
+function formatNonCodeSummaries(nonCodeCounts: Map<string, Map<string, number>>): string[] {
+  // First: aggregate all leaf counts up to depth-3 prefixes
+  const SUMMARY_DEPTH = 3;
+  const aggregated = new Map<string, Map<string, number>>();
+
+  for (const [dir, extCounts] of nonCodeCounts) {
+    const parts = dir.split('/');
+    const prefix = parts.length > SUMMARY_DEPTH
+      ? parts.slice(0, SUMMARY_DEPTH).join('/')
+      : dir;
+    let agg = aggregated.get(prefix);
+    if (!agg) {
+      agg = new Map<string, number>();
+      aggregated.set(prefix, agg);
+    }
+    for (const [ext, count] of extCounts) {
+      agg.set(ext, (agg.get(ext) ?? 0) + count);
+    }
+  }
+
+  const lines: string[] = [];
+  const sortedDirs = [...aggregated.keys()].sort();
+  for (const dir of sortedDirs) {
+    const extCounts = aggregated.get(dir)!;
+    const parts: string[] = [];
+    const sortedExts = [...extCounts.entries()].sort((a, b) => b[1] - a[1]);
+    for (const [ext, count] of sortedExts) {
+      parts.push(`${count} ${ext}`);
+    }
+    lines.push(`${dir}/ [${parts.join(', ')}]`);
+  }
+  return lines;
+}
+
+const REPEATED_NAME_THRESHOLD = 25;
+
+/**
+ * Detect filenames repeated 25+ times across different directories.
+ * Replace them with a single example path + count, keeping unique files as-is.
+ */
+function collapseRepeatedNames(files: string[]): string[] {
+  // Count occurrences of each basename
+  const nameEntries = new Map<string, string[]>();
+  for (const file of files) {
+    const name = file.slice(file.lastIndexOf('/') + 1);
+    let entries = nameEntries.get(name);
+    if (!entries) {
+      entries = [];
+      nameEntries.set(name, entries);
+    }
+    entries.push(file);
+  }
+
+  // Identify names that exceed the threshold
+  const collapsedNames = new Map<string, string[]>();
+  for (const [name, entries] of nameEntries) {
+    if (entries.length >= REPEATED_NAME_THRESHOLD) {
+      collapsedNames.set(name, entries);
+    }
+  }
+
+  if (collapsedNames.size === 0) return files;
+
+  // Build result: keep non-collapsed files, add summary lines at the end
+  const collapsedSet = new Set<string>();
+  for (const entries of collapsedNames.values()) {
+    for (const entry of entries) {
+      collapsedSet.add(entry);
+    }
+  }
+
+  const kept = files.filter((f) => !collapsedSet.has(f));
+  const summaries: string[] = [];
+  for (const [name, entries] of [...collapsedNames.entries()].sort((a, b) => b[1].length - a[1].length)) {
+    // Find the common prefix path among all entries
+    const dirs = entries.map((e) => e.slice(0, e.lastIndexOf('/')));
+    let common = dirs[0] ?? '';
+    for (let i = 1; i < dirs.length; i += 1) {
+      while (common && !dirs[i].startsWith(common)) {
+        common = common.slice(0, common.lastIndexOf('/'));
+      }
+    }
+    const example = entries[0];
+    summaries.push(`${common ? common + '/' : ''}.../${name} (e.g. ${example}) [repeated ${entries.length} times]`);
+  }
+
+  return [...kept, ...summaries];
+}
+
+export function scanRepoFiles(repoRoot: string, ignorePolicy: IgnorePolicy): string {
+  const { codeFiles, nonCodeCounts } = scanRepoFilesRaw(repoRoot, ignorePolicy);
+  const collapsed = collapseRepeatedNames(codeFiles.sort());
+  const summaryLines = formatNonCodeSummaries(nonCodeCounts);
+  return [...collapsed, ...summaryLines.length > 0 ? ['', '--- Non-code file summary ---', ...summaryLines] : []].join('\n');
 }
 
 // ---------------------------------------------------------------------------

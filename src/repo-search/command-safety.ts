@@ -4,7 +4,7 @@
 
 const BASELINE_IGNORED_NAMES = [
   // Version control
-  '.git',
+  '.git', '.claude',
   // JavaScript / Node
   'node_modules', '.node_modules', '.npm-cache', '.npm', '.pnpm-store', '.yarn',
   // Python
@@ -21,6 +21,8 @@ const BASELINE_IGNORED_NAMES = [
   'dist', 'build', 'out', 'coverage', '.cache',
   // Misc tooling
   'bower_components', '.parcel-cache', '.next', '.nuxt', '.svelte-kit',
+  // Gradle
+  '.gradle', '.gradle-user-home-local', '.gradle-user-home', '.gradle-native', '.gradle-native-test',
   // Project-specific
   'thinking_bench',
 ];
