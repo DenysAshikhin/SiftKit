@@ -555,6 +555,25 @@ function InteractiveGraph({ title, series, height = 180 }: InteractiveGraphProps
   );
 }
 
+/** Extract the `output` value from a streaming finish-action JSON string in real time. */
+function extractFinishOutput(raw: string): string {
+  const marker = /"output"\s*:\s*"/;
+  const match = marker.exec(raw);
+  if (!match) return raw;
+  const start = match.index + match[0].length;
+  let content = raw.slice(start);
+  if (content.endsWith('"}') || content.endsWith('"\n}')) {
+    content = content.slice(0, content.lastIndexOf('"'));
+  } else if (content.includes('","confidence"')) {
+    content = content.slice(0, content.indexOf('","confidence"'));
+  }
+  return content
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\');
+}
+
 export function App() {
   const params = readSearchParams();
   const [tab, setTab] = useState<TabKey>((params.get('tab') as TabKey) || 'runs');
@@ -1684,12 +1703,12 @@ export function App() {
                         </ul>
                       </section>
                     )}
-                    {(chatMode === 'chat' || (chatMode === 'plan' && answerDraft) || chatMode === 'repo-search') && (
+                    {(chatMode === 'chat' || chatMode === 'repo-search') && (
                       <section className="live-box answer">
-                        <h3>{chatMode === 'plan' ? 'Plan Progress' : chatMode === 'repo-search' ? 'Search Thinking' : 'Answer'}</h3>
+                        <h3>{chatMode === 'repo-search' ? 'Search Thinking' : 'Answer'}</h3>
                         <div className="markdown-body">
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {answerDraft || '...'}
+                            {chatMode === 'repo-search' ? extractFinishOutput(answerDraft) || '...' : answerDraft || '...'}
                           </ReactMarkdown>
                         </div>
                       </section>
