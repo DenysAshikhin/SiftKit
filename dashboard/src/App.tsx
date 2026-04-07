@@ -1684,9 +1684,9 @@ export function App() {
                         </ul>
                       </section>
                     )}
-                    {(chatMode === 'chat' || ((chatMode === 'plan' || chatMode === 'repo-search') && answerDraft)) && (
+                    {(chatMode === 'chat' || (chatMode === 'plan' && answerDraft) || chatMode === 'repo-search') && (
                       <section className="live-box answer">
-                        <h3>{chatMode === 'plan' ? 'Plan Progress' : chatMode === 'repo-search' ? 'Search Progress' : 'Answer'}</h3>
+                        <h3>{chatMode === 'plan' ? 'Plan Progress' : chatMode === 'repo-search' ? 'Search Thinking' : 'Answer'}</h3>
                         <div className="markdown-body">
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>
                             {answerDraft || '...'}

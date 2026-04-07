@@ -17,7 +17,6 @@ import {
   normalizePlannerCommand,
 } from './command-safety.js';
 import {
-  buildRepoSearchAssistantToolMessage,
   isTransientProviderError,
   parsePlannerAction,
   renderTaskTranscript,
@@ -61,7 +60,7 @@ const PER_TOOL_RESULT_RATIO = 0.10;
 const DEFAULT_REPO_SEARCH_REQUEST_MAX_TOKENS = 2048;
 const ZERO_OUTPUT_FORCE_THRESHOLD = 10;
 const FORCED_FINISH_MAX_ATTEMPTS = 3;
-const NON_THINKING_FINISH_FOLLOWUP_PROMPT = 'Are you sure you have enough evidence and did not get tunnel-visioned?';
+const NON_THINKING_FINISH_FOLLOWUP_PROMPT = 'Are you sure you have enough evidence and did not get tunnel-visioned? When you finish, include 3-5 key code snippets (10-30 lines each, copy-pasted from the repo with file:line references) that most strongly support your answer.';
 const ANSI_RED_CODE = 31;
 
 // ---------------------------------------------------------------------------
@@ -363,6 +362,9 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
           onThinkingDelta: options.onProgress
             ? (accThinking) => { options.onProgress!({ kind: 'thinking', turn, maxTurns, thinkingText: accThinking }); }
             : undefined,
+          onContentDelta: options.onProgress
+            ? (accContent) => { options.onProgress!({ kind: 'thinking', turn, maxTurns, thinkingText: accContent }); }
+            : undefined,
           mockResponses: options.mockResponses,
           mockResponseIndex,
           logger: options.logger || null,
@@ -382,9 +384,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
 
     if (!response) throw new Error('No response received from planner.');
 
-    if (response.thinkingText && options.onProgress) {
-      options.onProgress({ kind: 'thinking', turn, maxTurns, thinkingText: response.thinkingText });
-    }
     previousPlannerThinkingEnabled = plannerThinkingEnabled;
     if (typeof response.nextMockResponseIndex === 'number') {
       mockResponseIndex = response.nextMockResponseIndex;
@@ -421,6 +420,11 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       continue;
     }
 
+    // Emit native thinking text (from reasoning_content) to UI
+    if (response.thinkingText && options.onProgress) {
+      options.onProgress({ kind: 'thinking', turn, maxTurns, thinkingText: response.thinkingText });
+    }
+
     if (action.action === 'finish') {
       if (commands.length < minToolCallsBeforeFinish) {
         const warning = 'that was a shallow search, there might be more hidden references/usages. Dive deeper';
@@ -441,20 +445,22 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       }
       options.logger?.write({ kind: 'turn_finish_validation_skipped', taskId: task.id, turn, reason: 'planner_already_thinking' });
       finalOutput = action.output;
+      if (options.onProgress) {
+        options.onProgress({ kind: 'thinking', turn, maxTurns, thinkingText: finalOutput });
+      }
       reason = 'finish';
       break;
     }
 
     // Tool action
     const command = action.args.command;
-    const toolCallId = `call_${commands.length + 1}`;
 
     if (attemptedCommands.has(command)) {
       const duplicateReason = 'Exact command was already executed';
       commandFailures += 1;
       commands.push({ command, safe: false, reason: duplicateReason, exitCode: null, output: `Rejected command: ${duplicateReason}` });
-      messages.push(buildRepoSearchAssistantToolMessage(command, toolCallId));
-      messages.push({ role: 'tool', tool_call_id: toolCallId, content: `Rejected command: ${duplicateReason}` });
+      messages.push({ role: 'assistant', content: response.text });
+      messages.push({ role: 'user', content: `Rejected command: ${duplicateReason}` });
       history.push({ command, resultText: `Rejected command: ${duplicateReason}` });
       continue;
     }
@@ -465,8 +471,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       const forcedReason = `Forced finish mode active. Return a finish action now. Attempts remaining: ${forcedFinishAttemptsRemaining}.`;
       commandFailures += 1;
       commands.push({ command, safe: false, reason: forcedReason, exitCode: null, output: `Rejected command: ${forcedReason}` });
-      messages.push(buildRepoSearchAssistantToolMessage(command, toolCallId));
-      messages.push({ role: 'tool', tool_call_id: toolCallId, content: `Rejected command: ${forcedReason}` });
+      messages.push({ role: 'assistant', content: response.text });
+      messages.push({ role: 'user', content: `Rejected command: ${forcedReason}` });
       history.push({ command, resultText: `Rejected command: ${forcedReason}` });
       if (forcedFinishAttemptsRemaining === 0) { reason = 'forced_finish_attempt_limit'; break; }
       continue;
@@ -477,8 +483,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       safetyRejects += 1;
       const rejection = `Rejected command: ${normalized.rejectedReason}`;
       commands.push({ command, safe: false, reason: normalized.rejectedReason || null, exitCode: null, output: rejection });
-      messages.push(buildRepoSearchAssistantToolMessage(command, toolCallId));
-      messages.push({ role: 'tool', tool_call_id: toolCallId, content: rejection });
+      messages.push({ role: 'assistant', content: response.text });
+      messages.push({ role: 'user', content: rejection });
       history.push({ command, resultText: rejection });
       continue;
     }
@@ -491,8 +497,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       safetyRejects += 1;
       const rejection = `Rejected command: ${safety.reason}`;
       commands.push({ command: commandToRun, safe: false, reason: safety.reason, exitCode: null, output: rejection });
-      messages.push(buildRepoSearchAssistantToolMessage(commandToRun, toolCallId));
-      messages.push({ role: 'tool', tool_call_id: toolCallId, content: rejection });
+      messages.push({ role: 'assistant', content: response.text });
+      messages.push({ role: 'user', content: rejection });
       history.push({ command: commandToRun, resultText: rejection });
       continue;
     }
@@ -573,8 +579,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     });
 
     commands.push({ command: commandToRun, safe: true, reason: null, exitCode: executed.exitCode, output: outputWithRewriteNote });
-    messages.push(buildRepoSearchAssistantToolMessage(commandToRun, toolCallId));
-    messages.push({ role: 'tool', tool_call_id: toolCallId, content: resultText });
+    messages.push({ role: 'assistant', content: response.text });
+    messages.push({ role: 'user', content: resultText });
     history.push({ command: commandToRun, resultText });
   }
 

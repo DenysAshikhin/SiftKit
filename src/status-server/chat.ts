@@ -679,25 +679,6 @@ export function buildRepoSearchMarkdown(userPrompt: string, repoRoot: string, re
   const modelOutput = typeof primaryTask?.finalOutput === 'string' && (primaryTask.finalOutput as string).trim()
     ? (primaryTask.finalOutput as string).trim()
     : 'No repo-search output was produced.';
-  const commandEvidence: Array<{ command: string; output: string }> = [];
-  for (const task of tasks) {
-    if (!task || typeof task !== 'object' || !Array.isArray(task.commands)) {
-      continue;
-    }
-    for (const command of task.commands as Dict[]) {
-      if (!command || typeof command !== 'object') {
-        continue;
-      }
-      const commandText = typeof command.command === 'string' ? (command.command as string).trim() : '';
-      const outputText = truncatePlanEvidence(command.output);
-      if (!commandText || !outputText) {
-        continue;
-      }
-      commandEvidence.push({ command: commandText, output: outputText });
-      if (commandEvidence.length >= 10) { break; }
-    }
-    if (commandEvidence.length >= 10) { break; }
-  }
   const lines = [
     '# Repo Search Results',
     '',
@@ -710,19 +691,8 @@ export function buildRepoSearchMarkdown(userPrompt: string, repoRoot: string, re
     '## Output',
     modelOutput,
     '',
-    '## Commands Executed',
+    '## Artifacts',
   ];
-  if (commandEvidence.length === 0) {
-    lines.push('- No commands were executed.');
-  } else {
-    for (const entry of commandEvidence) {
-      lines.push(`- \`${entry.command}\``);
-      lines.push('```text');
-      lines.push(entry.output);
-      lines.push('```');
-    }
-  }
-  lines.push('', '## Artifacts');
   lines.push(`- Transcript: \`${String(result?.transcriptPath || '')}\``);
   lines.push(`- Artifact: \`${String(result?.artifactPath || '')}\``);
   return lines.join('\n');

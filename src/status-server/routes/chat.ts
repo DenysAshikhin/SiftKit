@@ -555,20 +555,17 @@ export async function handleChatRoute(
         mockResponses: Array.isArray(parsedBody.mockResponses) ? (parsedBody.mockResponses as unknown[]).map((v) => String(v)) : undefined,
         mockCommandResults: (parsedBody.mockCommandResults && typeof parsedBody.mockCommandResults === 'object' && !Array.isArray(parsedBody.mockCommandResults)) ? parsedBody.mockCommandResults : undefined,
         onProgress(event: RepoSearchProgressEvent) {
-          if (event.kind === 'tool_start') {
+          if (event.kind === 'thinking') {
+            writeSse('answer', { answer: event.thinkingText || '' });
+          } else if (event.kind === 'tool_start') {
             const logMessage = buildRepoSearchProgressLogMessage(event, 'repo_search');
             if (logMessage) logLine(logMessage);
-          }
-          if (event.kind === 'thinking') {
-            writeSse('thinking', { thinking: event.thinkingText || '' });
-          } else if (event.kind === 'tool_start') {
             writeSse('tool_start', {
               turn: event.turn,
               maxTurns: event.maxTurns,
               command: event.command,
               promptTokenCount: Number.isFinite(event.promptTokenCount) ? Number(event.promptTokenCount) : null,
             });
-            writeSse('answer', { answer: `Search step ${event.turn}/${event.maxTurns}: running \`${event.command}\`...` });
           } else if (event.kind === 'tool_result') {
             writeSse('tool_result', {
               turn: event.turn,
@@ -578,7 +575,6 @@ export async function handleChatRoute(
               outputSnippet: event.outputSnippet,
               promptTokenCount: Number.isFinite(event.promptTokenCount) ? Number(event.promptTokenCount) : null,
             });
-            writeSse('answer', { answer: `Search step ${event.turn}/${event.maxTurns}: \`${event.command}\` finished (exit ${event.exitCode ?? '?'})` });
           }
         },
       });

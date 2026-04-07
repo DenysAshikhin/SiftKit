@@ -106,6 +106,7 @@ export function buildTaskSystemPrompt(repoRoot: string): string {
     'Allowed tool action: {"action":"tool","tool_name":"run_repo_cmd","args":{"command":"..."}}',
     'Finish action format: {"action":"finish","output":"...","confidence":0.0-1.0}',
     '',
+    '',
     'Rules:',
     '- Use only read-only commands.',
     '- This is a Windows machine so stick to PowerShell-valid commands only.',

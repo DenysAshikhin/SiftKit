@@ -63,9 +63,27 @@ function extractChoiceContent(choice: Record<string, unknown>): {
   thinkingText: string;
 } {
   const message = choice?.message as Record<string, unknown> | undefined;
-  const text = normalizeProviderText(message?.content) || normalizeProviderText(choice?.text) || '';
-  const thinkingText = normalizeProviderText(message?.reasoning_content) || normalizeProviderText(choice?.reasoning_content) || '';
-  return { text, thinkingText };
+  const rawText = normalizeProviderText(message?.content) || normalizeProviderText(choice?.text) || '';
+  const reasoningContent = normalizeProviderText(message?.reasoning_content) || normalizeProviderText(choice?.reasoning_content) || '';
+  // If no dedicated reasoning_content, try to extract <think>...</think> from the text
+  if (!reasoningContent && rawText.includes('<think>')) {
+    const { thinkingText, text } = extractInlineThinking(rawText);
+    return { text, thinkingText };
+  }
+  return { text: rawText, thinkingText: reasoningContent };
+}
+
+/** Extract <think>...</think> blocks from inline content and return cleaned text. */
+function extractInlineThinking(raw: string): { thinkingText: string; text: string } {
+  const thinkPattern = /<think>([\s\S]*?)<\/think>/gu;
+  const thinkingParts: string[] = [];
+  let match;
+  thinkPattern.lastIndex = 0;
+  while ((match = thinkPattern.exec(raw)) !== null) {
+    thinkingParts.push(match[1]);
+  }
+  const text = raw.replace(/<think>[\s\S]*?<\/think>/gu, '').trim();
+  return { thinkingText: thinkingParts.join('\n').trim(), text };
 }
 
 // ---------------------------------------------------------------------------
@@ -236,6 +254,8 @@ export type PlannerRequestOptions = {
   stream?: boolean;
   /** Called with accumulated thinking text on each streaming delta. */
   onThinkingDelta?: (accumulatedThinking: string) => void;
+  /** Called with accumulated content text on each streaming delta. */
+  onContentDelta?: (accumulatedContent: string) => void;
   /** Mock response array for testing — bypasses the network entirely. */
   mockResponses?: string[];
   mockResponseIndex?: number;
@@ -269,13 +289,10 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
     temperature: 0.1,
     top_p: 0.95,
     max_tokens: options.requestMaxTokens,
-    tools: TOOL_DEFINITIONS,
-    chat_template_kwargs: { enable_thinking: options.thinkingEnabled !== false },
-    extra_body: {
-      ...(grammar ? { grammar } : {}),
-      ...(options.thinkingEnabled === false ? { reasoning_budget: 0 } : {}),
-      ...options.extraBody,
-    },
+    ...(!grammar ? { tools: TOOL_DEFINITIONS } : {}),
+    chat_template_kwargs: { enable_thinking: !grammar && Boolean(options.thinkingEnabled) },
+    ...(grammar ? { grammar } : {}),
+    ...options.extraBody,
     ...(options.stream ? { stream: true } : {}),
   };
   const bodyJson = JSON.stringify(bodyObj);
@@ -317,12 +334,14 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
   }
 
   const firstChoice = (response.body?.choices?.[0] || {}) as Record<string, unknown>;
-  const { text, thinkingText } = extractChoiceContent(firstChoice);
+  const { text: rawChoiceText, thinkingText } = extractChoiceContent(firstChoice);
   const synthesized = actionFromToolCall(firstChoice);
   const promptUsage = getPromptUsageFromResponseBody(response.body);
+  // Prefer raw content text (may include reasoning field); fall back to synthesized tool-call action
+  const text = rawChoiceText || synthesized || '';
 
   return {
-    text: (text || synthesized || '').trim(),
+    text: (text || '').trim(),
     thinkingText,
     mockExhausted: false,
     promptTokens: promptUsage.promptTokens,
@@ -420,7 +439,10 @@ function requestStreaming(
               thinkingText += deltaThinking;
               options.onThinkingDelta?.(thinkingText);
             }
-            if (deltaContent) contentText += deltaContent;
+            if (deltaContent) {
+              contentText += deltaContent;
+              options.onContentDelta?.(contentText);
+            }
           } catch { /* ignore malformed chunks */ }
         }
       });
@@ -437,10 +459,18 @@ function requestStreaming(
             synthesized = JSON.stringify({ action: 'tool', tool_name: 'run_repo_cmd', args: { command: args.command } });
           }
         }
-        const text = contentText.trim() || synthesized || '';
+        // If reasoning_content didn't give us thinking, try to extract <think>...</think> from content
+        let finalThinkingText = thinkingText.trim();
+        let finalContentText = contentText.trim();
+        if (!finalThinkingText && finalContentText.includes('<think>')) {
+          const extracted = extractInlineThinking(finalContentText);
+          finalThinkingText = extracted.thinkingText;
+          finalContentText = extracted.text;
+        }
+        const text = finalContentText || synthesized || '';
         resolve({
           text: typeof text === 'string' ? text.trim() : text,
-          thinkingText: thinkingText.trim(),
+          thinkingText: finalThinkingText,
           mockExhausted: false,
           promptTokens,
           promptCacheTokens,
