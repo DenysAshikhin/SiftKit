@@ -37,6 +37,7 @@ import {
   buildTaskSystemPrompt,
   buildTerminalSynthesisFallback,
   buildTerminalSynthesisPrompt,
+  scanRepoFiles,
   type HistoryEntry,
   type TaskCommand,
 } from './prompts.js';
@@ -267,10 +268,11 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   let nonThinkingFinishFollowupUsed = false;
   const slotId = options.config ? allocateLlamaCppSlotId(options.config) : 0;
   const ignorePolicy = buildIgnorePolicy(options.repoRoot);
+  const bootstrapFileList = scanRepoFiles(options.repoRoot, ignorePolicy) || undefined;
 
   const messages: ChatMessage[] = [
     { role: 'system', content: buildTaskSystemPrompt(options.repoRoot) },
-    { role: 'user', content: buildTaskInitialUserPrompt(task.question) },
+    { role: 'user', content: buildTaskInitialUserPrompt(task.question, bootstrapFileList) },
   ];
 
   for (let turn = 1; turn <= maxTurns; turn += 1) {

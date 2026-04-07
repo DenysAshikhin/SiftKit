@@ -21,11 +21,21 @@ const BASELINE_IGNORED_NAMES = [
   'dist', 'build', 'out', 'coverage', '.cache',
   // Misc tooling
   'bower_components', '.parcel-cache', '.next', '.nuxt', '.svelte-kit',
+  // Project-specific
+  'thinking_bench',
+];
+
+// Root-relative path prefixes (forward-slash separated, no leading slash).
+const BASELINE_IGNORED_PATHS = [
+  'eval/results',
+  'eval/fixtures',
+  'tmp-find',
 ];
 
 export type IgnorePolicy = {
   names: string[];
   namesLower: Set<string>;
+  paths: string[];
 };
 
 export function buildIgnorePolicy(_repoRoot: string): IgnorePolicy {
@@ -42,6 +52,7 @@ export function buildIgnorePolicy(_repoRoot: string): IgnorePolicy {
   return {
     names,
     namesLower: new Set(names.map((n) => n.toLowerCase())),
+    paths: [...BASELINE_IGNORED_PATHS],
   };
 }
 
@@ -481,6 +492,14 @@ export function normalizePlannerCommand(
         notes.push('added ignore globs from ignore policy');
         wasRewritten = true;
       }
+    }
+    if (Array.isArray(ignorePolicy.paths) && ignorePolicy.paths.length > 0) {
+      const pathGlobArgs = ignorePolicy.paths
+        .map((p) => `--glob "!${p.replace(/"/gu, '\\"')}/**"`)
+        .join(' ');
+      current = `${current} ${pathGlobArgs}`.trim();
+      notes.push('added path ignore globs from ignore policy');
+      wasRewritten = true;
     }
   } else if (commandToken === 'get-childitem' || commandToken === 'ls') {
     if (

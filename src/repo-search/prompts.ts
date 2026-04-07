@@ -1,5 +1,42 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import type { IgnorePolicy } from './command-safety.js';
+
+// ---------------------------------------------------------------------------
+// Repo file scanner (gitignore-aware, no external dependencies)
+// ---------------------------------------------------------------------------
+
+const SCAN_MAX_FILES = 3000;
+
+export function scanRepoFiles(repoRoot: string, ignorePolicy: IgnorePolicy): string {
+  const results: string[] = [];
+
+  const ignoredPaths = ignorePolicy.paths ?? [];
+
+  function walk(dir: string, relBase: string): void {
+    if (results.length >= SCAN_MAX_FILES) return;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (results.length >= SCAN_MAX_FILES) return;
+      if (ignorePolicy.namesLower.has(entry.name.toLowerCase())) continue;
+      const relPath = relBase ? `${relBase}/${entry.name}` : entry.name;
+      if (ignoredPaths.some((p) => relPath === p || relPath.startsWith(`${p}/`))) continue;
+      if (entry.isDirectory()) {
+        walk(path.join(dir, entry.name), relPath);
+      } else if (entry.isFile()) {
+        results.push(relPath);
+      }
+    }
+  }
+
+  walk(repoRoot, '');
+  return results.sort().join('\n');
+}
 
 // ---------------------------------------------------------------------------
 // agents.md reader
@@ -42,10 +79,18 @@ export function buildTaskSystemPrompt(repoRoot: string): string {
     '- If evidence is weak, partial, or ambiguous, explicitly say so.',
     '',
     'Search discipline:',
-    '- Use iterative searches and targeted file inspection.',
-    '- Avoid repeating failed commands.',
-    '- Adjust strategy when searches are too broad, noisy, or low-signal.',
+    '- Always start by scanning — a file listing is provided in the user message; use it to decide where to look.',
+    '- Do NOT read file contents speculatively. Only open a file once you have a concrete reason (e.g. an rg match pointing there).',
+    '- Use iterative, targeted searches. Adjust strategy when results are too broad or low-signal.',
+    '- Avoid repeating failed commands. Change the pattern or target before retrying.',
     '- Keep commands efficient and focused on the task objective.',
+    '',
+    'First turns strategy (turns 1-3):',
+    '- Your FIRST 3 tool calls MUST be rg keyword searches — do not read files or list directories yet.',
+    '- For turn 1: derive 5 keywords from the task and run one rg search combining them with |.',
+    '  Example: {"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"keyword1|keyword2|keyword3|keyword4|keyword5\\" src"}}',
+    '- If turn 1 returns no matches, expand or reformulate keywords in turns 2 and 3 before drilling into files.',
+    '- Only from turn 4 onward should you open specific file sections based on search anchors.',
     '',
     'Final response requirements:',
     '- Always produce a final answer, even if incomplete.',
@@ -119,8 +164,12 @@ export function buildTaskSystemPrompt(repoRoot: string): string {
   ].join('\n');
 }
 
-export function buildTaskInitialUserPrompt(question: string): string {
-  return `Task: ${question}`;
+export function buildTaskInitialUserPrompt(question: string, fileList?: string): string {
+  const parts = [`Task: ${question}`];
+  if (fileList) {
+    parts.push('', '--- Repository file listing (respects .gitignore) ---', '', fileList);
+  }
+  return parts.join('\n');
 }
 
 // ---------------------------------------------------------------------------
