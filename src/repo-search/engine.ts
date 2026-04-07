@@ -539,7 +539,14 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       zeroOutputStreak = 0;
     }
 
-    let resultText = `exit_code=${executed.exitCode}\n${outputWithRewriteNote}`.trim();
+    // For search commands (rg/grep), exit_code=1 means "no match" — but when there IS output it
+    // means the pipeline was terminated early (e.g. `| Select-Object -First N` closed the pipe
+    // before rg finished, causing a broken-pipe exit). In that case the output is valid truncated
+    // results, not an error, so don't prepend a misleading `exit_code=1` prefix.
+    const suppressExitCode = isSearchNoMatchExit(commandToRun, executed.exitCode) && outputWithRewriteNote.length > 0;
+    let resultText = suppressExitCode
+      ? outputWithRewriteNote
+      : `exit_code=${executed.exitCode}\n${outputWithRewriteNote}`.trim();
     const resultTokenCount = useEstimatedTokensOnly
       ? estimateTokenCount(options.config, resultText)
       : await countTokensWithFallback(options.config, resultText);

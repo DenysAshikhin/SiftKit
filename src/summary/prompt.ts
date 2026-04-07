@@ -163,6 +163,7 @@ export function buildPrompt(options: {
     '',
     ...chunkRules,
     'Output requirements:',
+    'State each conclusion exactly once; do not repeat sentences or paragraphs.',
     outputFormatPrompt,
     'If raw_review_required is true and classification is not "unsupported_input", include the exact sentence "Raw review required." in the output.',
     '',
