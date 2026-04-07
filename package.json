@@ -19,7 +19,8 @@
     "verify:client": "powershell -ExecutionPolicy Bypass -File .\\scripts\\verify-client.ps1",
     "verify:llama-live": "powershell -ExecutionPolicy Bypass -File .\\scripts\\verify-llama-live.ps1",
     "postinstall": "node scripts/postinstall.js",
-    "refresh-global": "npm run build && powershell -ExecutionPolicy Bypass -File .\\scripts\\refresh-global.ps1"
+    "refresh-global": "npm run build && powershell -ExecutionPolicy Bypass -File .\\scripts\\refresh-global.ps1",
+    "delete_logs": "tsx .\\scripts\\delete-logs.ts"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",
