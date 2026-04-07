@@ -1,4 +1,5 @@
 import { requestJson } from '../lib/http.js';
+import { sleep } from '../lib/time.js';
 import type { ConfigRecord } from './types.js';
 
 export async function invokeConfigGet(configUrl: string): Promise<ConfigRecord> {
@@ -69,7 +70,7 @@ export async function waitForLlamaReadiness(
       lastError = error instanceof Error ? error.message : String(error);
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    await sleep(2_000);
   }
 
   throw new Error(`Timed out waiting for llama-server at ${baseUrl} to load model '${expectedModelId}'. Last error: ${lastError}`);

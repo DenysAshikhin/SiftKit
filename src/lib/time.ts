@@ -30,6 +30,11 @@ export function getLocalTimestamp(): string {
   return `${yyyy}${MM}${dd}_${hh}${mm}${ss}_${fff}`;
 }
 
+/** Returns a promise that resolves after the given number of milliseconds. */
+export function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 /** Formats a duration in milliseconds as `Xm YYs` or `Ys`. */
 export function formatElapsed(durationMs: number): string {
   const totalSeconds = Math.max(0, Math.round(durationMs / 1000));

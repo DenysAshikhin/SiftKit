@@ -4,22 +4,14 @@ import {
   releaseExecutionLease,
   tryAcquireExecutionLease,
 } from './config/index.js';
+import { sleep } from './lib/time.js';
+import { createTracer } from './lib/trace.js';
 
 let activeLeaseToken: string | null = null;
 let activeLockDepth = 0;
 let activeHeartbeat: NodeJS.Timeout | null = null;
 
-function traceExecutionLock(message: string): void {
-  if (process.env.SIFTKIT_TRACE_SUMMARY !== '1') {
-    return;
-  }
-
-  process.stderr.write(`[siftkit-trace ${new Date().toISOString()}] execution-lock ${message}\n`);
-}
-
-function sleepMs(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
+const traceExecutionLock = createTracer('SIFTKIT_TRACE_SUMMARY', 'execution-lock');
 
 function stopHeartbeat(): void {
   if (!activeHeartbeat) {
@@ -86,7 +78,7 @@ export async function acquireExecutionLock(): Promise<{
       continue;
     }
 
-    await sleepMs(250);
+    await sleep(250);
   }
 }
 

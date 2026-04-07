@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import type { Dict } from '../lib/types.js';
 import { normalizeWindowsPath as normalizeWindowsPathShared } from '../lib/paths.js';
-import { writeText } from './http-utils.js';
+import { writeText } from '../lib/fs.js';
 
 export const DEFAULT_LLAMA_MODEL = 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
 export const DEFAULT_LLAMA_BASE_URL = 'http://127.0.0.1:8097';

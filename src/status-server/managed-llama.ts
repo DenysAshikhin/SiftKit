@@ -12,14 +12,11 @@ import * as crypto from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import type { ChildProcess, SpawnSyncReturns } from 'node:child_process';
 import { getRuntimeRoot } from './paths.js';
+import { POWERSHELL_BASE_ARGS } from '../lib/powershell.js';
 import { formatTimestamp } from '../lib/text-format.js';
-import {
-  requestText,
-  readTextIfExists,
-  writeText,
-  ensureDirectory,
-  sleep,
-} from './http-utils.js';
+import { readTextIfExists, writeText, ensureDirectory } from '../lib/fs.js';
+import { requestText } from '../lib/http.js';
+import { sleep } from '../lib/time.js';
 import {
   readConfig,
   getLlamaBaseUrl,
@@ -161,7 +158,7 @@ function getManagedScriptInvocation(ctx: ServerContext, scriptPath: string): { f
   return extension === '.ps1'
     ? {
       filePath: 'powershell.exe',
-      args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', resolvedPath, ...getManagedLifecycleArgs(ctx, resolvedPath)],
+      args: [...POWERSHELL_BASE_ARGS, '-File', resolvedPath, ...getManagedLifecycleArgs(ctx, resolvedPath)],
       cwd: path.dirname(resolvedPath),
     }
     : {
@@ -225,7 +222,7 @@ function collectManagedLlamaLogEntries(logPaths: ManagedLlamaLogPaths): LogEntry
   ];
   const entries: LogEntry[] = [];
   for (const [label, filePath] of sources) {
-    const text = readTextIfExists(filePath);
+    const text = readTextIfExists(filePath) ?? '';
     const matchingLines = text
       .split(/\r?\n/u)
       .filter((line) => MANAGED_LLAMA_LOG_ALERT_PATTERN.test(line));
@@ -317,7 +314,7 @@ async function isLlamaServerReachable(config: Dict): Promise<boolean> {
     return false;
   }
   try {
-    const response = await requestText(`${baseUrl.replace(/\/$/u, '')}/v1/models`, getManagedLlamaConfig(config).HealthcheckTimeoutMs);
+    const response = await requestText({ url: `${baseUrl.replace(/\/$/u, '')}/v1/models`, timeoutMs: getManagedLlamaConfig(config).HealthcheckTimeoutMs });
     return response.statusCode > 0 && response.statusCode < 400;
   } catch {
     return false;
@@ -332,7 +329,7 @@ async function waitForLlamaServerReachability(config: Dict, shouldBeReachable: b
     if (reachable === shouldBeReachable) {
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, managed.HealthcheckIntervalMs));
+    await sleep(managed.HealthcheckIntervalMs);
   }
   const baseUrl = getLlamaBaseUrl(config) || '<missing>';
   throw new Error(`Timed out waiting for llama.cpp server at ${baseUrl} to become ${shouldBeReachable ? 'ready' : 'offline'}.`);
@@ -372,7 +369,7 @@ function dumpManagedLlamaStartupReviewToConsole(logPaths: ManagedLlamaLogPaths |
   if (!logPaths) {
     return;
   }
-  const dumpText = readTextIfExists(logPaths.startupDumpPath) || readTextIfExists(logPaths.latestStartupDumpPath);
+  const dumpText = readTextIfExists(logPaths.startupDumpPath) ?? readTextIfExists(logPaths.latestStartupDumpPath) ?? '';
   if (!dumpText.trim()) {
     return;
   }

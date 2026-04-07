@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import type { Dict } from '../lib/types.js';
-import { writeText } from './http-utils.js';
+import { writeText } from '../lib/fs.js';
 
 export const STATUS_TRUE = 'true';
 export const STATUS_FALSE = 'false';

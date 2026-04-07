@@ -7,10 +7,7 @@ import {
   estimateTokenCount,
   saveChatSession,
 } from '../state/chat-sessions.js';
-import {
-  type RequestJsonOptions,
-  requestJson,
-} from './http-utils.js';
+import { requestJsonFull } from '../lib/http.js';
 import {
   DEFAULT_LLAMA_MODEL,
   getLlamaBaseUrl,
@@ -264,7 +261,8 @@ export async function generateChatAssistantMessage(config: Dict, session: ChatSe
     thinkingEnabled: session.thinkingEnabled !== false,
     stream: false,
   });
-  const response = await requestJson(request.url, {
+  const response = await requestJsonFull({
+    url: request.url,
     method: 'POST',
     timeoutMs: 600000,
     body: JSON.stringify(request.body),

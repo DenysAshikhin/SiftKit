@@ -8,31 +8,14 @@ import {
   moveFileSafe,
   traceRepoSearch,
 } from './logging.js';
+import { runRepoSearch } from './engine.js';
 import { getNumericTotal, getOutputCharacterCount } from './scorecard.js';
 import type {
   JsonLogger,
   RepoSearchExecutionRequest,
   RepoSearchExecutionResult,
-  RepoSearchMockCommandResult,
   RepoSearchProgressEvent,
 } from './types.js';
-
-type MockRepoSearchModule = {
-  runMockRepoSearch: (options: {
-    repoRoot: string;
-    config?: Record<string, unknown>;
-    model?: string;
-    requestMaxTokens?: number;
-    maxTurns?: number;
-    thinkingInterval?: number;
-    taskPrompt: string;
-    logger: JsonLogger;
-    availableModels?: string[];
-    mockResponses?: string[];
-    mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
-    onProgress?: ((event: RepoSearchProgressEvent) => void) | null;
-  }) => Promise<Record<string, unknown>>;
-};
 
 export async function executeRepoSearchRequest(
   request: RepoSearchExecutionRequest,
@@ -65,11 +48,9 @@ export async function executeRepoSearchRequest(
     : path.join(folders.root, `request_${requestId}.jsonl`);
   const logger = createJsonLogger(tempTranscriptPath);
 
-  const module = require('../scripts/mock-repo-search-loop.js') as MockRepoSearchModule;
-
   try {
     const progressCallback = request.onProgress;
-    const scorecard = await module.runMockRepoSearch({
+    const scorecard = await runRepoSearch({
       repoRoot,
       config: request.config,
       model: request.model,
@@ -82,7 +63,7 @@ export async function executeRepoSearchRequest(
       mockResponses: request.mockResponses,
       mockCommandResults: request.mockCommandResults,
       onProgress: progressCallback
-        ? (event) => {
+        ? (event: RepoSearchProgressEvent) => {
           progressCallback({
             ...event,
             elapsedMs: Number.isFinite(event?.elapsedMs) ? Number(event.elapsedMs) : (Date.now() - startedAt),

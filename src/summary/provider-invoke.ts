@@ -1,5 +1,6 @@
 import type { SiftConfig } from '../config/index.js';
 import { notifyStatusBackend } from '../config/index.js';
+import { sleep } from '../lib/time.js';
 import { generateLlamaCppResponse } from '../providers/llama-cpp.js';
 import { getMockSummary } from './mock.js';
 import { appendTestProviderEvent, traceSummary } from './artifacts.js';
@@ -63,7 +64,7 @@ export async function invokeProviderSummary(options: {
       const rawSleep = process.env.SIFTKIT_TEST_PROVIDER_SLEEP_MS;
       const sleepMs = rawSleep ? Number.parseInt(rawSleep, 10) : 0;
       if (Number.isFinite(sleepMs) && sleepMs > 0) {
-        await new Promise((resolve) => setTimeout(resolve, sleepMs));
+        await sleep(sleepMs);
       }
       appendTestProviderEvent({
         backend: options.backend,

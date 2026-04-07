@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import { notifyStatusBackend } from '../config/index.js';
+import { createTracer } from '../lib/trace.js';
 import {
   getPlannerDebugPath,
   getPlannerFailedPath,
@@ -226,10 +227,4 @@ export function clearSummaryArtifactState(requestId: string): void {
   plannerFailedArtifactByRequestId.delete(requestId);
 }
 
-export function traceSummary(message: string): void {
-  if (process.env.SIFTKIT_TRACE_SUMMARY !== '1') {
-    return;
-  }
-
-  process.stderr.write(`[siftkit-trace ${new Date().toISOString()}] summary ${message}\n`);
-}
+export const traceSummary = createTracer('SIFTKIT_TRACE_SUMMARY', 'summary');

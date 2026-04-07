@@ -1,8 +1,7 @@
 import * as crypto from 'node:crypto';
 import * as path from 'node:path';
 import type { Dict } from '../lib/types.js';
-import { listFiles, saveContentAtomically } from '../lib/fs.js';
-import { safeReadJson } from '../status-server/http-utils.js';
+import { listFiles, saveContentAtomically, safeReadJson } from '../lib/fs.js';
 
 export type ChatMessage = Dict;
 export type ChatSession = Dict & { id: string; messages?: ChatMessage[]; hiddenToolContexts?: Dict[] };

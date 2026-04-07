@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { spawnPowerShellSync } from '../lib/powershell.js';
 import { resolveExternalCommand } from './command-path.js';
 
 export type InvokeProcessResult = {
@@ -67,8 +68,7 @@ export function captureWithTranscript(
     '}',
   ].join('\n');
 
-  const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], {
-    encoding: 'utf8',
+  const result = spawnPowerShellSync(script, {
     stdio: 'ignore',
     windowsHide: false,
   });

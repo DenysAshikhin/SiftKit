@@ -6,12 +6,12 @@ import * as fs from 'node:fs';
 import * as crypto from 'node:crypto';
 import type { Dict } from '../../lib/types.js';
 import { getRuntimeRoot } from '../paths.js';
+import { saveContentAtomically } from '../../lib/fs.js';
+import { sleep } from '../../lib/time.js';
 import {
   readBody,
   parseJsonBody,
   sendJson,
-  sleep,
-  saveContentAtomically,
 } from '../http-utils.js';
 import {
   STATUS_TRUE,

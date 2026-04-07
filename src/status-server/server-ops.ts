@@ -17,7 +17,8 @@ import {
   STATUS_FOREIGN_LOCK,
   readStatusText,
 } from './status-file.js';
-import { sleep, writeText, ensureDirectory, saveContentAtomically } from './http-utils.js';
+import { writeText, ensureDirectory, saveContentAtomically } from '../lib/fs.js';
+import { sleep } from '../lib/time.js';
 import { normalizeMetrics, writeMetrics } from './metrics.js';
 import {
   buildIdleSummarySnapshot,

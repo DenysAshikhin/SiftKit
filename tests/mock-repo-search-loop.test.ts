@@ -6,17 +6,19 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+import { parsePlannerAction } from '../src/repo-search/planner-protocol.js';
+import { evaluateCommandSafety } from '../src/repo-search/command-safety.js';
 import {
-  parsePlannerAction,
-  evaluateCommandSafety,
   runTaskLoop,
   buildScorecard,
   assertConfiguredModelPresent,
-  runMockRepoSearch,
+  runRepoSearch,
   resolveRepoSearchRequestMaxTokens,
+} from '../src/repo-search/engine.js';
+import {
   preflightPlannerPromptBudget,
   compactPlannerMessagesOnce,
-} from '../dist/scripts/mock-repo-search-loop.js';
+} from '../src/repo-search/prompt-budget.js';
 
 function createTempRepoRoot(gitignoreText = '') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-ignore-'));
@@ -31,8 +33,8 @@ test('assertConfiguredModelPresent hard-fails when configured model is missing',
   );
 });
 
-test('runMockRepoSearch does not fail on model inventory mismatch', async () => {
-  const scorecard = await runMockRepoSearch({
+test('runRepoSearch does not fail on model inventory mismatch', async () => {
+  const scorecard = await runRepoSearch({
     config: {
       Runtime: {
         Model: 'Qwen3.5-9B-Q8_0.gguf',

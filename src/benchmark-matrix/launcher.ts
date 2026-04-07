@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawn } from 'node:child_process';
 import { ensureDirectory } from '../lib/fs.js';
+import { sleep } from '../lib/time.js';
 import { getRequiredString } from './args.js';
 import { invokeConfigGet, getRuntimeLlamaCppConfigValue, waitForLlamaReadiness } from './config-rpc.js';
 import { readTrimmedFileText } from './manifest.js';
@@ -113,7 +114,7 @@ export async function forceStopLlamaServer(sessionDirectory: string): Promise<vo
     throw new Error(`Force-stopping llama-server failed with exit code ${result.exitCode}.`);
   }
 
-  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  await sleep(1_000);
 }
 
 export async function startLlamaLauncher(
@@ -136,7 +137,7 @@ export async function startLlamaLauncher(
     detached: false,
   });
 
-  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  await sleep(1_000);
   const exited = child.exitCode !== null || child.signalCode !== null;
   fs.closeSync(stdoutFd);
   fs.closeSync(stderrFd);

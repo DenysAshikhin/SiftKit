@@ -4,6 +4,7 @@ import {
   getErrorSignalMetrics,
   isPassFailQuestion,
 } from './measure.js';
+import { stripCodeFence } from '../lib/text-format.js';
 import type {
   ChunkPromptContext,
   StructuredModelDecision,
@@ -12,11 +13,7 @@ import type {
   SummarySourceKind,
 } from './types.js';
 
-export function stripCodeFence(text: string): string {
-  const trimmed = text.trim();
-  const fenceMatch = /^```(?:json)?\s*([\s\S]*?)\s*```$/u.exec(trimmed);
-  return fenceMatch ? fenceMatch[1].trim() : trimmed;
-}
+export { stripCodeFence };
 
 export function decodeStructuredOutputText(text: string): string {
   return text

@@ -110,6 +110,5 @@ export function getIsoDateFromStat(targetPath: string): string {
   }
 }
 
-export function sleep(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
+// sleep() has moved to lib/time.ts — import from there instead.
+export { sleep } from './time.js';

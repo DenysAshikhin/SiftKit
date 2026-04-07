@@ -1,5 +1,5 @@
 import { getErrorMessage } from '../../lib/errors.js';
-import { stripCodeFence } from '../structured.js';
+import { stripCodeFence } from '../../lib/text-format.js';
 import type {
   PlannerAction,
   SummaryClassification,

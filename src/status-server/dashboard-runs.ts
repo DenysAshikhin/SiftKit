@@ -4,7 +4,7 @@ import Database from 'better-sqlite3';
 import type { Dict } from '../lib/types.js';
 import { getRuntimeRoot } from './paths.js';
 import { formatInteger, formatElapsed } from '../lib/text-format.js';
-import { listFiles, safeReadJson, getIsoDateFromStat } from './http-utils.js';
+import { listFiles, safeReadJson, getIsoDateFromStat } from '../lib/fs.js';
 import { type Metrics, normalizeMetrics } from './metrics.js';
 import {
   type IdleSummarySnapshot,

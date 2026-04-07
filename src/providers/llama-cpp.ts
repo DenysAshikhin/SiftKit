@@ -1,19 +1,6 @@
-import * as http from 'node:http';
-import * as https from 'node:https';
 import { getConfiguredLlamaBaseUrl, getConfiguredLlamaSetting, type RuntimeLlamaCppConfig, type SiftConfig } from '../config/index.js';
-
-type JsonRequestOptions = {
-  url: string;
-  method: 'GET' | 'POST';
-  timeoutMs: number;
-  body?: string;
-};
-
-type JsonResponse<T> = {
-  statusCode: number;
-  body: T;
-  rawText: string;
-};
+import { requestJsonFull, type FullJsonResponse } from '../lib/http.js';
+import { createTracer } from '../lib/trace.js';
 
 type LlamaCppModelListResponse = {
   data?: Array<{ id?: string }>;
@@ -120,13 +107,7 @@ export type LlamaCppStructuredOutput =
   | { kind: 'siftkit-decision-json'; allowUnsupportedInput?: boolean }
   | { kind: 'siftkit-planner-action-json'; tools?: unknown[] };
 
-function traceLlamaCpp(message: string): void {
-  if (process.env.SIFTKIT_TRACE_SUMMARY !== '1') {
-    return;
-  }
-
-  process.stderr.write(`[siftkit-trace ${new Date().toISOString()}] llama-cpp ${message}\n`);
-}
+const traceLlamaCpp = createTracer('SIFTKIT_TRACE_SUMMARY', 'llama-cpp');
 
 function getUsageValue(value: unknown): number | null {
   return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : null;
@@ -229,82 +210,10 @@ function getStructuredOutputGrammar(
   return null;
 }
 
-function requestJson<T>(options: JsonRequestOptions): Promise<JsonResponse<T>> {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const resolveOnce = (value: JsonResponse<T>): void => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      clearTimeout(timeoutHandle);
-      resolve(value);
-    };
-    const rejectOnce = (error: unknown): void => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      clearTimeout(timeoutHandle);
-      reject(error);
-    };
-    const target = new URL(options.url);
-    const transport = target.protocol === 'https:' ? https : http;
-    const request = transport.request(
-      {
-        protocol: target.protocol,
-        hostname: target.hostname,
-        port: target.port || (target.protocol === 'https:' ? 443 : 80),
-        path: `${target.pathname}${target.search}`,
-        method: options.method,
-        headers: options.body ? {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(options.body, 'utf8'),
-        } : undefined,
-      },
-      (response) => {
-        let responseText = '';
-        response.setEncoding('utf8');
-        response.on('data', (chunk: string) => {
-          responseText += chunk;
-        });
-        response.on('end', () => {
-          if (!responseText.trim()) {
-            resolveOnce({ statusCode: response.statusCode || 0, body: {} as T, rawText: '' });
-            return;
-          }
-
-          try {
-            resolveOnce({
-              statusCode: response.statusCode || 0,
-              body: JSON.parse(responseText) as T,
-              rawText: responseText,
-            });
-          } catch (error) {
-            rejectOnce(error instanceof Error ? error : new Error(String(error)));
-          }
-        });
-      }
-    );
-
-    const timeoutHandle = setTimeout(() => {
-      request.destroy(new Error(`Request timed out after ${options.timeoutMs} ms.`));
-    }, options.timeoutMs);
-    if (typeof timeoutHandle.unref === 'function') {
-      timeoutHandle.unref();
-    }
-
-    request.on('error', (error) => {
-      rejectOnce(error);
-    });
-    if (options.body) {
-      request.write(options.body);
-    }
-    request.end();
-  });
-}
+// HTTP client delegated to shared lib/http.ts:requestJsonFull.
+// Local alias keeps call sites unchanged.
+const requestJson = requestJsonFull;
+type JsonResponse<T> = FullJsonResponse<T>;
 
 function getTextContent(content: string | Array<{ type?: string; text?: string }> | undefined): string {
   if (typeof content === 'string') {

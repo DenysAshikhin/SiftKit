@@ -5,14 +5,10 @@ import {
   getRepoSearchLogRoot,
   getRepoSearchSuccessfulDirectory,
 } from '../config/paths.js';
+import { createTracer } from '../lib/trace.js';
 import type { JsonLogger } from './types.js';
 
-export function traceRepoSearch(message: string): void {
-  if (process.env.SIFTKIT_TRACE_REPO_SEARCH !== '1') {
-    return;
-  }
-  process.stderr.write(`[siftkit-trace ${new Date().toISOString()}] repo-search ${message}\n`);
-}
+export const traceRepoSearch = createTracer('SIFTKIT_TRACE_REPO_SEARCH', 'repo-search');
 
 export function ensureRepoSearchLogFolders(): {
   root: string;

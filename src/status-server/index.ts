@@ -68,7 +68,6 @@ import type {
 import type { ColorOptions } from '../lib/text-format.js';
 import type { StatusMetadata } from './status-file.js';
 import type { Metrics } from './metrics.js';
-import type { RequestJsonOptions, JsonResponse } from './http-utils.js';
 import type { IdleSummarySnapshot } from './idle-summary.js';
 import type { TerminateProcessTreeOptions } from './managed-llama.js';
 
@@ -102,7 +101,7 @@ export type {
   RunRecord,
   DailyMetrics,
 };
-export type { ColorOptions, IdleSummarySnapshot, StatusMetadata, Metrics, RequestJsonOptions, JsonResponse, ManagedLlamaConfig };
+export type { ColorOptions, IdleSummarySnapshot, StatusMetadata, Metrics, ManagedLlamaConfig };
 export { terminateProcessTree };
 export type { TerminateProcessTreeOptions, StartStatusServerOptions, ExtendedServer };
 

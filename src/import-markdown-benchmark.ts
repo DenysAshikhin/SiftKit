@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { saveContentAtomically } from './lib/fs.js';
+import { spawnPowerShellSync } from './lib/powershell.js';
 
 type ImportedFixture = {
   Name: string;
@@ -93,11 +93,7 @@ function slugify(value: string): string {
 }
 
 function runPowerShell(command: string, cwd: string): string {
-  const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command], {
-    cwd,
-    encoding: 'utf8',
-    windowsHide: true,
-  });
+  const result = spawnPowerShellSync(command, { cwd });
 
   const stdout = result.stdout || '';
   const stderr = result.stderr || '';
