@@ -9,6 +9,7 @@
  *   - `routes.ts`        – HTTP route handler
  */
 import * as http from 'node:http';
+import * as fs from 'node:fs';
 import {
   getStatusPath,
   getConfigPath,
@@ -21,7 +22,7 @@ import {
   formatElapsed,
 } from '../lib/text-format.js';
 import { ensureStatusFile } from './status-file.js';
-import { readMetrics, writeMetrics } from './metrics.js';
+import { readMetricsWithResetDecision, writeMetrics } from './metrics.js';
 import {
   buildIdleSummarySnapshot,
   buildIdleMetricsLogMessage,
@@ -119,7 +120,24 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   const idleSummarySnapshotsPath = getIdleSummarySnapshotsPath();
   ensureStatusFile(statusPath);
   writeConfig(configPath, readConfig(configPath));
-  const metrics = readMetrics(metricsPath);
+  const loadedMetrics = readMetricsWithResetDecision(metricsPath);
+  const metrics = loadedMetrics.metrics;
+  if (loadedMetrics.resetRequired) {
+    try {
+      const sqlitePaths = [
+        idleSummarySnapshotsPath,
+        `${idleSummarySnapshotsPath}-shm`,
+        `${idleSummarySnapshotsPath}-wal`,
+      ];
+      for (const targetPath of sqlitePaths) {
+        if (targetPath && fs.existsSync(targetPath)) {
+          fs.rmSync(targetPath, { force: true });
+        }
+      }
+    } catch {
+      // Best-effort cleanup. Continue with a fresh metrics state.
+    }
+  }
   writeMetrics(metricsPath, metrics);
 
   let resolveStartupPromise: () => void = () => {};

@@ -255,7 +255,11 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     const metricsResponse = await requestJson(`${baseUrl}/dashboard/metrics/timeseries`);
     assert.equal(metricsResponse.statusCode, 200);
     const days = metricsResponse.body.days as Dict[];
+    const taskDays = metricsResponse.body.taskDays as Dict[];
+    const toolStats = metricsResponse.body.toolStats as Dict;
     assert.equal(Array.isArray(days), true);
+    assert.equal(Array.isArray(taskDays), true);
+    assert.equal(Boolean(toolStats && typeof toolStats === 'object'), true);
     assert.equal(days.length > 0, true);
     assert.equal(Number(days[0].runs) >= 1, true);
     assert.equal(Number.isFinite(Number(days[0].promptCacheTokens)), true);
@@ -768,6 +772,12 @@ test('chat completion receives hidden tool context while keeping it out of visib
       }),
     });
     assert.equal(chatReply.statusCode, 200);
+    const statusAfterChat = await requestJson(`${baseUrl}/status`);
+    const statusMetrics = d(statusAfterChat.body.metrics);
+    assert.equal(Number(statusMetrics.inputTokensTotal) >= 20, true);
+    assert.equal(Number(statusMetrics.outputTokensTotal) >= 4, true);
+    assert.equal(Number(d(statusMetrics.taskTotals).chat.inputTokensTotal) >= 20, true);
+    assert.equal(Number(d(statusMetrics.taskTotals).chat.outputTokensTotal) >= 4, true);
     assert.equal(capturedChatRequest !== null, true);
     const captured = capturedChatRequest as Dict | null;
     assert.equal(Array.isArray(captured?.messages), true);

@@ -5,10 +5,18 @@ import type { Dict } from '../lib/types.js';
 import { getRuntimeRoot } from './paths.js';
 import { formatInteger, formatElapsed } from '../lib/text-format.js';
 import { listFiles, safeReadJson, getIsoDateFromStat } from '../lib/fs.js';
-import { type Metrics, normalizeMetrics } from './metrics.js';
+import {
+  TASK_KINDS,
+  type Metrics,
+  type TaskKind,
+  type ToolStatsByTask,
+  normalizeMetrics,
+} from './metrics.js';
 import {
   type IdleSummarySnapshot,
   type SnapshotTotals,
+  parseSnapshotTaskTotalsJson,
+  parseSnapshotToolStatsJson,
   buildIdleSummarySnapshotMessage,
   querySnapshotTotalsBeforeDate,
   querySnapshotTimeseries,
@@ -22,6 +30,7 @@ export type StatusRequestLogInput = {
   running: boolean;
   statusPath?: string;
   requestId?: string | null;
+  taskKind?: string | null;
   terminalState?: string | null;
   errorMessage?: string | null;
   characterCount?: number | null;
@@ -38,6 +47,7 @@ export type StatusRequestLogInput = {
   elapsedMs?: number | null;
   totalElapsedMs?: number | null;
   outputTokens?: number | null;
+  toolTokens?: number | null;
   totalOutputTokens?: number | null;
 };
 
@@ -45,6 +55,7 @@ export function buildStatusRequestLogMessage(input: StatusRequestLogInput): stri
   const {
     running,
     requestId = null,
+    taskKind = null,
     terminalState = null,
     errorMessage = null,
     characterCount = null,
@@ -57,11 +68,15 @@ export function buildStatusRequestLogMessage(input: StatusRequestLogInput): stri
     elapsedMs = null,
     totalElapsedMs = null,
     outputTokens = null,
+    toolTokens = null,
     totalOutputTokens = null,
   } = input;
   void requestId;
   const statusText = running ? 'true' : 'false';
   let logMessage = `request ${statusText}`;
+  if (typeof taskKind === 'string' && taskKind.trim()) {
+    logMessage += ` task=${taskKind.trim()}`;
+  }
   if (running) {
     const resolvedPromptCharacterCount = promptCharacterCount ?? characterCount;
     if (rawInputCharacterCount !== null) {
@@ -102,15 +117,24 @@ export function buildStatusRequestLogMessage(input: StatusRequestLogInput): stri
     if (errorMessage) {
       logMessage += ` error=${String(errorMessage)}`;
     }
+    if (toolTokens !== null) {
+      logMessage += ` tool_tokens=${formatInteger(toolTokens)}`;
+    }
   } else if (totalElapsedMs !== null) {
     logMessage += ` total_elapsed=${formatElapsed(totalElapsedMs)}`;
     if (totalOutputTokens !== null) {
       logMessage += ` output_tokens=${formatInteger(totalOutputTokens)}`;
     }
+    if (toolTokens !== null) {
+      logMessage += ` tool_tokens=${formatInteger(toolTokens)}`;
+    }
   } else if (elapsedMs !== null) {
     logMessage += ` elapsed=${formatElapsed(elapsedMs)}`;
     if (outputTokens !== null) {
       logMessage += ` output_tokens=${formatInteger(outputTokens)}`;
+    }
+    if (toolTokens !== null) {
+      logMessage += ` tool_tokens=${formatInteger(toolTokens)}`;
     }
   }
   return logMessage;
@@ -467,6 +491,7 @@ export type DailyMetrics = {
   inputTokens: number;
   outputTokens: number;
   thinkingTokens: number;
+  toolTokens: number;
   promptCacheTokens: number;
   promptEvalTokens: number;
   cacheHitRate: number | null;
@@ -483,6 +508,7 @@ export function buildLiveTodayMetrics(currentMetrics: Metrics, idleSummaryDataba
   const inputTokensTotal = Number(totals.inputTokensTotal) || 0;
   const outputTokensTotal = Number(totals.outputTokensTotal) || 0;
   const thinkingTokensTotal = Number(totals.thinkingTokensTotal) || 0;
+  const toolTokensTotal = Number(totals.toolTokensTotal) || 0;
   const promptCacheTokensTotal = Number(totals.promptCacheTokensTotal) || 0;
   const promptEvalTokensTotal = Number(totals.promptEvalTokensTotal) || 0;
   const requestDurationMsTotal = Number(totals.requestDurationMsTotal) || 0;
@@ -490,6 +516,7 @@ export function buildLiveTodayMetrics(currentMetrics: Metrics, idleSummaryDataba
   const inputTokens = Math.max(0, inputTokensTotal - (baseline ? baseline.inputTokensTotal : 0));
   const outputTokens = Math.max(0, outputTokensTotal - (baseline ? baseline.outputTokensTotal : 0));
   const thinkingTokens = Math.max(0, thinkingTokensTotal - (baseline ? baseline.thinkingTokensTotal : 0));
+  const toolTokens = Math.max(0, toolTokensTotal - (baseline ? baseline.toolTokensTotal : 0));
   const promptCacheTokens = Math.max(0, promptCacheTokensTotal - (baseline ? baseline.promptCacheTokensTotal : 0));
   const promptEvalTokens = Math.max(0, promptEvalTokensTotal - (baseline ? baseline.promptEvalTokensTotal : 0));
   const durationTotalMs = Math.max(0, requestDurationMsTotal - (baseline ? baseline.requestDurationMsTotal : 0));
@@ -499,6 +526,7 @@ export function buildLiveTodayMetrics(currentMetrics: Metrics, idleSummaryDataba
     inputTokens,
     outputTokens,
     thinkingTokens,
+    toolTokens,
     promptCacheTokens,
     promptEvalTokens,
     cacheHitRate: getPromptCacheHitRate(promptCacheTokens, promptEvalTokens),
@@ -522,6 +550,7 @@ export function buildDashboardDailyMetricsFromRuns(runtimeRoot: string): DailyMe
       inputTokens: 0,
       outputTokens: 0,
       thinkingTokens: 0,
+      toolTokens: 0,
       promptCacheTokens: 0,
       promptEvalTokens: 0,
       cacheHitRate: null,
@@ -535,6 +564,7 @@ export function buildDashboardDailyMetricsFromRuns(runtimeRoot: string): DailyMe
     current.inputTokens += Number(run.inputTokens || 0);
     current.outputTokens += Number(run.outputTokens || 0);
     current.thinkingTokens += Number(run.thinkingTokens || 0);
+    current.toolTokens += 0;
     current.promptCacheTokens += Number(run.promptCacheTokens || 0);
     current.promptEvalTokens += Number(run.promptEvalTokens || 0);
     if (run.status === 'completed') {
@@ -556,6 +586,7 @@ export function buildDashboardDailyMetricsFromRuns(runtimeRoot: string): DailyMe
       inputTokens: entry.inputTokens,
       outputTokens: entry.outputTokens,
       thinkingTokens: entry.thinkingTokens,
+      toolTokens: entry.toolTokens,
       promptCacheTokens: entry.promptCacheTokens,
       promptEvalTokens: entry.promptEvalTokens,
       cacheHitRate: getPromptCacheHitRate(entry.promptCacheTokens, entry.promptEvalTokens),
@@ -584,6 +615,7 @@ export function buildDashboardDailyMetricsFromIdleSnapshots(database: DatabaseIn
       inputTokens: 0,
       outputTokens: 0,
       thinkingTokens: 0,
+      toolTokens: 0,
       promptCacheTokens: 0,
       promptEvalTokens: 0,
       cacheHitRate: null,
@@ -599,11 +631,14 @@ export function buildDashboardDailyMetricsFromIdleSnapshots(database: DatabaseIn
     const thinkingTokensTotal = Number(row.thinking_tokens_total) || 0;
     const promptCacheTokensTotal = Number(row.prompt_cache_tokens_total) || 0;
     const promptEvalTokensTotal = Number(row.prompt_eval_tokens_total) || 0;
+    const toolTokensTotal = Number(row.tool_tokens_total) || 0;
+    const taskTotals = parseSnapshotTaskTotalsJson(row.task_totals_json);
     const requestDurationMsTotal = Number(row.request_duration_ms_total) || 0;
     const deltaRuns = Math.max(0, previous ? completedRequestCount - previous.completedRequestCount : completedRequestCount);
     const deltaInput = Math.max(0, previous ? inputTokensTotal - previous.inputTokensTotal : inputTokensTotal);
     const deltaOutput = Math.max(0, previous ? outputTokensTotal - previous.outputTokensTotal : outputTokensTotal);
     const deltaThinking = Math.max(0, previous ? thinkingTokensTotal - previous.thinkingTokensTotal : thinkingTokensTotal);
+    const deltaTool = Math.max(0, previous ? toolTokensTotal - previous.toolTokensTotal : toolTokensTotal);
     const deltaPromptCache = Math.max(0, previous ? promptCacheTokensTotal - previous.promptCacheTokensTotal : promptCacheTokensTotal);
     const deltaPromptEval = Math.max(0, previous ? promptEvalTokensTotal - previous.promptEvalTokensTotal : promptEvalTokensTotal);
     const deltaDuration = Math.max(0, previous ? requestDurationMsTotal - previous.requestDurationMsTotal : requestDurationMsTotal);
@@ -611,6 +646,7 @@ export function buildDashboardDailyMetricsFromIdleSnapshots(database: DatabaseIn
     current.inputTokens += deltaInput;
     current.outputTokens += deltaOutput;
     current.thinkingTokens += deltaThinking;
+    current.toolTokens += deltaTool;
     current.promptCacheTokens += deltaPromptCache;
     current.promptEvalTokens += deltaPromptEval;
     current.durationTotalMs += deltaDuration;
@@ -621,9 +657,11 @@ export function buildDashboardDailyMetricsFromIdleSnapshots(database: DatabaseIn
       inputTokensTotal,
       outputTokensTotal,
       thinkingTokensTotal,
+      toolTokensTotal,
       promptCacheTokensTotal,
       promptEvalTokensTotal,
       requestDurationMsTotal,
+      taskTotals,
     };
   }
   return Array.from(byDay.values())
@@ -634,6 +672,7 @@ export function buildDashboardDailyMetricsFromIdleSnapshots(database: DatabaseIn
       inputTokens: entry.inputTokens,
       outputTokens: entry.outputTokens,
       thinkingTokens: entry.thinkingTokens,
+      toolTokens: entry.toolTokens,
       promptCacheTokens: entry.promptCacheTokens,
       promptEvalTokens: entry.promptEvalTokens,
       cacheHitRate: getPromptCacheHitRate(entry.promptCacheTokens, entry.promptEvalTokens),
@@ -675,6 +714,167 @@ export function buildDashboardDailyMetrics(runtimeRoot: string, idleSummaryDatab
   return [...runDaysWithoutToday, liveTodayMerged].sort((left, right) => left.date.localeCompare(right.date));
 }
 
+export type TaskDailyMetrics = {
+  date: string;
+  taskKind: TaskKind;
+  runs: number;
+  inputTokens: number;
+  outputTokens: number;
+  thinkingTokens: number;
+  toolTokens: number;
+  promptCacheTokens: number;
+  promptEvalTokens: number;
+  avgDurationMs: number;
+};
+
+type TaskDailyAccumulator = TaskDailyMetrics & { durationTotalMs: number; durationCount: number };
+
+function getEmptyTaskDailyAccumulator(date: string, taskKind: TaskKind): TaskDailyAccumulator {
+  return {
+    date,
+    taskKind,
+    runs: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    thinkingTokens: 0,
+    toolTokens: 0,
+    promptCacheTokens: 0,
+    promptEvalTokens: 0,
+    avgDurationMs: 0,
+    durationTotalMs: 0,
+    durationCount: 0,
+  };
+}
+
+function toTaskAccumulatorMap(days: TaskDailyMetrics[]): Map<string, TaskDailyAccumulator> {
+  const map = new Map<string, TaskDailyAccumulator>();
+  for (const day of days) {
+    const key = `${day.date}|${day.taskKind}`;
+    map.set(key, {
+      ...day,
+      durationTotalMs: Number(day.avgDurationMs || 0) * Number(day.runs || 0),
+      durationCount: Number(day.runs || 0),
+    });
+  }
+  return map;
+}
+
+export function buildLiveTodayTaskDailyMetrics(currentMetrics: Metrics, idleSummaryDatabase: DatabaseInstance | null): TaskDailyMetrics[] {
+  const date = getCurrentUtcDateKey();
+  const totals = normalizeMetrics(currentMetrics);
+  const baseline = getSnapshotTotalsBeforeDate(idleSummaryDatabase, date);
+  return TASK_KINDS.map((taskKind) => {
+    const current = totals.taskTotals[taskKind];
+    const previous = baseline ? baseline.taskTotals[taskKind] : null;
+    const runs = Math.max(0, Number(current.completedRequestCount || 0) - Number(previous?.completedRequestCount || 0));
+    const inputTokens = Math.max(0, Number(current.inputTokensTotal || 0) - Number(previous?.inputTokensTotal || 0));
+    const outputTokens = Math.max(0, Number(current.outputTokensTotal || 0) - Number(previous?.outputTokensTotal || 0));
+    const thinkingTokens = Math.max(0, Number(current.thinkingTokensTotal || 0) - Number(previous?.thinkingTokensTotal || 0));
+    const toolTokens = Math.max(0, Number(current.toolTokensTotal || 0) - Number(previous?.toolTokensTotal || 0));
+    const promptCacheTokens = Math.max(0, Number(current.promptCacheTokensTotal || 0) - Number(previous?.promptCacheTokensTotal || 0));
+    const promptEvalTokens = Math.max(0, Number(current.promptEvalTokensTotal || 0) - Number(previous?.promptEvalTokensTotal || 0));
+    const durationTotalMs = Math.max(0, Number(current.requestDurationMsTotal || 0) - Number(previous?.requestDurationMsTotal || 0));
+    return {
+      date,
+      taskKind,
+      runs,
+      inputTokens,
+      outputTokens,
+      thinkingTokens,
+      toolTokens,
+      promptCacheTokens,
+      promptEvalTokens,
+      avgDurationMs: runs > 0 ? Math.round(durationTotalMs / runs) : 0,
+    };
+  });
+}
+
+export function buildDashboardTaskDailyMetricsFromIdleSnapshots(database: DatabaseInstance | null): TaskDailyMetrics[] {
+  const rows = querySnapshotTimeseries(database);
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return [];
+  }
+  const byKey = new Map<string, TaskDailyAccumulator>();
+  let previousTaskTotals = parseSnapshotTaskTotalsJson(null);
+  for (const row of rows) {
+    const emittedAtUtc = typeof row.emitted_at_utc === 'string' ? row.emitted_at_utc : null;
+    if (!emittedAtUtc) {
+      continue;
+    }
+    const day = emittedAtUtc.slice(0, 10);
+    const taskTotals = parseSnapshotTaskTotalsJson(row.task_totals_json);
+    for (const taskKind of TASK_KINDS) {
+      const key = `${day}|${taskKind}`;
+      const current = byKey.get(key) || getEmptyTaskDailyAccumulator(day, taskKind);
+      const currentTotals = taskTotals[taskKind];
+      const previousTotals = previousTaskTotals[taskKind];
+      const deltaRuns = Math.max(0, Number(currentTotals.completedRequestCount || 0) - Number(previousTotals.completedRequestCount || 0));
+      current.runs += deltaRuns;
+      current.inputTokens += Math.max(0, Number(currentTotals.inputTokensTotal || 0) - Number(previousTotals.inputTokensTotal || 0));
+      current.outputTokens += Math.max(0, Number(currentTotals.outputTokensTotal || 0) - Number(previousTotals.outputTokensTotal || 0));
+      current.thinkingTokens += Math.max(0, Number(currentTotals.thinkingTokensTotal || 0) - Number(previousTotals.thinkingTokensTotal || 0));
+      current.toolTokens += Math.max(0, Number(currentTotals.toolTokensTotal || 0) - Number(previousTotals.toolTokensTotal || 0));
+      current.promptCacheTokens += Math.max(0, Number(currentTotals.promptCacheTokensTotal || 0) - Number(previousTotals.promptCacheTokensTotal || 0));
+      current.promptEvalTokens += Math.max(0, Number(currentTotals.promptEvalTokensTotal || 0) - Number(previousTotals.promptEvalTokensTotal || 0));
+      current.durationTotalMs += Math.max(0, Number(currentTotals.requestDurationMsTotal || 0) - Number(previousTotals.requestDurationMsTotal || 0));
+      current.durationCount += deltaRuns;
+      byKey.set(key, current);
+    }
+    previousTaskTotals = taskTotals;
+  }
+  return Array.from(byKey.values())
+    .sort((left, right) => left.date.localeCompare(right.date) || left.taskKind.localeCompare(right.taskKind))
+    .map((entry) => ({
+      date: entry.date,
+      taskKind: entry.taskKind,
+      runs: entry.runs,
+      inputTokens: entry.inputTokens,
+      outputTokens: entry.outputTokens,
+      thinkingTokens: entry.thinkingTokens,
+      toolTokens: entry.toolTokens,
+      promptCacheTokens: entry.promptCacheTokens,
+      promptEvalTokens: entry.promptEvalTokens,
+      avgDurationMs: entry.durationCount > 0 ? Math.round(entry.durationTotalMs / entry.durationCount) : 0,
+    }));
+}
+
+export function buildDashboardTaskDailyMetrics(idleSummaryDatabase: DatabaseInstance | null, currentMetrics: Metrics): TaskDailyMetrics[] {
+  const snapshotDays = buildDashboardTaskDailyMetricsFromIdleSnapshots(idleSummaryDatabase);
+  const liveToday = buildLiveTodayTaskDailyMetrics(currentMetrics, idleSummaryDatabase);
+  if (snapshotDays.length === 0) {
+    return liveToday;
+  }
+  const today = getCurrentUtcDateKey();
+  const merged = toTaskAccumulatorMap(snapshotDays.filter((entry) => entry.date !== today));
+  for (const liveEntry of liveToday) {
+    const key = `${liveEntry.date}|${liveEntry.taskKind}`;
+    merged.set(key, {
+      ...liveEntry,
+      durationTotalMs: Number(liveEntry.avgDurationMs || 0) * Number(liveEntry.runs || 0),
+      durationCount: Number(liveEntry.runs || 0),
+    });
+  }
+  return Array.from(merged.values())
+    .sort((left, right) => left.date.localeCompare(right.date) || left.taskKind.localeCompare(right.taskKind))
+    .map((entry) => ({
+      date: entry.date,
+      taskKind: entry.taskKind,
+      runs: entry.runs,
+      inputTokens: entry.inputTokens,
+      outputTokens: entry.outputTokens,
+      thinkingTokens: entry.thinkingTokens,
+      toolTokens: entry.toolTokens,
+      promptCacheTokens: entry.promptCacheTokens,
+      promptEvalTokens: entry.promptEvalTokens,
+      avgDurationMs: entry.avgDurationMs,
+    }));
+}
+
+export function buildDashboardToolStats(idleSummaryDatabase: DatabaseInstance | null, currentMetrics: Metrics): ToolStatsByTask {
+  void idleSummaryDatabase;
+  return normalizeMetrics(currentMetrics).toolStats;
+}
+
 export type IdleSummarySnapshotRow = IdleSummarySnapshot & { summaryText: string };
 
 export function normalizeIdleSummarySnapshotRow(row: Dict | null): IdleSummarySnapshotRow | null {
@@ -689,6 +889,7 @@ export function normalizeIdleSummarySnapshotRow(row: Dict | null): IdleSummarySn
     inputTokensTotal: Number(row.input_tokens_total) || 0,
     outputTokensTotal: Number(row.output_tokens_total) || 0,
     thinkingTokensTotal: Number(row.thinking_tokens_total) || 0,
+    toolTokensTotal: Number(row.tool_tokens_total) || 0,
     promptCacheTokensTotal: Number(row.prompt_cache_tokens_total) || 0,
     promptEvalTokensTotal: Number(row.prompt_eval_tokens_total) || 0,
     savedTokens: Number(row.saved_tokens) || 0,
@@ -700,6 +901,8 @@ export function normalizeIdleSummarySnapshotRow(row: Dict | null): IdleSummarySn
     avgOutputTokensPerRequest: Number.NaN,
     inputCharactersPerContextToken: null,
     chunkThresholdCharacters: null,
+    taskTotals: parseSnapshotTaskTotalsJson(row.task_totals_json),
+    toolStats: parseSnapshotToolStatsJson(row.tool_stats_json),
     summaryText: '',
   };
   snapshot.summaryText = buildIdleSummarySnapshotMessage(snapshot);

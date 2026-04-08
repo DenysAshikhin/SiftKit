@@ -39,6 +39,7 @@ export async function invokeProviderSummary(options: {
   );
   await notifyStatusBackend({
     running: true,
+    taskKind: 'summary',
     requestId: options.requestId,
     promptCharacterCount: options.promptCharacterCount,
     promptTokenCount: options.promptTokenCount,
@@ -112,6 +113,7 @@ export async function invokeProviderSummary(options: {
     traceSummary(`notify running=false phase=${options.phase} chunk=${chunkLabel} duration_ms=${Date.now() - startedAt}`);
     await notifyStatusBackend({
       running: false,
+      taskKind: 'summary',
       requestId: options.requestId,
       promptCharacterCount: options.promptCharacterCount,
       inputTokens,

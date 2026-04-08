@@ -25,6 +25,7 @@ export type RepoSearchMockCommandResult = {
 export type RepoSearchExecutionRequest = {
   prompt: string;
   repoRoot: string;
+  taskKind?: 'plan' | 'repo-search';
   statusBackendUrl?: string;
   config?: Record<string, unknown>;
   model?: string;

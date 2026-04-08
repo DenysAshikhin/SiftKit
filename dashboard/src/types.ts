@@ -40,6 +40,7 @@ export type MetricDay = {
   inputTokens: number;
   outputTokens: number;
   thinkingTokens: number;
+  toolTokens: number;
   promptCacheTokens: number;
   promptEvalTokens: number;
   cacheHitRate: number | null;
@@ -48,8 +49,32 @@ export type MetricDay = {
   avgDurationMs: number;
 };
 
+export type TaskMetricDay = {
+  date: string;
+  taskKind: 'summary' | 'plan' | 'repo-search' | 'chat';
+  runs: number;
+  inputTokens: number;
+  outputTokens: number;
+  thinkingTokens: number;
+  toolTokens: number;
+  promptCacheTokens: number;
+  promptEvalTokens: number;
+  avgDurationMs: number;
+};
+
+export type ToolTypeStats = {
+  calls: number;
+  outputCharsTotal: number;
+  outputTokensTotal: number;
+  outputTokensEstimatedCount: number;
+};
+
+export type ToolStatsByTask = Record<'summary' | 'plan' | 'repo-search' | 'chat', Record<string, ToolTypeStats>>;
+
 export type MetricsResponse = {
   days: MetricDay[];
+  taskDays: TaskMetricDay[];
+  toolStats: ToolStatsByTask;
 };
 
 export type IdleSummarySnapshot = {
@@ -60,6 +85,7 @@ export type IdleSummarySnapshot = {
   inputTokensTotal: number;
   outputTokensTotal: number;
   thinkingTokensTotal: number;
+  toolTokensTotal: number;
   promptCacheTokensTotal: number;
   promptEvalTokensTotal: number;
   savedTokens: number;
@@ -68,6 +94,8 @@ export type IdleSummarySnapshot = {
   requestDurationMsTotal: number;
   avgRequestMs: number | null;
   avgTokensPerSecond: number | null;
+  taskTotals?: Record<string, unknown>;
+  toolStats?: Record<string, unknown>;
   summaryText: string;
 };
 

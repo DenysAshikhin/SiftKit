@@ -90,10 +90,11 @@ test('status server stays responsive while repo-search is running', async () => 
         prompt: 'find x',
         repoRoot: process.cwd(),
         model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
-        maxTurns: 1,
+        maxTurns: 2,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
           '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"x\\" src"}}',
+          '{"action":"finish","output":"done","confidence":0.9}',
         ],
         mockCommandResults: {
           'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 2000 },
@@ -121,6 +122,15 @@ test('status server stays responsive while repo-search is running', async () => 
     } else {
       assert.ok(Number(finalMetrics.completedRequestCount || 0) >= baselineCompleted);
     }
+    assert.ok(Number(finalMetrics.outputTokensTotal || 0) > 0);
+    assert.ok(Number(finalMetrics.toolTokensTotal || 0) > 0);
+    const taskTotals = (finalMetrics.taskTotals as Record<string, unknown>) || {};
+    const repoTaskTotals = ((taskTotals['repo-search'] as Record<string, unknown>) || {});
+    assert.ok(Number(repoTaskTotals.outputTokensTotal || 0) > 0);
+    assert.ok(Number(repoTaskTotals.toolTokensTotal || 0) > 0);
+    const toolStats = ((finalMetrics.toolStats as Record<string, unknown>) || {});
+    const repoToolStats = ((toolStats['repo-search'] as Record<string, unknown>) || {});
+    assert.ok(Number((((repoToolStats.rg || {}) as Record<string, unknown>).calls) || 0) >= 1);
     assert.ok(Number(finalMetrics.inputCharactersTotal || 0) >= baselineInputChars + 'find x'.length);
     assert.ok(Number(finalMetrics.requestDurationMsTotal || 0) > baselineDurationMs);
   } finally {

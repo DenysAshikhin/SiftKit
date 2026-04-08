@@ -163,6 +163,29 @@ function executeRepoCommand(
   }));
 }
 
+export type ToolTypeStats = {
+  calls: number;
+  outputCharsTotal: number;
+  outputTokensTotal: number;
+  outputTokensEstimatedCount: number;
+};
+
+function normalizeToolTypeFromCommand(command: string): string {
+  const trimmed = String(command || '').trim();
+  if (!trimmed) {
+    return 'unknown';
+  }
+  const match = /^"([^"]+)"|^'([^']+)'|^([^\s]+)/u.exec(trimmed);
+  const firstToken = (match?.[1] || match?.[2] || match?.[3] || '').trim();
+  if (!firstToken) {
+    return 'unknown';
+  }
+  const normalized = firstToken.replace(/^[\\/]+/u, '').replace(/[\\/]+$/u, '');
+  const parts = normalized.split(/[\\/]/u).filter(Boolean);
+  const family = (parts[parts.length - 1] || normalized || 'unknown').trim().toLowerCase();
+  return family || 'unknown';
+}
+
 // ---------------------------------------------------------------------------
 // Signal evaluation
 // ---------------------------------------------------------------------------
@@ -226,8 +249,12 @@ export type TaskResult = {
   passed: boolean;
   missingSignals: string[];
   promptTokens: number;
+  outputTokens: number;
+  toolTokens: number;
+  thinkingTokens: number;
   promptCacheTokens: number;
   promptEvalTokens: number;
+  toolStats: Record<string, ToolTypeStats>;
 };
 
 // ---------------------------------------------------------------------------
@@ -268,14 +295,19 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   let mockResponseIndex = 0;
   let forceThinkingOnNextTurn = false;
   let modelPromptTokens = 0;
+  let modelOutputTokens = 0;
+  let modelToolTokens = 0;
+  let modelThinkingTokens = 0;
   let modelPromptCacheTokens = 0;
   let modelPromptEvalTokens = 0;
+  const toolStatsByType: Record<string, ToolTypeStats> = {};
   const attemptedCommands = new Set<string>();
   const minToolCallsBeforeFinish = Math.max(0, Number(options.minToolCallsBeforeFinish ?? MIN_TOOL_CALLS_BEFORE_FINISH));
   const thinkingInterval = Math.max(1, Math.floor(Number(options.thinkingInterval || 5)));
   const totalContextTokens = Math.max(1, Number(options.totalContextTokens || (options.config ? getConfiguredLlamaNumCtx(options.config) : 32000)));
   const thinkingBufferTokens = Math.max(Math.ceil(totalContextTokens * THINKING_BUFFER_RATIO), THINKING_BUFFER_MIN_TOKENS);
   const usablePromptTokens = Math.max(totalContextTokens - thinkingBufferTokens, 0);
+  const useEstimatedTokensOnly = Array.isArray(options.mockResponses);
   const requestMaxTokens = options.requestMaxTokens;
   const followupOnNonThinkingFinish = options.enforceThinkingFinish === true;
   let zeroOutputStreak = 0;
@@ -305,7 +337,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
 
     let prompt = renderTaskTranscript(messages);
     let preflight = await preflightPlannerPromptBudget({
-      config: options.config,
+      config: useEstimatedTokensOnly ? undefined : options.config,
       prompt,
       totalContextTokens,
       thinkingBufferTokens,
@@ -320,13 +352,13 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
 
     if (!preflight.ok) {
       const compacted = await compactPlannerMessagesOnce({
-        messages, config: options.config, maxPromptBudget: preflight.maxPromptBudget,
+        messages, config: useEstimatedTokensOnly ? undefined : options.config, maxPromptBudget: preflight.maxPromptBudget,
       });
       messages.splice(0, messages.length, ...compacted.messages);
       lastLoggedMessageCount = 0;
       prompt = renderTaskTranscript(messages);
       const afterCompaction = await preflightPlannerPromptBudget({
-        config: options.config, prompt, totalContextTokens, thinkingBufferTokens, requestMaxTokens,
+        config: useEstimatedTokensOnly ? undefined : options.config, prompt, totalContextTokens, thinkingBufferTokens, requestMaxTokens,
       });
       options.logger?.write({
         kind: 'turn_preflight_compaction_applied', taskId: task.id, turn,
@@ -396,11 +428,20 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       text: response.text, thinkingText: response.thinkingText || '',
       mockExhausted: Boolean(response.mockExhausted),
       promptTokens: Number.isFinite(response.promptTokens) ? Number(response.promptTokens) : null,
+      completionTokens: Number.isFinite(response.completionTokens) ? Number(response.completionTokens) : null,
+      usageThinkingTokens: Number.isFinite(response.usageThinkingTokens) ? Number(response.usageThinkingTokens) : null,
       promptCacheTokens: Number.isFinite(response.promptCacheTokens) ? Number(response.promptCacheTokens) : null,
       promptEvalTokens: Number.isFinite(response.promptEvalTokens) ? Number(response.promptEvalTokens) : null,
     });
 
     if (Number.isFinite(response.promptTokens) && Number(response.promptTokens) >= 0) modelPromptTokens += Number(response.promptTokens);
+    const resolvedCompletionTokens = Number.isFinite(response.completionTokens) && Number(response.completionTokens) >= 0
+      ? Number(response.completionTokens)
+      : (String(response.text || '').trim() ? estimateTokenCount(options.config, String(response.text || '')) : 0);
+    const resolvedThinkingTokens = Number.isFinite(response.usageThinkingTokens) && Number(response.usageThinkingTokens) >= 0
+      ? Number(response.usageThinkingTokens)
+      : (String(response.thinkingText || '').trim() ? estimateTokenCount(options.config, String(response.thinkingText || '')) : 0);
+    modelThinkingTokens += resolvedThinkingTokens;
     if (Number.isFinite(response.promptCacheTokens) && Number(response.promptCacheTokens) >= 0) modelPromptCacheTokens += Number(response.promptCacheTokens);
     if (Number.isFinite(response.promptEvalTokens) && Number(response.promptEvalTokens) >= 0) modelPromptEvalTokens += Number(response.promptEvalTokens);
 
@@ -411,6 +452,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       action = parsePlannerAction(response.text);
       options.logger?.write({ kind: 'turn_action_parsed', taskId: task.id, turn, action });
     } catch (error) {
+      modelOutputTokens += resolvedCompletionTokens;
       invalidResponses += 1;
       if (String(response.text || '').trim()) {
         messages.push({ role: 'assistant', content: String(response.text).trim() });
@@ -428,6 +470,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
 
     if (action.action === 'finish') {
+      modelOutputTokens += resolvedCompletionTokens;
       if (commands.length < minToolCallsBeforeFinish) {
         const warning = 'that was a shallow search, there might be more hidden references/usages. Dive deeper';
         messages.push({ role: 'assistant', content: response.text });
@@ -455,6 +498,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
 
     // Tool action
+    modelToolTokens += resolvedCompletionTokens;
     const command = action.args.command;
 
     if (inForcedFinishMode) {
@@ -514,7 +558,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       continue;
     }
 
-    const useEstimatedTokensOnly = Array.isArray(options.mockResponses);
     const promptTokenCount = useEstimatedTokensOnly
       ? estimateTokenCount(options.config, prompt)
       : await countTokensWithFallback(options.config, prompt);
@@ -570,17 +613,46 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     let resultText = suppressExitCode
       ? outputWithRewriteNote
       : `exit_code=${executed.exitCode}\n${outputWithRewriteNote}`.trim();
-    const resultTokenCount = useEstimatedTokensOnly
+    const candidateResultTokenCount = useEstimatedTokensOnly
       ? estimateTokenCount(options.config, resultText)
       : await countTokensWithFallback(options.config, resultText);
     const dynamicPerToolRatio = Math.max(PER_TOOL_RESULT_RATIO, Number(commands.length) / Number(maxTurns));
     const perToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * dynamicPerToolRatio));
     const remainingTokenAllowance = Math.max(usablePromptTokens - promptTokenCount, 0);
 
-    if (resultTokenCount > perToolCapTokens || resultTokenCount > remainingTokenAllowance) {
-      resultText = `Error: requested output would consume ${resultTokenCount} tokens, remaining token allowance: ${remainingTokenAllowance}, per tool call allowance: ${perToolCapTokens}`;
+    if (candidateResultTokenCount > perToolCapTokens || candidateResultTokenCount > remainingTokenAllowance) {
+      resultText = `Error: requested output would consume ${candidateResultTokenCount} tokens, remaining token allowance: ${remainingTokenAllowance}, per tool call allowance: ${perToolCapTokens}`;
       writeRedConsoleLine(`repo_search warning: ${resultText}`);
     }
+    let resultTokenCount = 0;
+    let resultTokenCountEstimated = false;
+    if (useEstimatedTokensOnly) {
+      resultTokenCount = estimateTokenCount(options.config, resultText);
+      resultTokenCountEstimated = true;
+    } else {
+      const exactResultTokenCount = options.config
+        ? await countLlamaCppTokens(options.config, resultText)
+        : null;
+      if (Number.isFinite(exactResultTokenCount) && Number(exactResultTokenCount) > 0) {
+        resultTokenCount = Number(exactResultTokenCount);
+      } else {
+        resultTokenCount = estimateTokenCount(options.config, resultText);
+        resultTokenCountEstimated = true;
+      }
+    }
+    const toolType = normalizeToolTypeFromCommand(commandToRun);
+    const currentToolStats = toolStatsByType[toolType] || {
+      calls: 0,
+      outputCharsTotal: 0,
+      outputTokensTotal: 0,
+      outputTokensEstimatedCount: 0,
+    };
+    toolStatsByType[toolType] = {
+      calls: currentToolStats.calls + 1,
+      outputCharsTotal: currentToolStats.outputCharsTotal + resultText.length,
+      outputTokensTotal: currentToolStats.outputTokensTotal + Math.max(0, Math.ceil(resultTokenCount)),
+      outputTokensEstimatedCount: currentToolStats.outputTokensEstimatedCount + (resultTokenCountEstimated ? 1 : 0),
+    };
 
     options.logger?.write({
       kind: 'turn_command_result', taskId: task.id, turn, command: commandToRun,
@@ -616,6 +688,14 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         mockResponseIndex = synthesisResponse.nextMockResponseIndex;
       }
       if (Number.isFinite(synthesisResponse.promptTokens) && Number(synthesisResponse.promptTokens) >= 0) modelPromptTokens += Number(synthesisResponse.promptTokens);
+      const resolvedSynthesisCompletionTokens = Number.isFinite(synthesisResponse.completionTokens) && Number(synthesisResponse.completionTokens) >= 0
+        ? Number(synthesisResponse.completionTokens)
+        : (String(synthesisResponse.text || '').trim() ? estimateTokenCount(options.config, String(synthesisResponse.text || '')) : 0);
+      const resolvedSynthesisThinkingTokens = Number.isFinite(synthesisResponse.usageThinkingTokens) && Number(synthesisResponse.usageThinkingTokens) >= 0
+        ? Number(synthesisResponse.usageThinkingTokens)
+        : (String(synthesisResponse.thinkingText || '').trim() ? estimateTokenCount(options.config, String(synthesisResponse.thinkingText || '')) : 0);
+      modelOutputTokens += resolvedSynthesisCompletionTokens;
+      modelThinkingTokens += resolvedSynthesisThinkingTokens;
       if (Number.isFinite(synthesisResponse.promptCacheTokens) && Number(synthesisResponse.promptCacheTokens) >= 0) modelPromptCacheTokens += Number(synthesisResponse.promptCacheTokens);
       if (Number.isFinite(synthesisResponse.promptEvalTokens) && Number(synthesisResponse.promptEvalTokens) >= 0) modelPromptEvalTokens += Number(synthesisResponse.promptEvalTokens);
 
@@ -646,7 +726,13 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     id: task.id, question: task.question, reason, turnsUsed, safetyRejects,
     invalidResponses, commandFailures, commands, finalOutput, passed,
     missingSignals: signalCheck.missingSignals,
-    promptTokens: modelPromptTokens, promptCacheTokens: modelPromptCacheTokens, promptEvalTokens: modelPromptEvalTokens,
+    promptTokens: modelPromptTokens,
+    outputTokens: modelOutputTokens,
+    toolTokens: modelToolTokens,
+    thinkingTokens: modelThinkingTokens,
+    promptCacheTokens: modelPromptCacheTokens,
+    promptEvalTokens: modelPromptEvalTokens,
+    toolStats: { ...toolStatsByType },
   };
 }
 
@@ -659,6 +745,7 @@ export type Scorecard = {
   model: string;
   tasks: TaskResult[];
   totals: Record<string, number>;
+  toolStats: Record<string, ToolTypeStats>;
   verdict: 'pass' | 'fail';
   failureReasons: string[];
 };
@@ -673,9 +760,29 @@ export function buildScorecard(options: { runId: string; model: string; tasks: T
     invalidResponses: options.tasks.reduce((s, t) => s + t.invalidResponses, 0),
     commandFailures: options.tasks.reduce((s, t) => s + Number(t.commandFailures || 0), 0),
     promptTokens: options.tasks.reduce((s, t) => s + Number(t.promptTokens || 0), 0),
+    outputTokens: options.tasks.reduce((s, t) => s + Number(t.outputTokens || 0), 0),
+    toolTokens: options.tasks.reduce((s, t) => s + Number(t.toolTokens || 0), 0),
+    thinkingTokens: options.tasks.reduce((s, t) => s + Number(t.thinkingTokens || 0), 0),
     promptCacheTokens: options.tasks.reduce((s, t) => s + Number(t.promptCacheTokens || 0), 0),
     promptEvalTokens: options.tasks.reduce((s, t) => s + Number(t.promptEvalTokens || 0), 0),
   };
+  const toolStats: Record<string, ToolTypeStats> = {};
+  for (const task of options.tasks) {
+    for (const [toolType, stats] of Object.entries(task.toolStats || {})) {
+      const current = toolStats[toolType] || {
+        calls: 0,
+        outputCharsTotal: 0,
+        outputTokensTotal: 0,
+        outputTokensEstimatedCount: 0,
+      };
+      toolStats[toolType] = {
+        calls: current.calls + Number(stats.calls || 0),
+        outputCharsTotal: current.outputCharsTotal + Number(stats.outputCharsTotal || 0),
+        outputTokensTotal: current.outputTokensTotal + Number(stats.outputTokensTotal || 0),
+        outputTokensEstimatedCount: current.outputTokensEstimatedCount + Number(stats.outputTokensEstimatedCount || 0),
+      };
+    }
+  }
 
   const failureReasons: string[] = [];
   for (const task of options.tasks) {
@@ -690,6 +797,7 @@ export function buildScorecard(options: { runId: string; model: string; tasks: T
     model: options.model,
     tasks: options.tasks,
     totals,
+    toolStats,
     verdict: totals.failed === 0 ? 'pass' : 'fail',
     failureReasons,
   };

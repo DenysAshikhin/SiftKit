@@ -533,13 +533,71 @@ async function startStubStatusServer(options = {}) {
     running: Boolean(options.running),
     executionLeaseToken: null,
     metrics: {
+      schemaVersion: 2,
       inputCharactersTotal: 3461904,
       outputCharactersTotal: 0,
       inputTokensTotal: 1865267,
       outputTokensTotal: 0,
       thinkingTokensTotal: 0,
+      toolTokensTotal: 0,
       requestDurationMsTotal: 0,
       completedRequestCount: 0,
+      taskTotals: {
+        summary: {
+          inputCharactersTotal: 0,
+          outputCharactersTotal: 0,
+          inputTokensTotal: 0,
+          outputTokensTotal: 0,
+          thinkingTokensTotal: 0,
+          toolTokensTotal: 0,
+          promptCacheTokensTotal: 0,
+          promptEvalTokensTotal: 0,
+          requestDurationMsTotal: 0,
+          completedRequestCount: 0,
+        },
+        plan: {
+          inputCharactersTotal: 0,
+          outputCharactersTotal: 0,
+          inputTokensTotal: 0,
+          outputTokensTotal: 0,
+          thinkingTokensTotal: 0,
+          toolTokensTotal: 0,
+          promptCacheTokensTotal: 0,
+          promptEvalTokensTotal: 0,
+          requestDurationMsTotal: 0,
+          completedRequestCount: 0,
+        },
+        'repo-search': {
+          inputCharactersTotal: 0,
+          outputCharactersTotal: 0,
+          inputTokensTotal: 0,
+          outputTokensTotal: 0,
+          thinkingTokensTotal: 0,
+          toolTokensTotal: 0,
+          promptCacheTokensTotal: 0,
+          promptEvalTokensTotal: 0,
+          requestDurationMsTotal: 0,
+          completedRequestCount: 0,
+        },
+        chat: {
+          inputCharactersTotal: 0,
+          outputCharactersTotal: 0,
+          inputTokensTotal: 0,
+          outputTokensTotal: 0,
+          thinkingTokensTotal: 0,
+          toolTokensTotal: 0,
+          promptCacheTokensTotal: 0,
+          promptEvalTokensTotal: 0,
+          requestDurationMsTotal: 0,
+          completedRequestCount: 0,
+        },
+      },
+      toolStats: {
+        summary: {},
+        plan: {},
+        'repo-search': {},
+        chat: {},
+      },
       updatedAtUtc: null,
       ...(options.metrics || {}),
     },
@@ -723,8 +781,44 @@ async function startStubStatusServer(options = {}) {
         state.metrics.inputTokensTotal += Number.isFinite(parsed.inputTokens) ? Number(parsed.inputTokens) : 0;
         state.metrics.outputTokensTotal += Number.isFinite(parsed.outputTokens) ? Number(parsed.outputTokens) : 0;
         state.metrics.thinkingTokensTotal += Number.isFinite(parsed.thinkingTokens) ? Number(parsed.thinkingTokens) : 0;
+        state.metrics.toolTokensTotal += Number.isFinite(parsed.toolTokens) ? Number(parsed.toolTokens) : 0;
         state.metrics.requestDurationMsTotal += Number.isFinite(parsed.requestDurationMs) ? Number(parsed.requestDurationMs) : 0;
         state.metrics.completedRequestCount += 1;
+        const taskKind = parsed.taskKind;
+        if (taskKind === 'summary' || taskKind === 'plan' || taskKind === 'repo-search' || taskKind === 'chat') {
+          const taskTotals = state.metrics.taskTotals[taskKind];
+          taskTotals.inputCharactersTotal += Number.isFinite(parsed.promptCharacterCount) ? Number(parsed.promptCharacterCount) : 0;
+          taskTotals.outputCharactersTotal += Number.isFinite(parsed.outputCharacterCount) ? Number(parsed.outputCharacterCount) : 0;
+          taskTotals.inputTokensTotal += Number.isFinite(parsed.inputTokens) ? Number(parsed.inputTokens) : 0;
+          taskTotals.outputTokensTotal += Number.isFinite(parsed.outputTokens) ? Number(parsed.outputTokens) : 0;
+          taskTotals.thinkingTokensTotal += Number.isFinite(parsed.thinkingTokens) ? Number(parsed.thinkingTokens) : 0;
+          taskTotals.toolTokensTotal += Number.isFinite(parsed.toolTokens) ? Number(parsed.toolTokens) : 0;
+          taskTotals.requestDurationMsTotal += Number.isFinite(parsed.requestDurationMs) ? Number(parsed.requestDurationMs) : 0;
+          taskTotals.completedRequestCount += 1;
+          if (parsed.toolStats && typeof parsed.toolStats === 'object' && !Array.isArray(parsed.toolStats)) {
+            const existing = state.metrics.toolStats[taskKind];
+            for (const [toolType, rawStats] of Object.entries(parsed.toolStats)) {
+              if (!rawStats || typeof rawStats !== 'object' || Array.isArray(rawStats)) {
+                continue;
+              }
+              const current = existing[toolType] || {
+                calls: 0,
+                outputCharsTotal: 0,
+                outputTokensTotal: 0,
+                outputTokensEstimatedCount: 0,
+              };
+              const stats = rawStats as Record<string, unknown>;
+              existing[toolType] = {
+                calls: current.calls + (Number.isFinite(stats.calls) ? Number(stats.calls) : 0),
+                outputCharsTotal: current.outputCharsTotal + (Number.isFinite(stats.outputCharsTotal) ? Number(stats.outputCharsTotal) : 0),
+                outputTokensTotal: current.outputTokensTotal + (Number.isFinite(stats.outputTokensTotal) ? Number(stats.outputTokensTotal) : 0),
+                outputTokensEstimatedCount: current.outputTokensEstimatedCount + (
+                  Number.isFinite(stats.outputTokensEstimatedCount) ? Number(stats.outputTokensEstimatedCount) : 0
+                ),
+              };
+            }
+          }
+        }
         state.metrics.updatedAtUtc = new Date().toISOString();
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });

@@ -450,11 +450,20 @@ test('real status server persists aggregate metrics and exposes them from GET /s
     await withRealStatusServer(async ({ statusUrl }) => {
       await requestJson(statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: true, rawInputCharacterCount: 400 }),
+        body: JSON.stringify({ running: true, rawInputCharacterCount: 400, taskKind: 'summary' }),
       });
       await requestJson(statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: false, promptCharacterCount: 410, inputTokens: 100, outputCharacterCount: 120, outputTokens: 25, requestDurationMs: 800 }),
+        body: JSON.stringify({
+          running: false,
+          taskKind: 'summary',
+          promptCharacterCount: 410,
+          inputTokens: 100,
+          outputCharacterCount: 120,
+          outputTokens: 25,
+          toolTokens: 7,
+          requestDurationMs: 800,
+        }),
       });
 
       const status = await requestJson(statusUrl);
@@ -463,8 +472,13 @@ test('real status server persists aggregate metrics and exposes them from GET /s
       assert.equal(status.metrics.inputTokensTotal, 100);
       assert.equal(status.metrics.outputTokensTotal, 25);
       assert.equal(status.metrics.thinkingTokensTotal, 0);
+      assert.equal(status.metrics.toolTokensTotal, 7);
       assert.equal(status.metrics.requestDurationMsTotal, 800);
       assert.ok(status.metrics.completedRequestCount >= 0);
+      assert.equal(status.metrics.taskTotals.summary.inputTokensTotal, 100);
+      assert.equal(status.metrics.taskTotals.summary.outputTokensTotal, 25);
+      assert.equal(status.metrics.taskTotals.summary.toolTokensTotal, 7);
+      assert.equal(status.metrics.taskTotals.plan.inputTokensTotal, 0);
       assert.equal(typeof status.metrics.updatedAtUtc, 'string');
       assert.equal(fs.existsSync(metricsPath), true);
     }, {
@@ -480,6 +494,10 @@ test('real status server persists aggregate metrics and exposes them from GET /s
       assert.equal(status.metrics.inputTokensTotal, 100);
       assert.equal(status.metrics.outputTokensTotal, 25);
       assert.equal(status.metrics.thinkingTokensTotal, 0);
+      assert.equal(status.metrics.toolTokensTotal, 7);
+      assert.equal(status.metrics.taskTotals.summary.inputTokensTotal, 100);
+      assert.equal(status.metrics.taskTotals.summary.outputTokensTotal, 25);
+      assert.equal(status.metrics.taskTotals.summary.toolTokensTotal, 7);
       assert.equal(status.metrics.requestDurationMsTotal, 800);
       assert.ok(status.metrics.completedRequestCount >= 0);
     }, {
@@ -865,6 +883,95 @@ test('real status server falls back to zeroed metrics when the metrics cache is 
   });
 });
 
+test('real status server resets metrics and idle summary store when metrics schema is outdated', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const metricsPath = path.join(tempRoot, 'metrics', 'compression.json');
+    const idleSummaryDbPath = path.join(tempRoot, 'status', 'idle-summary.sqlite');
+
+    fs.mkdirSync(path.dirname(metricsPath), { recursive: true });
+    fs.writeFileSync(metricsPath, JSON.stringify({
+      inputCharactersTotal: 99,
+      inputTokensTotal: 22,
+      outputTokensTotal: 11,
+    }, null, 2), 'utf8');
+
+    fs.mkdirSync(path.dirname(idleSummaryDbPath), { recursive: true });
+    const database = new Database(idleSummaryDbPath);
+    try {
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS idle_summary_snapshots (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          emitted_at_utc TEXT NOT NULL,
+          completed_request_count INTEGER NOT NULL,
+          input_characters_total INTEGER NOT NULL,
+          output_characters_total INTEGER NOT NULL,
+          input_tokens_total INTEGER NOT NULL,
+          output_tokens_total INTEGER NOT NULL,
+          thinking_tokens_total INTEGER NOT NULL,
+          saved_tokens INTEGER NOT NULL,
+          saved_percent REAL,
+          compression_ratio REAL,
+          request_duration_ms_total INTEGER NOT NULL,
+          avg_request_ms REAL,
+          avg_tokens_per_second REAL
+        );
+      `);
+      database.prepare(`
+        INSERT INTO idle_summary_snapshots (
+          emitted_at_utc,
+          completed_request_count,
+          input_characters_total,
+          output_characters_total,
+          input_tokens_total,
+          output_tokens_total,
+          thinking_tokens_total,
+          saved_tokens,
+          saved_percent,
+          compression_ratio,
+          request_duration_ms_total,
+          avg_request_ms,
+          avg_tokens_per_second
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        '2026-04-08T00:00:00.000Z',
+        1,
+        100,
+        25,
+        50,
+        10,
+        0,
+        40,
+        0.8,
+        5.0,
+        1000,
+        1000,
+        10.0,
+      );
+    } finally {
+      database.close();
+    }
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      const status = await requestJson(statusUrl);
+      assert.equal(status.metrics.schemaVersion, 2);
+      assert.equal(status.metrics.inputCharactersTotal, 0);
+      assert.equal(status.metrics.inputTokensTotal, 0);
+      assert.equal(status.metrics.outputTokensTotal, 0);
+      assert.equal(status.metrics.toolTokensTotal, 0);
+      assert.equal(status.metrics.completedRequestCount, 0);
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+      idleSummaryDbPath,
+    });
+
+    assert.equal(fs.existsSync(idleSummaryDbPath), false);
+  });
+});
+
 test('real status server accumulates provider payload totals across a chunked request while counting one completed request', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
@@ -910,6 +1017,65 @@ test('real status server accumulates provider payload totals across a chunked re
       assert.equal(status.metrics.thinkingTokensTotal, 0);
       assert.equal(status.metrics.requestDurationMsTotal, 260);
       assert.equal(status.metrics.completedRequestCount, 1);
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
+test('real status server aggregates task-scoped tool stats and tool tokens', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const requestId = 'tool-stats-request';
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          running: true,
+          requestId,
+          taskKind: 'repo-search',
+          rawInputCharacterCount: 150,
+          promptCharacterCount: 150,
+          promptTokenCount: 30,
+        }),
+      });
+      await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          running: false,
+          requestId,
+          taskKind: 'repo-search',
+          terminalState: 'completed',
+          promptCharacterCount: 150,
+          inputTokens: 30,
+          outputCharacterCount: 80,
+          outputTokens: 12,
+          toolTokens: 9,
+          requestDurationMs: 90,
+          toolStats: {
+            rg: {
+              calls: 2,
+              outputCharsTotal: 210,
+              outputTokensTotal: 44,
+              outputTokensEstimatedCount: 1,
+            },
+          },
+        }),
+      });
+
+      const status = await requestJson(statusUrl);
+      assert.equal(status.metrics.outputTokensTotal, 12);
+      assert.equal(status.metrics.toolTokensTotal, 9);
+      assert.equal(status.metrics.taskTotals['repo-search'].outputTokensTotal, 12);
+      assert.equal(status.metrics.taskTotals['repo-search'].toolTokensTotal, 9);
+      assert.equal(status.metrics.toolStats['repo-search'].rg.calls, 2);
+      assert.equal(status.metrics.toolStats['repo-search'].rg.outputCharsTotal, 210);
+      assert.equal(status.metrics.toolStats['repo-search'].rg.outputTokensTotal, 44);
+      assert.equal(status.metrics.toolStats['repo-search'].rg.outputTokensEstimatedCount, 1);
     }, {
       statusPath,
       configPath,
@@ -1585,4 +1751,4 @@ test('real status server keeps emitting idle summaries when sqlite persistence f
     }
   });
 });
-
+

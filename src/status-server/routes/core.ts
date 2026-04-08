@@ -18,7 +18,7 @@ import {
   parseRunning,
   parseStatusMetadata,
 } from '../status-file.js';
-import { normalizeMetrics, writeMetrics } from '../metrics.js';
+import { normalizeMetrics, writeMetrics, type TaskKind, type ToolTypeStats } from '../metrics.js';
 import {
   readConfig,
   writeConfig,
@@ -52,6 +52,67 @@ import type {
   ActiveRunState,
   ServerContext,
 } from '../server-types.js';
+
+function mergeToolTypeStats(
+  previous: Record<string, ToolTypeStats>,
+  update: Record<string, ToolTypeStats> | null,
+): Record<string, ToolTypeStats> {
+  if (!update || Object.keys(update).length === 0) {
+    return previous;
+  }
+  const merged: Record<string, ToolTypeStats> = { ...previous };
+  for (const [toolTypeRaw, stats] of Object.entries(update)) {
+    const toolType = String(toolTypeRaw || '').trim();
+    if (!toolType) {
+      continue;
+    }
+    const nextStats = stats && typeof stats === 'object' ? stats : null;
+    if (!nextStats) {
+      continue;
+    }
+    const current = merged[toolType] || {
+      calls: 0,
+      outputCharsTotal: 0,
+      outputTokensTotal: 0,
+      outputTokensEstimatedCount: 0,
+    };
+    merged[toolType] = {
+      calls: current.calls + (Number.isFinite(nextStats.calls) ? Number(nextStats.calls) : 0),
+      outputCharsTotal: current.outputCharsTotal + (Number.isFinite(nextStats.outputCharsTotal) ? Number(nextStats.outputCharsTotal) : 0),
+      outputTokensTotal: current.outputTokensTotal + (Number.isFinite(nextStats.outputTokensTotal) ? Number(nextStats.outputTokensTotal) : 0),
+      outputTokensEstimatedCount: current.outputTokensEstimatedCount + (
+        Number.isFinite(nextStats.outputTokensEstimatedCount) ? Number(nextStats.outputTokensEstimatedCount) : 0
+      ),
+    };
+  }
+  return merged;
+}
+
+function normalizeTaskKind(value: unknown): TaskKind | null {
+  return value === 'summary' || value === 'plan' || value === 'repo-search' || value === 'chat'
+    ? value
+    : null;
+}
+
+function buildToolStatsLogMessages(taskKind: TaskKind, stats: Record<string, ToolTypeStats> | null): string[] {
+  if (!stats || typeof stats !== 'object' || Array.isArray(stats)) {
+    return [];
+  }
+  const lines: string[] = [];
+  for (const [toolType, toolStats] of Object.entries(stats)) {
+    const safeToolType = String(toolType || '').trim();
+    if (!safeToolType) {
+      continue;
+    }
+    lines.push(
+      `tool_stats task=${taskKind} tool=${safeToolType} calls=${Math.max(0, Number(toolStats.calls || 0))}`
+      + ` output_chars=${Math.max(0, Number(toolStats.outputCharsTotal || 0))}`
+      + ` output_tokens=${Math.max(0, Number(toolStats.outputTokensTotal || 0))}`
+      + ` output_tokens_estimated=${Math.max(0, Number(toolStats.outputTokensEstimatedCount || 0))}`,
+    );
+  }
+  return lines;
+}
 
 export async function handleCoreRoute(
   ctx: ServerContext,
@@ -174,6 +235,7 @@ export async function handleCoreRoute(
     try {
       const executeRepoSearchRequest = loadRepoSearchExecutor();
       const result = await executeRepoSearchRequest({
+        taskKind: 'repo-search',
         prompt: parsedBody.prompt,
         repoRoot: typeof parsedBody.repoRoot === 'string' && (parsedBody.repoRoot as string).trim() ? (parsedBody.repoRoot as string).trim() : process.cwd(),
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
@@ -237,6 +299,7 @@ export async function handleCoreRoute(
     const isArtifactOnlyPost = metadata.artifactType !== null
       && metadata.terminalState === null
       && metadata.errorMessage === null
+      && metadata.taskKind === null
       && metadata.promptCharacterCount === null
       && metadata.promptTokenCount === null
       && metadata.rawInputCharacterCount === null
@@ -247,7 +310,9 @@ export async function handleCoreRoute(
       && metadata.inputTokens === null
       && metadata.outputCharacterCount === null
       && metadata.outputTokens === null
+      && metadata.toolTokens === null
       && metadata.thinkingTokens === null
+      && metadata.toolStats === null
       && metadata.promptCacheTokens === null
       && metadata.promptEvalTokens === null
       && metadata.requestDurationMs === null;
@@ -370,20 +435,60 @@ export async function handleCoreRoute(
           clearRunState(ctx, requestId);
         }
       }
+      const inputCharactersDelta = metadata.promptCharacterCount ?? 0;
+      const outputCharactersDelta = metadata.outputCharacterCount ?? 0;
+      const inputTokensDelta = metadata.inputTokens ?? 0;
+      const outputTokensDelta = metadata.outputTokens ?? 0;
+      const toolTokensDelta = metadata.toolTokens ?? 0;
+      const thinkingTokensDelta = metadata.thinkingTokens ?? 0;
+      const promptCacheTokensDelta = metadata.promptCacheTokens ?? 0;
+      const promptEvalTokensDelta = metadata.promptEvalTokens ?? 0;
+      const requestDurationMsDelta = (
+        metadata.requestDurationMs
+        ?? (metadata.terminalState ? 0 : (elapsedMs ?? 0))
+      );
+      const completedRequestDelta = requestCompleted ? 1 : 0;
+      const taskKind = normalizeTaskKind(metadata.taskKind);
+      const taskTotals = {
+        ...ctx.metrics.taskTotals,
+      };
+      const toolStats = {
+        ...ctx.metrics.toolStats,
+      };
+      if (taskKind) {
+        const previousTaskTotals = ctx.metrics.taskTotals[taskKind];
+        taskTotals[taskKind] = {
+          ...previousTaskTotals,
+          inputCharactersTotal: previousTaskTotals.inputCharactersTotal + inputCharactersDelta,
+          outputCharactersTotal: previousTaskTotals.outputCharactersTotal + outputCharactersDelta,
+          inputTokensTotal: previousTaskTotals.inputTokensTotal + inputTokensDelta,
+          outputTokensTotal: previousTaskTotals.outputTokensTotal + outputTokensDelta,
+          toolTokensTotal: previousTaskTotals.toolTokensTotal + toolTokensDelta,
+          thinkingTokensTotal: previousTaskTotals.thinkingTokensTotal + thinkingTokensDelta,
+          promptCacheTokensTotal: previousTaskTotals.promptCacheTokensTotal + promptCacheTokensDelta,
+          promptEvalTokensTotal: previousTaskTotals.promptEvalTokensTotal + promptEvalTokensDelta,
+          requestDurationMsTotal: previousTaskTotals.requestDurationMsTotal + requestDurationMsDelta,
+          completedRequestCount: previousTaskTotals.completedRequestCount + completedRequestDelta,
+        };
+        toolStats[taskKind] = mergeToolTypeStats(
+          ctx.metrics.toolStats[taskKind],
+          metadata.toolStats,
+        );
+      }
       ctx.metrics = normalizeMetrics({
         ...ctx.metrics,
-        inputCharactersTotal: ctx.metrics.inputCharactersTotal + (metadata.promptCharacterCount ?? 0),
-        outputCharactersTotal: ctx.metrics.outputCharactersTotal + (metadata.outputCharacterCount ?? 0),
-        inputTokensTotal: ctx.metrics.inputTokensTotal + (metadata.inputTokens ?? 0),
-        outputTokensTotal: ctx.metrics.outputTokensTotal + (metadata.outputTokens ?? 0),
-        thinkingTokensTotal: ctx.metrics.thinkingTokensTotal + (metadata.thinkingTokens ?? 0),
-        promptCacheTokensTotal: ctx.metrics.promptCacheTokensTotal + (metadata.promptCacheTokens ?? 0),
-        promptEvalTokensTotal: ctx.metrics.promptEvalTokensTotal + (metadata.promptEvalTokens ?? 0),
-        requestDurationMsTotal: ctx.metrics.requestDurationMsTotal + (
-          metadata.requestDurationMs
-          ?? (metadata.terminalState ? 0 : (elapsedMs ?? 0))
-        ),
-        completedRequestCount: ctx.metrics.completedRequestCount + (requestCompleted ? 1 : 0),
+        inputCharactersTotal: ctx.metrics.inputCharactersTotal + inputCharactersDelta,
+        outputCharactersTotal: ctx.metrics.outputCharactersTotal + outputCharactersDelta,
+        inputTokensTotal: ctx.metrics.inputTokensTotal + inputTokensDelta,
+        outputTokensTotal: ctx.metrics.outputTokensTotal + outputTokensDelta,
+        toolTokensTotal: ctx.metrics.toolTokensTotal + toolTokensDelta,
+        thinkingTokensTotal: ctx.metrics.thinkingTokensTotal + thinkingTokensDelta,
+        promptCacheTokensTotal: ctx.metrics.promptCacheTokensTotal + promptCacheTokensDelta,
+        promptEvalTokensTotal: ctx.metrics.promptEvalTokensTotal + promptEvalTokensDelta,
+        requestDurationMsTotal: ctx.metrics.requestDurationMsTotal + requestDurationMsDelta,
+        completedRequestCount: ctx.metrics.completedRequestCount + completedRequestDelta,
+        taskTotals,
+        toolStats,
         updatedAtUtc: new Date().toISOString(),
       });
       writeMetrics(metricsPath, ctx.metrics);
@@ -396,6 +501,7 @@ export async function handleCoreRoute(
       running,
       statusPath,
       requestId,
+      taskKind: metadata.taskKind,
       terminalState: metadata.terminalState,
       errorMessage: metadata.errorMessage,
       promptCharacterCount: metadata.promptCharacterCount,
@@ -411,10 +517,19 @@ export async function handleCoreRoute(
       elapsedMs,
       totalElapsedMs,
       outputTokens: metadata.outputTokens,
+      toolTokens: metadata.toolTokens,
       totalOutputTokens: metadata.totalOutputTokens ?? null,
     });
     if (!suppressLogLine) {
       logLine(logMessage);
+    }
+    if (!running) {
+      const taskKind = normalizeTaskKind(metadata.taskKind);
+      if (taskKind && metadata.toolStats) {
+        for (const toolLogLine of buildToolStatsLogMessages(taskKind, metadata.toolStats)) {
+          logLine(toolLogLine);
+        }
+      }
     }
     const publishedStatus = getPublishedStatusText(ctx);
     writePublishedStatus(ctx, publishedStatus);

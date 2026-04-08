@@ -72,6 +72,7 @@ export type NotifyStatusBackendOptions = {
   statusBackendUrl?: string | null;
   busyRetryMaxRetries?: number;
   busyRetryDelayMs?: number;
+  taskKind?: 'summary' | 'plan' | 'repo-search' | 'chat' | null;
   requestId?: string | null;
   terminalState?: 'completed' | 'failed' | null;
   errorMessage?: string | null;
@@ -89,7 +90,14 @@ export type NotifyStatusBackendOptions = {
   inputTokens?: number | null;
   outputCharacterCount?: number | null;
   outputTokens?: number | null;
+  toolTokens?: number | null;
   thinkingTokens?: number | null;
+  toolStats?: Record<string, {
+    calls?: number;
+    outputCharsTotal?: number;
+    outputTokensTotal?: number;
+    outputTokensEstimatedCount?: number;
+  }> | null;
   promptCacheTokens?: number | null;
   promptEvalTokens?: number | null;
   requestDurationMs?: number | null;
@@ -108,6 +116,9 @@ export async function notifyStatusBackend(options: NotifyStatusBackendOptions): 
 
   if (options.requestId && options.requestId.trim()) {
     body.requestId = options.requestId.trim();
+  }
+  if (options.taskKind === 'summary' || options.taskKind === 'plan' || options.taskKind === 'repo-search' || options.taskKind === 'chat') {
+    body.taskKind = options.taskKind;
   }
   if (!options.running && options.terminalState) {
     body.terminalState = options.terminalState;
@@ -161,8 +172,14 @@ export async function notifyStatusBackend(options: NotifyStatusBackendOptions): 
   if (!options.running && options.outputTokens !== undefined && options.outputTokens !== null) {
     body.outputTokens = options.outputTokens;
   }
+  if (!options.running && options.toolTokens !== undefined && options.toolTokens !== null) {
+    body.toolTokens = options.toolTokens;
+  }
   if (!options.running && options.thinkingTokens !== undefined && options.thinkingTokens !== null) {
     body.thinkingTokens = options.thinkingTokens;
+  }
+  if (!options.running && options.toolStats && typeof options.toolStats === 'object' && !Array.isArray(options.toolStats)) {
+    body.toolStats = options.toolStats;
   }
   if (!options.running && options.promptCacheTokens !== undefined && options.promptCacheTokens !== null) {
     body.promptCacheTokens = options.promptCacheTokens;

@@ -12,13 +12,23 @@ import {
 } from '../lib/text-format.js';
 
 import type { Dict } from '../lib/types.js';
+import {
+  TASK_KINDS,
+  type MetricTotals,
+  type TaskKind,
+  type ToolTypeStats,
+} from './metrics.js';
 type DatabaseInstance = InstanceType<typeof Database>;
+
+export type SnapshotTaskTotals = Record<TaskKind, MetricTotals>;
+export type SnapshotToolStats = Record<TaskKind, Record<string, ToolTypeStats>>;
 
 export type IdleSummarySnapshot = {
   emittedAtUtc: string;
   inputTokensTotal: number;
   outputTokensTotal: number;
   thinkingTokensTotal: number;
+  toolTokensTotal: number;
   promptCacheTokensTotal: number;
   promptEvalTokensTotal: number;
   inputCharactersTotal: number;
@@ -33,14 +43,160 @@ export type IdleSummarySnapshot = {
   avgTokensPerSecond: number;
   inputCharactersPerContextToken: number | null;
   chunkThresholdCharacters: number | null;
+  taskTotals: SnapshotTaskTotals;
+  toolStats: SnapshotToolStats;
 };
 
 export type IdleSummarySnapshotRow = IdleSummarySnapshot & { summaryText: string };
+
+function toNonNegativeNumber(value: unknown): number {
+  return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : 0;
+}
+
+function getDefaultTaskTotals(): SnapshotTaskTotals {
+  return {
+    summary: {
+      inputCharactersTotal: 0,
+      outputCharactersTotal: 0,
+      inputTokensTotal: 0,
+      outputTokensTotal: 0,
+      thinkingTokensTotal: 0,
+      toolTokensTotal: 0,
+      promptCacheTokensTotal: 0,
+      promptEvalTokensTotal: 0,
+      requestDurationMsTotal: 0,
+      completedRequestCount: 0,
+    },
+    plan: {
+      inputCharactersTotal: 0,
+      outputCharactersTotal: 0,
+      inputTokensTotal: 0,
+      outputTokensTotal: 0,
+      thinkingTokensTotal: 0,
+      toolTokensTotal: 0,
+      promptCacheTokensTotal: 0,
+      promptEvalTokensTotal: 0,
+      requestDurationMsTotal: 0,
+      completedRequestCount: 0,
+    },
+    'repo-search': {
+      inputCharactersTotal: 0,
+      outputCharactersTotal: 0,
+      inputTokensTotal: 0,
+      outputTokensTotal: 0,
+      thinkingTokensTotal: 0,
+      toolTokensTotal: 0,
+      promptCacheTokensTotal: 0,
+      promptEvalTokensTotal: 0,
+      requestDurationMsTotal: 0,
+      completedRequestCount: 0,
+    },
+    chat: {
+      inputCharactersTotal: 0,
+      outputCharactersTotal: 0,
+      inputTokensTotal: 0,
+      outputTokensTotal: 0,
+      thinkingTokensTotal: 0,
+      toolTokensTotal: 0,
+      promptCacheTokensTotal: 0,
+      promptEvalTokensTotal: 0,
+      requestDurationMsTotal: 0,
+      completedRequestCount: 0,
+    },
+  };
+}
+
+function normalizeTaskTotals(input: unknown): SnapshotTaskTotals {
+  const totals = getDefaultTaskTotals();
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return totals;
+  }
+  const record = input as Dict;
+  for (const taskKind of TASK_KINDS) {
+    const taskTotals = record[taskKind];
+    if (!taskTotals || typeof taskTotals !== 'object' || Array.isArray(taskTotals)) {
+      continue;
+    }
+    const taskRecord = taskTotals as Dict;
+    totals[taskKind] = {
+      inputCharactersTotal: toNonNegativeNumber(taskRecord.inputCharactersTotal),
+      outputCharactersTotal: toNonNegativeNumber(taskRecord.outputCharactersTotal),
+      inputTokensTotal: toNonNegativeNumber(taskRecord.inputTokensTotal),
+      outputTokensTotal: toNonNegativeNumber(taskRecord.outputTokensTotal),
+      thinkingTokensTotal: toNonNegativeNumber(taskRecord.thinkingTokensTotal),
+      toolTokensTotal: toNonNegativeNumber(taskRecord.toolTokensTotal),
+      promptCacheTokensTotal: toNonNegativeNumber(taskRecord.promptCacheTokensTotal),
+      promptEvalTokensTotal: toNonNegativeNumber(taskRecord.promptEvalTokensTotal),
+      requestDurationMsTotal: toNonNegativeNumber(taskRecord.requestDurationMsTotal),
+      completedRequestCount: toNonNegativeNumber(taskRecord.completedRequestCount),
+    };
+  }
+  return totals;
+}
+
+function getDefaultToolStats(): SnapshotToolStats {
+  return {
+    summary: {},
+    plan: {},
+    'repo-search': {},
+    chat: {},
+  };
+}
+
+function normalizeToolStats(input: unknown): SnapshotToolStats {
+  const stats = getDefaultToolStats();
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return stats;
+  }
+  const record = input as Dict;
+  for (const taskKind of TASK_KINDS) {
+    const taskStats = record[taskKind];
+    if (!taskStats || typeof taskStats !== 'object' || Array.isArray(taskStats)) {
+      continue;
+    }
+    const normalizedByType: Record<string, ToolTypeStats> = {};
+    for (const [toolTypeRaw, rawStats] of Object.entries(taskStats as Dict)) {
+      const toolType = String(toolTypeRaw || '').trim();
+      if (!toolType || !rawStats || typeof rawStats !== 'object' || Array.isArray(rawStats)) {
+        continue;
+      }
+      const statRecord = rawStats as Dict;
+      normalizedByType[toolType] = {
+        calls: toNonNegativeNumber(statRecord.calls),
+        outputCharsTotal: toNonNegativeNumber(statRecord.outputCharsTotal),
+        outputTokensTotal: toNonNegativeNumber(statRecord.outputTokensTotal),
+        outputTokensEstimatedCount: toNonNegativeNumber(statRecord.outputTokensEstimatedCount),
+      };
+    }
+    stats[taskKind] = normalizedByType;
+  }
+  return stats;
+}
+
+function parseJsonRecord(value: unknown): unknown {
+  if (typeof value !== 'string' || !value.trim()) {
+    return null;
+  }
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+export function parseSnapshotTaskTotalsJson(value: unknown): SnapshotTaskTotals {
+  return normalizeTaskTotals(parseJsonRecord(value));
+}
+
+export function parseSnapshotToolStatsJson(value: unknown): SnapshotToolStats {
+  return normalizeToolStats(parseJsonRecord(value));
+}
 
 export function buildIdleSummarySnapshot(metrics: Dict, emittedAt: Date = new Date()): IdleSummarySnapshot {
   const inputTokensTotal = Number(metrics.inputTokensTotal) || 0;
   const outputTokensTotal = Number(metrics.outputTokensTotal) || 0;
   const thinkingTokensTotal = Number(metrics.thinkingTokensTotal) || 0;
+  const toolTokensTotal = Number(metrics.toolTokensTotal) || 0;
   const promptCacheTokensTotal = Number(metrics.promptCacheTokensTotal) || 0;
   const promptEvalTokensTotal = Number(metrics.promptEvalTokensTotal) || 0;
   const inputCharactersTotal = Number(metrics.inputCharactersTotal) || 0;
@@ -61,11 +217,14 @@ export function buildIdleSummarySnapshot(metrics: Dict, emittedAt: Date = new Da
   const chunkThresholdCharacters = Number.isFinite(metrics.chunkThresholdCharacters) && Number(metrics.chunkThresholdCharacters) > 0
     ? Number(metrics.chunkThresholdCharacters)
     : null;
+  const taskTotals = normalizeTaskTotals(metrics.taskTotals);
+  const toolStats = normalizeToolStats(metrics.toolStats);
   return {
     emittedAtUtc: emittedAt.toISOString(),
     inputTokensTotal,
     outputTokensTotal,
     thinkingTokensTotal,
+    toolTokensTotal,
     promptCacheTokensTotal,
     promptEvalTokensTotal,
     inputCharactersTotal,
@@ -80,6 +239,8 @@ export function buildIdleSummarySnapshot(metrics: Dict, emittedAt: Date = new Da
     avgTokensPerSecond,
     inputCharactersPerContextToken,
     chunkThresholdCharacters,
+    taskTotals,
+    toolStats,
   };
 }
 
@@ -129,8 +290,11 @@ export function ensureIdleSummarySnapshotsTable(database: DatabaseInstance): voi
       input_tokens_total INTEGER NOT NULL,
       output_tokens_total INTEGER NOT NULL,
       thinking_tokens_total INTEGER NOT NULL,
+      tool_tokens_total INTEGER NOT NULL DEFAULT 0,
       prompt_cache_tokens_total INTEGER NOT NULL DEFAULT 0,
       prompt_eval_tokens_total INTEGER NOT NULL DEFAULT 0,
+      task_totals_json TEXT NOT NULL DEFAULT '{}',
+      tool_stats_json TEXT NOT NULL DEFAULT '{}',
       saved_tokens INTEGER NOT NULL,
       saved_percent REAL,
       compression_ratio REAL,
@@ -150,6 +314,15 @@ export function ensureIdleSummarySnapshotsTable(database: DatabaseInstance): voi
   if (!existingColumns.includes('prompt_eval_tokens_total')) {
     database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN prompt_eval_tokens_total INTEGER NOT NULL DEFAULT 0;');
   }
+  if (!existingColumns.includes('tool_tokens_total')) {
+    database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN tool_tokens_total INTEGER NOT NULL DEFAULT 0;');
+  }
+  if (!existingColumns.includes('task_totals_json')) {
+    database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN task_totals_json TEXT NOT NULL DEFAULT \'{}\';');
+  }
+  if (!existingColumns.includes('tool_stats_json')) {
+    database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN tool_stats_json TEXT NOT NULL DEFAULT \'{}\';');
+  }
 }
 
 export function persistIdleSummarySnapshot(database: DatabaseInstance, snapshot: IdleSummarySnapshot): void {
@@ -162,15 +335,18 @@ export function persistIdleSummarySnapshot(database: DatabaseInstance, snapshot:
       input_tokens_total,
       output_tokens_total,
       thinking_tokens_total,
+      tool_tokens_total,
       prompt_cache_tokens_total,
       prompt_eval_tokens_total,
+      task_totals_json,
+      tool_stats_json,
       saved_tokens,
       saved_percent,
       compression_ratio,
       request_duration_ms_total,
       avg_request_ms,
       avg_tokens_per_second
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     snapshot.emittedAtUtc,
     snapshot.completedRequestCount,
@@ -179,8 +355,11 @@ export function persistIdleSummarySnapshot(database: DatabaseInstance, snapshot:
     snapshot.inputTokensTotal,
     snapshot.outputTokensTotal,
     snapshot.thinkingTokensTotal,
+    snapshot.toolTokensTotal,
     snapshot.promptCacheTokensTotal,
     snapshot.promptEvalTokensTotal,
+    JSON.stringify(snapshot.taskTotals),
+    JSON.stringify(snapshot.toolStats),
     snapshot.savedTokens,
     normalizeSqlNumber(snapshot.savedPercent),
     normalizeSqlNumber(snapshot.compressionRatio),
@@ -199,9 +378,11 @@ export type SnapshotTotals = {
   inputTokensTotal: number;
   outputTokensTotal: number;
   thinkingTokensTotal: number;
+  toolTokensTotal: number;
   promptCacheTokensTotal: number;
   promptEvalTokensTotal: number;
   requestDurationMsTotal: number;
+  taskTotals: SnapshotTaskTotals;
 };
 
 export function querySnapshotTotalsBeforeDate(database: DatabaseInstance | null, dateKey: string): SnapshotTotals | null {
@@ -215,9 +396,11 @@ export function querySnapshotTotalsBeforeDate(database: DatabaseInstance | null,
         input_tokens_total,
         output_tokens_total,
         thinking_tokens_total,
+        tool_tokens_total,
         prompt_cache_tokens_total,
         prompt_eval_tokens_total,
-        request_duration_ms_total
+        request_duration_ms_total,
+        task_totals_json
       FROM idle_summary_snapshots
       WHERE emitted_at_utc < ?
       ORDER BY emitted_at_utc DESC, id DESC
@@ -232,9 +415,11 @@ export function querySnapshotTotalsBeforeDate(database: DatabaseInstance | null,
     inputTokensTotal: Number(row.input_tokens_total) || 0,
     outputTokensTotal: Number(row.output_tokens_total) || 0,
     thinkingTokensTotal: Number(row.thinking_tokens_total) || 0,
+    toolTokensTotal: Number(row.tool_tokens_total) || 0,
     promptCacheTokensTotal: Number(row.prompt_cache_tokens_total) || 0,
     promptEvalTokensTotal: Number(row.prompt_eval_tokens_total) || 0,
     requestDurationMsTotal: Number(row.request_duration_ms_total) || 0,
+    taskTotals: parseSnapshotTaskTotalsJson(row.task_totals_json),
   };
 }
 
@@ -252,9 +437,12 @@ export function querySnapshotTimeseries(database: DatabaseInstance | null): Snap
         input_tokens_total,
         output_tokens_total,
         thinking_tokens_total,
+        tool_tokens_total,
         prompt_cache_tokens_total,
         prompt_eval_tokens_total,
-        request_duration_ms_total
+        request_duration_ms_total,
+        task_totals_json,
+        tool_stats_json
       FROM idle_summary_snapshots
       ORDER BY emitted_at_utc ASC, id ASC
     `)
@@ -265,8 +453,8 @@ export function queryRecentSnapshots(database: DatabaseInstance, limit: number):
   return database
     .prepare(`
       SELECT emitted_at_utc, completed_request_count, input_characters_total, output_characters_total,
-             input_tokens_total, output_tokens_total, thinking_tokens_total, prompt_cache_tokens_total,
-             prompt_eval_tokens_total, saved_tokens, saved_percent, compression_ratio,
+             input_tokens_total, output_tokens_total, thinking_tokens_total, tool_tokens_total, prompt_cache_tokens_total,
+             prompt_eval_tokens_total, task_totals_json, tool_stats_json, saved_tokens, saved_percent, compression_ratio,
              request_duration_ms_total, avg_request_ms, avg_tokens_per_second
       FROM idle_summary_snapshots ORDER BY id DESC LIMIT ?
     `)

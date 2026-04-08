@@ -9,6 +9,8 @@ import {
   loadDashboardRuns,
   buildDashboardRunDetail,
   buildDashboardDailyMetrics,
+  buildDashboardTaskDailyMetrics,
+  buildDashboardToolStats,
   normalizeIdleSummarySnapshotRow,
   type IdleSummarySnapshotRow,
 } from '../dashboard-runs.js';
@@ -60,12 +62,15 @@ export async function handleDashboardRoute(
   }
 
   if (req.method === 'GET' && pathname === '/dashboard/metrics/timeseries') {
+    const idleSummaryDatabase = fs.existsSync(idleSummarySnapshotsPath) ? getIdleSummaryDatabase(ctx) : null;
     const days = buildDashboardDailyMetrics(
       runtimeRoot,
-      fs.existsSync(idleSummarySnapshotsPath) ? getIdleSummaryDatabase(ctx) : null,
+      idleSummaryDatabase,
       ctx.metrics
     );
-    sendJson(res, 200, { days });
+    const taskDays = buildDashboardTaskDailyMetrics(idleSummaryDatabase, ctx.metrics);
+    const toolStats = buildDashboardToolStats(idleSummaryDatabase, ctx.metrics);
+    sendJson(res, 200, { days, taskDays, toolStats });
     return true;
   }
 

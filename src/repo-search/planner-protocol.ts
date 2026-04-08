@@ -3,6 +3,7 @@ import * as https from 'node:https';
 import { requestJsonFull } from '../lib/http.js';
 import {
   buildProviderErrorMessage,
+  getCompletionUsageFromResponseBody,
   getPromptUsageFromResponseBody,
   normalizeProviderText,
   retryProviderRequest,
@@ -21,6 +22,8 @@ export type PlannerActionResponse = {
   mockExhausted: boolean;
   nextMockResponseIndex?: number;
   promptTokens?: number | null;
+  completionTokens?: number | null;
+  usageThinkingTokens?: number | null;
   promptCacheTokens?: number | null;
   promptEvalTokens?: number | null;
 };
@@ -408,6 +411,7 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
   const { text: rawChoiceText, thinkingText } = extractChoiceContent(firstChoice);
   const synthesized = actionFromToolCall(firstChoice);
   const promptUsage = getPromptUsageFromResponseBody(response.body);
+  const completionUsage = getCompletionUsageFromResponseBody(response.body);
   // Prefer raw content text (may include reasoning field); fall back to synthesized tool-call action
   const text = rawChoiceText || synthesized || '';
 
@@ -416,6 +420,8 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
     thinkingText,
     mockExhausted: false,
     promptTokens: promptUsage.promptTokens,
+    completionTokens: completionUsage.completionTokens,
+    usageThinkingTokens: completionUsage.thinkingTokens,
     promptCacheTokens: promptUsage.promptCacheTokens,
     promptEvalTokens: promptUsage.promptEvalTokens,
   };
@@ -469,6 +475,8 @@ function requestStreaming(
       let thinkingText = '';
       const toolCalls: Array<{ name: string; arguments: string }> = [];
       let promptTokens: number | null = null;
+      let completionTokens: number | null = null;
+      let usageThinkingTokens: number | null = null;
       let promptCacheTokens: number | null = null;
       let promptEvalTokens: number | null = null;
 
@@ -488,9 +496,12 @@ function requestStreaming(
           try {
             const parsed = JSON.parse(dataValue) as Record<string, unknown>;
             const parsedUsage = getPromptUsageFromResponseBody(parsed);
+            const parsedCompletionUsage = getCompletionUsageFromResponseBody(parsed);
             if (parsedUsage.promptTokens !== null) promptTokens = parsedUsage.promptTokens;
             if (parsedUsage.promptCacheTokens !== null) promptCacheTokens = parsedUsage.promptCacheTokens;
             if (parsedUsage.promptEvalTokens !== null) promptEvalTokens = parsedUsage.promptEvalTokens;
+            if (parsedCompletionUsage.completionTokens !== null) completionTokens = parsedCompletionUsage.completionTokens;
+            if (parsedCompletionUsage.thinkingTokens !== null) usageThinkingTokens = parsedCompletionUsage.thinkingTokens;
             const choices = parsed?.choices as Array<Record<string, unknown>> | undefined;
             const choice = Array.isArray(choices) ? choices[0] : null;
             const delta = choice?.delta && typeof choice.delta === 'object' ? choice.delta as Record<string, unknown> : {};
@@ -544,6 +555,8 @@ function requestStreaming(
           thinkingText: finalThinkingText,
           mockExhausted: false,
           promptTokens,
+          completionTokens,
+          usageThinkingTokens,
           promptCacheTokens,
           promptEvalTokens,
         });

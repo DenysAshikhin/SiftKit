@@ -32,7 +32,6 @@ import {
 import {
   estimatePromptTokenCount,
   getPlannerPromptBudget,
-  sumTokenCounts,
 } from '../chunking.js';
 import { notifyStatusBackend } from '../../config/index.js';
 import { invokePlannerProviderAction } from './provider.js';
@@ -162,6 +161,13 @@ export async function invokePlannerMode(options: {
     }
 
     let countOutputTokens = false;
+    let countToolTokens = false;
+    let toolStatsPayload: Record<string, {
+      calls: number;
+      outputCharsTotal: number;
+      outputTokensTotal: number;
+      outputTokensEstimatedCount: number;
+    }> | null = null;
     try {
       debugRecorder.record({
         kind: 'planner_model_response',
@@ -242,6 +248,8 @@ export async function invokePlannerMode(options: {
         });
         return decision;
       }
+
+      countToolTokens = true;
 
       if (toolResults.length >= MAX_PLANNER_TOOL_CALLS) {
         debugRecorder.record({
@@ -340,6 +348,16 @@ export async function invokePlannerMode(options: {
       const promptResultText = normalizedResultTokenCount > (remainingPromptTokens * 0.7)
         ? formatPlannerToolResultTokenGuardError(normalizedResultTokenCount)
         : formattedResultText;
+      const exactToolResultTokenCount = await countLlamaCppTokens(options.config, promptResultText);
+      const resolvedToolResultTokenCount = exactToolResultTokenCount ?? estimatePromptTokenCount(options.config, promptResultText);
+      toolStatsPayload = {
+        [action.tool_name]: {
+          calls: 1,
+          outputCharsTotal: promptResultText.length,
+          outputTokensTotal: Math.max(0, Math.ceil(resolvedToolResultTokenCount)),
+          outputTokensEstimatedCount: exactToolResultTokenCount === null ? 1 : 0,
+        },
+      };
       const toolCallId = `call_${toolResults.length + 1}`;
       messages.push(buildPlannerAssistantToolMessage(action, toolCallId));
       messages.push({
@@ -357,14 +375,15 @@ export async function invokePlannerMode(options: {
       traceSummary(`notify running=false phase=planner chunk=none duration_ms=${providerResponse.requestDurationMs}`);
       await notifyStatusBackend({
         running: false,
+        taskKind: 'summary',
         requestId: options.requestId,
         promptCharacterCount: prompt.length,
         inputTokens: providerResponse.inputTokens,
         outputCharacterCount: providerResponse.outputCharacterCount,
         outputTokens: countOutputTokens ? providerResponse.outputTokens : null,
-        thinkingTokens: countOutputTokens
-          ? providerResponse.thinkingTokens
-          : sumTokenCounts(providerResponse.thinkingTokens, providerResponse.outputTokens),
+        toolTokens: countToolTokens ? providerResponse.outputTokens : null,
+        thinkingTokens: providerResponse.thinkingTokens,
+        toolStats: toolStatsPayload,
         promptCacheTokens: providerResponse.promptCacheTokens,
         promptEvalTokens: providerResponse.promptEvalTokens,
         requestDurationMs: providerResponse.requestDurationMs,

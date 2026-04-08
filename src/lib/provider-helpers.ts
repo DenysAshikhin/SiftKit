@@ -161,6 +161,11 @@ export type PromptUsage = {
   promptEvalTokens: number | null;
 };
 
+export type CompletionUsage = {
+  completionTokens: number | null;
+  thinkingTokens: number | null;
+};
+
 /**
  * Extract prompt token usage from a provider response body.  Handles
  * llama.cpp `usage`, `timings`, and `__verbose.timings` fields as well as
@@ -183,4 +188,42 @@ export function getPromptUsageFromResponseBody(body: Record<string, unknown>): P
     ?? (promptTokens !== null && promptCacheTokens !== null ? Math.max(promptTokens - promptCacheTokens, 0) : null);
 
   return { promptTokens, promptCacheTokens, promptEvalTokens };
+}
+
+function getThinkingTokensFromUsage(usage: Record<string, unknown> | undefined): number | null {
+  if (!usage || typeof usage !== 'object') {
+    return null;
+  }
+  const completionDetails = usage.completion_tokens_details && typeof usage.completion_tokens_details === 'object'
+    ? usage.completion_tokens_details as Record<string, unknown>
+    : null;
+  const outputDetails = usage.output_tokens_details && typeof usage.output_tokens_details === 'object'
+    ? usage.output_tokens_details as Record<string, unknown>
+    : null;
+  const sources = [completionDetails, outputDetails, usage];
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') {
+      continue;
+    }
+    const reasoningTokens = getUsageNumber(source.reasoning_tokens) ?? 0;
+    const thinkingTokens = getUsageNumber(source.thinking_tokens) ?? 0;
+    if (
+      Object.prototype.hasOwnProperty.call(source, 'reasoning_tokens')
+      || Object.prototype.hasOwnProperty.call(source, 'thinking_tokens')
+    ) {
+      return reasoningTokens + thinkingTokens;
+    }
+  }
+  return null;
+}
+
+/**
+ * Extract completion/output usage from provider payloads.
+ */
+export function getCompletionUsageFromResponseBody(body: Record<string, unknown>): CompletionUsage {
+  const usage = body?.usage as Record<string, unknown> | undefined;
+  return {
+    completionTokens: getUsageNumber(usage?.completion_tokens) ?? getUsageNumber(usage?.output_tokens),
+    thinkingTokens: getThinkingTokensFromUsage(usage),
+  };
 }

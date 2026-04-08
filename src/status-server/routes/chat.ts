@@ -44,7 +44,42 @@ import {
   acquireModelRequestWithWait,
   releaseModelRequest,
 } from '../server-ops.js';
+import { notifyStatusBackend } from '../../config/index.js';
 import type { ServerContext } from '../server-types.js';
+
+async function notifyChatStatus(options: {
+  ctx: ServerContext;
+  requestId: string;
+  running: boolean;
+  promptChars: number;
+  terminalState?: 'completed' | 'failed';
+  errorMessage?: string;
+  inputTokens?: number | null;
+  outputChars?: number;
+  outputTokens?: number | null;
+  thinkingTokens?: number | null;
+  promptCacheTokens?: number | null;
+  promptEvalTokens?: number | null;
+  requestDurationMs?: number;
+}): Promise<void> {
+  await notifyStatusBackend({
+    running: options.running,
+    taskKind: 'chat',
+    statusBackendUrl: `${options.ctx.getServiceBaseUrl()}/status`,
+    requestId: options.requestId,
+    rawInputCharacterCount: options.running ? options.promptChars : undefined,
+    promptCharacterCount: options.promptChars,
+    terminalState: options.terminalState,
+    errorMessage: options.errorMessage,
+    inputTokens: options.inputTokens,
+    outputCharacterCount: options.outputChars,
+    outputTokens: options.outputTokens,
+    thinkingTokens: options.thinkingTokens,
+    promptCacheTokens: options.promptCacheTokens,
+    promptEvalTokens: options.promptEvalTokens,
+    requestDurationMs: options.requestDurationMs,
+  });
+}
 
 export async function handleChatRoute(
   ctx: ServerContext,
@@ -200,8 +235,20 @@ export async function handleChatRoute(
       sendJson(res, 400, { error: 'Expected content.' });
       return true;
     }
+    const userContent = (parsedBody.content as string).trim();
+    const requestId = crypto.randomUUID();
+    const startedAt = Date.now();
     try {
-      const userContent = (parsedBody.content as string).trim();
+      try {
+        await notifyChatStatus({
+          ctx,
+          requestId,
+          running: true,
+          promptChars: userContent.length,
+        });
+      } catch {
+        // Best-effort metrics notification.
+      }
       let assistantContent: string;
       let usage: Partial<ChatUsage>;
       let thinkingContent = '';
@@ -215,9 +262,41 @@ export async function handleChatRoute(
         usage = generated.usage;
         thinkingContent = generated.thinkingContent || '';
       }
+      try {
+        await notifyChatStatus({
+          ctx,
+          requestId,
+          running: false,
+          promptChars: userContent.length,
+          terminalState: 'completed',
+          inputTokens: Number.isFinite(Number(usage.promptTokens)) ? Number(usage.promptTokens) : null,
+          outputChars: assistantContent.length,
+          outputTokens: Number.isFinite(Number(usage.completionTokens)) ? Number(usage.completionTokens) : null,
+          thinkingTokens: Number.isFinite(Number(usage.thinkingTokens)) ? Number(usage.thinkingTokens) : null,
+          promptCacheTokens: Number.isFinite(Number(usage.promptCacheTokens)) ? Number(usage.promptCacheTokens) : null,
+          promptEvalTokens: Number.isFinite(Number(usage.promptEvalTokens)) ? Number(usage.promptEvalTokens) : null,
+          requestDurationMs: Date.now() - startedAt,
+        });
+      } catch {
+        // Best-effort metrics notification.
+      }
       const updatedSession = appendChatMessagesWithUsage(runtimeRoot, session, userContent, assistantContent, usage, thinkingContent);
       sendJson(res, 200, { session: updatedSession, contextUsage: buildContextUsage(updatedSession) });
     } catch (error) {
+      try {
+        await notifyChatStatus({
+          ctx,
+          requestId,
+          running: false,
+          promptChars: userContent.length,
+          terminalState: 'failed',
+          errorMessage: error instanceof Error ? error.message : String(error),
+          outputChars: 0,
+          requestDurationMs: Date.now() - startedAt,
+        });
+      } catch {
+        // Best-effort metrics notification.
+      }
       sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
@@ -262,16 +341,60 @@ export async function handleChatRoute(
     };
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     res.write('\n');
+    const userContent = (parsedBody.content as string).trim();
+    const requestId = crypto.randomUUID();
+    const startedAt = Date.now();
     try {
-      const userContent = (parsedBody.content as string).trim();
+      await notifyChatStatus({
+        ctx,
+        requestId,
+        running: true,
+        promptChars: userContent.length,
+      });
+    } catch {
+      // Best-effort metrics notification.
+    }
+    try {
       const config = readConfig(configPath);
       const generated = await streamChatAssistantMessage(config, session, userContent, (progress) => {
         writeSse('thinking', { thinking: progress.thinkingContent });
         writeSse('answer', { answer: progress.assistantContent });
       });
+      try {
+        await notifyChatStatus({
+          ctx,
+          requestId,
+          running: false,
+          promptChars: userContent.length,
+          terminalState: 'completed',
+          inputTokens: generated.usage.promptTokens,
+          outputChars: generated.assistantContent.length,
+          outputTokens: generated.usage.completionTokens,
+          thinkingTokens: generated.usage.thinkingTokens,
+          promptCacheTokens: generated.usage.promptCacheTokens,
+          promptEvalTokens: generated.usage.promptEvalTokens,
+          requestDurationMs: Date.now() - startedAt,
+        });
+      } catch {
+        // Best-effort metrics notification.
+      }
       const updatedSession = appendChatMessagesWithUsage(runtimeRoot, session, userContent, generated.assistantContent, generated.usage, generated.thinkingContent);
       writeSse('done', { session: updatedSession, contextUsage: buildContextUsage(updatedSession) });
     } catch (error) {
+      try {
+        await notifyChatStatus({
+          ctx,
+          requestId,
+          running: false,
+          promptChars: userContent.length,
+          terminalState: 'failed',
+          errorMessage: error instanceof Error ? error.message : String(error),
+          outputChars: 0,
+          requestDurationMs: Date.now() - startedAt,
+        });
+      } catch {
+        // Best-effort metrics notification.
+      }
       writeSse('error', { error: error instanceof Error ? error.message : String(error) });
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
@@ -319,8 +442,10 @@ export async function handleChatRoute(
       const executeRepoSearchRequest = loadRepoSearchExecutor();
       const content = (parsedBody.content as string).trim();
       const result = await executeRepoSearchRequest({
+        taskKind: 'plan',
         prompt: buildPlanRequestPrompt(content),
         repoRoot: resolvedRepoRoot,
+        statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
         config: readConfig(configPath),
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         requestMaxTokens: 10000,
@@ -420,8 +545,10 @@ export async function handleChatRoute(
       const executeRepoSearchRequest = loadRepoSearchExecutor();
       const content = (parsedBody.content as string).trim();
       const result = await executeRepoSearchRequest({
+        taskKind: 'plan',
         prompt: buildPlanRequestPrompt(content),
         repoRoot: resolvedRepoRoot,
+        statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
         config: readConfig(configPath),
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         requestMaxTokens: 10000,
@@ -543,8 +670,10 @@ export async function handleChatRoute(
       const executeRepoSearchRequest = loadRepoSearchExecutor();
       const content = (parsedBody.content as string).trim();
       const result = await executeRepoSearchRequest({
+        taskKind: 'repo-search',
         prompt: content,
         repoRoot: resolvedRepoRoot,
+        statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
         config: readConfig(configPath),
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         requestMaxTokens: 10000,

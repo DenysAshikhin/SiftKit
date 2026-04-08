@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import type { Dict } from '../lib/types.js';
 import { writeText } from '../lib/fs.js';
+import type { TaskKind, ToolTypeStats } from './metrics.js';
 
 export const STATUS_TRUE = 'true';
 export const STATUS_FALSE = 'false';
@@ -71,6 +72,7 @@ export function parseRunning(bodyText: string): boolean | null {
 
 export type StatusMetadata = {
   requestId: string | null;
+  taskKind: TaskKind | null;
   terminalState: string | null;
   errorMessage: string | null;
   promptCharacterCount: number | null;
@@ -86,7 +88,9 @@ export type StatusMetadata = {
   inputTokens: number | null;
   outputCharacterCount: number | null;
   outputTokens: number | null;
+  toolTokens: number | null;
   thinkingTokens: number | null;
+  toolStats: Record<string, ToolTypeStats> | null;
   promptCacheTokens: number | null;
   promptEvalTokens: number | null;
   requestDurationMs: number | null;
@@ -99,6 +103,7 @@ export type StatusMetadata = {
 export function parseStatusMetadata(bodyText: string): StatusMetadata {
   const metadata: StatusMetadata = {
     requestId: null,
+    taskKind: null,
     terminalState: null,
     errorMessage: null,
     promptCharacterCount: null,
@@ -114,7 +119,9 @@ export function parseStatusMetadata(bodyText: string): StatusMetadata {
     inputTokens: null,
     outputCharacterCount: null,
     outputTokens: null,
+    toolTokens: null,
     thinkingTokens: null,
+    toolStats: null,
     promptCacheTokens: null,
     promptEvalTokens: null,
     requestDurationMs: null,
@@ -129,6 +136,14 @@ export function parseStatusMetadata(bodyText: string): StatusMetadata {
     const parsed = JSON.parse(bodyText) as Dict;
     if (typeof parsed.requestId === 'string' && parsed.requestId.trim()) {
       metadata.requestId = parsed.requestId.trim();
+    }
+    if (
+      parsed.taskKind === 'summary'
+      || parsed.taskKind === 'plan'
+      || parsed.taskKind === 'repo-search'
+      || parsed.taskKind === 'chat'
+    ) {
+      metadata.taskKind = parsed.taskKind;
     }
     if (parsed.terminalState === 'completed' || parsed.terminalState === 'failed') {
       metadata.terminalState = parsed.terminalState;
@@ -177,8 +192,43 @@ export function parseStatusMetadata(bodyText: string): StatusMetadata {
     if (Number.isFinite(parsed.outputTokens) && Number(parsed.outputTokens) >= 0) {
       metadata.outputTokens = Number(parsed.outputTokens);
     }
+    if (Number.isFinite(parsed.toolTokens) && Number(parsed.toolTokens) >= 0) {
+      metadata.toolTokens = Number(parsed.toolTokens);
+    }
     if (Number.isFinite(parsed.thinkingTokens) && Number(parsed.thinkingTokens) >= 0) {
       metadata.thinkingTokens = Number(parsed.thinkingTokens);
+    }
+    if (parsed.toolStats && typeof parsed.toolStats === 'object' && !Array.isArray(parsed.toolStats)) {
+      const normalizedToolStats: Record<string, ToolTypeStats> = {};
+      for (const [toolTypeRaw, rawStats] of Object.entries(parsed.toolStats as Dict)) {
+        const toolType = String(toolTypeRaw || '').trim();
+        if (!toolType || !rawStats || typeof rawStats !== 'object' || Array.isArray(rawStats)) {
+          continue;
+        }
+        const statsRecord = rawStats as Dict;
+        const calls = Number.isFinite(statsRecord.calls) && Number(statsRecord.calls) >= 0
+          ? Number(statsRecord.calls)
+          : 0;
+        const outputCharsTotal = Number.isFinite(statsRecord.outputCharsTotal) && Number(statsRecord.outputCharsTotal) >= 0
+          ? Number(statsRecord.outputCharsTotal)
+          : 0;
+        const outputTokensTotal = Number.isFinite(statsRecord.outputTokensTotal) && Number(statsRecord.outputTokensTotal) >= 0
+          ? Number(statsRecord.outputTokensTotal)
+          : 0;
+        const outputTokensEstimatedCount = Number.isFinite(statsRecord.outputTokensEstimatedCount) && Number(statsRecord.outputTokensEstimatedCount) >= 0
+          ? Number(statsRecord.outputTokensEstimatedCount)
+          : 0;
+        if (calls <= 0 && outputCharsTotal <= 0 && outputTokensTotal <= 0 && outputTokensEstimatedCount <= 0) {
+          continue;
+        }
+        normalizedToolStats[toolType] = {
+          calls,
+          outputCharsTotal,
+          outputTokensTotal,
+          outputTokensEstimatedCount,
+        };
+      }
+      metadata.toolStats = Object.keys(normalizedToolStats).length > 0 ? normalizedToolStats : null;
     }
     if (Number.isFinite(parsed.promptCacheTokens) && Number(parsed.promptCacheTokens) >= 0) {
       metadata.promptCacheTokens = Number(parsed.promptCacheTokens);

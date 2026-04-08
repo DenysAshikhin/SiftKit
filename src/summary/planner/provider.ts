@@ -41,6 +41,7 @@ export async function invokePlannerProviderAction(options: {
   );
   await notifyStatusBackend({
     running: true,
+    taskKind: 'summary',
     requestId: options.requestId,
     promptCharacterCount: options.promptText.length,
     promptTokenCount: options.promptTokenCount,
@@ -95,6 +96,7 @@ export async function invokePlannerProviderAction(options: {
     traceSummary(`notify running=false phase=planner chunk=none duration_ms=${Date.now() - startedAt}`);
     await notifyStatusBackend({
       running: false,
+      taskKind: 'summary',
       requestId: options.requestId,
       promptCharacterCount: options.promptText.length,
       inputTokens,

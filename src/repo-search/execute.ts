@@ -11,7 +11,6 @@ import {
 import { runRepoSearch } from './engine.js';
 import { getNumericTotal, getOutputCharacterCount } from './scorecard.js';
 import type {
-  JsonLogger,
   RepoSearchExecutionRequest,
   RepoSearchExecutionResult,
   RepoSearchProgressEvent,
@@ -28,10 +27,12 @@ export async function executeRepoSearchRequest(
   const startedAt = Date.now();
   const repoRoot = path.resolve(String(request.repoRoot || process.cwd()));
   const requestId = randomUUID();
+  const taskKind = request.taskKind === 'plan' ? 'plan' : 'repo-search';
   traceRepoSearch(`execute start request_id=${requestId} prompt_chars=${prompt.length}`);
   try {
     await notifyStatusBackend({
       running: true,
+      taskKind,
       statusBackendUrl: request.statusBackendUrl,
       requestId,
       rawInputCharacterCount: prompt.length,
@@ -90,17 +91,40 @@ export async function executeRepoSearchRequest(
     fs.writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
     const outputCharacterCount = getOutputCharacterCount(scorecard);
     const promptTokens = getNumericTotal(scorecard, 'promptTokens');
+    const outputTokens = getNumericTotal(scorecard, 'outputTokens');
+    const toolTokens = getNumericTotal(scorecard, 'toolTokens');
+    const thinkingTokens = getNumericTotal(scorecard, 'thinkingTokens');
     const promptCacheTokens = getNumericTotal(scorecard, 'promptCacheTokens');
     const promptEvalTokens = getNumericTotal(scorecard, 'promptEvalTokens');
+    const scorecardToolStats = (
+      scorecard
+      && typeof scorecard === 'object'
+      && !Array.isArray(scorecard)
+      && (scorecard as { toolStats?: unknown }).toolStats
+      && typeof (scorecard as { toolStats?: unknown }).toolStats === 'object'
+      && !Array.isArray((scorecard as { toolStats?: unknown }).toolStats)
+    )
+      ? (scorecard as { toolStats: Record<string, {
+        calls?: number;
+        outputCharsTotal?: number;
+        outputTokensTotal?: number;
+        outputTokensEstimatedCount?: number;
+      }> }).toolStats
+      : null;
     try {
       await notifyStatusBackend({
         running: false,
+        taskKind,
         statusBackendUrl: request.statusBackendUrl,
         requestId,
         terminalState: 'completed',
         promptCharacterCount: prompt.length,
         inputTokens: promptTokens,
         outputCharacterCount,
+        outputTokens,
+        toolTokens,
+        thinkingTokens,
+        toolStats: scorecardToolStats,
         promptCacheTokens,
         promptEvalTokens,
         requestDurationMs: Date.now() - startedAt,
@@ -137,6 +161,7 @@ export async function executeRepoSearchRequest(
     try {
       await notifyStatusBackend({
         running: false,
+        taskKind,
         statusBackendUrl: request.statusBackendUrl,
         requestId,
         terminalState: 'failed',

@@ -23,6 +23,8 @@ import type {
   ContextUsage,
   IdleSummarySnapshot,
   MetricDay,
+  TaskMetricDay,
+  ToolStatsByTask,
   RunDetailResponse,
   RunRecord,
 } from './types';
@@ -177,6 +179,22 @@ function formatShortTime(value: string | null): string {
     return value;
   }
   return date.toLocaleTimeString();
+}
+
+function formatTaskKindLabel(taskKind: string): string {
+  if (taskKind === 'repo-search') {
+    return 'Repo Search';
+  }
+  if (taskKind === 'plan') {
+    return 'Plan';
+  }
+  if (taskKind === 'summary') {
+    return 'Summary';
+  }
+  if (taskKind === 'chat') {
+    return 'Chat';
+  }
+  return taskKind;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -592,6 +610,8 @@ export function App() {
   const runsLoadedRef = useRef<boolean>(false);
 
   const [metrics, setMetrics] = useState<MetricDay[]>([]);
+  const [taskMetrics, setTaskMetrics] = useState<TaskMetricDay[]>([]);
+  const [toolMetrics, setToolMetrics] = useState<ToolStatsByTask | null>(null);
   const [metricsError, setMetricsError] = useState<string | null>(null);
   const [idleSummarySnapshots, setIdleSummarySnapshots] = useState<IdleSummarySnapshot[]>([]);
 
@@ -633,6 +653,21 @@ export function App() {
   const recentIdlePoints = idleSummarySnapshots
     .slice(0, 20)
     .reverse();
+  const taskMetricsSorted = taskMetrics
+    .slice()
+    .sort((left, right) => left.date.localeCompare(right.date) || left.taskKind.localeCompare(right.taskKind));
+  const toolMetricRows = toolMetrics
+    ? Object.entries(toolMetrics).flatMap(([taskKind, byType]) => (
+      Object.entries(byType || {}).map(([toolType, stats]) => ({
+        taskKind,
+        toolType,
+        calls: Number(stats.calls || 0),
+        outputCharsTotal: Number(stats.outputCharsTotal || 0),
+        outputTokensTotal: Number(stats.outputTokensTotal || 0),
+        outputTokensEstimatedCount: Number(stats.outputTokensEstimatedCount || 0),
+      }))
+    ))
+    : [];
   const isRepoSearchRunSelected = selectedRunDetail
     ? classifyRunGroup(selectedRunDetail.run.kind) === 'repo_search'
     : false;
@@ -736,6 +771,8 @@ export function App() {
         ]);
         if (!cancelled) {
           setMetrics(response.days);
+          setTaskMetrics(Array.isArray(response.taskDays) ? response.taskDays : []);
+          setToolMetrics(response.toolStats || null);
           setIdleSummarySnapshots(idleSummaryResponse.snapshots);
           setMetricsError(null);
         }
@@ -1365,6 +1402,7 @@ export function App() {
                 { key: 'input', title: 'Input Tokens', unit: 'tok', color: '#53b6ff', points: metrics.map((day) => ({ label: day.date, value: day.inputTokens })) },
                 { key: 'output', title: 'Output Tokens', unit: 'tok', color: '#ffb86c', points: metrics.map((day) => ({ label: day.date, value: day.outputTokens })) },
                 { key: 'thinking', title: 'Thinking Tokens', unit: 'tok', color: '#d4a8ff', points: metrics.map((day) => ({ label: day.date, value: day.thinkingTokens })) },
+                { key: 'tool', title: 'Tool Tokens', unit: 'tok', color: '#f38fd1', points: metrics.map((day) => ({ label: day.date, value: day.toolTokens })) },
                 { key: 'duration', title: 'Avg Duration', unit: 'ms', color: '#8bc0ff', points: metrics.map((day) => ({ label: day.date, value: day.avgDurationMs })) },
               ]}
             />
@@ -1460,6 +1498,32 @@ export function App() {
               </div>
             ) : (
               <p className="hint">No snapshots yet. A summary appears when the backend reaches idle state.</p>
+            )}
+          </section>
+          <section className="idle-summary-history">
+            <h3>Per-Task Daily Metrics</h3>
+            {taskMetricsSorted.length > 0 ? (
+              <pre>{taskMetricsSorted.map((entry) => (
+                `${entry.date} | ${formatTaskKindLabel(entry.taskKind)} | runs=${formatNumber(entry.runs)} input=${formatNumber(entry.inputTokens)} output=${formatNumber(entry.outputTokens)} thinking=${formatNumber(entry.thinkingTokens)} tool=${formatNumber(entry.toolTokens)} cache=${formatNumber(entry.promptCacheTokens)} eval=${formatNumber(entry.promptEvalTokens)} avg_ms=${formatNumber(entry.avgDurationMs)}`
+              )).join('\n')}</pre>
+            ) : (
+              <p className="hint">No per-task metrics available yet.</p>
+            )}
+          </section>
+          <section className="idle-summary-history">
+            <h3>Tool Metrics</h3>
+            {toolMetricRows.length > 0 ? (
+              <pre>{toolMetricRows
+                .sort((left, right) => left.taskKind.localeCompare(right.taskKind) || left.toolType.localeCompare(right.toolType))
+                .map((entry) => {
+                  const avgChars = entry.calls > 0 ? Math.round(entry.outputCharsTotal / entry.calls) : 0;
+                  const avgTokens = entry.calls > 0 ? Math.round(entry.outputTokensTotal / entry.calls) : 0;
+                  const estimatedRate = entry.calls > 0 ? (entry.outputTokensEstimatedCount / entry.calls) * 100 : 0;
+                  return `${formatTaskKindLabel(entry.taskKind)} | ${entry.toolType} | calls=${formatNumber(entry.calls)} avg_chars=${formatNumber(avgChars)} avg_tokens=${formatNumber(avgTokens)} est_rate=${estimatedRate.toFixed(1)}%`;
+                })
+                .join('\n')}</pre>
+            ) : (
+              <p className="hint">No tool metrics available yet.</p>
             )}
           </section>
         </section>

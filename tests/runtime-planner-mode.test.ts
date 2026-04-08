@@ -127,6 +127,7 @@ test('planner token accounting treats tool-step completion tokens as thinking an
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
       const baselineInputTokens = server.state.metrics.inputTokensTotal;
       const baselineOutputTokens = server.state.metrics.outputTokensTotal;
+      const baselineToolTokens = Number(server.state.metrics.toolTokensTotal || 0);
       const baselineThinkingTokens = server.state.metrics.thinkingTokensTotal;
 
       const result = await summarizeRequest({
@@ -143,7 +144,8 @@ test('planner token accounting treats tool-step completion tokens as thinking an
       assert.equal(server.state.chatRequests.length, 2);
       assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 36);
       assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 21);
-      assert.equal(server.state.metrics.thinkingTokensTotal - baselineThinkingTokens, 15);
+      assert.equal(Number(server.state.metrics.toolTokensTotal || 0) - baselineToolTokens, 15);
+      assert.equal(server.state.metrics.thinkingTokensTotal - baselineThinkingTokens, 0);
     }, {
       chatResponse(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
@@ -1928,4 +1930,4 @@ test('summarizeRequest no longer rejects input larger than 4x chunk threshold wh
     });
   });
 });
-
+

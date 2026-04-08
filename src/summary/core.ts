@@ -492,6 +492,7 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
       try {
         await notifyStatusBackend({
           running: false,
+          taskKind: 'summary',
           requestId,
           terminalState: 'completed',
           rawInputCharacterCount: inputText.length,
@@ -541,6 +542,7 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
         try {
           await notifyStatusBackend({
             running: false,
+            taskKind: 'summary',
             requestId,
             terminalState: 'failed',
             errorMessage: getErrorMessage(error),
