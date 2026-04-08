@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as http from 'node:http';
+import type { AddressInfo } from 'node:net';
 
 import {
   loadConfig,
@@ -28,6 +30,7 @@ import {
   getRepoLocalRuntimeRoot,
   getRepoLocalLogsPath,
   ensureStatusServerReachable,
+  notifyStatusBackend,
   SIFTKIT_VERSION,
   SIFT_DEFAULT_NUM_CTX,
   SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN,
@@ -317,6 +320,103 @@ test('ensureStatusServerReachable throws when server is down', async () => {
       }
     }
   }
+});
+
+test('notifyStatusBackend retries running status when backend reports busy and then succeeds', async () => {
+  let postCount = 0;
+  let runningCount = 0;
+  const server = await new Promise<http.Server>((resolve) => {
+    const nextServer = http.createServer((req, res) => {
+      if (req.method === 'POST' && req.url === '/status') {
+        let bodyText = '';
+        req.setEncoding('utf8');
+        req.on('data', (chunk: string) => {
+          bodyText += chunk;
+        });
+        req.on('end', () => {
+          postCount += 1;
+          const parsed = bodyText ? JSON.parse(bodyText) : {};
+          if (parsed.running === true) {
+            runningCount += 1;
+          }
+          const busy = postCount < 3;
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, busy }));
+        });
+        return;
+      }
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'not found' }));
+    });
+    nextServer.listen(0, '127.0.0.1', () => resolve(nextServer));
+  });
+  try {
+    const address = server.address() as AddressInfo;
+    await notifyStatusBackend({
+      running: true,
+      statusBackendUrl: `http://127.0.0.1:${address.port}/status`,
+      requestId: 'busy-retry-request',
+      busyRetryMaxRetries: 5,
+      busyRetryDelayMs: 1,
+    });
+    assert.equal(postCount, 3);
+    assert.equal(runningCount, 3);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error: Error | undefined) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
+test('notifyStatusBackend fails closed when backend remains busy after retry budget', async () => {
+  let postCount = 0;
+  const server = await new Promise<http.Server>((resolve) => {
+    const nextServer = http.createServer((req, res) => {
+      if (req.method === 'POST' && req.url === '/status') {
+        postCount += 1;
+        req.resume();
+        req.on('end', () => {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, busy: true }));
+        });
+        return;
+      }
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'not found' }));
+    });
+    nextServer.listen(0, '127.0.0.1', () => resolve(nextServer));
+  });
+  try {
+    const address = server.address() as AddressInfo;
+    await assert.rejects(
+      () => notifyStatusBackend({
+        running: true,
+        statusBackendUrl: `http://127.0.0.1:${address.port}/status`,
+        requestId: 'busy-timeout-request',
+        busyRetryMaxRetries: 1,
+        busyRetryDelayMs: 1,
+      }),
+      /busy/i,
+    );
+    assert.equal(postCount, 2);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error: Error | undefined) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
+test('notifyStatusBackend preserves canonical unavailable error when backend is unreachable', async () => {
+  await assert.rejects(
+    () => notifyStatusBackend({
+      running: true,
+      statusBackendUrl: 'http://127.0.0.1:1/status',
+      requestId: 'unreachable-request',
+      busyRetryMaxRetries: 1,
+      busyRetryDelayMs: 1,
+    }),
+    { name: 'StatusServerUnavailableError' },
+  );
 });
 
 test('getRuntimeRoot uses sift_kit_status when available', () => {

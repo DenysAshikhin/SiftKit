@@ -186,7 +186,7 @@ export async function handleCoreRoute(
         mockResponses: Array.isArray(parsedBody.mockResponses) ? (parsedBody.mockResponses as unknown[]).map((v) => String(v)) : undefined,
         mockCommandResults: (parsedBody.mockCommandResults && typeof parsedBody.mockCommandResults === 'object' && !Array.isArray(parsedBody.mockCommandResults)) ? parsedBody.mockCommandResults : undefined,
         onProgress(event: RepoSearchProgressEvent) {
-          if (event.kind === 'tool_start') {
+          if (event.kind === 'tool_start' || event.kind === 'llm_start' || event.kind === 'llm_end') {
             const logMessage = buildRepoSearchProgressLogMessage(event, 'repo_search');
             if (logMessage) logLine(logMessage);
           }

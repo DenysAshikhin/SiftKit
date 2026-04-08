@@ -225,6 +225,7 @@ async function invokeSummaryCore(options: {
 
   const useCompactPrompt = options.backend === 'llama.cpp'
     && phase === 'leaf'
+    && options.policyProfile === 'general'
     && !options.chunkContext
     && options.inputText.length <= chunkThreshold;
   const allowUnsupportedInput = !useCompactPrompt

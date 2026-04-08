@@ -70,6 +70,8 @@ export async function ensureStatusServerReachable(): Promise<void> {
 export type NotifyStatusBackendOptions = {
   running: boolean;
   statusBackendUrl?: string | null;
+  busyRetryMaxRetries?: number;
+  busyRetryDelayMs?: number;
   requestId?: string | null;
   terminalState?: 'completed' | 'failed' | null;
   errorMessage?: string | null;
@@ -187,7 +189,14 @@ export async function notifyStatusBackend(options: NotifyStatusBackendOptions): 
   }
 
   const url = (options.statusBackendUrl && options.statusBackendUrl.trim()) ? options.statusBackendUrl.trim() : getStatusBackendUrl();
-  const maxRetries = options.running ? 600 : 0;
+  const configuredBusyRetryMaxRetries = Number(options.busyRetryMaxRetries);
+  const maxRetries = Number.isFinite(configuredBusyRetryMaxRetries) && configuredBusyRetryMaxRetries >= 0
+    ? Math.floor(configuredBusyRetryMaxRetries)
+    : (options.running ? 600 : 0);
+  const configuredBusyRetryDelayMs = Number(options.busyRetryDelayMs);
+  const busyRetryDelayMs = Number.isFinite(configuredBusyRetryDelayMs) && configuredBusyRetryDelayMs > 0
+    ? Math.floor(configuredBusyRetryDelayMs)
+    : 1000;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const response = await requestJson<{ ok?: boolean; busy?: boolean }>({
@@ -198,12 +207,19 @@ export async function notifyStatusBackend(options: NotifyStatusBackendOptions): 
       });
       if (response && response.busy) {
         if (attempt < maxRetries) {
-          await sleep(1000);
+          await sleep(busyRetryDelayMs);
           continue;
         }
+        throw new Error(
+          `Status backend remained busy after ${maxRetries + 1} attempts `
+          + `(delay_ms=${busyRetryDelayMs}).`,
+        );
       }
       return;
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && /Status backend remained busy/iu.test(error.message)) {
+        throw error;
+      }
       throw toStatusServerUnavailableError();
     }
   }

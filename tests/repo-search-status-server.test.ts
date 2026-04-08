@@ -157,6 +157,24 @@ test('buildRepoSearchProgressLogMessage formats planner and repo-search command 
   }, 'planner');
   assert.ok(msg2);
   assert.match(msg2, /^planner command turn=1\/2 prompt_tokens=88 elapsed=0s command=rg -n "dashboard" \.$/u);
+  const msg3 = buildRepoSearchProgressLogMessage({
+    kind: 'llm_start',
+    turn: 18,
+    maxTurns: 45,
+    promptTokenCount: 312345,
+    elapsedMs: 4200,
+  }, 'repo_search');
+  assert.ok(msg3);
+  assert.match(msg3, /^repo_search llm_start turn=18\/45 prompt_tokens=312,345 elapsed=4s$/u);
+  const msg4 = buildRepoSearchProgressLogMessage({
+    kind: 'llm_end',
+    turn: 18,
+    maxTurns: 45,
+    promptTokenCount: 312345,
+    elapsedMs: 7800,
+  }, 'repo_search');
+  assert.ok(msg4);
+  assert.match(msg4, /^repo_search llm_end turn=18\/45 prompt_tokens=312,345 elapsed=7s$/u);
 });
 
 test('repo-search endpoint reloads executor module per request', async () => {

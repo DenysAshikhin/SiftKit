@@ -768,6 +768,9 @@ test('benchmark matrix marks interrupted runs failed, preserves benchmark log pa
       const stopScriptPath = path.join(scriptsRoot, 'stop.ps1');
       const modelPath = path.join(scriptsRoot, `${server.state.config.Model}.gguf`);
       const manifestPath = path.join(tempRoot, 'matrix.json');
+      const benchmarkEntrypointPath = path.join(process.cwd(), 'dist', 'benchmark.js');
+      const benchmarkIndexPath = path.join(process.cwd(), 'dist', 'benchmark', 'index.js');
+      const createdBenchmarkEntrypoint = !fs.existsSync(benchmarkEntrypointPath) && fs.existsSync(benchmarkIndexPath);
 
       fs.mkdirSync(fixtureRoot, { recursive: true });
       fs.mkdirSync(scriptsRoot, { recursive: true });
@@ -784,6 +787,9 @@ test('benchmark matrix marks interrupted runs failed, preserves benchmark log pa
       fs.writeFileSync(modelPath, '', 'utf8');
       fs.writeFileSync(startScriptPath, 'Start-Sleep -Seconds 2\n', 'utf8');
       fs.writeFileSync(stopScriptPath, 'exit 0\n', 'utf8');
+      if (createdBenchmarkEntrypoint) {
+        fs.writeFileSync(benchmarkEntrypointPath, "require('./benchmark/index.js');\n", 'utf8');
+      }
       fs.writeFileSync(manifestPath, JSON.stringify({
         fixtureRoot,
         configUrl: server.configUrl,
@@ -821,19 +827,12 @@ test('benchmark matrix marks interrupted runs failed, preserves benchmark log pa
         ],
       }, null, 2), 'utf8');
 
-      let rejectInterrupted;
-      const interrupted = new Promise((_, reject) => {
-        rejectInterrupted = reject;
-      });
-      const interruptHandle = setTimeout(() => {
-        rejectInterrupted(new Error('Benchmark matrix interrupted by SIGINT.'));
-      }, 1500);
-      if (typeof interruptHandle.unref === 'function') {
-        interruptHandle.unref();
-      }
-
-      await assert.rejects(
-        () => runMatrixWithInterrupt(
+      try {
+        let rejectInterrupted;
+        const interrupted = new Promise((_, reject) => {
+          rejectInterrupted = reject;
+        });
+        const runPromise = runMatrixWithInterrupt(
           {
             manifestPath,
             runIds: [],
@@ -843,24 +842,39 @@ test('benchmark matrix marks interrupted runs failed, preserves benchmark log pa
           },
           {
             interrupted,
-            dispose: () => clearTimeout(interruptHandle),
+            dispose: () => {},
           },
-        ),
-        /Benchmark matrix interrupted by SIGINT/u,
-      );
-      await sleep(2600);
+        );
 
-      const [sessionEntry] = fs.readdirSync(resultsRoot).sort().reverse();
-      const matrixIndex = JSON.parse(fs.readFileSync(path.join(resultsRoot, sessionEntry, 'matrix_index.json'), 'utf8'));
-      assert.equal(matrixIndex.status, 'failed');
-      assert.equal(matrixIndex.baselineRestore.status, 'completed');
-      assert.equal(matrixIndex.runs.length, 1);
-      assert.equal(matrixIndex.runs[0].status, 'failed');
-      assert.match(matrixIndex.runs[0].error, /SIGINT/u);
-      assert.equal(typeof matrixIndex.runs[0].benchmarkStdoutPath, 'string');
-      assert.equal(typeof matrixIndex.runs[0].benchmarkStderrPath, 'string');
-      assert.match(path.basename(matrixIndex.runs[0].benchmarkStdoutPath), /^benchmark_1_interrupt-run_stdout\.log$/u);
-      assert.match(path.basename(matrixIndex.runs[0].benchmarkStderrPath), /^benchmark_1_interrupt-run_stderr\.log$/u);
+        const waitForRunEntryPath = async () => {
+          const [latestSessionEntry] = fs.readdirSync(resultsRoot).sort().reverse();
+          const matrixIndexPath = path.join(resultsRoot, latestSessionEntry, 'matrix_index.json');
+          const matrixIndex = JSON.parse(fs.readFileSync(matrixIndexPath, 'utf8'));
+          assert.ok(Array.isArray(matrixIndex.runs));
+          assert.ok(matrixIndex.runs.length >= 1);
+        };
+        await waitForAsyncExpectation(waitForRunEntryPath, 8000);
+        rejectInterrupted(new Error('Benchmark matrix interrupted by SIGINT.'));
+
+        await assert.rejects(() => runPromise, /Benchmark matrix interrupted by SIGINT/u);
+        await sleep(2600);
+
+        const [sessionEntry] = fs.readdirSync(resultsRoot).sort().reverse();
+        const matrixIndex = JSON.parse(fs.readFileSync(path.join(resultsRoot, sessionEntry, 'matrix_index.json'), 'utf8'));
+        assert.equal(matrixIndex.status, 'failed');
+        assert.equal(matrixIndex.baselineRestore.status, 'completed');
+        assert.equal(matrixIndex.runs.length, 1);
+        assert.equal(matrixIndex.runs[0].status, 'failed');
+        assert.match(matrixIndex.runs[0].error, /SIGINT/u);
+        assert.equal(typeof matrixIndex.runs[0].benchmarkStdoutPath, 'string');
+        assert.equal(typeof matrixIndex.runs[0].benchmarkStderrPath, 'string');
+        assert.match(path.basename(matrixIndex.runs[0].benchmarkStdoutPath), /^benchmark_1_interrupt-run_stdout\.log$/u);
+        assert.match(path.basename(matrixIndex.runs[0].benchmarkStderrPath), /^benchmark_1_interrupt-run_stderr\.log$/u);
+      } finally {
+        if (createdBenchmarkEntrypoint) {
+          fs.rmSync(benchmarkEntrypointPath, { force: true });
+        }
+      }
     }, {
       chatDelayMs: 5000,
     });
@@ -1137,4 +1151,4 @@ test('benchmark error-log fixtures now reach the model-first summary path', asyn
     });
   });
 });
-
+

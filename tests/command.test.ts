@@ -60,7 +60,11 @@ test('analyzeCommandOutput with risky risk level uses risky-operation profile', 
     assert.equal(result.WasSummarized, true);
     assert.ok(stub.state.chatRequests.length >= 1);
     const firstPrompt = JSON.stringify(stub.state.chatRequests[0]);
-    assert.ok(firstPrompt.includes('risky'));
+    assert.ok(
+      firstPrompt.includes('Do not judge the operation safe.')
+      || firstPrompt.includes('risky-operation')
+      || firstPrompt.includes('Highlight destructive or risky actions'),
+    );
   });
 });
 
