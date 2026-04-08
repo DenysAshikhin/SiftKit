@@ -72,7 +72,9 @@ function hasBlockedOperator(command: string): boolean {
 }
 
 function hasFileRedirection(command: string): boolean {
-  return /[<>]/u.test(command);
+  // Strip safe stderr-to-stdout merges (2>&1) before checking for real file redirects
+  const withoutStderrMerge = command.replace(/\s*2>&1\s*/gu, ' ');
+  return /[<>]/u.test(withoutStderrMerge);
 }
 
 function splitTopLevelPipes(command: string): string[] {
@@ -476,7 +478,7 @@ export function normalizePlannerCommand(
 
     // Bypass rg's own .gitignore/.ignore handling — we control exclusions via explicit globs
     if (!/(?:^|\s)--no-ignore(?:\s|$)/iu.test(current)) {
-      current = `${current} --no-ignore`;
+      current = appendToFirstSegment(current, '--no-ignore');
       notes.push('added --no-ignore so rg searches gitignored paths');
       wasRewritten = true;
     }
@@ -490,7 +492,7 @@ export function normalizePlannerCommand(
         const globArgs = missingNames
           .map((name) => `--glob "!**/${name.replace(/"/gu, '\\"')}/**"`)
           .join(' ');
-        current = `${current} ${globArgs}`.trim();
+        current = appendToFirstSegment(current, globArgs);
         notes.push('added ignore globs from ignore policy');
         wasRewritten = true;
       }
@@ -499,7 +501,7 @@ export function normalizePlannerCommand(
       const pathGlobArgs = ignorePolicy.paths
         .map((p) => `--glob "!${p.replace(/"/gu, '\\"')}/**"`)
         .join(' ');
-      current = `${current} ${pathGlobArgs}`.trim();
+      current = appendToFirstSegment(current, pathGlobArgs);
       notes.push('added path ignore globs from ignore policy');
       wasRewritten = true;
     }

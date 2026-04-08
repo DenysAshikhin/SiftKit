@@ -21,6 +21,7 @@ import {
 } from './measure.js';
 import {
   appendChunkPath,
+  buildCompactPrompt,
   buildPrompt,
 } from './prompt.js';
 import {
@@ -222,21 +223,32 @@ async function invokeSummaryCore(options: {
     }
   }
 
-  const allowUnsupportedInput = options.sourceKind !== 'command-output'
+  const useCompactPrompt = options.backend === 'llama.cpp'
+    && phase === 'leaf'
+    && !options.chunkContext
+    && options.inputText.length <= chunkThreshold;
+  const allowUnsupportedInput = !useCompactPrompt
+    && options.sourceKind !== 'command-output'
     && (options.backend !== 'llama.cpp' || isInternalChunkLeaf(options));
-  const prompt = buildPrompt({
-    question: options.question,
-    inputText: options.inputText,
-    format: options.format,
-    policyProfile: options.policyProfile,
-    rawReviewRequired: options.rawReviewRequired,
-    promptPrefix: options.promptPrefix,
-    sourceKind: options.sourceKind,
-    commandExitCode: options.commandExitCode,
-    phase,
-    chunkContext: options.chunkContext,
-    allowUnsupportedInput,
-  });
+  const prompt = useCompactPrompt
+    ? buildCompactPrompt({
+      question: options.question,
+      inputText: options.inputText,
+      promptPrefix: options.promptPrefix,
+    })
+    : buildPrompt({
+      question: options.question,
+      inputText: options.inputText,
+      format: options.format,
+      policyProfile: options.policyProfile,
+      rawReviewRequired: options.rawReviewRequired,
+      promptPrefix: options.promptPrefix,
+      sourceKind: options.sourceKind,
+      commandExitCode: options.commandExitCode,
+      phase,
+      chunkContext: options.chunkContext,
+      allowUnsupportedInput,
+    });
   const effectivePromptLimit = options.backend === 'llama.cpp'
     ? (llamaPromptBudget?.usablePromptBudgetTokens ?? 0)
     : null;

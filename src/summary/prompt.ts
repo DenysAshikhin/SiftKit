@@ -82,6 +82,34 @@ export function appendChunkPath(
     : segment;
 }
 
+export function buildCompactPrompt(options: {
+  question: string;
+  inputText: string;
+  promptPrefix?: string;
+}): string {
+  const sections = [
+    'Summarize the input to answer the question. Be concise, lead with the conclusion.',
+    'Preserve exact error messages, line numbers, and code formatting when present.',
+    'Return only a JSON object, no markdown:',
+    '{"classification":"summary|command_failure","raw_review_required":true|false,"output":"your answer"}',
+    '',
+    '- "summary": normal answer',
+    '- "command_failure": the command itself failed',
+    '- raw_review_required: true only if errors/failures need manual inspection',
+    '',
+    'Question:',
+    options.question,
+    '',
+    'Input:',
+    options.inputText,
+  ];
+
+  const promptPrefix = options.promptPrefix?.trim();
+  return promptPrefix
+    ? [promptPrefix, '', ...sections].join('\n')
+    : sections.join('\n');
+}
+
 export function buildPrompt(options: {
   question: string;
   inputText: string;

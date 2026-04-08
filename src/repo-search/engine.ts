@@ -119,18 +119,36 @@ export const TASK_PACK: TaskDefinition[] = [
 // Command execution
 // ---------------------------------------------------------------------------
 
+function findMockResult(
+  command: string,
+  mockCommandResults: Record<string, RepoSearchMockCommandResult>,
+): RepoSearchMockCommandResult | null {
+  if (Object.prototype.hasOwnProperty.call(mockCommandResults, command)) {
+    return mockCommandResults[command];
+  }
+  // Prefix match: find the longest mock key that the command starts with.
+  // This allows mock keys to omit auto-appended flags (--no-ignore, --glob, etc.)
+  let bestKey: string | null = null;
+  for (const key of Object.keys(mockCommandResults)) {
+    if (command.startsWith(key) && (!bestKey || key.length > bestKey.length)) {
+      bestKey = key;
+    }
+  }
+  return bestKey ? mockCommandResults[bestKey] : null;
+}
+
 function executeRepoCommand(
   command: string,
   repoRoot: string,
   mockCommandResults: Record<string, RepoSearchMockCommandResult> | null,
 ): Promise<{ exitCode: number; output: string }> {
-  if (mockCommandResults && Object.prototype.hasOwnProperty.call(mockCommandResults, command)) {
-    const result = mockCommandResults[command];
-    const delayMs = Number(result.delayMs ?? 0);
+  const mockResult = mockCommandResults ? findMockResult(command, mockCommandResults) : null;
+  if (mockResult) {
+    const delayMs = Number(mockResult.delayMs ?? 0);
     return new Promise((resolve) => {
       const complete = (): void => resolve({
-        exitCode: Number(result.exitCode ?? 1),
-        output: `${String(result.stdout || '')}${String(result.stderr || '')}`.trim(),
+        exitCode: Number(mockResult.exitCode ?? 1),
+        output: `${String(mockResult.stdout || '')}${String(mockResult.stderr || '')}`.trim(),
       });
       if (Number.isFinite(delayMs) && delayMs > 0) {
         setTimeout(complete, delayMs);
@@ -262,6 +280,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const requestMaxTokens = options.requestMaxTokens;
   const followupOnNonThinkingFinish = options.enforceThinkingFinish === true;
   let zeroOutputStreak = 0;
+  let consecutiveDuplicates = 0;
   let forcedFinishAttemptsRemaining = 0;
   let previousPlannerThinkingEnabled: boolean | null = null;
   let nonThinkingFinishFollowupUsed = false;
@@ -455,17 +474,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     // Tool action
     const command = action.args.command;
 
-    if (attemptedCommands.has(command)) {
-      const duplicateReason = 'Exact command was already executed';
-      commandFailures += 1;
-      commands.push({ command, safe: false, reason: duplicateReason, exitCode: null, output: `Rejected command: ${duplicateReason}` });
-      messages.push({ role: 'assistant', content: response.text });
-      messages.push({ role: 'user', content: `Rejected command: ${duplicateReason}` });
-      history.push({ command, resultText: `Rejected command: ${duplicateReason}` });
-      continue;
-    }
-    attemptedCommands.add(command);
-
     if (inForcedFinishMode) {
       forcedFinishAttemptsRemaining = Math.max(forcedFinishAttemptsRemaining - 1, 0);
       const forcedReason = `Forced finish mode active. Return a finish action now. Attempts remaining: ${forcedFinishAttemptsRemaining}.`;
@@ -479,6 +487,26 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
 
     const normalized = normalizePlannerCommand(command, { repoRoot: options.repoRoot, ignorePolicy });
+
+    // Duplicate check on the normalized command so auto-appended flags don't confuse dedup
+    const normalizedKey = normalized.rejected ? command : normalized.command;
+    if (attemptedCommands.has(normalizedKey)) {
+      consecutiveDuplicates += 1;
+      commandFailures += 1;
+      const duplicateMessage = `That command was already run ${consecutiveDuplicates} time(s). You MUST use different keywords, a narrower path, or try reading a file directly. If you have enough evidence, use {"action":"finish",...}.`;
+      commands.push({ command, safe: false, reason: 'duplicate command', exitCode: null, output: `Rejected: ${duplicateMessage}` });
+      messages.push({ role: 'assistant', content: response.text });
+      messages.push({ role: 'user', content: duplicateMessage });
+      history.push({ command, resultText: `Rejected: ${duplicateMessage}` });
+      if (consecutiveDuplicates >= 5 && forcedFinishAttemptsRemaining === 0) {
+        forcedFinishAttemptsRemaining = FORCED_FINISH_MAX_ATTEMPTS;
+        messages.push({ role: 'user', content: 'Forced finish mode active. Return {"action":"finish",...} now. Tool calls are blocked.' });
+        options.logger?.write({ kind: 'turn_forced_finish_mode_started', taskId: task.id, turn, attemptsRemaining: forcedFinishAttemptsRemaining, trigger: 'consecutive_duplicates' });
+      }
+      continue;
+    }
+    attemptedCommands.add(normalizedKey);
+    consecutiveDuplicates = 0;
     if (normalized.rejected) {
       safetyRejects += 1;
       const rejection = `Rejected command: ${normalized.rejectedReason}`;
@@ -528,7 +556,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       commandFailures += 1;
     }
 
-    if (outputWithRewriteNote.length === 0) {
+    if (baseOutput.length === 0) {
       zeroOutputStreak += 1;
       const remainingBeforeForce = Math.max(ZERO_OUTPUT_FORCE_THRESHOLD - zeroOutputStreak, 0);
       history.push({

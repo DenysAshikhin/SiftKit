@@ -217,12 +217,24 @@ export function parsePlannerAction(text: string): PlannerAction {
   const action = typeof parsed.action === 'string' ? parsed.action.trim().toLowerCase() : '';
 
   if (action === 'tool') {
-    if (parsed.tool_name !== 'run_repo_cmd' || !parsed.args || typeof parsed.args !== 'object'
-      || Array.isArray(parsed.args) || typeof (parsed.args as Record<string, unknown>).command !== 'string'
-      || !(parsed.args as Record<string, unknown>).command) {
+    // Accept tool_name variants: tool_name, toolName, tool, name
+    const toolName = String(
+      parsed.tool_name ?? parsed.toolName ?? parsed.tool ?? parsed.name ?? '',
+    ).trim().toLowerCase();
+    if (toolName !== 'run_repo_cmd') {
       throw new Error('Provider returned an invalid planner tool action.');
     }
-    return { action: 'tool', tool_name: 'run_repo_cmd', args: { command: ((parsed.args as { command: string }).command).trim() } };
+    if (!parsed.args || typeof parsed.args !== 'object' || Array.isArray(parsed.args)) {
+      throw new Error('Provider returned an invalid planner tool action.');
+    }
+    const args = parsed.args as Record<string, unknown>;
+    // Accept "cmd" as fallback for "command"
+    const commandValue = typeof args.command === 'string' ? args.command
+      : typeof args.cmd === 'string' ? args.cmd : '';
+    if (!commandValue.trim()) {
+      throw new Error('Provider returned an invalid planner tool action.');
+    }
+    return { action: 'tool', tool_name: 'run_repo_cmd', args: { command: commandValue.trim() } };
   }
 
   if (action === 'finish') {
