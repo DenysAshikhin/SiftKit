@@ -17,7 +17,6 @@ import {
   normalizePlannerCommand,
 } from './command-safety.js';
 import {
-  isTransientProviderError,
   parsePlannerAction,
   renderTaskTranscript,
   requestPlannerAction,
@@ -357,52 +356,36 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
 
     options.logger?.write({ kind: 'turn_model_request', taskId: task.id, turn, thinkingEnabled: plannerThinkingEnabled });
+    if (options.onProgress) {
+      options.onProgress({ kind: 'llm_start', turn, maxTurns, promptTokenCount: preflight.promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
+    }
     const newMessages = messages.slice(lastLoggedMessageCount);
     lastLoggedMessageCount = messages.length;
     options.logger?.write({ kind: 'turn_new_messages', taskId: task.id, turn, messages: newMessages, promptTokenCount: preflight.promptTokenCount });
 
-    const switchedThinkingMode = previousPlannerThinkingEnabled !== null && previousPlannerThinkingEnabled !== plannerThinkingEnabled;
-    const maxProviderAttempts = switchedThinkingMode ? 2 : 1;
-    let providerAttempt = 0;
-    let response: PlannerActionResponse | null = null;
+    const response: PlannerActionResponse = await requestPlannerAction({
+      baseUrl: options.baseUrl,
+      model: options.model,
+      messages,
+      slotId,
+      timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
+      requestMaxTokens,
+      thinkingEnabled: plannerThinkingEnabled,
+      stream: Boolean(options.onProgress),
+      onThinkingDelta: options.onProgress
+        ? (accThinking) => { options.onProgress!({ kind: 'thinking', turn, maxTurns, thinkingText: accThinking }); }
+        : undefined,
+      onContentDelta: options.onProgress
+        ? (accContent) => { options.onProgress!({ kind: 'thinking', turn, maxTurns, thinkingText: accContent }); }
+        : undefined,
+      mockResponses: options.mockResponses,
+      mockResponseIndex,
+      logger: options.logger || null,
+    });
 
-    while (providerAttempt < maxProviderAttempts) {
-      providerAttempt += 1;
-      try {
-        response = await requestPlannerAction({
-          baseUrl: options.baseUrl,
-          model: options.model,
-          messages,
-          slotId,
-          timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
-          requestMaxTokens,
-          thinkingEnabled: plannerThinkingEnabled,
-          stream: Boolean(options.onProgress),
-          onThinkingDelta: options.onProgress
-            ? (accThinking) => { options.onProgress!({ kind: 'thinking', turn, maxTurns, thinkingText: accThinking }); }
-            : undefined,
-          onContentDelta: options.onProgress
-            ? (accContent) => { options.onProgress!({ kind: 'thinking', turn, maxTurns, thinkingText: accContent }); }
-            : undefined,
-          mockResponses: options.mockResponses,
-          mockResponseIndex,
-          logger: options.logger || null,
-        });
-        break;
-      } catch (error) {
-        const shouldRetry = providerAttempt < maxProviderAttempts && isTransientProviderError(error);
-        if (!shouldRetry) throw error;
-        options.logger?.write({
-          kind: 'provider_request_retry', taskId: task.id, turn, stage: 'planner_action',
-          attempt: providerAttempt, nextAttempt: providerAttempt + 1,
-          thinkingEnabled: plannerThinkingEnabled,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
+    if (options.onProgress) {
+      options.onProgress({ kind: 'llm_end', turn, maxTurns, promptTokenCount: preflight.promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
     }
-
-    if (!response) throw new Error('No response received from planner.');
-
     previousPlannerThinkingEnabled = plannerThinkingEnabled;
     if (typeof response.nextMockResponseIndex === 'number') {
       mockResponseIndex = response.nextMockResponseIndex;

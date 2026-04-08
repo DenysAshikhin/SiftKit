@@ -2,6 +2,7 @@
  * Shared helpers for provider communication — used by llama-cpp provider,
  * repo-search planner protocol, and any future provider integrations.
  */
+import { sleep } from './time.js';
 
 // ---------------------------------------------------------------------------
 // Network error serialization
@@ -51,11 +52,73 @@ export function buildProviderErrorMessage(
 // Transient error detection
 // ---------------------------------------------------------------------------
 
-const TRANSIENT_PROVIDER_ERROR_CODES = ['ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ECONNABORTED'];
+const TRANSIENT_PROVIDER_ERROR_CODES = ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ECONNABORTED'];
 
 export function isTransientProviderError(error: unknown): boolean {
+  const source = error && typeof error === 'object' ? error as Record<string, unknown> : {};
   const message = String(error instanceof Error ? error.message : (error ?? '')).toUpperCase();
-  return TRANSIENT_PROVIDER_ERROR_CODES.some((code) => message.includes(code));
+  const code = String(typeof source.code === 'string' ? source.code : '').toUpperCase();
+  return TRANSIENT_PROVIDER_ERROR_CODES.some((item) => message.includes(item) || code === item);
+}
+
+const DEFAULT_PROVIDER_RETRY_MAX_WAIT_MS = 30_000;
+const DEFAULT_PROVIDER_RETRY_DELAYS_MS = [250, 500, 1_000];
+
+export type ProviderRetryEvent = {
+  attempt: number;
+  elapsedMs: number;
+  nextDelayMs: number;
+  error: SerializedNetworkError;
+};
+
+export type RetryProviderRequestOptions = {
+  maxWaitMs?: number;
+  delayStepsMs?: number[];
+  onRetry?: (event: ProviderRetryEvent) => void;
+  nowMs?: () => number;
+  sleepMs?: (ms: number) => Promise<void>;
+};
+
+export async function retryProviderRequest<T>(
+  requestFn: () => Promise<T>,
+  options: RetryProviderRequestOptions = {},
+): Promise<T> {
+  const maxWaitMs = Number.isFinite(options.maxWaitMs) && Number(options.maxWaitMs) > 0
+    ? Number(options.maxWaitMs)
+    : DEFAULT_PROVIDER_RETRY_MAX_WAIT_MS;
+  const delayStepsMs = Array.isArray(options.delayStepsMs) && options.delayStepsMs.length > 0
+    ? options.delayStepsMs
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value) && value > 0)
+    : DEFAULT_PROVIDER_RETRY_DELAYS_MS;
+  const delaySchedule = delayStepsMs.length > 0 ? delayStepsMs : DEFAULT_PROVIDER_RETRY_DELAYS_MS;
+  const nowMs = options.nowMs || Date.now;
+  const sleepMs = options.sleepMs || sleep;
+  const startedAt = nowMs();
+  let attempt = 1;
+
+  while (true) {
+    try {
+      return await requestFn();
+    } catch (error) {
+      if (!isTransientProviderError(error)) {
+        throw error;
+      }
+      const elapsedMs = Math.max(0, nowMs() - startedAt);
+      const nextDelayMs = delaySchedule[Math.min(attempt - 1, delaySchedule.length - 1)];
+      if (elapsedMs + nextDelayMs > maxWaitMs) {
+        throw error;
+      }
+      options.onRetry?.({
+        attempt,
+        elapsedMs,
+        nextDelayMs,
+        error: serializeNetworkError(error),
+      });
+      await sleepMs(nextDelayMs);
+      attempt += 1;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

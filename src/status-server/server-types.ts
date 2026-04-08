@@ -20,6 +20,7 @@ export type ActiveRunState = {
   chunkIndex: number | null;
   chunkTotal: number | null;
   chunkPath: string | null;
+  lastNotificationWasRunning: boolean;
 };
 
 export type ExecutionLease = { token: string; heartbeatAt: number };

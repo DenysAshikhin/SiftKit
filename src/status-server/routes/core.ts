@@ -275,6 +275,11 @@ export async function handleCoreRoute(
         ctx.pendingIdleSummaryMetadata.chunkThresholdCharacters = metadata.chunkThresholdCharacters;
       }
       if (activeRun && activeRequestId !== requestId) {
+        if (activeRun.lastNotificationWasRunning) {
+          // Another request is actively running — tell the caller to wait and retry.
+          sendJson(res, 200, { ok: true, busy: true, statusPath, configPath });
+          return true;
+        }
         logAbandonedRun(ctx, activeRun, now);
         clearRunState(ctx, activeRequestId);
       }
@@ -293,8 +298,10 @@ export async function handleCoreRoute(
           chunkIndex: metadata.chunkIndex,
           chunkTotal: metadata.chunkTotal,
           chunkPath: metadata.chunkPath,
+          lastNotificationWasRunning: true,
         };
       } else {
+        runState.lastNotificationWasRunning = true;
         runState.currentRequestStartedAt = now;
         runState.stepCount = Number.isFinite(runState.stepCount) ? runState.stepCount + 1 : 1;
         if (runState.rawInputCharacterCount === null && metadata.rawInputCharacterCount !== null) {
@@ -332,6 +339,9 @@ export async function handleCoreRoute(
         suppressLogLine = metadata.terminalState === null && isSingleStepNonChunk;
         elapsedMs = now - runState.currentRequestStartedAt;
         runState.outputTokensTotal += resolvedOutputTokens;
+        if (metadata.terminalState === null) {
+          runState.lastNotificationWasRunning = false;
+        }
         if (metadata.rawInputCharacterCount === null && runState.rawInputCharacterCount !== null) {
           metadata.rawInputCharacterCount = runState.rawInputCharacterCount;
         }

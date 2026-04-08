@@ -5,6 +5,7 @@ import {
   buildProviderErrorMessage,
   getPromptUsageFromResponseBody,
   normalizeProviderText,
+  retryProviderRequest,
   serializeNetworkError,
 } from '../lib/provider-helpers.js';
 import { stripCodeFence } from '../lib/text-format.js';
@@ -280,6 +281,30 @@ export type PlannerRequestOptions = {
   extraBody?: Record<string, unknown>;
 };
 
+function logProviderRetry(options: {
+  logger?: JsonLogger | null;
+  stage: string;
+  method: string;
+  url: string;
+  path: string;
+  attempt: number;
+  elapsedMs: number;
+  nextDelayMs: number;
+  error: ReturnType<typeof serializeNetworkError>;
+}): void {
+  options.logger?.write({
+    kind: 'provider_request_retry',
+    stage: options.stage,
+    method: options.method,
+    url: options.url,
+    path: options.path,
+    attempt: options.attempt,
+    elapsedMs: options.elapsedMs,
+    nextDelayMs: options.nextDelayMs,
+    error: options.error,
+  });
+}
+
 export async function requestPlannerAction(options: PlannerRequestOptions): Promise<PlannerActionResponse> {
   // Mock path — bypass network entirely
   if (Array.isArray(options.mockResponses)) {
@@ -311,7 +336,24 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
 
   // Streaming path
   if (options.stream) {
-    return requestStreaming(options, bodyJson, stage);
+    return retryProviderRequest(
+      () => requestStreaming(options, bodyJson, stage),
+      {
+        onRetry(event) {
+          logProviderRetry({
+            logger: options.logger,
+            stage,
+            method: 'POST',
+            url: `${options.baseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
+            path: '/v1/chat/completions',
+            attempt: event.attempt,
+            elapsedMs: event.elapsedMs,
+            nextDelayMs: event.nextDelayMs,
+            error: event.error,
+          });
+        },
+      },
+    );
   }
 
   // Non-streaming path — use shared requestJsonFull
@@ -323,12 +365,29 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
 
   let response;
   try {
-    response = await requestJsonFull<CompletionBody>({
-      url: requestUrl,
-      method: 'POST',
-      timeoutMs: options.timeoutMs,
-      body: bodyJson,
-    });
+    response = await retryProviderRequest(
+      () => requestJsonFull<CompletionBody>({
+        url: requestUrl,
+        method: 'POST',
+        timeoutMs: options.timeoutMs,
+        body: bodyJson,
+      }),
+      {
+        onRetry(event) {
+          logProviderRetry({
+            logger: options.logger,
+            stage,
+            method: 'POST',
+            url: requestUrl,
+            path: urlPath,
+            attempt: event.attempt,
+            elapsedMs: event.elapsedMs,
+            nextDelayMs: event.nextDelayMs,
+            error: event.error,
+          });
+        },
+      },
+    );
   } catch (error) {
     const serialized = serializeNetworkError(error);
     options.logger?.write({

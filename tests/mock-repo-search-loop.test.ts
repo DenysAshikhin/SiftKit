@@ -8,6 +8,7 @@ import * as path from 'node:path';
 
 import { parsePlannerAction } from '../src/repo-search/planner-protocol.js';
 import { evaluateCommandSafety } from '../src/repo-search/command-safety.js';
+import { isTransientProviderError, retryProviderRequest } from '../src/lib/provider-helpers.js';
 import {
   runTaskLoop,
   buildScorecard,
@@ -24,6 +25,24 @@ function createTempRepoRoot(gitignoreText = '') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-ignore-'));
   fs.writeFileSync(path.join(root, '.gitignore'), gitignoreText, 'utf8');
   return root;
+}
+
+async function getFreePort(): Promise<number> {
+  return await new Promise((resolve, reject) => {
+    const probe = http.createServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const address = probe.address();
+      const port = Number(address && typeof address === 'object' ? address.port : 0);
+      probe.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(port);
+      });
+    });
+  });
 }
 
 test('assertConfiguredModelPresent hard-fails when configured model is missing', () => {
@@ -119,6 +138,60 @@ test('parsePlannerAction recovers malformed escaped command payloads', () => {
     tool_name: 'run_repo_cmd',
     args: { command: 'rg -n "D:\\\\|C:\\\\|\\\\\\\\" src --type ts | Select-Object -First 30' },
   });
+});
+
+test('isTransientProviderError treats ECONNREFUSED as transient', () => {
+  assert.equal(isTransientProviderError(new Error('connect ECONNREFUSED 127.0.0.1:8097')), true);
+});
+
+test('retryProviderRequest retries transient failures and returns on success', async () => {
+  let attemptCount = 0;
+  const retryEvents: Array<{ attempt: number; nextDelayMs: number }> = [];
+  const sleepCalls: number[] = [];
+  const result = await retryProviderRequest(async () => {
+    attemptCount += 1;
+    if (attemptCount < 3) {
+      const error = new Error(`connect ECONNREFUSED 127.0.0.1:8097 attempt=${attemptCount}`) as Error & { code?: string };
+      error.code = 'ECONNREFUSED';
+      throw error;
+    }
+    return 'ok';
+  }, {
+    maxWaitMs: 5000,
+    onRetry(event) {
+      retryEvents.push({ attempt: event.attempt, nextDelayMs: event.nextDelayMs });
+    },
+    sleepMs: async (delayMs: number) => {
+      sleepCalls.push(delayMs);
+    },
+  });
+  assert.equal(result, 'ok');
+  assert.equal(attemptCount, 3);
+  assert.deepEqual(retryEvents.map((item) => item.attempt), [1, 2]);
+  assert.deepEqual(sleepCalls, [250, 500]);
+});
+
+test('retryProviderRequest stops after max wait budget and surfaces the original error', async () => {
+  let nowMs = 0;
+  const retryEvents: number[] = [];
+  await assert.rejects(
+    () => retryProviderRequest(async () => {
+      const error = new Error('connect ECONNREFUSED 127.0.0.1:8097') as Error & { code?: string };
+      error.code = 'ECONNREFUSED';
+      throw error;
+    }, {
+      maxWaitMs: 200,
+      onRetry(event) {
+        retryEvents.push(event.attempt);
+      },
+      nowMs: () => nowMs,
+      sleepMs: async (delayMs: number) => {
+        nowMs += delayMs;
+      },
+    }),
+    /ECONNREFUSED/u
+  );
+  assert.deepEqual(retryEvents, []);
 });
 
 test('evaluateCommandSafety allows allowlisted read-only commands', () => {
@@ -1526,7 +1599,7 @@ test('runTaskLoop forces thinking on after non-thinking finish follow-up and can
   assert.equal(result.reason, 'max_turns');
 });
 
-test('runTaskLoop retries once on transient provider reset after thinking-mode switch', async () => {
+test('runTaskLoop retries transient provider network failures via shared retry helper', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   const requestBodies = [];
   let requestCount = 0;
@@ -1611,9 +1684,66 @@ test('runTaskLoop retries once on transient provider reset after thinking-mode s
     assert.equal(Boolean(turnRequests[4]?.thinkingEnabled), true);
     const retryEvent = events.find((event) => event.kind === 'provider_request_retry');
     assert.equal(Boolean(retryEvent), true);
-    assert.equal(retryEvent.turn, 5);
+    assert.equal(retryEvent.stage, 'planner_action');
+    assert.equal(retryEvent.attempt, 1);
+    assert.equal(Number(retryEvent.nextDelayMs) > 0, true);
   } finally {
     await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('runTaskLoop waits for planner endpoint warm-up when initial connections are refused', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const port = await getFreePort();
+  let delayedServer: http.Server | null = null;
+  let plannerRequestCount = 0;
+  const delayedStart = setTimeout(() => {
+    delayedServer = http.createServer((req, res) => {
+      if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+        res.statusCode = 404;
+        res.end();
+        return;
+      }
+      plannerRequestCount += 1;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({
+        choices: [{ message: { content: '{"action":"finish","output":"done"}' } }],
+      }));
+    });
+    delayedServer.listen(port, '127.0.0.1');
+  }, 300);
+
+  try {
+    const result = await runTaskLoop(
+      {
+        id: 'task-connrefused-warmup',
+        question: 'Find planner text.',
+        signals: ['done'],
+      },
+      {
+        baseUrl: `http://127.0.0.1:${port}`,
+        model: 'mock-model',
+        maxTurns: 1,
+        maxInvalidResponses: 1,
+        minToolCallsBeforeFinish: 0,
+        logger: {
+          write(event: Record<string, unknown> & { kind: string }) {
+            events.push(event);
+          },
+        },
+      }
+    );
+    assert.equal(result.reason, 'finish');
+    assert.equal(result.finalOutput, 'done');
+    assert.equal(plannerRequestCount >= 1, true);
+    const retryEvents = events.filter((event) => event.kind === 'provider_request_retry');
+    assert.equal(retryEvents.length >= 1, true);
+    assert.match(String(retryEvents[0]?.error?.message || ''), /ECONNREFUSED/u);
+  } finally {
+    clearTimeout(delayedStart);
+    if (delayedServer) {
+      await new Promise<void>((resolve) => delayedServer!.close(() => resolve()));
+    }
   }
 });
 

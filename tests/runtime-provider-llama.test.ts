@@ -315,3 +315,111 @@ test('llama.cpp provider surfaces HTTP 400 errors when grammar-constrained reque
   });
 });
 
+test('llama.cpp provider waits for warm-up and retries model-list requests after ECONNREFUSED', async () => {
+  await withTempEnv(async () => {
+    const port = await getFreePort();
+    let modelsRequestCount = 0;
+    let delayedServer = null;
+    const startTimer = setTimeout(() => {
+      delayedServer = http.createServer((req, res) => {
+        if (req.method === 'GET' && req.url === '/v1/models') {
+          modelsRequestCount += 1;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ data: [{ id: 'warmup-model' }] }));
+          return;
+        }
+        res.statusCode = 404;
+        res.end();
+      });
+      delayedServer.listen(port, '127.0.0.1');
+    }, 300);
+
+    try {
+      const config = {
+        Backend: 'llama.cpp',
+        Runtime: {
+          Model: 'warmup-model',
+          LlamaCpp: {
+            BaseUrl: `http://127.0.0.1:${port}`,
+            NumCtx: 10000,
+          },
+        },
+        LlamaCpp: {
+          BaseUrl: `http://127.0.0.1:${port}`,
+        },
+        Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },
+        Interactive: { Enabled: true, WrappedCommands: [], IdleTimeoutMs: 900000, MaxTranscriptCharacters: 60000, TranscriptRetention: true },
+      };
+
+      const models = await listLlamaCppModels(config);
+      assert.deepEqual(models, ['warmup-model']);
+      assert.equal(modelsRequestCount >= 1, true);
+    } finally {
+      clearTimeout(startTimer);
+      if (delayedServer) {
+        await new Promise((resolve) => delayedServer.close(resolve));
+      }
+    }
+  });
+});
+
+test('llama.cpp provider waits for warm-up and retries chat-completions after ECONNREFUSED', async () => {
+  await withTempEnv(async () => {
+    const port = await getFreePort();
+    let chatRequestCount = 0;
+    let delayedServer = null;
+    const startTimer = setTimeout(() => {
+      delayedServer = http.createServer((req, res) => {
+        if (req.method === 'POST' && req.url === '/v1/chat/completions') {
+          chatRequestCount += 1;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({
+            choices: [{ message: { content: 'warm-up complete' } }],
+            usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+          }));
+          return;
+        }
+        if (req.method === 'POST' && req.url === '/tokenize') {
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ count: 1 }));
+          return;
+        }
+        res.statusCode = 404;
+        res.end();
+      });
+      delayedServer.listen(port, '127.0.0.1');
+    }, 300);
+
+    try {
+      const config = {
+        Backend: 'llama.cpp',
+        Runtime: {
+          Model: 'warmup-model',
+          LlamaCpp: {
+            BaseUrl: `http://127.0.0.1:${port}`,
+            NumCtx: 10000,
+          },
+        },
+        LlamaCpp: {
+          BaseUrl: `http://127.0.0.1:${port}`,
+        },
+        Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },
+        Interactive: { Enabled: true, WrappedCommands: [], IdleTimeoutMs: 900000, MaxTranscriptCharacters: 60000, TranscriptRetention: true },
+      };
+
+      const response = await generateLlamaCppResponse({
+        config,
+        model: 'warmup-model',
+        prompt: 'test prompt body',
+        timeoutSeconds: 5,
+      });
+      assert.equal(response.text, 'warm-up complete');
+      assert.equal(chatRequestCount >= 1, true);
+    } finally {
+      clearTimeout(startTimer);
+      if (delayedServer) {
+        await new Promise((resolve) => delayedServer.close(resolve));
+      }
+    }
+  });
+});

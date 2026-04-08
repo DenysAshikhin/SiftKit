@@ -8,6 +8,8 @@
 
 # Build artifacts
 /dist
+dashboard/dist
+dashboard/node_modules
 *.tgz
 
 # Test artifacts

@@ -1,4 +1,5 @@
 import { requestJson } from '../lib/http.js';
+import { sleep } from '../lib/time.js';
 import { getInferenceStatusPath } from './paths.js';
 import { StatusServerUnavailableError } from './errors.js';
 import type { StatusSnapshotResponse } from './types.js';
@@ -185,14 +186,25 @@ export async function notifyStatusBackend(options: NotifyStatusBackendOptions): 
     body.artifactPayload = options.artifactPayload;
   }
 
-  try {
-    await requestJson({
-      url: (options.statusBackendUrl && options.statusBackendUrl.trim()) ? options.statusBackendUrl.trim() : getStatusBackendUrl(),
-      method: 'POST',
-      timeoutMs: 2000,
-      body: JSON.stringify(body),
-    });
-  } catch {
-    throw toStatusServerUnavailableError();
+  const url = (options.statusBackendUrl && options.statusBackendUrl.trim()) ? options.statusBackendUrl.trim() : getStatusBackendUrl();
+  const maxRetries = options.running ? 600 : 0;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await requestJson<{ ok?: boolean; busy?: boolean }>({
+        url,
+        method: 'POST',
+        timeoutMs: 2000,
+        body: JSON.stringify(body),
+      });
+      if (response && response.busy) {
+        if (attempt < maxRetries) {
+          await sleep(1000);
+          continue;
+        }
+      }
+      return;
+    } catch {
+      throw toStatusServerUnavailableError();
+    }
   }
 }

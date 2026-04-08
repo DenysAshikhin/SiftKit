@@ -133,10 +133,6 @@ function normalizeRepoSearchCommandForLog(command: unknown): string {
 }
 
 export function buildRepoSearchProgressLogMessage(event: RepoSearchProgressEvent | null | undefined, mode: string): string | null {
-  const commandText = normalizeRepoSearchCommandForLog(event?.command);
-  if (!commandText) {
-    return null;
-  }
   const resolvedMode = String(mode || 'repo_search').trim() || 'repo_search';
   const turnLabel = Number.isFinite(Number(event?.turn))
     ? `${Math.max(1, Math.trunc(Number(event?.turn)))}/${Number.isFinite(Number(event?.maxTurns)) ? Math.max(1, Math.trunc(Number(event?.maxTurns))) : '?'}`
@@ -147,6 +143,14 @@ export function buildRepoSearchProgressLogMessage(event: RepoSearchProgressEvent
   const elapsedMs = Number.isFinite(Number(event?.elapsedMs))
     ? Math.max(0, Math.trunc(Number(event?.elapsedMs)))
     : 0;
+  const kind = event?.kind;
+  if (kind === 'llm_start' || kind === 'llm_end') {
+    return `${resolvedMode} ${kind} turn=${turnLabel} prompt_tokens=${promptTokenCount} elapsed=${formatElapsed(elapsedMs)}`;
+  }
+  const commandText = normalizeRepoSearchCommandForLog(event?.command);
+  if (!commandText) {
+    return null;
+  }
   return `${resolvedMode} command turn=${turnLabel} prompt_tokens=${promptTokenCount} elapsed=${formatElapsed(elapsedMs)} command=${commandText}`;
 }
 
