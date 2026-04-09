@@ -35,3 +35,4 @@ trace.log
 /.smoke-home
 /.shim-test
 /.codex
+/.worktrees
