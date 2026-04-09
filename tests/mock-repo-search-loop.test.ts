@@ -16,6 +16,7 @@ import {
   runRepoSearch,
   resolveRepoSearchRequestMaxTokens,
 } from '../src/repo-search/engine.js';
+import { buildTaskSystemPrompt } from '../src/repo-search/prompts.js';
 import {
   preflightPlannerPromptBudget,
   compactPlannerMessagesOnce,
@@ -752,13 +753,34 @@ test('runTaskLoop prompt includes anti-loop and larger single-file read guidance
   assert.match(prompt, /Single-file read strategy:/u);
   assert.match(prompt, /Start with `rg -n` to find anchors/u);
   assert.match(prompt, /default to one larger read \(e\.g\. `-First 200-400`\) rather than multiple small windows/u);
-  assert.match(prompt, /Do not use tiny windows \(`<120` lines\) unless verifying one exact symbol\/line/u);
   assert.match(prompt, /If you already read a file once, do a new anchor search before another read of that same file/u);
   assert.match(prompt, /read a larger section in one call/u);
   assert.match(prompt, /Prefer `Get-Content <file> -Raw` for full-file inspection when manageable/u);
   assert.match(prompt, /Do not issue multiple consecutive reads of the same file with only small `-Skip\/-First` changes/u);
   assert.match(prompt, /If a command returns an output token-allocation error, switch to stronger anchors/u);
   assert.equal(result.reason, 'finish');
+});
+
+test('buildTaskSystemPrompt reports learned get-content line guidance from idle-summary stats', () => {
+  const prompt = buildTaskSystemPrompt(createTempRepoRoot(), {
+    globalToolStats: {
+      'get-content': {
+        calls: 4,
+        outputCharsTotal: 800,
+        outputTokensTotal: 200,
+        outputTokensEstimatedCount: 0,
+        lineReadCalls: 4,
+        lineReadLinesTotal: 80,
+        lineReadTokensTotal: 200,
+      },
+    },
+    initialPerToolAllowanceTokens: 1600,
+  });
+
+  assert.match(prompt, /current per-tool allowance is 1600 tokens/u);
+  assert.match(prompt, /average line is 2\.50 tokens/u);
+  assert.match(prompt, /prefer line reads around 320 lines/u);
+  assert.doesNotMatch(prompt, /Do not use tiny windows \(`<120` lines\)/u);
 });
 
 test('runTaskLoop prompt examples use larger reads and anchor-first flow', async () => {
@@ -792,6 +814,37 @@ test('runTaskLoop prompt examples use larger reads and anchor-first flow', async
   assert.match(prompt, /Get-Content src\\summary\.ts \| Select-Object -First 40/u);
   assert.match(prompt, /Get-Content src\\summary\.ts \| Select-Object -Skip 40 -First 40/u);
   assert.equal(result.reason, 'finish');
+});
+
+test('runTaskLoop records line-read stats for Get-Content windows', async () => {
+  const result = await runTaskLoop(
+    {
+      id: 'task-line-read-stats',
+      question: 'Read a file section.',
+      signals: [],
+    },
+    {
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content src\\\\summary.ts | Select-Object -Skip 40 -First 6"}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'Get-Content src\\summary.ts | Select-Object -Skip 40 -First 6': {
+          exitCode: 0,
+          stdout: ['a', 'b', 'c', 'd', 'e', 'f'].join('\n'),
+          stderr: '',
+        },
+      },
+    }
+  );
+
+  assert.equal(result.toolStats['get-content'].lineReadCalls, 1);
+  assert.equal(result.toolStats['get-content'].lineReadLinesTotal, 6);
+  assert.ok(Number(result.toolStats['get-content'].lineReadTokensTotal) > 0);
 });
 
 test('runTaskLoop prompt states ignored paths are auto-filtered by runtime policy', async () => {
@@ -1191,6 +1244,41 @@ test('runTaskLoop replaces oversized tool output with token allowance error', as
     /^Error: requested output would consume \d+ tokens, remaining token allowance: \d+, per tool call allowance: \d+$/u
   );
   assert.equal(result.reason, 'finish');
+});
+
+test('runTaskLoop preserves raw line-read stats when oversized Get-Content output is replaced', async () => {
+  const oversizedLines = Array.from({ length: 300 }, (_, index) => `line-${index + 1} ${'x'.repeat(40)}`).join('\n');
+  const result = await runTaskLoop(
+    {
+      id: 'task-oversized-line-read-stats',
+      question: 'Read a large file section.',
+      signals: [],
+    },
+    {
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens: 20000,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content src\\\\summary.ts | Select-Object -First 300"}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'Get-Content src\\summary.ts | Select-Object -First 300': {
+          exitCode: 0,
+          stdout: oversizedLines,
+          stderr: '',
+        },
+      },
+    }
+  );
+
+  assert.equal(result.toolStats['get-content'].lineReadCalls, 1);
+  assert.equal(result.toolStats['get-content'].lineReadLinesTotal, 300);
+  assert.ok(
+    Number(result.toolStats['get-content'].lineReadTokensTotal) > Number(result.toolStats['get-content'].outputTokensTotal)
+  );
 });
 
 test('runTaskLoop prints a red console warning when tool output exceeds allowance', async () => {

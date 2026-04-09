@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import type { Dict } from '../lib/types.js';
 import { writeText } from '../lib/fs.js';
+import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 import type { TaskKind, ToolTypeStats } from './metrics.js';
 
 export const STATUS_TRUE = 'true';
@@ -218,14 +219,30 @@ export function parseStatusMetadata(bodyText: string): StatusMetadata {
         const outputTokensEstimatedCount = Number.isFinite(statsRecord.outputTokensEstimatedCount) && Number(statsRecord.outputTokensEstimatedCount) >= 0
           ? Number(statsRecord.outputTokensEstimatedCount)
           : 0;
-        if (calls <= 0 && outputCharsTotal <= 0 && outputTokensTotal <= 0 && outputTokensEstimatedCount <= 0) {
+        const lineReadCalls = Number.isFinite(statsRecord.lineReadCalls) && Number(statsRecord.lineReadCalls) >= 0
+          ? Number(statsRecord.lineReadCalls)
+          : 0;
+        const lineReadLinesTotal = Number.isFinite(statsRecord.lineReadLinesTotal) && Number(statsRecord.lineReadLinesTotal) >= 0
+          ? Number(statsRecord.lineReadLinesTotal)
+          : 0;
+        const lineReadTokensTotal = Number.isFinite(statsRecord.lineReadTokensTotal) && Number(statsRecord.lineReadTokensTotal) >= 0
+          ? Number(statsRecord.lineReadTokensTotal)
+          : 0;
+        if (
+          calls <= 0 && outputCharsTotal <= 0 && outputTokensTotal <= 0 && outputTokensEstimatedCount <= 0
+          && lineReadCalls <= 0 && lineReadLinesTotal <= 0 && lineReadTokensTotal <= 0
+        ) {
           continue;
         }
         normalizedToolStats[toolType] = {
+          ...createEmptyToolTypeStats(),
           calls,
           outputCharsTotal,
           outputTokensTotal,
           outputTokensEstimatedCount,
+          lineReadCalls,
+          lineReadLinesTotal,
+          lineReadTokensTotal,
         };
       }
       metadata.toolStats = Object.keys(normalizedToolStats).length > 0 ? normalizedToolStats : null;

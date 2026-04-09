@@ -109,6 +109,9 @@ export async function executeRepoSearchRequest(
         outputCharsTotal?: number;
         outputTokensTotal?: number;
         outputTokensEstimatedCount?: number;
+        lineReadCalls?: number;
+        lineReadLinesTotal?: number;
+        lineReadTokensTotal?: number;
       }> }).toolStats
       : null;
     try {

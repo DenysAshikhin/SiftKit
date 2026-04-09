@@ -1,6 +1,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { IgnorePolicy } from './command-safety.js';
+import { buildLineReadGuidance } from '../line-read-guidance.js';
+import type { ToolTypeStats } from '../status-server/metrics.js';
 
 // ---------------------------------------------------------------------------
 // Repo file scanner (gitignore-aware, no external dependencies)
@@ -206,8 +208,22 @@ export function readAgentsMd(repoRoot: string): string {
 // System prompt
 // ---------------------------------------------------------------------------
 
-export function buildTaskSystemPrompt(repoRoot: string): string {
+export function buildTaskSystemPrompt(repoRoot: string, options?: {
+  globalToolStats?: Record<string, ToolTypeStats>;
+  initialPerToolAllowanceTokens?: number | null;
+}): string {
   const agentsContent = readAgentsMd(repoRoot);
+  const guidance = buildLineReadGuidance({
+    toolName: 'get-content',
+    toolStats: options?.globalToolStats,
+    perToolAllowanceTokens: options?.initialPerToolAllowanceTokens,
+  });
+  const readWindowLine = guidance
+    ? `- For reading a specific file section: use \`Get-Content <file>\`, and because the current per-tool allowance is ${guidance.perToolAllowanceTokens} tokens and the average line is ${guidance.avgTokensPerLine.toFixed(2)} tokens, prefer line reads around ${guidance.recommendedLines} lines by default.`
+    : '- For reading a specific file section: use `Get-Content <file>`, preferring larger windows by default (for example `| Select-Object -First 200-400` or `-Skip X -First 200-400`).';
+  const readStrategyLine = guidance
+    ? `- After an \`rg -n\` anchor, default to one larger read around ${guidance.recommendedLines} lines rather than multiple small windows.`
+    : '- After an `rg -n` anchor, default to one larger read (e.g. `-First 200-400`) rather than multiple small windows.';
   return [
     'You are a repo-search planner. Return exactly one JSON action per turn.',
     'Tool action: {"action":"tool","tool_name":"run_repo_cmd","args":{"command":"..."}}',
@@ -268,11 +284,10 @@ export function buildTaskSystemPrompt(repoRoot: string): string {
     '- For broad multi-file keyword/code search: use `rg -n "<pattern>" <path>`',
     '- For filename discovery across repo: use `rg --files`',
     '- For listing directories/files in a path: use `Get-ChildItem <path>` (or `ls`)',
-    '- For reading a specific file section: use `Get-Content <file>`, preferring larger windows by default (for example `| Select-Object -First 200-400` or `-Skip X -First 200-400`).',
+    readWindowLine,
     'Single-file read strategy:',
     '- Start with `rg -n` to find anchors.',
-    '- After an `rg -n` anchor, default to one larger read (e.g. `-First 200-400`) rather than multiple small windows.',
-    '- Do not use tiny windows (`<120` lines) unless verifying one exact symbol/line.',
+    readStrategyLine,
     '- If you already read a file once, do a new anchor search before another read of that same file.',
     '- Then read a larger section in one call (`-First` / `-Skip -First`), not many tiny windows.',
     '- Prefer `Get-Content <file> -Raw` for full-file inspection when manageable.',

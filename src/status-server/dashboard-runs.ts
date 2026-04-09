@@ -8,21 +8,30 @@ import { listFiles, safeReadJson, getIsoDateFromStat } from '../lib/fs.js';
 import {
   TASK_KINDS,
   type Metrics,
+  type ToolTypeStats,
   type TaskKind,
   type ToolStatsByTask,
   normalizeMetrics,
 } from './metrics.js';
+import {
+  aggregateGlobalToolStats,
+  buildLineReadGuidance,
+  getPlannerPromptBaselinePerToolAllowanceTokens,
+  getRepoSearchPromptBaselinePerToolAllowanceTokens,
+} from '../line-read-guidance.js';
 import {
   type IdleSummarySnapshot,
   type SnapshotTotals,
   parseSnapshotTaskTotalsJson,
   parseSnapshotToolStatsJson,
   buildIdleSummarySnapshotMessage,
+  queryRecentSnapshots,
   querySnapshotTotalsBeforeDate,
   querySnapshotTimeseries,
 } from './idle-summary.js';
 import { type StatusMetadata } from './status-file.js';
 import { type JsonlEvent, readJsonlEvents, getTranscriptDurationMs } from '../state/jsonl-transcript.js';
+import type { SiftConfig } from '../config/index.js';
 
 type DatabaseInstance = InstanceType<typeof Database>;
 
@@ -870,9 +879,46 @@ export function buildDashboardTaskDailyMetrics(idleSummaryDatabase: DatabaseInst
     }));
 }
 
-export function buildDashboardToolStats(idleSummaryDatabase: DatabaseInstance | null, currentMetrics: Metrics): ToolStatsByTask {
-  void idleSummaryDatabase;
-  return normalizeMetrics(currentMetrics).toolStats;
+export function buildDashboardToolStats(
+  idleSummaryDatabase: DatabaseInstance | null,
+  currentMetrics: Metrics,
+  config: SiftConfig,
+): ToolStatsByTask {
+  const currentToolStats = normalizeMetrics(currentMetrics).toolStats;
+  const latestSnapshotRow = idleSummaryDatabase ? queryRecentSnapshots(idleSummaryDatabase, 1)[0] : null;
+  const latestSnapshotToolStats = latestSnapshotRow ? parseSnapshotToolStatsJson(latestSnapshotRow.tool_stats_json) : null;
+  const baseToolStats = latestSnapshotToolStats && Object.values(latestSnapshotToolStats).some((entry) => Object.keys(entry || {}).length > 0)
+    ? latestSnapshotToolStats
+    : currentToolStats;
+  const globalToolStats = aggregateGlobalToolStats(baseToolStats);
+  const repoSearchAllowance = getRepoSearchPromptBaselinePerToolAllowanceTokens(config);
+  const plannerAllowance = getPlannerPromptBaselinePerToolAllowanceTokens(config);
+  const result = {} as ToolStatsByTask;
+
+  for (const taskKind of TASK_KINDS) {
+    const nextByTool: Record<string, ToolTypeStats> = {};
+    for (const [toolType, stats] of Object.entries(baseToolStats[taskKind] || {})) {
+      const guidance = buildLineReadGuidance({
+        toolName: toolType,
+        toolStats: globalToolStats,
+        perToolAllowanceTokens: toolType === 'get-content'
+          ? repoSearchAllowance
+          : toolType === 'read_lines'
+            ? plannerAllowance
+            : null,
+      });
+      nextByTool[toolType] = guidance
+        ? {
+          ...stats,
+          lineReadRecommendedLines: guidance.recommendedLines,
+          lineReadAllowanceTokens: guidance.perToolAllowanceTokens,
+        }
+        : { ...stats };
+    }
+    result[taskKind] = nextByTool;
+  }
+
+  return result;
 }
 
 export type IdleSummarySnapshotRow = IdleSummarySnapshot & { summaryText: string };

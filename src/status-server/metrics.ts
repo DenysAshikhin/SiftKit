@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import type { Dict } from '../lib/types.js';
 import { writeText } from '../lib/fs.js';
+import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 
 export const METRICS_SCHEMA_VERSION = 2;
 export const TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
@@ -24,6 +25,11 @@ export type ToolTypeStats = {
   outputCharsTotal: number;
   outputTokensTotal: number;
   outputTokensEstimatedCount: number;
+  lineReadCalls: number;
+  lineReadLinesTotal: number;
+  lineReadTokensTotal: number;
+  lineReadRecommendedLines?: number;
+  lineReadAllowanceTokens?: number;
 };
 
 export type ToolStatsByTask = Record<TaskKind, Record<string, ToolTypeStats>>;
@@ -140,19 +146,29 @@ function normalizeToolTypeStats(input: unknown): ToolTypeStats | null {
   const outputCharsTotal = normalizeNonNegativeNumber(record.outputCharsTotal);
   const outputTokensTotal = normalizeNonNegativeNumber(record.outputTokensTotal);
   const outputTokensEstimatedCount = normalizeNonNegativeNumber(record.outputTokensEstimatedCount);
+  const lineReadCalls = normalizeNonNegativeNumber(record.lineReadCalls);
+  const lineReadLinesTotal = normalizeNonNegativeNumber(record.lineReadLinesTotal);
+  const lineReadTokensTotal = normalizeNonNegativeNumber(record.lineReadTokensTotal);
   if (
     calls === null
     && outputCharsTotal === null
     && outputTokensTotal === null
     && outputTokensEstimatedCount === null
+    && lineReadCalls === null
+    && lineReadLinesTotal === null
+    && lineReadTokensTotal === null
   ) {
     return null;
   }
   return {
+    ...createEmptyToolTypeStats(),
     calls: calls ?? 0,
     outputCharsTotal: outputCharsTotal ?? 0,
     outputTokensTotal: outputTokensTotal ?? 0,
     outputTokensEstimatedCount: outputTokensEstimatedCount ?? 0,
+    lineReadCalls: lineReadCalls ?? 0,
+    lineReadLinesTotal: lineReadLinesTotal ?? 0,
+    lineReadTokensTotal: lineReadTokensTotal ?? 0,
   };
 }
 

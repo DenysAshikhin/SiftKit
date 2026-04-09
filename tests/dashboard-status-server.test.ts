@@ -425,6 +425,94 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
   }
 });
 
+test('dashboard metrics expose line-read stats and prompt-baseline recommendations', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-line-read-'));
+  const runtimeRoot = path.join(tempRoot, '.siftkit');
+  const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
+  const configPath = path.join(runtimeRoot, 'config.json');
+  fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+  fs.writeFileSync(statusPath, 'false', 'utf8');
+  fs.writeFileSync(configPath, JSON.stringify({
+    Summary: {
+      PreferredBackend: 'llama.cpp',
+    },
+    LlamaCpp: {
+      BaseUrl: 'http://127.0.0.1:8080',
+      Model: 'mock-model.gguf',
+      NumCtx: 32000,
+      PromptTokenReserve: 4000,
+    },
+  }, null, 2));
+
+  const envBackup: Record<string, string | undefined> = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    await requestJson(`${baseUrl}/status`, {
+      method: 'POST',
+      body: JSON.stringify({
+        running: false,
+        requestId: 'line-read-dashboard',
+        taskKind: 'repo-search',
+        terminalState: 'completed',
+        promptCharacterCount: 120,
+        inputTokens: 30,
+        outputCharacterCount: 80,
+        outputTokens: 12,
+        toolTokens: 9,
+        requestDurationMs: 90,
+        toolStats: {
+          'get-content': {
+            calls: 1,
+            outputCharsTotal: 400,
+            outputTokensTotal: 200,
+            outputTokensEstimatedCount: 0,
+            lineReadCalls: 1,
+            lineReadLinesTotal: 80,
+            lineReadTokensTotal: 200,
+          },
+        },
+      }),
+    });
+
+    const metricsResponse = await requestJson(`${baseUrl}/dashboard/metrics/timeseries`);
+    assert.equal(metricsResponse.statusCode, 200);
+    const repoSearchToolStats = d(metricsResponse.body.toolStats)['repo-search'] as Dict;
+    const getContentStats = d(repoSearchToolStats['get-content']);
+    assert.equal(getContentStats.lineReadCalls, 1);
+    assert.equal(getContentStats.lineReadLinesTotal, 80);
+    assert.equal(getContentStats.lineReadTokensTotal, 200);
+    assert.equal(Number.isFinite(Number(getContentStats.lineReadRecommendedLines)), true);
+    assert.equal(Number.isFinite(Number(getContentStats.lineReadAllowanceTokens)), true);
+    assert.equal(Number(getContentStats.lineReadRecommendedLines) > 0, true);
+    assert.equal(Number(getContentStats.lineReadAllowanceTokens) > 0, true);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
 test('plan/repo-search stream events include backend promptTokenCount', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-stream-tokens-'));
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
