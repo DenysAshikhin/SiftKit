@@ -1,5 +1,10 @@
 import type { SiftConfig } from '../../config/index.js';
 import {
+  createEmptyToolTypeStats,
+  getPlannerPromptBaselinePerToolAllowanceTokens,
+  readLatestIdleSummaryToolStats,
+} from '../../line-read-guidance.js';
+import {
   countLlamaCppTokens,
   type LlamaCppChatMessage,
 } from '../../providers/llama-cpp.js';
@@ -73,6 +78,8 @@ export async function invokePlannerMode(options: {
   }
 
   const toolDefinitions = buildPlannerToolDefinitions();
+  const historicalToolStats = readLatestIdleSummaryToolStats();
+  const initialPerToolAllowanceTokens = getPlannerPromptBaselinePerToolAllowanceTokens(options.config);
   const toolResults: Array<{ toolName: PlannerToolName; args: Record<string, unknown>; result: unknown; resultText: string }> = [];
   const messages: LlamaCppChatMessage[] = [
     {
@@ -83,6 +90,11 @@ export async function invokePlannerMode(options: {
         commandExitCode: options.commandExitCode,
         rawReviewRequired: options.rawReviewRequired,
         toolDefinitions,
+        lineReadGuidance: {
+          toolName: 'read_lines',
+          toolStats: historicalToolStats,
+          initialPerToolAllowanceTokens,
+        },
       }),
     },
     {
@@ -167,6 +179,9 @@ export async function invokePlannerMode(options: {
       outputCharsTotal: number;
       outputTokensTotal: number;
       outputTokensEstimatedCount: number;
+      lineReadCalls: number;
+      lineReadLinesTotal: number;
+      lineReadTokensTotal: number;
     }> | null = null;
     try {
       debugRecorder.record({
@@ -350,12 +365,19 @@ export async function invokePlannerMode(options: {
         : formattedResultText;
       const exactToolResultTokenCount = await countLlamaCppTokens(options.config, promptResultText);
       const resolvedToolResultTokenCount = exactToolResultTokenCount ?? estimatePromptTokenCount(options.config, promptResultText);
+      const readLineCount = action.tool_name === 'read_lines' && Number.isFinite((result as { lineCount?: unknown }).lineCount)
+        ? Number((result as { lineCount?: unknown }).lineCount)
+        : 0;
       toolStatsPayload = {
         [action.tool_name]: {
+          ...createEmptyToolTypeStats(),
           calls: 1,
           outputCharsTotal: promptResultText.length,
           outputTokensTotal: Math.max(0, Math.ceil(resolvedToolResultTokenCount)),
           outputTokensEstimatedCount: exactToolResultTokenCount === null ? 1 : 0,
+          lineReadCalls: readLineCount > 0 ? 1 : 0,
+          lineReadLinesTotal: readLineCount,
+          lineReadTokensTotal: readLineCount > 0 ? normalizedResultTokenCount : 0,
         },
       };
       const toolCallId = `call_${toolResults.length + 1}`;

@@ -5,6 +5,7 @@ import * as http from 'node:http';
 import * as fs from 'node:fs';
 import * as crypto from 'node:crypto';
 import type { Dict } from '../../lib/types.js';
+import { mergeToolTypeStats } from '../../line-read-guidance.js';
 import { getRuntimeRoot } from '../paths.js';
 import { saveContentAtomically } from '../../lib/fs.js';
 import { sleep } from '../../lib/time.js';
@@ -52,41 +53,6 @@ import type {
   ActiveRunState,
   ServerContext,
 } from '../server-types.js';
-
-function mergeToolTypeStats(
-  previous: Record<string, ToolTypeStats>,
-  update: Record<string, ToolTypeStats> | null,
-): Record<string, ToolTypeStats> {
-  if (!update || Object.keys(update).length === 0) {
-    return previous;
-  }
-  const merged: Record<string, ToolTypeStats> = { ...previous };
-  for (const [toolTypeRaw, stats] of Object.entries(update)) {
-    const toolType = String(toolTypeRaw || '').trim();
-    if (!toolType) {
-      continue;
-    }
-    const nextStats = stats && typeof stats === 'object' ? stats : null;
-    if (!nextStats) {
-      continue;
-    }
-    const current = merged[toolType] || {
-      calls: 0,
-      outputCharsTotal: 0,
-      outputTokensTotal: 0,
-      outputTokensEstimatedCount: 0,
-    };
-    merged[toolType] = {
-      calls: current.calls + (Number.isFinite(nextStats.calls) ? Number(nextStats.calls) : 0),
-      outputCharsTotal: current.outputCharsTotal + (Number.isFinite(nextStats.outputCharsTotal) ? Number(nextStats.outputCharsTotal) : 0),
-      outputTokensTotal: current.outputTokensTotal + (Number.isFinite(nextStats.outputTokensTotal) ? Number(nextStats.outputTokensTotal) : 0),
-      outputTokensEstimatedCount: current.outputTokensEstimatedCount + (
-        Number.isFinite(nextStats.outputTokensEstimatedCount) ? Number(nextStats.outputTokensEstimatedCount) : 0
-      ),
-    };
-  }
-  return merged;
-}
 
 function normalizeTaskKind(value: unknown): TaskKind | null {
   return value === 'summary' || value === 'plan' || value === 'repo-search' || value === 'chat'

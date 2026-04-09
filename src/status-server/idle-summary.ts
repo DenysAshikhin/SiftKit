@@ -12,6 +12,7 @@ import {
 } from '../lib/text-format.js';
 
 import type { Dict } from '../lib/types.js';
+import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 import {
   TASK_KINDS,
   type MetricTotals,
@@ -162,10 +163,14 @@ function normalizeToolStats(input: unknown): SnapshotToolStats {
       }
       const statRecord = rawStats as Dict;
       normalizedByType[toolType] = {
+        ...createEmptyToolTypeStats(),
         calls: toNonNegativeNumber(statRecord.calls),
         outputCharsTotal: toNonNegativeNumber(statRecord.outputCharsTotal),
         outputTokensTotal: toNonNegativeNumber(statRecord.outputTokensTotal),
         outputTokensEstimatedCount: toNonNegativeNumber(statRecord.outputTokensEstimatedCount),
+        lineReadCalls: toNonNegativeNumber(statRecord.lineReadCalls),
+        lineReadLinesTotal: toNonNegativeNumber(statRecord.lineReadLinesTotal),
+        lineReadTokensTotal: toNonNegativeNumber(statRecord.lineReadTokensTotal),
       };
     }
     stats[taskKind] = normalizedByType;

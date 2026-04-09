@@ -806,6 +806,9 @@ async function startStubStatusServer(options = {}) {
                 outputCharsTotal: 0,
                 outputTokensTotal: 0,
                 outputTokensEstimatedCount: 0,
+                lineReadCalls: 0,
+                lineReadLinesTotal: 0,
+                lineReadTokensTotal: 0,
               };
               const stats = rawStats as Record<string, unknown>;
               existing[toolType] = {
@@ -815,6 +818,9 @@ async function startStubStatusServer(options = {}) {
                 outputTokensEstimatedCount: current.outputTokensEstimatedCount + (
                   Number.isFinite(stats.outputTokensEstimatedCount) ? Number(stats.outputTokensEstimatedCount) : 0
                 ),
+                lineReadCalls: current.lineReadCalls + (Number.isFinite(stats.lineReadCalls) ? Number(stats.lineReadCalls) : 0),
+                lineReadLinesTotal: current.lineReadLinesTotal + (Number.isFinite(stats.lineReadLinesTotal) ? Number(stats.lineReadLinesTotal) : 0),
+                lineReadTokensTotal: current.lineReadTokensTotal + (Number.isFinite(stats.lineReadTokensTotal) ? Number(stats.lineReadTokensTotal) : 0),
               };
             }
           }

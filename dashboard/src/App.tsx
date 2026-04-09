@@ -735,6 +735,15 @@ export function App() {
         outputCharsTotal: Number(stats.outputCharsTotal || 0),
         outputTokensTotal: Number(stats.outputTokensTotal || 0),
         outputTokensEstimatedCount: Number(stats.outputTokensEstimatedCount || 0),
+        lineReadCalls: Number(stats.lineReadCalls || 0),
+        lineReadLinesTotal: Number(stats.lineReadLinesTotal || 0),
+        lineReadTokensTotal: Number(stats.lineReadTokensTotal || 0),
+        lineReadRecommendedLines: Number.isFinite(Number(stats.lineReadRecommendedLines))
+          ? Number(stats.lineReadRecommendedLines)
+          : null,
+        lineReadAllowanceTokens: Number.isFinite(Number(stats.lineReadAllowanceTokens))
+          ? Number(stats.lineReadAllowanceTokens)
+          : null,
       }))
     ))
     : [];
@@ -1584,6 +1593,8 @@ export function App() {
                       .map((entry) => {
                         const avgChars = entry.calls > 0 ? Math.round(entry.outputCharsTotal / entry.calls) : 0;
                         const avgTokens = entry.calls > 0 ? Math.round(entry.outputTokensTotal / entry.calls) : 0;
+                        const avgLines = entry.lineReadCalls > 0 ? Math.round(entry.lineReadLinesTotal / entry.lineReadCalls) : 0;
+                        const avgTokensPerLine = entry.lineReadLinesTotal > 0 ? entry.lineReadTokensTotal / entry.lineReadLinesTotal : null;
                         const estimatedRate = entry.calls > 0 ? (entry.outputTokensEstimatedCount / entry.calls) * 100 : 0;
                         return (
                           <article
@@ -1595,6 +1606,18 @@ export function App() {
                             <span>Calls: {formatNumber(entry.calls)}</span>
                             <span>Avg chars: {formatNumber(avgChars)}</span>
                             <span>Avg tokens: {formatNumber(avgTokens)}</span>
+                            {(entry.lineReadCalls > 0 || entry.lineReadRecommendedLines !== null) && (
+                              <span>Avg lines/read: {formatNumber(avgLines)}</span>
+                            )}
+                            {(entry.lineReadLinesTotal > 0 || entry.lineReadRecommendedLines !== null) && (
+                              <span>Avg tokens/line: {avgTokensPerLine === null ? '-' : avgTokensPerLine.toFixed(2)}</span>
+                            )}
+                            {entry.lineReadRecommendedLines !== null && (
+                              <span>Recommended lines: {formatNumber(entry.lineReadRecommendedLines)}</span>
+                            )}
+                            {entry.lineReadAllowanceTokens !== null && (
+                              <span>Allowance: {formatNumber(entry.lineReadAllowanceTokens)} tok</span>
+                            )}
                             <span>Est rate: {estimatedRate.toFixed(1)}%</span>
                           </article>
                         );

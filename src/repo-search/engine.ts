@@ -7,9 +7,17 @@ import {
   loadConfig,
   type SiftConfig,
 } from '../config/index.js';
+import {
+  createEmptyToolTypeStats,
+  getRepoSearchLineReadStats,
+  getRepoSearchPromptBaselinePerToolAllowanceTokens,
+  mergeToolTypeStats,
+  readLatestIdleSummaryToolStats,
+} from '../line-read-guidance.js';
 import { spawnPowerShellAsync } from '../lib/powershell.js';
 import { colorize } from '../lib/text-format.js';
 import { countLlamaCppTokens, listLlamaCppModels } from '../providers/llama-cpp.js';
+import type { ToolTypeStats } from '../status-server/metrics.js';
 import {
   buildIgnorePolicy,
   evaluateCommandSafety,
@@ -162,13 +170,6 @@ function executeRepoCommand(
     output: result.output,
   }));
 }
-
-export type ToolTypeStats = {
-  calls: number;
-  outputCharsTotal: number;
-  outputTokensTotal: number;
-  outputTokensEstimatedCount: number;
-};
 
 function normalizeToolTypeFromCommand(command: string): string {
   const trimmed = String(command || '').trim();
@@ -336,9 +337,17 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const slotId = options.config ? allocateLlamaCppSlotId(options.config) : 0;
   const ignorePolicy = buildIgnorePolicy(options.repoRoot);
   const bootstrapFileList = scanRepoFiles(options.repoRoot, ignorePolicy) || undefined;
+  const historicalToolStats = readLatestIdleSummaryToolStats();
+  const initialPerToolAllowanceTokens = getRepoSearchPromptBaselinePerToolAllowanceTokens(options.config ?? null);
 
   const messages: ChatMessage[] = [
-    { role: 'system', content: buildTaskSystemPrompt(options.repoRoot) },
+    {
+      role: 'system',
+      content: buildTaskSystemPrompt(options.repoRoot, {
+        globalToolStats: historicalToolStats,
+        initialPerToolAllowanceTokens,
+      }),
+    },
     { role: 'user', content: buildTaskInitialUserPrompt(task.question, bootstrapFileList) },
   ];
 
@@ -648,6 +657,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     const candidateResultTokenCount = useEstimatedTokensOnly
       ? estimateTokenCount(options.config, resultText)
       : await countTokensWithFallback(options.config, resultText);
+    const lineReadStats = getRepoSearchLineReadStats(commandToRun, baseOutput, candidateResultTokenCount);
     const dynamicPerToolRatio = Math.max(PER_TOOL_RESULT_RATIO, Number(commands.length) / Number(maxTurns));
     const perToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * dynamicPerToolRatio));
     const remainingTokenAllowance = Math.max(usablePromptTokens - promptTokenCount, 0);
@@ -673,17 +683,16 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       }
     }
     const toolType = normalizeToolTypeFromCommand(commandToRun);
-    const currentToolStats = toolStatsByType[toolType] || {
-      calls: 0,
-      outputCharsTotal: 0,
-      outputTokensTotal: 0,
-      outputTokensEstimatedCount: 0,
-    };
+    const currentToolStats = toolStatsByType[toolType] || createEmptyToolTypeStats();
     toolStatsByType[toolType] = {
+      ...currentToolStats,
       calls: currentToolStats.calls + 1,
       outputCharsTotal: currentToolStats.outputCharsTotal + resultText.length,
       outputTokensTotal: currentToolStats.outputTokensTotal + Math.max(0, Math.ceil(resultTokenCount)),
       outputTokensEstimatedCount: currentToolStats.outputTokensEstimatedCount + (resultTokenCountEstimated ? 1 : 0),
+      lineReadCalls: currentToolStats.lineReadCalls + Number(lineReadStats?.lineReadCalls || 0),
+      lineReadLinesTotal: currentToolStats.lineReadLinesTotal + Number(lineReadStats?.lineReadLinesTotal || 0),
+      lineReadTokensTotal: currentToolStats.lineReadTokensTotal + Number(lineReadStats?.lineReadTokensTotal || 0),
     };
 
     options.logger?.write({
@@ -800,20 +809,7 @@ export function buildScorecard(options: { runId: string; model: string; tasks: T
   };
   const toolStats: Record<string, ToolTypeStats> = {};
   for (const task of options.tasks) {
-    for (const [toolType, stats] of Object.entries(task.toolStats || {})) {
-      const current = toolStats[toolType] || {
-        calls: 0,
-        outputCharsTotal: 0,
-        outputTokensTotal: 0,
-        outputTokensEstimatedCount: 0,
-      };
-      toolStats[toolType] = {
-        calls: current.calls + Number(stats.calls || 0),
-        outputCharsTotal: current.outputCharsTotal + Number(stats.outputCharsTotal || 0),
-        outputTokensTotal: current.outputTokensTotal + Number(stats.outputTokensTotal || 0),
-        outputTokensEstimatedCount: current.outputTokensEstimatedCount + Number(stats.outputTokensEstimatedCount || 0),
-      };
-    }
+    Object.assign(toolStats, mergeToolTypeStats(toolStats, task.toolStats || {}));
   }
 
   const failureReasons: string[] = [];

@@ -67,6 +67,11 @@ export type ToolTypeStats = {
   outputCharsTotal: number;
   outputTokensTotal: number;
   outputTokensEstimatedCount: number;
+  lineReadCalls: number;
+  lineReadLinesTotal: number;
+  lineReadTokensTotal: number;
+  lineReadRecommendedLines?: number;
+  lineReadAllowanceTokens?: number;
 };
 
 export type ToolStatsByTask = Record<'summary' | 'plan' | 'repo-search' | 'chat', Record<string, ToolTypeStats>>;

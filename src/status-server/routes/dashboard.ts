@@ -17,7 +17,9 @@ import {
 import { queryRecentSnapshots } from '../idle-summary.js';
 import { getIdleSummaryDatabase } from '../server-ops.js';
 import { getRuntimeRoot } from '../paths.js';
+import { readConfig } from '../config-store.js';
 import type { ServerContext } from '../server-types.js';
+import type { SiftConfig } from '../../config/index.js';
 
 export async function handleDashboardRoute(
   ctx: ServerContext,
@@ -63,13 +65,14 @@ export async function handleDashboardRoute(
 
   if (req.method === 'GET' && pathname === '/dashboard/metrics/timeseries') {
     const idleSummaryDatabase = fs.existsSync(idleSummarySnapshotsPath) ? getIdleSummaryDatabase(ctx) : null;
+    const config = readConfig(ctx.configPath) as SiftConfig;
     const days = buildDashboardDailyMetrics(
       runtimeRoot,
       idleSummaryDatabase,
       ctx.metrics
     );
     const taskDays = buildDashboardTaskDailyMetrics(idleSummaryDatabase, ctx.metrics);
-    const toolStats = buildDashboardToolStats(idleSummaryDatabase, ctx.metrics);
+    const toolStats = buildDashboardToolStats(idleSummaryDatabase, ctx.metrics, config);
     sendJson(res, 200, { days, taskDays, toolStats });
     return true;
   }

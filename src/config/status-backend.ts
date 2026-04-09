@@ -97,6 +97,9 @@ export type NotifyStatusBackendOptions = {
     outputCharsTotal?: number;
     outputTokensTotal?: number;
     outputTokensEstimatedCount?: number;
+    lineReadCalls?: number;
+    lineReadLinesTotal?: number;
+    lineReadTokensTotal?: number;
   }> | null;
   promptCacheTokens?: number | null;
   promptEvalTokens?: number | null;
