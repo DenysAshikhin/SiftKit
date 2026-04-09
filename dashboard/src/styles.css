@@ -416,8 +416,12 @@ pre {
 
 .metrics-graph-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(420px, 1fr);
   gap: 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
 }
 
 .interactive-graph {
@@ -498,6 +502,28 @@ pre {
   background: linear-gradient(180deg, #13304a, #102332 55%);
 }
 
+.idle-summary-top-wrap {
+  margin-top: 12px;
+}
+
+.idle-top-row {
+  display: grid;
+  grid-template-columns: minmax(540px, 1fr) minmax(540px, 1fr);
+  gap: 12px;
+}
+
+.idle-top-row > section {
+  margin-top: 0;
+}
+
+.idle-summary-compact {
+  min-width: 0;
+}
+
+.idle-tools-panel {
+  min-width: 0;
+}
+
 .idle-summary-panel h3,
 .idle-summary-history h3 {
   margin: 0 0 8px;
@@ -550,6 +576,104 @@ pre {
 
 .idle-card.compression {
   border-color: #679d44;
+}
+
+.idle-metric-card-row {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
+}
+
+.idle-metric-card-row .idle-metric-card {
+  min-width: 280px;
+  max-width: 320px;
+  flex: 0 0 auto;
+}
+
+.idle-metric-card.metric-task strong,
+.idle-metric-card.metric-tool strong {
+  font-size: 1rem;
+}
+
+.idle-kind-group-row {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
+}
+
+.idle-kind-group {
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  padding: 8px;
+  background: #0f2030;
+  min-width: 320px;
+  max-width: 420px;
+  flex: 0 0 auto;
+  display: grid;
+  gap: 8px;
+}
+
+.idle-kind-group h4 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.idle-kind-group .idle-metric-card-row {
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: 360px;
+  padding-bottom: 0;
+}
+
+.idle-kind-group .idle-metric-card {
+  min-width: 0;
+  max-width: none;
+  width: 100%;
+}
+
+.idle-metric-card.task-kind-chat {
+  border-color: #5f95d8;
+}
+
+.idle-metric-card.task-kind-plan {
+  border-color: #8f79d1;
+}
+
+.idle-metric-card.task-kind-repo-search {
+  border-color: #42a08f;
+}
+
+.idle-metric-card.task-kind-summary {
+  border-color: #c08947;
+}
+
+.idle-metric-card.task-kind-other {
+  border-color: #5f6b79;
+}
+
+.idle-kind-group.task-kind-chat {
+  border-color: #5f95d8;
+}
+
+.idle-kind-group.task-kind-plan {
+  border-color: #8f79d1;
+}
+
+.idle-kind-group.task-kind-repo-search {
+  border-color: #42a08f;
+}
+
+.idle-kind-group.task-kind-summary {
+  border-color: #c08947;
+}
+
+.idle-kind-group.task-kind-other {
+  border-color: #5f6b79;
 }
 
 .chat-layout {
@@ -850,6 +974,10 @@ button:hover {
   }
 
   .metrics-graph-grid {
+    grid-auto-columns: minmax(320px, 1fr);
+  }
+
+  .idle-top-row {
     grid-template-columns: 1fr;
   }
 

@@ -385,10 +385,16 @@ test('oversized transition extraction uses planner action grammar before returni
       assert.match(firstPrompt, /Do not use "value":\{"gte":3200,"lte":3215\}/u);
       assert.match(firstPrompt, /Never emit JSON schema fragments like \{"type":"integer"\}/u);
       assert.match(firstPrompt, /Regex patterns must be valid JavaScript regex/u);
+      assert.match(firstPrompt, /After `find_text` identifies a useful anchor, default to one larger contiguous `read_lines` window/u);
+      assert.match(firstPrompt, /Do not use tiny `read_lines` windows \(`<120` lines\) unless verifying one exact line or symbol/u);
+      assert.match(firstPrompt, /If you already used `read_lines` once, do another `find_text` search before requesting a second nearby `read_lines` slice/u);
       assert.match(firstPrompt, /Example tool calls:/u);
       assert.match(firstPrompt, /"tool_name":"find_text"/u);
       assert.match(firstPrompt, /"tool_name":"read_lines"/u);
       assert.match(firstPrompt, /"tool_name":"json_filter"/u);
+      assert.match(firstPrompt, /Bad read_lines progression example:/u);
+      assert.match(firstPrompt, /"startLine":1340,"endLine":1379/u);
+      assert.match(firstPrompt, /"startLine":1380,"endLine":1419/u);
       assert.equal(/parameters=/u.test(firstPrompt), false);
     }, {
       assistantContent(promptText, parsed, requestIndex) {

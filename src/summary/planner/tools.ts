@@ -83,7 +83,7 @@ export function buildPlannerToolDefinitions(): PlannerToolDefinition[] {
       type: 'function',
       function: {
         name: 'read_lines',
-        description: 'Read a specific 1-based line range from the input text. Example: {"startLine":1340,"endLine":1405}',
+        description: 'Read a specific 1-based line range from the input text. Prefer larger contiguous windows after a find_text anchor; avoid many tiny adjacent slices unless verifying one exact line or symbol. Example: {"startLine":1340,"endLine":1405}',
         parameters: {
           type: 'object',
           properties: {

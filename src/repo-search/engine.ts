@@ -59,7 +59,7 @@ const PER_TOOL_RESULT_RATIO = 0.10;
 const DEFAULT_REPO_SEARCH_REQUEST_MAX_TOKENS = 2048;
 const ZERO_OUTPUT_FORCE_THRESHOLD = 10;
 const FORCED_FINISH_MAX_ATTEMPTS = 3;
-const NON_THINKING_FINISH_FOLLOWUP_PROMPT = 'Are you sure you have enough evidence and did not get tunnel-visioned? When you finish, include 3-5 key code snippets (10-30 lines each, copy-pasted from the repo with file:line references) that most strongly support your answer.';
+const NON_THINKING_FINISH_FOLLOWUP_PROMPT = 'Are you sure you have everything? If yes, only respond with `yes I am sure`. If not, keep using tool calls to investigate more.';
 const ANSI_RED_CODE = 31;
 
 // ---------------------------------------------------------------------------
@@ -232,6 +232,22 @@ function writeRedConsoleLine(message: string): void {
   process.stderr.write(`${colorize(String(message), ANSI_RED_CODE, { isTTY: true })}\n`);
 }
 
+function normalizeResponseToken(token: string): string {
+  return String(token || '').trim().toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/gu, '');
+}
+
+function isFollowupConfirmationResponse(text: string): boolean {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) {
+    return false;
+  }
+  if (trimmed.toLowerCase() === 'yes i am sure') {
+    return true;
+  }
+  const firstTenWords = trimmed.split(/\s+/u).slice(0, 10).map(normalizeResponseToken).filter(Boolean);
+  return firstTenWords.includes('yes') && firstTenWords.includes('sure');
+}
+
 // ---------------------------------------------------------------------------
 // Task result type
 // ---------------------------------------------------------------------------
@@ -315,6 +331,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   let forcedFinishAttemptsRemaining = 0;
   let previousPlannerThinkingEnabled: boolean | null = null;
   let nonThinkingFinishFollowupUsed = false;
+  let pendingNonThinkingFinishOutput: string | null = null;
   let lastLoggedMessageCount = 0;
   const slotId = options.config ? allocateLlamaCppSlotId(options.config) : 0;
   const ignorePolicy = buildIgnorePolicy(options.repoRoot);
@@ -446,6 +463,18 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     if (Number.isFinite(response.promptEvalTokens) && Number(response.promptEvalTokens) >= 0) modelPromptEvalTokens += Number(response.promptEvalTokens);
 
     if (response.mockExhausted) { reason = 'mock_responses_exhausted'; break; }
+    const responseText = String(response.text || '').trim();
+    if (pendingNonThinkingFinishOutput && isFollowupConfirmationResponse(responseText)) {
+      modelOutputTokens += resolvedCompletionTokens;
+      finalOutput = pendingNonThinkingFinishOutput;
+      pendingNonThinkingFinishOutput = null;
+      options.logger?.write({ kind: 'turn_followup_confirmation_accepted', taskId: task.id, turn, responseText });
+      if (options.onProgress) {
+        options.onProgress({ kind: 'thinking', turn, maxTurns, thinkingText: finalOutput });
+      }
+      reason = 'finish';
+      break;
+    }
 
     let action;
     try {
@@ -481,6 +510,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       }
       if (followupOnNonThinkingFinish && !plannerThinkingEnabled && !nonThinkingFinishFollowupUsed) {
         nonThinkingFinishFollowupUsed = true;
+        pendingNonThinkingFinishOutput = action.output;
         messages.push({ role: 'assistant', content: response.text });
         messages.push({ role: 'user', content: NON_THINKING_FINISH_FOLLOWUP_PROMPT });
         history.push({ command: '[follow-up]', resultText: NON_THINKING_FINISH_FOLLOWUP_PROMPT });
@@ -489,7 +519,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         continue;
       }
       options.logger?.write({ kind: 'turn_finish_validation_skipped', taskId: task.id, turn, reason: 'planner_already_thinking' });
-      finalOutput = action.output;
+      finalOutput = pendingNonThinkingFinishOutput ?? action.output;
+      pendingNonThinkingFinishOutput = null;
       if (options.onProgress) {
         options.onProgress({ kind: 'thinking', turn, maxTurns, thinkingText: finalOutput });
       }
@@ -499,6 +530,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
 
     // Tool action
     modelToolTokens += resolvedCompletionTokens;
+    pendingNonThinkingFinishOutput = null;
     const command = action.args.command;
 
     if (inForcedFinishMode) {

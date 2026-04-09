@@ -751,6 +751,9 @@ test('runTaskLoop prompt includes anti-loop and larger single-file read guidance
   const prompt = String(systemMessage);
   assert.match(prompt, /Single-file read strategy:/u);
   assert.match(prompt, /Start with `rg -n` to find anchors/u);
+  assert.match(prompt, /default to one larger read \(e\.g\. `-First 200-400`\) rather than multiple small windows/u);
+  assert.match(prompt, /Do not use tiny windows \(`<120` lines\) unless verifying one exact symbol\/line/u);
+  assert.match(prompt, /If you already read a file once, do a new anchor search before another read of that same file/u);
   assert.match(prompt, /read a larger section in one call/u);
   assert.match(prompt, /Prefer `Get-Content <file> -Raw` for full-file inspection when manageable/u);
   assert.match(prompt, /Do not issue multiple consecutive reads of the same file with only small `-Skip\/-First` changes/u);
@@ -786,6 +789,8 @@ test('runTaskLoop prompt examples use larger reads and anchor-first flow', async
   assert.match(prompt, /Get-Content src\\\\summary\.ts \| Select-Object -First 240/u);
   assert.match(prompt, /rg -n \\"invokePlannerMode\\" src\\\\summary\.ts/u);
   assert.match(prompt, /Get-Content src\\\\summary\.ts \| Select-Object -Skip 860 -First 240/u);
+  assert.match(prompt, /Get-Content src\\summary\.ts \| Select-Object -First 40/u);
+  assert.match(prompt, /Get-Content src\\summary\.ts \| Select-Object -Skip 40 -First 40/u);
   assert.equal(result.reason, 'finish');
 });
 
@@ -1446,7 +1451,7 @@ test('runTaskLoop still rejects tool output that exceeds remaining token allowan
   assert.equal(result.reason, 'finish');
 });
 
-test('runTaskLoop follows up once after non-thinking finish and then accepts thinking finish', async () => {
+test('runTaskLoop follows up once after non-thinking finish and preserves first finish output after confirmation', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   const result = await runTaskLoop(
     {
@@ -1460,8 +1465,8 @@ test('runTaskLoop follows up once after non-thinking finish and then accepts thi
       minToolCallsBeforeFinish: 0,
       enforceThinkingFinish: true,
       mockResponses: [
-        '{"action":"finish","output":"done"}',
-        '{"action":"finish","output":"done"}',
+        '{"action":"finish","output":"first finish"}',
+        '{"action":"finish","output":"second finish"}',
       ],
       mockCommandResults: {},
       logger: {
@@ -1481,7 +1486,7 @@ test('runTaskLoop follows up once after non-thinking finish and then accepts thi
   assert.equal(Boolean(followupEvent), true);
   assert.match(
     String(followupEvent.followupPrompt),
-    /Are you sure you have enough evidence and did not get tunnel-visioned\?/u
+    /Are you sure you have everything\?/u
   );
 
   const followupContent = events
@@ -1490,9 +1495,9 @@ test('runTaskLoop follows up once after non-thinking finish and then accepts thi
     .filter((m) => m.role === 'user')
     .map((m) => String(m.content || ''))
     .find((c) => c.includes('Are you sure')) || '';
-  assert.match(followupContent, /Are you sure you have enough evidence and did not get tunnel-visioned\?/u);
+  assert.match(followupContent, /only respond with `yes i am sure`/iu);
   assert.equal(result.reason, 'finish');
-  assert.equal(result.finalOutput, 'done');
+  assert.equal(result.finalOutput, 'first finish');
 });
 
 test('runTaskLoop triggers non-thinking finish follow-up only once', async () => {
@@ -1509,7 +1514,7 @@ test('runTaskLoop triggers non-thinking finish follow-up only once', async () =>
       minToolCallsBeforeFinish: 0,
       enforceThinkingFinish: true,
       mockResponses: [
-        '{"action":"finish","output":"final answer"}',
+        '{"action":"finish","output":"first answer"}',
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"final answer\\" src"}}',
         '{"action":"finish","output":"final answer"}',
       ],
@@ -1559,6 +1564,72 @@ test('runTaskLoop counts malformed response after non-thinking finish follow-up 
 
   assert.equal(result.reason, 'invalid_response_limit');
   assert.equal(result.invalidResponses, 1);
+});
+
+test('runTaskLoop accepts exact "yes i am sure" after non-thinking finish follow-up', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-validation-exact-confirmation',
+      question: 'Find planner text.',
+      signals: ['first finish'],
+    },
+    {
+      maxTurns: 3,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      enforceThinkingFinish: true,
+      mockResponses: [
+        '{"action":"finish","output":"first finish"}',
+        'yes i am sure',
+      ],
+      mockCommandResults: {},
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const accepted = events.find((event) => event.kind === 'turn_followup_confirmation_accepted');
+  assert.equal(Boolean(accepted), true);
+  assert.equal(result.reason, 'finish');
+  assert.equal(result.finalOutput, 'first finish');
+  assert.equal(result.invalidResponses, 0);
+});
+
+test('runTaskLoop accepts follow-up confirmation when first ten words include yes and sure', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-validation-fuzzy-confirmation',
+      question: 'Find planner text.',
+      signals: ['first finish'],
+    },
+    {
+      maxTurns: 3,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      enforceThinkingFinish: true,
+      mockResponses: [
+        '{"action":"finish","output":"first finish"}',
+        'yes please proceed, sure this is complete',
+      ],
+      mockCommandResults: {},
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const accepted = events.find((event) => event.kind === 'turn_followup_confirmation_accepted');
+  assert.equal(Boolean(accepted), true);
+  assert.equal(result.reason, 'finish');
+  assert.equal(result.finalOutput, 'first finish');
+  assert.equal(result.invalidResponses, 0);
 });
 
 test('runTaskLoop forces thinking on after non-thinking finish follow-up and can still hit max turns', async () => {

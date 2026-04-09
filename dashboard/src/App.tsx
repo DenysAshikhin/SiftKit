@@ -197,6 +197,14 @@ function formatTaskKindLabel(taskKind: string): string {
   return taskKind;
 }
 
+function formatTaskKindClass(taskKind: string): string {
+  const normalized = String(taskKind || '').trim().toLowerCase();
+  if (!normalized) {
+    return 'other';
+  }
+  return normalized.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'other';
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -656,6 +664,23 @@ export function App() {
   const taskMetricsSorted = taskMetrics
     .slice()
     .sort((left, right) => left.date.localeCompare(right.date) || left.taskKind.localeCompare(right.taskKind));
+  const taskMetricsByKind = taskMetricsSorted.reduce<Record<string, TaskMetricDay[]>>((accumulator, entry) => {
+    const rows = accumulator[entry.taskKind] || [];
+    rows.push(entry);
+    accumulator[entry.taskKind] = rows;
+    return accumulator;
+  }, {});
+  const metricGroupOrder = ['summary', 'repo-search', 'plan', 'chat'];
+  const taskMetricKindRows = Object.entries(taskMetricsByKind).sort((left, right) => {
+    const leftIndex = metricGroupOrder.indexOf(left[0]);
+    const rightIndex = metricGroupOrder.indexOf(right[0]);
+    const normalizedLeft = leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex;
+    const normalizedRight = rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex;
+    if (normalizedLeft !== normalizedRight) {
+      return normalizedLeft - normalizedRight;
+    }
+    return left[0].localeCompare(right[0]);
+  });
   const toolMetricRows = toolMetrics
     ? Object.entries(toolMetrics).flatMap(([taskKind, byType]) => (
       Object.entries(byType || {}).map(([toolType, stats]) => ({
@@ -1473,57 +1498,95 @@ export function App() {
               </section>
             )}
           </div>
-          <section className="idle-summary-panel">
-            <h3>Live Idle Summary</h3>
-            {latestIdleSnapshot ? (
-              <div className="idle-summary-cards">
-                <p className="hint idle-latest">Latest: {formatDate(latestIdleSnapshot.emittedAtUtc)}</p>
-                <article className="idle-card throughput">
-                  <span>Requests</span>
-                  <strong>{formatNumber(latestIdleSnapshot.completedRequestCount)}</strong>
-                  <span>Avg Request: {formatSecondsFromMs(latestIdleSnapshot.avgRequestMs)}</span>
-                  <span>Gen Tokens/s: {formatNumber(latestIdleSnapshot.avgTokensPerSecond)}</span>
-                </article>
-                <article className="idle-card token-totals">
-                  <span>Input / Output / Thinking</span>
-                  <strong>
-                    {formatNumber(latestIdleSnapshot.inputTokensTotal)} / {formatNumber(latestIdleSnapshot.outputTokensTotal)} / {formatNumber(latestIdleSnapshot.thinkingTokensTotal)}
-                  </strong>
-                </article>
-                <article className="idle-card compression">
-                  <span>Compression</span>
-                  <strong>{formatPercent(latestIdleSnapshot.savedPercent)}</strong>
-                  <span>Ratio: {latestIdleSnapshot.compressionRatio ? `${latestIdleSnapshot.compressionRatio.toFixed(2)}x` : '-'}</span>
-                </article>
-              </div>
-            ) : (
-              <p className="hint">No snapshots yet. A summary appears when the backend reaches idle state.</p>
-            )}
+          <section className="idle-summary-top-wrap">
+            <div className="idle-top-row">
+              <section className="idle-summary-panel idle-summary-compact">
+                <h3>Live Idle Summary</h3>
+                {latestIdleSnapshot ? (
+                  <div className="idle-summary-cards">
+                    <p className="hint idle-latest">Latest: {formatDate(latestIdleSnapshot.emittedAtUtc)}</p>
+                    <article className="idle-card throughput">
+                      <span>Requests</span>
+                      <strong>{formatNumber(latestIdleSnapshot.completedRequestCount)}</strong>
+                      <span>Avg Request: {formatSecondsFromMs(latestIdleSnapshot.avgRequestMs)}</span>
+                      <span>Gen Tokens/s: {formatNumber(latestIdleSnapshot.avgTokensPerSecond)}</span>
+                    </article>
+                    <article className="idle-card token-totals">
+                      <span>Input / Output / Thinking</span>
+                      <strong>
+                        {formatNumber(latestIdleSnapshot.inputTokensTotal)} / {formatNumber(latestIdleSnapshot.outputTokensTotal)} / {formatNumber(latestIdleSnapshot.thinkingTokensTotal)}
+                      </strong>
+                    </article>
+                    <article className="idle-card compression">
+                      <span>Compression</span>
+                      <strong>{formatPercent(latestIdleSnapshot.savedPercent)}</strong>
+                      <span>Ratio: {latestIdleSnapshot.compressionRatio ? `${latestIdleSnapshot.compressionRatio.toFixed(2)}x` : '-'}</span>
+                    </article>
+                  </div>
+                ) : (
+                  <p className="hint">No snapshots yet. A summary appears when the backend reaches idle state.</p>
+                )}
+              </section>
+              <section className="idle-summary-history idle-tools-panel">
+                <h3>Tool Metrics</h3>
+                {toolMetricRows.length > 0 ? (
+                  <div className="idle-metric-card-row">
+                    {toolMetricRows
+                      .sort((left, right) => left.taskKind.localeCompare(right.taskKind) || left.toolType.localeCompare(right.toolType))
+                      .map((entry) => {
+                        const avgChars = entry.calls > 0 ? Math.round(entry.outputCharsTotal / entry.calls) : 0;
+                        const avgTokens = entry.calls > 0 ? Math.round(entry.outputTokensTotal / entry.calls) : 0;
+                        const estimatedRate = entry.calls > 0 ? (entry.outputTokensEstimatedCount / entry.calls) * 100 : 0;
+                        return (
+                          <article
+                            key={`${entry.taskKind}-${entry.toolType}`}
+                            className={`idle-card idle-metric-card metric-tool task-kind-${formatTaskKindClass(entry.taskKind)}`}
+                          >
+                            <span>{formatTaskKindLabel(entry.taskKind)}</span>
+                            <strong>{entry.toolType}</strong>
+                            <span>Calls: {formatNumber(entry.calls)}</span>
+                            <span>Avg chars: {formatNumber(avgChars)}</span>
+                            <span>Avg tokens: {formatNumber(avgTokens)}</span>
+                            <span>Est rate: {estimatedRate.toFixed(1)}%</span>
+                          </article>
+                        );
+                      })}
+                  </div>
+                ) : (
+                  <p className="hint">No tool metrics available yet.</p>
+                )}
+              </section>
+            </div>
           </section>
           <section className="idle-summary-history">
             <h3>Per-Task Daily Metrics</h3>
-            {taskMetricsSorted.length > 0 ? (
-              <pre>{taskMetricsSorted.map((entry) => (
-                `${entry.date} | ${formatTaskKindLabel(entry.taskKind)} | runs=${formatNumber(entry.runs)} input=${formatNumber(entry.inputTokens)} output=${formatNumber(entry.outputTokens)} thinking=${formatNumber(entry.thinkingTokens)} tool=${formatNumber(entry.toolTokens)} cache=${formatNumber(entry.promptCacheTokens)} eval=${formatNumber(entry.promptEvalTokens)} avg_ms=${formatNumber(entry.avgDurationMs)}`
-              )).join('\n')}</pre>
+            {taskMetricKindRows.length > 0 ? (
+              <div className="idle-kind-group-row">
+                {taskMetricKindRows.map(([taskKind, entries]) => (
+                  <section
+                    key={taskKind}
+                    className={`idle-kind-group task-kind-${formatTaskKindClass(taskKind)}`}
+                  >
+                    <h4>{formatTaskKindLabel(taskKind)}</h4>
+                    <div className="idle-metric-card-row">
+                      {entries.map((entry) => (
+                        <article
+                          key={`${entry.date}-${entry.taskKind}`}
+                          className={`idle-card idle-metric-card metric-task task-kind-${formatTaskKindClass(entry.taskKind)}`}
+                        >
+                          <span>{entry.date}</span>
+                          <strong>Runs: {formatNumber(entry.runs)}</strong>
+                          <span>Input / Output / Thinking: {formatNumber(entry.inputTokens)} / {formatNumber(entry.outputTokens)} / {formatNumber(entry.thinkingTokens)}</span>
+                          <span>Tool / Cache / Eval: {formatNumber(entry.toolTokens)} / {formatNumber(entry.promptCacheTokens)} / {formatNumber(entry.promptEvalTokens)}</span>
+                          <span>Avg ms: {formatNumber(entry.avgDurationMs)}</span>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
             ) : (
               <p className="hint">No per-task metrics available yet.</p>
-            )}
-          </section>
-          <section className="idle-summary-history">
-            <h3>Tool Metrics</h3>
-            {toolMetricRows.length > 0 ? (
-              <pre>{toolMetricRows
-                .sort((left, right) => left.taskKind.localeCompare(right.taskKind) || left.toolType.localeCompare(right.toolType))
-                .map((entry) => {
-                  const avgChars = entry.calls > 0 ? Math.round(entry.outputCharsTotal / entry.calls) : 0;
-                  const avgTokens = entry.calls > 0 ? Math.round(entry.outputTokensTotal / entry.calls) : 0;
-                  const estimatedRate = entry.calls > 0 ? (entry.outputTokensEstimatedCount / entry.calls) * 100 : 0;
-                  return `${formatTaskKindLabel(entry.taskKind)} | ${entry.toolType} | calls=${formatNumber(entry.calls)} avg_chars=${formatNumber(avgChars)} avg_tokens=${formatNumber(avgTokens)} est_rate=${estimatedRate.toFixed(1)}%`;
-                })
-                .join('\n')}</pre>
-            ) : (
-              <p className="hint">No tool metrics available yet.</p>
             )}
           </section>
         </section>
