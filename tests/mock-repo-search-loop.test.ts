@@ -2019,7 +2019,52 @@ test('runTaskLoop keeps raw rewrite notes in logs but inserts compact repo-searc
   const commandEvent = events.find((event) => event.kind === 'turn_command_result');
   assert.match(String(commandEvent?.output || ''), /^note:/mu);
   assert.doesNotMatch(String(commandEvent?.insertedResultText || ''), /^note:/mu);
+  assert.doesNotMatch(String(commandEvent?.insertedResultText || ''), /^exit_code=0$/mu);
   assert.match(String(commandEvent?.insertedResultText || ''), /apps\/runner\/src\\server\.ts:203/u);
+  assert.equal(result.reason, 'finish');
+});
+
+test('runTaskLoop collapses repeated no-new-evidence tool replays and forces finish at x4', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-collapse-repeat-replay',
+      question: 'Find runner port.',
+      signals: ['done'],
+    },
+    {
+      maxTurns: 6,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"alpha\\" src"}}',
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"beta\\" src"}}',
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"gamma\\" src"}}',
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"delta\\" src"}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'rg -n "alpha" src': { exitCode: 0, stdout: 'src\\app.ts:10: same evidence', stderr: '' },
+        'rg -n "beta" src': { exitCode: 0, stdout: 'src\\app.ts:10: same evidence', stderr: '' },
+        'rg -n "gamma" src': { exitCode: 0, stdout: 'src\\app.ts:10: same evidence', stderr: '' },
+        'rg -n "delta" src': { exitCode: 0, stdout: 'src\\app.ts:10: same evidence', stderr: '' },
+      },
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const turn2NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 2);
+  const turn3NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 3);
+  assert.equal(Array.isArray(turn2NewMessages?.messages) ? turn2NewMessages.messages.length : -1, 2);
+  assert.equal(Array.isArray(turn3NewMessages?.messages) ? turn3NewMessages.messages.length : -1, 0);
+
+  const forcedStart = events.find((event) => event.kind === 'turn_forced_finish_mode_started' && event.trigger === 'no_new_evidence');
+  assert.ok(forcedStart);
   assert.equal(result.reason, 'finish');
 });
 

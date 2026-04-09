@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildRepeatedToolCallSummary,
   buildPromptToolResult,
+  buildToolReplayFingerprint,
   classifyToolResultNovelty,
   evaluateFinishAttempt,
   fingerprintToolCall,
@@ -97,6 +99,40 @@ test('buildPromptToolResult strips repo-search rewrite notes from model transcri
 
   assert.doesNotMatch(promptResult, /^note:/mu);
   assert.match(promptResult, /apps\/runner\/src\\server\.ts:203/u);
+  assert.doesNotMatch(promptResult, /^exit_code=0$/mu);
+});
+
+test('buildPromptToolResult keeps non-zero exit code but strips exit_code=0', () => {
+  const okResult = buildPromptToolResult({
+    toolName: 'find_text',
+    rawOutput: 'exit_code=0\nhitCount=0',
+  });
+  const errorResult = buildPromptToolResult({
+    toolName: 'run_repo_cmd',
+    exitCode: 1,
+    rawOutput: 'exit_code=1\npattern not found',
+  });
+
+  assert.equal(okResult, 'hitCount=0');
+  assert.match(errorResult, /^exit_code=1/mu);
+});
+
+test('buildToolReplayFingerprint normalizes equivalent replay text', () => {
+  const first = buildToolReplayFingerprint({
+    toolName: 'get-content',
+    promptResultText: 'src\\app.ts:10: hello world',
+  });
+  const second = buildToolReplayFingerprint({
+    toolName: 'get-content',
+    promptResultText: 'src/app.ts:10:   hello   world',
+  });
+
+  assert.equal(first, second);
+});
+
+test('buildRepeatedToolCallSummary renders expected repeat text', () => {
+  assert.equal(buildRepeatedToolCallSummary('run_repo_cmd', 2), 'run_repo_cmd: repeated tool call x2');
+  assert.equal(buildRepeatedToolCallSummary('read_lines', 3), 'read_lines: repeated tool call x3');
 });
 
 test('classifyToolResultNovelty detects repeated evidence with no new anchors', () => {

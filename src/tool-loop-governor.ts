@@ -29,6 +29,11 @@ type BuildPromptToolResultOptions = {
   rawOutput: string;
 };
 
+type BuildToolReplayFingerprintOptions = {
+  toolName: string;
+  promptResultText: string;
+};
+
 type FinishAttemptEvaluation = {
   allowed: boolean;
   warning: string | null;
@@ -45,6 +50,10 @@ function normalizeWhitespace(value: string): string {
 
 function normalizeEvidenceLine(line: string): string {
   return normalizeWhitespace(line).replace(/[\\/]+/gu, '/');
+}
+
+function stripLeadingSuccessExitCode(text: string): string {
+  return String(text || '').replace(/^exit_code=0\s*\n?/u, '').trim();
 }
 
 function isNegativeGlobToken(token: string): boolean {
@@ -139,7 +148,7 @@ export function classifyToolResultNovelty(options: ClassifyToolResultNoveltyOpti
 
 export function buildPromptToolResult(options: BuildPromptToolResultOptions): string {
   if (options.toolName !== 'run_repo_cmd') {
-    return String(options.rawOutput || '').trim();
+    return stripLeadingSuccessExitCode(String(options.rawOutput || '').trim());
   }
   const meaningfulLines = String(options.rawOutput || '')
     .replace(/\r\n/gu, '\n')
@@ -154,7 +163,17 @@ export function buildPromptToolResult(options: BuildPromptToolResultOptions): st
   if (Number.isFinite(exitCode) && exitCode !== 0) {
     return `exit_code=${exitCode}\n${trimmed}`.trim();
   }
-  return trimmed;
+  return stripLeadingSuccessExitCode(trimmed);
+}
+
+export function buildToolReplayFingerprint(options: BuildToolReplayFingerprintOptions): string {
+  return `${String(options.toolName || '').trim().toLowerCase()}|${normalizeEvidenceLine(String(options.promptResultText || ''))}`;
+}
+
+export function buildRepeatedToolCallSummary(toolName: string, repeatCount: number): string {
+  const normalizedToolName = String(toolName || 'tool').trim() || 'tool';
+  const normalizedRepeatCount = Math.max(2, Math.floor(Number(repeatCount) || 2));
+  return `${normalizedToolName}: repeated tool call x${normalizedRepeatCount}`;
 }
 
 export function evaluateFinishAttempt(options: EvaluateFinishAttemptOptions): FinishAttemptEvaluation {

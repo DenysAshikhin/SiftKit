@@ -48,7 +48,9 @@ import {
   type TaskCommand,
 } from './prompts.js';
 import {
+  buildRepeatedToolCallSummary,
   buildPromptToolResult,
+  buildToolReplayFingerprint,
   classifyToolResultNovelty,
   evaluateFinishAttempt,
   fingerprintToolCall,
@@ -73,8 +75,8 @@ const PER_TOOL_RESULT_RATIO = 0.10;
 const DEFAULT_REPO_SEARCH_REQUEST_MAX_TOKENS = 2048;
 const ZERO_OUTPUT_FORCE_THRESHOLD = 10;
 const FORCED_FINISH_MAX_ATTEMPTS = 3;
-const STAGNATION_WARNING_THRESHOLD = 2;
-const STAGNATION_FORCE_THRESHOLD = 3;
+const STAGNATION_WARNING_THRESHOLD = 3;
+const STAGNATION_FORCE_THRESHOLD = 4;
 const NON_THINKING_FINISH_FOLLOWUP_PROMPT = 'Are you sure you have everything? If yes, only respond with `yes I am sure`. If not, keep using tool calls to investigate more.';
 const ANSI_RED_CODE = 31;
 
@@ -352,6 +354,10 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const attemptedFingerprints = new Set<string>();
   const recentEvidenceKeys = new Set<string>();
   const successfulToolCalls: Array<{ toolName: string; promptResultText: string }> = [];
+  let lastReplayFingerprint: string | null = null;
+  let replayRepeatCount = 0;
+  let lastReplayUserMessageIndex = -1;
+  let lastReplayHistoryIndex = -1;
 
   const messages: ChatMessage[] = [
     {
@@ -797,15 +803,42 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     });
 
     commands.push({ command: commandToRun, safe: true, reason: null, exitCode: executed.exitCode, output: outputWithRewriteNote });
-    messages.push({ role: 'assistant', content: response.text });
-    messages.push({ role: 'user', content: resultText });
-    history.push({ command: commandToRun, resultText });
+    let appendReplayMessages = true;
     if (novelty.hasNewEvidence) {
       consecutiveNoNewEvidence = 0;
+      const replayFingerprint = buildToolReplayFingerprint({
+        toolName: toolType,
+        promptResultText: resultText,
+      });
+      lastReplayFingerprint = replayFingerprint;
+      replayRepeatCount = 1;
+      lastReplayUserMessageIndex = messages.length + 1;
+      lastReplayHistoryIndex = history.length;
     } else {
       consecutiveNoNewEvidence += 1;
-      if (consecutiveNoNewEvidence >= STAGNATION_WARNING_THRESHOLD) {
-        const stagnationMessage = 'You are repeating the same evidence and not adding new anchors. Either finish now or change strategy completely.';
+      const replayFingerprint = buildToolReplayFingerprint({
+        toolName: toolType,
+        promptResultText: resultText,
+      });
+      if (lastReplayFingerprint === replayFingerprint) {
+        replayRepeatCount += 1;
+        const summary = buildRepeatedToolCallSummary(commandToRun, replayRepeatCount);
+        if (lastReplayUserMessageIndex >= 0 && lastReplayUserMessageIndex < messages.length) {
+          messages[lastReplayUserMessageIndex] = { role: 'user', content: summary };
+          appendReplayMessages = false;
+        }
+        if (lastReplayHistoryIndex >= 0 && lastReplayHistoryIndex < history.length) {
+          history[lastReplayHistoryIndex] = { command: '[repeated tool call]', resultText: summary };
+        }
+      } else {
+        lastReplayFingerprint = replayFingerprint;
+        replayRepeatCount = 1;
+        lastReplayUserMessageIndex = messages.length + 1;
+        lastReplayHistoryIndex = history.length;
+      }
+
+      if (replayRepeatCount === STAGNATION_WARNING_THRESHOLD) {
+        const stagnationMessage = 'Repeated tool output x3. Use a different command now or you will be forced to answer.';
         messages.push({ role: 'user', content: stagnationMessage });
         history.push({ command: '[stagnation warning]', resultText: stagnationMessage });
         toolStatsByType[toolType] = {
@@ -814,15 +847,21 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         };
         options.logger?.write({ kind: 'turn_stagnation_warning', taskId: task.id, turn, toolType, consecutiveNoNewEvidence });
       }
-      if (consecutiveNoNewEvidence >= STAGNATION_FORCE_THRESHOLD && forcedFinishAttemptsRemaining === 0) {
+      if (replayRepeatCount >= STAGNATION_FORCE_THRESHOLD && forcedFinishAttemptsRemaining === 0) {
         forcedFinishAttemptsRemaining = FORCED_FINISH_MAX_ATTEMPTS;
-        messages.push({ role: 'user', content: 'Forced finish mode active. Current evidence is already repeating and likely sufficient. Return {"action":"finish",...} now. Tool calls are blocked.' });
+        messages.push({ role: 'user', content: 'Forced finish mode active. You repeated the same tool output too many times. Return {"action":"finish",...} now. Tool calls are blocked.' });
         toolStatsByType[toolType] = {
           ...toolStatsByType[toolType],
           forcedFinishFromStagnation: toolStatsByType[toolType].forcedFinishFromStagnation + 1,
         };
         options.logger?.write({ kind: 'turn_forced_finish_mode_started', taskId: task.id, turn, attemptsRemaining: forcedFinishAttemptsRemaining, trigger: 'no_new_evidence' });
       }
+    }
+
+    if (appendReplayMessages) {
+      messages.push({ role: 'assistant', content: response.text });
+      messages.push({ role: 'user', content: resultText });
+      history.push({ command: commandToRun, resultText });
     }
   }
 

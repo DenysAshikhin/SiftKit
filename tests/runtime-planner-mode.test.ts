@@ -1264,6 +1264,85 @@ test('planner rejects semantically repeated nearby read_lines calls and reprompt
   });
 });
 
+test('planner collapses repeated no-new-evidence tool replays and forces finish at x4', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Find the exact route id.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'collapsed repeats handled');
+      assert.equal(server.state.chatRequests.length, 5);
+      const thirdPrompt = getChatRequestText(server.state.chatRequests[2]);
+      const fourthPrompt = getChatRequestText(server.state.chatRequests[3]);
+      const fifthPrompt = getChatRequestText(server.state.chatRequests[4]);
+      assert.match(thirdPrompt, /find_text: repeated tool call x2/u);
+      assert.match(fourthPrompt, /find_text: repeated tool call x3/u);
+      assert.match(fourthPrompt, /Use a different command now or you will be forced to answer/u);
+      assert.match(fifthPrompt, /You repeated the same tool output too many times/u);
+    }, {
+      assistantContent(_promptText, _parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'find_text',
+            args: {
+              query: 'NO_MATCH_ALPHA',
+              mode: 'literal',
+            },
+          });
+        }
+        if (requestIndex === 2) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'find_text',
+            args: {
+              query: 'NO_MATCH_BETA',
+              mode: 'literal',
+            },
+          });
+        }
+        if (requestIndex === 3) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'find_text',
+            args: {
+              query: 'NO_MATCH_GAMMA',
+              mode: 'literal',
+            },
+          });
+        }
+        if (requestIndex === 4) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'find_text',
+            args: {
+              query: 'NO_MATCH_DELTA',
+              mode: 'literal',
+            },
+          });
+        }
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'collapsed repeats handled',
+        });
+      },
+    });
+  });
+});
+
 test('planner find_text and json_filter results use compact text blocks in prompts and debug dumps', async () => {
   await withTempEnv(async () => {
     const plannerLogsPath = getPlannerLogsPath();
