@@ -18,6 +18,12 @@ import {
 } from './api';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import {
+  readHiddenSeriesState,
+  sanitizeHiddenSeriesState,
+  writeHiddenSeriesState,
+  type KeyValueStore,
+} from './metric-graph-persistence';
 import type {
   ChatSession,
   ContextUsage,
@@ -459,10 +465,34 @@ type InteractiveSeries = {
 };
 
 type InteractiveGraphProps = {
+  storageId: string;
   title: string;
   series: InteractiveSeries[];
   height?: number;
 };
+
+function getBrowserStorage(): KeyValueStore | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function sameHiddenSeriesState(
+  left: Record<string, boolean>,
+  right: Record<string, boolean>,
+): boolean {
+  const leftKeys = Object.keys(left).filter((key) => left[key]).sort();
+  const rightKeys = Object.keys(right).filter((key) => right[key]).sort();
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+  return leftKeys.every((key, index) => key === rightKeys[index]);
+}
 
 function buildLinePathFromValues(values: number[], width: number, height: number, maxValue: number): string {
   if (values.length === 0) {
@@ -476,9 +506,13 @@ function buildLinePathFromValues(values: number[], width: number, height: number
   }).join(' ');
 }
 
-function InteractiveGraph({ title, series, height = 180 }: InteractiveGraphProps) {
+function InteractiveGraph({ storageId, title, series, height = 180 }: InteractiveGraphProps) {
   const width = 520;
-  const [hiddenSeriesKeys, setHiddenSeriesKeys] = useState<Record<string, boolean>>({});
+  const seriesKeys = series.map((item) => item.key);
+  const storage = getBrowserStorage();
+  const [hiddenSeriesKeys, setHiddenSeriesKeys] = useState<Record<string, boolean>>(() => (
+    readHiddenSeriesState(storage, storageId, seriesKeys)
+  ));
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const pointCount = series.reduce((max, item) => Math.max(max, item.points.length), 0);
   const visibleSeries = series.filter((item) => !hiddenSeriesKeys[item.key]);
@@ -492,6 +526,17 @@ function InteractiveGraph({ title, series, height = 180 }: InteractiveGraphProps
   const hoverLabel = clampedHoverIndex === null
     ? null
     : (series.find((item) => item.points[clampedHoverIndex])?.points[clampedHoverIndex]?.label || null);
+
+  useEffect(() => {
+    setHiddenSeriesKeys((previous) => {
+      const sanitized = sanitizeHiddenSeriesState(previous, seriesKeys);
+      return sameHiddenSeriesState(previous, sanitized) ? previous : sanitized;
+    });
+  }, [storageId, seriesKeys.join('|')]);
+
+  useEffect(() => {
+    writeHiddenSeriesState(storage, storageId, hiddenSeriesKeys, seriesKeys);
+  }, [hiddenSeriesKeys, storage, storageId, seriesKeys.join('|')]);
 
   return (
     <article className="interactive-graph">
@@ -1421,6 +1466,7 @@ export function App() {
           {metricsError && <p className="error">{metricsError}</p>}
           <div className="metrics-graph-grid">
             <InteractiveGraph
+              storageId="daily-usage"
               title="Daily Usage"
               series={[
                 { key: 'runs', title: 'Runs', unit: '', color: '#32c2a3', points: metrics.map((day) => ({ label: day.date, value: day.runs })) },
@@ -1432,6 +1478,7 @@ export function App() {
               ]}
             />
             <InteractiveGraph
+              storageId="prompt-cache-hit-rate"
               title="Prompt Cache Hit Rate"
               series={[
                 {
@@ -1459,6 +1506,7 @@ export function App() {
             />
             {idleSummarySnapshots.length > 1 ? (
               <InteractiveGraph
+                storageId="recent-snapshot-totals"
                 title="Recent Snapshot Totals"
                 series={[
                   {
