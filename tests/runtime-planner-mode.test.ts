@@ -386,7 +386,7 @@ test('oversized transition extraction uses planner action grammar before returni
       assert.match(firstPrompt, /Never emit JSON schema fragments like \{"type":"integer"\}/u);
       assert.match(firstPrompt, /Regex patterns must be valid JavaScript regex/u);
       assert.match(firstPrompt, /After `find_text` identifies a useful anchor, default to one larger contiguous `read_lines` window/u);
-      assert.match(firstPrompt, /Do not use tiny `read_lines` windows \(`<120` lines\) unless verifying one exact line or symbol/u);
+      assert.match(firstPrompt, /avoid many tiny adjacent slices unless verifying one exact line or symbol/u);
       assert.match(firstPrompt, /If you already used `read_lines` once, do another `find_text` search before requesting a second nearby `read_lines` slice/u);
       assert.match(firstPrompt, /Example tool calls:/u);
       assert.match(firstPrompt, /"tool_name":"find_text"/u);
@@ -1193,6 +1193,74 @@ test('planner read_lines tool results use a compact numbered text block', async 
     assert.equal(Array.isArray(toolEvent?.output?.lines), false);
     assert.equal(typeof toolEvent?.output?.text, 'string');
     assert.match(toolEvent.output.text, /^\d+: /u);
+  });
+});
+
+test('planner rejects semantically repeated nearby read_lines calls and reprompts for finish', async () => {
+  await withTempEnv(async () => {
+    const plannerLogsPath = getPlannerLogsPath();
+    fs.mkdirSync(plannerLogsPath, { recursive: true });
+    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Read the relevant lines conservatively, then summarize them.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'semantic repeat handled');
+      assert.equal(server.state.chatRequests.length, 3);
+      const followupPrompt = getChatRequestText(server.state.chatRequests[2]);
+      assert.match(followupPrompt, /repeats the same search intent/u);
+    }, {
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'read_lines',
+            args: {
+              startLine: 2,
+              endLine: 5,
+            },
+          });
+        }
+        if (requestIndex === 2) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'read_lines',
+            args: {
+              startLine: 6,
+              endLine: 9,
+            },
+          });
+        }
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'semantic repeat handled',
+        });
+      },
+    });
+
+    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
+    const added = after.filter((entry) => !before.has(entry));
+    assert.equal(added.length, 1);
+
+    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    assert.equal(
+      debugDump.events.some((event) => event.kind === 'planner_semantic_repeat' && event.toolCall?.tool_name === 'read_lines'),
+      true,
+    );
   });
 });
 

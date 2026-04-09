@@ -487,6 +487,13 @@ test('dashboard metrics expose line-read stats and prompt-baseline recommendatio
             lineReadCalls: 1,
             lineReadLinesTotal: 80,
             lineReadTokensTotal: 200,
+            semanticRepeatRejects: 2,
+            stagnationWarnings: 1,
+            forcedFinishFromStagnation: 1,
+            promptInsertedTokens: 120,
+            rawToolResultTokens: 220,
+            newEvidenceCalls: 1,
+            noNewEvidenceCalls: 2,
           },
         },
       }),
@@ -503,6 +510,13 @@ test('dashboard metrics expose line-read stats and prompt-baseline recommendatio
     assert.equal(Number.isFinite(Number(getContentStats.lineReadAllowanceTokens)), true);
     assert.equal(Number(getContentStats.lineReadRecommendedLines) > 0, true);
     assert.equal(Number(getContentStats.lineReadAllowanceTokens) > 0, true);
+    assert.equal(getContentStats.semanticRepeatRejects, 2);
+    assert.equal(getContentStats.stagnationWarnings, 1);
+    assert.equal(getContentStats.forcedFinishFromStagnation, 1);
+    assert.equal(getContentStats.promptInsertedTokens, 120);
+    assert.equal(getContentStats.rawToolResultTokens, 220);
+    assert.equal(getContentStats.newEvidenceCalls, 1);
+    assert.equal(getContentStats.noNewEvidenceCalls, 2);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     for (const [key, value] of Object.entries(envBackup)) {

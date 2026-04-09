@@ -47,6 +47,12 @@ import {
   type HistoryEntry,
   type TaskCommand,
 } from './prompts.js';
+import {
+  buildPromptToolResult,
+  classifyToolResultNovelty,
+  evaluateFinishAttempt,
+  fingerprintToolCall,
+} from '../tool-loop-governor.js';
 import type {
   JsonLogger,
   RepoSearchMockCommandResult,
@@ -67,6 +73,8 @@ const PER_TOOL_RESULT_RATIO = 0.10;
 const DEFAULT_REPO_SEARCH_REQUEST_MAX_TOKENS = 2048;
 const ZERO_OUTPUT_FORCE_THRESHOLD = 10;
 const FORCED_FINISH_MAX_ATTEMPTS = 3;
+const STAGNATION_WARNING_THRESHOLD = 2;
+const STAGNATION_FORCE_THRESHOLD = 3;
 const NON_THINKING_FINISH_FOLLOWUP_PROMPT = 'Are you sure you have everything? If yes, only respond with `yes I am sure`. If not, keep using tool calls to investigate more.';
 const ANSI_RED_CODE = 31;
 
@@ -329,6 +337,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const followupOnNonThinkingFinish = options.enforceThinkingFinish === true;
   let zeroOutputStreak = 0;
   let consecutiveDuplicates = 0;
+  let consecutiveSemanticRepeats = 0;
+  let consecutiveNoNewEvidence = 0;
   let forcedFinishAttemptsRemaining = 0;
   let previousPlannerThinkingEnabled: boolean | null = null;
   let nonThinkingFinishFollowupUsed = false;
@@ -339,6 +349,9 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const bootstrapFileList = scanRepoFiles(options.repoRoot, ignorePolicy) || undefined;
   const historicalToolStats = readLatestIdleSummaryToolStats();
   const initialPerToolAllowanceTokens = getRepoSearchPromptBaselinePerToolAllowanceTokens(options.config ?? null);
+  const attemptedFingerprints = new Set<string>();
+  const recentEvidenceKeys = new Set<string>();
+  const successfulToolCalls: Array<{ toolName: string; promptResultText: string }> = [];
 
   const messages: ChatMessage[] = [
     {
@@ -509,8 +522,18 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
 
     if (action.action === 'finish') {
       modelOutputTokens += resolvedCompletionTokens;
-      if (commands.length < minToolCallsBeforeFinish) {
-        const warning = 'that was a shallow search, there might be more hidden references/usages. Dive deeper';
+      const finishEvaluation = evaluateFinishAttempt({
+        loopKind: 'repo-search',
+        finalOutput: action.output,
+        successfulToolCalls,
+      });
+      if (!finishEvaluation.allowed) {
+        const warning = finishEvaluation.warning || 'Need stronger repository evidence before finishing.';
+        const loopStats = toolStatsByType.loop || createEmptyToolTypeStats();
+        toolStatsByType.loop = {
+          ...loopStats,
+          finishRejections: loopStats.finishRejections + 1,
+        };
         messages.push({ role: 'assistant', content: response.text });
         messages.push({ role: 'user', content: warning });
         history.push({ command: '[finish rejected]', resultText: warning });
@@ -555,6 +578,12 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
 
     const normalized = normalizePlannerCommand(command, { repoRoot: options.repoRoot, ignorePolicy });
+    const fingerprint = normalized.rejected
+      ? ''
+      : fingerprintToolCall({ toolName: 'run_repo_cmd', command: normalized.command });
+    const prospectiveToolType = normalized.rejected
+      ? 'loop'
+      : normalizeToolTypeFromCommand(normalized.command);
 
     // Duplicate check on the normalized command so auto-appended flags don't confuse dedup
     const normalizedKey = normalized.rejected ? command : normalized.command;
@@ -573,8 +602,45 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       }
       continue;
     }
+    if (!normalized.rejected && fingerprint && attemptedFingerprints.has(fingerprint)) {
+      consecutiveSemanticRepeats += 1;
+      commandFailures += 1;
+      const semanticMessage = 'That command repeats the same search intent and is unlikely to add new evidence. Change the keywords, path, or tool. If the current evidence is enough, finish now.';
+      const currentToolStats = toolStatsByType[prospectiveToolType] || createEmptyToolTypeStats();
+      toolStatsByType[prospectiveToolType] = {
+        ...currentToolStats,
+        semanticRepeatRejects: currentToolStats.semanticRepeatRejects + 1,
+      };
+      commands.push({ command, safe: false, reason: 'semantic duplicate command', exitCode: null, output: `Rejected: ${semanticMessage}` });
+      messages.push({ role: 'assistant', content: response.text });
+      messages.push({ role: 'user', content: semanticMessage });
+      history.push({ command, resultText: `Rejected: ${semanticMessage}` });
+      options.logger?.write({
+        kind: 'turn_semantic_repeat_rejected',
+        taskId: task.id,
+        turn,
+        command,
+        fingerprint,
+        repeats: consecutiveSemanticRepeats,
+      });
+      if (consecutiveSemanticRepeats >= 2 && forcedFinishAttemptsRemaining === 0) {
+        forcedFinishAttemptsRemaining = FORCED_FINISH_MAX_ATTEMPTS;
+        const forcedMessage = 'Forced finish mode active. Current evidence is already repeating. Return {"action":"finish",...} now. Tool calls are blocked.';
+        messages.push({ role: 'user', content: forcedMessage });
+        toolStatsByType[prospectiveToolType] = {
+          ...toolStatsByType[prospectiveToolType],
+          forcedFinishFromStagnation: Number(toolStatsByType[prospectiveToolType]?.forcedFinishFromStagnation || 0) + 1,
+        };
+        options.logger?.write({ kind: 'turn_forced_finish_mode_started', taskId: task.id, turn, attemptsRemaining: forcedFinishAttemptsRemaining, trigger: 'semantic_repetition' });
+      }
+      continue;
+    }
     attemptedCommands.add(normalizedKey);
+    if (fingerprint) {
+      attemptedFingerprints.add(fingerprint);
+    }
     consecutiveDuplicates = 0;
+    consecutiveSemanticRepeats = 0;
     if (normalized.rejected) {
       safetyRejects += 1;
       const rejection = `Rejected command: ${normalized.rejectedReason}`;
@@ -651,19 +717,28 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     // before rg finished, causing a broken-pipe exit). In that case the output is valid truncated
     // results, not an error, so don't prepend a misleading `exit_code=1` prefix.
     const suppressExitCode = isSearchNoMatchExit(commandToRun, executed.exitCode) && outputWithRewriteNote.length > 0;
-    let resultText = suppressExitCode
+    const rawResultText = suppressExitCode
       ? outputWithRewriteNote
       : `exit_code=${executed.exitCode}\n${outputWithRewriteNote}`.trim();
-    const candidateResultTokenCount = useEstimatedTokensOnly
-      ? estimateTokenCount(options.config, resultText)
-      : await countTokensWithFallback(options.config, resultText);
-    const lineReadStats = getRepoSearchLineReadStats(commandToRun, baseOutput, candidateResultTokenCount);
+    let resultText = buildPromptToolResult({
+      toolName: 'run_repo_cmd',
+      command: commandToRun,
+      exitCode: executed.exitCode,
+      rawOutput: rawResultText,
+    });
+    const rawResultTokenCount = useEstimatedTokensOnly
+      ? estimateTokenCount(options.config, rawResultText)
+      : await countTokensWithFallback(options.config, rawResultText);
+    const lineReadStats = getRepoSearchLineReadStats(commandToRun, baseOutput, rawResultTokenCount);
     const dynamicPerToolRatio = Math.max(PER_TOOL_RESULT_RATIO, Number(commands.length) / Number(maxTurns));
     const perToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * dynamicPerToolRatio));
     const remainingTokenAllowance = Math.max(usablePromptTokens - promptTokenCount, 0);
+    const candidateResultTokenCount = useEstimatedTokensOnly
+      ? estimateTokenCount(options.config, resultText)
+      : await countTokensWithFallback(options.config, resultText);
 
-    if (candidateResultTokenCount > perToolCapTokens || candidateResultTokenCount > remainingTokenAllowance) {
-      resultText = `Error: requested output would consume ${candidateResultTokenCount} tokens, remaining token allowance: ${remainingTokenAllowance}, per tool call allowance: ${perToolCapTokens}`;
+    if (rawResultTokenCount > perToolCapTokens || rawResultTokenCount > remainingTokenAllowance) {
+      resultText = `Error: requested output would consume ${rawResultTokenCount} tokens, remaining token allowance: ${remainingTokenAllowance}, per tool call allowance: ${perToolCapTokens}`;
       writeRedConsoleLine(`repo_search warning: ${resultText}`);
     }
     let resultTokenCount = 0;
@@ -693,7 +768,26 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       lineReadCalls: currentToolStats.lineReadCalls + Number(lineReadStats?.lineReadCalls || 0),
       lineReadLinesTotal: currentToolStats.lineReadLinesTotal + Number(lineReadStats?.lineReadLinesTotal || 0),
       lineReadTokensTotal: currentToolStats.lineReadTokensTotal + Number(lineReadStats?.lineReadTokensTotal || 0),
+      promptInsertedTokens: currentToolStats.promptInsertedTokens + Math.max(0, Math.ceil(resultTokenCount)),
+      rawToolResultTokens: currentToolStats.rawToolResultTokens + Math.max(0, Math.ceil(rawResultTokenCount)),
     };
+    const novelty = baseOutput.length === 0
+      ? { evidenceKeys: [], hasNewEvidence: true }
+      : classifyToolResultNovelty({
+        promptResultText: resultText,
+        recentEvidenceKeys,
+      });
+    toolStatsByType[toolType] = {
+      ...toolStatsByType[toolType],
+      newEvidenceCalls: toolStatsByType[toolType].newEvidenceCalls + (novelty.hasNewEvidence ? 1 : 0),
+      noNewEvidenceCalls: toolStatsByType[toolType].noNewEvidenceCalls + (novelty.hasNewEvidence ? 0 : 1),
+    };
+    for (const evidenceKey of novelty.evidenceKeys) {
+      recentEvidenceKeys.add(evidenceKey);
+    }
+    if (novelty.evidenceKeys.length > 0) {
+      successfulToolCalls.push({ toolName: toolType, promptResultText: resultText });
+    }
 
     options.logger?.write({
       kind: 'turn_command_result', taskId: task.id, turn, command: commandToRun,
@@ -706,6 +800,30 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     messages.push({ role: 'assistant', content: response.text });
     messages.push({ role: 'user', content: resultText });
     history.push({ command: commandToRun, resultText });
+    if (novelty.hasNewEvidence) {
+      consecutiveNoNewEvidence = 0;
+    } else {
+      consecutiveNoNewEvidence += 1;
+      if (consecutiveNoNewEvidence >= STAGNATION_WARNING_THRESHOLD) {
+        const stagnationMessage = 'You are repeating the same evidence and not adding new anchors. Either finish now or change strategy completely.';
+        messages.push({ role: 'user', content: stagnationMessage });
+        history.push({ command: '[stagnation warning]', resultText: stagnationMessage });
+        toolStatsByType[toolType] = {
+          ...toolStatsByType[toolType],
+          stagnationWarnings: toolStatsByType[toolType].stagnationWarnings + 1,
+        };
+        options.logger?.write({ kind: 'turn_stagnation_warning', taskId: task.id, turn, toolType, consecutiveNoNewEvidence });
+      }
+      if (consecutiveNoNewEvidence >= STAGNATION_FORCE_THRESHOLD && forcedFinishAttemptsRemaining === 0) {
+        forcedFinishAttemptsRemaining = FORCED_FINISH_MAX_ATTEMPTS;
+        messages.push({ role: 'user', content: 'Forced finish mode active. Current evidence is already repeating and likely sufficient. Return {"action":"finish",...} now. Tool calls are blocked.' });
+        toolStatsByType[toolType] = {
+          ...toolStatsByType[toolType],
+          forcedFinishFromStagnation: toolStatsByType[toolType].forcedFinishFromStagnation + 1,
+        };
+        options.logger?.write({ kind: 'turn_forced_finish_mode_started', taskId: task.id, turn, attemptsRemaining: forcedFinishAttemptsRemaining, trigger: 'no_new_evidence' });
+      }
+    }
   }
 
   // Terminal synthesis if no final output

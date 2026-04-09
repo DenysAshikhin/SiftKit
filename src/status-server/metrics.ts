@@ -28,6 +28,14 @@ export type ToolTypeStats = {
   lineReadCalls: number;
   lineReadLinesTotal: number;
   lineReadTokensTotal: number;
+  finishRejections: number;
+  semanticRepeatRejects: number;
+  stagnationWarnings: number;
+  forcedFinishFromStagnation: number;
+  promptInsertedTokens: number;
+  rawToolResultTokens: number;
+  newEvidenceCalls: number;
+  noNewEvidenceCalls: number;
   lineReadRecommendedLines?: number;
   lineReadAllowanceTokens?: number;
 };
@@ -149,6 +157,14 @@ function normalizeToolTypeStats(input: unknown): ToolTypeStats | null {
   const lineReadCalls = normalizeNonNegativeNumber(record.lineReadCalls);
   const lineReadLinesTotal = normalizeNonNegativeNumber(record.lineReadLinesTotal);
   const lineReadTokensTotal = normalizeNonNegativeNumber(record.lineReadTokensTotal);
+  const finishRejections = normalizeNonNegativeNumber(record.finishRejections);
+  const semanticRepeatRejects = normalizeNonNegativeNumber(record.semanticRepeatRejects);
+  const stagnationWarnings = normalizeNonNegativeNumber(record.stagnationWarnings);
+  const forcedFinishFromStagnation = normalizeNonNegativeNumber(record.forcedFinishFromStagnation);
+  const promptInsertedTokens = normalizeNonNegativeNumber(record.promptInsertedTokens);
+  const rawToolResultTokens = normalizeNonNegativeNumber(record.rawToolResultTokens);
+  const newEvidenceCalls = normalizeNonNegativeNumber(record.newEvidenceCalls);
+  const noNewEvidenceCalls = normalizeNonNegativeNumber(record.noNewEvidenceCalls);
   if (
     calls === null
     && outputCharsTotal === null
@@ -157,6 +173,14 @@ function normalizeToolTypeStats(input: unknown): ToolTypeStats | null {
     && lineReadCalls === null
     && lineReadLinesTotal === null
     && lineReadTokensTotal === null
+    && finishRejections === null
+    && semanticRepeatRejects === null
+    && stagnationWarnings === null
+    && forcedFinishFromStagnation === null
+    && promptInsertedTokens === null
+    && rawToolResultTokens === null
+    && newEvidenceCalls === null
+    && noNewEvidenceCalls === null
   ) {
     return null;
   }
@@ -169,6 +193,14 @@ function normalizeToolTypeStats(input: unknown): ToolTypeStats | null {
     lineReadCalls: lineReadCalls ?? 0,
     lineReadLinesTotal: lineReadLinesTotal ?? 0,
     lineReadTokensTotal: lineReadTokensTotal ?? 0,
+    finishRejections: finishRejections ?? 0,
+    semanticRepeatRejects: semanticRepeatRejects ?? 0,
+    stagnationWarnings: stagnationWarnings ?? 0,
+    forcedFinishFromStagnation: forcedFinishFromStagnation ?? 0,
+    promptInsertedTokens: promptInsertedTokens ?? 0,
+    rawToolResultTokens: rawToolResultTokens ?? 0,
+    newEvidenceCalls: newEvidenceCalls ?? 0,
+    noNewEvidenceCalls: noNewEvidenceCalls ?? 0,
   };
 }
 

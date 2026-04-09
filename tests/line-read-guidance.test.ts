@@ -42,6 +42,10 @@ test('normalizeMetrics backfills missing line-read fields to zero', () => {
   assert.equal(metrics.toolStats.summary['get-content'].lineReadCalls, 0);
   assert.equal(metrics.toolStats.summary['get-content'].lineReadLinesTotal, 0);
   assert.equal(metrics.toolStats.summary['get-content'].lineReadTokensTotal, 0);
+  assert.equal(metrics.toolStats.summary['get-content'].semanticRepeatRejects, 0);
+  assert.equal(metrics.toolStats.summary['get-content'].stagnationWarnings, 0);
+  assert.equal(metrics.toolStats.summary['get-content'].promptInsertedTokens, 0);
+  assert.equal(metrics.toolStats.summary['get-content'].rawToolResultTokens, 0);
 });
 
 test('buildPlannerSystemPrompt reports learned read_lines guidance from idle-summary stats', () => {

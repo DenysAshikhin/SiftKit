@@ -171,6 +171,14 @@ function normalizeToolStats(input: unknown): SnapshotToolStats {
         lineReadCalls: toNonNegativeNumber(statRecord.lineReadCalls),
         lineReadLinesTotal: toNonNegativeNumber(statRecord.lineReadLinesTotal),
         lineReadTokensTotal: toNonNegativeNumber(statRecord.lineReadTokensTotal),
+        finishRejections: toNonNegativeNumber(statRecord.finishRejections),
+        semanticRepeatRejects: toNonNegativeNumber(statRecord.semanticRepeatRejects),
+        stagnationWarnings: toNonNegativeNumber(statRecord.stagnationWarnings),
+        forcedFinishFromStagnation: toNonNegativeNumber(statRecord.forcedFinishFromStagnation),
+        promptInsertedTokens: toNonNegativeNumber(statRecord.promptInsertedTokens),
+        rawToolResultTokens: toNonNegativeNumber(statRecord.rawToolResultTokens),
+        newEvidenceCalls: toNonNegativeNumber(statRecord.newEvidenceCalls),
+        noNewEvidenceCalls: toNonNegativeNumber(statRecord.noNewEvidenceCalls),
       };
     }
     stats[taskKind] = normalizedByType;

@@ -70,6 +70,14 @@ export type ToolTypeStats = {
   lineReadCalls: number;
   lineReadLinesTotal: number;
   lineReadTokensTotal: number;
+  finishRejections: number;
+  semanticRepeatRejects: number;
+  stagnationWarnings: number;
+  forcedFinishFromStagnation: number;
+  promptInsertedTokens: number;
+  rawToolResultTokens: number;
+  newEvidenceCalls: number;
+  noNewEvidenceCalls: number;
   lineReadRecommendedLines?: number;
   lineReadAllowanceTokens?: number;
 };

@@ -228,9 +228,36 @@ export function parseStatusMetadata(bodyText: string): StatusMetadata {
         const lineReadTokensTotal = Number.isFinite(statsRecord.lineReadTokensTotal) && Number(statsRecord.lineReadTokensTotal) >= 0
           ? Number(statsRecord.lineReadTokensTotal)
           : 0;
+        const finishRejections = Number.isFinite(statsRecord.finishRejections) && Number(statsRecord.finishRejections) >= 0
+          ? Number(statsRecord.finishRejections)
+          : 0;
+        const semanticRepeatRejects = Number.isFinite(statsRecord.semanticRepeatRejects) && Number(statsRecord.semanticRepeatRejects) >= 0
+          ? Number(statsRecord.semanticRepeatRejects)
+          : 0;
+        const stagnationWarnings = Number.isFinite(statsRecord.stagnationWarnings) && Number(statsRecord.stagnationWarnings) >= 0
+          ? Number(statsRecord.stagnationWarnings)
+          : 0;
+        const forcedFinishFromStagnation = Number.isFinite(statsRecord.forcedFinishFromStagnation) && Number(statsRecord.forcedFinishFromStagnation) >= 0
+          ? Number(statsRecord.forcedFinishFromStagnation)
+          : 0;
+        const promptInsertedTokens = Number.isFinite(statsRecord.promptInsertedTokens) && Number(statsRecord.promptInsertedTokens) >= 0
+          ? Number(statsRecord.promptInsertedTokens)
+          : 0;
+        const rawToolResultTokens = Number.isFinite(statsRecord.rawToolResultTokens) && Number(statsRecord.rawToolResultTokens) >= 0
+          ? Number(statsRecord.rawToolResultTokens)
+          : 0;
+        const newEvidenceCalls = Number.isFinite(statsRecord.newEvidenceCalls) && Number(statsRecord.newEvidenceCalls) >= 0
+          ? Number(statsRecord.newEvidenceCalls)
+          : 0;
+        const noNewEvidenceCalls = Number.isFinite(statsRecord.noNewEvidenceCalls) && Number(statsRecord.noNewEvidenceCalls) >= 0
+          ? Number(statsRecord.noNewEvidenceCalls)
+          : 0;
         if (
           calls <= 0 && outputCharsTotal <= 0 && outputTokensTotal <= 0 && outputTokensEstimatedCount <= 0
           && lineReadCalls <= 0 && lineReadLinesTotal <= 0 && lineReadTokensTotal <= 0
+          && finishRejections <= 0 && semanticRepeatRejects <= 0 && stagnationWarnings <= 0
+          && forcedFinishFromStagnation <= 0 && promptInsertedTokens <= 0 && rawToolResultTokens <= 0
+          && newEvidenceCalls <= 0 && noNewEvidenceCalls <= 0
         ) {
           continue;
         }
@@ -243,6 +270,14 @@ export function parseStatusMetadata(bodyText: string): StatusMetadata {
           lineReadCalls,
           lineReadLinesTotal,
           lineReadTokensTotal,
+          finishRejections,
+          semanticRepeatRejects,
+          stagnationWarnings,
+          forcedFinishFromStagnation,
+          promptInsertedTokens,
+          rawToolResultTokens,
+          newEvidenceCalls,
+          noNewEvidenceCalls,
         };
       }
       metadata.toolStats = Object.keys(normalizedToolStats).length > 0 ? normalizedToolStats : null;

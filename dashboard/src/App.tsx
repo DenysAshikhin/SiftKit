@@ -738,6 +738,14 @@ export function App() {
         lineReadCalls: Number(stats.lineReadCalls || 0),
         lineReadLinesTotal: Number(stats.lineReadLinesTotal || 0),
         lineReadTokensTotal: Number(stats.lineReadTokensTotal || 0),
+        finishRejections: Number(stats.finishRejections || 0),
+        semanticRepeatRejects: Number(stats.semanticRepeatRejects || 0),
+        stagnationWarnings: Number(stats.stagnationWarnings || 0),
+        forcedFinishFromStagnation: Number(stats.forcedFinishFromStagnation || 0),
+        promptInsertedTokens: Number(stats.promptInsertedTokens || 0),
+        rawToolResultTokens: Number(stats.rawToolResultTokens || 0),
+        newEvidenceCalls: Number(stats.newEvidenceCalls || 0),
+        noNewEvidenceCalls: Number(stats.noNewEvidenceCalls || 0),
         lineReadRecommendedLines: Number.isFinite(Number(stats.lineReadRecommendedLines))
           ? Number(stats.lineReadRecommendedLines)
           : null,
@@ -1596,6 +1604,8 @@ export function App() {
                         const avgLines = entry.lineReadCalls > 0 ? Math.round(entry.lineReadLinesTotal / entry.lineReadCalls) : 0;
                         const avgTokensPerLine = entry.lineReadLinesTotal > 0 ? entry.lineReadTokensTotal / entry.lineReadLinesTotal : null;
                         const estimatedRate = entry.calls > 0 ? (entry.outputTokensEstimatedCount / entry.calls) * 100 : 0;
+                        const insertedAvgTokens = entry.calls > 0 ? Math.round(entry.promptInsertedTokens / entry.calls) : 0;
+                        const rawAvgTokens = entry.calls > 0 ? Math.round(entry.rawToolResultTokens / entry.calls) : 0;
                         return (
                           <article
                             key={`${entry.taskKind}-${entry.toolType}`}
@@ -1606,6 +1616,9 @@ export function App() {
                             <span>Calls: {formatNumber(entry.calls)}</span>
                             <span>Avg chars: {formatNumber(avgChars)}</span>
                             <span>Avg tokens: {formatNumber(avgTokens)}</span>
+                            {(entry.promptInsertedTokens > 0 || entry.rawToolResultTokens > 0) && (
+                              <span>Avg inserted/raw tok: {formatNumber(insertedAvgTokens)} / {formatNumber(rawAvgTokens)}</span>
+                            )}
                             {(entry.lineReadCalls > 0 || entry.lineReadRecommendedLines !== null) && (
                               <span>Avg lines/read: {formatNumber(avgLines)}</span>
                             )}
@@ -1617,6 +1630,12 @@ export function App() {
                             )}
                             {entry.lineReadAllowanceTokens !== null && (
                               <span>Allowance: {formatNumber(entry.lineReadAllowanceTokens)} tok</span>
+                            )}
+                            {(entry.finishRejections > 0 || entry.semanticRepeatRejects > 0 || entry.stagnationWarnings > 0 || entry.forcedFinishFromStagnation > 0) && (
+                              <span>Finish/Repeat/Stall/Forced: {formatNumber(entry.finishRejections)} / {formatNumber(entry.semanticRepeatRejects)} / {formatNumber(entry.stagnationWarnings)} / {formatNumber(entry.forcedFinishFromStagnation)}</span>
+                            )}
+                            {(entry.newEvidenceCalls > 0 || entry.noNewEvidenceCalls > 0) && (
+                              <span>New / stale evidence: {formatNumber(entry.newEvidenceCalls)} / {formatNumber(entry.noNewEvidenceCalls)}</span>
                             )}
                             <span>Est rate: {estimatedRate.toFixed(1)}%</span>
                           </article>

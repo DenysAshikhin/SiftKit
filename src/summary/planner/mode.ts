@@ -47,9 +47,15 @@ import type {
   SummaryRequest,
   SummarySourceKind,
 } from '../types.js';
+import {
+  buildPromptToolResult,
+  classifyToolResultNovelty,
+  fingerprintToolCall,
+} from '../../tool-loop-governor.js';
 
 const MAX_PLANNER_TOOL_CALLS = 30;
 export const PLANNER_FALLBACK_TO_CHUNKS = 'fallback_to_chunks';
+const PLANNER_FORCED_FINISH_MAX_ATTEMPTS = 2;
 
 export async function invokePlannerMode(options: {
   requestId: string;
@@ -114,6 +120,11 @@ export async function invokePlannerMode(options: {
     commandText: options.debugCommand,
   });
   let invalidActionCount = 0;
+  let forcedFinishAttemptsRemaining = 0;
+  let consecutiveNoNewEvidence = 0;
+  let consecutiveSemanticRepeats = 0;
+  let lastSuccessfulFingerprint: string | null = null;
+  const recentEvidenceKeys = new Set<string>();
 
   while (toolResults.length <= MAX_PLANNER_TOOL_CALLS) {
     const prompt = renderPlannerTranscript(messages);
@@ -182,6 +193,14 @@ export async function invokePlannerMode(options: {
       lineReadCalls: number;
       lineReadLinesTotal: number;
       lineReadTokensTotal: number;
+      finishRejections: number;
+      semanticRepeatRejects: number;
+      stagnationWarnings: number;
+      forcedFinishFromStagnation: number;
+      promptInsertedTokens: number;
+      rawToolResultTokens: number;
+      newEvidenceCalls: number;
+      noNewEvidenceCalls: number;
     }> | null = null;
     try {
       debugRecorder.record({
@@ -221,6 +240,34 @@ export async function invokePlannerMode(options: {
           debugRecorder.finish({
             status: 'failed',
             reason: 'planner_invalid_response_limit',
+          });
+          return null;
+        }
+        continue;
+      }
+
+      if (forcedFinishAttemptsRemaining > 0 && action.action !== 'finish') {
+        forcedFinishAttemptsRemaining = Math.max(forcedFinishAttemptsRemaining - 1, 0);
+        if (providerResponse.text.trim()) {
+          messages.push({
+            role: 'assistant',
+            content: providerResponse.text,
+          });
+        }
+        messages.push({
+          role: 'user',
+          content: buildPlannerForcedFinishUserPrompt(
+            'Current evidence is already repeating and likely sufficient. Produce your final answer now.'
+          ),
+        });
+        debugRecorder.record({
+          kind: 'planner_forced_finish_reprompt',
+          attemptsRemaining: forcedFinishAttemptsRemaining,
+        });
+        if (forcedFinishAttemptsRemaining === 0) {
+          debugRecorder.finish({
+            status: 'failed',
+            reason: 'planner_forced_finish_attempt_limit',
           });
           return null;
         }
@@ -354,8 +401,16 @@ export async function invokePlannerMode(options: {
         args: action.args,
         output: result,
       });
-      const formattedResultText = formatPlannerResult(result);
+      const rawFormattedResultText = formatPlannerResult(result);
+      const formattedResultText = buildPromptToolResult({
+        toolName: action.tool_name,
+        rawOutput: rawFormattedResultText,
+      });
       const remainingPromptTokens = Math.max(promptBudget.plannerStopLineTokens - promptTokenCount, 0);
+      const rawResultTokenCount = (
+        await countLlamaCppTokens(options.config, rawFormattedResultText)
+      ) ?? estimatePromptTokenCount(options.config, rawFormattedResultText);
+      const normalizedRawResultTokenCount = Math.max(0, Math.ceil(rawResultTokenCount));
       const resultTokenCount = (
         await countLlamaCppTokens(options.config, formattedResultText)
       ) ?? estimatePromptTokenCount(options.config, formattedResultText);
@@ -377,9 +432,52 @@ export async function invokePlannerMode(options: {
           outputTokensEstimatedCount: exactToolResultTokenCount === null ? 1 : 0,
           lineReadCalls: readLineCount > 0 ? 1 : 0,
           lineReadLinesTotal: readLineCount,
-          lineReadTokensTotal: readLineCount > 0 ? normalizedResultTokenCount : 0,
+          lineReadTokensTotal: readLineCount > 0 ? normalizedRawResultTokenCount : 0,
+          promptInsertedTokens: Math.max(0, Math.ceil(resolvedToolResultTokenCount)),
+          rawToolResultTokens: normalizedRawResultTokenCount,
         },
       };
+      const novelty = classifyToolResultNovelty({
+        promptResultText,
+        recentEvidenceKeys,
+      });
+      const fingerprint = fingerprintToolCall({
+        toolName: action.tool_name,
+        args: action.args,
+      });
+      for (const evidenceKey of novelty.evidenceKeys) {
+        recentEvidenceKeys.add(evidenceKey);
+      }
+      toolStatsPayload[action.tool_name].newEvidenceCalls = novelty.hasNewEvidence ? 1 : 0;
+      toolStatsPayload[action.tool_name].noNewEvidenceCalls = novelty.hasNewEvidence ? 0 : 1;
+      if (lastSuccessfulFingerprint && lastSuccessfulFingerprint === fingerprint) {
+        consecutiveSemanticRepeats += 1;
+        messages.push({
+          role: 'user',
+          content: 'That tool call repeats the same search intent and is unlikely to add new evidence. Change strategy or finish now.',
+        });
+        toolStatsPayload[action.tool_name].semanticRepeatRejects = 1;
+        debugRecorder.record({
+          kind: 'planner_semantic_repeat',
+          toolCall: action,
+          fingerprint,
+          repeats: consecutiveSemanticRepeats,
+        });
+        if (consecutiveSemanticRepeats >= 2 && forcedFinishAttemptsRemaining === 0) {
+          forcedFinishAttemptsRemaining = PLANNER_FORCED_FINISH_MAX_ATTEMPTS;
+          messages.push({
+            role: 'user',
+            content: buildPlannerForcedFinishUserPrompt(
+              'Current evidence is already repeating and likely sufficient. Produce your final answer now.'
+            ),
+          });
+          toolStatsPayload[action.tool_name].forcedFinishFromStagnation = 1;
+        }
+      } else {
+        consecutiveSemanticRepeats = 0;
+      }
+      lastSuccessfulFingerprint = fingerprint;
+      consecutiveNoNewEvidence = novelty.hasNewEvidence ? 0 : (consecutiveNoNewEvidence + 1);
       const toolCallId = `call_${toolResults.length + 1}`;
       messages.push(buildPlannerAssistantToolMessage(action, toolCallId));
       messages.push({

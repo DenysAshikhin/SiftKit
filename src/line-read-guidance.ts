@@ -30,6 +30,14 @@ export function createEmptyToolTypeStats(): ToolTypeStats {
     lineReadCalls: 0,
     lineReadLinesTotal: 0,
     lineReadTokensTotal: 0,
+    finishRejections: 0,
+    semanticRepeatRejects: 0,
+    stagnationWarnings: 0,
+    forcedFinishFromStagnation: 0,
+    promptInsertedTokens: 0,
+    rawToolResultTokens: 0,
+    newEvidenceCalls: 0,
+    noNewEvidenceCalls: 0,
   };
 }
 
@@ -58,6 +66,24 @@ export function mergeToolTypeStats(
       lineReadCalls: current.lineReadCalls + (Number.isFinite(stats.lineReadCalls) ? Number(stats.lineReadCalls) : 0),
       lineReadLinesTotal: current.lineReadLinesTotal + (Number.isFinite(stats.lineReadLinesTotal) ? Number(stats.lineReadLinesTotal) : 0),
       lineReadTokensTotal: current.lineReadTokensTotal + (Number.isFinite(stats.lineReadTokensTotal) ? Number(stats.lineReadTokensTotal) : 0),
+      finishRejections: current.finishRejections + (Number.isFinite(stats.finishRejections) ? Number(stats.finishRejections) : 0),
+      semanticRepeatRejects: current.semanticRepeatRejects + (
+        Number.isFinite(stats.semanticRepeatRejects) ? Number(stats.semanticRepeatRejects) : 0
+      ),
+      stagnationWarnings: current.stagnationWarnings + (Number.isFinite(stats.stagnationWarnings) ? Number(stats.stagnationWarnings) : 0),
+      forcedFinishFromStagnation: current.forcedFinishFromStagnation + (
+        Number.isFinite(stats.forcedFinishFromStagnation) ? Number(stats.forcedFinishFromStagnation) : 0
+      ),
+      promptInsertedTokens: current.promptInsertedTokens + (
+        Number.isFinite(stats.promptInsertedTokens) ? Number(stats.promptInsertedTokens) : 0
+      ),
+      rawToolResultTokens: current.rawToolResultTokens + (
+        Number.isFinite(stats.rawToolResultTokens) ? Number(stats.rawToolResultTokens) : 0
+      ),
+      newEvidenceCalls: current.newEvidenceCalls + (Number.isFinite(stats.newEvidenceCalls) ? Number(stats.newEvidenceCalls) : 0),
+      noNewEvidenceCalls: current.noNewEvidenceCalls + (
+        Number.isFinite(stats.noNewEvidenceCalls) ? Number(stats.noNewEvidenceCalls) : 0
+      ),
     };
   }
   return merged;

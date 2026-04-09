@@ -628,7 +628,8 @@ test('runTaskLoop stops on finish action', async () => {
   assert.equal(result.passed, true);
 });
 
-test('runTaskLoop rejects shallow finish before minimum tool-call depth', async () => {
+test('runTaskLoop accepts corroborated finish before minimum tool-call depth', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
   const result = await runTaskLoop(
     {
       id: 'task-min-depth',
@@ -640,15 +641,19 @@ test('runTaskLoop rejects shallow finish before minimum tool-call depth', async 
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 2,
       mockResponses: [
-        '{"action":"finish","output":"too early"}',
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"tool\\" src"}}',
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content src\\\\summary.ts | Select-Object -First 20"}}',
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "planner" src': { exitCode: 0, stdout: 'planner hit', stderr: '' },
-        'rg -n "tool" src': { exitCode: 0, stdout: 'tool hit', stderr: '' },
+        'rg -n "planner" src': { exitCode: 0, stdout: 'src\\summary.ts:10:planner hit', stderr: '' },
+        'Get-Content src\\summary.ts | Select-Object -First 20': { exitCode: 0, stdout: '10: planner hit', stderr: '' },
+      },
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
       },
     }
   );
@@ -656,6 +661,7 @@ test('runTaskLoop rejects shallow finish before minimum tool-call depth', async 
   assert.equal(result.reason, 'finish');
   assert.equal(result.commands.length, 2);
   assert.equal(result.finalOutput, 'done');
+  assert.equal(events.some((event) => event.kind === 'turn_finish_rejected'), false);
 });
 
 test('runTaskLoop stops at max turns when model keeps asking for tools', async () => {
@@ -1423,9 +1429,9 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "planner" src': { exitCode: 0, stdout: 'a'.repeat(4000), stderr: '' },
-        'rg -n "planner" lib': { exitCode: 0, stdout: 'b'.repeat(4000), stderr: '' },
-        'rg -n "planner" test': { exitCode: 0, stdout: 'c'.repeat(4000), stderr: '' },
+        'rg -n "planner" src': { exitCode: 0, stdout: 'a'.repeat(6000), stderr: '' },
+        'rg -n "planner" lib': { exitCode: 0, stdout: 'b'.repeat(6000), stderr: '' },
+        'rg -n "planner" test': { exitCode: 0, stdout: 'c'.repeat(6000), stderr: '' },
       },
       logger: {
         write(event: Record<string, unknown> & { kind: string }) {
@@ -1936,6 +1942,85 @@ test('runTaskLoop blocks exact duplicate commands with explicit error message', 
   assert.equal(result.commands[1].safe, false);
   assert.equal(String(result.commands[1].reason || ''), 'duplicate command');
   assert.equal(result.finalOutput, 'done');
+});
+
+test('runTaskLoop blocks semantic duplicate repo-search commands with explicit error message', async () => {
+  const result = await runTaskLoop(
+    {
+      id: 'task-semantic-duplicate-command',
+      question: 'Find port defaults.',
+      signals: ['done'],
+    },
+    {
+      maxTurns: 5,
+      maxInvalidResponses: 3,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"4319\\" apps/runner/src --glob \\"!**/__tests__/**\\" --glob \\"!**/*.test.*\\""}}',
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"4319\\" apps/runner/src --glob \\"!**/__tests__/**\\" --glob \\"!**/*.test.*\\" --glob \\"!**/*.spec.*\\" --glob \\"!**/*.d.ts\\""}}',
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content apps/runner/src/server.ts | Select-Object -Skip 195 -First 20"}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'rg -n "4319" apps/runner/src --glob "!**/__tests__/**" --glob "!**/*.test.*"': {
+          exitCode: 0,
+          stdout: 'apps/runner/src\\server.ts:203:  const port = options.port ?? Number(process.env.RUNNER_PORT ?? "4319");',
+          stderr: '',
+        },
+        'Get-Content apps/runner/src/server.ts | Select-Object -Skip 195 -First 20': {
+          exitCode: 0,
+          stdout: '  const port = options.port ?? Number(process.env.RUNNER_PORT ?? "4319");',
+          stderr: '',
+        },
+      },
+    }
+  );
+
+  assert.equal(result.reason, 'finish');
+  assert.equal(result.commands.length, 3);
+  assert.equal(result.commands[1].safe, false);
+  assert.equal(String(result.commands[1].reason || ''), 'semantic duplicate command');
+  assert.equal(result.finalOutput, 'done');
+});
+
+test('runTaskLoop keeps raw rewrite notes in logs but inserts compact repo-search results into the prompt', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-compact-repo-search-result',
+      question: 'Find runner port.',
+      signals: ['done'],
+    },
+    {
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"4319\\" apps/runner/src"}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'rg -n "4319" apps/runner/src': {
+          exitCode: 0,
+          stdout: 'apps/runner/src\\server.ts:203:  const port = options.port ?? Number(process.env.RUNNER_PORT ?? "4319");',
+          stderr: '',
+        },
+      },
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const commandEvent = events.find((event) => event.kind === 'turn_command_result');
+  assert.match(String(commandEvent?.output || ''), /^note:/mu);
+  assert.doesNotMatch(String(commandEvent?.insertedResultText || ''), /^note:/mu);
+  assert.match(String(commandEvent?.insertedResultText || ''), /apps\/runner\/src\\server\.ts:203/u);
+  assert.equal(result.reason, 'finish');
 });
 
 test('runTaskLoop forces finish mode after ten zero-output commands', async () => {

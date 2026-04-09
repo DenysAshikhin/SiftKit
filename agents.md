@@ -15,3 +15,5 @@ Follow TDD (Test Driven Development) exclusively.
 Avoid shims/legacy/backwards support. Instead aim to have things refactored if necessary to be first-class citizen
 
 Make sure everything is typescript and typed. Ensure everything possible has explicit types and avoid unknown/generics/any wherever possible.
+
+AVOID worktrees.

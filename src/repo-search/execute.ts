@@ -112,6 +112,14 @@ export async function executeRepoSearchRequest(
         lineReadCalls?: number;
         lineReadLinesTotal?: number;
         lineReadTokensTotal?: number;
+        finishRejections?: number;
+        semanticRepeatRejects?: number;
+        stagnationWarnings?: number;
+        forcedFinishFromStagnation?: number;
+        promptInsertedTokens?: number;
+        rawToolResultTokens?: number;
+        newEvidenceCalls?: number;
+        noNewEvidenceCalls?: number;
       }> }).toolStats
       : null;
     try {
