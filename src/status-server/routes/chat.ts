@@ -43,6 +43,7 @@ import { logLine } from '../managed-llama.js';
 import {
   acquireModelRequestWithWait,
   releaseModelRequest,
+  ensureManagedLlamaReadyForModelRequest,
 } from '../server-ops.js';
 import { notifyStatusBackend } from '../../config/index.js';
 import type { ServerContext } from '../server-types.js';
@@ -256,6 +257,7 @@ export async function handleChatRoute(
         assistantContent = (parsedBody.assistantContent as string).trim();
         usage = {};
       } else {
+        await ensureManagedLlamaReadyForModelRequest(ctx);
         const config = readConfig(configPath);
         const generated = await generateChatAssistantMessage(config, session, userContent);
         assistantContent = generated.assistantContent;
@@ -355,6 +357,7 @@ export async function handleChatRoute(
       // Best-effort metrics notification.
     }
     try {
+      await ensureManagedLlamaReadyForModelRequest(ctx);
       const config = readConfig(configPath);
       const generated = await streamChatAssistantMessage(config, session, userContent, (progress) => {
         writeSse('thinking', { thinking: progress.thinkingContent });
@@ -439,6 +442,7 @@ export async function handleChatRoute(
       return true;
     }
     try {
+      await ensureManagedLlamaReadyForModelRequest(ctx);
       const executeRepoSearchRequest = loadRepoSearchExecutor();
       const content = (parsedBody.content as string).trim();
       const result = await executeRepoSearchRequest({
@@ -542,6 +546,7 @@ export async function handleChatRoute(
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     res.write('\n');
     try {
+      await ensureManagedLlamaReadyForModelRequest(ctx);
       const executeRepoSearchRequest = loadRepoSearchExecutor();
       const content = (parsedBody.content as string).trim();
       const result = await executeRepoSearchRequest({
@@ -667,6 +672,7 @@ export async function handleChatRoute(
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     res.write('\n');
     try {
+      await ensureManagedLlamaReadyForModelRequest(ctx);
       const executeRepoSearchRequest = loadRepoSearchExecutor();
       const content = (parsedBody.content as string).trim();
       const result = await executeRepoSearchRequest({

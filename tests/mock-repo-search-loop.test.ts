@@ -2024,6 +2024,116 @@ test('runTaskLoop keeps raw rewrite notes in logs but inserts compact repo-searc
   assert.equal(result.reason, 'finish');
 });
 
+test('runTaskLoop widens repeated Get-Content reads on the same file and logs requested vs adjusted window', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-widen-repeated-get-content',
+      question: 'Find runner port.',
+      signals: ['done'],
+    },
+    {
+      maxTurns: 5,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content src\\\\summary.ts | Select-Object -First 5"}}',
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content src\\\\summary.ts | Select-Object -Skip 0 -First 5"}}',
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content src\\\\other.ts | Select-Object -First 5"}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'Get-Content src\\summary.ts | Select-Object -First 5': {
+          exitCode: 0,
+          stdout: 'a\nb\nc\nd\ne',
+          stderr: '',
+        },
+        'Get-Content src\\summary.ts | Select-Object -Skip 0 -First ': {
+          exitCode: 0,
+          stdout: 'line\n'.repeat(600),
+          stderr: '',
+        },
+        'Get-Content src\\other.ts | Select-Object -First 5': {
+          exitCode: 0,
+          stdout: 'x\ny\nz',
+          stderr: '',
+        },
+      },
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
+  assert.equal(commandEvents.length, 3);
+  assert.equal(commandEvents[0]?.lineReadAdjusted, false);
+  assert.equal(commandEvents[1]?.lineReadAdjusted, true);
+  assert.equal(commandEvents[2]?.lineReadAdjusted, false);
+  assert.match(String(commandEvents[1]?.requestedCommand || ''), /Select-Object -Skip 0 -First 5/u);
+  assert.match(String(commandEvents[1]?.executedCommand || ''), /Select-Object -Skip 0 -First \d+/u);
+  assert.equal(Number(commandEvents[1]?.lineReadRequestedStart), 0);
+  assert.equal(Number(commandEvents[1]?.lineReadAdjustedStart), 0);
+  assert.equal(Number(commandEvents[1]?.lineReadRequestedEnd), 5);
+  assert.equal(Number(commandEvents[1]?.lineReadAdjustedEnd) % 10, 0);
+  assert.equal(Number(commandEvents[1]?.lineReadAdjustedEnd) > Number(commandEvents[1]?.lineReadRequestedEnd), true);
+  assert.match(String(commandEvents[1]?.output || ''), /^note: repeated file read window adjusted/mu);
+  assert.doesNotMatch(String(commandEvents[1]?.insertedResultText || ''), /^note:/mu);
+  assert.equal(result.reason, 'finish');
+});
+
+test('runTaskLoop clamps adjusted repeated Get-Content skip to non-negative values', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-widen-repeated-negative-skip',
+      question: 'Find runner port.',
+      signals: ['done'],
+    },
+    {
+      maxTurns: 4,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content src\\\\summary.ts | Select-Object -First 2"}}',
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content src\\\\summary.ts | Select-Object -Skip -5 -First 2"}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'Get-Content src\\summary.ts | Select-Object -First 2': {
+          exitCode: 0,
+          stdout: 'a\nb',
+          stderr: '',
+        },
+        'Get-Content src\\summary.ts | Select-Object -Skip 0 -First 340': {
+          exitCode: 0,
+          stdout: 'line\n'.repeat(340),
+          stderr: '',
+        },
+      },
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
+  assert.equal(commandEvents.length, 2);
+  assert.equal(commandEvents[1]?.lineReadAdjusted, true);
+  assert.match(String(commandEvents[1]?.executedCommand || ''), /-Skip 0 -First \d+/u);
+  assert.doesNotMatch(String(commandEvents[1]?.executedCommand || ''), /-Skip -/u);
+  assert.equal(Number(commandEvents[1]?.lineReadAdjustedStart) >= 0, true);
+  assert.equal(Number(commandEvents[1]?.lineReadAdjustedEnd) % 10, 0);
+  assert.equal(Number(commandEvents[1]?.lineReadAdjustedEnd) > Number(commandEvents[1]?.lineReadRequestedEnd), true);
+  assert.equal(result.reason, 'finish');
+});
+
 test('runTaskLoop collapses repeated no-new-evidence tool replays and forces finish at x4', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   const result = await runTaskLoop(

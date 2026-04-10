@@ -302,3 +302,10 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
   ctx.activeModelRequest = null;
   return true;
 }
+
+export async function ensureManagedLlamaReadyForModelRequest(ctx: ServerContext): Promise<void> {
+  if (ctx.disableManagedLlamaStartup) {
+    return;
+  }
+  await ctx.ensureManagedLlamaReady();
+}

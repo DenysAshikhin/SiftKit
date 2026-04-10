@@ -4,9 +4,32 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as http from 'node:http';
+import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 
 import { startStatusServer } from '../dist/status-server/index.js';
+
+const requireFromHere = createRequire(__filename);
+const runtimeHelpers = requireFromHere('./_runtime-helpers.js') as {
+  writeManagedLlamaScripts: (tempRoot: string, port: number, modelId?: string) => {
+    baseUrl: string;
+    startupScriptPath: string;
+    shutdownScriptPath: string;
+    readyFilePath: string;
+  };
+  getFreePort: () => Promise<number>;
+  waitForAsyncExpectation: (expectation: () => Promise<void>, timeoutMs?: number) => Promise<void>;
+  startStatusServerProcess: (options: {
+    statusPath: string;
+    configPath: string;
+    idleSummaryDbPath?: string;
+    idleSummaryDelayMs?: number;
+    disableManagedLlamaStartup?: boolean;
+  }) => Promise<{
+    statusUrl: string;
+    close: () => Promise<void>;
+  }>;
+};
 
 type Dict = Record<string, unknown>;
 type JsonResponse = { statusCode: number; body: Dict };
@@ -860,5 +883,123 @@ test('chat completion receives hidden tool context while keeping it out of visib
       }
     }
     fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('dashboard plan wakes managed llama after idle shutdown', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-idle-wakeup-'));
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const llamaPort = await runtimeHelpers.getFreePort();
+  const managed = runtimeHelpers.writeManagedLlamaScripts(tempRoot, llamaPort);
+  writeJson(configPath, {
+    Backend: 'llama.cpp',
+    Model: 'managed-test-model',
+    LlamaCpp: {
+      BaseUrl: managed.baseUrl,
+      NumCtx: 32000,
+    },
+    Runtime: {
+      Model: 'managed-test-model',
+      LlamaCpp: {
+        BaseUrl: managed.baseUrl,
+      },
+    },
+    Server: {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    },
+  });
+
+  const server = await runtimeHelpers.startStatusServerProcess({
+    statusPath,
+    configPath,
+    idleSummaryDelayMs: 80,
+  });
+  const baseUrl = new URL(server.statusUrl).origin;
+
+  try {
+    await runtimeHelpers.waitForAsyncExpectation(async () => {
+      const modelsResponse = await requestJson(`${managed.baseUrl}/v1/models`);
+      assert.equal(modelsResponse.statusCode, 200);
+    }, 5000);
+    assert.equal(fs.existsSync(managed.readyFilePath), true);
+
+    const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Wakeup session',
+        model: 'managed-test-model',
+      }),
+    });
+    assert.equal(createSession.statusCode, 200);
+    const sessionId = String(d(createSession.body.session).id);
+
+    await requestJson(`${baseUrl}/status`, {
+      method: 'POST',
+      body: JSON.stringify({
+        running: true,
+        requestId: 'dashboard-idle-wakeup-primer',
+        rawInputCharacterCount: 10,
+        promptCharacterCount: 10,
+      }),
+    });
+    await requestJson(`${baseUrl}/status`, {
+      method: 'POST',
+      body: JSON.stringify({
+        running: false,
+        requestId: 'dashboard-idle-wakeup-primer',
+        taskKind: 'plan',
+        terminalState: 'completed',
+        promptCharacterCount: 10,
+        inputTokens: 1,
+        outputCharacterCount: 1,
+        outputTokens: 1,
+        requestDurationMs: 10,
+      }),
+    });
+
+    await runtimeHelpers.waitForAsyncExpectation(async () => {
+      const statusResponse = await requestJson(server.statusUrl);
+      assert.equal(statusResponse.statusCode, 200);
+      assert.equal(statusResponse.body.status, 'false');
+    }, 5000);
+    await assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`));
+
+    const planResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/plan`, {
+      method: 'POST',
+      timeoutMs: 15000,
+      body: JSON.stringify({
+        content: 'Find wake-up wiring',
+        repoRoot: tempRoot,
+        maxTurns: 2,
+        model: 'managed-test-model',
+        mockResponses: [
+          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"ensureManagedLlamaReady\\" src/status-server"}}',
+          '{"action":"finish","output":"done","confidence":0.9}',
+        ],
+        mockCommandResults: {
+          'rg -n "ensureManagedLlamaReady" src/status-server': { exitCode: 0, stdout: 'src/status-server/managed-llama.ts:1:ensureManagedLlamaReady', stderr: '' },
+        },
+      }),
+    });
+    assert.equal(planResponse.statusCode, 200);
+
+    await runtimeHelpers.waitForAsyncExpectation(async () => {
+      const modelsResponse = await requestJson(`${managed.baseUrl}/v1/models`);
+      assert.equal(modelsResponse.statusCode, 200);
+    }, 5000);
+  } finally {
+    await server.close();
+    try {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    } catch {
+      // Best-effort temp cleanup on Windows.
+    }
   }
 });

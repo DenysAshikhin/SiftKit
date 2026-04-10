@@ -43,6 +43,7 @@ import {
   releaseExecutionLease,
   acquireModelRequestWithWait,
   releaseModelRequest,
+  ensureManagedLlamaReadyForModelRequest,
   getResolvedRequestId,
   clearRunState,
   logAbandonedRun,
@@ -199,6 +200,7 @@ export async function handleCoreRoute(
       await sleep(Math.max(1, Math.trunc(Number(parsedBody.simulateWorkMs))));
     }
     try {
+      await ensureManagedLlamaReadyForModelRequest(ctx);
       const executeRepoSearchRequest = loadRepoSearchExecutor();
       const result = await executeRepoSearchRequest({
         taskKind: 'repo-search',

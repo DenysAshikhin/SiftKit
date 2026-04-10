@@ -259,6 +259,185 @@ function isFollowupConfirmationResponse(text: string): boolean {
   return firstTenWords.includes('yes') && firstTenWords.includes('sure');
 }
 
+const REPEATED_LINE_READ_MIN_RATIO = 0.10;
+const DEFAULT_LINE_READ_AVG_TOKENS_PER_LINE = 8.0;
+const LINE_READ_ROUNDING_STEP = 10;
+
+type ParsedGetContentReadWindow = {
+  pathKey: string;
+  pathExpression: string;
+  requestedSkip: number;
+  requestedFirst: number;
+  requestedStart: number;
+  requestedEnd: number;
+  hasExplicitSkip: boolean;
+};
+
+type LineReadAdjustment = {
+  executedCommand: string;
+  requestedStart: number;
+  requestedEnd: number;
+  adjustedStart: number;
+  adjustedEnd: number;
+  minLinesFromCap: number;
+  perToolCapTokens: number;
+};
+
+function tokenizeShellLike(input: string): string[] {
+  const tokens: string[] = [];
+  let current = '';
+  let inSingle = false;
+  let inDouble = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const ch = input[index];
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      current += ch;
+      continue;
+    }
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      current += ch;
+      continue;
+    }
+    if (/\s/u.test(ch) && !inSingle && !inDouble) {
+      if (current) {
+        tokens.push(current);
+        current = '';
+      }
+      continue;
+    }
+    current += ch;
+  }
+  if (current) {
+    tokens.push(current);
+  }
+  return tokens;
+}
+
+function stripOuterQuotes(value: string): string {
+  const trimmed = String(value || '').trim();
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function normalizeReadPathKey(pathValue: string): string {
+  return stripOuterQuotes(pathValue).replace(/\//gu, '\\').toLowerCase();
+}
+
+function roundToNearestStep(value: number, step: number): number {
+  if (!Number.isFinite(value) || !Number.isFinite(step) || step <= 0) {
+    return Math.floor(Number(value) || 0);
+  }
+  return Math.round(value / step) * step;
+}
+
+function parseGetContentReadWindowCommand(command: string): ParsedGetContentReadWindow | null {
+  const trimmed = String(command || '').trim();
+  const match = /^get-content\s+(.+?)\s*\|\s*select-object\s+(.+)$/iu.exec(trimmed);
+  if (!match) {
+    return null;
+  }
+  const pathExpression = String(match[1] || '').trim();
+  const selectExpression = String(match[2] || '').trim();
+  if (!pathExpression || !selectExpression) {
+    return null;
+  }
+
+  const pathTokens = tokenizeShellLike(pathExpression);
+  if (!pathTokens.length) {
+    return null;
+  }
+  let pathToken = '';
+  if (pathTokens[0].startsWith('-')) {
+    pathToken = pathTokens[1] || '';
+  } else {
+    pathToken = pathTokens[0];
+  }
+  const pathKey = normalizeReadPathKey(pathToken);
+  if (!pathKey) {
+    return null;
+  }
+
+  const selectTokens = tokenizeShellLike(selectExpression);
+  let requestedFirst: number | null = null;
+  let requestedSkip = 0;
+  let hasExplicitSkip = false;
+  for (let index = 0; index < selectTokens.length; index += 1) {
+    const token = selectTokens[index].toLowerCase();
+    if (token === '-first') {
+      requestedFirst = Number(selectTokens[index + 1]);
+      index += 1;
+      continue;
+    }
+    if (token === '-skip') {
+      requestedSkip = Number(selectTokens[index + 1]);
+      hasExplicitSkip = true;
+      index += 1;
+      continue;
+    }
+  }
+  if (!Number.isFinite(requestedFirst)) {
+    return null;
+  }
+  requestedSkip = Math.max(0, Math.floor(Number(requestedSkip) || 0));
+  const first = Math.max(1, Math.floor(Number(requestedFirst) || 0));
+  const requestedStart = requestedSkip;
+  const requestedEnd = requestedSkip + first;
+  return {
+    pathKey,
+    pathExpression,
+    requestedSkip,
+    requestedFirst: first,
+    requestedStart,
+    requestedEnd,
+    hasExplicitSkip,
+  };
+}
+
+function buildGetContentReadWindowCommand(
+  pathExpression: string,
+  skip: number,
+  first: number,
+  hasExplicitSkip: boolean,
+): string {
+  const boundedSkip = Math.max(0, Math.floor(Number(skip) || 0));
+  const boundedFirst = Math.max(1, Math.floor(Number(first) || 0));
+  if (!hasExplicitSkip && boundedSkip === 0) {
+    return `Get-Content ${pathExpression} | Select-Object -First ${boundedFirst}`;
+  }
+  return `Get-Content ${pathExpression} | Select-Object -Skip ${boundedSkip} -First ${boundedFirst}`;
+}
+
+function resolveAvgTokensPerLine(
+  currentStats: ToolTypeStats | null | undefined,
+  historicalStats: ToolTypeStats | null | undefined,
+): number {
+  const currentCalls = Number(currentStats?.lineReadCalls || 0);
+  const currentLines = Number(currentStats?.lineReadLinesTotal || 0);
+  const currentTokens = Number(currentStats?.lineReadTokensTotal || 0);
+  if (currentCalls > 0 && currentLines > 0 && currentTokens > 0) {
+    const currentAvg = currentTokens / currentLines;
+    if (Number.isFinite(currentAvg) && currentAvg > 0) {
+      return currentAvg;
+    }
+  }
+
+  const historicalCalls = Number(historicalStats?.lineReadCalls || 0);
+  const historicalLines = Number(historicalStats?.lineReadLinesTotal || 0);
+  const historicalTokens = Number(historicalStats?.lineReadTokensTotal || 0);
+  if (historicalCalls > 0 && historicalLines > 0 && historicalTokens > 0) {
+    const historicalAvg = historicalTokens / historicalLines;
+    if (Number.isFinite(historicalAvg) && historicalAvg > 0) {
+      return historicalAvg;
+    }
+  }
+
+  return DEFAULT_LINE_READ_AVG_TOKENS_PER_LINE;
+}
+
 // ---------------------------------------------------------------------------
 // Task result type
 // ---------------------------------------------------------------------------
@@ -358,6 +537,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   let replayRepeatCount = 0;
   let lastReplayUserMessageIndex = -1;
   let lastReplayHistoryIndex = -1;
+  const fileReadCountByPath = new Map<string, number>();
 
   const messages: ChatMessage[] = [
     {
@@ -657,7 +837,53 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       continue;
     }
 
-    const commandToRun = normalized.command;
+    const requestedCommand = command;
+    const normalizedCommand = normalized.command;
+    const preExecutionDynamicPerToolRatio = Math.max(PER_TOOL_RESULT_RATIO, Number(commands.length) / Number(maxTurns));
+    const preExecutionPerToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * preExecutionDynamicPerToolRatio));
+    const parsedReadWindow = parseGetContentReadWindowCommand(normalizedCommand);
+    let commandToRun = normalizedCommand;
+    let lineReadAdjustment: LineReadAdjustment | null = null;
+
+    if (parsedReadWindow) {
+      const previousReadCount = Number(fileReadCountByPath.get(parsedReadWindow.pathKey) || 0);
+      if (previousReadCount >= 1) {
+        const minTokensFromCap = Math.max(1, Math.ceil(preExecutionPerToolCapTokens * REPEATED_LINE_READ_MIN_RATIO));
+        const currentGetContentStats = toolStatsByType['get-content'] || null;
+        const historicalGetContentStats = historicalToolStats['get-content'] || null;
+        const avgTokensPerLine = resolveAvgTokensPerLine(currentGetContentStats, historicalGetContentStats);
+        const minLinesFromCap = Math.max(1, Math.ceil(minTokensFromCap / avgTokensPerLine));
+        if (parsedReadWindow.requestedFirst < minLinesFromCap) {
+          const adjustedStart = Math.max(0, roundToNearestStep(parsedReadWindow.requestedStart, LINE_READ_ROUNDING_STEP));
+          const requestedMinEnd = adjustedStart + minLinesFromCap;
+          let adjustedEnd = roundToNearestStep(requestedMinEnd, LINE_READ_ROUNDING_STEP);
+          if (adjustedEnd <= adjustedStart) {
+            adjustedEnd = adjustedStart + LINE_READ_ROUNDING_STEP;
+          }
+          while (adjustedEnd - adjustedStart < minLinesFromCap) {
+            adjustedEnd += LINE_READ_ROUNDING_STEP;
+          }
+
+          const adjustedFirst = Math.max(1, adjustedEnd - adjustedStart);
+          commandToRun = buildGetContentReadWindowCommand(
+            parsedReadWindow.pathExpression,
+            adjustedStart,
+            adjustedFirst,
+            parsedReadWindow.hasExplicitSkip,
+          );
+          lineReadAdjustment = {
+            executedCommand: commandToRun,
+            requestedStart: parsedReadWindow.requestedStart,
+            requestedEnd: parsedReadWindow.requestedEnd,
+            adjustedStart,
+            adjustedEnd,
+            minLinesFromCap,
+            perToolCapTokens: preExecutionPerToolCapTokens,
+          };
+        }
+      }
+    }
+
     const safety = evaluateCommandSafety(commandToRun, options.repoRoot);
     options.logger?.write({ kind: 'turn_command_safety', taskId: task.id, turn, command: commandToRun, safe: safety.safe, reason: safety.reason });
 
@@ -681,14 +907,26 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
 
     const executed = await executeRepoCommand(commandToRun, options.repoRoot, options.mockCommandResults || null);
     const baseOutput = String(executed.output || '').trim();
+    if (parsedReadWindow) {
+      fileReadCountByPath.set(parsedReadWindow.pathKey, Number(fileReadCountByPath.get(parsedReadWindow.pathKey) || 0) + 1);
+    }
 
     if (options.onProgress) {
       const snippet = baseOutput.length > 200 ? baseOutput.slice(0, 200) + '...' : baseOutput;
       options.onProgress({ kind: 'tool_result', turn, maxTurns, command: commandToRun, exitCode: executed.exitCode, outputSnippet: snippet, promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
     }
 
-    const outputWithRewriteNote = normalized.rewritten && normalized.note
-      ? `${normalized.note}\n${baseOutput}`.trim()
+    const rewriteNotes: string[] = [];
+    if (normalized.rewritten && normalized.note) {
+      rewriteNotes.push(normalized.note);
+    }
+    if (lineReadAdjustment) {
+      rewriteNotes.push(
+        `note: repeated file read window adjusted; requested start=${lineReadAdjustment.requestedStart} end=${lineReadAdjustment.requestedEnd}; adjusted start=${lineReadAdjustment.adjustedStart} end=${lineReadAdjustment.adjustedEnd}; ran '${lineReadAdjustment.executedCommand}' instead`
+      );
+    }
+    const outputWithRewriteNote = rewriteNotes.length > 0
+      ? `${rewriteNotes.join('\n')}\n${baseOutput}`.trim()
       : baseOutput;
 
     if (Number(executed.exitCode) !== 0 && !isSearchNoMatchExit(commandToRun, executed.exitCode)) {
@@ -797,6 +1035,15 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
 
     options.logger?.write({
       kind: 'turn_command_result', taskId: task.id, turn, command: commandToRun,
+      requestedCommand,
+      executedCommand: commandToRun,
+      lineReadAdjusted: Boolean(lineReadAdjustment),
+      lineReadRequestedStart: lineReadAdjustment?.requestedStart,
+      lineReadRequestedEnd: lineReadAdjustment?.requestedEnd,
+      lineReadAdjustedStart: lineReadAdjustment?.adjustedStart,
+      lineReadAdjustedEnd: lineReadAdjustment?.adjustedEnd,
+      lineReadMinLinesFromCap: lineReadAdjustment?.minLinesFromCap,
+      lineReadPerToolCapTokens: lineReadAdjustment?.perToolCapTokens,
       exitCode: executed.exitCode, output: outputWithRewriteNote,
       promptTokenCount, resultTokenCount, perToolCapTokens, remainingTokenAllowance,
       insertedResultText: resultText,
