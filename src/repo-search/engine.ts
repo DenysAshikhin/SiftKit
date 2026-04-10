@@ -1160,17 +1160,22 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       options.onProgress({ kind: 'tool_result', turn, maxTurns, command: commandToRun, exitCode: executed.exitCode, outputSnippet: snippet, promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
     }
 
-    const rewriteNotes: string[] = [];
+    const rewriteNotesForLogs: string[] = [];
+    const rewriteNotesForPrompt: string[] = [];
     if (normalized.rewritten && normalized.note) {
-      rewriteNotes.push(normalized.note);
+      rewriteNotesForLogs.push(normalized.note);
+      rewriteNotesForPrompt.push(normalized.note);
     }
     if (lineReadAdjustment) {
-      rewriteNotes.push(
+      rewriteNotesForLogs.push(
         `note: repeated file read window adjusted; requested start=${lineReadAdjustment.requestedStart} end=${lineReadAdjustment.requestedEnd}; adjusted start=${lineReadAdjustment.adjustedStart} end=${lineReadAdjustment.adjustedEnd}; reason=${lineReadAdjustment.reason}; ran '${lineReadAdjustment.executedCommand}' instead`
       );
     }
-    const outputWithRewriteNote = rewriteNotes.length > 0
-      ? `${rewriteNotes.join('\n')}\n${baseOutput}`.trim()
+    const outputWithRewriteNote = rewriteNotesForLogs.length > 0
+      ? `${rewriteNotesForLogs.join('\n')}\n${baseOutput}`.trim()
+      : baseOutput;
+    const outputForPrompt = rewriteNotesForPrompt.length > 0
+      ? `${rewriteNotesForPrompt.join('\n')}\n${baseOutput}`.trim()
       : baseOutput;
 
     if (Number(executed.exitCode) !== 0 && !isSearchNoMatchExit(commandToRun, executed.exitCode)) {
@@ -1204,10 +1209,10 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     // means the pipeline was terminated early (e.g. `| Select-Object -First N` closed the pipe
     // before rg finished, causing a broken-pipe exit). In that case the output is valid truncated
     // results, not an error, so don't prepend a misleading `exit_code=1` prefix.
-    const suppressExitCode = isSearchNoMatchExit(commandToRun, executed.exitCode) && outputWithRewriteNote.length > 0;
+    const suppressExitCode = isSearchNoMatchExit(commandToRun, executed.exitCode) && outputForPrompt.length > 0;
     const rawResultText = suppressExitCode
-      ? outputWithRewriteNote
-      : `exit_code=${executed.exitCode}\n${outputWithRewriteNote}`.trim();
+      ? outputForPrompt
+      : `exit_code=${executed.exitCode}\n${outputForPrompt}`.trim();
     let resultText = buildPromptToolResult({
       toolName: 'run_repo_cmd',
       command: commandToRun,
@@ -1299,6 +1304,9 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     });
 
     commands.push({ command: commandToRun, safe: true, reason: null, exitCode: executed.exitCode, output: outputWithRewriteNote });
+    const replayAssistantText = lineReadAdjustment
+      ? JSON.stringify({ action: 'tool', tool_name: 'run_repo_cmd', args: { command: commandToRun } })
+      : response.text;
     let appendReplayMessages = true;
     if (novelty.hasNewEvidence) {
       consecutiveNoNewEvidence = 0;
@@ -1355,7 +1363,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
 
     if (appendReplayMessages) {
-      messages.push({ role: 'assistant', content: response.text });
+      messages.push({ role: 'assistant', content: replayAssistantText });
       messages.push({ role: 'user', content: resultText });
       history.push({ command: commandToRun, resultText });
     }

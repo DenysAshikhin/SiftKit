@@ -423,3 +423,70 @@ test('llama.cpp provider waits for warm-up and retries chat-completions after EC
     }
   });
 });
+
+test('llama.cpp provider retries HTTP 503 Loading model responses for chat-completions', async () => {
+  await withTempEnv(async () => {
+    const port = await getFreePort();
+    let chatRequestCount = 0;
+    const loadingServer = http.createServer((req, res) => {
+      if (req.method === 'POST' && req.url === '/v1/chat/completions') {
+        chatRequestCount += 1;
+        if (chatRequestCount === 1) {
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: { message: 'Loading model', type: 'unavailable_error', code: 503 } }));
+          return;
+        }
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({
+          choices: [{ message: { content: 'model ready' } }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        }));
+        return;
+      }
+      if (req.method === 'POST' && req.url === '/tokenize') {
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ count: 1 }));
+        return;
+      }
+      if (req.method === 'GET' && req.url === '/v1/models') {
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ data: [{ id: 'warmup-model' }] }));
+        return;
+      }
+      res.statusCode = 404;
+      res.end();
+    });
+    await new Promise<void>((resolve, reject) => {
+      loadingServer.listen(port, '127.0.0.1', (error) => (error ? reject(error) : resolve()));
+    });
+
+    try {
+      const config = {
+        Backend: 'llama.cpp',
+        Runtime: {
+          Model: 'warmup-model',
+          LlamaCpp: {
+            BaseUrl: `http://127.0.0.1:${port}`,
+            NumCtx: 10000,
+          },
+        },
+        LlamaCpp: {
+          BaseUrl: `http://127.0.0.1:${port}`,
+        },
+        Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },
+        Interactive: { Enabled: true, WrappedCommands: [], IdleTimeoutMs: 900000, MaxTranscriptCharacters: 60000, TranscriptRetention: true },
+      };
+
+      const response = await generateLlamaCppResponse({
+        config,
+        model: 'warmup-model',
+        prompt: 'test prompt body',
+        timeoutSeconds: 5,
+      });
+      assert.equal(response.text, 'model ready');
+      assert.equal(chatRequestCount, 2);
+    } finally {
+      await new Promise<void>((resolve) => loadingServer.close(() => resolve()));
+    }
+  });
+});

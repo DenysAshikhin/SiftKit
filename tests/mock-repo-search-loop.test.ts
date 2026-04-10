@@ -1912,6 +1912,60 @@ test('runTaskLoop waits for planner endpoint warm-up when initial connections ar
   }
 });
 
+test('runTaskLoop retries planner calls when endpoint returns HTTP 503 Loading model', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const port = await getFreePort();
+  let plannerRequestCount = 0;
+  const server = http.createServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    plannerRequestCount += 1;
+    if (plannerRequestCount === 1) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: { message: 'Loading model', type: 'unavailable_error', code: 503 } }));
+      return;
+    }
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({
+      choices: [{ message: { content: '{"action":"finish","output":"done"}' } }],
+    }));
+  });
+  await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', () => resolve()));
+
+  try {
+    const result = await runTaskLoop(
+      {
+        id: 'task-loading-model-retry',
+        question: 'Find planner text.',
+        signals: ['done'],
+      },
+      {
+        baseUrl: `http://127.0.0.1:${port}`,
+        model: 'mock-model',
+        maxTurns: 1,
+        maxInvalidResponses: 1,
+        minToolCallsBeforeFinish: 0,
+        logger: {
+          write(event: Record<string, unknown> & { kind: string }) {
+            events.push(event);
+          },
+        },
+      }
+    );
+    assert.equal(result.reason, 'finish');
+    assert.equal(result.finalOutput, 'done');
+    assert.equal(plannerRequestCount, 2);
+    const retryEvents = events.filter((event) => event.kind === 'provider_request_retry');
+    assert.equal(retryEvents.length >= 1, true);
+    assert.match(String(retryEvents[0]?.error?.message || ''), /Loading model/u);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test('runTaskLoop blocks exact duplicate commands with explicit error message', async () => {
   const result = await runTaskLoop(
     {
@@ -2086,6 +2140,21 @@ test('runTaskLoop widens repeated Get-Content reads on the same file and logs re
   assert.equal(Number(commandEvents[1]?.lineReadExecutedEnd), Number(commandEvents[1]?.lineReadAdjustedEnd));
   assert.match(String(commandEvents[1]?.output || ''), /^note: repeated file read window adjusted/mu);
   assert.doesNotMatch(String(commandEvents[1]?.insertedResultText || ''), /^note:/mu);
+  const turn3NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 3);
+  const turn3AssistantMessages = Array.isArray(turn3NewMessages?.messages)
+    ? turn3NewMessages.messages.filter((message: { role?: string }) => message.role === 'assistant')
+    : [];
+  assert.equal(turn3AssistantMessages.length > 0, true);
+  const replayedAssistantPayload = String(turn3AssistantMessages[turn3AssistantMessages.length - 1]?.content || '');
+  const replayedAssistantAction = JSON.parse(replayedAssistantPayload);
+  assert.equal(String(replayedAssistantAction?.args?.command || ''), String(commandEvents[1]?.executedCommand || ''));
+  assert.notEqual(String(replayedAssistantAction?.args?.command || ''), String(commandEvents[1]?.requestedCommand || ''));
+  const turn3UserMessages = Array.isArray(turn3NewMessages?.messages)
+    ? turn3NewMessages.messages.filter((message: { role?: string }) => message.role === 'user')
+    : [];
+  const replayedToolResultForPrompt = String(turn3UserMessages[turn3UserMessages.length - 1]?.content || '');
+  assert.doesNotMatch(replayedToolResultForPrompt, /requested start=/u);
+  assert.doesNotMatch(replayedToolResultForPrompt, /adjusted start=/u);
   assert.equal(result.reason, 'finish');
 });
 
