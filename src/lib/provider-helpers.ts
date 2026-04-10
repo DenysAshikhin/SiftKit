@@ -53,12 +53,35 @@ export function buildProviderErrorMessage(
 // ---------------------------------------------------------------------------
 
 const TRANSIENT_PROVIDER_ERROR_CODES = ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ECONNABORTED'];
+const TRANSIENT_PROVIDER_LOADING_MODEL_CODE = 'HTTP_503_LOADING_MODEL';
 
 export function isTransientProviderError(error: unknown): boolean {
   const source = error && typeof error === 'object' ? error as Record<string, unknown> : {};
   const message = String(error instanceof Error ? error.message : (error ?? '')).toUpperCase();
   const code = String(typeof source.code === 'string' ? source.code : '').toUpperCase();
-  return TRANSIENT_PROVIDER_ERROR_CODES.some((item) => message.includes(item) || code === item);
+  if (TRANSIENT_PROVIDER_ERROR_CODES.some((item) => message.includes(item) || code === item)) {
+    return true;
+  }
+  if (code === TRANSIENT_PROVIDER_LOADING_MODEL_CODE) {
+    return true;
+  }
+  return message.includes('HTTP 503')
+    && (message.includes('LOADING MODEL') || message.includes('UNAVAILABLE_ERROR'));
+}
+
+export function isTransientProviderHttpResponse(statusCode: number, rawText: string): boolean {
+  if (statusCode !== 503) {
+    return false;
+  }
+  const responseText = String(rawText || '').toUpperCase();
+  return responseText.includes('LOADING MODEL') || responseText.includes('UNAVAILABLE_ERROR');
+}
+
+export function buildTransientProviderHttpError(statusCode: number, rawText: string): Error {
+  const detail = String(rawText || '').trim();
+  const error = new Error(`HTTP ${statusCode}: ${detail || 'provider temporarily unavailable'}`) as Error & { code?: string };
+  error.code = TRANSIENT_PROVIDER_LOADING_MODEL_CODE;
+  return error;
 }
 
 const DEFAULT_PROVIDER_RETRY_MAX_WAIT_MS = 30_000;

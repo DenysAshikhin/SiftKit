@@ -508,7 +508,7 @@ pre {
 
 .idle-top-row {
   display: grid;
-  grid-template-columns: minmax(540px, 1fr) minmax(540px, 1fr);
+  grid-template-columns: max-content minmax(0, 1fr);
   gap: 12px;
 }
 
@@ -518,6 +518,9 @@ pre {
 
 .idle-summary-compact {
   min-width: 0;
+  justify-self: start;
+  width: fit-content;
+  max-width: 100%;
 }
 
 .idle-tools-panel {
@@ -538,23 +541,29 @@ pre {
 }
 
 .idle-summary-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 10px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: fit-content;
+  gap: 6px;
 }
 
 .idle-latest {
   margin: 0;
-  grid-column: 1 / -1;
+  width: fit-content;
 }
 
 .idle-card {
   border: 1px solid var(--stroke);
   border-radius: 10px;
-  padding: 10px;
+  padding: 6px 10px;
   background: #0f2030;
-  display: grid;
-  gap: 5px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 10px;
+  row-gap: 2px;
+  width: fit-content;
 }
 
 .idle-card span {
@@ -979,6 +988,11 @@ button:hover {
 
   .idle-top-row {
     grid-template-columns: 1fr;
+  }
+
+  .idle-summary-compact {
+    justify-self: stretch;
+    width: auto;
   }
 
   .live-stream-boxes {

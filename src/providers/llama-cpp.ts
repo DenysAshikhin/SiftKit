@@ -1,6 +1,10 @@
 import { getConfiguredLlamaBaseUrl, getConfiguredLlamaSetting, type RuntimeLlamaCppConfig, type SiftConfig } from '../config/index.js';
 import { requestJsonFull, type FullJsonResponse } from '../lib/http.js';
-import { retryProviderRequest } from '../lib/provider-helpers.js';
+import {
+  buildTransientProviderHttpError,
+  isTransientProviderHttpResponse,
+  retryProviderRequest,
+} from '../lib/provider-helpers.js';
 import { createTracer } from '../lib/trace.js';
 
 type LlamaCppModelListResponse = {
@@ -282,12 +286,18 @@ export async function countLlamaCppTokens(config: SiftConfig, content: string): 
   traceLlamaCpp(`tokenize start chars=${content.length}`);
   try {
     const baseUrl = getConfiguredLlamaBaseUrl(config);
-    const response = await retryProviderRequest(() => requestJson<LlamaCppTokenizeResponse>({
-      url: `${baseUrl.replace(/\/$/u, '')}/tokenize`,
-      method: 'POST',
-      timeoutMs: 10_000,
-      body: JSON.stringify({ content }),
-    }), {
+    const response = await retryProviderRequest(async () => {
+      const nextResponse = await requestJson<LlamaCppTokenizeResponse>({
+        url: `${baseUrl.replace(/\/$/u, '')}/tokenize`,
+        method: 'POST',
+        timeoutMs: 10_000,
+        body: JSON.stringify({ content }),
+      });
+      if (isTransientProviderHttpResponse(nextResponse.statusCode, nextResponse.rawText)) {
+        throw buildTransientProviderHttpError(nextResponse.statusCode, nextResponse.rawText);
+      }
+      return nextResponse;
+    }, {
       onRetry(event) {
         traceLlamaCpp(
           `tokenize retry attempt=${event.attempt} elapsed_ms=${event.elapsedMs} `
@@ -325,11 +335,17 @@ export async function countLlamaCppTokens(config: SiftConfig, content: string): 
 
 export async function listLlamaCppModels(config: SiftConfig): Promise<string[]> {
   const baseUrl = getConfiguredLlamaBaseUrl(config);
-  const response = await retryProviderRequest(() => requestJson<LlamaCppModelListResponse>({
-    url: `${baseUrl.replace(/\/$/u, '')}/v1/models`,
-    method: 'GET',
-    timeoutMs: 5000,
-  }), {
+  const response = await retryProviderRequest(async () => {
+    const nextResponse = await requestJson<LlamaCppModelListResponse>({
+      url: `${baseUrl.replace(/\/$/u, '')}/v1/models`,
+      method: 'GET',
+      timeoutMs: 5000,
+    });
+    if (isTransientProviderHttpResponse(nextResponse.statusCode, nextResponse.rawText)) {
+      throw buildTransientProviderHttpError(nextResponse.statusCode, nextResponse.rawText);
+    }
+    return nextResponse;
+  }, {
     onRetry(event) {
       traceLlamaCpp(
         `model_list retry attempt=${event.attempt} elapsed_ms=${event.elapsedMs} `
@@ -477,12 +493,18 @@ export async function generateLlamaCppChatResponse(options: {
     + `prompt_chars=${promptChars} base_url=${baseUrl}`
   );
   try {
-    response = await retryProviderRequest(() => requestJson<LlamaCppChatResponse>({
-      url: `${baseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
-      method: 'POST',
-      timeoutMs: options.timeoutSeconds * 1000,
-      body: requestBody,
-    }), {
+    response = await retryProviderRequest(async () => {
+      const nextResponse = await requestJson<LlamaCppChatResponse>({
+        url: `${baseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
+        method: 'POST',
+        timeoutMs: options.timeoutSeconds * 1000,
+        body: requestBody,
+      });
+      if (isTransientProviderHttpResponse(nextResponse.statusCode, nextResponse.rawText)) {
+        throw buildTransientProviderHttpError(nextResponse.statusCode, nextResponse.rawText);
+      }
+      return nextResponse;
+    }, {
       onRetry(event) {
         traceLlamaCpp(
           `generate retry attempt=${event.attempt} elapsed_ms=${event.elapsedMs} `

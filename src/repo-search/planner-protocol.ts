@@ -2,9 +2,11 @@ import * as http from 'node:http';
 import * as https from 'node:https';
 import { requestJsonFull } from '../lib/http.js';
 import {
+  buildTransientProviderHttpError,
   buildProviderErrorMessage,
   getCompletionUsageFromResponseBody,
   getPromptUsageFromResponseBody,
+  isTransientProviderHttpResponse,
   normalizeProviderText,
   retryProviderRequest,
   serializeNetworkError,
@@ -369,12 +371,18 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
   let response;
   try {
     response = await retryProviderRequest(
-      () => requestJsonFull<CompletionBody>({
-        url: requestUrl,
-        method: 'POST',
-        timeoutMs: options.timeoutMs,
-        body: bodyJson,
-      }),
+      async () => {
+        const nextResponse = await requestJsonFull<CompletionBody>({
+          url: requestUrl,
+          method: 'POST',
+          timeoutMs: options.timeoutMs,
+          body: bodyJson,
+        });
+        if (isTransientProviderHttpResponse(nextResponse.statusCode, nextResponse.rawText)) {
+          throw buildTransientProviderHttpError(nextResponse.statusCode, nextResponse.rawText);
+        }
+        return nextResponse;
+      },
       {
         onRetry(event) {
           logProviderRetry({
@@ -462,6 +470,10 @@ function requestStreaming(
         response.on('end', () => {
           if (!settled) {
             settled = true;
+            if (isTransientProviderHttpResponse(response.statusCode || 0, body)) {
+              reject(buildTransientProviderHttpError(response.statusCode || 0, body));
+              return;
+            }
             const serialized = serializeNetworkError(new Error(`llama.cpp ${stage} stream failed with HTTP ${response.statusCode}${body.trim() ? `: ${body.trim().slice(0, 400)}` : '.'}`));
             options.logger?.write({ kind: 'provider_request_error', stage, method, url: target.toString(), path: urlPath, elapsedMs: Date.now() - startedAt, error: serialized });
             reject(new Error(buildProviderErrorMessage({ stage, method, url: target.toString() }, serialized)));
