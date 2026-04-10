@@ -12,6 +12,7 @@ import {
 } from '../config/index.js';
 import { withExecutionLock } from '../execution-lock.js';
 import { getErrorMessage } from '../lib/errors.js';
+import { decodeTextBuffer } from '../lib/text-encoding.js';
 import { countLlamaCppTokens } from '../providers/llama-cpp.js';
 import {
   getDeterministicExcerpt,
@@ -584,7 +585,7 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
 export function readSummaryInput(options: {
   text?: string;
   file?: string;
-  stdinText?: string;
+  stdinText?: string | Buffer;
 }): string | null {
   if (options.text !== undefined) {
     return normalizeInputText(options.text);
@@ -593,15 +594,23 @@ export function readSummaryInput(options: {
   if (options.file) {
     if (!fs.existsSync(options.file)) {
       if (options.stdinText !== undefined) {
-        return normalizeInputText(options.stdinText);
+        return normalizeInputText(
+          Buffer.isBuffer(options.stdinText)
+            ? decodeTextBuffer(options.stdinText)
+            : options.stdinText,
+        );
       }
       throw new Error(`Input file not found: ${options.file}`);
     }
-    return normalizeInputText(fs.readFileSync(options.file, 'utf8'));
+    return normalizeInputText(decodeTextBuffer(fs.readFileSync(options.file)));
   }
 
   if (options.stdinText !== undefined) {
-    return normalizeInputText(options.stdinText);
+    return normalizeInputText(
+      Buffer.isBuffer(options.stdinText)
+        ? decodeTextBuffer(options.stdinText)
+        : options.stdinText,
+    );
   }
 
   return null;

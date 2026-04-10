@@ -1,4 +1,3 @@
-import * as fs from 'node:fs';
 import { ensureStatusServerReachable, loadConfig, setTopLevelConfigKey } from '../config/index.js';
 import { analyzeCommandOutput, runCommand } from '../command.js';
 import { runEvaluation } from '../eval.js';
@@ -7,13 +6,12 @@ import { installCodexPolicy, installShellIntegration, installSiftKit } from '../
 import { runInteractiveCapture } from '../interactive.js';
 import { executeRepoSearchRequest } from '../repo-search/index.js';
 import { summarizeRequest } from '../summary/core.js';
+import { readTextFileWithEncoding } from '../lib/text-encoding.js';
 import { getCommandArgs, parseArguments, SERVER_DEPENDENT_INTERNAL_OPS } from './args.js';
 import { buildTestResult } from './run-test.js';
 
 function readRequestFile(filePath: string): Record<string, unknown> {
-  const text = fs.readFileSync(filePath, 'utf8');
-  const normalized = text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
-  return JSON.parse(normalized) as Record<string, unknown>;
+  return JSON.parse(readTextFileWithEncoding(filePath)) as Record<string, unknown>;
 }
 
 export async function runInternal(options: {
@@ -48,7 +46,7 @@ export async function runInternal(options: {
       result = await setTopLevelConfigKey(String(request.Key), request.Value);
       break;
     case 'summary': {
-      const text = request.TextFile ? fs.readFileSync(String(request.TextFile), 'utf8') : String(request.Text || '');
+      const text = request.TextFile ? readTextFileWithEncoding(String(request.TextFile)) : String(request.Text || '');
       result = await summarizeRequest({
         question: String(request.Question),
         inputText: text,
@@ -74,7 +72,7 @@ export async function runInternal(options: {
       });
       break;
     case 'command-analyze': {
-      const text = request.RawTextFile ? fs.readFileSync(String(request.RawTextFile), 'utf8') : String(request.RawText || '');
+      const text = request.RawTextFile ? readTextFileWithEncoding(String(request.RawTextFile)) : String(request.RawText || '');
       result = await analyzeCommandOutput({
         ExitCode: Number(request.ExitCode || 0),
         CombinedText: text,

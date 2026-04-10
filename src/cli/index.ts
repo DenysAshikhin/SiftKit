@@ -5,15 +5,14 @@ export type { CliRunOptions } from './args.js';
 
 if (require.main === module) {
   void (async () => {
-    let stdinText = '';
+    let stdinText: Buffer | undefined;
     if (!process.stdin.isTTY) {
-      stdinText = await new Promise<string>((resolve, reject) => {
-        let collected = '';
-        process.stdin.setEncoding('utf8');
-        process.stdin.on('data', (chunk: string) => {
-          collected += chunk;
+      stdinText = await new Promise<Buffer>((resolve, reject) => {
+        const chunks: Buffer[] = [];
+        process.stdin.on('data', (chunk: Buffer | string) => {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
         });
-        process.stdin.on('end', () => resolve(collected));
+        process.stdin.on('end', () => resolve(Buffer.concat(chunks)));
         process.stdin.on('error', reject);
       });
     }

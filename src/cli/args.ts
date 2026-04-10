@@ -2,7 +2,7 @@ import { inspect } from 'node:util';
 
 export type CliRunOptions = {
   argv: string[];
-  stdinText?: string;
+  stdinText?: string | Buffer;
   stdout?: NodeJS.WritableStream;
   stderr?: NodeJS.WritableStream;
 };

@@ -3,7 +3,7 @@ import { getCommandArgs, parseArguments } from './args.js';
 
 export async function runSummary(options: {
   argv: string[];
-  stdinText?: string;
+  stdinText?: string | Buffer;
   stdout: NodeJS.WritableStream;
 }): Promise<number> {
   const parsed = parseArguments(getCommandArgs(options.argv));
@@ -21,6 +21,11 @@ export async function runSummary(options: {
     throw new Error('stdin, --text or --file required');
   }
 
+  const hasStdinInput = typeof options.stdinText === 'string'
+    ? options.stdinText.trim().length > 0
+    : Buffer.isBuffer(options.stdinText)
+      ? options.stdinText.length > 0
+      : false;
   const result = await summarizeRequest({
     question,
     inputText: inputText ?? '',
@@ -28,7 +33,7 @@ export async function runSummary(options: {
     policyProfile: (parsed.profile as Parameters<typeof summarizeRequest>[0]['policyProfile']) || 'general',
     backend: parsed.backend,
     model: parsed.model,
-    sourceKind: process.env.SIFTKIT_SUMMARY_SOURCE_KIND === 'command-output' || Boolean(options.stdinText?.trim())
+    sourceKind: process.env.SIFTKIT_SUMMARY_SOURCE_KIND === 'command-output' || hasStdinInput
       ? 'command-output'
       : 'standalone',
     commandExitCode: process.env.SIFTKIT_SUMMARY_COMMAND_EXIT_CODE?.trim()

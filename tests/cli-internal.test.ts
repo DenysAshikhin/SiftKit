@@ -7,6 +7,16 @@ import * as path from 'node:path';
 import { runCli } from '../dist/cli/index.js';
 import { makeCaptureStream, withTestEnvAndServer } from './_test-helpers.js';
 
+function toUtf16BeBuffer(text: string, withBom = true): Buffer {
+  const le = Buffer.from(text, 'utf16le');
+  const be = Buffer.alloc(le.length);
+  for (let index = 0; index < le.length - 1; index += 2) {
+    be[index] = le[index + 1];
+    be[index + 1] = le[index];
+  }
+  return withBom ? Buffer.concat([Buffer.from([0xfe, 0xff]), be]) : be;
+}
+
 test('find-files command returns matching files', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-cli-ff-'));
   try {
@@ -120,6 +130,31 @@ test('internal op find-files reads request file and returns results', async () =
     const output = JSON.parse(stdout.read().trim()) as Array<{ Name: string }>;
     assert.ok(Array.isArray(output));
     assert.equal(output.length, 1);
+    assert.equal(output[0].Name, 'found.js');
+  });
+});
+
+test('internal op find-files supports UTF-16 request file', async () => {
+  await withTestEnvAndServer(async ({ tempRoot }) => {
+    const searchDir = path.join(tempRoot, 'search-utf16');
+    fs.mkdirSync(searchDir, { recursive: true });
+    fs.writeFileSync(path.join(searchDir, 'found.js'), 'x', 'utf8');
+    const requestFile = path.join(tempRoot, 'req-utf16.json');
+    const requestJson = JSON.stringify({ Name: ['*.js'], Path: searchDir });
+    fs.writeFileSync(
+      requestFile,
+      Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(requestJson, 'utf16le')]),
+    );
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const code = await runCli({
+      argv: ['internal', '--op', 'find-files', '--request-file', requestFile],
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+    });
+    assert.equal(code, 0);
+    const output = JSON.parse(stdout.read().trim()) as Array<{ Name: string }>;
+    assert.ok(Array.isArray(output));
     assert.equal(output[0].Name, 'found.js');
   });
 });
@@ -244,6 +279,31 @@ test('internal op summary via request file produces output', async () => {
     assert.equal(code, 0);
     const parsed = JSON.parse(stdout.read().trim()) as { Summary: string };
     assert.equal(typeof parsed.Summary, 'string');
+  });
+});
+
+test('internal op summary supports UTF-16 TextFile payload', async () => {
+  await withTestEnvAndServer(async ({ tempRoot }) => {
+    const textFile = path.join(tempRoot, 'summary-input-utf16be.txt');
+    fs.writeFileSync(textFile, toUtf16BeBuffer('Build output: all tests passed.\n'.repeat(30)));
+
+    const requestFile = path.join(tempRoot, 'req-summary-utf16.json');
+    fs.writeFileSync(requestFile, JSON.stringify({
+      Question: 'Summarize the build output',
+      TextFile: textFile,
+      Format: 'text',
+    }), 'utf8');
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const code = await runCli({
+      argv: ['internal', '--op', 'summary', '--request-file', requestFile],
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+    });
+    assert.equal(code, 0);
+    const parsed = JSON.parse(stdout.read().trim()) as { Summary: string };
+    assert.equal(typeof parsed.Summary, 'string');
+    assert.equal(parsed.Summary.includes('\u0000'), false);
   });
 });
 
