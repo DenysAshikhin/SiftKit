@@ -2074,12 +2074,16 @@ test('runTaskLoop widens repeated Get-Content reads on the same file and logs re
   assert.equal(commandEvents[1]?.lineReadAdjusted, true);
   assert.equal(commandEvents[2]?.lineReadAdjusted, false);
   assert.match(String(commandEvents[1]?.requestedCommand || ''), /Select-Object -Skip 0 -First 5/u);
-  assert.match(String(commandEvents[1]?.executedCommand || ''), /Select-Object -Skip 0 -First \d+/u);
+  assert.match(String(commandEvents[1]?.executedCommand || ''), /Select-Object -Skip \d+ -First \d+/u);
   assert.equal(Number(commandEvents[1]?.lineReadRequestedStart), 0);
-  assert.equal(Number(commandEvents[1]?.lineReadAdjustedStart), 0);
+  assert.equal(Number(commandEvents[1]?.lineReadAdjustedStart) >= Number(commandEvents[0]?.lineReadExecutedEnd), true);
   assert.equal(Number(commandEvents[1]?.lineReadRequestedEnd), 5);
   assert.equal(Number(commandEvents[1]?.lineReadAdjustedEnd) % 10, 0);
   assert.equal(Number(commandEvents[1]?.lineReadAdjustedEnd) > Number(commandEvents[1]?.lineReadRequestedEnd), true);
+  assert.equal(Number(commandEvents[1]?.lineReadOverlapLines), 0);
+  assert.equal(Number(commandEvents[1]?.lineReadNewLinesCovered) > 0, true);
+  assert.equal(Number(commandEvents[1]?.lineReadExecutedStart), Number(commandEvents[1]?.lineReadAdjustedStart));
+  assert.equal(Number(commandEvents[1]?.lineReadExecutedEnd), Number(commandEvents[1]?.lineReadAdjustedEnd));
   assert.match(String(commandEvents[1]?.output || ''), /^note: repeated file read window adjusted/mu);
   assert.doesNotMatch(String(commandEvents[1]?.insertedResultText || ''), /^note:/mu);
   assert.equal(result.reason, 'finish');
@@ -2126,11 +2130,133 @@ test('runTaskLoop clamps adjusted repeated Get-Content skip to non-negative valu
   const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
   assert.equal(commandEvents.length, 2);
   assert.equal(commandEvents[1]?.lineReadAdjusted, true);
-  assert.match(String(commandEvents[1]?.executedCommand || ''), /-Skip 0 -First \d+/u);
+  assert.match(String(commandEvents[1]?.executedCommand || ''), /-Skip \d+ -First \d+/u);
   assert.doesNotMatch(String(commandEvents[1]?.executedCommand || ''), /-Skip -/u);
-  assert.equal(Number(commandEvents[1]?.lineReadAdjustedStart) >= 0, true);
+  assert.equal(Number(commandEvents[1]?.lineReadAdjustedStart) >= Number(commandEvents[0]?.lineReadExecutedEnd), true);
   assert.equal(Number(commandEvents[1]?.lineReadAdjustedEnd) % 10, 0);
   assert.equal(Number(commandEvents[1]?.lineReadAdjustedEnd) > Number(commandEvents[1]?.lineReadRequestedEnd), true);
+  assert.equal(Number(commandEvents[1]?.lineReadOverlapLines), 0);
+  assert.equal(Number(commandEvents[1]?.lineReadExecutedStart), Number(commandEvents[1]?.lineReadAdjustedStart));
+  assert.equal(Number(commandEvents[1]?.lineReadExecutedEnd), Number(commandEvents[1]?.lineReadAdjustedEnd));
+  assert.equal(result.reason, 'finish');
+});
+
+test('runTaskLoop forces repeated backward same-file reads to non-overlapping forward windows', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-widen-repeated-backward-window',
+      question: 'Find runner port.',
+      signals: ['done'],
+    },
+    {
+      maxTurns: 4,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content src\\\\summary.ts | Select-Object -Skip 500 -First 40"}}',
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content src\\\\summary.ts | Select-Object -Skip 450 -First 40"}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'Get-Content src\\summary.ts | Select-Object -Skip 500 -First 40': {
+          exitCode: 0,
+          stdout: 'line\n'.repeat(40),
+          stderr: '',
+        },
+        'Get-Content src\\summary.ts | Select-Object -Skip ': {
+          exitCode: 0,
+          stdout: 'line\n'.repeat(400),
+          stderr: '',
+        },
+      },
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
+  assert.equal(commandEvents.length, 2);
+  assert.equal(commandEvents[1]?.lineReadAdjusted, true);
+  assert.equal(Number(commandEvents[1]?.lineReadExecutedStart) >= Number(commandEvents[0]?.lineReadExecutedEnd), true);
+  assert.equal(Number(commandEvents[1]?.lineReadOverlapLines), 0);
+  assert.equal(result.reason, 'finish');
+});
+
+test('runTaskLoop tracks per-file overlap telemetry and isolates histories across files', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-line-read-overlap-metrics',
+      question: 'Find runner port.',
+      signals: ['done'],
+    },
+    {
+      maxTurns: 6,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content src\\\\a.ts | Select-Object -Skip 100 -First 20"}}',
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content src\\\\b.ts | Select-Object -Skip 50 -First 20"}}',
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content src\\\\a.ts | Select-Object -Skip 110 -First 20"}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'Get-Content src\\a.ts | Select-Object -Skip 100 -First 20': {
+          exitCode: 0,
+          stdout: 'line\n'.repeat(20),
+          stderr: '',
+        },
+        'Get-Content src\\b.ts | Select-Object -Skip 50 -First 20': {
+          exitCode: 0,
+          stdout: 'line\n'.repeat(20),
+          stderr: '',
+        },
+        'Get-Content src\\a.ts | Select-Object -Skip ': {
+          exitCode: 0,
+          stdout: 'line\n'.repeat(400),
+          stderr: '',
+        },
+      },
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
+  assert.equal(commandEvents.length, 3);
+  for (const commandEvent of commandEvents) {
+    assert.equal(typeof commandEvent?.lineReadRequestedStart, 'number');
+    assert.equal(typeof commandEvent?.lineReadRequestedEnd, 'number');
+    assert.equal(typeof commandEvent?.lineReadExecutedStart, 'number');
+    assert.equal(typeof commandEvent?.lineReadExecutedEnd, 'number');
+    assert.equal(typeof commandEvent?.lineReadOverlapLines, 'number');
+    assert.equal(typeof commandEvent?.lineReadNewLinesCovered, 'number');
+    assert.equal(typeof commandEvent?.lineReadCumulativeUniqueLines, 'number');
+  }
+
+  assert.equal(Number(commandEvents[2]?.lineReadExecutedStart) >= Number(commandEvents[0]?.lineReadExecutedEnd), true);
+  assert.equal(Number(commandEvents[2]?.lineReadOverlapLines), 0);
+
+  const overlapSummary = result.readOverlapSummary;
+  assert.equal(typeof overlapSummary?.totalLinesRead, 'number');
+  assert.equal(typeof overlapSummary?.totalUniqueLinesRead, 'number');
+  assert.equal(typeof overlapSummary?.totalOverlapLines, 'number');
+  assert.equal(Number(overlapSummary?.totalLinesRead) >= Number(overlapSummary?.totalUniqueLinesRead), true);
+  assert.equal(
+    Number(overlapSummary?.totalOverlapLines),
+    Number(overlapSummary?.totalLinesRead) - Number(overlapSummary?.totalUniqueLinesRead)
+  );
+  assert.equal(Number(overlapSummary?.totalOverlapLines), 0);
+  assert.equal(Array.isArray(overlapSummary?.byFile), true);
   assert.equal(result.reason, 'finish');
 });
 

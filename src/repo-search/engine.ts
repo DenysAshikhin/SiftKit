@@ -281,6 +281,43 @@ type LineReadAdjustment = {
   adjustedEnd: number;
   minLinesFromCap: number;
   perToolCapTokens: number;
+  reason: string;
+};
+
+type ReadRange = {
+  start: number;
+  end: number;
+};
+
+type ReadWindow = {
+  turn: number;
+  requestedStart: number; // inclusive
+  requestedEnd: number; // exclusive
+  executedStart: number; // inclusive
+  executedEnd: number; // exclusive
+  adjusted: boolean;
+};
+
+type FileReadState = {
+  windows: ReadWindow[];
+  mergedExecutedRanges: ReadRange[];
+  totalLinesRead: number;
+  uniqueLinesRead: number;
+  overlapLines: number;
+};
+
+export type ReadOverlapSummary = {
+  byFile: Array<{
+    pathKey: string;
+    totalLinesRead: number;
+    uniqueLinesRead: number;
+    overlapLines: number;
+    overlapRatePct: number;
+  }>;
+  totalLinesRead: number;
+  totalUniqueLinesRead: number;
+  totalOverlapLines: number;
+  overlapRatePct: number;
 };
 
 function tokenizeShellLike(input: string): string[] {
@@ -332,6 +369,184 @@ function roundToNearestStep(value: number, step: number): number {
     return Math.floor(Number(value) || 0);
   }
   return Math.round(value / step) * step;
+}
+
+function roundUpToStep(value: number, step: number): number {
+  if (!Number.isFinite(value) || !Number.isFinite(step) || step <= 0) {
+    return Math.floor(Number(value) || 0);
+  }
+  return Math.ceil(value / step) * step;
+}
+
+function normalizeRange(range: ReadRange): ReadRange {
+  const start = Math.max(0, Math.floor(Number(range.start) || 0));
+  const end = Math.max(start, Math.floor(Number(range.end) || 0));
+  return { start, end };
+}
+
+function intersectionLength(a: ReadRange, b: ReadRange): number {
+  const normalizedA = normalizeRange(a);
+  const normalizedB = normalizeRange(b);
+  const intersectionStart = Math.max(normalizedA.start, normalizedB.start);
+  const intersectionEnd = Math.min(normalizedA.end, normalizedB.end);
+  return intersectionEnd > intersectionStart ? (intersectionEnd - intersectionStart) : 0;
+}
+
+function overlapWithRanges(ranges: ReadRange[], next: ReadRange): number {
+  const normalizedNext = normalizeRange(next);
+  let overlapLines = 0;
+  for (const range of ranges) {
+    overlapLines += intersectionLength(range, normalizedNext);
+  }
+  return overlapLines;
+}
+
+function mergeRange(ranges: ReadRange[], next: ReadRange): ReadRange[] {
+  const normalizedNext = normalizeRange(next);
+  if (normalizedNext.end <= normalizedNext.start) {
+    return [...ranges];
+  }
+  const sortedRanges = [...ranges.map(normalizeRange), normalizedNext]
+    .filter((range) => range.end > range.start)
+    .sort((left, right) => (left.start - right.start) || (left.end - right.end));
+  if (sortedRanges.length === 0) {
+    return [];
+  }
+  const merged: ReadRange[] = [];
+  for (const currentRange of sortedRanges) {
+    const lastRange = merged[merged.length - 1];
+    if (!lastRange || currentRange.start > lastRange.end) {
+      merged.push({ ...currentRange });
+      continue;
+    }
+    if (currentRange.end > lastRange.end) {
+      lastRange.end = currentRange.end;
+    }
+  }
+  return merged;
+}
+
+function getOrCreateFileReadState(fileReadStateByPath: Map<string, FileReadState>, pathKey: string): FileReadState {
+  const existingState = fileReadStateByPath.get(pathKey);
+  if (existingState) {
+    return existingState;
+  }
+  const createdState: FileReadState = {
+    windows: [],
+    mergedExecutedRanges: [],
+    totalLinesRead: 0,
+    uniqueLinesRead: 0,
+    overlapLines: 0,
+  };
+  fileReadStateByPath.set(pathKey, createdState);
+  return createdState;
+}
+
+function getPreviousExecutedMaxEnd(fileReadState: FileReadState): number {
+  if (fileReadState.mergedExecutedRanges.length === 0) {
+    return 0;
+  }
+  return Math.max(...fileReadState.mergedExecutedRanges.map((range) => range.end));
+}
+
+function computeAdjustedReadWindow(input: {
+  requestedStart: number;
+  requestedEnd: number;
+  minLinesFromCap: number;
+  roundingStep: number;
+  previousExecutedMaxEnd: number;
+}): { start: number; end: number; adjusted: boolean; reason: string } {
+  const requestedStart = Math.max(0, Math.floor(Number(input.requestedStart) || 0));
+  const requestedEnd = Math.max(requestedStart + 1, Math.floor(Number(input.requestedEnd) || 0));
+  const requestedLength = Math.max(1, requestedEnd - requestedStart);
+  const nonOverlapStart = Math.max(requestedStart, Math.floor(Number(input.previousExecutedMaxEnd) || 0));
+  const targetLength = Math.max(requestedLength, Math.max(1, Math.floor(Number(input.minLinesFromCap) || 0)));
+  let start = Math.max(0, roundUpToStep(nonOverlapStart, input.roundingStep));
+  if (start < nonOverlapStart) {
+    start = nonOverlapStart;
+  }
+  let end = roundToNearestStep(start + targetLength, input.roundingStep);
+  if (end <= start) {
+    end = start + Math.max(1, Math.floor(Number(input.roundingStep) || 1));
+  }
+  while (end - start < targetLength) {
+    end += Math.max(1, Math.floor(Number(input.roundingStep) || 1));
+  }
+  return {
+    start,
+    end,
+    adjusted: start !== requestedStart || end !== requestedEnd,
+    reason: 'repeated-read-no-overlap',
+  };
+}
+
+function buildReadOverlapSummary(fileReadStateByPath: Map<string, FileReadState>): ReadOverlapSummary {
+  const byFile = Array.from(fileReadStateByPath.entries())
+    .map(([pathKey, state]) => {
+      const totalLinesRead = Number(state.totalLinesRead || 0);
+      const uniqueLinesRead = Number(state.uniqueLinesRead || 0);
+      const overlapLines = Number(state.overlapLines || 0);
+      const overlapRatePct = totalLinesRead > 0 ? Number(((overlapLines / totalLinesRead) * 100).toFixed(2)) : 0;
+      return {
+        pathKey,
+        totalLinesRead,
+        uniqueLinesRead,
+        overlapLines,
+        overlapRatePct,
+      };
+    })
+    .sort((left, right) => left.pathKey.localeCompare(right.pathKey));
+  const totalLinesRead = byFile.reduce((sum, item) => sum + item.totalLinesRead, 0);
+  const totalUniqueLinesRead = byFile.reduce((sum, item) => sum + item.uniqueLinesRead, 0);
+  const totalOverlapLines = byFile.reduce((sum, item) => sum + item.overlapLines, 0);
+  const overlapRatePct = totalLinesRead > 0 ? Number(((totalOverlapLines / totalLinesRead) * 100).toFixed(2)) : 0;
+  return {
+    byFile,
+    totalLinesRead,
+    totalUniqueLinesRead,
+    totalOverlapLines,
+    overlapRatePct,
+  };
+}
+
+function mergeReadOverlapSummaries(summaries: Array<ReadOverlapSummary | null | undefined>): ReadOverlapSummary {
+  const byFileAccumulator = new Map<string, { totalLinesRead: number; uniqueLinesRead: number; overlapLines: number }>();
+  for (const summary of summaries) {
+    if (!summary) {
+      continue;
+    }
+    for (const item of summary.byFile || []) {
+      const key = String(item.pathKey || '');
+      if (!key) {
+        continue;
+      }
+      const existing = byFileAccumulator.get(key) || { totalLinesRead: 0, uniqueLinesRead: 0, overlapLines: 0 };
+      existing.totalLinesRead += Number(item.totalLinesRead || 0);
+      existing.uniqueLinesRead += Number(item.uniqueLinesRead || 0);
+      existing.overlapLines += Number(item.overlapLines || 0);
+      byFileAccumulator.set(key, existing);
+    }
+  }
+  const byFile = Array.from(byFileAccumulator.entries())
+    .map(([pathKey, totals]) => ({
+      pathKey,
+      totalLinesRead: totals.totalLinesRead,
+      uniqueLinesRead: totals.uniqueLinesRead,
+      overlapLines: totals.overlapLines,
+      overlapRatePct: totals.totalLinesRead > 0 ? Number(((totals.overlapLines / totals.totalLinesRead) * 100).toFixed(2)) : 0,
+    }))
+    .sort((left, right) => left.pathKey.localeCompare(right.pathKey));
+  const totalLinesRead = byFile.reduce((sum, item) => sum + item.totalLinesRead, 0);
+  const totalUniqueLinesRead = byFile.reduce((sum, item) => sum + item.uniqueLinesRead, 0);
+  const totalOverlapLines = byFile.reduce((sum, item) => sum + item.overlapLines, 0);
+  const overlapRatePct = totalLinesRead > 0 ? Number(((totalOverlapLines / totalLinesRead) * 100).toFixed(2)) : 0;
+  return {
+    byFile,
+    totalLinesRead,
+    totalUniqueLinesRead,
+    totalOverlapLines,
+    overlapRatePct,
+  };
 }
 
 function parseGetContentReadWindowCommand(command: string): ParsedGetContentReadWindow | null {
@@ -461,6 +676,7 @@ export type TaskResult = {
   promptCacheTokens: number;
   promptEvalTokens: number;
   toolStats: Record<string, ToolTypeStats>;
+  readOverlapSummary: ReadOverlapSummary;
 };
 
 // ---------------------------------------------------------------------------
@@ -538,6 +754,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   let lastReplayUserMessageIndex = -1;
   let lastReplayHistoryIndex = -1;
   const fileReadCountByPath = new Map<string, number>();
+  const fileReadStateByPath = new Map<string, FileReadState>();
 
   const messages: ChatMessage[] = [
     {
@@ -853,21 +1070,20 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         const historicalGetContentStats = historicalToolStats['get-content'] || null;
         const avgTokensPerLine = resolveAvgTokensPerLine(currentGetContentStats, historicalGetContentStats);
         const minLinesFromCap = Math.max(1, Math.ceil(minTokensFromCap / avgTokensPerLine));
-        if (parsedReadWindow.requestedFirst < minLinesFromCap) {
-          const adjustedStart = Math.max(0, roundToNearestStep(parsedReadWindow.requestedStart, LINE_READ_ROUNDING_STEP));
-          const requestedMinEnd = adjustedStart + minLinesFromCap;
-          let adjustedEnd = roundToNearestStep(requestedMinEnd, LINE_READ_ROUNDING_STEP);
-          if (adjustedEnd <= adjustedStart) {
-            adjustedEnd = adjustedStart + LINE_READ_ROUNDING_STEP;
-          }
-          while (adjustedEnd - adjustedStart < minLinesFromCap) {
-            adjustedEnd += LINE_READ_ROUNDING_STEP;
-          }
-
-          const adjustedFirst = Math.max(1, adjustedEnd - adjustedStart);
+        const existingReadState = getOrCreateFileReadState(fileReadStateByPath, parsedReadWindow.pathKey);
+        const previousExecutedMaxEnd = getPreviousExecutedMaxEnd(existingReadState);
+        const adjustedWindow = computeAdjustedReadWindow({
+          requestedStart: parsedReadWindow.requestedStart,
+          requestedEnd: parsedReadWindow.requestedEnd,
+          minLinesFromCap,
+          roundingStep: LINE_READ_ROUNDING_STEP,
+          previousExecutedMaxEnd,
+        });
+        if (adjustedWindow.adjusted) {
+          const adjustedFirst = Math.max(1, adjustedWindow.end - adjustedWindow.start);
           commandToRun = buildGetContentReadWindowCommand(
             parsedReadWindow.pathExpression,
-            adjustedStart,
+            adjustedWindow.start,
             adjustedFirst,
             parsedReadWindow.hasExplicitSkip,
           );
@@ -875,10 +1091,11 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
             executedCommand: commandToRun,
             requestedStart: parsedReadWindow.requestedStart,
             requestedEnd: parsedReadWindow.requestedEnd,
-            adjustedStart,
-            adjustedEnd,
+            adjustedStart: adjustedWindow.start,
+            adjustedEnd: adjustedWindow.end,
             minLinesFromCap,
             perToolCapTokens: preExecutionPerToolCapTokens,
+            reason: adjustedWindow.reason,
           };
         }
       }
@@ -907,8 +1124,35 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
 
     const executed = await executeRepoCommand(commandToRun, options.repoRoot, options.mockCommandResults || null);
     const baseOutput = String(executed.output || '').trim();
+    const executedReadWindow = parseGetContentReadWindowCommand(commandToRun);
+    let lineReadOverlapLines = 0;
+    let lineReadNewLinesCovered = 0;
+    let lineReadCumulativeUniqueLines = 0;
     if (parsedReadWindow) {
       fileReadCountByPath.set(parsedReadWindow.pathKey, Number(fileReadCountByPath.get(parsedReadWindow.pathKey) || 0) + 1);
+    }
+    if (parsedReadWindow && executedReadWindow && executedReadWindow.pathKey === parsedReadWindow.pathKey) {
+      const fileReadState = getOrCreateFileReadState(fileReadStateByPath, parsedReadWindow.pathKey);
+      const executedRange: ReadRange = {
+        start: executedReadWindow.requestedStart,
+        end: executedReadWindow.requestedEnd,
+      };
+      const linesRead = Math.max(0, executedRange.end - executedRange.start);
+      lineReadOverlapLines = overlapWithRanges(fileReadState.mergedExecutedRanges, executedRange);
+      lineReadNewLinesCovered = Math.max(0, linesRead - lineReadOverlapLines);
+      fileReadState.totalLinesRead += linesRead;
+      fileReadState.overlapLines += lineReadOverlapLines;
+      fileReadState.uniqueLinesRead += lineReadNewLinesCovered;
+      fileReadState.mergedExecutedRanges = mergeRange(fileReadState.mergedExecutedRanges, executedRange);
+      fileReadState.windows.push({
+        turn,
+        requestedStart: parsedReadWindow.requestedStart,
+        requestedEnd: parsedReadWindow.requestedEnd,
+        executedStart: executedRange.start,
+        executedEnd: executedRange.end,
+        adjusted: Boolean(lineReadAdjustment),
+      });
+      lineReadCumulativeUniqueLines = fileReadState.uniqueLinesRead;
     }
 
     if (options.onProgress) {
@@ -922,7 +1166,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
     if (lineReadAdjustment) {
       rewriteNotes.push(
-        `note: repeated file read window adjusted; requested start=${lineReadAdjustment.requestedStart} end=${lineReadAdjustment.requestedEnd}; adjusted start=${lineReadAdjustment.adjustedStart} end=${lineReadAdjustment.adjustedEnd}; ran '${lineReadAdjustment.executedCommand}' instead`
+        `note: repeated file read window adjusted; requested start=${lineReadAdjustment.requestedStart} end=${lineReadAdjustment.requestedEnd}; adjusted start=${lineReadAdjustment.adjustedStart} end=${lineReadAdjustment.adjustedEnd}; reason=${lineReadAdjustment.reason}; ran '${lineReadAdjustment.executedCommand}' instead`
       );
     }
     const outputWithRewriteNote = rewriteNotes.length > 0
@@ -1038,12 +1282,17 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       requestedCommand,
       executedCommand: commandToRun,
       lineReadAdjusted: Boolean(lineReadAdjustment),
-      lineReadRequestedStart: lineReadAdjustment?.requestedStart,
-      lineReadRequestedEnd: lineReadAdjustment?.requestedEnd,
+      lineReadRequestedStart: parsedReadWindow?.requestedStart,
+      lineReadRequestedEnd: parsedReadWindow?.requestedEnd,
       lineReadAdjustedStart: lineReadAdjustment?.adjustedStart,
       lineReadAdjustedEnd: lineReadAdjustment?.adjustedEnd,
       lineReadMinLinesFromCap: lineReadAdjustment?.minLinesFromCap,
       lineReadPerToolCapTokens: lineReadAdjustment?.perToolCapTokens,
+      lineReadExecutedStart: executedReadWindow?.requestedStart,
+      lineReadExecutedEnd: executedReadWindow?.requestedEnd,
+      lineReadOverlapLines: executedReadWindow ? lineReadOverlapLines : undefined,
+      lineReadNewLinesCovered: executedReadWindow ? lineReadNewLinesCovered : undefined,
+      lineReadCumulativeUniqueLines: executedReadWindow ? lineReadCumulativeUniqueLines : undefined,
       exitCode: executed.exitCode, output: outputWithRewriteNote,
       promptTokenCount, resultTokenCount, perToolCapTokens, remainingTokenAllowance,
       insertedResultText: resultText,
@@ -1178,6 +1427,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     promptCacheTokens: modelPromptCacheTokens,
     promptEvalTokens: modelPromptEvalTokens,
     toolStats: { ...toolStatsByType },
+    readOverlapSummary: buildReadOverlapSummary(fileReadStateByPath),
   };
 }
 
@@ -1191,6 +1441,7 @@ export type Scorecard = {
   tasks: TaskResult[];
   totals: Record<string, number>;
   toolStats: Record<string, ToolTypeStats>;
+  readOverlapSummary: ReadOverlapSummary;
   verdict: 'pass' | 'fail';
   failureReasons: string[];
 };
@@ -1215,6 +1466,7 @@ export function buildScorecard(options: { runId: string; model: string; tasks: T
   for (const task of options.tasks) {
     Object.assign(toolStats, mergeToolTypeStats(toolStats, task.toolStats || {}));
   }
+  const readOverlapSummary = mergeReadOverlapSummaries(options.tasks.map((task) => task.readOverlapSummary));
 
   const failureReasons: string[] = [];
   for (const task of options.tasks) {
@@ -1230,6 +1482,7 @@ export function buildScorecard(options: { runId: string; model: string; tasks: T
     tasks: options.tasks,
     totals,
     toolStats,
+    readOverlapSummary,
     verdict: totals.failed === 0 ? 'pass' : 'fail',
     failureReasons,
   };
