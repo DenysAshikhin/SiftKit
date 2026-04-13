@@ -35,11 +35,13 @@ import {
   loadDashboardRuns,
   buildDashboardRunDetail,
   buildDashboardDailyMetrics,
+  migrateExistingRunLogsToDbAndDelete,
   normalizeIdleSummarySnapshotRow,
 } from './dashboard-runs.js';
 import {
   publishStatus,
   clearIdleSummaryTimer,
+  getIdleSummaryDatabase,
 } from './server-ops.js';
 import {
   terminateProcessTree,
@@ -221,6 +223,11 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
         } finally {
           ctx.bootstrapManagedLlamaStartup = false;
         }
+      }
+      try {
+        migrateExistingRunLogsToDbAndDelete(getIdleSummaryDatabase(ctx));
+      } catch (error) {
+        process.stderr.write(`[siftKitStatus] Run-log migration failed: ${error instanceof Error ? error.message : String(error)}\n`);
       }
       publishStatus(ctx);
       const address = server.address();

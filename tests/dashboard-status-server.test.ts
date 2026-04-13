@@ -10,6 +10,10 @@ import type { AddressInfo } from 'node:net';
 import { startStatusServer } from '../dist/status-server/index.js';
 
 const requireFromHere = createRequire(__filename);
+const Database = requireFromHere('better-sqlite3') as new (path: string, options?: { readonly?: boolean }) => {
+  prepare: (sql: string) => { all: (...args: unknown[]) => Dict[]; get: (...args: unknown[]) => Dict };
+  close: () => void;
+};
 const runtimeHelpers = requireFromHere('./_runtime-helpers.js') as {
   writeManagedLlamaScripts: (tempRoot: string, port: number, modelId?: string) => {
     baseUrl: string;
@@ -158,6 +162,16 @@ function writeJson(targetPath: string, payload: unknown): void {
 
 function d(value: unknown): Dict {
   return (value || {}) as Dict;
+}
+
+function readRunLogRowCount(dbPath: string): number {
+  const database = new Database(dbPath, { readonly: true });
+  try {
+    const row = database.prepare('SELECT COUNT(*) AS count FROM run_logs').get() as Dict;
+    return Number(row.count || 0);
+  } finally {
+    database.close();
+  }
 }
 
 function configureDashboardTestEnv(
@@ -402,7 +416,13 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     const oldestCommandIndex = plannerCommands.findIndex((command) => command.includes('dashboard'));
     assert.equal(newestCommandIndex >= 0, true);
     assert.equal(oldestCommandIndex >= 0, true);
-    const plannerArtifact = JSON.parse(fs.readFileSync(String(repoSearch.artifactPath), 'utf8')) as Dict;
+    assert.equal(fs.existsSync(String(repoSearch.artifactPath)), false);
+    const repoRunDetailResponse = await requestJson(`${baseUrl}/dashboard/runs/${String(repoSearch.requestId)}`);
+    assert.equal(repoRunDetailResponse.statusCode, 200);
+    const repoRunEvents = repoRunDetailResponse.body.events as Dict[];
+    const repoSearchEvent = repoRunEvents.find((event) => event.kind === 'repo_search') || null;
+    assert.equal(Boolean(repoSearchEvent), true);
+    const plannerArtifact = d(repoSearchEvent?.payload);
     assert.equal(plannerArtifact.requestMaxTokens, 10000);
     assert.match(String(plannerArtifact.prompt), /Start with a short "Summary of Request and Approach"/u);
     assert.match(String(plannerArtifact.prompt), /Open Questions \(if any\)/u);
@@ -874,6 +894,89 @@ test('chat completion receives hidden tool context while keeping it out of visib
     });
     await new Promise<void>((resolve, reject) => {
       llamaServer.close((error) => (error ? reject(error) : resolve()));
+    });
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('dashboard initial runs load returns last 20 per run kind and migrates pre-existing file logs into sqlite', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-initial-cap-'));
+  const runtimeRoot = path.join(tempRoot, '.siftkit');
+  const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
+  const configPath = path.join(runtimeRoot, 'config.json');
+  const idleSummaryDbPath = path.join(runtimeRoot, 'status', 'idle-summary.sqlite');
+  const logsRoot = path.join(runtimeRoot, 'logs');
+  const requestsRoot = path.join(logsRoot, 'requests');
+  const repoSearchFailedRoot = path.join(logsRoot, 'repo_search', 'failed');
+
+  for (let index = 0; index < 25; index += 1) {
+    const ordinal = String(index + 1).padStart(2, '0');
+    const requestId = `req-summary-${ordinal}`;
+    writeJson(path.join(requestsRoot, `request_${requestId}.json`), {
+      requestId,
+      question: `Summary run ${ordinal}`,
+      backend: 'llama.cpp',
+      model: 'Qwen3.5-9B-Q8_0.gguf',
+      summary: `Summary output ${ordinal}`,
+      createdAtUtc: `2026-04-01T10:${ordinal}:00.000Z`,
+      inputTokens: 100 + index,
+      outputTokens: 40 + index,
+      requestDurationMs: 1000 + index,
+    });
+  }
+
+  for (let index = 0; index < 25; index += 1) {
+    const ordinal = String(index + 1).padStart(2, '0');
+    const requestId = `req-repo-${ordinal}`;
+    const artifactPath = path.join(repoSearchFailedRoot, `request_${requestId}.json`);
+    writeJson(artifactPath, {
+      requestId,
+      prompt: `Repo search run ${ordinal}`,
+      repoRoot: tempRoot,
+      verdict: 'fail',
+      totals: { commandsExecuted: 1 },
+      createdAtUtc: `2026-04-01T11:${ordinal}:00.000Z`,
+    });
+    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
+    fs.writeFileSync(
+      artifactPath.replace(/\.json$/u, '.jsonl'),
+      [
+        JSON.stringify({ at: `2026-04-01T11:${ordinal}:01.000Z`, kind: 'turn_model_response', text: '{"action":"finish"}' }),
+        JSON.stringify({ at: `2026-04-01T11:${ordinal}:03.000Z`, kind: 'run_done', scorecard: { verdict: 'fail' } }),
+      ].join('\n') + '\n',
+      'utf8',
+    );
+  }
+
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const cappedRunsResponse = await requestJson(`${baseUrl}/dashboard/runs?initial=1&limitPerGroup=20`);
+    assert.equal(cappedRunsResponse.statusCode, 200);
+    const runs = cappedRunsResponse.body.runs as Dict[];
+    assert.equal(runs.length, 40);
+    const summaryCount = runs.filter((run) => String(run.kind) === 'summary_request').length;
+    const repoCount = runs.filter((run) => String(run.kind) === 'repo_search').length;
+    assert.equal(summaryCount, 20);
+    assert.equal(repoCount, 20);
+
+    assert.equal(fs.readdirSync(requestsRoot).length, 0);
+    assert.equal(fs.readdirSync(repoSearchFailedRoot).length, 0);
+    assert.equal(readRunLogRowCount(idleSummaryDbPath), 50);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
     });
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {

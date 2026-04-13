@@ -450,9 +450,14 @@ pre {
   margin-top: 8px;
 }
 
-.interactive-graph svg rect {
+.interactive-graph svg .graph-frame {
   fill: #0d1a27;
   stroke: var(--stroke);
+}
+
+.interactive-graph svg .graph-hover-layer {
+  fill: transparent;
+  stroke: none;
 }
 
 .graph-legend {

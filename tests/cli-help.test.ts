@@ -52,6 +52,18 @@ test('repo-search rejects unknown flags before startup checks', async () => {
   assert.match(stderr.read(), /Unknown option for repo-search: --prmopt/u);
 });
 
+test('repo-search rejects --max-turns for CLI usage', async () => {
+  const stdout = makeCaptureStream();
+  const stderr = makeCaptureStream();
+  const code = await runCli({
+    argv: ['repo-search', '--prompt', 'find planner tools', '--max-turns', '5'],
+    stdout: stdout.stream,
+    stderr: stderr.stream,
+  });
+  assert.equal(code, 1);
+  assert.match(stderr.read(), /Unknown option for repo-search: --max-turns/u);
+});
+
 test('summary requires stdin, --text, or --file', async () => {
   const stdout = makeCaptureStream();
   const stderr = makeCaptureStream();

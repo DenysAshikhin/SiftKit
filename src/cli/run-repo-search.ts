@@ -17,7 +17,7 @@ export async function runRepoSearchCli(options: {
   const tokens = getCommandArgs(options.argv);
   if (tokens.some((token) => token === '-h' || token === '--h' || token === '--help' || token === '-help')) {
     options.stdout.write(
-      'Usage: siftkit repo-search --prompt "find x y z in this repo" [--model <model>] [--max-turns <n>] [--log-file <path>]\n'
+      'Usage: siftkit repo-search --prompt "find x y z in this repo" [--model <model>] [--log-file <path>]\n'
       + 'Shortcut: siftkit -prompt "find x y z in this repo"\n'
     );
     return 0;
@@ -42,7 +42,6 @@ export async function runRepoSearchCli(options: {
       prompt,
       repoRoot: process.cwd(),
       model: parsed.model,
-      maxTurns: parsed.maxTurns,
       logFile: parsed.logFile,
     }),
   });

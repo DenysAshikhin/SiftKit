@@ -4,7 +4,7 @@ import Database from 'better-sqlite3';
 import type { Dict } from '../lib/types.js';
 import { getRuntimeRoot } from './paths.js';
 import { formatInteger, formatElapsed } from '../lib/text-format.js';
-import { listFiles, safeReadJson, getIsoDateFromStat } from '../lib/fs.js';
+import { listFiles, getIsoDateFromStat } from '../lib/fs.js';
 import {
   TASK_KINDS,
   type Metrics,
@@ -30,7 +30,7 @@ import {
   querySnapshotTimeseries,
 } from './idle-summary.js';
 import { type StatusMetadata } from './status-file.js';
-import { type JsonlEvent, readJsonlEvents, getTranscriptDurationMs } from '../state/jsonl-transcript.js';
+import { type JsonlEvent } from '../state/jsonl-transcript.js';
 import type { SiftConfig } from '../config/index.js';
 
 type DatabaseInstance = InstanceType<typeof Database>;
@@ -207,19 +207,6 @@ export function getStatusArtifactPath(metadata: StatusMetadata): string | null {
   return null;
 }
 
-function parseRequestIdFromFileName(fileName: string): string | null {
-  const match = /request_(.+)\.json$/iu.exec(fileName);
-  return match ? match[1] : null;
-}
-
-function getRepoSearchTranscriptPath(payload: Dict | null, artifactPath: string): string | null {
-  if (payload && typeof payload.transcriptPath === 'string' && payload.transcriptPath.trim()) {
-    return payload.transcriptPath;
-  }
-  const siblingTranscriptPath = artifactPath.replace(/\.json$/iu, '.jsonl');
-  return fs.existsSync(siblingTranscriptPath) ? siblingTranscriptPath : null;
-}
-
 export type RunRecord = {
   id: string;
   kind: string;
@@ -259,219 +246,731 @@ function normalizeRunRecord(record: Dict): RunRecord {
 }
 
 export function loadDashboardRuns(runtimeRoot: string): RunRecord[] {
-  const logsRoot = path.join(runtimeRoot, 'logs');
-  const byId = new Map<string, RunRecord>();
-  for (const requestPath of listFiles(path.join(logsRoot, 'requests'))) {
-    const fileName = path.basename(requestPath);
-    if (!/^request_.+\.json$/iu.test(fileName)) {
-      continue;
-    }
-    const payload = safeReadJson(requestPath);
-    if (!payload || typeof payload !== 'object') {
-      continue;
-    }
-    const requestId = typeof payload.requestId === 'string' && payload.requestId.trim()
-      ? payload.requestId.trim()
-      : parseRequestIdFromFileName(fileName);
-    if (!requestId) {
-      continue;
-    }
-    const plannerPath = path.join(logsRoot, `planner_debug_${requestId}.json`);
-    const failedPath = path.join(logsRoot, 'failed', `request_failed_${requestId}.json`);
-    const startedAtUtc = (
-      typeof payload.createdAtUtc === 'string' && payload.createdAtUtc.trim()
-        ? payload.createdAtUtc
-        : getIsoDateFromStat(requestPath)
-    );
-    byId.set(requestId, normalizeRunRecord({
-      id: requestId,
-      kind: 'summary_request',
-      status: payload.error ? 'failed' : 'completed',
-      startedAtUtc,
-      finishedAtUtc: startedAtUtc,
-      title: (payload.question as string) || (payload.prompt as string) || `Summary request ${requestId}`,
-      model: (payload.model as string) || null,
-      backend: (payload.backend as string) || null,
-      inputTokens: payload.inputTokens ?? null,
-      outputTokens: payload.outputTokens ?? null,
-      thinkingTokens: payload.thinkingTokens ?? null,
-      promptCacheTokens: payload.promptCacheTokens ?? null,
-      promptEvalTokens: payload.promptEvalTokens ?? null,
-      durationMs: payload.requestDurationMs ?? null,
-      rawPaths: {
-        request: requestPath,
-        plannerDebug: fs.existsSync(plannerPath) ? plannerPath : null,
-        failedRequest: fs.existsSync(failedPath) ? failedPath : null,
-      },
-    }));
+  void runtimeRoot;
+  const databasePath = path.join(getRuntimeRoot(), 'status', 'idle-summary.sqlite');
+  if (!fs.existsSync(databasePath)) {
+    return [];
   }
-  for (const failedPath of listFiles(path.join(logsRoot, 'failed'))) {
-    const fileName = path.basename(failedPath);
-    const match = /^request_failed_(.+)\.json$/iu.exec(fileName);
-    if (!match) {
-      continue;
-    }
-    const payload = safeReadJson(failedPath);
-    if (!payload || typeof payload !== 'object') {
-      continue;
-    }
-    const requestId = typeof payload.requestId === 'string' && payload.requestId.trim() ? payload.requestId.trim() : match[1];
-    const startedAtUtc = (
-      typeof payload.createdAtUtc === 'string' && payload.createdAtUtc.trim()
-        ? payload.createdAtUtc
-        : getIsoDateFromStat(failedPath)
-    );
-    if (!byId.has(requestId)) {
-      byId.set(requestId, normalizeRunRecord({
-        id: requestId,
-        kind: 'failed_request',
-        status: 'failed',
-        startedAtUtc,
-        finishedAtUtc: startedAtUtc,
-        title: (payload.question as string) || `Failed request ${requestId}`,
-        model: (payload.model as string) || null,
-        backend: (payload.backend as string) || null,
-        inputTokens: payload.inputTokens ?? null,
-        outputTokens: payload.outputTokens ?? null,
-        thinkingTokens: payload.thinkingTokens ?? null,
-        promptCacheTokens: payload.promptCacheTokens ?? null,
-        promptEvalTokens: payload.promptEvalTokens ?? null,
-        durationMs: payload.requestDurationMs ?? null,
-        rawPaths: { failedRequest: failedPath },
-      }));
-    }
+  const database = new Database(databasePath);
+  try {
+    return queryDashboardRunsFromDb(database);
+  } finally {
+    database.close();
   }
-  for (const abandonedPath of listFiles(path.join(logsRoot, 'abandoned'))) {
-    const fileName = path.basename(abandonedPath);
-    const match = /^request_abandoned_(.+)\.json$/iu.exec(fileName);
-    if (!match) {
-      continue;
-    }
-    const payload = safeReadJson(abandonedPath);
-    if (!payload || typeof payload !== 'object') {
-      continue;
-    }
-    const requestId = typeof payload.requestId === 'string' && payload.requestId.trim() ? payload.requestId.trim() : match[1];
-    const startedAtUtc = (
-      typeof payload.createdAtUtc === 'string' && payload.createdAtUtc.trim()
-        ? payload.createdAtUtc
-        : getIsoDateFromStat(abandonedPath)
-    );
-    if (!byId.has(requestId)) {
-      byId.set(requestId, normalizeRunRecord({
-        id: requestId,
-        kind: 'request_abandoned',
-        status: 'failed',
-        startedAtUtc,
-        finishedAtUtc: startedAtUtc,
-        title: (payload.reason as string) || `Abandoned request ${requestId}`,
-        model: null,
-        backend: null,
-        inputTokens: payload.promptTokenCount ?? null,
-        outputTokens: payload.outputTokensTotal ?? null,
-        thinkingTokens: null,
-        promptCacheTokens: null,
-        promptEvalTokens: null,
-        durationMs: payload.totalElapsedMs ?? null,
-        rawPaths: { abandonedRequest: abandonedPath },
-      }));
-    }
-  }
-  for (const folderName of ['failed', 'succesful']) {
-    for (const artifactPath of listFiles(path.join(logsRoot, 'repo_search', folderName))) {
-      const fileName = path.basename(artifactPath);
-      if (!/^request_.+\.json$/iu.test(fileName)) {
-        continue;
-      }
-      const payload = safeReadJson(artifactPath);
-      if (!payload || typeof payload !== 'object') {
-        continue;
-      }
-      const requestId = typeof payload.requestId === 'string' && payload.requestId.trim()
-        ? payload.requestId.trim()
-        : parseRequestIdFromFileName(fileName);
-      if (!requestId) {
-        continue;
-      }
-      const transcriptPath = getRepoSearchTranscriptPath(payload, artifactPath);
-      const startedAtUtc = (
-        typeof payload.createdAtUtc === 'string' && payload.createdAtUtc.trim()
-          ? payload.createdAtUtc
-          : getIsoDateFromStat(artifactPath)
-      );
-      byId.set(requestId, normalizeRunRecord({
-        id: requestId,
-        kind: 'repo_search',
-        status: payload.error || payload.verdict === 'fail' ? 'failed' : 'completed',
-        startedAtUtc,
-        finishedAtUtc: startedAtUtc,
-        title: (payload.prompt as string) || `Repo search ${requestId}`,
-        model: (payload.model as string) || null,
-        backend: 'llama.cpp',
-        inputTokens: null,
-        outputTokens: null,
-        thinkingTokens: null,
-        promptCacheTokens: null,
-        promptEvalTokens: null,
-        durationMs: getTranscriptDurationMs(transcriptPath),
-        rawPaths: {
-          repoSearch: artifactPath,
-          transcript: transcriptPath,
-        },
-      }));
-    }
-  }
-  return Array.from(byId.values()).sort((left, right) => {
-    const leftTime = Date.parse(left.startedAtUtc || '1970-01-01T00:00:00.000Z');
-    const rightTime = Date.parse(right.startedAtUtc || '1970-01-01T00:00:00.000Z');
-    return rightTime - leftTime;
-  });
 }
 
 export function buildDashboardRunDetail(runtimeRoot: string, runId: string): { run: RunRecord; events: JsonlEvent[] } | null {
-  const runs = loadDashboardRuns(runtimeRoot);
-  const run = runs.find((entry) => entry.id === runId) || null;
-  if (!run) {
+  void runtimeRoot;
+  const databasePath = path.join(getRuntimeRoot(), 'status', 'idle-summary.sqlite');
+  if (!fs.existsSync(databasePath)) {
     return null;
   }
+  const database = new Database(databasePath);
+  try {
+    return queryDashboardRunDetailFromDb(database, runId);
+  } finally {
+    database.close();
+  }
+}
+
+export type DashboardRunsQueryOptions = {
+  search?: string;
+  kind?: string;
+  status?: string;
+  initial?: boolean;
+  limitPerGroup?: number;
+};
+
+type RunLogTerminalState = 'completed' | 'failed' | 'abandoned' | 'unknown';
+type RunLogKind =
+  | 'summary_request'
+  | 'failed_request'
+  | 'request_abandoned'
+  | 'repo_search'
+  | 'chat'
+  | 'plan'
+  | 'unknown';
+type RunLogGroup = 'summary' | 'repo_search' | 'planner' | 'chat' | 'other';
+
+type RunLogUpsertRow = {
+  runId: string;
+  requestId: string;
+  runKind: RunLogKind;
+  runGroup: RunLogGroup;
+  terminalState: RunLogTerminalState;
+  startedAtUtc: string | null;
+  finishedAtUtc: string | null;
+  title: string;
+  model: string | null;
+  backend: string | null;
+  repoRoot: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  thinkingTokens: number | null;
+  toolTokens: number | null;
+  promptCacheTokens: number | null;
+  promptEvalTokens: number | null;
+  durationMs: number | null;
+  requestJson: string | null;
+  plannerDebugJson: string | null;
+  failedRequestJson: string | null;
+  abandonedRequestJson: string | null;
+  repoSearchJson: string | null;
+  repoSearchTranscriptJsonl: string | null;
+  sourcePathsJson: string;
+  flushedAtUtc: string;
+};
+
+function normalizeSearchToken(value: string | undefined): string {
+  return String(value || '').trim().toLowerCase();
+}
+
+function toNonNegativeInteger(value: unknown): number | null {
+  if (!Number.isFinite(Number(value))) {
+    return null;
+  }
+  const next = Math.max(0, Math.trunc(Number(value)));
+  return Number.isFinite(next) ? next : null;
+}
+
+function parseJsonObjectText(text: string | null): Dict | null {
+  if (typeof text !== 'string' || !text.trim()) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed as Dict;
+  } catch {
+    return null;
+  }
+}
+
+function parseJsonlEventsFromText(text: string | null): JsonlEvent[] {
+  if (typeof text !== 'string' || !text.trim()) {
+    return [];
+  }
   const events: JsonlEvent[] = [];
-  if (run.rawPaths && typeof run.rawPaths === 'object') {
-    const raw = run.rawPaths;
-    if (raw.transcript) {
-      events.push(...readJsonlEvents(raw.transcript as string));
+  for (const raw of text.split(/\r?\n/gu)) {
+    const line = raw.trim();
+    if (!line) {
+      continue;
     }
-    if (raw.request) {
-      const payload = safeReadJson(raw.request as string);
-      if (payload) {
-        events.push({ kind: 'summary_request', at: run.startedAtUtc, payload });
+    try {
+      const parsed = JSON.parse(line) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        continue;
       }
+      const payload = parsed as Dict;
+      events.push({
+        kind: typeof payload.kind === 'string' ? payload.kind : 'event',
+        at: typeof payload.at === 'string' ? payload.at : null,
+        payload,
+      });
+    } catch {
+      // ignore malformed lines
     }
-    if (raw.plannerDebug) {
-      const payload = safeReadJson(raw.plannerDebug as string);
-      if (payload) {
-        events.push({ kind: 'planner_debug', at: run.startedAtUtc, payload });
+  }
+  return events;
+}
+
+function getTranscriptDurationMsFromText(text: string | null): number | null {
+  const events = parseJsonlEventsFromText(text);
+  const points = events
+    .map((event) => Date.parse(event.at || ''))
+    .filter((value) => Number.isFinite(value));
+  if (points.length < 2) {
+    return null;
+  }
+  return Math.max(0, Math.max(...points) - Math.min(...points));
+}
+
+function normalizeStatusForRunRecord(terminalState: string): string {
+  if (terminalState === 'abandoned') {
+    return 'failed';
+  }
+  if (terminalState === 'completed' || terminalState === 'failed') {
+    return terminalState;
+  }
+  return 'running';
+}
+
+function normalizeRunRecordFromDbRow(row: Dict): RunRecord {
+  return normalizeRunRecord({
+    id: String(row.run_id || ''),
+    kind: String(row.run_kind || 'unknown'),
+    status: normalizeStatusForRunRecord(String(row.terminal_state || 'unknown')),
+    startedAtUtc: typeof row.started_at_utc === 'string' ? row.started_at_utc : null,
+    finishedAtUtc: typeof row.finished_at_utc === 'string' ? row.finished_at_utc : null,
+    title: String(row.title || ''),
+    model: typeof row.model === 'string' ? row.model : null,
+    backend: typeof row.backend === 'string' ? row.backend : null,
+    inputTokens: toNonNegativeInteger(row.input_tokens),
+    outputTokens: toNonNegativeInteger(row.output_tokens),
+    thinkingTokens: toNonNegativeInteger(row.thinking_tokens),
+    promptCacheTokens: toNonNegativeInteger(row.prompt_cache_tokens),
+    promptEvalTokens: toNonNegativeInteger(row.prompt_eval_tokens),
+    durationMs: toNonNegativeInteger(row.duration_ms),
+    rawPaths: {},
+  });
+}
+
+export function ensureRunLogsTable(database: DatabaseInstance): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS run_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT NOT NULL UNIQUE,
+      request_id TEXT NOT NULL,
+      run_kind TEXT NOT NULL
+        CHECK (run_kind IN ('summary_request','failed_request','request_abandoned','repo_search','chat','plan','unknown')),
+      run_group TEXT NOT NULL
+        CHECK (run_group IN ('summary','repo_search','planner','chat','other')),
+      terminal_state TEXT NOT NULL
+        CHECK (terminal_state IN ('completed','failed','abandoned','unknown')),
+      started_at_utc TEXT,
+      finished_at_utc TEXT,
+      title TEXT NOT NULL,
+      model TEXT,
+      backend TEXT,
+      repo_root TEXT,
+      input_tokens INTEGER,
+      output_tokens INTEGER,
+      thinking_tokens INTEGER,
+      tool_tokens INTEGER,
+      prompt_cache_tokens INTEGER,
+      prompt_eval_tokens INTEGER,
+      duration_ms INTEGER,
+      request_json TEXT,
+      planner_debug_json TEXT,
+      failed_request_json TEXT,
+      abandoned_request_json TEXT,
+      repo_search_json TEXT,
+      repo_search_transcript_jsonl TEXT,
+      source_paths_json TEXT NOT NULL DEFAULT '[]',
+      flushed_at_utc TEXT NOT NULL,
+      source_deleted_at_utc TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_run_logs_started ON run_logs(started_at_utc DESC);
+    CREATE INDEX IF NOT EXISTS idx_run_logs_group_started ON run_logs(run_group, started_at_utc DESC);
+    CREATE INDEX IF NOT EXISTS idx_run_logs_kind_started ON run_logs(run_kind, started_at_utc DESC);
+  `);
+}
+
+export function upsertRunLog(database: DatabaseInstance, row: RunLogUpsertRow): void {
+  ensureRunLogsTable(database);
+  database.prepare(`
+    INSERT INTO run_logs (
+      run_id, request_id, run_kind, run_group, terminal_state,
+      started_at_utc, finished_at_utc, title, model, backend, repo_root,
+      input_tokens, output_tokens, thinking_tokens, tool_tokens, prompt_cache_tokens, prompt_eval_tokens, duration_ms,
+      request_json, planner_debug_json, failed_request_json, abandoned_request_json, repo_search_json, repo_search_transcript_jsonl,
+      source_paths_json, flushed_at_utc, source_deleted_at_utc
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+    ON CONFLICT(run_id) DO UPDATE SET
+      request_id = excluded.request_id,
+      run_kind = CASE WHEN excluded.run_kind = 'unknown' THEN run_logs.run_kind ELSE excluded.run_kind END,
+      run_group = CASE WHEN excluded.run_group = 'other' THEN run_logs.run_group ELSE excluded.run_group END,
+      terminal_state = CASE WHEN excluded.terminal_state = 'unknown' THEN run_logs.terminal_state ELSE excluded.terminal_state END,
+      started_at_utc = COALESCE(excluded.started_at_utc, run_logs.started_at_utc),
+      finished_at_utc = COALESCE(excluded.finished_at_utc, run_logs.finished_at_utc),
+      title = CASE WHEN excluded.title = '' THEN run_logs.title ELSE excluded.title END,
+      model = COALESCE(excluded.model, run_logs.model),
+      backend = COALESCE(excluded.backend, run_logs.backend),
+      repo_root = COALESCE(excluded.repo_root, run_logs.repo_root),
+      input_tokens = COALESCE(excluded.input_tokens, run_logs.input_tokens),
+      output_tokens = COALESCE(excluded.output_tokens, run_logs.output_tokens),
+      thinking_tokens = COALESCE(excluded.thinking_tokens, run_logs.thinking_tokens),
+      tool_tokens = COALESCE(excluded.tool_tokens, run_logs.tool_tokens),
+      prompt_cache_tokens = COALESCE(excluded.prompt_cache_tokens, run_logs.prompt_cache_tokens),
+      prompt_eval_tokens = COALESCE(excluded.prompt_eval_tokens, run_logs.prompt_eval_tokens),
+      duration_ms = COALESCE(excluded.duration_ms, run_logs.duration_ms),
+      request_json = COALESCE(excluded.request_json, run_logs.request_json),
+      planner_debug_json = COALESCE(excluded.planner_debug_json, run_logs.planner_debug_json),
+      failed_request_json = COALESCE(excluded.failed_request_json, run_logs.failed_request_json),
+      abandoned_request_json = COALESCE(excluded.abandoned_request_json, run_logs.abandoned_request_json),
+      repo_search_json = COALESCE(excluded.repo_search_json, run_logs.repo_search_json),
+      repo_search_transcript_jsonl = COALESCE(excluded.repo_search_transcript_jsonl, run_logs.repo_search_transcript_jsonl),
+      source_paths_json = excluded.source_paths_json,
+      flushed_at_utc = excluded.flushed_at_utc
+  `).run(
+    row.runId,
+    row.requestId,
+    row.runKind,
+    row.runGroup,
+    row.terminalState,
+    row.startedAtUtc,
+    row.finishedAtUtc,
+    row.title,
+    row.model,
+    row.backend,
+    row.repoRoot,
+    row.inputTokens,
+    row.outputTokens,
+    row.thinkingTokens,
+    row.toolTokens,
+    row.promptCacheTokens,
+    row.promptEvalTokens,
+    row.durationMs,
+    row.requestJson,
+    row.plannerDebugJson,
+    row.failedRequestJson,
+    row.abandonedRequestJson,
+    row.repoSearchJson,
+    row.repoSearchTranscriptJsonl,
+    row.sourcePathsJson,
+    row.flushedAtUtc,
+  );
+}
+
+export function queryDashboardRunsFromDb(
+  database: DatabaseInstance,
+  options: DashboardRunsQueryOptions = {},
+): RunRecord[] {
+  ensureRunLogsTable(database);
+  const search = normalizeSearchToken(options.search);
+  const kind = normalizeSearchToken(options.kind);
+  const status = normalizeSearchToken(options.status);
+  const shouldApplyInitialCap = options.initial === true && !search && !kind && !status;
+  const limitPerGroup = Math.max(1, Math.min(200, Number.isFinite(Number(options.limitPerGroup)) ? Math.trunc(Number(options.limitPerGroup)) : 20));
+  const rows = shouldApplyInitialCap
+    ? database.prepare(`
+      WITH ranked AS (
+        SELECT *,
+               ROW_NUMBER() OVER (
+                 PARTITION BY run_group
+                 ORDER BY COALESCE(started_at_utc, '1970-01-01T00:00:00.000Z') DESC, id DESC
+               ) AS run_group_rank
+        FROM run_logs
+      )
+      SELECT * FROM ranked
+      WHERE run_group_rank <= ?
+      ORDER BY COALESCE(started_at_utc, '1970-01-01T00:00:00.000Z') DESC, id DESC
+    `).all(limitPerGroup) as Dict[]
+    : (() => {
+      const whereClauses: string[] = [];
+      const params: string[] = [];
+      if (kind) {
+        whereClauses.push('lower(run_kind) = ?');
+        params.push(kind);
       }
-    }
-    if (raw.failedRequest) {
-      const payload = safeReadJson(raw.failedRequest as string);
-      if (payload) {
-        events.push({ kind: 'failed_request', at: run.startedAtUtc, payload });
+      if (status) {
+        whereClauses.push('lower(terminal_state) = ?');
+        params.push(status);
       }
-    }
-    if (raw.abandonedRequest) {
-      const payload = safeReadJson(raw.abandonedRequest as string);
-      if (payload) {
-        events.push({ kind: 'request_abandoned', at: run.startedAtUtc, payload });
+      if (search) {
+        whereClauses.push('(lower(title) LIKE ? OR lower(run_id) LIKE ?)');
+        const likePattern = `%${search}%`;
+        params.push(likePattern, likePattern);
       }
+      const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+      return database.prepare(`
+        SELECT * FROM run_logs
+        ${whereSql}
+        ORDER BY COALESCE(started_at_utc, '1970-01-01T00:00:00.000Z') DESC, id DESC
+      `).all(...params) as Dict[];
+    })();
+  return rows.map((row) => normalizeRunRecordFromDbRow(row));
+}
+
+export function queryDashboardRunDetailFromDb(
+  database: DatabaseInstance,
+  runId: string,
+): { run: RunRecord; events: JsonlEvent[] } | null {
+  ensureRunLogsTable(database);
+  const row = database.prepare(`
+    SELECT * FROM run_logs WHERE run_id = ? LIMIT 1
+  `).get(runId) as Dict | undefined;
+  if (!row || typeof row !== 'object') {
+    return null;
+  }
+  const run = normalizeRunRecordFromDbRow(row);
+  const events: JsonlEvent[] = [];
+  events.push(...parseJsonlEventsFromText(typeof row.repo_search_transcript_jsonl === 'string' ? row.repo_search_transcript_jsonl : null));
+  const requestPayload = parseJsonObjectText(typeof row.request_json === 'string' ? row.request_json : null);
+  if (requestPayload) {
+    events.push({ kind: 'summary_request', at: run.startedAtUtc, payload: requestPayload });
+  }
+  const plannerPayload = parseJsonObjectText(typeof row.planner_debug_json === 'string' ? row.planner_debug_json : null);
+  if (plannerPayload) {
+    events.push({ kind: 'planner_debug', at: run.startedAtUtc, payload: plannerPayload });
+  }
+  const failedPayload = parseJsonObjectText(typeof row.failed_request_json === 'string' ? row.failed_request_json : null);
+  if (failedPayload) {
+    events.push({ kind: 'failed_request', at: run.startedAtUtc, payload: failedPayload });
+  }
+  const abandonedPayload = parseJsonObjectText(typeof row.abandoned_request_json === 'string' ? row.abandoned_request_json : null);
+  if (abandonedPayload) {
+    events.push({ kind: 'request_abandoned', at: run.startedAtUtc, payload: abandonedPayload });
+  }
+  const repoPayload = parseJsonObjectText(typeof row.repo_search_json === 'string' ? row.repo_search_json : null);
+  if (repoPayload) {
+    events.push({ kind: 'repo_search', at: run.startedAtUtc, payload: repoPayload });
+  }
+  return { run, events };
+}
+
+type RunArtifactPaths = {
+  requestPath: string | null;
+  plannerDebugPath: string | null;
+  failedRequestPath: string | null;
+  abandonedRequestPath: string | null;
+  repoSearchPath: string | null;
+  repoSearchTranscriptPath: string | null;
+};
+
+function buildRunArtifactPaths(requestId: string): RunArtifactPaths {
+  const logsRoot = path.join(getRuntimeRoot(), 'logs');
+  const requestPath = path.join(logsRoot, 'requests', `request_${requestId}.json`);
+  const plannerDebugPath = path.join(logsRoot, `planner_debug_${requestId}.json`);
+  const failedRequestPath = path.join(logsRoot, 'failed', `request_failed_${requestId}.json`);
+  const abandonedRequestPath = path.join(logsRoot, 'abandoned', `request_abandoned_${requestId}.json`);
+  const repoCandidates = [
+    path.join(logsRoot, 'repo_search', 'failed', `request_${requestId}.json`),
+    path.join(logsRoot, 'repo_search', 'succesful', `request_${requestId}.json`),
+  ];
+  const repoSearchPath = repoCandidates.find((candidate) => fs.existsSync(candidate)) || null;
+  const repoSearchTranscriptPath = (
+    repoSearchPath
+    && fs.existsSync(repoSearchPath.replace(/\.json$/iu, '.jsonl'))
+  )
+    ? repoSearchPath.replace(/\.json$/iu, '.jsonl')
+    : null;
+  return {
+    requestPath: fs.existsSync(requestPath) ? requestPath : null,
+    plannerDebugPath: fs.existsSync(plannerDebugPath) ? plannerDebugPath : null,
+    failedRequestPath: fs.existsSync(failedRequestPath) ? failedRequestPath : null,
+    abandonedRequestPath: fs.existsSync(abandonedRequestPath) ? abandonedRequestPath : null,
+    repoSearchPath,
+    repoSearchTranscriptPath,
+  };
+}
+
+function readTextIfExists(targetPath: string | null): string | null {
+  if (!targetPath || !fs.existsSync(targetPath)) {
+    return null;
+  }
+  return fs.readFileSync(targetPath, 'utf8');
+}
+
+function parseOptionalIsoDate(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) {
+    return null;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
+function parseRepoSearchTotals(payload: Dict | null): Dict | null {
+  if (!payload || !payload.totals || typeof payload.totals !== 'object' || Array.isArray(payload.totals)) {
+    return null;
+  }
+  return payload.totals as Dict;
+}
+
+function resolveRunKindAndGroup(
+  taskKind: TaskKind | null,
+  hasRepoSearch: boolean,
+  hasAbandoned: boolean,
+  hasSummaryRequest: boolean,
+  hasFailedRequest: boolean,
+): { runKind: RunLogKind; runGroup: RunLogGroup } {
+  if (hasRepoSearch) {
+    return taskKind === 'plan'
+      ? { runKind: 'plan', runGroup: 'planner' }
+      : { runKind: 'repo_search', runGroup: 'repo_search' };
+  }
+  if (hasAbandoned) {
+    return { runKind: 'request_abandoned', runGroup: 'summary' };
+  }
+  if (hasSummaryRequest) {
+    return { runKind: 'summary_request', runGroup: 'summary' };
+  }
+  if (hasFailedRequest) {
+    return { runKind: 'failed_request', runGroup: 'summary' };
+  }
+  if (taskKind === 'chat') {
+    return { runKind: 'chat', runGroup: 'chat' };
+  }
+  if (taskKind === 'plan') {
+    return { runKind: 'plan', runGroup: 'planner' };
+  }
+  if (taskKind === 'repo-search') {
+    return { runKind: 'repo_search', runGroup: 'repo_search' };
+  }
+  return { runKind: 'unknown', runGroup: 'other' };
+}
+
+function resolveTerminalState(
+  explicitTerminalState: RunLogTerminalState | null,
+  requestPayload: Dict | null,
+  failedRequestPayload: Dict | null,
+  abandonedPayload: Dict | null,
+  repoSearchPayload: Dict | null,
+): RunLogTerminalState {
+  if (explicitTerminalState && explicitTerminalState !== 'unknown') {
+    return explicitTerminalState;
+  }
+  if (abandonedPayload) {
+    return 'abandoned';
+  }
+  if (failedRequestPayload) {
+    return 'failed';
+  }
+  if (repoSearchPayload) {
+    return repoSearchPayload.error || repoSearchPayload.verdict === 'fail' ? 'failed' : 'completed';
+  }
+  if (requestPayload) {
+    return requestPayload.error ? 'failed' : 'completed';
+  }
+  return explicitTerminalState || 'unknown';
+}
+
+function resolveTitle(
+  requestId: string,
+  runKind: RunLogKind,
+  requestPayload: Dict | null,
+  failedRequestPayload: Dict | null,
+  abandonedPayload: Dict | null,
+  repoSearchPayload: Dict | null,
+): string {
+  if (requestPayload) {
+    const question = typeof requestPayload.question === 'string' && requestPayload.question.trim()
+      ? requestPayload.question.trim()
+      : null;
+    const prompt = typeof requestPayload.prompt === 'string' && requestPayload.prompt.trim()
+      ? requestPayload.prompt.trim()
+      : null;
+    if (question) return question;
+    if (prompt) return prompt;
+  }
+  if (failedRequestPayload && typeof failedRequestPayload.question === 'string' && failedRequestPayload.question.trim()) {
+    return failedRequestPayload.question.trim();
+  }
+  if (abandonedPayload && typeof abandonedPayload.reason === 'string' && abandonedPayload.reason.trim()) {
+    return abandonedPayload.reason.trim();
+  }
+  if (repoSearchPayload && typeof repoSearchPayload.prompt === 'string' && repoSearchPayload.prompt.trim()) {
+    return repoSearchPayload.prompt.trim();
+  }
+  return `${runKind} ${requestId}`;
+}
+
+function buildRunLogRow(options: {
+  requestId: string;
+  taskKind: TaskKind | null;
+  terminalState: RunLogTerminalState | null;
+  nowUtc: string;
+  artifactPaths: RunArtifactPaths;
+}): RunLogUpsertRow | null {
+  const requestJson = readTextIfExists(options.artifactPaths.requestPath);
+  const plannerDebugJson = readTextIfExists(options.artifactPaths.plannerDebugPath);
+  const failedRequestJson = readTextIfExists(options.artifactPaths.failedRequestPath);
+  const abandonedRequestJson = readTextIfExists(options.artifactPaths.abandonedRequestPath);
+  const repoSearchJson = readTextIfExists(options.artifactPaths.repoSearchPath);
+  let repoSearchTranscriptJsonl = readTextIfExists(options.artifactPaths.repoSearchTranscriptPath);
+
+  const requestPayload = parseJsonObjectText(requestJson);
+  const failedRequestPayload = parseJsonObjectText(failedRequestJson);
+  const abandonedPayload = parseJsonObjectText(abandonedRequestJson);
+  const repoSearchPayload = parseJsonObjectText(repoSearchJson);
+
+  const transcriptPathFromPayload = (
+    repoSearchPayload
+    && typeof repoSearchPayload.transcriptPath === 'string'
+    && repoSearchPayload.transcriptPath.trim()
+  )
+    ? repoSearchPayload.transcriptPath.trim()
+    : null;
+  if (!repoSearchTranscriptJsonl && transcriptPathFromPayload && fs.existsSync(transcriptPathFromPayload)) {
+    repoSearchTranscriptJsonl = fs.readFileSync(transcriptPathFromPayload, 'utf8');
+  }
+
+  if (
+    requestJson === null
+    && plannerDebugJson === null
+    && failedRequestJson === null
+    && abandonedRequestJson === null
+    && repoSearchJson === null
+    && repoSearchTranscriptJsonl === null
+  ) {
+    return null;
+  }
+
+  const hasRepoSearch = repoSearchJson !== null || repoSearchTranscriptJsonl !== null;
+  const hasAbandoned = abandonedRequestJson !== null;
+  const hasSummaryRequest = requestJson !== null;
+  const hasFailedRequest = failedRequestJson !== null;
+  const { runKind, runGroup } = resolveRunKindAndGroup(
+    options.taskKind,
+    hasRepoSearch,
+    hasAbandoned,
+    hasSummaryRequest,
+    hasFailedRequest,
+  );
+  const terminalState = resolveTerminalState(
+    options.terminalState,
+    requestPayload,
+    failedRequestPayload,
+    abandonedPayload,
+    repoSearchPayload,
+  );
+  const repoTotals = parseRepoSearchTotals(repoSearchPayload);
+  const startedAtUtc = parseOptionalIsoDate(
+    requestPayload?.createdAtUtc
+      || failedRequestPayload?.createdAtUtc
+      || abandonedPayload?.abandonedAtUtc
+      || abandonedPayload?.createdAtUtc
+      || repoSearchPayload?.createdAtUtc,
+  ) || getIsoDateFromStat(
+    options.artifactPaths.requestPath
+      || options.artifactPaths.failedRequestPath
+      || options.artifactPaths.abandonedRequestPath
+      || options.artifactPaths.repoSearchPath
+      || options.artifactPaths.plannerDebugPath
+      || path.join(getRuntimeRoot(), 'logs'),
+  );
+  const sourcePaths = [
+    options.artifactPaths.requestPath,
+    options.artifactPaths.plannerDebugPath,
+    options.artifactPaths.failedRequestPath,
+    options.artifactPaths.abandonedRequestPath,
+    options.artifactPaths.repoSearchPath,
+    options.artifactPaths.repoSearchTranscriptPath,
+    transcriptPathFromPayload,
+  ].filter((entry): entry is string => Boolean(entry && entry.trim()));
+  const uniqueSourcePaths = Array.from(new Set(sourcePaths));
+
+  return {
+    runId: options.requestId,
+    requestId: options.requestId,
+    runKind,
+    runGroup,
+    terminalState,
+    startedAtUtc,
+    finishedAtUtc: options.nowUtc,
+    title: resolveTitle(options.requestId, runKind, requestPayload, failedRequestPayload, abandonedPayload, repoSearchPayload),
+    model: typeof requestPayload?.model === 'string'
+      ? requestPayload.model
+      : (typeof repoSearchPayload?.model === 'string' ? repoSearchPayload.model : null),
+    backend: typeof requestPayload?.backend === 'string'
+      ? requestPayload.backend
+      : (runKind === 'repo_search' || runKind === 'plan' ? 'llama.cpp' : null),
+    repoRoot: typeof repoSearchPayload?.repoRoot === 'string' ? repoSearchPayload.repoRoot : null,
+    inputTokens: toNonNegativeInteger(requestPayload?.inputTokens ?? failedRequestPayload?.inputTokens ?? repoTotals?.promptTokens ?? null),
+    outputTokens: toNonNegativeInteger(requestPayload?.outputTokens ?? failedRequestPayload?.outputTokens ?? abandonedPayload?.outputTokensTotal ?? repoTotals?.outputTokens ?? null),
+    thinkingTokens: toNonNegativeInteger(requestPayload?.thinkingTokens ?? failedRequestPayload?.thinkingTokens ?? repoTotals?.thinkingTokens ?? null),
+    toolTokens: toNonNegativeInteger(repoTotals?.toolTokens ?? null),
+    promptCacheTokens: toNonNegativeInteger(requestPayload?.promptCacheTokens ?? failedRequestPayload?.promptCacheTokens ?? repoTotals?.promptCacheTokens ?? null),
+    promptEvalTokens: toNonNegativeInteger(requestPayload?.promptEvalTokens ?? failedRequestPayload?.promptEvalTokens ?? repoTotals?.promptEvalTokens ?? null),
+    durationMs: toNonNegativeInteger(
+      requestPayload?.requestDurationMs
+        ?? failedRequestPayload?.requestDurationMs
+        ?? abandonedPayload?.totalElapsedMs
+        ?? getTranscriptDurationMsFromText(repoSearchTranscriptJsonl)
+        ?? null,
+    ),
+    requestJson,
+    plannerDebugJson,
+    failedRequestJson,
+    abandonedRequestJson,
+    repoSearchJson,
+    repoSearchTranscriptJsonl,
+    sourcePathsJson: JSON.stringify(uniqueSourcePaths),
+    flushedAtUtc: options.nowUtc,
+  };
+}
+
+export function flushRunArtifactsToDbAndDelete(options: {
+  database: DatabaseInstance;
+  requestId: string;
+  terminalState?: RunLogTerminalState | null;
+  taskKind?: TaskKind | null;
+}): boolean {
+  const requestId = String(options.requestId || '').trim();
+  if (!requestId) {
+    return false;
+  }
+  ensureRunLogsTable(options.database);
+  const nowUtc = new Date().toISOString();
+  const row = buildRunLogRow({
+    requestId,
+    taskKind: options.taskKind ?? null,
+    terminalState: options.terminalState ?? null,
+    nowUtc,
+    artifactPaths: buildRunArtifactPaths(requestId),
+  });
+  if (!row) {
+    return false;
+  }
+  options.database.transaction(() => {
+    upsertRunLog(options.database, row);
+  })();
+  const rawSourcePaths = JSON.parse(row.sourcePathsJson) as unknown[];
+  const sourcePaths = rawSourcePaths
+    .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
+  let deletedEverySource = true;
+  for (const sourcePath of sourcePaths) {
+    if (!fs.existsSync(sourcePath)) {
+      continue;
     }
-    if (raw.repoSearch) {
-      const payload = safeReadJson(raw.repoSearch as string);
-      if (payload) {
-        events.push({ kind: 'repo_search', at: run.startedAtUtc, payload });
+    try {
+      fs.unlinkSync(sourcePath);
+    } catch {
+      if (fs.existsSync(sourcePath)) {
+        deletedEverySource = false;
       }
     }
   }
-  return { run, events };
+  if (deletedEverySource) {
+    options.database.prepare(`
+      UPDATE run_logs
+      SET source_deleted_at_utc = ?
+      WHERE run_id = ?
+    `).run(nowUtc, requestId);
+  }
+  return true;
+}
+
+function collectRunLogRequestIdsFromDisk(): string[] {
+  const logsRoot = path.join(getRuntimeRoot(), 'logs');
+  const requestIds = new Set<string>();
+  const collectFromDirectory = (targetPath: string, pattern: RegExp): void => {
+    for (const filePath of listFiles(targetPath)) {
+      const match = pattern.exec(path.basename(filePath));
+      if (match && match[1]) {
+        requestIds.add(match[1]);
+      }
+    }
+  };
+  collectFromDirectory(path.join(logsRoot, 'requests'), /^request_(.+)\.json$/iu);
+  collectFromDirectory(path.join(logsRoot, 'failed'), /^request_failed_(.+)\.json$/iu);
+  collectFromDirectory(path.join(logsRoot, 'abandoned'), /^request_abandoned_(.+)\.json$/iu);
+  collectFromDirectory(logsRoot, /^planner_debug_(.+)\.json$/iu);
+  collectFromDirectory(path.join(logsRoot, 'repo_search', 'failed'), /^request_(.+)\.jsonl?$/iu);
+  collectFromDirectory(path.join(logsRoot, 'repo_search', 'succesful'), /^request_(.+)\.jsonl?$/iu);
+  return Array.from(requestIds).sort((left, right) => left.localeCompare(right));
+}
+
+export function migrateExistingRunLogsToDbAndDelete(database: DatabaseInstance): number {
+  ensureRunLogsTable(database);
+  let migratedCount = 0;
+  for (const requestId of collectRunLogRequestIdsFromDisk()) {
+    try {
+      if (flushRunArtifactsToDbAndDelete({
+        database,
+        requestId,
+        terminalState: null,
+        taskKind: null,
+      })) {
+        migratedCount += 1;
+      }
+    } catch {
+      // continue best-effort migration
+    }
+  }
+  return migratedCount;
 }
 
 export function getPromptCacheHitRate(promptCacheTokens: unknown, promptEvalTokens: unknown): number | null {
@@ -547,8 +1046,8 @@ export function buildLiveTodayMetrics(currentMetrics: Metrics, idleSummaryDataba
 
 type DailyAccumulator = DailyMetrics & { durationTotalMs: number; durationCount: number };
 
-export function buildDashboardDailyMetricsFromRuns(runtimeRoot: string): DailyMetrics[] {
-  const runs = loadDashboardRuns(runtimeRoot);
+export function buildDashboardDailyMetricsFromRuns(database: DatabaseInstance | null): DailyMetrics[] {
+  const runs = database ? queryDashboardRunsFromDb(database) : [];
   const byDay = new Map<string, DailyAccumulator>();
   for (const run of runs) {
     const startedAt = run.startedAtUtc || new Date(0).toISOString();
@@ -692,7 +1191,8 @@ export function buildDashboardDailyMetricsFromIdleSnapshots(database: DatabaseIn
 }
 
 export function buildDashboardDailyMetrics(runtimeRoot: string, idleSummaryDatabase: DatabaseInstance | null, currentMetrics: Metrics): DailyMetrics[] {
-  const runDays = buildDashboardDailyMetricsFromRuns(runtimeRoot);
+  void runtimeRoot;
+  const runDays = buildDashboardDailyMetricsFromRuns(idleSummaryDatabase);
   const runByDay = new Map(runDays.map((day) => [day.date, day] as const));
   const liveToday = buildLiveTodayMetrics(currentMetrics, idleSummaryDatabase);
   const snapshotDays = buildDashboardDailyMetricsFromIdleSnapshots(idleSummaryDatabase);

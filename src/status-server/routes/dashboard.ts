@@ -6,8 +6,8 @@ import * as http from 'node:http';
 import * as fs from 'node:fs';
 import { sendJson } from '../http-utils.js';
 import {
-  loadDashboardRuns,
-  buildDashboardRunDetail,
+  queryDashboardRunsFromDb,
+  queryDashboardRunDetailFromDb,
   buildDashboardDailyMetrics,
   buildDashboardTaskDailyMetrics,
   buildDashboardToolStats,
@@ -30,31 +30,32 @@ export async function handleDashboardRoute(
 ): Promise<boolean> {
   const runtimeRoot = getRuntimeRoot();
   const { idleSummarySnapshotsPath } = ctx;
+  const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
 
   if (req.method === 'GET' && pathname === '/dashboard/runs') {
     const query = requestUrl.searchParams;
     const search = (query.get('search') || '').trim().toLowerCase();
     const kind = (query.get('kind') || '').trim().toLowerCase();
     const statusFilter = (query.get('status') || '').trim().toLowerCase();
-    const runs = loadDashboardRuns(runtimeRoot).filter((run) => {
-      if (kind && String(run.kind).toLowerCase() !== kind) {
-        return false;
-      }
-      if (statusFilter && String(run.status).toLowerCase() !== statusFilter) {
-        return false;
-      }
-      if (!search) {
-        return true;
-      }
-      return String(run.title || '').toLowerCase().includes(search) || String(run.id).toLowerCase().includes(search);
-    });
+    const initial = requestUrl.searchParams.get('initial') === '1';
+    const limitRaw = Number(requestUrl.searchParams.get('limitPerGroup') || 20);
+    const limitPerGroup = Number.isFinite(limitRaw) ? Math.max(1, Math.trunc(limitRaw)) : 20;
+    const runs = idleSummaryDatabase
+      ? queryDashboardRunsFromDb(idleSummaryDatabase, {
+        search,
+        kind,
+        status: statusFilter,
+        initial,
+        limitPerGroup,
+      })
+      : [];
     sendJson(res, 200, { runs, total: runs.length });
     return true;
   }
 
   if (req.method === 'GET' && /^\/dashboard\/runs\/[^/]+$/u.test(pathname)) {
     const runId = decodeURIComponent(pathname.replace(/^\/dashboard\/runs\//u, ''));
-    const detail = buildDashboardRunDetail(runtimeRoot, runId);
+    const detail = idleSummaryDatabase ? queryDashboardRunDetailFromDb(idleSummaryDatabase, runId) : null;
     if (!detail) {
       sendJson(res, 404, { error: 'Run not found.' });
       return true;
@@ -64,7 +65,6 @@ export async function handleDashboardRoute(
   }
 
   if (req.method === 'GET' && pathname === '/dashboard/metrics/timeseries') {
-    const idleSummaryDatabase = fs.existsSync(idleSummarySnapshotsPath) ? getIdleSummaryDatabase(ctx) : null;
     const config = readConfig(ctx.configPath) as SiftConfig;
     const days = buildDashboardDailyMetrics(
       runtimeRoot,

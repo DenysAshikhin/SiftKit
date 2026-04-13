@@ -34,7 +34,6 @@ export type ParsedArgs = {
   responseFormat?: 'json' | 'text';
   op?: string;
   prompt?: string;
-  maxTurns?: number;
   logFile?: string;
 };
 
@@ -106,7 +105,7 @@ export function getCommandArgs(argv: string[]): string[] {
 }
 
 export function validateRepoSearchTokens(tokens: string[]): void {
-  const flagsWithValues = new Set(['--prompt', '-prompt', '--model', '--max-turns', '--log-file']);
+  const flagsWithValues = new Set(['--prompt', '-prompt', '--model', '--log-file']);
   const helpFlags = new Set(['-h', '--h', '--help', '-help']);
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
@@ -210,9 +209,6 @@ export function parseArguments(tokens: string[]): ParsedArgs {
       case '--prompt':
       case '-prompt':
         parsed.prompt = tokens[++index];
-        break;
-      case '--max-turns':
-        parsed.maxTurns = Number(tokens[++index]);
         break;
       case '--log-file':
         parsed.logFile = tokens[++index];

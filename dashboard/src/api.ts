@@ -16,7 +16,12 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export function getRuns(search: string, kind: string, status: string): Promise<RunsResponse> {
+export function getRuns(
+  search: string,
+  kind: string,
+  status: string,
+  options?: { initial?: boolean; limitPerGroup?: number },
+): Promise<RunsResponse> {
   const query = new URLSearchParams();
   if (search.trim()) {
     query.set('search', search.trim());
@@ -26,6 +31,12 @@ export function getRuns(search: string, kind: string, status: string): Promise<R
   }
   if (status.trim()) {
     query.set('status', status.trim());
+  }
+  if (options?.initial) {
+    query.set('initial', '1');
+  }
+  if (Number.isFinite(Number(options?.limitPerGroup)) && Number(options?.limitPerGroup) > 0) {
+    query.set('limitPerGroup', String(Math.trunc(Number(options?.limitPerGroup))));
   }
   const suffix = query.toString();
   return fetchJson<RunsResponse>(`/dashboard/runs${suffix ? `?${suffix}` : ''}`);

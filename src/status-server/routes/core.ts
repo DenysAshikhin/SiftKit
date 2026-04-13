@@ -31,6 +31,7 @@ import {
   buildStatusRequestLogMessage,
   buildRepoSearchProgressLogMessage,
   getStatusArtifactPath,
+  flushRunArtifactsToDbAndDelete,
 } from '../dashboard-runs.js';
 import { loadRepoSearchExecutor } from '../chat.js';
 import { logLine } from '../managed-llama.js';
@@ -49,6 +50,7 @@ import {
   logAbandonedRun,
   ensureSiftKitGpuLockAcquired,
   hasActiveRuns,
+  getIdleSummaryDatabase,
 } from '../server-ops.js';
 import type {
   ActiveRunState,
@@ -285,6 +287,21 @@ export async function handleCoreRoute(
       && metadata.promptEvalTokens === null
       && metadata.requestDurationMs === null;
     if (isArtifactOnlyPost) {
+      if (metadata.artifactRequestId && !ctx.activeRunsByRequestId.has(metadata.artifactRequestId)) {
+        try {
+          flushRunArtifactsToDbAndDelete({
+            database: getIdleSummaryDatabase(ctx),
+            requestId: metadata.artifactRequestId,
+            terminalState: null,
+            taskKind: null,
+          });
+        } catch (error) {
+          process.stderr.write(
+            `[siftKitStatus] Failed to flush artifact-only run logs for request ${metadata.artifactRequestId}: `
+            + `${error instanceof Error ? error.message : String(error)}\n`,
+          );
+        }
+      }
       const publishedStatus = getPublishedStatusText(ctx);
       sendJson(res, 200, { ok: true, running: publishedStatus === STATUS_TRUE, status: publishedStatus, statusPath, configPath });
       return true;
@@ -496,6 +513,21 @@ export async function handleCoreRoute(
       if (taskKind && metadata.toolStats) {
         for (const toolLogLine of buildToolStatsLogMessages(taskKind, metadata.toolStats)) {
           logLine(toolLogLine);
+        }
+      }
+      if (metadata.terminalState === 'completed' || metadata.terminalState === 'failed') {
+        try {
+          flushRunArtifactsToDbAndDelete({
+            database: getIdleSummaryDatabase(ctx),
+            requestId,
+            terminalState: metadata.terminalState,
+            taskKind: taskKind ?? null,
+          });
+        } catch (error) {
+          process.stderr.write(
+            `[siftKitStatus] Failed to flush run logs for request ${requestId}: `
+            + `${error instanceof Error ? error.message : String(error)}\n`,
+          );
         }
       }
     }

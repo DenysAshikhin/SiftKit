@@ -32,6 +32,8 @@ import {
 } from './status-file.js';
 import {
   buildStatusRequestLogMessage,
+  ensureRunLogsTable,
+  flushRunArtifactsToDbAndDelete,
 } from './dashboard-runs.js';
 import type {
   ActiveRunState,
@@ -175,6 +177,16 @@ export function logAbandonedRun(ctx: ServerContext, runState: ActiveRunState, no
       chunkTotal: runState.chunkTotal,
       chunkPath: runState.chunkPath,
     }, null, 2) + '\n');
+    try {
+      flushRunArtifactsToDbAndDelete({
+        database: getIdleSummaryDatabase(ctx),
+        requestId: runState.requestId,
+        terminalState: 'abandoned',
+        taskKind: null,
+      });
+    } catch {
+      // Best-effort - don't fail the incoming request.
+    }
   } catch {
     // Best-effort — don't fail the incoming request.
   }
@@ -209,6 +221,7 @@ export function getIdleSummaryDatabase(ctx: ServerContext): DatabaseInstance {
   ensureDirectory(path.dirname(ctx.idleSummarySnapshotsPath));
   ctx.idleSummaryDatabase = new Database(ctx.idleSummarySnapshotsPath);
   ensureIdleSummarySnapshotsTable(ctx.idleSummaryDatabase);
+  ensureRunLogsTable(ctx.idleSummaryDatabase);
   return ctx.idleSummaryDatabase;
 }
 

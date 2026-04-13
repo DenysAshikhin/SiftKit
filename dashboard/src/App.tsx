@@ -24,6 +24,12 @@ import {
   writeHiddenSeriesState,
   type KeyValueStore,
 } from './metric-graph-persistence';
+import {
+  buildTaskRunsSeries,
+  describeToolType,
+  getGraphHoverIndex,
+  sortToolMetricsByCalls,
+} from './metrics-view';
 import type {
   ChatSession,
   ContextUsage,
@@ -568,20 +574,12 @@ function InteractiveGraph({ storageId, title, series, height = 180 }: Interactiv
       </div>
       <svg
         viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="none"
         role="img"
         aria-label={title}
-        onMouseMove={(event) => {
-          if (pointCount <= 1) {
-            return;
-          }
-          const box = event.currentTarget.getBoundingClientRect();
-          const ratio = (event.clientX - box.left) / box.width;
-          const index = Math.round(ratio * (pointCount - 1));
-          setHoverIndex(index);
-        }}
         onMouseLeave={() => setHoverIndex(null)}
       >
-        <rect x="0" y="0" width={width} height={height} rx="8" ry="8" />
+        <rect className="graph-frame" x="0" y="0" width={width} height={height} rx="8" ry="8" />
         {visibleSeries.map((item) => {
           const values = item.points.map((point) => point.value);
           const path = buildLinePathFromValues(values, width, height, maxValue);
@@ -608,6 +606,22 @@ function InteractiveGraph({ storageId, title, series, height = 180 }: Interactiv
             strokeWidth="1"
           />
         ) : null}
+        <rect
+          className="graph-hover-layer"
+          x="0"
+          y="0"
+          width={width}
+          height={height}
+          rx="8"
+          ry="8"
+          fill="transparent"
+          pointerEvents="all"
+          onMouseMove={(event) => {
+            const box = event.currentTarget.getBoundingClientRect();
+            setHoverIndex(getGraphHoverIndex(pointCount, event.clientX - box.left, box.width));
+          }}
+          onMouseLeave={() => setHoverIndex(null)}
+        />
       </svg>
       {hoverLabel ? (
         <div className="graph-tooltip">
@@ -706,26 +720,6 @@ export function App() {
   const recentIdlePoints = idleSummarySnapshots
     .slice(0, 20)
     .reverse();
-  const taskMetricsSorted = taskMetrics
-    .slice()
-    .sort((left, right) => left.date.localeCompare(right.date) || left.taskKind.localeCompare(right.taskKind));
-  const taskMetricsByKind = taskMetricsSorted.reduce<Record<string, TaskMetricDay[]>>((accumulator, entry) => {
-    const rows = accumulator[entry.taskKind] || [];
-    rows.push(entry);
-    accumulator[entry.taskKind] = rows;
-    return accumulator;
-  }, {});
-  const metricGroupOrder = ['summary', 'repo-search', 'plan', 'chat'];
-  const taskMetricKindRows = Object.entries(taskMetricsByKind).sort((left, right) => {
-    const leftIndex = metricGroupOrder.indexOf(left[0]);
-    const rightIndex = metricGroupOrder.indexOf(right[0]);
-    const normalizedLeft = leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex;
-    const normalizedRight = rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex;
-    if (normalizedLeft !== normalizedRight) {
-      return normalizedLeft - normalizedRight;
-    }
-    return left[0].localeCompare(right[0]);
-  });
   const toolMetricRows = toolMetrics
     ? Object.entries(toolMetrics).flatMap(([taskKind, byType]) => (
       Object.entries(byType || {}).map(([toolType, stats]) => ({
@@ -755,6 +749,14 @@ export function App() {
       }))
     ))
     : [];
+  const sortedToolMetricRows = sortToolMetricsByCalls(toolMetricRows);
+  const taskRunsGraphSeries: InteractiveSeries[] = buildTaskRunsSeries(taskMetrics).map((entry) => ({
+    key: entry.key,
+    title: entry.title,
+    unit: '',
+    color: entry.color,
+    points: entry.points,
+  }));
   const isRepoSearchRunSelected = selectedRunDetail
     ? classifyRunGroup(selectedRunDetail.run.kind) === 'repo_search'
     : false;
@@ -799,7 +801,10 @@ export function App() {
       }
       setRunsError(null);
       try {
-        const response = await getRuns(search, kindFilter, statusFilter);
+        const response = await getRuns(search, kindFilter, statusFilter, {
+          initial: !runsLoadedRef.current,
+          limitPerGroup: 20,
+        });
         if (!cancelled) {
           const nextSignature = buildRunsSignature(response.runs);
           if (runsSignatureRef.current !== nextSignature) {
@@ -1596,9 +1601,7 @@ export function App() {
                 <h3>Tool Metrics</h3>
                 {toolMetricRows.length > 0 ? (
                   <div className="idle-metric-card-row">
-                    {toolMetricRows
-                      .sort((left, right) => left.taskKind.localeCompare(right.taskKind) || left.toolType.localeCompare(right.toolType))
-                      .map((entry) => {
+                    {sortedToolMetricRows.map((entry) => {
                         const avgChars = entry.calls > 0 ? Math.round(entry.outputCharsTotal / entry.calls) : 0;
                         const avgTokens = entry.calls > 0 ? Math.round(entry.outputTokensTotal / entry.calls) : 0;
                         const avgLines = entry.lineReadCalls > 0 ? Math.round(entry.lineReadLinesTotal / entry.lineReadCalls) : 0;
@@ -1610,6 +1613,7 @@ export function App() {
                           <article
                             key={`${entry.taskKind}-${entry.toolType}`}
                             className={`idle-card idle-metric-card metric-tool task-kind-${formatTaskKindClass(entry.taskKind)}`}
+                            title={describeToolType(entry.toolType)}
                           >
                             <span>{formatTaskKindLabel(entry.taskKind)}</span>
                             <strong>{entry.toolType}</strong>
@@ -1650,31 +1654,12 @@ export function App() {
           </section>
           <section className="idle-summary-history">
             <h3>Per-Task Daily Metrics</h3>
-            {taskMetricKindRows.length > 0 ? (
-              <div className="idle-kind-group-row">
-                {taskMetricKindRows.map(([taskKind, entries]) => (
-                  <section
-                    key={taskKind}
-                    className={`idle-kind-group task-kind-${formatTaskKindClass(taskKind)}`}
-                  >
-                    <h4>{formatTaskKindLabel(taskKind)}</h4>
-                    <div className="idle-metric-card-row">
-                      {entries.map((entry) => (
-                        <article
-                          key={`${entry.date}-${entry.taskKind}`}
-                          className={`idle-card idle-metric-card metric-task task-kind-${formatTaskKindClass(entry.taskKind)}`}
-                        >
-                          <span>{entry.date}</span>
-                          <strong>Runs: {formatNumber(entry.runs)}</strong>
-                          <span>Input / Output / Thinking: {formatNumber(entry.inputTokens)} / {formatNumber(entry.outputTokens)} / {formatNumber(entry.thinkingTokens)}</span>
-                          <span>Tool / Cache / Eval: {formatNumber(entry.toolTokens)} / {formatNumber(entry.promptCacheTokens)} / {formatNumber(entry.promptEvalTokens)}</span>
-                          <span>Avg ms: {formatNumber(entry.avgDurationMs)}</span>
-                        </article>
-                      ))}
-                    </div>
-                  </section>
-                ))}
-              </div>
+            {taskRunsGraphSeries.length > 0 ? (
+              <InteractiveGraph
+                storageId="per-task-daily-runs"
+                title="Per-Task Daily Metrics (Runs)"
+                series={taskRunsGraphSeries}
+              />
             ) : (
               <p className="hint">No per-task metrics available yet.</p>
             )}
