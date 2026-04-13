@@ -1,5 +1,4 @@
 import { spawnSync } from 'node:child_process';
-import { spawnPowerShellSync } from '../lib/powershell.js';
 import { resolveExternalCommand } from './command-path.js';
 
 export type InvokeProcessResult = {
@@ -44,33 +43,33 @@ export function invokeProcess(command: string, argumentList: string[] = []): Inv
   };
 }
 
-export function quoteForPowerShell(value: string): string {
-  return `'${value.replace(/'/gu, "''")}'`;
-}
+export type TranscriptCaptureResult = {
+  ExitCode: number;
+  Transcript: string;
+};
 
 export function captureWithTranscript(
   commandPath: string,
   argumentList: string[],
-  transcriptPath: string,
-): number {
-  const joinedArgs = argumentList.map((entry) => quoteForPowerShell(entry)).join(', ');
-  const script = [
-    "$ErrorActionPreference = 'Stop'",
-    `$transcriptPath = ${quoteForPowerShell(transcriptPath)}`,
-    `$commandPath = ${quoteForPowerShell(commandPath)}`,
-    `Start-Transcript -Path $transcriptPath -Force | Out-Null`,
-    'try {',
-    `  & $commandPath @(${joinedArgs})`,
-    '  if ($null -ne $LASTEXITCODE) { exit [int]$LASTEXITCODE }',
-    '  exit 0',
-    '} finally {',
-    '  try { Stop-Transcript | Out-Null } catch {}',
-    '}',
-  ].join('\n');
-
-  const result = spawnPowerShellSync(script, {
-    stdio: 'ignore',
-    windowsHide: false,
+): TranscriptCaptureResult {
+  let result = spawnSync(commandPath, argumentList, {
+    encoding: 'utf8',
+    shell: false,
+    windowsHide: true,
+    cwd: process.cwd(),
   });
-  return typeof result.status === 'number' ? result.status : 1;
+  if (result.error && /EPERM|EACCES/iu.test(result.error.message || '')) {
+    result = spawnSync(commandPath, argumentList, {
+      encoding: 'utf8',
+      shell: true,
+      windowsHide: true,
+      cwd: process.cwd(),
+    });
+  }
+  const stdout = result.stdout || '';
+  const stderr = `${result.stderr || ''}${result.error ? `${result.stderr ? '\n' : ''}${result.error.message}` : ''}`;
+  return {
+    ExitCode: typeof result.status === 'number' ? result.status : 1,
+    Transcript: `${stdout}${stdout && stderr ? '\n' : ''}${stderr}`.trim(),
+  };
 }

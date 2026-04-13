@@ -835,7 +835,7 @@ test('real status server ignores transient Loading model 503 startup log lines',
   });
 });
 
-test('real status server aborts a broken managed llama startup during server startup within the capped timeout', async () => {
+test('real status server keeps running in degraded mode when managed llama startup is broken', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
@@ -856,22 +856,20 @@ test('real status server aborts a broken managed llama startup during server sta
     };
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
-    const startedAt = Date.now();
-    await assert.rejects(
-      () => startStatusServerProcess({
-        statusPath,
-        configPath,
-      }),
-      /Timed out waiting for llama\.cpp server .* to become ready/i
-    );
-    const elapsedMs = Date.now() - startedAt;
-    assert.ok(elapsedMs < 31_000);
+    const server = await startStatusServerProcess({
+      statusPath,
+      configPath,
+    });
+    try {
+      const health = await requestJson(`${server.statusUrl.replace(/\/status$/u, '/health')}`);
+      assert.equal(health.ok, true);
+      assert.equal(health.managedLlamaReady, false);
+      assert.match(String(health.managedLlamaStartupWarning || ''), /Timed out waiting for llama\.cpp server/u);
+    } finally {
+      await server.close();
+    }
+
     assert.equal(fs.existsSync(managed.pidFilePath), false);
-    const latestStartupDumpPath = path.join(tempRoot, 'logs', 'managed-llama', 'latest-startup.log');
-    assert.equal(fs.existsSync(latestStartupDumpPath), true);
-    const latestStartupDumpText = fs.readFileSync(latestStartupDumpPath, 'utf8');
-    assert.match(latestStartupDumpText, /Result: failed/u);
-    assert.match(latestStartupDumpText, /Timed out waiting for llama\.cpp server/u);
   });
 });
 

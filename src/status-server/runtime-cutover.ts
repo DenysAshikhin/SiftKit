@@ -311,11 +311,19 @@ function importLegacyEvalAndBenchmarkJson(runtimeRoot: string, database: Runtime
       payload_json = excluded.payload_json
   `);
   for (const filePath of listFilesRecursive(resultsRoot)) {
+    const relativePath = toPosixRelativePath(runtimeRoot, filePath);
     if (!filePath.toLowerCase().endsWith('.json')) {
+      const fileText = fs.readFileSync(filePath, 'utf8');
+      upsertRuntimeTextArtifact({
+        id: `legacy:${relativePath}`,
+        artifactKind: 'legacy_eval_log_text',
+        title: relativePath,
+        content: fileText,
+      });
+      fs.rmSync(filePath, { force: true });
       continue;
     }
     const payload = readLegacyJsonObject(filePath);
-    const relativePath = toPosixRelativePath(runtimeRoot, filePath);
     const createdAtUtc = new Date().toISOString();
     if (Array.isArray(payload.Results) && typeof payload.Status === 'string') {
       insertBenchmarkRun.run(
@@ -348,10 +356,6 @@ function importRemainingLegacyLogFiles(runtimeRoot: string): void {
   }
   for (const filePath of listFilesRecursive(logsRoot)) {
     const lower = filePath.toLowerCase();
-    const isLegacyLogExtension = lower.endsWith('.json') || lower.endsWith('.jsonl') || lower.endsWith('.txt');
-    if (!isLegacyLogExtension) {
-      continue;
-    }
     const relativePath = toPosixRelativePath(runtimeRoot, filePath);
     const fileText = fs.readFileSync(filePath, 'utf8');
     if (lower.endsWith('.json')) {
@@ -392,6 +396,48 @@ function importRemainingLegacyLogFiles(runtimeRoot: string): void {
   }
 }
 
+function importRemainingLegacyRuntimeFiles(runtimeRoot: string, databasePath: string): void {
+  for (const filePath of collectLegacyRuntimeFiles(runtimeRoot, databasePath)) {
+    const relativePath = toPosixRelativePath(runtimeRoot, filePath);
+    const fileText = fs.readFileSync(filePath, 'utf8');
+    if (filePath.toLowerCase().endsWith('.json')) {
+      try {
+        const payload = JSON.parse(fileText) as unknown;
+        if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+          upsertRuntimeJsonArtifact({
+            id: `legacy:${relativePath}`,
+            artifactKind: 'legacy_runtime_file_json',
+            title: relativePath,
+            payload: payload as Dict,
+          });
+        } else {
+          upsertRuntimeTextArtifact({
+            id: `legacy:${relativePath}`,
+            artifactKind: 'legacy_runtime_file_text',
+            title: relativePath,
+            content: fileText,
+          });
+        }
+      } catch {
+        upsertRuntimeTextArtifact({
+          id: `legacy:${relativePath}`,
+          artifactKind: 'legacy_runtime_file_text',
+          title: relativePath,
+          content: fileText,
+        });
+      }
+    } else {
+      upsertRuntimeTextArtifact({
+        id: `legacy:${relativePath}`,
+        artifactKind: 'legacy_runtime_file_text',
+        title: relativePath,
+        content: fileText,
+      });
+    }
+    fs.rmSync(filePath, { force: true });
+  }
+}
+
 function collectLegacyRuntimeFiles(runtimeRoot: string, databasePath: string): string[] {
   const allowed = new Set<string>([
     path.resolve(databasePath),
@@ -404,23 +450,7 @@ function collectLegacyRuntimeFiles(runtimeRoot: string, databasePath: string): s
       if (allowed.has(targetPath)) {
         return false;
       }
-      const relative = toPosixRelativePath(runtimeRoot, targetPath).toLowerCase();
-      if (relative === 'config.json') return true;
-      if (relative === 'status/inference.txt') return true;
-      if (relative === 'status/compression-metrics.json') return true;
-      if (relative === 'metrics/compression.json') return true;
-      if (relative === 'metrics/observed-budget.json') return true;
-      if (relative === 'status/idle-summary.sqlite') return true;
-      if (relative === 'status/idle-summary.sqlite-wal') return true;
-      if (relative === 'status/idle-summary.sqlite-shm') return true;
-      if (/^chat\/sessions\/session_.+\.json$/u.test(relative)) return true;
-      if (relative.startsWith('logs/') && (relative.endsWith('.json') || relative.endsWith('.jsonl') || relative.endsWith('.txt'))) {
-        return true;
-      }
-      if (relative.startsWith('eval/results/') && relative.endsWith('.json')) {
-        return true;
-      }
-      return false;
+      return true;
     });
 }
 
@@ -437,14 +467,6 @@ export function runRuntimeCutoverMigration(): void {
   const databasePath = getRuntimeDatabasePath();
   const alreadyMigrated = Boolean(getRuntimeMetadataValue(RUNTIME_CUTOVER_MARKER_KEY, databasePath));
 
-  if (alreadyMigrated) {
-    const offendingFiles = collectLegacyRuntimeFiles(runtimeRoot, databasePath);
-    if (offendingFiles.length > 0) {
-      throw new Error(getLegacyRuntimeErrorMessage(runtimeRoot, offendingFiles));
-    }
-    return;
-  }
-
   const database = getRuntimeDatabase(databasePath);
   ensureIdleSummarySnapshotsTable(database);
   ensureRunLogsTable(database);
@@ -458,13 +480,16 @@ export function runRuntimeCutoverMigration(): void {
   migrateExistingRunLogsToDbAndDeleteBounded(database);
   importRemainingLegacyLogFiles(runtimeRoot);
   importLegacyEvalAndBenchmarkJson(runtimeRoot, database);
+  importRemainingLegacyRuntimeFiles(runtimeRoot, databasePath);
 
   const offendingFiles = collectLegacyRuntimeFiles(runtimeRoot, databasePath);
   if (offendingFiles.length > 0) {
     throw new Error(getLegacyRuntimeErrorMessage(runtimeRoot, offendingFiles));
   }
 
-  setRuntimeMetadataValue(RUNTIME_CUTOVER_MARKER_KEY, new Date().toISOString(), databasePath);
+  if (!alreadyMigrated) {
+    setRuntimeMetadataValue(RUNTIME_CUTOVER_MARKER_KEY, new Date().toISOString(), databasePath);
+  }
 }
 
 export { RUNTIME_CUTOVER_MARKER_KEY };

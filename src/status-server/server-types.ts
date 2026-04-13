@@ -3,6 +3,7 @@ import type { ChildProcess } from 'node:child_process';
 import type Database from 'better-sqlite3';
 import type { Metrics } from './metrics.js';
 import type { Dict } from '../lib/types.js';
+import type { ManagedLlamaStreamKind } from '../state/managed-llama-runs.js';
 
 export type { Dict };
 export type DatabaseInstance = InstanceType<typeof Database>;
@@ -26,20 +27,15 @@ export type ActiveRunState = {
 export type ExecutionLease = { token: string; heartbeatAt: number };
 export type ModelRequestLock = { token: string; kind: string; startedAtUtc: string };
 
-export type ManagedLlamaLogPaths = {
-  directory: string;
-  scriptStdoutPath: string;
-  scriptStderrPath: string;
-  llamaStdoutPath: string;
-  llamaStderrPath: string;
-  startupDumpPath: string;
-  latestStartupDumpPath: string;
-  failureDumpPath: string;
+export type ManagedLlamaLogRef = {
+  runId: string;
+  purpose: string;
+  scriptPath: string | null;
+  baseUrl: string | null;
 };
 
-export type SpawnedScript = { child: ChildProcess; logPaths: ManagedLlamaLogPaths };
+export type SpawnedScript = { child: ChildProcess; logRef: ManagedLlamaLogRef };
 export type SpawnScriptOptions = {
-  logPaths?: ManagedLlamaLogPaths;
   syncOnly?: boolean;
   managedVerboseLogging?: boolean;
   managedVerboseArgs?: string[];
@@ -47,7 +43,7 @@ export type SpawnScriptOptions = {
 export type EnsureManagedLlamaOptions = { resetStatusBeforeCheck?: boolean };
 export type ShutdownManagedLlamaOptions = { force?: boolean; timeoutMs?: number };
 export type StartupReviewOptions = { result?: string; baseUrl?: string; errorMessage?: string };
-export type LogEntry = { label: string; filePath: string; text: string; matchingLines: string[] };
+export type LogEntry = { label: string; streamKind: ManagedLlamaStreamKind; text: string; matchingLines: string[] };
 
 export type ExtendedServer = http.Server & {
   shutdownManagedLlamaForServerExit?: () => Promise<void>;
@@ -93,9 +89,10 @@ export type ServerContext = {
   managedLlamaStartupPromise: Promise<void> | null;
   managedLlamaShutdownPromise: Promise<void> | null;
   managedLlamaHostProcess: ChildProcess | null;
-  managedLlamaLastStartupLogs: ManagedLlamaLogPaths | null;
+  managedLlamaLastStartupLogs: ManagedLlamaLogRef | null;
   managedLlamaStarting: boolean;
   managedLlamaReady: boolean;
+  managedLlamaStartupWarning: string | null;
   bootstrapManagedLlamaStartup: boolean;
 
   // GPU lock

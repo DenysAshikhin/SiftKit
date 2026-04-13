@@ -6,6 +6,8 @@ import {
   streamPlanMessage,
   createChatSession,
   deleteChatSession,
+  getDashboardConfig,
+  getDashboardHealth,
   getChatSession,
   getChatSessions,
   getIdleSummary,
@@ -14,6 +16,7 @@ import {
   getRuns,
   streamChatMessage,
   streamRepoSearchMessage,
+  updateDashboardConfig,
   updateChatSession,
 } from './api';
 import ReactMarkdown from 'react-markdown';
@@ -33,6 +36,7 @@ import {
 import type {
   ChatSession,
   ContextUsage,
+  DashboardConfig,
   IdleSummarySnapshot,
   MetricDay,
   TaskMetricDay,
@@ -41,8 +45,14 @@ import type {
   RunRecord,
 } from './types';
 
-type TabKey = 'runs' | 'metrics' | 'chat';
+type TabKey = 'runs' | 'metrics' | 'chat' | 'settings';
 type RunGroupKey = 'summary' | 'chat' | 'repo_search' | 'planner' | 'other';
+type ToastLevel = 'info' | 'warning' | 'error';
+type ToastMessage = {
+  id: string;
+  level: ToastLevel;
+  text: string;
+};
 
 function readSearchParams(): URLSearchParams {
   return new URLSearchParams(window.location.search);
@@ -659,6 +669,20 @@ function extractFinishOutput(raw: string): string {
     .replace(/\\\\/g, '\\');
 }
 
+function cloneDashboardConfig(config: DashboardConfig): DashboardConfig {
+  return JSON.parse(JSON.stringify(config)) as DashboardConfig;
+}
+
+function parseIntegerInput(value: string, fallback: number): number {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseFloatInput(value: string, fallback: number): number {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 export function App() {
   const params = readSearchParams();
   const [tab, setTab] = useState<TabKey>((params.get('tab') as TabKey) || 'runs');
@@ -690,6 +714,14 @@ export function App() {
   const [chatError, setChatError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [chatBusy, setChatBusy] = useState(false);
+  const [dashboardConfig, setDashboardConfig] = useState<DashboardConfig | null>(null);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsSavedAtUtc, setSettingsSavedAtUtc] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const managedLlamaWarningRef = useRef<string | null>(null);
+  const healthCheckErrorRef = useRef<string | null>(null);
   const [thinkingDraft, setThinkingDraft] = useState('');
   const [answerDraft, setAnswerDraft] = useState('');
   const [planRepoRootInput, setPlanRepoRootInput] = useState('');
@@ -757,6 +789,22 @@ export function App() {
     color: entry.color,
     points: entry.points,
   }));
+
+  function dismissToast(id: string): void {
+    setToasts((previous) => previous.filter((toast) => toast.id !== id));
+  }
+
+  function enqueueToast(level: ToastLevel, text: string): void {
+    const normalized = String(text || '').trim();
+    if (!normalized) {
+      return;
+    }
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setToasts((previous) => [...previous, { id, level, text: normalized }].slice(-5));
+    window.setTimeout(() => {
+      setToasts((previous) => previous.filter((toast) => toast.id !== id));
+    }, 9000);
+  }
   const isRepoSearchRunSelected = selectedRunDetail
     ? classifyRunGroup(selectedRunDetail.run.kind) === 'repo_search'
     : false;
@@ -937,6 +985,89 @@ export function App() {
       cancelled = true;
     };
   }, [selectedSessionId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let pollTimer: ReturnType<typeof window.setTimeout> | null = null;
+    async function pollHealth(): Promise<void> {
+      try {
+        const health = await getDashboardHealth();
+        if (cancelled) {
+          return;
+        }
+        healthCheckErrorRef.current = null;
+        const warning = typeof health.managedLlamaStartupWarning === 'string' && health.managedLlamaStartupWarning.trim()
+          ? health.managedLlamaStartupWarning.trim()
+          : null;
+        if (warning && warning !== managedLlamaWarningRef.current) {
+          enqueueToast('warning', `Managed llama.cpp unavailable: ${warning}`);
+        } else if (!warning && managedLlamaWarningRef.current) {
+          enqueueToast('info', 'Managed llama.cpp recovered.');
+        }
+        managedLlamaWarningRef.current = warning;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!cancelled && message !== healthCheckErrorRef.current) {
+          healthCheckErrorRef.current = message;
+          enqueueToast('error', `Dashboard health check failed: ${message}`);
+        }
+      } finally {
+        if (!cancelled) {
+          pollTimer = window.setTimeout(() => {
+            void pollHealth();
+          }, 10_000);
+        }
+      }
+    }
+    void pollHealth();
+    return () => {
+      cancelled = true;
+      if (pollTimer !== null) {
+        window.clearTimeout(pollTimer);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (tab !== 'settings') {
+      return;
+    }
+    let cancelled = false;
+    async function refreshConfig() {
+      setSettingsLoading(true);
+      setSettingsError(null);
+      try {
+        const response = await getDashboardConfig();
+        if (!cancelled) {
+          setDashboardConfig(response);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setSettingsError(error instanceof Error ? error.message : String(error));
+        }
+      } finally {
+        if (!cancelled) {
+          setSettingsLoading(false);
+        }
+      }
+    }
+    void refreshConfig();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab]);
+
+  function updateSettingsDraft(updater: (next: DashboardConfig) => void): void {
+    setDashboardConfig((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      const next = cloneDashboardConfig(previous);
+      updater(next);
+      return next;
+    });
+    setSettingsSavedAtUtc(null);
+  }
 
   useEffect(() => {
     setPlanRepoRootInput(selectedSession?.planRepoRoot || '');
@@ -1264,6 +1395,37 @@ export function App() {
     }
   }
 
+  async function onSaveDashboardSettings(): Promise<void> {
+    if (!dashboardConfig) {
+      return;
+    }
+    setSettingsSaving(true);
+    setSettingsError(null);
+    try {
+      const updated = await updateDashboardConfig(dashboardConfig);
+      setDashboardConfig(updated);
+      setSettingsSavedAtUtc(new Date().toISOString());
+    } catch (error) {
+      setSettingsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSettingsSaving(false);
+    }
+  }
+
+  async function onReloadDashboardSettings(): Promise<void> {
+    setSettingsLoading(true);
+    setSettingsError(null);
+    try {
+      const response = await getDashboardConfig();
+      setDashboardConfig(response);
+      setSettingsSavedAtUtc(null);
+    } catch (error) {
+      setSettingsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSettingsLoading(false);
+    }
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -1307,12 +1469,39 @@ export function App() {
               >
                 Chat
               </button>
+              <button
+                className={tab === 'settings' ? 'active' : ''}
+                onClick={() => {
+                  setTab('settings');
+                  setMenuOpen(false);
+                }}
+              >
+                Settings
+              </button>
             </div>
           ) : null}
         </div>
         <h1>SiftKit Local Dashboard</h1>
         <p>Runs, logs, metrics, and local chat context tracking.</p>
       </header>
+
+      {toasts.length > 0 && (
+        <section className="toast-stack" aria-live="polite" aria-atomic="true">
+          {toasts.map((toast) => (
+            <article key={toast.id} className={`toast ${toast.level}`}>
+              <span>{toast.text}</span>
+              <button
+                type="button"
+                className="toast-dismiss"
+                onClick={() => dismissToast(toast.id)}
+                aria-label="Dismiss notification"
+              >
+                x
+              </button>
+            </article>
+          ))}
+        </section>
+      )}
 
       {tab === 'runs' && (
         <section className="panel-grid">
@@ -1666,6 +1855,359 @@ export function App() {
               />
             ) : (
               <p className="hint">No per-task metrics available yet.</p>
+            )}
+          </section>
+        </section>
+      )}
+
+      {tab === 'settings' && (
+        <section className="panel-grid">
+          <section className="panel">
+            <h2>Settings</h2>
+            <p className="hint">Configure all runtime options, including llama.cpp model path and generation parameters.</p>
+            {settingsLoading && <p className="hint">Loading config...</p>}
+            {settingsError && <p className="error">{settingsError}</p>}
+            {dashboardConfig && (
+              <div className="filters" style={{ gap: '0.65rem' }}>
+                <input
+                  placeholder="Version"
+                  value={dashboardConfig.Version}
+                  onChange={(event) => updateSettingsDraft((next) => { next.Version = event.target.value; })}
+                />
+                <input
+                  placeholder="Backend"
+                  value={dashboardConfig.Backend}
+                  onChange={(event) => updateSettingsDraft((next) => { next.Backend = event.target.value; })}
+                />
+                <input
+                  placeholder="Policy Mode"
+                  value={dashboardConfig.PolicyMode}
+                  onChange={(event) => updateSettingsDraft((next) => { next.PolicyMode = event.target.value; })}
+                />
+                <label className="hint">
+                  <input
+                    type="checkbox"
+                    checked={dashboardConfig.RawLogRetention}
+                    onChange={(event) => updateSettingsDraft((next) => { next.RawLogRetention = event.target.checked; })}
+                  />
+                  {' '}Raw log retention
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="Prompt prefix"
+                  value={dashboardConfig.PromptPrefix || ''}
+                  onChange={(event) => updateSettingsDraft((next) => { next.PromptPrefix = event.target.value; })}
+                />
+                <input
+                  placeholder="Runtime model id"
+                  value={dashboardConfig.Runtime.Model}
+                  onChange={(event) => updateSettingsDraft((next) => {
+                    next.Runtime.Model = event.target.value;
+                    next.Model = event.target.value;
+                  })}
+                />
+                <input
+                  placeholder="llama.cpp Base URL"
+                  value={dashboardConfig.Runtime.LlamaCpp.BaseUrl}
+                  onChange={(event) => updateSettingsDraft((next) => {
+                    next.Runtime.LlamaCpp.BaseUrl = event.target.value;
+                    next.LlamaCpp.BaseUrl = event.target.value;
+                  })}
+                />
+                <input
+                  placeholder="Model path (.gguf)"
+                  value={dashboardConfig.Runtime.LlamaCpp.ModelPath || ''}
+                  onChange={(event) => updateSettingsDraft((next) => {
+                    const value = event.target.value.trim();
+                    next.Runtime.LlamaCpp.ModelPath = value || null;
+                    next.LlamaCpp.ModelPath = value || null;
+                  })}
+                />
+                <div className="settings-inline-row">
+                  <label>NumCtx</label>
+                  <input
+                    type="number"
+                    value={dashboardConfig.Runtime.LlamaCpp.NumCtx}
+                    onChange={(event) => updateSettingsDraft((next) => {
+                      const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.NumCtx);
+                      next.Runtime.LlamaCpp.NumCtx = value;
+                      next.LlamaCpp.NumCtx = value;
+                    })}
+                  />
+                  <label>MaxTokens</label>
+                  <input
+                    type="number"
+                    value={dashboardConfig.Runtime.LlamaCpp.MaxTokens}
+                    onChange={(event) => updateSettingsDraft((next) => {
+                      const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.MaxTokens);
+                      next.Runtime.LlamaCpp.MaxTokens = value;
+                      next.LlamaCpp.MaxTokens = value;
+                    })}
+                  />
+                  <label>Threads</label>
+                  <input
+                    type="number"
+                    value={dashboardConfig.Runtime.LlamaCpp.Threads}
+                    onChange={(event) => updateSettingsDraft((next) => {
+                      const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.Threads);
+                      next.Runtime.LlamaCpp.Threads = value;
+                      next.LlamaCpp.Threads = value;
+                    })}
+                  />
+                  <label>GpuLayers</label>
+                  <input
+                    type="number"
+                    value={dashboardConfig.Runtime.LlamaCpp.GpuLayers}
+                    onChange={(event) => updateSettingsDraft((next) => {
+                      const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.GpuLayers);
+                      next.Runtime.LlamaCpp.GpuLayers = value;
+                      next.LlamaCpp.GpuLayers = value;
+                    })}
+                  />
+                </div>
+                <div className="settings-inline-row">
+                  <label>Temperature</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={dashboardConfig.Runtime.LlamaCpp.Temperature}
+                    onChange={(event) => updateSettingsDraft((next) => {
+                      const value = parseFloatInput(event.target.value, next.Runtime.LlamaCpp.Temperature);
+                      next.Runtime.LlamaCpp.Temperature = value;
+                      next.LlamaCpp.Temperature = value;
+                    })}
+                  />
+                  <label>TopP</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={dashboardConfig.Runtime.LlamaCpp.TopP}
+                    onChange={(event) => updateSettingsDraft((next) => {
+                      const value = parseFloatInput(event.target.value, next.Runtime.LlamaCpp.TopP);
+                      next.Runtime.LlamaCpp.TopP = value;
+                      next.LlamaCpp.TopP = value;
+                    })}
+                  />
+                  <label>TopK</label>
+                  <input
+                    type="number"
+                    value={dashboardConfig.Runtime.LlamaCpp.TopK}
+                    onChange={(event) => updateSettingsDraft((next) => {
+                      const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.TopK);
+                      next.Runtime.LlamaCpp.TopK = value;
+                      next.LlamaCpp.TopK = value;
+                    })}
+                  />
+                  <label>MinP</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={dashboardConfig.Runtime.LlamaCpp.MinP}
+                    onChange={(event) => updateSettingsDraft((next) => {
+                      const value = parseFloatInput(event.target.value, next.Runtime.LlamaCpp.MinP);
+                      next.Runtime.LlamaCpp.MinP = value;
+                      next.LlamaCpp.MinP = value;
+                    })}
+                  />
+                </div>
+                <div className="settings-inline-row">
+                  <label>PresencePenalty</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={dashboardConfig.Runtime.LlamaCpp.PresencePenalty}
+                    onChange={(event) => updateSettingsDraft((next) => {
+                      const value = parseFloatInput(event.target.value, next.Runtime.LlamaCpp.PresencePenalty);
+                      next.Runtime.LlamaCpp.PresencePenalty = value;
+                      next.LlamaCpp.PresencePenalty = value;
+                    })}
+                  />
+                  <label>RepetitionPenalty</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={dashboardConfig.Runtime.LlamaCpp.RepetitionPenalty}
+                    onChange={(event) => updateSettingsDraft((next) => {
+                      const value = parseFloatInput(event.target.value, next.Runtime.LlamaCpp.RepetitionPenalty);
+                      next.Runtime.LlamaCpp.RepetitionPenalty = value;
+                      next.LlamaCpp.RepetitionPenalty = value;
+                    })}
+                  />
+                  <label>ParallelSlots</label>
+                  <input
+                    type="number"
+                    value={dashboardConfig.Runtime.LlamaCpp.ParallelSlots}
+                    onChange={(event) => updateSettingsDraft((next) => {
+                      const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.ParallelSlots);
+                      next.Runtime.LlamaCpp.ParallelSlots = value;
+                      next.LlamaCpp.ParallelSlots = value;
+                    })}
+                  />
+                  <label>Reasoning</label>
+                  <select
+                    value={dashboardConfig.Runtime.LlamaCpp.Reasoning}
+                    onChange={(event) => updateSettingsDraft((next) => {
+                      const value = event.target.value as 'on' | 'off' | 'auto';
+                      next.Runtime.LlamaCpp.Reasoning = value;
+                      next.LlamaCpp.Reasoning = value;
+                    })}
+                  >
+                    <option value="off">off</option>
+                    <option value="on">on</option>
+                    <option value="auto">auto</option>
+                  </select>
+                </div>
+                <label className="hint">
+                  <input
+                    type="checkbox"
+                    checked={dashboardConfig.Runtime.LlamaCpp.FlashAttention}
+                    onChange={(event) => updateSettingsDraft((next) => {
+                      next.Runtime.LlamaCpp.FlashAttention = event.target.checked;
+                      next.LlamaCpp.FlashAttention = event.target.checked;
+                    })}
+                  />
+                  {' '}Flash attention
+                </label>
+                <div className="settings-inline-row">
+                  <label>MinCharsForSummary</label>
+                  <input
+                    type="number"
+                    value={dashboardConfig.Thresholds.MinCharactersForSummary}
+                    onChange={(event) => updateSettingsDraft((next) => {
+                      next.Thresholds.MinCharactersForSummary = parseIntegerInput(event.target.value, next.Thresholds.MinCharactersForSummary);
+                    })}
+                  />
+                  <label>MinLinesForSummary</label>
+                  <input
+                    type="number"
+                    value={dashboardConfig.Thresholds.MinLinesForSummary}
+                    onChange={(event) => updateSettingsDraft((next) => {
+                      next.Thresholds.MinLinesForSummary = parseIntegerInput(event.target.value, next.Thresholds.MinLinesForSummary);
+                    })}
+                  />
+                </div>
+                <div className="settings-inline-row">
+                  <label>Interactive IdleTimeoutMs</label>
+                  <input
+                    type="number"
+                    value={dashboardConfig.Interactive.IdleTimeoutMs}
+                    onChange={(event) => updateSettingsDraft((next) => {
+                      next.Interactive.IdleTimeoutMs = parseIntegerInput(event.target.value, next.Interactive.IdleTimeoutMs);
+                    })}
+                  />
+                  <label>MaxTranscriptChars</label>
+                  <input
+                    type="number"
+                    value={dashboardConfig.Interactive.MaxTranscriptCharacters}
+                    onChange={(event) => updateSettingsDraft((next) => {
+                      next.Interactive.MaxTranscriptCharacters = parseIntegerInput(event.target.value, next.Interactive.MaxTranscriptCharacters);
+                    })}
+                  />
+                </div>
+                <input
+                  placeholder="Wrapped commands (comma separated)"
+                  value={dashboardConfig.Interactive.WrappedCommands.join(', ')}
+                  onChange={(event) => updateSettingsDraft((next) => {
+                    next.Interactive.WrappedCommands = event.target.value
+                      .split(',')
+                      .map((entry) => entry.trim())
+                      .filter(Boolean);
+                  })}
+                />
+                <label className="hint">
+                  <input
+                    type="checkbox"
+                    checked={dashboardConfig.Interactive.Enabled}
+                    onChange={(event) => updateSettingsDraft((next) => { next.Interactive.Enabled = event.target.checked; })}
+                  />
+                  {' '}Interactive enabled
+                </label>
+                <label className="hint">
+                  <input
+                    type="checkbox"
+                    checked={dashboardConfig.Interactive.TranscriptRetention}
+                    onChange={(event) => updateSettingsDraft((next) => { next.Interactive.TranscriptRetention = event.target.checked; })}
+                  />
+                  {' '}Interactive transcript retention
+                </label>
+                <input
+                  placeholder="Startup script path"
+                  value={dashboardConfig.Server.LlamaCpp.StartupScript || ''}
+                  onChange={(event) => updateSettingsDraft((next) => {
+                    const value = event.target.value.trim();
+                    next.Server.LlamaCpp.StartupScript = value || null;
+                  })}
+                />
+                <input
+                  placeholder="Shutdown script path"
+                  value={dashboardConfig.Server.LlamaCpp.ShutdownScript || ''}
+                  onChange={(event) => updateSettingsDraft((next) => {
+                    const value = event.target.value.trim();
+                    next.Server.LlamaCpp.ShutdownScript = value || null;
+                  })}
+                />
+                <div className="settings-inline-row">
+                  <label>StartupTimeoutMs</label>
+                  <input
+                    type="number"
+                    value={dashboardConfig.Server.LlamaCpp.StartupTimeoutMs}
+                    onChange={(event) => updateSettingsDraft((next) => {
+                      next.Server.LlamaCpp.StartupTimeoutMs = parseIntegerInput(event.target.value, next.Server.LlamaCpp.StartupTimeoutMs);
+                    })}
+                  />
+                  <label>HealthcheckTimeoutMs</label>
+                  <input
+                    type="number"
+                    value={dashboardConfig.Server.LlamaCpp.HealthcheckTimeoutMs}
+                    onChange={(event) => updateSettingsDraft((next) => {
+                      next.Server.LlamaCpp.HealthcheckTimeoutMs = parseIntegerInput(event.target.value, next.Server.LlamaCpp.HealthcheckTimeoutMs);
+                    })}
+                  />
+                  <label>HealthcheckIntervalMs</label>
+                  <input
+                    type="number"
+                    value={dashboardConfig.Server.LlamaCpp.HealthcheckIntervalMs}
+                    onChange={(event) => updateSettingsDraft((next) => {
+                      next.Server.LlamaCpp.HealthcheckIntervalMs = parseIntegerInput(event.target.value, next.Server.LlamaCpp.HealthcheckIntervalMs);
+                    })}
+                  />
+                </div>
+                <label className="hint">
+                  <input
+                    type="checkbox"
+                    checked={dashboardConfig.Server.LlamaCpp.VerboseLogging}
+                    onChange={(event) => updateSettingsDraft((next) => { next.Server.LlamaCpp.VerboseLogging = event.target.checked; })}
+                  />
+                  {' '}Managed llama verbose logging
+                </label>
+                <input
+                  placeholder="Additional llama.cpp args (comma separated)"
+                  value={dashboardConfig.Server.LlamaCpp.VerboseArgs.join(', ')}
+                  onChange={(event) => updateSettingsDraft((next) => {
+                    next.Server.LlamaCpp.VerboseArgs = event.target.value
+                      .split(',')
+                      .map((entry) => entry.trim())
+                      .filter(Boolean);
+                  })}
+                />
+                <div className="settings-inline-row">
+                  <button
+                    type="button"
+                    onClick={() => { void onReloadDashboardSettings(); }}
+                    disabled={settingsSaving || settingsLoading}
+                  >
+                    Reload
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { void onSaveDashboardSettings(); }}
+                    disabled={settingsSaving || settingsLoading}
+                  >
+                    {settingsSaving ? 'Saving...' : 'Save Settings'}
+                  </button>
+                  {settingsSavedAtUtc && <span className="hint">Saved {formatDate(settingsSavedAtUtc)}</span>}
+                </div>
+              </div>
             )}
           </section>
         </section>

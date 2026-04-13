@@ -89,8 +89,10 @@ export type MatrixCliOptions = {
 };
 
 export type RunEntry = {
-  index: number;
   id: string;
+  uri: string;
+  index: number;
+  runId: string;
   label: string;
   modelId: string;
   modelPath: string;
@@ -98,9 +100,7 @@ export type RunEntry = {
   promptPrefixFile: string | null;
   reasoning: 'on' | 'off' | 'auto';
   sampling: BenchmarkSampling | null;
-  outputPath: string;
-  benchmarkStdoutPath: string | null;
-  benchmarkStderrPath: string | null;
+  benchmarkRunUri: string | null;
   startedAtUtc: string;
   completedAtUtc: string | null;
   status: 'running' | 'completed' | 'failed';
@@ -108,18 +108,16 @@ export type RunEntry = {
 };
 
 export type MatrixIndex = {
+  id: string;
+  uri: string;
   manifestPath: string;
-  resolvedManifestPath: string;
   fixtureRoot: string;
-  resultsRoot: string;
-  sessionDirectory: string;
   configUrl: string;
   promptPrefixFile: string | null;
   selectedRunIds: string[];
   startedAtUtc: string;
   completedAtUtc: string | null;
   status: 'running' | 'completed' | 'failed';
-  configSnapshotPath: string;
   baselineRestore: {
     status: 'pending' | 'completed' | 'failed';
     error: string | null;
@@ -134,14 +132,15 @@ export type ConfigRecord = Record<string, unknown> & {
 };
 
 export type LaunchResult = {
+  runId: string;
   hostProcessId: number;
-  stdoutPath: string;
-  stderrPath: string;
 };
 
 export type BenchmarkProcessResult = {
-  stdoutPath: string;
-  stderrPath: string;
+  runId: string;
+  benchmarkRunUri: string;
+  stdoutText: string;
+  stderrText: string;
   exitCode: number;
 };
 

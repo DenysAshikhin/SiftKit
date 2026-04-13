@@ -147,6 +147,9 @@ export async function handleCoreRoute(
     sendJson(res, 200, {
       ok: true,
       disableManagedLlamaStartup,
+      managedLlamaReady: ctx.managedLlamaReady,
+      managedLlamaStarting: ctx.managedLlamaStarting,
+      managedLlamaStartupWarning: ctx.managedLlamaStartupWarning,
       statusPath,
       configPath,
       metricsPath,

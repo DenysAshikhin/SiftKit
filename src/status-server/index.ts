@@ -165,6 +165,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     managedLlamaLastStartupLogs: null,
     managedLlamaStarting: false,
     managedLlamaReady: false,
+    managedLlamaStartupWarning: null,
     bootstrapManagedLlamaStartup: false,
     siftKitOwnsGpuLock: false,
     siftKitWaitingForGpuLock: false,
@@ -199,20 +200,32 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
 
   server.listen(Number.isFinite(requestedPort) ? requestedPort : 4765, host, async () => {
     try {
+      let startupWarning: string | null = null;
       if (!disableManagedLlamaStartup) {
-        await syncManagedLlamaConfigFromStartupScriptIfNeeded(ctx);
-        await clearPreexistingManagedLlamaIfNeeded(ctx);
-        ctx.bootstrapManagedLlamaStartup = true;
         try {
-          await ensureManagedLlamaReady(ctx, { resetStatusBeforeCheck: false });
-        } finally {
+          await syncManagedLlamaConfigFromStartupScriptIfNeeded(ctx);
+          await clearPreexistingManagedLlamaIfNeeded(ctx);
+          ctx.bootstrapManagedLlamaStartup = true;
+          try {
+            await ensureManagedLlamaReady(ctx, { resetStatusBeforeCheck: false });
+            ctx.managedLlamaStartupWarning = null;
+          } finally {
+            ctx.bootstrapManagedLlamaStartup = false;
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          startupWarning = message;
+          ctx.managedLlamaStartupWarning = message;
+          ctx.managedLlamaReady = false;
           ctx.bootstrapManagedLlamaStartup = false;
+          dumpManagedLlamaStartupReviewToConsole(ctx.managedLlamaLastStartupLogs);
+          process.stderr.write(`[siftKitStatus] Managed llama startup failed; continuing in degraded mode: ${message}\n`);
         }
       }
       publishStatus(ctx);
       const address = server.address();
       const port = typeof address === 'object' && address ? address.port : requestedPort;
-      process.stdout.write(`${JSON.stringify({ ok: true, port, host, statusPath, configPath })}\n`);
+      process.stdout.write(`${JSON.stringify({ ok: true, port, host, statusPath, configPath, startupWarning })}\n`);
       resolveStartupPromise();
     } catch (error) {
       rejectStartupPromise(error);

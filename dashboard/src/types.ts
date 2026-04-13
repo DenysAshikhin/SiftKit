@@ -179,3 +179,70 @@ export type ChatSessionResponse = {
 export type ChatSessionsResponse = {
   sessions: ChatSession[];
 };
+
+export type DashboardLlamaCppConfig = {
+  BaseUrl: string;
+  NumCtx: number;
+  ModelPath: string | null;
+  Temperature: number;
+  TopP: number;
+  TopK: number;
+  MinP: number;
+  PresencePenalty: number;
+  RepetitionPenalty: number;
+  MaxTokens: number;
+  GpuLayers: number;
+  Threads: number;
+  FlashAttention: boolean;
+  ParallelSlots: number;
+  Reasoning: 'on' | 'off' | 'auto';
+};
+
+export type DashboardConfig = {
+  Version: string;
+  Backend: string;
+  PolicyMode: string;
+  RawLogRetention: boolean;
+  PromptPrefix: string;
+  Model?: string;
+  LlamaCpp: DashboardLlamaCppConfig;
+  Runtime: {
+    Model: string;
+    LlamaCpp: DashboardLlamaCppConfig;
+  };
+  Thresholds: {
+    MinCharactersForSummary: number;
+    MinLinesForSummary: number;
+  };
+  Interactive: {
+    Enabled: boolean;
+    WrappedCommands: string[];
+    IdleTimeoutMs: number;
+    MaxTranscriptCharacters: number;
+    TranscriptRetention: boolean;
+  };
+  Server: {
+    LlamaCpp: {
+      StartupScript: string | null;
+      ShutdownScript: string | null;
+      StartupTimeoutMs: number;
+      HealthcheckTimeoutMs: number;
+      HealthcheckIntervalMs: number;
+      VerboseLogging: boolean;
+      VerboseArgs: string[];
+    };
+  };
+};
+
+export type DashboardHealth = {
+  ok: boolean;
+  disableManagedLlamaStartup: boolean;
+  managedLlamaReady: boolean;
+  managedLlamaStarting: boolean;
+  managedLlamaStartupWarning: string | null;
+  statusPath: string;
+  configPath: string;
+  metricsPath: string;
+  idleSummarySnapshotsPath: string;
+  runtimeRoot: string;
+};

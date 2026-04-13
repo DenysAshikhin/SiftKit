@@ -1,4 +1,6 @@
 import type {
+  DashboardConfig,
+  DashboardHealth,
   ChatSessionResponse,
   ChatSessionsResponse,
   IdleSummaryResponse,
@@ -54,6 +56,22 @@ export function getIdleSummary(limit = 30): Promise<IdleSummaryResponse> {
   const query = new URLSearchParams();
   query.set('limit', String(limit));
   return fetchJson<IdleSummaryResponse>(`/dashboard/metrics/idle-summary?${query.toString()}`);
+}
+
+export function getDashboardConfig(): Promise<DashboardConfig> {
+  return fetchJson<DashboardConfig>('/config');
+}
+
+export function updateDashboardConfig(config: DashboardConfig): Promise<DashboardConfig> {
+  return fetchJson<DashboardConfig>('/config', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+}
+
+export function getDashboardHealth(): Promise<DashboardHealth> {
+  return fetchJson<DashboardHealth>('/health');
 }
 
 export function getChatSessions(): Promise<ChatSessionsResponse> {

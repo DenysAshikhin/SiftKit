@@ -1,13 +1,9 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import { spawn } from 'node:child_process';
-import { ensureDirectory } from '../lib/fs.js';
+import { appendBenchmarkMatrixLogChunk } from '../state/benchmark-matrix.js';
 import { sleep } from '../lib/time.js';
 import { getRequiredString } from './args.js';
 import { invokeConfigGet, getRuntimeLlamaCppConfigValue, waitForLlamaReadiness } from './config-rpc.js';
-import { readTrimmedFileText } from './manifest.js';
 import { spawnAndWait } from './process.js';
-import { pruneOldLauncherLogs } from './pruning.js';
 import {
   powerShellExe,
   repoRoot,
@@ -15,6 +11,17 @@ import {
   type ResolvedMatrixManifest,
   type ResolvedMatrixTarget,
 } from './types.js';
+
+function appendMatrixLog(runId: string | null, streamKind: Parameters<typeof appendBenchmarkMatrixLogChunk>[0]['streamKind'], chunk: string): void {
+  if (!runId || !chunk) {
+    return;
+  }
+  appendBenchmarkMatrixLogChunk({
+    runId,
+    streamKind,
+    chunkText: chunk,
+  });
+}
 
 export function buildLaunchSignature(target: ResolvedMatrixTarget): string {
   return [
@@ -49,17 +56,13 @@ export function buildLauncherArgs(
 export function buildBenchmarkArgs(
   manifest: ResolvedMatrixManifest,
   run: ResolvedMatrixTarget,
-  outputPath: string,
   promptPrefixFile: string | null,
 ): string[] {
   const args = [
-    path.join(repoRoot, 'dist', 'benchmark.js'),
     '--fixture-root',
     manifest.fixtureRoot,
     '--model',
     run.modelId,
-    '--output',
-    outputPath,
   ];
   if (promptPrefixFile) {
     args.push('--prompt-prefix-file', promptPrefixFile);
@@ -80,13 +83,18 @@ export function buildBenchmarkArgs(
   return args;
 }
 
-export async function invokeStopScript(stopScriptPath: string): Promise<void> {
+export async function invokeStopScript(stopScriptPath: string, runId: string | null = null): Promise<void> {
   const result = await spawnAndWait({
     filePath: powerShellExe,
     args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', stopScriptPath, '-Force'],
-    cwd: path.dirname(stopScriptPath),
-    stdoutPath: path.join(repoRoot, 'eval', 'results', 'tmp_stop_stdout.log'),
-    stderrPath: path.join(repoRoot, 'eval', 'results', 'tmp_stop_stderr.log'),
+    cwd: repoRoot,
+    env: process.env,
+    onStdoutChunk(chunk: string) {
+      appendMatrixLog(runId, 'stop_stdout', chunk);
+    },
+    onStderrChunk(chunk: string) {
+      appendMatrixLog(runId, 'stop_stderr', chunk);
+    },
   });
 
   if (result.exitCode !== 0) {
@@ -94,9 +102,7 @@ export async function invokeStopScript(stopScriptPath: string): Promise<void> {
   }
 }
 
-export async function forceStopLlamaServer(sessionDirectory: string): Promise<void> {
-  const stdoutPath = path.join(sessionDirectory, 'tmp_force_stop_stdout.log');
-  const stderrPath = path.join(sessionDirectory, 'tmp_force_stop_stderr.log');
+export async function forceStopLlamaServer(runId: string | null = null): Promise<void> {
   const result = await spawnAndWait({
     filePath: powerShellExe,
     args: [
@@ -106,8 +112,13 @@ export async function forceStopLlamaServer(sessionDirectory: string): Promise<vo
       "$existing = Get-Process 'llama-server' -ErrorAction SilentlyContinue; if ($existing) { $existing | Stop-Process -Force }; exit 0",
     ],
     cwd: repoRoot,
-    stdoutPath,
-    stderrPath,
+    env: process.env,
+    onStdoutChunk(chunk: string) {
+      appendMatrixLog(runId, 'force_stop_stdout', chunk);
+    },
+    onStderrChunk(chunk: string) {
+      appendMatrixLog(runId, 'force_stop_stderr', chunk);
+    },
   });
 
   if (result.exitCode !== 0) {
@@ -120,54 +131,55 @@ export async function forceStopLlamaServer(sessionDirectory: string): Promise<vo
 export async function startLlamaLauncher(
   manifest: ResolvedMatrixManifest,
   target: ResolvedMatrixTarget,
-  sessionDirectory: string,
+  runId: string | null = null,
 ): Promise<LaunchResult> {
-  pruneOldLauncherLogs(manifest.resultsRoot);
-  const stdoutPath = path.join(sessionDirectory, `launcher_${target.index}_${target.id}_stdout.log`);
-  const stderrPath = path.join(sessionDirectory, `launcher_${target.index}_${target.id}_stderr.log`);
   const args = buildLauncherArgs(manifest, target);
-
-  ensureDirectory(sessionDirectory);
-  const stdoutFd = fs.openSync(stdoutPath, 'w');
-  const stderrFd = fs.openSync(stderrPath, 'w');
   const child = spawn(powerShellExe, args, {
-    cwd: path.dirname(target.startScript),
-    stdio: ['ignore', stdoutFd, stderrFd],
+    cwd: repoRoot,
+    stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
     detached: false,
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout?.setEncoding('utf8');
+  child.stderr?.setEncoding('utf8');
+  child.stdout?.on('data', (chunk: string | Buffer) => {
+    const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+    stdout = `${stdout}${text}`;
+    appendMatrixLog(runId, 'launcher_stdout', text);
+  });
+  child.stderr?.on('data', (chunk: string | Buffer) => {
+    const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+    stderr = `${stderr}${text}`;
+    appendMatrixLog(runId, 'launcher_stderr', text);
   });
 
   await sleep(1_000);
   const exited = child.exitCode !== null || child.signalCode !== null;
-  fs.closeSync(stdoutFd);
-  fs.closeSync(stderrFd);
-
   if (exited) {
-    const stderrText = readTrimmedFileText(stderrPath);
-    const stdoutText = readTrimmedFileText(stdoutPath);
-    const details = [stderrText, stdoutText].filter(Boolean).join(' ').trim();
+    const details = [stderr.trim(), stdout.trim()].filter(Boolean).join(' ').trim();
     throw new Error(`Launcher process exited before llama-server became ready.${details ? ` ${details}` : ''}`);
   }
 
   return {
+    runId: runId || '',
     hostProcessId: child.pid ?? 0,
-    stdoutPath,
-    stderrPath,
   };
 }
 
 export async function restartLlamaForTarget(
   manifest: ResolvedMatrixManifest,
   target: ResolvedMatrixTarget,
-  sessionDirectory: string,
+  runId: string | null = null,
 ): Promise<void> {
   process.stdout.write(`Restarting llama-server for [${target.id}] ${target.label}\n`);
   if (manifest.stopScript) {
-    await invokeStopScript(manifest.stopScript);
+    await invokeStopScript(manifest.stopScript, runId);
   } else {
-    await forceStopLlamaServer(sessionDirectory);
+    await forceStopLlamaServer(runId);
   }
-  await startLlamaLauncher(manifest, target, sessionDirectory);
+  await startLlamaLauncher(manifest, target, runId);
   const config = await invokeConfigGet(manifest.configUrl);
   const baseUrl = getRequiredString(getRuntimeLlamaCppConfigValue(config, 'BaseUrl'), 'config.Runtime.LlamaCpp.BaseUrl');
   await waitForLlamaReadiness(baseUrl, target.modelId);

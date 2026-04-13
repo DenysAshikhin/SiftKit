@@ -1410,8 +1410,8 @@ if ($emitVerboseEnvFlags) {
   Write-Output \"verbose_logging_env=$($env:SIFTKIT_LLAMA_VERBOSE_LOGGING)\"
   Write-Output \"verbose_args_env=$($env:SIFTKIT_LLAMA_VERBOSE_ARGS_JSON)\"
 }
-if ($llamaLogLine -and $env:SIFTKIT_LLAMA_STDOUT_PATH) {
-  Set-Content -LiteralPath $env:SIFTKIT_LLAMA_STDOUT_PATH -Value $llamaLogLine -Encoding utf8 -NoNewline
+if ($llamaLogLine) {
+  Write-Output $llamaLogLine
 }
 if ($preflightConfigGet -and $ConfigUrl) {
   try {

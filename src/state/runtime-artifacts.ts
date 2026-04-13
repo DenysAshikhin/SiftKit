@@ -13,6 +13,52 @@ export type RuntimeArtifactRecord = {
   updatedAtUtc: string;
 };
 
+export function listRuntimeArtifacts(options: {
+  artifactKind?: string;
+  requestId?: string;
+  limit?: number;
+  databasePath?: string;
+} = {}): RuntimeArtifactRecord[] {
+  const database = getDatabase(options.databasePath);
+  const limit = Number.isFinite(options.limit) ? Math.max(1, Math.trunc(Number(options.limit))) : 200;
+  const artifactKind = String(options.artifactKind || '').trim();
+  const requestId = String(options.requestId || '').trim();
+  const rows = (
+    artifactKind
+      ? database.prepare(`
+        SELECT id, artifact_kind, request_id, title, content_text, content_json, created_at_utc, updated_at_utc
+        FROM runtime_artifacts
+        WHERE artifact_kind = ?
+          AND (? = '' OR request_id = ?)
+        ORDER BY updated_at_utc DESC, id DESC
+        LIMIT ?
+      `).all(artifactKind, requestId, requestId, limit)
+      : database.prepare(`
+        SELECT id, artifact_kind, request_id, title, content_text, content_json, created_at_utc, updated_at_utc
+        FROM runtime_artifacts
+        WHERE (? = '' OR request_id = ?)
+        ORDER BY updated_at_utc DESC, id DESC
+        LIMIT ?
+      `).all(requestId, requestId, limit)
+  ) as Array<Record<string, unknown>>;
+  return rows
+    .map((row) => {
+      const id = typeof row.id === 'string' ? row.id : '';
+      return id ? readRuntimeArtifact(id, options.databasePath) : null;
+    })
+    .filter((entry): entry is RuntimeArtifactRecord => entry !== null);
+}
+
+export function deleteRuntimeArtifact(id: string, databasePath?: string): boolean {
+  const artifactId = String(id || '').trim();
+  if (!artifactId) {
+    return false;
+  }
+  const database = getDatabase(databasePath);
+  const result = database.prepare('DELETE FROM runtime_artifacts WHERE id = ?').run(artifactId);
+  return Number(result.changes) > 0;
+}
+
 function normalizeKind(value: unknown): string {
   const kind = String(value || '').trim();
   return kind || 'artifact';

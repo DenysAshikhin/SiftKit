@@ -1,6 +1,3 @@
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
 import { getConfiguredModel, initializeRuntime, loadConfig } from './config/index.js';
 import { summarizeRequest } from './summary/core.js';
 import { resolveExternalCommand } from './capture/command-path.js';
@@ -44,24 +41,9 @@ export async function runInteractiveCapture(request: InteractiveCaptureRequest):
   });
   const transcriptPath = transcriptArtifact.uri;
   const resolvedCommand = resolveExternalCommand(request.Command);
-  let exitCode = 0;
-
-  let transcriptText = '';
-  try {
-    // captureWithTranscript expects a filesystem target path, so capture into temp text first.
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-interactive-'));
-    const tempPath = path.join(tempDir, 'transcript.log');
-    exitCode = captureWithTranscript(resolvedCommand, request.ArgumentList || [], tempPath);
-    transcriptText = fs.existsSync(tempPath) ? fs.readFileSync(tempPath, 'utf8') : '';
-    try {
-      fs.rmSync(tempDir, { force: true, recursive: true });
-    } catch {
-      // Best effort cleanup.
-    }
-  } catch {
-    transcriptText = '';
-    exitCode = 1;
-  }
+  const captured = captureWithTranscript(resolvedCommand, request.ArgumentList || []);
+  const exitCode = captured.ExitCode;
+  let transcriptText = captured.Transcript;
 
   if (config.Interactive.MaxTranscriptCharacters && transcriptText.length > Number(config.Interactive.MaxTranscriptCharacters)) {
     transcriptText = transcriptText.substring(transcriptText.length - Number(config.Interactive.MaxTranscriptCharacters));

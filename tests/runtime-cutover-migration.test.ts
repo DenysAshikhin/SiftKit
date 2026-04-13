@@ -106,19 +106,59 @@ test('runtime cutover migration imports legacy files and deletes them', () => {
   });
 });
 
-test('runtime cutover migration fails when legacy files reappear after completion', () => {
+test('runtime cutover migration imports and deletes legacy files that reappear after completion', () => {
   withTempRepo((repoRoot) => {
     const runtimeRoot = path.join(repoRoot, '.siftkit');
     runRuntimeCutoverMigration();
 
-    const legacyConfigPath = path.join(runtimeRoot, 'config.json');
-    fs.mkdirSync(path.dirname(legacyConfigPath), { recursive: true });
-    fs.writeFileSync(legacyConfigPath, '{}', 'utf8');
-
-    assert.throws(
-      () => runRuntimeCutoverMigration(),
-      /legacy runtime files detected after migration/i,
+    const staleScriptPath = path.join(runtimeRoot, 'analyze_tool_calls.js');
+    const staleTempPath = path.join(runtimeRoot, '6efed4f6745298.tmp');
+    const staleLogPath = path.join(
+      runtimeRoot,
+      'logs',
+      'managed-llama',
+      '2026-04-13T16-02-13-708Z-1d8275cc-startup',
+      'script.stdout.log',
     );
+    fs.mkdirSync(path.dirname(staleLogPath), { recursive: true });
+    fs.writeFileSync(staleScriptPath, 'console.log("legacy");\n', 'utf8');
+    fs.writeFileSync(staleTempPath, 'temporary transcript\n', 'utf8');
+    fs.writeFileSync(staleLogPath, 'managed llama stdout\n', 'utf8');
+
+    runRuntimeCutoverMigration();
+
+    assert.equal(fs.existsSync(staleScriptPath), false);
+    assert.equal(fs.existsSync(staleTempPath), false);
+    assert.equal(fs.existsSync(staleLogPath), false);
+
+    const database = getRuntimeDatabase(getRuntimeDatabasePath());
+    const artifacts = database.prepare(`
+      SELECT artifact_kind, title, content_text
+      FROM runtime_artifacts
+      WHERE title IN (?, ?, ?)
+      ORDER BY title ASC
+    `).all(
+      '6efed4f6745298.tmp',
+      'analyze_tool_calls.js',
+      'logs/managed-llama/2026-04-13T16-02-13-708Z-1d8275cc-startup/script.stdout.log',
+    ) as Array<{ artifact_kind: string; title: string; content_text: string }>;
+    assert.deepEqual(artifacts, [
+      {
+        artifact_kind: 'legacy_runtime_file_text',
+        title: '6efed4f6745298.tmp',
+        content_text: 'temporary transcript\n',
+      },
+      {
+        artifact_kind: 'legacy_runtime_file_text',
+        title: 'analyze_tool_calls.js',
+        content_text: 'console.log("legacy");\n',
+      },
+      {
+        artifact_kind: 'legacy_runtime_log_text',
+        title: 'logs/managed-llama/2026-04-13T16-02-13-708Z-1d8275cc-startup/script.stdout.log',
+        content_text: 'managed llama stdout\n',
+      },
+    ]);
   });
 });
 
@@ -172,7 +212,7 @@ test('runtime cutover migration heals legacy schema drift where runtime_artifact
   });
 });
 
-test('runtime cutover migration ignores non-legacy managed-llama .log files', () => {
+test('runtime cutover migration imports and deletes managed-llama .log files', () => {
   withTempRepo((repoRoot) => {
     const runtimeRoot = path.join(repoRoot, '.siftkit');
     const managedLlamaLogPath = path.join(
@@ -187,7 +227,21 @@ test('runtime cutover migration ignores non-legacy managed-llama .log files', ()
 
     runRuntimeCutoverMigration();
 
-    assert.equal(fs.existsSync(managedLlamaLogPath), true);
+    assert.equal(fs.existsSync(managedLlamaLogPath), false);
+    const database = getRuntimeDatabase(getRuntimeDatabasePath());
+    const artifact = database.prepare(`
+      SELECT artifact_kind, title, content_text
+      FROM runtime_artifacts
+      WHERE title = ?
+      LIMIT 1
+    `).get(
+      'logs/managed-llama/2026-04-13T16-02-13-708Z-1d8275cc-startup/llama.stderr.log',
+    ) as { artifact_kind: string; title: string; content_text: string } | undefined;
+    assert.deepEqual(artifact, {
+      artifact_kind: 'legacy_runtime_log_text',
+      title: 'logs/managed-llama/2026-04-13T16-02-13-708Z-1d8275cc-startup/llama.stderr.log',
+      content_text: 'live stderr log\n',
+    });
     const marker = getRuntimeMetadataValue('runtime_cutover_v1_complete');
     assert.ok(typeof marker === 'string' && marker.length > 0);
   });

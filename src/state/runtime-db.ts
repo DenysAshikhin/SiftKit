@@ -6,7 +6,7 @@ import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-const CURRENT_SCHEMA_VERSION = 2;
+const CURRENT_SCHEMA_VERSION = 3;
 
 let cachedDatabasePath: string | null = null;
 let cachedDatabase: RuntimeDatabase | null = null;
@@ -204,17 +204,132 @@ function ensureRuntimeArtifactsSchema(database: RuntimeDatabase): void {
   `);
 }
 
+function ensureManagedLlamaAndBenchmarkMatrixSchema(database: RuntimeDatabase): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS managed_llama_runs (
+      id TEXT PRIMARY KEY,
+      purpose TEXT NOT NULL,
+      script_path TEXT,
+      base_url TEXT,
+      status TEXT NOT NULL
+        CHECK (status IN ('running', 'ready', 'failed', 'stopped', 'sync_completed')),
+      exit_code INTEGER,
+      error_message TEXT,
+      started_at_utc TEXT NOT NULL,
+      finished_at_utc TEXT,
+      updated_at_utc TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_managed_llama_runs_started
+      ON managed_llama_runs(started_at_utc DESC);
+    CREATE INDEX IF NOT EXISTS idx_managed_llama_runs_status_started
+      ON managed_llama_runs(status, started_at_utc DESC);
+
+    CREATE TABLE IF NOT EXISTS managed_llama_log_chunks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT NOT NULL REFERENCES managed_llama_runs(id) ON DELETE CASCADE,
+      stream_kind TEXT NOT NULL
+        CHECK (stream_kind IN (
+          'startup_script_stdout',
+          'startup_script_stderr',
+          'llama_stdout',
+          'llama_stderr',
+          'startup_review',
+          'startup_failure'
+        )),
+      sequence INTEGER NOT NULL,
+      chunk_text TEXT NOT NULL,
+      created_at_utc TEXT NOT NULL,
+      UNIQUE(run_id, stream_kind, sequence)
+    );
+    CREATE INDEX IF NOT EXISTS idx_managed_llama_log_chunks_run_stream
+      ON managed_llama_log_chunks(run_id, stream_kind, sequence ASC);
+
+    CREATE TABLE IF NOT EXISTS benchmark_matrix_sessions (
+      id TEXT PRIMARY KEY,
+      manifest_path TEXT NOT NULL,
+      fixture_root TEXT NOT NULL,
+      config_url TEXT NOT NULL,
+      prompt_prefix_file TEXT,
+      request_timeout_seconds INTEGER NOT NULL,
+      selected_run_ids_json TEXT NOT NULL,
+      baseline_restore_status TEXT NOT NULL
+        CHECK (baseline_restore_status IN ('pending', 'completed', 'failed')),
+      baseline_restore_error TEXT,
+      status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
+      started_at_utc TEXT NOT NULL,
+      completed_at_utc TEXT,
+      updated_at_utc TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_benchmark_matrix_sessions_started
+      ON benchmark_matrix_sessions(started_at_utc DESC);
+    CREATE INDEX IF NOT EXISTS idx_benchmark_matrix_sessions_status_started
+      ON benchmark_matrix_sessions(status, started_at_utc DESC);
+
+    CREATE TABLE IF NOT EXISTS benchmark_matrix_runs (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES benchmark_matrix_sessions(id) ON DELETE CASCADE,
+      run_index INTEGER NOT NULL,
+      run_identifier TEXT NOT NULL,
+      label TEXT NOT NULL,
+      model_id TEXT NOT NULL,
+      model_path TEXT NOT NULL,
+      start_script TEXT NOT NULL,
+      prompt_prefix_file TEXT,
+      reasoning TEXT NOT NULL CHECK (reasoning IN ('on', 'off', 'auto')),
+      sampling_json TEXT,
+      status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
+      error_message TEXT,
+      benchmark_run_uri TEXT,
+      started_at_utc TEXT NOT NULL,
+      completed_at_utc TEXT,
+      updated_at_utc TEXT NOT NULL,
+      UNIQUE(session_id, run_index, run_identifier)
+    );
+    CREATE INDEX IF NOT EXISTS idx_benchmark_matrix_runs_session_started
+      ON benchmark_matrix_runs(session_id, started_at_utc DESC);
+    CREATE INDEX IF NOT EXISTS idx_benchmark_matrix_runs_status_started
+      ON benchmark_matrix_runs(status, started_at_utc DESC);
+
+    CREATE TABLE IF NOT EXISTS benchmark_matrix_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT NOT NULL REFERENCES benchmark_matrix_runs(id) ON DELETE CASCADE,
+      stream_kind TEXT NOT NULL
+        CHECK (stream_kind IN (
+          'launcher_stdout',
+          'launcher_stderr',
+          'benchmark_stdout',
+          'benchmark_stderr',
+          'stop_stdout',
+          'stop_stderr',
+          'force_stop_stdout',
+          'force_stop_stderr'
+        )),
+      sequence INTEGER NOT NULL,
+      chunk_text TEXT NOT NULL,
+      created_at_utc TEXT NOT NULL,
+      UNIQUE(run_id, stream_kind, sequence)
+    );
+    CREATE INDEX IF NOT EXISTS idx_benchmark_matrix_logs_run_stream
+      ON benchmark_matrix_logs(run_id, stream_kind, sequence ASC);
+  `);
+}
+
 function ensureSchema(database: RuntimeDatabase): void {
   database.exec('PRAGMA foreign_keys = ON;');
   const currentVersion = getSchemaVersion(database);
   if (currentVersion <= 0) {
     applyBaseSchema(database);
+    ensureManagedLlamaAndBenchmarkMatrixSchema(database);
     setSchemaVersion(database, CURRENT_SCHEMA_VERSION);
     return;
   }
   if (currentVersion < 2) {
     ensureRuntimeArtifactsSchema(database);
     setSchemaVersion(database, 2);
+  }
+  if (currentVersion < 3) {
+    ensureManagedLlamaAndBenchmarkMatrixSchema(database);
+    setSchemaVersion(database, 3);
   }
 }
 
