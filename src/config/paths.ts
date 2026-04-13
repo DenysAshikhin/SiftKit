@@ -1,11 +1,10 @@
-import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
-import {
-  ensureDirectory,
-  writeUtf8NoBom,
-} from '../lib/fs.js';
+import { ensureDirectory } from '../lib/fs.js';
 import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
+import {
+  getRepoRuntimeRoot,
+  getRuntimeDatabasePath as getRuntimeDatabasePathShared,
+} from '../state/runtime-db.js';
 
 /**
  * Resolved runtime directory layout. Produced by `initializeRuntime()` and
@@ -19,33 +18,6 @@ export type RuntimePaths = {
   EvalResults: string;
 };
 
-function getConfiguredStatusPath(): string {
-  const primary = process.env.sift_kit_status;
-  if (primary && primary.trim()) {
-    return primary.trim();
-  }
-
-  const secondary = process.env.SIFTKIT_STATUS_PATH;
-  return secondary && secondary.trim() ? secondary.trim() : '';
-}
-
-function isRuntimeRootWritable(candidate: string | null | undefined): boolean {
-  if (!candidate || !candidate.trim()) {
-    return false;
-  }
-
-  try {
-    const fullPath = path.resolve(candidate);
-    ensureDirectory(fullPath);
-    const probePath = path.join(fullPath, `${Math.random().toString(16).slice(2)}.tmp`);
-    writeUtf8NoBom(probePath, 'probe');
-    fs.rmSync(probePath, { force: true });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export function getRepoLocalRuntimeRoot(): string | null {
   const repoRoot = findNearestSiftKitRepoRoot();
   return repoRoot ? path.resolve(repoRoot, '.siftkit') : null;
@@ -56,53 +28,8 @@ export function getRepoLocalLogsPath(): string | null {
   return runtimeRoot ? path.resolve(runtimeRoot, 'logs') : null;
 }
 
-/**
- * Resolves the active runtime-root directory by inspecting (in order):
- *   1. `sift_kit_status` / `SIFTKIT_STATUS_PATH` env vars — the caller points
- *      at a status file, we walk up to find the runtime root containing
- *      `<root>/status/inference.txt`.
- *   2. The repo-local `.siftkit/` directory under the nearest SiftKit repo.
- *   3. `%USERPROFILE%/.siftkit`.
- *   4. `<cwd>/.codex/siftkit`.
- *   5. `%TEMP%/siftkit` as a last resort.
- *
- * Each candidate is tested for writability before being returned.
- */
 export function getRuntimeRoot(): string {
-  const configuredStatusPath = getConfiguredStatusPath();
-  if (configuredStatusPath) {
-    const absoluteStatusPath = path.resolve(configuredStatusPath);
-    const statusDirectory = path.dirname(absoluteStatusPath);
-    if (path.basename(statusDirectory).toLowerCase() === 'status') {
-      return path.resolve(path.dirname(statusDirectory));
-    }
-
-    return path.resolve(statusDirectory);
-  }
-
-  const candidates: string[] = [];
-  const repoRoot = findNearestSiftKitRepoRoot();
-  if (repoRoot) {
-    candidates.push(path.resolve(repoRoot, '.siftkit'));
-  }
-  if (process.env.USERPROFILE?.trim()) {
-    candidates.push(path.resolve(process.env.USERPROFILE, '.siftkit'));
-  }
-  if (process.cwd()) {
-    candidates.push(path.resolve(process.cwd(), '.codex', 'siftkit'));
-  }
-
-  for (const candidate of candidates) {
-    if (isRuntimeRootWritable(candidate)) {
-      return candidate;
-    }
-  }
-
-  if (candidates.length > 0) {
-    return candidates[0];
-  }
-
-  return path.resolve(os.tmpdir(), 'siftkit');
+  return getRepoRuntimeRoot();
 }
 
 /** Creates (mkdir -p) the standard runtime subdirectories and returns their paths. */
@@ -121,10 +48,14 @@ export function initializeRuntime(): RuntimePaths {
   };
 }
 
-// ---------- top-level files ---------- //
+// ---------- top-level ---------- //
+
+export function getRuntimeDatabasePath(): string {
+  return getRuntimeDatabasePathShared();
+}
 
 export function getConfigPath(): string {
-  return path.join(getRuntimeRoot(), 'config.json');
+  return getRuntimeDatabasePath();
 }
 
 // ---------- status/ ---------- //
@@ -134,15 +65,11 @@ export function getStatusDirectory(): string {
 }
 
 export function getInferenceStatusPath(): string {
-  const configuredPath = process.env.sift_kit_status;
-  if (configuredPath && configuredPath.trim()) {
-    return path.resolve(configuredPath);
-  }
-  return path.join(getStatusDirectory(), 'inference.txt');
+  return getRuntimeDatabasePath();
 }
 
 export function getIdleSummarySnapshotsPath(): string {
-  return path.join(getStatusDirectory(), 'idle-summary.sqlite');
+  return getRuntimeDatabasePath();
 }
 
 // ---------- metrics/ ---------- //
@@ -152,11 +79,11 @@ export function getMetricsDirectory(): string {
 }
 
 export function getObservedBudgetStatePath(): string {
-  return path.join(getMetricsDirectory(), 'observed-budget.json');
+  return getRuntimeDatabasePath();
 }
 
 export function getCompressionMetricsPath(): string {
-  return path.join(getMetricsDirectory(), 'compression.json');
+  return getRuntimeDatabasePath();
 }
 
 // ---------- logs/ ---------- //
@@ -199,8 +126,6 @@ export function getRepoSearchLogRoot(): string {
   return path.join(getRuntimeLogsPath(), 'repo_search');
 }
 
-// Historic spelling kept for backwards compatibility with on-disk layouts
-// already created by older server builds.
 export function getRepoSearchSuccessfulDirectory(): string {
   return path.join(getRepoSearchLogRoot(), 'succesful');
 }

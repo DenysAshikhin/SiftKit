@@ -16,8 +16,9 @@ import {
   STATUS_LOCK_REQUESTED,
   STATUS_FOREIGN_LOCK,
   readStatusText,
+  writeStatusText,
 } from './status-file.js';
-import { writeText, ensureDirectory, saveContentAtomically } from '../lib/fs.js';
+import { ensureDirectory, saveContentAtomically } from '../lib/fs.js';
 import { sleep } from '../lib/time.js';
 import { normalizeMetrics, writeMetrics } from './metrics.js';
 import {
@@ -74,7 +75,7 @@ export function getPublishedStatusText(ctx: ServerContext): string {
 }
 
 export function writePublishedStatus(ctx: ServerContext, publishedStatus: string = getPublishedStatusText(ctx)): void {
-  writeText(ctx.statusPath, ctx.disableManagedLlamaStartup ? STATUS_TRUE : publishedStatus);
+  writeStatusText(ctx.statusPath, ctx.disableManagedLlamaStartup ? STATUS_TRUE : publishedStatus);
 }
 
 export function publishStatus(ctx: ServerContext): void {

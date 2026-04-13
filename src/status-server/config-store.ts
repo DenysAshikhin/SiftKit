@@ -1,7 +1,6 @@
-import * as fs from 'node:fs';
 import type { Dict } from '../lib/types.js';
 import { normalizeWindowsPath as normalizeWindowsPathShared } from '../lib/paths.js';
-import { writeText } from '../lib/fs.js';
+import { getRuntimeDatabase } from '../state/runtime-db.js';
 
 export const DEFAULT_LLAMA_MODEL = 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
 export const DEFAULT_LLAMA_BASE_URL = 'http://127.0.0.1:8097';
@@ -243,20 +242,370 @@ export function normalizeConfig(input: unknown): Dict {
   return merged;
 }
 
-export function readConfig(configPath: string): Dict {
-  if (!fs.existsSync(configPath)) {
-    return normalizeConfig({});
+type AppConfigRow = {
+  version: string;
+  backend: string;
+  policy_mode: string;
+  raw_log_retention: number;
+  prompt_prefix: string | null;
+  runtime_model: string | null;
+  llama_base_url: string | null;
+  llama_num_ctx: number | null;
+  llama_model_path: string | null;
+  llama_temperature: number | null;
+  llama_top_p: number | null;
+  llama_top_k: number | null;
+  llama_min_p: number | null;
+  llama_presence_penalty: number | null;
+  llama_repetition_penalty: number | null;
+  llama_max_tokens: number | null;
+  llama_gpu_layers: number | null;
+  llama_threads: number | null;
+  llama_flash_attention: number | null;
+  llama_parallel_slots: number | null;
+  llama_reasoning: string | null;
+  thresholds_min_characters_for_summary: number;
+  thresholds_min_lines_for_summary: number;
+  interactive_enabled: number;
+  interactive_wrapped_commands_json: string;
+  interactive_idle_timeout_ms: number;
+  interactive_max_transcript_characters: number;
+  interactive_transcript_retention: number;
+  server_startup_script: string | null;
+  server_shutdown_script: string | null;
+  server_startup_timeout_ms: number | null;
+  server_healthcheck_timeout_ms: number | null;
+  server_healthcheck_interval_ms: number | null;
+  server_verbose_logging: number | null;
+  server_verbose_args_json: string;
+};
+
+function toNullableInteger(value: unknown): number | null {
+  if (!Number.isFinite(Number(value))) {
+    return null;
+  }
+  return Math.trunc(Number(value));
+}
+
+function toNullableNumber(value: unknown): number | null {
+  if (!Number.isFinite(Number(value))) {
+    return null;
+  }
+  return Number(value);
+}
+
+function toNullableBooleanInteger(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return value ? 1 : 0;
+}
+
+function parseJsonArray(text: unknown): string[] {
+  if (typeof text !== 'string' || !text.trim()) {
+    return [];
   }
   try {
-    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    return normalizeConfig(parsed);
+    const parsed = JSON.parse(text) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+      .map((entry) => entry.trim());
   } catch {
-    return normalizeConfig({});
+    return [];
   }
 }
 
+function normalizeConfigToRow(config: Dict): AppConfigRow {
+  const normalized = normalizeConfig(config);
+  const runtime = (normalized.Runtime as Dict | undefined) || {};
+  const runtimeLlama = getCompatRuntimeLlamaCpp(normalized);
+  const thresholds = (normalized.Thresholds as Dict | undefined) || {};
+  const interactive = (normalized.Interactive as Dict | undefined) || {};
+  const server = (normalized.Server as Dict | undefined) || {};
+  const serverLlama = (server.LlamaCpp as Dict | undefined) || {};
+
+  return {
+    version: String(normalized.Version || '0.1.0'),
+    backend: String(normalized.Backend || 'llama.cpp'),
+    policy_mode: String(normalized.PolicyMode || 'conservative'),
+    raw_log_retention: normalized.RawLogRetention === false ? 0 : 1,
+    prompt_prefix: typeof normalized.PromptPrefix === 'string' ? normalized.PromptPrefix : null,
+    runtime_model: typeof runtime.Model === 'string' && runtime.Model.trim() ? runtime.Model.trim() : null,
+    llama_base_url: typeof runtimeLlama.BaseUrl === 'string' && runtimeLlama.BaseUrl.trim() ? runtimeLlama.BaseUrl.trim() : null,
+    llama_num_ctx: toNullableInteger(runtimeLlama.NumCtx),
+    llama_model_path: typeof runtimeLlama.ModelPath === 'string' && runtimeLlama.ModelPath.trim() ? runtimeLlama.ModelPath.trim() : null,
+    llama_temperature: toNullableNumber(runtimeLlama.Temperature),
+    llama_top_p: toNullableNumber(runtimeLlama.TopP),
+    llama_top_k: toNullableInteger(runtimeLlama.TopK),
+    llama_min_p: toNullableNumber(runtimeLlama.MinP),
+    llama_presence_penalty: toNullableNumber(runtimeLlama.PresencePenalty),
+    llama_repetition_penalty: toNullableNumber(runtimeLlama.RepetitionPenalty),
+    llama_max_tokens: toNullableInteger(runtimeLlama.MaxTokens),
+    llama_gpu_layers: toNullableInteger(runtimeLlama.GpuLayers),
+    llama_threads: toNullableInteger(runtimeLlama.Threads),
+    llama_flash_attention: toNullableBooleanInteger(runtimeLlama.FlashAttention),
+    llama_parallel_slots: toNullableInteger(runtimeLlama.ParallelSlots),
+    llama_reasoning: typeof runtimeLlama.Reasoning === 'string' && runtimeLlama.Reasoning.trim() ? runtimeLlama.Reasoning.trim() : null,
+    thresholds_min_characters_for_summary: getFinitePositiveInteger(thresholds.MinCharactersForSummary, 500),
+    thresholds_min_lines_for_summary: getFinitePositiveInteger(thresholds.MinLinesForSummary, 16),
+    interactive_enabled: interactive.Enabled === false ? 0 : 1,
+    interactive_wrapped_commands_json: JSON.stringify(
+      Array.isArray(interactive.WrappedCommands) ? interactive.WrappedCommands : ['git', 'less', 'vim', 'sqlite3']
+    ),
+    interactive_idle_timeout_ms: getFinitePositiveInteger(interactive.IdleTimeoutMs, 900000),
+    interactive_max_transcript_characters: getFinitePositiveInteger(interactive.MaxTranscriptCharacters, 60000),
+    interactive_transcript_retention: interactive.TranscriptRetention === false ? 0 : 1,
+    server_startup_script: typeof serverLlama.StartupScript === 'string' && serverLlama.StartupScript.trim()
+      ? serverLlama.StartupScript.trim()
+      : null,
+    server_shutdown_script: typeof serverLlama.ShutdownScript === 'string' && serverLlama.ShutdownScript.trim()
+      ? serverLlama.ShutdownScript.trim()
+      : null,
+    server_startup_timeout_ms: toNullableInteger(serverLlama.StartupTimeoutMs),
+    server_healthcheck_timeout_ms: toNullableInteger(serverLlama.HealthcheckTimeoutMs),
+    server_healthcheck_interval_ms: toNullableInteger(serverLlama.HealthcheckIntervalMs),
+    server_verbose_logging: toNullableBooleanInteger(serverLlama.VerboseLogging),
+    server_verbose_args_json: JSON.stringify(
+      Array.isArray(serverLlama.VerboseArgs) ? serverLlama.VerboseArgs : []
+    ),
+  };
+}
+
+function rowToConfig(row: AppConfigRow): Dict {
+  const runtimeLlama: Dict = {
+    BaseUrl: row.llama_base_url,
+    NumCtx: row.llama_num_ctx,
+    ModelPath: row.llama_model_path,
+    Temperature: row.llama_temperature,
+    TopP: row.llama_top_p,
+    TopK: row.llama_top_k,
+    MinP: row.llama_min_p,
+    PresencePenalty: row.llama_presence_penalty,
+    RepetitionPenalty: row.llama_repetition_penalty,
+    MaxTokens: row.llama_max_tokens,
+    GpuLayers: row.llama_gpu_layers,
+    Threads: row.llama_threads,
+    FlashAttention: row.llama_flash_attention === null ? null : row.llama_flash_attention === 1,
+    ParallelSlots: row.llama_parallel_slots,
+    Reasoning: row.llama_reasoning,
+  };
+  return normalizeConfig({
+    Version: row.version,
+    Backend: row.backend,
+    PolicyMode: row.policy_mode,
+    RawLogRetention: row.raw_log_retention === 1,
+    PromptPrefix: row.prompt_prefix,
+    LlamaCpp: { ...runtimeLlama },
+    Runtime: {
+      Model: row.runtime_model,
+      LlamaCpp: { ...runtimeLlama },
+    },
+    Thresholds: {
+      MinCharactersForSummary: row.thresholds_min_characters_for_summary,
+      MinLinesForSummary: row.thresholds_min_lines_for_summary,
+    },
+    Interactive: {
+      Enabled: row.interactive_enabled === 1,
+      WrappedCommands: parseJsonArray(row.interactive_wrapped_commands_json),
+      IdleTimeoutMs: row.interactive_idle_timeout_ms,
+      MaxTranscriptCharacters: row.interactive_max_transcript_characters,
+      TranscriptRetention: row.interactive_transcript_retention === 1,
+    },
+    Server: {
+      LlamaCpp: {
+        StartupScript: row.server_startup_script,
+        ShutdownScript: row.server_shutdown_script,
+        StartupTimeoutMs: row.server_startup_timeout_ms,
+        HealthcheckTimeoutMs: row.server_healthcheck_timeout_ms,
+        HealthcheckIntervalMs: row.server_healthcheck_interval_ms,
+        VerboseLogging: row.server_verbose_logging === null ? false : row.server_verbose_logging === 1,
+        VerboseArgs: parseJsonArray(row.server_verbose_args_json),
+      },
+    },
+  });
+}
+
+function readConfigRow(databasePath: string): AppConfigRow | null {
+  const database = getRuntimeDatabase(databasePath);
+  const row = database.prepare(`
+    SELECT
+      version,
+      backend,
+      policy_mode,
+      raw_log_retention,
+      prompt_prefix,
+      runtime_model,
+      llama_base_url,
+      llama_num_ctx,
+      llama_model_path,
+      llama_temperature,
+      llama_top_p,
+      llama_top_k,
+      llama_min_p,
+      llama_presence_penalty,
+      llama_repetition_penalty,
+      llama_max_tokens,
+      llama_gpu_layers,
+      llama_threads,
+      llama_flash_attention,
+      llama_parallel_slots,
+      llama_reasoning,
+      thresholds_min_characters_for_summary,
+      thresholds_min_lines_for_summary,
+      interactive_enabled,
+      interactive_wrapped_commands_json,
+      interactive_idle_timeout_ms,
+      interactive_max_transcript_characters,
+      interactive_transcript_retention,
+      server_startup_script,
+      server_shutdown_script,
+      server_startup_timeout_ms,
+      server_healthcheck_timeout_ms,
+      server_healthcheck_interval_ms,
+      server_verbose_logging,
+      server_verbose_args_json
+    FROM app_config
+    WHERE id = 1
+  `).get() as AppConfigRow | undefined;
+  return row || null;
+}
+
+function writeConfigRow(databasePath: string, row: AppConfigRow): void {
+  const database = getRuntimeDatabase(databasePath);
+  database.prepare(`
+    INSERT INTO app_config (
+      id,
+      version,
+      backend,
+      policy_mode,
+      raw_log_retention,
+      prompt_prefix,
+      runtime_model,
+      llama_base_url,
+      llama_num_ctx,
+      llama_model_path,
+      llama_temperature,
+      llama_top_p,
+      llama_top_k,
+      llama_min_p,
+      llama_presence_penalty,
+      llama_repetition_penalty,
+      llama_max_tokens,
+      llama_gpu_layers,
+      llama_threads,
+      llama_flash_attention,
+      llama_parallel_slots,
+      llama_reasoning,
+      thresholds_min_characters_for_summary,
+      thresholds_min_lines_for_summary,
+      interactive_enabled,
+      interactive_wrapped_commands_json,
+      interactive_idle_timeout_ms,
+      interactive_max_transcript_characters,
+      interactive_transcript_retention,
+      server_startup_script,
+      server_shutdown_script,
+      server_startup_timeout_ms,
+      server_healthcheck_timeout_ms,
+      server_healthcheck_interval_ms,
+      server_verbose_logging,
+      server_verbose_args_json,
+      updated_at_utc
+    ) VALUES (
+      1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    )
+    ON CONFLICT(id) DO UPDATE SET
+      version = excluded.version,
+      backend = excluded.backend,
+      policy_mode = excluded.policy_mode,
+      raw_log_retention = excluded.raw_log_retention,
+      prompt_prefix = excluded.prompt_prefix,
+      runtime_model = excluded.runtime_model,
+      llama_base_url = excluded.llama_base_url,
+      llama_num_ctx = excluded.llama_num_ctx,
+      llama_model_path = excluded.llama_model_path,
+      llama_temperature = excluded.llama_temperature,
+      llama_top_p = excluded.llama_top_p,
+      llama_top_k = excluded.llama_top_k,
+      llama_min_p = excluded.llama_min_p,
+      llama_presence_penalty = excluded.llama_presence_penalty,
+      llama_repetition_penalty = excluded.llama_repetition_penalty,
+      llama_max_tokens = excluded.llama_max_tokens,
+      llama_gpu_layers = excluded.llama_gpu_layers,
+      llama_threads = excluded.llama_threads,
+      llama_flash_attention = excluded.llama_flash_attention,
+      llama_parallel_slots = excluded.llama_parallel_slots,
+      llama_reasoning = excluded.llama_reasoning,
+      thresholds_min_characters_for_summary = excluded.thresholds_min_characters_for_summary,
+      thresholds_min_lines_for_summary = excluded.thresholds_min_lines_for_summary,
+      interactive_enabled = excluded.interactive_enabled,
+      interactive_wrapped_commands_json = excluded.interactive_wrapped_commands_json,
+      interactive_idle_timeout_ms = excluded.interactive_idle_timeout_ms,
+      interactive_max_transcript_characters = excluded.interactive_max_transcript_characters,
+      interactive_transcript_retention = excluded.interactive_transcript_retention,
+      server_startup_script = excluded.server_startup_script,
+      server_shutdown_script = excluded.server_shutdown_script,
+      server_startup_timeout_ms = excluded.server_startup_timeout_ms,
+      server_healthcheck_timeout_ms = excluded.server_healthcheck_timeout_ms,
+      server_healthcheck_interval_ms = excluded.server_healthcheck_interval_ms,
+      server_verbose_logging = excluded.server_verbose_logging,
+      server_verbose_args_json = excluded.server_verbose_args_json,
+      updated_at_utc = excluded.updated_at_utc
+  `).run(
+    row.version,
+    row.backend,
+    row.policy_mode,
+    row.raw_log_retention,
+    row.prompt_prefix,
+    row.runtime_model,
+    row.llama_base_url,
+    row.llama_num_ctx,
+    row.llama_model_path,
+    row.llama_temperature,
+    row.llama_top_p,
+    row.llama_top_k,
+    row.llama_min_p,
+    row.llama_presence_penalty,
+    row.llama_repetition_penalty,
+    row.llama_max_tokens,
+    row.llama_gpu_layers,
+    row.llama_threads,
+    row.llama_flash_attention,
+    row.llama_parallel_slots,
+    row.llama_reasoning,
+    row.thresholds_min_characters_for_summary,
+    row.thresholds_min_lines_for_summary,
+    row.interactive_enabled,
+    row.interactive_wrapped_commands_json,
+    row.interactive_idle_timeout_ms,
+    row.interactive_max_transcript_characters,
+    row.interactive_transcript_retention,
+    row.server_startup_script,
+    row.server_shutdown_script,
+    row.server_startup_timeout_ms,
+    row.server_healthcheck_timeout_ms,
+    row.server_healthcheck_interval_ms,
+    row.server_verbose_logging,
+    row.server_verbose_args_json,
+    new Date().toISOString(),
+  );
+}
+
+export function readConfig(configPath: string): Dict {
+  const existingRow = readConfigRow(configPath);
+  if (existingRow) {
+    return rowToConfig(existingRow);
+  }
+  const fallback = normalizeConfig({});
+  writeConfigRow(configPath, normalizeConfigToRow(fallback));
+  return fallback;
+}
+
 export function writeConfig(configPath: string, config: Dict): void {
-  writeText(configPath, `${JSON.stringify(normalizeConfig(config), null, 2)}\n`);
+  writeConfigRow(configPath, normalizeConfigToRow(config));
 }
 
 export function getFinitePositiveInteger(value: unknown, fallback: number): number {

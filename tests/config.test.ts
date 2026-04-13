@@ -513,12 +513,12 @@ test('notifyStatusBackend preserves canonical unavailable error when backend is 
   );
 });
 
-test('getRuntimeRoot uses sift_kit_status when available', () => {
+test('getRuntimeRoot is repo-local and ignores sift_kit_status overrides', () => {
   const prev = process.env.sift_kit_status;
   process.env.sift_kit_status = path.join(os.tmpdir(), 'custom', 'status', 'inference.txt');
   try {
     const root = getRuntimeRoot();
-    assert.ok(root.endsWith('custom'));
+    assert.match(root, /\.siftkit$/u);
   } finally {
     if (prev !== undefined) {
       process.env.sift_kit_status = prev;
@@ -543,7 +543,7 @@ test('getRepoLocalLogsPath returns path when in SiftKit repo', () => {
 test('getConfigPath returns a path string', () => {
   const result = getConfigPath();
   assert.equal(typeof result, 'string');
-  assert.match(result, /config\.json$/u);
+  assert.match(result, /runtime\.sqlite$/u);
 });
 
 test('getInferenceStatusPath returns a path string', () => {
@@ -552,7 +552,7 @@ test('getInferenceStatusPath returns a path string', () => {
   try {
     const result = getInferenceStatusPath();
     assert.equal(typeof result, 'string');
-    assert.match(result, /inference\.txt$/u);
+    assert.match(result, /runtime\.sqlite$/u);
   } finally {
     if (prev !== undefined) {
       process.env.sift_kit_status = prev;

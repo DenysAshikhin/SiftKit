@@ -24,7 +24,6 @@ import {
   readConfig,
   writeConfig,
   normalizeConfig,
-  mergeConfig,
 } from '../config-store.js';
 import {
   type RepoSearchProgressEvent,
@@ -62,6 +61,56 @@ function normalizeTaskKind(value: unknown): TaskKind | null {
   return value === 'summary' || value === 'plan' || value === 'repo-search' || value === 'chat'
     ? value
     : null;
+}
+
+function isStrictConfigPayload(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const payload = value as Dict;
+  const topLevelRequired = [
+    'Version',
+    'Backend',
+    'PolicyMode',
+    'RawLogRetention',
+    'PromptPrefix',
+    'LlamaCpp',
+    'Runtime',
+    'Thresholds',
+    'Interactive',
+    'Server',
+  ];
+  for (const key of topLevelRequired) {
+    if (!Object.prototype.hasOwnProperty.call(payload, key)) {
+      return false;
+    }
+  }
+  const runtime = payload.Runtime as Dict;
+  const thresholds = payload.Thresholds as Dict;
+  const interactive = payload.Interactive as Dict;
+  const server = payload.Server as Dict;
+  if (!runtime || typeof runtime !== 'object' || Array.isArray(runtime)) {
+    return false;
+  }
+  if (!thresholds || typeof thresholds !== 'object' || Array.isArray(thresholds)) {
+    return false;
+  }
+  if (!interactive || typeof interactive !== 'object' || Array.isArray(interactive)) {
+    return false;
+  }
+  if (!server || typeof server !== 'object' || Array.isArray(server)) {
+    return false;
+  }
+  return Object.prototype.hasOwnProperty.call(runtime, 'Model')
+    && Object.prototype.hasOwnProperty.call(runtime, 'LlamaCpp')
+    && Object.prototype.hasOwnProperty.call(thresholds, 'MinCharactersForSummary')
+    && Object.prototype.hasOwnProperty.call(thresholds, 'MinLinesForSummary')
+    && Object.prototype.hasOwnProperty.call(interactive, 'Enabled')
+    && Object.prototype.hasOwnProperty.call(interactive, 'WrappedCommands')
+    && Object.prototype.hasOwnProperty.call(interactive, 'IdleTimeoutMs')
+    && Object.prototype.hasOwnProperty.call(interactive, 'MaxTranscriptCharacters')
+    && Object.prototype.hasOwnProperty.call(interactive, 'TranscriptRetention')
+    && Object.prototype.hasOwnProperty.call(server, 'LlamaCpp');
 }
 
 function buildToolStatsLogMessages(taskKind: TaskKind, stats: Record<string, ToolTypeStats> | null): string[] {
@@ -615,7 +664,11 @@ export async function handleCoreRoute(
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
-    const nextConfig = normalizeConfig(mergeConfig(readConfig(configPath), parsedBody));
+    if (!isStrictConfigPayload(parsedBody)) {
+      sendJson(res, 400, { error: 'Expected a full typed config payload (partial updates are not allowed).' });
+      return true;
+    }
+    const nextConfig = normalizeConfig(parsedBody);
     writeConfig(configPath, nextConfig);
     sendJson(res, 200, nextConfig);
     return true;

@@ -1,7 +1,6 @@
-import * as fs from 'node:fs';
 import type { Dict } from '../lib/types.js';
-import { writeText } from '../lib/fs.js';
 import { createEmptyToolTypeStats } from '../line-read-guidance.js';
+import { getRuntimeDatabase } from '../state/runtime-db.js';
 
 export const METRICS_SCHEMA_VERSION = 2;
 export const TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
@@ -279,35 +278,118 @@ export function normalizeMetrics(input: unknown): Metrics {
 }
 
 export function readMetrics(metricsPath: string): Metrics {
-  if (!fs.existsSync(metricsPath)) {
+  const database = getRuntimeDatabase(metricsPath);
+  const row = database.prepare(`
+    SELECT
+      schema_version,
+      input_characters_total,
+      output_characters_total,
+      input_tokens_total,
+      output_tokens_total,
+      thinking_tokens_total,
+      tool_tokens_total,
+      prompt_cache_tokens_total,
+      prompt_eval_tokens_total,
+      request_duration_ms_total,
+      completed_request_count,
+      task_totals_json,
+      tool_stats_json,
+      updated_at_utc
+    FROM runtime_metrics_totals
+    WHERE id = 1
+  `).get() as Dict | undefined;
+  if (!row || typeof row !== 'object') {
     return getDefaultMetrics();
   }
-  try {
-    return normalizeMetrics(JSON.parse(fs.readFileSync(metricsPath, 'utf8')));
-  } catch {
-    return getDefaultMetrics();
-  }
+  return normalizeMetrics({
+    schemaVersion: Number(row.schema_version),
+    inputCharactersTotal: Number(row.input_characters_total),
+    outputCharactersTotal: Number(row.output_characters_total),
+    inputTokensTotal: Number(row.input_tokens_total),
+    outputTokensTotal: Number(row.output_tokens_total),
+    thinkingTokensTotal: Number(row.thinking_tokens_total),
+    toolTokensTotal: Number(row.tool_tokens_total),
+    promptCacheTokensTotal: Number(row.prompt_cache_tokens_total),
+    promptEvalTokensTotal: Number(row.prompt_eval_tokens_total),
+    requestDurationMsTotal: Number(row.request_duration_ms_total),
+    completedRequestCount: Number(row.completed_request_count),
+    taskTotals: (() => {
+      try {
+        return JSON.parse(String(row.task_totals_json || '{}'));
+      } catch {
+        return {};
+      }
+    })(),
+    toolStats: (() => {
+      try {
+        return JSON.parse(String(row.tool_stats_json || '{}'));
+      } catch {
+        return {};
+      }
+    })(),
+    updatedAtUtc: typeof row.updated_at_utc === 'string' ? row.updated_at_utc : null,
+  });
 }
 
 export function writeMetrics(metricsPath: string, metrics: Metrics): void {
-  writeText(metricsPath, `${JSON.stringify(normalizeMetrics(metrics), null, 2)}\n`);
+  const database = getRuntimeDatabase(metricsPath);
+  const normalized = normalizeMetrics(metrics);
+  database.prepare(`
+    INSERT INTO runtime_metrics_totals (
+      id,
+      schema_version,
+      input_characters_total,
+      output_characters_total,
+      input_tokens_total,
+      output_tokens_total,
+      thinking_tokens_total,
+      tool_tokens_total,
+      prompt_cache_tokens_total,
+      prompt_eval_tokens_total,
+      request_duration_ms_total,
+      completed_request_count,
+      task_totals_json,
+      tool_stats_json,
+      updated_at_utc
+    ) VALUES (
+      1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    )
+    ON CONFLICT(id) DO UPDATE SET
+      schema_version = excluded.schema_version,
+      input_characters_total = excluded.input_characters_total,
+      output_characters_total = excluded.output_characters_total,
+      input_tokens_total = excluded.input_tokens_total,
+      output_tokens_total = excluded.output_tokens_total,
+      thinking_tokens_total = excluded.thinking_tokens_total,
+      tool_tokens_total = excluded.tool_tokens_total,
+      prompt_cache_tokens_total = excluded.prompt_cache_tokens_total,
+      prompt_eval_tokens_total = excluded.prompt_eval_tokens_total,
+      request_duration_ms_total = excluded.request_duration_ms_total,
+      completed_request_count = excluded.completed_request_count,
+      task_totals_json = excluded.task_totals_json,
+      tool_stats_json = excluded.tool_stats_json,
+      updated_at_utc = excluded.updated_at_utc
+  `).run(
+    normalized.schemaVersion,
+    normalized.inputCharactersTotal,
+    normalized.outputCharactersTotal,
+    normalized.inputTokensTotal,
+    normalized.outputTokensTotal,
+    normalized.thinkingTokensTotal,
+    normalized.toolTokensTotal,
+    normalized.promptCacheTokensTotal,
+    normalized.promptEvalTokensTotal,
+    normalized.requestDurationMsTotal,
+    normalized.completedRequestCount,
+    JSON.stringify(normalized.taskTotals),
+    JSON.stringify(normalized.toolStats),
+    normalized.updatedAtUtc,
+  );
 }
 
 export function readMetricsWithResetDecision(metricsPath: string): { metrics: Metrics; resetRequired: boolean } {
-  if (!fs.existsSync(metricsPath)) {
-    return { metrics: getDefaultMetrics(), resetRequired: false };
-  }
-  try {
-    const parsed = JSON.parse(fs.readFileSync(metricsPath, 'utf8')) as unknown;
-    const resetRequired = !isCurrentSchema(parsed);
-    return {
-      metrics: normalizeMetrics(parsed),
-      resetRequired,
-    };
-  } catch {
-    return {
-      metrics: getDefaultMetrics(),
-      resetRequired: false,
-    };
-  }
+  return {
+    metrics: readMetrics(metricsPath),
+    resetRequired: false,
+  };
 }

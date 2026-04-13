@@ -1,7 +1,5 @@
-import * as fs from 'node:fs';
-import { saveContentAtomically } from '../lib/fs.js';
-import { parseJsonText } from '../lib/json.js';
 import { getObservedBudgetStatePath } from '../config/paths.js';
+import { getRuntimeDatabase } from './runtime-db.js';
 
 export type ObservedBudgetState = {
   observedTelemetrySeen: boolean;
@@ -42,24 +40,40 @@ export function normalizeObservedBudgetState(input: unknown): ObservedBudgetStat
 }
 
 export function readObservedBudgetState(): ObservedBudgetState {
-  const statePath = getObservedBudgetStatePath();
-  if (!fs.existsSync(statePath)) {
+  const database = getRuntimeDatabase(getObservedBudgetStatePath());
+  const row = database.prepare(`
+    SELECT observed_telemetry_seen, last_known_chars_per_token, updated_at_utc
+    FROM observed_budget_state
+    WHERE id = 1
+  `).get() as Record<string, unknown> | undefined;
+  if (!row) {
     return getDefaultObservedBudgetState();
   }
-
-  try {
-    return normalizeObservedBudgetState(
-      parseJsonText<ObservedBudgetState>(fs.readFileSync(statePath, 'utf8'))
-    );
-  } catch {
-    return getDefaultObservedBudgetState();
-  }
+  return normalizeObservedBudgetState({
+    observedTelemetrySeen: Number(row.observed_telemetry_seen) === 1,
+    lastKnownCharsPerToken: Number(row.last_known_chars_per_token),
+    updatedAtUtc: typeof row.updated_at_utc === 'string' ? row.updated_at_utc : null,
+  });
 }
 
 export function writeObservedBudgetState(state: ObservedBudgetState): void {
-  saveContentAtomically(
-    getObservedBudgetStatePath(),
-    `${JSON.stringify(normalizeObservedBudgetState(state), null, 2)}\n`
+  const normalized = normalizeObservedBudgetState(state);
+  const database = getRuntimeDatabase(getObservedBudgetStatePath());
+  database.prepare(`
+    INSERT INTO observed_budget_state (
+      id,
+      observed_telemetry_seen,
+      last_known_chars_per_token,
+      updated_at_utc
+    ) VALUES (1, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      observed_telemetry_seen = excluded.observed_telemetry_seen,
+      last_known_chars_per_token = excluded.last_known_chars_per_token,
+      updated_at_utc = excluded.updated_at_utc
+  `).run(
+    normalized.observedTelemetrySeen ? 1 : 0,
+    normalized.lastKnownCharsPerToken,
+    normalized.updatedAtUtc,
   );
 }
 

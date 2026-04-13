@@ -1,7 +1,5 @@
 /**
- * Path resolution for the status-server. Delegates to `config/paths.ts` for
- * the canonical runtime-root and status-file resolution, and adds only the
- * server-specific paths (managed llama logs, re-export of env-var overrides).
+ * Path resolution for the status-server.
  */
 import * as path from 'node:path';
 import {
@@ -26,26 +24,14 @@ export function getStatusPath(): string {
 }
 
 export function getConfigPath(): string {
-  const configuredPath = process.env.SIFTKIT_CONFIG_PATH;
-  if (configuredPath && configuredPath.trim()) {
-    return path.resolve(configuredPath);
-  }
   return getConfigPathShared();
 }
 
 export function getMetricsPath(): string {
-  const configuredPath = process.env.SIFTKIT_METRICS_PATH;
-  if (configuredPath && configuredPath.trim()) {
-    return path.resolve(configuredPath);
-  }
   return getCompressionMetricsPath();
 }
 
 export function getIdleSummarySnapshotsPath(): string {
-  const configuredPath = process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH;
-  if (configuredPath && configuredPath.trim()) {
-    return path.resolve(configuredPath);
-  }
   return getIdleSummarySnapshotsPathShared();
 }
 

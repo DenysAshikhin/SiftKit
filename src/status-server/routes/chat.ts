@@ -37,6 +37,7 @@ import {
   readChatSessionFromPath,
   readChatSessions,
   getChatSessionPath,
+  deleteChatSession,
   saveChatSession,
 } from '../../state/chat-sessions.js';
 import { logLine } from '../managed-llama.js';
@@ -158,15 +159,9 @@ export async function handleChatRoute(
 
   if (req.method === 'DELETE' && /^\/dashboard\/chat\/sessions\/[^/]+$/u.test(pathname)) {
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, ''));
-    const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
-    if (!fs.existsSync(sessionPath)) {
+    const deleted = deleteChatSession(runtimeRoot, sessionId);
+    if (!deleted) {
       sendJson(res, 404, { error: 'Session not found.' });
-      return true;
-    }
-    try {
-      fs.rmSync(sessionPath, { force: true });
-    } catch (error) {
-      sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
       return true;
     }
     sendJson(res, 200, { ok: true, deleted: true, id: sessionId });

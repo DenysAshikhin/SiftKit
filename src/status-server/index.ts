@@ -9,7 +9,6 @@
  *   - `routes.ts`        – HTTP route handler
  */
 import * as http from 'node:http';
-import * as fs from 'node:fs';
 import {
   getStatusPath,
   getConfigPath,
@@ -125,22 +124,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   writeConfig(configPath, readConfig(configPath));
   const loadedMetrics = readMetricsWithResetDecision(metricsPath);
   const metrics = loadedMetrics.metrics;
-  if (loadedMetrics.resetRequired) {
-    try {
-      const sqlitePaths = [
-        idleSummarySnapshotsPath,
-        `${idleSummarySnapshotsPath}-shm`,
-        `${idleSummarySnapshotsPath}-wal`,
-      ];
-      for (const targetPath of sqlitePaths) {
-        if (targetPath && fs.existsSync(targetPath)) {
-          fs.rmSync(targetPath, { force: true });
-        }
-      }
-    } catch {
-      // Best-effort cleanup. Continue with a fresh metrics state.
-    }
-  }
+  void loadedMetrics.resetRequired;
   writeMetrics(metricsPath, metrics);
 
   let resolveStartupPromise: () => void = () => {};

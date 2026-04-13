@@ -1,8 +1,7 @@
-import * as fs from 'node:fs';
 import type { Dict } from '../lib/types.js';
-import { writeText } from '../lib/fs.js';
 import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 import type { TaskKind, ToolTypeStats } from './metrics.js';
+import { getRuntimeDatabase } from '../state/runtime-db.js';
 
 export const STATUS_TRUE = 'true';
 export const STATUS_FALSE = 'false';
@@ -23,17 +22,36 @@ export function normalizeStatusText(value: unknown): string {
 }
 
 export function ensureStatusFile(targetPath: string): void {
-  if (!fs.existsSync(targetPath)) {
-    writeText(targetPath, STATUS_FALSE);
-  }
+  const database = getRuntimeDatabase(targetPath);
+  database.prepare(`
+    INSERT INTO runtime_status (id, status_text, updated_at_utc)
+    VALUES (1, ?, ?)
+    ON CONFLICT(id) DO NOTHING
+  `).run(STATUS_FALSE, new Date().toISOString());
 }
 
 export function readStatusText(targetPath: string): string {
   try {
-    return normalizeStatusText(fs.readFileSync(targetPath, 'utf8'));
+    const database = getRuntimeDatabase(targetPath);
+    const row = database.prepare('SELECT status_text FROM runtime_status WHERE id = 1').get() as { status_text?: unknown } | undefined;
+    if (!row || typeof row.status_text !== 'string') {
+      return STATUS_FALSE;
+    }
+    return normalizeStatusText(row.status_text);
   } catch {
     return STATUS_FALSE;
   }
+}
+
+export function writeStatusText(targetPath: string, value: unknown): void {
+  const database = getRuntimeDatabase(targetPath);
+  database.prepare(`
+    INSERT INTO runtime_status (id, status_text, updated_at_utc)
+    VALUES (1, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      status_text = excluded.status_text,
+      updated_at_utc = excluded.updated_at_utc
+  `).run(normalizeStatusText(value), new Date().toISOString());
 }
 
 export function parseRunning(bodyText: string): boolean | null {
