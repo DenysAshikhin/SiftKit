@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import Database from 'better-sqlite3';
 
 import { getDefaultConfig, readConfig } from '../dist/status-server/config-store.js';
 import { readStatusText } from '../dist/status-server/status-file.js';
@@ -12,6 +13,7 @@ import { readChatSessions } from '../dist/state/chat-sessions.js';
 import { runRuntimeCutoverMigration } from '../dist/status-server/runtime-cutover.js';
 import {
   closeRuntimeDatabase,
+  getRuntimeDatabase,
   getRuntimeDatabasePath,
   getRuntimeMetadataValue,
 } from '../dist/state/runtime-db.js';
@@ -124,6 +126,68 @@ test('runtime cutover migration is idempotent on fresh runtime roots', () => {
   withTempRepo(() => {
     runRuntimeCutoverMigration();
     runRuntimeCutoverMigration();
+    const marker = getRuntimeMetadataValue('runtime_cutover_v1_complete');
+    assert.ok(typeof marker === 'string' && marker.length > 0);
+  });
+});
+
+test('runtime cutover migration heals legacy schema drift where runtime_artifacts is missing at schema version 1', () => {
+  withTempRepo(() => {
+    const databasePath = getRuntimeDatabasePath();
+    getRuntimeDatabase(databasePath);
+    closeRuntimeDatabase();
+
+    const drifted = new Database(databasePath);
+    drifted.exec(`
+      DROP TABLE runtime_artifacts;
+      DROP INDEX IF EXISTS idx_runtime_artifacts_kind_created;
+      DROP INDEX IF EXISTS idx_runtime_artifacts_request;
+      UPDATE runtime_schema SET version = 1 WHERE id = 1;
+    `);
+    drifted.close();
+
+    runRuntimeCutoverMigration();
+    closeRuntimeDatabase();
+
+    const verify = new Database(databasePath, { readonly: true });
+    const tableRow = verify.prepare(`
+      SELECT 1 AS exists_flag
+      FROM sqlite_master
+      WHERE type = 'table' AND name = 'runtime_artifacts'
+      LIMIT 1
+    `).get() as { exists_flag?: number } | undefined;
+    const indexRows = verify.prepare(`
+      SELECT name
+      FROM sqlite_master
+      WHERE type = 'index' AND name IN ('idx_runtime_artifacts_kind_created', 'idx_runtime_artifacts_request')
+      ORDER BY name ASC
+    `).all() as Array<{ name?: string }>;
+    verify.close();
+
+    assert.equal(Number(tableRow?.exists_flag), 1);
+    assert.deepEqual(indexRows.map((row) => String(row.name)), [
+      'idx_runtime_artifacts_kind_created',
+      'idx_runtime_artifacts_request',
+    ]);
+  });
+});
+
+test('runtime cutover migration ignores non-legacy managed-llama .log files', () => {
+  withTempRepo((repoRoot) => {
+    const runtimeRoot = path.join(repoRoot, '.siftkit');
+    const managedLlamaLogPath = path.join(
+      runtimeRoot,
+      'logs',
+      'managed-llama',
+      '2026-04-13T16-02-13-708Z-1d8275cc-startup',
+      'llama.stderr.log',
+    );
+    fs.mkdirSync(path.dirname(managedLlamaLogPath), { recursive: true });
+    fs.writeFileSync(managedLlamaLogPath, 'live stderr log\n', 'utf8');
+
+    runRuntimeCutoverMigration();
+
+    assert.equal(fs.existsSync(managedLlamaLogPath), true);
     const marker = getRuntimeMetadataValue('runtime_cutover_v1_complete');
     assert.ok(typeof marker === 'string' && marker.length > 0);
   });

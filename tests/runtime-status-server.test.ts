@@ -214,6 +214,45 @@ test('real status server with disableManagedLlamaStartup does not trigger manage
   });
 });
 
+test('real status server accepts partial PUT /config updates and preserves unspecified fields', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const config = getDefaultConfig();
+    config.Backend = 'noop';
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ configUrl }) => {
+      const before = await requestJson(configUrl);
+      const updated = await requestJson(configUrl, {
+        method: 'PUT',
+        body: JSON.stringify({
+          Backend: 'llama.cpp',
+          Runtime: {
+            Model: 'Partial-Sync-Model.gguf',
+            LlamaCpp: {
+              BaseUrl: 'http://127.0.0.1:18097',
+              NumCtx: 123456,
+            },
+          },
+        }),
+      });
+
+      assert.equal(updated.Backend, 'llama.cpp');
+      assert.equal(updated.Runtime.Model, 'Partial-Sync-Model.gguf');
+      assert.equal(updated.Runtime.LlamaCpp.BaseUrl, 'http://127.0.0.1:18097');
+      assert.equal(updated.Runtime.LlamaCpp.NumCtx, 123456);
+      assert.equal(updated.Thresholds.MinCharactersForSummary, before.Thresholds.MinCharactersForSummary);
+      assert.equal(updated.Interactive.IdleTimeoutMs, before.Interactive.IdleTimeoutMs);
+      assert.equal(updated.Server.LlamaCpp.StartupScript, before.Server.LlamaCpp.StartupScript);
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
 test('real status server with disableManagedLlamaStartup keeps the shared status file pinned to true across request lifecycle', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');

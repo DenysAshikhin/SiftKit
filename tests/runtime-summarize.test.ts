@@ -812,4 +812,61 @@ test('provider failures hard fail instead of falling back to a deterministic raw
     });
   });
 });
-
+
+test('empty structured output retries once then fails, and subsequent requests still run', async () => {
+  await withTempEnv(async () => {
+    let invocationCount = 0;
+    await withStubServer(async (server) => {
+      await assert.rejects(
+        () => summarizeRequest({
+          question: 'Summarize this provider payload.',
+          inputText: 'A'.repeat(5000),
+          format: 'text',
+          policyProfile: 'general',
+          backend: 'llama.cpp',
+          model: 'mock-model',
+        }),
+        /Provider returned an empty SiftKit decision output\./u
+      );
+
+      const secondResult = await summarizeRequest({
+        question: 'Summarize this follow-up payload.',
+        inputText: 'B'.repeat(5000),
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(secondResult.Classification, 'summary');
+      assert.equal(secondResult.Summary, 'summary after retry failure');
+      assert.equal(server.state.chatRequests.length, 3);
+    }, {
+      assistantContent() {
+        invocationCount += 1;
+        if (invocationCount <= 2) {
+          return JSON.stringify({
+            classification: 'summary',
+            raw_review_required: false,
+            output: '   ',
+          });
+        }
+        return JSON.stringify({
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'summary after retry failure',
+        });
+      },
+      metrics: {
+        inputCharactersTotal: 3_461_904,
+        inputTokensTotal: 1_865_267,
+        outputCharactersTotal: 0,
+        outputTokensTotal: 0,
+        thinkingTokensTotal: 0,
+        completedRequestCount: 0,
+        requestDurationMsTotal: 0,
+      },
+    });
+  });
+});
+

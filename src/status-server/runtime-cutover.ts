@@ -347,9 +347,13 @@ function importRemainingLegacyLogFiles(runtimeRoot: string): void {
     return;
   }
   for (const filePath of listFilesRecursive(logsRoot)) {
+    const lower = filePath.toLowerCase();
+    const isLegacyLogExtension = lower.endsWith('.json') || lower.endsWith('.jsonl') || lower.endsWith('.txt');
+    if (!isLegacyLogExtension) {
+      continue;
+    }
     const relativePath = toPosixRelativePath(runtimeRoot, filePath);
     const fileText = fs.readFileSync(filePath, 'utf8');
-    const lower = filePath.toLowerCase();
     if (lower.endsWith('.json')) {
       try {
         const payload = JSON.parse(fileText) as unknown;

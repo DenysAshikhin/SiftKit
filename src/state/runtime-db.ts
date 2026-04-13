@@ -6,7 +6,7 @@ import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-const CURRENT_SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 2;
 
 let cachedDatabasePath: string | null = null;
 let cachedDatabase: RuntimeDatabase | null = null;
@@ -185,14 +185,37 @@ function applyBaseSchema(database: RuntimeDatabase): void {
   `);
 }
 
+function ensureRuntimeArtifactsSchema(database: RuntimeDatabase): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS runtime_artifacts (
+      id TEXT PRIMARY KEY,
+      artifact_kind TEXT NOT NULL,
+      request_id TEXT,
+      title TEXT,
+      content_text TEXT,
+      content_json TEXT,
+      created_at_utc TEXT NOT NULL,
+      updated_at_utc TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_runtime_artifacts_kind_created
+      ON runtime_artifacts(artifact_kind, created_at_utc DESC);
+    CREATE INDEX IF NOT EXISTS idx_runtime_artifacts_request
+      ON runtime_artifacts(request_id, created_at_utc DESC);
+  `);
+}
+
 function ensureSchema(database: RuntimeDatabase): void {
   database.exec('PRAGMA foreign_keys = ON;');
   const currentVersion = getSchemaVersion(database);
-  if (currentVersion >= CURRENT_SCHEMA_VERSION) {
+  if (currentVersion <= 0) {
+    applyBaseSchema(database);
+    setSchemaVersion(database, CURRENT_SCHEMA_VERSION);
     return;
   }
-  applyBaseSchema(database);
-  setSchemaVersion(database, CURRENT_SCHEMA_VERSION);
+  if (currentVersion < 2) {
+    ensureRuntimeArtifactsSchema(database);
+    setSchemaVersion(database, 2);
+  }
 }
 
 export function getRepoRuntimeRoot(startPath: string = process.cwd()): string {

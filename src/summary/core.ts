@@ -65,6 +65,10 @@ import type {
   SummaryResult,
 } from './types.js';
 
+function isEmptyDecisionOutputError(error: unknown): boolean {
+  return /Provider returned an empty SiftKit decision output\./iu.test(getErrorMessage(error));
+}
+
 async function invokeSummaryCore(options: {
   requestId: string;
   slotId: number | null;
@@ -286,7 +290,7 @@ async function invokeSummaryCore(options: {
   }
 
   try {
-    const rawResponse = await invokeProviderSummary({
+    const invokeSummaryProvider = (): Promise<string> => invokeProviderSummary({
       requestId: options.requestId,
       slotId: options.slotId,
       backend: options.backend,
@@ -306,7 +310,20 @@ async function invokeSummaryCore(options: {
       requestTimeoutSeconds: options.requestTimeoutSeconds,
       llamaCppOverrides: options.llamaCppOverrides,
     });
-    const parsedDecision = parseStructuredModelDecision(rawResponse);
+    const rawResponse = await invokeSummaryProvider();
+    let parsedDecision: StructuredModelDecision;
+    try {
+      parsedDecision = parseStructuredModelDecision(rawResponse);
+    } catch (error) {
+      if (!isEmptyDecisionOutputError(error)) {
+        throw error;
+      }
+      traceSummary(
+        `provider empty-output retry phase=${phase} chunk=${chunkLabel} request_id=${options.requestId}`
+      );
+      const retryRawResponse = await invokeSummaryProvider();
+      parsedDecision = parseStructuredModelDecision(retryRawResponse);
+    }
     if (parsedDecision.classification === 'unsupported_input') {
       if (isInternalChunkLeaf(options)) {
         if (options.chunkContext?.retryMode !== 'strict') {

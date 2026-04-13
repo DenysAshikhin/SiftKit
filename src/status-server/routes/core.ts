@@ -23,6 +23,7 @@ import {
   readConfig,
   writeConfig,
   normalizeConfig,
+  mergeConfig,
 } from '../config-store.js';
 import {
   type RepoSearchProgressEvent,
@@ -596,11 +597,10 @@ export async function handleCoreRoute(
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
-    if (!isStrictConfigPayload(parsedBody)) {
-      sendJson(res, 400, { error: 'Expected a full typed config payload (partial updates are not allowed).' });
-      return true;
-    }
-    const nextConfig = normalizeConfig(parsedBody);
+    const baseConfig = readConfig(configPath);
+    const nextConfig = isStrictConfigPayload(parsedBody)
+      ? normalizeConfig(parsedBody)
+      : normalizeConfig(mergeConfig(baseConfig, parsedBody) as Dict);
     writeConfig(configPath, nextConfig);
     sendJson(res, 200, nextConfig);
     return true;
