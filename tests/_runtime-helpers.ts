@@ -530,6 +530,7 @@ async function startStubStatusServer(options = {}) {
     artifactPosts: [],
     chatRequests: [],
     tokenizeRequests: [],
+    healthChecks: 0,
     running: Boolean(options.running),
     executionLeaseToken: null,
     metrics: {
@@ -605,6 +606,12 @@ async function startStubStatusServer(options = {}) {
 
   const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
+      state.healthChecks += 1;
+      if (state.healthChecks <= Number(options.healthFailuresBeforeOk || 0)) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false }));
+        return;
+      }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
       return;

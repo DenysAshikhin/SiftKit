@@ -281,6 +281,56 @@ export type DashboardRunsQueryOptions = {
   limitPerGroup?: number;
 };
 
+const RUN_LOG_LIST_SELECT_COLUMNS = `
+  id,
+  run_id,
+  request_id,
+  run_kind,
+  run_group,
+  terminal_state,
+  started_at_utc,
+  finished_at_utc,
+  title,
+  model,
+  backend,
+  repo_root,
+  input_tokens,
+  output_tokens,
+  thinking_tokens,
+  tool_tokens,
+  prompt_cache_tokens,
+  prompt_eval_tokens,
+  duration_ms
+`;
+
+const RUN_LOG_DETAIL_SELECT_COLUMNS = `
+  id,
+  run_id,
+  request_id,
+  run_kind,
+  run_group,
+  terminal_state,
+  started_at_utc,
+  finished_at_utc,
+  title,
+  model,
+  backend,
+  repo_root,
+  input_tokens,
+  output_tokens,
+  thinking_tokens,
+  tool_tokens,
+  prompt_cache_tokens,
+  prompt_eval_tokens,
+  duration_ms,
+  request_json,
+  planner_debug_json,
+  failed_request_json,
+  abandoned_request_json,
+  repo_search_json,
+  repo_search_transcript_jsonl
+`;
+
 type RunLogTerminalState = 'completed' | 'failed' | 'abandoned' | 'unknown';
 type RunLogKind =
   | 'summary_request'
@@ -536,17 +586,10 @@ export function queryDashboardRunsFromDb(
   const limitPerGroup = Math.max(1, Math.min(200, Number.isFinite(Number(options.limitPerGroup)) ? Math.trunc(Number(options.limitPerGroup)) : 20));
   const rows = shouldApplyInitialCap
     ? database.prepare(`
-      WITH ranked AS (
-        SELECT *,
-               ROW_NUMBER() OVER (
-                 PARTITION BY run_group
-                 ORDER BY COALESCE(started_at_utc, '1970-01-01T00:00:00.000Z') DESC, id DESC
-               ) AS run_group_rank
-        FROM run_logs
-      )
-      SELECT * FROM ranked
-      WHERE run_group_rank <= ?
-      ORDER BY COALESCE(started_at_utc, '1970-01-01T00:00:00.000Z') DESC, id DESC
+      SELECT ${RUN_LOG_LIST_SELECT_COLUMNS}
+      FROM run_logs
+      ORDER BY COALESCE(finished_at_utc, started_at_utc, '1970-01-01T00:00:00.000Z') DESC, id DESC
+      LIMIT ?
     `).all(limitPerGroup) as Dict[]
     : (() => {
       const whereClauses: string[] = [];
@@ -566,7 +609,8 @@ export function queryDashboardRunsFromDb(
       }
       const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
       return database.prepare(`
-        SELECT * FROM run_logs
+        SELECT ${RUN_LOG_LIST_SELECT_COLUMNS}
+        FROM run_logs
         ${whereSql}
         ORDER BY COALESCE(started_at_utc, '1970-01-01T00:00:00.000Z') DESC, id DESC
       `).all(...params) as Dict[];
@@ -580,7 +624,10 @@ export function queryDashboardRunDetailFromDb(
 ): { run: RunRecord; events: JsonlEvent[] } | null {
   ensureRunLogsTable(database);
   const row = database.prepare(`
-    SELECT * FROM run_logs WHERE run_id = ? LIMIT 1
+    SELECT ${RUN_LOG_DETAIL_SELECT_COLUMNS}
+    FROM run_logs
+    WHERE run_id = ?
+    LIMIT 1
   `).get(runId) as Dict | undefined;
   if (!row || typeof row !== 'object') {
     return null;
@@ -933,6 +980,46 @@ export function flushRunArtifactsToDbAndDelete(options: {
   return true;
 }
 
+const DEFAULT_RUN_LOG_FLUSH_TIMEOUT_MS = 250;
+const DEFAULT_RUN_LOG_MIGRATION_TIMEOUT_MS = 2000;
+
+function readNonNegativeIntegerEnv(key: string, fallback: number): number {
+  const parsed = Number.parseInt(String(process.env[key] || ''), 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+export function getRunLogFlushTimeoutMs(): number {
+  return readNonNegativeIntegerEnv('SIFTKIT_RUN_LOG_FLUSH_TIMEOUT_MS', DEFAULT_RUN_LOG_FLUSH_TIMEOUT_MS);
+}
+
+export function getRunLogMigrationTimeoutMs(): number {
+  return readNonNegativeIntegerEnv('SIFTKIT_RUN_LOG_MIGRATION_TIMEOUT_MS', DEFAULT_RUN_LOG_MIGRATION_TIMEOUT_MS);
+}
+
+export type RunLogFlushResult = {
+  flushed: boolean;
+  timedOut: boolean;
+  elapsedMs: number;
+};
+
+export function flushRunArtifactsToDbAndDeleteBounded(options: {
+  database: DatabaseInstance;
+  requestId: string;
+  terminalState?: RunLogTerminalState | null;
+  taskKind?: TaskKind | null;
+  timeoutMs?: number | null;
+}): RunLogFlushResult {
+  const startedAt = Date.now();
+  const flushed = flushRunArtifactsToDbAndDelete(options);
+  const elapsedMs = Math.max(0, Date.now() - startedAt);
+  const timeoutMs = Number.isFinite(Number(options.timeoutMs)) ? Math.max(0, Number(options.timeoutMs)) : Number.POSITIVE_INFINITY;
+  return {
+    flushed,
+    timedOut: Number.isFinite(timeoutMs) && elapsedMs > timeoutMs,
+    elapsedMs,
+  };
+}
+
 function collectRunLogRequestIdsFromDisk(): string[] {
   const logsRoot = path.join(getRuntimeRoot(), 'logs');
   const requestIds = new Set<string>();
@@ -954,9 +1041,33 @@ function collectRunLogRequestIdsFromDisk(): string[] {
 }
 
 export function migrateExistingRunLogsToDbAndDelete(database: DatabaseInstance): number {
+  return migrateExistingRunLogsToDbAndDeleteBounded(database).migratedCount;
+}
+
+export type RunLogMigrationResult = {
+  migratedCount: number;
+  timedOut: boolean;
+  elapsedMs: number;
+};
+
+export function migrateExistingRunLogsToDbAndDeleteBounded(
+  database: DatabaseInstance,
+  options: { timeoutMs?: number | null } = {},
+): RunLogMigrationResult {
   ensureRunLogsTable(database);
+  const startedAt = Date.now();
+  const timeoutMs = Number.isFinite(Number(options.timeoutMs))
+    ? Math.max(0, Number(options.timeoutMs))
+    : Number.POSITIVE_INFINITY;
   let migratedCount = 0;
   for (const requestId of collectRunLogRequestIdsFromDisk()) {
+    if (Number.isFinite(timeoutMs) && (Date.now() - startedAt) > timeoutMs) {
+      return {
+        migratedCount,
+        timedOut: true,
+        elapsedMs: Math.max(0, Date.now() - startedAt),
+      };
+    }
     try {
       if (flushRunArtifactsToDbAndDelete({
         database,
@@ -970,7 +1081,11 @@ export function migrateExistingRunLogsToDbAndDelete(database: DatabaseInstance):
       // continue best-effort migration
     }
   }
-  return migratedCount;
+  return {
+    migratedCount,
+    timedOut: false,
+    elapsedMs: Math.max(0, Date.now() - startedAt),
+  };
 }
 
 export function getPromptCacheHitRate(promptCacheTokens: unknown, promptEvalTokens: unknown): number | null {

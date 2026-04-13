@@ -4,6 +4,20 @@ import { getInferenceStatusPath } from './paths.js';
 import { StatusServerUnavailableError } from './errors.js';
 import type { StatusSnapshotResponse } from './types.js';
 
+const DEFAULT_HEALTHCHECK_ATTEMPTS = 5;
+const DEFAULT_HEALTHCHECK_TIMEOUT_MS = 1000;
+const DEFAULT_HEALTHCHECK_BACKOFF_MS = 100;
+
+function readPositiveIntegerEnv(key: string, fallback: number): number {
+  const parsed = Number.parseInt(String(process.env[key] || ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readNonNegativeIntegerEnv(key: string, fallback: number): number {
+  const parsed = Number.parseInt(String(process.env[key] || ''), 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 export function deriveServiceUrl(configuredUrl: string, nextPath: string): string {
   const target = new URL(configuredUrl);
   target.pathname = nextPath;
@@ -53,18 +67,39 @@ export async function getStatusSnapshot(): Promise<StatusSnapshotResponse> {
 }
 
 export async function ensureStatusServerReachable(): Promise<void> {
-  try {
-    const response = await requestJson<{ ok?: boolean }>({
-      url: getStatusServerHealthUrl(),
-      method: 'GET',
-      timeoutMs: 2000,
-    });
-    if (!response || response.ok !== true) {
-      throw new Error('Health endpoint did not return ok=true.');
+  const healthUrl = getStatusServerHealthUrl();
+  const attempts = readPositiveIntegerEnv('SIFTKIT_HEALTHCHECK_ATTEMPTS', DEFAULT_HEALTHCHECK_ATTEMPTS);
+  const timeoutMs = readPositiveIntegerEnv('SIFTKIT_HEALTHCHECK_TIMEOUT_MS', DEFAULT_HEALTHCHECK_TIMEOUT_MS);
+  const baseBackoffMs = readNonNegativeIntegerEnv('SIFTKIT_HEALTHCHECK_BACKOFF_MS', DEFAULT_HEALTHCHECK_BACKOFF_MS);
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await requestJson<{ ok?: boolean }>({
+        url: healthUrl,
+        method: 'GET',
+        timeoutMs,
+      });
+      if (!response || response.ok !== true) {
+        throw new Error('Health endpoint did not return ok=true.');
+      }
+      return;
+    } catch (error) {
+      const cause = error instanceof Error ? error.message : String(error);
+      process.stderr.write(
+        `[siftkit] healthcheck attempt ${attempt}/${attempts} failed `
+        + `url=${healthUrl} timeout_ms=${timeoutMs} cause=${cause}\n`
+      );
+      if (attempt >= attempts) {
+        break;
+      }
+      const delayMs = baseBackoffMs * (2 ** (attempt - 1));
+      if (delayMs > 0) {
+        await sleep(delayMs);
+      }
     }
-  } catch {
-    throw toStatusServerUnavailableError();
   }
+
+  throw toStatusServerUnavailableError();
 }
 
 export type NotifyStatusBackendOptions = {

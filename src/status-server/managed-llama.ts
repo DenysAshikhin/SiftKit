@@ -61,6 +61,7 @@ export const IDLE_SUMMARY_DELAY_MS = getPositiveIntegerFromEnv('SIFTKIT_IDLE_SUM
 export const GPU_LOCK_POLL_DELAY_MS = 100;
 export const LLAMA_STARTUP_GRACE_DELAY_MS = 2_000;
 export const MANAGED_LLAMA_LOG_ALERT_PATTERN = /\b(?:warn(?:ing)?|error|exception|fatal)\b/iu;
+const MANAGED_LLAMA_LOADING_MODEL_503_PATTERN = /"message"\s*:\s*"Loading model"[\s\S]*"type"\s*:\s*"unavailable_error"[\s\S]*"code"\s*:\s*503/iu;
 
 // ---------------------------------------------------------------------------
 // Process tree termination
@@ -254,7 +255,10 @@ function collectManagedLlamaLogEntries(logPaths: ManagedLlamaLogPaths): LogEntry
     const text = readTextIfExists(filePath) ?? '';
     const matchingLines = text
       .split(/\r?\n/u)
-      .filter((line) => MANAGED_LLAMA_LOG_ALERT_PATTERN.test(line));
+      .filter((line) => (
+        MANAGED_LLAMA_LOG_ALERT_PATTERN.test(line)
+        && !MANAGED_LLAMA_LOADING_MODEL_503_PATTERN.test(line)
+      ));
     entries.push({ label, filePath, text, matchingLines });
   }
   return entries;

@@ -23,6 +23,14 @@ npm start
 
 That launch path uses `nodemon --signal SIGINT`, so a managed llama process is torn down on graceful restarts instead of being left behind between reloads.
 
+If you need a long-running status/config server while running parallel builds or test loops, use:
+
+```powershell
+npm run start:status:stable
+```
+
+That launch path runs the same server without `nodemon` file-watch restarts.
+
 If you need the status/config server without managed `llama.cpp` startup, use:
 
 ```powershell

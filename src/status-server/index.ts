@@ -35,7 +35,8 @@ import {
   loadDashboardRuns,
   buildDashboardRunDetail,
   buildDashboardDailyMetrics,
-  migrateExistingRunLogsToDbAndDelete,
+  migrateExistingRunLogsToDbAndDeleteBounded,
+  getRunLogMigrationTimeoutMs,
   normalizeIdleSummarySnapshotRow,
 } from './dashboard-runs.js';
 import {
@@ -224,11 +225,20 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
           ctx.bootstrapManagedLlamaStartup = false;
         }
       }
-      try {
-        migrateExistingRunLogsToDbAndDelete(getIdleSummaryDatabase(ctx));
-      } catch (error) {
-        process.stderr.write(`[siftKitStatus] Run-log migration failed: ${error instanceof Error ? error.message : String(error)}\n`);
-      }
+      setImmediate(() => {
+        try {
+          const timeoutMs = getRunLogMigrationTimeoutMs();
+          const migration = migrateExistingRunLogsToDbAndDeleteBounded(getIdleSummaryDatabase(ctx), { timeoutMs });
+          if (migration.timedOut) {
+            process.stderr.write(
+              `[siftKitStatus] Run-log migration exceeded timeout budget (${timeoutMs}ms, elapsed=${migration.elapsedMs}ms, `
+              + `migrated=${migration.migratedCount}).\n`,
+            );
+          }
+        } catch (error) {
+          process.stderr.write(`[siftKitStatus] Run-log migration failed: ${error instanceof Error ? error.message : String(error)}\n`);
+        }
+      });
       publishStatus(ctx);
       const address = server.address();
       const port = typeof address === 'object' && address ? address.port : requestedPort;

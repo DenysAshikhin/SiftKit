@@ -168,6 +168,102 @@ test('status server stays responsive while repo-search is running', async () => 
   }
 });
 
+test('status completion flushing does not block health responses', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-status-flush-health-'));
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup: Record<string, string | undefined> = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+
+  const requestId = 'flush-block-test';
+  const delayedArtifactPath = path.join(tempRoot, '.siftkit', 'logs', 'requests', `request_${requestId}.json`);
+  fs.mkdirSync(path.dirname(delayedArtifactPath), { recursive: true });
+  fs.writeFileSync(
+    delayedArtifactPath,
+    `${JSON.stringify({ title: 'flush blocking simulation', prompt: 'x'.repeat(1024) })}\n`,
+    'utf8',
+  );
+
+  const sharedNodeFs = requireFromHere('node:fs') as {
+    readFileSync: (...args: unknown[]) => unknown;
+  };
+  const originalReadFileSync = sharedNodeFs.readFileSync;
+  sharedNodeFs.readFileSync = (...args: unknown[]) => {
+    const target = typeof args[0] === 'string' ? args[0] : '';
+    if (target && path.resolve(target).toLowerCase() === path.resolve(delayedArtifactPath).toLowerCase()) {
+      const start = Date.now();
+      while (Date.now() - start < 350) {
+        // Intentional busy wait to simulate a heavy synchronous artifact read.
+      }
+    }
+    return originalReadFileSync(...args);
+  };
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const statusStartMs = Date.now();
+    const statusPromise = requestJson(`${baseUrl}/status`, {
+      method: 'POST',
+      timeoutMs: 5000,
+      body: JSON.stringify({
+        running: false,
+        requestId,
+        taskKind: 'summary',
+        terminalState: 'completed',
+        promptCharacterCount: 1,
+        inputTokens: 1,
+        outputCharacterCount: 1,
+        outputTokens: 1,
+        requestDurationMs: 1,
+      }),
+    }).then((response) => ({
+      response,
+      resolvedAtMs: Date.now(),
+    }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const healthStartMs = Date.now();
+    const healthResponse = await requestJson(`${baseUrl}/health`, { timeoutMs: 5000 });
+    const healthLatencyMs = Date.now() - healthStartMs;
+
+    const statusResult = await statusPromise;
+    const statusResponse = statusResult.response;
+    const statusLatencyMs = statusResult.resolvedAtMs - statusStartMs;
+
+    assert.equal(statusResponse.statusCode, 200);
+    assert.equal(healthResponse.statusCode, 200);
+    assert.ok(statusLatencyMs >= 0);
+    assert.ok(healthLatencyMs < 250, `expected fast /health during flush, got ${healthLatencyMs}ms`);
+  } finally {
+    sharedNodeFs.readFileSync = originalReadFileSync;
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('buildRepoSearchProgressLogMessage formats planner and repo-search command progress lines', () => {
   const msg1 = buildRepoSearchProgressLogMessage({
     turn: 2,

@@ -906,7 +906,7 @@ test('chat completion receives hidden tool context while keeping it out of visib
   }
 });
 
-test('dashboard initial runs load returns last 20 per run kind and migrates pre-existing file logs into sqlite', async () => {
+test('dashboard initial runs load returns top 20 overall and migrates pre-existing file logs into sqlite', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-initial-cap-'));
   const runtimeRoot = path.join(tempRoot, '.siftkit');
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
@@ -965,11 +965,7 @@ test('dashboard initial runs load returns last 20 per run kind and migrates pre-
     const cappedRunsResponse = await requestJson(`${baseUrl}/dashboard/runs?initial=1&limitPerGroup=20`);
     assert.equal(cappedRunsResponse.statusCode, 200);
     const runs = cappedRunsResponse.body.runs as Dict[];
-    assert.equal(runs.length, 40);
-    const summaryCount = runs.filter((run) => String(run.kind) === 'summary_request').length;
-    const repoCount = runs.filter((run) => String(run.kind) === 'repo_search').length;
-    assert.equal(summaryCount, 20);
-    assert.equal(repoCount, 20);
+    assert.equal(runs.length, 20);
 
     assert.equal(fs.readdirSync(requestsRoot).length, 0);
     assert.equal(fs.readdirSync(repoSearchFailedRoot).length, 0);

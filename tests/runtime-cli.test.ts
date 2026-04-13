@@ -174,6 +174,32 @@ test('CLI summary fails closed with the canonical message when the external serv
   });
 });
 
+test('CLI summary preflight tolerates transient health failures', async () => {
+  await withTempEnv(async () => {
+    await withSummaryTestServer(async (server) => {
+      const result = await spawnProcess(
+        process.execPath,
+        [path.join(process.cwd(), 'bin', 'siftkit.js'), 'summary', '--question', 'summarize this', '--text', 'hello world'],
+        {
+          cwd: process.cwd(),
+          env: {
+            ...process.env,
+            SIFTKIT_HEALTHCHECK_ATTEMPTS: '5',
+            SIFTKIT_HEALTHCHECK_TIMEOUT_MS: '100',
+            SIFTKIT_HEALTHCHECK_BACKOFF_MS: '1',
+          },
+        },
+      );
+      assert.equal(result.code, 0);
+      assert.doesNotMatch(result.stderr, /status\/config server is not reachable/iu);
+      assert.match(result.stdout, /summary:/u);
+      assert.ok(Number(server?.state?.healthChecks || 0) >= 3);
+    }, {
+      healthFailuresBeforeOk: 2,
+    });
+  });
+});
+
 test('local-only find-files CLI works without the external server', async () => {
   await withTempEnv(async (tempRoot) => {
     const port = '4777';
@@ -220,4 +246,4 @@ test('unsupported input returns the exact terminal message', async () => {
     });
   });
 });
-
+

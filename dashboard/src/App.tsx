@@ -801,8 +801,12 @@ export function App() {
       }
       setRunsError(null);
       try {
+        const hasSearch = search.trim().length > 0;
+        const hasKindFilter = kindFilter.trim().length > 0;
+        const hasStatusFilter = statusFilter.trim().length > 0;
+        const usePerGroupCap = !hasSearch && !hasKindFilter && !hasStatusFilter;
         const response = await getRuns(search, kindFilter, statusFilter, {
-          initial: !runsLoadedRef.current,
+          initial: usePerGroupCap,
           limitPerGroup: 20,
         });
         if (!cancelled) {

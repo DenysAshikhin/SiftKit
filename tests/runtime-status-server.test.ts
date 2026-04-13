@@ -761,6 +761,41 @@ test('real status server fails closed during startup when managed llama logs con
   });
 });
 
+test('real status server ignores transient Loading model 503 startup log lines', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
+      llamaLogLine: 'srv  log_server_r: response: {"error":{"message":"Loading model","type":"unavailable_error","code":503}}',
+    });
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ healthUrl }) => {
+      const health = await requestJson(healthUrl);
+      assert.equal(health.ok, true);
+    }, {
+      statusPath,
+      configPath,
+    });
+
+    const latestStartupDumpPath = path.join(tempRoot, 'logs', 'managed-llama', 'latest-startup.log');
+    assert.equal(fs.existsSync(latestStartupDumpPath), true);
+    assert.match(fs.readFileSync(latestStartupDumpPath, 'utf8'), /Result: ready/u);
+  });
+});
+
 test('real status server aborts a broken managed llama startup during server startup within the capped timeout', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');

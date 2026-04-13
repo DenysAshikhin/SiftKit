@@ -31,7 +31,8 @@ import {
   buildStatusRequestLogMessage,
   buildRepoSearchProgressLogMessage,
   getStatusArtifactPath,
-  flushRunArtifactsToDbAndDelete,
+  flushRunArtifactsToDbAndDeleteBounded,
+  getRunLogFlushTimeoutMs,
 } from '../dashboard-runs.js';
 import { loadRepoSearchExecutor } from '../chat.js';
 import { logLine } from '../managed-llama.js';
@@ -81,6 +82,58 @@ function buildToolStatsLogMessages(taskKind: TaskKind, stats: Record<string, Too
     );
   }
   return lines;
+}
+
+function scheduleRunLogFlush(options: {
+  ctx: ServerContext;
+  requestId: string;
+  terminalState: 'completed' | 'failed' | null;
+  taskKind: TaskKind | null;
+  reason: 'artifact_only' | 'terminal_status';
+}): void {
+  const timeoutMs = getRunLogFlushTimeoutMs();
+  setImmediate(() => {
+    try {
+      const result = flushRunArtifactsToDbAndDeleteBounded({
+        database: getIdleSummaryDatabase(options.ctx),
+        requestId: options.requestId,
+        terminalState: options.terminalState,
+        taskKind: options.taskKind,
+        timeoutMs,
+      });
+      if (result.timedOut) {
+        process.stderr.write(
+          `[siftKitStatus] Run-log flush exceeded timeout budget (${timeoutMs}ms, elapsed=${result.elapsedMs}ms) `
+          + `for request ${options.requestId} (${options.reason}).\n`,
+        );
+      }
+    } catch (error) {
+      process.stderr.write(
+        `[siftKitStatus] Failed to flush ${options.reason === 'artifact_only' ? 'artifact-only ' : ''}run logs for request `
+        + `${options.requestId}: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
+    }
+  });
+}
+
+function scheduleRunLogFlushAfterResponse(
+  res: http.ServerResponse,
+  options: {
+    ctx: ServerContext;
+    requestId: string;
+    terminalState: 'completed' | 'failed' | null;
+    taskKind: TaskKind | null;
+    reason: 'artifact_only' | 'terminal_status';
+  },
+): void {
+  res.once('finish', () => {
+    const flushTimer = setTimeout(() => {
+      scheduleRunLogFlush(options);
+    }, 250);
+    if (typeof flushTimer.unref === 'function') {
+      flushTimer.unref();
+    }
+  });
 }
 
 export async function handleCoreRoute(
@@ -288,19 +341,13 @@ export async function handleCoreRoute(
       && metadata.requestDurationMs === null;
     if (isArtifactOnlyPost) {
       if (metadata.artifactRequestId && !ctx.activeRunsByRequestId.has(metadata.artifactRequestId)) {
-        try {
-          flushRunArtifactsToDbAndDelete({
-            database: getIdleSummaryDatabase(ctx),
-            requestId: metadata.artifactRequestId,
-            terminalState: null,
-            taskKind: null,
-          });
-        } catch (error) {
-          process.stderr.write(
-            `[siftKitStatus] Failed to flush artifact-only run logs for request ${metadata.artifactRequestId}: `
-            + `${error instanceof Error ? error.message : String(error)}\n`,
-          );
-        }
+        scheduleRunLogFlushAfterResponse(res, {
+          ctx,
+          requestId: metadata.artifactRequestId,
+          terminalState: null,
+          taskKind: null,
+          reason: 'artifact_only',
+        });
       }
       const publishedStatus = getPublishedStatusText(ctx);
       sendJson(res, 200, { ok: true, running: publishedStatus === STATUS_TRUE, status: publishedStatus, statusPath, configPath });
@@ -508,6 +555,7 @@ export async function handleCoreRoute(
     if (!suppressLogLine) {
       logLine(logMessage);
     }
+    let pendingRunLogFlush: { requestId: string; terminalState: 'completed' | 'failed'; taskKind: TaskKind | null } | null = null;
     if (!running) {
       const taskKind = normalizeTaskKind(metadata.taskKind);
       if (taskKind && metadata.toolStats) {
@@ -516,23 +564,24 @@ export async function handleCoreRoute(
         }
       }
       if (metadata.terminalState === 'completed' || metadata.terminalState === 'failed') {
-        try {
-          flushRunArtifactsToDbAndDelete({
-            database: getIdleSummaryDatabase(ctx),
-            requestId,
-            terminalState: metadata.terminalState,
-            taskKind: taskKind ?? null,
-          });
-        } catch (error) {
-          process.stderr.write(
-            `[siftKitStatus] Failed to flush run logs for request ${requestId}: `
-            + `${error instanceof Error ? error.message : String(error)}\n`,
-          );
-        }
+        pendingRunLogFlush = {
+          requestId,
+          terminalState: metadata.terminalState,
+          taskKind: taskKind ?? null,
+        };
       }
     }
     const publishedStatus = getPublishedStatusText(ctx);
     writePublishedStatus(ctx, publishedStatus);
+    if (pendingRunLogFlush) {
+      scheduleRunLogFlushAfterResponse(res, {
+        ctx,
+        requestId: pendingRunLogFlush.requestId,
+        terminalState: pendingRunLogFlush.terminalState,
+        taskKind: pendingRunLogFlush.taskKind,
+        reason: 'terminal_status',
+      });
+    }
     sendJson(res, 200, { ok: true, running: publishedStatus === STATUS_TRUE, status: publishedStatus, statusPath, configPath });
     return true;
   }
