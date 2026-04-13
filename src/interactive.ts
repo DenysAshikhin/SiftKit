@@ -1,11 +1,12 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { getConfiguredModel, initializeRuntime, loadConfig } from './config/index.js';
-import { saveContentAtomically } from './lib/fs.js';
 import { summarizeRequest } from './summary/core.js';
-import { newArtifactPath } from './capture/artifacts.js';
 import { resolveExternalCommand } from './capture/command-path.js';
 import { captureWithTranscript } from './capture/process.js';
 import type { SummaryClassification } from './summary/types.js';
+import { upsertRuntimeTextArtifact } from './state/runtime-artifacts.js';
 
 export type InteractiveCaptureRequest = {
   Command: string;
@@ -36,28 +37,44 @@ export async function runInteractiveCapture(request: InteractiveCaptureRequest):
   const policyProfile = request.PolicyProfile || 'general';
   const question = request.Question || 'Summarize the important result and any actionable failures.';
 
-  const paths = initializeRuntime();
-  const transcriptPath = newArtifactPath(paths.Logs, 'interactive_raw', 'log');
+  void initializeRuntime();
+  const transcriptArtifact = upsertRuntimeTextArtifact({
+    artifactKind: 'interactive_raw',
+    content: '',
+  });
+  const transcriptPath = transcriptArtifact.uri;
   const resolvedCommand = resolveExternalCommand(request.Command);
   let exitCode = 0;
 
+  let transcriptText = '';
   try {
-    exitCode = captureWithTranscript(resolvedCommand, request.ArgumentList || [], transcriptPath);
+    // captureWithTranscript expects a filesystem target path, so capture into temp text first.
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-interactive-'));
+    const tempPath = path.join(tempDir, 'transcript.log');
+    exitCode = captureWithTranscript(resolvedCommand, request.ArgumentList || [], tempPath);
+    transcriptText = fs.existsSync(tempPath) ? fs.readFileSync(tempPath, 'utf8') : '';
+    try {
+      fs.rmSync(tempDir, { force: true, recursive: true });
+    } catch {
+      // Best effort cleanup.
+    }
   } catch {
-    saveContentAtomically(transcriptPath, '');
+    transcriptText = '';
     exitCode = 1;
   }
 
-  let transcriptText = fs.existsSync(transcriptPath) ? fs.readFileSync(transcriptPath, 'utf8') : '';
   if (config.Interactive.MaxTranscriptCharacters && transcriptText.length > Number(config.Interactive.MaxTranscriptCharacters)) {
     transcriptText = transcriptText.substring(transcriptText.length - Number(config.Interactive.MaxTranscriptCharacters));
-    saveContentAtomically(transcriptPath, transcriptText);
   }
 
   if (!transcriptText.trim()) {
     transcriptText = `Interactive command completed without a captured transcript.\nCommand: ${request.Command} ${(request.ArgumentList || []).join(' ')}\nExitCode: ${exitCode}`;
-    saveContentAtomically(transcriptPath, transcriptText);
   }
+  upsertRuntimeTextArtifact({
+    id: transcriptArtifact.id,
+    artifactKind: 'interactive_raw',
+    content: transcriptText,
+  });
 
   const summaryResult = await summarizeRequest({
     question,

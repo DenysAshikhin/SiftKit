@@ -1,4 +1,3 @@
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { notifyStatusBackend } from '../config/index.js';
@@ -6,10 +5,15 @@ import {
   createJsonLogger,
   ensureRepoSearchLogFolders,
   moveFileSafe,
+  readJsonLog,
+  resolveRepoSearchLogUri,
   traceRepoSearch,
 } from './logging.js';
 import { runRepoSearch } from './engine.js';
 import { getNumericTotal, getOutputCharacterCount } from './scorecard.js';
+import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
+import { getRuntimeDatabase } from '../state/runtime-db.js';
+import { upsertRepoSearchRun } from '../status-server/dashboard-runs.js';
 import type {
   RepoSearchExecutionRequest,
   RepoSearchExecutionResult,
@@ -73,9 +77,10 @@ export async function executeRepoSearchRequest(
         : null,
     });
     const targetFolder = scorecard?.verdict === 'pass' ? folders.successful : folders.failed;
-    const transcriptPath = path.join(targetFolder, `request_${requestId}.jsonl`);
-    const artifactPath = path.join(targetFolder, `request_${requestId}.json`);
+    const transcriptPath = `${targetFolder}/request_${requestId}.jsonl`;
+    const artifactPathHint = `${targetFolder}/request_${requestId}.json`;
     moveFileSafe(tempTranscriptPath, transcriptPath);
+    const transcriptText = readJsonLog(transcriptPath);
     const artifact = {
       requestId,
       prompt,
@@ -85,10 +90,16 @@ export async function executeRepoSearchRequest(
       maxTurns: request.maxTurns ?? null,
       verdict: scorecard?.verdict ?? 'unknown',
       totals: scorecard?.totals ?? null,
-      transcriptPath,
+      transcriptPath: resolveRepoSearchLogUri(transcriptPath),
       scorecard,
     };
-    fs.writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
+    const artifactPath = upsertRuntimeJsonArtifact({
+      id: `repo_search_artifact:${requestId}`,
+      artifactKind: 'repo_search_artifact',
+      requestId,
+      title: artifactPathHint,
+      payload: artifact,
+    }).uri;
     const outputCharacterCount = getOutputCharacterCount(scorecard);
     const promptTokens = getNumericTotal(scorecard, 'promptTokens');
     const outputTokens = getNumericTotal(scorecard, 'outputTokens');
@@ -123,6 +134,29 @@ export async function executeRepoSearchRequest(
       }> }).toolStats
       : null;
     try {
+      const finishedAtUtc = new Date().toISOString();
+      upsertRepoSearchRun({
+        database: getRuntimeDatabase(),
+        requestId,
+        taskKind,
+        prompt,
+        repoRoot,
+        model: request.model ?? null,
+        requestMaxTokens: request.requestMaxTokens ?? null,
+        maxTurns: request.maxTurns ?? null,
+        transcriptText,
+        artifactPayload: artifact as unknown as Record<string, unknown>,
+        terminalState: 'completed',
+        startedAtUtc: new Date(startedAt).toISOString(),
+        finishedAtUtc,
+        requestDurationMs: Date.now() - startedAt,
+        promptTokens,
+        outputTokens,
+        thinkingTokens,
+        toolTokens,
+        promptCacheTokens,
+        promptEvalTokens,
+      });
       await notifyStatusBackend({
         running: false,
         taskKind,
@@ -149,14 +183,15 @@ export async function executeRepoSearchRequest(
     );
     return {
       requestId,
-      transcriptPath,
+      transcriptPath: resolveRepoSearchLogUri(transcriptPath),
       artifactPath,
       scorecard,
     };
   } catch (error) {
-    const transcriptPath = path.join(folders.failed, `request_${requestId}.jsonl`);
-    const artifactPath = path.join(folders.failed, `request_${requestId}.json`);
+    const transcriptPath = `${folders.failed}/request_${requestId}.jsonl`;
+    const artifactPathHint = `${folders.failed}/request_${requestId}.json`;
     moveFileSafe(tempTranscriptPath, transcriptPath);
+    const transcriptText = readJsonLog(transcriptPath);
     const message = error instanceof Error ? error.message : String(error);
     const artifact = {
       requestId,
@@ -166,9 +201,41 @@ export async function executeRepoSearchRequest(
       requestMaxTokens: request.requestMaxTokens ?? null,
       maxTurns: request.maxTurns ?? null,
       error: message,
-      transcriptPath,
+      transcriptPath: resolveRepoSearchLogUri(transcriptPath),
     };
-    fs.writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
+    const artifactPath = upsertRuntimeJsonArtifact({
+      id: `repo_search_artifact:${requestId}`,
+      artifactKind: 'repo_search_artifact',
+      requestId,
+      title: artifactPathHint,
+      payload: artifact,
+    }).uri;
+    try {
+      upsertRepoSearchRun({
+        database: getRuntimeDatabase(),
+        requestId,
+        taskKind,
+        prompt,
+        repoRoot,
+        model: request.model ?? null,
+        requestMaxTokens: request.requestMaxTokens ?? null,
+        maxTurns: request.maxTurns ?? null,
+        transcriptText,
+        artifactPayload: artifact as unknown as Record<string, unknown>,
+        terminalState: 'failed',
+        startedAtUtc: new Date(startedAt).toISOString(),
+        finishedAtUtc: new Date().toISOString(),
+        requestDurationMs: Date.now() - startedAt,
+        promptTokens: null,
+        outputTokens: null,
+        thinkingTokens: null,
+        toolTokens: null,
+        promptCacheTokens: null,
+        promptEvalTokens: null,
+      });
+    } catch {
+      // Best effort run-log persistence.
+    }
     try {
       await notifyStatusBackend({
         running: false,
@@ -185,6 +252,8 @@ export async function executeRepoSearchRequest(
       traceRepoSearch(`notify running=false failed request_id=${requestId} state=failed`);
     }
     traceRepoSearch(`execute failed request_id=${requestId} duration_ms=${Date.now() - startedAt} error=${message}`);
+    (error as { artifactPath?: string; transcriptPath?: string }).artifactPath = artifactPath;
+    (error as { artifactPath?: string; transcriptPath?: string }).transcriptPath = resolveRepoSearchLogUri(transcriptPath);
     throw error;
   }
 }

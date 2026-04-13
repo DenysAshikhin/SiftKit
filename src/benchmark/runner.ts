@@ -1,7 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getConfiguredModel, loadConfig } from '../config/index.js';
-import { saveContentAtomically } from '../lib/fs.js';
 import { summarizeRequest } from '../summary/core.js';
 import { formatElapsed } from '../lib/time.js';
 import {
@@ -26,6 +25,8 @@ import {
   type BenchmarkRunResult,
   type BenchmarkRunnerOptions,
 } from './types.js';
+import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
+import { persistBenchmarkRun } from '../state/runtime-results.js';
 
 export async function runBenchmarkSuite(options: BenchmarkRunnerOptions = {}): Promise<BenchmarkRunResult> {
   const fixtureRoot = path.resolve(options.fixtureRoot || path.join(getRepoRoot(), 'eval', 'fixtures'));
@@ -125,12 +126,23 @@ export async function runBenchmarkSuite(options: BenchmarkRunnerOptions = {}): P
     fatalError,
   });
 
-  saveContentAtomically(outputPath, JSON.stringify(artifact, null, 2));
+  const persistedBenchmarkRun = persistBenchmarkRun({
+    payload: artifact as unknown as Record<string, unknown>,
+  });
+  upsertRuntimeJsonArtifact({
+    artifactKind: 'benchmark_run',
+    id: persistedBenchmarkRun.id,
+    title: outputPath,
+    payload: artifact as unknown as Record<string, unknown>,
+  });
   if (fatalException !== null) {
     throw new FatalBenchmarkError(fatalError ?? (fatalException instanceof Error ? fatalException.message : String(fatalException)));
   }
 
-  return artifact;
+  return {
+    ...artifact,
+    OutputPath: persistedBenchmarkRun.uri,
+  };
 }
 
 export async function main(): Promise<void> {

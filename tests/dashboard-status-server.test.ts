@@ -8,6 +8,7 @@ import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 
 import { startStatusServer } from '../dist/status-server/index.js';
+import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
 
 const requireFromHere = createRequire(__filename);
 const Database = requireFromHere('better-sqlite3') as new (path: string, options?: { readonly?: boolean }) => {
@@ -160,6 +161,20 @@ function writeJson(targetPath: string, payload: unknown): void {
   fs.writeFileSync(targetPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
 }
 
+async function removeDirectoryWithRetries(targetPath: string, attempts: number = 40, delayMs: number = 100): Promise<void> {
+  for (let index = 0; index < attempts; index += 1) {
+    try {
+      fs.rmSync(targetPath, { recursive: true, force: true });
+      return;
+    } catch {
+      if (index === attempts - 1) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
 function d(value: unknown): Dict {
   return (value || {}) as Dict;
 }
@@ -198,8 +213,25 @@ function configureDashboardTestEnv(
   return envBackup;
 }
 
+function enterDashboardTestRepo(tempRoot: string): string {
+  const previousCwd = process.cwd();
+  fs.writeFileSync(
+    path.join(tempRoot, 'package.json'),
+    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+    'utf8',
+  );
+  process.chdir(tempRoot);
+  return previousCwd;
+}
+
+function restoreDashboardTestRepo(previousCwd: string): void {
+  process.chdir(previousCwd);
+  closeRuntimeDatabase();
+}
+
 test('dashboard endpoints expose runs, details, metrics, and chat sessions', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-status-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
   const runtimeRoot = path.join(tempRoot, '.siftkit');
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
   const configPath = path.join(runtimeRoot, 'config.json');
@@ -477,12 +509,13 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
         process.env[key] = value;
       }
     }
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    await removeDirectoryWithRetries(tempRoot);
   }
 });
 
 test('dashboard metrics expose line-read stats and prompt-baseline recommendations', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-line-read-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
   const runtimeRoot = path.join(tempRoot, '.siftkit');
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
   const configPath = path.join(runtimeRoot, 'config.json');
@@ -574,6 +607,7 @@ test('dashboard metrics expose line-read stats and prompt-baseline recommendatio
 
 test('plan/repo-search stream events include backend promptTokenCount', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-stream-tokens-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
@@ -642,6 +676,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
+    restoreDashboardTestRepo(previousCwd);
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -649,12 +684,12 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
         process.env[key] = value;
       }
     }
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    await removeDirectoryWithRetries(tempRoot);
   }
 });
 
 test('package start script launches the dedicated dual-server start runner', () => {
-  const packageJsonPath = path.join(process.cwd(), 'package.json');
+  const packageJsonPath = path.resolve(__dirname, '..', 'package.json');
   const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as { scripts?: { start?: string } };
   assert.equal(typeof packageJson.scripts?.start, 'string');
   assert.match(String(packageJson.scripts?.start || ''), /scripts[\\/]+start-dev\.(ts|js)/u);
@@ -662,6 +697,7 @@ test('package start script launches the dedicated dual-server start runner', () 
 
 test('repo-search and dashboard chat messages serialize by waiting', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-lock-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
@@ -721,6 +757,7 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
+    restoreDashboardTestRepo(previousCwd);
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -728,12 +765,13 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
         process.env[key] = value;
       }
     }
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    await removeDirectoryWithRetries(tempRoot);
   }
 });
 
 test('plan endpoint rejects missing or invalid repo root', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-plan-root-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
@@ -765,6 +803,7 @@ test('plan endpoint rejects missing or invalid repo root', async () => {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
+    restoreDashboardTestRepo(previousCwd);
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -772,12 +811,13 @@ test('plan endpoint rejects missing or invalid repo root', async () => {
         process.env[key] = value;
       }
     }
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    await removeDirectoryWithRetries(tempRoot);
   }
 });
 
 test('chat completion receives hidden tool context while keeping it out of visible chat history', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-toolctx-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   let capturedChatRequest: Dict | null = null;
@@ -895,6 +935,7 @@ test('chat completion receives hidden tool context while keeping it out of visib
     await new Promise<void>((resolve, reject) => {
       llamaServer.close((error) => (error ? reject(error) : resolve()));
     });
+    restoreDashboardTestRepo(previousCwd);
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -902,16 +943,17 @@ test('chat completion receives hidden tool context while keeping it out of visib
         process.env[key] = value;
       }
     }
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    await removeDirectoryWithRetries(tempRoot);
   }
 });
 
 test('dashboard initial runs load returns top 20 overall and migrates pre-existing file logs into sqlite', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-initial-cap-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
   const runtimeRoot = path.join(tempRoot, '.siftkit');
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
   const configPath = path.join(runtimeRoot, 'config.json');
-  const idleSummaryDbPath = path.join(runtimeRoot, 'status', 'idle-summary.sqlite');
+  const idleSummaryDbPath = path.join(runtimeRoot, 'runtime.sqlite');
   const logsRoot = path.join(runtimeRoot, 'logs');
   const requestsRoot = path.join(logsRoot, 'requests');
   const repoSearchFailedRoot = path.join(logsRoot, 'repo_search', 'failed');
@@ -974,6 +1016,7 @@ test('dashboard initial runs load returns top 20 overall and migrates pre-existi
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
+    restoreDashboardTestRepo(previousCwd);
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -981,12 +1024,13 @@ test('dashboard initial runs load returns top 20 overall and migrates pre-existi
         process.env[key] = value;
       }
     }
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    await removeDirectoryWithRetries(tempRoot);
   }
 });
 
 test('dashboard plan wakes managed llama after idle shutdown', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-idle-wakeup-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const llamaPort = await runtimeHelpers.getFreePort();
@@ -1095,8 +1139,9 @@ test('dashboard plan wakes managed llama after idle shutdown', async () => {
     }, 5000);
   } finally {
     await server.close();
+    restoreDashboardTestRepo(previousCwd);
     try {
-      fs.rmSync(tempRoot, { recursive: true, force: true });
+      await removeDirectoryWithRetries(tempRoot);
     } catch {
       // Best-effort temp cleanup on Windows.
     }

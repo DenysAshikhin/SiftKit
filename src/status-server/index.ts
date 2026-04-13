@@ -34,10 +34,9 @@ import {
   loadDashboardRuns,
   buildDashboardRunDetail,
   buildDashboardDailyMetrics,
-  migrateExistingRunLogsToDbAndDeleteBounded,
-  getRunLogMigrationTimeoutMs,
   normalizeIdleSummarySnapshotRow,
 } from './dashboard-runs.js';
+import { runRuntimeCutoverMigration } from './runtime-cutover.js';
 import {
   publishStatus,
   clearIdleSummaryTimer,
@@ -120,6 +119,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   const configPath = getConfigPath();
   const metricsPath = getMetricsPath();
   const idleSummarySnapshotsPath = getIdleSummarySnapshotsPath();
+  runRuntimeCutoverMigration();
   ensureStatusFile(statusPath);
   writeConfig(configPath, readConfig(configPath));
   const loadedMetrics = readMetricsWithResetDecision(metricsPath);
@@ -209,20 +209,6 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
           ctx.bootstrapManagedLlamaStartup = false;
         }
       }
-      setImmediate(() => {
-        try {
-          const timeoutMs = getRunLogMigrationTimeoutMs();
-          const migration = migrateExistingRunLogsToDbAndDeleteBounded(getIdleSummaryDatabase(ctx), { timeoutMs });
-          if (migration.timedOut) {
-            process.stderr.write(
-              `[siftKitStatus] Run-log migration exceeded timeout budget (${timeoutMs}ms, elapsed=${migration.elapsedMs}ms, `
-              + `migrated=${migration.migratedCount}).\n`,
-            );
-          }
-        } catch (error) {
-          process.stderr.write(`[siftKitStatus] Run-log migration failed: ${error instanceof Error ? error.message : String(error)}\n`);
-        }
-      });
       publishStatus(ctx);
       const address = server.address();
       const port = typeof address === 'object' && address ? address.port : requestedPort;

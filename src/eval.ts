@@ -1,10 +1,11 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import type { Dict } from './lib/types.js';
 import { getConfiguredModel, initializeRuntime, loadConfig } from './config/index.js';
-import { saveContentAtomically } from './lib/fs.js';
 import { summarizeRequest } from './summary/core.js';
 import { withExecutionLock } from './execution-lock.js';
-import { newArtifactPath } from './capture/artifacts.js';
+import { upsertRuntimeJsonArtifact } from './state/runtime-artifacts.js';
+import { persistEvalResult } from './state/runtime-results.js';
 
 export type EvalRequest = {
   FixtureRoot?: string;
@@ -175,14 +176,25 @@ export async function runEvaluation(request: EvalRequest): Promise<EvaluationRes
       });
     }
 
-    const paths = initializeRuntime();
-    const resultPath = newArtifactPath(paths.EvalResults, 'evaluation', 'json');
-    saveContentAtomically(resultPath, JSON.stringify(results, null, 2));
+    void initializeRuntime();
+    const evalResultPayload: Dict = {
+      backend,
+      model,
+      results,
+    };
+    const persistedEvalResult = persistEvalResult({
+      payload: evalResultPayload,
+    });
+    upsertRuntimeJsonArtifact({
+      artifactKind: 'eval_result',
+      id: persistedEvalResult.id,
+      payload: evalResultPayload,
+    });
 
     return {
       Backend: backend,
       Model: model,
-      ResultPath: resultPath,
+      ResultPath: persistedEvalResult.uri,
       Results: results,
     };
   });

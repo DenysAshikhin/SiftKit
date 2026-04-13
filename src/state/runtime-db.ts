@@ -167,6 +167,21 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       payload_json TEXT NOT NULL,
       created_at_utc TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS runtime_artifacts (
+      id TEXT PRIMARY KEY,
+      artifact_kind TEXT NOT NULL,
+      request_id TEXT,
+      title TEXT,
+      content_text TEXT,
+      content_json TEXT,
+      created_at_utc TEXT NOT NULL,
+      updated_at_utc TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_runtime_artifacts_kind_created
+      ON runtime_artifacts(artifact_kind, created_at_utc DESC);
+    CREATE INDEX IF NOT EXISTS idx_runtime_artifacts_request
+      ON runtime_artifacts(request_id, created_at_utc DESC);
   `);
 }
 
@@ -237,4 +252,45 @@ export function closeRuntimeDatabase(): void {
   cachedDatabase.close();
   cachedDatabase = null;
   cachedDatabasePath = null;
+}
+
+export function getRuntimeMetadataValue(
+  key: string,
+  databasePath: string = getRuntimeDatabasePath(),
+): string | null {
+  const normalizedKey = String(key || '').trim();
+  if (!normalizedKey) {
+    return null;
+  }
+  const database = getRuntimeDatabase(databasePath);
+  const row = database.prepare(`
+    SELECT value
+    FROM runtime_metadata
+    WHERE key = ?
+    LIMIT 1
+  `).get(normalizedKey) as { value?: unknown } | undefined;
+  return typeof row?.value === 'string' ? row.value : null;
+}
+
+export function setRuntimeMetadataValue(
+  key: string,
+  value: string,
+  databasePath: string = getRuntimeDatabasePath(),
+): void {
+  const normalizedKey = String(key || '').trim();
+  if (!normalizedKey) {
+    throw new Error('Runtime metadata key is required.');
+  }
+  const database = getRuntimeDatabase(databasePath);
+  database.prepare(`
+    INSERT INTO runtime_metadata (key, value, updated_at_utc)
+    VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET
+      value = excluded.value,
+      updated_at_utc = excluded.updated_at_utc
+  `).run(
+    normalizedKey,
+    String(value || ''),
+    new Date().toISOString(),
+  );
 }

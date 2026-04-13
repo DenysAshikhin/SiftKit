@@ -1,12 +1,12 @@
+import { randomUUID } from 'node:crypto';
 import { getConfiguredModel, initializeRuntime, loadConfig } from './config/index.js';
-import { saveContentAtomically } from './lib/fs.js';
 import { summarizeRequest } from './summary/core.js';
 import { getDeterministicExcerpt } from './summary/measure.js';
 import { getSummaryDecision } from './summary/decision.js';
 import type { SummaryClassification } from './summary/types.js';
 import { withExecutionLock } from './execution-lock.js';
-import { newArtifactPath } from './capture/artifacts.js';
 import { invokeProcess } from './capture/process.js';
+import { upsertRuntimeTextArtifact } from './state/runtime-artifacts.js';
 
 export type CommandRequest = {
   Command: string;
@@ -150,10 +150,14 @@ export async function analyzeCommandOutput(request: CommandAnalysisRequest): Pro
   const config = await loadConfig({ ensure: true });
   const backend = request.Backend || config.Backend;
   const model = request.Model || getConfiguredModel(config);
-  const paths = initializeRuntime();
+  void initializeRuntime();
   const combinedText = request.CombinedText || '';
-  const rawLogPath = newArtifactPath(paths.Logs, 'command_raw', 'log');
-  saveContentAtomically(rawLogPath, combinedText);
+  const rawLogId = randomUUID();
+  const rawLogPath = upsertRuntimeTextArtifact({
+    id: rawLogId,
+    artifactKind: 'command_raw',
+    content: combinedText,
+  }).uri;
 
   const question = request.Question || 'Summarize the main result and any actionable failures.';
   const riskLevel = request.RiskLevel || 'informational';
@@ -169,8 +173,11 @@ export async function analyzeCommandOutput(request: CommandAnalysisRequest): Pro
 
   let reducedLogPath: string | null = null;
   if (reducedText !== combinedText) {
-    reducedLogPath = newArtifactPath(paths.Logs, 'command_reduced', 'log');
-    saveContentAtomically(reducedLogPath, reducedText);
+    reducedLogPath = upsertRuntimeTextArtifact({
+      id: randomUUID(),
+      artifactKind: 'command_reduced',
+      content: reducedText,
+    }).uri;
   }
 
   if (request.NoSummarize || !decision.ShouldSummarize) {

@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import Database from 'better-sqlite3';
 import type { Dict } from '../lib/types.js';
 import { getRuntimeRoot } from './paths.js';
+import { getRuntimeDatabasePath } from '../config/paths.js';
 import { formatInteger, formatElapsed } from '../lib/text-format.js';
 import { listFiles, getIsoDateFromStat } from '../lib/fs.js';
 import {
@@ -191,18 +192,17 @@ export function getStatusArtifactPath(metadata: StatusMetadata): string | null {
   if (!metadata.artifactType || !metadata.artifactRequestId) {
     return null;
   }
-  const logsPath = path.join(getRuntimeRoot(), 'logs');
   if (metadata.artifactType === 'summary_request') {
-    return path.join(logsPath, 'requests', `request_${metadata.artifactRequestId}.json`);
+    return `db://status-artifacts/summary_request/${metadata.artifactRequestId}`;
   }
   if (metadata.artifactType === 'planner_debug') {
-    return path.join(logsPath, `planner_debug_${metadata.artifactRequestId}.json`);
+    return `db://status-artifacts/planner_debug/${metadata.artifactRequestId}`;
   }
   if (metadata.artifactType === 'planner_failed') {
-    return path.join(logsPath, 'failed', `request_failed_${metadata.artifactRequestId}.json`);
+    return `db://status-artifacts/planner_failed/${metadata.artifactRequestId}`;
   }
   if (metadata.artifactType === 'request_abandoned') {
-    return path.join(logsPath, 'abandoned', `request_abandoned_${metadata.artifactRequestId}.json`);
+    return `db://status-artifacts/request_abandoned/${metadata.artifactRequestId}`;
   }
   return null;
 }
@@ -247,7 +247,7 @@ function normalizeRunRecord(record: Dict): RunRecord {
 
 export function loadDashboardRuns(runtimeRoot: string): RunRecord[] {
   void runtimeRoot;
-  const databasePath = path.join(getRuntimeRoot(), 'status', 'idle-summary.sqlite');
+  const databasePath = getRuntimeDatabasePath();
   if (!fs.existsSync(databasePath)) {
     return [];
   }
@@ -261,7 +261,7 @@ export function loadDashboardRuns(runtimeRoot: string): RunRecord[] {
 
 export function buildDashboardRunDetail(runtimeRoot: string, runId: string): { run: RunRecord; events: JsonlEvent[] } | null {
   void runtimeRoot;
-  const databasePath = path.join(getRuntimeRoot(), 'status', 'idle-summary.sqlite');
+  const databasePath = getRuntimeDatabasePath();
   if (!fs.existsSync(databasePath)) {
     return null;
   }
@@ -572,6 +572,143 @@ export function upsertRunLog(database: DatabaseInstance, row: RunLogUpsertRow): 
     row.sourcePathsJson,
     row.flushedAtUtc,
   );
+}
+
+export function upsertRunArtifactPayload(options: {
+  database: DatabaseInstance;
+  requestId: string;
+  artifactType: 'summary_request' | 'planner_debug' | 'planner_failed' | 'request_abandoned';
+  artifactPayload: Dict;
+}): void {
+  const requestId = String(options.requestId || '').trim();
+  if (!requestId) {
+    return;
+  }
+  const nowUtc = new Date().toISOString();
+  const artifactJson = JSON.stringify(options.artifactPayload || {}, null, 2);
+  let runKind: RunLogKind = 'unknown';
+  let runGroup: RunLogGroup = 'other';
+  let terminalState: RunLogTerminalState = 'unknown';
+  let requestJson: string | null = null;
+  let plannerDebugJson: string | null = null;
+  let failedRequestJson: string | null = null;
+  let abandonedRequestJson: string | null = null;
+  if (options.artifactType === 'summary_request') {
+    runKind = 'summary_request';
+    runGroup = 'summary';
+    terminalState = options.artifactPayload?.error ? 'failed' : 'completed';
+    requestJson = artifactJson;
+  } else if (options.artifactType === 'planner_debug') {
+    runKind = 'plan';
+    runGroup = 'planner';
+    plannerDebugJson = artifactJson;
+  } else if (options.artifactType === 'planner_failed') {
+    runKind = 'failed_request';
+    runGroup = 'summary';
+    terminalState = 'failed';
+    failedRequestJson = artifactJson;
+  } else if (options.artifactType === 'request_abandoned') {
+    runKind = 'request_abandoned';
+    runGroup = 'summary';
+    terminalState = 'abandoned';
+    abandonedRequestJson = artifactJson;
+  }
+  upsertRunLog(options.database, {
+    runId: requestId,
+    requestId,
+    runKind,
+    runGroup,
+    terminalState,
+    startedAtUtc: parseOptionalIsoDate(
+      options.artifactPayload?.createdAtUtc
+      || options.artifactPayload?.abandonedAtUtc
+      || options.artifactPayload?.finishedAtUtc
+      || options.artifactPayload?.updatedAtUtc
+      || nowUtc,
+    ),
+    finishedAtUtc: terminalState === 'unknown' ? null : nowUtc,
+    title: resolveTitle(
+      requestId,
+      runKind,
+      options.artifactType === 'summary_request' ? options.artifactPayload : null,
+      options.artifactType === 'planner_failed' ? options.artifactPayload : null,
+      options.artifactType === 'request_abandoned' ? options.artifactPayload : null,
+      null,
+    ),
+    model: typeof options.artifactPayload?.model === 'string' ? options.artifactPayload.model : null,
+    backend: typeof options.artifactPayload?.backend === 'string' ? options.artifactPayload.backend : null,
+    repoRoot: typeof options.artifactPayload?.repoRoot === 'string' ? options.artifactPayload.repoRoot : null,
+    inputTokens: toNonNegativeInteger(options.artifactPayload?.inputTokens),
+    outputTokens: toNonNegativeInteger(options.artifactPayload?.outputTokens),
+    thinkingTokens: toNonNegativeInteger(options.artifactPayload?.thinkingTokens),
+    toolTokens: toNonNegativeInteger(options.artifactPayload?.toolTokens),
+    promptCacheTokens: toNonNegativeInteger(options.artifactPayload?.promptCacheTokens),
+    promptEvalTokens: toNonNegativeInteger(options.artifactPayload?.promptEvalTokens),
+    durationMs: toNonNegativeInteger(options.artifactPayload?.requestDurationMs),
+    requestJson,
+    plannerDebugJson,
+    failedRequestJson,
+    abandonedRequestJson,
+    repoSearchJson: null,
+    repoSearchTranscriptJsonl: null,
+    sourcePathsJson: '[]',
+    flushedAtUtc: nowUtc,
+  });
+}
+
+export function upsertRepoSearchRun(options: {
+  database: DatabaseInstance;
+  requestId: string;
+  taskKind: 'plan' | 'repo-search';
+  prompt: string;
+  repoRoot: string;
+  model: string | null;
+  requestMaxTokens: number | null;
+  maxTurns: number | null;
+  transcriptText: string;
+  artifactPayload: Dict;
+  terminalState: 'completed' | 'failed';
+  startedAtUtc: string;
+  finishedAtUtc: string;
+  requestDurationMs: number;
+  promptTokens: number | null;
+  outputTokens: number | null;
+  thinkingTokens: number | null;
+  toolTokens: number | null;
+  promptCacheTokens: number | null;
+  promptEvalTokens: number | null;
+}): void {
+  const runKind: RunLogKind = options.taskKind === 'plan' ? 'plan' : 'repo_search';
+  const runGroup: RunLogGroup = options.taskKind === 'plan' ? 'planner' : 'repo_search';
+  const repoSearchJson = JSON.stringify(options.artifactPayload || {}, null, 2);
+  upsertRunLog(options.database, {
+    runId: options.requestId,
+    requestId: options.requestId,
+    runKind,
+    runGroup,
+    terminalState: options.terminalState,
+    startedAtUtc: options.startedAtUtc,
+    finishedAtUtc: options.finishedAtUtc,
+    title: options.prompt,
+    model: options.model,
+    backend: 'llama.cpp',
+    repoRoot: options.repoRoot,
+    inputTokens: toNonNegativeInteger(options.promptTokens),
+    outputTokens: toNonNegativeInteger(options.outputTokens),
+    thinkingTokens: toNonNegativeInteger(options.thinkingTokens),
+    toolTokens: toNonNegativeInteger(options.toolTokens),
+    promptCacheTokens: toNonNegativeInteger(options.promptCacheTokens),
+    promptEvalTokens: toNonNegativeInteger(options.promptEvalTokens),
+    durationMs: toNonNegativeInteger(options.requestDurationMs),
+    requestJson: null,
+    plannerDebugJson: null,
+    failedRequestJson: options.terminalState === 'failed' ? repoSearchJson : null,
+    abandonedRequestJson: null,
+    repoSearchJson,
+    repoSearchTranscriptJsonl: options.transcriptText,
+    sourcePathsJson: '[]',
+    flushedAtUtc: options.finishedAtUtc,
+  });
 }
 
 export function queryDashboardRunsFromDb(

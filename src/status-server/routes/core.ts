@@ -2,13 +2,12 @@
  * Core API routes: health, status, execution lease, repo-search, and config.
  */
 import * as http from 'node:http';
-import * as fs from 'node:fs';
 import * as crypto from 'node:crypto';
 import type { Dict } from '../../lib/types.js';
 import { mergeToolTypeStats } from '../../line-read-guidance.js';
 import { getRuntimeRoot } from '../paths.js';
-import { saveContentAtomically } from '../../lib/fs.js';
 import { sleep } from '../../lib/time.js';
+import { upsertRuntimeJsonArtifact } from '../../state/runtime-artifacts.js';
 import {
   readBody,
   parseJsonBody,
@@ -30,8 +29,7 @@ import {
   buildStatusRequestLogMessage,
   buildRepoSearchProgressLogMessage,
   getStatusArtifactPath,
-  flushRunArtifactsToDbAndDeleteBounded,
-  getRunLogFlushTimeoutMs,
+  upsertRunArtifactPayload,
 } from '../dashboard-runs.js';
 import { loadRepoSearchExecutor } from '../chat.js';
 import { logLine } from '../managed-llama.js';
@@ -131,58 +129,6 @@ function buildToolStatsLogMessages(taskKind: TaskKind, stats: Record<string, Too
     );
   }
   return lines;
-}
-
-function scheduleRunLogFlush(options: {
-  ctx: ServerContext;
-  requestId: string;
-  terminalState: 'completed' | 'failed' | null;
-  taskKind: TaskKind | null;
-  reason: 'artifact_only' | 'terminal_status';
-}): void {
-  const timeoutMs = getRunLogFlushTimeoutMs();
-  setImmediate(() => {
-    try {
-      const result = flushRunArtifactsToDbAndDeleteBounded({
-        database: getIdleSummaryDatabase(options.ctx),
-        requestId: options.requestId,
-        terminalState: options.terminalState,
-        taskKind: options.taskKind,
-        timeoutMs,
-      });
-      if (result.timedOut) {
-        process.stderr.write(
-          `[siftKitStatus] Run-log flush exceeded timeout budget (${timeoutMs}ms, elapsed=${result.elapsedMs}ms) `
-          + `for request ${options.requestId} (${options.reason}).\n`,
-        );
-      }
-    } catch (error) {
-      process.stderr.write(
-        `[siftKitStatus] Failed to flush ${options.reason === 'artifact_only' ? 'artifact-only ' : ''}run logs for request `
-        + `${options.requestId}: ${error instanceof Error ? error.message : String(error)}\n`,
-      );
-    }
-  });
-}
-
-function scheduleRunLogFlushAfterResponse(
-  res: http.ServerResponse,
-  options: {
-    ctx: ServerContext;
-    requestId: string;
-    terminalState: 'completed' | 'failed' | null;
-    taskKind: TaskKind | null;
-    reason: 'artifact_only' | 'terminal_status';
-  },
-): void {
-  res.once('finish', () => {
-    const flushTimer = setTimeout(() => {
-      scheduleRunLogFlush(options);
-    }, 250);
-    if (typeof flushTimer.unref === 'function') {
-      flushTimer.unref();
-    }
-  });
 }
 
 export async function handleCoreRoute(
@@ -362,7 +308,19 @@ export async function handleCoreRoute(
         return true;
       }
       try {
-        saveContentAtomically(artifactPath, `${JSON.stringify(metadata.artifactPayload, null, 2)}\n`);
+        upsertRuntimeJsonArtifact({
+          id: `status:${metadata.artifactType}:${metadata.artifactRequestId}`,
+          artifactKind: `status_${metadata.artifactType}`,
+          requestId: metadata.artifactRequestId,
+          title: artifactPath,
+          payload: metadata.artifactPayload,
+        });
+        upsertRunArtifactPayload({
+          database: getIdleSummaryDatabase(ctx),
+          requestId: metadata.artifactRequestId,
+          artifactType: metadata.artifactType as 'summary_request' | 'planner_debug' | 'planner_failed' | 'request_abandoned',
+          artifactPayload: metadata.artifactPayload,
+        });
       } catch (error) {
         sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
         return true;
@@ -389,15 +347,6 @@ export async function handleCoreRoute(
       && metadata.promptEvalTokens === null
       && metadata.requestDurationMs === null;
     if (isArtifactOnlyPost) {
-      if (metadata.artifactRequestId && !ctx.activeRunsByRequestId.has(metadata.artifactRequestId)) {
-        scheduleRunLogFlushAfterResponse(res, {
-          ctx,
-          requestId: metadata.artifactRequestId,
-          terminalState: null,
-          taskKind: null,
-          reason: 'artifact_only',
-        });
-      }
       const publishedStatus = getPublishedStatusText(ctx);
       sendJson(res, 200, { ok: true, running: publishedStatus === STATUS_TRUE, status: publishedStatus, statusPath, configPath });
       return true;
@@ -604,7 +553,6 @@ export async function handleCoreRoute(
     if (!suppressLogLine) {
       logLine(logMessage);
     }
-    let pendingRunLogFlush: { requestId: string; terminalState: 'completed' | 'failed'; taskKind: TaskKind | null } | null = null;
     if (!running) {
       const taskKind = normalizeTaskKind(metadata.taskKind);
       if (taskKind && metadata.toolStats) {
@@ -612,25 +560,9 @@ export async function handleCoreRoute(
           logLine(toolLogLine);
         }
       }
-      if (metadata.terminalState === 'completed' || metadata.terminalState === 'failed') {
-        pendingRunLogFlush = {
-          requestId,
-          terminalState: metadata.terminalState,
-          taskKind: taskKind ?? null,
-        };
-      }
     }
     const publishedStatus = getPublishedStatusText(ctx);
     writePublishedStatus(ctx, publishedStatus);
-    if (pendingRunLogFlush) {
-      scheduleRunLogFlushAfterResponse(res, {
-        ctx,
-        requestId: pendingRunLogFlush.requestId,
-        terminalState: pendingRunLogFlush.terminalState,
-        taskKind: pendingRunLogFlush.taskKind,
-        reason: 'terminal_status',
-      });
-    }
     sendJson(res, 200, { ok: true, running: publishedStatus === STATUS_TRUE, status: publishedStatus, statusPath, configPath });
     return true;
   }

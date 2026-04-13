@@ -18,8 +18,9 @@ import {
   readStatusText,
   writeStatusText,
 } from './status-file.js';
-import { ensureDirectory, saveContentAtomically } from '../lib/fs.js';
+import { ensureDirectory } from '../lib/fs.js';
 import { sleep } from '../lib/time.js';
+import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
 import { normalizeMetrics, writeMetrics } from './metrics.js';
 import {
   buildIdleSummarySnapshot,
@@ -34,7 +35,7 @@ import {
 import {
   buildStatusRequestLogMessage,
   ensureRunLogsTable,
-  flushRunArtifactsToDbAndDelete,
+  upsertRunArtifactPayload,
 } from './dashboard-runs.js';
 import type {
   ActiveRunState,
@@ -161,35 +162,35 @@ export function logAbandonedRun(ctx: ServerContext, runState: ActiveRunState, no
     chunkPath: runState.chunkPath,
     totalElapsedMs: now - runState.overallStartedAt,
   }));
-  const logsPath = path.join(getRuntimeRoot(), 'logs');
-  const abandonedPath = path.join(logsPath, 'abandoned', `request_abandoned_${runState.requestId}.json`);
+  const payload = {
+    requestId: runState.requestId,
+    reason: 'Abandoned because a new request started before terminal status.',
+    abandonedAtUtc: new Date(now).toISOString(),
+    totalElapsedMs: now - runState.overallStartedAt,
+    stepCount: runState.stepCount,
+    rawInputCharacterCount: runState.rawInputCharacterCount,
+    promptCharacterCount: runState.promptCharacterCount,
+    promptTokenCount: runState.promptTokenCount,
+    outputTokensTotal: runState.outputTokensTotal,
+    chunkIndex: runState.chunkIndex,
+    chunkTotal: runState.chunkTotal,
+    chunkPath: runState.chunkPath,
+  };
   try {
-    saveContentAtomically(abandonedPath, JSON.stringify({
+    upsertRuntimeJsonArtifact({
+      id: `status:request_abandoned:${runState.requestId}`,
+      artifactKind: 'status_request_abandoned',
       requestId: runState.requestId,
-      reason: 'Abandoned because a new request started before terminal status.',
-      abandonedAtUtc: new Date(now).toISOString(),
-      totalElapsedMs: now - runState.overallStartedAt,
-      stepCount: runState.stepCount,
-      rawInputCharacterCount: runState.rawInputCharacterCount,
-      promptCharacterCount: runState.promptCharacterCount,
-      promptTokenCount: runState.promptTokenCount,
-      outputTokensTotal: runState.outputTokensTotal,
-      chunkIndex: runState.chunkIndex,
-      chunkTotal: runState.chunkTotal,
-      chunkPath: runState.chunkPath,
-    }, null, 2) + '\n');
-    try {
-      flushRunArtifactsToDbAndDelete({
-        database: getIdleSummaryDatabase(ctx),
-        requestId: runState.requestId,
-        terminalState: 'abandoned',
-        taskKind: null,
-      });
-    } catch {
-      // Best-effort - don't fail the incoming request.
-    }
+      payload,
+    });
+    upsertRunArtifactPayload({
+      database: getIdleSummaryDatabase(ctx),
+      requestId: runState.requestId,
+      artifactType: 'request_abandoned',
+      artifactPayload: payload,
+    });
   } catch {
-    // Best-effort — don't fail the incoming request.
+    // Best-effort - don't fail the incoming request.
   }
 }
 

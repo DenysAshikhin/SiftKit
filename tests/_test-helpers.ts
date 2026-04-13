@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { Writable } from 'node:stream';
 import type { AddressInfo } from 'node:net';
+import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
 
 export type Dict = Record<string, unknown>;
 
@@ -327,6 +328,7 @@ export async function withTestEnvAndServer(
   serverOptions: StubServerOptions = {},
 ): Promise<void> {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-test-'));
+  const previousCwd = process.cwd();
   const env = withEnvBackup([
     'sift_kit_status', 'SIFTKIT_STATUS_PATH', 'SIFTKIT_CONFIG_PATH',
     'SIFTKIT_STATUS_HOST', 'SIFTKIT_STATUS_PORT', 'SIFTKIT_STATUS_BACKEND_URL',
@@ -342,6 +344,12 @@ export async function withTestEnvAndServer(
   process.env.SIFTKIT_CONFIG_PATH = configPath;
   process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH = path.join(tempRoot, '.siftkit', 'status', 'idle-summary.sqlite');
   process.env.SIFTKIT_TEST_PROVIDER = 'mock';
+  fs.writeFileSync(
+    path.join(tempRoot, 'package.json'),
+    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+    'utf8',
+  );
+  process.chdir(tempRoot);
 
   const stub = await startMiniStubServer(serverOptions);
   process.env.SIFTKIT_STATUS_BACKEND_URL = stub.statusUrl;
@@ -362,7 +370,9 @@ export async function withTestEnvAndServer(
   try {
     await fn({ tempRoot, stub });
   } finally {
+    process.chdir(previousCwd);
     await stub.close();
+    closeRuntimeDatabase();
     env.restore();
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }

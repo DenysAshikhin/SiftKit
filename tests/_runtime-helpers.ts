@@ -53,6 +53,7 @@ import {
   getIdleSummarySnapshotsPath,
   startStatusServer,
 } from '../dist/status-server/index.js';
+import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
 import { runDebugRequest } from '../dist/scripts/run-benchmark-fixture-debug.js';
 import { runFixture60MalformedJsonRepro } from '../dist/scripts/repro-fixture60-malformed-json.js';
 
@@ -924,6 +925,7 @@ async function startStubStatusServer(options = {}) {
 
 function withTempEnv(fn) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-node-test-'));
+  const previousCwd = process.cwd();
   const previous = {
     USERPROFILE: process.env.USERPROFILE,
     sift_kit_status: process.env.sift_kit_status,
@@ -953,8 +955,16 @@ function withTempEnv(fn) {
   delete process.env.SIFTKIT_STATUS_HOST;
   process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH = path.join(tempRoot, '.siftkit', 'status', 'idle-summary.sqlite');
   process.env.SIFTKIT_TEST_PROVIDER = 'mock';
+  fs.writeFileSync(
+    path.join(tempRoot, 'package.json'),
+    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+    'utf8',
+  );
+  process.chdir(tempRoot);
 
   const cleanup = async () => {
+    process.chdir(previousCwd);
+    closeRuntimeDatabase();
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) {
         delete process.env[key];
@@ -1055,6 +1065,7 @@ async function withRealStatusServer(fn, options = {}) {
     });
   } finally {
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    closeRuntimeDatabase();
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) {
         delete process.env[key];
@@ -1077,12 +1088,13 @@ async function startStatusServerProcess(options) {
     ...(options.idleSummaryDelayMs ? { SIFTKIT_IDLE_SUMMARY_DELAY_MS: String(options.idleSummaryDelayMs) } : {}),
     ...(options.executionLeaseStaleMs ? { SIFTKIT_EXECUTION_LEASE_STALE_MS: String(options.executionLeaseStaleMs) } : {}),
   };
-  const args = [path.join(process.cwd(), 'dist', 'status-server', 'index.js')];
+  const statusServerEntrypoint = path.resolve(__dirname, '..', 'dist', 'status-server', 'index.js');
+  const args = [statusServerEntrypoint];
   if (options.disableManagedLlamaStartup) {
     args.push('--disable-managed-llama-startup');
   }
   const child = spawn(process.execPath, args, {
-    cwd: process.cwd(),
+    cwd: options.workingDirectory || process.cwd(),
     env: childEnv,
     stdio: ['ignore', 'pipe', 'pipe'],
   });

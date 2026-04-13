@@ -7,8 +7,8 @@
   },
   "scripts": {
     "start": "tsx .\\scripts\\start-dev.ts",
-    "start:status": "powershell -NoLogo -NoProfile -Command \"$env:sift_kit_status = Join-Path (Get-Location) '.siftkit\\status\\inference.txt'; $env:SIFTKIT_STATUS_PATH = $env:sift_kit_status; $env:SIFTKIT_CONFIG_PATH = Join-Path (Get-Location) '.siftkit\\config.json'; nodemon --signal SIGINT --watch .\\dist\\status-server --ext js,json .\\dist\\status-server\\index.js\"",
-    "start:status:stable": "powershell -NoLogo -NoProfile -Command \"$env:sift_kit_status = Join-Path (Get-Location) '.siftkit\\status\\inference.txt'; $env:SIFTKIT_STATUS_PATH = $env:sift_kit_status; $env:SIFTKIT_CONFIG_PATH = Join-Path (Get-Location) '.siftkit\\config.json'; node .\\dist\\status-server\\index.js\"",
+    "start:status": "nodemon --signal SIGINT --watch .\\dist\\status-server --ext js,json .\\dist\\status-server\\index.js",
+    "start:status:stable": "node .\\dist\\status-server\\index.js",
     "start:dashboard": "npm --prefix .\\dashboard run dev",
     "build": "tsc -p .\\tsconfig.json && tsc -p .\\tsconfig.scripts.json && npm --prefix .\\dashboard run build",
     "benchmark": "tsx .\\src\\benchmark\\index.ts",

@@ -8,6 +8,7 @@ import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 
 import { startStatusServer, buildRepoSearchProgressLogMessage } from '../dist/status-server/index.js';
+import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
 
 const requireFromHere = createRequire(__filename);
 const runtimeHelpers = requireFromHere('./_runtime-helpers.js') as {
@@ -76,6 +77,13 @@ function requestJson(url: string, options: RequestOptions = {}): Promise<JsonRes
 
 test('status server stays responsive while repo-search is running', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-status-'));
+  const previousCwd = process.cwd();
+  fs.writeFileSync(
+    path.join(tempRoot, 'package.json'),
+    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+    'utf8',
+  );
+  process.chdir(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup: Record<string, string | undefined> = {
@@ -157,6 +165,8 @@ test('status server stays responsive while repo-search is running', async () => 
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
+    process.chdir(previousCwd);
+    closeRuntimeDatabase();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -170,6 +180,13 @@ test('status server stays responsive while repo-search is running', async () => 
 
 test('status completion flushing does not block health responses', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-status-flush-health-'));
+  const previousCwd = process.cwd();
+  fs.writeFileSync(
+    path.join(tempRoot, 'package.json'),
+    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+    'utf8',
+  );
+  process.chdir(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup: Record<string, string | undefined> = {
@@ -253,6 +270,8 @@ test('status completion flushing does not block health responses', async () => {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
+    process.chdir(previousCwd);
+    closeRuntimeDatabase();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -305,6 +324,13 @@ test('buildRepoSearchProgressLogMessage formats planner and repo-search command 
 
 test('repo-search endpoint reloads executor module per request', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-reload-'));
+  const previousCwd = process.cwd();
+  fs.writeFileSync(
+    path.join(tempRoot, 'package.json'),
+    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+    'utf8',
+  );
+  process.chdir(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup: Record<string, string | undefined> = {
@@ -400,6 +426,8 @@ test('repo-search endpoint reloads executor module per request', async () => {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
+    process.chdir(previousCwd);
+    closeRuntimeDatabase();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -413,6 +441,13 @@ test('repo-search endpoint reloads executor module per request', async () => {
 
 test('repo-search wakes managed llama after idle shutdown', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-idle-wakeup-'));
+  const previousCwd = process.cwd();
+  fs.writeFileSync(
+    path.join(tempRoot, 'package.json'),
+    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+    'utf8',
+  );
+  process.chdir(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const llamaPort = await runtimeHelpers.getFreePort();
@@ -512,6 +547,8 @@ test('repo-search wakes managed llama after idle shutdown', async () => {
     }, 5000);
   } finally {
     await server.close();
+    process.chdir(previousCwd);
+    closeRuntimeDatabase();
     try {
       fs.rmSync(tempRoot, { recursive: true, force: true });
     } catch {

@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as fs from 'node:fs';
 
 import { executeRepoSearchRequest } from '../dist/repo-search/index.js';
+import { parseRuntimeArtifactUri, readRuntimeArtifact } from '../dist/state/runtime-artifacts.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
 
 test('executeRepoSearchRequest throws on empty prompt', async () => {
@@ -38,10 +38,11 @@ test('executeRepoSearchRequest success path writes transcript and artifact', asy
     assert.ok(result.requestId.length > 0);
     assert.equal(typeof result.transcriptPath, 'string');
     assert.equal(typeof result.artifactPath, 'string');
-    assert.ok(fs.existsSync(result.artifactPath));
-    const artifact = JSON.parse(fs.readFileSync(result.artifactPath, 'utf8')) as { prompt: string; verdict: string };
-    assert.equal(artifact.prompt, 'find test patterns');
-    assert.equal(typeof artifact.verdict, 'string');
+    const artifactId = parseRuntimeArtifactUri(result.artifactPath);
+    assert.ok(artifactId);
+    const artifact = readRuntimeArtifact(artifactId as string);
+    assert.equal(artifact?.contentJson?.prompt, 'find test patterns');
+    assert.equal(typeof artifact?.contentJson?.verdict, 'string');
   });
 });
 
@@ -91,7 +92,9 @@ test('executeRepoSearchRequest handles invalid mock response gracefully', async 
     });
     assert.equal(typeof result.requestId, 'string');
     assert.equal(typeof result.scorecard, 'object');
-    assert.ok(fs.existsSync(result.artifactPath));
+    const artifactId = parseRuntimeArtifactUri(result.artifactPath);
+    assert.ok(artifactId);
+    assert.ok(readRuntimeArtifact(artifactId as string));
   });
 });
 
