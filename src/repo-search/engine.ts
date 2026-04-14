@@ -74,6 +74,7 @@ const THINKING_BUFFER_MIN_TOKENS = 4000;
 const PER_TOOL_RESULT_RATIO = 0.10;
 const DEFAULT_REPO_SEARCH_REQUEST_MAX_TOKENS = 2048;
 const ZERO_OUTPUT_FORCE_THRESHOLD = 10;
+const NON_THINKING_FINISH_AUTO_ACCEPT_TOOL_CALL_THRESHOLD = 10;
 const FORCED_FINISH_MAX_ATTEMPTS = 3;
 const STAGNATION_WARNING_THRESHOLD = 3;
 const STAGNATION_FORCE_THRESHOLD = 4;
@@ -944,6 +945,21 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         continue;
       }
       if (followupOnNonThinkingFinish && !plannerThinkingEnabled && !nonThinkingFinishFollowupUsed) {
+        if (commands.length >= NON_THINKING_FINISH_AUTO_ACCEPT_TOOL_CALL_THRESHOLD) {
+          options.logger?.write({
+            kind: 'turn_non_thinking_finish_auto_accepted',
+            taskId: task.id,
+            turn,
+            toolCallTurns: commands.length,
+            threshold: NON_THINKING_FINISH_AUTO_ACCEPT_TOOL_CALL_THRESHOLD,
+          });
+          finalOutput = action.output;
+          if (options.onProgress) {
+            options.onProgress({ kind: 'thinking', turn, maxTurns, thinkingText: finalOutput });
+          }
+          reason = 'finish';
+          break;
+        }
         nonThinkingFinishFollowupUsed = true;
         pendingNonThinkingFinishOutput = action.output;
         messages.push({ role: 'assistant', content: response.text });
@@ -1515,6 +1531,7 @@ export async function runRepoSearch(options: {
   config?: SiftConfig | Record<string, unknown>;
   model?: string;
   baseUrl?: string;
+  allowedTools?: string[];
   requestMaxTokens?: number;
   maxTurns?: number;
   thinkingInterval?: number;
@@ -1528,6 +1545,9 @@ export async function runRepoSearch(options: {
   logger?: JsonLogger | null;
   onProgress?: ((event: RepoSearchProgressEvent) => void) | null;
 } = {}): Promise<Scorecard> {
+  if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0 && !options.allowedTools.includes('run_repo_cmd')) {
+    throw new Error('Repo-search tool is not allowed by the active preset: run_repo_cmd');
+  }
   const path = await import('node:path');
   const repoRoot = path.resolve(options.repoRoot || process.cwd());
   const config = (options.config || await loadConfig({ ensure: true })) as SiftConfig;

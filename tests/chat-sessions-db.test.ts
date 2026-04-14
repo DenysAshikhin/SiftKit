@@ -42,6 +42,7 @@ test('chat sessions are persisted in runtime sqlite instead of JSON files', () =
       model: 'model-a',
       contextWindowTokens: 4096,
       thinkingEnabled: true,
+      presetId: 'chat',
       mode: 'chat',
       planRepoRoot: repoRoot,
       condensedSummary: '',
@@ -69,6 +70,7 @@ test('chat sessions are persisted in runtime sqlite instead of JSON files', () =
     const sessions = readChatSessions(runtimeRoot);
     assert.equal(sessions.length, 1);
     assert.equal(sessions[0]?.id, sessionId);
+    assert.equal(sessions[0]?.presetId, 'chat');
     assert.equal(sessions[0]?.messages?.length, 1);
     assert.equal(sessions[0]?.hiddenToolContexts?.length, 1);
 
@@ -89,6 +91,7 @@ test('deleteChatSession removes DB rows and reports existence correctly', () => 
       title: 'Delete Me',
       model: null,
       contextWindowTokens: 1024,
+      presetId: 'chat',
       condensedSummary: '',
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),

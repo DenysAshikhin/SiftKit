@@ -758,7 +758,7 @@ test('runTaskLoop prompt includes anti-loop and larger single-file read guidance
   const prompt = String(systemMessage);
   assert.match(prompt, /Single-file read strategy:/u);
   assert.match(prompt, /Start with `rg -n` to find anchors/u);
-  assert.match(prompt, /default to one larger read \(e\.g\. `-First 200-400`\) rather than multiple small windows/u);
+  assert.match(prompt, /default to one larger read around \d+ lines rather than multiple small windows/u);
   assert.match(prompt, /If you already read a file once, do a new anchor search before another read of that same file/u);
   assert.match(prompt, /read a larger section in one call/u);
   assert.match(prompt, /Prefer `Get-Content <file> -Raw` for full-file inspection when manageable/u);
@@ -1724,6 +1724,119 @@ test('runTaskLoop accepts follow-up confirmation when first ten words include ye
   assert.equal(result.reason, 'finish');
   assert.equal(result.finalOutput, 'first finish');
   assert.equal(result.invalidResponses, 0);
+});
+
+test('runTaskLoop still follows up after non-thinking finish when fewer than ten tool calls ran', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const mockResponses = [
+    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-1\\" src"}}',
+    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-2\\" src"}}',
+    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-3\\" src"}}',
+    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-4\\" src"}}',
+    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-5\\" src"}}',
+    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-6\\" src"}}',
+    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-7\\" src"}}',
+    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-8\\" src"}}',
+    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-9\\" src"}}',
+    '{"action":"finish","output":"src\\\\target.ts:9"}',
+    'yes i am sure',
+  ];
+  const mockCommandResults = {
+    'rg -n "hit-1" src': { exitCode: 0, stdout: 'src\\target.ts:1: hit-1', stderr: '' },
+    'rg -n "hit-2" src': { exitCode: 0, stdout: 'src\\target.ts:2: hit-2', stderr: '' },
+    'rg -n "hit-3" src': { exitCode: 0, stdout: 'src\\target.ts:3: hit-3', stderr: '' },
+    'rg -n "hit-4" src': { exitCode: 0, stdout: 'src\\target.ts:4: hit-4', stderr: '' },
+    'rg -n "hit-5" src': { exitCode: 0, stdout: 'src\\target.ts:5: hit-5', stderr: '' },
+    'rg -n "hit-6" src': { exitCode: 0, stdout: 'src\\target.ts:6: hit-6', stderr: '' },
+    'rg -n "hit-7" src': { exitCode: 0, stdout: 'src\\target.ts:7: hit-7', stderr: '' },
+    'rg -n "hit-8" src': { exitCode: 0, stdout: 'src\\target.ts:8: hit-8', stderr: '' },
+    'rg -n "hit-9" src': { exitCode: 0, stdout: 'src\\target.ts:9: hit-9', stderr: '' },
+  };
+  const result = await runTaskLoop(
+    {
+      id: 'task-validation-nine-tool-calls',
+      question: 'Find planner text.',
+      signals: ['src\\target.ts:9'],
+    },
+    {
+      maxTurns: 11,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      thinkingInterval: 20,
+      enforceThinkingFinish: true,
+      mockResponses,
+      mockCommandResults,
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const followupEvent = events.find((event) => event.kind === 'turn_non_thinking_finish_followup');
+  const autoAcceptedEvent = events.find((event) => event.kind === 'turn_non_thinking_finish_auto_accepted');
+  assert.equal(Boolean(followupEvent), true);
+  assert.equal(Boolean(autoAcceptedEvent), false);
+  assert.equal(result.reason, 'finish');
+  assert.equal(result.finalOutput, 'src\\target.ts:9');
+});
+
+test('runTaskLoop auto-accepts non-thinking finish after ten tool calls without follow-up', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const mockResponses = [
+    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-1\\" src"}}',
+    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-2\\" src"}}',
+    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-3\\" src"}}',
+    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-4\\" src"}}',
+    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-5\\" src"}}',
+    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-6\\" src"}}',
+    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-7\\" src"}}',
+    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-8\\" src"}}',
+    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-9\\" src"}}',
+    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-10\\" src"}}',
+    '{"action":"finish","output":"src\\\\target.ts:10"}',
+  ];
+  const mockCommandResults = {
+    'rg -n "hit-1" src': { exitCode: 0, stdout: 'src\\target.ts:1: hit-1', stderr: '' },
+    'rg -n "hit-2" src': { exitCode: 0, stdout: 'src\\target.ts:2: hit-2', stderr: '' },
+    'rg -n "hit-3" src': { exitCode: 0, stdout: 'src\\target.ts:3: hit-3', stderr: '' },
+    'rg -n "hit-4" src': { exitCode: 0, stdout: 'src\\target.ts:4: hit-4', stderr: '' },
+    'rg -n "hit-5" src': { exitCode: 0, stdout: 'src\\target.ts:5: hit-5', stderr: '' },
+    'rg -n "hit-6" src': { exitCode: 0, stdout: 'src\\target.ts:6: hit-6', stderr: '' },
+    'rg -n "hit-7" src': { exitCode: 0, stdout: 'src\\target.ts:7: hit-7', stderr: '' },
+    'rg -n "hit-8" src': { exitCode: 0, stdout: 'src\\target.ts:8: hit-8', stderr: '' },
+    'rg -n "hit-9" src': { exitCode: 0, stdout: 'src\\target.ts:9: hit-9', stderr: '' },
+    'rg -n "hit-10" src': { exitCode: 0, stdout: 'src\\target.ts:10: hit-10', stderr: '' },
+  };
+  const result = await runTaskLoop(
+    {
+      id: 'task-validation-ten-tool-calls',
+      question: 'Find planner text.',
+      signals: ['src\\target.ts:10'],
+    },
+    {
+      maxTurns: 11,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      thinkingInterval: 20,
+      enforceThinkingFinish: true,
+      mockResponses,
+      mockCommandResults,
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const followupEvent = events.find((event) => event.kind === 'turn_non_thinking_finish_followup');
+  const autoAcceptedEvent = events.find((event) => event.kind === 'turn_non_thinking_finish_auto_accepted');
+  assert.equal(Boolean(followupEvent), false);
+  assert.equal(Boolean(autoAcceptedEvent), true);
+  assert.equal(result.reason, 'finish');
+  assert.equal(result.finalOutput, 'src\\target.ts:10');
 });
 
 test('runTaskLoop forces thinking on after non-thinking finish follow-up and can still hit max turns', async () => {

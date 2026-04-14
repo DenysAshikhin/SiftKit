@@ -259,9 +259,11 @@ export async function handleCoreRoute(
       const result = await executeRepoSearchRequest({
         taskKind: 'repo-search',
         prompt: parsedBody.prompt,
+        promptPrefix: typeof parsedBody.promptPrefix === 'string' ? (parsedBody.promptPrefix as string) : undefined,
         repoRoot: typeof parsedBody.repoRoot === 'string' && (parsedBody.repoRoot as string).trim() ? (parsedBody.repoRoot as string).trim() : process.cwd(),
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
         config: readConfig(configPath),
+        allowedTools: Array.isArray(parsedBody.allowedTools) ? (parsedBody.allowedTools as unknown[]).map((value) => String(value)) : undefined,
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
         thinkingInterval: Number.isFinite(Number(parsedBody.thinkingInterval)) ? Number(parsedBody.thinkingInterval) : undefined,
@@ -606,6 +608,30 @@ export async function handleCoreRoute(
       : normalizeConfig(mergeConfig(baseConfig, parsedBody) as Dict);
     writeConfig(configPath, nextConfig);
     sendJson(res, 200, nextConfig);
+    return true;
+  }
+
+  if (req.method === 'POST' && req.url === '/status/restart') {
+    if (disableManagedLlamaStartup) {
+      sendJson(res, 400, { ok: false, restarted: false, error: 'Managed backend restart is disabled for this server.' });
+      return true;
+    }
+    const currentConfig = readConfig(configPath);
+    if (String(currentConfig.Backend || '').trim().toLowerCase() !== 'llama.cpp') {
+      sendJson(res, 400, { ok: false, restarted: false, error: 'Backend restart is only supported for llama.cpp.' });
+      return true;
+    }
+    try {
+      await ctx.shutdownManagedLlamaIfNeeded({ force: true, timeoutMs: 10_000 });
+      const nextConfig = await ctx.ensureManagedLlamaReady();
+      sendJson(res, 200, { ok: true, restarted: true, config: nextConfig });
+    } catch (error) {
+      sendJson(res, 503, {
+        ok: false,
+        restarted: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     return true;
   }
 

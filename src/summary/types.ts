@@ -27,6 +27,7 @@ export type SummaryRequest = {
   commandExitCode?: number | null;
   debugCommand?: string | null;
   requestTimeoutSeconds?: number;
+  allowedPlannerTools?: PlannerToolName[];
   llamaCppOverrides?: Pick<
     RuntimeLlamaCppConfig,
     'Temperature' | 'TopP' | 'TopK' | 'MinP' | 'PresencePenalty' | 'RepetitionPenalty' | 'MaxTokens'

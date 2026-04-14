@@ -35,17 +35,22 @@ export type ParsedArgs = {
   op?: string;
   prompt?: string;
   logFile?: string;
+  preset?: string;
+  repoRoot?: string;
+  maxTurns?: number;
+  thinkingInterval?: number;
 };
 
 export const KNOWN_COMMANDS = new Set([
   'summary',
   'repo-search',
+  'preset',
+  'run',
   'find-files',
   'internal',
 ]);
 
 export const BLOCKED_PUBLIC_COMMANDS = new Set([
-  'run',
   'install',
   'test',
   'eval',
@@ -57,8 +62,6 @@ export const BLOCKED_PUBLIC_COMMANDS = new Set([
 ]);
 
 export const SERVER_DEPENDENT_COMMANDS = new Set([
-  'summary',
-  'run',
   'install',
   'test',
   'eval',
@@ -212,6 +215,18 @@ export function parseArguments(tokens: string[]): ParsedArgs {
         break;
       case '--log-file':
         parsed.logFile = tokens[++index];
+        break;
+      case '--preset':
+        parsed.preset = tokens[++index];
+        break;
+      case '--repo-root':
+        parsed.repoRoot = tokens[++index];
+        break;
+      case '--max-turns':
+        parsed.maxTurns = Number.parseInt(tokens[++index] || '', 10);
+        break;
+      case '--thinking-interval':
+        parsed.thinkingInterval = Number.parseInt(tokens[++index] || '', 10);
         break;
       default:
         parsed.positionals.push(token);

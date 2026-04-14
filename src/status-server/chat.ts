@@ -194,7 +194,7 @@ function getChoiceReasoningText(choice: Dict | null | undefined): string {
 }
 
 export type ChatCompletionRequest = { url: string; model: string; body: Dict };
-type BuildChatOptions = { thinkingEnabled?: boolean; stream?: boolean };
+type BuildChatOptions = { thinkingEnabled?: boolean; stream?: boolean; promptPrefix?: string };
 
 export function buildChatCompletionRequest(config: Dict, session: ChatSession, userContent: string, options: BuildChatOptions = {}): ChatCompletionRequest {
   const model = resolveActiveChatModel(config, session);
@@ -210,9 +210,12 @@ export function buildChatCompletionRequest(config: Dict, session: ChatSession, u
       .filter(Boolean)
     : [];
   const hiddenToolContextText = hiddenToolContexts.join('\n\n');
-  const systemContent = hiddenToolContextText
-    ? `general, coder friendly assistant\n\nInternal tool-call context from prior session steps. Use this as additional evidence only when relevant.\n\n${hiddenToolContextText}`
+  const systemPrompt = typeof options.promptPrefix === 'string' && options.promptPrefix.trim()
+    ? options.promptPrefix.trim()
     : 'general, coder friendly assistant';
+  const systemContent = hiddenToolContextText
+    ? `${systemPrompt}\n\nInternal tool-call context from prior session steps. Use this as additional evidence only when relevant.\n\n${hiddenToolContextText}`
+    : systemPrompt;
   const messages = [
     { role: 'system', content: systemContent },
     ...priorMessages.map((message: Dict) => ({
@@ -256,10 +259,16 @@ export type ChatUsage = {
   promptEvalTokens: number | null;
 };
 
-export async function generateChatAssistantMessage(config: Dict, session: ChatSession, userContent: string): Promise<{ assistantContent: string; thinkingContent: string; usage: ChatUsage }> {
+export async function generateChatAssistantMessage(
+  config: Dict,
+  session: ChatSession,
+  userContent: string,
+  options: { promptPrefix?: string } = {},
+): Promise<{ assistantContent: string; thinkingContent: string; usage: ChatUsage }> {
   const request = buildChatCompletionRequest(config, session, userContent, {
     thinkingEnabled: session.thinkingEnabled !== false,
     stream: false,
+    promptPrefix: options.promptPrefix,
   });
   const response = await requestJsonFull({
     url: request.url,
@@ -375,11 +384,13 @@ export async function streamChatAssistantMessage(
   config: Dict,
   session: ChatSession,
   userContent: string,
-  onProgress: ((progress: StreamProgress) => void) | null
+  onProgress: ((progress: StreamProgress) => void) | null,
+  options: { promptPrefix?: string } = {},
 ): Promise<StreamResult> {
   const requestConfig = buildChatCompletionRequest(config, session, userContent, {
     thinkingEnabled: session.thinkingEnabled !== false,
     stream: true,
+    promptPrefix: options.promptPrefix,
   });
   const target = new URL(requestConfig.url);
   const transport = target.protocol === 'https:' ? https : http;

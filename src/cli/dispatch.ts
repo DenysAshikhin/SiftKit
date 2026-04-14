@@ -15,6 +15,8 @@ import { runEvalCli } from './run-eval.js';
 import { runFindFiles } from './run-find-files.js';
 import { runCodexPolicyCli, runInstall, runInstallGlobalCli } from './run-install.js';
 import { runInternal } from './run-internal.js';
+import { runPresetList } from './run-preset-list.js';
+import { runPresetCli } from './run-preset.js';
 import { runRepoSearchCli } from './run-repo-search.js';
 import { runSummary } from './run-summary.js';
 import { runTest } from './run-test.js';
@@ -30,7 +32,7 @@ export async function runCli(options: CliRunOptions): Promise<number> {
 
   const commandName = getCommandName(options.argv);
   if (BLOCKED_PUBLIC_COMMANDS.has(options.argv[0])) {
-    stderr.write(`Command '${options.argv[0]}' is not exposed in this CLI build. Available commands: summary, repo-search, help.\n`);
+    stderr.write(`Command '${options.argv[0]}' is not exposed in this CLI build. Available commands: summary, repo-search, preset, run, help.\n`);
     return 1;
   }
   const commandArgs = getCommandArgs(options.argv);
@@ -49,6 +51,11 @@ export async function runCli(options: CliRunOptions): Promise<number> {
     switch (commandName) {
       case 'summary':
         return await runSummary({ argv: options.argv, stdinText: options.stdinText, stdout });
+      case 'preset':
+        if (commandArgs[0] === 'list') {
+          return runPresetList({ stdout });
+        }
+        throw new Error('Supported preset command: siftkit preset list');
       case 'install':
         return await runInstall(stdout);
       case 'config-get':
@@ -56,6 +63,9 @@ export async function runCli(options: CliRunOptions): Promise<number> {
       case 'config-set':
         return await runConfigSet({ argv: options.argv, stdout });
       case 'run':
+        if (commandArgs.includes('--preset')) {
+          return await runPresetCli({ argv: options.argv, stdinText: options.stdinText, stdout });
+        }
         return await runCommandCli({ argv: options.argv, stdout });
       case 'eval':
         return await runEvalCli({ argv: options.argv, stdout });

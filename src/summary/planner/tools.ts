@@ -60,8 +60,9 @@ export function escapeUnescapedRegexBraces(query: string): string {
   return normalized;
 }
 
-export function buildPlannerToolDefinitions(): PlannerToolDefinition[] {
-  return [
+export function buildPlannerToolDefinitions(allowedTools: readonly PlannerToolName[] = ['find_text', 'read_lines', 'json_filter']): PlannerToolDefinition[] {
+  const allowed = new Set<PlannerToolName>(allowedTools);
+  const definitions: PlannerToolDefinition[] = [
     {
       type: 'function',
       function: {
@@ -128,6 +129,7 @@ export function buildPlannerToolDefinitions(): PlannerToolDefinition[] {
       },
     },
   ];
+  return definitions.filter((definition) => allowed.has(definition.function.name));
 }
 
 function executeFindTextTool(inputText: string, args: Record<string, unknown>): Record<string, unknown> {
@@ -258,7 +260,14 @@ function executeJsonFilterTool(inputText: string, args: Record<string, unknown>)
   };
 }
 
-export function executePlannerTool(inputText: string, action: PlannerToolCall): Record<string, unknown> {
+export function executePlannerTool(
+  inputText: string,
+  action: PlannerToolCall,
+  allowedTools: readonly PlannerToolName[] = ['find_text', 'read_lines', 'json_filter'],
+): Record<string, unknown> {
+  if (!allowedTools.includes(action.tool_name)) {
+    throw new Error(`Planner tool is not allowed by the active preset: ${action.tool_name}`);
+  }
   switch (action.tool_name) {
     case 'find_text':
       return executeFindTextTool(inputText, action.args);

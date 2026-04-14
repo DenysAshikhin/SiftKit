@@ -90,6 +90,7 @@ async function invokeSummaryCore(options: {
   chunkPath?: string | null;
   chunkThresholdOverride?: number | null;
   promptPrefix?: string;
+  allowedPlannerTools?: SummaryRequest['allowedPlannerTools'];
   requestTimeoutSeconds?: number;
   llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
   chunkContext?: ChunkPromptContext;
@@ -144,6 +145,7 @@ async function invokeSummaryCore(options: {
       commandExitCode: options.commandExitCode,
       debugCommand: options.debugCommand,
       promptPrefix: options.promptPrefix,
+      allowedTools: options.allowedPlannerTools,
       requestTimeoutSeconds: options.requestTimeoutSeconds,
       llamaCppOverrides: options.llamaCppOverrides,
     });
@@ -503,6 +505,7 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
         commandExitCode: request.commandExitCode,
         debugCommand: request.debugCommand,
         promptPrefix: effectivePromptPrefix,
+        allowedPlannerTools: request.allowedPlannerTools,
         requestTimeoutSeconds: request.requestTimeoutSeconds,
         llamaCppOverrides: request.llamaCppOverrides,
       });

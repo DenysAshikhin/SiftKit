@@ -28,6 +28,18 @@ test('CLI accepts -help as help alias', async () => {
   assert.match(stdout.read(), /Usage:/u);
 });
 
+test('CLI help advertises preset commands', async () => {
+  const stdout = makeCaptureStream();
+  const stderr = makeCaptureStream();
+  const code = await runCli({
+    argv: ['--help'],
+    stdout: stdout.stream,
+    stderr: stderr.stream,
+  });
+  assert.equal(code, 0);
+  assert.match(stdout.read(), /siftkit preset list/u);
+});
+
 test('repo-search help works without server startup', async () => {
   const stdout = makeCaptureStream();
   const stderr = makeCaptureStream();

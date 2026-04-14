@@ -1,6 +1,7 @@
 import * as crypto from 'node:crypto';
 import * as path from 'node:path';
 import type { Dict } from '../lib/types.js';
+import { mapLegacyModeToPresetId } from '../presets.js';
 import { getRuntimeDatabase } from './runtime-db.js';
 
 export type ChatMessage = Dict;
@@ -12,6 +13,7 @@ type SessionRow = {
   model: string | null;
   context_window_tokens: number;
   thinking_enabled: number;
+  preset_id: string | null;
   mode: string;
   plan_repo_root: string;
   condensed_summary: string;
@@ -72,6 +74,11 @@ function normalizeMode(value: unknown): 'chat' | 'plan' | 'repo-search' {
   return value === 'plan' || value === 'repo-search' ? value : 'chat';
 }
 
+function normalizePresetId(value: unknown, modeValue?: unknown): string {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return normalized || mapLegacyModeToPresetId(modeValue);
+}
+
 function toNonNegativeInteger(value: unknown, fallback: number = 0): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) {
@@ -110,6 +117,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       model,
       context_window_tokens,
       thinking_enabled,
+      preset_id,
       mode,
       plan_repo_root,
       condensed_summary,
@@ -165,6 +173,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
     model: row.model,
     contextWindowTokens: row.context_window_tokens,
     thinkingEnabled: row.thinking_enabled === 1,
+    presetId: normalizePresetId(row.preset_id, row.mode),
     mode: normalizeMode(row.mode),
     planRepoRoot: row.plan_repo_root,
     condensedSummary: row.condensed_summary,
@@ -243,6 +252,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
   }
   const now = new Date().toISOString();
   const mode = normalizeMode(session.mode);
+  const presetId = normalizePresetId(session.presetId, mode);
   const messages = Array.isArray(session.messages) ? session.messages : [];
   const hiddenToolContexts = Array.isArray(session.hiddenToolContexts)
     ? session.hiddenToolContexts
@@ -257,17 +267,19 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         model,
         context_window_tokens,
         thinking_enabled,
+        preset_id,
         mode,
         plan_repo_root,
         condensed_summary,
         created_at_utc,
         updated_at_utc
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         model = excluded.model,
         context_window_tokens = excluded.context_window_tokens,
         thinking_enabled = excluded.thinking_enabled,
+        preset_id = excluded.preset_id,
         mode = excluded.mode,
         plan_repo_root = excluded.plan_repo_root,
         condensed_summary = excluded.condensed_summary,
@@ -278,6 +290,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
       typeof session.model === 'string' && session.model.trim() ? session.model.trim() : null,
       toNonNegativeInteger(session.contextWindowTokens, 150000),
       session.thinkingEnabled === false ? 0 : 1,
+      presetId,
       mode,
       typeof session.planRepoRoot === 'string' && session.planRepoRoot.trim()
         ? path.resolve(session.planRepoRoot)

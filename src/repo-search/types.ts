@@ -29,6 +29,8 @@ export type RepoSearchExecutionRequest = {
   statusBackendUrl?: string;
   config?: Record<string, unknown>;
   model?: string;
+  promptPrefix?: string;
+  allowedTools?: string[];
   requestMaxTokens?: number;
   maxTurns?: number;
   thinkingInterval?: number;

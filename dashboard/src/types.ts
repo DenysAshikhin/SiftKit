@@ -150,6 +150,7 @@ export type ChatSession = {
   model: string | null;
   contextWindowTokens: number;
   thinkingEnabled?: boolean;
+  presetId?: string;
   mode?: 'chat' | 'plan' | 'repo-search';
   planRepoRoot?: string;
   condensedSummary: string;
@@ -180,6 +181,27 @@ export type ChatSessionsResponse = {
   sessions: ChatSession[];
 };
 
+export type DashboardPresetExecutionFamily = 'summary' | 'chat' | 'plan' | 'repo-search';
+export type DashboardPresetSurface = 'cli' | 'web';
+export type DashboardPresetToolName = 'find_text' | 'read_lines' | 'json_filter' | 'run_repo_cmd';
+
+export type DashboardPreset = {
+  id: string;
+  label: string;
+  description: string;
+  executionFamily: DashboardPresetExecutionFamily;
+  promptPrefix: string;
+  allowedTools: DashboardPresetToolName[];
+  surfaces: DashboardPresetSurface[];
+  useForSummary: boolean;
+  builtin: boolean;
+  deletable: boolean;
+  repoRootRequired: boolean;
+  maxTurns: number | null;
+  thinkingInterval: number | null;
+  thinkingEnabled: boolean | null;
+};
+
 export type DashboardLlamaCppConfig = {
   BaseUrl: string;
   NumCtx: number;
@@ -204,6 +226,7 @@ export type DashboardConfig = {
   PolicyMode: string;
   RawLogRetention: boolean;
   PromptPrefix: string;
+  Presets: DashboardPreset[];
   Model?: string;
   LlamaCpp: DashboardLlamaCppConfig;
   Runtime: {

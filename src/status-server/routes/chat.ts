@@ -40,6 +40,12 @@ import {
   deleteChatSession,
   saveChatSession,
 } from '../../state/chat-sessions.js';
+import {
+  findPresetById,
+  mapLegacyModeToPresetId,
+  mapPresetIdToLegacyMode,
+  normalizePresets,
+} from '../../presets.js';
 import { logLine } from '../managed-llama.js';
 import {
   acquireModelRequestWithWait,
@@ -142,8 +148,16 @@ export async function handleChatRoute(
     if (typeof parsedBody.thinkingEnabled === 'boolean') {
       updated.thinkingEnabled = parsedBody.thinkingEnabled;
     }
+    const currentConfig = readConfig(configPath);
+    const presets = normalizePresets(currentConfig.Presets);
+    if (typeof parsedBody.presetId === 'string' && (parsedBody.presetId as string).trim()) {
+      const presetId = (parsedBody.presetId as string).trim();
+      updated.presetId = findPresetById(presets, presetId)?.id || presetId;
+      updated.mode = mapPresetIdToLegacyMode(updated.presetId, presets);
+    }
     if (typeof parsedBody.mode === 'string' && (parsedBody.mode === 'chat' || parsedBody.mode === 'plan' || parsedBody.mode === 'repo-search')) {
       updated.mode = parsedBody.mode;
+      updated.presetId = mapLegacyModeToPresetId(parsedBody.mode);
     }
     if (typeof parsedBody.planRepoRoot === 'string' && (parsedBody.planRepoRoot as string).trim()) {
       updated.planRepoRoot = path.resolve((parsedBody.planRepoRoot as string).trim());
@@ -182,8 +196,13 @@ export async function handleChatRoute(
     }
     const now = new Date().toISOString();
     const currentConfig = readConfig(configPath);
+    const presets = normalizePresets(currentConfig.Presets);
     const runtimeCfg = (currentConfig.Runtime as Dict | undefined) ?? {};
     const runtimeLlamaCfg = (runtimeCfg.LlamaCpp as Dict | undefined) ?? {};
+    const requestedPresetId = typeof parsedBody.presetId === 'string' && (parsedBody.presetId as string).trim()
+      ? (parsedBody.presetId as string).trim()
+      : 'chat';
+    const presetId = findPresetById(presets, requestedPresetId)?.id || 'chat';
     const session: ChatSession = {
       id: crypto.randomUUID(),
       title: typeof parsedBody.title === 'string' && parsedBody.title.trim() ? parsedBody.title.trim() : 'New Session',
@@ -192,7 +211,8 @@ export async function handleChatRoute(
         : (runtimeCfg.Model as string) || null,
       contextWindowTokens: Number(runtimeLlamaCfg.NumCtx || 150000),
       thinkingEnabled: runtimeLlamaCfg.Reasoning !== 'off',
-      mode: 'chat',
+      presetId,
+      mode: mapPresetIdToLegacyMode(presetId, presets),
       planRepoRoot: process.cwd(),
       condensedSummary: '',
       createdAtUtc: now,
@@ -254,7 +274,11 @@ export async function handleChatRoute(
       } else {
         await ensureManagedLlamaReadyForModelRequest(ctx);
         const config = readConfig(configPath);
-        const generated = await generateChatAssistantMessage(config, session, userContent);
+        const presets = normalizePresets(config.Presets);
+        const preset = findPresetById(presets, session.presetId);
+        const generated = await generateChatAssistantMessage(config, session, userContent, {
+          promptPrefix: preset?.promptPrefix || undefined,
+        });
         assistantContent = generated.assistantContent;
         usage = generated.usage;
         thinkingContent = generated.thinkingContent || '';
@@ -354,9 +378,13 @@ export async function handleChatRoute(
     try {
       await ensureManagedLlamaReadyForModelRequest(ctx);
       const config = readConfig(configPath);
+      const presets = normalizePresets(config.Presets);
+      const preset = findPresetById(presets, session.presetId);
       const generated = await streamChatAssistantMessage(config, session, userContent, (progress) => {
         writeSse('thinking', { thinking: progress.thinkingContent });
         writeSse('answer', { answer: progress.assistantContent });
+      }, {
+        promptPrefix: preset?.promptPrefix || undefined,
       });
       try {
         await notifyChatStatus({
@@ -440,12 +468,17 @@ export async function handleChatRoute(
       await ensureManagedLlamaReadyForModelRequest(ctx);
       const executeRepoSearchRequest = loadRepoSearchExecutor();
       const content = (parsedBody.content as string).trim();
+      const config = readConfig(configPath);
+      const presets = normalizePresets(config.Presets);
+      const preset = findPresetById(presets, session.presetId || 'plan');
       const result = await executeRepoSearchRequest({
         taskKind: 'plan',
         prompt: buildPlanRequestPrompt(content),
         repoRoot: resolvedRepoRoot,
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
-        config: readConfig(configPath),
+        config,
+        promptPrefix: preset?.promptPrefix || '',
+        allowedTools: preset?.allowedTools,
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         requestMaxTokens: 10000,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
@@ -465,7 +498,7 @@ export async function handleChatRoute(
       const toolContextContents = buildToolContextFromRepoSearchResult(result);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
-        { ...session, mode: 'plan', planRepoRoot: resolvedRepoRoot },
+        { ...session, presetId: session.presetId || 'plan', mode: 'plan', planRepoRoot: resolvedRepoRoot },
         content,
         assistantContent,
         {
@@ -544,12 +577,17 @@ export async function handleChatRoute(
       await ensureManagedLlamaReadyForModelRequest(ctx);
       const executeRepoSearchRequest = loadRepoSearchExecutor();
       const content = (parsedBody.content as string).trim();
+      const config = readConfig(configPath);
+      const presets = normalizePresets(config.Presets);
+      const preset = findPresetById(presets, session.presetId || 'plan');
       const result = await executeRepoSearchRequest({
         taskKind: 'plan',
         prompt: buildPlanRequestPrompt(content),
         repoRoot: resolvedRepoRoot,
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
-        config: readConfig(configPath),
+        config,
+        promptPrefix: preset?.promptPrefix || '',
+        allowedTools: preset?.allowedTools,
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         requestMaxTokens: 10000,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
@@ -590,7 +628,7 @@ export async function handleChatRoute(
       const toolContextContents = buildToolContextFromRepoSearchResult(result);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
-        { ...session, mode: 'plan', planRepoRoot: resolvedRepoRoot },
+        { ...session, presetId: session.presetId || 'plan', mode: 'plan', planRepoRoot: resolvedRepoRoot },
         content,
         assistantContent,
         {
@@ -670,12 +708,17 @@ export async function handleChatRoute(
       await ensureManagedLlamaReadyForModelRequest(ctx);
       const executeRepoSearchRequest = loadRepoSearchExecutor();
       const content = (parsedBody.content as string).trim();
+      const config = readConfig(configPath);
+      const presets = normalizePresets(config.Presets);
+      const preset = findPresetById(presets, session.presetId || 'repo-search');
       const result = await executeRepoSearchRequest({
         taskKind: 'repo-search',
         prompt: content,
         repoRoot: resolvedRepoRoot,
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
-        config: readConfig(configPath),
+        config,
+        promptPrefix: preset?.promptPrefix || '',
+        allowedTools: preset?.allowedTools,
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         requestMaxTokens: 10000,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
@@ -712,7 +755,7 @@ export async function handleChatRoute(
       const toolContextContents = buildToolContextFromRepoSearchResult(result);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
-        { ...session, mode: 'repo-search', planRepoRoot: resolvedRepoRoot },
+        { ...session, presetId: session.presetId || 'repo-search', mode: 'repo-search', planRepoRoot: resolvedRepoRoot },
         content,
         assistantContent,
         {

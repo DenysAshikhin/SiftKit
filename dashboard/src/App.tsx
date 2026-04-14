@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   clearToolContext,
   condenseChatSession,
@@ -14,11 +14,38 @@ import {
   getMetrics,
   getRunDetail,
   getRuns,
+  restartBackend,
   streamChatMessage,
   streamRepoSearchMessage,
   updateDashboardConfig,
   updateChatSession,
 } from './api';
+import {
+  createPresetIdFromLabel,
+  getDefaultWebPresetId,
+  getPresetById,
+  getPresetFamily,
+  getSurfacePresets,
+} from './dashboard-presets';
+import {
+  PRESET_TOOL_OPTIONS,
+  getFallbackPresetId,
+  getNextPresetIdAfterDelete,
+  getPresetToolsSummary,
+  togglePresetTool,
+} from './preset-editor';
+import { getDashboardView } from './dashboard-route';
+import { getDirtyActionRequirement, type DirtyContinuation } from './settings-flow';
+import {
+  POLICY_MODE_OPTIONS,
+  SETTINGS_SECTION_ORDER,
+  SETTINGS_SECTIONS,
+  getSettingsFieldDescriptor,
+  type SettingsFieldLayout,
+  type SettingsSectionId,
+} from './settings-sections';
+import { deriveRuntimeModelId, syncDerivedSettingsFields } from './settings-runtime';
+import { SettingsMockupPage } from './settings-mockup';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -37,6 +64,7 @@ import type {
   ChatSession,
   ContextUsage,
   DashboardConfig,
+  DashboardPreset,
   IdleSummarySnapshot,
   MetricDay,
   TaskMetricDay,
@@ -53,6 +81,11 @@ type ToastMessage = {
   level: ToastLevel;
   text: string;
 };
+
+export function App() {
+  const dashboardView = getDashboardView(window.location.pathname);
+  return dashboardView === 'mockup' ? <SettingsMockupPage /> : <DashboardApp />;
+}
 
 function readSearchParams(): URLSearchParams {
   return new URLSearchParams(window.location.search);
@@ -670,7 +703,11 @@ function extractFinishOutput(raw: string): string {
 }
 
 function cloneDashboardConfig(config: DashboardConfig): DashboardConfig {
-  return JSON.parse(JSON.stringify(config)) as DashboardConfig;
+  return syncDerivedSettingsFields(JSON.parse(JSON.stringify(config)) as DashboardConfig);
+}
+
+function getDashboardConfigSignature(config: DashboardConfig | null): string {
+  return config ? JSON.stringify(config) : '';
 }
 
 function parseIntegerInput(value: string, fallback: number): number {
@@ -683,7 +720,43 @@ function parseFloatInput(value: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-export function App() {
+type SettingsFieldProps = {
+  label: string;
+  layout: SettingsFieldLayout;
+  helpText?: string | undefined;
+  children: ReactNode;
+};
+
+function SettingsField({ label, layout, helpText, children }: SettingsFieldProps) {
+  return (
+    <div className={`settings-live-field settings-live-field-${layout}`}>
+      <div className="settings-live-label-row">
+        <SettingsInlineHelpLabel label={label} helpText={helpText} />
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function SettingsInlineHelpLabel({ label, helpText }: { label: string; helpText?: string | undefined }) {
+  return (
+    <>
+      <label>{label}</label>
+      {helpText ? (
+        <span className="settings-live-help">
+          <button type="button" className="settings-live-help-trigger" aria-label={`Explain ${label}`}>
+            ?
+          </button>
+          <span className="settings-live-help-popover" role="note">
+            {helpText}
+          </span>
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+function DashboardApp() {
   const params = readSearchParams();
   const [tab, setTab] = useState<TabKey>((params.get('tab') as TabKey) || 'runs');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -715,10 +788,17 @@ export function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [chatBusy, setChatBusy] = useState(false);
   const [dashboardConfig, setDashboardConfig] = useState<DashboardConfig | null>(null);
+  const [savedDashboardConfig, setSavedDashboardConfig] = useState<DashboardConfig | null>(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsRestarting, setSettingsRestarting] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSavedAtUtc, setSettingsSavedAtUtc] = useState<string | null>(null);
+  const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>('general');
+  const [selectedSettingsPresetId, setSelectedSettingsPresetId] = useState<string | null>(null);
+  const [presetToolsMenuOpen, setPresetToolsMenuOpen] = useState(false);
+  const [pendingSettingsContinuation, setPendingSettingsContinuation] = useState<DirtyContinuation | null>(null);
+  const [showSettingsConfirm, setShowSettingsConfirm] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const managedLlamaWarningRef = useRef<string | null>(null);
   const healthCheckErrorRef = useRef<string | null>(null);
@@ -737,6 +817,7 @@ export function App() {
     status: 'running' | 'done';
   }>>([]);
   const [liveToolPromptTokenCount, setLiveToolPromptTokenCount] = useState<number | null>(null);
+
   const groupedRuns = runs.reduce<Record<RunGroupKey, RunRecord[]>>((accumulator, run) => {
     const key = classifyRunGroup(run.kind);
     accumulator[key].push(run);
@@ -810,8 +891,21 @@ export function App() {
     : false;
   const repoSearchChatSteps = selectedRunDetail ? buildRepoSearchChatSteps(selectedRunDetail.events) : [];
   const isThinkingEnabledForCurrentSession = selectedSession?.thinkingEnabled !== false;
-  const chatMode = selectedSession?.mode === 'plan' ? 'plan' : selectedSession?.mode === 'repo-search' ? 'repo-search' : 'chat';
+  const webPresets = getSurfacePresets(dashboardConfig, 'web');
+  const selectedSettingsPreset = dashboardConfig
+    ? dashboardConfig.Presets.find((preset) => preset.id === selectedSettingsPresetId) ?? dashboardConfig.Presets[0] ?? null
+    : null;
+  const selectedChatPreset = getPresetById(dashboardConfig, selectedSession?.presetId)
+    || getPresetById(dashboardConfig, selectedSession?.mode)
+    || webPresets[0]
+    || null;
+  const chatMode = getPresetFamily(dashboardConfig, selectedSession);
   const sessionPromptCacheStats = getSessionPromptCacheStats(selectedSession);
+  const settingsDirty = dashboardConfig !== null
+    && savedDashboardConfig !== null
+    && getDashboardConfigSignature(dashboardConfig) !== getDashboardConfigSignature(savedDashboardConfig);
+  const settingsActionBusy = settingsLoading || settingsSaving || settingsRestarting;
+  const settingsRestartSupported = dashboardConfig?.Backend === 'llama.cpp';
 
   useEffect(() => {
     writeSearchParams({
@@ -1039,7 +1133,9 @@ export function App() {
       try {
         const response = await getDashboardConfig();
         if (!cancelled) {
-          setDashboardConfig(response);
+          const synced = cloneDashboardConfig(response);
+          setDashboardConfig(synced);
+          setSavedDashboardConfig(cloneDashboardConfig(synced));
         }
       } catch (error) {
         if (!cancelled) {
@@ -1057,6 +1153,10 @@ export function App() {
     };
   }, [tab]);
 
+  useEffect(() => {
+    setSelectedSettingsPresetId((previous) => getFallbackPresetId(dashboardConfig?.Presets ?? [], previous));
+  }, [dashboardConfig]);
+
   function updateSettingsDraft(updater: (next: DashboardConfig) => void): void {
     setDashboardConfig((previous) => {
       if (!previous) {
@@ -1064,14 +1164,112 @@ export function App() {
       }
       const next = cloneDashboardConfig(previous);
       updater(next);
-      return next;
+      return syncDerivedSettingsFields(next);
     });
     setSettingsSavedAtUtc(null);
+  }
+
+  function updatePresetDraft(presetId: string, updater: (preset: DashboardPreset) => void): void {
+    updateSettingsDraft((next) => {
+      const preset = next.Presets.find((entry) => entry.id === presetId);
+      if (!preset) {
+        return;
+      }
+      updater(preset);
+    });
+  }
+
+  function applyPresetExecutionFamilyDefaults(
+    preset: DashboardPreset,
+    executionFamily: DashboardPreset['executionFamily'],
+  ): void {
+    preset.executionFamily = executionFamily;
+    if (executionFamily === 'summary') {
+      preset.allowedTools = ['find_text', 'read_lines', 'json_filter'];
+      preset.repoRootRequired = false;
+      preset.maxTurns = null;
+      preset.thinkingInterval = null;
+      preset.thinkingEnabled = null;
+      return;
+    }
+    if (executionFamily === 'chat') {
+      preset.allowedTools = [];
+      preset.repoRootRequired = false;
+      preset.maxTurns = null;
+      preset.thinkingInterval = null;
+      preset.thinkingEnabled = true;
+      return;
+    }
+    preset.allowedTools = ['run_repo_cmd'];
+    preset.repoRootRequired = true;
+    preset.maxTurns = preset.maxTurns || 45;
+    preset.thinkingInterval = preset.thinkingInterval || 5;
+    preset.thinkingEnabled = null;
+  }
+
+  function createUniquePresetId(existingPresets: DashboardPreset[], label: string): string {
+    const baseId = createPresetIdFromLabel(label);
+    if (!existingPresets.some((preset) => preset.id === baseId)) {
+      return baseId;
+    }
+    let counter = 2;
+    while (existingPresets.some((preset) => preset.id === `${baseId}-${counter}`)) {
+      counter += 1;
+    }
+    return `${baseId}-${counter}`;
+  }
+
+  function onAddPreset(): void {
+    let addedPresetId: string | null = null;
+    updateSettingsDraft((next) => {
+      const id = createUniquePresetId(next.Presets, `custom-preset-${next.Presets.length + 1}`);
+      addedPresetId = id;
+      next.Presets.push({
+        id,
+        label: `Custom Preset ${Math.max(1, next.Presets.filter((preset) => preset.deletable).length + 1)}`,
+        description: '',
+        executionFamily: 'summary',
+        promptPrefix: '',
+        allowedTools: ['find_text', 'read_lines', 'json_filter'],
+        surfaces: ['cli'],
+        useForSummary: false,
+        builtin: false,
+        deletable: true,
+        repoRootRequired: false,
+        maxTurns: null,
+        thinkingInterval: null,
+        thinkingEnabled: null,
+      });
+    });
+    setSelectedSettingsPresetId(addedPresetId);
+    setPresetToolsMenuOpen(false);
+  }
+
+  function onDeletePreset(presetId: string): void {
+    let nextPresetId: string | null = null;
+    updateSettingsDraft((next) => {
+      nextPresetId = getNextPresetIdAfterDelete(next.Presets, presetId);
+      next.Presets = next.Presets.filter((preset) => preset.id !== presetId || preset.deletable === false);
+    });
+    setSelectedSettingsPresetId(nextPresetId);
+    setPresetToolsMenuOpen(false);
   }
 
   useEffect(() => {
     setPlanRepoRootInput(selectedSession?.planRepoRoot || '');
   }, [selectedSession?.id, selectedSession?.planRepoRoot]);
+
+  useEffect(() => {
+    if (!selectedChatPreset) {
+      return;
+    }
+    if (selectedChatPreset.maxTurns !== null) {
+      setPlanMaxTurnsInput(String(selectedChatPreset.maxTurns));
+    }
+    if (selectedChatPreset.thinkingInterval !== null) {
+      setPlanThinkingIntervalInput(String(selectedChatPreset.thinkingInterval));
+    }
+  }, [selectedChatPreset?.id]);
 
   async function onCreateSession() {
     setChatBusy(true);
@@ -1079,7 +1277,8 @@ export function App() {
     try {
       const response = await createChatSession({
         title: `Session ${new Date().toLocaleTimeString()}`,
-        model: 'Qwen3.5-9B-Q8_0.gguf',
+        model: dashboardConfig?.Runtime.Model || 'Qwen3.5-9B-Q8_0.gguf',
+        presetId: getDefaultWebPresetId(dashboardConfig),
       });
       setSessions((previous) => [response.session, ...previous]);
       setSelectedSessionId(response.session.id);
@@ -1291,7 +1490,7 @@ export function App() {
     }
   }
 
-  async function onUpdateSessionMode(mode: 'chat' | 'plan' | 'repo-search') {
+  async function onUpdateSessionPreset(presetId: string) {
     if (!selectedSessionId) {
       return;
     }
@@ -1299,7 +1498,7 @@ export function App() {
     setChatError(null);
     try {
       const response = await updateChatSession(selectedSessionId, {
-        mode,
+        presetId,
       });
       setSelectedSession(response.session);
       setContextUsage(response.contextUsage);
@@ -1319,7 +1518,7 @@ export function App() {
     setChatError(null);
     try {
       const response = await updateChatSession(selectedSessionId, {
-        mode: chatMode === 'repo-search' ? 'repo-search' : 'plan',
+        ...(selectedChatPreset?.id ? { presetId: selectedChatPreset.id } : {}),
         planRepoRoot: planRepoRootInput.trim(),
       });
       setSelectedSession(response.session);
@@ -1395,35 +1594,732 @@ export function App() {
     }
   }
 
-  async function onSaveDashboardSettings(): Promise<void> {
+  async function saveDashboardSettingsCore(): Promise<boolean> {
     if (!dashboardConfig) {
-      return;
+      return false;
     }
     setSettingsSaving(true);
     setSettingsError(null);
     try {
       const updated = await updateDashboardConfig(dashboardConfig);
-      setDashboardConfig(updated);
+      const synced = cloneDashboardConfig(updated);
+      setDashboardConfig(synced);
+      setSavedDashboardConfig(cloneDashboardConfig(synced));
       setSettingsSavedAtUtc(new Date().toISOString());
+      return true;
     } catch (error) {
       setSettingsError(error instanceof Error ? error.message : String(error));
+      return false;
     } finally {
       setSettingsSaving(false);
     }
   }
 
-  async function onReloadDashboardSettings(): Promise<void> {
+  async function onSaveDashboardSettings(): Promise<void> {
+    await saveDashboardSettingsCore();
+  }
+
+  async function reloadDashboardSettingsCore(): Promise<boolean> {
     setSettingsLoading(true);
     setSettingsError(null);
     try {
       const response = await getDashboardConfig();
-      setDashboardConfig(response);
+      const synced = cloneDashboardConfig(response);
+      setDashboardConfig(synced);
+      setSavedDashboardConfig(cloneDashboardConfig(synced));
       setSettingsSavedAtUtc(null);
+      return true;
     } catch (error) {
       setSettingsError(error instanceof Error ? error.message : String(error));
+      return false;
     } finally {
       setSettingsLoading(false);
     }
+  }
+
+  async function onReloadDashboardSettings(): Promise<void> {
+    await reloadDashboardSettingsCore();
+  }
+
+  function discardDashboardSettingsChanges(): void {
+    if (!savedDashboardConfig) {
+      return;
+    }
+    setDashboardConfig(cloneDashboardConfig(savedDashboardConfig));
+    setSettingsError(null);
+  }
+
+  async function restartDashboardBackendCore(): Promise<boolean> {
+    setSettingsRestarting(true);
+    setSettingsError(null);
+    try {
+      await restartBackend();
+      await getDashboardHealth();
+      const reloaded = await reloadDashboardSettingsCore();
+      if (reloaded) {
+        enqueueToast('info', 'Backend restarted.');
+      }
+      return reloaded;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSettingsError(message);
+      enqueueToast('error', `Backend restart failed: ${message}`);
+      return false;
+    } finally {
+      setSettingsRestarting(false);
+    }
+  }
+
+  async function continueSettingsAction(continuation: DirtyContinuation): Promise<void> {
+    if (continuation.kind === 'switch-section') {
+      setActiveSettingsSection(continuation.nextSection);
+      return;
+    }
+    if (continuation.kind === 'switch-tab') {
+      setTab(continuation.nextTab);
+      setMenuOpen(false);
+      return;
+    }
+    if (continuation.kind === 'reload-settings') {
+      await reloadDashboardSettingsCore();
+      return;
+    }
+    await restartDashboardBackendCore();
+  }
+
+  function closeSettingsConfirm(): void {
+    setShowSettingsConfirm(false);
+    setPendingSettingsContinuation(null);
+  }
+
+  function requestSettingsAction(continuation: DirtyContinuation): void {
+    if (getDirtyActionRequirement(settingsDirty, continuation.kind) === 'confirm') {
+      setPendingSettingsContinuation(continuation);
+      setShowSettingsConfirm(true);
+      return;
+    }
+    void continueSettingsAction(continuation);
+  }
+
+  async function onConfirmSaveSettingsAction(): Promise<void> {
+    if (!pendingSettingsContinuation) {
+      return;
+    }
+    const continuation = pendingSettingsContinuation;
+    const saved = await saveDashboardSettingsCore();
+    if (!saved) {
+      return;
+    }
+    closeSettingsConfirm();
+    await continueSettingsAction(continuation);
+  }
+
+  function onConfirmDiscardSettingsAction(): void {
+    if (!pendingSettingsContinuation) {
+      return;
+    }
+    const continuation = pendingSettingsContinuation;
+    discardDashboardSettingsChanges();
+    closeSettingsConfirm();
+    void continueSettingsAction(continuation);
+  }
+
+  function onRequestTabChange(nextTab: TabKey): void {
+    if (tab === 'settings' && nextTab !== 'settings') {
+      requestSettingsAction({ kind: 'switch-tab', nextTab });
+      return;
+    }
+    setTab(nextTab);
+    setMenuOpen(false);
+  }
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent): void => {
+      if (tab !== 'settings' || !settingsDirty) {
+        return;
+      }
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [settingsDirty, tab]);
+
+  function renderSettingsSection(): ReactNode {
+    if (!dashboardConfig) {
+      return null;
+    }
+
+    const renderField = (sectionId: SettingsSectionId, label: string, children: ReactNode): ReactNode => {
+      const field = getSettingsFieldDescriptor(sectionId, label);
+      return (
+        <SettingsField key={label} label={label} layout={field.layout} helpText={field.helpText}>
+          {children}
+        </SettingsField>
+      );
+    };
+
+    if (activeSettingsSection === 'general') {
+      return (
+        <div className="settings-live-grid">
+          {renderField('general', 'Version', (
+            <input
+              value={dashboardConfig.Version}
+              onChange={(event) => updateSettingsDraft((next) => { next.Version = event.target.value; })}
+            />
+          ))}
+          {renderField('general', 'Backend', (
+            <div className="settings-live-nav-control">
+              <input value={dashboardConfig.Backend} readOnly />
+              <button
+                type="button"
+                onClick={() => requestSettingsAction({ kind: 'switch-section', nextSection: 'model-runtime' })}
+              >
+                Open Model Path
+              </button>
+            </div>
+          ))}
+          {renderField('general', 'Policy Mode', (
+            <select
+              value={dashboardConfig.PolicyMode}
+              onChange={(event) => updateSettingsDraft((next) => { next.PolicyMode = event.target.value; })}
+            >
+              {POLICY_MODE_OPTIONS.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          ))}
+          {renderField('general', 'Raw log retention', (
+            <label className="settings-live-toggle-control">
+              <input
+                type="checkbox"
+                checked={dashboardConfig.RawLogRetention}
+                onChange={(event) => updateSettingsDraft((next) => { next.RawLogRetention = event.target.checked; })}
+              />
+              <span>{dashboardConfig.RawLogRetention ? 'Enabled' : 'Disabled'}</span>
+            </label>
+          ))}
+          {renderField('general', 'Prompt prefix', (
+            <textarea
+              rows={5}
+              value={dashboardConfig.PromptPrefix || ''}
+              onChange={(event) => updateSettingsDraft((next) => { next.PromptPrefix = event.target.value; })}
+            />
+          ))}
+        </div>
+      );
+    }
+
+    if (activeSettingsSection === 'presets') {
+      return (
+        <div className="settings-live-grid">
+          {renderField('presets', 'Preset library', (
+            <div className="settings-preset-library">
+              <div className="settings-preset-toolbar">
+                <label className="settings-preset-selector">
+                  <span className="settings-preset-inline-label"><SettingsInlineHelpLabel label="Preset" helpText="Pick which preset to edit." /></span>
+                  <select
+                    value={selectedSettingsPreset?.id ?? ''}
+                    onChange={(event) => {
+                      setSelectedSettingsPresetId(event.target.value);
+                      setPresetToolsMenuOpen(false);
+                    }}
+                    disabled={dashboardConfig.Presets.length === 0}
+                  >
+                    {dashboardConfig.Presets.length === 0 ? <option value="">No presets</option> : null}
+                    {dashboardConfig.Presets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>{preset.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <div className="settings-preset-library-actions">
+                  <button type="button" onClick={onAddPreset}>Add Preset</button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedSettingsPreset) {
+                        onDeletePreset(selectedSettingsPreset.id);
+                      }
+                    }}
+                    disabled={!selectedSettingsPreset?.deletable}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+              {selectedSettingsPreset ? (
+                <article className="settings-preset-card">
+                  <header className="settings-preset-card-header">
+                    <div>
+                      <strong>{selectedSettingsPreset.label}</strong>
+                      <span className="hint">{selectedSettingsPreset.id} | {selectedSettingsPreset.executionFamily} | {selectedSettingsPreset.deletable ? 'custom' : 'builtin'}</span>
+                    </div>
+                  </header>
+                  <div className="settings-preset-card-grid">
+                    <label>
+                      <span className="settings-preset-inline-label"><SettingsInlineHelpLabel label="Name" helpText="User-facing preset label shown in pickers." /></span>
+                      <input
+                        value={selectedSettingsPreset.label}
+                        onChange={(event) => updatePresetDraft(selectedSettingsPreset.id, (next) => { next.label = event.target.value; })}
+                      />
+                    </label>
+                    <label>
+                      <span className="settings-preset-inline-label"><SettingsInlineHelpLabel label="Execution family" helpText="Underlying runtime flow this preset uses: summary, chat, plan, or repo-search." /></span>
+                      <select
+                        value={selectedSettingsPreset.executionFamily}
+                        onChange={(event) => updatePresetDraft(selectedSettingsPreset.id, (next) => {
+                          applyPresetExecutionFamilyDefaults(
+                            next,
+                            event.target.value as DashboardPreset['executionFamily'],
+                          );
+                        })}
+                        disabled={selectedSettingsPreset.builtin}
+                      >
+                        <option value="summary">summary</option>
+                        <option value="chat">chat</option>
+                        <option value="plan">plan</option>
+                        <option value="repo-search">repo-search</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span className="settings-preset-inline-label"><SettingsInlineHelpLabel label="CLI surface" helpText="Whether this preset appears in CLI discovery and can run from `siftkit run --preset`." /></span>
+                      <input
+                        type="checkbox"
+                        checked={selectedSettingsPreset.surfaces.includes('cli')}
+                        onChange={(event) => updatePresetDraft(selectedSettingsPreset.id, (next) => {
+                          next.surfaces = event.target.checked
+                            ? Array.from(new Set([...next.surfaces, 'cli']))
+                            : next.surfaces.filter((surface) => surface !== 'cli');
+                        })}
+                      />
+                    </label>
+                    <label>
+                      <span className="settings-preset-inline-label"><SettingsInlineHelpLabel label="Web surface" helpText="Whether this preset appears in the dashboard chat preset picker." /></span>
+                      <input
+                        type="checkbox"
+                        checked={selectedSettingsPreset.surfaces.includes('web')}
+                        onChange={(event) => updatePresetDraft(selectedSettingsPreset.id, (next) => {
+                          next.surfaces = event.target.checked
+                            ? Array.from(new Set([...next.surfaces, 'web']))
+                            : next.surfaces.filter((surface) => surface !== 'web');
+                        })}
+                      />
+                    </label>
+                    <label className="settings-preset-card-wide">
+                      <span className="settings-preset-inline-label"><SettingsInlineHelpLabel label="Description" helpText="Short operator-facing explanation of when to use this preset." /></span>
+                      <input
+                        value={selectedSettingsPreset.description}
+                        onChange={(event) => updatePresetDraft(selectedSettingsPreset.id, (next) => { next.description = event.target.value; })}
+                      />
+                    </label>
+                    <label className="settings-preset-card-wide">
+                      <span className="settings-preset-inline-label"><SettingsInlineHelpLabel label="Prompt override" helpText="Preset-specific instruction prefix layered onto the family behavior. Leave empty to fall back to the global prompt prefix or family default." /></span>
+                      <textarea
+                        rows={3}
+                        value={selectedSettingsPreset.promptPrefix}
+                        onChange={(event) => updatePresetDraft(selectedSettingsPreset.id, (next) => { next.promptPrefix = event.target.value; })}
+                      />
+                    </label>
+                    <label>
+                      <span className="settings-preset-inline-label"><SettingsInlineHelpLabel label="Allowed tools" helpText="Tools permitted for this preset. Toggle each option directly." /></span>
+                      <div
+                        className="settings-preset-tools"
+                        onBlur={(event) => {
+                          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                            setPresetToolsMenuOpen(false);
+                          }
+                        }}
+                      >
+                        <button
+                          type="button"
+                          className="settings-preset-tools-trigger"
+                          aria-expanded={presetToolsMenuOpen}
+                          onClick={() => setPresetToolsMenuOpen((value) => !value)}
+                        >
+                          {getPresetToolsSummary(selectedSettingsPreset.allowedTools) || 'No tools selected'}
+                        </button>
+                        {presetToolsMenuOpen ? (
+                          <div className="settings-preset-tools-menu">
+                            {PRESET_TOOL_OPTIONS.map((tool) => (
+                              <label key={tool} className="settings-preset-tools-option">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedSettingsPreset.allowedTools.includes(tool)}
+                                  onChange={() => updatePresetDraft(selectedSettingsPreset.id, (next) => {
+                                    next.allowedTools = togglePresetTool(next.allowedTools, tool);
+                                  })}
+                                />
+                                <span>{tool}</span>
+                              </label>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    </label>
+                    <label>
+                      <span className="settings-preset-inline-label"><SettingsInlineHelpLabel label="Use for default summary" helpText="Marks the summary preset used by default CLI summarization flows." /></span>
+                      <input
+                        type="checkbox"
+                        checked={selectedSettingsPreset.useForSummary}
+                        onChange={(event) => updateSettingsDraft((next) => {
+                          next.Presets.forEach((entry) => {
+                            entry.useForSummary = entry.id === selectedSettingsPreset.id ? event.target.checked : false;
+                          });
+                        })}
+                        disabled={selectedSettingsPreset.executionFamily !== 'summary'}
+                      />
+                    </label>
+                  </div>
+                </article>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    if (activeSettingsSection === 'model-runtime') {
+      return (
+        <div className="settings-live-grid">
+          {renderField('model-runtime', 'Runtime model id', (
+            <input
+              value={deriveRuntimeModelId(dashboardConfig.Runtime.LlamaCpp.ModelPath)}
+              readOnly
+            />
+          ))}
+          {renderField('model-runtime', 'llama.cpp Base URL', (
+            <input
+              value={dashboardConfig.Runtime.LlamaCpp.BaseUrl}
+              onChange={(event) => updateSettingsDraft((next) => {
+                next.Runtime.LlamaCpp.BaseUrl = event.target.value;
+                next.LlamaCpp.BaseUrl = event.target.value;
+              })}
+            />
+          ))}
+          {renderField('model-runtime', 'Model path (.gguf)', (
+            <input
+              value={dashboardConfig.Runtime.LlamaCpp.ModelPath || ''}
+              onChange={(event) => updateSettingsDraft((next) => {
+                const value = event.target.value.trim();
+                next.Runtime.LlamaCpp.ModelPath = value || null;
+                next.LlamaCpp.ModelPath = value || null;
+                next.Runtime.Model = deriveRuntimeModelId(value || null);
+                next.Model = next.Runtime.Model;
+              })}
+            />
+          ))}
+          {renderField('model-runtime', 'NumCtx', (
+            <input
+              type="number"
+              value={dashboardConfig.Runtime.LlamaCpp.NumCtx}
+              onChange={(event) => updateSettingsDraft((next) => {
+                const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.NumCtx);
+                next.Runtime.LlamaCpp.NumCtx = value;
+                next.LlamaCpp.NumCtx = value;
+              })}
+            />
+          ))}
+          {renderField('model-runtime', 'MaxTokens', (
+            <input
+              type="number"
+              value={dashboardConfig.Runtime.LlamaCpp.MaxTokens}
+              onChange={(event) => updateSettingsDraft((next) => {
+                const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.MaxTokens);
+                next.Runtime.LlamaCpp.MaxTokens = value;
+                next.LlamaCpp.MaxTokens = value;
+              })}
+            />
+          ))}
+          {renderField('model-runtime', 'Threads', (
+            <input
+              type="number"
+              value={dashboardConfig.Runtime.LlamaCpp.Threads}
+              onChange={(event) => updateSettingsDraft((next) => {
+                const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.Threads);
+                next.Runtime.LlamaCpp.Threads = value;
+                next.LlamaCpp.Threads = value;
+              })}
+            />
+          ))}
+          {renderField('model-runtime', 'GpuLayers', (
+            <input
+              type="number"
+              value={dashboardConfig.Runtime.LlamaCpp.GpuLayers}
+              onChange={(event) => updateSettingsDraft((next) => {
+                const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.GpuLayers);
+                next.Runtime.LlamaCpp.GpuLayers = value;
+                next.LlamaCpp.GpuLayers = value;
+              })}
+            />
+          ))}
+          {renderField('model-runtime', 'Flash attention', (
+            <label className="settings-live-toggle-control">
+              <input
+                type="checkbox"
+                checked={dashboardConfig.Runtime.LlamaCpp.FlashAttention}
+                onChange={(event) => updateSettingsDraft((next) => {
+                  next.Runtime.LlamaCpp.FlashAttention = event.target.checked;
+                  next.LlamaCpp.FlashAttention = event.target.checked;
+                })}
+              />
+              <span>{dashboardConfig.Runtime.LlamaCpp.FlashAttention ? 'Enabled' : 'Disabled'}</span>
+            </label>
+          ))}
+        </div>
+      );
+    }
+
+    if (activeSettingsSection === 'sampling') {
+      return (
+        <div className="settings-live-grid">
+          {renderField('sampling', 'Temperature', (
+            <input
+              type="number"
+              step="0.01"
+              value={dashboardConfig.Runtime.LlamaCpp.Temperature}
+              onChange={(event) => updateSettingsDraft((next) => {
+                const value = parseFloatInput(event.target.value, next.Runtime.LlamaCpp.Temperature);
+                next.Runtime.LlamaCpp.Temperature = value;
+                next.LlamaCpp.Temperature = value;
+              })}
+            />
+          ))}
+          {renderField('sampling', 'TopP', (
+            <input
+              type="number"
+              step="0.01"
+              value={dashboardConfig.Runtime.LlamaCpp.TopP}
+              onChange={(event) => updateSettingsDraft((next) => {
+                const value = parseFloatInput(event.target.value, next.Runtime.LlamaCpp.TopP);
+                next.Runtime.LlamaCpp.TopP = value;
+                next.LlamaCpp.TopP = value;
+              })}
+            />
+          ))}
+          {renderField('sampling', 'TopK', (
+            <input
+              type="number"
+              value={dashboardConfig.Runtime.LlamaCpp.TopK}
+              onChange={(event) => updateSettingsDraft((next) => {
+                const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.TopK);
+                next.Runtime.LlamaCpp.TopK = value;
+                next.LlamaCpp.TopK = value;
+              })}
+            />
+          ))}
+          {renderField('sampling', 'MinP', (
+            <input
+              type="number"
+              step="0.01"
+              value={dashboardConfig.Runtime.LlamaCpp.MinP}
+              onChange={(event) => updateSettingsDraft((next) => {
+                const value = parseFloatInput(event.target.value, next.Runtime.LlamaCpp.MinP);
+                next.Runtime.LlamaCpp.MinP = value;
+                next.LlamaCpp.MinP = value;
+              })}
+            />
+          ))}
+          {renderField('sampling', 'PresencePenalty', (
+            <input
+              type="number"
+              step="0.01"
+              value={dashboardConfig.Runtime.LlamaCpp.PresencePenalty}
+              onChange={(event) => updateSettingsDraft((next) => {
+                const value = parseFloatInput(event.target.value, next.Runtime.LlamaCpp.PresencePenalty);
+                next.Runtime.LlamaCpp.PresencePenalty = value;
+                next.LlamaCpp.PresencePenalty = value;
+              })}
+            />
+          ))}
+          {renderField('sampling', 'RepetitionPenalty', (
+            <input
+              type="number"
+              step="0.01"
+              value={dashboardConfig.Runtime.LlamaCpp.RepetitionPenalty}
+              onChange={(event) => updateSettingsDraft((next) => {
+                const value = parseFloatInput(event.target.value, next.Runtime.LlamaCpp.RepetitionPenalty);
+                next.Runtime.LlamaCpp.RepetitionPenalty = value;
+                next.LlamaCpp.RepetitionPenalty = value;
+              })}
+            />
+          ))}
+          {renderField('sampling', 'ParallelSlots', (
+            <input
+              type="number"
+              value={dashboardConfig.Runtime.LlamaCpp.ParallelSlots}
+              onChange={(event) => updateSettingsDraft((next) => {
+                const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.ParallelSlots);
+                next.Runtime.LlamaCpp.ParallelSlots = value;
+                next.LlamaCpp.ParallelSlots = value;
+              })}
+            />
+          ))}
+          {renderField('sampling', 'Reasoning', (
+            <select
+              value={dashboardConfig.Runtime.LlamaCpp.Reasoning}
+              onChange={(event) => updateSettingsDraft((next) => {
+                const value = event.target.value as 'on' | 'off' | 'auto';
+                next.Runtime.LlamaCpp.Reasoning = value;
+                next.LlamaCpp.Reasoning = value;
+              })}
+            >
+              <option value="off">off</option>
+              <option value="on">on</option>
+              <option value="auto">auto</option>
+            </select>
+          ))}
+        </div>
+      );
+    }
+
+    if (activeSettingsSection === 'interactive') {
+      return (
+        <div className="settings-live-grid">
+          {renderField('interactive', 'MinCharsForSummary', (
+            <input
+              type="number"
+              value={dashboardConfig.Thresholds.MinCharactersForSummary}
+              onChange={(event) => updateSettingsDraft((next) => {
+                next.Thresholds.MinCharactersForSummary = parseIntegerInput(event.target.value, next.Thresholds.MinCharactersForSummary);
+              })}
+            />
+          ))}
+          {renderField('interactive', 'MinLinesForSummary', (
+            <input
+              type="number"
+              value={dashboardConfig.Thresholds.MinLinesForSummary}
+              onChange={(event) => updateSettingsDraft((next) => {
+                next.Thresholds.MinLinesForSummary = parseIntegerInput(event.target.value, next.Thresholds.MinLinesForSummary);
+              })}
+            />
+          ))}
+          {renderField('interactive', 'Interactive IdleTimeoutMs', (
+            <input
+              type="number"
+              value={dashboardConfig.Interactive.IdleTimeoutMs}
+              onChange={(event) => updateSettingsDraft((next) => {
+                next.Interactive.IdleTimeoutMs = parseIntegerInput(event.target.value, next.Interactive.IdleTimeoutMs);
+              })}
+            />
+          ))}
+          {renderField('interactive', 'MaxTranscriptChars', (
+            <input
+              type="number"
+              value={dashboardConfig.Interactive.MaxTranscriptCharacters}
+              onChange={(event) => updateSettingsDraft((next) => {
+                next.Interactive.MaxTranscriptCharacters = parseIntegerInput(event.target.value, next.Interactive.MaxTranscriptCharacters);
+              })}
+            />
+          ))}
+          {renderField('interactive', 'Wrapped commands', (
+            <textarea
+              rows={4}
+              value={dashboardConfig.Interactive.WrappedCommands.join(', ')}
+              onChange={(event) => updateSettingsDraft((next) => {
+                next.Interactive.WrappedCommands = event.target.value
+                  .split(',')
+                  .map((entry) => entry.trim())
+                  .filter(Boolean);
+              })}
+            />
+          ))}
+          {renderField('interactive', 'Interactive enabled', (
+            <label className="settings-live-toggle-control">
+              <input
+                type="checkbox"
+                checked={dashboardConfig.Interactive.Enabled}
+                onChange={(event) => updateSettingsDraft((next) => { next.Interactive.Enabled = event.target.checked; })}
+              />
+              <span>{dashboardConfig.Interactive.Enabled ? 'Enabled' : 'Disabled'}</span>
+            </label>
+          ))}
+          {renderField('interactive', 'Interactive transcript retention', (
+            <label className="settings-live-toggle-control">
+              <input
+                type="checkbox"
+                checked={dashboardConfig.Interactive.TranscriptRetention}
+                onChange={(event) => updateSettingsDraft((next) => { next.Interactive.TranscriptRetention = event.target.checked; })}
+              />
+              <span>{dashboardConfig.Interactive.TranscriptRetention ? 'Enabled' : 'Disabled'}</span>
+            </label>
+          ))}
+        </div>
+      );
+    }
+
+    return (
+      <div className="settings-live-grid">
+        {renderField('managed-llama', 'Startup script path', (
+          <input
+            value={dashboardConfig.Server.LlamaCpp.StartupScript || ''}
+            onChange={(event) => updateSettingsDraft((next) => {
+              const value = event.target.value.trim();
+              next.Server.LlamaCpp.StartupScript = value || null;
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'Shutdown script path', (
+          <input
+            value={dashboardConfig.Server.LlamaCpp.ShutdownScript || ''}
+            onChange={(event) => updateSettingsDraft((next) => {
+              const value = event.target.value.trim();
+              next.Server.LlamaCpp.ShutdownScript = value || null;
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'StartupTimeoutMs', (
+          <input
+            type="number"
+            value={dashboardConfig.Server.LlamaCpp.StartupTimeoutMs}
+            onChange={(event) => updateSettingsDraft((next) => {
+              next.Server.LlamaCpp.StartupTimeoutMs = parseIntegerInput(event.target.value, next.Server.LlamaCpp.StartupTimeoutMs);
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'HealthcheckTimeoutMs', (
+          <input
+            type="number"
+            value={dashboardConfig.Server.LlamaCpp.HealthcheckTimeoutMs}
+            onChange={(event) => updateSettingsDraft((next) => {
+              next.Server.LlamaCpp.HealthcheckTimeoutMs = parseIntegerInput(event.target.value, next.Server.LlamaCpp.HealthcheckTimeoutMs);
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'HealthcheckIntervalMs', (
+          <input
+            type="number"
+            value={dashboardConfig.Server.LlamaCpp.HealthcheckIntervalMs}
+            onChange={(event) => updateSettingsDraft((next) => {
+              next.Server.LlamaCpp.HealthcheckIntervalMs = parseIntegerInput(event.target.value, next.Server.LlamaCpp.HealthcheckIntervalMs);
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'Managed llama verbose logging', (
+          <label className="settings-live-toggle-control">
+            <input
+              type="checkbox"
+              checked={dashboardConfig.Server.LlamaCpp.VerboseLogging}
+              onChange={(event) => updateSettingsDraft((next) => { next.Server.LlamaCpp.VerboseLogging = event.target.checked; })}
+            />
+            <span>{dashboardConfig.Server.LlamaCpp.VerboseLogging ? 'Enabled' : 'Disabled'}</span>
+          </label>
+        ))}
+        {renderField('managed-llama', 'Additional llama.cpp args', (
+          <textarea
+            rows={4}
+            value={dashboardConfig.Server.LlamaCpp.VerboseArgs.join(', ')}
+            onChange={(event) => updateSettingsDraft((next) => {
+              next.Server.LlamaCpp.VerboseArgs = event.target.value
+                .split(',')
+                .map((entry) => entry.trim())
+                .filter(Boolean);
+            })}
+          />
+        ))}
+      </div>
+    );
   }
 
   return (
@@ -1444,37 +2340,25 @@ export function App() {
             <div className="menu-popover">
               <button
                 className={tab === 'runs' ? 'active' : ''}
-                onClick={() => {
-                  setTab('runs');
-                  setMenuOpen(false);
-                }}
+                onClick={() => onRequestTabChange('runs')}
               >
                 Logs
               </button>
               <button
                 className={tab === 'metrics' ? 'active' : ''}
-                onClick={() => {
-                  setTab('metrics');
-                  setMenuOpen(false);
-                }}
+                onClick={() => onRequestTabChange('metrics')}
               >
                 Metrics
               </button>
               <button
                 className={tab === 'chat' ? 'active' : ''}
-                onClick={() => {
-                  setTab('chat');
-                  setMenuOpen(false);
-                }}
+                onClick={() => onRequestTabChange('chat')}
               >
                 Chat
               </button>
               <button
                 className={tab === 'settings' ? 'active' : ''}
-                onClick={() => {
-                  setTab('settings');
-                  setMenuOpen(false);
-                }}
+                onClick={() => onRequestTabChange('settings')}
               >
                 Settings
               </button>
@@ -1500,6 +2384,26 @@ export function App() {
               </button>
             </article>
           ))}
+        </section>
+      )}
+
+      {showSettingsConfirm && (
+        <section className="settings-live-modal-backdrop" role="presentation">
+          <div className="settings-live-modal" role="dialog" aria-modal="true" aria-labelledby="settings-confirm-title">
+            <h2 id="settings-confirm-title">Unsaved settings changes</h2>
+            <p className="hint">Save the current settings draft before continuing, discard the unsaved changes, or cancel and stay on this section.</p>
+            <div className="settings-live-modal-actions">
+              <button type="button" onClick={() => { void onConfirmSaveSettingsAction(); }} disabled={settingsActionBusy}>
+                {settingsSaving ? 'Saving...' : 'Save'}
+              </button>
+              <button type="button" onClick={onConfirmDiscardSettingsAction} disabled={settingsActionBusy}>
+                Discard
+              </button>
+              <button type="button" onClick={closeSettingsConfirm} disabled={settingsActionBusy}>
+                Cancel
+              </button>
+            </div>
+          </div>
         </section>
       )}
 
@@ -1861,353 +2765,95 @@ export function App() {
       )}
 
       {tab === 'settings' && (
-        <section className="panel-grid">
-          <section className="panel">
+        <section className="panel-grid settings-live-layout">
+          <section className="panel settings-live-rail-panel">
             <h2>Settings</h2>
-            <p className="hint">Configure all runtime options, including llama.cpp model path and generation parameters.</p>
+            <p className="hint">One section at a time. Unsaved changes are guarded before switching away.</p>
+            <div className="settings-live-rail">
+              {SETTINGS_SECTION_ORDER.map((sectionId) => {
+                const section = SETTINGS_SECTIONS[sectionId];
+                return (
+                  <button
+                    key={section.id}
+                    type="button"
+                    className={activeSettingsSection === section.id ? 'settings-live-rail-button active' : 'settings-live-rail-button'}
+                    onClick={() => {
+                      if (activeSettingsSection === section.id) {
+                        return;
+                      }
+                      requestSettingsAction({ kind: 'switch-section', nextSection: section.id });
+                    }}
+                  >
+                    <span className="settings-live-section-icon">{section.icon}</span>
+                    <span>
+                      <strong>{section.title}</strong>
+                      <span>{section.summary}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+          <section className="panel settings-live-panel">
             {settingsLoading && <p className="hint">Loading config...</p>}
             {settingsError && <p className="error">{settingsError}</p>}
             {dashboardConfig && (
-              <div className="filters" style={{ gap: '0.65rem' }}>
-                <input
-                  placeholder="Version"
-                  value={dashboardConfig.Version}
-                  onChange={(event) => updateSettingsDraft((next) => { next.Version = event.target.value; })}
-                />
-                <input
-                  placeholder="Backend"
-                  value={dashboardConfig.Backend}
-                  onChange={(event) => updateSettingsDraft((next) => { next.Backend = event.target.value; })}
-                />
-                <input
-                  placeholder="Policy Mode"
-                  value={dashboardConfig.PolicyMode}
-                  onChange={(event) => updateSettingsDraft((next) => { next.PolicyMode = event.target.value; })}
-                />
-                <label className="hint">
-                  <input
-                    type="checkbox"
-                    checked={dashboardConfig.RawLogRetention}
-                    onChange={(event) => updateSettingsDraft((next) => { next.RawLogRetention = event.target.checked; })}
-                  />
-                  {' '}Raw log retention
-                </label>
-                <textarea
-                  rows={3}
-                  placeholder="Prompt prefix"
-                  value={dashboardConfig.PromptPrefix || ''}
-                  onChange={(event) => updateSettingsDraft((next) => { next.PromptPrefix = event.target.value; })}
-                />
-                <input
-                  placeholder="Runtime model id"
-                  value={dashboardConfig.Runtime.Model}
-                  onChange={(event) => updateSettingsDraft((next) => {
-                    next.Runtime.Model = event.target.value;
-                    next.Model = event.target.value;
-                  })}
-                />
-                <input
-                  placeholder="llama.cpp Base URL"
-                  value={dashboardConfig.Runtime.LlamaCpp.BaseUrl}
-                  onChange={(event) => updateSettingsDraft((next) => {
-                    next.Runtime.LlamaCpp.BaseUrl = event.target.value;
-                    next.LlamaCpp.BaseUrl = event.target.value;
-                  })}
-                />
-                <input
-                  placeholder="Model path (.gguf)"
-                  value={dashboardConfig.Runtime.LlamaCpp.ModelPath || ''}
-                  onChange={(event) => updateSettingsDraft((next) => {
-                    const value = event.target.value.trim();
-                    next.Runtime.LlamaCpp.ModelPath = value || null;
-                    next.LlamaCpp.ModelPath = value || null;
-                  })}
-                />
-                <div className="settings-inline-row">
-                  <label>NumCtx</label>
-                  <input
-                    type="number"
-                    value={dashboardConfig.Runtime.LlamaCpp.NumCtx}
-                    onChange={(event) => updateSettingsDraft((next) => {
-                      const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.NumCtx);
-                      next.Runtime.LlamaCpp.NumCtx = value;
-                      next.LlamaCpp.NumCtx = value;
-                    })}
-                  />
-                  <label>MaxTokens</label>
-                  <input
-                    type="number"
-                    value={dashboardConfig.Runtime.LlamaCpp.MaxTokens}
-                    onChange={(event) => updateSettingsDraft((next) => {
-                      const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.MaxTokens);
-                      next.Runtime.LlamaCpp.MaxTokens = value;
-                      next.LlamaCpp.MaxTokens = value;
-                    })}
-                  />
-                  <label>Threads</label>
-                  <input
-                    type="number"
-                    value={dashboardConfig.Runtime.LlamaCpp.Threads}
-                    onChange={(event) => updateSettingsDraft((next) => {
-                      const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.Threads);
-                      next.Runtime.LlamaCpp.Threads = value;
-                      next.LlamaCpp.Threads = value;
-                    })}
-                  />
-                  <label>GpuLayers</label>
-                  <input
-                    type="number"
-                    value={dashboardConfig.Runtime.LlamaCpp.GpuLayers}
-                    onChange={(event) => updateSettingsDraft((next) => {
-                      const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.GpuLayers);
-                      next.Runtime.LlamaCpp.GpuLayers = value;
-                      next.LlamaCpp.GpuLayers = value;
-                    })}
-                  />
+              <>
+                <div className="settings-live-section-header">
+                  <div>
+                    <span className="settings-live-section-icon active">{SETTINGS_SECTIONS[activeSettingsSection].icon}</span>
+                    <div>
+                      <h2>{SETTINGS_SECTIONS[activeSettingsSection].title}</h2>
+                      <p className="hint">{SETTINGS_SECTIONS[activeSettingsSection].summary}</p>
+                    </div>
+                  </div>
+                  <div className="settings-live-status">
+                    <span className={settingsDirty ? 'settings-live-dirty on' : 'settings-live-dirty'}>
+                      {settingsDirty ? 'Unsaved changes' : 'All changes saved'}
+                    </span>
+                    {settingsSavedAtUtc && <span className="hint">Saved {formatDate(settingsSavedAtUtc)}</span>}
+                  </div>
                 </div>
-                <div className="settings-inline-row">
-                  <label>Temperature</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={dashboardConfig.Runtime.LlamaCpp.Temperature}
-                    onChange={(event) => updateSettingsDraft((next) => {
-                      const value = parseFloatInput(event.target.value, next.Runtime.LlamaCpp.Temperature);
-                      next.Runtime.LlamaCpp.Temperature = value;
-                      next.LlamaCpp.Temperature = value;
-                    })}
-                  />
-                  <label>TopP</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={dashboardConfig.Runtime.LlamaCpp.TopP}
-                    onChange={(event) => updateSettingsDraft((next) => {
-                      const value = parseFloatInput(event.target.value, next.Runtime.LlamaCpp.TopP);
-                      next.Runtime.LlamaCpp.TopP = value;
-                      next.LlamaCpp.TopP = value;
-                    })}
-                  />
-                  <label>TopK</label>
-                  <input
-                    type="number"
-                    value={dashboardConfig.Runtime.LlamaCpp.TopK}
-                    onChange={(event) => updateSettingsDraft((next) => {
-                      const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.TopK);
-                      next.Runtime.LlamaCpp.TopK = value;
-                      next.LlamaCpp.TopK = value;
-                    })}
-                  />
-                  <label>MinP</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={dashboardConfig.Runtime.LlamaCpp.MinP}
-                    onChange={(event) => updateSettingsDraft((next) => {
-                      const value = parseFloatInput(event.target.value, next.Runtime.LlamaCpp.MinP);
-                      next.Runtime.LlamaCpp.MinP = value;
-                      next.LlamaCpp.MinP = value;
-                    })}
-                  />
+                <div className="settings-live-section-body">
+                  {renderSettingsSection()}
                 </div>
-                <div className="settings-inline-row">
-                  <label>PresencePenalty</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={dashboardConfig.Runtime.LlamaCpp.PresencePenalty}
-                    onChange={(event) => updateSettingsDraft((next) => {
-                      const value = parseFloatInput(event.target.value, next.Runtime.LlamaCpp.PresencePenalty);
-                      next.Runtime.LlamaCpp.PresencePenalty = value;
-                      next.LlamaCpp.PresencePenalty = value;
-                    })}
-                  />
-                  <label>RepetitionPenalty</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={dashboardConfig.Runtime.LlamaCpp.RepetitionPenalty}
-                    onChange={(event) => updateSettingsDraft((next) => {
-                      const value = parseFloatInput(event.target.value, next.Runtime.LlamaCpp.RepetitionPenalty);
-                      next.Runtime.LlamaCpp.RepetitionPenalty = value;
-                      next.LlamaCpp.RepetitionPenalty = value;
-                    })}
-                  />
-                  <label>ParallelSlots</label>
-                  <input
-                    type="number"
-                    value={dashboardConfig.Runtime.LlamaCpp.ParallelSlots}
-                    onChange={(event) => updateSettingsDraft((next) => {
-                      const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.ParallelSlots);
-                      next.Runtime.LlamaCpp.ParallelSlots = value;
-                      next.LlamaCpp.ParallelSlots = value;
-                    })}
-                  />
-                  <label>Reasoning</label>
-                  <select
-                    value={dashboardConfig.Runtime.LlamaCpp.Reasoning}
-                    onChange={(event) => updateSettingsDraft((next) => {
-                      const value = event.target.value as 'on' | 'off' | 'auto';
-                      next.Runtime.LlamaCpp.Reasoning = value;
-                      next.LlamaCpp.Reasoning = value;
-                    })}
-                  >
-                    <option value="off">off</option>
-                    <option value="on">on</option>
-                    <option value="auto">auto</option>
-                  </select>
-                </div>
-                <label className="hint">
-                  <input
-                    type="checkbox"
-                    checked={dashboardConfig.Runtime.LlamaCpp.FlashAttention}
-                    onChange={(event) => updateSettingsDraft((next) => {
-                      next.Runtime.LlamaCpp.FlashAttention = event.target.checked;
-                      next.LlamaCpp.FlashAttention = event.target.checked;
-                    })}
-                  />
-                  {' '}Flash attention
-                </label>
-                <div className="settings-inline-row">
-                  <label>MinCharsForSummary</label>
-                  <input
-                    type="number"
-                    value={dashboardConfig.Thresholds.MinCharactersForSummary}
-                    onChange={(event) => updateSettingsDraft((next) => {
-                      next.Thresholds.MinCharactersForSummary = parseIntegerInput(event.target.value, next.Thresholds.MinCharactersForSummary);
-                    })}
-                  />
-                  <label>MinLinesForSummary</label>
-                  <input
-                    type="number"
-                    value={dashboardConfig.Thresholds.MinLinesForSummary}
-                    onChange={(event) => updateSettingsDraft((next) => {
-                      next.Thresholds.MinLinesForSummary = parseIntegerInput(event.target.value, next.Thresholds.MinLinesForSummary);
-                    })}
-                  />
-                </div>
-                <div className="settings-inline-row">
-                  <label>Interactive IdleTimeoutMs</label>
-                  <input
-                    type="number"
-                    value={dashboardConfig.Interactive.IdleTimeoutMs}
-                    onChange={(event) => updateSettingsDraft((next) => {
-                      next.Interactive.IdleTimeoutMs = parseIntegerInput(event.target.value, next.Interactive.IdleTimeoutMs);
-                    })}
-                  />
-                  <label>MaxTranscriptChars</label>
-                  <input
-                    type="number"
-                    value={dashboardConfig.Interactive.MaxTranscriptCharacters}
-                    onChange={(event) => updateSettingsDraft((next) => {
-                      next.Interactive.MaxTranscriptCharacters = parseIntegerInput(event.target.value, next.Interactive.MaxTranscriptCharacters);
-                    })}
-                  />
-                </div>
-                <input
-                  placeholder="Wrapped commands (comma separated)"
-                  value={dashboardConfig.Interactive.WrappedCommands.join(', ')}
-                  onChange={(event) => updateSettingsDraft((next) => {
-                    next.Interactive.WrappedCommands = event.target.value
-                      .split(',')
-                      .map((entry) => entry.trim())
-                      .filter(Boolean);
-                  })}
-                />
-                <label className="hint">
-                  <input
-                    type="checkbox"
-                    checked={dashboardConfig.Interactive.Enabled}
-                    onChange={(event) => updateSettingsDraft((next) => { next.Interactive.Enabled = event.target.checked; })}
-                  />
-                  {' '}Interactive enabled
-                </label>
-                <label className="hint">
-                  <input
-                    type="checkbox"
-                    checked={dashboardConfig.Interactive.TranscriptRetention}
-                    onChange={(event) => updateSettingsDraft((next) => { next.Interactive.TranscriptRetention = event.target.checked; })}
-                  />
-                  {' '}Interactive transcript retention
-                </label>
-                <input
-                  placeholder="Startup script path"
-                  value={dashboardConfig.Server.LlamaCpp.StartupScript || ''}
-                  onChange={(event) => updateSettingsDraft((next) => {
-                    const value = event.target.value.trim();
-                    next.Server.LlamaCpp.StartupScript = value || null;
-                  })}
-                />
-                <input
-                  placeholder="Shutdown script path"
-                  value={dashboardConfig.Server.LlamaCpp.ShutdownScript || ''}
-                  onChange={(event) => updateSettingsDraft((next) => {
-                    const value = event.target.value.trim();
-                    next.Server.LlamaCpp.ShutdownScript = value || null;
-                  })}
-                />
-                <div className="settings-inline-row">
-                  <label>StartupTimeoutMs</label>
-                  <input
-                    type="number"
-                    value={dashboardConfig.Server.LlamaCpp.StartupTimeoutMs}
-                    onChange={(event) => updateSettingsDraft((next) => {
-                      next.Server.LlamaCpp.StartupTimeoutMs = parseIntegerInput(event.target.value, next.Server.LlamaCpp.StartupTimeoutMs);
-                    })}
-                  />
-                  <label>HealthcheckTimeoutMs</label>
-                  <input
-                    type="number"
-                    value={dashboardConfig.Server.LlamaCpp.HealthcheckTimeoutMs}
-                    onChange={(event) => updateSettingsDraft((next) => {
-                      next.Server.LlamaCpp.HealthcheckTimeoutMs = parseIntegerInput(event.target.value, next.Server.LlamaCpp.HealthcheckTimeoutMs);
-                    })}
-                  />
-                  <label>HealthcheckIntervalMs</label>
-                  <input
-                    type="number"
-                    value={dashboardConfig.Server.LlamaCpp.HealthcheckIntervalMs}
-                    onChange={(event) => updateSettingsDraft((next) => {
-                      next.Server.LlamaCpp.HealthcheckIntervalMs = parseIntegerInput(event.target.value, next.Server.LlamaCpp.HealthcheckIntervalMs);
-                    })}
-                  />
-                </div>
-                <label className="hint">
-                  <input
-                    type="checkbox"
-                    checked={dashboardConfig.Server.LlamaCpp.VerboseLogging}
-                    onChange={(event) => updateSettingsDraft((next) => { next.Server.LlamaCpp.VerboseLogging = event.target.checked; })}
-                  />
-                  {' '}Managed llama verbose logging
-                </label>
-                <input
-                  placeholder="Additional llama.cpp args (comma separated)"
-                  value={dashboardConfig.Server.LlamaCpp.VerboseArgs.join(', ')}
-                  onChange={(event) => updateSettingsDraft((next) => {
-                    next.Server.LlamaCpp.VerboseArgs = event.target.value
-                      .split(',')
-                      .map((entry) => entry.trim())
-                      .filter(Boolean);
-                  })}
-                />
-                <div className="settings-inline-row">
+                <div className="settings-live-actionbar">
                   <button
                     type="button"
-                    onClick={() => { void onReloadDashboardSettings(); }}
-                    disabled={settingsSaving || settingsLoading}
+                    onClick={() => {
+                      if (settingsDirty) {
+                        requestSettingsAction({ kind: 'reload-settings' });
+                        return;
+                      }
+                      void onReloadDashboardSettings();
+                    }}
+                    disabled={settingsActionBusy}
                   >
                     Reload
                   </button>
                   <button
                     type="button"
+                    onClick={() => {
+                      if (settingsDirty) {
+                        requestSettingsAction({ kind: 'restart-backend' });
+                        return;
+                      }
+                      void restartDashboardBackendCore();
+                    }}
+                    disabled={settingsActionBusy || !settingsRestartSupported}
+                  >
+                    {settingsRestarting ? 'Restarting...' : 'Restart Backend'}
+                  </button>
+                  <button
+                    type="button"
+                    className="settings-live-save-button"
                     onClick={() => { void onSaveDashboardSettings(); }}
-                    disabled={settingsSaving || settingsLoading}
+                    disabled={settingsActionBusy}
                   >
                     {settingsSaving ? 'Saving...' : 'Save Settings'}
                   </button>
-                  {settingsSavedAtUtc && <span className="hint">Saved {formatDate(settingsSavedAtUtc)}</span>}
                 </div>
-              </div>
+              </>
             )}
           </section>
         </section>
@@ -2256,30 +2902,22 @@ export function App() {
                   >
                     &#9881;
                   </button>
-                  <button
-                    type="button"
-                    className={chatMode === 'chat' ? 'active' : ''}
-                    onClick={() => { void onUpdateSessionMode('chat'); }}
-                    disabled={chatBusy}
+                  <select
+                    value={selectedChatPreset?.id || ''}
+                    onChange={(event) => { void onUpdateSessionPreset(event.target.value); }}
+                    disabled={chatBusy || webPresets.length === 0}
                   >
-                    Chat
-                  </button>
-                  <button
-                    type="button"
-                    className={chatMode === 'plan' ? 'active' : ''}
-                    onClick={() => { void onUpdateSessionMode('plan'); }}
-                    disabled={chatBusy}
-                  >
-                    Plan
-                  </button>
-                  <button
-                    type="button"
-                    className={chatMode === 'repo-search' ? 'active' : ''}
-                    onClick={() => { void onUpdateSessionMode('repo-search'); }}
-                    disabled={chatBusy}
-                  >
-                    Repo Search
-                  </button>
+                    {webPresets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.label}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedChatPreset ? (
+                    <span className="hint settings-summary" title={selectedChatPreset.description}>
+                      {selectedChatPreset.executionFamily}
+                    </span>
+                  ) : null}
                   {(chatMode === 'plan' || chatMode === 'repo-search') && !showSettings && (
                     <span className="hint settings-summary" title="Click the gear icon to adjust">
                       {planMaxTurnsInput ? `${planMaxTurnsInput} turns` : ''}{planMaxTurnsInput && planThinkingIntervalInput ? ', ' : ''}{planThinkingIntervalInput ? `think every ${planThinkingIntervalInput}` : ''}

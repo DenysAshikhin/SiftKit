@@ -1,5 +1,6 @@
 import type { Dict } from '../lib/types.js';
 import { normalizeWindowsPath as normalizeWindowsPathShared } from '../lib/paths.js';
+import { normalizePresets, type SiftPreset } from '../presets.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
 
 export const DEFAULT_LLAMA_MODEL = 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
@@ -97,6 +98,7 @@ export function getDefaultConfig(): Dict {
         VerboseArgs: [],
       },
     },
+    Presets: normalizePresets([]),
   };
 }
 
@@ -239,6 +241,7 @@ export function normalizeConfig(input: unknown): Dict {
       .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
       .map((value) => value.trim())
     : [];
+  merged.Presets = normalizePresets(merged.Presets);
   return merged;
 }
 
@@ -278,6 +281,7 @@ type AppConfigRow = {
   server_healthcheck_interval_ms: number | null;
   server_verbose_logging: number | null;
   server_verbose_args_json: string;
+  presets_json: string;
 };
 
 function toNullableInteger(value: unknown): number | null {
@@ -315,6 +319,17 @@ function parseJsonArray(text: unknown): string[] {
       .map((entry) => entry.trim());
   } catch {
     return [];
+  }
+}
+
+function parsePresetArray(text: unknown): SiftPreset[] {
+  if (typeof text !== 'string' || !text.trim()) {
+    return normalizePresets([]);
+  }
+  try {
+    return normalizePresets(JSON.parse(text) as unknown);
+  } catch {
+    return normalizePresets([]);
   }
 }
 
@@ -371,6 +386,7 @@ function normalizeConfigToRow(config: Dict): AppConfigRow {
     server_verbose_args_json: JSON.stringify(
       Array.isArray(serverLlama.VerboseArgs) ? serverLlama.VerboseArgs : []
     ),
+    presets_json: JSON.stringify(normalizePresets(normalized.Presets)),
   };
 }
 
@@ -425,6 +441,7 @@ function rowToConfig(row: AppConfigRow): Dict {
         VerboseArgs: parseJsonArray(row.server_verbose_args_json),
       },
     },
+    Presets: parsePresetArray(row.presets_json),
   });
 }
 
@@ -466,7 +483,8 @@ function readConfigRow(databasePath: string): AppConfigRow | null {
       server_healthcheck_timeout_ms,
       server_healthcheck_interval_ms,
       server_verbose_logging,
-      server_verbose_args_json
+      server_verbose_args_json,
+      presets_json
     FROM app_config
     WHERE id = 1
   `).get() as AppConfigRow | undefined;
@@ -513,9 +531,10 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
       server_healthcheck_interval_ms,
       server_verbose_logging,
       server_verbose_args_json,
+      presets_json,
       updated_at_utc
     ) VALUES (
-      1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     )
     ON CONFLICT(id) DO UPDATE SET
       version = excluded.version,
@@ -553,6 +572,7 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
       server_healthcheck_interval_ms = excluded.server_healthcheck_interval_ms,
       server_verbose_logging = excluded.server_verbose_logging,
       server_verbose_args_json = excluded.server_verbose_args_json,
+      presets_json = excluded.presets_json,
       updated_at_utc = excluded.updated_at_utc
   `).run(
     row.version,
@@ -590,6 +610,7 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
     row.server_healthcheck_interval_ms,
     row.server_verbose_logging,
     row.server_verbose_args_json,
+    row.presets_json,
     new Date().toISOString(),
   );
 }

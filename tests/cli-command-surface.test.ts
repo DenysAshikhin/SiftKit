@@ -5,7 +5,7 @@ import { runCli } from '../dist/cli/index.js';
 import { makeCaptureStream } from './_test-helpers.js';
 
 test('blocked public commands are not accessible', async () => {
-  const blocked = ['run', 'install', 'test', 'eval', 'config-get', 'config-set'];
+  const blocked = ['install', 'test', 'eval', 'config-get', 'config-set'];
   for (const command of blocked) {
     const stdout = makeCaptureStream();
     const stderr = makeCaptureStream();

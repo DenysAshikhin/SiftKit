@@ -75,6 +75,7 @@ export async function invokePlannerMode(options: {
   commandExitCode?: number | null;
   debugCommand?: string | null;
   promptPrefix?: string;
+  allowedTools?: PlannerToolName[];
   requestTimeoutSeconds?: number;
   llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
 }): Promise<StructuredModelDecision | null | typeof PLANNER_FALLBACK_TO_CHUNKS> {
@@ -87,7 +88,10 @@ export async function invokePlannerMode(options: {
     return null;
   }
 
-  const toolDefinitions = buildPlannerToolDefinitions();
+  const allowedTools: PlannerToolName[] = Array.isArray(options.allowedTools) && options.allowedTools.length > 0
+    ? options.allowedTools
+    : ['find_text', 'read_lines', 'json_filter'];
+  const toolDefinitions = buildPlannerToolDefinitions(allowedTools);
   const historicalToolStats = readLatestIdleSummaryToolStats();
   const initialPerToolAllowanceTokens = getPlannerPromptBaselinePerToolAllowanceTokens(options.config);
   const toolResults: Array<{ toolName: PlannerToolName; args: Record<string, unknown>; result: unknown; resultText: string }> = [];
@@ -377,7 +381,7 @@ export async function invokePlannerMode(options: {
 
       let result: Record<string, unknown>;
       try {
-        result = executePlannerTool(options.inputText, action);
+        result = executePlannerTool(options.inputText, action, allowedTools);
       } catch (error) {
         invalidActionCount += 1;
         const invalidResponseError = getErrorMessage(error);

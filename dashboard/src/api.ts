@@ -70,6 +70,12 @@ export function updateDashboardConfig(config: DashboardConfig): Promise<Dashboar
   });
 }
 
+export function restartBackend(): Promise<{ ok: boolean; restarted: boolean; error?: string; config?: DashboardConfig }> {
+  return fetchJson<{ ok: boolean; restarted: boolean; error?: string; config?: DashboardConfig }>('/status/restart', {
+    method: 'POST',
+  });
+}
+
 export function getDashboardHealth(): Promise<DashboardHealth> {
   return fetchJson<DashboardHealth>('/health');
 }
@@ -92,6 +98,7 @@ export function createChatSession(payload: {
   title: string;
   model: string;
   contextWindowTokens?: number;
+  presetId?: string;
 }): Promise<ChatSessionResponse> {
   return fetchJson<ChatSessionResponse>('/dashboard/chat/sessions', {
     method: 'POST',
@@ -102,7 +109,7 @@ export function createChatSession(payload: {
 
 export function updateChatSession(
   sessionId: string,
-  payload: { title?: string; thinkingEnabled?: boolean; mode?: 'chat' | 'plan' | 'repo-search'; planRepoRoot?: string }
+  payload: { title?: string; thinkingEnabled?: boolean; presetId?: string; mode?: 'chat' | 'plan' | 'repo-search'; planRepoRoot?: string }
 ): Promise<ChatSessionResponse> {
   return fetchJson<ChatSessionResponse>(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}`, {
     method: 'PUT',

@@ -23,7 +23,9 @@ import type {
 export async function executeRepoSearchRequest(
   request: RepoSearchExecutionRequest,
 ): Promise<RepoSearchExecutionResult> {
-  const prompt = String(request.prompt || '').trim();
+  const basePrompt = String(request.prompt || '').trim();
+  const promptPrefix = typeof request.promptPrefix === 'string' ? request.promptPrefix.trim() : '';
+  const prompt = promptPrefix ? `${promptPrefix}\n\n${basePrompt}`.trim() : basePrompt;
   if (!prompt) {
     throw new Error('A --prompt is required for repo-search.');
   }
@@ -62,6 +64,7 @@ export async function executeRepoSearchRequest(
       requestMaxTokens: request.requestMaxTokens,
       maxTurns: request.maxTurns,
       thinkingInterval: request.thinkingInterval,
+      allowedTools: Array.isArray(request.allowedTools) ? request.allowedTools : undefined,
       taskPrompt: prompt,
       logger,
       availableModels: request.availableModels,
