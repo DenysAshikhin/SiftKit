@@ -44,7 +44,10 @@ import {
   findPresetById,
   mapLegacyModeToPresetId,
   mapPresetIdToLegacyMode,
+  normalizeOperationModeAllowedTools,
   normalizePresets,
+  resolvePresetAllowedTools,
+  type SiftPreset,
 } from '../../presets.js';
 import { logLine } from '../managed-llama.js';
 import {
@@ -54,6 +57,16 @@ import {
 } from '../server-ops.js';
 import { notifyStatusBackend } from '../../config/index.js';
 import type { ServerContext } from '../server-types.js';
+
+function getEffectivePresetAllowedTools(config: Dict, preset: SiftPreset | null): SiftPreset['allowedTools'] | undefined {
+  if (!preset) {
+    return undefined;
+  }
+  return resolvePresetAllowedTools(
+    preset,
+    normalizeOperationModeAllowedTools(config.OperationModeAllowedTools),
+  );
+}
 
 async function notifyChatStatus(options: {
   ctx: ServerContext;
@@ -478,7 +491,7 @@ export async function handleChatRoute(
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
         config,
         promptPrefix: preset?.promptPrefix || '',
-        allowedTools: preset?.allowedTools,
+        allowedTools: getEffectivePresetAllowedTools(config, preset),
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         requestMaxTokens: 10000,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
@@ -587,7 +600,7 @@ export async function handleChatRoute(
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
         config,
         promptPrefix: preset?.promptPrefix || '',
-        allowedTools: preset?.allowedTools,
+        allowedTools: getEffectivePresetAllowedTools(config, preset),
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         requestMaxTokens: 10000,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
@@ -718,7 +731,7 @@ export async function handleChatRoute(
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
         config,
         promptPrefix: preset?.promptPrefix || '',
-        allowedTools: preset?.allowedTools,
+        allowedTools: getEffectivePresetAllowedTools(config, preset),
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         requestMaxTokens: 10000,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,

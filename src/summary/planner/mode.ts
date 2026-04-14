@@ -324,7 +324,15 @@ export async function invokePlannerMode(options: {
 
       countToolTokens = true;
 
-      if (toolResults.length >= MAX_PLANNER_TOOL_CALLS) {
+      const toolActions = action.action === 'tool_batch'
+        ? action.tool_calls.map((toolCall) => ({
+          action: 'tool' as const,
+          tool_name: toolCall.tool_name,
+          args: toolCall.args,
+        }))
+        : [action];
+
+      if ((toolResults.length + toolActions.length) > MAX_PLANNER_TOOL_CALLS) {
         debugRecorder.record({
           kind: 'planner_forced_finish',
           reason: 'planner_tool_call_limit',
@@ -379,180 +387,178 @@ export async function invokePlannerMode(options: {
         return null;
       }
 
-      let result: Record<string, unknown>;
-      try {
-        result = executePlannerTool(options.inputText, action, allowedTools);
-      } catch (error) {
-        invalidActionCount += 1;
-        const invalidResponseError = getErrorMessage(error);
-        messages.push(buildPlannerAssistantToolMessage(action, `invalid_call_${invalidActionCount}`));
-        messages.push({
-          role: 'user',
-          content: buildPlannerInvalidResponseUserPrompt(invalidResponseError),
-        });
-        debugRecorder.record({
-          kind: 'planner_invalid_response',
-          error: invalidResponseError,
-          toolCall: action,
-        });
-        if (invalidActionCount >= 2) {
-          debugRecorder.finish({
-            status: 'failed',
-            reason: 'planner_invalid_response_limit',
+      for (const toolAction of toolActions) {
+        let result: Record<string, unknown>;
+        try {
+          result = executePlannerTool(options.inputText, toolAction, allowedTools);
+        } catch (error) {
+          invalidActionCount += 1;
+          const invalidResponseError = getErrorMessage(error);
+          messages.push(buildPlannerAssistantToolMessage(toolAction, `invalid_call_${invalidActionCount}`));
+          messages.push({
+            role: 'user',
+            content: buildPlannerInvalidResponseUserPrompt(invalidResponseError),
           });
-          return null;
+          debugRecorder.record({
+            kind: 'planner_invalid_response',
+            error: invalidResponseError,
+            toolCall: toolAction,
+          });
+          if (invalidActionCount >= 2) {
+            debugRecorder.finish({
+              status: 'failed',
+              reason: 'planner_invalid_response_limit',
+            });
+            return null;
+          }
+          continue;
         }
-        continue;
-      }
 
-      debugRecorder.record({
-        kind: 'planner_tool',
-        command: `${action.tool_name} ${JSON.stringify(action.args)}`,
-        toolName: action.tool_name,
-        args: action.args,
-        output: result,
-      });
-      const rawFormattedResultText = formatPlannerResult(result);
-      const formattedResultText = buildPromptToolResult({
-        toolName: action.tool_name,
-        rawOutput: rawFormattedResultText,
-      });
-      const remainingPromptTokens = Math.max(promptBudget.plannerStopLineTokens - promptTokenCount, 0);
-      const rawResultTokenCount = (
-        await countLlamaCppTokens(options.config, rawFormattedResultText)
-      ) ?? estimatePromptTokenCount(options.config, rawFormattedResultText);
-      const normalizedRawResultTokenCount = Math.max(0, Math.ceil(rawResultTokenCount));
-      const resultTokenCount = (
-        await countLlamaCppTokens(options.config, formattedResultText)
-      ) ?? estimatePromptTokenCount(options.config, formattedResultText);
-      const normalizedResultTokenCount = Math.max(0, Math.ceil(resultTokenCount));
-      const promptResultText = normalizedResultTokenCount > (remainingPromptTokens * 0.7)
-        ? formatPlannerToolResultTokenGuardError(normalizedResultTokenCount)
-        : formattedResultText;
-      const exactToolResultTokenCount = await countLlamaCppTokens(options.config, promptResultText);
-      const resolvedToolResultTokenCount = exactToolResultTokenCount ?? estimatePromptTokenCount(options.config, promptResultText);
-      const readLineCount = action.tool_name === 'read_lines' && Number.isFinite((result as { lineCount?: unknown }).lineCount)
-        ? Number((result as { lineCount?: unknown }).lineCount)
-        : 0;
-      toolStatsPayload = {
-        [action.tool_name]: {
-          ...createEmptyToolTypeStats(),
-          calls: 1,
-          outputCharsTotal: promptResultText.length,
-          outputTokensTotal: Math.max(0, Math.ceil(resolvedToolResultTokenCount)),
-          outputTokensEstimatedCount: exactToolResultTokenCount === null ? 1 : 0,
-          lineReadCalls: readLineCount > 0 ? 1 : 0,
-          lineReadLinesTotal: readLineCount,
-          lineReadTokensTotal: readLineCount > 0 ? normalizedRawResultTokenCount : 0,
-          promptInsertedTokens: Math.max(0, Math.ceil(resolvedToolResultTokenCount)),
-          rawToolResultTokens: normalizedRawResultTokenCount,
-        },
-      };
-      const novelty = classifyToolResultNovelty({
-        promptResultText,
-        recentEvidenceKeys,
-      });
-      const fingerprint = fingerprintToolCall({
-        toolName: action.tool_name,
-        args: action.args,
-      });
-      for (const evidenceKey of novelty.evidenceKeys) {
-        recentEvidenceKeys.add(evidenceKey);
-      }
-      toolStatsPayload[action.tool_name].newEvidenceCalls = novelty.hasNewEvidence ? 1 : 0;
-      toolStatsPayload[action.tool_name].noNewEvidenceCalls = novelty.hasNewEvidence ? 0 : 1;
-      if (lastSuccessfulFingerprint && lastSuccessfulFingerprint === fingerprint) {
-        consecutiveSemanticRepeats += 1;
-        messages.push({
-          role: 'user',
-          content: 'That tool call repeats the same search intent and is unlikely to add new evidence. Change strategy or finish now.',
-        });
-        toolStatsPayload[action.tool_name].semanticRepeatRejects = 1;
         debugRecorder.record({
-          kind: 'planner_semantic_repeat',
-          toolCall: action,
-          fingerprint,
-          repeats: consecutiveSemanticRepeats,
+          kind: 'planner_tool',
+          command: `${toolAction.tool_name} ${JSON.stringify(toolAction.args)}`,
+          toolName: toolAction.tool_name,
+          args: toolAction.args,
+          output: result,
         });
-        if (consecutiveSemanticRepeats >= 2 && forcedFinishAttemptsRemaining === 0) {
+        const rawFormattedResultText = formatPlannerResult(result);
+        const formattedResultText = buildPromptToolResult({
+          toolName: toolAction.tool_name,
+          rawOutput: rawFormattedResultText,
+        });
+        const remainingPromptTokens = Math.max(promptBudget.plannerStopLineTokens - promptTokenCount, 0);
+        const rawResultTokenCount = (
+          await countLlamaCppTokens(options.config, rawFormattedResultText)
+        ) ?? estimatePromptTokenCount(options.config, rawFormattedResultText);
+        const normalizedRawResultTokenCount = Math.max(0, Math.ceil(rawResultTokenCount));
+        const resultTokenCount = (
+          await countLlamaCppTokens(options.config, formattedResultText)
+        ) ?? estimatePromptTokenCount(options.config, formattedResultText);
+        const normalizedResultTokenCount = Math.max(0, Math.ceil(resultTokenCount));
+        const promptResultText = normalizedResultTokenCount > (remainingPromptTokens * 0.7)
+          ? formatPlannerToolResultTokenGuardError(normalizedResultTokenCount)
+          : formattedResultText;
+        const exactToolResultTokenCount = await countLlamaCppTokens(options.config, promptResultText);
+        const resolvedToolResultTokenCount = exactToolResultTokenCount ?? estimatePromptTokenCount(options.config, promptResultText);
+        const readLineCount = toolAction.tool_name === 'read_lines' && Number.isFinite((result as { lineCount?: unknown }).lineCount)
+          ? Number((result as { lineCount?: unknown }).lineCount)
+          : 0;
+        toolStatsPayload ||= {};
+        const currentToolStats = toolStatsPayload[toolAction.tool_name] || createEmptyToolTypeStats();
+        toolStatsPayload[toolAction.tool_name] = {
+          ...currentToolStats,
+          calls: currentToolStats.calls + 1,
+          outputCharsTotal: currentToolStats.outputCharsTotal + promptResultText.length,
+          outputTokensTotal: currentToolStats.outputTokensTotal + Math.max(0, Math.ceil(resolvedToolResultTokenCount)),
+          outputTokensEstimatedCount: currentToolStats.outputTokensEstimatedCount + (exactToolResultTokenCount === null ? 1 : 0),
+          lineReadCalls: currentToolStats.lineReadCalls + (readLineCount > 0 ? 1 : 0),
+          lineReadLinesTotal: currentToolStats.lineReadLinesTotal + readLineCount,
+          lineReadTokensTotal: currentToolStats.lineReadTokensTotal + (readLineCount > 0 ? normalizedRawResultTokenCount : 0),
+          promptInsertedTokens: currentToolStats.promptInsertedTokens + Math.max(0, Math.ceil(resolvedToolResultTokenCount)),
+          rawToolResultTokens: currentToolStats.rawToolResultTokens + normalizedRawResultTokenCount,
+        };
+        const novelty = classifyToolResultNovelty({
+          promptResultText,
+          recentEvidenceKeys,
+        });
+        const fingerprint = fingerprintToolCall({
+          toolName: toolAction.tool_name,
+          args: toolAction.args,
+        });
+        for (const evidenceKey of novelty.evidenceKeys) {
+          recentEvidenceKeys.add(evidenceKey);
+        }
+        toolStatsPayload[toolAction.tool_name].newEvidenceCalls += novelty.hasNewEvidence ? 1 : 0;
+        toolStatsPayload[toolAction.tool_name].noNewEvidenceCalls += novelty.hasNewEvidence ? 0 : 1;
+        if (lastSuccessfulFingerprint && lastSuccessfulFingerprint === fingerprint) {
+          consecutiveSemanticRepeats += 1;
+          messages.push({
+            role: 'user',
+            content: 'That tool call repeats the same search intent and is unlikely to add new evidence. Change strategy or finish now.',
+          });
+          toolStatsPayload[toolAction.tool_name].semanticRepeatRejects += 1;
+          debugRecorder.record({
+            kind: 'planner_semantic_repeat',
+            toolCall: toolAction,
+            fingerprint,
+            repeats: consecutiveSemanticRepeats,
+          });
+          if (consecutiveSemanticRepeats >= 2 && forcedFinishAttemptsRemaining === 0) {
+            forcedFinishAttemptsRemaining = PLANNER_FORCED_FINISH_MAX_ATTEMPTS;
+            messages.push({
+              role: 'user',
+              content: buildPlannerForcedFinishUserPrompt(
+                'Current evidence is already repeating and likely sufficient. Produce your final answer now.'
+              ),
+            });
+            toolStatsPayload[toolAction.tool_name].forcedFinishFromStagnation += 1;
+          }
+        } else {
+          consecutiveSemanticRepeats = 0;
+        }
+        lastSuccessfulFingerprint = fingerprint;
+        consecutiveNoNewEvidence = novelty.hasNewEvidence ? 0 : (consecutiveNoNewEvidence + 1);
+        const toolCallId = `call_${toolResults.length + 1}`;
+        let appendReplayMessages = true;
+        const replayFingerprint = buildToolReplayFingerprint({
+          toolName: toolAction.tool_name,
+          promptResultText,
+        });
+        if (novelty.hasNewEvidence) {
+          lastReplayFingerprint = replayFingerprint;
+          replayRepeatCount = 1;
+          lastReplayToolMessageIndex = messages.length + 1;
+        } else if (lastReplayFingerprint === replayFingerprint) {
+          replayRepeatCount += 1;
+          const summary = buildRepeatedToolCallSummary(toolAction.tool_name, replayRepeatCount);
+          if (lastReplayToolMessageIndex >= 0 && lastReplayToolMessageIndex < messages.length) {
+            const previousToolMessage = messages[lastReplayToolMessageIndex];
+            messages[lastReplayToolMessageIndex] = {
+              role: 'tool',
+              tool_call_id: previousToolMessage?.tool_call_id,
+              content: summary,
+            };
+            appendReplayMessages = false;
+          }
+        } else {
+          lastReplayFingerprint = replayFingerprint;
+          replayRepeatCount = 1;
+          lastReplayToolMessageIndex = messages.length + 1;
+        }
+
+        if (replayRepeatCount === PLANNER_STAGNATION_WARNING_THRESHOLD) {
+          messages.push({
+            role: 'user',
+            content: 'Repeated tool output x3. Use a different command now or you will be forced to answer.',
+          });
+          toolStatsPayload[toolAction.tool_name].stagnationWarnings += 1;
+        }
+        if (replayRepeatCount >= PLANNER_STAGNATION_FORCE_THRESHOLD && forcedFinishAttemptsRemaining === 0) {
           forcedFinishAttemptsRemaining = PLANNER_FORCED_FINISH_MAX_ATTEMPTS;
           messages.push({
             role: 'user',
             content: buildPlannerForcedFinishUserPrompt(
-              'Current evidence is already repeating and likely sufficient. Produce your final answer now.'
+              'You repeated the same tool output too many times. Produce your final answer now.'
             ),
           });
-          toolStatsPayload[action.tool_name].forcedFinishFromStagnation = 1;
+          toolStatsPayload[toolAction.tool_name].forcedFinishFromStagnation += 1;
         }
-      } else {
-        consecutiveSemanticRepeats = 0;
-      }
-      lastSuccessfulFingerprint = fingerprint;
-      consecutiveNoNewEvidence = novelty.hasNewEvidence ? 0 : (consecutiveNoNewEvidence + 1);
-      const toolCallId = `call_${toolResults.length + 1}`;
-      let appendReplayMessages = true;
-      const replayFingerprint = buildToolReplayFingerprint({
-        toolName: action.tool_name,
-        promptResultText,
-      });
-      if (novelty.hasNewEvidence) {
-        lastReplayFingerprint = replayFingerprint;
-        replayRepeatCount = 1;
-        lastReplayToolMessageIndex = messages.length + 1;
-      } else if (lastReplayFingerprint === replayFingerprint) {
-        replayRepeatCount += 1;
-        const summary = buildRepeatedToolCallSummary(action.tool_name, replayRepeatCount);
-        if (lastReplayToolMessageIndex >= 0 && lastReplayToolMessageIndex < messages.length) {
-          const previousToolMessage = messages[lastReplayToolMessageIndex];
-          messages[lastReplayToolMessageIndex] = {
+
+        if (appendReplayMessages) {
+          messages.push(buildPlannerAssistantToolMessage(toolAction, toolCallId));
+          messages.push({
             role: 'tool',
-            tool_call_id: previousToolMessage?.tool_call_id,
-            content: summary,
-          };
-          appendReplayMessages = false;
+            tool_call_id: toolCallId,
+            content: promptResultText,
+          });
         }
-      } else {
-        lastReplayFingerprint = replayFingerprint;
-        replayRepeatCount = 1;
-        lastReplayToolMessageIndex = messages.length + 1;
-      }
-
-      if (replayRepeatCount === PLANNER_STAGNATION_WARNING_THRESHOLD) {
-        messages.push({
-          role: 'user',
-          content: 'Repeated tool output x3. Use a different command now or you will be forced to answer.',
-        });
-        if (toolStatsPayload[action.tool_name]) {
-          toolStatsPayload[action.tool_name].stagnationWarnings = 1;
-        }
-      }
-      if (replayRepeatCount >= PLANNER_STAGNATION_FORCE_THRESHOLD && forcedFinishAttemptsRemaining === 0) {
-        forcedFinishAttemptsRemaining = PLANNER_FORCED_FINISH_MAX_ATTEMPTS;
-        messages.push({
-          role: 'user',
-          content: buildPlannerForcedFinishUserPrompt(
-            'You repeated the same tool output too many times. Produce your final answer now.'
-          ),
-        });
-        if (toolStatsPayload[action.tool_name]) {
-          toolStatsPayload[action.tool_name].forcedFinishFromStagnation = 1;
-        }
-      }
-
-      if (appendReplayMessages) {
-        messages.push(buildPlannerAssistantToolMessage(action, toolCallId));
-        messages.push({
-          role: 'tool',
-          tool_call_id: toolCallId,
-          content: promptResultText,
+        toolResults.push({
+          toolName: toolAction.tool_name,
+          args: toolAction.args,
+          result,
+          resultText: promptResultText,
         });
       }
-      toolResults.push({
-        toolName: action.tool_name,
-        args: action.args,
-        result,
-        resultText: promptResultText,
-      });
     } finally {
       traceSummary(`notify running=false phase=planner chunk=none duration_ms=${providerResponse.requestDurationMs}`);
       await notifyStatusBackend({

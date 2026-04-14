@@ -29,6 +29,28 @@ export function parsePlannerAction(text: string): PlannerAction {
     };
   }
 
+  if (action === 'tool_batch') {
+    if (!Array.isArray(parsed.tool_calls) || parsed.tool_calls.length === 0) {
+      throw new Error('Provider returned an invalid planner tool batch action.');
+    }
+    const toolCalls = parsed.tool_calls.map((toolCall) => {
+      const toolRecord = getRecord(toolCall);
+      const toolName = getPlannerToolName(toolRecord?.tool_name);
+      const args = getRecord(toolRecord?.args);
+      if (!toolName || !args) {
+        throw new Error('Provider returned an invalid planner tool batch action.');
+      }
+      return {
+        tool_name: toolName,
+        args,
+      };
+    });
+    return {
+      action: 'tool_batch',
+      tool_calls: toolCalls,
+    };
+  }
+
   if (action === 'finish') {
     const classification = typeof parsed.classification === 'string'
       ? parsed.classification.trim().toLowerCase()

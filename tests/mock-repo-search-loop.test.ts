@@ -628,6 +628,50 @@ test('runTaskLoop stops on finish action', async () => {
   assert.equal(result.passed, true);
 });
 
+test('runTaskLoop executes tool batches sequentially and counts each tool call toward finish depth', async () => {
+  const result = await runTaskLoop(
+    {
+      id: 'task-tool-batch',
+      question: 'Find planner prompt and prompt budget helpers.',
+      signals: ['planner prompt', 'prompt budget'],
+    },
+    {
+      maxTurns: 3,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 2,
+      mockResponses: [
+        JSON.stringify({
+          action: 'tool_batch',
+          tool_calls: [
+            { tool_name: 'run_repo_cmd', args: { command: 'rg -n "planner prompt" src' } },
+            { tool_name: 'run_repo_cmd', args: { command: 'rg -n "prompt budget" src' } },
+          ],
+        }),
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'rg -n "planner prompt" src': {
+          exitCode: 0,
+          stdout: 'src/repo-search/prompts.ts:228:repo-search planner prompt',
+          stderr: '',
+        },
+        'rg -n "prompt budget" src': {
+          exitCode: 0,
+          stdout: 'src/repo-search/prompt-budget.ts:1:prompt budget helper',
+          stderr: '',
+        },
+      },
+    }
+  );
+
+  assert.equal(result.reason, 'finish');
+  assert.equal(result.turnsUsed, 2);
+  assert.equal(result.commands.length, 2);
+  assert.equal(result.commands[0].command.startsWith('rg -n "planner prompt" src'), true);
+  assert.equal(result.commands[1].command.startsWith('rg -n "prompt budget" src'), true);
+});
+
 test('runTaskLoop accepts corroborated finish before minimum tool-call depth', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   const result = await runTaskLoop(

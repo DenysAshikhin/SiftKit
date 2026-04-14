@@ -28,6 +28,10 @@ import {
   getSurfacePresets,
 } from './dashboard-presets';
 import {
+  applyOperationModeDefaults,
+  applyPresetKindDefaults,
+  getDefaultToolsForOperationMode,
+  getEffectivePresetTools,
   PRESET_TOOL_OPTIONS,
   getFallbackPresetId,
   getNextPresetIdAfterDelete,
@@ -900,6 +904,8 @@ function DashboardApp() {
     || webPresets[0]
     || null;
   const chatMode = getPresetFamily(dashboardConfig, selectedSession);
+  const isDirectChatMode = chatMode === 'chat' || chatMode === 'summary';
+  const isRepoToolMode = chatMode === 'plan' || chatMode === 'repo-search';
   const sessionPromptCacheStats = getSessionPromptCacheStats(selectedSession);
   const settingsDirty = dashboardConfig !== null
     && savedDashboardConfig !== null
@@ -1179,34 +1185,6 @@ function DashboardApp() {
     });
   }
 
-  function applyPresetExecutionFamilyDefaults(
-    preset: DashboardPreset,
-    executionFamily: DashboardPreset['executionFamily'],
-  ): void {
-    preset.executionFamily = executionFamily;
-    if (executionFamily === 'summary') {
-      preset.allowedTools = ['find_text', 'read_lines', 'json_filter'];
-      preset.repoRootRequired = false;
-      preset.maxTurns = null;
-      preset.thinkingInterval = null;
-      preset.thinkingEnabled = null;
-      return;
-    }
-    if (executionFamily === 'chat') {
-      preset.allowedTools = [];
-      preset.repoRootRequired = false;
-      preset.maxTurns = null;
-      preset.thinkingInterval = null;
-      preset.thinkingEnabled = true;
-      return;
-    }
-    preset.allowedTools = ['run_repo_cmd'];
-    preset.repoRootRequired = true;
-    preset.maxTurns = preset.maxTurns || 45;
-    preset.thinkingInterval = preset.thinkingInterval || 5;
-    preset.thinkingEnabled = null;
-  }
-
   function createUniquePresetId(existingPresets: DashboardPreset[], label: string): string {
     const baseId = createPresetIdFromLabel(label);
     if (!existingPresets.some((preset) => preset.id === baseId)) {
@@ -1228,9 +1206,11 @@ function DashboardApp() {
         id,
         label: `Custom Preset ${Math.max(1, next.Presets.filter((preset) => preset.deletable).length + 1)}`,
         description: '',
+        presetKind: 'summary',
+        operationMode: 'summary',
         executionFamily: 'summary',
         promptPrefix: '',
-        allowedTools: ['find_text', 'read_lines', 'json_filter'],
+        allowedTools: getDefaultToolsForOperationMode('summary'),
         surfaces: ['cli'],
         useForSummary: false,
         builtin: false,
@@ -1849,12 +1829,51 @@ function DashboardApp() {
                   </button>
                 </div>
               </div>
+              <article className="settings-preset-card">
+                <header className="settings-preset-card-header">
+                  <div>
+                    <strong>Operation Mode Tool Policy</strong>
+                    <span className="hint">Global allowlist applied before each preset whitelist.</span>
+                  </div>
+                </header>
+                <div className="settings-preset-card-grid">
+                  {(['summary', 'read-only', 'full'] as const).map((operationMode) => (
+                    <label key={operationMode} className="settings-preset-card-wide">
+                      <span className="settings-preset-inline-label">
+                        <SettingsInlineHelpLabel
+                          label={operationMode}
+                          helpText={`Globally allowed tools for ${operationMode} mode.`}
+                        />
+                      </span>
+                      <div className="settings-preset-tools">
+                        <div className="settings-preset-tools-menu">
+                          {PRESET_TOOL_OPTIONS.map((tool) => (
+                            <label key={`${operationMode}-${tool}`} className="settings-preset-tools-option">
+                              <input
+                                type="checkbox"
+                                checked={dashboardConfig.OperationModeAllowedTools[operationMode].includes(tool)}
+                                onChange={() => updateSettingsDraft((next) => {
+                                  next.OperationModeAllowedTools[operationMode] = togglePresetTool(
+                                    next.OperationModeAllowedTools[operationMode],
+                                    tool,
+                                  );
+                                })}
+                              />
+                              <span>{tool}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </article>
               {selectedSettingsPreset ? (
                 <article className="settings-preset-card">
                   <header className="settings-preset-card-header">
                     <div>
                       <strong>{selectedSettingsPreset.label}</strong>
-                      <span className="hint">{selectedSettingsPreset.id} | {selectedSettingsPreset.executionFamily} | {selectedSettingsPreset.deletable ? 'custom' : 'builtin'}</span>
+                      <span className="hint">{selectedSettingsPreset.id} | {selectedSettingsPreset.presetKind} | {selectedSettingsPreset.operationMode} | {selectedSettingsPreset.deletable ? 'custom' : 'builtin'}</span>
                     </div>
                   </header>
                   <div className="settings-preset-card-grid">
@@ -1866,13 +1885,13 @@ function DashboardApp() {
                       />
                     </label>
                     <label>
-                      <span className="settings-preset-inline-label"><SettingsInlineHelpLabel label="Execution family" helpText="Underlying runtime flow this preset uses: summary, chat, plan, or repo-search." /></span>
+                      <span className="settings-preset-inline-label"><SettingsInlineHelpLabel label="Preset kind" helpText="Routing and output behavior for this preset: summary, chat, plan, or repo-search." /></span>
                       <select
-                        value={selectedSettingsPreset.executionFamily}
+                        value={selectedSettingsPreset.presetKind}
                         onChange={(event) => updatePresetDraft(selectedSettingsPreset.id, (next) => {
-                          applyPresetExecutionFamilyDefaults(
+                          applyPresetKindDefaults(
                             next,
-                            event.target.value as DashboardPreset['executionFamily'],
+                            event.target.value as DashboardPreset['presetKind'],
                           );
                         })}
                         disabled={selectedSettingsPreset.builtin}
@@ -1881,6 +1900,22 @@ function DashboardApp() {
                         <option value="chat">chat</option>
                         <option value="plan">plan</option>
                         <option value="repo-search">repo-search</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span className="settings-preset-inline-label"><SettingsInlineHelpLabel label="Operation mode" helpText="Capability policy for this preset: direct summary fallback tools, read-only repo tools, or future full tools." /></span>
+                      <select
+                        value={selectedSettingsPreset.operationMode}
+                        onChange={(event) => updatePresetDraft(selectedSettingsPreset.id, (next) => {
+                          applyOperationModeDefaults(
+                            next,
+                            event.target.value as DashboardPreset['operationMode'],
+                          );
+                        })}
+                      >
+                        <option value="summary">summary</option>
+                        <option value="read-only">read-only</option>
+                        <option value="full">full</option>
                       </select>
                     </label>
                     <label>
@@ -1958,6 +1993,16 @@ function DashboardApp() {
                         ) : null}
                       </div>
                     </label>
+                    <label className="settings-preset-card-wide">
+                      <span className="settings-preset-inline-label"><SettingsInlineHelpLabel label="Effective tools" helpText="Intersection of the preset whitelist and the global operation-mode policy." /></span>
+                      <input
+                        readOnly
+                        value={getPresetToolsSummary(getEffectivePresetTools(
+                          selectedSettingsPreset,
+                          dashboardConfig.OperationModeAllowedTools,
+                        )) || 'No tools enabled'}
+                      />
+                    </label>
                     <label>
                       <span className="settings-preset-inline-label"><SettingsInlineHelpLabel label="Use for default summary" helpText="Marks the summary preset used by default CLI summarization flows." /></span>
                       <input
@@ -1968,7 +2013,7 @@ function DashboardApp() {
                             entry.useForSummary = entry.id === selectedSettingsPreset.id ? event.target.checked : false;
                           });
                         })}
-                        disabled={selectedSettingsPreset.executionFamily !== 'summary'}
+                        disabled={selectedSettingsPreset.presetKind !== 'summary'}
                       />
                     </label>
                   </div>
@@ -2915,10 +2960,10 @@ function DashboardApp() {
                   </select>
                   {selectedChatPreset ? (
                     <span className="hint settings-summary" title={selectedChatPreset.description}>
-                      {selectedChatPreset.executionFamily}
+                      {selectedChatPreset.presetKind} | {selectedChatPreset.operationMode}
                     </span>
                   ) : null}
-                  {(chatMode === 'plan' || chatMode === 'repo-search') && !showSettings && (
+                  {isRepoToolMode && !showSettings && (
                     <span className="hint settings-summary" title="Click the gear icon to adjust">
                       {planMaxTurnsInput ? `${planMaxTurnsInput} turns` : ''}{planMaxTurnsInput && planThinkingIntervalInput ? ', ' : ''}{planThinkingIntervalInput ? `think every ${planThinkingIntervalInput}` : ''}
                     </span>
@@ -2926,7 +2971,7 @@ function DashboardApp() {
                 </div>
                 {showSettings && (
                   <>
-                    {chatMode === 'chat' ? (
+                    {isDirectChatMode ? (
                       <div className="thinking-toggle-row">
                         <label htmlFor="thinking-toggle">Thinking</label>
                         <input
@@ -2938,7 +2983,7 @@ function DashboardApp() {
                         />
                       </div>
                     ) : null}
-                    {(chatMode === 'plan' || chatMode === 'repo-search') ? (
+                    {isRepoToolMode ? (
                       <div className="plan-root-row">
                         <input
                           placeholder="Repo folder path..."
@@ -2955,7 +3000,7 @@ function DashboardApp() {
                         </button>
                       </div>
                     ) : null}
-                    {(chatMode === 'plan' || chatMode === 'repo-search') ? (
+                    {isRepoToolMode ? (
                       <div className="settings-inline-row">
                         <label htmlFor="max-turns-input" title="Maximum number of tool calls before stopping">Max Turns</label>
                         <input
@@ -2996,7 +3041,7 @@ function DashboardApp() {
                           {' | '}
                           Warn at: {formatNumber(contextUsage.warnThresholdTokens)}
                         </span>
-                        {(chatMode === 'plan' || chatMode === 'repo-search') && Number.isFinite(liveToolPromptTokenCount) ? (
+                        {isRepoToolMode && Number.isFinite(liveToolPromptTokenCount) ? (
                           <span title="Latest backend prompt_tokens for an active plan/repo-search tool step.">
                             Live Step Prompt Tokens (backend): {formatNumber(liveToolPromptTokenCount)}
                           </span>
@@ -3042,7 +3087,7 @@ function DashboardApp() {
                           ({formatNumber(Number(message.associatedToolTokens || 0))})
                         </span>
                       </header>
-                      {chatMode === 'chat' && message.role === 'assistant' && message.thinkingContent ? (
+                      {isDirectChatMode && message.role === 'assistant' && message.thinkingContent ? (
                         <details className="thinking-box">
                           <summary>Thinking</summary>
                           <pre>{message.thinkingContent}</pre>
@@ -3062,13 +3107,13 @@ function DashboardApp() {
                 </div>
                 {chatBusy && (thinkingDraft || answerDraft || planToolCalls.length > 0) && (
                   <div className="live-stream-boxes">
-                    {((chatMode === 'chat' && isThinkingEnabledForCurrentSession) || ((chatMode === 'plan' || chatMode === 'repo-search') && thinkingDraft)) && (
+                    {((isDirectChatMode && isThinkingEnabledForCurrentSession) || (isRepoToolMode && thinkingDraft)) && (
                       <section className="live-box thinking">
-                        <h3>{chatMode === 'plan' ? 'Plan Thinking' : chatMode === 'repo-search' ? 'Search Thinking' : 'Thinking'}</h3>
+                        <h3>{chatMode === 'plan' ? 'Plan Thinking' : chatMode === 'repo-search' ? 'Search Thinking' : chatMode === 'summary' ? 'Summary Thinking' : 'Thinking'}</h3>
                         <pre>{thinkingDraft || '...'}</pre>
                       </section>
                     )}
-                    {(chatMode === 'plan' || chatMode === 'repo-search') && planToolCalls.length > 0 && (
+                    {isRepoToolMode && planToolCalls.length > 0 && (
                       <section className="live-box tool-calls">
                         <h3>Queries ({planToolCalls.length})</h3>
                         <ul className="tool-call-list">
@@ -3089,9 +3134,9 @@ function DashboardApp() {
                         </ul>
                       </section>
                     )}
-                    {(chatMode === 'chat' || chatMode === 'repo-search') && (
+                    {(isDirectChatMode || chatMode === 'repo-search') && (
                       <section className="live-box answer">
-                        <h3>{chatMode === 'repo-search' ? 'Search Thinking' : 'Answer'}</h3>
+                        <h3>{chatMode === 'repo-search' ? 'Search Thinking' : chatMode === 'summary' ? 'Summary' : 'Answer'}</h3>
                         <div className="markdown-body">
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>
                             {chatMode === 'repo-search' ? extractFinishOutput(answerDraft) || '...' : answerDraft || '...'}
@@ -3103,13 +3148,13 @@ function DashboardApp() {
                 )}
                 <div className="composer">
                   <textarea
-                    placeholder={chatMode === 'plan' ? 'Describe the feature to plan (plan mode runs repo-search)...' : chatMode === 'repo-search' ? 'Enter a repo search query...' : 'Send a local chat message...'}
+                    placeholder={chatMode === 'plan' ? 'Describe the feature to plan (plan mode runs repo-search)...' : chatMode === 'repo-search' ? 'Enter a repo search query...' : chatMode === 'summary' ? 'Enter a summary request...' : 'Send a local chat message...'}
                     value={chatInput}
                     onChange={(event) => setChatInput(event.target.value)}
                     rows={4}
                   />
                   <button onClick={() => { if (chatMode === 'plan') { void onSendPlan(); return; } if (chatMode === 'repo-search') { void onSendRepoSearch(); return; } void onSendMessage(); }} disabled={chatBusy || !chatInput.trim()}>
-                    {chatMode === 'plan' ? 'Generate Plan' : chatMode === 'repo-search' ? 'Search' : 'Send'}
+                    {chatMode === 'plan' ? 'Generate Plan' : chatMode === 'repo-search' ? 'Search' : chatMode === 'summary' ? 'Summarize' : 'Send'}
                   </button>
                 </div>
                 {chatError && <p className="error">{chatError}</p>}

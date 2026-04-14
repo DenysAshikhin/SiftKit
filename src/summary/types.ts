@@ -95,6 +95,14 @@ export type PlannerToolCall = {
   args: Record<string, unknown>;
 };
 
+export type PlannerToolBatchAction = {
+  action: 'tool_batch';
+  tool_calls: Array<{
+    tool_name: PlannerToolName;
+    args: Record<string, unknown>;
+  }>;
+};
+
 export type PlannerFinishAction = {
   action: 'finish';
   classification: SummaryClassification;
@@ -102,7 +110,7 @@ export type PlannerFinishAction = {
   output: string;
 };
 
-export type PlannerAction = PlannerToolCall | PlannerFinishAction;
+export type PlannerAction = PlannerToolCall | PlannerToolBatchAction | PlannerFinishAction;
 
 export type ChunkPromptContext = {
   isGeneratedChunk: boolean;

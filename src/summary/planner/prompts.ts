@@ -97,7 +97,7 @@ export function buildPlannerSystemPrompt(options: {
     'Planner mode:',
     '- The full input is too large for a direct pass, so inspect only the minimum evidence needed.',
     '- If the document profile or current tool results are already sufficient, finish immediately.',
-    '- Request at most one tool call per response.',
+    '- When multiple independent tool calls are genuinely useful, you may request them in the same response.',
     '- Return only a valid JSON object. No markdown fences.',
     '- Use separate filters for gte/lte bounds in json_filter; do not combine multiple operators inside one filter value.',
     '- Do not use "value":{"gte":3200,"lte":3215}. Use one filter per bound with a scalar value.',

@@ -225,7 +225,10 @@ export function buildTaskSystemPrompt(repoRoot: string, options?: {
     ? `- After an \`rg -n\` anchor, default to one larger read around ${guidance.recommendedLines} lines rather than multiple small windows.`
     : '- After an `rg -n` anchor, default to one larger read (e.g. `-First 200-400`) rather than multiple small windows.';
   return [
-    'You are a repo-search planner. Return exactly one JSON action per turn.',
+    'You are a repo-search planner.',
+    'Use native tool calls for run_repo_cmd when you need repository evidence.',
+    'When several independent read-only searches are genuinely useful, you may request multiple tool calls in one response.',
+    'Return JSON only when finishing.',
     'Tool action: {"action":"tool","tool_name":"run_repo_cmd","args":{"command":"..."}}',
     'Finish action: {"action":"finish","output":"...","confidence":0.0-1.0}',
     '',
@@ -270,7 +273,7 @@ export function buildTaskSystemPrompt(repoRoot: string, options?: {
     '- This is a Windows machine so stick to PowerShell-valid commands only.',
     '- Prefer rg for search.',
     '- Ignored paths are auto-filtered by runtime policy.',
-    '- One command per turn.',
+    '- Prefer one command at a time, but multiple independent read-only commands in one response are allowed when they clearly save a round trip.',
     '- Finish when you have enough evidence.',
     '- Minimum depth rule: do at least 5 tool-call turns before finishing.',
     '- If you try to finish before 5 tool-call turns, you will be told: "that was a shallow search, there might be more hidden references/usages. Dive deeper".',

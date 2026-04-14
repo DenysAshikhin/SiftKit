@@ -47,8 +47,8 @@ test('preset list shows builtin and custom cli-visible presets', async () => {
     });
     assert.equal(code, 0);
     const output = stdout.read();
-    assert.match(output, /^summary\tsummary\tbuiltin\tSummary/mu);
-    assert.match(output, /^custom-cli\tsummary\tcustom\tCustom CLI/mu);
+    assert.match(output, /^summary\tsummary\tsummary\tbuiltin\tSummary/mu);
+    assert.match(output, /^custom-cli\tsummary\tsummary\tcustom\tCustom CLI/mu);
     assert.doesNotMatch(output, /^web-only\t/mu);
   });
 });

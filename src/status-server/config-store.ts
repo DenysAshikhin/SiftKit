@@ -1,6 +1,11 @@
 import type { Dict } from '../lib/types.js';
 import { normalizeWindowsPath as normalizeWindowsPathShared } from '../lib/paths.js';
-import { normalizePresets, type SiftPreset } from '../presets.js';
+import {
+  getDefaultOperationModeAllowedTools,
+  normalizeOperationModeAllowedTools,
+  normalizePresets,
+  type SiftPreset,
+} from '../presets.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
 
 export const DEFAULT_LLAMA_MODEL = 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
@@ -98,6 +103,7 @@ export function getDefaultConfig(): Dict {
         VerboseArgs: [],
       },
     },
+    OperationModeAllowedTools: getDefaultOperationModeAllowedTools(),
     Presets: normalizePresets([]),
   };
 }
@@ -241,6 +247,7 @@ export function normalizeConfig(input: unknown): Dict {
       .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
       .map((value) => value.trim())
     : [];
+  merged.OperationModeAllowedTools = normalizeOperationModeAllowedTools(merged.OperationModeAllowedTools);
   merged.Presets = normalizePresets(merged.Presets);
   return merged;
 }
@@ -281,6 +288,7 @@ type AppConfigRow = {
   server_healthcheck_interval_ms: number | null;
   server_verbose_logging: number | null;
   server_verbose_args_json: string;
+  operation_mode_allowed_tools_json: string;
   presets_json: string;
 };
 
@@ -330,6 +338,17 @@ function parsePresetArray(text: unknown): SiftPreset[] {
     return normalizePresets(JSON.parse(text) as unknown);
   } catch {
     return normalizePresets([]);
+  }
+}
+
+function parseOperationModeAllowedTools(text: unknown): ReturnType<typeof normalizeOperationModeAllowedTools> {
+  if (typeof text !== 'string' || !text.trim()) {
+    return getDefaultOperationModeAllowedTools();
+  }
+  try {
+    return normalizeOperationModeAllowedTools(JSON.parse(text) as unknown);
+  } catch {
+    return getDefaultOperationModeAllowedTools();
   }
 }
 
@@ -386,6 +405,9 @@ function normalizeConfigToRow(config: Dict): AppConfigRow {
     server_verbose_args_json: JSON.stringify(
       Array.isArray(serverLlama.VerboseArgs) ? serverLlama.VerboseArgs : []
     ),
+    operation_mode_allowed_tools_json: JSON.stringify(
+      normalizeOperationModeAllowedTools(normalized.OperationModeAllowedTools)
+    ),
     presets_json: JSON.stringify(normalizePresets(normalized.Presets)),
   };
 }
@@ -441,6 +463,7 @@ function rowToConfig(row: AppConfigRow): Dict {
         VerboseArgs: parseJsonArray(row.server_verbose_args_json),
       },
     },
+    OperationModeAllowedTools: parseOperationModeAllowedTools(row.operation_mode_allowed_tools_json),
     Presets: parsePresetArray(row.presets_json),
   });
 }
@@ -484,6 +507,7 @@ function readConfigRow(databasePath: string): AppConfigRow | null {
       server_healthcheck_interval_ms,
       server_verbose_logging,
       server_verbose_args_json,
+      operation_mode_allowed_tools_json,
       presets_json
     FROM app_config
     WHERE id = 1
@@ -531,10 +555,11 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
       server_healthcheck_interval_ms,
       server_verbose_logging,
       server_verbose_args_json,
+      operation_mode_allowed_tools_json,
       presets_json,
       updated_at_utc
     ) VALUES (
-      1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     )
     ON CONFLICT(id) DO UPDATE SET
       version = excluded.version,
@@ -572,6 +597,7 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
       server_healthcheck_interval_ms = excluded.server_healthcheck_interval_ms,
       server_verbose_logging = excluded.server_verbose_logging,
       server_verbose_args_json = excluded.server_verbose_args_json,
+      operation_mode_allowed_tools_json = excluded.operation_mode_allowed_tools_json,
       presets_json = excluded.presets_json,
       updated_at_utc = excluded.updated_at_utc
   `).run(
@@ -610,6 +636,7 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
     row.server_healthcheck_interval_ms,
     row.server_verbose_logging,
     row.server_verbose_args_json,
+    row.operation_mode_allowed_tools_json,
     row.presets_json,
     new Date().toISOString(),
   );

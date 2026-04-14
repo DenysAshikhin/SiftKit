@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { resolvePresetAllowedTools } from '../dist/presets.js';
 import { buildPlannerToolDefinitions, executePlannerTool } from '../dist/summary/planner/tools.js';
 import { runRepoSearch } from '../dist/repo-search/engine.js';
 import { getDefaultConfig } from '../dist/status-server/config-store.js';
@@ -33,5 +34,19 @@ test('repo-search rejects presets that disable the repo command tool', async () 
       taskPrompt: 'find planner tools',
     }),
     /run_repo_cmd/u,
+  );
+});
+
+test('effective tool allowlist intersects operation-mode policy with preset whitelist', () => {
+  assert.deepEqual(
+    resolvePresetAllowedTools({
+      operationMode: 'summary',
+      allowedTools: ['find_text', 'run_repo_cmd'],
+    }, {
+      summary: ['find_text', 'read_lines', 'json_filter'],
+      'read-only': ['run_repo_cmd'],
+      full: [],
+    }),
+    ['find_text'],
   );
 });

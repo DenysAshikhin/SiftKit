@@ -9,7 +9,7 @@ export function runPresetList(options: {
   const presets = getPresetsForSurface(normalizePresets(config.Presets), 'cli');
   for (const preset of presets) {
     options.stdout.write(
-      `${preset.id}\t${preset.executionFamily}\t${preset.deletable ? 'custom' : 'builtin'}\t${preset.label}\n`,
+      `${preset.id}\t${preset.presetKind}\t${preset.operationMode}\t${preset.deletable ? 'custom' : 'builtin'}\t${preset.label}\n`,
     );
   }
   return 0;

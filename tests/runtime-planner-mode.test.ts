@@ -119,6 +119,161 @@ test('llama.cpp provider reconstructs planner tool actions from empty-content to
   });
 });
 
+test('llama.cpp provider reconstructs planner tool batches from empty-content tool_calls responses', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+
+      const summary = await generateLlamaCppResponse({
+        config,
+        model: config.Model,
+        prompt: 'test prompt body',
+        timeoutSeconds: 5,
+        structuredOutput: {
+          kind: 'siftkit-planner-action-json',
+          tools: buildPlannerToolDefinitions(),
+        },
+      });
+
+      assert.equal(
+        summary.text,
+        '{"action":"tool_batch","tool_calls":[{"tool_name":"find_text","args":{"query":"Lumbridge","mode":"literal"}},{"tool_name":"read_lines","args":{"startLine":10,"endLine":20}}]}',
+      );
+    }, {
+      chatResponse() {
+        return {
+          id: 'chatcmpl-test',
+          object: 'chat.completion',
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: '',
+                tool_calls: [
+                  {
+                    id: 'call_1',
+                    type: 'function',
+                    function: {
+                      name: 'find_text',
+                      arguments: '{"query":"Lumbridge","mode":"literal"}',
+                    },
+                  },
+                  {
+                    id: 'call_2',
+                    type: 'function',
+                    function: {
+                      name: 'read_lines',
+                      arguments: '{"startLine":10,"endLine":20}',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+          usage: {
+            prompt_tokens: 123,
+            completion_tokens: 45,
+            total_tokens: 168,
+          },
+        };
+      },
+    });
+  });
+});
+
+test('planner mode executes multi-tool batches sequentially before finishing', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Summarize the Lumbridge transitions.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'final planner answer');
+      assert.equal(server.state.chatRequests.length, 2);
+      assert.equal(
+        server.state.chatRequests[1].messages.filter((message) => message.role === 'tool').length,
+        2,
+      );
+    }, {
+      chatResponse(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return {
+            id: 'chatcmpl-test',
+            object: 'chat.completion',
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: 'assistant',
+                  content: '',
+                  tool_calls: [
+                    {
+                      id: 'call_1',
+                      type: 'function',
+                      function: {
+                        name: 'find_text',
+                        arguments: '{"query":"Lumbridge","mode":"literal","maxHits":2}',
+                      },
+                    },
+                    {
+                      id: 'call_2',
+                      type: 'function',
+                      function: {
+                        name: 'read_lines',
+                        arguments: '{"startLine":1,"endLine":20}',
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+            usage: {
+              prompt_tokens: 17,
+              completion_tokens: 15,
+              total_tokens: 32,
+            },
+          };
+        }
+
+        return {
+          id: 'chatcmpl-test',
+          object: 'chat.completion',
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: JSON.stringify({
+                  action: 'finish',
+                  classification: 'summary',
+                  raw_review_required: false,
+                  output: 'final planner answer',
+                }),
+              },
+            },
+          ],
+          usage: {
+            prompt_tokens: 19,
+            completion_tokens: 21,
+            total_tokens: 40,
+          },
+        };
+      },
+    });
+  });
+});
+
 test('planner token accounting treats tool-step completion tokens as thinking and finish-step tokens as output', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {

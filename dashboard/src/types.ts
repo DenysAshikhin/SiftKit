@@ -181,14 +181,19 @@ export type ChatSessionsResponse = {
   sessions: ChatSession[];
 };
 
-export type DashboardPresetExecutionFamily = 'summary' | 'chat' | 'plan' | 'repo-search';
+export type DashboardPresetKind = 'summary' | 'chat' | 'plan' | 'repo-search';
+export type DashboardPresetExecutionFamily = DashboardPresetKind;
+export type DashboardPresetOperationMode = 'summary' | 'read-only' | 'full';
 export type DashboardPresetSurface = 'cli' | 'web';
 export type DashboardPresetToolName = 'find_text' | 'read_lines' | 'json_filter' | 'run_repo_cmd';
+export type DashboardOperationModeAllowedTools = Record<DashboardPresetOperationMode, DashboardPresetToolName[]>;
 
 export type DashboardPreset = {
   id: string;
   label: string;
   description: string;
+  presetKind: DashboardPresetKind;
+  operationMode: DashboardPresetOperationMode;
   executionFamily: DashboardPresetExecutionFamily;
   promptPrefix: string;
   allowedTools: DashboardPresetToolName[];
@@ -226,6 +231,7 @@ export type DashboardConfig = {
   PolicyMode: string;
   RawLogRetention: boolean;
   PromptPrefix: string;
+  OperationModeAllowedTools: DashboardOperationModeAllowedTools;
   Presets: DashboardPreset[];
   Model?: string;
   LlamaCpp: DashboardLlamaCppConfig;

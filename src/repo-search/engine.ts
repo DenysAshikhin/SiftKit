@@ -912,7 +912,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       if (String(response.text || '').trim()) {
         messages.push({ role: 'assistant', content: String(response.text).trim() });
       }
-      messages.push({ role: 'user', content: `Invalid action: ${error instanceof Error ? error.message : String(error)}. Return exactly one valid JSON action.` });
+      messages.push({ role: 'user', content: `Invalid action: ${error instanceof Error ? error.message : String(error)}. Return a valid JSON finish action or tool action payload.` });
       options.logger?.write({ kind: 'turn_action_invalid', taskId: task.id, turn, invalidResponses, error: error instanceof Error ? error.message : String(error) });
       if (invalidResponses >= maxInvalidResponses) { reason = 'invalid_response_limit'; break; }
       history.push({ command: '[invalid action]', resultText: `Invalid action: ${error instanceof Error ? error.message : String(error)}` });
@@ -980,16 +980,26 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
 
     // Tool action
+    const toolActions = action.action === 'tool_batch'
+      ? action.tool_calls.map((toolCall) => ({
+        action: 'tool' as const,
+        tool_name: toolCall.tool_name,
+        args: toolCall.args,
+      }))
+      : [action];
     modelToolTokens += resolvedCompletionTokens;
     pendingNonThinkingFinishOutput = null;
-    const command = action.args.command;
+
+    for (const toolAction of toolActions) {
+      const command = toolAction.args.command;
+      const assistantActionText = JSON.stringify(toolAction);
 
     if (inForcedFinishMode) {
       forcedFinishAttemptsRemaining = Math.max(forcedFinishAttemptsRemaining - 1, 0);
       const forcedReason = `Forced finish mode active. Return a finish action now. Attempts remaining: ${forcedFinishAttemptsRemaining}.`;
       commandFailures += 1;
       commands.push({ command, safe: false, reason: forcedReason, exitCode: null, output: `Rejected command: ${forcedReason}` });
-      messages.push({ role: 'assistant', content: response.text });
+      messages.push({ role: 'assistant', content: assistantActionText });
       messages.push({ role: 'user', content: `Rejected command: ${forcedReason}` });
       history.push({ command, resultText: `Rejected command: ${forcedReason}` });
       if (forcedFinishAttemptsRemaining === 0) { reason = 'forced_finish_attempt_limit'; break; }
@@ -1011,7 +1021,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       commandFailures += 1;
       const duplicateMessage = `That command was already run ${consecutiveDuplicates} time(s). You MUST use different keywords, a narrower path, or try reading a file directly. If you have enough evidence, use {"action":"finish",...}.`;
       commands.push({ command, safe: false, reason: 'duplicate command', exitCode: null, output: `Rejected: ${duplicateMessage}` });
-      messages.push({ role: 'assistant', content: response.text });
+      messages.push({ role: 'assistant', content: assistantActionText });
       messages.push({ role: 'user', content: duplicateMessage });
       history.push({ command, resultText: `Rejected: ${duplicateMessage}` });
       if (consecutiveDuplicates >= 5 && forcedFinishAttemptsRemaining === 0) {
@@ -1031,7 +1041,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         semanticRepeatRejects: currentToolStats.semanticRepeatRejects + 1,
       };
       commands.push({ command, safe: false, reason: 'semantic duplicate command', exitCode: null, output: `Rejected: ${semanticMessage}` });
-      messages.push({ role: 'assistant', content: response.text });
+      messages.push({ role: 'assistant', content: assistantActionText });
       messages.push({ role: 'user', content: semanticMessage });
       history.push({ command, resultText: `Rejected: ${semanticMessage}` });
       options.logger?.write({
@@ -1064,7 +1074,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       safetyRejects += 1;
       const rejection = `Rejected command: ${normalized.rejectedReason}`;
       commands.push({ command, safe: false, reason: normalized.rejectedReason || null, exitCode: null, output: rejection });
-      messages.push({ role: 'assistant', content: response.text });
+      messages.push({ role: 'assistant', content: assistantActionText });
       messages.push({ role: 'user', content: rejection });
       history.push({ command, resultText: rejection });
       continue;
@@ -1124,7 +1134,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       safetyRejects += 1;
       const rejection = `Rejected command: ${safety.reason}`;
       commands.push({ command: commandToRun, safe: false, reason: safety.reason, exitCode: null, output: rejection });
-      messages.push({ role: 'assistant', content: response.text });
+      messages.push({ role: 'assistant', content: assistantActionText });
       messages.push({ role: 'user', content: rejection });
       history.push({ command: commandToRun, resultText: rejection });
       continue;
@@ -1322,7 +1332,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     commands.push({ command: commandToRun, safe: true, reason: null, exitCode: executed.exitCode, output: outputWithRewriteNote });
     const replayAssistantText = lineReadAdjustment
       ? JSON.stringify({ action: 'tool', tool_name: 'run_repo_cmd', args: { command: commandToRun } })
-      : response.text;
+      : assistantActionText;
     let appendReplayMessages = true;
     if (novelty.hasNewEvidence) {
       consecutiveNoNewEvidence = 0;
@@ -1382,6 +1392,10 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       messages.push({ role: 'assistant', content: replayAssistantText });
       messages.push({ role: 'user', content: resultText });
       history.push({ command: commandToRun, resultText });
+    }
+    }
+    if (reason === 'forced_finish_attempt_limit') {
+      break;
     }
   }
 

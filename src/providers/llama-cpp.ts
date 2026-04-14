@@ -112,6 +112,11 @@ export type LlamaCppStructuredOutput =
   | { kind: 'siftkit-decision-json'; allowUnsupportedInput?: boolean }
   | { kind: 'siftkit-planner-action-json'; tools?: unknown[] };
 
+type PlannerStructuredToolCall = {
+  tool_name: string;
+  args: Record<string, unknown>;
+};
+
 const traceLlamaCpp = createTracer('SIFTKIT_TRACE_SUMMARY', 'llama-cpp');
 
 function getUsageValue(value: unknown): number | null {
@@ -188,7 +193,10 @@ function getStructuredOutputGrammar(
 
   if (structuredOutput.kind === 'siftkit-planner-action-json') {
     return [
-      'root ::= tool_action | finish_action',
+      'root ::= tool_batch_action | tool_action | finish_action',
+      'tool_batch_action ::= "{" ws "\\"action\\"" ws ":" ws "\\"tool_batch\\"" ws "," ws "\\"tool_calls\\"" ws ":" ws "[" ws tool_batch_items ws "]" ws "}"',
+      'tool_batch_items ::= tool_batch_item (ws "," ws tool_batch_item)*',
+      'tool_batch_item ::= "{" ws "\\"tool_name\\"" ws ":" ws tool_name ws "," ws "\\"args\\"" ws ":" ws value ws "}"',
       'tool_action ::= "{" ws "\\"action\\"" ws ":" ws "\\"tool\\"" ws "," ws "\\"tool_name\\"" ws ":" ws tool_name ws "," ws "\\"args\\"" ws ":" ws value ws "}"',
       'finish_action ::= "{" ws "\\"action\\"" ws ":" ws "\\"finish\\"" ws "," ws "\\"classification\\"" ws ":" ws classification ws "," ws "\\"raw_review_required\\"" ws ":" ws boolean ws "," ws "\\"output\\"" ws ":" ws string ws "}"',
       'tool_name ::= "\\"find_text\\"" | "\\"read_lines\\"" | "\\"json_filter\\""',
@@ -253,6 +261,23 @@ function parseToolArguments(argumentsValue: unknown): Record<string, unknown> | 
   return null;
 }
 
+function parseStructuredPlannerToolCall(toolCall: {
+  function?: {
+    name?: string;
+    arguments?: unknown;
+  };
+} | null | undefined): PlannerStructuredToolCall | null {
+  const toolName = typeof toolCall?.function?.name === 'string' ? toolCall.function.name.trim() : '';
+  const args = parseToolArguments(toolCall?.function?.arguments);
+  if (!toolName || !args) {
+    return null;
+  }
+  return {
+    tool_name: toolName,
+    args,
+  };
+}
+
 function getStructuredToolCallText(
   structuredOutput: LlamaCppStructuredOutput | undefined,
   choice: LlamaCppChatChoice | undefined,
@@ -261,19 +286,32 @@ function getStructuredToolCallText(
     return '';
   }
 
-  const toolCall = choice?.message?.tool_calls?.[0]
-    ?? choice?.tool_calls?.[0]
-    ?? (choice?.message?.function_call ? { function: choice.message.function_call } : undefined);
-  const toolName = typeof toolCall?.function?.name === 'string' ? toolCall.function.name.trim() : '';
-  const args = parseToolArguments(toolCall?.function?.arguments);
-  if (!toolName || !args) {
+  const toolCalls = [
+    ...((choice?.message?.tool_calls || []).map((toolCall) => parseStructuredPlannerToolCall(toolCall)).filter(Boolean) as PlannerStructuredToolCall[]),
+    ...((choice?.tool_calls || []).map((toolCall) => parseStructuredPlannerToolCall(toolCall)).filter(Boolean) as PlannerStructuredToolCall[]),
+  ];
+  if (toolCalls.length === 0 && choice?.message?.function_call) {
+    const toolCall = parseStructuredPlannerToolCall({ function: choice.message.function_call });
+    if (toolCall) {
+      toolCalls.push(toolCall);
+    }
+  }
+
+  if (toolCalls.length === 0) {
     return '';
   }
 
+  if (toolCalls.length === 1) {
+    return JSON.stringify({
+      action: 'tool',
+      tool_name: toolCalls[0].tool_name,
+      args: toolCalls[0].args,
+    });
+  }
+
   return JSON.stringify({
-    action: 'tool',
-    tool_name: toolName,
-    args,
+    action: 'tool_batch',
+    tool_calls: toolCalls,
   });
 }
 
@@ -466,6 +504,17 @@ export async function generateLlamaCppChatResponse(options: {
           && Array.isArray(options.structuredOutput.tools)
           && options.structuredOutput.tools.length > 0
         ? { tools: options.structuredOutput.tools }
+        : {}
+    ),
+    ...(
+      (
+        Array.isArray(options.tools) && options.tools.length > 0
+      ) || (
+        options.structuredOutput?.kind === 'siftkit-planner-action-json'
+        && Array.isArray(options.structuredOutput.tools)
+        && options.structuredOutput.tools.length > 0
+      )
+        ? { parallel_tool_calls: true }
         : {}
     ),
     ...(resolvedTemperature === undefined ? {} : { temperature: Number(resolvedTemperature) }),

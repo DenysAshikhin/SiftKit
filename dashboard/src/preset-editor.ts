@@ -1,4 +1,10 @@
-import type { DashboardPreset, DashboardPresetToolName } from './types';
+import type {
+  DashboardOperationModeAllowedTools,
+  DashboardPreset,
+  DashboardPresetKind,
+  DashboardPresetOperationMode,
+  DashboardPresetToolName,
+} from './types';
 
 export const PRESET_TOOL_OPTIONS: DashboardPresetToolName[] = [
   'find_text',
@@ -6,6 +12,58 @@ export const PRESET_TOOL_OPTIONS: DashboardPresetToolName[] = [
   'json_filter',
   'run_repo_cmd',
 ];
+
+const SUMMARY_TOOLS: DashboardPresetToolName[] = ['find_text', 'read_lines', 'json_filter'];
+const READ_ONLY_TOOLS: DashboardPresetToolName[] = ['run_repo_cmd'];
+
+export function getDefaultToolsForOperationMode(
+  operationMode: DashboardPresetOperationMode,
+): DashboardPresetToolName[] {
+  if (operationMode === 'summary') {
+    return [...SUMMARY_TOOLS];
+  }
+  if (operationMode === 'read-only') {
+    return [...READ_ONLY_TOOLS];
+  }
+  return [];
+}
+
+export function getDefaultOperationModeForPresetKind(
+  presetKind: DashboardPresetKind,
+): DashboardPresetOperationMode {
+  if (presetKind === 'plan' || presetKind === 'repo-search') {
+    return 'read-only';
+  }
+  return 'summary';
+}
+
+export function applyOperationModeDefaults(
+  preset: DashboardPreset,
+  operationMode: DashboardPresetOperationMode,
+): void {
+  preset.operationMode = operationMode;
+  preset.allowedTools = getDefaultToolsForOperationMode(operationMode);
+  if (preset.presetKind === 'plan' || preset.presetKind === 'repo-search') {
+    preset.repoRootRequired = true;
+    preset.maxTurns = preset.maxTurns || 45;
+    preset.thinkingInterval = preset.thinkingInterval || 5;
+    preset.thinkingEnabled = null;
+    return;
+  }
+  preset.repoRootRequired = false;
+  preset.maxTurns = null;
+  preset.thinkingInterval = null;
+  preset.thinkingEnabled = preset.presetKind === 'chat' ? true : null;
+}
+
+export function applyPresetKindDefaults(
+  preset: DashboardPreset,
+  presetKind: DashboardPresetKind,
+): void {
+  preset.presetKind = presetKind;
+  preset.executionFamily = presetKind;
+  applyOperationModeDefaults(preset, getDefaultOperationModeForPresetKind(presetKind));
+}
 
 export function getFallbackPresetId(
   presets: DashboardPreset[],
@@ -46,4 +104,14 @@ export function togglePresetTool(
 
 export function getPresetToolsSummary(allowedTools: DashboardPresetToolName[]): string {
   return PRESET_TOOL_OPTIONS.filter((tool) => allowedTools.includes(tool)).join(', ');
+}
+
+export function getEffectivePresetTools(
+  preset: Pick<DashboardPreset, 'allowedTools' | 'operationMode'>,
+  operationModeAllowedTools: DashboardOperationModeAllowedTools,
+): DashboardPresetToolName[] {
+  const modeAllowedTools = operationModeAllowedTools[preset.operationMode] || [];
+  return PRESET_TOOL_OPTIONS.filter((tool) => (
+    preset.allowedTools.includes(tool) && modeAllowedTools.includes(tool)
+  ));
 }

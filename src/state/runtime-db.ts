@@ -6,7 +6,7 @@ import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-const CURRENT_SCHEMA_VERSION = 4;
+const CURRENT_SCHEMA_VERSION = 5;
 
 let cachedDatabasePath: string | null = null;
 let cachedDatabase: RuntimeDatabase | null = null;
@@ -75,6 +75,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       server_healthcheck_interval_ms INTEGER,
       server_verbose_logging INTEGER CHECK (server_verbose_logging IN (0, 1) OR server_verbose_logging IS NULL),
       server_verbose_args_json TEXT NOT NULL,
+      operation_mode_allowed_tools_json TEXT NOT NULL DEFAULT '{"summary":["find_text","read_lines","json_filter"],"read-only":["run_repo_cmd"],"full":[]}',
       presets_json TEXT NOT NULL,
       updated_at_utc TEXT NOT NULL
     );
@@ -339,6 +340,12 @@ function ensureSchema(database: RuntimeDatabase): void {
       ALTER TABLE chat_sessions ADD COLUMN preset_id TEXT;
     `);
     setSchemaVersion(database, 4);
+  }
+  if (currentVersion < 5) {
+    database.exec(`
+      ALTER TABLE app_config ADD COLUMN operation_mode_allowed_tools_json TEXT NOT NULL DEFAULT '{"summary":["find_text","read_lines","json_filter"],"read-only":["run_repo_cmd"],"full":[]}';
+    `);
+    setSchemaVersion(database, 5);
   }
 }
 

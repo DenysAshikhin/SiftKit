@@ -250,6 +250,46 @@ test('llama.cpp provider includes per-request grammar when structured output is 
   });
 });
 
+test('llama.cpp provider enables parallel tool calls when tools are sent', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+
+      await generateLlamaCppResponse({
+        config,
+        model: config.Model,
+        prompt: 'test prompt body',
+        timeoutSeconds: 5,
+        structuredOutput: {
+          kind: 'siftkit-planner-action-json',
+          tools: buildPlannerToolDefinitions(),
+        },
+      });
+
+      assert.equal(server.state.chatRequests.length, 1);
+      assert.equal(server.state.chatRequests[0].parallel_tool_calls, true);
+    });
+  });
+});
+
+test('llama.cpp provider does not enable parallel tool calls when no tools are sent', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+
+      await generateLlamaCppResponse({
+        config,
+        model: config.Model,
+        prompt: 'test prompt body',
+        timeoutSeconds: 5,
+      });
+
+      assert.equal(server.state.chatRequests.length, 1);
+      assert.equal('parallel_tool_calls' in server.state.chatRequests[0], false);
+    });
+  });
+});
+
 test('llama.cpp provider gets answer content from qwen-style servers when reasoning is off', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {

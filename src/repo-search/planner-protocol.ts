@@ -36,13 +36,21 @@ export type ToolAction = {
   args: { command: string };
 };
 
+export type ToolBatchAction = {
+  action: 'tool_batch';
+  tool_calls: Array<{
+    tool_name: 'run_repo_cmd';
+    args: { command: string };
+  }>;
+};
+
 export type FinishAction = {
   action: 'finish';
   output: string;
   confidence?: number;
 };
 
-export type PlannerAction = ToolAction | FinishAction;
+export type PlannerAction = ToolAction | ToolBatchAction | FinishAction;
 
 export type FinishValidationResult = {
   verdict: 'pass' | 'fail';
@@ -117,7 +125,10 @@ export const TOOL_DEFINITIONS = [
 
 export function plannerGrammar(): string {
   return [
-    'root ::= tool_action | finish_action',
+    'root ::= tool_batch_action | tool_action | finish_action',
+    'tool_batch_action ::= "{" ws "\\"action\\"" ws ":" ws "\\"tool_batch\\"" ws "," ws "\\"tool_calls\\"" ws ":" ws "[" ws tool_batch_items ws "]" ws "}"',
+    'tool_batch_items ::= tool_batch_item (ws "," ws tool_batch_item)*',
+    'tool_batch_item ::= "{" ws "\\"tool_name\\"" ws ":" ws "\\"run_repo_cmd\\"" ws "," ws "\\"args\\"" ws ":" ws args_obj ws "}"',
     'tool_action ::= "{" ws "\\"action\\"" ws ":" ws "\\"tool\\"" ws "," ws "\\"tool_name\\"" ws ":" ws "\\"run_repo_cmd\\"" ws "," ws "\\"args\\"" ws ":" ws args_obj ws "}"',
     'args_obj ::= "{" ws "\\"command\\"" ws ":" ws string ws "}"',
     'finish_action ::= "{" ws "\\"action\\"" ws ":" ws "\\"finish\\"" ws "," ws "\\"output\\"" ws ":" ws string (ws "," ws "\\"confidence\\"" ws ":" ws number)? ws "}"',
@@ -188,15 +199,11 @@ function tryRecoverMalformedPlannerToolAction(rawText: string): ToolAction | nul
   return { action: 'tool', tool_name: 'run_repo_cmd', args: { command: recoveredCommand } };
 }
 
-function actionFromToolCall(choice: Record<string, unknown>): string | null {
-  type ToolCallLike = { function?: { name?: string; arguments?: unknown }; name?: string; arguments?: unknown };
-  const message = choice?.message as Record<string, unknown> | undefined;
-  const toolCall: ToolCallLike | undefined =
-    (message?.tool_calls as ToolCallLike[] | undefined)?.[0]
-    ?? (choice?.tool_calls as ToolCallLike[] | undefined)?.[0]
-    ?? (message?.function_call as ToolCallLike | undefined)
-    ?? (choice?.function_call as ToolCallLike | undefined);
-
+function parseRepoToolCallCandidate(toolCall: {
+  function?: { name?: string; arguments?: unknown };
+  name?: string;
+  arguments?: unknown;
+} | null | undefined): ToolAction | null {
   const name = typeof toolCall?.function?.name === 'string' ? toolCall.function.name
     : typeof toolCall?.name === 'string' ? toolCall.name : '';
   if (name !== 'run_repo_cmd') return null;
@@ -205,7 +212,37 @@ function actionFromToolCall(choice: Record<string, unknown>): string | null {
   if (typeof args === 'string') { try { args = JSON.parse(args); } catch { return null; } }
   if (!args || typeof args !== 'object' || Array.isArray(args) || typeof (args as Record<string, unknown>).command !== 'string') return null;
 
-  return JSON.stringify({ action: 'tool', tool_name: 'run_repo_cmd', args: { command: (args as { command: string }).command } });
+  return {
+    action: 'tool',
+    tool_name: 'run_repo_cmd',
+    args: { command: (args as { command: string }).command },
+  };
+}
+
+function actionFromToolCall(choice: Record<string, unknown>): string | null {
+  type ToolCallLike = { function?: { name?: string; arguments?: unknown }; name?: string; arguments?: unknown };
+  const message = choice?.message as Record<string, unknown> | undefined;
+  const toolCalls = [
+    ...(((message?.tool_calls as ToolCallLike[] | undefined) || []).map((toolCall) => parseRepoToolCallCandidate(toolCall)).filter(Boolean) as ToolAction[]),
+    ...((((choice?.tool_calls as ToolCallLike[] | undefined) || []).map((toolCall) => parseRepoToolCallCandidate(toolCall)).filter(Boolean)) as ToolAction[]),
+  ];
+  const functionCall = parseRepoToolCallCandidate(
+    (message?.function_call as ToolCallLike | undefined) ?? (choice?.function_call as ToolCallLike | undefined),
+  );
+  if (functionCall) {
+    toolCalls.push(functionCall);
+  }
+  if (toolCalls.length === 0) return null;
+  if (toolCalls.length === 1) {
+    return JSON.stringify(toolCalls[0]);
+  }
+  return JSON.stringify({
+    action: 'tool_batch',
+    tool_calls: toolCalls.map((toolCall) => ({
+      tool_name: toolCall.tool_name,
+      args: toolCall.args,
+    })),
+  });
 }
 
 export function parsePlannerAction(text: string): PlannerAction {
@@ -241,6 +278,41 @@ export function parsePlannerAction(text: string): PlannerAction {
       throw new Error('Provider returned an invalid planner tool action.');
     }
     return { action: 'tool', tool_name: 'run_repo_cmd', args: { command: commandValue.trim() } };
+  }
+
+  if (action === 'tool_batch') {
+    if (!Array.isArray(parsed.tool_calls) || parsed.tool_calls.length === 0) {
+      throw new Error('Provider returned an invalid planner tool batch action.');
+    }
+    const toolCalls = parsed.tool_calls.map((toolCall) => {
+      if (!toolCall || typeof toolCall !== 'object' || Array.isArray(toolCall)) {
+        throw new Error('Provider returned an invalid planner tool batch action.');
+      }
+      const toolRecord = toolCall as Record<string, unknown>;
+      const toolName = String(
+        toolRecord.tool_name ?? toolRecord.toolName ?? toolRecord.tool ?? toolRecord.name ?? '',
+      ).trim().toLowerCase();
+      if (toolName !== 'run_repo_cmd') {
+        throw new Error('Provider returned an invalid planner tool batch action.');
+      }
+      if (!toolRecord.args || typeof toolRecord.args !== 'object' || Array.isArray(toolRecord.args)) {
+        throw new Error('Provider returned an invalid planner tool batch action.');
+      }
+      const args = toolRecord.args as Record<string, unknown>;
+      const commandValue = typeof args.command === 'string' ? args.command
+        : typeof args.cmd === 'string' ? args.cmd : '';
+      if (!commandValue.trim()) {
+        throw new Error('Provider returned an invalid planner tool batch action.');
+      }
+      return {
+        tool_name: 'run_repo_cmd' as const,
+        args: { command: commandValue.trim() },
+      };
+    });
+    return {
+      action: 'tool_batch',
+      tool_calls: toolCalls,
+    };
   }
 
   if (action === 'finish') {
@@ -322,6 +394,7 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
 
   const stage = options.stage || 'planner_action';
   const grammar = options.grammar === undefined ? plannerGrammar() : options.grammar;
+  const includeTools = stage === 'planner_action';
 
   const bodyObj: Record<string, unknown> = {
     model: options.model,
@@ -331,8 +404,8 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
     temperature: 0.1,
     top_p: 0.95,
     max_tokens: options.requestMaxTokens,
-    ...(!grammar ? { tools: TOOL_DEFINITIONS } : {}),
-    chat_template_kwargs: { enable_thinking: !grammar && Boolean(options.thinkingEnabled) },
+    ...(includeTools ? { tools: TOOL_DEFINITIONS, parallel_tool_calls: true } : {}),
+    chat_template_kwargs: { enable_thinking: (!grammar || includeTools) && Boolean(options.thinkingEnabled) },
     ...(grammar ? { grammar } : {}),
     ...options.extraBody,
     ...(options.stream ? { stream: true } : {}),
@@ -546,12 +619,24 @@ function requestStreaming(
         settled = true;
         options.logger?.write({ kind: 'provider_request_done', stage, method, url: target.toString(), path: urlPath, statusCode: response.statusCode || 0, elapsedMs: Date.now() - startedAt });
         let synthesized: string | null = null;
-        if (toolCalls.length > 0 && toolCalls[0].name === 'run_repo_cmd') {
-          let args: Record<string, unknown> | null;
-          try { args = JSON.parse(toolCalls[0].arguments) as Record<string, unknown>; } catch { args = null; }
-          if (args && typeof args.command === 'string') {
-            synthesized = JSON.stringify({ action: 'tool', tool_name: 'run_repo_cmd', args: { command: args.command } });
-          }
+        const parsedToolCalls = toolCalls
+          .map((toolCall) => parseRepoToolCallCandidate({
+            function: {
+              name: toolCall?.name,
+              arguments: toolCall?.arguments,
+            },
+          }))
+          .filter(Boolean) as ToolAction[];
+        if (parsedToolCalls.length === 1) {
+          synthesized = JSON.stringify(parsedToolCalls[0]);
+        } else if (parsedToolCalls.length > 1) {
+          synthesized = JSON.stringify({
+            action: 'tool_batch',
+            tool_calls: parsedToolCalls.map((toolCall) => ({
+              tool_name: toolCall.tool_name,
+              args: toolCall.args,
+            })),
+          });
         }
         // If reasoning_content didn't give us thinking, try to extract <think>...</think> from content
         let finalThinkingText = thinkingText.trim();

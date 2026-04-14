@@ -1,6 +1,13 @@
 import { getConfigPath } from '../config/index.js';
 import { readConfig } from '../status-server/config-store.js';
-import { findPresetById, getPresetsForSurface, normalizePresets, type SiftPreset } from '../presets.js';
+import {
+  findPresetById,
+  getPresetsForSurface,
+  normalizeOperationModeAllowedTools,
+  normalizePresets,
+  resolvePresetAllowedTools,
+  type SiftPreset,
+} from '../presets.js';
 import { getCommandArgs, parseArguments } from './args.js';
 import { readSummaryInput, summarizeRequest } from '../summary/core.js';
 import { executeRepoSearchRequest } from '../repo-search/execute.js';
@@ -38,8 +45,12 @@ export async function runPresetCli(options: {
   const config = readConfig(getConfigPath());
   const preset = getCliPreset(presetId);
   const model = parsed.model;
+  const effectiveAllowedTools = resolvePresetAllowedTools(
+    preset,
+    normalizeOperationModeAllowedTools((config as Record<string, unknown>).OperationModeAllowedTools),
+  );
 
-  if (preset.executionFamily === 'summary') {
+  if (preset.presetKind === 'summary') {
     const question = parsed.question || parsed.positionals[0];
     if (!question) {
       throw new Error('A question is required.');
@@ -65,7 +76,7 @@ export async function runPresetCli(options: {
       backend: parsed.backend,
       model,
       promptPrefix: getPromptPrefix(config, preset),
-      allowedPlannerTools: preset.allowedTools.filter((toolName) => (
+      allowedPlannerTools: effectiveAllowedTools.filter((toolName) => (
         toolName === 'find_text' || toolName === 'read_lines' || toolName === 'json_filter'
       )),
       sourceKind: process.env.SIFTKIT_SUMMARY_SOURCE_KIND === 'command-output' || hasStdinInput
@@ -83,7 +94,7 @@ export async function runPresetCli(options: {
   if (!prompt) {
     throw new Error('A prompt is required.');
   }
-  if (preset.executionFamily === 'chat') {
+  if (preset.presetKind === 'chat') {
     const runtime = (config.Runtime && typeof config.Runtime === 'object' ? config.Runtime : {}) as Record<string, unknown>;
     const runtimeLlama = (runtime.LlamaCpp && typeof runtime.LlamaCpp === 'object' ? runtime.LlamaCpp : {}) as Record<string, unknown>;
     const result = await generateChatAssistantMessage(config, {
@@ -109,9 +120,9 @@ export async function runPresetCli(options: {
 
   const repoRoot = String(parsed.repoRoot || parsed.path || process.cwd()).trim() || process.cwd();
   const result = await executeRepoSearchRequest({
-    taskKind: preset.executionFamily === 'plan' ? 'plan' : 'repo-search',
-    prompt: preset.executionFamily === 'plan' ? buildPlanRequestPrompt(prompt) : prompt,
-    promptPrefix: preset.executionFamily === 'repo-search' ? preset.promptPrefix : '',
+    taskKind: preset.presetKind === 'plan' ? 'plan' : 'repo-search',
+    prompt: preset.presetKind === 'plan' ? buildPlanRequestPrompt(prompt) : prompt,
+    promptPrefix: preset.presetKind === 'repo-search' ? preset.promptPrefix : '',
     repoRoot,
     config,
     model,
@@ -120,9 +131,9 @@ export async function runPresetCli(options: {
       ? Number(parsed.thinkingInterval)
       : preset.thinkingInterval ?? undefined,
     logFile: parsed.logFile,
-    allowedTools: preset.allowedTools,
+    allowedTools: effectiveAllowedTools,
   });
-  const output = preset.executionFamily === 'plan'
+  const output = preset.presetKind === 'plan'
     ? buildPlanMarkdownFromRepoSearch(prompt, repoRoot, result.scorecard as Record<string, unknown>)
     : buildRepoSearchMarkdown(prompt, repoRoot, result.scorecard as Record<string, unknown>);
   options.stdout.write(`${output}\n`);
