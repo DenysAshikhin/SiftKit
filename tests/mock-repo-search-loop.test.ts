@@ -1191,10 +1191,9 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
     assert.equal(chatRequests[1].cache_prompt, true);
     assert.equal(Number.isInteger(chatRequests[0].id_slot), true);
     assert.equal(chatRequests[0].id_slot, chatRequests[1].id_slot);
-    // Grammar-mode: tools are not sent when grammar is active
-    assert.equal(typeof chatRequests[0].grammar, 'string');
-    assert.equal(chatRequests[0].tools, undefined);
-    assert.equal(chatRequests[0].parallel_tool_calls, undefined);
+    assert.equal(chatRequests[0]?.response_format?.type, 'json_schema');
+    assert.equal(Array.isArray(chatRequests[0].tools), true);
+    assert.equal(chatRequests[0].parallel_tool_calls, true);
     assert.equal(chatRequests[1].messages.length > chatRequests[0].messages.length, true);
     assert.doesNotMatch(JSON.stringify(chatRequests[0].messages), /Tool-call budget remaining:/u);
     assert.doesNotMatch(JSON.stringify(chatRequests[1].messages), /Tool-call budget remaining:/u);
@@ -1999,7 +1998,7 @@ test('runTaskLoop retries transient provider network failures via shared retry h
     assert.equal(result.reason, 'finish');
     assert.equal(result.finalOutput, 'done');
     assert.equal(requestCount, 6);
-    // Grammar mode suppresses enable_thinking in the HTTP body (enable_thinking = !grammar && thinkingEnabled).
+    // Response-format constrained mode suppresses enable_thinking in the HTTP body.
     // Verify the engine still tracked the thinking switch internally via logged events.
     const turnRequests = events.filter((event) => event.kind === 'turn_model_request');
     assert.equal(turnRequests.length >= 5, true);

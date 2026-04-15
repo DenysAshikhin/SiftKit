@@ -453,7 +453,7 @@ test('summarizeRequest recovers malformed structured llama.cpp JSON when the exp
   });
 });
 
-test('summarizeRequest enables per-request grammar for structured llama.cpp decisions', async () => {
+test('summarizeRequest enables per-request response_format json_schema for structured llama.cpp decisions', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const result = await summarizeRequest({
@@ -467,8 +467,10 @@ test('summarizeRequest enables per-request grammar for structured llama.cpp deci
 
       assert.equal(result.WasSummarized, true);
       assert.ok(server.state.chatRequests.length >= 1);
-      assert.match(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /classification/u);
-      assert.doesNotMatch(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /unsupported_input/u);
+      const responseFormatText = JSON.stringify(server.state.chatRequests[0]?.response_format || {});
+      assert.equal(server.state.chatRequests[0]?.response_format?.type, 'json_schema');
+      assert.match(responseFormatText, /classification/u);
+      assert.doesNotMatch(responseFormatText, /unsupported_input/u);
     }, {
       metrics: {
         inputCharactersTotal: 3_461_904,

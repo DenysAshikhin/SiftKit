@@ -37,6 +37,21 @@ test('repo-search rejects presets that disable the repo command tool', async () 
   );
 });
 
+test('repo-search rejects presets that resolve to an empty allowed-tools list', async () => {
+  await assert.rejects(
+    () => runRepoSearch({
+      repoRoot: process.cwd(),
+      config: getDefaultConfig(),
+      model: 'mock-model',
+      availableModels: ['mock-model'],
+      mockResponses: [],
+      allowedTools: [],
+      taskPrompt: 'find planner tools',
+    }),
+    /run_repo_cmd/u,
+  );
+});
+
 test('effective tool allowlist intersects operation-mode policy with preset whitelist', () => {
   assert.deepEqual(
     resolvePresetAllowedTools({

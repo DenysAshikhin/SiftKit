@@ -1129,7 +1129,7 @@ function DashboardApp() {
   }, []);
 
   useEffect(() => {
-    if (tab !== 'settings') {
+    if (tab !== 'settings' && dashboardConfig !== null) {
       return;
     }
     let cancelled = false;

@@ -94,6 +94,22 @@ try {
             throw "Oversized live summary smoke failed with exit code $LASTEXITCODE."
         }
     }
+
+    Invoke-Step -Label 'Run summary planner JSON-schema smoke' -Action {
+        $records = 1..3500 | ForEach-Object { '{"id":' + $_ + ',"label":"node-' + $_ + '","type":"route"}' }
+        $plannerInput = '[' + ($records -join ',') + ']'
+        & node .\bin\siftkit.js summary --question 'Does route id 3499 exist? Answer yes or no with one short sentence.' --text $plannerInput
+        if ($LASTEXITCODE -ne 0) {
+            throw "Summary planner live smoke failed with exit code $LASTEXITCODE."
+        }
+    }
+
+    Invoke-Step -Label 'Run repo-search planner JSON-schema smoke' -Action {
+        & node .\bin\siftkit.js repo-search --prompt 'Find where buildPrompt is defined and return a brief answer with file path evidence.'
+        if ($LASTEXITCODE -ne 0) {
+            throw "Repo-search planner live smoke failed with exit code $LASTEXITCODE."
+        }
+    }
 }
 finally {
     Pop-Location

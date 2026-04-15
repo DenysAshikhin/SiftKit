@@ -229,7 +229,7 @@ test('llama.cpp provider enables explicit prompt caching on a supplied slot', as
   });
 });
 
-test('llama.cpp provider includes per-request grammar when structured output is enabled', async () => {
+test('llama.cpp provider includes per-request response_format json_schema when structured output is enabled', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -243,9 +243,12 @@ test('llama.cpp provider includes per-request grammar when structured output is 
       });
 
       assert.equal(server.state.chatRequests.length, 1);
-      assert.match(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /classification/u);
-      assert.match(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /raw_review_required/u);
-      assert.match(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /output/u);
+      const responseFormatText = JSON.stringify(server.state.chatRequests[0]?.response_format || {});
+      assert.equal(server.state.chatRequests[0]?.response_format?.type, 'json_schema');
+      assert.match(responseFormatText, /classification/u);
+      assert.match(responseFormatText, /raw_review_required/u);
+      assert.match(responseFormatText, /output/u);
+      assert.equal('grammar' in (server.state.chatRequests[0]?.extra_body || {}), false);
     });
   });
 });
@@ -331,7 +334,7 @@ test('llama.cpp provider accepts count-only tokenize responses', async () => {
   });
 });
 
-test('llama.cpp provider surfaces HTTP 400 errors when grammar-constrained requests are rejected', async () => {
+test('llama.cpp provider surfaces HTTP 400 errors when json-schema constrained requests are rejected', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -348,7 +351,9 @@ test('llama.cpp provider surfaces HTTP 400 errors when grammar-constrained reque
       );
 
       assert.equal(server.state.chatRequests.length, 1);
-      assert.match(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /classification/u);
+      const responseFormatText = JSON.stringify(server.state.chatRequests[0]?.response_format || {});
+      assert.equal(server.state.chatRequests[0]?.response_format?.type, 'json_schema');
+      assert.match(responseFormatText, /classification/u);
     }, {
       rejectPromptCharsOver: 1,
     });

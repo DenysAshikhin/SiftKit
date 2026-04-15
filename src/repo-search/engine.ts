@@ -25,6 +25,7 @@ import {
   normalizePlannerCommand,
 } from './command-safety.js';
 import {
+  resolveRepoSearchPlannerToolDefinitions,
   parsePlannerAction,
   renderTaskTranscript,
   requestPlannerAction,
@@ -696,6 +697,7 @@ type RunTaskLoopOptions = {
   minToolCallsBeforeFinish?: number;
   thinkingInterval?: number;
   requestMaxTokens: number;
+  plannerToolDefinitions?: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;
   enforceThinkingFinish?: boolean;
   includeAgentsMd?: boolean;
   includeRepoFileListing?: boolean;
@@ -735,6 +737,10 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const useEstimatedTokensOnly = Array.isArray(options.mockResponses);
   const requestMaxTokens = options.requestMaxTokens;
   const followupOnNonThinkingFinish = options.enforceThinkingFinish === true;
+  const plannerToolDefinitions = Array.isArray(options.plannerToolDefinitions) && options.plannerToolDefinitions.length > 0
+    ? options.plannerToolDefinitions
+    : resolveRepoSearchPlannerToolDefinitions();
+  const allowedPlannerToolNames = plannerToolDefinitions.map((toolDefinition) => toolDefinition.function.name);
   let zeroOutputStreak = 0;
   let consecutiveDuplicates = 0;
   let consecutiveSemanticRepeats = 0;
@@ -867,6 +873,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       mockResponses: options.mockResponses,
       mockResponseIndex,
       logger: options.logger || null,
+      toolDefinitions: plannerToolDefinitions,
     });
 
     if (options.onProgress) {
@@ -915,7 +922,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
 
     let action;
     try {
-      action = parsePlannerAction(response.text);
+      action = parsePlannerAction(response.text, { allowedToolNames: allowedPlannerToolNames });
       options.logger?.write({ kind: 'turn_action_parsed', taskId: task.id, turn, action });
     } catch (error) {
       modelOutputTokens += resolvedCompletionTokens;
@@ -1002,7 +1009,27 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     pendingNonThinkingFinishOutput = null;
 
     for (const toolAction of toolActions) {
-      const command = toolAction.args.command;
+      if (toolAction.tool_name !== 'run_repo_cmd') {
+        invalidResponses += 1;
+        const unsupportedToolMessage = `Invalid action: unsupported planner tool "${toolAction.tool_name}" for repo-search. Use run_repo_cmd or finish.`;
+        messages.push({ role: 'assistant', content: JSON.stringify(toolAction) });
+        messages.push({ role: 'user', content: unsupportedToolMessage });
+        options.logger?.write({ kind: 'turn_action_invalid', taskId: task.id, turn, invalidResponses, error: unsupportedToolMessage });
+        if (invalidResponses >= maxInvalidResponses) { reason = 'invalid_response_limit'; break; }
+        history.push({ command: '[invalid action]', resultText: unsupportedToolMessage });
+        continue;
+      }
+      const command = typeof toolAction.args.command === 'string' ? toolAction.args.command : '';
+      if (!command.trim()) {
+        invalidResponses += 1;
+        const invalidCommandMessage = 'Invalid action: run_repo_cmd requires args.command.';
+        messages.push({ role: 'assistant', content: JSON.stringify(toolAction) });
+        messages.push({ role: 'user', content: invalidCommandMessage });
+        options.logger?.write({ kind: 'turn_action_invalid', taskId: task.id, turn, invalidResponses, error: invalidCommandMessage });
+        if (invalidResponses >= maxInvalidResponses) { reason = 'invalid_response_limit'; break; }
+        history.push({ command: '[invalid action]', resultText: invalidCommandMessage });
+        continue;
+      }
       const assistantActionText = JSON.stringify(toolAction);
 
     if (inForcedFinishMode) {
@@ -1572,8 +1599,12 @@ export async function runRepoSearch(options: {
   logger?: JsonLogger | null;
   onProgress?: ((event: RepoSearchProgressEvent) => void) | null;
 } = {}): Promise<Scorecard> {
-  if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0 && !options.allowedTools.includes('run_repo_cmd')) {
+  if (Array.isArray(options.allowedTools) && !options.allowedTools.includes('run_repo_cmd')) {
     throw new Error('Repo-search tool is not allowed by the active preset: run_repo_cmd');
+  }
+  const plannerToolDefinitions = resolveRepoSearchPlannerToolDefinitions(options.allowedTools);
+  if (plannerToolDefinitions.length === 0) {
+    throw new Error('No repo-search planner tools are enabled for the active preset.');
   }
   const path = await import('node:path');
   const repoRoot = path.resolve(options.repoRoot || process.cwd());
@@ -1606,6 +1637,7 @@ export async function runRepoSearch(options: {
       minToolCallsBeforeFinish: options.minToolCallsBeforeFinish,
       thinkingInterval: options.thinkingInterval,
       requestMaxTokens,
+      plannerToolDefinitions,
       enforceThinkingFinish: true,
       includeAgentsMd: options.includeAgentsMd,
       includeRepoFileListing: options.includeRepoFileListing,

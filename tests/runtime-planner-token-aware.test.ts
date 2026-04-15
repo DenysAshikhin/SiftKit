@@ -552,10 +552,10 @@ test('planner activation threshold at exactly 75% stays on non-planner path', as
         model: 'mock-model',
       });
       const nonPlannerRequest = server.state.chatRequests[server.state.chatRequests.length - 1];
-      assert.doesNotMatch(String(nonPlannerRequest?.extra_body?.grammar || ''), /tool_name/u);
+      assert.doesNotMatch(JSON.stringify(nonPlannerRequest?.response_format || {}), /tool_name/u);
     }, {
       assistantContent(promptText, parsed) {
-        if (String(parsed?.extra_body?.grammar || '').includes('tool_name')) {
+        if (JSON.stringify(parsed?.response_format || {}).includes('tool_name')) {
           return JSON.stringify({
             action: 'finish',
             classification: 'summary',
@@ -569,4 +569,4 @@ test('planner activation threshold at exactly 75% stays on non-planner path', as
     });
   });
 });
-
+

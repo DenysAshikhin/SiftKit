@@ -5,6 +5,12 @@ import {
   isTransientProviderHttpResponse,
   retryProviderRequest,
 } from '../lib/provider-helpers.js';
+import {
+  buildLlamaJsonSchemaResponseFormat,
+  buildSummaryDecisionJsonSchema,
+  buildSummaryPlannerActionJsonSchema,
+  type StructuredOutputToolDefinition,
+} from './structured-output-schema.js';
 import { createTracer } from '../lib/trace.js';
 
 type LlamaCppModelListResponse = {
@@ -110,7 +116,7 @@ export type LlamaCppChatMessage = {
 export type LlamaCppStructuredOutput =
   | { kind: 'none' }
   | { kind: 'siftkit-decision-json'; allowUnsupportedInput?: boolean }
-  | { kind: 'siftkit-planner-action-json'; tools?: unknown[] };
+  | { kind: 'siftkit-planner-action-json'; tools?: StructuredOutputToolDefinition[]; allowUnsupportedInput?: boolean };
 
 type PlannerStructuredToolCall = {
   tool_name: string;
@@ -167,57 +173,33 @@ function subtractThinkingTokens(value: number | null, thinkingTokens: number | n
   return Math.max(value - (thinkingTokens ?? 0), 0);
 }
 
-function getStructuredOutputGrammar(
+function getStructuredOutputResponseFormat(
   structuredOutput: LlamaCppStructuredOutput | undefined
-): string | null {
+): Record<string, unknown> | null {
   if (!structuredOutput || structuredOutput.kind === 'none') {
     return null;
   }
 
   if (structuredOutput.kind === 'siftkit-decision-json') {
-    const classificationOptions = structuredOutput.allowUnsupportedInput === false
-      ? ['\\"summary\\"', '\\"command_failure\\"']
-      : ['\\"summary\\"', '\\"command_failure\\"', '\\"unsupported_input\\"'];
-    return [
-      'root ::= object',
-      'object ::= "{" ws "\\"classification\\"" ws ":" ws classification ws "," ws "\\"raw_review_required\\"" ws ":" ws boolean ws "," ws "\\"output\\"" ws ":" ws string ws "}"',
-      `classification ::= ${classificationOptions.join(' | ')}`,
-      'boolean ::= "true" | "false"',
-      'string ::= "\\"" char* "\\""',
-      'char ::= [^"\\\\\\x7F\\x00-\\x1F] | "\\\\" escape',
-      'escape ::= ["\\\\/bfnrt] | "u" hex hex hex hex',
-      'hex ::= [0-9a-fA-F]',
-      'ws ::= [ \\t\\n\\r]*',
-    ].join('\n');
+    return buildLlamaJsonSchemaResponseFormat({
+      name: 'siftkit_decision',
+      schema: buildSummaryDecisionJsonSchema({
+        allowUnsupportedInput: structuredOutput.allowUnsupportedInput !== false,
+      }),
+    });
   }
 
   if (structuredOutput.kind === 'siftkit-planner-action-json') {
-    return [
-      'root ::= tool_batch_action | tool_action | finish_action',
-      'tool_batch_action ::= "{" ws "\\"action\\"" ws ":" ws "\\"tool_batch\\"" ws "," ws "\\"tool_calls\\"" ws ":" ws "[" ws tool_batch_items ws "]" ws "}"',
-      'tool_batch_items ::= tool_batch_item (ws "," ws tool_batch_item)*',
-      'tool_batch_item ::= "{" ws "\\"tool_name\\"" ws ":" ws tool_name ws "," ws "\\"args\\"" ws ":" ws value ws "}"',
-      'tool_action ::= "{" ws "\\"action\\"" ws ":" ws "\\"tool\\"" ws "," ws "\\"tool_name\\"" ws ":" ws tool_name ws "," ws "\\"args\\"" ws ":" ws value ws "}"',
-      'finish_action ::= "{" ws "\\"action\\"" ws ":" ws "\\"finish\\"" ws "," ws "\\"classification\\"" ws ":" ws classification ws "," ws "\\"raw_review_required\\"" ws ":" ws boolean ws "," ws "\\"output\\"" ws ":" ws string ws "}"',
-      'tool_name ::= "\\"find_text\\"" | "\\"read_lines\\"" | "\\"json_filter\\""',
-      'classification ::= "\\"summary\\"" | "\\"command_failure\\"" | "\\"unsupported_input\\""',
-      'value ::= object | array | string | number | boolean | "null"',
-      'object ::= "{" ws members? ws "}"',
-      'members ::= pair (ws "," ws pair)*',
-      'pair ::= string ws ":" ws value',
-      'array ::= "[" ws elements? ws "]"',
-      'elements ::= value (ws "," ws value)*',
-      'boolean ::= "true" | "false"',
-      'number ::= "-"? int frac? exp?',
-      'int ::= "0" | [1-9] [0-9]*',
-      'frac ::= "." [0-9]+',
-      'exp ::= [eE] [+-]? [0-9]+',
-      'string ::= "\\"" char* "\\""',
-      'char ::= [^"\\\\\\x7F\\x00-\\x1F] | "\\\\" escape',
-      'escape ::= ["\\\\/bfnrt] | "u" hex hex hex hex',
-      'hex ::= [0-9a-fA-F]',
-      'ws ::= [ \\t\\n\\r]*',
-    ].join('\n');
+    const toolDefinitions = Array.isArray(structuredOutput.tools)
+      ? structuredOutput.tools
+      : [];
+    return buildLlamaJsonSchemaResponseFormat({
+      name: 'siftkit_summary_planner_action',
+      schema: buildSummaryPlannerActionJsonSchema({
+        toolDefinitions,
+        allowUnsupportedInput: structuredOutput.allowUnsupportedInput !== false,
+      }),
+    });
   }
 
   return null;
@@ -487,7 +469,7 @@ export async function generateLlamaCppChatResponse(options: {
   const resolvedRepetitionPenalty = options.overrides?.RepetitionPenalty ?? getConfiguredLlamaSetting<number>(options.config, 'RepetitionPenalty');
   const resolvedReasoning = options.reasoningOverride
     ?? getConfiguredLlamaSetting<'on' | 'off' | 'auto'>(options.config, 'Reasoning');
-  const structuredOutputGrammar = getStructuredOutputGrammar(options.structuredOutput);
+  const structuredOutputResponseFormat = getStructuredOutputResponseFormat(options.structuredOutput);
   const promptChars = options.messages.reduce((total, message) => {
     return total + getTextContent(message.content).length;
   }, 0);
@@ -525,13 +507,13 @@ export async function generateLlamaCppChatResponse(options: {
         enable_thinking: resolvedReasoning === 'on',
       },
     }),
+    ...(structuredOutputResponseFormat === null ? {} : { response_format: structuredOutputResponseFormat }),
     extra_body: {
       ...(resolvedTopK === undefined ? {} : { top_k: Number(resolvedTopK) }),
       ...(resolvedMinP === undefined ? {} : { min_p: Number(resolvedMinP) }),
       ...(resolvedPresencePenalty === undefined ? {} : { presence_penalty: Number(resolvedPresencePenalty) }),
       ...(resolvedRepetitionPenalty === undefined ? {} : { repeat_penalty: Number(resolvedRepetitionPenalty) }),
       ...(resolvedReasoning === 'off' ? { reasoning_budget: 0 } : {}),
-      ...(structuredOutputGrammar === null ? {} : { grammar: structuredOutputGrammar }),
     },
   });
 

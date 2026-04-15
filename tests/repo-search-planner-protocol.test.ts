@@ -131,3 +131,111 @@ test('requestPlannerAction reconstructs a tool batch from streaming multi-tool r
     });
   });
 });
+
+test('requestPlannerAction sends json_schema response_format with tools and no grammar', async () => {
+  let capturedBody: Record<string, unknown> | null = null;
+  await withServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      capturedBody = JSON.parse(body || '{}');
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({
+        choices: [{ message: { content: '{"action":"finish","output":"done"}' } }],
+      }));
+    });
+  }, async (baseUrl) => {
+    await requestPlannerAction({
+      baseUrl,
+      model: 'mock-model',
+      messages: [{ role: 'user', content: 'find plan and repo-search' }],
+      timeoutMs: 5000,
+      requestMaxTokens: 512,
+    });
+
+    const captured = capturedBody as Record<string, any>;
+    assert.equal(captured?.response_format?.type, 'json_schema');
+    assert.equal(Array.isArray(captured?.tools), true);
+    assert.equal(captured?.parallel_tool_calls, true);
+    assert.equal('grammar' in (captured || {}), false);
+  });
+});
+
+test('requestPlannerAction assembles planner schema dynamically from provided tool definitions', async () => {
+  let capturedBody: Record<string, unknown> | null = null;
+  await withServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      capturedBody = JSON.parse(body || '{}');
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({
+        choices: [{ message: { content: '{"action":"finish","output":"done"}' } }],
+      }));
+    });
+  }, async (baseUrl) => {
+    await requestPlannerAction({
+      baseUrl,
+      model: 'mock-model',
+      messages: [{ role: 'user', content: 'find symbol' }],
+      timeoutMs: 5000,
+      requestMaxTokens: 512,
+      toolDefinitions: [{
+        type: 'function',
+        function: {
+          name: 'search_symbol',
+          description: 'search symbols',
+          parameters: {
+            type: 'object',
+            properties: { symbol: { type: 'string' } },
+            required: ['symbol'],
+          },
+        },
+      }],
+    });
+
+    const captured = capturedBody as Record<string, any>;
+    const schemaText = JSON.stringify(captured?.response_format || {});
+    assert.match(schemaText, /search_symbol/u);
+    assert.doesNotMatch(schemaText, /run_repo_cmd/u);
+    assert.equal(captured?.tools?.[0]?.function?.name, 'search_symbol');
+  });
+});
+
+test('requestPlannerAction hard-fails on json_schema rejection without fallback retry', async () => {
+  let requestCount = 0;
+  await withServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    requestCount += 1;
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: { message: 'response_format json_schema unsupported' } }));
+  }, async (baseUrl) => {
+    await assert.rejects(
+      () => requestPlannerAction({
+        baseUrl,
+        model: 'mock-model',
+        messages: [{ role: 'user', content: 'find plan and repo-search' }],
+        timeoutMs: 5000,
+        requestMaxTokens: 512,
+      }),
+      /HTTP 400/u,
+    );
+    assert.equal(requestCount, 1);
+  });
+});

@@ -12,6 +12,12 @@ import {
   serializeNetworkError,
 } from '../lib/provider-helpers.js';
 import { stripCodeFence } from '../lib/text-format.js';
+import {
+  buildFinishValidationJsonSchema,
+  buildLlamaJsonSchemaResponseFormat,
+  buildRepoSearchPlannerActionJsonSchema,
+  type StructuredOutputToolDefinition,
+} from '../providers/structured-output-schema.js';
 import type { JsonLogger } from './types.js';
 
 // ---------------------------------------------------------------------------
@@ -32,15 +38,15 @@ export type PlannerActionResponse = {
 
 export type ToolAction = {
   action: 'tool';
-  tool_name: 'run_repo_cmd';
-  args: { command: string };
+  tool_name: string;
+  args: Record<string, unknown>;
 };
 
 export type ToolBatchAction = {
   action: 'tool_batch';
   tool_calls: Array<{
-    tool_name: 'run_repo_cmd';
-    args: { command: string };
+    tool_name: string;
+    args: Record<string, unknown>;
   }>;
 };
 
@@ -104,9 +110,9 @@ function extractInlineThinking(raw: string): { thinkingText: string; text: strin
 // Tool definitions exposed to the LLM
 // ---------------------------------------------------------------------------
 
-export const TOOL_DEFINITIONS = [
-  {
-    type: 'function' as const,
+const REPO_SEARCH_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
+  run_repo_cmd: {
+    type: 'function',
     function: {
       name: 'run_repo_cmd',
       description: 'Run one read-only repo command to inspect files. Command must be non-mutating.',
@@ -117,45 +123,21 @@ export const TOOL_DEFINITIONS = [
       },
     },
   },
-];
+};
 
-// ---------------------------------------------------------------------------
-// Grammar definitions
-// ---------------------------------------------------------------------------
-
-export function plannerGrammar(): string {
-  return [
-    'root ::= tool_batch_action | tool_action | finish_action',
-    'tool_batch_action ::= "{" ws "\\"action\\"" ws ":" ws "\\"tool_batch\\"" ws "," ws "\\"tool_calls\\"" ws ":" ws "[" ws tool_batch_items ws "]" ws "}"',
-    'tool_batch_items ::= tool_batch_item (ws "," ws tool_batch_item)*',
-    'tool_batch_item ::= "{" ws "\\"tool_name\\"" ws ":" ws "\\"run_repo_cmd\\"" ws "," ws "\\"args\\"" ws ":" ws args_obj ws "}"',
-    'tool_action ::= "{" ws "\\"action\\"" ws ":" ws "\\"tool\\"" ws "," ws "\\"tool_name\\"" ws ":" ws "\\"run_repo_cmd\\"" ws "," ws "\\"args\\"" ws ":" ws args_obj ws "}"',
-    'args_obj ::= "{" ws "\\"command\\"" ws ":" ws string ws "}"',
-    'finish_action ::= "{" ws "\\"action\\"" ws ":" ws "\\"finish\\"" ws "," ws "\\"output\\"" ws ":" ws string (ws "," ws "\\"confidence\\"" ws ":" ws number)? ws "}"',
-    'number ::= "-"? int frac? exp?',
-    'int ::= "0" | [1-9] [0-9]*',
-    'frac ::= "." [0-9]+',
-    'exp ::= [eE] [+-]? [0-9]+',
-    'string ::= "\\"" char* "\\""',
-    'char ::= [^"\\\\\\x7F\\x00-\\x1F] | "\\\\" escape',
-    'escape ::= ["\\\\/bfnrt] | "u" hex hex hex hex',
-    'hex ::= [0-9a-fA-F]',
-    'ws ::= [ \\t\\n\\r]*',
-  ].join('\n');
+export function resolveRepoSearchPlannerToolDefinitions(
+  allowedToolNames?: readonly string[],
+): StructuredOutputToolDefinition[] {
+  if (Array.isArray(allowedToolNames) && allowedToolNames.length > 0) {
+    const resolved = allowedToolNames
+      .map((toolName) => REPO_SEARCH_TOOL_REGISTRY[String(toolName)])
+      .filter((toolDefinition): toolDefinition is StructuredOutputToolDefinition => Boolean(toolDefinition));
+    return resolved;
+  }
+  return Object.values(REPO_SEARCH_TOOL_REGISTRY);
 }
 
-function finishValidationGrammar(): string {
-  return [
-    'root ::= object',
-    'object ::= "{" ws "\\"verdict\\"" ws ":" ws verdict ws "," ws "\\"reason\\"" ws ":" ws string ws "}"',
-    'verdict ::= "\\"pass\\"" | "\\"fail\\""',
-    'string ::= "\\"" char* "\\""',
-    'char ::= [^"\\\\\\x7F\\x00-\\x1F] | "\\\\" escape',
-    'escape ::= ["\\\\/bfnrt] | "u" hex hex hex hex',
-    'hex ::= [0-9a-fA-F]',
-    'ws ::= [ \\t\\n\\r]*',
-  ].join('\n');
-}
+export const TOOL_DEFINITIONS = resolveRepoSearchPlannerToolDefinitions();
 
 // ---------------------------------------------------------------------------
 // Action parsing
@@ -203,31 +185,48 @@ function parseRepoToolCallCandidate(toolCall: {
   function?: { name?: string; arguments?: unknown };
   name?: string;
   arguments?: unknown;
-} | null | undefined): ToolAction | null {
+} | null | undefined, allowedToolNames: Set<string>): ToolAction | null {
   const name = typeof toolCall?.function?.name === 'string' ? toolCall.function.name
     : typeof toolCall?.name === 'string' ? toolCall.name : '';
-  if (name !== 'run_repo_cmd') return null;
+  if (!allowedToolNames.has(name)) return null;
 
   let args = toolCall?.function?.arguments ?? toolCall?.arguments;
   if (typeof args === 'string') { try { args = JSON.parse(args); } catch { return null; } }
-  if (!args || typeof args !== 'object' || Array.isArray(args) || typeof (args as Record<string, unknown>).command !== 'string') return null;
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return null;
+  const normalizedArgs = args as Record<string, unknown>;
+  if (name === 'run_repo_cmd') {
+    const commandValue = typeof normalizedArgs.command === 'string'
+      ? normalizedArgs.command
+      : typeof normalizedArgs.cmd === 'string'
+        ? normalizedArgs.cmd
+        : '';
+    if (!commandValue.trim()) {
+      return null;
+    }
+    return {
+      action: 'tool',
+      tool_name: name,
+      args: { command: commandValue.trim() },
+    };
+  }
 
   return {
     action: 'tool',
-    tool_name: 'run_repo_cmd',
-    args: { command: (args as { command: string }).command },
+    tool_name: name,
+    args: normalizedArgs,
   };
 }
 
-function actionFromToolCall(choice: Record<string, unknown>): string | null {
+function actionFromToolCall(choice: Record<string, unknown>, allowedToolNames: Set<string>): string | null {
   type ToolCallLike = { function?: { name?: string; arguments?: unknown }; name?: string; arguments?: unknown };
   const message = choice?.message as Record<string, unknown> | undefined;
   const toolCalls = [
-    ...(((message?.tool_calls as ToolCallLike[] | undefined) || []).map((toolCall) => parseRepoToolCallCandidate(toolCall)).filter(Boolean) as ToolAction[]),
-    ...((((choice?.tool_calls as ToolCallLike[] | undefined) || []).map((toolCall) => parseRepoToolCallCandidate(toolCall)).filter(Boolean)) as ToolAction[]),
+    ...(((message?.tool_calls as ToolCallLike[] | undefined) || []).map((toolCall) => parseRepoToolCallCandidate(toolCall, allowedToolNames)).filter(Boolean) as ToolAction[]),
+    ...((((choice?.tool_calls as ToolCallLike[] | undefined) || []).map((toolCall) => parseRepoToolCallCandidate(toolCall, allowedToolNames)).filter(Boolean)) as ToolAction[]),
   ];
   const functionCall = parseRepoToolCallCandidate(
     (message?.function_call as ToolCallLike | undefined) ?? (choice?.function_call as ToolCallLike | undefined),
+    allowedToolNames,
   );
   if (functionCall) {
     toolCalls.push(functionCall);
@@ -245,7 +244,14 @@ function actionFromToolCall(choice: Record<string, unknown>): string | null {
   });
 }
 
-export function parsePlannerAction(text: string): PlannerAction {
+export function parsePlannerAction(text: string, options?: {
+  allowedToolNames?: readonly string[];
+}): PlannerAction {
+  const allowedToolNameSet = new Set<string>(
+    Array.isArray(options?.allowedToolNames) && options.allowedToolNames.length > 0
+      ? options.allowedToolNames.map((toolName) => String(toolName))
+      : TOOL_DEFINITIONS.map((toolDefinition) => toolDefinition.function.name),
+  );
   const normalized = stripCodeFence(text);
   let parsed: Record<string, unknown>;
   try {
@@ -264,20 +270,23 @@ export function parsePlannerAction(text: string): PlannerAction {
     const toolName = String(
       parsed.tool_name ?? parsed.toolName ?? parsed.tool ?? parsed.name ?? '',
     ).trim().toLowerCase();
-    if (toolName !== 'run_repo_cmd') {
+    if (!allowedToolNameSet.has(toolName)) {
       throw new Error('Provider returned an invalid planner tool action.');
     }
     if (!parsed.args || typeof parsed.args !== 'object' || Array.isArray(parsed.args)) {
       throw new Error('Provider returned an invalid planner tool action.');
     }
     const args = parsed.args as Record<string, unknown>;
-    // Accept "cmd" as fallback for "command"
-    const commandValue = typeof args.command === 'string' ? args.command
-      : typeof args.cmd === 'string' ? args.cmd : '';
-    if (!commandValue.trim()) {
-      throw new Error('Provider returned an invalid planner tool action.');
+    if (toolName === 'run_repo_cmd') {
+      // Accept "cmd" as fallback for "command"
+      const commandValue = typeof args.command === 'string' ? args.command
+        : typeof args.cmd === 'string' ? args.cmd : '';
+      if (!commandValue.trim()) {
+        throw new Error('Provider returned an invalid planner tool action.');
+      }
+      return { action: 'tool', tool_name: toolName, args: { command: commandValue.trim() } };
     }
-    return { action: 'tool', tool_name: 'run_repo_cmd', args: { command: commandValue.trim() } };
+    return { action: 'tool', tool_name: toolName, args };
   }
 
   if (action === 'tool_batch') {
@@ -292,21 +301,27 @@ export function parsePlannerAction(text: string): PlannerAction {
       const toolName = String(
         toolRecord.tool_name ?? toolRecord.toolName ?? toolRecord.tool ?? toolRecord.name ?? '',
       ).trim().toLowerCase();
-      if (toolName !== 'run_repo_cmd') {
+      if (!allowedToolNameSet.has(toolName)) {
         throw new Error('Provider returned an invalid planner tool batch action.');
       }
       if (!toolRecord.args || typeof toolRecord.args !== 'object' || Array.isArray(toolRecord.args)) {
         throw new Error('Provider returned an invalid planner tool batch action.');
       }
       const args = toolRecord.args as Record<string, unknown>;
-      const commandValue = typeof args.command === 'string' ? args.command
-        : typeof args.cmd === 'string' ? args.cmd : '';
-      if (!commandValue.trim()) {
-        throw new Error('Provider returned an invalid planner tool batch action.');
+      if (toolName === 'run_repo_cmd') {
+        const commandValue = typeof args.command === 'string' ? args.command
+          : typeof args.cmd === 'string' ? args.cmd : '';
+        if (!commandValue.trim()) {
+          throw new Error('Provider returned an invalid planner tool batch action.');
+        }
+        return {
+          tool_name: toolName,
+          args: { command: commandValue.trim() },
+        };
       }
       return {
-        tool_name: 'run_repo_cmd' as const,
-        args: { command: commandValue.trim() },
+        tool_name: toolName,
+        args,
       };
     });
     return {
@@ -352,8 +367,12 @@ export type PlannerRequestOptions = {
   logger?: JsonLogger | null;
   /** Override stage name for logging (default: 'planner_action'). */
   stage?: string;
-  /** Override the grammar (default: plannerGrammar()). Pass null to omit. */
-  grammar?: string | null;
+  /** Override the response schema. Pass null to omit response_format. */
+  responseSchema?: Record<string, unknown> | null;
+  /** Override the response-format schema name. */
+  responseSchemaName?: string;
+  /** Available tools for planner_action stage. */
+  toolDefinitions?: StructuredOutputToolDefinition[];
   /** Extra fields merged into the request body. */
   extraBody?: Record<string, unknown>;
 };
@@ -393,8 +412,25 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
   }
 
   const stage = options.stage || 'planner_action';
-  const grammar = options.grammar === undefined ? plannerGrammar() : options.grammar;
-  const includeTools = stage === 'planner_action' && !grammar;
+  const toolDefinitions = Array.isArray(options.toolDefinitions) && options.toolDefinitions.length > 0
+    ? options.toolDefinitions
+    : TOOL_DEFINITIONS;
+  const allowedToolNames = new Set<string>(toolDefinitions.map((toolDefinition) => toolDefinition.function.name));
+  const includeTools = stage === 'planner_action' && toolDefinitions.length > 0;
+  const defaultResponseSchema = stage === 'planner_action'
+    ? buildRepoSearchPlannerActionJsonSchema({ toolDefinitions })
+    : stage === 'finish_validation'
+      ? buildFinishValidationJsonSchema()
+      : null;
+  const responseSchema = options.responseSchema === undefined
+    ? defaultResponseSchema
+    : options.responseSchema;
+  const responseFormat = responseSchema === null
+    ? null
+    : buildLlamaJsonSchemaResponseFormat({
+      name: options.responseSchemaName || (stage === 'finish_validation' ? 'siftkit_finish_validation' : 'siftkit_repo_search_planner_action'),
+      schema: responseSchema,
+    });
 
   const bodyObj: Record<string, unknown> = {
     model: options.model,
@@ -404,9 +440,9 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
     temperature: 0.1,
     top_p: 0.95,
     max_tokens: options.requestMaxTokens,
-    ...(includeTools ? { tools: TOOL_DEFINITIONS, parallel_tool_calls: true } : {}),
-    chat_template_kwargs: { enable_thinking: !grammar && Boolean(options.thinkingEnabled) },
-    ...(grammar ? { grammar } : {}),
+    ...(includeTools ? { tools: toolDefinitions, parallel_tool_calls: true } : {}),
+    chat_template_kwargs: { enable_thinking: !responseFormat && Boolean(options.thinkingEnabled) },
+    ...(responseFormat ? { response_format: responseFormat } : {}),
     ...options.extraBody,
     ...(options.stream ? { stream: true } : {}),
   };
@@ -490,7 +526,7 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
 
   const firstChoice = (response.body?.choices?.[0] || {}) as Record<string, unknown>;
   const { text: rawChoiceText, thinkingText } = extractChoiceContent(firstChoice);
-  const synthesized = actionFromToolCall(firstChoice);
+  const synthesized = actionFromToolCall(firstChoice, allowedToolNames);
   const promptUsage = getPromptUsageFromResponseBody(response.body);
   const completionUsage = getCompletionUsageFromResponseBody(response.body);
   // Prefer raw content text (may include reasoning field); fall back to synthesized tool-call action
@@ -517,6 +553,10 @@ function requestStreaming(
   bodyJson: string,
   stage: string,
 ): Promise<PlannerActionResponse> {
+  const toolDefinitions = Array.isArray(options.toolDefinitions) && options.toolDefinitions.length > 0
+    ? options.toolDefinitions
+    : TOOL_DEFINITIONS;
+  const allowedToolNames = new Set<string>(toolDefinitions.map((toolDefinition) => toolDefinition.function.name));
   const target = new URL(`${options.baseUrl.replace(/\/$/u, '')}/v1/chat/completions`);
   const transport = target.protocol === 'https:' ? https : http;
 
@@ -625,7 +665,7 @@ function requestStreaming(
               name: toolCall?.name,
               arguments: toolCall?.arguments,
             },
-          }))
+          }, allowedToolNames))
           .filter(Boolean) as ToolAction[];
         if (parsedToolCalls.length === 1) {
           synthesized = JSON.stringify(parsedToolCalls[0]);
@@ -703,7 +743,9 @@ export async function requestFinishValidation(options: {
     mockResponseIndex: options.mockResponseIndex,
     logger: options.logger,
     stage: 'finish_validation',
-    grammar: finishValidationGrammar(),
+    responseSchema: buildFinishValidationJsonSchema(),
+    responseSchemaName: 'siftkit_finish_validation',
+    toolDefinitions: [],
   });
 }
 
@@ -750,7 +792,8 @@ export async function requestTerminalSynthesis(options: {
     mockResponseIndex: options.mockResponseIndex,
     logger: options.logger,
     stage: 'terminal_synthesis',
-    grammar: null,
+    responseSchema: null,
+    toolDefinitions: [],
   });
 }
 

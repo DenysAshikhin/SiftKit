@@ -401,8 +401,10 @@ test('summary below planner threshold runs one-shot with forced non-thinking', a
         enable_thinking: false,
       });
       assert.equal(server.state.chatRequests[0].extra_body.reasoning_budget, 0);
-      assert.match(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /classification/u);
-      assert.doesNotMatch(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /tool_name/u);
+      const firstResponseFormatText = JSON.stringify(server.state.chatRequests[0]?.response_format || {});
+      assert.equal(server.state.chatRequests[0]?.response_format?.type, 'json_schema');
+      assert.match(firstResponseFormatText, /classification/u);
+      assert.doesNotMatch(firstResponseFormatText, /tool_name/u);
     });
   });
 });
@@ -436,10 +438,11 @@ test('summary above planner threshold uses planner flow without forced non-think
         enable_thinking: false,
       });
       assert.deepEqual(server.state.chatRequests[0].extra_body.reasoning_budget, 0);
-      assert.match(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /tool_name/u);
+      const firstResponseFormatText = JSON.stringify(server.state.chatRequests[0]?.response_format || {});
+      assert.match(firstResponseFormatText, /tool_name/u);
     }, {
       assistantContent(promptText, parsed) {
-        if (String(parsed?.extra_body?.grammar || '').includes('tool_name')) {
+        if (JSON.stringify(parsed?.response_format || {}).includes('tool_name')) {
           return JSON.stringify({
             action: 'finish',
             classification: 'summary',
@@ -530,7 +533,7 @@ test('oversized transition extraction uses planner action grammar before returni
 
       const firstRequest = server.state.chatRequests[0];
       const firstPrompt = getChatRequestText(firstRequest);
-      assert.match(String(firstRequest?.extra_body?.grammar || ''), /action/u);
+      assert.match(JSON.stringify(firstRequest?.response_format || {}), /action/u);
       assert.match(firstPrompt, /Planner mode:/u);
       assert.match(firstPrompt, /Tools:/u);
       assert.match(firstPrompt, /find_text/u);
@@ -1831,7 +1834,7 @@ test('planner activates once input exceeds 75 percent of context length even bef
       assert.equal(result.Classification, 'summary');
       assert.equal(result.Summary, 'planner activated before chunk threshold');
       assert.equal(server.state.chatRequests.length, 1);
-      assert.match(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /action/u);
+      assert.match(JSON.stringify(server.state.chatRequests[0]?.response_format || {}), /action/u);
       assert.equal(
         /Planner mode:/u.test(getChatRequestText(server.state.chatRequests[0])),
         true,
@@ -2012,7 +2015,7 @@ test('planner fails fast when the next planner turn would exceed non-thinking he
         /Planner mode failed: planner_headroom_exceeded/u,
       );
       assert.equal(servedPlannerToolCall, true);
-      assert.match(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /action/u);
+      assert.match(JSON.stringify(server.state.chatRequests[0]?.response_format || {}), /action/u);
       assert.equal(
         server.state.chatRequests.some((request) => /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(getChatRequestText(request))),
         false,
@@ -2196,7 +2199,7 @@ test('planner fails fast when the planner response body is empty', async () => {
         /Planner mode failed: llama\.cpp did not return a response body\./u,
       );
       assert.equal(server.state.chatRequests.length, 1);
-      assert.match(String(server.state.chatRequests[0]?.extra_body?.grammar || ''), /action/u);
+      assert.match(JSON.stringify(server.state.chatRequests[0]?.response_format || {}), /action/u);
       assert.equal(
         server.state.chatRequests.some((request) => /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(getChatRequestText(request))),
         false,
