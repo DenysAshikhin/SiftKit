@@ -6,6 +6,7 @@
   --ink-dim: #9eb4c9;
   --accent: #32c2a3;
   --accent-warn: #ffb86c;
+  --accent-danger: #ff7b72;
   --stroke: #2f435a;
 }
 
@@ -181,6 +182,12 @@ button {
   margin-bottom: 10px;
 }
 
+.run-filter-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
 .filter-pill-row {
   display: flex;
   flex-wrap: wrap;
@@ -206,6 +213,11 @@ button {
   box-shadow: inset 0 0 0 1px currentColor;
 }
 
+.filter-pill.kind.all {
+  border-color: #6b829a;
+  color: #d8e6f5;
+}
+
 .filter-pill.kind.summary {
   border-color: #4f86b5;
   color: #9cd6ff;
@@ -214,6 +226,21 @@ button {
 .filter-pill.kind.repo_search {
   border-color: #7f66b8;
   color: #d0b8ff;
+}
+
+.filter-pill.kind.planner {
+  border-color: #5f9f7a;
+  color: #a8f0c8;
+}
+
+.filter-pill.kind.chat {
+  border-color: #6f72c8;
+  color: #c8c9ff;
+}
+
+.filter-pill.kind.other {
+  border-color: #6680a2;
+  color: #c0d2ea;
 }
 
 .filter-pill.status.completed {
@@ -1082,10 +1109,17 @@ pre {
   gap: 12px;
 }
 
-.settings-preset-card-grid label {
+.settings-preset-card-grid > label {
   display: grid;
   gap: 8px;
   min-width: 0;
+}
+
+.settings-preset-card-grid input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  justify-self: start;
 }
 
 .settings-preset-card-wide {
@@ -1098,34 +1132,112 @@ pre {
   gap: 8px;
 }
 
-.settings-preset-tools {
-  position: relative;
+.settings-preset-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
 }
 
-.settings-preset-tools-trigger {
-  width: 100%;
-  text-align: left;
-}
-
-.settings-preset-tools-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  right: 0;
-  z-index: 5;
+.settings-preset-mode-card {
   display: grid;
   gap: 8px;
   padding: 10px 12px;
+  border: 1px solid #2a445a;
+  border-radius: 10px;
+  background: #0c1722;
+  min-width: 0;
+}
+
+.settings-preset-mode-title {
+  font-weight: 600;
+  text-transform: capitalize;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-preset-tools-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 4px 14px;
+  padding: 10px 12px;
   border: 1px solid #2f4e67;
-  border-radius: 12px;
+  border-radius: 10px;
   background: #102030;
-  box-shadow: 0 12px 24px #00000044;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.settings-preset-tools-list.compact {
+  grid-template-columns: 1fr;
+  max-height: 240px;
 }
 
 .settings-preset-tools-option {
-  display: flex;
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 8px;
   align-items: center;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 6px;
+}
+
+.settings-preset-tools-option:hover {
+  background: #163047;
+}
+
+.settings-preset-tools-option input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  flex: none;
+}
+
+.settings-preset-tools-option > span.settings-preset-tools-option-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.settings-preset-tools-option-popover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  width: 280px;
+  max-width: 90vw;
+  border: 1px solid #40647f;
+  border-radius: 12px;
+  background: #102131f5;
+  color: var(--ink);
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: 0 12px 28px #00000055;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 140ms ease, transform 140ms ease;
+  z-index: 20;
+  white-space: normal;
+}
+
+.settings-preset-tools-option:hover .settings-preset-tools-option-popover,
+.settings-preset-tools-option:focus-within .settings-preset-tools-option-popover {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.settings-preset-tools-option-popover strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #b8e7ff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
 }
 
 .settings-live-actionbar {
@@ -1169,6 +1281,107 @@ pre {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.run-delete-modal {
+  width: min(640px, 100%);
+  border: 1px solid #6f3f46;
+  border-radius: 18px;
+  background:
+    radial-gradient(120% 120% at 0% 0%, #51303266 0%, transparent 55%),
+    linear-gradient(180deg, #182738f7 0%, #12202ef7 100%);
+  box-shadow: 0 24px 56px #00000075;
+  padding: 20px;
+}
+
+.run-delete-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.run-delete-header h2 {
+  margin: 0 0 6px;
+}
+
+.run-delete-close {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 999px;
+  color: var(--ink-dim);
+}
+
+.run-delete-mode-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.run-delete-mode-row button.active {
+  border-color: var(--accent-danger);
+  box-shadow: inset 0 0 0 1px var(--accent-danger);
+  color: #ffd0c8;
+}
+
+.run-delete-fields {
+  margin-top: 14px;
+}
+
+.run-delete-fields label {
+  display: grid;
+  gap: 6px;
+}
+
+.run-delete-fields span {
+  font-size: 0.9rem;
+  color: var(--ink-dim);
+}
+
+.run-delete-preview {
+  margin-top: 16px;
+  display: grid;
+  gap: 6px;
+  border: 1px solid #5d4550;
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: #101b27;
+}
+
+.run-delete-preview.ready {
+  border-color: #8d5b5b;
+  box-shadow: inset 0 0 0 1px #8d5b5b44;
+}
+
+.run-delete-preview.empty {
+  border-color: #4a5a6c;
+}
+
+.run-delete-modal-actions {
+  margin-top: 18px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.run-delete-button,
+.danger-button {
+  border-color: #8d4b53;
+  background: linear-gradient(180deg, #3a2028 0%, #28161c 100%);
+  color: #ffd7d2;
+  box-shadow: inset 0 0 0 1px #c86d7a22;
+}
+
+.run-delete-button {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.danger-button:disabled,
+.run-delete-button:disabled {
+  opacity: 0.65;
 }
 
 .plan-root-row {
@@ -1728,6 +1941,10 @@ button:hover {
   }
 
   .settings-preset-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-preset-mode-grid {
     grid-template-columns: 1fr;
   }
 

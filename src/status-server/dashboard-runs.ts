@@ -341,6 +341,18 @@ type RunLogKind =
   | 'plan'
   | 'unknown';
 type RunLogGroup = 'summary' | 'repo_search' | 'planner' | 'chat' | 'other';
+export type DashboardRunLogType = 'all' | RunLogGroup;
+export type DashboardRunLogDeleteCriteria =
+  | {
+    mode: 'count';
+    type: DashboardRunLogType;
+    count: number;
+  }
+  | {
+    mode: 'before_date';
+    type: DashboardRunLogType;
+    beforeDate: string;
+  };
 
 type RunLogUpsertRow = {
   runId: string;
@@ -373,6 +385,14 @@ type RunLogUpsertRow = {
 
 function normalizeSearchToken(value: string | undefined): string {
   return String(value || '').trim().toLowerCase();
+}
+
+function isRunLogGroup(value: string): value is RunLogGroup {
+  return value === 'summary'
+    || value === 'repo_search'
+    || value === 'planner'
+    || value === 'chat'
+    || value === 'other';
 }
 
 function toNonNegativeInteger(value: unknown): number | null {
@@ -732,7 +752,7 @@ export function queryDashboardRunsFromDb(
       const whereClauses: string[] = [];
       const params: string[] = [];
       if (kind) {
-        whereClauses.push('lower(run_kind) = ?');
+        whereClauses.push(isRunLogGroup(kind) ? 'lower(run_group) = ?' : 'lower(run_kind) = ?');
         params.push(kind);
       }
       if (status) {
@@ -753,6 +773,71 @@ export function queryDashboardRunsFromDb(
       `).all(...params) as Dict[];
     })();
   return rows.map((row) => normalizeRunRecordFromDbRow(row));
+}
+
+function buildRunLogTypeWhereClause(type: DashboardRunLogType): { clause: string; params: string[] } {
+  if (type === 'all') {
+    return { clause: '', params: [] };
+  }
+  return {
+    clause: 'WHERE run_group = ?',
+    params: [type],
+  };
+}
+
+function buildRunLogTimestampSql(): string {
+  return `COALESCE(started_at_utc, finished_at_utc, flushed_at_utc, '1970-01-01T00:00:00.000Z')`;
+}
+
+function listRunLogIdsForDeletion(database: DatabaseInstance, criteria: DashboardRunLogDeleteCriteria): string[] {
+  ensureRunLogsTable(database);
+  const { clause, params } = buildRunLogTypeWhereClause(criteria.type);
+  if (criteria.mode === 'count') {
+    return database.prepare(`
+      SELECT run_id
+      FROM run_logs
+      ${clause}
+      ORDER BY ${buildRunLogTimestampSql()} ASC, id ASC
+      LIMIT ?
+    `).all(...params, criteria.count).map((row) => String((row as Dict).run_id || ''));
+  }
+  return database.prepare(`
+    SELECT run_id
+    FROM run_logs
+    ${clause ? `${clause} AND ` : 'WHERE '}${buildRunLogTimestampSql()} < ?
+    ORDER BY ${buildRunLogTimestampSql()} ASC, id ASC
+  `).all(...params, `${criteria.beforeDate}T00:00:00.000Z`).map((row) => String((row as Dict).run_id || ''));
+}
+
+export function previewDashboardRunLogDeletion(
+  database: DatabaseInstance,
+  criteria: DashboardRunLogDeleteCriteria,
+): { matchCount: number } {
+  return {
+    matchCount: listRunLogIdsForDeletion(database, criteria).length,
+  };
+}
+
+export function deleteDashboardRunLogs(
+  database: DatabaseInstance,
+  criteria: DashboardRunLogDeleteCriteria,
+): { deletedCount: number; deletedRunIds: string[] } {
+  const deletedRunIds = listRunLogIdsForDeletion(database, criteria);
+  if (deletedRunIds.length === 0) {
+    return {
+      deletedCount: 0,
+      deletedRunIds,
+    };
+  }
+  const placeholders = deletedRunIds.map(() => '?').join(', ');
+  database.prepare(`
+    DELETE FROM run_logs
+    WHERE run_id IN (${placeholders})
+  `).run(...deletedRunIds);
+  return {
+    deletedCount: deletedRunIds.length,
+    deletedRunIds,
+  };
 }
 
 export function queryDashboardRunDetailFromDb(

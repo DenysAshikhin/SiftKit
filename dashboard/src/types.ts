@@ -1,4 +1,26 @@
 export type RunStatus = 'completed' | 'failed' | 'running' | string;
+export type RunGroupFilter = '' | 'summary' | 'repo_search' | 'planner' | 'chat' | 'other';
+export type RunLogDeleteType = 'all' | Exclude<RunGroupFilter, ''>;
+export type RunLogDeleteCriteria =
+  | {
+    mode: 'count';
+    type: RunLogDeleteType;
+    count: number;
+  }
+  | {
+    mode: 'before_date';
+    type: RunLogDeleteType;
+    beforeDate: string;
+  };
+export type RunLogDeletePreviewResponse = {
+  ok: boolean;
+  matchCount: number;
+};
+export type RunLogDeleteResponse = {
+  ok: boolean;
+  deletedCount: number;
+  deletedRunIds: string[];
+};
 
 export type RunRecord = {
   id: string;

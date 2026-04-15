@@ -5,6 +5,7 @@ import {
   createPlanMessage,
   streamPlanMessage,
   createChatSession,
+  deleteRunLogs,
   deleteChatSession,
   getDashboardConfig,
   getDashboardHealth,
@@ -14,12 +15,20 @@ import {
   getMetrics,
   getRunDetail,
   getRuns,
+  previewRunLogDelete,
   restartBackend,
   streamChatMessage,
   streamRepoSearchMessage,
   updateDashboardConfig,
   updateChatSession,
 } from './api';
+import {
+  buildRunLogDeleteCriteria,
+  describeRunLogDeleteCriteria,
+  normalizeRunLogTypeFilter,
+  RUN_LOG_TYPE_PRESETS,
+  toggleRunLogTypeFilter,
+} from './run-log-admin';
 import {
   createPresetIdFromLabel,
   getDefaultWebPresetId,
@@ -33,6 +42,7 @@ import {
   getDefaultToolsForOperationMode,
   getEffectivePresetTools,
   PRESET_TOOL_OPTIONS,
+  PRESET_TOOL_DESCRIPTIONS,
   getFallbackPresetId,
   getNextPresetIdAfterDelete,
   getPresetToolsSummary,
@@ -71,14 +81,16 @@ import type {
   DashboardPreset,
   IdleSummarySnapshot,
   MetricDay,
+  RunGroupFilter,
   TaskMetricDay,
   ToolStatsByTask,
   RunDetailResponse,
+  RunLogDeleteType,
   RunRecord,
 } from './types';
 
 type TabKey = 'runs' | 'metrics' | 'chat' | 'settings';
-type RunGroupKey = 'summary' | 'chat' | 'repo_search' | 'planner' | 'other';
+type RunGroupKey = Exclude<RunGroupFilter, ''>;
 type ToastLevel = 'info' | 'warning' | 'error';
 type ToastMessage = {
   id: string;
@@ -769,13 +781,23 @@ function DashboardApp() {
   const [runsLoading, setRunsLoading] = useState(false);
   const [runsError, setRunsError] = useState<string | null>(null);
   const [search, setSearch] = useState(params.get('search') || '');
-  const [kindFilter, setKindFilter] = useState(params.get('kind') || '');
+  const [kindFilter, setKindFilter] = useState<RunGroupFilter>(normalizeRunLogTypeFilter(params.get('kind') || ''));
   const [statusFilter, setStatusFilter] = useState(params.get('status') || '');
   const [selectedRunId, setSelectedRunId] = useState(params.get('run') || '');
   const [selectedRunDetail, setSelectedRunDetail] = useState<RunDetailResponse | null>(null);
   const [repoSearchSimpleFlow, setRepoSearchSimpleFlow] = useState(true);
+  const [runsReloadToken, setRunsReloadToken] = useState(0);
   const runsSignatureRef = useRef<string>('');
   const runsLoadedRef = useRef<boolean>(false);
+  const [showRunDeleteModal, setShowRunDeleteModal] = useState(false);
+  const [runDeleteMode, setRunDeleteMode] = useState<'count' | 'before_date'>('count');
+  const [runDeleteType, setRunDeleteType] = useState<RunLogDeleteType>('all');
+  const [runDeleteCountInput, setRunDeleteCountInput] = useState('25');
+  const [runDeleteBeforeDate, setRunDeleteBeforeDate] = useState('');
+  const [runDeletePreviewCount, setRunDeletePreviewCount] = useState<number | null>(null);
+  const [runDeletePreviewBusy, setRunDeletePreviewBusy] = useState(false);
+  const [runDeleteBusy, setRunDeleteBusy] = useState(false);
+  const [runDeleteError, setRunDeleteError] = useState<string | null>(null);
 
   const [metrics, setMetrics] = useState<MetricDay[]>([]);
   const [taskMetrics, setTaskMetrics] = useState<TaskMetricDay[]>([]);
@@ -800,7 +822,6 @@ function DashboardApp() {
   const [settingsSavedAtUtc, setSettingsSavedAtUtc] = useState<string | null>(null);
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>('general');
   const [selectedSettingsPresetId, setSelectedSettingsPresetId] = useState<string | null>(null);
-  const [presetToolsMenuOpen, setPresetToolsMenuOpen] = useState(false);
   const [pendingSettingsContinuation, setPendingSettingsContinuation] = useState<DirtyContinuation | null>(null);
   const [showSettingsConfirm, setShowSettingsConfirm] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -890,6 +911,60 @@ function DashboardApp() {
       setToasts((previous) => previous.filter((toast) => toast.id !== id));
     }, 9000);
   }
+
+  function requestRunsRefresh(): void {
+    runsSignatureRef.current = '';
+    runsLoadedRef.current = false;
+    setRunsReloadToken((previous) => previous + 1);
+  }
+
+  function openRunDeleteModal(): void {
+    setRunDeleteMode('count');
+    setRunDeleteType(kindFilter || 'all');
+    setRunDeleteCountInput('25');
+    setRunDeleteBeforeDate('');
+    setRunDeletePreviewCount(null);
+    setRunDeletePreviewBusy(false);
+    setRunDeleteBusy(false);
+    setRunDeleteError(null);
+    setShowRunDeleteModal(true);
+  }
+
+  function closeRunDeleteModal(): void {
+    if (runDeleteBusy) {
+      return;
+    }
+    setShowRunDeleteModal(false);
+    setRunDeleteError(null);
+    setRunDeletePreviewBusy(false);
+  }
+
+  async function handleConfirmRunDelete(): Promise<void> {
+    if (!runDeleteCriteria || runDeleteBusy) {
+      return;
+    }
+    setRunDeleteBusy(true);
+    setRunDeleteError(null);
+    try {
+      const response = await deleteRunLogs(runDeleteCriteria);
+      const deletedIds = new Set(response.deletedRunIds);
+      if (deletedIds.size > 0) {
+        setRuns((previous) => previous.filter((run) => !deletedIds.has(run.id)));
+      }
+      if (selectedRunId && deletedIds.has(selectedRunId)) {
+        setSelectedRunId('');
+        setSelectedRunDetail(null);
+      }
+      requestRunsRefresh();
+      setShowRunDeleteModal(false);
+      enqueueToast('warning', response.deletedCount > 0 ? `${runDeleteSummary || 'Deleted logs'}.` : 'No logs matched the selected criteria.');
+    } catch (error) {
+      setRunDeleteError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRunDeleteBusy(false);
+    }
+  }
+
   const isRepoSearchRunSelected = selectedRunDetail
     ? classifyRunGroup(selectedRunDetail.run.kind) === 'repo_search'
     : false;
@@ -912,6 +987,15 @@ function DashboardApp() {
     && getDashboardConfigSignature(dashboardConfig) !== getDashboardConfigSignature(savedDashboardConfig);
   const settingsActionBusy = settingsLoading || settingsSaving || settingsRestarting;
   const settingsRestartSupported = dashboardConfig?.Backend === 'llama.cpp';
+  const runDeleteCriteria = buildRunLogDeleteCriteria({
+    mode: runDeleteMode,
+    type: runDeleteType,
+    countInput: runDeleteCountInput,
+    beforeDate: runDeleteBeforeDate,
+  });
+  const runDeleteSummary = runDeleteCriteria
+    ? describeRunLogDeleteCriteria(runDeleteCriteria, runDeletePreviewCount ?? 0)
+    : null;
 
   useEffect(() => {
     writeSearchParams({
@@ -981,7 +1065,43 @@ function DashboardApp() {
       cancelled = true;
       window.clearInterval(handle);
     };
-  }, [search, kindFilter, statusFilter]);
+  }, [search, kindFilter, statusFilter, runsReloadToken]);
+
+  useEffect(() => {
+    if (!showRunDeleteModal) {
+      return;
+    }
+    if (!runDeleteCriteria) {
+      setRunDeletePreviewCount(null);
+      setRunDeletePreviewBusy(false);
+      setRunDeleteError(null);
+      return;
+    }
+    let cancelled = false;
+    setRunDeletePreviewBusy(true);
+    setRunDeletePreviewCount(null);
+    setRunDeleteError(null);
+    void previewRunLogDelete(runDeleteCriteria)
+      .then((response) => {
+        if (!cancelled) {
+          setRunDeletePreviewCount(response.matchCount);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setRunDeletePreviewCount(null);
+          setRunDeleteError(error instanceof Error ? error.message : String(error));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setRunDeletePreviewBusy(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showRunDeleteModal, runDeleteMode, runDeleteType, runDeleteCountInput, runDeleteBeforeDate]);
 
   useEffect(() => {
     if (!selectedRunId) {
@@ -1224,7 +1344,6 @@ function DashboardApp() {
       });
     });
     setSelectedSettingsPresetId(addedPresetId);
-    setPresetToolsMenuOpen(false);
   }
 
   function onDeletePreset(presetId: string): void {
@@ -1234,7 +1353,6 @@ function DashboardApp() {
       next.Presets = next.Presets.filter((preset) => preset.id !== presetId || preset.deletable === false);
     });
     setSelectedSettingsPresetId(nextPresetId);
-    setPresetToolsMenuOpen(false);
   }
 
   useEffect(() => {
@@ -1794,6 +1912,48 @@ function DashboardApp() {
       );
     }
 
+    if (activeSettingsSection === 'tool-policy') {
+      return (
+        <div className="settings-live-grid">
+          {renderField('tool-policy', 'Operation mode tool policy', (
+            <div className="settings-preset-mode-grid">
+              {(['summary', 'read-only', 'full'] as const).map((operationMode) => (
+                <div key={operationMode} className="settings-preset-mode-card">
+                  <span className="settings-preset-mode-title">
+                    <SettingsInlineHelpLabel
+                      label={operationMode}
+                      helpText={`Globally allowed tools for ${operationMode} mode.`}
+                    />
+                  </span>
+                  <div className="settings-preset-tools-list compact">
+                    {PRESET_TOOL_OPTIONS.map((tool) => (
+                      <label key={`${operationMode}-${tool}`} className="settings-preset-tools-option" tabIndex={0}>
+                        <input
+                          type="checkbox"
+                          checked={dashboardConfig.OperationModeAllowedTools[operationMode].includes(tool)}
+                          onChange={() => updateSettingsDraft((next) => {
+                            next.OperationModeAllowedTools[operationMode] = togglePresetTool(
+                              next.OperationModeAllowedTools[operationMode],
+                              tool,
+                            );
+                          })}
+                        />
+                        <span className="settings-preset-tools-option-label">{tool}</span>
+                        <span className="settings-preset-tools-option-popover" role="tooltip">
+                          <strong>{tool}</strong>
+                          {PRESET_TOOL_DESCRIPTIONS[tool]}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      );
+    }
+
     if (activeSettingsSection === 'presets') {
       return (
         <div className="settings-live-grid">
@@ -1806,7 +1966,6 @@ function DashboardApp() {
                     value={selectedSettingsPreset?.id ?? ''}
                     onChange={(event) => {
                       setSelectedSettingsPresetId(event.target.value);
-                      setPresetToolsMenuOpen(false);
                     }}
                     disabled={dashboardConfig.Presets.length === 0}
                   >
@@ -1831,45 +1990,6 @@ function DashboardApp() {
                   </button>
                 </div>
               </div>
-              <article className="settings-preset-card">
-                <header className="settings-preset-card-header">
-                  <div>
-                    <strong>Operation Mode Tool Policy</strong>
-                    <span className="hint">Global allowlist applied before each preset whitelist.</span>
-                  </div>
-                </header>
-                <div className="settings-preset-card-grid">
-                  {(['summary', 'read-only', 'full'] as const).map((operationMode) => (
-                    <label key={operationMode} className="settings-preset-card-wide">
-                      <span className="settings-preset-inline-label">
-                        <SettingsInlineHelpLabel
-                          label={operationMode}
-                          helpText={`Globally allowed tools for ${operationMode} mode.`}
-                        />
-                      </span>
-                      <div className="settings-preset-tools">
-                        <div className="settings-preset-tools-menu">
-                          {PRESET_TOOL_OPTIONS.map((tool) => (
-                            <label key={`${operationMode}-${tool}`} className="settings-preset-tools-option">
-                              <input
-                                type="checkbox"
-                                checked={dashboardConfig.OperationModeAllowedTools[operationMode].includes(tool)}
-                                onChange={() => updateSettingsDraft((next) => {
-                                  next.OperationModeAllowedTools[operationMode] = togglePresetTool(
-                                    next.OperationModeAllowedTools[operationMode],
-                                    tool,
-                                  );
-                                })}
-                              />
-                              <span>{tool}</span>
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                    </label>
-                  ))}
-                </div>
-              </article>
               {selectedSettingsPreset ? (
                 <article className="settings-preset-card">
                   <header className="settings-preset-card-header">
@@ -1959,40 +2079,25 @@ function DashboardApp() {
                         onChange={(event) => updatePresetDraft(selectedSettingsPreset.id, (next) => { next.promptPrefix = event.target.value; })}
                       />
                     </label>
-                    <label>
+                    <label className="settings-preset-card-wide">
                       <span className="settings-preset-inline-label"><SettingsInlineHelpLabel label="Allowed tools" helpText="Tools permitted for this preset. Toggle each option directly." /></span>
-                      <div
-                        className="settings-preset-tools"
-                        onBlur={(event) => {
-                          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-                            setPresetToolsMenuOpen(false);
-                          }
-                        }}
-                      >
-                        <button
-                          type="button"
-                          className="settings-preset-tools-trigger"
-                          aria-expanded={presetToolsMenuOpen}
-                          onClick={() => setPresetToolsMenuOpen((value) => !value)}
-                        >
-                          {getPresetToolsSummary(selectedSettingsPreset.allowedTools) || 'No tools selected'}
-                        </button>
-                        {presetToolsMenuOpen ? (
-                          <div className="settings-preset-tools-menu">
-                            {PRESET_TOOL_OPTIONS.map((tool) => (
-                              <label key={tool} className="settings-preset-tools-option">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedSettingsPreset.allowedTools.includes(tool)}
-                                  onChange={() => updatePresetDraft(selectedSettingsPreset.id, (next) => {
-                                    next.allowedTools = togglePresetTool(next.allowedTools, tool);
-                                  })}
-                                />
-                                <span>{tool}</span>
-                              </label>
-                            ))}
-                          </div>
-                        ) : null}
+                      <div className="settings-preset-tools-list">
+                        {PRESET_TOOL_OPTIONS.map((tool) => (
+                          <label key={tool} className="settings-preset-tools-option" tabIndex={0}>
+                            <input
+                              type="checkbox"
+                              checked={selectedSettingsPreset.allowedTools.includes(tool)}
+                              onChange={() => updatePresetDraft(selectedSettingsPreset.id, (next) => {
+                                next.allowedTools = togglePresetTool(next.allowedTools, tool);
+                              })}
+                            />
+                            <span className="settings-preset-tools-option-label">{tool}</span>
+                            <span className="settings-preset-tools-option-popover" role="tooltip">
+                              <strong>{tool}</strong>
+                              {PRESET_TOOL_DESCRIPTIONS[tool]}
+                            </span>
+                          </label>
+                        ))}
                       </div>
                     </label>
                     <label className="settings-preset-card-wide">
@@ -2474,29 +2579,132 @@ function DashboardApp() {
         </section>
       )}
 
+      {showRunDeleteModal && (
+        <section className="settings-live-modal-backdrop" role="presentation">
+          <div className="run-delete-modal" role="dialog" aria-modal="true" aria-labelledby="run-delete-title">
+            <div className="run-delete-header">
+              <div>
+                <h2 id="run-delete-title">Delete logs</h2>
+                <p className="hint">Preview the matching logs first, then permanently remove them from the dashboard database.</p>
+              </div>
+              <button type="button" className="run-delete-close" onClick={closeRunDeleteModal} disabled={runDeleteBusy} aria-label="Close delete logs dialog">
+                x
+              </button>
+            </div>
+
+            <div className="run-delete-mode-row">
+              <button
+                type="button"
+                className={runDeleteMode === 'count' ? 'active' : ''}
+                onClick={() => setRunDeleteMode('count')}
+                disabled={runDeleteBusy}
+              >
+                Delete Oldest N
+              </button>
+              <button
+                type="button"
+                className={runDeleteMode === 'before_date' ? 'active' : ''}
+                onClick={() => setRunDeleteMode('before_date')}
+                disabled={runDeleteBusy}
+              >
+                Delete Before Date
+              </button>
+            </div>
+
+            <div className="filter-pill-row">
+              <span className="filter-pill-label">Type</span>
+              {RUN_LOG_TYPE_PRESETS.map((preset) => (
+                <button
+                  key={preset.deleteValue}
+                  type="button"
+                  className={`filter-pill kind ${preset.tone} ${runDeleteType === preset.deleteValue ? 'active' : ''}`}
+                  onClick={() => setRunDeleteType(preset.deleteValue)}
+                  disabled={runDeleteBusy}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="run-delete-fields">
+              {runDeleteMode === 'count' ? (
+                <label>
+                  <span>Delete oldest matching logs</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={runDeleteCountInput}
+                    onChange={(event) => setRunDeleteCountInput(event.target.value)}
+                    disabled={runDeleteBusy}
+                  />
+                </label>
+              ) : (
+                <label>
+                  <span>Delete logs older than</span>
+                  <input
+                    type="date"
+                    value={runDeleteBeforeDate}
+                    onChange={(event) => setRunDeleteBeforeDate(event.target.value)}
+                    disabled={runDeleteBusy}
+                  />
+                </label>
+              )}
+            </div>
+
+            <div className={`run-delete-preview ${runDeletePreviewCount === 0 ? 'empty' : 'ready'}`}>
+              <strong>{runDeleteSummary || 'Choose valid delete criteria'}</strong>
+              <span className="hint">
+                {runDeletePreviewBusy
+                  ? 'Checking matching logs...'
+                  : runDeleteCriteria && runDeletePreviewCount !== null
+                    ? `${runDeletePreviewCount} matching ${runDeletePreviewCount === 1 ? 'log' : 'logs'} found.`
+                    : 'Enter a count or date to preview the delete scope.'}
+              </span>
+            </div>
+
+            {runDeleteError && <p className="error">{runDeleteError}</p>}
+
+            <div className="run-delete-modal-actions">
+              <button type="button" onClick={closeRunDeleteModal} disabled={runDeleteBusy}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="danger-button"
+                onClick={() => { void handleConfirmRunDelete(); }}
+                disabled={runDeleteBusy || runDeletePreviewBusy || !runDeleteCriteria || runDeletePreviewCount === null || runDeletePreviewCount < 1}
+              >
+                {runDeleteBusy ? 'Deleting...' : runDeleteSummary || 'Delete Logs'}
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
       {tab === 'runs' && (
         <section className="panel-grid">
           <section className="panel">
             <div className="filters">
-              <input placeholder="Search runs" value={search} onChange={(event) => setSearch(event.target.value)} />
-              <input placeholder="Kind filter" value={kindFilter} onChange={(event) => setKindFilter(event.target.value)} />
+              <div className="run-filter-toolbar">
+                <input placeholder="Search runs" value={search} onChange={(event) => setSearch(event.target.value)} />
+                <button type="button" className="run-delete-button" onClick={openRunDeleteModal}>
+                  Delete Logs
+                </button>
+              </div>
               <input placeholder="Status filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} />
               <div className="filter-pill-row">
-                <span className="filter-pill-label">Kind</span>
-                <button
-                  type="button"
-                  className={`filter-pill kind summary ${kindFilter === 'summary' ? 'active' : ''}`}
-                  onClick={() => setKindFilter((previous) => (previous === 'summary' ? '' : 'summary'))}
-                >
-                  Summary
-                </button>
-                <button
-                  type="button"
-                  className={`filter-pill kind repo_search ${kindFilter === 'repo_search' ? 'active' : ''}`}
-                  onClick={() => setKindFilter((previous) => (previous === 'repo_search' ? '' : 'repo_search'))}
-                >
-                  Repo Search
-                </button>
+                <span className="filter-pill-label">Type</span>
+                {RUN_LOG_TYPE_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    className={`filter-pill kind ${preset.tone} ${kindFilter === preset.value ? 'active' : ''}`}
+                    onClick={() => setKindFilter((previous) => toggleRunLogTypeFilter(previous, preset.value))}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
               </div>
               <div className="filter-pill-row">
                 <span className="filter-pill-label">Status</span>

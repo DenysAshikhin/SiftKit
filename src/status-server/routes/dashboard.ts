@@ -4,7 +4,7 @@
  */
 import * as http from 'node:http';
 import * as fs from 'node:fs';
-import { sendJson } from '../http-utils.js';
+import { parseJsonBody, readBody, sendJson } from '../http-utils.js';
 import {
   queryDashboardRunsFromDb,
   queryDashboardRunDetailFromDb,
@@ -12,6 +12,10 @@ import {
   buildDashboardTaskDailyMetrics,
   buildDashboardToolStats,
   normalizeIdleSummarySnapshotRow,
+  previewDashboardRunLogDeletion,
+  deleteDashboardRunLogs,
+  type DashboardRunLogDeleteCriteria,
+  type DashboardRunLogType,
   type IdleSummarySnapshotRow,
 } from '../dashboard-runs.js';
 import { queryRecentSnapshots } from '../idle-summary.js';
@@ -46,6 +50,40 @@ import {
 } from '../../state/runtime-artifacts.js';
 import type { ServerContext } from '../server-types.js';
 import type { SiftConfig } from '../../config/index.js';
+import type { Dict } from '../../lib/types.js';
+
+function parseDashboardRunLogDeleteCriteria(body: Dict): { criteria: DashboardRunLogDeleteCriteria | null; error: string | null } {
+  const mode = String(body.mode || '').trim().toLowerCase();
+  const type = String(body.type || '').trim().toLowerCase() as DashboardRunLogType;
+  const validType = type === 'all'
+    || type === 'summary'
+    || type === 'repo_search'
+    || type === 'planner'
+    || type === 'chat'
+    || type === 'other';
+  if (!validType) {
+    return { criteria: null, error: 'Expected a valid run-log type.' };
+  }
+  if (mode === 'count') {
+    const count = Number(body.count);
+    if (!Number.isInteger(count) || count < 1) {
+      return { criteria: null, error: 'Expected count to be a positive integer.' };
+    }
+    return { criteria: { mode, type, count }, error: null };
+  }
+  if (mode === 'before_date') {
+    const beforeDate = String(body.beforeDate || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/u.test(beforeDate)) {
+      return { criteria: null, error: 'Expected beforeDate in YYYY-MM-DD format.' };
+    }
+    const parsed = Date.parse(`${beforeDate}T00:00:00.000Z`);
+    if (!Number.isFinite(parsed)) {
+      return { criteria: null, error: 'Expected a valid beforeDate.' };
+    }
+    return { criteria: { mode, type, beforeDate }, error: null };
+  }
+  return { criteria: null, error: 'Expected mode to be count or before_date.' };
+}
 
 export async function handleDashboardRoute(
   ctx: ServerContext,
@@ -115,6 +153,46 @@ export async function handleDashboardRoute(
       .map(normalizeIdleSummarySnapshotRow)
       .filter((entry): entry is IdleSummarySnapshotRow => entry !== null);
     sendJson(res, 200, { latest: snapshots[0] || null, snapshots });
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/dashboard/admin/run-logs/preview') {
+    let parsedBody: Dict;
+    try {
+      parsedBody = parseJsonBody(await readBody(req));
+    } catch {
+      sendJson(res, 400, { error: 'Expected valid JSON object.' });
+      return true;
+    }
+    const { criteria, error } = parseDashboardRunLogDeleteCriteria(parsedBody);
+    if (!criteria) {
+      sendJson(res, 400, { error: error || 'Expected valid run-log delete criteria.' });
+      return true;
+    }
+    const preview = idleSummaryDatabase
+      ? previewDashboardRunLogDeletion(idleSummaryDatabase, criteria)
+      : { matchCount: 0 };
+    sendJson(res, 200, { ok: true, ...preview });
+    return true;
+  }
+
+  if (req.method === 'DELETE' && pathname === '/dashboard/admin/run-logs') {
+    let parsedBody: Dict;
+    try {
+      parsedBody = parseJsonBody(await readBody(req));
+    } catch {
+      sendJson(res, 400, { error: 'Expected valid JSON object.' });
+      return true;
+    }
+    const { criteria, error } = parseDashboardRunLogDeleteCriteria(parsedBody);
+    if (!criteria) {
+      sendJson(res, 400, { error: error || 'Expected valid run-log delete criteria.' });
+      return true;
+    }
+    const deletion = idleSummaryDatabase
+      ? deleteDashboardRunLogs(idleSummaryDatabase, criteria)
+      : { deletedCount: 0, deletedRunIds: [] };
+    sendJson(res, 200, { ok: true, ...deletion });
     return true;
   }
 

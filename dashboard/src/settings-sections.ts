@@ -1,5 +1,6 @@
 export type SettingsSectionId =
   | 'general'
+  | 'tool-policy'
   | 'presets'
   | 'model-runtime'
   | 'sampling'
@@ -26,6 +27,7 @@ export const POLICY_MODE_OPTIONS = ['conservative', 'aggressive'] as const;
 
 export const SETTINGS_SECTION_ORDER: SettingsSectionId[] = [
   'general',
+  'tool-policy',
   'presets',
   'model-runtime',
   'sampling',
@@ -45,6 +47,15 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'Policy Mode', layout: 'quarter', helpText: 'Controls how assertive SiftKit should be. Conservative favors visible evidence and lower-risk compression; aggressive allows bolder decisions.' },
       { label: 'Raw log retention', layout: 'quarter', helpText: 'Keeps raw runtime logs and request artifacts instead of trimming them more aggressively.' },
       { label: 'Prompt prefix', layout: 'full', helpText: 'Default instruction prefix prepended to summarization and compression prompts.' },
+    ],
+  },
+  'tool-policy': {
+    id: 'tool-policy',
+    icon: 'T',
+    title: 'Tool Policy',
+    summary: 'Global per-operation-mode tool allowlist applied before each preset whitelist.',
+    fields: [
+      { label: 'Operation mode tool policy', layout: 'full', helpText: 'Globally allowed tools per operation mode. Each preset can only use tools that are also enabled here for its mode.' },
     ],
   },
   presets: {

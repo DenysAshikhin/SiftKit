@@ -5,6 +5,9 @@ import type {
   ChatSessionsResponse,
   IdleSummaryResponse,
   MetricsResponse,
+  RunLogDeleteCriteria,
+  RunLogDeletePreviewResponse,
+  RunLogDeleteResponse,
   RunDetailResponse,
   RunsResponse,
 } from './types';
@@ -46,6 +49,22 @@ export function getRuns(
 
 export function getRunDetail(id: string): Promise<RunDetailResponse> {
   return fetchJson<RunDetailResponse>(`/dashboard/runs/${encodeURIComponent(id)}`);
+}
+
+export function previewRunLogDelete(criteria: RunLogDeleteCriteria): Promise<RunLogDeletePreviewResponse> {
+  return fetchJson<RunLogDeletePreviewResponse>('/dashboard/admin/run-logs/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(criteria),
+  });
+}
+
+export function deleteRunLogs(criteria: RunLogDeleteCriteria): Promise<RunLogDeleteResponse> {
+  return fetchJson<RunLogDeleteResponse>('/dashboard/admin/run-logs', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(criteria),
+  });
 }
 
 export function getMetrics(): Promise<MetricsResponse> {
