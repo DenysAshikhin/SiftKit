@@ -132,6 +132,8 @@ export async function runPresetCli(options: {
       : preset.thinkingInterval ?? undefined,
     logFile: parsed.logFile,
     allowedTools: effectiveAllowedTools,
+    includeAgentsMd: preset.includeAgentsMd,
+    includeRepoFileListing: preset.includeRepoFileListing,
   });
   const output = preset.presetKind === 'plan'
     ? buildPlanMarkdownFromRepoSearch(prompt, repoRoot, result.scorecard as Record<string, unknown>)

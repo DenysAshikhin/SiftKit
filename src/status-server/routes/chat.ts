@@ -243,11 +243,10 @@ export async function handleChatRoute(
   // -------------------------------------------------------------------------
 
   if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/messages$/u.test(pathname)) {
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat');
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/messages$/u, ''));
-    const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+    const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
+    const session = readChatSessionFromPath(sessionPath);
     if (!session) {
-      releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
@@ -255,13 +254,21 @@ export async function handleChatRoute(
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
-      releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
     if (typeof parsedBody.content !== 'string' || !(parsedBody.content as string).trim()) {
-      releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 400, { error: 'Expected content.' });
+      return true;
+    }
+    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat', req, res);
+    if (!modelRequestLock) {
+      return true;
+    }
+    const activeSession = readChatSessionFromPath(sessionPath);
+    if (!activeSession) {
+      releaseModelRequest(ctx, modelRequestLock.token);
+      sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
     const userContent = (parsedBody.content as string).trim();
@@ -288,8 +295,8 @@ export async function handleChatRoute(
         await ensureManagedLlamaReadyForModelRequest(ctx);
         const config = readConfig(configPath);
         const presets = normalizePresets(config.Presets);
-        const preset = findPresetById(presets, session.presetId);
-        const generated = await generateChatAssistantMessage(config, session, userContent, {
+        const preset = findPresetById(presets, activeSession.presetId);
+        const generated = await generateChatAssistantMessage(config, activeSession, userContent, {
           promptPrefix: preset?.promptPrefix || undefined,
         });
         assistantContent = generated.assistantContent;
@@ -314,7 +321,7 @@ export async function handleChatRoute(
       } catch {
         // Best-effort metrics notification.
       }
-      const updatedSession = appendChatMessagesWithUsage(runtimeRoot, session, userContent, assistantContent, usage, thinkingContent);
+      const updatedSession = appendChatMessagesWithUsage(runtimeRoot, activeSession, userContent, assistantContent, usage, thinkingContent);
       sendJson(res, 200, { session: updatedSession, contextUsage: buildContextUsage(updatedSession) });
     } catch (error) {
       try {
@@ -343,11 +350,10 @@ export async function handleChatRoute(
   // -------------------------------------------------------------------------
 
   if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/messages\/stream$/u.test(pathname)) {
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat_stream');
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/messages\/stream$/u, ''));
-    const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+    const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
+    const session = readChatSessionFromPath(sessionPath);
     if (!session) {
-      releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
@@ -355,13 +361,21 @@ export async function handleChatRoute(
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
-      releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
     if (typeof parsedBody.content !== 'string' || !(parsedBody.content as string).trim()) {
-      releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 400, { error: 'Expected content.' });
+      return true;
+    }
+    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat_stream', req, res);
+    if (!modelRequestLock) {
+      return true;
+    }
+    const activeSession = readChatSessionFromPath(sessionPath);
+    if (!activeSession) {
+      releaseModelRequest(ctx, modelRequestLock.token);
+      sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
     let clientDisconnected = false;
@@ -392,8 +406,8 @@ export async function handleChatRoute(
       await ensureManagedLlamaReadyForModelRequest(ctx);
       const config = readConfig(configPath);
       const presets = normalizePresets(config.Presets);
-      const preset = findPresetById(presets, session.presetId);
-      const generated = await streamChatAssistantMessage(config, session, userContent, (progress) => {
+      const preset = findPresetById(presets, activeSession.presetId);
+      const generated = await streamChatAssistantMessage(config, activeSession, userContent, (progress) => {
         writeSse('thinking', { thinking: progress.thinkingContent });
         writeSse('answer', { answer: progress.assistantContent });
       }, {
@@ -417,7 +431,7 @@ export async function handleChatRoute(
       } catch {
         // Best-effort metrics notification.
       }
-      const updatedSession = appendChatMessagesWithUsage(runtimeRoot, session, userContent, generated.assistantContent, generated.usage, generated.thinkingContent);
+      const updatedSession = appendChatMessagesWithUsage(runtimeRoot, activeSession, userContent, generated.assistantContent, generated.usage, generated.thinkingContent);
       writeSse('done', { session: updatedSession, contextUsage: buildContextUsage(updatedSession) });
     } catch (error) {
       try {
@@ -447,11 +461,10 @@ export async function handleChatRoute(
   // -------------------------------------------------------------------------
 
   if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/plan$/u.test(pathname)) {
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_plan');
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/plan$/u, ''));
-    const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+    const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
+    const session = readChatSessionFromPath(sessionPath);
     if (!session) {
-      releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
@@ -459,12 +472,10 @@ export async function handleChatRoute(
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
-      releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
     if (typeof parsedBody.content !== 'string' || !(parsedBody.content as string).trim()) {
-      releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 400, { error: 'Expected content.' });
       return true;
     }
@@ -473,8 +484,17 @@ export async function handleChatRoute(
       : (typeof session.planRepoRoot === 'string' && (session.planRepoRoot as string).trim() ? (session.planRepoRoot as string).trim() : process.cwd());
     const resolvedRepoRoot = path.resolve(requestedRepoRoot);
     if (!fs.existsSync(resolvedRepoRoot) || !fs.statSync(resolvedRepoRoot).isDirectory()) {
-      releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
+      return true;
+    }
+    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_plan', req, res);
+    if (!modelRequestLock) {
+      return true;
+    }
+    const activeSession = readChatSessionFromPath(sessionPath);
+    if (!activeSession) {
+      releaseModelRequest(ctx, modelRequestLock.token);
+      sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
     try {
@@ -483,7 +503,7 @@ export async function handleChatRoute(
       const content = (parsedBody.content as string).trim();
       const config = readConfig(configPath);
       const presets = normalizePresets(config.Presets);
-      const preset = findPresetById(presets, session.presetId || 'plan');
+      const preset = findPresetById(presets, activeSession.presetId || 'plan');
       const result = await executeRepoSearchRequest({
         taskKind: 'plan',
         prompt: buildPlanRequestPrompt(content),
@@ -492,6 +512,8 @@ export async function handleChatRoute(
         config,
         promptPrefix: preset?.promptPrefix || '',
         allowedTools: getEffectivePresetAllowedTools(config, preset),
+        includeAgentsMd: preset?.includeAgentsMd !== false,
+        includeRepoFileListing: preset?.includeRepoFileListing !== false,
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         requestMaxTokens: 10000,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
@@ -511,7 +533,7 @@ export async function handleChatRoute(
       const toolContextContents = buildToolContextFromRepoSearchResult(result);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
-        { ...session, presetId: session.presetId || 'plan', mode: 'plan', planRepoRoot: resolvedRepoRoot },
+        { ...activeSession, presetId: activeSession.presetId || 'plan', mode: 'plan', planRepoRoot: resolvedRepoRoot },
         content,
         assistantContent,
         {
@@ -545,11 +567,10 @@ export async function handleChatRoute(
   // -------------------------------------------------------------------------
 
   if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/plan\/stream$/u.test(pathname)) {
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_plan_stream');
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/plan\/stream$/u, ''));
-    const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+    const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
+    const session = readChatSessionFromPath(sessionPath);
     if (!session) {
-      releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
@@ -557,12 +578,10 @@ export async function handleChatRoute(
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
-      releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
     if (typeof parsedBody.content !== 'string' || !(parsedBody.content as string).trim()) {
-      releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 400, { error: 'Expected content.' });
       return true;
     }
@@ -571,8 +590,17 @@ export async function handleChatRoute(
       : (typeof session.planRepoRoot === 'string' && (session.planRepoRoot as string).trim() ? (session.planRepoRoot as string).trim() : process.cwd());
     const resolvedRepoRoot = path.resolve(requestedRepoRoot);
     if (!fs.existsSync(resolvedRepoRoot) || !fs.statSync(resolvedRepoRoot).isDirectory()) {
-      releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
+      return true;
+    }
+    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_plan_stream', req, res);
+    if (!modelRequestLock) {
+      return true;
+    }
+    const activeSession = readChatSessionFromPath(sessionPath);
+    if (!activeSession) {
+      releaseModelRequest(ctx, modelRequestLock.token);
+      sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
     let clientDisconnected = false;
@@ -592,7 +620,7 @@ export async function handleChatRoute(
       const content = (parsedBody.content as string).trim();
       const config = readConfig(configPath);
       const presets = normalizePresets(config.Presets);
-      const preset = findPresetById(presets, session.presetId || 'plan');
+      const preset = findPresetById(presets, activeSession.presetId || 'plan');
       const result = await executeRepoSearchRequest({
         taskKind: 'plan',
         prompt: buildPlanRequestPrompt(content),
@@ -601,6 +629,8 @@ export async function handleChatRoute(
         config,
         promptPrefix: preset?.promptPrefix || '',
         allowedTools: getEffectivePresetAllowedTools(config, preset),
+        includeAgentsMd: preset?.includeAgentsMd !== false,
+        includeRepoFileListing: preset?.includeRepoFileListing !== false,
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         requestMaxTokens: 10000,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
@@ -641,7 +671,7 @@ export async function handleChatRoute(
       const toolContextContents = buildToolContextFromRepoSearchResult(result);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
-        { ...session, presetId: session.presetId || 'plan', mode: 'plan', planRepoRoot: resolvedRepoRoot },
+        { ...activeSession, presetId: activeSession.presetId || 'plan', mode: 'plan', planRepoRoot: resolvedRepoRoot },
         content,
         assistantContent,
         {
@@ -676,11 +706,10 @@ export async function handleChatRoute(
   // -------------------------------------------------------------------------
 
   if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/repo-search\/stream$/u.test(pathname)) {
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_repo_search_stream');
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/repo-search\/stream$/u, ''));
-    const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+    const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
+    const session = readChatSessionFromPath(sessionPath);
     if (!session) {
-      releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
@@ -688,12 +717,10 @@ export async function handleChatRoute(
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
-      releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
     if (typeof parsedBody.content !== 'string' || !(parsedBody.content as string).trim()) {
-      releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 400, { error: 'Expected content.' });
       return true;
     }
@@ -702,8 +729,17 @@ export async function handleChatRoute(
       : (typeof session.planRepoRoot === 'string' && (session.planRepoRoot as string).trim() ? (session.planRepoRoot as string).trim() : process.cwd());
     const resolvedRepoRoot = path.resolve(requestedRepoRoot);
     if (!fs.existsSync(resolvedRepoRoot) || !fs.statSync(resolvedRepoRoot).isDirectory()) {
-      releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
+      return true;
+    }
+    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_repo_search_stream', req, res);
+    if (!modelRequestLock) {
+      return true;
+    }
+    const activeSession = readChatSessionFromPath(sessionPath);
+    if (!activeSession) {
+      releaseModelRequest(ctx, modelRequestLock.token);
+      sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
     let clientDisconnected = false;
@@ -723,7 +759,7 @@ export async function handleChatRoute(
       const content = (parsedBody.content as string).trim();
       const config = readConfig(configPath);
       const presets = normalizePresets(config.Presets);
-      const preset = findPresetById(presets, session.presetId || 'repo-search');
+      const preset = findPresetById(presets, activeSession.presetId || 'repo-search');
       const result = await executeRepoSearchRequest({
         taskKind: 'repo-search',
         prompt: content,
@@ -732,6 +768,8 @@ export async function handleChatRoute(
         config,
         promptPrefix: preset?.promptPrefix || '',
         allowedTools: getEffectivePresetAllowedTools(config, preset),
+        includeAgentsMd: preset?.includeAgentsMd !== false,
+        includeRepoFileListing: preset?.includeRepoFileListing !== false,
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         requestMaxTokens: 10000,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
@@ -768,7 +806,7 @@ export async function handleChatRoute(
       const toolContextContents = buildToolContextFromRepoSearchResult(result);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
-        { ...session, presetId: session.presetId || 'repo-search', mode: 'repo-search', planRepoRoot: resolvedRepoRoot },
+        { ...activeSession, presetId: activeSession.presetId || 'repo-search', mode: 'repo-search', planRepoRoot: resolvedRepoRoot },
         content,
         assistantContent,
         {

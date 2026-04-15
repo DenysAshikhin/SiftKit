@@ -151,6 +151,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     activeRunsByRequestId: new Map(),
     activeRequestIdByStatusPath: new Map(),
     activeModelRequest: null,
+    modelRequestQueue: [],
     activeExecutionLease: null,
     pendingIdleSummaryMetadata: {
       inputCharactersPerContextToken: null,

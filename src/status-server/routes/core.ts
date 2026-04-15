@@ -236,18 +236,19 @@ export async function handleCoreRoute(
   // -------------------------------------------------------------------------
 
   if (req.method === 'POST' && req.url === '/repo-search') {
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'repo_search');
     let parsedBody: Dict;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
-      releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
     if (typeof parsedBody.prompt !== 'string' || !(parsedBody.prompt as string).trim()) {
-      releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 400, { error: 'Expected prompt.' });
+      return true;
+    }
+    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'repo_search', req, res);
+    if (!modelRequestLock) {
       return true;
     }
     if (Number.isFinite(Number(parsedBody.simulateWorkMs)) && Number(parsedBody.simulateWorkMs) > 0) {

@@ -156,6 +156,58 @@ function requestSse(url: string, options: RequestOptions = {}): Promise<SseRespo
   });
 }
 
+function fireAndAbortJsonRequest(url: string, body: string, abortAfterMs: number = 100): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    let settled = false;
+    let timer: NodeJS.Timeout | null = null;
+    const finish = (error?: unknown): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      if (!error) {
+        resolve();
+        return;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      if (/aborted|hang up|econnreset/iu.test(message)) {
+        resolve();
+        return;
+      }
+      reject(error);
+    };
+    const request = http.request(
+      {
+        protocol: target.protocol,
+        hostname: target.hostname,
+        port: target.port,
+        path: `${target.pathname}${target.search}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body, 'utf8'),
+        },
+      },
+      (response) => {
+        response.resume();
+        finish();
+      },
+    );
+    request.on('error', (error) => finish(error));
+    request.write(body);
+    request.end();
+    timer = setTimeout(() => {
+      request.destroy(new Error('client aborted request'));
+      finish();
+    }, Math.max(1, Math.trunc(abortAfterMs)));
+  });
+}
+
 function writeJson(targetPath: string, payload: unknown): void {
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   fs.writeFileSync(targetPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
@@ -752,6 +804,263 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
     assert.equal(blockedChat.statusCode, 200);
     assert.equal(blockedChatElapsedMs >= 1000, true);
 
+    await delayedRepoSearch;
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
+test('model routes execute in FIFO order across mixed request kinds', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-fifo-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'FIFO session',
+        model: 'Qwen3.5-9B-Q8_0.gguf',
+      }),
+    });
+    const sessionId = String(d(createSession.body.session).id);
+    const completionOrder: string[] = [];
+
+    const delayedRepoSearch = requestJson(`${baseUrl}/repo-search`, {
+      method: 'POST',
+      timeoutMs: 15000,
+      body: JSON.stringify({
+        prompt: 'hold lock',
+        repoRoot: process.cwd(),
+        model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+        maxTurns: 1,
+        simulateWorkMs: 800,
+        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        mockResponses: [
+          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"x\\" src"}}',
+          '{"action":"finish","output":"done","confidence":0.9}',
+        ],
+        mockCommandResults: {
+          'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 1200 },
+        },
+      }),
+    });
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    const queuedB = requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
+      method: 'POST',
+      timeoutMs: 15000,
+      body: JSON.stringify({
+        content: 'fifo-b',
+        assistantContent: 'assistant-b',
+      }),
+    }).then((response) => {
+      completionOrder.push('b');
+      return response;
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    const queuedC = requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
+      method: 'POST',
+      timeoutMs: 15000,
+      body: JSON.stringify({
+        content: 'fifo-c',
+        assistantContent: 'assistant-c',
+      }),
+    }).then((response) => {
+      completionOrder.push('c');
+      return response;
+    });
+
+    const [repoResult, bResult, cResult] = await Promise.all([delayedRepoSearch, queuedB, queuedC]);
+    assert.equal(repoResult.statusCode, 200);
+    assert.equal(bResult.statusCode, 200);
+    assert.equal(cResult.statusCode, 200);
+    assert.deepEqual(completionOrder, ['b', 'c']);
+
+    const sessionResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
+    const messages = Array.isArray(d(d(sessionResponse.body).session).messages)
+      ? d(d(sessionResponse.body).session).messages as unknown[]
+      : [];
+    const userContents = messages
+      .map((entry) => d(entry))
+      .filter((entry) => entry.role === 'user')
+      .map((entry) => String(entry.content || ''));
+    assert.deepEqual(userContents.slice(-2), ['fifo-b', 'fifo-c']);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
+test('queued model request is dropped when client disconnects before lock grant', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-queue-disconnect-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Disconnect queue session',
+        model: 'Qwen3.5-9B-Q8_0.gguf',
+      }),
+    });
+    const sessionId = String(d(createSession.body.session).id);
+
+    const delayedRepoSearch = requestJson(`${baseUrl}/repo-search`, {
+      method: 'POST',
+      timeoutMs: 20000,
+      body: JSON.stringify({
+        prompt: 'hold lock for disconnect test',
+        repoRoot: process.cwd(),
+        model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+        maxTurns: 1,
+        simulateWorkMs: 1000,
+        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        mockResponses: [
+          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"x\\" src"}}',
+          '{"action":"finish","output":"done","confidence":0.9}',
+        ],
+        mockCommandResults: {
+          'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 1200 },
+        },
+      }),
+    });
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    await fireAndAbortJsonRequest(
+      `${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`,
+      JSON.stringify({
+        content: 'dropped-request',
+        assistantContent: 'should-not-be-saved',
+      }),
+      100,
+    );
+
+    const survivorResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
+      method: 'POST',
+      timeoutMs: 15000,
+      body: JSON.stringify({
+        content: 'survivor-request',
+        assistantContent: 'saved',
+      }),
+    });
+    assert.equal(survivorResponse.statusCode, 200);
+    await delayedRepoSearch;
+
+    const sessionResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
+    const messages = Array.isArray(d(d(sessionResponse.body).session).messages)
+      ? d(d(sessionResponse.body).session).messages as unknown[]
+      : [];
+    const userContents = messages
+      .map((entry) => d(entry))
+      .filter((entry) => entry.role === 'user')
+      .map((entry) => String(entry.content || ''));
+    assert.equal(userContents.includes('dropped-request'), false);
+    assert.equal(userContents.includes('survivor-request'), true);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
+test('invalid model request is rejected without waiting for active model work', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-validate-first-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Validate-first session',
+        model: 'Qwen3.5-9B-Q8_0.gguf',
+      }),
+    });
+    const sessionId = String(d(createSession.body.session).id);
+
+    const delayedRepoSearch = requestJson(`${baseUrl}/repo-search`, {
+      method: 'POST',
+      timeoutMs: 20000,
+      body: JSON.stringify({
+        prompt: 'hold lock for validation test',
+        repoRoot: process.cwd(),
+        model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+        maxTurns: 1,
+        simulateWorkMs: 1000,
+        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        mockResponses: [
+          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"x\\" src"}}',
+          '{"action":"finish","output":"done","confidence":0.9}',
+        ],
+        mockCommandResults: {
+          'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 1200 },
+        },
+      }),
+    });
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    const startedAt = Date.now();
+    const invalidResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
+      method: 'POST',
+      timeoutMs: 15000,
+      body: JSON.stringify({}),
+    });
+    const elapsedMs = Date.now() - startedAt;
+    assert.equal(invalidResponse.statusCode, 400);
+    assert.equal(elapsedMs < 700, true);
     await delayedRepoSearch;
   } finally {
     await new Promise<void>((resolve, reject) => {

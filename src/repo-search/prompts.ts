@@ -211,13 +211,18 @@ export function readAgentsMd(repoRoot: string): string {
 export function buildTaskSystemPrompt(repoRoot: string, options?: {
   globalToolStats?: Record<string, ToolTypeStats>;
   initialPerToolAllowanceTokens?: number | null;
+  includeAgentsMd?: boolean;
+  includeRepoFileListing?: boolean;
 }): string {
-  const agentsContent = readAgentsMd(repoRoot);
+  const agentsContent = options?.includeAgentsMd === false ? '' : readAgentsMd(repoRoot);
   const guidance = buildLineReadGuidance({
     toolName: 'get-content',
     toolStats: options?.globalToolStats,
     perToolAllowanceTokens: options?.initialPerToolAllowanceTokens,
   });
+  const startupScanLine = options?.includeRepoFileListing === false
+    ? '- Start with targeted rg searches from the task wording when no startup file listing is provided.'
+    : '- Always start by scanning — a file listing is provided in the user message; use it to decide where to look.';
   const readWindowLine = guidance
     ? `- For reading a specific file section: use \`Get-Content <file>\`, and because the current per-tool allowance is ${guidance.perToolAllowanceTokens} tokens and the average line is ${guidance.avgTokensPerLine.toFixed(2)} tokens, prefer line reads around ${guidance.recommendedLines} lines by default.`
     : '- For reading a specific file section: use `Get-Content <file>`, preferring larger windows by default (for example `| Select-Object -First 200-400` or `-Skip X -First 200-400`).';
@@ -245,7 +250,7 @@ export function buildTaskSystemPrompt(repoRoot: string, options?: {
     '- If evidence is weak, partial, or ambiguous, explicitly say so.',
     '',
     'Search discipline:',
-    '- Always start by scanning — a file listing is provided in the user message; use it to decide where to look.',
+    startupScanLine,
     '- Do NOT read file contents speculatively. Only open a file once you have a concrete reason (e.g. an rg match pointing there).',
     '- Use iterative, targeted searches. If results are noisy, narrow the search path or pattern — do not add broad exclusion globs.',
     '- NEVER repeat the same command. Exact duplicate commands are automatically rejected. If a search found nothing, you MUST change the keywords, path, or strategy before trying again.',
@@ -335,9 +340,11 @@ export function buildTaskSystemPrompt(repoRoot: string, options?: {
   ].join('\n');
 }
 
-export function buildTaskInitialUserPrompt(question: string, fileList?: string): string {
+export function buildTaskInitialUserPrompt(question: string, fileList?: string, options?: {
+  includeRepoFileListing?: boolean;
+}): string {
   const parts = [`Task: ${question}`];
-  if (fileList) {
+  if (fileList && options?.includeRepoFileListing !== false) {
     parts.push('', '--- Repository file listing (respects .gitignore) ---', '', fileList);
   }
   return parts.join('\n');

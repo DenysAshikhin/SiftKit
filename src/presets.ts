@@ -20,6 +20,8 @@ export type SiftPreset = {
   useForSummary: boolean;
   builtin: boolean;
   deletable: boolean;
+  includeAgentsMd: boolean;
+  includeRepoFileListing: boolean;
   repoRootRequired: boolean;
   maxTurns: number | null;
   thinkingInterval: number | null;
@@ -147,6 +149,8 @@ function buildPreset(input: {
   useForSummary: boolean;
   builtin: boolean;
   deletable: boolean;
+  includeAgentsMd: boolean;
+  includeRepoFileListing: boolean;
   repoRootRequired: boolean;
   maxTurns: number | null;
   thinkingInterval: number | null;
@@ -165,6 +169,8 @@ function buildPreset(input: {
     useForSummary: input.useForSummary,
     builtin: input.builtin,
     deletable: input.deletable,
+    includeAgentsMd: input.includeAgentsMd,
+    includeRepoFileListing: input.includeRepoFileListing,
     repoRootRequired: input.repoRootRequired,
     maxTurns: input.maxTurns,
     thinkingInterval: input.thinkingInterval,
@@ -185,6 +191,8 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     useForSummary: true,
     builtin: true,
     deletable: false,
+    includeAgentsMd: true,
+    includeRepoFileListing: true,
     repoRootRequired: false,
     maxTurns: null,
     thinkingInterval: null,
@@ -202,6 +210,8 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     useForSummary: false,
     builtin: true,
     deletable: false,
+    includeAgentsMd: true,
+    includeRepoFileListing: true,
     repoRootRequired: true,
     maxTurns: 45,
     thinkingInterval: 5,
@@ -219,6 +229,8 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     useForSummary: false,
     builtin: true,
     deletable: false,
+    includeAgentsMd: true,
+    includeRepoFileListing: true,
     repoRootRequired: false,
     maxTurns: null,
     thinkingInterval: null,
@@ -236,6 +248,8 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     useForSummary: false,
     builtin: true,
     deletable: false,
+    includeAgentsMd: true,
+    includeRepoFileListing: true,
     repoRootRequired: true,
     maxTurns: 45,
     thinkingInterval: 5,
@@ -261,6 +275,8 @@ function normalizePresetRecord(input: unknown, fallback: SiftPreset): SiftPreset
     useForSummary: record.useForSummary === undefined ? fallback.useForSummary : Boolean(record.useForSummary),
     builtin: fallback.builtin,
     deletable: false,
+    includeAgentsMd: record.includeAgentsMd === undefined ? fallback.includeAgentsMd : Boolean(record.includeAgentsMd),
+    includeRepoFileListing: record.includeRepoFileListing === undefined ? fallback.includeRepoFileListing : Boolean(record.includeRepoFileListing),
     repoRootRequired: record.repoRootRequired === undefined ? fallback.repoRootRequired : Boolean(record.repoRootRequired),
     maxTurns: normalizeNullableInteger(record.maxTurns, fallback.maxTurns),
     thinkingInterval: normalizeNullableInteger(record.thinkingInterval, fallback.thinkingInterval),
@@ -292,6 +308,8 @@ function normalizeUserPreset(input: unknown): SiftPreset | null {
     useForSummary: Boolean(record.useForSummary),
     builtin: false,
     deletable: true,
+    includeAgentsMd: record.includeAgentsMd === undefined ? true : Boolean(record.includeAgentsMd),
+    includeRepoFileListing: record.includeRepoFileListing === undefined ? true : Boolean(record.includeRepoFileListing),
     repoRootRequired: record.repoRootRequired === undefined ? (presetKind === 'plan' || presetKind === 'repo-search') : Boolean(record.repoRootRequired),
     maxTurns: normalizeNullableInteger(record.maxTurns, presetKind === 'plan' || presetKind === 'repo-search' ? 45 : null),
     thinkingInterval: normalizeNullableInteger(record.thinkingInterval, presetKind === 'plan' || presetKind === 'repo-search' ? 5 : null),

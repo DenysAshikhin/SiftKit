@@ -65,6 +65,8 @@ export async function executeRepoSearchRequest(
       maxTurns: request.maxTurns,
       thinkingInterval: request.thinkingInterval,
       allowedTools: Array.isArray(request.allowedTools) ? request.allowedTools : undefined,
+      includeAgentsMd: request.includeAgentsMd,
+      includeRepoFileListing: request.includeRepoFileListing,
       taskPrompt: prompt,
       logger,
       availableModels: request.availableModels,

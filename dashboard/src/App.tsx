@@ -1215,6 +1215,8 @@ function DashboardApp() {
         useForSummary: false,
         builtin: false,
         deletable: true,
+        includeAgentsMd: true,
+        includeRepoFileListing: true,
         repoRootRequired: false,
         maxTurns: null,
         thinkingInterval: null,
@@ -2003,6 +2005,26 @@ function DashboardApp() {
                         )) || 'No tools enabled'}
                       />
                     </label>
+                    {selectedSettingsPreset.operationMode === 'read-only' ? (
+                      <>
+                        <label>
+                          <span className="settings-preset-inline-label"><SettingsInlineHelpLabel label="Include AGENTS.md" helpText="Adds the repository root `agents.md` or `AGENTS.md` instructions block to the read-only tool-call system prompt." /></span>
+                          <input
+                            type="checkbox"
+                            checked={selectedSettingsPreset.includeAgentsMd}
+                            onChange={(event) => updatePresetDraft(selectedSettingsPreset.id, (next) => { next.includeAgentsMd = event.target.checked; })}
+                          />
+                        </label>
+                        <label>
+                          <span className="settings-preset-inline-label"><SettingsInlineHelpLabel label="Include repo file list" helpText="Adds the startup repository file listing to the read-only tool-call user prompt before tool calls begin." /></span>
+                          <input
+                            type="checkbox"
+                            checked={selectedSettingsPreset.includeRepoFileListing}
+                            onChange={(event) => updatePresetDraft(selectedSettingsPreset.id, (next) => { next.includeRepoFileListing = event.target.checked; })}
+                          />
+                        </label>
+                      </>
+                    ) : null}
                     <label>
                       <span className="settings-preset-inline-label"><SettingsInlineHelpLabel label="Use for default summary" helpText="Marks the summary preset used by default CLI summarization flows." /></span>
                       <input

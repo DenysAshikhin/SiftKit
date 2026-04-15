@@ -8,6 +8,7 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import type * as http from 'node:http';
 import Database from 'better-sqlite3';
 import { getRuntimeRoot } from './paths.js';
 import {
@@ -289,7 +290,7 @@ export function releaseExecutionLease(ctx: ServerContext, token: string): boolea
 // ---------------------------------------------------------------------------
 
 export function acquireModelRequest(ctx: ServerContext, kind: string): ModelRequestLock | null {
-  if (ctx.activeModelRequest) {
+  if (ctx.activeModelRequest || ctx.modelRequestQueue.length > 0) {
     return null;
   }
   const lock: ModelRequestLock = {
@@ -301,13 +302,91 @@ export function acquireModelRequest(ctx: ServerContext, kind: string): ModelRequ
   return lock;
 }
 
-export async function acquireModelRequestWithWait(ctx: ServerContext, kind: string): Promise<ModelRequestLock> {
-  let lock = acquireModelRequest(ctx, kind);
-  while (!lock) {
-    await sleep(25);
-    lock = acquireModelRequest(ctx, kind);
+function removeModelRequestWaiter(ctx: ServerContext, queueToken: string): boolean {
+  const index = ctx.modelRequestQueue.findIndex((entry) => entry.queueToken === queueToken);
+  if (index < 0) {
+    return false;
   }
-  return lock;
+  ctx.modelRequestQueue.splice(index, 1);
+  return true;
+}
+
+export async function acquireModelRequestWithWait(
+  ctx: ServerContext,
+  kind: string,
+  request?: http.IncomingMessage,
+  response?: http.ServerResponse,
+): Promise<ModelRequestLock | null> {
+  let lock = acquireModelRequest(ctx, kind);
+  if (lock) {
+    return lock;
+  }
+  const waiter = {
+    queueToken: crypto.randomUUID(),
+    kind: String(kind),
+    enqueuedAtUtc: new Date().toISOString(),
+    cancelled: false,
+  };
+  ctx.modelRequestQueue.push(waiter);
+  const cancelWaiter = (): void => {
+    waiter.cancelled = true;
+    removeModelRequestWaiter(ctx, waiter.queueToken);
+  };
+  const onAbortedRequest = (): void => {
+    cancelWaiter();
+  };
+  const onClosedRequest = (): void => {
+    if (request?.complete) {
+      return;
+    }
+    cancelWaiter();
+  };
+  const onClosedResponse = (): void => {
+    if (response?.writableEnded) {
+      return;
+    }
+    cancelWaiter();
+  };
+  if (request) {
+    request.once('aborted', onAbortedRequest);
+    request.once('close', onClosedRequest);
+  }
+  if (response) {
+    response.once('close', onClosedResponse);
+  }
+  while (true) {
+    if (response?.destroyed && !response.writableEnded) {
+      cancelWaiter();
+    }
+    if (waiter.cancelled) {
+      if (request) {
+        request.off('aborted', onAbortedRequest);
+        request.off('close', onClosedRequest);
+      }
+      if (response) {
+        response.off('close', onClosedResponse);
+      }
+      return null;
+    }
+    if (!ctx.activeModelRequest && ctx.modelRequestQueue[0]?.queueToken === waiter.queueToken) {
+      ctx.modelRequestQueue.shift();
+      lock = {
+        token: crypto.randomUUID(),
+        kind: waiter.kind,
+        startedAtUtc: new Date().toISOString(),
+      };
+      ctx.activeModelRequest = lock;
+      if (request) {
+        request.off('aborted', onAbortedRequest);
+        request.off('close', onClosedRequest);
+      }
+      if (response) {
+        response.off('close', onClosedResponse);
+      }
+      return lock;
+    }
+    await sleep(25);
+  }
 }
 
 export function releaseModelRequest(ctx: ServerContext, token: string): boolean {

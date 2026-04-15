@@ -59,12 +59,24 @@ test('builtin presets are present and not deletable', () => {
     assert.equal(preset.builtin, true);
     assert.equal(preset.deletable, false);
   }
+  assert.equal(presets.find((preset) => preset.id === 'repo-search')?.includeAgentsMd, true);
+  assert.equal(presets.find((preset) => preset.id === 'repo-search')?.includeRepoFileListing, true);
+  assert.equal(presets.find((preset) => preset.id === 'plan')?.includeAgentsMd, true);
+  assert.equal(presets.find((preset) => preset.id === 'plan')?.includeRepoFileListing, true);
 });
 
 test('normalizePresets keeps builtin presets even when overlay omits them and preserves non-deletable rule', () => {
   const presets = normalizePresets([
     { id: 'summary', label: 'Edited Summary', deletable: true, useForSummary: false },
-    { id: 'custom-plan', label: 'Custom Plan', presetKind: 'plan', operationMode: 'read-only', surfaces: ['web', 'cli'] },
+    {
+      id: 'custom-plan',
+      label: 'Custom Plan',
+      presetKind: 'plan',
+      operationMode: 'read-only',
+      surfaces: ['web', 'cli'],
+      includeAgentsMd: false,
+      includeRepoFileListing: false,
+    },
   ]);
   assert.equal(findPresetById(presets, 'summary')?.label, 'Edited Summary');
   assert.equal(findPresetById(presets, 'summary')?.deletable, false);
@@ -73,6 +85,10 @@ test('normalizePresets keeps builtin presets even when overlay omits them and pr
   assert.equal(findPresetById(presets, 'custom-plan')?.deletable, true);
   assert.equal(findPresetById(presets, 'custom-plan')?.presetKind, 'plan');
   assert.equal(findPresetById(presets, 'custom-plan')?.operationMode, 'read-only');
+  assert.equal(findPresetById(presets, 'custom-plan')?.includeAgentsMd, false);
+  assert.equal(findPresetById(presets, 'custom-plan')?.includeRepoFileListing, false);
+  assert.equal(findPresetById(presets, 'summary')?.includeAgentsMd, true);
+  assert.equal(findPresetById(presets, 'summary')?.includeRepoFileListing, true);
 });
 
 test('preset surface filtering separates cli and web visibility', () => {
@@ -102,20 +118,40 @@ test('config persistence stores normalized presets in sqlite', () => {
     const config = getDefaultConfig() as typeof getDefaultConfig extends (...args: never[]) => infer T ? T : never;
     (config as { Presets?: unknown }).Presets = [
       { id: 'summary', label: 'Summary Override', surfaces: ['cli'] },
-      { id: 'custom-search', label: 'Custom Search', presetKind: 'repo-search', operationMode: 'read-only', surfaces: ['web'] },
+      {
+        id: 'custom-search',
+        label: 'Custom Search',
+        presetKind: 'repo-search',
+        operationMode: 'read-only',
+        surfaces: ['web'],
+        includeAgentsMd: false,
+        includeRepoFileListing: true,
+      },
     ];
     writeConfig(configPath, config);
     const loaded = readConfig(configPath) as {
-      Presets?: Array<{ id: string; label: string; deletable: boolean; presetKind: string; operationMode: string }>;
+      Presets?: Array<{
+        id: string;
+        label: string;
+        deletable: boolean;
+        presetKind: string;
+        operationMode: string;
+        includeAgentsMd: boolean;
+        includeRepoFileListing: boolean;
+      }>;
       OperationModeAllowedTools?: Record<string, string[]>;
     };
     assert.equal(Array.isArray(loaded.Presets), true);
     assert.equal(loaded.Presets?.some((preset) => preset.id === 'chat'), true);
     assert.equal(loaded.Presets?.find((preset) => preset.id === 'summary')?.label, 'Summary Override');
     assert.equal(loaded.Presets?.find((preset) => preset.id === 'summary')?.deletable, false);
+    assert.equal(loaded.Presets?.find((preset) => preset.id === 'summary')?.includeAgentsMd, true);
+    assert.equal(loaded.Presets?.find((preset) => preset.id === 'summary')?.includeRepoFileListing, true);
     assert.equal(loaded.Presets?.find((preset) => preset.id === 'custom-search')?.deletable, true);
     assert.equal(loaded.Presets?.find((preset) => preset.id === 'custom-search')?.presetKind, 'repo-search');
     assert.equal(loaded.Presets?.find((preset) => preset.id === 'custom-search')?.operationMode, 'read-only');
+    assert.equal(loaded.Presets?.find((preset) => preset.id === 'custom-search')?.includeAgentsMd, false);
+    assert.equal(loaded.Presets?.find((preset) => preset.id === 'custom-search')?.includeRepoFileListing, true);
     assert.deepEqual(loaded.OperationModeAllowedTools, {
       summary: ['find_text', 'read_lines', 'json_filter'],
       'read-only': ['run_repo_cmd'],

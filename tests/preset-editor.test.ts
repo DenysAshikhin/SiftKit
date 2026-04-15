@@ -33,6 +33,8 @@ function createPreset(id: string, overrides: Partial<DashboardPreset> = {}): Das
     useForSummary: false,
     builtin: false,
     deletable: true,
+    includeAgentsMd: false,
+    includeRepoFileListing: false,
     repoRootRequired: false,
     maxTurns: null,
     thinkingInterval: null,
@@ -149,4 +151,17 @@ test('getEffectivePresetTools intersects preset allowlist with operation-mode po
     }, operationModeAllowedTools),
     ['find_text'],
   );
+});
+
+test('applyOperationModeDefaults preserves prompt-context toggles across mode changes', () => {
+  const preset = createPreset('custom', {
+    includeAgentsMd: true,
+    includeRepoFileListing: true,
+  });
+
+  applyOperationModeDefaults(preset, 'read-only');
+  applyOperationModeDefaults(preset, 'summary');
+
+  assert.equal(preset.includeAgentsMd, true);
+  assert.equal(preset.includeRepoFileListing, true);
 });

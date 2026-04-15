@@ -201,6 +201,8 @@ export type DashboardPreset = {
   useForSummary: boolean;
   builtin: boolean;
   deletable: boolean;
+  includeAgentsMd: boolean;
+  includeRepoFileListing: boolean;
   repoRootRequired: boolean;
   maxTurns: number | null;
   thinkingInterval: number | null;

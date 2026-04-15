@@ -26,6 +26,12 @@ export type ActiveRunState = {
 
 export type ExecutionLease = { token: string; heartbeatAt: number };
 export type ModelRequestLock = { token: string; kind: string; startedAtUtc: string };
+export type ModelRequestWaiter = {
+  queueToken: string;
+  kind: string;
+  enqueuedAtUtc: string;
+  cancelled: boolean;
+};
 
 export type ManagedLlamaLogRef = {
   runId: string;
@@ -74,6 +80,7 @@ export type ServerContext = {
   activeRunsByRequestId: Map<string, ActiveRunState>;
   activeRequestIdByStatusPath: Map<string, string>;
   activeModelRequest: ModelRequestLock | null;
+  modelRequestQueue: ModelRequestWaiter[];
   activeExecutionLease: ExecutionLease | null;
 
   // Idle summary

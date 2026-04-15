@@ -697,6 +697,8 @@ type RunTaskLoopOptions = {
   thinkingInterval?: number;
   requestMaxTokens: number;
   enforceThinkingFinish?: boolean;
+  includeAgentsMd?: boolean;
+  includeRepoFileListing?: boolean;
   mockResponses?: string[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
   logger?: JsonLogger | null;
@@ -744,7 +746,9 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   let lastLoggedMessageCount = 0;
   const slotId = options.config ? allocateLlamaCppSlotId(options.config) : 0;
   const ignorePolicy = buildIgnorePolicy(options.repoRoot);
-  const bootstrapFileList = scanRepoFiles(options.repoRoot, ignorePolicy) || undefined;
+  const bootstrapFileList = options.includeRepoFileListing === false
+    ? undefined
+    : (scanRepoFiles(options.repoRoot, ignorePolicy) || undefined);
   const historicalToolStats = readLatestIdleSummaryToolStats();
   const initialPerToolAllowanceTokens = getRepoSearchPromptBaselinePerToolAllowanceTokens(options.config ?? null);
   const attemptedFingerprints = new Set<string>();
@@ -763,9 +767,16 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       content: buildTaskSystemPrompt(options.repoRoot, {
         globalToolStats: historicalToolStats,
         initialPerToolAllowanceTokens,
+        includeAgentsMd: options.includeAgentsMd,
+        includeRepoFileListing: options.includeRepoFileListing,
       }),
     },
-    { role: 'user', content: buildTaskInitialUserPrompt(task.question, bootstrapFileList) },
+    {
+      role: 'user',
+      content: buildTaskInitialUserPrompt(task.question, bootstrapFileList, {
+        includeRepoFileListing: options.includeRepoFileListing,
+      }),
+    },
   ];
 
   for (let turn = 1; turn <= maxTurns; turn += 1) {
@@ -1546,6 +1557,8 @@ export async function runRepoSearch(options: {
   model?: string;
   baseUrl?: string;
   allowedTools?: string[];
+  includeAgentsMd?: boolean;
+  includeRepoFileListing?: boolean;
   requestMaxTokens?: number;
   maxTurns?: number;
   thinkingInterval?: number;
@@ -1594,6 +1607,8 @@ export async function runRepoSearch(options: {
       thinkingInterval: options.thinkingInterval,
       requestMaxTokens,
       enforceThinkingFinish: true,
+      includeAgentsMd: options.includeAgentsMd,
+      includeRepoFileListing: options.includeRepoFileListing,
       mockResponses: options.mockResponses,
       mockCommandResults: options.mockCommandResults,
       logger: options.logger || null,
