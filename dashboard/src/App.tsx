@@ -825,8 +825,6 @@ function DashboardApp() {
   const [pendingSettingsContinuation, setPendingSettingsContinuation] = useState<DirtyContinuation | null>(null);
   const [showSettingsConfirm, setShowSettingsConfirm] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const managedLlamaWarningRef = useRef<string | null>(null);
-  const healthCheckErrorRef = useRef<string | null>(null);
   const [thinkingDraft, setThinkingDraft] = useState('');
   const [answerDraft, setAnswerDraft] = useState('');
   const [planRepoRootInput, setPlanRepoRootInput] = useState('');
@@ -1205,48 +1203,6 @@ function DashboardApp() {
       cancelled = true;
     };
   }, [selectedSessionId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    let pollTimer: ReturnType<typeof window.setTimeout> | null = null;
-    async function pollHealth(): Promise<void> {
-      try {
-        const health = await getDashboardHealth();
-        if (cancelled) {
-          return;
-        }
-        healthCheckErrorRef.current = null;
-        const warning = typeof health.managedLlamaStartupWarning === 'string' && health.managedLlamaStartupWarning.trim()
-          ? health.managedLlamaStartupWarning.trim()
-          : null;
-        if (warning && warning !== managedLlamaWarningRef.current) {
-          enqueueToast('warning', `Managed llama.cpp unavailable: ${warning}`);
-        } else if (!warning && managedLlamaWarningRef.current) {
-          enqueueToast('info', 'Managed llama.cpp recovered.');
-        }
-        managedLlamaWarningRef.current = warning;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (!cancelled && message !== healthCheckErrorRef.current) {
-          healthCheckErrorRef.current = message;
-          enqueueToast('error', `Dashboard health check failed: ${message}`);
-        }
-      } finally {
-        if (!cancelled) {
-          pollTimer = window.setTimeout(() => {
-            void pollHealth();
-          }, 10_000);
-        }
-      }
-    }
-    void pollHealth();
-    return () => {
-      cancelled = true;
-      if (pollTimer !== null) {
-        window.clearTimeout(pollTimer);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     if (tab !== 'settings' && dashboardConfig !== null) {
@@ -2212,17 +2168,6 @@ function DashboardApp() {
                 const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.Threads);
                 next.Runtime.LlamaCpp.Threads = value;
                 next.LlamaCpp.Threads = value;
-              })}
-            />
-          ))}
-          {renderField('model-runtime', 'GpuLayers', (
-            <input
-              type="number"
-              value={dashboardConfig.Runtime.LlamaCpp.GpuLayers}
-              onChange={(event) => updateSettingsDraft((next) => {
-                const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.GpuLayers);
-                next.Runtime.LlamaCpp.GpuLayers = value;
-                next.LlamaCpp.GpuLayers = value;
               })}
             />
           ))}

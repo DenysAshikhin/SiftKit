@@ -4,7 +4,7 @@
  *
  * Previously a 2,100+ line monolith — now delegates to:
  *   - `server-types.ts`  – shared type definitions
- *   - `server-ops.ts`    – GPU lock, run state, idle summary, execution lease
+ *   - `server-ops.ts`    – published status, run state, idle summary, execution lease
  *   - `managed-llama.ts` – llama.cpp lifecycle (startup, shutdown, log scan)
  *   - `routes.ts`        – HTTP route handler
  */
@@ -168,9 +168,6 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     managedLlamaReady: false,
     managedLlamaStartupWarning: null,
     bootstrapManagedLlamaStartup: false,
-    siftKitOwnsGpuLock: false,
-    siftKitWaitingForGpuLock: false,
-    gpuLockAcquisitionPromise: null,
     // Late-bound function references (break circular deps between modules).
     shutdownManagedLlamaIfNeeded: (opts) => shutdownManagedLlamaIfNeeded(ctx, opts),
     ensureManagedLlamaReady: (opts) => ensureManagedLlamaReady(ctx, opts),

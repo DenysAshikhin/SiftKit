@@ -5,17 +5,10 @@ import { getRuntimeDatabase } from '../state/runtime-db.js';
 
 export const STATUS_TRUE = 'true';
 export const STATUS_FALSE = 'false';
-export const STATUS_LOCK_REQUESTED = 'lock_requested';
-export const STATUS_FOREIGN_LOCK = 'foreign_lock';
 
 export function normalizeStatusText(value: unknown): string {
   const normalized = String(value || '').trim().toLowerCase();
-  if (
-    normalized === STATUS_TRUE ||
-    normalized === STATUS_FALSE ||
-    normalized === STATUS_LOCK_REQUESTED ||
-    normalized === STATUS_FOREIGN_LOCK
-  ) {
+  if (normalized === STATUS_TRUE || normalized === STATUS_FALSE) {
     return normalized;
   }
   return STATUS_FALSE;
@@ -23,11 +16,17 @@ export function normalizeStatusText(value: unknown): string {
 
 export function ensureStatusFile(targetPath: string): void {
   const database = getRuntimeDatabase(targetPath);
+  const row = database.prepare('SELECT status_text FROM runtime_status WHERE id = 1').get() as { status_text?: unknown } | undefined;
+  const normalized = row && typeof row.status_text === 'string'
+    ? normalizeStatusText(row.status_text)
+    : STATUS_FALSE;
   database.prepare(`
     INSERT INTO runtime_status (id, status_text, updated_at_utc)
     VALUES (1, ?, ?)
-    ON CONFLICT(id) DO NOTHING
-  `).run(STATUS_FALSE, new Date().toISOString());
+    ON CONFLICT(id) DO UPDATE SET
+      status_text = excluded.status_text,
+      updated_at_utc = excluded.updated_at_utc
+  `).run(normalized, new Date().toISOString());
 }
 
 export function readStatusText(targetPath: string): string {

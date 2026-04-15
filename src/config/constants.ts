@@ -27,7 +27,6 @@ export const RUNTIME_OWNED_LLAMA_CPP_KEYS = [
   'PresencePenalty',
   'RepetitionPenalty',
   'MaxTokens',
-  'GpuLayers',
   'Threads',
   'FlashAttention',
   'ParallelSlots',

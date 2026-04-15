@@ -47,7 +47,6 @@ import {
   getResolvedRequestId,
   clearRunState,
   logAbandonedRun,
-  ensureSiftKitGpuLockAcquired,
   hasActiveRuns,
   getIdleSummaryDatabase,
 } from '../server-ops.js';
@@ -148,9 +147,6 @@ export async function handleCoreRoute(
     sendJson(res, 200, {
       ok: true,
       disableManagedLlamaStartup,
-      managedLlamaReady: ctx.managedLlamaReady,
-      managedLlamaStarting: ctx.managedLlamaStarting,
-      managedLlamaStartupWarning: ctx.managedLlamaStartupWarning,
       statusPath,
       configPath,
       metricsPath,
@@ -370,7 +366,6 @@ export async function handleCoreRoute(
       const now = Date.now();
       const activeRequestId = ctx.activeRequestIdByStatusPath.get(statusPath) || null;
       const activeRun = activeRequestId ? ctx.activeRunsByRequestId.get(activeRequestId) || null : null;
-      const needsGpuLock = !activeRun;
       if (metadata.inputCharactersPerContextToken !== null) {
         ctx.pendingIdleSummaryMetadata.inputCharactersPerContextToken = metadata.inputCharactersPerContextToken;
       }
@@ -428,9 +423,6 @@ export async function handleCoreRoute(
       }
       ctx.activeRunsByRequestId.set(requestId, runState);
       ctx.activeRequestIdByStatusPath.set(statusPath, requestId);
-      if (needsGpuLock) {
-        await ensureSiftKitGpuLockAcquired(ctx);
-      }
     } else {
       if (runState && Number.isFinite(runState.currentRequestStartedAt)) {
         const now = Date.now();

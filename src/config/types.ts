@@ -9,7 +9,6 @@ export type RuntimeLlamaCppConfig = {
   PresencePenalty?: number | null;
   RepetitionPenalty?: number | null;
   MaxTokens?: number | null;
-  GpuLayers?: number | null;
   Threads?: number | null;
   FlashAttention?: boolean | null;
   ParallelSlots?: number | null;

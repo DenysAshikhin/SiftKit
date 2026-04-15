@@ -33,7 +33,6 @@ export const RUNTIME_OWNED_LLAMA_CPP_KEYS: readonly string[] = [
   'PresencePenalty',
   'RepetitionPenalty',
   'MaxTokens',
-  'GpuLayers',
   'Threads',
   'FlashAttention',
   'ParallelSlots',
@@ -269,7 +268,6 @@ type AppConfigRow = {
   llama_presence_penalty: number | null;
   llama_repetition_penalty: number | null;
   llama_max_tokens: number | null;
-  llama_gpu_layers: number | null;
   llama_threads: number | null;
   llama_flash_attention: number | null;
   llama_parallel_slots: number | null;
@@ -378,7 +376,6 @@ function normalizeConfigToRow(config: Dict): AppConfigRow {
     llama_presence_penalty: toNullableNumber(runtimeLlama.PresencePenalty),
     llama_repetition_penalty: toNullableNumber(runtimeLlama.RepetitionPenalty),
     llama_max_tokens: toNullableInteger(runtimeLlama.MaxTokens),
-    llama_gpu_layers: toNullableInteger(runtimeLlama.GpuLayers),
     llama_threads: toNullableInteger(runtimeLlama.Threads),
     llama_flash_attention: toNullableBooleanInteger(runtimeLlama.FlashAttention),
     llama_parallel_slots: toNullableInteger(runtimeLlama.ParallelSlots),
@@ -424,7 +421,6 @@ function rowToConfig(row: AppConfigRow): Dict {
     PresencePenalty: row.llama_presence_penalty,
     RepetitionPenalty: row.llama_repetition_penalty,
     MaxTokens: row.llama_max_tokens,
-    GpuLayers: row.llama_gpu_layers,
     Threads: row.llama_threads,
     FlashAttention: row.llama_flash_attention === null ? null : row.llama_flash_attention === 1,
     ParallelSlots: row.llama_parallel_slots,
@@ -488,7 +484,6 @@ function readConfigRow(databasePath: string): AppConfigRow | null {
       llama_presence_penalty,
       llama_repetition_penalty,
       llama_max_tokens,
-      llama_gpu_layers,
       llama_threads,
       llama_flash_attention,
       llama_parallel_slots,
@@ -536,7 +531,6 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
       llama_presence_penalty,
       llama_repetition_penalty,
       llama_max_tokens,
-      llama_gpu_layers,
       llama_threads,
       llama_flash_attention,
       llama_parallel_slots,
@@ -559,7 +553,7 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
       presets_json,
       updated_at_utc
     ) VALUES (
-      1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     )
     ON CONFLICT(id) DO UPDATE SET
       version = excluded.version,
@@ -578,7 +572,6 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
       llama_presence_penalty = excluded.llama_presence_penalty,
       llama_repetition_penalty = excluded.llama_repetition_penalty,
       llama_max_tokens = excluded.llama_max_tokens,
-      llama_gpu_layers = excluded.llama_gpu_layers,
       llama_threads = excluded.llama_threads,
       llama_flash_attention = excluded.llama_flash_attention,
       llama_parallel_slots = excluded.llama_parallel_slots,
@@ -617,7 +610,6 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
     row.llama_presence_penalty,
     row.llama_repetition_penalty,
     row.llama_max_tokens,
-    row.llama_gpu_layers,
     row.llama_threads,
     row.llama_flash_attention,
     row.llama_parallel_slots,

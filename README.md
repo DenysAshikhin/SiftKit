@@ -15,7 +15,7 @@ SiftKit intercepts those flows and routes them through a local model first. The 
 - **~10x to 100x token reduction** on long shell output without losing decisive information.
 - **Deterministic raw-first behavior** on short or error-dense output, so SiftKit never hides a stack trace you actually needed.
 - **Free local inference** via `llama.cpp` — no extra API costs for the sift pass.
-- **Shared GPU arbitration** so multiple agent sessions and benchmarks can cooperate on one GPU without stomping each other.
+- **Single server-owned runtime state** so agent sessions and background tooling observe one consistent activity signal.
 
 ## What SiftKit does
 
@@ -73,24 +73,22 @@ Start it with `npm run start:dashboard` during development, or use the built ass
 SiftKit is split into two processes:
 
 1. **TypeScript client** — the `siftkit` CLI, PowerShell shims, and all runtime behavior for summary, run, repo-search, preset, eval, install, and find-files.
-2. **Status/config server** — a separate long-running Node process that owns the config file, the runs database, the `llama.cpp` lifecycle, the shared GPU lock, and the dashboard UI.
+2. **Status/config server** — a separate long-running Node process that owns the config file, the runs database, the `llama.cpp` lifecycle, and the dashboard UI.
 
 The client preflights `GET /health` on every server-dependent command and fails closed if the server is unreachable. There is no local config fallback and no local status-file fallback — the server is the single source of truth.
 
 ### `llama.cpp` supervision
-The status server can manage `llama-server` automatically. On startup it clears stale managed processes, acquires the shared GPU lock, runs `Server.LlamaCpp.StartupScript`, waits for `/v1/models`, scans captured startup logs for warning/error markers, and only then serves as ready. After the idle summary block is emitted the server runs `Server.LlamaCpp.ShutdownScript` and releases the lock.
+The status server can manage `llama-server` automatically. On startup it clears stale managed processes, runs `Server.LlamaCpp.StartupScript`, waits for `/v1/models`, scans captured startup logs for warning/error markers, and only then serves as ready. After the idle summary block is emitted the server runs `Server.LlamaCpp.ShutdownScript`.
 
 If you want the status server without managed startup (e.g., you launch `llama-server` yourself), run it with `--disable-managed-llama-startup`. In that mode it still serves health, status, and config but skips process lifecycle work, and `GET /health` advertises `disableManagedLlamaStartup: true` so external launchers can verify safely.
 
-### Shared GPU status protocol
-The published status file uses four canonical values so multiple tools can cooperate on one GPU:
+### Status protocol
+The published status file uses a simple boolean-like activity signal:
 
-- `true` — SiftKit currently owns the GPU lock.
-- `false` — no lock is held; other processes may claim the GPU.
-- `lock_requested` — SiftKit wants the GPU and is waiting for a foreign owner.
-- `foreign_lock` — a non-SiftKit process currently owns the GPU.
+- `true` — SiftKit is currently active.
+- `false` — SiftKit is currently idle.
 
-`GET /status` stays backward-compatible: `status` returns the 4-state value, `running` is `true` only when `status === 'true'`.
+`GET /status` returns the same boolean-like `status` text and a matching `running` boolean.
 
 ### Server contract
 The client expects these endpoints from the status server:

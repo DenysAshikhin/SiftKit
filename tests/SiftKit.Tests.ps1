@@ -84,7 +84,6 @@ function Get-DefaultServerConfig {
             PresencePenalty = 0.0
             RepetitionPenalty = 1.0
             MaxTokens = 4096
-            GpuLayers = 999
             Threads = -1
             FlashAttention = $true
             ParallelSlots = 1

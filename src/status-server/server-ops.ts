@@ -1,5 +1,5 @@
 /**
- * Shared server-operational helpers: GPU lock, run state tracking, idle
+ * Shared server-operational helpers: published status, run state tracking, idle
  * summary scheduling, execution lease, and model-request serialisation.
  *
  * Every function takes a `ServerContext` as its first argument so the mutable
@@ -14,9 +14,6 @@ import { getRuntimeRoot } from './paths.js';
 import {
   STATUS_TRUE,
   STATUS_FALSE,
-  STATUS_LOCK_REQUESTED,
-  STATUS_FOREIGN_LOCK,
-  readStatusText,
   writeStatusText,
 } from './status-file.js';
 import { ensureDirectory } from '../lib/fs.js';
@@ -48,77 +45,31 @@ import type {
 import {
   EXECUTION_LEASE_STALE_MS,
   IDLE_SUMMARY_DELAY_MS,
-  GPU_LOCK_POLL_DELAY_MS,
   logLine,
 } from './managed-llama.js';
 
 // ---------------------------------------------------------------------------
-// GPU lock
+// Published status
 // ---------------------------------------------------------------------------
 
-export function hasSiftKitGpuDemand(ctx: ServerContext): boolean {
+export function hasPublishedActivity(ctx: ServerContext): boolean {
   return ctx.bootstrapManagedLlamaStartup
     || ctx.managedLlamaStarting
     || ctx.managedLlamaReady
     || hasActiveRuns(ctx)
-    || ctx.idleSummaryPending
-    || Boolean(ctx.gpuLockAcquisitionPromise);
+    || ctx.idleSummaryPending;
 }
 
 export function getPublishedStatusText(ctx: ServerContext): string {
-  if (ctx.siftKitWaitingForGpuLock) {
-    return STATUS_LOCK_REQUESTED;
-  }
-  if (ctx.siftKitOwnsGpuLock) {
-    return STATUS_TRUE;
-  }
-  const sharedStatus = readStatusText(ctx.statusPath);
-  return sharedStatus === STATUS_FOREIGN_LOCK ? STATUS_FOREIGN_LOCK : STATUS_FALSE;
+  return hasPublishedActivity(ctx) ? STATUS_TRUE : STATUS_FALSE;
 }
 
 export function writePublishedStatus(ctx: ServerContext, publishedStatus: string = getPublishedStatusText(ctx)): void {
-  writeStatusText(ctx.statusPath, ctx.disableManagedLlamaStartup ? STATUS_TRUE : publishedStatus);
+  writeStatusText(ctx.statusPath, publishedStatus);
 }
 
 export function publishStatus(ctx: ServerContext): void {
   writePublishedStatus(ctx);
-}
-
-export function releaseSiftKitGpuLockIfIdle(ctx: ServerContext): void {
-  if (hasSiftKitGpuDemand(ctx)) {
-    return;
-  }
-  ctx.siftKitWaitingForGpuLock = false;
-  ctx.siftKitOwnsGpuLock = false;
-  publishStatus(ctx);
-}
-
-export async function ensureSiftKitGpuLockAcquired(ctx: ServerContext): Promise<void> {
-  if (ctx.siftKitOwnsGpuLock) {
-    return;
-  }
-  if (ctx.gpuLockAcquisitionPromise) {
-    await ctx.gpuLockAcquisitionPromise;
-    return;
-  }
-  ctx.gpuLockAcquisitionPromise = (async () => {
-    while (true) {
-      const sharedStatus = readStatusText(ctx.statusPath);
-      if (sharedStatus === STATUS_FALSE || sharedStatus === STATUS_TRUE) {
-        ctx.siftKitWaitingForGpuLock = false;
-        ctx.siftKitOwnsGpuLock = true;
-        publishStatus(ctx);
-        return;
-      }
-      ctx.siftKitWaitingForGpuLock = true;
-      ctx.siftKitOwnsGpuLock = false;
-      publishStatus(ctx);
-      await sleep(GPU_LOCK_POLL_DELAY_MS);
-    }
-  })().finally(() => {
-    ctx.gpuLockAcquisitionPromise = null;
-  });
-  await ctx.gpuLockAcquisitionPromise;
 }
 
 // ---------------------------------------------------------------------------
@@ -252,7 +203,7 @@ export function scheduleIdleSummaryIfNeeded(ctx: ServerContext): void {
     logLine(buildIdleSummarySnapshotMessage(snapshot), emittedAt);
     ctx.idleSummaryPending = false;
     resetPendingIdleSummaryMetadata(ctx);
-    releaseSiftKitGpuLockIfIdle(ctx);
+    publishStatus(ctx);
     await ctx.shutdownManagedLlamaIfNeeded();
   }, IDLE_SUMMARY_DELAY_MS);
   if (typeof ctx.idleSummaryTimer.unref === 'function') {

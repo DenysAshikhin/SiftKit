@@ -11,7 +11,7 @@ import {
 test('settings section order matches the integrated layout', () => {
   assert.deepEqual(
     SETTINGS_SECTION_ORDER,
-    ['general', 'presets', 'model-runtime', 'sampling', 'interactive', 'managed-llama'],
+    ['general', 'tool-policy', 'presets', 'model-runtime', 'sampling', 'interactive', 'managed-llama'],
   );
 });
 
@@ -24,6 +24,7 @@ test('settings tooltip labels include the documented fields', () => {
       'Policy Mode',
       'Raw log retention',
       'Prompt prefix',
+      'Operation mode tool policy',
       'Preset library',
       'Runtime model id',
       'llama.cpp Base URL',
@@ -31,7 +32,6 @@ test('settings tooltip labels include the documented fields', () => {
       'NumCtx',
       'MaxTokens',
       'Threads',
-      'GpuLayers',
       'Flash attention',
       'Temperature',
       'TopP',

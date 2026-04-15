@@ -4,7 +4,6 @@ param(
     [string]$OutputRoot = '.\eval\results\llama_bench_models',
     [int]$Repetitions = 3,
     [int]$Threads = 22,
-    [int]$GpuLayers = 999,
     [int]$MaxGenTokens = 512,
     [switch]$NoWarmup
 )
@@ -116,7 +115,6 @@ $manifest = [ordered]@{
     nGen = $MaxGenTokens
     repetitions = $Repetitions
     threads = $Threads
-    gpuLayers = $GpuLayers
     noWarmup = [bool]$NoWarmup
     startupScripts = [ordered]@{
         qwen35_35b_q4 = $q4StartupScript
@@ -143,8 +141,7 @@ foreach ($model in $models) {
         '-r', [string]$Repetitions,
         '-o', 'jsonl',
         '--progress',
-        '-fa', '1',
-        '-ngl', [string]$GpuLayers
+        '-fa', '1'
     )
 
     foreach ($pair in $promptGenerationPairs) {
@@ -183,11 +180,16 @@ foreach ($model in $models) {
         throw "llama-bench failed for $($model.Id) with exit code $($process.ExitCode). See $stderrPath"
     }
 
+    $startupScript = $null
+    if ($model.PSObject.Properties['StartupScript']) {
+        $startupScript = $model.PSObject.Properties['StartupScript'].Value
+    }
+
     $manifest.models += [ordered]@{
         id = $model.Id
         label = $model.Label
         modelPath = $model.ModelPath
-        startupScript = $model.PSObject.Properties['StartupScript']?.Value
+        startupScript = $startupScript
         nCpuMoe = $model.NCpuMoe
         stdoutPath = $stdoutPath
         stderrPath = $stderrPath

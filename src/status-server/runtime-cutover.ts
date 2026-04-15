@@ -20,7 +20,6 @@ import { ensureIdleSummarySnapshotsTable } from './idle-summary.js';
 import { ensureRunLogsTable, migrateExistingRunLogsToDbAndDeleteBounded } from './dashboard-runs.js';
 
 const RUNTIME_CUTOVER_MARKER_KEY = 'runtime_cutover_v1_complete';
-const LEGACY_STATUS_VALUES = new Set(['true', 'false', 'lock_requested', 'foreign_lock']);
 
 function toPosixRelativePath(rootPath: string, targetPath: string): string {
   return path.relative(rootPath, targetPath).replace(/\\/gu, '/');
@@ -87,9 +86,6 @@ function importLegacyStatus(runtimeRoot: string, databasePath: string): void {
     return;
   }
   const statusText = fs.readFileSync(legacyPath, 'utf8').trim().toLowerCase();
-  if (!LEGACY_STATUS_VALUES.has(statusText)) {
-    throw new Error(`Invalid legacy status text in ${legacyPath}: ${statusText}`);
-  }
   writeStatusText(databasePath, statusText);
   fs.rmSync(legacyPath, { force: true });
 }

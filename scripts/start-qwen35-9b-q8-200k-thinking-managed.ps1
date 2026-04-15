@@ -1,8 +1,6 @@
 param(
     [string]$ConfigPath,
     [string]$ConfigUrl,
-    [string]$StatusPath,
-    [string]$StatusUrl,
     [string]$HealthUrl,
     [string]$RuntimeRoot,
     [string]$ScriptPath,
@@ -12,7 +10,6 @@ param(
     [string]$LlamaCppRoot = 'C:\Users\denys\Documents\GitHub\llamacpp',
     [string]$ModelPath = 'D:\personal\models\Qwen3.5-27B-Q4_K_M.gguf',
     [int]$ContextSize = 140000,
-    [int]$GpuLayers = 999,
     [int]$Threads = 12,
     [bool]$FlashAttention = $true,
     [int]$ParallelSlots = 1,
@@ -91,7 +88,6 @@ if ($ConfigUrl) {
                 PresencePenalty = $presencePenalty
                 RepetitionPenalty = $repetitionPenalty
                 MaxTokens = $MaxTokens
-                GpuLayers = $GpuLayers
                 Threads = $Threads
                 FlashAttention = $FlashAttention
                 ParallelSlots = $ParallelSlots
@@ -123,7 +119,6 @@ $arguments = @(
     '--cache-ram', $CacheRam,
     '-ctk', 'q8_0',
     '-ctv', 'q8_0',
-    '-ngl', $GpuLayers,
     '-t', $Threads,
     '-b', $BatchSize,
     '-ub', $UBatchSize,

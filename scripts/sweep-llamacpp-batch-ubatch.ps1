@@ -9,7 +9,6 @@ param(
     [int[]]$UBatchSizes = @(512, 1024),
     [int]$Repetitions = 3,
     [int]$Threads = 22,
-    [int]$GpuLayers = 999,
     [switch]$NoWarmup
 )
 
@@ -128,7 +127,6 @@ Write-Host "Prompt/Gen: $PromptTokens / $GenTokens"
 Write-Host "Batch     : $($BatchSizes -join ',')"
 Write-Host "UBatch    : $($UBatchSizes -join ',')"
 Write-Host "Threads   : $Threads"
-Write-Host "NGL       : $GpuLayers"
 if ($null -ne $nCpuMoe) {
     Write-Host "NCpuMoe   : $nCpuMoe"
 }
@@ -149,7 +147,6 @@ foreach ($batchSize in $BatchSizes) {
             '--output', 'jsonl',
             '--progress',
             '--flash-attn', '1',
-            '--n-gpu-layers', [string]$GpuLayers,
             '--threads', [string]$Threads,
             '--batch-size', [string]$batchSize,
             '--ubatch-size', [string]$uBatchSize,

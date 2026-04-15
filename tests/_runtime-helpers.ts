@@ -92,7 +92,6 @@ function getDefaultConfig() {
       PresencePenalty: 0.0,
       RepetitionPenalty: 1.0,
       MaxTokens: 4096,
-      GpuLayers: 999,
       Threads: -1,
       FlashAttention: true,
       ParallelSlots: 1,
@@ -1300,6 +1299,7 @@ function writeManagedLlamaScripts(tempRoot, port, modelId = 'managed-test-model'
   const readyFilePath = path.join(tempRoot, 'fake-llama.ready');
   const syncOnlyMarkerPath = path.join(tempRoot, 'fake-llama.sync-only');
   const launchMarkerPath = path.join(tempRoot, 'fake-llama.launch');
+  const invocationLogPath = path.join(tempRoot, 'fake-llama.invocation.json');
 
   fs.writeFileSync(fakeServerPath, `
 const http = require('node:http');
@@ -1362,6 +1362,8 @@ $syncOnlyModel = ${toSingleQuotedPowerShellLiteral(options.syncOnlyModel || '')}
 $syncOnlyMarkerPath = ${toSingleQuotedPowerShellLiteral(syncOnlyMarkerPath)}
 $launchMarkerPath = ${toSingleQuotedPowerShellLiteral(launchMarkerPath)}
 $writeLaunchMarker = ${options.writeLaunchMarker ? '$true' : '$false'}
+$captureInvocation = ${options.captureInvocation ? '$true' : '$false'}
+$invocationLogPath = ${toSingleQuotedPowerShellLiteral(invocationLogPath)}
 
 function Set-Json {
   param(
@@ -1425,6 +1427,24 @@ if ($writeLaunchMarker) {
   Set-Content -LiteralPath $launchMarkerPath -Value '1' -Encoding utf8 -NoNewline
 }
 
+if ($captureInvocation) {
+  @{
+    ConfigPath = $ConfigPath
+    ConfigUrl = $ConfigUrl
+    StatusPath = $StatusPath
+    StatusUrl = $StatusUrl
+    HealthUrl = $HealthUrl
+    RuntimeRoot = $RuntimeRoot
+    ScriptPath = $ScriptPath
+    ServerConfigPathEnv = $env:SIFTKIT_SERVER_CONFIG_PATH
+    ServerConfigUrlEnv = $env:SIFTKIT_SERVER_CONFIG_URL
+    ServerStatusPathEnv = $env:SIFTKIT_SERVER_STATUS_PATH
+    ServerStatusUrlEnv = $env:SIFTKIT_SERVER_STATUS_URL
+    ServerHealthUrlEnv = $env:SIFTKIT_SERVER_HEALTH_URL
+    ServerRuntimeRootEnv = $env:SIFTKIT_SERVER_RUNTIME_ROOT
+  } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $invocationLogPath -Encoding utf8
+}
+
 $child = if ($launchHangingProcess) {
   Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 60') -PassThru -WindowStyle Hidden
 } else {
@@ -1467,6 +1487,7 @@ exit 0
     readyFilePath,
     syncOnlyMarkerPath,
     launchMarkerPath,
+    invocationLogPath,
   };
 }
 

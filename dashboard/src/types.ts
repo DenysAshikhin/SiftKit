@@ -265,7 +265,6 @@ export type DashboardLlamaCppConfig = {
   PresencePenalty: number;
   RepetitionPenalty: number;
   MaxTokens: number;
-  GpuLayers: number;
   Threads: number;
   FlashAttention: boolean;
   ParallelSlots: number;
@@ -313,9 +312,6 @@ export type DashboardConfig = {
 export type DashboardHealth = {
   ok: boolean;
   disableManagedLlamaStartup: boolean;
-  managedLlamaReady: boolean;
-  managedLlamaStarting: boolean;
-  managedLlamaStartupWarning: string | null;
   statusPath: string;
   configPath: string;
   metricsPath: string;

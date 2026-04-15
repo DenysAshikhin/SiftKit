@@ -212,6 +212,110 @@ test('runtime cutover migration heals legacy schema drift where runtime_artifact
   });
 });
 
+test('runtime database migrates schema v5 GPU fields to schema v6 boolean-only status storage', () => {
+  withTempRepo(() => {
+    const databasePath = getRuntimeDatabasePath();
+    fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+    const legacy = new Database(databasePath);
+    legacy.exec(`
+      CREATE TABLE runtime_schema (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        version INTEGER NOT NULL
+      );
+      INSERT INTO runtime_schema (id, version) VALUES (1, 5);
+
+      CREATE TABLE app_config (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        version TEXT NOT NULL,
+        backend TEXT NOT NULL,
+        policy_mode TEXT NOT NULL,
+        raw_log_retention INTEGER NOT NULL CHECK (raw_log_retention IN (0, 1)),
+        prompt_prefix TEXT,
+        runtime_model TEXT,
+        llama_base_url TEXT,
+        llama_num_ctx INTEGER,
+        llama_model_path TEXT,
+        llama_temperature REAL,
+        llama_top_p REAL,
+        llama_top_k INTEGER,
+        llama_min_p REAL,
+        llama_presence_penalty REAL,
+        llama_repetition_penalty REAL,
+        llama_max_tokens INTEGER,
+        llama_gpu_layers INTEGER,
+        llama_threads INTEGER,
+        llama_flash_attention INTEGER CHECK (llama_flash_attention IN (0, 1) OR llama_flash_attention IS NULL),
+        llama_parallel_slots INTEGER,
+        llama_reasoning TEXT,
+        thresholds_min_characters_for_summary INTEGER NOT NULL,
+        thresholds_min_lines_for_summary INTEGER NOT NULL,
+        interactive_enabled INTEGER NOT NULL CHECK (interactive_enabled IN (0, 1)),
+        interactive_wrapped_commands_json TEXT NOT NULL,
+        interactive_idle_timeout_ms INTEGER NOT NULL,
+        interactive_max_transcript_characters INTEGER NOT NULL,
+        interactive_transcript_retention INTEGER NOT NULL CHECK (interactive_transcript_retention IN (0, 1)),
+        server_startup_script TEXT,
+        server_shutdown_script TEXT,
+        server_startup_timeout_ms INTEGER,
+        server_healthcheck_timeout_ms INTEGER,
+        server_healthcheck_interval_ms INTEGER,
+        server_verbose_logging INTEGER CHECK (server_verbose_logging IN (0, 1) OR server_verbose_logging IS NULL),
+        server_verbose_args_json TEXT NOT NULL,
+        operation_mode_allowed_tools_json TEXT NOT NULL,
+        presets_json TEXT NOT NULL,
+        updated_at_utc TEXT NOT NULL
+      );
+      INSERT INTO app_config (
+        id, version, backend, policy_mode, raw_log_retention, prompt_prefix, runtime_model,
+        llama_base_url, llama_num_ctx, llama_model_path, llama_temperature, llama_top_p,
+        llama_top_k, llama_min_p, llama_presence_penalty, llama_repetition_penalty,
+        llama_max_tokens, llama_gpu_layers, llama_threads, llama_flash_attention,
+        llama_parallel_slots, llama_reasoning, thresholds_min_characters_for_summary,
+        thresholds_min_lines_for_summary, interactive_enabled, interactive_wrapped_commands_json,
+        interactive_idle_timeout_ms, interactive_max_transcript_characters, interactive_transcript_retention,
+        server_startup_script, server_shutdown_script, server_startup_timeout_ms,
+        server_healthcheck_timeout_ms, server_healthcheck_interval_ms, server_verbose_logging,
+        server_verbose_args_json, operation_mode_allowed_tools_json, presets_json, updated_at_utc
+      ) VALUES (
+        1, '0.1.0', 'llama.cpp', 'conservative', 1, '', 'legacy-model',
+        'http://127.0.0.1:8080', 4096, NULL, 0.2, 0.95,
+        20, 0, 0, 1,
+        1024, 999, -1, 1,
+        1, 'off', 500,
+        16, 1, '[]',
+        1000, 60000, 1,
+        NULL, NULL, 1000,
+        1000, 1000, 0,
+        '[]', '{"summary":["find_text"],"read-only":[],"full":[]}', '[]', '2026-04-01T00:00:00.000Z'
+      );
+
+      CREATE TABLE runtime_status (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        status_text TEXT NOT NULL CHECK (status_text IN ('true', 'false', 'lock_requested', 'foreign_lock')),
+        updated_at_utc TEXT NOT NULL
+      );
+      INSERT INTO runtime_status (id, status_text, updated_at_utc)
+      VALUES (1, 'foreign_lock', '2026-04-01T00:00:00.000Z');
+    `);
+    legacy.close();
+
+    closeRuntimeDatabase();
+    const database = getRuntimeDatabase(databasePath);
+    const versionRow = database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get() as { version: number };
+    const appConfigColumns = database.prepare('PRAGMA table_info(app_config)').all() as Array<{ name: string }>;
+    const runtimeStatusSql = database.prepare(`
+      SELECT sql
+      FROM sqlite_master
+      WHERE type = 'table' AND name = 'runtime_status'
+    `).get() as { sql: string };
+
+    assert.equal(versionRow.version, 6);
+    assert.equal(appConfigColumns.some((column) => column.name === 'llama_gpu_layers'), false);
+    assert.equal(readStatusText(databasePath), 'false');
+    assert.match(runtimeStatusSql.sql, /status_text IN \('true', 'false'\)/u);
+  });
+});
+
 test('runtime cutover migration imports and deletes managed-llama .log files', () => {
   withTempRepo((repoRoot) => {
     const runtimeRoot = path.join(repoRoot, '.siftkit');

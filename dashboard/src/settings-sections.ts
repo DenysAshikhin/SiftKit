@@ -79,7 +79,6 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'NumCtx', layout: 'quarter', helpText: 'Upper bound for prompt context. Higher values consume more memory.' },
       { label: 'MaxTokens', layout: 'quarter', helpText: 'Maximum generated tokens per response.' },
       { label: 'Threads', layout: 'quarter', helpText: 'CPU worker threads used for llama.cpp execution.' },
-      { label: 'GpuLayers', layout: 'quarter', helpText: 'How many layers are offloaded to GPU when available.' },
       { label: 'Flash attention', layout: 'half', helpText: 'Enables llama.cpp flash-attention optimizations when supported by the selected build and hardware.' },
     ],
   },

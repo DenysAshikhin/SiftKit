@@ -16,6 +16,8 @@ const { readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchm
 const { countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse } = require('../dist/providers/llama-cpp.js');
 const { withExecutionLock } = require('../dist/execution-lock.js');
 const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../dist/status-server/index.js');
+const { writeConfig } = require('../dist/status-server/config-store.js');
+const { readStatusText } = require('../dist/status-server/status-file.js');
 const { runDebugRequest } = require('../dist/scripts/run-benchmark-fixture-debug.js');
 const { runFixture60MalformedJsonRepro } = require('../dist/scripts/repro-fixture60-malformed-json.js');
 
@@ -150,8 +152,8 @@ test('real status server health reports disableManagedLlamaStartup mode when fla
 
 test('real status server with disableManagedLlamaStartup skips managed llama bootstrap during server startup', async () => {
   await withTempEnv(async (tempRoot) => {
-    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
-    const configPath = path.join(tempRoot, 'config.json');
+    const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+    const configPath = getConfigPath();
     const llamaPort = await getFreePort();
     const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
     const config = getDefaultConfig();
@@ -165,7 +167,7 @@ test('real status server with disableManagedLlamaStartup skips managed llama boo
         HealthcheckIntervalMs: 50,
       },
     };
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+    writeConfig(configPath, config);
 
     await withRealStatusServer(async ({ statusUrl }) => {
       await sleep(250);
@@ -173,7 +175,7 @@ test('real status server with disableManagedLlamaStartup skips managed llama boo
       const status = await requestJson(statusUrl);
       assert.equal(status.running, false);
       assert.equal(status.status, 'false');
-      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
+      assert.equal(readStatusText(getConfigPath()), 'false');
     }, {
       statusPath,
       configPath,
@@ -253,36 +255,6 @@ test('real status server accepts partial PUT /config updates and preserves unspe
   });
 });
 
-test('real status server with disableManagedLlamaStartup keeps the shared status file pinned to true across request lifecycle', async () => {
-  await withTempEnv(async (tempRoot) => {
-    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
-    const configPath = path.join(tempRoot, 'config.json');
-    const config = getDefaultConfig();
-    config.Backend = 'noop';
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
-
-    await withRealStatusServer(async ({ statusUrl, statusPath: liveStatusPath }) => {
-      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'true');
-
-      await requestJson(statusUrl, {
-        method: 'POST',
-        body: JSON.stringify({ running: true, rawInputCharacterCount: 25 }),
-      });
-      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'true');
-
-      await requestJson(statusUrl, {
-        method: 'POST',
-        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 25, inputTokens: 5, outputCharacterCount: 4, outputTokens: 1, requestDurationMs: 10 }),
-      });
-      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'true');
-    }, {
-      statusPath,
-      configPath,
-      disableManagedLlamaStartup: true,
-    });
-  });
-});
-
 test('real status server with disableManagedLlamaStartup leaves an externally started llama running across boot and close', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
@@ -335,23 +307,23 @@ test('real status server with disableManagedLlamaStartup leaves an externally st
   });
 });
 
-test('real status server preserves foreign_lock while siftkit is idle', async () => {
+test('real status server normalizes legacy non-boolean status text to false', async () => {
   await withTempEnv(async (tempRoot) => {
-    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
-    const configPath = path.join(tempRoot, 'config.json');
+    const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+    const configPath = getConfigPath();
     const config = getDefaultConfig();
     config.Backend = 'noop';
     fs.mkdirSync(path.dirname(statusPath), { recursive: true });
     fs.writeFileSync(statusPath, 'foreign_lock', 'utf8');
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+    writeConfig(configPath, config);
 
-    await withRealStatusServer(async ({ statusUrl, statusPath: liveStatusPath }) => {
-      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'foreign_lock');
-      await sleep(FAST_LEASE_WAIT_MS);
-      assert.equal(fs.readFileSync(liveStatusPath, 'utf8').trim(), 'foreign_lock');
+    await withRealStatusServer(async ({ statusUrl }) => {
+      await waitForAsyncExpectation(async () => {
+        assert.equal(readStatusText(getConfigPath()), 'false');
+      }, 2000);
       const status = await requestJson(statusUrl);
       assert.equal(status.running, false);
-      assert.equal(status.status, 'foreign_lock');
+      assert.equal(status.status, 'false');
     }, {
       statusPath,
       configPath,
@@ -360,48 +332,7 @@ test('real status server preserves foreign_lock while siftkit is idle', async ()
   });
 });
 
-test('real status server publishes lock_requested while waiting on a foreign_lock', async () => {
-  await withTempEnv(async (tempRoot) => {
-    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
-    const configPath = path.join(tempRoot, 'config.json');
-    const config = getDefaultConfig();
-    config.Backend = 'noop';
-    fs.mkdirSync(path.dirname(statusPath), { recursive: true });
-    fs.writeFileSync(statusPath, 'foreign_lock', 'utf8');
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
-
-    await withRealStatusServer(async ({ statusUrl }) => {
-      const acquirePromise = requestJson(statusUrl, {
-        method: 'POST',
-        body: JSON.stringify({ running: true, rawInputCharacterCount: 25 }),
-      });
-
-      await waitForAsyncExpectation(async () => {
-        assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'lock_requested');
-        const waitingStatus = await requestJson(statusUrl);
-        assert.equal(waitingStatus.running, false);
-        assert.equal(waitingStatus.status, 'lock_requested');
-      }, 2000);
-
-      fs.writeFileSync(statusPath, 'false', 'utf8');
-
-      const acquired = await acquirePromise;
-      assert.equal(acquired.running, true);
-      assert.equal(acquired.status, 'true');
-      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
-
-      await requestJson(statusUrl, {
-        method: 'POST',
-        body: JSON.stringify({ running: false, promptCharacterCount: 25, inputTokens: 5, outputCharacterCount: 4, outputTokens: 1, requestDurationMs: 10 }),
-      });
-    }, {
-      statusPath,
-      configPath,
-    });
-  });
-});
-
-test('real status server rejects shared-file statuses in POST /status payloads', async () => {
+test('real status server rejects non-boolean statuses in POST /status payloads', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
@@ -623,10 +554,54 @@ test('real status server starts managed llama.cpp during server startup before s
   });
 });
 
-test('real status server waits behind foreign_lock before starting managed llama.cpp', async () => {
+test('managed llama scripts no longer receive status-path coordination args or env vars', async () => {
   await withTempEnv(async (tempRoot) => {
-    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
-    const configPath = path.join(tempRoot, 'config.json');
+    const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+    const configPath = getConfigPath();
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
+      captureInvocation: true,
+    });
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      LlamaCpp: {
+        StartupScript: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 200,
+        HealthcheckIntervalMs: 50,
+      },
+    };
+    writeConfig(configPath, config);
+
+    await withRealStatusServer(async () => {
+      await waitForAsyncExpectation(async () => {
+        assert.equal(fs.existsSync(managed.invocationLogPath), true);
+        const invocation = JSON.parse(fs.readFileSync(managed.invocationLogPath, 'utf8').replace(/^\uFEFF/u, ''));
+        assert.equal(typeof invocation.ConfigPath, 'string');
+        assert.equal(typeof invocation.ConfigUrl, 'string');
+        assert.equal(typeof invocation.HealthUrl, 'string');
+        assert.equal(typeof invocation.RuntimeRoot, 'string');
+        assert.equal(invocation.StatusPath || '', '');
+        assert.equal(invocation.StatusUrl || '', '');
+        assert.equal(invocation.ServerConfigPathEnv, getConfigPath());
+        assert.match(String(invocation.ServerConfigUrlEnv || ''), /\/config$/u);
+        assert.equal(invocation.ServerStatusPathEnv || '', '');
+        assert.equal(invocation.ServerStatusUrlEnv || '', '');
+        assert.match(String(invocation.ServerHealthUrlEnv || ''), /\/health$/u);
+      }, 5000);
+    }, {
+      statusPath,
+      configPath,
+    });
+  });
+});
+
+test('real status server ignores legacy non-boolean status text when starting managed llama.cpp', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+    const configPath = getConfigPath();
     const llamaPort = await getFreePort();
     const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
     const config = getDefaultConfig();
@@ -642,19 +617,9 @@ test('real status server waits behind foreign_lock before starting managed llama
     };
     fs.mkdirSync(path.dirname(statusPath), { recursive: true });
     fs.writeFileSync(statusPath, 'foreign_lock', 'utf8');
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+    writeConfig(configPath, config);
 
     await withRealStatusServer(async ({ statusUrl }) => {
-      await waitForAsyncExpectation(async () => {
-        const status = await requestJson(statusUrl);
-        assert.equal(status.running, false);
-        assert.equal(status.status, 'lock_requested');
-        assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'lock_requested');
-      }, 2000);
-      assert.equal(fs.existsSync(managed.readyFilePath), false);
-
-      fs.writeFileSync(statusPath, 'false', 'utf8');
-
       await waitForAsyncExpectation(async () => {
         assert.equal(fs.existsSync(managed.readyFilePath), true);
         const status = await requestJson(statusUrl);
@@ -863,8 +828,9 @@ test('real status server keeps running in degraded mode when managed llama start
     try {
       const health = await requestJson(`${server.statusUrl.replace(/\/status$/u, '/health')}`);
       assert.equal(health.ok, true);
-      assert.equal(health.managedLlamaReady, false);
-      assert.match(String(health.managedLlamaStartupWarning || ''), /Timed out waiting for llama\.cpp server/u);
+      assert.equal('managedLlamaReady' in health, false);
+      assert.equal('managedLlamaStarting' in health, false);
+      assert.equal('managedLlamaStartupWarning' in health, false);
     } finally {
       await server.close();
     }

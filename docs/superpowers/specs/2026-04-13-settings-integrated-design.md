@@ -89,7 +89,6 @@ The redesign should avoid vertical page-length scrolling. The visible section pa
 - `NumCtx`
 - `MaxTokens`
 - `Threads`
-- `GpuLayers`
 - `Flash attention`
 
 ### Sampling
@@ -130,7 +129,6 @@ Add styled hover/focus help popovers for:
 - `NumCtx`
 - `MaxTokens`
 - `Threads`
-- `GpuLayers`
 - `Temperature`
 - `TopP`
 - `TopK`

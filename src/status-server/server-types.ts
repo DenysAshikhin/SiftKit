@@ -102,11 +102,6 @@ export type ServerContext = {
   managedLlamaStartupWarning: string | null;
   bootstrapManagedLlamaStartup: boolean;
 
-  // GPU lock
-  siftKitOwnsGpuLock: boolean;
-  siftKitWaitingForGpuLock: boolean;
-  gpuLockAcquisitionPromise: Promise<void> | null;
-
   // Late-bound function references (set by index.ts to break circular deps)
   shutdownManagedLlamaIfNeeded(options?: ShutdownManagedLlamaOptions): Promise<void>;
   ensureManagedLlamaReady(options?: EnsureManagedLlamaOptions): Promise<Dict>;

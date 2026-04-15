@@ -1,6 +1,6 @@
 /**
  * Managed llama.cpp lifecycle: spawning startup/shutdown scripts, health
- * checks, log scanning, and GPU-lock-aware readiness management.
+ * checks, log scanning, and readiness management.
  *
  * Free helper functions (terminateProcessTree, resolveManagedScriptPath, etc.)
  * are exported directly. Lifecycle functions that need mutable server state
@@ -42,8 +42,6 @@ import type {
 } from './server-types.js';
 import {
   publishStatus,
-  releaseSiftKitGpuLockIfIdle,
-  ensureSiftKitGpuLockAcquired,
   resetPendingIdleSummaryMetadata,
 } from './server-ops.js';
 
@@ -65,7 +63,6 @@ export function getPositiveIntegerFromEnv(name: string, fallback: number): numbe
 
 export const EXECUTION_LEASE_STALE_MS = getPositiveIntegerFromEnv('SIFTKIT_EXECUTION_LEASE_STALE_MS', 10_000);
 export const IDLE_SUMMARY_DELAY_MS = getPositiveIntegerFromEnv('SIFTKIT_IDLE_SUMMARY_DELAY_MS', 600_000);
-export const GPU_LOCK_POLL_DELAY_MS = 100;
 export const LLAMA_STARTUP_GRACE_DELAY_MS = 2_000;
 export const MANAGED_LLAMA_LOG_ALERT_PATTERN = /\b(?:warn(?:ing)?|error|exception|fatal)\b/iu;
 const MANAGED_LLAMA_LOADING_MODEL_503_PATTERN = /"message"\s*:\s*"Loading model"[\s\S]*"type"\s*:\s*"unavailable_error"[\s\S]*"code"\s*:\s*503/iu;
@@ -179,8 +176,6 @@ function getManagedLifecycleArgs(ctx: ServerContext, scriptPath: string): string
   return [
     '-ConfigPath', ctx.configPath,
     '-ConfigUrl', `${ctx.getServiceBaseUrl()}/config`,
-    '-StatusPath', ctx.statusPath,
-    '-StatusUrl', `${ctx.getServiceBaseUrl()}/status`,
     '-HealthUrl', `${ctx.getServiceBaseUrl()}/health`,
     '-RuntimeRoot', getRuntimeRoot(),
     '-ScriptPath', scriptPath,
@@ -221,8 +216,6 @@ export function spawnManagedScript(ctx: ServerContext, scriptPath: string, purpo
       ...process.env,
       SIFTKIT_SERVER_CONFIG_PATH: ctx.configPath,
       SIFTKIT_SERVER_CONFIG_URL: `${ctx.getServiceBaseUrl()}/config`,
-      SIFTKIT_SERVER_STATUS_PATH: ctx.statusPath,
-      SIFTKIT_SERVER_STATUS_URL: `${ctx.getServiceBaseUrl()}/status`,
       SIFTKIT_SERVER_HEALTH_URL: `${ctx.getServiceBaseUrl()}/health`,
       SIFTKIT_SERVER_RUNTIME_ROOT: getRuntimeRoot(),
       SIFTKIT_MANAGED_LLAMA_STARTUP: '1',
@@ -501,7 +494,6 @@ export async function ensureManagedLlamaReady(ctx: ServerContext, _options: Ensu
   if (ctx.managedLlamaShutdownPromise) {
     await ctx.managedLlamaShutdownPromise;
   }
-  await ensureSiftKitGpuLockAcquired(ctx);
   if (await isLlamaServerReachable(config)) {
     ctx.managedLlamaStartupWarning = null;
     ctx.managedLlamaReady = true;
@@ -591,9 +583,7 @@ export async function ensureManagedLlamaReady(ctx: ServerContext, _options: Ensu
   })().finally(() => {
     ctx.managedLlamaStarting = false;
     ctx.managedLlamaStartupPromise = null;
-    if (!ctx.managedLlamaReady) {
-      releaseSiftKitGpuLockIfIdle(ctx);
-    }
+    publishStatus(ctx);
   });
   await ctx.managedLlamaStartupPromise;
   return readConfig(ctx.configPath);
@@ -602,7 +592,7 @@ export async function ensureManagedLlamaReady(ctx: ServerContext, _options: Ensu
 export async function shutdownManagedLlamaIfNeeded(ctx: ServerContext, shutdownOptions: ShutdownManagedLlamaOptions = {}): Promise<void> {
   if (ctx.disableManagedLlamaStartup) {
     ctx.managedLlamaReady = false;
-    releaseSiftKitGpuLockIfIdle(ctx);
+    publishStatus(ctx);
     return;
   }
   const config = readConfig(ctx.configPath);
@@ -633,7 +623,7 @@ export async function shutdownManagedLlamaIfNeeded(ctx: ServerContext, shutdownO
   );
   if (!managed.ShutdownScript && !hasActiveHostProcess) {
     ctx.managedLlamaReady = false;
-    releaseSiftKitGpuLockIfIdle(ctx);
+    publishStatus(ctx);
     return;
   }
   ctx.managedLlamaShutdownPromise = (async () => {
@@ -676,7 +666,7 @@ export async function shutdownManagedLlamaIfNeeded(ctx: ServerContext, shutdownO
       ctx.managedLlamaLastStartupLogs = null;
     }
     logLine(`llama_stop offline base_url=${baseUrl}`);
-    releaseSiftKitGpuLockIfIdle(ctx);
+    publishStatus(ctx);
   })().catch((error: unknown) => {
     process.stderr.write(`[siftKitStatus] Failed to stop llama.cpp server: ${error instanceof Error ? error.message : String(error)}\n`);
   }).finally(() => {
@@ -692,8 +682,6 @@ export function shutdownManagedLlamaForProcessExitSync(ctx: ServerContext): void
     ctx.managedLlamaReady = false;
     ctx.idleSummaryPending = false;
     resetPendingIdleSummaryMetadata(ctx);
-    ctx.siftKitWaitingForGpuLock = false;
-    ctx.siftKitOwnsGpuLock = false;
     if (ctx.disableManagedLlamaStartup) {
       publishStatus(ctx);
       return;
@@ -717,8 +705,6 @@ export function shutdownManagedLlamaForProcessExitSync(ctx: ServerContext): void
           ...process.env,
           SIFTKIT_SERVER_CONFIG_PATH: ctx.configPath,
           SIFTKIT_SERVER_CONFIG_URL: `${ctx.getServiceBaseUrl()}/config`,
-          SIFTKIT_SERVER_STATUS_PATH: ctx.statusPath,
-          SIFTKIT_SERVER_STATUS_URL: `${ctx.getServiceBaseUrl()}/status`,
           SIFTKIT_SERVER_HEALTH_URL: `${ctx.getServiceBaseUrl()}/health`,
           SIFTKIT_SERVER_RUNTIME_ROOT: getRuntimeRoot(),
         },
@@ -749,7 +735,6 @@ export async function shutdownManagedLlamaForServerExit(ctx: ServerContext): Pro
   try {
     ctx.bootstrapManagedLlamaStartup = false;
     ctx.managedLlamaStarting = false;
-    ctx.siftKitWaitingForGpuLock = false;
     if (ctx.disableManagedLlamaStartup) {
       return;
     }
@@ -760,7 +745,7 @@ export async function shutdownManagedLlamaForServerExit(ctx: ServerContext): Pro
     ctx.managedLlamaReady = false;
     ctx.idleSummaryPending = false;
     resetPendingIdleSummaryMetadata(ctx);
-    releaseSiftKitGpuLockIfIdle(ctx);
+    publishStatus(ctx);
   }
 }
 

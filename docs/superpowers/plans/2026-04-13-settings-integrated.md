@@ -52,7 +52,6 @@ test('settings tooltip labels include the documented fields', () => {
       'NumCtx',
       'MaxTokens',
       'Threads',
-      'GpuLayers',
       'Temperature',
       'TopP',
       'TopK',

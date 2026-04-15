@@ -17,7 +17,6 @@ test('settings mockup tooltip fields include documented explanatory labels', () 
       'NumCtx',
       'MaxTokens',
       'Threads',
-      'GpuLayers',
       'Temperature',
       'TopP',
       'TopK',
