@@ -2974,6 +2974,7 @@ function DashboardApp() {
                     onChange={(event) => { void onUpdateSessionPreset(event.target.value); }}
                     disabled={chatBusy || webPresets.length === 0}
                   >
+                    {webPresets.length === 0 ? <option value="">No presets</option> : null}
                     {webPresets.map((preset) => (
                       <option key={preset.id} value={preset.id}>
                         {preset.label}

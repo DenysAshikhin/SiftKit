@@ -59,7 +59,13 @@ export function getIdleSummary(limit = 30): Promise<IdleSummaryResponse> {
 }
 
 export function getDashboardConfig(): Promise<DashboardConfig> {
-  return fetchJson<DashboardConfig>('/config');
+  return fetchJson<DashboardConfig>('/config?skip_ready=1').catch(async (error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/Request failed \(404\)/u.test(message)) {
+      return fetchJson<DashboardConfig>('/config');
+    }
+    throw error;
+  });
 }
 
 export function updateDashboardConfig(config: DashboardConfig): Promise<DashboardConfig> {

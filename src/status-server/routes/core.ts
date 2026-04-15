@@ -138,6 +138,7 @@ export async function handleCoreRoute(
   res: http.ServerResponse,
 ): Promise<boolean> {
   const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
+  const requestUrl = new URL(req.url || '/', 'http://localhost');
 
   // -------------------------------------------------------------------------
   // Health
@@ -578,9 +579,10 @@ export async function handleCoreRoute(
   // Config
   // -------------------------------------------------------------------------
 
-  if (req.method === 'GET' && req.url === '/config') {
+  if (req.method === 'GET' && requestUrl.pathname === '/config') {
+    const skipReady = requestUrl.searchParams.get('skip_ready') === '1';
     try {
-      if (disableManagedLlamaStartup) {
+      if (skipReady || disableManagedLlamaStartup) {
         sendJson(res, 200, readConfig(configPath));
         return true;
       }
@@ -595,7 +597,7 @@ export async function handleCoreRoute(
     return true;
   }
 
-  if (req.method === 'PUT' && req.url === '/config') {
+  if (req.method === 'PUT' && requestUrl.pathname === '/config') {
     let parsedBody: Dict;
     try {
       parsedBody = JSON.parse(await readBody(req) || '{}') as Dict;
