@@ -43,12 +43,16 @@ function createPreset(id: string, overrides: Partial<DashboardPreset> = {}): Das
   };
 }
 
+const SUMMARY_TOOL_OPTIONS: DashboardPresetToolName[] = ['find_text', 'read_lines', 'json_filter'];
+const REPO_TOOL_OPTIONS: DashboardPresetToolName[] = PRESET_TOOL_OPTIONS.filter(
+  (tool): tool is DashboardPresetToolName => tool.startsWith('repo_'),
+);
+
 test('PRESET_TOOL_OPTIONS exposes every supported tool exactly once', () => {
+  assert.equal(new Set(PRESET_TOOL_OPTIONS).size, PRESET_TOOL_OPTIONS.length);
   assert.deepEqual(PRESET_TOOL_OPTIONS, [
-    'find_text',
-    'read_lines',
-    'json_filter',
-    'run_repo_cmd',
+    ...SUMMARY_TOOL_OPTIONS,
+    ...REPO_TOOL_OPTIONS,
   ] satisfies DashboardPresetToolName[]);
 });
 
@@ -73,7 +77,7 @@ test('getFallbackPresetId defaults to the first preset when selection is missing
 });
 
 test('getPresetToolsSummary returns a comma-separated list in supported-option order', () => {
-  assert.equal(getPresetToolsSummary(['run_repo_cmd', 'find_text']), 'find_text, run_repo_cmd');
+  assert.equal(getPresetToolsSummary(['repo_rg', 'find_text']), 'find_text, repo_rg');
 });
 
 test('togglePresetTool adds missing tools and removes existing ones', () => {
@@ -89,8 +93,8 @@ test('getDefaultOperationModeForPresetKind maps summary/chat to summary and plan
 });
 
 test('getDefaultToolsForOperationMode returns the builtin defaults for each mode', () => {
-  assert.deepEqual(getDefaultToolsForOperationMode('summary'), ['find_text', 'read_lines', 'json_filter']);
-  assert.deepEqual(getDefaultToolsForOperationMode('read-only'), ['run_repo_cmd']);
+  assert.deepEqual(getDefaultToolsForOperationMode('summary'), SUMMARY_TOOL_OPTIONS);
+  assert.deepEqual(getDefaultToolsForOperationMode('read-only'), REPO_TOOL_OPTIONS);
   assert.deepEqual(getDefaultToolsForOperationMode('full'), []);
 });
 
@@ -111,7 +115,7 @@ test('applyPresetKindDefaults makes preset kind authoritative over operation mod
   assert.equal(preset.presetKind, 'plan');
   assert.equal(preset.executionFamily, 'plan');
   assert.equal(preset.operationMode, 'read-only');
-  assert.deepEqual(preset.allowedTools, ['run_repo_cmd']);
+  assert.deepEqual(preset.allowedTools, REPO_TOOL_OPTIONS);
   assert.equal(preset.repoRootRequired, true);
   assert.equal(preset.maxTurns, 45);
   assert.equal(preset.thinkingInterval, 5);
@@ -139,14 +143,14 @@ test('applyOperationModeDefaults swaps allowed tools while preserving chat-kind 
 
 test('getEffectivePresetTools intersects preset allowlist with operation-mode policy', () => {
   const operationModeAllowedTools: DashboardOperationModeAllowedTools = {
-    summary: ['find_text', 'read_lines', 'json_filter'],
-    'read-only': ['run_repo_cmd'],
+    summary: [...SUMMARY_TOOL_OPTIONS],
+    'read-only': [...REPO_TOOL_OPTIONS],
     full: [],
   };
 
   assert.deepEqual(
     getEffectivePresetTools({
-      allowedTools: ['find_text', 'run_repo_cmd'],
+      allowedTools: ['find_text', 'repo_rg'],
       operationMode: 'summary',
     }, operationModeAllowedTools),
     ['find_text'],

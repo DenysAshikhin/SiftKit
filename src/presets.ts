@@ -4,7 +4,37 @@ export type PresetKind = 'summary' | 'chat' | 'plan' | 'repo-search';
 export type PresetExecutionFamily = PresetKind;
 export type PresetOperationMode = 'summary' | 'read-only' | 'full';
 export type PresetSurface = 'cli' | 'web';
-export type PresetToolName = 'find_text' | 'read_lines' | 'json_filter' | 'run_repo_cmd';
+
+const SUMMARY_TOOLS = ['find_text', 'read_lines', 'json_filter'] as const;
+export const REPO_SEARCH_TOOLS = [
+  'repo_rg',
+  'repo_get_content',
+  'repo_get_childitem',
+  'repo_select_string',
+  'repo_git',
+  'repo_pwd',
+  'repo_ls',
+  'repo_select_object',
+  'repo_where_object',
+  'repo_sort_object',
+  'repo_group_object',
+  'repo_measure_object',
+  'repo_foreach_object',
+  'repo_format_table',
+  'repo_format_list',
+  'repo_out_string',
+  'repo_convertto_json',
+  'repo_convertfrom_json',
+  'repo_get_unique',
+  'repo_join_string',
+] as const;
+
+const PRESET_TOOL_NAMES = [...SUMMARY_TOOLS, ...REPO_SEARCH_TOOLS] as const;
+const PRESET_TOOL_NAME_SET = new Set<string>(PRESET_TOOL_NAMES as readonly string[]);
+const LEGACY_REPO_SEARCH_TOOL_ALIAS = 'run_repo_cmd';
+const READ_ONLY_TOOLS = [...REPO_SEARCH_TOOLS] as const;
+
+export type PresetToolName = (typeof PRESET_TOOL_NAMES)[number];
 export type OperationModeAllowedTools = Record<PresetOperationMode, PresetToolName[]>;
 
 export type SiftPreset = {
@@ -28,14 +58,11 @@ export type SiftPreset = {
   thinkingEnabled: boolean | null;
 };
 
-const SUMMARY_TOOLS: readonly PresetToolName[] = ['find_text', 'read_lines', 'json_filter'];
-const READ_ONLY_TOOLS: readonly PresetToolName[] = ['run_repo_cmd'];
 const PRESET_SURFACES: readonly PresetSurface[] = ['cli', 'web'];
-const PRESET_TOOL_NAMES: readonly PresetToolName[] = ['find_text', 'read_lines', 'json_filter', 'run_repo_cmd'];
 
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS: OperationModeAllowedTools = {
-  summary: [...SUMMARY_TOOLS],
-  'read-only': [...READ_ONLY_TOOLS],
+  summary: [...SUMMARY_TOOLS] as PresetToolName[],
+  'read-only': [...READ_ONLY_TOOLS] as PresetToolName[],
   full: [],
 };
 
@@ -85,10 +112,21 @@ function normalizeToolList(value: unknown, fallback: readonly PresetToolName[]):
     return [...fallback];
   }
   const seen = new Set<PresetToolName>();
+  const pushTool = (toolName: PresetToolName): void => {
+    if (!seen.has(toolName)) {
+      seen.add(toolName);
+    }
+  };
   for (const item of value) {
     const normalized = String(item);
-    if ((PRESET_TOOL_NAMES as readonly string[]).includes(normalized) && !seen.has(normalized as PresetToolName)) {
-      seen.add(normalized as PresetToolName);
+    if (normalized === LEGACY_REPO_SEARCH_TOOL_ALIAS) {
+      for (const repoToolName of REPO_SEARCH_TOOLS) {
+        pushTool(repoToolName);
+      }
+      continue;
+    }
+    if (PRESET_TOOL_NAME_SET.has(normalized)) {
+      pushTool(normalized as PresetToolName);
     }
   }
   return seen.size > 0 ? Array.from(seen) : [...fallback];
@@ -186,7 +224,7 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     presetKind: 'summary',
     operationMode: 'summary',
     promptPrefix: '',
-    allowedTools: SUMMARY_TOOLS as PresetToolName[],
+    allowedTools: [...SUMMARY_TOOLS],
     surfaces: ['cli'],
     useForSummary: true,
     builtin: true,
@@ -205,7 +243,7 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     presetKind: 'repo-search',
     operationMode: 'read-only',
     promptPrefix: '',
-    allowedTools: READ_ONLY_TOOLS as PresetToolName[],
+    allowedTools: [...READ_ONLY_TOOLS],
     surfaces: ['cli', 'web'],
     useForSummary: false,
     builtin: true,
@@ -224,7 +262,7 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     presetKind: 'chat',
     operationMode: 'summary',
     promptPrefix: 'general, coder friendly assistant',
-    allowedTools: SUMMARY_TOOLS as PresetToolName[],
+    allowedTools: [...SUMMARY_TOOLS],
     surfaces: ['web'],
     useForSummary: false,
     builtin: true,
@@ -243,7 +281,7 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     presetKind: 'plan',
     operationMode: 'read-only',
     promptPrefix: '',
-    allowedTools: READ_ONLY_TOOLS as PresetToolName[],
+    allowedTools: [...READ_ONLY_TOOLS],
     surfaces: ['web'],
     useForSummary: false,
     builtin: true,

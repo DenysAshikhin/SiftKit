@@ -75,7 +75,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       server_healthcheck_interval_ms INTEGER,
       server_verbose_logging INTEGER CHECK (server_verbose_logging IN (0, 1) OR server_verbose_logging IS NULL),
       server_verbose_args_json TEXT NOT NULL,
-      operation_mode_allowed_tools_json TEXT NOT NULL DEFAULT '{"summary":["find_text","read_lines","json_filter"],"read-only":["run_repo_cmd"],"full":[]}',
+      operation_mode_allowed_tools_json TEXT NOT NULL DEFAULT '{"summary":["find_text","read_lines","json_filter"],"read-only":["repo_rg","repo_get_content","repo_get_childitem","repo_select_string","repo_git","repo_pwd","repo_ls","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}',
       presets_json TEXT NOT NULL,
       updated_at_utc TEXT NOT NULL
     );
@@ -343,7 +343,7 @@ function ensureSchema(database: RuntimeDatabase): void {
   }
   if (currentVersion < 5) {
     database.exec(`
-      ALTER TABLE app_config ADD COLUMN operation_mode_allowed_tools_json TEXT NOT NULL DEFAULT '{"summary":["find_text","read_lines","json_filter"],"read-only":["run_repo_cmd"],"full":[]}';
+      ALTER TABLE app_config ADD COLUMN operation_mode_allowed_tools_json TEXT NOT NULL DEFAULT '{"summary":["find_text","read_lines","json_filter"],"read-only":["repo_rg","repo_get_content","repo_get_childitem","repo_select_string","repo_git","repo_pwd","repo_ls","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}';
     `);
     setSchemaVersion(database, 5);
   }

@@ -13,6 +13,11 @@ import {
 } from '../lib/provider-helpers.js';
 import { stripCodeFence } from '../lib/text-format.js';
 import {
+  REPO_SEARCH_PIPE_COMMANDS,
+  REPO_SEARCH_PRODUCER_COMMANDS,
+  getFirstCommandToken,
+} from './command-safety.js';
+import {
   buildFinishValidationJsonSchema,
   buildLlamaJsonSchemaResponseFormat,
   buildRepoSearchPlannerActionJsonSchema,
@@ -110,27 +115,71 @@ function extractInlineThinking(raw: string): { thinkingText: string; text: strin
 // Tool definitions exposed to the LLM
 // ---------------------------------------------------------------------------
 
-const REPO_SEARCH_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
-  run_repo_cmd: {
-    type: 'function',
-    function: {
-      name: 'run_repo_cmd',
-      description: 'Run one read-only repo command to inspect files. Command must be non-mutating.',
-      parameters: {
-        type: 'object',
-        properties: { command: { type: 'string' } },
-        required: ['command'],
+const LEGACY_REPO_SEARCH_TOOL_ALIAS = 'run_repo_cmd';
+const REPO_SEARCH_COMMAND_TOKENS: readonly string[] = [
+  ...new Set<string>([
+    ...REPO_SEARCH_PRODUCER_COMMANDS,
+    ...REPO_SEARCH_PIPE_COMMANDS,
+  ]),
+];
+
+function commandTokenToToolName(commandToken: string): string {
+  return `repo_${String(commandToken || '').trim().toLowerCase().replace(/[^a-z0-9]+/gu, '_')}`;
+}
+
+function buildRepoSearchToolDescription(commandToken: string): string {
+  return `Run one read-only repo command that starts with '${commandToken}'.`;
+}
+
+const REPO_SEARCH_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = Object.fromEntries(
+  REPO_SEARCH_COMMAND_TOKENS.map((commandToken) => {
+    const toolName = commandTokenToToolName(commandToken);
+    return [toolName, {
+      type: 'function',
+      function: {
+        name: toolName,
+        description: buildRepoSearchToolDescription(commandToken),
+        parameters: {
+          type: 'object',
+          properties: { command: { type: 'string' } },
+          required: ['command'],
+        },
       },
-    },
-  },
-};
+    }];
+  }),
+) as Record<string, StructuredOutputToolDefinition>;
+
+const REPO_SEARCH_TOOL_NAME_BY_COMMAND_TOKEN = new Map<string, string>(
+  REPO_SEARCH_COMMAND_TOKENS.map((commandToken) => [commandToken, commandTokenToToolName(commandToken)]),
+);
+
+const REPO_SEARCH_COMMAND_TOKEN_BY_TOOL_NAME = new Map<string, string>(
+  REPO_SEARCH_COMMAND_TOKENS.map((commandToken) => [commandTokenToToolName(commandToken), commandToken]),
+);
+
+export function getRepoSearchToolNames(): string[] {
+  return Object.keys(REPO_SEARCH_TOOL_REGISTRY);
+}
+
+export function isRepoSearchCommandToolName(toolName: string): boolean {
+  return REPO_SEARCH_COMMAND_TOKEN_BY_TOOL_NAME.has(String(toolName || '').trim().toLowerCase());
+}
+
+export function getRepoSearchCommandTokenForToolName(toolName: string): string | null {
+  return REPO_SEARCH_COMMAND_TOKEN_BY_TOOL_NAME.get(String(toolName || '').trim().toLowerCase()) || null;
+}
+
+export function getRepoSearchToolNameForCommand(command: string): string | null {
+  const commandToken = getFirstCommandToken(String(command || '').trim());
+  return REPO_SEARCH_TOOL_NAME_BY_COMMAND_TOKEN.get(commandToken) || null;
+}
 
 export function resolveRepoSearchPlannerToolDefinitions(
   allowedToolNames?: readonly string[],
 ): StructuredOutputToolDefinition[] {
-  if (Array.isArray(allowedToolNames) && allowedToolNames.length > 0) {
+  if (Array.isArray(allowedToolNames)) {
     const resolved = allowedToolNames
-      .map((toolName) => REPO_SEARCH_TOOL_REGISTRY[String(toolName)])
+      .map((toolName) => REPO_SEARCH_TOOL_REGISTRY[String(toolName || '').trim().toLowerCase()])
       .filter((toolDefinition): toolDefinition is StructuredOutputToolDefinition => Boolean(toolDefinition));
     return resolved;
   }
@@ -170,15 +219,69 @@ function decodeJsonStringLoose(raw: string): string {
   return decoded;
 }
 
-function tryRecoverMalformedPlannerToolAction(rawText: string): ToolAction | null {
-  if (!/"action"\s*:\s*"tool"/iu.test(rawText) || !/"tool_name"\s*:\s*"run_repo_cmd"/iu.test(rawText)) {
+function getCommandArgValue(args: Record<string, unknown>): string {
+  const commandValue = typeof args.command === 'string'
+    ? args.command
+    : typeof args.cmd === 'string'
+      ? args.cmd
+      : '';
+  return commandValue.trim();
+}
+
+function normalizeRepoSearchToolCall(
+  rawToolName: string,
+  rawArgs: Record<string, unknown>,
+  allowedToolNames: Set<string>,
+): ToolAction | null {
+  const normalizedRawToolName = String(rawToolName || '').trim().toLowerCase();
+  const command = getCommandArgValue(rawArgs);
+  if (!command) {
+    return null;
+  }
+  let toolName = normalizedRawToolName;
+  if (toolName === LEGACY_REPO_SEARCH_TOOL_ALIAS) {
+    const inferredToolName = getRepoSearchToolNameForCommand(command);
+    if (!inferredToolName) {
+      return null;
+    }
+    toolName = inferredToolName;
+  }
+  if (!allowedToolNames.has(toolName)) {
+    return null;
+  }
+  if (isRepoSearchCommandToolName(toolName)) {
+    const expectedCommandToken = getRepoSearchCommandTokenForToolName(toolName);
+    const actualCommandToken = getFirstCommandToken(command);
+    if (!expectedCommandToken || actualCommandToken !== expectedCommandToken) {
+      return null;
+    }
+    return {
+      action: 'tool',
+      tool_name: toolName,
+      args: { command },
+    };
+  }
+  return {
+    action: 'tool',
+    tool_name: toolName,
+    args: rawArgs,
+  };
+}
+
+function tryRecoverMalformedPlannerToolAction(rawText: string, allowedToolNames: Set<string>): ToolAction | null {
+  if (!/"action"\s*:\s*"tool"/iu.test(rawText)) {
+    return null;
+  }
+  const toolNameMatch = /"tool_name"\s*:\s*"([^"]+)"/iu.exec(rawText);
+  const toolName = String(toolNameMatch?.[1] || '').trim().toLowerCase();
+  if (!toolName) {
     return null;
   }
   const commandMatch = /"command"\s*:\s*"([\s\S]*)"\s*\}\s*\}\s*$/u.exec(rawText);
   if (!commandMatch?.[1]) return null;
   const recoveredCommand = decodeJsonStringLoose(commandMatch[1]).trim();
   if (!recoveredCommand) return null;
-  return { action: 'tool', tool_name: 'run_repo_cmd', args: { command: recoveredCommand } };
+  return normalizeRepoSearchToolCall(toolName, { command: recoveredCommand }, allowedToolNames);
 }
 
 function parseRepoToolCallCandidate(toolCall: {
@@ -188,33 +291,12 @@ function parseRepoToolCallCandidate(toolCall: {
 } | null | undefined, allowedToolNames: Set<string>): ToolAction | null {
   const name = typeof toolCall?.function?.name === 'string' ? toolCall.function.name
     : typeof toolCall?.name === 'string' ? toolCall.name : '';
-  if (!allowedToolNames.has(name)) return null;
 
   let args = toolCall?.function?.arguments ?? toolCall?.arguments;
   if (typeof args === 'string') { try { args = JSON.parse(args); } catch { return null; } }
   if (!args || typeof args !== 'object' || Array.isArray(args)) return null;
   const normalizedArgs = args as Record<string, unknown>;
-  if (name === 'run_repo_cmd') {
-    const commandValue = typeof normalizedArgs.command === 'string'
-      ? normalizedArgs.command
-      : typeof normalizedArgs.cmd === 'string'
-        ? normalizedArgs.cmd
-        : '';
-    if (!commandValue.trim()) {
-      return null;
-    }
-    return {
-      action: 'tool',
-      tool_name: name,
-      args: { command: commandValue.trim() },
-    };
-  }
-
-  return {
-    action: 'tool',
-    tool_name: name,
-    args: normalizedArgs,
-  };
+  return normalizeRepoSearchToolCall(name, normalizedArgs, allowedToolNames);
 }
 
 function actionFromToolCall(choice: Record<string, unknown>, allowedToolNames: Set<string>): string | null {
@@ -249,7 +331,7 @@ export function parsePlannerAction(text: string, options?: {
 }): PlannerAction {
   const allowedToolNameSet = new Set<string>(
     Array.isArray(options?.allowedToolNames) && options.allowedToolNames.length > 0
-      ? options.allowedToolNames.map((toolName) => String(toolName))
+      ? options.allowedToolNames.map((toolName) => String(toolName || '').trim().toLowerCase())
       : TOOL_DEFINITIONS.map((toolDefinition) => toolDefinition.function.name),
   );
   const normalized = stripCodeFence(text);
@@ -257,7 +339,7 @@ export function parsePlannerAction(text: string, options?: {
   try {
     parsed = JSON.parse(normalized) as Record<string, unknown>;
   } catch (error) {
-    const recovered = tryRecoverMalformedPlannerToolAction(normalized);
+    const recovered = tryRecoverMalformedPlannerToolAction(normalized, allowedToolNameSet);
     if (recovered) return recovered;
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Provider returned an invalid planner payload: ${message}`);
@@ -270,23 +352,15 @@ export function parsePlannerAction(text: string, options?: {
     const toolName = String(
       parsed.tool_name ?? parsed.toolName ?? parsed.tool ?? parsed.name ?? '',
     ).trim().toLowerCase();
-    if (!allowedToolNameSet.has(toolName)) {
-      throw new Error('Provider returned an invalid planner tool action.');
-    }
     if (!parsed.args || typeof parsed.args !== 'object' || Array.isArray(parsed.args)) {
       throw new Error('Provider returned an invalid planner tool action.');
     }
     const args = parsed.args as Record<string, unknown>;
-    if (toolName === 'run_repo_cmd') {
-      // Accept "cmd" as fallback for "command"
-      const commandValue = typeof args.command === 'string' ? args.command
-        : typeof args.cmd === 'string' ? args.cmd : '';
-      if (!commandValue.trim()) {
-        throw new Error('Provider returned an invalid planner tool action.');
-      }
-      return { action: 'tool', tool_name: toolName, args: { command: commandValue.trim() } };
+    const normalizedToolAction = normalizeRepoSearchToolCall(toolName, args, allowedToolNameSet);
+    if (!normalizedToolAction) {
+      throw new Error('Provider returned an invalid planner tool action.');
     }
-    return { action: 'tool', tool_name: toolName, args };
+    return normalizedToolAction;
   }
 
   if (action === 'tool_batch') {
@@ -301,27 +375,17 @@ export function parsePlannerAction(text: string, options?: {
       const toolName = String(
         toolRecord.tool_name ?? toolRecord.toolName ?? toolRecord.tool ?? toolRecord.name ?? '',
       ).trim().toLowerCase();
-      if (!allowedToolNameSet.has(toolName)) {
-        throw new Error('Provider returned an invalid planner tool batch action.');
-      }
       if (!toolRecord.args || typeof toolRecord.args !== 'object' || Array.isArray(toolRecord.args)) {
         throw new Error('Provider returned an invalid planner tool batch action.');
       }
       const args = toolRecord.args as Record<string, unknown>;
-      if (toolName === 'run_repo_cmd') {
-        const commandValue = typeof args.command === 'string' ? args.command
-          : typeof args.cmd === 'string' ? args.cmd : '';
-        if (!commandValue.trim()) {
-          throw new Error('Provider returned an invalid planner tool batch action.');
-        }
-        return {
-          tool_name: toolName,
-          args: { command: commandValue.trim() },
-        };
+      const normalizedToolAction = normalizeRepoSearchToolCall(toolName, args, allowedToolNameSet);
+      if (!normalizedToolAction) {
+        throw new Error('Provider returned an invalid planner tool batch action.');
       }
       return {
-        tool_name: toolName,
-        args,
+        tool_name: normalizedToolAction.tool_name,
+        args: normalizedToolAction.args,
       };
     });
     return {
@@ -826,14 +890,19 @@ export function renderTaskTranscript(messages: ChatMessage[]): string {
   }).join('\n\n');
 }
 
-export function buildRepoSearchAssistantToolMessage(command: string, toolCallId: string): ChatMessage {
+export function buildRepoSearchAssistantToolMessage(command: string, toolCallId: string, toolName?: string): ChatMessage {
+  const resolvedToolName = String(toolName || '').trim().toLowerCase()
+    || getRepoSearchToolNameForCommand(command);
+  if (!resolvedToolName || !isRepoSearchCommandToolName(resolvedToolName)) {
+    throw new Error(`Cannot derive repo-search tool name from command: ${command}`);
+  }
   return {
     role: 'assistant',
     content: '',
     tool_calls: [{
       id: toolCallId,
       type: 'function',
-      function: { name: 'run_repo_cmd', arguments: JSON.stringify({ command }) },
+      function: { name: resolvedToolName, arguments: JSON.stringify({ command }) },
     }],
   };
 }

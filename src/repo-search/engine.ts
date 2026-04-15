@@ -21,10 +21,13 @@ import type { ToolTypeStats } from '../status-server/metrics.js';
 import {
   buildIgnorePolicy,
   evaluateCommandSafety,
+  getFirstCommandToken,
   isSearchNoMatchExit,
   normalizePlannerCommand,
 } from './command-safety.js';
 import {
+  getRepoSearchCommandTokenForToolName,
+  isRepoSearchCommandToolName,
   resolveRepoSearchPlannerToolDefinitions,
   parsePlannerAction,
   renderTaskTranscript,
@@ -1009,9 +1012,10 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     pendingNonThinkingFinishOutput = null;
 
     for (const toolAction of toolActions) {
-      if (toolAction.tool_name !== 'run_repo_cmd') {
+      const normalizedToolName = String(toolAction.tool_name || '').trim().toLowerCase();
+      if (!isRepoSearchCommandToolName(normalizedToolName)) {
         invalidResponses += 1;
-        const unsupportedToolMessage = `Invalid action: unsupported planner tool "${toolAction.tool_name}" for repo-search. Use run_repo_cmd or finish.`;
+        const unsupportedToolMessage = `Invalid action: unsupported planner tool "${toolAction.tool_name}" for repo-search. Use one of: ${allowedPlannerToolNames.join(', ')}.`;
         messages.push({ role: 'assistant', content: JSON.stringify(toolAction) });
         messages.push({ role: 'user', content: unsupportedToolMessage });
         options.logger?.write({ kind: 'turn_action_invalid', taskId: task.id, turn, invalidResponses, error: unsupportedToolMessage });
@@ -1022,12 +1026,24 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       const command = typeof toolAction.args.command === 'string' ? toolAction.args.command : '';
       if (!command.trim()) {
         invalidResponses += 1;
-        const invalidCommandMessage = 'Invalid action: run_repo_cmd requires args.command.';
+        const invalidCommandMessage = `Invalid action: ${normalizedToolName} requires args.command.`;
         messages.push({ role: 'assistant', content: JSON.stringify(toolAction) });
         messages.push({ role: 'user', content: invalidCommandMessage });
         options.logger?.write({ kind: 'turn_action_invalid', taskId: task.id, turn, invalidResponses, error: invalidCommandMessage });
         if (invalidResponses >= maxInvalidResponses) { reason = 'invalid_response_limit'; break; }
         history.push({ command: '[invalid action]', resultText: invalidCommandMessage });
+        continue;
+      }
+      const expectedCommandToken = getRepoSearchCommandTokenForToolName(normalizedToolName);
+      const actualCommandToken = getFirstCommandToken(command);
+      if (!expectedCommandToken || actualCommandToken !== expectedCommandToken) {
+        invalidResponses += 1;
+        const invalidToolCommandMessage = `Invalid action: ${normalizedToolName} only allows commands starting with '${expectedCommandToken || '<unknown>'}'.`;
+        messages.push({ role: 'assistant', content: JSON.stringify(toolAction) });
+        messages.push({ role: 'user', content: invalidToolCommandMessage });
+        options.logger?.write({ kind: 'turn_action_invalid', taskId: task.id, turn, invalidResponses, error: invalidToolCommandMessage });
+        if (invalidResponses >= maxInvalidResponses) { reason = 'invalid_response_limit'; break; }
+        history.push({ command: '[invalid action]', resultText: invalidToolCommandMessage });
         continue;
       }
       const assistantActionText = JSON.stringify(toolAction);
@@ -1047,7 +1063,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     const normalized = normalizePlannerCommand(command, { repoRoot: options.repoRoot, ignorePolicy });
     const fingerprint = normalized.rejected
       ? ''
-      : fingerprintToolCall({ toolName: 'run_repo_cmd', command: normalized.command });
+      : fingerprintToolCall({ toolName: normalizedToolName, command: normalized.command });
     const prospectiveToolType = normalized.rejected
       ? 'loop'
       : normalizeToolTypeFromCommand(normalized.command);
@@ -1278,7 +1294,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       ? outputForPrompt
       : `exit_code=${executed.exitCode}\n${outputForPrompt}`.trim();
     let resultText = buildPromptToolResult({
-      toolName: 'run_repo_cmd',
+      toolName: normalizedToolName,
       command: commandToRun,
       exitCode: executed.exitCode,
       rawOutput: rawResultText,
@@ -1369,7 +1385,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
 
     commands.push({ command: commandToRun, safe: true, reason: null, exitCode: executed.exitCode, output: outputWithRewriteNote });
     const replayAssistantText = lineReadAdjustment
-      ? JSON.stringify({ action: 'tool', tool_name: 'run_repo_cmd', args: { command: commandToRun } })
+      ? JSON.stringify({ action: 'tool', tool_name: normalizedToolName, args: { command: commandToRun } })
       : assistantActionText;
     let appendReplayMessages = true;
     if (novelty.hasNewEvidence) {
@@ -1599,9 +1615,6 @@ export async function runRepoSearch(options: {
   logger?: JsonLogger | null;
   onProgress?: ((event: RepoSearchProgressEvent) => void) | null;
 } = {}): Promise<Scorecard> {
-  if (Array.isArray(options.allowedTools) && !options.allowedTools.includes('run_repo_cmd')) {
-    throw new Error('Repo-search tool is not allowed by the active preset: run_repo_cmd');
-  }
   const plannerToolDefinitions = resolveRepoSearchPlannerToolDefinitions(options.allowedTools);
   if (plannerToolDefinitions.length === 0) {
     throw new Error('No repo-search planner tools are enabled for the active preset.');

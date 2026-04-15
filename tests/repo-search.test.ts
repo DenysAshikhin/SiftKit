@@ -53,11 +53,11 @@ test('executeRepoSearchRequest with mock command executes and returns scorecard'
       repoRoot: tempRoot,
       maxTurns: 2,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"echo hello"}}',
+        '{"action":"tool","tool_name":"repo_git","args":{"command":"git status --short"}}',
         '{"action":"finish","output":"Found scripts","confidence":0.8}',
       ],
       mockCommandResults: {
-        'echo hello': { exitCode: 0, stdout: 'hello', stderr: '' },
+        'git status --short': { exitCode: 0, stdout: '', stderr: '' },
       },
     });
     assert.equal(typeof result.scorecard, 'object');

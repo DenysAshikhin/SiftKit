@@ -27,16 +27,16 @@ test('parsePlannerAction parses tool batches', () => {
   const action = parsePlannerAction(JSON.stringify({
     action: 'tool_batch',
     tool_calls: [
-      { tool_name: 'run_repo_cmd', args: { command: 'rg -n "plan" src' } },
-      { tool_name: 'run_repo_cmd', args: { command: 'rg -n "repo-search" src' } },
+      { tool_name: 'repo_rg', args: { command: 'rg -n "plan" src' } },
+      { tool_name: 'repo_rg', args: { command: 'rg -n "repo-search" src' } },
     ],
   }));
 
   assert.deepEqual(action, {
     action: 'tool_batch',
     tool_calls: [
-      { tool_name: 'run_repo_cmd', args: { command: 'rg -n "plan" src' } },
-      { tool_name: 'run_repo_cmd', args: { command: 'rg -n "repo-search" src' } },
+      { tool_name: 'repo_rg', args: { command: 'rg -n "plan" src' } },
+      { tool_name: 'repo_rg', args: { command: 'rg -n "repo-search" src' } },
     ],
   });
 });
@@ -60,7 +60,7 @@ test('requestPlannerAction reconstructs a tool batch from non-streaming multi-to
                 id: 'call_1',
                 type: 'function',
                 function: {
-                  name: 'run_repo_cmd',
+                  name: 'repo_rg',
                   arguments: '{"command":"rg -n \\"plan\\" src"}',
                 },
               },
@@ -68,7 +68,7 @@ test('requestPlannerAction reconstructs a tool batch from non-streaming multi-to
                 id: 'call_2',
                 type: 'function',
                 function: {
-                  name: 'run_repo_cmd',
+                  name: 'repo_rg',
                   arguments: '{"command":"rg -n \\"repo-search\\" src"}',
                 },
               },
@@ -90,8 +90,8 @@ test('requestPlannerAction reconstructs a tool batch from non-streaming multi-to
     assert.deepEqual(parsePlannerAction(result.text), {
       action: 'tool_batch',
       tool_calls: [
-        { tool_name: 'run_repo_cmd', args: { command: 'rg -n "plan" src' } },
-        { tool_name: 'run_repo_cmd', args: { command: 'rg -n "repo-search" src' } },
+        { tool_name: 'repo_rg', args: { command: 'rg -n "plan" src' } },
+        { tool_name: 'repo_rg', args: { command: 'rg -n "repo-search" src' } },
       ],
     });
   });
@@ -109,7 +109,7 @@ test('requestPlannerAction reconstructs a tool batch from streaming multi-tool r
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
     });
-    res.write('data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"run_repo_cmd","arguments":"{\\"command\\":\\"rg -n \\\\\\"plan\\\\\\" src\\"}"}},{"index":1,"function":{"name":"run_repo_cmd","arguments":"{\\"command\\":\\"rg -n \\\\\\"repo-search\\\\\\" src\\"}"}}]}}]}\n\n');
+    res.write('data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"repo_rg","arguments":"{\\"command\\":\\"rg -n \\\\\\"plan\\\\\\" src\\"}"}},{"index":1,"function":{"name":"repo_rg","arguments":"{\\"command\\":\\"rg -n \\\\\\"repo-search\\\\\\" src\\"}"}}]}}]}\n\n');
     res.write('data: [DONE]\n\n');
     res.end();
   }, async (baseUrl) => {
@@ -125,8 +125,8 @@ test('requestPlannerAction reconstructs a tool batch from streaming multi-tool r
     assert.deepEqual(parsePlannerAction(result.text), {
       action: 'tool_batch',
       tool_calls: [
-        { tool_name: 'run_repo_cmd', args: { command: 'rg -n "plan" src' } },
-        { tool_name: 'run_repo_cmd', args: { command: 'rg -n "repo-search" src' } },
+        { tool_name: 'repo_rg', args: { command: 'rg -n "plan" src' } },
+        { tool_name: 'repo_rg', args: { command: 'rg -n "repo-search" src' } },
       ],
     });
   });

@@ -105,7 +105,7 @@ test('parsePlannerAction parses valid tool action', () => {
   const action = parsePlannerAction('{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg planner src"}}');
   assert.deepEqual(action, {
     action: 'tool',
-    tool_name: 'run_repo_cmd',
+    tool_name: 'repo_rg',
     args: { command: 'rg planner src' },
   });
 });
@@ -136,7 +136,7 @@ test('parsePlannerAction recovers malformed escaped command payloads', () => {
   const action = parsePlannerAction(malformed);
   assert.deepEqual(action, {
     action: 'tool',
-    tool_name: 'run_repo_cmd',
+    tool_name: 'repo_rg',
     args: { command: 'rg -n "D:\\\\|C:\\\\|\\\\\\\\" src --type ts | Select-Object -First 30' },
   });
 });

@@ -68,6 +68,29 @@ function getEffectivePresetAllowedTools(config: Dict, preset: SiftPreset | null)
   );
 }
 
+function isRepoSearchCapablePreset(preset: SiftPreset | null): preset is SiftPreset {
+  if (!preset) {
+    return false;
+  }
+  return preset.presetKind === 'plan' || preset.presetKind === 'repo-search';
+}
+
+function resolveRepoSearchRoutePreset(
+  presets: SiftPreset[],
+  sessionPresetId: string | null | undefined,
+  fallbackPresetId: 'plan' | 'repo-search',
+): SiftPreset | null {
+  const sessionPreset = findPresetById(presets, sessionPresetId || '');
+  if (isRepoSearchCapablePreset(sessionPreset)) {
+    return sessionPreset;
+  }
+  const fallbackPreset = findPresetById(presets, fallbackPresetId);
+  if (isRepoSearchCapablePreset(fallbackPreset)) {
+    return fallbackPreset;
+  }
+  return presets.find((preset) => preset.presetKind === 'plan' || preset.presetKind === 'repo-search') || null;
+}
+
 async function notifyChatStatus(options: {
   ctx: ServerContext;
   requestId: string;
@@ -503,7 +526,11 @@ export async function handleChatRoute(
       const content = (parsedBody.content as string).trim();
       const config = readConfig(configPath);
       const presets = normalizePresets(config.Presets);
-      const preset = findPresetById(presets, activeSession.presetId || 'plan');
+      const preset = resolveRepoSearchRoutePreset(
+        presets,
+        typeof activeSession.presetId === 'string' ? activeSession.presetId : undefined,
+        'plan',
+      );
       const result = await executeRepoSearchRequest({
         taskKind: 'plan',
         prompt: buildPlanRequestPrompt(content),
@@ -533,7 +560,7 @@ export async function handleChatRoute(
       const toolContextContents = buildToolContextFromRepoSearchResult(result);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
-        { ...activeSession, presetId: activeSession.presetId || 'plan', mode: 'plan', planRepoRoot: resolvedRepoRoot },
+        { ...activeSession, presetId: preset?.id || activeSession.presetId || 'plan', mode: 'plan', planRepoRoot: resolvedRepoRoot },
         content,
         assistantContent,
         {
@@ -620,7 +647,11 @@ export async function handleChatRoute(
       const content = (parsedBody.content as string).trim();
       const config = readConfig(configPath);
       const presets = normalizePresets(config.Presets);
-      const preset = findPresetById(presets, activeSession.presetId || 'plan');
+      const preset = resolveRepoSearchRoutePreset(
+        presets,
+        typeof activeSession.presetId === 'string' ? activeSession.presetId : undefined,
+        'plan',
+      );
       const result = await executeRepoSearchRequest({
         taskKind: 'plan',
         prompt: buildPlanRequestPrompt(content),
@@ -671,7 +702,7 @@ export async function handleChatRoute(
       const toolContextContents = buildToolContextFromRepoSearchResult(result);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
-        { ...activeSession, presetId: activeSession.presetId || 'plan', mode: 'plan', planRepoRoot: resolvedRepoRoot },
+        { ...activeSession, presetId: preset?.id || activeSession.presetId || 'plan', mode: 'plan', planRepoRoot: resolvedRepoRoot },
         content,
         assistantContent,
         {
@@ -759,7 +790,11 @@ export async function handleChatRoute(
       const content = (parsedBody.content as string).trim();
       const config = readConfig(configPath);
       const presets = normalizePresets(config.Presets);
-      const preset = findPresetById(presets, activeSession.presetId || 'repo-search');
+      const preset = resolveRepoSearchRoutePreset(
+        presets,
+        typeof activeSession.presetId === 'string' ? activeSession.presetId : undefined,
+        'repo-search',
+      );
       const result = await executeRepoSearchRequest({
         taskKind: 'repo-search',
         prompt: content,
@@ -806,7 +841,7 @@ export async function handleChatRoute(
       const toolContextContents = buildToolContextFromRepoSearchResult(result);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
-        { ...activeSession, presetId: activeSession.presetId || 'repo-search', mode: 'repo-search', planRepoRoot: resolvedRepoRoot },
+        { ...activeSession, presetId: preset?.id || activeSession.presetId || 'repo-search', mode: 'repo-search', planRepoRoot: resolvedRepoRoot },
         content,
         assistantContent,
         {

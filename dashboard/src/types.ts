@@ -185,7 +185,30 @@ export type DashboardPresetKind = 'summary' | 'chat' | 'plan' | 'repo-search';
 export type DashboardPresetExecutionFamily = DashboardPresetKind;
 export type DashboardPresetOperationMode = 'summary' | 'read-only' | 'full';
 export type DashboardPresetSurface = 'cli' | 'web';
-export type DashboardPresetToolName = 'find_text' | 'read_lines' | 'json_filter' | 'run_repo_cmd';
+export type DashboardPresetToolName =
+  | 'find_text'
+  | 'read_lines'
+  | 'json_filter'
+  | 'repo_rg'
+  | 'repo_get_content'
+  | 'repo_get_childitem'
+  | 'repo_select_string'
+  | 'repo_git'
+  | 'repo_pwd'
+  | 'repo_ls'
+  | 'repo_select_object'
+  | 'repo_where_object'
+  | 'repo_sort_object'
+  | 'repo_group_object'
+  | 'repo_measure_object'
+  | 'repo_foreach_object'
+  | 'repo_format_table'
+  | 'repo_format_list'
+  | 'repo_out_string'
+  | 'repo_convertto_json'
+  | 'repo_convertfrom_json'
+  | 'repo_get_unique'
+  | 'repo_join_string';
 export type DashboardOperationModeAllowedTools = Record<DashboardPresetOperationMode, DashboardPresetToolName[]>;
 
 export type DashboardPreset = {

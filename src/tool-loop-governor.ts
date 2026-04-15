@@ -67,6 +67,11 @@ function normalizeRepoSearchFingerprint(command: string): string {
   return normalizeWhitespace(normalized);
 }
 
+function isRepoSearchCommandTool(toolName: string): boolean {
+  const normalized = String(toolName || '').trim().toLowerCase();
+  return normalized === 'run_repo_cmd' || normalized.startsWith('repo_');
+}
+
 function buildJsonFilterFingerprint(args: Record<string, unknown>): string {
   const filters = Array.isArray(args.filters)
     ? args.filters
@@ -98,7 +103,7 @@ function buildReadLinesFingerprint(args: Record<string, unknown>): string {
 }
 
 export function fingerprintToolCall(options: FingerprintToolCallOptions): string {
-  if (options.toolName === 'run_repo_cmd') {
+  if (isRepoSearchCommandTool(options.toolName)) {
     return normalizeRepoSearchFingerprint(String(options.command || ''));
   }
   if (options.toolName === 'find_text') {
@@ -147,7 +152,7 @@ export function classifyToolResultNovelty(options: ClassifyToolResultNoveltyOpti
 }
 
 export function buildPromptToolResult(options: BuildPromptToolResultOptions): string {
-  if (options.toolName !== 'run_repo_cmd') {
+  if (!isRepoSearchCommandTool(options.toolName)) {
     return stripLeadingSuccessExitCode(String(options.rawOutput || '').trim());
   }
   const meaningfulLines = String(options.rawOutput || '')

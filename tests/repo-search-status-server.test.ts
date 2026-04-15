@@ -121,7 +121,7 @@ test('status server stays responsive while repo-search is running', async () => 
         maxTurns: 2,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"x\\" src"}}',
+          '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"x\\" src"}}',
           '{"action":"finish","output":"done","confidence":0.9}',
         ],
         mockCommandResults: {
@@ -405,7 +405,7 @@ test('repo-search endpoint reloads executor module per request', async () => {
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"x\\" src"}}',
+          '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"x\\" src"}}',
         ],
         mockCommandResults: {
           'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '' },
@@ -531,7 +531,7 @@ test('repo-search wakes managed llama after idle shutdown', async () => {
         model: 'managed-test-model',
         maxTurns: 2,
         mockResponses: [
-          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"request\\" src/status-server/routes/core.ts"}}',
+          '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"request\\" src/status-server/routes/core.ts"}}',
           '{"action":"finish","output":"done","confidence":0.9}',
         ],
         mockCommandResults: {

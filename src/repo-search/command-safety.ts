@@ -67,6 +67,17 @@ export type SafetyResult = {
   reason: string | null;
 };
 
+export const REPO_SEARCH_PRODUCER_COMMANDS = [
+  'rg', 'get-content', 'get-childitem', 'select-string', 'git', 'pwd', 'ls',
+] as const;
+
+export const REPO_SEARCH_PIPE_COMMANDS = [
+  'select-object', 'select-string', 'where-object', 'sort-object',
+  'group-object', 'measure-object', 'foreach-object', 'format-table',
+  'format-list', 'out-string', 'convertto-json', 'convertfrom-json',
+  'get-unique', 'join-string',
+] as const;
+
 function hasBlockedOperator(command: string): boolean {
   return /&&|\|\||[;`]/u.test(command);
 }
@@ -110,7 +121,7 @@ function splitTopLevelPipes(command: string): string[] {
   return parts;
 }
 
-function getFirstToken(segment: string): string {
+export function getFirstCommandToken(segment: string): string {
   const match = /^\s*(\S+)/u.exec(segment);
   return match ? match[1].toLowerCase() : '';
 }
@@ -172,7 +183,7 @@ function evaluateSegmentSafety(
   segment: string,
   allowedCommands: Set<string>,
 ): SafetyResult {
-  const commandToken = getFirstToken(segment);
+  const commandToken = getFirstCommandToken(segment);
   if (!commandToken) {
     return { safe: false, reason: 'empty command segment' };
   }
@@ -206,15 +217,8 @@ export function evaluateCommandSafety(command: string, repoRoot = ''): SafetyRes
 
   const segments = splitTopLevelPipes(trimmed);
 
-  const producerCommands = new Set([
-    'rg', 'get-content', 'get-childitem', 'select-string', 'git', 'pwd', 'ls',
-  ]);
-  const pipeCommands = new Set([
-    'select-object', 'select-string', 'where-object', 'sort-object',
-    'group-object', 'measure-object', 'foreach-object', 'format-table',
-    'format-list', 'out-string', 'convertto-json', 'convertfrom-json',
-    'get-unique', 'join-string',
-  ]);
+  const producerCommands = new Set<string>(REPO_SEARCH_PRODUCER_COMMANDS);
+  const pipeCommands = new Set<string>(REPO_SEARCH_PIPE_COMMANDS);
   const allAllowedCommands = new Set([...producerCommands, ...pipeCommands]);
 
   if (segments.length === 1) {
@@ -427,7 +431,7 @@ export function normalizePlannerCommand(
   }
 
   const ignorePolicy = options.ignorePolicy || buildIgnorePolicy(options.repoRoot || '');
-  const commandToken = getFirstToken(trimmed);
+  const commandToken = getFirstCommandToken(trimmed);
   let current = trimmed;
   let wasRewritten = false;
   const notes: string[] = [];
@@ -530,7 +534,7 @@ export function normalizePlannerCommand(
   } else if (commandToken === 'get-content') {
     const pipeSegments = splitTopLevelPipes(current);
     for (const seg of pipeSegments) {
-      if (getFirstToken(seg) !== 'get-content') {
+      if (getFirstCommandToken(seg) !== 'get-content') {
         continue;
       }
       const pathCandidates = extractPathsForCommandSegment(seg, 'get-content');

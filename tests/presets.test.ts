@@ -13,6 +13,7 @@ import {
   getPresetsForSurface,
   mapLegacyModeToPresetId,
   normalizePresets,
+  REPO_SEARCH_TOOLS,
   resolveSummaryPreset,
 } from '../dist/presets.js';
 import {
@@ -154,7 +155,7 @@ test('config persistence stores normalized presets in sqlite', () => {
     assert.equal(loaded.Presets?.find((preset) => preset.id === 'custom-search')?.includeRepoFileListing, true);
     assert.deepEqual(loaded.OperationModeAllowedTools, {
       summary: ['find_text', 'read_lines', 'json_filter'],
-      'read-only': ['run_repo_cmd'],
+      'read-only': [...REPO_SEARCH_TOOLS],
       full: [],
     });
   });
@@ -175,7 +176,7 @@ test('legacy executionFamily presets migrate to presetKind and operationMode', (
 test('default operation mode tool policy matches the builtin capability split', () => {
   assert.deepEqual(getDefaultOperationModeAllowedTools(), {
     summary: ['find_text', 'read_lines', 'json_filter'],
-    'read-only': ['run_repo_cmd'],
+    'read-only': [...REPO_SEARCH_TOOLS],
     full: [],
   });
 });

@@ -33,7 +33,7 @@ test('repo-search rejects presets that disable the repo command tool', async () 
       allowedTools: ['find_text'],
       taskPrompt: 'find planner tools',
     }),
-    /run_repo_cmd/u,
+    /No repo-search planner tools are enabled/u,
   );
 });
 
@@ -48,7 +48,7 @@ test('repo-search rejects presets that resolve to an empty allowed-tools list', 
       allowedTools: [],
       taskPrompt: 'find planner tools',
     }),
-    /run_repo_cmd/u,
+    /No repo-search planner tools are enabled/u,
   );
 });
 
@@ -56,10 +56,10 @@ test('effective tool allowlist intersects operation-mode policy with preset whit
   assert.deepEqual(
     resolvePresetAllowedTools({
       operationMode: 'summary',
-      allowedTools: ['find_text', 'run_repo_cmd'],
+      allowedTools: ['find_text', 'repo_rg'],
     }, {
       summary: ['find_text', 'read_lines', 'json_filter'],
-      'read-only': ['run_repo_cmd'],
+      'read-only': ['repo_rg'],
       full: [],
     }),
     ['find_text'],
