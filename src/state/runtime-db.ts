@@ -351,10 +351,8 @@ function ensureSchema(database: RuntimeDatabase): void {
 
 export function getRepoRuntimeRoot(startPath: string = process.cwd()): string {
   const repoRoot = findNearestSiftKitRepoRoot(startPath);
-  if (!repoRoot) {
-    throw new Error('SiftKit runtime requires running inside a siftkit repo.');
-  }
-  return path.join(repoRoot, '.siftkit');
+  const resolvedBaseRoot = repoRoot ? path.resolve(repoRoot) : path.resolve(startPath);
+  return path.join(resolvedBaseRoot, '.siftkit');
 }
 
 export function getRuntimeDatabasePath(startPath: string = process.cwd()): string {

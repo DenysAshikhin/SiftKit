@@ -25,14 +25,14 @@ function withTempDir(fn: (dir: string) => void): void {
   }
 }
 
-test('getRuntimeRoot fails outside a siftkit repo', () => {
+test('getRuntimeRoot falls back to cwd outside a siftkit repo', () => {
   withTempDir((tempRoot) => {
     const previousCwd = process.cwd();
     try {
       process.chdir(tempRoot);
-      assert.throws(
-        () => getRuntimeRoot(),
-        /siftkit repo/i,
+      assert.equal(
+        getRuntimeRoot(),
+        path.join(tempRoot, '.siftkit'),
       );
     } finally {
       process.chdir(previousCwd);
