@@ -1193,6 +1193,8 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
     assert.equal(chatRequests[0].id_slot, chatRequests[1].id_slot);
     // Grammar-mode: tools are not sent when grammar is active
     assert.equal(typeof chatRequests[0].grammar, 'string');
+    assert.equal(chatRequests[0].tools, undefined);
+    assert.equal(chatRequests[0].parallel_tool_calls, undefined);
     assert.equal(chatRequests[1].messages.length > chatRequests[0].messages.length, true);
     assert.doesNotMatch(JSON.stringify(chatRequests[0].messages), /Tool-call budget remaining:/u);
     assert.doesNotMatch(JSON.stringify(chatRequests[1].messages), /Tool-call budget remaining:/u);

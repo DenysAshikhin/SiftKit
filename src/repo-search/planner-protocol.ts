@@ -394,7 +394,7 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
 
   const stage = options.stage || 'planner_action';
   const grammar = options.grammar === undefined ? plannerGrammar() : options.grammar;
-  const includeTools = stage === 'planner_action';
+  const includeTools = stage === 'planner_action' && !grammar;
 
   const bodyObj: Record<string, unknown> = {
     model: options.model,
@@ -405,7 +405,7 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
     top_p: 0.95,
     max_tokens: options.requestMaxTokens,
     ...(includeTools ? { tools: TOOL_DEFINITIONS, parallel_tool_calls: true } : {}),
-    chat_template_kwargs: { enable_thinking: (!grammar || includeTools) && Boolean(options.thinkingEnabled) },
+    chat_template_kwargs: { enable_thinking: !grammar && Boolean(options.thinkingEnabled) },
     ...(grammar ? { grammar } : {}),
     ...options.extraBody,
     ...(options.stream ? { stream: true } : {}),
