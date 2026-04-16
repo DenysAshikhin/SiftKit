@@ -20,6 +20,8 @@ AVOID worktrees.
 
 Ensure code is abstraced into re-usable classes.
 
+Do not pass functions around dynmically. Functions should be explicit.
+
 ## Response style
 
 Default to ultra-concise technical communication.
