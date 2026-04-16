@@ -751,12 +751,13 @@ type SettingsFieldProps = {
   label: string;
   layout: SettingsFieldLayout;
   helpText?: string | undefined;
+  className?: string | undefined;
   children: ReactNode;
 };
 
-function SettingsField({ label, layout, helpText, children }: SettingsFieldProps) {
+function SettingsField({ label, layout, helpText, className, children }: SettingsFieldProps) {
   return (
-    <div className={`settings-live-field settings-live-field-${layout}`}>
+    <div className={`settings-live-field settings-live-field-${layout}${className ? ` ${className}` : ''}`}>
       <div className="settings-live-label-row">
         <SettingsInlineHelpLabel label={label} helpText={helpText} />
       </div>
@@ -1888,10 +1889,15 @@ function DashboardApp() {
       return null;
     }
 
-    const renderField = (sectionId: SettingsSectionId, label: string, children: ReactNode): ReactNode => {
+    const renderField = (
+      sectionId: SettingsSectionId,
+      label: string,
+      children: ReactNode,
+      className?: string,
+    ): ReactNode => {
       const field = getSettingsFieldDescriptor(sectionId, label);
       return (
-        <SettingsField key={label} label={label} layout={field.layout} helpText={field.helpText}>
+        <SettingsField key={label} label={label} layout={field.layout} helpText={field.helpText} className={className}>
           {children}
         </SettingsField>
       );
@@ -2269,62 +2275,64 @@ function DashboardApp() {
 
     return (
       <div className="settings-live-grid">
-        {renderField('managed-llama', 'Managed preset', (
-          <div className="settings-preset-library">
-            <div className="settings-preset-toolbar">
-              <label className="settings-preset-selector">
-                <span className="settings-preset-inline-label"><SettingsInlineHelpLabel label="Preset" helpText="Pick which managed llama launcher preset to edit and launch." /></span>
-                <select
-                  value={dashboardConfig.Server.LlamaCpp.ActivePresetId}
-                  onChange={(event) => updateSettingsDraft((next) => {
-                    applyManagedLlamaPresetSelection(next, event.target.value);
-                  })}
-                  disabled={dashboardConfig.Server.LlamaCpp.Presets.length === 0}
-                >
-                  {dashboardConfig.Server.LlamaCpp.Presets.map((preset) => (
-                    <option key={preset.id} value={preset.id}>{preset.label}</option>
-                  ))}
-                </select>
-              </label>
-              <div className="settings-preset-library-actions">
-                <button type="button" onClick={onAddManagedLlamaPreset}>Add Preset</button>
-                <button
-                  type="button"
-                  onClick={() => { onDeleteManagedLlamaPreset(selectedManagedLlamaPreset.id); }}
-                  disabled={dashboardConfig.Server.LlamaCpp.Presets.length <= 1}
-                >
-                  Delete
-                </button>
+        <div className="managed-llama-top-row">
+          {renderField('managed-llama', 'Managed preset', (
+            <div className="settings-preset-library">
+              <div className="settings-preset-toolbar">
+                <label className="settings-preset-selector">
+                  <span className="settings-preset-inline-label"><SettingsInlineHelpLabel label="Preset" helpText="Pick which managed llama launcher preset to edit and launch." /></span>
+                  <select
+                    value={dashboardConfig.Server.LlamaCpp.ActivePresetId}
+                    onChange={(event) => updateSettingsDraft((next) => {
+                      applyManagedLlamaPresetSelection(next, event.target.value);
+                    })}
+                    disabled={dashboardConfig.Server.LlamaCpp.Presets.length === 0}
+                  >
+                    {dashboardConfig.Server.LlamaCpp.Presets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>{preset.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <div className="settings-preset-library-actions">
+                  <button type="button" onClick={onAddManagedLlamaPreset}>Add Preset</button>
+                  <button
+                    type="button"
+                    onClick={() => { onDeleteManagedLlamaPreset(selectedManagedLlamaPreset.id); }}
+                    disabled={dashboardConfig.Server.LlamaCpp.Presets.length <= 1}
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
-        {renderField('managed-llama', 'Preset name', (
-          <input
-            value={selectedManagedLlamaPreset.label}
-            onChange={(event) => updateManagedLlamaDraft((preset) => {
-              preset.label = event.target.value;
-            })}
-          />
-        ))}
-        {renderField('managed-llama', 'Executable path', (
-          <div className="settings-live-nav-control">
+          ), 'managed-llama-top-field')}
+          {renderField('managed-llama', 'Preset name', (
             <input
-              value={selectedManagedLlamaPreset.ExecutablePath || ''}
+              value={selectedManagedLlamaPreset.label}
               onChange={(event) => updateManagedLlamaDraft((preset) => {
-                const value = event.target.value.trim();
-                preset.ExecutablePath = value || null;
+                preset.label = event.target.value;
               })}
             />
-            <button
-              type="button"
-              onClick={() => { void onPickManagedLlamaPath('ExecutablePath'); }}
-              disabled={settingsActionBusy}
-            >
-              {settingsPathPickerBusyTarget === 'ExecutablePath' ? 'Opening...' : 'Browse...'}
-            </button>
-          </div>
-        ))}
+          ), 'managed-llama-top-field')}
+          {renderField('managed-llama', 'Executable path', (
+            <div className="settings-live-nav-control">
+              <input
+                value={selectedManagedLlamaPreset.ExecutablePath || ''}
+                onChange={(event) => updateManagedLlamaDraft((preset) => {
+                  const value = event.target.value.trim();
+                  preset.ExecutablePath = value || null;
+                })}
+              />
+              <button
+                type="button"
+                onClick={() => { void onPickManagedLlamaPath('ExecutablePath'); }}
+                disabled={settingsActionBusy}
+              >
+                {settingsPathPickerBusyTarget === 'ExecutablePath' ? 'Opening...' : 'Browse...'}
+              </button>
+            </div>
+          ), 'managed-llama-top-field')}
+        </div>
         {renderField('managed-llama', 'Base URL', (
           <input
             value={selectedManagedLlamaPreset.BaseUrl}
@@ -2543,6 +2551,15 @@ function DashboardApp() {
             value={selectedManagedLlamaPreset.ReasoningBudget}
             onChange={(event) => updateManagedLlamaDraft((preset) => {
               preset.ReasoningBudget = parseIntegerInput(event.target.value, preset.ReasoningBudget);
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'ReasoningBudgetMessage', (
+          <textarea
+            rows={3}
+            value={selectedManagedLlamaPreset.ReasoningBudgetMessage}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.ReasoningBudgetMessage = event.target.value;
             })}
           />
         ))}

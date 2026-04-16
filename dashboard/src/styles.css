@@ -950,6 +950,17 @@ pre {
   gap: 12px;
 }
 
+.managed-llama-top-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.9fr) minmax(0, 1.75fr);
+  gap: 12px;
+}
+
+.managed-llama-top-row .settings-live-field {
+  grid-column: auto;
+}
+
 .settings-live-field {
   display: grid;
   gap: 8px;
@@ -1940,6 +1951,10 @@ button:hover {
     grid-template-columns: 1fr;
   }
 
+  .managed-llama-top-row {
+    grid-template-columns: 1fr;
+  }
+
   .settings-preset-card-grid {
     grid-template-columns: 1fr;
   }
@@ -1989,6 +2004,10 @@ button:hover {
   }
 
   .settings-live-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .managed-llama-top-row {
     grid-template-columns: 1fr;
   }
 

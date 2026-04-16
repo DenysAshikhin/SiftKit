@@ -51,6 +51,7 @@ export type ServerManagedLlamaCppConfig = {
   RepetitionPenalty?: number | null;
   Reasoning?: 'on' | 'off' | 'auto' | null;
   ReasoningBudget?: number | null;
+  ReasoningBudgetMessage?: string | null;
   StartupTimeoutMs?: number | null;
   HealthcheckTimeoutMs?: number | null;
   HealthcheckIntervalMs?: number | null;

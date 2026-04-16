@@ -16,6 +16,7 @@ export const SIFT_DEFAULT_LLAMA_UBATCH_SIZE = 512;
 export const SIFT_DEFAULT_LLAMA_CACHE_RAM = 8192;
 export const SIFT_DEFAULT_LLAMA_KV_CACHE_QUANTIZATION = 'f16';
 export const SIFT_DEFAULT_LLAMA_REASONING_BUDGET = 10_000;
+export const SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE = 'Thinking budget exhausted. You have to provide the answer now.';
 export const SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-35B-4bit-150k-no-thinking.ps1';
 export const SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k.ps1';
 export const SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k-thinking.ps1';

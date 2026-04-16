@@ -93,6 +93,7 @@ test('real status server backend restart endpoint restarts managed llama.cpp and
         RepetitionPenalty: 1,
         Reasoning: 'on',
         ReasoningBudget: 10000,
+        ReasoningBudgetMessage: 'Thinking budget exhausted. You have to provide the answer now.',
         StartupTimeoutMs: 5000,
         HealthcheckTimeoutMs: 200,
         HealthcheckIntervalMs: 50,
@@ -115,6 +116,11 @@ test('real status server backend restart endpoint restarts managed llama.cpp and
           || entry === 'q8_0'
         )),
         ['--cache-type-k', 'q8_0', '--cache-type-v', 'q8_0'],
+      );
+      assert.equal(initialInvocation.argv.includes('--reasoning-budget-message'), true);
+      assert.equal(
+        initialInvocation.argv[initialInvocation.argv.indexOf('--reasoning-budget-message') + 1],
+        'Thinking budget exhausted. You have to provide the answer now.',
       );
 
       const initialPid = fs.readFileSync(managed.readyFilePath, 'utf8').trim();
@@ -181,6 +187,7 @@ test('real status server backend restart endpoint returns structured GPU OOM det
         RepetitionPenalty: 1,
         Reasoning: 'on',
         ReasoningBudget: 10000,
+        ReasoningBudgetMessage: 'Thinking budget exhausted. You have to provide the answer now.',
         StartupTimeoutMs: 5000,
         HealthcheckTimeoutMs: 200,
         HealthcheckIntervalMs: 50,
@@ -240,6 +247,7 @@ test('real status server omits -t when the active managed preset sets Threads to
         RepetitionPenalty: 1,
         Reasoning: 'on',
         ReasoningBudget: 10000,
+        ReasoningBudgetMessage: 'Thinking budget exhausted. You have to provide the answer now.',
         StartupTimeoutMs: 5000,
         HealthcheckTimeoutMs: 200,
         HealthcheckIntervalMs: 50,
@@ -271,6 +279,7 @@ test('real status server omits -t when the active managed preset sets Threads to
             RepetitionPenalty: 1,
             Reasoning: 'on',
             ReasoningBudget: 10000,
+            ReasoningBudgetMessage: 'Thinking budget exhausted. You have to provide the answer now.',
             StartupTimeoutMs: 5000,
             HealthcheckTimeoutMs: 200,
             HealthcheckIntervalMs: 50,

@@ -36,6 +36,7 @@ function createPreset(overrides: Partial<DashboardManagedLlamaPreset> = {}): Das
     RepetitionPenalty: 1,
     Reasoning: 'off',
     ReasoningBudget: 10000,
+    ReasoningBudgetMessage: 'Thinking budget exhausted. You have to provide the answer now.',
     StartupTimeoutMs: 600000,
     HealthcheckTimeoutMs: 2000,
     HealthcheckIntervalMs: 1000,
@@ -135,6 +136,7 @@ test('applyManagedLlamaPresetSelection mirrors the selected managed preset into 
   assert.equal(config.Server.LlamaCpp.ModelPath, 'D:\\models\\qwen-27b.gguf');
   assert.equal(config.Server.LlamaCpp.Threads, 0);
   assert.equal(config.Server.LlamaCpp.Port, 8098);
+  assert.equal(config.Server.LlamaCpp.ReasoningBudgetMessage, 'Thinking budget exhausted. You have to provide the answer now.');
 });
 
 test('addManagedLlamaPreset clones the active preset and creates a unique id', () => {

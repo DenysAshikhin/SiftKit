@@ -265,6 +265,9 @@ export function buildManagedLlamaArgs(managed: ReturnType<typeof getManagedLlama
     '--host', managed.BindHost,
     '--port', String(managed.Port),
   );
+  if (managed.ReasoningBudgetMessage) {
+    args.push('--reasoning-budget-message', managed.ReasoningBudgetMessage);
+  }
   if (managed.FlashAttention) {
     args.push('-fa', 'on');
   }

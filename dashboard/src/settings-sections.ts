@@ -109,6 +109,7 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'RepetitionPenalty', layout: 'quarter', helpText: 'Reduces repetition by damping reused token sequences.' },
       { label: 'Reasoning', layout: 'quarter', helpText: 'Controls whether explicit reasoning is forced, disabled, or automatic.' },
       { label: 'ReasoningBudget', layout: 'quarter', helpText: 'Reasoning token budget passed to llama.cpp when reasoning is enabled.' },
+      { label: 'ReasoningBudgetMessage', layout: 'full', helpText: 'Message passed to `--reasoning-budget-message` when the reasoning budget is exhausted.' },
       { label: 'StartupTimeoutMs', layout: 'quarter', helpText: 'Maximum time allowed for managed llama.cpp startup before the attempt is treated as failed.' },
       { label: 'HealthcheckTimeoutMs', layout: 'quarter', helpText: 'Maximum wait for an individual health probe before it is treated as failed.' },
       { label: 'HealthcheckIntervalMs', layout: 'quarter', helpText: 'Delay between consecutive health probes while waiting for readiness.' },

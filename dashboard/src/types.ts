@@ -322,6 +322,7 @@ export type DashboardConfig = {
       RepetitionPenalty: number;
       Reasoning: 'on' | 'off' | 'auto';
       ReasoningBudget: number;
+      ReasoningBudgetMessage: string;
       StartupTimeoutMs: number;
       HealthcheckTimeoutMs: number;
       HealthcheckIntervalMs: number;
@@ -358,6 +359,7 @@ export type DashboardManagedLlamaPreset = {
   RepetitionPenalty: number;
   Reasoning: 'on' | 'off' | 'auto';
   ReasoningBudget: number;
+  ReasoningBudgetMessage: string;
   StartupTimeoutMs: number;
   HealthcheckTimeoutMs: number;
   HealthcheckIntervalMs: number;

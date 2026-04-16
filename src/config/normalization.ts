@@ -62,6 +62,7 @@ const MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS: ReadonlyArray<keyof ServerManagedLlam
   'RepetitionPenalty',
   'Reasoning',
   'ReasoningBudget',
+  'ReasoningBudgetMessage',
   'StartupTimeoutMs',
   'HealthcheckTimeoutMs',
   'HealthcheckIntervalMs',
@@ -92,6 +93,7 @@ const MANAGED_LLAMA_PRESET_KEYS: ReadonlyArray<Exclude<keyof ServerManagedLlamaC
   'RepetitionPenalty',
   'Reasoning',
   'ReasoningBudget',
+  'ReasoningBudgetMessage',
   'StartupTimeoutMs',
   'HealthcheckTimeoutMs',
   'HealthcheckIntervalMs',
@@ -322,6 +324,7 @@ export function toPersistedConfigObject(config: SiftConfig): Omit<SiftConfig, 'P
         RepetitionPenalty: config.Server?.LlamaCpp?.RepetitionPenalty ?? null,
         Reasoning: config.Server?.LlamaCpp?.Reasoning ?? null,
         ReasoningBudget: config.Server?.LlamaCpp?.ReasoningBudget ?? null,
+        ReasoningBudgetMessage: config.Server?.LlamaCpp?.ReasoningBudgetMessage ?? null,
         StartupTimeoutMs: config.Server?.LlamaCpp?.StartupTimeoutMs ?? null,
         HealthcheckTimeoutMs: config.Server?.LlamaCpp?.HealthcheckTimeoutMs ?? null,
         HealthcheckIntervalMs: config.Server?.LlamaCpp?.HealthcheckIntervalMs ?? null,
@@ -499,6 +502,7 @@ export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info:
     'RepetitionPenalty',
     'Reasoning',
     'ReasoningBudget',
+    'ReasoningBudgetMessage',
   ] as const) {
     if (!Object.prototype.hasOwnProperty.call(serverLlama, key)) {
       (serverLlama as Record<string, unknown>)[key] = (defaults.Server?.LlamaCpp as Record<string, unknown> | undefined)?.[key] ?? null;

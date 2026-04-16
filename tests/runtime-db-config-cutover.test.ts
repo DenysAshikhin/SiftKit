@@ -325,6 +325,7 @@ test('readConfig backfills blank managed llama placeholder rows without restorin
     assert.equal(config.Server?.LlamaCpp?.MaxTokens, 15000);
     assert.equal(config.Server?.LlamaCpp?.TopP, 0.8);
     assert.equal(config.Server?.LlamaCpp?.Reasoning, 'off');
+    assert.equal(config.Server?.LlamaCpp?.ReasoningBudgetMessage, 'Thinking budget exhausted. You have to provide the answer now.');
     assert.equal(config.Server?.LlamaCpp?.VerboseLogging, false);
   });
 });
@@ -348,6 +349,7 @@ test('writeConfig persists managed llama presets and restores the selected prese
         ModelPath: 'D:\\models\\Qwen3.5-27B-Q4_K_M.gguf',
         Port: 8098,
         Threads: 0,
+        ReasoningBudgetMessage: 'Budget hit. Answer now.',
       },
     ];
     config.Server.LlamaCpp.ActivePresetId = 'qwen-27b';
@@ -361,5 +363,6 @@ test('writeConfig persists managed llama presets and restores the selected prese
     assert.equal(loaded.Server?.LlamaCpp?.ModelPath, 'D:\\models\\Qwen3.5-27B-Q4_K_M.gguf');
     assert.equal(loaded.Server?.LlamaCpp?.Port, 8098);
     assert.equal(loaded.Server?.LlamaCpp?.Threads, 0);
+    assert.equal(loaded.Server?.LlamaCpp?.ReasoningBudgetMessage, 'Budget hit. Answer now.');
   });
 });

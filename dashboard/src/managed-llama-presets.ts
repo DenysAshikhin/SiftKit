@@ -36,6 +36,7 @@ function buildPresetFromServer(config: DashboardConfig): DashboardManagedLlamaPr
     RepetitionPenalty: config.Server.LlamaCpp.RepetitionPenalty,
     Reasoning: config.Server.LlamaCpp.Reasoning,
     ReasoningBudget: config.Server.LlamaCpp.ReasoningBudget,
+    ReasoningBudgetMessage: config.Server.LlamaCpp.ReasoningBudgetMessage,
     StartupTimeoutMs: config.Server.LlamaCpp.StartupTimeoutMs,
     HealthcheckTimeoutMs: config.Server.LlamaCpp.HealthcheckTimeoutMs,
     HealthcheckIntervalMs: config.Server.LlamaCpp.HealthcheckIntervalMs,
@@ -77,6 +78,7 @@ function copyPresetToServer(config: DashboardConfig, preset: DashboardManagedLla
   config.Server.LlamaCpp.RepetitionPenalty = preset.RepetitionPenalty;
   config.Server.LlamaCpp.Reasoning = preset.Reasoning;
   config.Server.LlamaCpp.ReasoningBudget = preset.ReasoningBudget;
+  config.Server.LlamaCpp.ReasoningBudgetMessage = preset.ReasoningBudgetMessage;
   config.Server.LlamaCpp.StartupTimeoutMs = preset.StartupTimeoutMs;
   config.Server.LlamaCpp.HealthcheckTimeoutMs = preset.HealthcheckTimeoutMs;
   config.Server.LlamaCpp.HealthcheckIntervalMs = preset.HealthcheckIntervalMs;

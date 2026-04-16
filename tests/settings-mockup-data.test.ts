@@ -29,6 +29,7 @@ test('settings mockup tooltip fields include documented explanatory labels', () 
       'ParallelSlots',
       'Reasoning',
       'ReasoningBudget',
+      'ReasoningBudgetMessage',
       'HealthcheckTimeoutMs',
       'HealthcheckIntervalMs',
     ],

@@ -47,6 +47,7 @@ export const SETTINGS_MOCKUP_TOOLTIP_FIELDS = [
   'ParallelSlots',
   'Reasoning',
   'ReasoningBudget',
+  'ReasoningBudgetMessage',
   'HealthcheckTimeoutMs',
   'HealthcheckIntervalMs',
 ] as const;
@@ -116,6 +117,7 @@ export const SETTINGS_MOCKUP_SECTIONS: SettingsMockupSection[] = [
       { kind: 'text', label: 'RepetitionPenalty', value: '1', layout: 'quarter', description: 'Reduces repetition by damping reused token sequences.' },
       { kind: 'text', label: 'Reasoning', value: 'off', layout: 'quarter', description: 'Controls whether explicit reasoning is forced, disabled, or automatic.' },
       { kind: 'text', label: 'ReasoningBudget', value: '10000', layout: 'quarter', description: 'Reasoning token budget passed to llama.cpp when reasoning is enabled.' },
+      { kind: 'textarea', label: 'ReasoningBudgetMessage', value: 'Thinking budget exhausted. You have to provide the answer now.', layout: 'full', description: 'Message passed to `--reasoning-budget-message` when the reasoning budget is exhausted.' },
       { kind: 'text', label: 'StartupTimeoutMs', value: '120000', layout: 'quarter' },
       { kind: 'text', label: 'HealthcheckTimeoutMs', value: '5000', layout: 'quarter', description: 'Maximum wait for an individual health probe before it is treated as failed.' },
       { kind: 'text', label: 'HealthcheckIntervalMs', value: '1000', layout: 'quarter', description: 'Delay between consecutive health probes while waiting for readiness.' },

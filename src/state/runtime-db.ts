@@ -6,7 +6,7 @@ import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-const CURRENT_SCHEMA_VERSION = 9;
+const CURRENT_SCHEMA_VERSION = 10;
 
 let cachedDatabasePath: string | null = null;
 let cachedDatabase: RuntimeDatabase | null = null;
@@ -36,6 +36,9 @@ function tableHasColumn(database: RuntimeDatabase, tableName: string, columnName
 }
 
 function detectEffectiveSchemaVersion(database: RuntimeDatabase, storedVersion: number): number {
+  if (tableHasColumn(database, 'app_config', 'server_reasoning_budget_message')) {
+    return 10;
+  }
   if (tableHasColumn(database, 'app_config', 'server_llama_presets_json')) {
     return 9;
   }
@@ -133,6 +136,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       server_repetition_penalty REAL,
       server_reasoning TEXT,
       server_reasoning_budget INTEGER,
+      server_reasoning_budget_message TEXT,
       server_startup_timeout_ms INTEGER,
       server_healthcheck_timeout_ms INTEGER,
       server_healthcheck_interval_ms INTEGER,
@@ -548,6 +552,13 @@ function ensureSchema(database: RuntimeDatabase): void {
     `);
     setSchemaVersion(database, 9);
     currentVersion = 9;
+  }
+  if (currentVersion < 10) {
+    database.exec(`
+      ALTER TABLE app_config ADD COLUMN server_reasoning_budget_message TEXT;
+    `);
+    setSchemaVersion(database, 10);
+    currentVersion = 10;
   }
   ensureRuntimeArtifactsSchema(database);
   ensureManagedLlamaAndBenchmarkMatrixSchema(database);

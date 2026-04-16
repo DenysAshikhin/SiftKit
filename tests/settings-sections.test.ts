@@ -58,6 +58,7 @@ test('settings tooltip labels include the documented fields', () => {
       'RepetitionPenalty',
       'Reasoning',
       'ReasoningBudget',
+      'ReasoningBudgetMessage',
       'StartupTimeoutMs',
       'HealthcheckTimeoutMs',
       'HealthcheckIntervalMs',

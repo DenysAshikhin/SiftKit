@@ -20,6 +20,7 @@ export const DEFAULT_LLAMA_UBATCH_SIZE = 512;
 export const DEFAULT_LLAMA_CACHE_RAM = 8192;
 export const DEFAULT_LLAMA_KV_CACHE_QUANTIZATION = 'f16';
 export const DEFAULT_LLAMA_REASONING_BUDGET = 10_000;
+export const DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE = 'Thinking budget exhausted. You have to provide the answer now.';
 export const PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-35B-4bit-150k-no-thinking.ps1';
 export const FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k.ps1';
 export const BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k-thinking.ps1';
@@ -91,6 +92,7 @@ const MANAGED_LLAMA_FIELD_KEYS: readonly string[] = [
   'RepetitionPenalty',
   'Reasoning',
   'ReasoningBudget',
+  'ReasoningBudgetMessage',
   'StartupTimeoutMs',
   'HealthcheckTimeoutMs',
   'HealthcheckIntervalMs',
@@ -119,6 +121,7 @@ const MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS: readonly string[] = [
   'RepetitionPenalty',
   'Reasoning',
   'ReasoningBudget',
+  'ReasoningBudgetMessage',
   'StartupTimeoutMs',
   'HealthcheckTimeoutMs',
   'HealthcheckIntervalMs',
@@ -152,6 +155,7 @@ export function getDefaultConfig(): Dict {
     RepetitionPenalty: 1.0,
     Reasoning: 'off',
     ReasoningBudget: DEFAULT_LLAMA_REASONING_BUDGET,
+    ReasoningBudgetMessage: DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
     StartupTimeoutMs: DEFAULT_LLAMA_STARTUP_TIMEOUT_MS,
     HealthcheckTimeoutMs: DEFAULT_LLAMA_HEALTHCHECK_TIMEOUT_MS,
     HealthcheckIntervalMs: DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS,
@@ -428,6 +432,9 @@ export function normalizeConfig(input: unknown): Dict {
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ReasoningBudget')) {
     serverLlama.ReasoningBudget = DEFAULT_LLAMA_REASONING_BUDGET;
   }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ReasoningBudgetMessage')) {
+    serverLlama.ReasoningBudgetMessage = DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE;
+  }
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'StartupTimeoutMs')) {
     serverLlama.StartupTimeoutMs = DEFAULT_LLAMA_STARTUP_TIMEOUT_MS;
   }
@@ -528,6 +535,7 @@ type AppConfigRow = {
   server_repetition_penalty: number | null;
   server_reasoning: string | null;
   server_reasoning_budget: number | null;
+  server_reasoning_budget_message: string | null;
   server_startup_timeout_ms: number | null;
   server_healthcheck_timeout_ms: number | null;
   server_healthcheck_interval_ms: number | null;
@@ -684,6 +692,7 @@ function normalizeConfigToRow(config: Dict): AppConfigRow {
     server_repetition_penalty: toNullableNumber(serverLlama.RepetitionPenalty),
     server_reasoning: typeof serverLlama.Reasoning === 'string' && serverLlama.Reasoning.trim() ? serverLlama.Reasoning.trim() : null,
     server_reasoning_budget: toNullableInteger(serverLlama.ReasoningBudget),
+    server_reasoning_budget_message: getNullableTrimmedString(serverLlama.ReasoningBudgetMessage),
     server_startup_timeout_ms: toNullableInteger(serverLlama.StartupTimeoutMs),
     server_healthcheck_timeout_ms: toNullableInteger(serverLlama.HealthcheckTimeoutMs),
     server_healthcheck_interval_ms: toNullableInteger(serverLlama.HealthcheckIntervalMs),
@@ -764,6 +773,7 @@ function rowToConfig(row: AppConfigRow): Dict {
         RepetitionPenalty: row.server_repetition_penalty,
         Reasoning: row.server_reasoning,
         ReasoningBudget: row.server_reasoning_budget,
+        ReasoningBudgetMessage: row.server_reasoning_budget_message,
         StartupTimeoutMs: row.server_startup_timeout_ms,
         HealthcheckTimeoutMs: row.server_healthcheck_timeout_ms,
         HealthcheckIntervalMs: row.server_healthcheck_interval_ms,
@@ -831,6 +841,7 @@ function readConfigRow(databasePath: string): AppConfigRow | null {
       server_repetition_penalty,
       server_reasoning,
       server_reasoning_budget,
+      server_reasoning_budget_message,
       server_startup_timeout_ms,
       server_healthcheck_timeout_ms,
       server_healthcheck_interval_ms,
@@ -905,6 +916,7 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
     'server_repetition_penalty',
     'server_reasoning',
     'server_reasoning_budget',
+    'server_reasoning_budget_message',
     'server_startup_timeout_ms',
     'server_healthcheck_timeout_ms',
     'server_healthcheck_interval_ms',
@@ -1080,6 +1092,7 @@ type ManagedLlamaConfig = {
   RepetitionPenalty: number;
   Reasoning: 'on' | 'off' | 'auto';
   ReasoningBudget: number;
+  ReasoningBudgetMessage: string | null;
   StartupTimeoutMs: number;
   HealthcheckTimeoutMs: number;
   HealthcheckIntervalMs: number;
@@ -1149,6 +1162,9 @@ export function getManagedLlamaConfig(config: unknown): ManagedLlamaConfig {
       ? reasoning
       : String(defaults.Reasoning || 'off') as 'on' | 'off' | 'auto',
     ReasoningBudget: getFinitePositiveInteger(serverLlama.ReasoningBudget, Number(defaults.ReasoningBudget ?? DEFAULT_LLAMA_REASONING_BUDGET)),
+    ReasoningBudgetMessage: getNullableTrimmedString(serverLlama.ReasoningBudgetMessage)
+      || getNullableTrimmedString(defaults.ReasoningBudgetMessage)
+      || DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
     StartupTimeoutMs: getManagedStartupTimeoutMs(serverLlama.StartupTimeoutMs, Number(defaults.StartupTimeoutMs)),
     HealthcheckTimeoutMs: getFinitePositiveInteger(serverLlama.HealthcheckTimeoutMs, Number(defaults.HealthcheckTimeoutMs)),
     HealthcheckIntervalMs: getFinitePositiveInteger(serverLlama.HealthcheckIntervalMs, Number(defaults.HealthcheckIntervalMs)),

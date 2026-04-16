@@ -324,10 +324,11 @@ test('runtime database migrates schema v5 GPU fields to schema v6 boolean-only s
       WHERE type = 'table' AND name = 'runtime_status'
     `).get() as { sql: string };
 
-    assert.equal(versionRow.version, 9);
+    assert.equal(versionRow.version, 10);
     assert.equal(appConfigColumns.some((column) => column.name === 'llama_gpu_layers'), false);
     assert.equal(appConfigColumns.some((column) => column.name === 'server_kv_cache_quant'), true);
     assert.equal(appConfigColumns.some((column) => column.name === 'server_llama_presets_json'), true);
+    assert.equal(appConfigColumns.some((column) => column.name === 'server_reasoning_budget_message'), true);
     assert.equal(readStatusText(databasePath), 'false');
     assert.match(runtimeStatusSql.sql, /status_text IN \('true', 'false'\)/u);
   });
