@@ -18,6 +18,8 @@ Make sure everything is typescript and typed. Ensure everything possible has exp
 
 AVOID worktrees.
 
+Ensure code is abstraced into re-usable classes.
+
 ## Response style
 
 Default to ultra-concise technical communication.
