@@ -66,6 +66,33 @@ const MANAGED_LLAMA_RUNTIME_KEYS: readonly string[] = [
   'Reasoning',
 ];
 
+const MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS: readonly string[] = [
+  'BaseUrl',
+  'BindHost',
+  'Port',
+  'NumCtx',
+  'GpuLayers',
+  'Threads',
+  'FlashAttention',
+  'ParallelSlots',
+  'BatchSize',
+  'UBatchSize',
+  'CacheRam',
+  'MaxTokens',
+  'Temperature',
+  'TopP',
+  'TopK',
+  'MinP',
+  'PresencePenalty',
+  'RepetitionPenalty',
+  'Reasoning',
+  'ReasoningBudget',
+  'StartupTimeoutMs',
+  'HealthcheckTimeoutMs',
+  'HealthcheckIntervalMs',
+  'VerboseLogging',
+];
+
 export function getDefaultConfig(): Dict {
   return {
     Version: '0.1.0',
@@ -239,6 +266,7 @@ export function normalizeConfig(input: unknown): Dict {
   const server = merged.Server as Dict;
   server.LlamaCpp = (server.LlamaCpp && typeof server.LlamaCpp === 'object') ? server.LlamaCpp : {};
   const serverLlama = server.LlamaCpp as Dict;
+  const defaultServerLlama = ((getDefaultConfig().Server as Dict).LlamaCpp || {}) as Dict;
   if (typeof merged.Model === 'string' && merged.Model.trim() && !runtime.Model) {
     runtime.Model = merged.Model;
   }
@@ -350,6 +378,27 @@ export function normalizeConfig(input: unknown): Dict {
   }
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'VerboseLogging')) {
     serverLlama.VerboseLogging = false;
+  }
+  const managedBlankPlaceholder = (
+    getNullableTrimmedString(serverLlama.ExecutablePath) === null
+    && getNullableTrimmedString(serverLlama.ModelPath) === null
+    && getNullableTrimmedString(serverLlama.BaseUrl) === null
+    && getNullableTrimmedString(serverLlama.BindHost) === null
+    && (toNullableInteger(serverLlama.Port) === null || Number(serverLlama.Port) <= 0)
+    && (toNullableInteger(serverLlama.NumCtx) === null || Number(serverLlama.NumCtx) <= 0)
+    && (toNullableInteger(serverLlama.BatchSize) === null || Number(serverLlama.BatchSize) <= 0)
+    && (toNullableInteger(serverLlama.UBatchSize) === null || Number(serverLlama.UBatchSize) <= 0)
+    && (toNullableInteger(serverLlama.CacheRam) === null || Number(serverLlama.CacheRam) <= 0)
+    && (toNullableInteger(serverLlama.MaxTokens) === null || Number(serverLlama.MaxTokens) <= 0)
+    && (toNullableNumber(serverLlama.Temperature) === null || Number(serverLlama.Temperature) <= 0)
+    && (toNullableNumber(serverLlama.TopP) === null || Number(serverLlama.TopP) <= 0)
+    && (toNullableInteger(serverLlama.TopK) === null || Number(serverLlama.TopK) <= 0)
+    && getNullableTrimmedString(serverLlama.Reasoning) === null
+  );
+  if (managedBlankPlaceholder) {
+    for (const key of MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS) {
+      serverLlama[key] = defaultServerLlama[key];
+    }
   }
   serverLlama.VerboseLogging = Boolean(serverLlama.VerboseLogging);
   delete serverLlama.StartupScript;

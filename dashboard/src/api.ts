@@ -5,6 +5,8 @@ import type {
   ChatSessionsResponse,
   IdleSummaryResponse,
   MetricsResponse,
+  ManagedFilePickerResponse,
+  ManagedFilePickerTarget,
   RunLogDeleteCriteria,
   RunLogDeletePreviewResponse,
   RunLogDeleteResponse,
@@ -103,6 +105,17 @@ export function restartBackend(): Promise<{ ok: boolean; restarted: boolean; err
 
 export function getDashboardHealth(): Promise<DashboardHealth> {
   return fetchJson<DashboardHealth>('/health');
+}
+
+export function pickManagedFile(
+  target: ManagedFilePickerTarget,
+  initialPath: string | null,
+): Promise<ManagedFilePickerResponse> {
+  return fetchJson<ManagedFilePickerResponse>('/dashboard/system/pick-file', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target, initialPath }),
+  });
 }
 
 export function getChatSessions(): Promise<ChatSessionsResponse> {

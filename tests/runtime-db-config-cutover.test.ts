@@ -186,3 +186,128 @@ test('writeConfig tolerates legacy schema v7 managed llama verbose args columns'
     assert.equal(loaded.Server?.LlamaCpp?.ModelPath, null);
   });
 });
+
+test('readConfig backfills blank managed llama placeholder rows without restoring paths', () => {
+  withTempDir((tempRoot) => {
+    const databasePath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
+    fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+
+    const database = new Database(databasePath);
+    database.exec(`
+      CREATE TABLE runtime_schema (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        version INTEGER NOT NULL
+      );
+      INSERT INTO runtime_schema (id, version) VALUES (1, 8);
+
+      CREATE TABLE app_config (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        version TEXT NOT NULL,
+        backend TEXT NOT NULL,
+        policy_mode TEXT NOT NULL,
+        raw_log_retention INTEGER NOT NULL CHECK (raw_log_retention IN (0, 1)),
+        prompt_prefix TEXT,
+        runtime_model TEXT,
+        llama_base_url TEXT,
+        llama_num_ctx INTEGER,
+        llama_model_path TEXT,
+        llama_temperature REAL,
+        llama_top_p REAL,
+        llama_top_k INTEGER,
+        llama_min_p REAL,
+        llama_presence_penalty REAL,
+        llama_repetition_penalty REAL,
+        llama_max_tokens INTEGER,
+        llama_threads INTEGER,
+        llama_flash_attention INTEGER CHECK (llama_flash_attention IN (0, 1) OR llama_flash_attention IS NULL),
+        llama_parallel_slots INTEGER,
+        llama_reasoning TEXT,
+        thresholds_min_characters_for_summary INTEGER NOT NULL,
+        thresholds_min_lines_for_summary INTEGER NOT NULL,
+        interactive_enabled INTEGER NOT NULL CHECK (interactive_enabled IN (0, 1)),
+        interactive_wrapped_commands_json TEXT NOT NULL,
+        interactive_idle_timeout_ms INTEGER NOT NULL,
+        interactive_max_transcript_characters INTEGER NOT NULL,
+        interactive_transcript_retention INTEGER NOT NULL CHECK (interactive_transcript_retention IN (0, 1)),
+        server_executable_path TEXT,
+        server_base_url TEXT,
+        server_bind_host TEXT,
+        server_port INTEGER,
+        server_model_path TEXT,
+        server_num_ctx INTEGER,
+        server_gpu_layers INTEGER,
+        server_threads INTEGER,
+        server_flash_attention INTEGER CHECK (server_flash_attention IN (0, 1) OR server_flash_attention IS NULL),
+        server_parallel_slots INTEGER,
+        server_batch_size INTEGER,
+        server_ubatch_size INTEGER,
+        server_cache_ram INTEGER,
+        server_max_tokens INTEGER,
+        server_temperature REAL,
+        server_top_p REAL,
+        server_top_k INTEGER,
+        server_min_p REAL,
+        server_presence_penalty REAL,
+        server_repetition_penalty REAL,
+        server_reasoning TEXT,
+        server_reasoning_budget INTEGER,
+        server_startup_timeout_ms INTEGER,
+        server_healthcheck_timeout_ms INTEGER,
+        server_healthcheck_interval_ms INTEGER,
+        server_verbose_logging INTEGER CHECK (server_verbose_logging IN (0, 1) OR server_verbose_logging IS NULL),
+        operation_mode_allowed_tools_json TEXT NOT NULL,
+        presets_json TEXT NOT NULL,
+        updated_at_utc TEXT NOT NULL
+      );
+    `);
+
+    database.prepare(`
+      INSERT INTO app_config (
+        id, version, backend, policy_mode, raw_log_retention, prompt_prefix, runtime_model,
+        llama_base_url, llama_num_ctx, llama_model_path, llama_temperature, llama_top_p, llama_top_k, llama_min_p,
+        llama_presence_penalty, llama_repetition_penalty, llama_max_tokens, llama_threads, llama_flash_attention,
+        llama_parallel_slots, llama_reasoning, thresholds_min_characters_for_summary, thresholds_min_lines_for_summary,
+        interactive_enabled, interactive_wrapped_commands_json, interactive_idle_timeout_ms,
+        interactive_max_transcript_characters, interactive_transcript_retention, server_executable_path, server_base_url,
+        server_bind_host, server_port, server_model_path, server_num_ctx, server_gpu_layers, server_threads,
+        server_flash_attention, server_parallel_slots, server_batch_size, server_ubatch_size, server_cache_ram,
+        server_max_tokens, server_temperature, server_top_p, server_top_k, server_min_p, server_presence_penalty,
+        server_repetition_penalty, server_reasoning, server_reasoning_budget, server_startup_timeout_ms,
+        server_healthcheck_timeout_ms, server_healthcheck_interval_ms, server_verbose_logging,
+        operation_mode_allowed_tools_json, presets_json, updated_at_utc
+      ) VALUES (
+        1, '0.1.0', 'llama.cpp', 'conservative', 1, 'prompt', 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+        'http://127.0.0.1:8097', 128000, NULL, 0.7, 0.8, 20, 0.0,
+        1.5, 1.0, 15000, -1, 1,
+        1, 'off', 500, 16,
+        1, '["git"]', 900000,
+        60000, 1, NULL, NULL,
+        NULL, 0, NULL, 0, 0, 0,
+        0, 0, 0, 0, 0,
+        0, NULL, NULL, 0, NULL, NULL,
+        NULL, NULL, NULL, 600000,
+        2000, 1000, 1,
+        '{"summary":["find_text"]}', '[]', @updated_at_utc
+      )
+    `).run({
+      updated_at_utc: new Date().toISOString(),
+    });
+    database.close();
+
+    const config = readConfig(databasePath);
+
+    assert.equal(config.Server?.LlamaCpp?.ExecutablePath, null);
+    assert.equal(config.Server?.LlamaCpp?.ModelPath, null);
+    assert.equal(config.Server?.LlamaCpp?.BaseUrl, 'http://127.0.0.1:8097');
+    assert.equal(config.Server?.LlamaCpp?.BindHost, '127.0.0.1');
+    assert.equal(config.Server?.LlamaCpp?.Port, 8097);
+    assert.equal(config.Server?.LlamaCpp?.NumCtx, 150000);
+    assert.equal(config.Server?.LlamaCpp?.BatchSize, 512);
+    assert.equal(config.Server?.LlamaCpp?.UBatchSize, 512);
+    assert.equal(config.Server?.LlamaCpp?.CacheRam, 8192);
+    assert.equal(config.Server?.LlamaCpp?.MaxTokens, 15000);
+    assert.equal(config.Server?.LlamaCpp?.TopP, 0.8);
+    assert.equal(config.Server?.LlamaCpp?.Reasoning, 'off');
+    assert.equal(config.Server?.LlamaCpp?.VerboseLogging, false);
+  });
+});

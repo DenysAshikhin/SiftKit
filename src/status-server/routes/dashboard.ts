@@ -48,6 +48,10 @@ import {
   listRuntimeArtifacts,
   readRuntimeArtifact,
 } from '../../state/runtime-artifacts.js';
+import {
+  pickManagedFilePath,
+  type ManagedFilePickerTarget,
+} from '../file-picker.js';
 import type { ServerContext } from '../server-types.js';
 import type { SiftConfig } from '../../config/index.js';
 import type { Dict } from '../../lib/types.js';
@@ -330,6 +334,33 @@ export async function handleDashboardRoute(
   if (req.method === 'DELETE' && /^\/dashboard\/admin\/runtime-artifacts\/[^/]+$/u.test(pathname)) {
     const id = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/runtime-artifacts\//u, ''));
     sendJson(res, 200, { ok: true, deleted: deleteRuntimeArtifact(id), id });
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/dashboard/system/pick-file') {
+    let parsedBody: Dict;
+    try {
+      parsedBody = parseJsonBody(await readBody(req));
+    } catch {
+      sendJson(res, 400, { error: 'Expected valid JSON object.' });
+      return true;
+    }
+    const target = String(parsedBody.target || '').trim() as ManagedFilePickerTarget;
+    if (target !== 'managed-llama-executable' && target !== 'managed-llama-model') {
+      sendJson(res, 400, { error: 'Expected a valid file picker target.' });
+      return true;
+    }
+    const initialPath = typeof parsedBody.initialPath === 'string' && parsedBody.initialPath.trim()
+      ? parsedBody.initialPath.trim()
+      : null;
+    try {
+      const result = await pickManagedFilePath(target, initialPath);
+      sendJson(res, 200, { ok: true, ...result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const statusCode = /only supported on Windows/iu.test(message) ? 501 : 500;
+      sendJson(res, statusCode, { error: message });
+    }
     return true;
   }
 

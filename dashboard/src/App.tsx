@@ -13,6 +13,7 @@ import {
   getChatSessions,
   getIdleSummary,
   getMetrics,
+  pickManagedFile,
   getRunDetail,
   getRuns,
   previewRunLogDelete,
@@ -818,6 +819,7 @@ function DashboardApp() {
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsRestarting, setSettingsRestarting] = useState(false);
+  const [settingsPathPickerBusyTarget, setSettingsPathPickerBusyTarget] = useState<'ExecutablePath' | 'ModelPath' | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSavedAtUtc, setSettingsSavedAtUtc] = useState<string | null>(null);
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>('general');
@@ -983,7 +985,7 @@ function DashboardApp() {
   const settingsDirty = dashboardConfig !== null
     && savedDashboardConfig !== null
     && getDashboardConfigSignature(dashboardConfig) !== getDashboardConfigSignature(savedDashboardConfig);
-  const settingsActionBusy = settingsLoading || settingsSaving || settingsRestarting;
+  const settingsActionBusy = settingsLoading || settingsSaving || settingsRestarting || settingsPathPickerBusyTarget !== null;
   const settingsRestartSupported = dashboardConfig?.Backend === 'llama.cpp';
   const runDeleteCriteria = buildRunLogDeleteCriteria({
     mode: runDeleteMode,
@@ -1697,6 +1699,43 @@ function DashboardApp() {
     await reloadDashboardSettingsCore();
   }
 
+  async function onPickManagedLlamaPath(target: 'ExecutablePath' | 'ModelPath'): Promise<void> {
+    if (!dashboardConfig) {
+      return;
+    }
+    const initialPath = target === 'ExecutablePath'
+      ? dashboardConfig.Server.LlamaCpp.ExecutablePath
+      : dashboardConfig.Server.LlamaCpp.ModelPath;
+    setSettingsPathPickerBusyTarget(target);
+    setSettingsError(null);
+    try {
+      const response = await pickManagedFile(
+        target === 'ExecutablePath' ? 'managed-llama-executable' : 'managed-llama-model',
+        initialPath,
+      );
+      if (response.cancelled || !response.path) {
+        return;
+      }
+      updateSettingsDraft((next) => {
+        if (target === 'ExecutablePath') {
+          next.Server.LlamaCpp.ExecutablePath = response.path;
+          return;
+        }
+        next.Server.LlamaCpp.ModelPath = response.path;
+        next.Runtime.LlamaCpp.ModelPath = response.path;
+        next.LlamaCpp.ModelPath = response.path;
+        next.Runtime.Model = deriveRuntimeModelId(response.path);
+        next.Model = next.Runtime.Model;
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSettingsError(message);
+      enqueueToast('error', `Path picker failed: ${message}`);
+    } finally {
+      setSettingsPathPickerBusyTarget(null);
+    }
+  }
+
   function discardDashboardSettingsChanges(): void {
     if (!savedDashboardConfig) {
       return;
@@ -2186,13 +2225,22 @@ function DashboardApp() {
     return (
       <div className="settings-live-grid">
         {renderField('managed-llama', 'Executable path', (
-          <input
-            value={dashboardConfig.Server.LlamaCpp.ExecutablePath || ''}
-            onChange={(event) => updateSettingsDraft((next) => {
-              const value = event.target.value.trim();
-              next.Server.LlamaCpp.ExecutablePath = value || null;
-            })}
-          />
+          <div className="settings-live-nav-control">
+            <input
+              value={dashboardConfig.Server.LlamaCpp.ExecutablePath || ''}
+              onChange={(event) => updateSettingsDraft((next) => {
+                const value = event.target.value.trim();
+                next.Server.LlamaCpp.ExecutablePath = value || null;
+              })}
+            />
+            <button
+              type="button"
+              onClick={() => { void onPickManagedLlamaPath('ExecutablePath'); }}
+              disabled={settingsActionBusy}
+            >
+              {settingsPathPickerBusyTarget === 'ExecutablePath' ? 'Opening...' : 'Browse...'}
+            </button>
+          </div>
         ))}
         {renderField('managed-llama', 'Base URL', (
           <input
@@ -2222,17 +2270,26 @@ function DashboardApp() {
           />
         ))}
         {renderField('managed-llama', 'Model path (.gguf)', (
-          <input
-            value={dashboardConfig.Server.LlamaCpp.ModelPath || ''}
-            onChange={(event) => updateSettingsDraft((next) => {
-              const value = event.target.value.trim();
-              next.Server.LlamaCpp.ModelPath = value || null;
-              next.Runtime.LlamaCpp.ModelPath = value || null;
-              next.LlamaCpp.ModelPath = value || null;
-              next.Runtime.Model = deriveRuntimeModelId(value || null);
-              next.Model = next.Runtime.Model;
-            })}
-          />
+          <div className="settings-live-nav-control">
+            <input
+              value={dashboardConfig.Server.LlamaCpp.ModelPath || ''}
+              onChange={(event) => updateSettingsDraft((next) => {
+                const value = event.target.value.trim();
+                next.Server.LlamaCpp.ModelPath = value || null;
+                next.Runtime.LlamaCpp.ModelPath = value || null;
+                next.LlamaCpp.ModelPath = value || null;
+                next.Runtime.Model = deriveRuntimeModelId(value || null);
+                next.Model = next.Runtime.Model;
+              })}
+            />
+            <button
+              type="button"
+              onClick={() => { void onPickManagedLlamaPath('ModelPath'); }}
+              disabled={settingsActionBusy}
+            >
+              {settingsPathPickerBusyTarget === 'ModelPath' ? 'Opening...' : 'Browse...'}
+            </button>
+          </div>
         ))}
         {renderField('managed-llama', 'NumCtx', (
           <input

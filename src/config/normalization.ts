@@ -34,6 +34,33 @@ const MANAGED_LLAMA_RUNTIME_KEYS: ReadonlyArray<keyof RuntimeLlamaCppConfig> = [
   'Reasoning',
 ];
 
+const MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS: ReadonlyArray<keyof ServerManagedLlamaCppConfig> = [
+  'BaseUrl',
+  'BindHost',
+  'Port',
+  'NumCtx',
+  'GpuLayers',
+  'Threads',
+  'FlashAttention',
+  'ParallelSlots',
+  'BatchSize',
+  'UBatchSize',
+  'CacheRam',
+  'MaxTokens',
+  'Temperature',
+  'TopP',
+  'TopK',
+  'MinP',
+  'PresencePenalty',
+  'RepetitionPenalty',
+  'Reasoning',
+  'ReasoningBudget',
+  'StartupTimeoutMs',
+  'HealthcheckTimeoutMs',
+  'HealthcheckIntervalMs',
+  'VerboseLogging',
+];
+
 function syncRuntimeLlamaFromManaged(
   runtimeLlamaCpp: RuntimeLlamaCppConfig,
   serverLlamaCpp: ServerManagedLlamaCppConfig,
@@ -76,6 +103,23 @@ export function applyRuntimeCompatibilityView(config: SiftConfig): SiftConfig {
     PromptPrefix: config.PromptPrefix ?? SIFT_DEFAULT_PROMPT_PREFIX,
     LlamaCpp: compatLlamaCpp,
   };
+}
+
+function isBlankManagedLlamaPlaceholder(serverLlama: ServerManagedLlamaCppConfig): boolean {
+  return !serverLlama.ExecutablePath
+    && !serverLlama.ModelPath
+    && !serverLlama.BaseUrl
+    && !serverLlama.BindHost
+    && (!Number.isFinite(Number(serverLlama.Port)) || Number(serverLlama.Port) <= 0)
+    && (!Number.isFinite(Number(serverLlama.NumCtx)) || Number(serverLlama.NumCtx) <= 0)
+    && (!Number.isFinite(Number(serverLlama.BatchSize)) || Number(serverLlama.BatchSize) <= 0)
+    && (!Number.isFinite(Number(serverLlama.UBatchSize)) || Number(serverLlama.UBatchSize) <= 0)
+    && (!Number.isFinite(Number(serverLlama.CacheRam)) || Number(serverLlama.CacheRam) <= 0)
+    && (!Number.isFinite(Number(serverLlama.MaxTokens)) || Number(serverLlama.MaxTokens) <= 0)
+    && !Number.isFinite(Number(serverLlama.Temperature))
+    && !Number.isFinite(Number(serverLlama.TopP))
+    && (!Number.isFinite(Number(serverLlama.TopK)) || Number(serverLlama.TopK) <= 0)
+    && !serverLlama.Reasoning;
 }
 
 export function updateRuntimePaths(config: SiftConfig): SiftConfig {
@@ -350,6 +394,14 @@ export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info:
   }
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'VerboseLogging')) {
     serverLlama.VerboseLogging = defaults.Server?.LlamaCpp?.VerboseLogging ?? false;
+    changed = true;
+  }
+  if (isBlankManagedLlamaPlaceholder(serverLlama)) {
+    const mutableServerLlama = serverLlama as Record<string, string | number | boolean | null | undefined>;
+    const defaultManagedLlama = defaults.Server?.LlamaCpp as Record<string, string | number | boolean | null | undefined> | undefined;
+    for (const key of MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS) {
+      mutableServerLlama[key] = defaultManagedLlama?.[key] ?? null;
+    }
     changed = true;
   }
   if (typeof serverLlama.VerboseLogging !== 'boolean') {

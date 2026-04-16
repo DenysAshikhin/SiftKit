@@ -338,3 +338,11 @@ export type DashboardHealth = {
   idleSummarySnapshotsPath: string;
   runtimeRoot: string;
 };
+
+export type ManagedFilePickerTarget = 'managed-llama-executable' | 'managed-llama-model';
+
+export type ManagedFilePickerResponse = {
+  ok: boolean;
+  cancelled: boolean;
+  path: string | null;
+};
