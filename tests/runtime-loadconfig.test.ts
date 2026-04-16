@@ -155,9 +155,12 @@ test('loadConfig normalizes legacy defaults and derives effective budgets from t
       assert.equal(config.Effective.MaxInputCharacters, 237565);
       assert.equal(config.Effective.ChunkThresholdCharacters, 237565);
       assert.equal(config.Thresholds.MaxInputCharacters, undefined);
-      assert.equal(config.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
+      assert.equal(config.Server.LlamaCpp.ExecutablePath, null);
+      assert.equal(config.Server.LlamaCpp.BaseUrl, config.Runtime.LlamaCpp.BaseUrl);
+      assert.equal(config.Server.LlamaCpp.ModelPath, config.Runtime.LlamaCpp.ModelPath);
+      assert.equal(Object.prototype.hasOwnProperty.call(config.Server.LlamaCpp, 'StartupScript'), false);
+      assert.equal(Object.prototype.hasOwnProperty.call(config.Server.LlamaCpp, 'ShutdownScript'), false);
       assert.equal(config.Server.LlamaCpp.VerboseLogging, false);
-      assert.deepEqual(config.Server.LlamaCpp.VerboseArgs, []);
     }, {
       config: {
         LlamaCpp: null,
@@ -638,4 +641,4 @@ test('real status server runs startup script in sync-only mode during startup to
     }, 5000);
   });
 });
-
+

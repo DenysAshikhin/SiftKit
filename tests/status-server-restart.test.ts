@@ -13,24 +13,45 @@ const {
   waitForAsyncExpectation,
   withRealStatusServer,
   withTempEnv,
-  writeManagedLlamaScripts,
+  writeManagedLlamaLauncher,
 } = require('./_runtime-helpers.js');
 
 test('real status server backend restart endpoint restarts managed llama.cpp and returns the live config', async () => {
   await withTempEnv(async (tempRoot) => {
     const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
     const llamaPort = await getFreePort();
-    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
 
     setManagedLlamaBaseUrl(config, managed.baseUrl);
     config.Server = {
       LlamaCpp: {
-        StartupScript: managed.startupScriptPath,
-        ShutdownScript: managed.shutdownScriptPath,
+        ExecutablePath: managed.executablePath,
+        BaseUrl: managed.baseUrl,
+        BindHost: '127.0.0.1',
+        Port: llamaPort,
+        ModelPath: managed.modelPath,
+        NumCtx: 32000,
+        GpuLayers: 999,
+        Threads: 2,
+        FlashAttention: true,
+        ParallelSlots: 1,
+        BatchSize: 512,
+        UBatchSize: 512,
+        CacheRam: 8192,
+        MaxTokens: 15000,
+        Temperature: 0.6,
+        TopP: 0.95,
+        TopK: 20,
+        MinP: 0,
+        PresencePenalty: 0,
+        RepetitionPenalty: 1,
+        Reasoning: 'on',
+        ReasoningBudget: 10000,
         StartupTimeoutMs: 5000,
         HealthcheckTimeoutMs: 200,
         HealthcheckIntervalMs: 50,
+        VerboseLogging: false,
       },
     };
     writeConfig(runtimeDbPath, config);
@@ -50,8 +71,8 @@ test('real status server backend restart endpoint restarts managed llama.cpp and
 
       assert.equal(restartResponse.ok, true);
       assert.equal(restartResponse.restarted, true);
-      assert.equal(restartResponse.config.Runtime.LlamaCpp.BaseUrl, managed.baseUrl);
-      assert.equal(restartResponse.config.Server.LlamaCpp.StartupScript, managed.startupScriptPath);
+      assert.equal(restartResponse.config.Server.LlamaCpp.BaseUrl, managed.baseUrl);
+      assert.equal(restartResponse.config.Server.LlamaCpp.ExecutablePath, managed.executablePath);
 
       await waitForAsyncExpectation(async () => {
         const nextPid = fs.readFileSync(managed.readyFilePath, 'utf8').trim();

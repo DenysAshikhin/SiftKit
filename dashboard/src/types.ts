@@ -265,6 +265,7 @@ export type DashboardLlamaCppConfig = {
   PresencePenalty: number;
   RepetitionPenalty: number;
   MaxTokens: number;
+  GpuLayers: number;
   Threads: number;
   FlashAttention: boolean;
   ParallelSlots: number;
@@ -298,13 +299,32 @@ export type DashboardConfig = {
   };
   Server: {
     LlamaCpp: {
-      StartupScript: string | null;
-      ShutdownScript: string | null;
+      ExecutablePath: string | null;
+      BaseUrl: string;
+      BindHost: string;
+      Port: number;
+      ModelPath: string | null;
+      NumCtx: number;
+      GpuLayers: number;
+      Threads: number;
+      FlashAttention: boolean;
+      ParallelSlots: number;
+      BatchSize: number;
+      UBatchSize: number;
+      CacheRam: number;
+      MaxTokens: number;
+      Temperature: number;
+      TopP: number;
+      TopK: number;
+      MinP: number;
+      PresencePenalty: number;
+      RepetitionPenalty: number;
+      Reasoning: 'on' | 'off' | 'auto';
+      ReasoningBudget: number;
       StartupTimeoutMs: number;
       HealthcheckTimeoutMs: number;
       HealthcheckIntervalMs: number;
       VerboseLogging: boolean;
-      VerboseArgs: string[];
     };
   };
 };

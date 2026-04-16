@@ -2,6 +2,7 @@ import { normalizeWindowsPath } from '../lib/paths.js';
 import {
   RUNTIME_OWNED_LLAMA_CPP_KEYS,
   SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT,
+  SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT,
   SIFT_DEFAULT_PROMPT_PREFIX,
   SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT,
   SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS,
@@ -13,7 +14,39 @@ import {
 } from './constants.js';
 import { getDefaultConfigObject } from './defaults.js';
 import { initializeRuntime } from './paths.js';
-import type { NormalizationInfo, RuntimeLlamaCppConfig, SiftConfig } from './types.js';
+import type { NormalizationInfo, RuntimeLlamaCppConfig, ServerManagedLlamaCppConfig, SiftConfig } from './types.js';
+
+const MANAGED_LLAMA_RUNTIME_KEYS: ReadonlyArray<keyof RuntimeLlamaCppConfig> = [
+  'BaseUrl',
+  'NumCtx',
+  'ModelPath',
+  'Temperature',
+  'TopP',
+  'TopK',
+  'MinP',
+  'PresencePenalty',
+  'RepetitionPenalty',
+  'MaxTokens',
+  'GpuLayers',
+  'Threads',
+  'FlashAttention',
+  'ParallelSlots',
+  'Reasoning',
+];
+
+function syncRuntimeLlamaFromManaged(
+  runtimeLlamaCpp: RuntimeLlamaCppConfig,
+  serverLlamaCpp: ServerManagedLlamaCppConfig,
+): void {
+  const runtimeRecord = runtimeLlamaCpp as Record<string, string | number | boolean | null | undefined>;
+  const serverRecord = serverLlamaCpp as Record<string, string | number | boolean | null | undefined>;
+  for (const key of MANAGED_LLAMA_RUNTIME_KEYS) {
+    const value = serverRecord[key];
+    if (value !== undefined) {
+      runtimeRecord[key] = value;
+    }
+  }
+}
 
 export function isLegacyManagedStartupScriptPath(value: unknown): boolean {
   if (typeof value !== 'string' || !value.trim()) {
@@ -29,9 +62,11 @@ export function applyRuntimeCompatibilityView(config: SiftConfig): SiftConfig {
   const defaults = getDefaultConfigObject();
   const runtime = config.Runtime ?? {};
   const runtimeLlamaCpp = runtime.LlamaCpp ?? {};
+  const managedLlamaCpp = config.Server?.LlamaCpp ?? {};
   const compatLlamaCpp: RuntimeLlamaCppConfig = {
     ...defaults.LlamaCpp,
     ...config.LlamaCpp,
+    ...managedLlamaCpp,
     ...runtimeLlamaCpp,
   };
 
@@ -106,15 +141,32 @@ export function toPersistedConfigObject(config: SiftConfig): Omit<SiftConfig, 'P
     },
     Server: {
       LlamaCpp: {
-        StartupScript: config.Server?.LlamaCpp?.StartupScript ?? null,
-        ShutdownScript: config.Server?.LlamaCpp?.ShutdownScript ?? null,
+        ExecutablePath: config.Server?.LlamaCpp?.ExecutablePath ?? null,
+        BaseUrl: config.Server?.LlamaCpp?.BaseUrl ?? null,
+        BindHost: config.Server?.LlamaCpp?.BindHost ?? null,
+        Port: config.Server?.LlamaCpp?.Port ?? null,
+        ModelPath: config.Server?.LlamaCpp?.ModelPath ?? null,
+        NumCtx: config.Server?.LlamaCpp?.NumCtx ?? null,
+        GpuLayers: config.Server?.LlamaCpp?.GpuLayers ?? null,
+        Threads: config.Server?.LlamaCpp?.Threads ?? null,
+        FlashAttention: config.Server?.LlamaCpp?.FlashAttention ?? null,
+        ParallelSlots: config.Server?.LlamaCpp?.ParallelSlots ?? null,
+        BatchSize: config.Server?.LlamaCpp?.BatchSize ?? null,
+        UBatchSize: config.Server?.LlamaCpp?.UBatchSize ?? null,
+        CacheRam: config.Server?.LlamaCpp?.CacheRam ?? null,
+        MaxTokens: config.Server?.LlamaCpp?.MaxTokens ?? null,
+        Temperature: config.Server?.LlamaCpp?.Temperature ?? null,
+        TopP: config.Server?.LlamaCpp?.TopP ?? null,
+        TopK: config.Server?.LlamaCpp?.TopK ?? null,
+        MinP: config.Server?.LlamaCpp?.MinP ?? null,
+        PresencePenalty: config.Server?.LlamaCpp?.PresencePenalty ?? null,
+        RepetitionPenalty: config.Server?.LlamaCpp?.RepetitionPenalty ?? null,
+        Reasoning: config.Server?.LlamaCpp?.Reasoning ?? null,
+        ReasoningBudget: config.Server?.LlamaCpp?.ReasoningBudget ?? null,
         StartupTimeoutMs: config.Server?.LlamaCpp?.StartupTimeoutMs ?? null,
         HealthcheckTimeoutMs: config.Server?.LlamaCpp?.HealthcheckTimeoutMs ?? null,
         HealthcheckIntervalMs: config.Server?.LlamaCpp?.HealthcheckIntervalMs ?? null,
         VerboseLogging: config.Server?.LlamaCpp?.VerboseLogging ?? null,
-        VerboseArgs: Array.isArray(config.Server?.LlamaCpp?.VerboseArgs)
-          ? config.Server.LlamaCpp.VerboseArgs.map((value) => String(value))
-          : null,
       },
     },
   };
@@ -241,17 +293,48 @@ export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info:
     updated.Interactive.TranscriptRetention = defaults.Interactive.TranscriptRetention;
     changed = true;
   }
-  if (!Object.prototype.hasOwnProperty.call(updated.Server.LlamaCpp, 'StartupScript')) {
-    updated.Server.LlamaCpp.StartupScript = defaults.Server?.LlamaCpp?.StartupScript ?? null;
+  const serverLlama = updated.Server.LlamaCpp;
+  const legacyStartupScript = typeof (serverLlama as { StartupScript?: unknown }).StartupScript === 'string'
+    && String((serverLlama as { StartupScript?: string }).StartupScript).trim()
+    ? String((serverLlama as { StartupScript?: string }).StartupScript).trim()
+    : null;
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ExecutablePath')) {
+    serverLlama.ExecutablePath = (
+      legacyStartupScript
+      && !isLegacyManagedStartupScriptPath(legacyStartupScript)
+      && normalizeWindowsPath(legacyStartupScript) !== normalizeWindowsPath(SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT)
+    )
+      ? legacyStartupScript
+      : defaults.Server?.LlamaCpp?.ExecutablePath ?? null;
     changed = true;
   }
-  if (isLegacyManagedStartupScriptPath(updated.Server.LlamaCpp.StartupScript)) {
-    updated.Server.LlamaCpp.StartupScript = defaults.Server?.LlamaCpp?.StartupScript ?? null;
-    changed = true;
-  }
-  if (!Object.prototype.hasOwnProperty.call(updated.Server.LlamaCpp, 'ShutdownScript')) {
-    updated.Server.LlamaCpp.ShutdownScript = defaults.Server?.LlamaCpp?.ShutdownScript ?? null;
-    changed = true;
+  for (const key of [
+    'BaseUrl',
+    'BindHost',
+    'Port',
+    'ModelPath',
+    'NumCtx',
+    'GpuLayers',
+    'Threads',
+    'FlashAttention',
+    'ParallelSlots',
+    'BatchSize',
+    'UBatchSize',
+    'CacheRam',
+    'MaxTokens',
+    'Temperature',
+    'TopP',
+    'TopK',
+    'MinP',
+    'PresencePenalty',
+    'RepetitionPenalty',
+    'Reasoning',
+    'ReasoningBudget',
+  ] as const) {
+    if (!Object.prototype.hasOwnProperty.call(serverLlama, key)) {
+      (serverLlama as Record<string, unknown>)[key] = (defaults.Server?.LlamaCpp as Record<string, unknown> | undefined)?.[key] ?? null;
+      changed = true;
+    }
   }
   if (!Object.prototype.hasOwnProperty.call(updated.Server.LlamaCpp, 'StartupTimeoutMs')) {
     updated.Server.LlamaCpp.StartupTimeoutMs = defaults.Server?.LlamaCpp?.StartupTimeoutMs ?? 600_000;
@@ -265,35 +348,27 @@ export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info:
     updated.Server.LlamaCpp.HealthcheckIntervalMs = defaults.Server?.LlamaCpp?.HealthcheckIntervalMs ?? 1_000;
     changed = true;
   }
-  const serverLlama = updated.Server.LlamaCpp;
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'VerboseLogging')) {
     serverLlama.VerboseLogging = defaults.Server?.LlamaCpp?.VerboseLogging ?? false;
-    changed = true;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'VerboseArgs')) {
-    serverLlama.VerboseArgs = Array.isArray(defaults.Server?.LlamaCpp?.VerboseArgs)
-      ? [...defaults.Server.LlamaCpp.VerboseArgs]
-      : [];
     changed = true;
   }
   if (typeof serverLlama.VerboseLogging !== 'boolean') {
     serverLlama.VerboseLogging = Boolean(serverLlama.VerboseLogging);
     changed = true;
   }
-  const normalizedVerboseArgs = Array.isArray(serverLlama.VerboseArgs)
-    ? serverLlama.VerboseArgs
-      .filter((value) => typeof value === 'string' && value.trim().length > 0)
-      .map((value) => value.trim())
-    : [];
-  const currentVerboseArgs = Array.isArray(serverLlama.VerboseArgs) ? serverLlama.VerboseArgs : [];
-  if (
-    !Array.isArray(serverLlama.VerboseArgs)
-    || normalizedVerboseArgs.length !== currentVerboseArgs.length
-    || normalizedVerboseArgs.some((value, index) => value !== currentVerboseArgs[index])
-  ) {
-    serverLlama.VerboseArgs = normalizedVerboseArgs;
+  if (Object.prototype.hasOwnProperty.call(serverLlama, 'StartupScript')) {
+    delete (serverLlama as { StartupScript?: string | null }).StartupScript;
     changed = true;
   }
+  if (Object.prototype.hasOwnProperty.call(serverLlama, 'ShutdownScript')) {
+    delete (serverLlama as { ShutdownScript?: string | null }).ShutdownScript;
+    changed = true;
+  }
+  if (Object.prototype.hasOwnProperty.call(serverLlama, 'VerboseArgs')) {
+    delete (serverLlama as { VerboseArgs?: string[] | null }).VerboseArgs;
+    changed = true;
+  }
+  syncRuntimeLlamaFromManaged(updated.Runtime.LlamaCpp, serverLlama);
 
   if (updated.Runtime.Model === SIFT_PREVIOUS_DEFAULT_MODEL) {
     updated.Runtime.Model = null;

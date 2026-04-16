@@ -6,7 +6,7 @@ import { SETTINGS_MOCKUP_SECTIONS, SETTINGS_MOCKUP_TOOLTIP_FIELDS } from '../das
 test('settings mockup sections expose the expected group order', () => {
   assert.deepEqual(
     SETTINGS_MOCKUP_SECTIONS.map((section) => section.id),
-    ['general', 'model-runtime', 'sampling', 'interactive', 'managed-llama'],
+    ['general', 'interactive', 'managed-llama'],
   );
 });
 
@@ -14,19 +14,19 @@ test('settings mockup tooltip fields include documented explanatory labels', () 
   assert.deepEqual(
     SETTINGS_MOCKUP_TOOLTIP_FIELDS,
     [
-      'NumCtx',
-      'MaxTokens',
-      'Threads',
-      'Temperature',
-      'TopP',
-      'TopK',
-      'MinP',
-      'PresencePenalty',
-      'RepetitionPenalty',
-      'ParallelSlots',
-      'Reasoning',
       'Wrapped commands',
       'Interactive IdleTimeoutMs',
+      'Executable path',
+      'Base URL',
+      'Model path (.gguf)',
+      'NumCtx',
+      'GpuLayers',
+      'BatchSize',
+      'Temperature',
+      'TopP',
+      'ParallelSlots',
+      'Reasoning',
+      'ReasoningBudget',
       'HealthcheckTimeoutMs',
       'HealthcheckIntervalMs',
     ],

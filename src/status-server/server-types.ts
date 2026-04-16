@@ -41,12 +41,7 @@ export type ManagedLlamaLogRef = {
 };
 
 export type SpawnedScript = { child: ChildProcess; logRef: ManagedLlamaLogRef };
-export type SpawnScriptOptions = {
-  syncOnly?: boolean;
-  managedVerboseLogging?: boolean;
-  managedVerboseArgs?: string[];
-};
-export type EnsureManagedLlamaOptions = { resetStatusBeforeCheck?: boolean };
+export type EnsureManagedLlamaOptions = { resetStatusBeforeCheck?: boolean; allowUnconfigured?: boolean };
 export type ShutdownManagedLlamaOptions = { force?: boolean; timeoutMs?: number };
 export type StartupReviewOptions = { result?: string; baseUrl?: string; errorMessage?: string };
 export type LogEntry = { label: string; streamKind: ManagedLlamaStreamKind; text: string; matchingLines: string[] };

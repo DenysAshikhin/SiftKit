@@ -6,7 +6,7 @@ import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-const CURRENT_SCHEMA_VERSION = 6;
+const CURRENT_SCHEMA_VERSION = 7;
 
 let cachedDatabasePath: string | null = null;
 let cachedDatabase: RuntimeDatabase | null = null;
@@ -67,13 +67,32 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       interactive_idle_timeout_ms INTEGER NOT NULL,
       interactive_max_transcript_characters INTEGER NOT NULL,
       interactive_transcript_retention INTEGER NOT NULL CHECK (interactive_transcript_retention IN (0, 1)),
-      server_startup_script TEXT,
-      server_shutdown_script TEXT,
+      server_executable_path TEXT,
+      server_base_url TEXT,
+      server_bind_host TEXT,
+      server_port INTEGER,
+      server_model_path TEXT,
+      server_num_ctx INTEGER,
+      server_gpu_layers INTEGER,
+      server_threads INTEGER,
+      server_flash_attention INTEGER CHECK (server_flash_attention IN (0, 1) OR server_flash_attention IS NULL),
+      server_parallel_slots INTEGER,
+      server_batch_size INTEGER,
+      server_ubatch_size INTEGER,
+      server_cache_ram INTEGER,
+      server_max_tokens INTEGER,
+      server_temperature REAL,
+      server_top_p REAL,
+      server_top_k INTEGER,
+      server_min_p REAL,
+      server_presence_penalty REAL,
+      server_repetition_penalty REAL,
+      server_reasoning TEXT,
+      server_reasoning_budget INTEGER,
       server_startup_timeout_ms INTEGER,
       server_healthcheck_timeout_ms INTEGER,
       server_healthcheck_interval_ms INTEGER,
       server_verbose_logging INTEGER CHECK (server_verbose_logging IN (0, 1) OR server_verbose_logging IS NULL),
-      server_verbose_args_json TEXT NOT NULL,
       operation_mode_allowed_tools_json TEXT NOT NULL DEFAULT '{"summary":["find_text","read_lines","json_filter"],"read-only":["repo_rg","repo_get_content","repo_get_childitem","repo_select_string","repo_git","repo_pwd","repo_ls","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}',
       presets_json TEXT NOT NULL,
       updated_at_utc TEXT NOT NULL
@@ -431,6 +450,33 @@ function ensureSchema(database: RuntimeDatabase): void {
       DROP TABLE runtime_status_v5;
     `);
     setSchemaVersion(database, 6);
+  }
+  if (currentVersion < 7) {
+    database.exec(`
+      ALTER TABLE app_config ADD COLUMN server_executable_path TEXT;
+      ALTER TABLE app_config ADD COLUMN server_base_url TEXT;
+      ALTER TABLE app_config ADD COLUMN server_bind_host TEXT;
+      ALTER TABLE app_config ADD COLUMN server_port INTEGER;
+      ALTER TABLE app_config ADD COLUMN server_model_path TEXT;
+      ALTER TABLE app_config ADD COLUMN server_num_ctx INTEGER;
+      ALTER TABLE app_config ADD COLUMN server_gpu_layers INTEGER;
+      ALTER TABLE app_config ADD COLUMN server_threads INTEGER;
+      ALTER TABLE app_config ADD COLUMN server_flash_attention INTEGER CHECK (server_flash_attention IN (0, 1) OR server_flash_attention IS NULL);
+      ALTER TABLE app_config ADD COLUMN server_parallel_slots INTEGER;
+      ALTER TABLE app_config ADD COLUMN server_batch_size INTEGER;
+      ALTER TABLE app_config ADD COLUMN server_ubatch_size INTEGER;
+      ALTER TABLE app_config ADD COLUMN server_cache_ram INTEGER;
+      ALTER TABLE app_config ADD COLUMN server_max_tokens INTEGER;
+      ALTER TABLE app_config ADD COLUMN server_temperature REAL;
+      ALTER TABLE app_config ADD COLUMN server_top_p REAL;
+      ALTER TABLE app_config ADD COLUMN server_top_k INTEGER;
+      ALTER TABLE app_config ADD COLUMN server_min_p REAL;
+      ALTER TABLE app_config ADD COLUMN server_presence_penalty REAL;
+      ALTER TABLE app_config ADD COLUMN server_repetition_penalty REAL;
+      ALTER TABLE app_config ADD COLUMN server_reasoning TEXT;
+      ALTER TABLE app_config ADD COLUMN server_reasoning_budget INTEGER;
+    `);
+    setSchemaVersion(database, 7);
   }
 }
 

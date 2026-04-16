@@ -9,6 +9,7 @@ export type RuntimeLlamaCppConfig = {
   PresencePenalty?: number | null;
   RepetitionPenalty?: number | null;
   MaxTokens?: number | null;
+  GpuLayers?: number | null;
   Threads?: number | null;
   FlashAttention?: boolean | null;
   ParallelSlots?: number | null;
@@ -16,13 +17,32 @@ export type RuntimeLlamaCppConfig = {
 };
 
 export type ServerManagedLlamaCppConfig = {
-  StartupScript?: string | null;
-  ShutdownScript?: string | null;
+  ExecutablePath?: string | null;
+  BaseUrl?: string | null;
+  BindHost?: string | null;
+  Port?: number | null;
+  ModelPath?: string | null;
+  NumCtx?: number | null;
+  GpuLayers?: number | null;
+  Threads?: number | null;
+  FlashAttention?: boolean | null;
+  ParallelSlots?: number | null;
+  BatchSize?: number | null;
+  UBatchSize?: number | null;
+  CacheRam?: number | null;
+  MaxTokens?: number | null;
+  Temperature?: number | null;
+  TopP?: number | null;
+  TopK?: number | null;
+  MinP?: number | null;
+  PresencePenalty?: number | null;
+  RepetitionPenalty?: number | null;
+  Reasoning?: 'on' | 'off' | 'auto' | null;
+  ReasoningBudget?: number | null;
   StartupTimeoutMs?: number | null;
   HealthcheckTimeoutMs?: number | null;
   HealthcheckIntervalMs?: number | null;
   VerboseLogging?: boolean | null;
-  VerboseArgs?: string[] | null;
 };
 
 export type SiftConfig = {

@@ -1831,9 +1831,9 @@ function DashboardApp() {
               <input value={dashboardConfig.Backend} readOnly />
               <button
                 type="button"
-                onClick={() => requestSettingsAction({ kind: 'switch-section', nextSection: 'model-runtime' })}
+                onClick={() => requestSettingsAction({ kind: 'switch-section', nextSection: 'managed-llama' })}
               >
-                Open Model Path
+                Open Managed Settings
               </button>
             </div>
           ))}
@@ -2108,189 +2108,6 @@ function DashboardApp() {
       );
     }
 
-    if (activeSettingsSection === 'model-runtime') {
-      return (
-        <div className="settings-live-grid">
-          {renderField('model-runtime', 'Runtime model id', (
-            <input
-              value={deriveRuntimeModelId(dashboardConfig.Runtime.LlamaCpp.ModelPath)}
-              readOnly
-            />
-          ))}
-          {renderField('model-runtime', 'llama.cpp Base URL', (
-            <input
-              value={dashboardConfig.Runtime.LlamaCpp.BaseUrl}
-              onChange={(event) => updateSettingsDraft((next) => {
-                next.Runtime.LlamaCpp.BaseUrl = event.target.value;
-                next.LlamaCpp.BaseUrl = event.target.value;
-              })}
-            />
-          ))}
-          {renderField('model-runtime', 'Model path (.gguf)', (
-            <input
-              value={dashboardConfig.Runtime.LlamaCpp.ModelPath || ''}
-              onChange={(event) => updateSettingsDraft((next) => {
-                const value = event.target.value.trim();
-                next.Runtime.LlamaCpp.ModelPath = value || null;
-                next.LlamaCpp.ModelPath = value || null;
-                next.Runtime.Model = deriveRuntimeModelId(value || null);
-                next.Model = next.Runtime.Model;
-              })}
-            />
-          ))}
-          {renderField('model-runtime', 'NumCtx', (
-            <input
-              type="number"
-              value={dashboardConfig.Runtime.LlamaCpp.NumCtx}
-              onChange={(event) => updateSettingsDraft((next) => {
-                const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.NumCtx);
-                next.Runtime.LlamaCpp.NumCtx = value;
-                next.LlamaCpp.NumCtx = value;
-              })}
-            />
-          ))}
-          {renderField('model-runtime', 'MaxTokens', (
-            <input
-              type="number"
-              value={dashboardConfig.Runtime.LlamaCpp.MaxTokens}
-              onChange={(event) => updateSettingsDraft((next) => {
-                const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.MaxTokens);
-                next.Runtime.LlamaCpp.MaxTokens = value;
-                next.LlamaCpp.MaxTokens = value;
-              })}
-            />
-          ))}
-          {renderField('model-runtime', 'Threads', (
-            <input
-              type="number"
-              value={dashboardConfig.Runtime.LlamaCpp.Threads}
-              onChange={(event) => updateSettingsDraft((next) => {
-                const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.Threads);
-                next.Runtime.LlamaCpp.Threads = value;
-                next.LlamaCpp.Threads = value;
-              })}
-            />
-          ))}
-          {renderField('model-runtime', 'Flash attention', (
-            <label className="settings-live-toggle-control">
-              <input
-                type="checkbox"
-                checked={dashboardConfig.Runtime.LlamaCpp.FlashAttention}
-                onChange={(event) => updateSettingsDraft((next) => {
-                  next.Runtime.LlamaCpp.FlashAttention = event.target.checked;
-                  next.LlamaCpp.FlashAttention = event.target.checked;
-                })}
-              />
-              <span>{dashboardConfig.Runtime.LlamaCpp.FlashAttention ? 'Enabled' : 'Disabled'}</span>
-            </label>
-          ))}
-        </div>
-      );
-    }
-
-    if (activeSettingsSection === 'sampling') {
-      return (
-        <div className="settings-live-grid">
-          {renderField('sampling', 'Temperature', (
-            <input
-              type="number"
-              step="0.01"
-              value={dashboardConfig.Runtime.LlamaCpp.Temperature}
-              onChange={(event) => updateSettingsDraft((next) => {
-                const value = parseFloatInput(event.target.value, next.Runtime.LlamaCpp.Temperature);
-                next.Runtime.LlamaCpp.Temperature = value;
-                next.LlamaCpp.Temperature = value;
-              })}
-            />
-          ))}
-          {renderField('sampling', 'TopP', (
-            <input
-              type="number"
-              step="0.01"
-              value={dashboardConfig.Runtime.LlamaCpp.TopP}
-              onChange={(event) => updateSettingsDraft((next) => {
-                const value = parseFloatInput(event.target.value, next.Runtime.LlamaCpp.TopP);
-                next.Runtime.LlamaCpp.TopP = value;
-                next.LlamaCpp.TopP = value;
-              })}
-            />
-          ))}
-          {renderField('sampling', 'TopK', (
-            <input
-              type="number"
-              value={dashboardConfig.Runtime.LlamaCpp.TopK}
-              onChange={(event) => updateSettingsDraft((next) => {
-                const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.TopK);
-                next.Runtime.LlamaCpp.TopK = value;
-                next.LlamaCpp.TopK = value;
-              })}
-            />
-          ))}
-          {renderField('sampling', 'MinP', (
-            <input
-              type="number"
-              step="0.01"
-              value={dashboardConfig.Runtime.LlamaCpp.MinP}
-              onChange={(event) => updateSettingsDraft((next) => {
-                const value = parseFloatInput(event.target.value, next.Runtime.LlamaCpp.MinP);
-                next.Runtime.LlamaCpp.MinP = value;
-                next.LlamaCpp.MinP = value;
-              })}
-            />
-          ))}
-          {renderField('sampling', 'PresencePenalty', (
-            <input
-              type="number"
-              step="0.01"
-              value={dashboardConfig.Runtime.LlamaCpp.PresencePenalty}
-              onChange={(event) => updateSettingsDraft((next) => {
-                const value = parseFloatInput(event.target.value, next.Runtime.LlamaCpp.PresencePenalty);
-                next.Runtime.LlamaCpp.PresencePenalty = value;
-                next.LlamaCpp.PresencePenalty = value;
-              })}
-            />
-          ))}
-          {renderField('sampling', 'RepetitionPenalty', (
-            <input
-              type="number"
-              step="0.01"
-              value={dashboardConfig.Runtime.LlamaCpp.RepetitionPenalty}
-              onChange={(event) => updateSettingsDraft((next) => {
-                const value = parseFloatInput(event.target.value, next.Runtime.LlamaCpp.RepetitionPenalty);
-                next.Runtime.LlamaCpp.RepetitionPenalty = value;
-                next.LlamaCpp.RepetitionPenalty = value;
-              })}
-            />
-          ))}
-          {renderField('sampling', 'ParallelSlots', (
-            <input
-              type="number"
-              value={dashboardConfig.Runtime.LlamaCpp.ParallelSlots}
-              onChange={(event) => updateSettingsDraft((next) => {
-                const value = parseIntegerInput(event.target.value, next.Runtime.LlamaCpp.ParallelSlots);
-                next.Runtime.LlamaCpp.ParallelSlots = value;
-                next.LlamaCpp.ParallelSlots = value;
-              })}
-            />
-          ))}
-          {renderField('sampling', 'Reasoning', (
-            <select
-              value={dashboardConfig.Runtime.LlamaCpp.Reasoning}
-              onChange={(event) => updateSettingsDraft((next) => {
-                const value = event.target.value as 'on' | 'off' | 'auto';
-                next.Runtime.LlamaCpp.Reasoning = value;
-                next.LlamaCpp.Reasoning = value;
-              })}
-            >
-              <option value="off">off</option>
-              <option value="on">on</option>
-              <option value="auto">auto</option>
-            </select>
-          ))}
-        </div>
-      );
-    }
-
     if (activeSettingsSection === 'interactive') {
       return (
         <div className="settings-live-grid">
@@ -2368,21 +2185,254 @@ function DashboardApp() {
 
     return (
       <div className="settings-live-grid">
-        {renderField('managed-llama', 'Startup script path', (
+        {renderField('managed-llama', 'Executable path', (
           <input
-            value={dashboardConfig.Server.LlamaCpp.StartupScript || ''}
+            value={dashboardConfig.Server.LlamaCpp.ExecutablePath || ''}
             onChange={(event) => updateSettingsDraft((next) => {
               const value = event.target.value.trim();
-              next.Server.LlamaCpp.StartupScript = value || null;
+              next.Server.LlamaCpp.ExecutablePath = value || null;
             })}
           />
         ))}
-        {renderField('managed-llama', 'Shutdown script path', (
+        {renderField('managed-llama', 'Base URL', (
           <input
-            value={dashboardConfig.Server.LlamaCpp.ShutdownScript || ''}
+            value={dashboardConfig.Server.LlamaCpp.BaseUrl}
+            onChange={(event) => updateSettingsDraft((next) => {
+              next.Server.LlamaCpp.BaseUrl = event.target.value;
+              next.Runtime.LlamaCpp.BaseUrl = event.target.value;
+              next.LlamaCpp.BaseUrl = event.target.value;
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'Bind host', (
+          <input
+            value={dashboardConfig.Server.LlamaCpp.BindHost}
+            onChange={(event) => updateSettingsDraft((next) => {
+              next.Server.LlamaCpp.BindHost = event.target.value;
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'Port', (
+          <input
+            type="number"
+            value={dashboardConfig.Server.LlamaCpp.Port}
+            onChange={(event) => updateSettingsDraft((next) => {
+              next.Server.LlamaCpp.Port = parseIntegerInput(event.target.value, next.Server.LlamaCpp.Port);
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'Model path (.gguf)', (
+          <input
+            value={dashboardConfig.Server.LlamaCpp.ModelPath || ''}
             onChange={(event) => updateSettingsDraft((next) => {
               const value = event.target.value.trim();
-              next.Server.LlamaCpp.ShutdownScript = value || null;
+              next.Server.LlamaCpp.ModelPath = value || null;
+              next.Runtime.LlamaCpp.ModelPath = value || null;
+              next.LlamaCpp.ModelPath = value || null;
+              next.Runtime.Model = deriveRuntimeModelId(value || null);
+              next.Model = next.Runtime.Model;
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'NumCtx', (
+          <input
+            type="number"
+            value={dashboardConfig.Server.LlamaCpp.NumCtx}
+            onChange={(event) => updateSettingsDraft((next) => {
+              const value = parseIntegerInput(event.target.value, next.Server.LlamaCpp.NumCtx);
+              next.Server.LlamaCpp.NumCtx = value;
+              next.Runtime.LlamaCpp.NumCtx = value;
+              next.LlamaCpp.NumCtx = value;
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'GpuLayers', (
+          <input
+            type="number"
+            value={dashboardConfig.Server.LlamaCpp.GpuLayers}
+            onChange={(event) => updateSettingsDraft((next) => {
+              const value = parseIntegerInput(event.target.value, next.Server.LlamaCpp.GpuLayers);
+              next.Server.LlamaCpp.GpuLayers = value;
+              next.Runtime.LlamaCpp.GpuLayers = value;
+              next.LlamaCpp.GpuLayers = value;
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'Threads', (
+          <input
+            type="number"
+            value={dashboardConfig.Server.LlamaCpp.Threads}
+            onChange={(event) => updateSettingsDraft((next) => {
+              const value = parseIntegerInput(event.target.value, next.Server.LlamaCpp.Threads);
+              next.Server.LlamaCpp.Threads = value;
+              next.Runtime.LlamaCpp.Threads = value;
+              next.LlamaCpp.Threads = value;
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'Flash attention', (
+          <label className="settings-live-toggle-control">
+            <input
+              type="checkbox"
+              checked={dashboardConfig.Server.LlamaCpp.FlashAttention}
+              onChange={(event) => updateSettingsDraft((next) => {
+                next.Server.LlamaCpp.FlashAttention = event.target.checked;
+                next.Runtime.LlamaCpp.FlashAttention = event.target.checked;
+                next.LlamaCpp.FlashAttention = event.target.checked;
+              })}
+            />
+            <span>{dashboardConfig.Server.LlamaCpp.FlashAttention ? 'Enabled' : 'Disabled'}</span>
+          </label>
+        ))}
+        {renderField('managed-llama', 'ParallelSlots', (
+          <input
+            type="number"
+            value={dashboardConfig.Server.LlamaCpp.ParallelSlots}
+            onChange={(event) => updateSettingsDraft((next) => {
+              const value = parseIntegerInput(event.target.value, next.Server.LlamaCpp.ParallelSlots);
+              next.Server.LlamaCpp.ParallelSlots = value;
+              next.Runtime.LlamaCpp.ParallelSlots = value;
+              next.LlamaCpp.ParallelSlots = value;
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'BatchSize', (
+          <input
+            type="number"
+            value={dashboardConfig.Server.LlamaCpp.BatchSize}
+            onChange={(event) => updateSettingsDraft((next) => {
+              next.Server.LlamaCpp.BatchSize = parseIntegerInput(event.target.value, next.Server.LlamaCpp.BatchSize);
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'UBatchSize', (
+          <input
+            type="number"
+            value={dashboardConfig.Server.LlamaCpp.UBatchSize}
+            onChange={(event) => updateSettingsDraft((next) => {
+              next.Server.LlamaCpp.UBatchSize = parseIntegerInput(event.target.value, next.Server.LlamaCpp.UBatchSize);
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'CacheRam', (
+          <input
+            type="number"
+            value={dashboardConfig.Server.LlamaCpp.CacheRam}
+            onChange={(event) => updateSettingsDraft((next) => {
+              next.Server.LlamaCpp.CacheRam = parseIntegerInput(event.target.value, next.Server.LlamaCpp.CacheRam);
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'MaxTokens', (
+          <input
+            type="number"
+            value={dashboardConfig.Server.LlamaCpp.MaxTokens}
+            onChange={(event) => updateSettingsDraft((next) => {
+              const value = parseIntegerInput(event.target.value, next.Server.LlamaCpp.MaxTokens);
+              next.Server.LlamaCpp.MaxTokens = value;
+              next.Runtime.LlamaCpp.MaxTokens = value;
+              next.LlamaCpp.MaxTokens = value;
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'Temperature', (
+          <input
+            type="number"
+            step="0.01"
+            value={dashboardConfig.Server.LlamaCpp.Temperature}
+            onChange={(event) => updateSettingsDraft((next) => {
+              const value = parseFloatInput(event.target.value, next.Server.LlamaCpp.Temperature);
+              next.Server.LlamaCpp.Temperature = value;
+              next.Runtime.LlamaCpp.Temperature = value;
+              next.LlamaCpp.Temperature = value;
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'TopP', (
+          <input
+            type="number"
+            step="0.01"
+            value={dashboardConfig.Server.LlamaCpp.TopP}
+            onChange={(event) => updateSettingsDraft((next) => {
+              const value = parseFloatInput(event.target.value, next.Server.LlamaCpp.TopP);
+              next.Server.LlamaCpp.TopP = value;
+              next.Runtime.LlamaCpp.TopP = value;
+              next.LlamaCpp.TopP = value;
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'TopK', (
+          <input
+            type="number"
+            value={dashboardConfig.Server.LlamaCpp.TopK}
+            onChange={(event) => updateSettingsDraft((next) => {
+              const value = parseIntegerInput(event.target.value, next.Server.LlamaCpp.TopK);
+              next.Server.LlamaCpp.TopK = value;
+              next.Runtime.LlamaCpp.TopK = value;
+              next.LlamaCpp.TopK = value;
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'MinP', (
+          <input
+            type="number"
+            step="0.01"
+            value={dashboardConfig.Server.LlamaCpp.MinP}
+            onChange={(event) => updateSettingsDraft((next) => {
+              const value = parseFloatInput(event.target.value, next.Server.LlamaCpp.MinP);
+              next.Server.LlamaCpp.MinP = value;
+              next.Runtime.LlamaCpp.MinP = value;
+              next.LlamaCpp.MinP = value;
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'PresencePenalty', (
+          <input
+            type="number"
+            step="0.01"
+            value={dashboardConfig.Server.LlamaCpp.PresencePenalty}
+            onChange={(event) => updateSettingsDraft((next) => {
+              const value = parseFloatInput(event.target.value, next.Server.LlamaCpp.PresencePenalty);
+              next.Server.LlamaCpp.PresencePenalty = value;
+              next.Runtime.LlamaCpp.PresencePenalty = value;
+              next.LlamaCpp.PresencePenalty = value;
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'RepetitionPenalty', (
+          <input
+            type="number"
+            step="0.01"
+            value={dashboardConfig.Server.LlamaCpp.RepetitionPenalty}
+            onChange={(event) => updateSettingsDraft((next) => {
+              const value = parseFloatInput(event.target.value, next.Server.LlamaCpp.RepetitionPenalty);
+              next.Server.LlamaCpp.RepetitionPenalty = value;
+              next.Runtime.LlamaCpp.RepetitionPenalty = value;
+              next.LlamaCpp.RepetitionPenalty = value;
+            })}
+          />
+        ))}
+        {renderField('managed-llama', 'Reasoning', (
+          <select
+            value={dashboardConfig.Server.LlamaCpp.Reasoning}
+            onChange={(event) => updateSettingsDraft((next) => {
+              const value = event.target.value as 'on' | 'off' | 'auto';
+              next.Server.LlamaCpp.Reasoning = value;
+              next.Runtime.LlamaCpp.Reasoning = value;
+              next.LlamaCpp.Reasoning = value;
+            })}
+          >
+            <option value="off">off</option>
+            <option value="on">on</option>
+            <option value="auto">auto</option>
+          </select>
+        ))}
+        {renderField('managed-llama', 'ReasoningBudget', (
+          <input
+            type="number"
+            value={dashboardConfig.Server.LlamaCpp.ReasoningBudget}
+            onChange={(event) => updateSettingsDraft((next) => {
+              next.Server.LlamaCpp.ReasoningBudget = parseIntegerInput(event.target.value, next.Server.LlamaCpp.ReasoningBudget);
             })}
           />
         ))}
@@ -2422,18 +2472,6 @@ function DashboardApp() {
             />
             <span>{dashboardConfig.Server.LlamaCpp.VerboseLogging ? 'Enabled' : 'Disabled'}</span>
           </label>
-        ))}
-        {renderField('managed-llama', 'Additional llama.cpp args', (
-          <textarea
-            rows={4}
-            value={dashboardConfig.Server.LlamaCpp.VerboseArgs.join(', ')}
-            onChange={(event) => updateSettingsDraft((next) => {
-              next.Server.LlamaCpp.VerboseArgs = event.target.value
-                .split(',')
-                .map((entry) => entry.trim())
-                .filter(Boolean);
-            })}
-          />
         ))}
       </div>
     );

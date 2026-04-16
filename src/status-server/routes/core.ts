@@ -582,7 +582,7 @@ export async function handleCoreRoute(
         sendJson(res, 200, readConfig(configPath));
         return true;
       }
-      sendJson(res, 200, await ctx.ensureManagedLlamaReady());
+      sendJson(res, 200, await ctx.ensureManagedLlamaReady({ allowUnconfigured: true }));
     } catch (error) {
       sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
     }

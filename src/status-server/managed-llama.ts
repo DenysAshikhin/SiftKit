@@ -1,8 +1,8 @@
 /**
- * Managed llama.cpp lifecycle: spawning startup/shutdown scripts, health
- * checks, log scanning, and readiness management.
+ * Managed llama.cpp lifecycle: spawning the configured launcher executable,
+ * health checks, log scanning, and readiness management.
  *
- * Free helper functions (terminateProcessTree, resolveManagedScriptPath, etc.)
+ * Free helper functions (terminateProcessTree, resolveManagedExecutablePath, etc.)
  * are exported directly. Lifecycle functions that need mutable server state
  * take a `ServerContext` as their first argument.
  */
@@ -10,7 +10,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import type { ChildProcess, SpawnSyncReturns } from 'node:child_process';
-import { getRuntimeRoot } from './paths.js';
 import { POWERSHELL_BASE_ARGS } from '../lib/powershell.js';
 import { formatTimestamp } from '../lib/text-format.js';
 import { requestText } from '../lib/http.js';
@@ -32,8 +31,6 @@ import {
 import type {
   Dict,
   ManagedLlamaLogRef,
-  SpawnedScript,
-  SpawnScriptOptions,
   EnsureManagedLlamaOptions,
   ShutdownManagedLlamaOptions,
   StartupReviewOptions,
@@ -104,37 +101,71 @@ export function terminateProcessTree(pid: number | string, options: TerminatePro
   }
 }
 
-// ---------------------------------------------------------------------------
-// Path / script helpers
-// ---------------------------------------------------------------------------
-
-export function resolveManagedScriptPath(scriptPath: string | null, configPath: string): string | null {
-  if (!scriptPath || !scriptPath.trim()) {
+function findListeningProcessIdByPort(port: number): number | null {
+  if (!Number.isFinite(port) || port <= 0) {
     return null;
   }
-  return path.isAbsolute(scriptPath)
-    ? path.resolve(scriptPath)
-    : path.resolve(path.dirname(configPath), scriptPath);
+  try {
+    const result = spawnSync('netstat', ['-ano', '-p', 'tcp'], {
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    if ((result.status ?? 1) !== 0) {
+      return null;
+    }
+    const lines = String(result.stdout || '').split(/\r?\n/u);
+    for (const line of lines) {
+      if (!new RegExp(`:${port}\\s+`, 'u').test(line) || !/\bLISTENING\b/u.test(line)) {
+        continue;
+      }
+      const match = line.trim().match(/\s+(\d+)\s*$/u);
+      if (!match) {
+        continue;
+      }
+      const pid = Number.parseInt(match[1], 10);
+      if (Number.isFinite(pid) && pid > 0) {
+        return pid;
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
+
+// ---------------------------------------------------------------------------
+// Path / launcher helpers
+// ---------------------------------------------------------------------------
+
+export function resolveManagedExecutablePath(executablePath: string | null, configPath: string): string | null {
+  if (!executablePath || !executablePath.trim()) {
+    return null;
+  }
+  return path.isAbsolute(executablePath)
+    ? path.resolve(executablePath)
+    : path.resolve(path.dirname(configPath), executablePath);
+}
+
+export const resolveManagedScriptPath = resolveManagedExecutablePath;
 
 const MANAGED_STDOUT_STREAM: ManagedLlamaStreamKind = 'startup_script_stdout';
 const MANAGED_STDERR_STREAM: ManagedLlamaStreamKind = 'startup_script_stderr';
 
 function createManagedLlamaLogRun(
   purpose: string,
-  scriptPath: string,
+  executablePath: string,
   baseUrl: string | null = null,
 ): ManagedLlamaLogRef {
   const run = createManagedLlamaRun({
     purpose,
-    scriptPath,
+    scriptPath: executablePath,
     baseUrl,
     status: 'running',
   });
   return {
     runId: run.id,
     purpose,
-    scriptPath,
+    scriptPath: executablePath,
     baseUrl,
   };
 }
@@ -168,60 +199,86 @@ export function logLine(message: string, date: Date = new Date()): void {
   process.stdout.write(`${formatTimestamp(date)} ${message}\n`);
 }
 
-// ---------------------------------------------------------------------------
-// Script invocation helpers (need ServerContext for paths/service URL)
-// ---------------------------------------------------------------------------
-
-function getManagedLifecycleArgs(ctx: ServerContext, scriptPath: string): string[] {
-  return [
-    '-ConfigPath', ctx.configPath,
-    '-ConfigUrl', `${ctx.getServiceBaseUrl()}/config`,
-    '-HealthUrl', `${ctx.getServiceBaseUrl()}/health`,
-    '-RuntimeRoot', getRuntimeRoot(),
-    '-ScriptPath', scriptPath,
+function buildManagedLlamaArgs(managed: ReturnType<typeof getManagedLlamaConfig>): string[] {
+  const args = [
+    '-m', managed.ModelPath!,
+    '-c', String(managed.NumCtx),
+    '--cache-ram', String(managed.CacheRam),
+    '-ngl', String(managed.GpuLayers),
+    '-t', String(managed.Threads),
+    '-b', String(managed.BatchSize),
+    '-ub', String(managed.UBatchSize),
+    '-np', String(managed.ParallelSlots),
+    '--temp', String(managed.Temperature),
+    '--top-p', String(managed.TopP),
+    '--top-k', String(managed.TopK),
+    '--min-p', String(managed.MinP),
+    '--presence-penalty', String(managed.PresencePenalty),
+    '--repeat-penalty', String(managed.RepetitionPenalty),
+    '--reasoning', managed.Reasoning,
+    '--reasoning-budget', String(managed.ReasoningBudget),
+    '--host', managed.BindHost,
+    '--port', String(managed.Port),
   ];
+  if (managed.FlashAttention) {
+    args.push('-fa', 'on');
+  }
+  if (managed.VerboseLogging) {
+    args.push('--verbose');
+  }
+  return args;
 }
 
-function getManagedScriptInvocation(ctx: ServerContext, scriptPath: string): { filePath: string; args: string[]; cwd: string } {
-  const resolvedPath = resolveManagedScriptPath(scriptPath, ctx.configPath);
+function hasManagedLlamaLaunchConfig(managed: ReturnType<typeof getManagedLlamaConfig>): boolean {
+  return Boolean(managed.ExecutablePath && managed.ModelPath);
+}
+
+function getManagedExecutableInvocation(
+  ctx: ServerContext,
+  managed: ReturnType<typeof getManagedLlamaConfig>,
+): { filePath: string; args: string[]; cwd: string; resolvedPath: string } {
+  const resolvedPath = resolveManagedExecutablePath(managed.ExecutablePath, ctx.configPath);
   if (!resolvedPath || !fs.existsSync(resolvedPath)) {
-    throw new Error(`Configured llama.cpp script does not exist: ${scriptPath}`);
+    throw new Error(`Configured llama.cpp executable does not exist: ${managed.ExecutablePath ?? '<missing>'}`);
+  }
+  if (!managed.ModelPath || !fs.existsSync(managed.ModelPath)) {
+    throw new Error(`Configured llama.cpp model file does not exist: ${managed.ModelPath ?? '<missing>'}`);
   }
   const extension = path.extname(resolvedPath).toLowerCase();
   return extension === '.ps1'
     ? {
       filePath: 'powershell.exe',
-      args: [...POWERSHELL_BASE_ARGS, '-File', resolvedPath, ...getManagedLifecycleArgs(ctx, resolvedPath)],
+      args: [...POWERSHELL_BASE_ARGS, '-File', resolvedPath, ...buildManagedLlamaArgs(managed)],
       cwd: path.dirname(resolvedPath),
+      resolvedPath,
     }
+    : (extension === '.cmd' || extension === '.bat')
+      ? {
+        filePath: 'cmd.exe',
+        args: ['/d', '/s', '/c', resolvedPath, ...buildManagedLlamaArgs(managed)],
+        cwd: path.dirname(resolvedPath),
+        resolvedPath,
+      }
     : {
       filePath: resolvedPath,
-      args: getManagedLifecycleArgs(ctx, resolvedPath),
+      args: buildManagedLlamaArgs(managed),
       cwd: path.dirname(resolvedPath),
+      resolvedPath,
     };
 }
 
-export function spawnManagedScript(ctx: ServerContext, scriptPath: string, purpose: string, spawnOptions: SpawnScriptOptions = {}): SpawnedScript {
-  let invocation;
-  try {
-    invocation = getManagedScriptInvocation(ctx, scriptPath);
-  } catch {
-    throw new Error(`Configured llama.cpp ${purpose} script does not exist: ${scriptPath}`);
-  }
-  const baseUrl = getLlamaBaseUrl(readConfig(ctx.configPath));
-  const logRef = createManagedLlamaLogRun(purpose, invocation.filePath, baseUrl);
+function spawnManagedLlamaProcess(
+  ctx: ServerContext,
+  managed: ReturnType<typeof getManagedLlamaConfig>,
+  purpose: string,
+): { child: ChildProcess; logRef: ManagedLlamaLogRef } {
+  const invocation = getManagedExecutableInvocation(ctx, managed);
+  const logRef = createManagedLlamaLogRun(purpose, invocation.resolvedPath, managed.BaseUrl);
   const child = spawn(invocation.filePath, invocation.args, {
     cwd: invocation.cwd,
     env: {
       ...process.env,
-      SIFTKIT_SERVER_CONFIG_PATH: ctx.configPath,
-      SIFTKIT_SERVER_CONFIG_URL: `${ctx.getServiceBaseUrl()}/config`,
-      SIFTKIT_SERVER_HEALTH_URL: `${ctx.getServiceBaseUrl()}/health`,
-      SIFTKIT_SERVER_RUNTIME_ROOT: getRuntimeRoot(),
-      SIFTKIT_MANAGED_LLAMA_STARTUP: '1',
-      ...(spawnOptions.syncOnly ? { SIFTKIT_MANAGED_LLAMA_SYNC_ONLY: '1' } : {}),
-      SIFTKIT_LLAMA_VERBOSE_LOGGING: spawnOptions.managedVerboseLogging ? '1' : '0',
-      SIFTKIT_LLAMA_VERBOSE_ARGS_JSON: JSON.stringify(Array.isArray(spawnOptions.managedVerboseArgs) ? spawnOptions.managedVerboseArgs : []),
+      SIFTKIT_LLAMA_VERBOSE_LOGGING: managed.VerboseLogging ? '1' : '0',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
@@ -230,29 +287,33 @@ export function spawnManagedScript(ctx: ServerContext, scriptPath: string, purpo
   attachStreamCollector(logRef, MANAGED_STDOUT_STREAM, child.stdout);
   attachStreamCollector(logRef, MANAGED_STDERR_STREAM, child.stderr);
   child.on('exit', (code: number | null) => {
-    const successStatus: ManagedLlamaRunStatus = spawnOptions.syncOnly
-      ? 'sync_completed'
-      : (purpose === 'shutdown' ? 'stopped' : 'ready');
-    void updateManagedLlamaRun({
-      id: logRef.runId,
-      status: (code ?? 0) === 0
-        ? successStatus
-        : 'failed',
-      exitCode: Number.isFinite(code) ? Number(code) : null,
-      finishedAtUtc: new Date().toISOString(),
-      baseUrl,
-    });
+    const successStatus: ManagedLlamaRunStatus = purpose === 'shutdown' ? 'stopped' : 'ready';
+    try {
+      updateManagedLlamaRun({
+        id: logRef.runId,
+        status: (code ?? 0) === 0 ? successStatus : 'failed',
+        exitCode: Number.isFinite(code) ? Number(code) : null,
+        finishedAtUtc: new Date().toISOString(),
+        baseUrl: managed.BaseUrl,
+      });
+    } catch {
+      // The runtime DB may already be gone during test/process teardown.
+    }
   });
   child.on('error', (error: Error) => {
     appendManagedLlamaLogLine(logRef, MANAGED_STDERR_STREAM, `\n[spawn-error] ${error.message}\n`);
-    void updateManagedLlamaRun({
-      id: logRef.runId,
-      status: 'failed',
-      errorMessage: error.message,
-      finishedAtUtc: new Date().toISOString(),
-      baseUrl,
-    });
-    process.stderr.write(`[siftKitStatus] llama.cpp ${purpose} script failed to spawn (${scriptPath}): ${error.message}\n`);
+    try {
+      updateManagedLlamaRun({
+        id: logRef.runId,
+        status: 'failed',
+        errorMessage: error.message,
+        finishedAtUtc: new Date().toISOString(),
+        baseUrl: managed.BaseUrl,
+      });
+    } catch {
+      // Ignore teardown races after the test/server has already closed.
+    }
+    process.stderr.write(`[siftKitStatus] llama.cpp ${purpose} executable failed to spawn (${managed.ExecutablePath}): ${error.message}\n`);
   });
   return { child, logRef };
 }
@@ -401,25 +462,14 @@ async function waitForLlamaServerReachability(config: Dict, shouldBeReachable: b
 }
 
 async function abortManagedLlamaStartup(ctx: ServerContext, config: Dict, launchedChild: ChildProcess | null = null): Promise<void> {
-  const managed = getManagedLlamaConfig(config);
-  if (managed.ShutdownScript) {
-    logLine(`llama_stop startup_abort script=${managed.ShutdownScript}`);
-    const stopChild = spawnManagedScript(ctx, managed.ShutdownScript, 'shutdown', {
-      managedVerboseLogging: managed.VerboseLogging,
-      managedVerboseArgs: managed.VerboseArgs,
-    }).child;
-    await new Promise<void>((resolve, reject) => {
-      stopChild.once('error', reject);
-      stopChild.once('exit', (code: number | null) => {
-        if ((code ?? 0) !== 0) {
-          reject(new Error(`Configured llama.cpp shutdown script exited with code ${code}.`));
-          return;
-        }
-        resolve();
-      });
-    });
-  } else if (launchedChild && launchedChild.exitCode === null && launchedChild.signalCode === null) {
-    launchedChild.kill('SIGTERM');
+  if (launchedChild && launchedChild.pid && launchedChild.exitCode === null && launchedChild.signalCode === null) {
+    terminateProcessTree(launchedChild.pid);
+  } else {
+    const managed = getManagedLlamaConfig(config);
+    const fallbackPid = findListeningProcessIdByPort(managed.Port);
+    if (fallbackPid) {
+      terminateProcessTree(fallbackPid);
+    }
   }
   try {
     await waitForLlamaServerReachability(config, false);
@@ -443,42 +493,10 @@ function dumpManagedLlamaStartupReviewToConsole(logRef: ManagedLlamaLogRef | nul
 }
 
 // ---------------------------------------------------------------------------
-// High-level lifecycle: ensure ready / shutdown / sync
+// High-level lifecycle: ensure ready / shutdown
 // ---------------------------------------------------------------------------
 
-export async function syncManagedLlamaConfigFromStartupScriptIfNeeded(ctx: ServerContext): Promise<void> {
-  const config = readConfig(ctx.configPath);
-  if (config.Backend !== 'llama.cpp') {
-    ctx.managedLlamaStartupWarning = null;
-    return;
-  }
-  const managed = getManagedLlamaConfig(config);
-  if (!managed.StartupScript) {
-    return;
-  }
-  logLine(`llama_sync startup_script script=${managed.StartupScript}`);
-  const launched = spawnManagedScript(ctx, managed.StartupScript, 'startup-sync', {
-    syncOnly: true,
-    managedVerboseLogging: managed.VerboseLogging,
-    managedVerboseArgs: managed.VerboseArgs,
-  });
-  ctx.managedLlamaLastStartupLogs = launched.logRef;
-  await new Promise<void>((resolve, reject) => {
-    launched.child.once('error', reject);
-    launched.child.once('exit', (code: number | null) => {
-      if ((code ?? 0) !== 0) {
-        reject(new Error(`Configured llama.cpp startup script exited with code ${code} during config sync.`));
-        return;
-      }
-      resolve();
-    });
-  });
-  ctx.managedLlamaStartupWarning = null;
-  logLine(`llama_sync startup_script done script=${managed.StartupScript}`);
-}
-
 export async function ensureManagedLlamaReady(ctx: ServerContext, _options: EnsureManagedLlamaOptions = {}): Promise<Dict> {
-  void _options;
   const config = readConfig(ctx.configPath);
   if (config.Backend !== 'llama.cpp') {
     ctx.managedLlamaStartupWarning = null;
@@ -524,8 +542,19 @@ export async function ensureManagedLlamaReady(ctx: ServerContext, _options: Ensu
     publishStatus(ctx);
     return readConfig(ctx.configPath);
   }
-  if (!managed.StartupScript) {
-    const message = `llama.cpp is not reachable at ${baseUrl} and config.Server.LlamaCpp.StartupScript is not set.`;
+  if (_options.allowUnconfigured && !hasManagedLlamaLaunchConfig(managed)) {
+    ctx.managedLlamaStartupWarning = null;
+    ctx.managedLlamaReady = false;
+    publishStatus(ctx);
+    return readConfig(ctx.configPath);
+  }
+  if (!managed.ExecutablePath) {
+    const message = `llama.cpp is not reachable at ${baseUrl} and config.Server.LlamaCpp.ExecutablePath is not set.`;
+    ctx.managedLlamaStartupWarning = message;
+    throw new Error(message);
+  }
+  if (!managed.ModelPath) {
+    const message = `llama.cpp is not reachable at ${baseUrl} and config.Server.LlamaCpp.ModelPath is not set.`;
     ctx.managedLlamaStartupWarning = message;
     throw new Error(message);
   }
@@ -536,12 +565,9 @@ export async function ensureManagedLlamaReady(ctx: ServerContext, _options: Ensu
   }
   ctx.managedLlamaStarting = true;
   ctx.managedLlamaStartupPromise = (async () => {
-    logLine(`llama_start starting script=${managed.StartupScript}`);
-    logLine(`llama_start verbose_logging=${managed.VerboseLogging ? 'on' : 'off'} verbose_args=${JSON.stringify(managed.VerboseArgs)}`);
-    const launched = spawnManagedScript(ctx, managed.StartupScript!, 'startup', {
-      managedVerboseLogging: managed.VerboseLogging,
-      managedVerboseArgs: managed.VerboseArgs,
-    });
+    logLine(`llama_start starting executable=${managed.ExecutablePath}`);
+    logLine(`llama_start verbose_logging=${managed.VerboseLogging ? 'on' : 'off'}`);
+    const launched = spawnManagedLlamaProcess(ctx, managed, 'startup');
     ctx.managedLlamaHostProcess = launched.child;
     ctx.managedLlamaLastStartupLogs = launched.logRef;
     try {
@@ -616,47 +642,35 @@ export async function shutdownManagedLlamaIfNeeded(ctx: ServerContext, shutdownO
     return;
   }
   const managed = getManagedLlamaConfig(config);
+  const hasLaunchConfig = hasManagedLlamaLaunchConfig(managed);
   const hasActiveHostProcess = Boolean(
     ctx.managedLlamaHostProcess
     && ctx.managedLlamaHostProcess.exitCode === null
     && ctx.managedLlamaHostProcess.signalCode === null
   );
-  if (!managed.ShutdownScript && !hasActiveHostProcess) {
+  const fallbackPid = hasLaunchConfig ? findListeningProcessIdByPort(managed.Port) : null;
+  if (!hasActiveHostProcess && !fallbackPid) {
     ctx.managedLlamaReady = false;
     publishStatus(ctx);
     return;
   }
   ctx.managedLlamaShutdownPromise = (async () => {
-    if (managed.ShutdownScript) {
-      logLine(`llama_stop stopping script=${managed.ShutdownScript}`);
-      const stopChild = spawnManagedScript(ctx, managed.ShutdownScript, 'shutdown', {
-        managedVerboseLogging: managed.VerboseLogging,
-        managedVerboseArgs: managed.VerboseArgs,
-      }).child;
-      await new Promise<void>((resolve, reject) => {
-        stopChild.once('error', reject);
-        stopChild.once('exit', (code: number | null) => {
-          if ((code ?? 0) !== 0) {
-            reject(new Error(`Configured llama.cpp shutdown script exited with code ${code}.`));
-            return;
-          }
-          resolve();
-        });
-      });
-    } else if (hasActiveHostProcess) {
+    if (hasActiveHostProcess) {
       const hostPid = ctx.managedLlamaHostProcess?.pid ?? 0;
       logLine(`llama_stop stopping pid=${hostPid}`);
       terminateProcessTree(hostPid);
-    } else {
-      process.stderr.write('[siftKitStatus] llama.cpp is still reachable but no shutdown script is configured and no managed host process is active.\n');
-      return;
+    } else if (fallbackPid) {
+      logLine(`llama_stop stopping fallback_pid=${fallbackPid}`);
+      terminateProcessTree(fallbackPid);
     }
     try {
       await waitForLlamaServerReachability(config, false, shutdownDeadline);
     } catch (error) {
-      if (force && hasActiveHostProcess) {
-        const hostPid = ctx.managedLlamaHostProcess?.pid ?? 0;
-        terminateProcessTree(hostPid);
+      if (force) {
+        const forcePid = findListeningProcessIdByPort(managed.Port);
+        if (forcePid) {
+          terminateProcessTree(forcePid);
+        }
         return;
       }
       throw error;
@@ -696,29 +710,16 @@ export function shutdownManagedLlamaForProcessExitSync(ctx: ServerContext): void
       publishStatus(ctx);
       return;
     }
-    const managed = getManagedLlamaConfig(config);
-    if (managed.ShutdownScript) {
-      const invocation = getManagedScriptInvocation(ctx, managed.ShutdownScript);
-      const result = spawnSync(invocation.filePath, invocation.args, {
-        cwd: invocation.cwd,
-        env: {
-          ...process.env,
-          SIFTKIT_SERVER_CONFIG_PATH: ctx.configPath,
-          SIFTKIT_SERVER_CONFIG_URL: `${ctx.getServiceBaseUrl()}/config`,
-          SIFTKIT_SERVER_HEALTH_URL: `${ctx.getServiceBaseUrl()}/health`,
-          SIFTKIT_SERVER_RUNTIME_ROOT: getRuntimeRoot(),
-        },
-        stdio: 'ignore',
-        windowsHide: true,
-      });
-      if ((result.status ?? 0) !== 0) {
-        process.stderr.write(`[siftKitStatus] Managed llama.cpp shutdown script exited with code ${result.status ?? 'null'} during process exit.\n`);
+    if (ctx.managedLlamaHostProcess && ctx.managedLlamaHostProcess.pid && ctx.managedLlamaHostProcess.exitCode === null && ctx.managedLlamaHostProcess.signalCode === null) {
+      terminateProcessTree(ctx.managedLlamaHostProcess.pid);
+    } else {
+      const managed = getManagedLlamaConfig(config);
+      const fallbackPid = hasManagedLlamaLaunchConfig(managed)
+        ? findListeningProcessIdByPort(managed.Port)
+        : null;
+      if (fallbackPid) {
+        terminateProcessTree(fallbackPid);
       }
-      publishStatus(ctx);
-      return;
-    }
-    if (ctx.managedLlamaHostProcess && ctx.managedLlamaHostProcess.exitCode === null && ctx.managedLlamaHostProcess.signalCode === null) {
-      ctx.managedLlamaHostProcess.kill('SIGTERM');
     }
     publishStatus(ctx);
   } catch (error) {
@@ -757,18 +758,14 @@ export async function clearPreexistingManagedLlamaIfNeeded(ctx: ServerContext): 
   if (config.Backend !== 'llama.cpp') {
     return;
   }
+  if (!hasManagedLlamaLaunchConfig(getManagedLlamaConfig(config))) {
+    return;
+  }
   const baseUrl = getLlamaBaseUrl(config);
   if (!baseUrl || !await isLlamaServerReachable(config)) {
     return;
   }
-  const managed = getManagedLlamaConfig(config);
-  if (!managed.ShutdownScript) {
-    process.stderr.write(`[siftKitStatus] llama.cpp is already reachable at ${baseUrl} during server startup, but no shutdown script is configured for stale-process cleanup.\n`);
-    ctx.managedLlamaStartupWarning = null;
-    ctx.managedLlamaReady = true;
-    return;
-  }
-  logLine(`llama_stop startup_cleanup script=${managed.ShutdownScript}`);
+  logLine(`llama_stop startup_cleanup base_url=${baseUrl}`);
   await shutdownManagedLlamaIfNeeded(ctx);
 }
 

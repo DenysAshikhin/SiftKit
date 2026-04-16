@@ -44,7 +44,6 @@ import {
 } from './server-ops.js';
 import {
   terminateProcessTree,
-  syncManagedLlamaConfigFromStartupScriptIfNeeded,
   ensureManagedLlamaReady,
   shutdownManagedLlamaIfNeeded,
   shutdownManagedLlamaForProcessExitSync,
@@ -201,11 +200,10 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       let startupWarning: string | null = null;
       if (!disableManagedLlamaStartup) {
         try {
-          await syncManagedLlamaConfigFromStartupScriptIfNeeded(ctx);
           await clearPreexistingManagedLlamaIfNeeded(ctx);
           ctx.bootstrapManagedLlamaStartup = true;
           try {
-            await ensureManagedLlamaReady(ctx, { resetStatusBeforeCheck: false });
+            await ensureManagedLlamaReady(ctx, { resetStatusBeforeCheck: false, allowUnconfigured: true });
             ctx.managedLlamaStartupWarning = null;
           } finally {
             ctx.bootstrapManagedLlamaStartup = false;

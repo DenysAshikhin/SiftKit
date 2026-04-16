@@ -7,6 +7,14 @@ export const SIFT_PREVIOUS_DEFAULT_MODEL = 'qwen3.5-4b-q8_0';
 export const SIFT_DEFAULT_LLAMA_MODEL = 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
 export const SIFT_DEFAULT_LLAMA_BASE_URL = 'http://127.0.0.1:8097';
 export const SIFT_DEFAULT_LLAMA_MODEL_PATH = 'D:\\personal\\models\\Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
+export const SIFT_DEFAULT_LLAMA_EXECUTABLE_PATH = 'C:\\Users\\denys\\Documents\\GitHub\\llamacpp\\llama-server.exe';
+export const SIFT_DEFAULT_LLAMA_BIND_HOST = '127.0.0.1';
+export const SIFT_DEFAULT_LLAMA_PORT = 8097;
+export const SIFT_DEFAULT_LLAMA_GPU_LAYERS = 999;
+export const SIFT_DEFAULT_LLAMA_BATCH_SIZE = 512;
+export const SIFT_DEFAULT_LLAMA_UBATCH_SIZE = 512;
+export const SIFT_DEFAULT_LLAMA_CACHE_RAM = 8192;
+export const SIFT_DEFAULT_LLAMA_REASONING_BUDGET = 10_000;
 export const SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-35B-4bit-150k-no-thinking.ps1';
 export const SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k.ps1';
 export const SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k-thinking.ps1';
@@ -27,6 +35,7 @@ export const RUNTIME_OWNED_LLAMA_CPP_KEYS = [
   'PresencePenalty',
   'RepetitionPenalty',
   'MaxTokens',
+  'GpuLayers',
   'Threads',
   'FlashAttention',
   'ParallelSlots',

@@ -11,6 +11,14 @@ import { getRuntimeDatabase } from '../state/runtime-db.js';
 export const DEFAULT_LLAMA_MODEL = 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
 export const DEFAULT_LLAMA_BASE_URL = 'http://127.0.0.1:8097';
 export const DEFAULT_LLAMA_MODEL_PATH = 'D:\\personal\\models\\Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
+export const DEFAULT_LLAMA_EXECUTABLE_PATH = 'C:\\Users\\denys\\Documents\\GitHub\\llamacpp\\llama-server.exe';
+export const DEFAULT_LLAMA_BIND_HOST = '127.0.0.1';
+export const DEFAULT_LLAMA_PORT = 8097;
+export const DEFAULT_LLAMA_GPU_LAYERS = 999;
+export const DEFAULT_LLAMA_BATCH_SIZE = 512;
+export const DEFAULT_LLAMA_UBATCH_SIZE = 512;
+export const DEFAULT_LLAMA_CACHE_RAM = 8192;
+export const DEFAULT_LLAMA_REASONING_BUDGET = 10_000;
 export const PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-35B-4bit-150k-no-thinking.ps1';
 export const FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k.ps1';
 export const BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k-thinking.ps1';
@@ -33,6 +41,25 @@ export const RUNTIME_OWNED_LLAMA_CPP_KEYS: readonly string[] = [
   'PresencePenalty',
   'RepetitionPenalty',
   'MaxTokens',
+  'GpuLayers',
+  'Threads',
+  'FlashAttention',
+  'ParallelSlots',
+  'Reasoning',
+];
+
+const MANAGED_LLAMA_RUNTIME_KEYS: readonly string[] = [
+  'BaseUrl',
+  'NumCtx',
+  'ModelPath',
+  'Temperature',
+  'TopP',
+  'TopK',
+  'MinP',
+  'PresencePenalty',
+  'RepetitionPenalty',
+  'MaxTokens',
+  'GpuLayers',
   'Threads',
   'FlashAttention',
   'ParallelSlots',
@@ -49,7 +76,7 @@ export function getDefaultConfig(): Dict {
     LlamaCpp: {
       BaseUrl: DEFAULT_LLAMA_BASE_URL,
       NumCtx: 150000,
-      ModelPath: DEFAULT_LLAMA_MODEL_PATH,
+      ModelPath: null,
       Temperature: 0.7,
       TopP: 0.8,
       TopK: 20,
@@ -57,6 +84,7 @@ export function getDefaultConfig(): Dict {
       PresencePenalty: 1.5,
       RepetitionPenalty: 1.0,
       MaxTokens: 15000,
+      GpuLayers: DEFAULT_LLAMA_GPU_LAYERS,
       FlashAttention: true,
       ParallelSlots: 1,
       Reasoning: 'off',
@@ -66,7 +94,7 @@ export function getDefaultConfig(): Dict {
       LlamaCpp: {
         BaseUrl: DEFAULT_LLAMA_BASE_URL,
         NumCtx: 150000,
-        ModelPath: DEFAULT_LLAMA_MODEL_PATH,
+        ModelPath: null,
         Temperature: 0.7,
         TopP: 0.8,
         TopK: 20,
@@ -74,6 +102,7 @@ export function getDefaultConfig(): Dict {
         PresencePenalty: 1.5,
         RepetitionPenalty: 1.0,
         MaxTokens: 15000,
+        GpuLayers: DEFAULT_LLAMA_GPU_LAYERS,
         FlashAttention: true,
         ParallelSlots: 1,
         Reasoning: 'off',
@@ -93,13 +122,32 @@ export function getDefaultConfig(): Dict {
     },
     Server: {
       LlamaCpp: {
-        StartupScript: DEFAULT_LLAMA_STARTUP_SCRIPT,
-        ShutdownScript: DEFAULT_LLAMA_SHUTDOWN_SCRIPT,
+        ExecutablePath: null,
+        BaseUrl: DEFAULT_LLAMA_BASE_URL,
+        BindHost: DEFAULT_LLAMA_BIND_HOST,
+        Port: DEFAULT_LLAMA_PORT,
+        ModelPath: null,
+        NumCtx: 150000,
+        GpuLayers: DEFAULT_LLAMA_GPU_LAYERS,
+        Threads: -1,
+        FlashAttention: true,
+        ParallelSlots: 1,
+        BatchSize: DEFAULT_LLAMA_BATCH_SIZE,
+        UBatchSize: DEFAULT_LLAMA_UBATCH_SIZE,
+        CacheRam: DEFAULT_LLAMA_CACHE_RAM,
+        MaxTokens: 15000,
+        Temperature: 0.7,
+        TopP: 0.8,
+        TopK: 20,
+        MinP: 0.0,
+        PresencePenalty: 1.5,
+        RepetitionPenalty: 1.0,
+        Reasoning: 'off',
+        ReasoningBudget: DEFAULT_LLAMA_REASONING_BUDGET,
         StartupTimeoutMs: DEFAULT_LLAMA_STARTUP_TIMEOUT_MS,
         HealthcheckTimeoutMs: DEFAULT_LLAMA_HEALTHCHECK_TIMEOUT_MS,
         HealthcheckIntervalMs: DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS,
         VerboseLogging: false,
-        VerboseArgs: [],
       },
     },
     OperationModeAllowedTools: getDefaultOperationModeAllowedTools(),
@@ -216,14 +264,80 @@ export function normalizeConfig(input: unknown): Dict {
       }
     }
   }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'StartupScript')) {
-    serverLlama.StartupScript = null;
+  const legacyStartupScript = typeof serverLlama.StartupScript === 'string' && serverLlama.StartupScript.trim()
+    ? serverLlama.StartupScript.trim()
+    : null;
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ExecutablePath')) {
+    serverLlama.ExecutablePath = (
+      legacyStartupScript
+      && !isLegacyManagedStartupScriptPath(legacyStartupScript)
+      && normalizeWindowsPath(legacyStartupScript) !== normalizeWindowsPath(DEFAULT_LLAMA_STARTUP_SCRIPT)
+    )
+      ? legacyStartupScript
+      : null;
   }
-  if (isLegacyManagedStartupScriptPath(serverLlama.StartupScript)) {
-    serverLlama.StartupScript = DEFAULT_LLAMA_STARTUP_SCRIPT;
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'BaseUrl')) {
+    serverLlama.BaseUrl = runtimeLlama.BaseUrl ?? DEFAULT_LLAMA_BASE_URL;
   }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ShutdownScript')) {
-    serverLlama.ShutdownScript = null;
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'BindHost')) {
+    serverLlama.BindHost = DEFAULT_LLAMA_BIND_HOST;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'Port')) {
+    serverLlama.Port = DEFAULT_LLAMA_PORT;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ModelPath')) {
+    serverLlama.ModelPath = runtimeLlama.ModelPath ?? null;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'NumCtx')) {
+    serverLlama.NumCtx = runtimeLlama.NumCtx ?? 150000;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'GpuLayers')) {
+    serverLlama.GpuLayers = runtimeLlama.GpuLayers ?? DEFAULT_LLAMA_GPU_LAYERS;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'Threads')) {
+    serverLlama.Threads = runtimeLlama.Threads ?? -1;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'FlashAttention')) {
+    serverLlama.FlashAttention = runtimeLlama.FlashAttention ?? true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ParallelSlots')) {
+    serverLlama.ParallelSlots = runtimeLlama.ParallelSlots ?? 1;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'BatchSize')) {
+    serverLlama.BatchSize = DEFAULT_LLAMA_BATCH_SIZE;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'UBatchSize')) {
+    serverLlama.UBatchSize = DEFAULT_LLAMA_UBATCH_SIZE;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'CacheRam')) {
+    serverLlama.CacheRam = DEFAULT_LLAMA_CACHE_RAM;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'MaxTokens')) {
+    serverLlama.MaxTokens = runtimeLlama.MaxTokens ?? 15000;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'Temperature')) {
+    serverLlama.Temperature = runtimeLlama.Temperature ?? 0.7;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'TopP')) {
+    serverLlama.TopP = runtimeLlama.TopP ?? 0.8;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'TopK')) {
+    serverLlama.TopK = runtimeLlama.TopK ?? 20;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'MinP')) {
+    serverLlama.MinP = runtimeLlama.MinP ?? 0.0;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'PresencePenalty')) {
+    serverLlama.PresencePenalty = runtimeLlama.PresencePenalty ?? 1.5;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'RepetitionPenalty')) {
+    serverLlama.RepetitionPenalty = runtimeLlama.RepetitionPenalty ?? 1.0;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'Reasoning')) {
+    serverLlama.Reasoning = runtimeLlama.Reasoning ?? 'off';
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ReasoningBudget')) {
+    serverLlama.ReasoningBudget = DEFAULT_LLAMA_REASONING_BUDGET;
   }
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'StartupTimeoutMs')) {
     serverLlama.StartupTimeoutMs = DEFAULT_LLAMA_STARTUP_TIMEOUT_MS;
@@ -237,15 +351,15 @@ export function normalizeConfig(input: unknown): Dict {
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'VerboseLogging')) {
     serverLlama.VerboseLogging = false;
   }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'VerboseArgs')) {
-    serverLlama.VerboseArgs = [];
-  }
   serverLlama.VerboseLogging = Boolean(serverLlama.VerboseLogging);
-  serverLlama.VerboseArgs = Array.isArray(serverLlama.VerboseArgs)
-    ? (serverLlama.VerboseArgs as unknown[])
-      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-      .map((value) => value.trim())
-    : [];
+  delete serverLlama.StartupScript;
+  delete serverLlama.ShutdownScript;
+  delete serverLlama.VerboseArgs;
+  for (const key of MANAGED_LLAMA_RUNTIME_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(serverLlama, key)) {
+      runtimeLlama[key] = serverLlama[key];
+    }
+  }
   merged.OperationModeAllowedTools = normalizeOperationModeAllowedTools(merged.OperationModeAllowedTools);
   merged.Presets = normalizePresets(merged.Presets);
   return merged;
@@ -279,13 +393,32 @@ type AppConfigRow = {
   interactive_idle_timeout_ms: number;
   interactive_max_transcript_characters: number;
   interactive_transcript_retention: number;
-  server_startup_script: string | null;
-  server_shutdown_script: string | null;
+  server_executable_path: string | null;
+  server_base_url: string | null;
+  server_bind_host: string | null;
+  server_port: number | null;
+  server_model_path: string | null;
+  server_num_ctx: number | null;
+  server_gpu_layers: number | null;
+  server_threads: number | null;
+  server_flash_attention: number | null;
+  server_parallel_slots: number | null;
+  server_batch_size: number | null;
+  server_ubatch_size: number | null;
+  server_cache_ram: number | null;
+  server_max_tokens: number | null;
+  server_temperature: number | null;
+  server_top_p: number | null;
+  server_top_k: number | null;
+  server_min_p: number | null;
+  server_presence_penalty: number | null;
+  server_repetition_penalty: number | null;
+  server_reasoning: string | null;
+  server_reasoning_budget: number | null;
   server_startup_timeout_ms: number | null;
   server_healthcheck_timeout_ms: number | null;
   server_healthcheck_interval_ms: number | null;
   server_verbose_logging: number | null;
-  server_verbose_args_json: string;
   operation_mode_allowed_tools_json: string;
   presets_json: string;
 };
@@ -389,19 +522,40 @@ function normalizeConfigToRow(config: Dict): AppConfigRow {
     interactive_idle_timeout_ms: getFinitePositiveInteger(interactive.IdleTimeoutMs, 900000),
     interactive_max_transcript_characters: getFinitePositiveInteger(interactive.MaxTranscriptCharacters, 60000),
     interactive_transcript_retention: interactive.TranscriptRetention === false ? 0 : 1,
-    server_startup_script: typeof serverLlama.StartupScript === 'string' && serverLlama.StartupScript.trim()
-      ? serverLlama.StartupScript.trim()
+    server_executable_path: typeof serverLlama.ExecutablePath === 'string' && serverLlama.ExecutablePath.trim()
+      ? serverLlama.ExecutablePath.trim()
       : null,
-    server_shutdown_script: typeof serverLlama.ShutdownScript === 'string' && serverLlama.ShutdownScript.trim()
-      ? serverLlama.ShutdownScript.trim()
+    server_base_url: typeof serverLlama.BaseUrl === 'string' && serverLlama.BaseUrl.trim()
+      ? serverLlama.BaseUrl.trim()
       : null,
+    server_bind_host: typeof serverLlama.BindHost === 'string' && serverLlama.BindHost.trim()
+      ? serverLlama.BindHost.trim()
+      : null,
+    server_port: toNullableInteger(serverLlama.Port),
+    server_model_path: typeof serverLlama.ModelPath === 'string' && serverLlama.ModelPath.trim()
+      ? serverLlama.ModelPath.trim()
+      : null,
+    server_num_ctx: toNullableInteger(serverLlama.NumCtx),
+    server_gpu_layers: toNullableInteger(serverLlama.GpuLayers),
+    server_threads: toNullableInteger(serverLlama.Threads),
+    server_flash_attention: toNullableBooleanInteger(serverLlama.FlashAttention),
+    server_parallel_slots: toNullableInteger(serverLlama.ParallelSlots),
+    server_batch_size: toNullableInteger(serverLlama.BatchSize),
+    server_ubatch_size: toNullableInteger(serverLlama.UBatchSize),
+    server_cache_ram: toNullableInteger(serverLlama.CacheRam),
+    server_max_tokens: toNullableInteger(serverLlama.MaxTokens),
+    server_temperature: toNullableNumber(serverLlama.Temperature),
+    server_top_p: toNullableNumber(serverLlama.TopP),
+    server_top_k: toNullableInteger(serverLlama.TopK),
+    server_min_p: toNullableNumber(serverLlama.MinP),
+    server_presence_penalty: toNullableNumber(serverLlama.PresencePenalty),
+    server_repetition_penalty: toNullableNumber(serverLlama.RepetitionPenalty),
+    server_reasoning: typeof serverLlama.Reasoning === 'string' && serverLlama.Reasoning.trim() ? serverLlama.Reasoning.trim() : null,
+    server_reasoning_budget: toNullableInteger(serverLlama.ReasoningBudget),
     server_startup_timeout_ms: toNullableInteger(serverLlama.StartupTimeoutMs),
     server_healthcheck_timeout_ms: toNullableInteger(serverLlama.HealthcheckTimeoutMs),
     server_healthcheck_interval_ms: toNullableInteger(serverLlama.HealthcheckIntervalMs),
     server_verbose_logging: toNullableBooleanInteger(serverLlama.VerboseLogging),
-    server_verbose_args_json: JSON.stringify(
-      Array.isArray(serverLlama.VerboseArgs) ? serverLlama.VerboseArgs : []
-    ),
     operation_mode_allowed_tools_json: JSON.stringify(
       normalizeOperationModeAllowedTools(normalized.OperationModeAllowedTools)
     ),
@@ -421,6 +575,7 @@ function rowToConfig(row: AppConfigRow): Dict {
     PresencePenalty: row.llama_presence_penalty,
     RepetitionPenalty: row.llama_repetition_penalty,
     MaxTokens: row.llama_max_tokens,
+    GpuLayers: row.server_gpu_layers,
     Threads: row.llama_threads,
     FlashAttention: row.llama_flash_attention === null ? null : row.llama_flash_attention === 1,
     ParallelSlots: row.llama_parallel_slots,
@@ -450,13 +605,32 @@ function rowToConfig(row: AppConfigRow): Dict {
     },
     Server: {
       LlamaCpp: {
-        StartupScript: row.server_startup_script,
-        ShutdownScript: row.server_shutdown_script,
+        ExecutablePath: row.server_executable_path,
+        BaseUrl: row.server_base_url,
+        BindHost: row.server_bind_host,
+        Port: row.server_port,
+        ModelPath: row.server_model_path,
+        NumCtx: row.server_num_ctx,
+        GpuLayers: row.server_gpu_layers,
+        Threads: row.server_threads,
+        FlashAttention: row.server_flash_attention === null ? null : row.server_flash_attention === 1,
+        ParallelSlots: row.server_parallel_slots,
+        BatchSize: row.server_batch_size,
+        UBatchSize: row.server_ubatch_size,
+        CacheRam: row.server_cache_ram,
+        MaxTokens: row.server_max_tokens,
+        Temperature: row.server_temperature,
+        TopP: row.server_top_p,
+        TopK: row.server_top_k,
+        MinP: row.server_min_p,
+        PresencePenalty: row.server_presence_penalty,
+        RepetitionPenalty: row.server_repetition_penalty,
+        Reasoning: row.server_reasoning,
+        ReasoningBudget: row.server_reasoning_budget,
         StartupTimeoutMs: row.server_startup_timeout_ms,
         HealthcheckTimeoutMs: row.server_healthcheck_timeout_ms,
         HealthcheckIntervalMs: row.server_healthcheck_interval_ms,
         VerboseLogging: row.server_verbose_logging === null ? false : row.server_verbose_logging === 1,
-        VerboseArgs: parseJsonArray(row.server_verbose_args_json),
       },
     },
     OperationModeAllowedTools: parseOperationModeAllowedTools(row.operation_mode_allowed_tools_json),
@@ -495,13 +669,32 @@ function readConfigRow(databasePath: string): AppConfigRow | null {
       interactive_idle_timeout_ms,
       interactive_max_transcript_characters,
       interactive_transcript_retention,
-      server_startup_script,
-      server_shutdown_script,
+      server_executable_path,
+      server_base_url,
+      server_bind_host,
+      server_port,
+      server_model_path,
+      server_num_ctx,
+      server_gpu_layers,
+      server_threads,
+      server_flash_attention,
+      server_parallel_slots,
+      server_batch_size,
+      server_ubatch_size,
+      server_cache_ram,
+      server_max_tokens,
+      server_temperature,
+      server_top_p,
+      server_top_k,
+      server_min_p,
+      server_presence_penalty,
+      server_repetition_penalty,
+      server_reasoning,
+      server_reasoning_budget,
       server_startup_timeout_ms,
       server_healthcheck_timeout_ms,
       server_healthcheck_interval_ms,
       server_verbose_logging,
-      server_verbose_args_json,
       operation_mode_allowed_tools_json,
       presets_json
     FROM app_config
@@ -512,126 +705,97 @@ function readConfigRow(databasePath: string): AppConfigRow | null {
 
 function writeConfigRow(databasePath: string, row: AppConfigRow): void {
   const database = getRuntimeDatabase(databasePath);
+  const hasLegacyVerboseArgsColumn = Boolean(database.prepare(`
+    SELECT 1 AS present
+    FROM pragma_table_info('app_config')
+    WHERE name = 'server_verbose_args_json'
+    LIMIT 1
+  `).get());
+  const columns = [
+    'id',
+    'version',
+    'backend',
+    'policy_mode',
+    'raw_log_retention',
+    'prompt_prefix',
+    'runtime_model',
+    'llama_base_url',
+    'llama_num_ctx',
+    'llama_model_path',
+    'llama_temperature',
+    'llama_top_p',
+    'llama_top_k',
+    'llama_min_p',
+    'llama_presence_penalty',
+    'llama_repetition_penalty',
+    'llama_max_tokens',
+    'llama_threads',
+    'llama_flash_attention',
+    'llama_parallel_slots',
+    'llama_reasoning',
+    'thresholds_min_characters_for_summary',
+    'thresholds_min_lines_for_summary',
+    'interactive_enabled',
+    'interactive_wrapped_commands_json',
+    'interactive_idle_timeout_ms',
+    'interactive_max_transcript_characters',
+    'interactive_transcript_retention',
+    'server_executable_path',
+    'server_base_url',
+    'server_bind_host',
+    'server_port',
+    'server_model_path',
+    'server_num_ctx',
+    'server_gpu_layers',
+    'server_threads',
+    'server_flash_attention',
+    'server_parallel_slots',
+    'server_batch_size',
+    'server_ubatch_size',
+    'server_cache_ram',
+    'server_max_tokens',
+    'server_temperature',
+    'server_top_p',
+    'server_top_k',
+    'server_min_p',
+    'server_presence_penalty',
+    'server_repetition_penalty',
+    'server_reasoning',
+    'server_reasoning_budget',
+    'server_startup_timeout_ms',
+    'server_healthcheck_timeout_ms',
+    'server_healthcheck_interval_ms',
+    'server_verbose_logging',
+    ...(hasLegacyVerboseArgsColumn
+      ? ['server_startup_script', 'server_shutdown_script', 'server_verbose_args_json']
+      : []),
+    'operation_mode_allowed_tools_json',
+    'presets_json',
+    'updated_at_utc',
+  ];
+  const values = columns.map((column) => (column === 'id' ? '1' : `@${column}`));
+  const assignments = columns
+    .filter((column) => column !== 'id')
+    .map((column) => `${column} = excluded.${column}`);
   database.prepare(`
     INSERT INTO app_config (
-      id,
-      version,
-      backend,
-      policy_mode,
-      raw_log_retention,
-      prompt_prefix,
-      runtime_model,
-      llama_base_url,
-      llama_num_ctx,
-      llama_model_path,
-      llama_temperature,
-      llama_top_p,
-      llama_top_k,
-      llama_min_p,
-      llama_presence_penalty,
-      llama_repetition_penalty,
-      llama_max_tokens,
-      llama_threads,
-      llama_flash_attention,
-      llama_parallel_slots,
-      llama_reasoning,
-      thresholds_min_characters_for_summary,
-      thresholds_min_lines_for_summary,
-      interactive_enabled,
-      interactive_wrapped_commands_json,
-      interactive_idle_timeout_ms,
-      interactive_max_transcript_characters,
-      interactive_transcript_retention,
-      server_startup_script,
-      server_shutdown_script,
-      server_startup_timeout_ms,
-      server_healthcheck_timeout_ms,
-      server_healthcheck_interval_ms,
-      server_verbose_logging,
-      server_verbose_args_json,
-      operation_mode_allowed_tools_json,
-      presets_json,
-      updated_at_utc
+      ${columns.join(',\n      ')}
     ) VALUES (
-      1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      ${values.join(',\n      ')}
     )
     ON CONFLICT(id) DO UPDATE SET
-      version = excluded.version,
-      backend = excluded.backend,
-      policy_mode = excluded.policy_mode,
-      raw_log_retention = excluded.raw_log_retention,
-      prompt_prefix = excluded.prompt_prefix,
-      runtime_model = excluded.runtime_model,
-      llama_base_url = excluded.llama_base_url,
-      llama_num_ctx = excluded.llama_num_ctx,
-      llama_model_path = excluded.llama_model_path,
-      llama_temperature = excluded.llama_temperature,
-      llama_top_p = excluded.llama_top_p,
-      llama_top_k = excluded.llama_top_k,
-      llama_min_p = excluded.llama_min_p,
-      llama_presence_penalty = excluded.llama_presence_penalty,
-      llama_repetition_penalty = excluded.llama_repetition_penalty,
-      llama_max_tokens = excluded.llama_max_tokens,
-      llama_threads = excluded.llama_threads,
-      llama_flash_attention = excluded.llama_flash_attention,
-      llama_parallel_slots = excluded.llama_parallel_slots,
-      llama_reasoning = excluded.llama_reasoning,
-      thresholds_min_characters_for_summary = excluded.thresholds_min_characters_for_summary,
-      thresholds_min_lines_for_summary = excluded.thresholds_min_lines_for_summary,
-      interactive_enabled = excluded.interactive_enabled,
-      interactive_wrapped_commands_json = excluded.interactive_wrapped_commands_json,
-      interactive_idle_timeout_ms = excluded.interactive_idle_timeout_ms,
-      interactive_max_transcript_characters = excluded.interactive_max_transcript_characters,
-      interactive_transcript_retention = excluded.interactive_transcript_retention,
-      server_startup_script = excluded.server_startup_script,
-      server_shutdown_script = excluded.server_shutdown_script,
-      server_startup_timeout_ms = excluded.server_startup_timeout_ms,
-      server_healthcheck_timeout_ms = excluded.server_healthcheck_timeout_ms,
-      server_healthcheck_interval_ms = excluded.server_healthcheck_interval_ms,
-      server_verbose_logging = excluded.server_verbose_logging,
-      server_verbose_args_json = excluded.server_verbose_args_json,
-      operation_mode_allowed_tools_json = excluded.operation_mode_allowed_tools_json,
-      presets_json = excluded.presets_json,
-      updated_at_utc = excluded.updated_at_utc
-  `).run(
-    row.version,
-    row.backend,
-    row.policy_mode,
-    row.raw_log_retention,
-    row.prompt_prefix,
-    row.runtime_model,
-    row.llama_base_url,
-    row.llama_num_ctx,
-    row.llama_model_path,
-    row.llama_temperature,
-    row.llama_top_p,
-    row.llama_top_k,
-    row.llama_min_p,
-    row.llama_presence_penalty,
-    row.llama_repetition_penalty,
-    row.llama_max_tokens,
-    row.llama_threads,
-    row.llama_flash_attention,
-    row.llama_parallel_slots,
-    row.llama_reasoning,
-    row.thresholds_min_characters_for_summary,
-    row.thresholds_min_lines_for_summary,
-    row.interactive_enabled,
-    row.interactive_wrapped_commands_json,
-    row.interactive_idle_timeout_ms,
-    row.interactive_max_transcript_characters,
-    row.interactive_transcript_retention,
-    row.server_startup_script,
-    row.server_shutdown_script,
-    row.server_startup_timeout_ms,
-    row.server_healthcheck_timeout_ms,
-    row.server_healthcheck_interval_ms,
-    row.server_verbose_logging,
-    row.server_verbose_args_json,
-    row.operation_mode_allowed_tools_json,
-    row.presets_json,
-    new Date().toISOString(),
-  );
+      ${assignments.join(',\n      ')}
+  `).run({
+    ...row,
+    ...(hasLegacyVerboseArgsColumn
+      ? {
+        server_startup_script: null,
+        server_shutdown_script: null,
+        server_verbose_args_json: '[]',
+      }
+      : {}),
+    updated_at_utc: new Date().toISOString(),
+  });
 }
 
 export function readConfig(configPath: string): Dict {
@@ -657,14 +821,47 @@ export function getManagedStartupTimeoutMs(value: unknown, fallback: number): nu
   return Math.min(getFinitePositiveInteger(value, fallback), MAX_LLAMA_STARTUP_TIMEOUT_MS);
 }
 
+function getFiniteInteger(value: unknown, fallback: number): number {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function getFiniteNumber(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function getNullableTrimmedString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
 type ManagedLlamaConfig = {
-  StartupScript: string | null;
-  ShutdownScript: string | null;
+  ExecutablePath: string | null;
+  BaseUrl: string | null;
+  BindHost: string;
+  Port: number;
+  ModelPath: string | null;
+  NumCtx: number;
+  GpuLayers: number;
+  Threads: number;
+  FlashAttention: boolean;
+  ParallelSlots: number;
+  BatchSize: number;
+  UBatchSize: number;
+  CacheRam: number;
+  MaxTokens: number;
+  Temperature: number;
+  TopP: number;
+  TopK: number;
+  MinP: number;
+  PresencePenalty: number;
+  RepetitionPenalty: number;
+  Reasoning: 'on' | 'off' | 'auto';
+  ReasoningBudget: number;
   StartupTimeoutMs: number;
   HealthcheckTimeoutMs: number;
   HealthcheckIntervalMs: number;
   VerboseLogging: boolean;
-  VerboseArgs: string[];
 };
 
 export function getCompatRuntimeLlamaCpp(config: unknown): Dict {
@@ -682,8 +879,7 @@ export function getCompatRuntimeLlamaCpp(config: unknown): Dict {
 }
 
 export function getLlamaBaseUrl(config: unknown): string | null {
-  const baseUrl = getCompatRuntimeLlamaCpp(config).BaseUrl;
-  return typeof baseUrl === 'string' && baseUrl.trim() ? baseUrl.trim() : null;
+  return getManagedLlamaConfig(config).BaseUrl;
 }
 
 export function getManagedLlamaConfig(config: unknown): ManagedLlamaConfig {
@@ -691,18 +887,46 @@ export function getManagedLlamaConfig(config: unknown): ManagedLlamaConfig {
   const cfg = (config ?? {}) as Dict;
   const srv = (cfg.Server ?? {}) as Dict;
   const serverLlama = (srv.LlamaCpp ?? {}) as Dict;
+  const legacyExecutablePath = getNullableTrimmedString(serverLlama.StartupScript);
+  const reasoning = getNullableTrimmedString(serverLlama.Reasoning);
   return {
-    StartupScript: typeof serverLlama.StartupScript === 'string' && serverLlama.StartupScript.trim() ? serverLlama.StartupScript.trim() : null,
-    ShutdownScript: typeof serverLlama.ShutdownScript === 'string' && serverLlama.ShutdownScript.trim() ? serverLlama.ShutdownScript.trim() : null,
+    ExecutablePath: getNullableTrimmedString(serverLlama.ExecutablePath)
+      || (
+        legacyExecutablePath
+        && !isLegacyManagedStartupScriptPath(legacyExecutablePath)
+        && normalizeWindowsPath(legacyExecutablePath) !== normalizeWindowsPath(DEFAULT_LLAMA_STARTUP_SCRIPT)
+          ? legacyExecutablePath
+          : getNullableTrimmedString(defaults.ExecutablePath)
+      ),
+    BaseUrl: getNullableTrimmedString(serverLlama.BaseUrl) || getNullableTrimmedString(defaults.BaseUrl),
+    BindHost: getNullableTrimmedString(serverLlama.BindHost) || String(defaults.BindHost || DEFAULT_LLAMA_BIND_HOST),
+    Port: getFinitePositiveInteger(serverLlama.Port, Number(defaults.Port ?? DEFAULT_LLAMA_PORT)),
+    ModelPath: getNullableTrimmedString(serverLlama.ModelPath) || getNullableTrimmedString(defaults.ModelPath),
+    NumCtx: getFinitePositiveInteger(serverLlama.NumCtx, Number(defaults.NumCtx ?? 150000)),
+    GpuLayers: getFiniteInteger(serverLlama.GpuLayers, Number(defaults.GpuLayers ?? DEFAULT_LLAMA_GPU_LAYERS)),
+    Threads: getFiniteInteger(serverLlama.Threads, Number(defaults.Threads ?? -1)),
+    FlashAttention: serverLlama.FlashAttention === null || serverLlama.FlashAttention === undefined
+      ? Boolean(defaults.FlashAttention)
+      : Boolean(serverLlama.FlashAttention),
+    ParallelSlots: getFinitePositiveInteger(serverLlama.ParallelSlots, Number(defaults.ParallelSlots ?? 1)),
+    BatchSize: getFinitePositiveInteger(serverLlama.BatchSize, Number(defaults.BatchSize ?? DEFAULT_LLAMA_BATCH_SIZE)),
+    UBatchSize: getFinitePositiveInteger(serverLlama.UBatchSize, Number(defaults.UBatchSize ?? DEFAULT_LLAMA_UBATCH_SIZE)),
+    CacheRam: getFinitePositiveInteger(serverLlama.CacheRam, Number(defaults.CacheRam ?? DEFAULT_LLAMA_CACHE_RAM)),
+    MaxTokens: getFinitePositiveInteger(serverLlama.MaxTokens, Number(defaults.MaxTokens ?? 15000)),
+    Temperature: getFiniteNumber(serverLlama.Temperature, Number(defaults.Temperature ?? 0.7)),
+    TopP: getFiniteNumber(serverLlama.TopP, Number(defaults.TopP ?? 0.8)),
+    TopK: getFiniteInteger(serverLlama.TopK, Number(defaults.TopK ?? 20)),
+    MinP: getFiniteNumber(serverLlama.MinP, Number(defaults.MinP ?? 0.0)),
+    PresencePenalty: getFiniteNumber(serverLlama.PresencePenalty, Number(defaults.PresencePenalty ?? 1.5)),
+    RepetitionPenalty: getFiniteNumber(serverLlama.RepetitionPenalty, Number(defaults.RepetitionPenalty ?? 1.0)),
+    Reasoning: reasoning === 'on' || reasoning === 'auto' || reasoning === 'off'
+      ? reasoning
+      : String(defaults.Reasoning || 'off') as 'on' | 'off' | 'auto',
+    ReasoningBudget: getFinitePositiveInteger(serverLlama.ReasoningBudget, Number(defaults.ReasoningBudget ?? DEFAULT_LLAMA_REASONING_BUDGET)),
     StartupTimeoutMs: getManagedStartupTimeoutMs(serverLlama.StartupTimeoutMs, Number(defaults.StartupTimeoutMs)),
     HealthcheckTimeoutMs: getFinitePositiveInteger(serverLlama.HealthcheckTimeoutMs, Number(defaults.HealthcheckTimeoutMs)),
     HealthcheckIntervalMs: getFinitePositiveInteger(serverLlama.HealthcheckIntervalMs, Number(defaults.HealthcheckIntervalMs)),
     VerboseLogging: Boolean(serverLlama.VerboseLogging),
-    VerboseArgs: Array.isArray(serverLlama.VerboseArgs)
-      ? (serverLlama.VerboseArgs as unknown[])
-        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-        .map((value) => value.trim())
-      : [],
   };
 }
 

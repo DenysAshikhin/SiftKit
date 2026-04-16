@@ -1491,6 +1491,120 @@ exit 0
   };
 }
 
+function writeManagedLlamaLauncher(tempRoot, port, modelId = 'managed-test-model', options = {}) {
+  const fakeServerPath = path.join(tempRoot, 'fake-llama-server-cli.js');
+  const executablePath = path.join(tempRoot, 'fake-llama-launcher.cmd');
+  const modelPath = path.join(tempRoot, `${modelId}.gguf`);
+  const readyFilePath = path.join(tempRoot, 'fake-llama-cli.ready');
+  const launchMarkerPath = path.join(tempRoot, 'fake-llama-cli.launch');
+  const invocationLogPath = path.join(tempRoot, 'fake-llama-cli.invocation.json');
+
+  fs.writeFileSync(modelPath, 'fake model', 'utf8');
+  fs.writeFileSync(fakeServerPath, `
+const http = require('node:http');
+const fs = require('node:fs');
+
+const argv = process.argv.slice(2);
+const getArg = (flag, fallback = '') => {
+  const index = argv.indexOf(flag);
+  return index >= 0 && index + 1 < argv.length ? String(argv[index + 1] || '') : fallback;
+};
+
+const port = Number.parseInt(getArg('--port', ${JSON.stringify(String(port))}), 10);
+const host = getArg('--host', '127.0.0.1') || '127.0.0.1';
+const readyFilePath = process.env.SIFTKIT_FAKE_READY_FILE || '';
+const modelId = process.env.SIFTKIT_FAKE_MODEL_ID || 'managed-test-model';
+const llamaLogLine = process.env.SIFTKIT_FAKE_LLAMA_LOG_LINE || '';
+const invocationLogPath = process.env.SIFTKIT_FAKE_INVOCATION_LOG || '';
+const startupLogLine = process.env.SIFTKIT_FAKE_STARTUP_LOG_LINE || '';
+const emitVerboseEnvFlags = process.env.SIFTKIT_FAKE_EMIT_VERBOSE_ENV_FLAGS === '1';
+const writeLaunchMarker = process.env.SIFTKIT_FAKE_WRITE_LAUNCH_MARKER === '1';
+const launchMarkerPath = process.env.SIFTKIT_FAKE_LAUNCH_MARKER || '';
+const launchHangingProcess = process.env.SIFTKIT_FAKE_LAUNCH_HANGING_PROCESS === '1';
+
+if (startupLogLine) {
+  process.stdout.write(startupLogLine + '\\n');
+}
+if (emitVerboseEnvFlags) {
+  process.stdout.write('verbose_logging_env=' + String(process.env.SIFTKIT_LLAMA_VERBOSE_LOGGING || '') + '\\n');
+}
+if (writeLaunchMarker && launchMarkerPath) {
+  fs.writeFileSync(launchMarkerPath, '1', 'utf8');
+}
+if (invocationLogPath) {
+  fs.writeFileSync(invocationLogPath, JSON.stringify({
+    argv,
+    host,
+    port,
+    verboseLoggingEnv: process.env.SIFTKIT_LLAMA_VERBOSE_LOGGING || '',
+  }, null, 2), 'utf8');
+}
+if (launchHangingProcess) {
+  setInterval(() => {}, 1000);
+  return;
+}
+
+const server = http.createServer((req, res) => {
+  if (req.method === 'GET' && req.url === '/v1/models') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: [{ id: modelId }] }));
+    return;
+  }
+
+  if (req.method === 'GET' && req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  res.writeHead(404, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ error: 'not found' }));
+});
+
+server.listen(port, host, () => {
+  if (readyFilePath) {
+    fs.writeFileSync(readyFilePath, String(process.pid), 'utf8');
+  }
+  if (llamaLogLine) {
+    process.stdout.write(String(llamaLogLine) + '\\n');
+  }
+});
+
+function shutdown() {
+  server.close(() => process.exit(0));
+}
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+`, 'utf8');
+
+  fs.writeFileSync(executablePath, `
+@echo off
+set "NODE_PATH=${String(process.execPath).replace(/"/gu, '""')}"
+set "FAKE_SERVER=${String(fakeServerPath).replace(/"/gu, '""')}"
+set "SIFTKIT_FAKE_MODEL_ID=${String(modelId).replace(/"/gu, '""')}"
+set "SIFTKIT_FAKE_READY_FILE=${String(readyFilePath).replace(/"/gu, '""')}"
+set "SIFTKIT_FAKE_LAUNCH_MARKER=${String(launchMarkerPath).replace(/"/gu, '""')}"
+set "SIFTKIT_FAKE_INVOCATION_LOG=${String(invocationLogPath).replace(/"/gu, '""')}"
+set "SIFTKIT_FAKE_STARTUP_LOG_LINE=${String(options.startupLogLine || '').replace(/"/gu, '""')}"
+set "SIFTKIT_FAKE_LLAMA_LOG_LINE=${String(options.llamaLogLine || '').replace(/"/gu, '""')}"
+set "SIFTKIT_FAKE_EMIT_VERBOSE_ENV_FLAGS=${options.emitVerboseEnvFlags ? '1' : '0'}"
+set "SIFTKIT_FAKE_WRITE_LAUNCH_MARKER=${options.writeLaunchMarker ? '1' : '0'}"
+set "SIFTKIT_FAKE_LAUNCH_HANGING_PROCESS=${options.launchHangingProcess ? '1' : '0'}"
+"%NODE_PATH%" "%FAKE_SERVER%" %*
+`, 'utf8');
+
+  return {
+    baseUrl: `http://127.0.0.1:${port}`,
+    executablePath,
+    fakeServerPath,
+    modelPath,
+    readyFilePath,
+    launchMarkerPath,
+    invocationLogPath,
+  };
+}
+
 async function waitForAsyncExpectation(expectation, timeoutMs = 2000) {
   const startedAt = Date.now();
   let lastError = null;
@@ -1555,6 +1669,6 @@ export {
   startStubStatusServer, withTempEnv, withStubServer, withSummaryTestServer,
   withRealStatusServer, startStatusServerProcess, stripAnsi, captureStdout,
   readIdleSummarySnapshots, getIdleSummaryBlock, getFreePort,
-  toSingleQuotedPowerShellLiteral, writeManagedLlamaScripts,
+  toSingleQuotedPowerShellLiteral, writeManagedLlamaScripts, writeManagedLlamaLauncher,
   waitForAsyncExpectation, runPowerShellScript,
 };

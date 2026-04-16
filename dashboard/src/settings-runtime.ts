@@ -10,7 +10,24 @@ export function deriveRuntimeModelId(modelPath: string | null): string {
 }
 
 export function syncDerivedSettingsFields(config: DashboardConfig): DashboardConfig {
-  const runtimeModelId = deriveRuntimeModelId(config.Runtime.LlamaCpp.ModelPath);
+  config.Runtime.LlamaCpp.BaseUrl = config.Server.LlamaCpp.BaseUrl;
+  config.Runtime.LlamaCpp.ModelPath = config.Server.LlamaCpp.ModelPath;
+  config.Runtime.LlamaCpp.NumCtx = config.Server.LlamaCpp.NumCtx;
+  config.Runtime.LlamaCpp.GpuLayers = config.Server.LlamaCpp.GpuLayers;
+  config.Runtime.LlamaCpp.Threads = config.Server.LlamaCpp.Threads;
+  config.Runtime.LlamaCpp.FlashAttention = config.Server.LlamaCpp.FlashAttention;
+  config.Runtime.LlamaCpp.ParallelSlots = config.Server.LlamaCpp.ParallelSlots;
+  config.Runtime.LlamaCpp.MaxTokens = config.Server.LlamaCpp.MaxTokens;
+  config.Runtime.LlamaCpp.Temperature = config.Server.LlamaCpp.Temperature;
+  config.Runtime.LlamaCpp.TopP = config.Server.LlamaCpp.TopP;
+  config.Runtime.LlamaCpp.TopK = config.Server.LlamaCpp.TopK;
+  config.Runtime.LlamaCpp.MinP = config.Server.LlamaCpp.MinP;
+  config.Runtime.LlamaCpp.PresencePenalty = config.Server.LlamaCpp.PresencePenalty;
+  config.Runtime.LlamaCpp.RepetitionPenalty = config.Server.LlamaCpp.RepetitionPenalty;
+  config.Runtime.LlamaCpp.Reasoning = config.Server.LlamaCpp.Reasoning;
+  config.LlamaCpp = { ...config.Runtime.LlamaCpp };
+
+  const runtimeModelId = deriveRuntimeModelId(config.Server.LlamaCpp.ModelPath);
   config.Runtime.Model = runtimeModelId;
   config.Model = runtimeModelId;
   return config;
