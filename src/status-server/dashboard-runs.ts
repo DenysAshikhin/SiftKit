@@ -1728,8 +1728,18 @@ export function buildDashboardToolStats(
     ? latestSnapshotToolStats
     : currentToolStats;
   const globalToolStats = aggregateGlobalToolStats(baseToolStats);
-  const repoSearchAllowance = getRepoSearchPromptBaselinePerToolAllowanceTokens(config);
-  const plannerAllowance = getPlannerPromptBaselinePerToolAllowanceTokens(config);
+  let repoSearchAllowance: number | null = null;
+  let plannerAllowance: number | null = null;
+  try {
+    repoSearchAllowance = getRepoSearchPromptBaselinePerToolAllowanceTokens(config);
+  } catch {
+    repoSearchAllowance = null;
+  }
+  try {
+    plannerAllowance = getPlannerPromptBaselinePerToolAllowanceTokens(config);
+  } catch {
+    plannerAllowance = null;
+  }
   const result = {} as ToolStatsByTask;
 
   for (const taskKind of TASK_KINDS) {
