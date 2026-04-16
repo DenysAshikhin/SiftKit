@@ -7,6 +7,28 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import Database from 'better-sqlite3';
+import {
+  deriveServiceUrl,
+  getDefaultConfig,
+  clone,
+  getChatRequestText,
+  setManagedLlamaBaseUrl,
+  mergeConfig,
+  extractPromptSection,
+  buildOversizedTransitionsInput,
+  buildOversizedRunnerStateHistoryInput,
+  getRuntimeRootFromStatusPath,
+  getPlannerLogsPath,
+  getFailedLogsPath,
+  getRequestLogsPath,
+  buildStructuredStubDecision,
+  resolveAssistantContent,
+} from './helpers/runtime-config.ts';
+import {
+  readBody,
+  resolveArtifactLogPathFromStatusPost,
+  requestJson,
+} from './helpers/runtime-http.ts';
 
 import {
   loadConfig,
@@ -28,7 +50,6 @@ import { buildPrompt } from '../dist/summary/prompt.js';
 import { getSummaryDecision } from '../dist/summary/decision.js';
 import { planTokenAwareLlamaCppChunks, getPlannerPromptBudget } from '../dist/summary/chunking.js';
 import { buildPlannerToolDefinitions } from '../dist/summary/planner/tools.js';
-import { UNSUPPORTED_INPUT_MESSAGE } from '../dist/summary/measure.js';
 import { runCommand } from '../dist/command.js';
 import { runBenchmarkSuite } from '../dist/benchmark/index.js';
 import {
@@ -66,396 +87,6 @@ const LIVE_CONFIG_SERVICE_URL = process.env.SIFTKIT_CONFIG_SERVICE_URL?.trim() |
 const FAST_LEASE_STALE_MS = 200;
 const FAST_LEASE_WAIT_MS = 350;
 
-function deriveServiceUrl(configuredUrl, nextPath) {
-  const target = new URL(configuredUrl);
-  target.pathname = nextPath;
-  target.search = '';
-  target.hash = '';
-  return target.toString();
-}
-
-function getDefaultConfig() {
-  return {
-    Version: '0.1.0',
-    Backend: 'llama.cpp',
-    Model: 'qwen3.5-9b-instruct-q4_k_m',
-    PolicyMode: 'conservative',
-    RawLogRetention: true,
-    LlamaCpp: {
-      BaseUrl: 'http://127.0.0.1:8080',
-      NumCtx: 128000,
-      ModelPath: null,
-      Temperature: 0.2,
-      TopP: 0.95,
-      TopK: 20,
-      MinP: 0.0,
-      PresencePenalty: 0.0,
-      RepetitionPenalty: 1.0,
-      MaxTokens: 4096,
-      Threads: -1,
-      FlashAttention: true,
-      ParallelSlots: 1,
-      Reasoning: 'off',
-    },
-    Thresholds: {
-      MinCharactersForSummary: 500,
-      MinLinesForSummary: 16,
-    },
-    Interactive: {
-      Enabled: true,
-      WrappedCommands: ['git', 'less', 'vim', 'sqlite3'],
-      IdleTimeoutMs: 900000,
-      MaxTranscriptCharacters: 60000,
-      TranscriptRetention: true,
-    },
-  };
-}
-
-function clone(value) {
-  return JSON.parse(JSON.stringify(value));
-}
-
-function getChatRequestText(request) {
-  if (!request || !Array.isArray(request.messages)) {
-    return '';
-  }
-
-  return request.messages.map((message) => {
-    const parts = [];
-    if (typeof message.content === 'string' && message.content) {
-      parts.push(message.content);
-    }
-    if (Array.isArray(message.content)) {
-      const text = message.content
-        .map((part) => (part && typeof part === 'object' && typeof part.text === 'string') ? part.text : '')
-        .join('');
-      if (text) {
-        parts.push(text);
-      }
-    }
-    if (Array.isArray(message.tool_calls)) {
-      for (const toolCall of message.tool_calls) {
-        if (toolCall?.function?.name) {
-          parts.push(String(toolCall.function.name));
-        }
-        if (toolCall?.function?.arguments) {
-          parts.push(String(toolCall.function.arguments));
-        }
-      }
-    }
-    if (message.function_call?.name) {
-      parts.push(String(message.function_call.name));
-    }
-    if (message.function_call?.arguments) {
-      parts.push(String(message.function_call.arguments));
-    }
-    if (typeof message.tool_call_id === 'string' && message.tool_call_id) {
-      parts.push(message.tool_call_id);
-    }
-    return parts.join('\n');
-  }).join('\n');
-}
-
-function setManagedLlamaBaseUrl(config, baseUrl) {
-  config.LlamaCpp.BaseUrl = baseUrl;
-  config.Runtime ??= {};
-  config.Runtime.Model ??= config.Model;
-  config.Runtime.LlamaCpp = {
-    ...(config.Runtime.LlamaCpp || {}),
-    BaseUrl: baseUrl,
-  };
-}
-
-function mergeConfig(baseValue, patchValue) {
-  if (Array.isArray(baseValue) && Array.isArray(patchValue)) {
-    return patchValue.slice();
-  }
-
-  if (
-    baseValue
-    && patchValue
-    && typeof baseValue === 'object'
-    && typeof patchValue === 'object'
-    && !Array.isArray(baseValue)
-    && !Array.isArray(patchValue)
-  ) {
-    const merged = { ...baseValue };
-    for (const [key, value] of Object.entries(patchValue)) {
-      merged[key] = key in merged ? mergeConfig(merged[key], value) : value;
-    }
-    delete merged.Paths;
-    delete merged.Effective;
-    if (merged.Thresholds && typeof merged.Thresholds === 'object') {
-      delete merged.Thresholds.MaxInputCharacters;
-    }
-    return merged;
-  }
-
-  return patchValue;
-}
-
-function extractPromptSection(promptText, header) {
-  const escaped = header.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-  const match = new RegExp(`${escaped}\\n([\\s\\S]*?)(?:\\n[A-Z][^\\n]*:\\n|$)`, 'u').exec(promptText);
-  return match ? match[1].trim() : '';
-}
-
-function buildOversizedTransitionsInput(targetCharacters) {
-  const transitions = [
-    {
-      id: 9001,
-      label: 'Lumbridge Castle Staircase',
-      type: 'stairs',
-      from: { worldX: 3205, worldY: 3214, plane: 0 },
-      to: { worldX: 3205, worldY: 3214, plane: 1 },
-      bidirectional: true,
-      note: 'exact castle match',
-    },
-    {
-      id: 9002,
-      label: 'Lumbridge Castle Courtyard Gate',
-      type: 'gate',
-      from: { worldX: 3212, worldY: 3221, plane: 0 },
-      to: { worldX: 3213, worldY: 3221, plane: 0 },
-      bidirectional: false,
-      note: 'exact castle match',
-    },
-  ];
-
-  let index = 0;
-  while (JSON.stringify(transitions).length < targetCharacters) {
-    transitions.push({
-      id: 10000 + index,
-      label: `Padding Transition ${index}`,
-      type: 'padding',
-      from: { worldX: 3300 + (index % 50), worldY: 3300 + (index % 50), plane: 0 },
-      to: { worldX: 3400 + (index % 50), worldY: 3400 + (index % 50), plane: 0 },
-      bidirectional: Boolean(index % 2),
-      note: 'P'.repeat(1800),
-    });
-    index += 1;
-  }
-
-  return JSON.stringify(transitions);
-}
-
-function buildOversizedRunnerStateHistoryInput(targetCharacters) {
-  const states = [
-    {
-      timestamp: '2026-03-30T18:39:59Z',
-      lifecycle_state: 'idle',
-      bridge_state: 'connected',
-      scenario_id: null,
-      step_id: null,
-      state_json: JSON.stringify({
-        navigation: { status: 'idle' },
-        blocker: null,
-      }),
-    },
-    {
-      timestamp: '2026-03-30T18:42:57Z',
-      lifecycle_state: 'running',
-      bridge_state: 'connected',
-      scenario_id: 'poi_verification',
-      step_id: 'walk_to_door',
-      state_json: JSON.stringify({
-        navigation: { status: 'navigating' },
-        blocker: { type: 'door', action: 'open' },
-      }),
-    },
-    {
-      timestamp: '2026-03-30T18:45:22Z',
-      lifecycle_state: 'paused',
-      bridge_state: 'connected',
-      scenario_id: 'poi_verification',
-      step_id: 'walk_to_door',
-      state_json: JSON.stringify({
-        navigation: { status: 'blocked' },
-        blocker: { type: 'door', action: 'open', failureReason: 'Hover confirmation failed for Open on Door.' },
-      }),
-    },
-    {
-      timestamp: '2026-03-30T18:50:01Z',
-      lifecycle_state: 'idle',
-      bridge_state: 'connected',
-      scenario_id: null,
-      step_id: null,
-      state_json: JSON.stringify({
-        navigation: { status: 'failed' },
-        blocker: null,
-      }),
-    },
-  ];
-
-  let index = 0;
-  while (JSON.stringify({ count: states.length, states }).length < targetCharacters) {
-    states.push({
-      timestamp: `2026-03-30T19:${String(index % 60).padStart(2, '0')}:00Z`,
-      lifecycle_state: 'idle',
-      bridge_state: 'connected',
-      scenario_id: `padding_${index}`,
-      step_id: `padding_step_${index}`,
-      state_json: JSON.stringify({
-        navigation: { status: 'idle' },
-        note: 'P'.repeat(1800),
-      }),
-    });
-    index += 1;
-  }
-
-  return JSON.stringify({
-    count: states.length,
-    states,
-  });
-}
-
-function getRuntimeRootFromStatusPath(statusPath) {
-  const absoluteStatusPath = path.resolve(statusPath);
-  const statusDirectory = path.dirname(absoluteStatusPath);
-  if (path.basename(statusDirectory).toLowerCase() === 'status') {
-    return path.dirname(statusDirectory);
-  }
-
-  return statusDirectory;
-}
-
-function getPlannerLogsPath() {
-  const statusPath = process.env.sift_kit_status || process.env.SIFTKIT_STATUS_PATH;
-  return statusPath && statusPath.trim()
-    ? path.join(getRuntimeRootFromStatusPath(statusPath), 'logs')
-    : path.join(process.cwd(), '.siftkit', 'logs');
-}
-
-function getFailedLogsPath() {
-  return path.join(getPlannerLogsPath(), 'failed');
-}
-
-function getRequestLogsPath() {
-  return path.join(getPlannerLogsPath(), 'requests');
-}
-
-function buildStructuredStubDecision(promptText) {
-  const inputText = extractPromptSection(promptText, 'Input:');
-
-  if (!inputText.trim() || /unsupported fixture marker/u.test(inputText)) {
-    return {
-      classification: 'unsupported_input',
-      raw_review_required: false,
-      output: UNSUPPORTED_INPUT_MESSAGE,
-    };
-  }
-
-  if (/Unable to resolve external command/u.test(inputText)) {
-    return {
-      classification: 'command_failure',
-      raw_review_required: true,
-      output: 'The command failed before producing a usable result. The executable could not be resolved in the current environment.\nRaw review required.',
-    };
-  }
-
-  return {
-    classification: 'summary',
-    raw_review_required: false,
-    output: `summary:${String(promptText).slice(0, 24)}`,
-  };
-}
-
-function resolveAssistantContent(option, promptText, parsed, requestIndex) {
-  if (typeof option === 'function') {
-    return option(promptText, parsed, requestIndex);
-  }
-
-  if (Array.isArray(option)) {
-    const item = option[Math.min(requestIndex - 1, option.length - 1)];
-    return typeof item === 'function' ? item(promptText, parsed, requestIndex) : item;
-  }
-
-  return option;
-}
-
-function readBody(req) {
-  return new Promise((resolve) => {
-    const chunks = [];
-    req.on('data', (chunk) => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-  });
-}
-
-function resolveArtifactLogPathFromStatusPost(parsedBody) {
-  if (!parsedBody || typeof parsedBody !== 'object') {
-    return null;
-  }
-
-  const artifactType = typeof parsedBody.artifactType === 'string'
-    ? parsedBody.artifactType.trim()
-    : '';
-  const artifactRequestId = typeof parsedBody.artifactRequestId === 'string'
-    ? parsedBody.artifactRequestId.trim()
-    : '';
-  if (!artifactType || !artifactRequestId) {
-    return null;
-  }
-
-  const statusPath = typeof parsedBody.statusPath === 'string' && parsedBody.statusPath.trim()
-    ? parsedBody.statusPath
-    : (process.env.sift_kit_status || process.env.SIFTKIT_STATUS_PATH || '');
-  if (!statusPath) {
-    return null;
-  }
-
-  const logsPath = path.join(getRuntimeRootFromStatusPath(statusPath), 'logs');
-  if (artifactType === 'summary_request') {
-    return path.join(logsPath, 'requests', `request_${artifactRequestId}.json`);
-  }
-  if (artifactType === 'planner_failed') {
-    return path.join(logsPath, 'failed', `request_failed_${artifactRequestId}.json`);
-  }
-  if (artifactType === 'planner_debug') {
-    return path.join(logsPath, `planner_debug_${artifactRequestId}.json`);
-  }
-
-  return null;
-}
-
-function requestJson(url, options = {}) {
-  return new Promise((resolve, reject) => {
-    const target = new URL(url);
-    const request = http.request(
-      {
-        protocol: target.protocol,
-        hostname: target.hostname,
-        port: target.port,
-        path: `${target.pathname}${target.search}`,
-        method: options.method || 'GET',
-        headers: options.body ? {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(options.body, 'utf8'),
-        } : undefined,
-      },
-      (response) => {
-        let responseText = '';
-        response.setEncoding('utf8');
-        response.on('data', (chunk) => {
-          responseText += chunk;
-        });
-        response.on('end', () => {
-          if ((response.statusCode || 0) >= 400) {
-            reject(new Error(`HTTP ${response.statusCode}: ${responseText}`));
-            return;
-          }
-
-          resolve(responseText ? JSON.parse(responseText) : {});
-        });
-      }
-    );
-
-    request.on('error', reject);
-    if (options.body) {
-      request.write(options.body);
-    }
-    request.end();
-  });
-}
 
 function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -909,6 +540,20 @@ async function startStubStatusServer(options = {}) {
   if (state.config.LlamaCpp && typeof state.config.LlamaCpp === 'object') {
     state.config.LlamaCpp.BaseUrl = `http://127.0.0.1:${port}`;
   }
+  if (!state.config.Runtime || typeof state.config.Runtime !== 'object') {
+    state.config.Runtime = {};
+  }
+  if (!state.config.Runtime.LlamaCpp || typeof state.config.Runtime.LlamaCpp !== 'object') {
+    state.config.Runtime.LlamaCpp = {};
+  }
+  state.config.Runtime.LlamaCpp.BaseUrl = `http://127.0.0.1:${port}`;
+  if (!state.config.Server || typeof state.config.Server !== 'object') {
+    state.config.Server = {};
+  }
+  if (!state.config.Server.LlamaCpp || typeof state.config.Server.LlamaCpp !== 'object') {
+    state.config.Server.LlamaCpp = {};
+  }
+  state.config.Server.LlamaCpp.BaseUrl = `http://127.0.0.1:${port}`;
 
   return {
     port,

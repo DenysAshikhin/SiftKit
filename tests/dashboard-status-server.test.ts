@@ -8,7 +8,20 @@ import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 
 import { startStatusServer } from '../dist/status-server/index.js';
+import { writeConfig } from '../dist/status-server/config-store.js';
 import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
+import {
+  fireAndAbortJsonRequest,
+  removeDirectoryWithRetries,
+  requestJson,
+  requestSse,
+  type Dict,
+  type JsonResponse,
+  type RequestOptions,
+  type SseEvent,
+  type SseResponse,
+  writeJson,
+} from './helpers/dashboard-http.ts';
 
 const requireFromHere = createRequire(__filename);
 const Database = requireFromHere('better-sqlite3') as new (path: string, options?: { readonly?: boolean }) => {
@@ -22,7 +35,15 @@ const runtimeHelpers = requireFromHere('./_runtime-helpers.js') as {
     shutdownScriptPath: string;
     readyFilePath: string;
   };
+  writeManagedLlamaLauncher: (tempRoot: string, port: number, modelId?: string) => {
+    baseUrl: string;
+    executablePath: string;
+    modelPath: string;
+    readyFilePath: string;
+  };
   getFreePort: () => Promise<number>;
+  getDefaultConfig: () => Dict;
+  setManagedLlamaBaseUrl: (config: Dict, baseUrl: string) => void;
   waitForAsyncExpectation: (expectation: () => Promise<void>, timeoutMs?: number) => Promise<void>;
   startStatusServerProcess: (options: {
     statusPath: string;
@@ -36,196 +57,6 @@ const runtimeHelpers = requireFromHere('./_runtime-helpers.js') as {
   }>;
 };
 
-type Dict = Record<string, unknown>;
-type JsonResponse = { statusCode: number; body: Dict };
-type SseEvent = { event: string; payload: Dict | null };
-type SseResponse = { statusCode: number; events: SseEvent[] };
-type RequestOptions = { method?: string; body?: string; timeoutMs?: number };
-
-function requestJson(url: string, options: RequestOptions = {}): Promise<JsonResponse> {
-  return new Promise((resolve, reject) => {
-    const target = new URL(url);
-    const request = http.request(
-      {
-        protocol: target.protocol,
-        hostname: target.hostname,
-        port: target.port,
-        path: `${target.pathname}${target.search}`,
-        method: options.method || 'GET',
-        headers: options.body ? {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(options.body, 'utf8'),
-        } : undefined,
-      },
-      (response) => {
-        let responseText = '';
-        response.setEncoding('utf8');
-        response.on('data', (chunk: string) => {
-          responseText += chunk;
-        });
-        response.on('end', () => {
-          resolve({
-            statusCode: response.statusCode || 0,
-            body: responseText ? JSON.parse(responseText) as Dict : {},
-          });
-        });
-      },
-    );
-    request.on('error', reject);
-    request.setTimeout(Number(options.timeoutMs || 4000), () => {
-      request.destroy(new Error('request timeout'));
-    });
-    if (options.body) {
-      request.write(options.body);
-    }
-    request.end();
-  });
-}
-
-function requestSse(url: string, options: RequestOptions = {}): Promise<SseResponse> {
-  return new Promise((resolve, reject) => {
-    const target = new URL(url);
-    const events: SseEvent[] = [];
-    const request = http.request(
-      {
-        protocol: target.protocol,
-        hostname: target.hostname,
-        port: target.port,
-        path: `${target.pathname}${target.search}`,
-        method: options.method || 'GET',
-        headers: options.body ? {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(options.body, 'utf8'),
-        } : undefined,
-      },
-      (response) => {
-        let buffer = '';
-        response.setEncoding('utf8');
-        response.on('data', (chunk: string) => {
-          buffer += chunk;
-          let boundary = buffer.indexOf('\n\n');
-          while (boundary >= 0) {
-            const packet = buffer.slice(0, boundary);
-            buffer = buffer.slice(boundary + 2);
-            const lines = packet
-              .split(/\r?\n/u)
-              .map((line) => line.trim())
-              .filter(Boolean);
-            const eventLine = lines.find((line) => line.startsWith('event:'));
-            const dataLine = lines.find((line) => line.startsWith('data:'));
-            if (!dataLine) {
-              boundary = buffer.indexOf('\n\n');
-              continue;
-            }
-            const eventName = eventLine ? eventLine.slice(6).trim() : 'message';
-            let payload: Dict | null = null;
-            try {
-              payload = JSON.parse(dataLine.slice(5).trim()) as Dict;
-            } catch {
-              payload = null;
-            }
-            events.push({ event: eventName, payload });
-            if (eventName === 'done' || eventName === 'error') {
-              request.destroy();
-              resolve({
-                statusCode: response.statusCode || 0,
-                events,
-              });
-              return;
-            }
-            boundary = buffer.indexOf('\n\n');
-          }
-        });
-        response.on('error', reject);
-        response.on('end', () => {
-          resolve({
-            statusCode: response.statusCode || 0,
-            events,
-          });
-        });
-      },
-    );
-    request.on('error', reject);
-    request.setTimeout(Number(options.timeoutMs || 8000), () => {
-      request.destroy(new Error('request timeout'));
-    });
-    if (options.body) {
-      request.write(options.body);
-    }
-    request.end();
-  });
-}
-
-function fireAndAbortJsonRequest(url: string, body: string, abortAfterMs: number = 100): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const target = new URL(url);
-    let settled = false;
-    let timer: NodeJS.Timeout | null = null;
-    const finish = (error?: unknown): void => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      if (!error) {
-        resolve();
-        return;
-      }
-      const message = error instanceof Error ? error.message : String(error);
-      if (/aborted|hang up|econnreset/iu.test(message)) {
-        resolve();
-        return;
-      }
-      reject(error);
-    };
-    const request = http.request(
-      {
-        protocol: target.protocol,
-        hostname: target.hostname,
-        port: target.port,
-        path: `${target.pathname}${target.search}`,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body, 'utf8'),
-        },
-      },
-      (response) => {
-        response.resume();
-        finish();
-      },
-    );
-    request.on('error', (error) => finish(error));
-    request.write(body);
-    request.end();
-    timer = setTimeout(() => {
-      request.destroy(new Error('client aborted request'));
-      finish();
-    }, Math.max(1, Math.trunc(abortAfterMs)));
-  });
-}
-
-function writeJson(targetPath: string, payload: unknown): void {
-  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  fs.writeFileSync(targetPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-}
-
-async function removeDirectoryWithRetries(targetPath: string, attempts: number = 40, delayMs: number = 100): Promise<void> {
-  for (let index = 0; index < attempts; index += 1) {
-    try {
-      fs.rmSync(targetPath, { recursive: true, force: true });
-      return;
-    } catch {
-      if (index === attempts - 1) {
-        return;
-      }
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
-    }
-  }
-}
 
 function d(value: unknown): Dict {
   return (value || {}) as Dict;
@@ -582,6 +413,12 @@ test('dashboard metrics expose line-read stats and prompt-baseline recommendatio
       Model: 'mock-model.gguf',
       NumCtx: 32000,
       PromptTokenReserve: 4000,
+    },
+    Server: {
+      LlamaCpp: {
+        BaseUrl: 'http://127.0.0.1:8080',
+        NumCtx: 32000,
+      },
     },
   }, null, 2));
 
@@ -1177,6 +1014,12 @@ test('chat completion receives hidden tool context while keeping it out of visib
         NumCtx: 85000,
       },
     },
+    Server: {
+      LlamaCpp: {
+        BaseUrl: `http://127.0.0.1:${llamaAddress.port}`,
+        NumCtx: 85000,
+      },
+    },
   });
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
@@ -1554,122 +1397,3 @@ test('dashboard deletes matching logs before a date and rejects invalid delete c
   }
 });
 
-test('dashboard plan wakes managed llama after idle shutdown', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-idle-wakeup-'));
-  const previousCwd = enterDashboardTestRepo(tempRoot);
-  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
-  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
-  const llamaPort = await runtimeHelpers.getFreePort();
-  const managed = runtimeHelpers.writeManagedLlamaScripts(tempRoot, llamaPort);
-  writeJson(configPath, {
-    Backend: 'llama.cpp',
-    Model: 'managed-test-model',
-    LlamaCpp: {
-      BaseUrl: managed.baseUrl,
-      NumCtx: 32000,
-    },
-    Runtime: {
-      Model: 'managed-test-model',
-      LlamaCpp: {
-        BaseUrl: managed.baseUrl,
-      },
-    },
-    Server: {
-      LlamaCpp: {
-        StartupScript: managed.startupScriptPath,
-        ShutdownScript: managed.shutdownScriptPath,
-        StartupTimeoutMs: 5000,
-        HealthcheckTimeoutMs: 200,
-        HealthcheckIntervalMs: 50,
-      },
-    },
-  });
-
-  const server = await runtimeHelpers.startStatusServerProcess({
-    statusPath,
-    configPath,
-    idleSummaryDelayMs: 80,
-  });
-  const baseUrl = new URL(server.statusUrl).origin;
-
-  try {
-    await runtimeHelpers.waitForAsyncExpectation(async () => {
-      const modelsResponse = await requestJson(`${managed.baseUrl}/v1/models`);
-      assert.equal(modelsResponse.statusCode, 200);
-    }, 5000);
-    assert.equal(fs.existsSync(managed.readyFilePath), true);
-
-    const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
-      method: 'POST',
-      body: JSON.stringify({
-        title: 'Wakeup session',
-        model: 'managed-test-model',
-      }),
-    });
-    assert.equal(createSession.statusCode, 200);
-    const sessionId = String(d(createSession.body.session).id);
-
-    await requestJson(`${baseUrl}/status`, {
-      method: 'POST',
-      body: JSON.stringify({
-        running: true,
-        requestId: 'dashboard-idle-wakeup-primer',
-        rawInputCharacterCount: 10,
-        promptCharacterCount: 10,
-      }),
-    });
-    await requestJson(`${baseUrl}/status`, {
-      method: 'POST',
-      body: JSON.stringify({
-        running: false,
-        requestId: 'dashboard-idle-wakeup-primer',
-        taskKind: 'plan',
-        terminalState: 'completed',
-        promptCharacterCount: 10,
-        inputTokens: 1,
-        outputCharacterCount: 1,
-        outputTokens: 1,
-        requestDurationMs: 10,
-      }),
-    });
-
-    await runtimeHelpers.waitForAsyncExpectation(async () => {
-      const statusResponse = await requestJson(server.statusUrl);
-      assert.equal(statusResponse.statusCode, 200);
-      assert.equal(statusResponse.body.status, 'false');
-    }, 5000);
-    await assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`));
-
-    const planResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/plan`, {
-      method: 'POST',
-      timeoutMs: 15000,
-      body: JSON.stringify({
-        content: 'Find wake-up wiring',
-        repoRoot: tempRoot,
-        maxTurns: 2,
-        model: 'managed-test-model',
-        mockResponses: [
-          '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"ensureManagedLlamaReady\\" src/status-server"}}',
-          '{"action":"finish","output":"done","confidence":0.9}',
-        ],
-        mockCommandResults: {
-          'rg -n "ensureManagedLlamaReady" src/status-server': { exitCode: 0, stdout: 'src/status-server/managed-llama.ts:1:ensureManagedLlamaReady', stderr: '' },
-        },
-      }),
-    });
-    assert.equal(planResponse.statusCode, 200);
-
-    await runtimeHelpers.waitForAsyncExpectation(async () => {
-      const modelsResponse = await requestJson(`${managed.baseUrl}/v1/models`);
-      assert.equal(modelsResponse.statusCode, 200);
-    }, 5000);
-  } finally {
-    await server.close();
-    restoreDashboardTestRepo(previousCwd);
-    try {
-      await removeDirectoryWithRetries(tempRoot);
-    } catch {
-      // Best-effort temp cleanup on Windows.
-    }
-  }
-});

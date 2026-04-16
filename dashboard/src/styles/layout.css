@@ -1,0 +1,149 @@
+.app-shell {
+  padding: 20px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.toast-stack {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 999;
+  display: grid;
+  gap: 8px;
+  max-width: min(560px, calc(100vw - 32px));
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #102132f2;
+  color: var(--ink);
+  box-shadow: 0 8px 24px #0000004f;
+}
+
+.toast.info {
+  border-color: #3b6388;
+}
+
+.toast.warning {
+  border-color: var(--accent-warn);
+}
+
+.toast.error {
+  border-color: #c05353;
+}
+
+.toast-dismiss {
+  border: none !important;
+  background: transparent !important;
+  color: var(--ink-dim);
+  cursor: pointer;
+  padding: 0 !important;
+  line-height: 1;
+  font-size: 1.2rem;
+}
+
+.topbar h1 {
+  margin: 0;
+  font-weight: 700;
+  font-size: 2.7rem;
+  line-height: 1.1;
+  display: inline-block;
+  margin-right: 14px;
+}
+
+.topbar p {
+  margin: 0;
+  color: var(--ink-dim);
+  display: inline-block;
+  vertical-align: baseline;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  position: relative;
+}
+
+.topbar-menu {
+  position: relative;
+}
+
+.hamburger-button {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 10px;
+}
+
+.hamburger-button span {
+  display: block;
+  width: 100%;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--ink);
+}
+
+.menu-popover {
+  position: absolute;
+  top: 46px;
+  left: 0;
+  min-width: 140px;
+  display: grid;
+  gap: 6px;
+  background: #132536;
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  padding: 8px;
+  z-index: 10;
+}
+
+.menu-popover button {
+  text-align: left;
+}
+
+.menu-popover button.active {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+button {
+  border: 1px solid var(--stroke);
+  background: #132536;
+  color: var(--ink);
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.panel-grid {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+}
+
+.panel {
+  border: 1px solid var(--stroke);
+  border-radius: 14px;
+  background: #132537cc;
+  backdrop-filter: blur(4px);
+  padding: 14px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
