@@ -18,6 +18,21 @@ import {
   getRuntimeMetadataValue,
 } from '../dist/state/runtime-db.js';
 
+function removeDirectoryWithRetries(targetPath: string, attempts = 40, delayMs = 50): void {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      fs.rmSync(targetPath, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error ? String((error as { code?: unknown }).code || '') : '';
+      if (code !== 'EPERM' && code !== 'EBUSY') {
+        throw error;
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+    }
+  }
+}
+
 function withTempRepo(fn: (repoRoot: string) => void): void {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-cutover-migration-'));
   const previousCwd = process.cwd();
@@ -32,7 +47,7 @@ function withTempRepo(fn: (repoRoot: string) => void): void {
   } finally {
     process.chdir(previousCwd);
     closeRuntimeDatabase();
-    fs.rmSync(repoRoot, { recursive: true, force: true });
+    removeDirectoryWithRetries(repoRoot);
   }
 }
 
@@ -309,8 +324,10 @@ test('runtime database migrates schema v5 GPU fields to schema v6 boolean-only s
       WHERE type = 'table' AND name = 'runtime_status'
     `).get() as { sql: string };
 
-    assert.equal(versionRow.version, 6);
+    assert.equal(versionRow.version, 9);
     assert.equal(appConfigColumns.some((column) => column.name === 'llama_gpu_layers'), false);
+    assert.equal(appConfigColumns.some((column) => column.name === 'server_kv_cache_quant'), true);
+    assert.equal(appConfigColumns.some((column) => column.name === 'server_llama_presets_json'), true);
     assert.equal(readStatusText(databasePath), 'false');
     assert.match(runtimeStatusSql.sql, /status_text IN \('true', 'false'\)/u);
   });

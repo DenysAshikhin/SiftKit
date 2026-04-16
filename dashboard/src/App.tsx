@@ -38,6 +38,12 @@ import {
   getSurfacePresets,
 } from './dashboard-presets';
 import {
+  addManagedLlamaPreset,
+  applyManagedLlamaPresetSelection,
+  deleteManagedLlamaPreset,
+  updateActiveManagedLlamaPreset,
+} from './managed-llama-presets';
+import {
   applyOperationModeDefaults,
   applyPresetKindDefaults,
   getDefaultToolsForOperationMode,
@@ -59,7 +65,8 @@ import {
   type SettingsFieldLayout,
   type SettingsSectionId,
 } from './settings-sections';
-import { deriveRuntimeModelId, syncDerivedSettingsFields } from './settings-runtime';
+import { buildManagedLlamaRestartFailureModal } from './managed-llama-restart';
+import { syncDerivedSettingsFields } from './settings-runtime';
 import { SettingsMockupPage } from './settings-mockup';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -79,6 +86,7 @@ import type {
   ChatSession,
   ContextUsage,
   DashboardConfig,
+  DashboardManagedLlamaPreset,
   DashboardPreset,
   IdleSummarySnapshot,
   MetricDay,
@@ -98,6 +106,8 @@ type ToastMessage = {
   level: ToastLevel;
   text: string;
 };
+
+const KV_CACHE_QUANT_OPTIONS = ['f32', 'f16', 'bf16', 'q8_0', 'q4_0', 'q4_1', 'iq4_nl', 'q5_0', 'q5_1'] as const;
 
 export function App() {
   const dashboardView = getDashboardView(window.location.pathname);
@@ -826,6 +836,7 @@ function DashboardApp() {
   const [selectedSettingsPresetId, setSelectedSettingsPresetId] = useState<string | null>(null);
   const [pendingSettingsContinuation, setPendingSettingsContinuation] = useState<DirtyContinuation | null>(null);
   const [showSettingsConfirm, setShowSettingsConfirm] = useState(false);
+  const [settingsRestartFailureModal, setSettingsRestartFailureModal] = useState<{ title: string; message: string } | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [thinkingDraft, setThinkingDraft] = useState('');
   const [answerDraft, setAnswerDraft] = useState('');
@@ -973,6 +984,11 @@ function DashboardApp() {
   const webPresets = getSurfacePresets(dashboardConfig, 'web');
   const selectedSettingsPreset = dashboardConfig
     ? dashboardConfig.Presets.find((preset) => preset.id === selectedSettingsPresetId) ?? dashboardConfig.Presets[0] ?? null
+    : null;
+  const selectedManagedLlamaPreset = dashboardConfig
+    ? dashboardConfig.Server.LlamaCpp.Presets.find((preset) => preset.id === dashboardConfig.Server.LlamaCpp.ActivePresetId)
+      ?? dashboardConfig.Server.LlamaCpp.Presets[0]
+      ?? null
     : null;
   const selectedChatPreset = getPresetById(dashboardConfig, selectedSession?.presetId)
     || getPresetById(dashboardConfig, selectedSession?.mode)
@@ -1263,6 +1279,12 @@ function DashboardApp() {
     });
   }
 
+  function updateManagedLlamaDraft(updater: (preset: DashboardManagedLlamaPreset) => void): void {
+    updateSettingsDraft((next) => {
+      updateActiveManagedLlamaPreset(next, updater);
+    });
+  }
+
   function createUniquePresetId(existingPresets: DashboardPreset[], label: string): string {
     const baseId = createPresetIdFromLabel(label);
     if (!existingPresets.some((preset) => preset.id === baseId)) {
@@ -1311,6 +1333,18 @@ function DashboardApp() {
       next.Presets = next.Presets.filter((preset) => preset.id !== presetId || preset.deletable === false);
     });
     setSelectedSettingsPresetId(nextPresetId);
+  }
+
+  function onAddManagedLlamaPreset(): void {
+    updateSettingsDraft((next) => {
+      addManagedLlamaPreset(next);
+    });
+  }
+
+  function onDeleteManagedLlamaPreset(presetId: string): void {
+    updateSettingsDraft((next) => {
+      deleteManagedLlamaPreset(next, presetId);
+    });
   }
 
   useEffect(() => {
@@ -1700,12 +1734,12 @@ function DashboardApp() {
   }
 
   async function onPickManagedLlamaPath(target: 'ExecutablePath' | 'ModelPath'): Promise<void> {
-    if (!dashboardConfig) {
+    if (!dashboardConfig || !selectedManagedLlamaPreset) {
       return;
     }
     const initialPath = target === 'ExecutablePath'
-      ? dashboardConfig.Server.LlamaCpp.ExecutablePath
-      : dashboardConfig.Server.LlamaCpp.ModelPath;
+      ? selectedManagedLlamaPreset.ExecutablePath
+      : selectedManagedLlamaPreset.ModelPath;
     setSettingsPathPickerBusyTarget(target);
     setSettingsError(null);
     try {
@@ -1716,16 +1750,12 @@ function DashboardApp() {
       if (response.cancelled || !response.path) {
         return;
       }
-      updateSettingsDraft((next) => {
+      updateManagedLlamaDraft((preset) => {
         if (target === 'ExecutablePath') {
-          next.Server.LlamaCpp.ExecutablePath = response.path;
+          preset.ExecutablePath = response.path;
           return;
         }
-        next.Server.LlamaCpp.ModelPath = response.path;
-        next.Runtime.LlamaCpp.ModelPath = response.path;
-        next.LlamaCpp.ModelPath = response.path;
-        next.Runtime.Model = deriveRuntimeModelId(response.path);
-        next.Model = next.Runtime.Model;
+        preset.ModelPath = response.path;
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1747,8 +1777,19 @@ function DashboardApp() {
   async function restartDashboardBackendCore(): Promise<boolean> {
     setSettingsRestarting(true);
     setSettingsError(null);
+    setSettingsRestartFailureModal(null);
     try {
-      await restartBackend();
+      const response = await restartBackend();
+      if (!response.ok || !response.restarted) {
+        const message = response.error || 'Backend restart failed.';
+        const modal = buildManagedLlamaRestartFailureModal(response);
+        setSettingsError(message);
+        if (modal) {
+          setSettingsRestartFailureModal(modal);
+        }
+        enqueueToast('error', `Backend restart failed: ${message}`);
+        return false;
+      }
       await getDashboardHealth();
       const reloaded = await reloadDashboardSettingsCore();
       if (reloaded) {
@@ -2222,15 +2263,57 @@ function DashboardApp() {
       );
     }
 
+    if (!selectedManagedLlamaPreset) {
+      return null;
+    }
+
     return (
       <div className="settings-live-grid">
+        {renderField('managed-llama', 'Managed preset', (
+          <div className="settings-preset-library">
+            <div className="settings-preset-toolbar">
+              <label className="settings-preset-selector">
+                <span className="settings-preset-inline-label"><SettingsInlineHelpLabel label="Preset" helpText="Pick which managed llama launcher preset to edit and launch." /></span>
+                <select
+                  value={dashboardConfig.Server.LlamaCpp.ActivePresetId}
+                  onChange={(event) => updateSettingsDraft((next) => {
+                    applyManagedLlamaPresetSelection(next, event.target.value);
+                  })}
+                  disabled={dashboardConfig.Server.LlamaCpp.Presets.length === 0}
+                >
+                  {dashboardConfig.Server.LlamaCpp.Presets.map((preset) => (
+                    <option key={preset.id} value={preset.id}>{preset.label}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="settings-preset-library-actions">
+                <button type="button" onClick={onAddManagedLlamaPreset}>Add Preset</button>
+                <button
+                  type="button"
+                  onClick={() => { onDeleteManagedLlamaPreset(selectedManagedLlamaPreset.id); }}
+                  disabled={dashboardConfig.Server.LlamaCpp.Presets.length <= 1}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {renderField('managed-llama', 'Preset name', (
+          <input
+            value={selectedManagedLlamaPreset.label}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.label = event.target.value;
+            })}
+          />
+        ))}
         {renderField('managed-llama', 'Executable path', (
           <div className="settings-live-nav-control">
             <input
-              value={dashboardConfig.Server.LlamaCpp.ExecutablePath || ''}
-              onChange={(event) => updateSettingsDraft((next) => {
+              value={selectedManagedLlamaPreset.ExecutablePath || ''}
+              onChange={(event) => updateManagedLlamaDraft((preset) => {
                 const value = event.target.value.trim();
-                next.Server.LlamaCpp.ExecutablePath = value || null;
+                preset.ExecutablePath = value || null;
               })}
             />
             <button
@@ -2244,42 +2327,36 @@ function DashboardApp() {
         ))}
         {renderField('managed-llama', 'Base URL', (
           <input
-            value={dashboardConfig.Server.LlamaCpp.BaseUrl}
-            onChange={(event) => updateSettingsDraft((next) => {
-              next.Server.LlamaCpp.BaseUrl = event.target.value;
-              next.Runtime.LlamaCpp.BaseUrl = event.target.value;
-              next.LlamaCpp.BaseUrl = event.target.value;
+            value={selectedManagedLlamaPreset.BaseUrl}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.BaseUrl = event.target.value;
             })}
           />
         ))}
         {renderField('managed-llama', 'Bind host', (
           <input
-            value={dashboardConfig.Server.LlamaCpp.BindHost}
-            onChange={(event) => updateSettingsDraft((next) => {
-              next.Server.LlamaCpp.BindHost = event.target.value;
+            value={selectedManagedLlamaPreset.BindHost}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.BindHost = event.target.value;
             })}
           />
         ))}
         {renderField('managed-llama', 'Port', (
           <input
             type="number"
-            value={dashboardConfig.Server.LlamaCpp.Port}
-            onChange={(event) => updateSettingsDraft((next) => {
-              next.Server.LlamaCpp.Port = parseIntegerInput(event.target.value, next.Server.LlamaCpp.Port);
+            value={selectedManagedLlamaPreset.Port}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.Port = parseIntegerInput(event.target.value, preset.Port);
             })}
           />
         ))}
         {renderField('managed-llama', 'Model path (.gguf)', (
           <div className="settings-live-nav-control">
             <input
-              value={dashboardConfig.Server.LlamaCpp.ModelPath || ''}
-              onChange={(event) => updateSettingsDraft((next) => {
+              value={selectedManagedLlamaPreset.ModelPath || ''}
+              onChange={(event) => updateManagedLlamaDraft((preset) => {
                 const value = event.target.value.trim();
-                next.Server.LlamaCpp.ModelPath = value || null;
-                next.Runtime.LlamaCpp.ModelPath = value || null;
-                next.LlamaCpp.ModelPath = value || null;
-                next.Runtime.Model = deriveRuntimeModelId(value || null);
-                next.Model = next.Runtime.Model;
+                preset.ModelPath = value || null;
               })}
             />
             <button
@@ -2294,36 +2371,27 @@ function DashboardApp() {
         {renderField('managed-llama', 'NumCtx', (
           <input
             type="number"
-            value={dashboardConfig.Server.LlamaCpp.NumCtx}
-            onChange={(event) => updateSettingsDraft((next) => {
-              const value = parseIntegerInput(event.target.value, next.Server.LlamaCpp.NumCtx);
-              next.Server.LlamaCpp.NumCtx = value;
-              next.Runtime.LlamaCpp.NumCtx = value;
-              next.LlamaCpp.NumCtx = value;
+            value={selectedManagedLlamaPreset.NumCtx}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.NumCtx = parseIntegerInput(event.target.value, preset.NumCtx);
             })}
           />
         ))}
         {renderField('managed-llama', 'GpuLayers', (
           <input
             type="number"
-            value={dashboardConfig.Server.LlamaCpp.GpuLayers}
-            onChange={(event) => updateSettingsDraft((next) => {
-              const value = parseIntegerInput(event.target.value, next.Server.LlamaCpp.GpuLayers);
-              next.Server.LlamaCpp.GpuLayers = value;
-              next.Runtime.LlamaCpp.GpuLayers = value;
-              next.LlamaCpp.GpuLayers = value;
+            value={selectedManagedLlamaPreset.GpuLayers}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.GpuLayers = parseIntegerInput(event.target.value, preset.GpuLayers);
             })}
           />
         ))}
         {renderField('managed-llama', 'Threads', (
           <input
             type="number"
-            value={dashboardConfig.Server.LlamaCpp.Threads}
-            onChange={(event) => updateSettingsDraft((next) => {
-              const value = parseIntegerInput(event.target.value, next.Server.LlamaCpp.Threads);
-              next.Server.LlamaCpp.Threads = value;
-              next.Runtime.LlamaCpp.Threads = value;
-              next.LlamaCpp.Threads = value;
+            value={selectedManagedLlamaPreset.Threads}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.Threads = parseIntegerInput(event.target.value, preset.Threads);
             })}
           />
         ))}
@@ -2331,64 +2399,70 @@ function DashboardApp() {
           <label className="settings-live-toggle-control">
             <input
               type="checkbox"
-              checked={dashboardConfig.Server.LlamaCpp.FlashAttention}
-              onChange={(event) => updateSettingsDraft((next) => {
-                next.Server.LlamaCpp.FlashAttention = event.target.checked;
-                next.Runtime.LlamaCpp.FlashAttention = event.target.checked;
-                next.LlamaCpp.FlashAttention = event.target.checked;
+              checked={selectedManagedLlamaPreset.FlashAttention}
+              onChange={(event) => updateManagedLlamaDraft((preset) => {
+                preset.FlashAttention = event.target.checked;
               })}
             />
-            <span>{dashboardConfig.Server.LlamaCpp.FlashAttention ? 'Enabled' : 'Disabled'}</span>
+            <span>{selectedManagedLlamaPreset.FlashAttention ? 'Enabled' : 'Disabled'}</span>
           </label>
         ))}
         {renderField('managed-llama', 'ParallelSlots', (
           <input
             type="number"
-            value={dashboardConfig.Server.LlamaCpp.ParallelSlots}
-            onChange={(event) => updateSettingsDraft((next) => {
-              const value = parseIntegerInput(event.target.value, next.Server.LlamaCpp.ParallelSlots);
-              next.Server.LlamaCpp.ParallelSlots = value;
-              next.Runtime.LlamaCpp.ParallelSlots = value;
-              next.LlamaCpp.ParallelSlots = value;
+            value={selectedManagedLlamaPreset.ParallelSlots}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.ParallelSlots = parseIntegerInput(event.target.value, preset.ParallelSlots);
             })}
           />
         ))}
         {renderField('managed-llama', 'BatchSize', (
           <input
             type="number"
-            value={dashboardConfig.Server.LlamaCpp.BatchSize}
-            onChange={(event) => updateSettingsDraft((next) => {
-              next.Server.LlamaCpp.BatchSize = parseIntegerInput(event.target.value, next.Server.LlamaCpp.BatchSize);
+            value={selectedManagedLlamaPreset.BatchSize}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.BatchSize = parseIntegerInput(event.target.value, preset.BatchSize);
             })}
           />
         ))}
         {renderField('managed-llama', 'UBatchSize', (
           <input
             type="number"
-            value={dashboardConfig.Server.LlamaCpp.UBatchSize}
-            onChange={(event) => updateSettingsDraft((next) => {
-              next.Server.LlamaCpp.UBatchSize = parseIntegerInput(event.target.value, next.Server.LlamaCpp.UBatchSize);
+            value={selectedManagedLlamaPreset.UBatchSize}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.UBatchSize = parseIntegerInput(event.target.value, preset.UBatchSize);
             })}
           />
         ))}
         {renderField('managed-llama', 'CacheRam', (
           <input
             type="number"
-            value={dashboardConfig.Server.LlamaCpp.CacheRam}
-            onChange={(event) => updateSettingsDraft((next) => {
-              next.Server.LlamaCpp.CacheRam = parseIntegerInput(event.target.value, next.Server.LlamaCpp.CacheRam);
+            value={selectedManagedLlamaPreset.CacheRam}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.CacheRam = parseIntegerInput(event.target.value, preset.CacheRam);
             })}
           />
+        ))}
+        {renderField('managed-llama', 'KV cache quant', (
+          <select
+            value={selectedManagedLlamaPreset.KvCacheQuantization}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.KvCacheQuantization = event.target.value as typeof preset.KvCacheQuantization;
+            })}
+          >
+            {KV_CACHE_QUANT_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
         ))}
         {renderField('managed-llama', 'MaxTokens', (
           <input
             type="number"
-            value={dashboardConfig.Server.LlamaCpp.MaxTokens}
-            onChange={(event) => updateSettingsDraft((next) => {
-              const value = parseIntegerInput(event.target.value, next.Server.LlamaCpp.MaxTokens);
-              next.Server.LlamaCpp.MaxTokens = value;
-              next.Runtime.LlamaCpp.MaxTokens = value;
-              next.LlamaCpp.MaxTokens = value;
+            value={selectedManagedLlamaPreset.MaxTokens}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.MaxTokens = parseIntegerInput(event.target.value, preset.MaxTokens);
             })}
           />
         ))}
@@ -2396,12 +2470,9 @@ function DashboardApp() {
           <input
             type="number"
             step="0.01"
-            value={dashboardConfig.Server.LlamaCpp.Temperature}
-            onChange={(event) => updateSettingsDraft((next) => {
-              const value = parseFloatInput(event.target.value, next.Server.LlamaCpp.Temperature);
-              next.Server.LlamaCpp.Temperature = value;
-              next.Runtime.LlamaCpp.Temperature = value;
-              next.LlamaCpp.Temperature = value;
+            value={selectedManagedLlamaPreset.Temperature}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.Temperature = parseFloatInput(event.target.value, preset.Temperature);
             })}
           />
         ))}
@@ -2409,24 +2480,18 @@ function DashboardApp() {
           <input
             type="number"
             step="0.01"
-            value={dashboardConfig.Server.LlamaCpp.TopP}
-            onChange={(event) => updateSettingsDraft((next) => {
-              const value = parseFloatInput(event.target.value, next.Server.LlamaCpp.TopP);
-              next.Server.LlamaCpp.TopP = value;
-              next.Runtime.LlamaCpp.TopP = value;
-              next.LlamaCpp.TopP = value;
+            value={selectedManagedLlamaPreset.TopP}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.TopP = parseFloatInput(event.target.value, preset.TopP);
             })}
           />
         ))}
         {renderField('managed-llama', 'TopK', (
           <input
             type="number"
-            value={dashboardConfig.Server.LlamaCpp.TopK}
-            onChange={(event) => updateSettingsDraft((next) => {
-              const value = parseIntegerInput(event.target.value, next.Server.LlamaCpp.TopK);
-              next.Server.LlamaCpp.TopK = value;
-              next.Runtime.LlamaCpp.TopK = value;
-              next.LlamaCpp.TopK = value;
+            value={selectedManagedLlamaPreset.TopK}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.TopK = parseIntegerInput(event.target.value, preset.TopK);
             })}
           />
         ))}
@@ -2434,12 +2499,9 @@ function DashboardApp() {
           <input
             type="number"
             step="0.01"
-            value={dashboardConfig.Server.LlamaCpp.MinP}
-            onChange={(event) => updateSettingsDraft((next) => {
-              const value = parseFloatInput(event.target.value, next.Server.LlamaCpp.MinP);
-              next.Server.LlamaCpp.MinP = value;
-              next.Runtime.LlamaCpp.MinP = value;
-              next.LlamaCpp.MinP = value;
+            value={selectedManagedLlamaPreset.MinP}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.MinP = parseFloatInput(event.target.value, preset.MinP);
             })}
           />
         ))}
@@ -2447,12 +2509,9 @@ function DashboardApp() {
           <input
             type="number"
             step="0.01"
-            value={dashboardConfig.Server.LlamaCpp.PresencePenalty}
-            onChange={(event) => updateSettingsDraft((next) => {
-              const value = parseFloatInput(event.target.value, next.Server.LlamaCpp.PresencePenalty);
-              next.Server.LlamaCpp.PresencePenalty = value;
-              next.Runtime.LlamaCpp.PresencePenalty = value;
-              next.LlamaCpp.PresencePenalty = value;
+            value={selectedManagedLlamaPreset.PresencePenalty}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.PresencePenalty = parseFloatInput(event.target.value, preset.PresencePenalty);
             })}
           />
         ))}
@@ -2460,23 +2519,17 @@ function DashboardApp() {
           <input
             type="number"
             step="0.01"
-            value={dashboardConfig.Server.LlamaCpp.RepetitionPenalty}
-            onChange={(event) => updateSettingsDraft((next) => {
-              const value = parseFloatInput(event.target.value, next.Server.LlamaCpp.RepetitionPenalty);
-              next.Server.LlamaCpp.RepetitionPenalty = value;
-              next.Runtime.LlamaCpp.RepetitionPenalty = value;
-              next.LlamaCpp.RepetitionPenalty = value;
+            value={selectedManagedLlamaPreset.RepetitionPenalty}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.RepetitionPenalty = parseFloatInput(event.target.value, preset.RepetitionPenalty);
             })}
           />
         ))}
         {renderField('managed-llama', 'Reasoning', (
           <select
-            value={dashboardConfig.Server.LlamaCpp.Reasoning}
-            onChange={(event) => updateSettingsDraft((next) => {
-              const value = event.target.value as 'on' | 'off' | 'auto';
-              next.Server.LlamaCpp.Reasoning = value;
-              next.Runtime.LlamaCpp.Reasoning = value;
-              next.LlamaCpp.Reasoning = value;
+            value={selectedManagedLlamaPreset.Reasoning}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.Reasoning = event.target.value as 'on' | 'off' | 'auto';
             })}
           >
             <option value="off">off</option>
@@ -2487,36 +2540,36 @@ function DashboardApp() {
         {renderField('managed-llama', 'ReasoningBudget', (
           <input
             type="number"
-            value={dashboardConfig.Server.LlamaCpp.ReasoningBudget}
-            onChange={(event) => updateSettingsDraft((next) => {
-              next.Server.LlamaCpp.ReasoningBudget = parseIntegerInput(event.target.value, next.Server.LlamaCpp.ReasoningBudget);
+            value={selectedManagedLlamaPreset.ReasoningBudget}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.ReasoningBudget = parseIntegerInput(event.target.value, preset.ReasoningBudget);
             })}
           />
         ))}
         {renderField('managed-llama', 'StartupTimeoutMs', (
           <input
             type="number"
-            value={dashboardConfig.Server.LlamaCpp.StartupTimeoutMs}
-            onChange={(event) => updateSettingsDraft((next) => {
-              next.Server.LlamaCpp.StartupTimeoutMs = parseIntegerInput(event.target.value, next.Server.LlamaCpp.StartupTimeoutMs);
+            value={selectedManagedLlamaPreset.StartupTimeoutMs}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.StartupTimeoutMs = parseIntegerInput(event.target.value, preset.StartupTimeoutMs);
             })}
           />
         ))}
         {renderField('managed-llama', 'HealthcheckTimeoutMs', (
           <input
             type="number"
-            value={dashboardConfig.Server.LlamaCpp.HealthcheckTimeoutMs}
-            onChange={(event) => updateSettingsDraft((next) => {
-              next.Server.LlamaCpp.HealthcheckTimeoutMs = parseIntegerInput(event.target.value, next.Server.LlamaCpp.HealthcheckTimeoutMs);
+            value={selectedManagedLlamaPreset.HealthcheckTimeoutMs}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.HealthcheckTimeoutMs = parseIntegerInput(event.target.value, preset.HealthcheckTimeoutMs);
             })}
           />
         ))}
         {renderField('managed-llama', 'HealthcheckIntervalMs', (
           <input
             type="number"
-            value={dashboardConfig.Server.LlamaCpp.HealthcheckIntervalMs}
-            onChange={(event) => updateSettingsDraft((next) => {
-              next.Server.LlamaCpp.HealthcheckIntervalMs = parseIntegerInput(event.target.value, next.Server.LlamaCpp.HealthcheckIntervalMs);
+            value={selectedManagedLlamaPreset.HealthcheckIntervalMs}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.HealthcheckIntervalMs = parseIntegerInput(event.target.value, preset.HealthcheckIntervalMs);
             })}
           />
         ))}
@@ -2524,10 +2577,12 @@ function DashboardApp() {
           <label className="settings-live-toggle-control">
             <input
               type="checkbox"
-              checked={dashboardConfig.Server.LlamaCpp.VerboseLogging}
-              onChange={(event) => updateSettingsDraft((next) => { next.Server.LlamaCpp.VerboseLogging = event.target.checked; })}
+              checked={selectedManagedLlamaPreset.VerboseLogging}
+              onChange={(event) => updateManagedLlamaDraft((preset) => {
+                preset.VerboseLogging = event.target.checked;
+              })}
             />
-            <span>{dashboardConfig.Server.LlamaCpp.VerboseLogging ? 'Enabled' : 'Disabled'}</span>
+            <span>{selectedManagedLlamaPreset.VerboseLogging ? 'Enabled' : 'Disabled'}</span>
           </label>
         ))}
       </div>
@@ -2613,6 +2668,20 @@ function DashboardApp() {
               </button>
               <button type="button" onClick={closeSettingsConfirm} disabled={settingsActionBusy}>
                 Cancel
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {settingsRestartFailureModal && (
+        <section className="settings-live-modal-backdrop" role="presentation">
+          <div className="settings-live-modal" role="dialog" aria-modal="true" aria-labelledby="settings-restart-failure-title">
+            <h2 id="settings-restart-failure-title">{settingsRestartFailureModal.title}</h2>
+            <p>{settingsRestartFailureModal.message}</p>
+            <div className="settings-live-modal-actions">
+              <button type="button" onClick={() => setSettingsRestartFailureModal(null)} disabled={settingsActionBusy}>
+                Close
               </button>
             </div>
           </div>

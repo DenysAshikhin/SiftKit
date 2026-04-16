@@ -7,6 +7,7 @@ import type {
   MetricsResponse,
   ManagedFilePickerResponse,
   ManagedFilePickerTarget,
+  RestartBackendResponse,
   RunLogDeleteCriteria,
   RunLogDeletePreviewResponse,
   RunLogDeleteResponse,
@@ -97,10 +98,21 @@ export function updateDashboardConfig(config: DashboardConfig): Promise<Dashboar
   });
 }
 
-export function restartBackend(): Promise<{ ok: boolean; restarted: boolean; error?: string; config?: DashboardConfig }> {
-  return fetchJson<{ ok: boolean; restarted: boolean; error?: string; config?: DashboardConfig }>('/status/restart', {
+export async function restartBackend(): Promise<RestartBackendResponse> {
+  const response = await fetch('/status/restart', {
     method: 'POST',
   });
+  const text = await response.text();
+  let payload: RestartBackendResponse;
+  try {
+    payload = (text ? JSON.parse(text) : {}) as RestartBackendResponse;
+  } catch {
+    throw new Error(`Request failed (${response.status}): ${text}`);
+  }
+  if (!response.ok && (!payload || typeof payload !== 'object')) {
+    throw new Error(`Request failed (${response.status}): ${text}`);
+  }
+  return payload;
 }
 
 export function getDashboardHealth(): Promise<DashboardHealth> {

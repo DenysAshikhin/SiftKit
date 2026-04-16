@@ -16,13 +16,28 @@ import {
 } from '../dist/status-server/config-store.js';
 import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
 
+function removeDirectoryWithRetries(targetPath: string, attempts = 40, delayMs = 50): void {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      fs.rmSync(targetPath, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error ? String((error as { code?: unknown }).code || '') : '';
+      if (code !== 'EPERM' && code !== 'EBUSY') {
+        throw error;
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+    }
+  }
+}
+
 function withTempDir(fn: (dir: string) => void): void {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-runtime-db-'));
   try {
     fn(tempRoot);
   } finally {
     closeRuntimeDatabase();
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    removeDirectoryWithRetries(tempRoot);
   }
 }
 
@@ -242,6 +257,7 @@ test('readConfig backfills blank managed llama placeholder rows without restorin
         server_batch_size INTEGER,
         server_ubatch_size INTEGER,
         server_cache_ram INTEGER,
+        server_kv_cache_quant TEXT,
         server_max_tokens INTEGER,
         server_temperature REAL,
         server_top_p REAL,
@@ -270,7 +286,7 @@ test('readConfig backfills blank managed llama placeholder rows without restorin
         interactive_enabled, interactive_wrapped_commands_json, interactive_idle_timeout_ms,
         interactive_max_transcript_characters, interactive_transcript_retention, server_executable_path, server_base_url,
         server_bind_host, server_port, server_model_path, server_num_ctx, server_gpu_layers, server_threads,
-        server_flash_attention, server_parallel_slots, server_batch_size, server_ubatch_size, server_cache_ram,
+        server_flash_attention, server_parallel_slots, server_batch_size, server_ubatch_size, server_cache_ram, server_kv_cache_quant,
         server_max_tokens, server_temperature, server_top_p, server_top_k, server_min_p, server_presence_penalty,
         server_repetition_penalty, server_reasoning, server_reasoning_budget, server_startup_timeout_ms,
         server_healthcheck_timeout_ms, server_healthcheck_interval_ms, server_verbose_logging,
@@ -283,7 +299,7 @@ test('readConfig backfills blank managed llama placeholder rows without restorin
         1, '["git"]', 900000,
         60000, 1, NULL, NULL,
         NULL, 0, NULL, 0, 0, 0,
-        0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, NULL,
         0, NULL, NULL, 0, NULL, NULL,
         NULL, NULL, NULL, 600000,
         2000, 1000, 1,
@@ -305,9 +321,45 @@ test('readConfig backfills blank managed llama placeholder rows without restorin
     assert.equal(config.Server?.LlamaCpp?.BatchSize, 512);
     assert.equal(config.Server?.LlamaCpp?.UBatchSize, 512);
     assert.equal(config.Server?.LlamaCpp?.CacheRam, 8192);
+    assert.equal(config.Server?.LlamaCpp?.KvCacheQuantization, 'f16');
     assert.equal(config.Server?.LlamaCpp?.MaxTokens, 15000);
     assert.equal(config.Server?.LlamaCpp?.TopP, 0.8);
     assert.equal(config.Server?.LlamaCpp?.Reasoning, 'off');
     assert.equal(config.Server?.LlamaCpp?.VerboseLogging, false);
+  });
+});
+
+test('writeConfig persists managed llama presets and restores the selected preset into the active launcher config', () => {
+  withTempDir((tempRoot) => {
+    const databasePath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
+    const config = getDefaultConfig();
+    config.Server ??= {};
+    config.Server.LlamaCpp ??= {};
+    config.Server.LlamaCpp.Presets = [
+      {
+        ...config.Server.LlamaCpp,
+        id: 'default',
+        label: 'Default',
+      },
+      {
+        ...config.Server.LlamaCpp,
+        id: 'qwen-27b',
+        label: 'Qwen 27B',
+        ModelPath: 'D:\\models\\Qwen3.5-27B-Q4_K_M.gguf',
+        Port: 8098,
+        Threads: 0,
+      },
+    ];
+    config.Server.LlamaCpp.ActivePresetId = 'qwen-27b';
+
+    writeConfig(databasePath, config);
+
+    const loaded = readConfig(databasePath);
+    assert.equal(loaded.Server?.LlamaCpp?.ActivePresetId, 'qwen-27b');
+    assert.equal(Array.isArray(loaded.Server?.LlamaCpp?.Presets), true);
+    assert.equal(loaded.Server?.LlamaCpp?.Presets?.length, 2);
+    assert.equal(loaded.Server?.LlamaCpp?.ModelPath, 'D:\\models\\Qwen3.5-27B-Q4_K_M.gguf');
+    assert.equal(loaded.Server?.LlamaCpp?.Port, 8098);
+    assert.equal(loaded.Server?.LlamaCpp?.Threads, 0);
   });
 });

@@ -312,6 +312,7 @@ export type DashboardConfig = {
       BatchSize: number;
       UBatchSize: number;
       CacheRam: number;
+      KvCacheQuantization: 'f32' | 'f16' | 'bf16' | 'q8_0' | 'q4_0' | 'q4_1' | 'iq4_nl' | 'q5_0' | 'q5_1';
       MaxTokens: number;
       Temperature: number;
       TopP: number;
@@ -325,8 +326,42 @@ export type DashboardConfig = {
       HealthcheckTimeoutMs: number;
       HealthcheckIntervalMs: number;
       VerboseLogging: boolean;
+      Presets: DashboardManagedLlamaPreset[];
+      ActivePresetId: string;
     };
   };
+};
+
+export type DashboardManagedLlamaPreset = {
+  id: string;
+  label: string;
+  ExecutablePath: string | null;
+  BaseUrl: string;
+  BindHost: string;
+  Port: number;
+  ModelPath: string | null;
+  NumCtx: number;
+  GpuLayers: number;
+  Threads: number;
+  FlashAttention: boolean;
+  ParallelSlots: number;
+  BatchSize: number;
+  UBatchSize: number;
+  CacheRam: number;
+  KvCacheQuantization: 'f32' | 'f16' | 'bf16' | 'q8_0' | 'q4_0' | 'q4_1' | 'iq4_nl' | 'q5_0' | 'q5_1';
+  MaxTokens: number;
+  Temperature: number;
+  TopP: number;
+  TopK: number;
+  MinP: number;
+  PresencePenalty: number;
+  RepetitionPenalty: number;
+  Reasoning: 'on' | 'off' | 'auto';
+  ReasoningBudget: number;
+  StartupTimeoutMs: number;
+  HealthcheckTimeoutMs: number;
+  HealthcheckIntervalMs: number;
+  VerboseLogging: boolean;
 };
 
 export type DashboardHealth = {
@@ -345,4 +380,18 @@ export type ManagedFilePickerResponse = {
   ok: boolean;
   cancelled: boolean;
   path: string | null;
+};
+
+export type ManagedLlamaStartupFailure = {
+  kind: 'gpu_memory_oom';
+  requiredMiB: number;
+  availableMiB: number;
+};
+
+export type RestartBackendResponse = {
+  ok: boolean;
+  restarted: boolean;
+  error?: string;
+  config?: DashboardConfig;
+  startupFailure?: ManagedLlamaStartupFailure | null;
 };

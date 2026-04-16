@@ -18,6 +18,7 @@ export {
   SIFT_DEFAULT_LLAMA_BATCH_SIZE,
   SIFT_DEFAULT_LLAMA_UBATCH_SIZE,
   SIFT_DEFAULT_LLAMA_CACHE_RAM,
+  SIFT_DEFAULT_LLAMA_KV_CACHE_QUANTIZATION,
   SIFT_DEFAULT_LLAMA_REASONING_BUDGET,
   SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT,
   SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT,
@@ -30,6 +31,7 @@ export {
 } from './constants.js';
 
 export type {
+  ManagedLlamaKvCacheQuantization,
   RuntimeLlamaCppConfig,
   ServerManagedLlamaCppConfig,
   SiftConfig,

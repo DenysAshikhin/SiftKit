@@ -63,6 +63,24 @@ export const IDLE_SUMMARY_DELAY_MS = getPositiveIntegerFromEnv('SIFTKIT_IDLE_SUM
 export const LLAMA_STARTUP_GRACE_DELAY_MS = 2_000;
 export const MANAGED_LLAMA_LOG_ALERT_PATTERN = /\b(?:warn(?:ing)?|error|exception|fatal)\b/iu;
 const MANAGED_LLAMA_LOADING_MODEL_503_PATTERN = /"message"\s*:\s*"Loading model"[\s\S]*"type"\s*:\s*"unavailable_error"[\s\S]*"code"\s*:\s*503/iu;
+const MANAGED_LLAMA_GPU_MEMORY_PRESSURE_PATTERN = /projected to use\s+(\d+)\s+MiB of device memory vs\.\s+(\d+)\s+MiB of free device memory/iu;
+const MANAGED_LLAMA_GPU_MEMORY_OOM_PATTERN = /cannot meet free memory target|cudaMalloc failed: out of memory|failed to allocate buffer for kv cache/iu;
+
+export type ManagedLlamaStartupFailure = {
+  kind: 'gpu_memory_oom';
+  requiredMiB: number;
+  availableMiB: number;
+};
+
+export class ManagedLlamaStartupError extends Error {
+  startupFailure: ManagedLlamaStartupFailure | null;
+
+  constructor(message: string, startupFailure: ManagedLlamaStartupFailure | null = null) {
+    super(message);
+    this.name = 'ManagedLlamaStartupError';
+    this.startupFailure = startupFailure;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Process tree termination
@@ -199,13 +217,40 @@ export function logLine(message: string, date: Date = new Date()): void {
   process.stdout.write(`${formatTimestamp(date)} ${message}\n`);
 }
 
-function buildManagedLlamaArgs(managed: ReturnType<typeof getManagedLlamaConfig>): string[] {
+export function parseManagedLlamaStartupFailureText(text: string): ManagedLlamaStartupFailure | null {
+  const memoryMatch = MANAGED_LLAMA_GPU_MEMORY_PRESSURE_PATTERN.exec(String(text || ''));
+  if (!memoryMatch || !MANAGED_LLAMA_GPU_MEMORY_OOM_PATTERN.test(String(text || ''))) {
+    return null;
+  }
+  return {
+    kind: 'gpu_memory_oom',
+    requiredMiB: Number.parseInt(memoryMatch[1], 10),
+    availableMiB: Number.parseInt(memoryMatch[2], 10),
+  };
+}
+
+function getManagedLlamaStartupFailureFromLogRef(logRef: ManagedLlamaLogRef): ManagedLlamaStartupFailure | null {
+  const entries = collectManagedLlamaLogEntries(logRef);
+  return parseManagedLlamaStartupFailureText(entries.map((entry) => entry.text).join('\n'));
+}
+
+export function getManagedLlamaStartupFailure(error: unknown): ManagedLlamaStartupFailure | null {
+  return error instanceof ManagedLlamaStartupError ? error.startupFailure : null;
+}
+
+export function buildManagedLlamaArgs(managed: ReturnType<typeof getManagedLlamaConfig>): string[] {
   const args = [
     '-m', managed.ModelPath!,
     '-c', String(managed.NumCtx),
     '--cache-ram', String(managed.CacheRam),
+    '--cache-type-k', managed.KvCacheQuantization,
+    '--cache-type-v', managed.KvCacheQuantization,
     '-ngl', String(managed.GpuLayers),
-    '-t', String(managed.Threads),
+  ];
+  if (managed.Threads !== 0) {
+    args.push('-t', String(managed.Threads));
+  }
+  args.push(
     '-b', String(managed.BatchSize),
     '-ub', String(managed.UBatchSize),
     '-np', String(managed.ParallelSlots),
@@ -219,7 +264,7 @@ function buildManagedLlamaArgs(managed: ReturnType<typeof getManagedLlamaConfig>
     '--reasoning-budget', String(managed.ReasoningBudget),
     '--host', managed.BindHost,
     '--port', String(managed.Port),
-  ];
+  );
   if (managed.FlashAttention) {
     args.push('-fa', 'on');
   }
@@ -227,6 +272,24 @@ function buildManagedLlamaArgs(managed: ReturnType<typeof getManagedLlamaConfig>
     args.push('--verbose');
   }
   return args;
+}
+
+function buildManagedLlamaStartupExitError(
+  child: ChildProcess,
+  logRef: ManagedLlamaLogRef,
+): Error {
+  const startupFailure = getManagedLlamaStartupFailureFromLogRef(logRef);
+  if (startupFailure) {
+    return new ManagedLlamaStartupError(
+      `Managed llama.cpp ran out of GPU memory during startup. Needed ${startupFailure.requiredMiB} MiB; only ${startupFailure.availableMiB} MiB was available.`,
+      startupFailure,
+    );
+  }
+  const exitCode = Number.isFinite(child.exitCode) ? child.exitCode : null;
+  const signalCode = child.signalCode ? String(child.signalCode) : null;
+  return new ManagedLlamaStartupError(
+    `Managed llama.cpp exited during startup${exitCode !== null ? ` with exit code ${exitCode}` : ''}${signalCode ? ` (${signalCode})` : ''}.`,
+  );
 }
 
 function hasManagedLlamaLaunchConfig(managed: ReturnType<typeof getManagedLlamaConfig>): boolean {
@@ -461,6 +524,29 @@ async function waitForLlamaServerReachability(config: Dict, shouldBeReachable: b
   throw new Error(`Timed out waiting for llama.cpp server at ${baseUrl} to become ${shouldBeReachable ? 'ready' : 'offline'}.`);
 }
 
+async function waitForManagedLlamaStartup(
+  config: Dict,
+  launchedChild: ChildProcess,
+  logRef: ManagedLlamaLogRef,
+  deadline: number,
+): Promise<void> {
+  const managed = getManagedLlamaConfig(config);
+  while (Date.now() < deadline) {
+    if (await isLlamaServerReachable(config)) {
+      return;
+    }
+    if (launchedChild.exitCode !== null || launchedChild.signalCode !== null) {
+      throw buildManagedLlamaStartupExitError(launchedChild, logRef);
+    }
+    await sleep(managed.HealthcheckIntervalMs);
+  }
+  if (launchedChild.exitCode !== null || launchedChild.signalCode !== null) {
+    throw buildManagedLlamaStartupExitError(launchedChild, logRef);
+  }
+  const baseUrl = getLlamaBaseUrl(config) || '<missing>';
+  throw new ManagedLlamaStartupError(`Timed out waiting for llama.cpp server at ${baseUrl} to become ready.`);
+}
+
 async function abortManagedLlamaStartup(ctx: ServerContext, config: Dict, launchedChild: ChildProcess | null = null): Promise<void> {
   if (launchedChild && launchedChild.pid && launchedChild.exitCode === null && launchedChild.signalCode === null) {
     terminateProcessTree(launchedChild.pid);
@@ -571,7 +657,7 @@ export async function ensureManagedLlamaReady(ctx: ServerContext, _options: Ensu
     ctx.managedLlamaHostProcess = launched.child;
     ctx.managedLlamaLastStartupLogs = launched.logRef;
     try {
-      await waitForLlamaServerReachability(config, true, startupDeadline);
+      await waitForManagedLlamaStartup(config, launched.child, launched.logRef, startupDeadline);
       await scanManagedLlamaStartupLogsOrFail(ctx, launched.logRef);
       writeManagedLlamaStartupReviewDump(launched.logRef, { result: 'ready', baseUrl });
       updateManagedLlamaRun({
@@ -583,7 +669,11 @@ export async function ensureManagedLlamaReady(ctx: ServerContext, _options: Ensu
       ctx.managedLlamaReady = true;
       logLine(`llama_start ready base_url=${baseUrl}`);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const startupFailure = getManagedLlamaStartupFailure(error) || getManagedLlamaStartupFailureFromLogRef(launched.logRef);
+      const failure = startupFailure && !(error instanceof ManagedLlamaStartupError)
+        ? new ManagedLlamaStartupError(error instanceof Error ? error.message : String(error), startupFailure)
+        : error;
+      const errorMessage = failure instanceof Error ? failure.message : String(failure);
       writeManagedLlamaStartupReviewDump(launched.logRef, {
         result: 'failed',
         baseUrl,
@@ -604,7 +694,7 @@ export async function ensureManagedLlamaReady(ctx: ServerContext, _options: Ensu
           process.stderr.write(`[siftKitStatus] Failed to abort managed llama.cpp startup: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}\n`);
         }
       }
-      throw error;
+      throw failure;
     }
   })().finally(() => {
     ctx.managedLlamaStarting = false;
@@ -671,6 +761,7 @@ export async function shutdownManagedLlamaIfNeeded(ctx: ServerContext, shutdownO
         if (forcePid) {
           terminateProcessTree(forcePid);
         }
+        await waitForLlamaServerReachability(config, false, shutdownDeadline);
         return;
       }
       throw error;

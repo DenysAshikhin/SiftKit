@@ -33,7 +33,7 @@ import {
   upsertRunArtifactPayload,
 } from '../dashboard-runs.js';
 import { loadRepoSearchExecutor } from '../chat.js';
-import { logLine } from '../managed-llama.js';
+import { getManagedLlamaStartupFailure, logLine } from '../managed-llama.js';
 import {
   getPublishedStatusText,
   writePublishedStatus,
@@ -621,10 +621,12 @@ export async function handleCoreRoute(
       const nextConfig = await ctx.ensureManagedLlamaReady();
       sendJson(res, 200, { ok: true, restarted: true, config: nextConfig });
     } catch (error) {
+      const startupFailure = getManagedLlamaStartupFailure(error);
       sendJson(res, 503, {
         ok: false,
         restarted: false,
         error: error instanceof Error ? error.message : String(error),
+        startupFailure,
       });
     }
     return true;

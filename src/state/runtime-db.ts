@@ -6,10 +6,53 @@ import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-const CURRENT_SCHEMA_VERSION = 7;
+const CURRENT_SCHEMA_VERSION = 9;
 
 let cachedDatabasePath: string | null = null;
 let cachedDatabase: RuntimeDatabase | null = null;
+
+function tableExists(database: RuntimeDatabase, name: string): boolean {
+  const row = database.prepare(`
+    SELECT 1 AS exists_flag
+    FROM sqlite_master
+    WHERE type = 'table' AND name = ?
+    LIMIT 1
+  `).get(name) as { exists_flag?: number } | undefined;
+  return Number(row?.exists_flag) === 1;
+}
+
+function tableHasColumn(database: RuntimeDatabase, tableName: string, columnName: string): boolean {
+  if (!tableExists(database, tableName)) {
+    return false;
+  }
+  const escapedTableName = String(tableName).replace(/'/gu, "''");
+  const row = database.prepare(`
+    SELECT 1 AS exists_flag
+    FROM pragma_table_info('${escapedTableName}')
+    WHERE name = ?
+    LIMIT 1
+  `).get(columnName) as { exists_flag?: number } | undefined;
+  return Number(row?.exists_flag) === 1;
+}
+
+function detectEffectiveSchemaVersion(database: RuntimeDatabase, storedVersion: number): number {
+  if (tableHasColumn(database, 'app_config', 'server_llama_presets_json')) {
+    return 9;
+  }
+  if (tableHasColumn(database, 'app_config', 'server_kv_cache_quant')) {
+    return 8;
+  }
+  if (tableHasColumn(database, 'app_config', 'server_reasoning_budget')) {
+    return 7;
+  }
+  if (tableHasColumn(database, 'app_config', 'operation_mode_allowed_tools_json')) {
+    return 5;
+  }
+  if (tableHasColumn(database, 'app_config', 'presets_json') || tableHasColumn(database, 'chat_sessions', 'preset_id')) {
+    return 4;
+  }
+  return storedVersion;
+}
 
 function getSchemaVersion(database: RuntimeDatabase): number {
   database.exec(`
@@ -80,6 +123,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       server_batch_size INTEGER,
       server_ubatch_size INTEGER,
       server_cache_ram INTEGER,
+      server_kv_cache_quant TEXT,
       server_max_tokens INTEGER,
       server_temperature REAL,
       server_top_p REAL,
@@ -93,6 +137,8 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       server_healthcheck_timeout_ms INTEGER,
       server_healthcheck_interval_ms INTEGER,
       server_verbose_logging INTEGER CHECK (server_verbose_logging IN (0, 1) OR server_verbose_logging IS NULL),
+      server_llama_presets_json TEXT NOT NULL DEFAULT '[]',
+      server_llama_active_preset_id TEXT,
       operation_mode_allowed_tools_json TEXT NOT NULL DEFAULT '{"summary":["find_text","read_lines","json_filter"],"read-only":["repo_rg","repo_get_content","repo_get_childitem","repo_select_string","repo_git","repo_pwd","repo_ls","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}',
       presets_json TEXT NOT NULL,
       updated_at_utc TEXT NOT NULL
@@ -337,7 +383,11 @@ function ensureManagedLlamaAndBenchmarkMatrixSchema(database: RuntimeDatabase): 
 
 function ensureSchema(database: RuntimeDatabase): void {
   database.exec('PRAGMA foreign_keys = ON;');
-  const currentVersion = getSchemaVersion(database);
+  const storedVersion = getSchemaVersion(database);
+  let currentVersion = detectEffectiveSchemaVersion(database, storedVersion);
+  if (currentVersion > storedVersion) {
+    setSchemaVersion(database, currentVersion);
+  }
   if (currentVersion <= 0) {
     applyBaseSchema(database);
     ensureManagedLlamaAndBenchmarkMatrixSchema(database);
@@ -347,10 +397,12 @@ function ensureSchema(database: RuntimeDatabase): void {
   if (currentVersion < 2) {
     ensureRuntimeArtifactsSchema(database);
     setSchemaVersion(database, 2);
+    currentVersion = 2;
   }
   if (currentVersion < 3) {
     ensureManagedLlamaAndBenchmarkMatrixSchema(database);
     setSchemaVersion(database, 3);
+    currentVersion = 3;
   }
   if (currentVersion < 4) {
     database.exec(`
@@ -358,12 +410,14 @@ function ensureSchema(database: RuntimeDatabase): void {
       ALTER TABLE chat_sessions ADD COLUMN preset_id TEXT;
     `);
     setSchemaVersion(database, 4);
+    currentVersion = 4;
   }
   if (currentVersion < 5) {
     database.exec(`
       ALTER TABLE app_config ADD COLUMN operation_mode_allowed_tools_json TEXT NOT NULL DEFAULT '{"summary":["find_text","read_lines","json_filter"],"read-only":["repo_rg","repo_get_content","repo_get_childitem","repo_select_string","repo_git","repo_pwd","repo_ls","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}';
     `);
     setSchemaVersion(database, 5);
+    currentVersion = 5;
   }
   if (currentVersion < 6) {
     database.exec(`
@@ -450,6 +504,7 @@ function ensureSchema(database: RuntimeDatabase): void {
       DROP TABLE runtime_status_v5;
     `);
     setSchemaVersion(database, 6);
+    currentVersion = 6;
   }
   if (currentVersion < 7) {
     database.exec(`
@@ -477,7 +532,25 @@ function ensureSchema(database: RuntimeDatabase): void {
       ALTER TABLE app_config ADD COLUMN server_reasoning_budget INTEGER;
     `);
     setSchemaVersion(database, 7);
+    currentVersion = 7;
   }
+  if (currentVersion < 8) {
+    database.exec(`
+      ALTER TABLE app_config ADD COLUMN server_kv_cache_quant TEXT;
+    `);
+    setSchemaVersion(database, 8);
+    currentVersion = 8;
+  }
+  if (currentVersion < 9) {
+    database.exec(`
+      ALTER TABLE app_config ADD COLUMN server_llama_presets_json TEXT NOT NULL DEFAULT '[]';
+      ALTER TABLE app_config ADD COLUMN server_llama_active_preset_id TEXT;
+    `);
+    setSchemaVersion(database, 9);
+    currentVersion = 9;
+  }
+  ensureRuntimeArtifactsSchema(database);
+  ensureManagedLlamaAndBenchmarkMatrixSchema(database);
 }
 
 export function getRepoRuntimeRoot(startPath: string = process.cwd()): string {

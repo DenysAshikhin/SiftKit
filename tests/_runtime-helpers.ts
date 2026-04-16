@@ -1521,6 +1521,8 @@ const emitVerboseEnvFlags = process.env.SIFTKIT_FAKE_EMIT_VERBOSE_ENV_FLAGS === 
 const writeLaunchMarker = process.env.SIFTKIT_FAKE_WRITE_LAUNCH_MARKER === '1';
 const launchMarkerPath = process.env.SIFTKIT_FAKE_LAUNCH_MARKER || '';
 const launchHangingProcess = process.env.SIFTKIT_FAKE_LAUNCH_HANGING_PROCESS === '1';
+const exitAfterLog = process.env.SIFTKIT_FAKE_EXIT_AFTER_LOG === '1';
+const exitCode = Number.parseInt(process.env.SIFTKIT_FAKE_EXIT_CODE || '0', 10) || 0;
 
 if (startupLogLine) {
   process.stdout.write(startupLogLine + '\\n');
@@ -1538,6 +1540,12 @@ if (invocationLogPath) {
     port,
     verboseLoggingEnv: process.env.SIFTKIT_LLAMA_VERBOSE_LOGGING || '',
   }, null, 2), 'utf8');
+}
+if (exitAfterLog) {
+  if (llamaLogLine) {
+    process.stdout.write(String(llamaLogLine) + '\\n');
+  }
+  process.exit(exitCode);
 }
 if (launchHangingProcess) {
   setInterval(() => {}, 1000);
@@ -1591,6 +1599,8 @@ set "SIFTKIT_FAKE_LLAMA_LOG_LINE=${String(options.llamaLogLine || '').replace(/"
 set "SIFTKIT_FAKE_EMIT_VERBOSE_ENV_FLAGS=${options.emitVerboseEnvFlags ? '1' : '0'}"
 set "SIFTKIT_FAKE_WRITE_LAUNCH_MARKER=${options.writeLaunchMarker ? '1' : '0'}"
 set "SIFTKIT_FAKE_LAUNCH_HANGING_PROCESS=${options.launchHangingProcess ? '1' : '0'}"
+set "SIFTKIT_FAKE_EXIT_AFTER_LOG=${options.exitAfterLog ? '1' : '0'}"
+set "SIFTKIT_FAKE_EXIT_CODE=${Number.isFinite(Number(options.exitCode)) ? String(Math.trunc(Number(options.exitCode))) : '0'}"
 "%NODE_PATH%" "%FAKE_SERVER%" %*
 `, 'utf8');
 

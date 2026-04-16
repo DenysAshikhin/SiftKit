@@ -18,6 +18,7 @@ export const DEFAULT_LLAMA_GPU_LAYERS = 999;
 export const DEFAULT_LLAMA_BATCH_SIZE = 512;
 export const DEFAULT_LLAMA_UBATCH_SIZE = 512;
 export const DEFAULT_LLAMA_CACHE_RAM = 8192;
+export const DEFAULT_LLAMA_KV_CACHE_QUANTIZATION = 'f16';
 export const DEFAULT_LLAMA_REASONING_BUDGET = 10_000;
 export const PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-35B-4bit-150k-no-thinking.ps1';
 export const FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k.ps1';
@@ -66,6 +67,36 @@ const MANAGED_LLAMA_RUNTIME_KEYS: readonly string[] = [
   'Reasoning',
 ];
 
+const MANAGED_LLAMA_FIELD_KEYS: readonly string[] = [
+  'ExecutablePath',
+  'BaseUrl',
+  'BindHost',
+  'Port',
+  'ModelPath',
+  'NumCtx',
+  'GpuLayers',
+  'Threads',
+  'FlashAttention',
+  'ParallelSlots',
+  'BatchSize',
+  'UBatchSize',
+  'CacheRam',
+  'KvCacheQuantization',
+  'MaxTokens',
+  'Temperature',
+  'TopP',
+  'TopK',
+  'MinP',
+  'PresencePenalty',
+  'RepetitionPenalty',
+  'Reasoning',
+  'ReasoningBudget',
+  'StartupTimeoutMs',
+  'HealthcheckTimeoutMs',
+  'HealthcheckIntervalMs',
+  'VerboseLogging',
+];
+
 const MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS: readonly string[] = [
   'BaseUrl',
   'BindHost',
@@ -78,6 +109,7 @@ const MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS: readonly string[] = [
   'BatchSize',
   'UBatchSize',
   'CacheRam',
+  'KvCacheQuantization',
   'MaxTokens',
   'Temperature',
   'TopP',
@@ -94,6 +126,37 @@ const MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS: readonly string[] = [
 ];
 
 export function getDefaultConfig(): Dict {
+  const defaultManagedLlamaPreset = {
+    id: 'default',
+    label: 'Default',
+    ExecutablePath: null,
+    BaseUrl: DEFAULT_LLAMA_BASE_URL,
+    BindHost: DEFAULT_LLAMA_BIND_HOST,
+    Port: DEFAULT_LLAMA_PORT,
+    ModelPath: null,
+    NumCtx: 150000,
+    GpuLayers: DEFAULT_LLAMA_GPU_LAYERS,
+    Threads: -1,
+    FlashAttention: true,
+    ParallelSlots: 1,
+    BatchSize: DEFAULT_LLAMA_BATCH_SIZE,
+    UBatchSize: DEFAULT_LLAMA_UBATCH_SIZE,
+    CacheRam: DEFAULT_LLAMA_CACHE_RAM,
+    KvCacheQuantization: DEFAULT_LLAMA_KV_CACHE_QUANTIZATION,
+    MaxTokens: 15000,
+    Temperature: 0.7,
+    TopP: 0.8,
+    TopK: 20,
+    MinP: 0.0,
+    PresencePenalty: 1.5,
+    RepetitionPenalty: 1.0,
+    Reasoning: 'off',
+    ReasoningBudget: DEFAULT_LLAMA_REASONING_BUDGET,
+    StartupTimeoutMs: DEFAULT_LLAMA_STARTUP_TIMEOUT_MS,
+    HealthcheckTimeoutMs: DEFAULT_LLAMA_HEALTHCHECK_TIMEOUT_MS,
+    HealthcheckIntervalMs: DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS,
+    VerboseLogging: false,
+  };
   return {
     Version: '0.1.0',
     Backend: 'llama.cpp',
@@ -149,32 +212,9 @@ export function getDefaultConfig(): Dict {
     },
     Server: {
       LlamaCpp: {
-        ExecutablePath: null,
-        BaseUrl: DEFAULT_LLAMA_BASE_URL,
-        BindHost: DEFAULT_LLAMA_BIND_HOST,
-        Port: DEFAULT_LLAMA_PORT,
-        ModelPath: null,
-        NumCtx: 150000,
-        GpuLayers: DEFAULT_LLAMA_GPU_LAYERS,
-        Threads: -1,
-        FlashAttention: true,
-        ParallelSlots: 1,
-        BatchSize: DEFAULT_LLAMA_BATCH_SIZE,
-        UBatchSize: DEFAULT_LLAMA_UBATCH_SIZE,
-        CacheRam: DEFAULT_LLAMA_CACHE_RAM,
-        MaxTokens: 15000,
-        Temperature: 0.7,
-        TopP: 0.8,
-        TopK: 20,
-        MinP: 0.0,
-        PresencePenalty: 1.5,
-        RepetitionPenalty: 1.0,
-        Reasoning: 'off',
-        ReasoningBudget: DEFAULT_LLAMA_REASONING_BUDGET,
-        StartupTimeoutMs: DEFAULT_LLAMA_STARTUP_TIMEOUT_MS,
-        HealthcheckTimeoutMs: DEFAULT_LLAMA_HEALTHCHECK_TIMEOUT_MS,
-        HealthcheckIntervalMs: DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS,
-        VerboseLogging: false,
+        ...defaultManagedLlamaPreset,
+        Presets: [defaultManagedLlamaPreset],
+        ActivePresetId: defaultManagedLlamaPreset.id,
       },
     },
     OperationModeAllowedTools: getDefaultOperationModeAllowedTools(),
@@ -221,6 +261,24 @@ export function mergeConfig(baseValue: unknown, patchValue: unknown): unknown {
 }
 
 export function normalizeConfig(input: unknown): Dict {
+  const inputServerLlama = (
+    input
+    && typeof input === 'object'
+    && !Array.isArray(input)
+    && (input as Dict).Server
+    && typeof (input as Dict).Server === 'object'
+    && !Array.isArray((input as Dict).Server)
+    && ((input as Dict).Server as Dict).LlamaCpp
+    && typeof ((input as Dict).Server as Dict).LlamaCpp === 'object'
+    && !Array.isArray(((input as Dict).Server as Dict).LlamaCpp)
+  ) ? (((input as Dict).Server as Dict).LlamaCpp as Dict) : null;
+  const preferManagedPresetValues = Boolean(
+    inputServerLlama
+    && (
+      Object.prototype.hasOwnProperty.call(inputServerLlama, 'Presets')
+      || Object.prototype.hasOwnProperty.call(inputServerLlama, 'ActivePresetId')
+    )
+  );
   const merged = mergeConfig(getDefaultConfig(), input || {}) as Dict;
   if (merged.Backend === 'ollama') {
     merged.Backend = 'llama.cpp';
@@ -340,6 +398,9 @@ export function normalizeConfig(input: unknown): Dict {
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'CacheRam')) {
     serverLlama.CacheRam = DEFAULT_LLAMA_CACHE_RAM;
   }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'KvCacheQuantization')) {
+    serverLlama.KvCacheQuantization = DEFAULT_LLAMA_KV_CACHE_QUANTIZATION;
+  }
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'MaxTokens')) {
     serverLlama.MaxTokens = runtimeLlama.MaxTokens ?? 15000;
   }
@@ -389,6 +450,7 @@ export function normalizeConfig(input: unknown): Dict {
     && (toNullableInteger(serverLlama.BatchSize) === null || Number(serverLlama.BatchSize) <= 0)
     && (toNullableInteger(serverLlama.UBatchSize) === null || Number(serverLlama.UBatchSize) <= 0)
     && (toNullableInteger(serverLlama.CacheRam) === null || Number(serverLlama.CacheRam) <= 0)
+    && getNullableTrimmedString(serverLlama.KvCacheQuantization) === null
     && (toNullableInteger(serverLlama.MaxTokens) === null || Number(serverLlama.MaxTokens) <= 0)
     && (toNullableNumber(serverLlama.Temperature) === null || Number(serverLlama.Temperature) <= 0)
     && (toNullableNumber(serverLlama.TopP) === null || Number(serverLlama.TopP) <= 0)
@@ -400,6 +462,7 @@ export function normalizeConfig(input: unknown): Dict {
       serverLlama[key] = defaultServerLlama[key];
     }
   }
+  applyActiveManagedLlamaPreset(serverLlama, preferManagedPresetValues);
   serverLlama.VerboseLogging = Boolean(serverLlama.VerboseLogging);
   delete serverLlama.StartupScript;
   delete serverLlama.ShutdownScript;
@@ -455,6 +518,7 @@ type AppConfigRow = {
   server_batch_size: number | null;
   server_ubatch_size: number | null;
   server_cache_ram: number | null;
+  server_kv_cache_quant: string | null;
   server_max_tokens: number | null;
   server_temperature: number | null;
   server_top_p: number | null;
@@ -468,6 +532,8 @@ type AppConfigRow = {
   server_healthcheck_timeout_ms: number | null;
   server_healthcheck_interval_ms: number | null;
   server_verbose_logging: number | null;
+  server_llama_presets_json: string;
+  server_llama_active_preset_id: string | null;
   operation_mode_allowed_tools_json: string;
   presets_json: string;
 };
@@ -532,6 +598,20 @@ function parseOperationModeAllowedTools(text: unknown): ReturnType<typeof normal
   }
 }
 
+function parseManagedLlamaPresetArray(text: unknown): Dict[] {
+  if (typeof text !== 'string' || !text.trim()) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is Dict => Boolean(entry && typeof entry === 'object' && !Array.isArray(entry)))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 function normalizeConfigToRow(config: Dict): AppConfigRow {
   const normalized = normalizeConfig(config);
   const runtime = (normalized.Runtime as Dict | undefined) || {};
@@ -592,6 +672,9 @@ function normalizeConfigToRow(config: Dict): AppConfigRow {
     server_batch_size: toNullableInteger(serverLlama.BatchSize),
     server_ubatch_size: toNullableInteger(serverLlama.UBatchSize),
     server_cache_ram: toNullableInteger(serverLlama.CacheRam),
+    server_kv_cache_quant: typeof serverLlama.KvCacheQuantization === 'string' && serverLlama.KvCacheQuantization.trim()
+      ? serverLlama.KvCacheQuantization.trim()
+      : null,
     server_max_tokens: toNullableInteger(serverLlama.MaxTokens),
     server_temperature: toNullableNumber(serverLlama.Temperature),
     server_top_p: toNullableNumber(serverLlama.TopP),
@@ -605,6 +688,10 @@ function normalizeConfigToRow(config: Dict): AppConfigRow {
     server_healthcheck_timeout_ms: toNullableInteger(serverLlama.HealthcheckTimeoutMs),
     server_healthcheck_interval_ms: toNullableInteger(serverLlama.HealthcheckIntervalMs),
     server_verbose_logging: toNullableBooleanInteger(serverLlama.VerboseLogging),
+    server_llama_presets_json: JSON.stringify(
+      Array.isArray(serverLlama.Presets) ? serverLlama.Presets : [],
+    ),
+    server_llama_active_preset_id: getNullableTrimmedString(serverLlama.ActivePresetId),
     operation_mode_allowed_tools_json: JSON.stringify(
       normalizeOperationModeAllowedTools(normalized.OperationModeAllowedTools)
     ),
@@ -667,6 +754,7 @@ function rowToConfig(row: AppConfigRow): Dict {
         BatchSize: row.server_batch_size,
         UBatchSize: row.server_ubatch_size,
         CacheRam: row.server_cache_ram,
+        KvCacheQuantization: row.server_kv_cache_quant,
         MaxTokens: row.server_max_tokens,
         Temperature: row.server_temperature,
         TopP: row.server_top_p,
@@ -680,6 +768,8 @@ function rowToConfig(row: AppConfigRow): Dict {
         HealthcheckTimeoutMs: row.server_healthcheck_timeout_ms,
         HealthcheckIntervalMs: row.server_healthcheck_interval_ms,
         VerboseLogging: row.server_verbose_logging === null ? false : row.server_verbose_logging === 1,
+        Presets: parseManagedLlamaPresetArray(row.server_llama_presets_json),
+        ActivePresetId: row.server_llama_active_preset_id,
       },
     },
     OperationModeAllowedTools: parseOperationModeAllowedTools(row.operation_mode_allowed_tools_json),
@@ -731,6 +821,7 @@ function readConfigRow(databasePath: string): AppConfigRow | null {
       server_batch_size,
       server_ubatch_size,
       server_cache_ram,
+      server_kv_cache_quant,
       server_max_tokens,
       server_temperature,
       server_top_p,
@@ -744,6 +835,8 @@ function readConfigRow(databasePath: string): AppConfigRow | null {
       server_healthcheck_timeout_ms,
       server_healthcheck_interval_ms,
       server_verbose_logging,
+      server_llama_presets_json,
+      server_llama_active_preset_id,
       operation_mode_allowed_tools_json,
       presets_json
     FROM app_config
@@ -802,6 +895,7 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
     'server_batch_size',
     'server_ubatch_size',
     'server_cache_ram',
+    'server_kv_cache_quant',
     'server_max_tokens',
     'server_temperature',
     'server_top_p',
@@ -815,6 +909,8 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
     'server_healthcheck_timeout_ms',
     'server_healthcheck_interval_ms',
     'server_verbose_logging',
+    'server_llama_presets_json',
+    'server_llama_active_preset_id',
     ...(hasLegacyVerboseArgsColumn
       ? ['server_startup_script', 'server_shutdown_script', 'server_verbose_args_json']
       : []),
@@ -884,6 +980,82 @@ function getNullableTrimmedString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+function getManagedKvCacheQuantization(value: unknown, fallback: string): string {
+  const normalized = getNullableTrimmedString(value);
+  if (
+    normalized === 'f32'
+    || normalized === 'f16'
+    || normalized === 'bf16'
+    || normalized === 'q8_0'
+    || normalized === 'q4_0'
+    || normalized === 'q4_1'
+    || normalized === 'iq4_nl'
+    || normalized === 'q5_0'
+    || normalized === 'q5_1'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function copyManagedLlamaFields(target: Dict, source: Dict): void {
+  for (const key of MANAGED_LLAMA_FIELD_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(source, key)) {
+      target[key] = source[key];
+    }
+  }
+}
+
+function managedLlamaFieldsDiffer(left: Dict, right: Dict): boolean {
+  return MANAGED_LLAMA_FIELD_KEYS.some((key) => left[key] !== right[key]);
+}
+
+function normalizeManagedLlamaPresetRecord(input: unknown, fallbackId: string, fallbackLabel: string): Dict {
+  const record = (input && typeof input === 'object' && !Array.isArray(input)) ? input as Dict : {};
+  const managed = getManagedLlamaConfig({ Server: { LlamaCpp: record } });
+  return {
+    id: getNullableTrimmedString(record.id) || fallbackId,
+    label: getNullableTrimmedString(record.label) || fallbackLabel,
+    ...managed,
+  };
+}
+
+function normalizeManagedLlamaPresetArray(value: unknown, fallbackSource: Dict): Dict[] {
+  const records = Array.isArray(value) ? value : [];
+  const normalized: Dict[] = [];
+  const seen = new Set<string>();
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
+    const candidate = normalizeManagedLlamaPresetRecord(record, `preset-${index + 1}`, `Preset ${index + 1}`);
+    if (seen.has(String(candidate.id))) {
+      continue;
+    }
+    seen.add(String(candidate.id));
+    normalized.push(candidate);
+  }
+  if (normalized.length > 0) {
+    return normalized;
+  }
+  return [normalizeManagedLlamaPresetRecord({
+    id: 'default',
+    label: 'Default',
+    ...fallbackSource,
+  }, 'default', 'Default')];
+}
+
+function applyActiveManagedLlamaPreset(serverLlama: Dict, preferPresetValues: boolean): void {
+  const presets = normalizeManagedLlamaPresetArray(serverLlama.Presets, serverLlama);
+  const activePresetId = getNullableTrimmedString(serverLlama.ActivePresetId);
+  const activePreset = presets.find((preset) => preset.id === activePresetId) || presets[0];
+  serverLlama.Presets = presets;
+  serverLlama.ActivePresetId = String(activePreset.id);
+  if (!preferPresetValues && managedLlamaFieldsDiffer(serverLlama, activePreset)) {
+    copyManagedLlamaFields(activePreset, serverLlama);
+    return;
+  }
+  copyManagedLlamaFields(serverLlama, activePreset);
+}
+
 type ManagedLlamaConfig = {
   ExecutablePath: string | null;
   BaseUrl: string | null;
@@ -898,6 +1070,7 @@ type ManagedLlamaConfig = {
   BatchSize: number;
   UBatchSize: number;
   CacheRam: number;
+  KvCacheQuantization: string;
   MaxTokens: number;
   Temperature: number;
   TopP: number;
@@ -961,6 +1134,10 @@ export function getManagedLlamaConfig(config: unknown): ManagedLlamaConfig {
     BatchSize: getFinitePositiveInteger(serverLlama.BatchSize, Number(defaults.BatchSize ?? DEFAULT_LLAMA_BATCH_SIZE)),
     UBatchSize: getFinitePositiveInteger(serverLlama.UBatchSize, Number(defaults.UBatchSize ?? DEFAULT_LLAMA_UBATCH_SIZE)),
     CacheRam: getFinitePositiveInteger(serverLlama.CacheRam, Number(defaults.CacheRam ?? DEFAULT_LLAMA_CACHE_RAM)),
+    KvCacheQuantization: getManagedKvCacheQuantization(
+      serverLlama.KvCacheQuantization,
+      String(defaults.KvCacheQuantization ?? DEFAULT_LLAMA_KV_CACHE_QUANTIZATION),
+    ),
     MaxTokens: getFinitePositiveInteger(serverLlama.MaxTokens, Number(defaults.MaxTokens ?? 15000)),
     Temperature: getFiniteNumber(serverLlama.Temperature, Number(defaults.Temperature ?? 0.7)),
     TopP: getFiniteNumber(serverLlama.TopP, Number(defaults.TopP ?? 0.8)),

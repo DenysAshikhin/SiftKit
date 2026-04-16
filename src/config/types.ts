@@ -16,6 +16,17 @@ export type RuntimeLlamaCppConfig = {
   Reasoning?: 'on' | 'off' | 'auto' | null;
 };
 
+export type ManagedLlamaKvCacheQuantization =
+  | 'f32'
+  | 'f16'
+  | 'bf16'
+  | 'q8_0'
+  | 'q4_0'
+  | 'q4_1'
+  | 'iq4_nl'
+  | 'q5_0'
+  | 'q5_1';
+
 export type ServerManagedLlamaCppConfig = {
   ExecutablePath?: string | null;
   BaseUrl?: string | null;
@@ -30,6 +41,7 @@ export type ServerManagedLlamaCppConfig = {
   BatchSize?: number | null;
   UBatchSize?: number | null;
   CacheRam?: number | null;
+  KvCacheQuantization?: ManagedLlamaKvCacheQuantization | null;
   MaxTokens?: number | null;
   Temperature?: number | null;
   TopP?: number | null;
@@ -43,7 +55,14 @@ export type ServerManagedLlamaCppConfig = {
   HealthcheckTimeoutMs?: number | null;
   HealthcheckIntervalMs?: number | null;
   VerboseLogging?: boolean | null;
+  Presets?: ServerManagedLlamaPreset[] | null;
+  ActivePresetId?: string | null;
 };
+
+export type ServerManagedLlamaPreset = {
+  id: string;
+  label: string;
+} & Omit<ServerManagedLlamaCppConfig, 'Presets' | 'ActivePresetId'>;
 
 export type SiftConfig = {
   Version: string;

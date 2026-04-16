@@ -13,7 +13,7 @@ test('getManagedFilePickerDialogOptions configures executable picker filters', (
   );
 
   assert.equal(options.title, 'Select llama.cpp executable');
-  assert.equal(options.filter, 'Executables (*.exe)|*.exe|All files (*.*)|*.*');
+  assert.equal(options.filter, 'llama-server.exe|llama-server.exe|All files (*.*)|*.*');
   assert.equal(options.initialPath, 'C:\\llama\\llama-server.exe');
 });
 

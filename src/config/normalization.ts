@@ -14,7 +14,13 @@ import {
 } from './constants.js';
 import { getDefaultConfigObject } from './defaults.js';
 import { initializeRuntime } from './paths.js';
-import type { NormalizationInfo, RuntimeLlamaCppConfig, ServerManagedLlamaCppConfig, SiftConfig } from './types.js';
+import type {
+  NormalizationInfo,
+  RuntimeLlamaCppConfig,
+  ServerManagedLlamaCppConfig,
+  ServerManagedLlamaPreset,
+  SiftConfig,
+} from './types.js';
 
 const MANAGED_LLAMA_RUNTIME_KEYS: ReadonlyArray<keyof RuntimeLlamaCppConfig> = [
   'BaseUrl',
@@ -46,6 +52,37 @@ const MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS: ReadonlyArray<keyof ServerManagedLlam
   'BatchSize',
   'UBatchSize',
   'CacheRam',
+  'KvCacheQuantization',
+  'MaxTokens',
+  'Temperature',
+  'TopP',
+  'TopK',
+  'MinP',
+  'PresencePenalty',
+  'RepetitionPenalty',
+  'Reasoning',
+  'ReasoningBudget',
+  'StartupTimeoutMs',
+  'HealthcheckTimeoutMs',
+  'HealthcheckIntervalMs',
+  'VerboseLogging',
+];
+
+const MANAGED_LLAMA_PRESET_KEYS: ReadonlyArray<Exclude<keyof ServerManagedLlamaCppConfig, 'Presets' | 'ActivePresetId'>> = [
+  'ExecutablePath',
+  'BaseUrl',
+  'BindHost',
+  'Port',
+  'ModelPath',
+  'NumCtx',
+  'GpuLayers',
+  'Threads',
+  'FlashAttention',
+  'ParallelSlots',
+  'BatchSize',
+  'UBatchSize',
+  'CacheRam',
+  'KvCacheQuantization',
   'MaxTokens',
   'Temperature',
   'TopP',
@@ -73,6 +110,82 @@ function syncRuntimeLlamaFromManaged(
       runtimeRecord[key] = value;
     }
   }
+}
+
+function copyManagedLlamaPresetToServer(
+  serverLlamaCpp: ServerManagedLlamaCppConfig,
+  preset: ServerManagedLlamaPreset,
+): void {
+  const serverRecord = serverLlamaCpp as Record<string, unknown>;
+  const presetRecord = preset as Record<string, unknown>;
+  for (const key of MANAGED_LLAMA_PRESET_KEYS) {
+    serverRecord[key] = presetRecord[key];
+  }
+}
+
+function copyManagedLlamaServerToPreset(
+  preset: ServerManagedLlamaPreset,
+  serverLlamaCpp: ServerManagedLlamaCppConfig,
+): void {
+  const serverRecord = serverLlamaCpp as Record<string, unknown>;
+  const presetRecord = preset as Record<string, unknown>;
+  for (const key of MANAGED_LLAMA_PRESET_KEYS) {
+    presetRecord[key] = serverRecord[key];
+  }
+}
+
+function managedLlamaFieldsDiffer(
+  serverLlamaCpp: ServerManagedLlamaCppConfig,
+  preset: ServerManagedLlamaPreset,
+): boolean {
+  const serverRecord = serverLlamaCpp as Record<string, unknown>;
+  const presetRecord = preset as Record<string, unknown>;
+  return MANAGED_LLAMA_PRESET_KEYS.some((key) => serverRecord[key] !== presetRecord[key]);
+}
+
+function normalizeManagedLlamaPreset(
+  preset: Partial<ServerManagedLlamaCppConfig> | null | undefined,
+  fallback: ServerManagedLlamaCppConfig,
+  fallbackId: string,
+  fallbackLabel: string,
+): ServerManagedLlamaPreset {
+  const normalizedPreset = {
+    ...fallback,
+    ...(preset ?? {}),
+  };
+  delete (normalizedPreset as Partial<ServerManagedLlamaCppConfig>).Presets;
+  delete (normalizedPreset as Partial<ServerManagedLlamaCppConfig>).ActivePresetId;
+  return {
+    ...normalizedPreset,
+    id: typeof (preset as { id?: unknown } | null | undefined)?.id === 'string' && String((preset as { id?: string }).id).trim()
+      ? String((preset as { id?: string }).id).trim()
+      : fallbackId,
+    label: typeof (preset as { label?: unknown } | null | undefined)?.label === 'string' && String((preset as { label?: string }).label).trim()
+      ? String((preset as { label?: string }).label).trim()
+      : fallbackLabel,
+  } as ServerManagedLlamaPreset;
+}
+
+function applyActiveManagedLlamaPreset(
+  serverLlamaCpp: ServerManagedLlamaCppConfig,
+  fallback: ServerManagedLlamaCppConfig,
+  preferPresetValues: boolean,
+): void {
+  const presets = Array.isArray(serverLlamaCpp.Presets) ? serverLlamaCpp.Presets : [];
+  const normalizedPresets = presets.length > 0
+    ? presets.map((preset, index) => normalizeManagedLlamaPreset(preset, fallback, `preset-${index + 1}`, `Preset ${index + 1}`))
+    : [normalizeManagedLlamaPreset(serverLlamaCpp, fallback, 'default', 'Default')];
+  const activePresetId = typeof serverLlamaCpp.ActivePresetId === 'string' && serverLlamaCpp.ActivePresetId.trim()
+    ? serverLlamaCpp.ActivePresetId.trim()
+    : normalizedPresets[0].id as string;
+  const activePreset = normalizedPresets.find((preset) => preset.id === activePresetId) ?? normalizedPresets[0];
+  serverLlamaCpp.Presets = normalizedPresets;
+  serverLlamaCpp.ActivePresetId = activePreset.id as string;
+  if (!preferPresetValues && managedLlamaFieldsDiffer(serverLlamaCpp, activePreset)) {
+    copyManagedLlamaServerToPreset(activePreset, serverLlamaCpp);
+    return;
+  }
+  copyManagedLlamaPresetToServer(serverLlamaCpp, activePreset);
 }
 
 export function isLegacyManagedStartupScriptPath(value: unknown): boolean {
@@ -115,9 +228,10 @@ function isBlankManagedLlamaPlaceholder(serverLlama: ServerManagedLlamaCppConfig
     && (!Number.isFinite(Number(serverLlama.BatchSize)) || Number(serverLlama.BatchSize) <= 0)
     && (!Number.isFinite(Number(serverLlama.UBatchSize)) || Number(serverLlama.UBatchSize) <= 0)
     && (!Number.isFinite(Number(serverLlama.CacheRam)) || Number(serverLlama.CacheRam) <= 0)
+    && !serverLlama.KvCacheQuantization
     && (!Number.isFinite(Number(serverLlama.MaxTokens)) || Number(serverLlama.MaxTokens) <= 0)
-    && !Number.isFinite(Number(serverLlama.Temperature))
-    && !Number.isFinite(Number(serverLlama.TopP))
+    && (!Number.isFinite(Number(serverLlama.Temperature)) || Number(serverLlama.Temperature) <= 0)
+    && (!Number.isFinite(Number(serverLlama.TopP)) || Number(serverLlama.TopP) <= 0)
     && (!Number.isFinite(Number(serverLlama.TopK)) || Number(serverLlama.TopK) <= 0)
     && !serverLlama.Reasoning;
 }
@@ -198,6 +312,7 @@ export function toPersistedConfigObject(config: SiftConfig): Omit<SiftConfig, 'P
         BatchSize: config.Server?.LlamaCpp?.BatchSize ?? null,
         UBatchSize: config.Server?.LlamaCpp?.UBatchSize ?? null,
         CacheRam: config.Server?.LlamaCpp?.CacheRam ?? null,
+        KvCacheQuantization: config.Server?.LlamaCpp?.KvCacheQuantization ?? null,
         MaxTokens: config.Server?.LlamaCpp?.MaxTokens ?? null,
         Temperature: config.Server?.LlamaCpp?.Temperature ?? null,
         TopP: config.Server?.LlamaCpp?.TopP ?? null,
@@ -211,6 +326,8 @@ export function toPersistedConfigObject(config: SiftConfig): Omit<SiftConfig, 'P
         HealthcheckTimeoutMs: config.Server?.LlamaCpp?.HealthcheckTimeoutMs ?? null,
         HealthcheckIntervalMs: config.Server?.LlamaCpp?.HealthcheckIntervalMs ?? null,
         VerboseLogging: config.Server?.LlamaCpp?.VerboseLogging ?? null,
+        Presets: config.Server?.LlamaCpp?.Presets ?? null,
+        ActivePresetId: config.Server?.LlamaCpp?.ActivePresetId ?? null,
       },
     },
   };
@@ -219,6 +336,13 @@ export function toPersistedConfigObject(config: SiftConfig): Omit<SiftConfig, 'P
 export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info: NormalizationInfo } {
   const updated = JSON.parse(JSON.stringify(config)) as SiftConfig;
   const defaults = getDefaultConfigObject();
+  const preferManagedPresetValues = Boolean(
+    config.Server?.LlamaCpp
+    && (
+      Object.prototype.hasOwnProperty.call(config.Server.LlamaCpp, 'Presets')
+      || Object.prototype.hasOwnProperty.call(config.Server.LlamaCpp, 'ActivePresetId')
+    )
+  );
   let changed = false;
   let legacyMaxInputCharactersValue: number | null = null;
   let legacyMaxInputCharactersRemoved = false;
@@ -365,6 +489,7 @@ export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info:
     'BatchSize',
     'UBatchSize',
     'CacheRam',
+    'KvCacheQuantization',
     'MaxTokens',
     'Temperature',
     'TopP',
@@ -404,6 +529,7 @@ export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info:
     }
     changed = true;
   }
+  applyActiveManagedLlamaPreset(serverLlama, defaults.Server?.LlamaCpp ?? serverLlama, preferManagedPresetValues);
   if (typeof serverLlama.VerboseLogging !== 'boolean') {
     serverLlama.VerboseLogging = Boolean(serverLlama.VerboseLogging);
     changed = true;

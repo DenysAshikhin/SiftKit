@@ -107,7 +107,7 @@ export function getManagedFilePickerDialogOptions(
   if (target === 'managed-llama-executable') {
     return {
       title: 'Select llama.cpp executable',
-      filter: 'Executables (*.exe)|*.exe|All files (*.*)|*.*',
+      filter: 'llama-server.exe|llama-server.exe|All files (*.*)|*.*',
       initialPath,
     };
   }
