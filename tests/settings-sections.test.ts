@@ -11,7 +11,7 @@ import {
 test('settings section order matches the integrated layout', () => {
   assert.deepEqual(
     SETTINGS_SECTION_ORDER,
-    ['general', 'tool-policy', 'presets', 'interactive', 'managed-llama'],
+    ['general', 'tool-policy', 'presets', 'interactive', 'model-presets'],
   );
 });
 
@@ -33,8 +33,9 @@ test('settings tooltip labels include the documented fields', () => {
       'Wrapped commands',
       'Interactive enabled',
       'Interactive transcript retention',
-      'Managed preset',
+      'Model preset',
       'Preset name',
+      'Model',
       'Executable path',
       'Base URL',
       'Bind host',

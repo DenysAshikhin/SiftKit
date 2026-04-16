@@ -6,7 +6,7 @@ import { SETTINGS_MOCKUP_SECTIONS, SETTINGS_MOCKUP_TOOLTIP_FIELDS } from '../das
 test('settings mockup sections expose the expected group order', () => {
   assert.deepEqual(
     SETTINGS_MOCKUP_SECTIONS.map((section) => section.id),
-    ['general', 'interactive', 'managed-llama'],
+    ['general', 'interactive', 'model-presets'],
   );
 });
 
@@ -16,7 +16,8 @@ test('settings mockup tooltip fields include documented explanatory labels', () 
     [
       'Wrapped commands',
       'Interactive IdleTimeoutMs',
-      'Managed preset',
+      'Model preset',
+      'Model',
       'Executable path',
       'Base URL',
       'Model path (.gguf)',

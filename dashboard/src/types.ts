@@ -299,6 +299,7 @@ export type DashboardConfig = {
   };
   Server: {
     LlamaCpp: {
+      Model: string;
       ExecutablePath: string | null;
       BaseUrl: string;
       BindHost: string;
@@ -336,6 +337,7 @@ export type DashboardConfig = {
 export type DashboardManagedLlamaPreset = {
   id: string;
   label: string;
+  Model: string;
   ExecutablePath: string | null;
   BaseUrl: string;
   BindHost: string;

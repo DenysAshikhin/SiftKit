@@ -13,6 +13,7 @@ function createPreset(overrides: Partial<DashboardManagedLlamaPreset> = {}): Das
   return {
     id: 'default',
     label: 'Default',
+    Model: 'default.gguf',
     ExecutablePath: null,
     BaseUrl: 'http://127.0.0.1:8097',
     BindHost: '127.0.0.1',
@@ -110,6 +111,7 @@ function createConfig(): DashboardConfig {
     },
     Server: {
       LlamaCpp: {
+        Model: preset.Model,
         ...preset,
         Presets: [
           preset,
@@ -129,6 +131,7 @@ function createConfig(): DashboardConfig {
 
 test('applyManagedLlamaPresetSelection mirrors the selected managed preset into the active server settings', () => {
   const config = createConfig();
+  Object.assign(config.Server.LlamaCpp.Presets[1] as { Model?: string }, { Model: 'qwen-27b.gguf' });
 
   applyManagedLlamaPresetSelection(config, 'qwen-27b');
 
@@ -137,6 +140,8 @@ test('applyManagedLlamaPresetSelection mirrors the selected managed preset into 
   assert.equal(config.Server.LlamaCpp.Threads, 0);
   assert.equal(config.Server.LlamaCpp.Port, 8098);
   assert.equal(config.Server.LlamaCpp.ReasoningBudgetMessage, 'Thinking budget exhausted. You have to provide the answer now.');
+  assert.equal(config.Runtime.Model, 'qwen-27b.gguf');
+  assert.equal(config.Model, 'qwen-27b.gguf');
 });
 
 test('addManagedLlamaPreset clones the active preset and creates a unique id', () => {

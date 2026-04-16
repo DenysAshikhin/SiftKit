@@ -1,4 +1,5 @@
 import type { DashboardConfig, DashboardManagedLlamaPreset } from './types';
+import { syncDerivedSettingsFields } from './settings-runtime';
 
 function createPresetIdFromLabel(label: string): string {
   const normalized = String(label || '')
@@ -13,6 +14,7 @@ function buildPresetFromServer(config: DashboardConfig): DashboardManagedLlamaPr
   return {
     id: 'default',
     label: 'Default',
+    Model: config.Runtime.Model,
     ExecutablePath: config.Server.LlamaCpp.ExecutablePath,
     BaseUrl: config.Server.LlamaCpp.BaseUrl,
     BindHost: config.Server.LlamaCpp.BindHost,
@@ -55,6 +57,7 @@ function ensureManagedLlamaPresets(config: DashboardConfig): DashboardManagedLla
 }
 
 function copyPresetToServer(config: DashboardConfig, preset: DashboardManagedLlamaPreset): void {
+  config.Server.LlamaCpp.Model = preset.Model;
   config.Server.LlamaCpp.ExecutablePath = preset.ExecutablePath;
   config.Server.LlamaCpp.BaseUrl = preset.BaseUrl;
   config.Server.LlamaCpp.BindHost = preset.BindHost;
@@ -108,6 +111,7 @@ export function getActiveManagedLlamaPreset(config: DashboardConfig): DashboardM
   }
   config.Server.LlamaCpp.ActivePresetId = activePreset.id;
   copyPresetToServer(config, activePreset);
+  syncDerivedSettingsFields(config);
   return activePreset;
 }
 
@@ -119,6 +123,7 @@ export function applyManagedLlamaPresetSelection(config: DashboardConfig, preset
   }
   config.Server.LlamaCpp.ActivePresetId = preset.id;
   copyPresetToServer(config, preset);
+  syncDerivedSettingsFields(config);
 }
 
 export function updateActiveManagedLlamaPreset(
@@ -128,6 +133,7 @@ export function updateActiveManagedLlamaPreset(
   const preset = getActiveManagedLlamaPreset(config);
   updater(preset);
   copyPresetToServer(config, preset);
+  syncDerivedSettingsFields(config);
 }
 
 export function addManagedLlamaPreset(config: DashboardConfig): string {
@@ -142,6 +148,7 @@ export function addManagedLlamaPreset(config: DashboardConfig): string {
   presets.push(nextPreset);
   config.Server.LlamaCpp.ActivePresetId = nextId;
   copyPresetToServer(config, nextPreset);
+  syncDerivedSettingsFields(config);
   return nextId;
 }
 
@@ -159,6 +166,7 @@ export function deleteManagedLlamaPreset(config: DashboardConfig, presetId: stri
   }
   config.Server.LlamaCpp.ActivePresetId = nextPreset.id;
   copyPresetToServer(config, nextPreset);
+  syncDerivedSettingsFields(config);
 }
 
 export type { DashboardManagedLlamaPreset };

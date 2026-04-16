@@ -69,6 +69,7 @@ const MANAGED_LLAMA_RUNTIME_KEYS: readonly string[] = [
 ];
 
 const MANAGED_LLAMA_FIELD_KEYS: readonly string[] = [
+  'Model',
   'ExecutablePath',
   'BaseUrl',
   'BindHost',
@@ -100,6 +101,7 @@ const MANAGED_LLAMA_FIELD_KEYS: readonly string[] = [
 ];
 
 const MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS: readonly string[] = [
+  'Model',
   'BaseUrl',
   'BindHost',
   'Port',
@@ -132,6 +134,7 @@ export function getDefaultConfig(): Dict {
   const defaultManagedLlamaPreset = {
     id: 'default',
     label: 'Default',
+    Model: DEFAULT_LLAMA_MODEL,
     ExecutablePath: null,
     BaseUrl: DEFAULT_LLAMA_BASE_URL,
     BindHost: DEFAULT_LLAMA_BIND_HOST,
@@ -377,6 +380,9 @@ export function normalizeConfig(input: unknown): Dict {
   }
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ModelPath')) {
     serverLlama.ModelPath = runtimeLlama.ModelPath ?? null;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'Model')) {
+    serverLlama.Model = runtime.Model ?? deriveModelIdFromPath(serverLlama.ModelPath) ?? DEFAULT_LLAMA_MODEL;
   }
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'NumCtx')) {
     serverLlama.NumCtx = runtimeLlama.NumCtx ?? 150000;
@@ -750,6 +756,7 @@ function rowToConfig(row: AppConfigRow): Dict {
     },
     Server: {
       LlamaCpp: {
+        Model: row.runtime_model,
         ExecutablePath: row.server_executable_path,
         BaseUrl: row.server_base_url,
         BindHost: row.server_bind_host,
@@ -992,6 +999,15 @@ function getNullableTrimmedString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+function deriveModelIdFromPath(value: unknown): string | null {
+  const normalized = getNullableTrimmedString(value);
+  if (!normalized) {
+    return null;
+  }
+  const lastSeparatorIndex = Math.max(normalized.lastIndexOf('\\'), normalized.lastIndexOf('/'));
+  return lastSeparatorIndex >= 0 ? normalized.slice(lastSeparatorIndex + 1) : normalized;
+}
+
 function getManagedKvCacheQuantization(value: unknown, fallback: string): string {
   const normalized = getNullableTrimmedString(value);
   if (
@@ -1028,6 +1044,7 @@ function normalizeManagedLlamaPresetRecord(input: unknown, fallbackId: string, f
   return {
     id: getNullableTrimmedString(record.id) || fallbackId,
     label: getNullableTrimmedString(record.label) || fallbackLabel,
+    Model: getNullableTrimmedString(record.Model) || deriveModelIdFromPath(record.ModelPath) || DEFAULT_LLAMA_MODEL,
     ...managed,
   };
 }
@@ -1069,6 +1086,7 @@ function applyActiveManagedLlamaPreset(serverLlama: Dict, preferPresetValues: bo
 }
 
 type ManagedLlamaConfig = {
+  Model?: string | null;
   ExecutablePath: string | null;
   BaseUrl: string | null;
   BindHost: string;

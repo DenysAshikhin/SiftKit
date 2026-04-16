@@ -57,6 +57,7 @@ const IDLE_SNAPSHOT = {
 const MANAGED_PRESET = {
   id: 'managed',
   label: 'Managed',
+  Model: 'test-model',
   ExecutablePath: null,
   BaseUrl: 'http://127.0.0.1:8080',
   BindHost: '127.0.0.1',
@@ -170,6 +171,7 @@ const DASHBOARD_CONFIG = {
   },
   Server: {
     LlamaCpp: {
+      Model: 'test-model',
       ...MANAGED_PRESET,
       Presets: [MANAGED_PRESET],
       ActivePresetId: MANAGED_PRESET.id,
@@ -287,6 +289,8 @@ test('settings tab renders section chrome and fields', () => {
 
   assert.match(markup, /Settings/);
   assert.match(markup, /Prompt prefix/);
+  assert.match(markup, /Model Presets/);
+  assert.doesNotMatch(markup, /Managed llama\.cpp/);
 });
 
 test('presets section renders library controls and effective tools', () => {
@@ -324,6 +328,7 @@ test('managed llama section renders launcher fields and browse controls', () => 
     />,
   );
 
+  assert.match(markup, /test-model/);
   assert.match(markup, /Browse/);
   assert.match(markup, /127\.0\.0\.1:8080/);
   assert.match(markup, /f16/);

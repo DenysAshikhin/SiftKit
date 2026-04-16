@@ -27,7 +27,14 @@ export function syncDerivedSettingsFields(config: DashboardConfig): DashboardCon
   config.Runtime.LlamaCpp.Reasoning = config.Server.LlamaCpp.Reasoning;
   config.LlamaCpp = { ...config.Runtime.LlamaCpp };
 
-  const runtimeModelId = deriveRuntimeModelId(config.Server.LlamaCpp.ModelPath);
+  const activePreset = config.Server.LlamaCpp.Presets.find(
+    (preset) => preset.id === config.Server.LlamaCpp.ActivePresetId,
+  );
+  const runtimeModelId = String(
+    activePreset?.Model
+    || config.Server.LlamaCpp.Model
+    || deriveRuntimeModelId(config.Server.LlamaCpp.ModelPath),
+  ).trim();
   config.Runtime.Model = runtimeModelId;
   config.Model = runtimeModelId;
   return config;

@@ -1,3 +1,4 @@
+import React from 'react';
 import type { ReactNode } from 'react';
 
 import { applyManagedLlamaPresetSelection } from '../../managed-llama-presets';
@@ -47,7 +48,7 @@ export function ManagedLlamaSection({
   return (
     <div className="settings-live-grid">
       <div className="managed-llama-top-row">
-        {renderField('managed-llama', 'Managed preset', (
+        {renderField('model-presets', 'Model preset', (
           <div className="settings-preset-library">
             <div className="settings-preset-toolbar">
               <label className="settings-preset-selector">
@@ -77,13 +78,19 @@ export function ManagedLlamaSection({
             </div>
           </div>
         ), 'managed-llama-top-field')}
-        {renderField('managed-llama', 'Preset name', (
+        {renderField('model-presets', 'Preset name', (
           <input
             value={selectedManagedLlamaPreset.label}
             onChange={(event) => updateManagedLlamaDraft((preset) => { preset.label = event.target.value; })}
           />
         ), 'managed-llama-top-field')}
-        {renderField('managed-llama', 'Executable path', (
+        {renderField('model-presets', 'Model', (
+          <input
+            value={selectedManagedLlamaPreset.Model}
+            onChange={(event) => updateManagedLlamaDraft((preset) => { preset.Model = event.target.value; })}
+          />
+        ), 'managed-llama-top-field')}
+        {renderField('model-presets', 'Executable path', (
           <div className="settings-live-nav-control">
             <input
               value={selectedManagedLlamaPreset.ExecutablePath || ''}
@@ -98,16 +105,16 @@ export function ManagedLlamaSection({
           </div>
         ), 'managed-llama-top-field')}
       </div>
-      {renderField('managed-llama', 'Base URL', (
+      {renderField('model-presets', 'Base URL', (
         <input value={selectedManagedLlamaPreset.BaseUrl} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.BaseUrl = event.target.value; })} />
       ))}
-      {renderField('managed-llama', 'Bind host', (
+      {renderField('model-presets', 'Bind host', (
         <input value={selectedManagedLlamaPreset.BindHost} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.BindHost = event.target.value; })} />
       ))}
-      {renderField('managed-llama', 'Port', (
+      {renderField('model-presets', 'Port', (
         <input type="number" value={selectedManagedLlamaPreset.Port} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.Port = parseIntegerInput(event.target.value, preset.Port); })} />
       ))}
-      {renderField('managed-llama', 'Model path (.gguf)', (
+      {renderField('model-presets', 'Model path (.gguf)', (
         <div className="settings-live-nav-control">
           <input
             value={selectedManagedLlamaPreset.ModelPath || ''}
@@ -121,84 +128,84 @@ export function ManagedLlamaSection({
           </button>
         </div>
       ))}
-      {renderField('managed-llama', 'NumCtx', (
+      {renderField('model-presets', 'NumCtx', (
         <input type="number" value={selectedManagedLlamaPreset.NumCtx} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.NumCtx = parseIntegerInput(event.target.value, preset.NumCtx); })} />
       ))}
-      {renderField('managed-llama', 'GpuLayers', (
+      {renderField('model-presets', 'GpuLayers', (
         <input type="number" value={selectedManagedLlamaPreset.GpuLayers} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.GpuLayers = parseIntegerInput(event.target.value, preset.GpuLayers); })} />
       ))}
-      {renderField('managed-llama', 'Threads', (
+      {renderField('model-presets', 'Threads', (
         <input type="number" value={selectedManagedLlamaPreset.Threads} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.Threads = parseIntegerInput(event.target.value, preset.Threads); })} />
       ))}
-      {renderField('managed-llama', 'Flash attention', (
+      {renderField('model-presets', 'Flash attention', (
         <label className="settings-live-toggle-control">
           <input type="checkbox" checked={selectedManagedLlamaPreset.FlashAttention} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.FlashAttention = event.target.checked; })} />
           <span>{selectedManagedLlamaPreset.FlashAttention ? 'Enabled' : 'Disabled'}</span>
         </label>
       ))}
-      {renderField('managed-llama', 'ParallelSlots', (
+      {renderField('model-presets', 'ParallelSlots', (
         <input type="number" value={selectedManagedLlamaPreset.ParallelSlots} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.ParallelSlots = parseIntegerInput(event.target.value, preset.ParallelSlots); })} />
       ))}
-      {renderField('managed-llama', 'BatchSize', (
+      {renderField('model-presets', 'BatchSize', (
         <input type="number" value={selectedManagedLlamaPreset.BatchSize} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.BatchSize = parseIntegerInput(event.target.value, preset.BatchSize); })} />
       ))}
-      {renderField('managed-llama', 'UBatchSize', (
+      {renderField('model-presets', 'UBatchSize', (
         <input type="number" value={selectedManagedLlamaPreset.UBatchSize} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.UBatchSize = parseIntegerInput(event.target.value, preset.UBatchSize); })} />
       ))}
-      {renderField('managed-llama', 'CacheRam', (
+      {renderField('model-presets', 'CacheRam', (
         <input type="number" value={selectedManagedLlamaPreset.CacheRam} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.CacheRam = parseIntegerInput(event.target.value, preset.CacheRam); })} />
       ))}
-      {renderField('managed-llama', 'KV cache quant', (
+      {renderField('model-presets', 'KV cache quant', (
         <select value={selectedManagedLlamaPreset.KvCacheQuantization} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.KvCacheQuantization = event.target.value as typeof preset.KvCacheQuantization; })}>
           {KV_CACHE_QUANT_OPTIONS.map((option) => (
             <option key={option} value={option}>{option}</option>
           ))}
         </select>
       ))}
-      {renderField('managed-llama', 'MaxTokens', (
+      {renderField('model-presets', 'MaxTokens', (
         <input type="number" value={selectedManagedLlamaPreset.MaxTokens} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.MaxTokens = parseIntegerInput(event.target.value, preset.MaxTokens); })} />
       ))}
-      {renderField('managed-llama', 'Temperature', (
+      {renderField('model-presets', 'Temperature', (
         <input type="number" step="0.01" value={selectedManagedLlamaPreset.Temperature} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.Temperature = parseFloatInput(event.target.value, preset.Temperature); })} />
       ))}
-      {renderField('managed-llama', 'TopP', (
+      {renderField('model-presets', 'TopP', (
         <input type="number" step="0.01" value={selectedManagedLlamaPreset.TopP} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.TopP = parseFloatInput(event.target.value, preset.TopP); })} />
       ))}
-      {renderField('managed-llama', 'TopK', (
+      {renderField('model-presets', 'TopK', (
         <input type="number" value={selectedManagedLlamaPreset.TopK} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.TopK = parseIntegerInput(event.target.value, preset.TopK); })} />
       ))}
-      {renderField('managed-llama', 'MinP', (
+      {renderField('model-presets', 'MinP', (
         <input type="number" step="0.01" value={selectedManagedLlamaPreset.MinP} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.MinP = parseFloatInput(event.target.value, preset.MinP); })} />
       ))}
-      {renderField('managed-llama', 'PresencePenalty', (
+      {renderField('model-presets', 'PresencePenalty', (
         <input type="number" step="0.01" value={selectedManagedLlamaPreset.PresencePenalty} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.PresencePenalty = parseFloatInput(event.target.value, preset.PresencePenalty); })} />
       ))}
-      {renderField('managed-llama', 'RepetitionPenalty', (
+      {renderField('model-presets', 'RepetitionPenalty', (
         <input type="number" step="0.01" value={selectedManagedLlamaPreset.RepetitionPenalty} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.RepetitionPenalty = parseFloatInput(event.target.value, preset.RepetitionPenalty); })} />
       ))}
-      {renderField('managed-llama', 'Reasoning', (
+      {renderField('model-presets', 'Reasoning', (
         <select value={selectedManagedLlamaPreset.Reasoning} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.Reasoning = event.target.value as 'on' | 'off' | 'auto'; })}>
           <option value="off">off</option>
           <option value="on">on</option>
           <option value="auto">auto</option>
         </select>
       ))}
-      {renderField('managed-llama', 'ReasoningBudget', (
+      {renderField('model-presets', 'ReasoningBudget', (
         <input type="number" value={selectedManagedLlamaPreset.ReasoningBudget} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.ReasoningBudget = parseIntegerInput(event.target.value, preset.ReasoningBudget); })} />
       ))}
-      {renderField('managed-llama', 'ReasoningBudgetMessage', (
+      {renderField('model-presets', 'ReasoningBudgetMessage', (
         <textarea rows={3} value={selectedManagedLlamaPreset.ReasoningBudgetMessage} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.ReasoningBudgetMessage = event.target.value; })} />
       ))}
-      {renderField('managed-llama', 'StartupTimeoutMs', (
+      {renderField('model-presets', 'StartupTimeoutMs', (
         <input type="number" value={selectedManagedLlamaPreset.StartupTimeoutMs} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.StartupTimeoutMs = parseIntegerInput(event.target.value, preset.StartupTimeoutMs); })} />
       ))}
-      {renderField('managed-llama', 'HealthcheckTimeoutMs', (
+      {renderField('model-presets', 'HealthcheckTimeoutMs', (
         <input type="number" value={selectedManagedLlamaPreset.HealthcheckTimeoutMs} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.HealthcheckTimeoutMs = parseIntegerInput(event.target.value, preset.HealthcheckTimeoutMs); })} />
       ))}
-      {renderField('managed-llama', 'HealthcheckIntervalMs', (
+      {renderField('model-presets', 'HealthcheckIntervalMs', (
         <input type="number" value={selectedManagedLlamaPreset.HealthcheckIntervalMs} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.HealthcheckIntervalMs = parseIntegerInput(event.target.value, preset.HealthcheckIntervalMs); })} />
       ))}
-      {renderField('managed-llama', 'Managed llama verbose logging', (
+      {renderField('model-presets', 'Managed llama verbose logging', (
         <label className="settings-live-toggle-control">
           <input type="checkbox" checked={selectedManagedLlamaPreset.VerboseLogging} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.VerboseLogging = event.target.checked; })} />
           <span>{selectedManagedLlamaPreset.VerboseLogging ? 'Enabled' : 'Disabled'}</span>

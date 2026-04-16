@@ -21,7 +21,7 @@ export type SettingsMockupField = SettingsMockupTextField | SettingsMockupToggle
 export type SettingsMockupSectionId =
   | 'general'
   | 'interactive'
-  | 'managed-llama';
+  | 'model-presets';
 
 export type SettingsMockupSection = {
   id: SettingsMockupSectionId;
@@ -34,7 +34,8 @@ export type SettingsMockupSection = {
 export const SETTINGS_MOCKUP_TOOLTIP_FIELDS = [
   'Wrapped commands',
   'Interactive IdleTimeoutMs',
-  'Managed preset',
+  'Model preset',
+  'Model',
   'Executable path',
   'Base URL',
   'Model path (.gguf)',
@@ -87,13 +88,14 @@ export const SETTINGS_MOCKUP_SECTIONS: SettingsMockupSection[] = [
     ],
   },
   {
-    id: 'managed-llama',
+    id: 'model-presets',
     icon: 'ðŸ› ',
-    title: 'Managed llama.cpp',
-    summary: 'Direct launcher path, runtime tuning, and readiness controls for the managed llama.cpp server.',
+    title: 'Model Presets',
+    summary: 'Named model and llama.cpp runtime combinations that you save first, then apply by restarting the backend.',
     fields: [
-      { kind: 'text', label: 'Managed preset', value: 'Qwen 35B', layout: 'full' },
+      { kind: 'text', label: 'Model preset', value: 'Qwen 35B', layout: 'full' },
       { kind: 'text', label: 'Preset name', value: 'Qwen 35B', layout: 'half' },
+      { kind: 'text', label: 'Model', value: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf', layout: 'half' },
       { kind: 'textarea', label: 'Executable path', value: 'C:\\Users\\denys\\Documents\\GitHub\\llamacpp\\llama-server.exe', layout: 'full' },
       { kind: 'text', label: 'Base URL', value: 'http://127.0.0.1:8097', layout: 'half' },
       { kind: 'text', label: 'Bind host', value: '127.0.0.1', layout: 'quarter' },

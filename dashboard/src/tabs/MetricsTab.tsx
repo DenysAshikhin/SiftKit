@@ -1,3 +1,4 @@
+import React from 'react';
 import { InteractiveGraph, type InteractiveSeries } from '../components/InteractiveGraph';
 import {
   formatDate,

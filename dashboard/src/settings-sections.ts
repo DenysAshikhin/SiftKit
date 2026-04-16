@@ -3,7 +3,7 @@ export type SettingsSectionId =
   | 'tool-policy'
   | 'presets'
   | 'interactive'
-  | 'managed-llama';
+  | 'model-presets';
 
 export type SettingsFieldLayout = 'full' | 'half' | 'quarter';
 
@@ -28,7 +28,7 @@ export const SETTINGS_SECTION_ORDER: SettingsSectionId[] = [
   'tool-policy',
   'presets',
   'interactive',
-  'managed-llama',
+  'model-presets',
 ];
 
 export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescriptor> = {
@@ -78,14 +78,15 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'Interactive transcript retention', layout: 'half', helpText: 'Keeps stored interactive transcripts after sessions complete.' },
     ],
   },
-  'managed-llama': {
-    id: 'managed-llama',
+  'model-presets': {
+    id: 'model-presets',
     icon: 'ðŸ› ',
-    title: 'Managed llama.cpp',
-    summary: 'Direct launcher path, runtime tuning, and readiness controls for the managed llama.cpp server.',
+    title: 'Model Presets',
+    summary: 'Named model and llama.cpp runtime combinations that you save first, then apply by restarting the backend.',
     fields: [
-      { label: 'Managed preset', layout: 'full', helpText: 'Stored managed llama launcher profiles for different models or tuning setups. The selected preset drives restart behavior.' },
+      { label: 'Model preset', layout: 'full', helpText: 'Named model/runtime presets. The selected preset is the draft source of truth and becomes the active saved runtime config when you save settings.' },
       { label: 'Preset name', layout: 'half', helpText: 'User-facing label for the selected managed llama preset.' },
+      { label: 'Model', layout: 'half', helpText: 'Model identifier saved with this preset. Use the same value that the llama.cpp server reports or expects for requests.' },
       { label: 'Executable path', layout: 'full', helpText: 'Full path to `llama-server.exe` or another directly launchable managed llama executable.' },
       { label: 'Base URL', layout: 'half', helpText: 'HTTP endpoint used for readiness checks and client requests to the managed llama.cpp server.' },
       { label: 'Bind host', layout: 'quarter', helpText: 'Host interface that the managed llama.cpp process should bind to.' },

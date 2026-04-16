@@ -1,3 +1,4 @@
+import React from 'react';
 import type { ReactNode } from 'react';
 
 import {
@@ -116,9 +117,9 @@ export function SettingsTab(props: SettingsTabProps) {
             <input value={dashboardConfig.Backend} readOnly />
             <button
               type="button"
-              onClick={() => requestSettingsAction({ kind: 'switch-section', nextSection: 'managed-llama' })}
+              onClick={() => requestSettingsAction({ kind: 'switch-section', nextSection: 'model-presets' })}
             >
-              Open Managed Settings
+              Open Model Presets
             </button>
           </div>
         ))}
