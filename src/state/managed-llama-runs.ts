@@ -25,6 +25,7 @@ const ALLOWED_STREAMS = new Set<ManagedLlamaStreamKind>([
   'startup_review',
   'startup_failure',
 ]);
+const pendingChunkTextByRunId = new Map<string, Map<ManagedLlamaStreamKind, string>>();
 
 export type ManagedLlamaRunRecord = {
   id: string;
@@ -167,6 +168,33 @@ function getNextChunkSequence(
   return current + 1;
 }
 
+function getPendingChunksForRun(runId: string): Map<ManagedLlamaStreamKind, string> {
+  let pending = pendingChunkTextByRunId.get(runId);
+  if (!pending) {
+    pending = new Map<ManagedLlamaStreamKind, string>();
+    pendingChunkTextByRunId.set(runId, pending);
+  }
+  return pending;
+}
+
+export function bufferManagedLlamaLogChunk(options: {
+  runId: string;
+  streamKind: ManagedLlamaStreamKind;
+  chunkText: string;
+}): void {
+  const runId = String(options.runId || '').trim();
+  if (!runId) {
+    throw new Error('Managed llama run id is required for log chunks.');
+  }
+  const chunkText = String(options.chunkText || '');
+  if (!chunkText) {
+    return;
+  }
+  const streamKind = normalizeStreamKind(options.streamKind);
+  const pending = getPendingChunksForRun(runId);
+  pending.set(streamKind, `${pending.get(streamKind) || ''}${chunkText}`);
+}
+
 export function appendManagedLlamaLogChunk(options: {
   runId: string;
   streamKind: ManagedLlamaStreamKind;
@@ -200,6 +228,37 @@ export function appendManagedLlamaLogChunk(options: {
     chunkText,
     new Date().toISOString(),
   );
+}
+
+export function flushManagedLlamaLogChunks(runId: string, databasePath?: string): void {
+  const normalizedRunId = String(runId || '').trim();
+  if (!normalizedRunId) {
+    return;
+  }
+  const pending = pendingChunkTextByRunId.get(normalizedRunId);
+  if (!pending || pending.size === 0) {
+    return;
+  }
+  const entries = [...pending.entries()]
+    .map(([streamKind, chunkText]) => ({ streamKind, chunkText }))
+    .filter((entry) => entry.chunkText);
+  if (entries.length === 0) {
+    pendingChunkTextByRunId.delete(normalizedRunId);
+    return;
+  }
+  const database = getDatabase(databasePath);
+  database.transaction(() => {
+    for (const entry of entries) {
+      appendManagedLlamaLogChunk({
+        runId: normalizedRunId,
+        streamKind: entry.streamKind,
+        chunkText: entry.chunkText,
+        sequence: getNextChunkSequence(database, normalizedRunId, entry.streamKind),
+        databasePath,
+      });
+    }
+  })();
+  pendingChunkTextByRunId.delete(normalizedRunId);
 }
 
 export function readManagedLlamaRun(id: string, databasePath?: string): ManagedLlamaRunRecord | null {
@@ -244,6 +303,12 @@ export function readManagedLlamaLogTextByStream(
     const streamKind = normalizeStreamKind(row.stream_kind);
     result[streamKind] = `${result[streamKind]}${typeof row.chunk_text === 'string' ? row.chunk_text : ''}`;
   }
+  const pending = pendingChunkTextByRunId.get(normalizedRunId);
+  if (pending) {
+    for (const [streamKind, chunkText] of pending.entries()) {
+      result[streamKind] = `${result[streamKind]}${chunkText}`;
+    }
+  }
   return result;
 }
 
@@ -281,6 +346,7 @@ export function deleteManagedLlamaRun(id: string, databasePath?: string): boolea
   if (!runId) {
     return false;
   }
+  pendingChunkTextByRunId.delete(runId);
   const database = getDatabase(databasePath);
   const result = database.prepare('DELETE FROM managed_llama_runs WHERE id = ?').run(runId);
   return Number(result.changes) > 0;

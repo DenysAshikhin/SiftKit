@@ -19,6 +19,7 @@ import {
 import { ensureDirectory } from '../lib/fs.js';
 import { sleep } from '../lib/time.js';
 import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
+import { flushManagedLlamaLogChunks } from '../state/managed-llama-runs.js';
 import { normalizeMetrics, writeMetrics } from './metrics.js';
 import {
   buildIdleSummarySnapshot,
@@ -343,6 +344,9 @@ export async function acquireModelRequestWithWait(
 export function releaseModelRequest(ctx: ServerContext, token: string): boolean {
   if (!ctx.activeModelRequest || ctx.activeModelRequest.token !== token) {
     return false;
+  }
+  if (ctx.managedLlamaLastStartupLogs?.runId) {
+    flushManagedLlamaLogChunks(ctx.managedLlamaLastStartupLogs.runId);
   }
   ctx.activeModelRequest = null;
   return true;

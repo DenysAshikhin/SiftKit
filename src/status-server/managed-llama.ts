@@ -15,8 +15,9 @@ import { formatTimestamp } from '../lib/text-format.js';
 import { requestText } from '../lib/http.js';
 import { sleep } from '../lib/time.js';
 import {
-  appendManagedLlamaLogChunk,
+  bufferManagedLlamaLogChunk,
   createManagedLlamaRun,
+  flushManagedLlamaLogChunks,
   readManagedLlamaLogTextByStream,
   updateManagedLlamaRun,
   type ManagedLlamaRunStatus,
@@ -189,7 +190,7 @@ function createManagedLlamaLogRun(
 }
 
 function appendManagedLlamaLogLine(logRef: ManagedLlamaLogRef, streamKind: ManagedLlamaStreamKind, chunk: string): void {
-  appendManagedLlamaLogChunk({
+  bufferManagedLlamaLogChunk({
     runId: logRef.runId,
     streamKind,
     chunkText: chunk,
@@ -356,6 +357,7 @@ function spawnManagedLlamaProcess(
   attachStreamCollector(logRef, MANAGED_STDOUT_STREAM, child.stdout);
   attachStreamCollector(logRef, MANAGED_STDERR_STREAM, child.stderr);
   child.on('exit', (code: number | null) => {
+    flushManagedLlamaLogChunks(logRef.runId);
     const successStatus: ManagedLlamaRunStatus = purpose === 'shutdown' ? 'stopped' : 'ready';
     try {
       updateManagedLlamaRun({
@@ -371,6 +373,7 @@ function spawnManagedLlamaProcess(
   });
   child.on('error', (error: Error) => {
     appendManagedLlamaLogLine(logRef, MANAGED_STDERR_STREAM, `\n[spawn-error] ${error.message}\n`);
+    flushManagedLlamaLogChunks(logRef.runId);
     try {
       updateManagedLlamaRun({
         id: logRef.runId,
@@ -436,6 +439,7 @@ function writeManagedLlamaStartupReviewDump(logRef: ManagedLlamaLogRef, dumpOpti
     ]),
   ].join('\n');
   appendManagedLlamaLogLine(logRef, 'startup_review', `${content}\n`);
+  flushManagedLlamaLogChunks(logRef.runId);
   const artifact = upsertRuntimeTextArtifact({
     id: `managed_llama_startup_review:${logRef.runId}`,
     artifactKind: 'managed_llama_startup_review',
@@ -467,6 +471,7 @@ function writeManagedLlamaFailureDump(logRef: ManagedLlamaLogRef, entries: LogEn
     ]),
   ].join('\n');
   appendManagedLlamaLogLine(logRef, 'startup_failure', `${content}\n`);
+  flushManagedLlamaLogChunks(logRef.runId);
   const artifact = upsertRuntimeTextArtifact({
     id: `managed_llama_startup_failure:${logRef.runId}`,
     artifactKind: 'managed_llama_startup_failure',
