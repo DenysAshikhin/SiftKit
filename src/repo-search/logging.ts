@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import {
-  appendRuntimeTextArtifact,
   getRuntimeArtifactUri,
   parseRuntimeArtifactUri,
   readRuntimeArtifact,
@@ -10,6 +9,11 @@ import { createTracer } from '../lib/trace.js';
 import type { JsonLogger } from './types.js';
 
 export const traceRepoSearch = createTracer('SIFTKIT_TRACE_REPO_SEARCH', 'repo-search');
+
+export type BufferedJsonLogger = JsonLogger & {
+  getText: () => string;
+  persist: (targetPath: string, requestId?: string | null) => string;
+};
 
 const logPathToArtifactId = new Map<string, string>();
 
@@ -79,24 +83,32 @@ export function readJsonLog(logPath: string): string {
   return record?.contentText || '';
 }
 
-export function createJsonLogger(logPath: string): JsonLogger {
-  const artifact = upsertRuntimeTextArtifact({
-    id: randomUUID(),
-    artifactKind: 'repo_search_transcript',
-    title: logPath,
-    content: '',
-  });
-  setArtifactIdForPath(logPath, artifact.id);
+export function createJsonLogger(logPath: string): BufferedJsonLogger {
+  const lines: string[] = [];
+  let persistedArtifactId: string | null = null;
+  const getText = (): string => lines.join('');
+  const persist = (targetPath: string, requestId?: string | null): string => {
+    const targetId = getArtifactIdForPath(targetPath) || persistedArtifactId || randomUUID();
+    const existing = readRuntimeArtifact(targetId);
+    upsertRuntimeTextArtifact({
+      id: targetId,
+      artifactKind: existing?.artifactKind || 'repo_search_transcript',
+      requestId: requestId ?? existing?.requestId ?? null,
+      title: targetPath,
+      content: getText(),
+    });
+    persistedArtifactId = targetId;
+    setArtifactIdForPath(logPath, targetId);
+    setArtifactIdForPath(targetPath, targetId);
+    return getRuntimeArtifactUri(targetId);
+  };
   return {
-    path: artifact.uri,
+    path: logPath,
     write(event: Record<string, unknown>): void {
-      appendRuntimeTextArtifact({
-        id: artifact.id,
-        artifactKind: 'repo_search_transcript',
-        title: logPath,
-        line: `${JSON.stringify({ at: new Date().toISOString(), ...event })}\n`,
-      });
+      lines.push(`${JSON.stringify({ at: new Date().toISOString(), ...event })}\n`);
     },
+    getText,
+    persist,
   };
 }
 

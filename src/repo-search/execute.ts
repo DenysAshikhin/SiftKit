@@ -4,9 +4,6 @@ import { notifyStatusBackend } from '../config/index.js';
 import {
   createJsonLogger,
   ensureRepoSearchLogFolders,
-  moveFileSafe,
-  readJsonLog,
-  resolveRepoSearchLogUri,
   traceRepoSearch,
 } from './logging.js';
 import { runRepoSearch } from './engine.js';
@@ -84,8 +81,8 @@ export async function executeRepoSearchRequest(
     const targetFolder = scorecard?.verdict === 'pass' ? folders.successful : folders.failed;
     const transcriptPath = `${targetFolder}/request_${requestId}.jsonl`;
     const artifactPathHint = `${targetFolder}/request_${requestId}.json`;
-    moveFileSafe(tempTranscriptPath, transcriptPath);
-    const transcriptText = readJsonLog(transcriptPath);
+    const transcriptText = logger.getText();
+    const transcriptUri = logger.persist(transcriptPath, requestId);
     const artifact = {
       requestId,
       prompt,
@@ -95,7 +92,7 @@ export async function executeRepoSearchRequest(
       maxTurns: request.maxTurns ?? null,
       verdict: scorecard?.verdict ?? 'unknown',
       totals: scorecard?.totals ?? null,
-      transcriptPath: resolveRepoSearchLogUri(transcriptPath),
+      transcriptPath: transcriptUri,
       scorecard,
     };
     const artifactPath = upsertRuntimeJsonArtifact({
@@ -188,16 +185,16 @@ export async function executeRepoSearchRequest(
     );
     return {
       requestId,
-      transcriptPath: resolveRepoSearchLogUri(transcriptPath),
+      transcriptPath: transcriptUri,
       artifactPath,
       scorecard,
     };
   } catch (error) {
     const transcriptPath = `${folders.failed}/request_${requestId}.jsonl`;
     const artifactPathHint = `${folders.failed}/request_${requestId}.json`;
-    moveFileSafe(tempTranscriptPath, transcriptPath);
-    const transcriptText = readJsonLog(transcriptPath);
+    const transcriptText = logger.getText();
     const message = error instanceof Error ? error.message : String(error);
+    const transcriptUri = logger.persist(transcriptPath, requestId);
     const artifact = {
       requestId,
       prompt,
@@ -206,7 +203,7 @@ export async function executeRepoSearchRequest(
       requestMaxTokens: request.requestMaxTokens ?? null,
       maxTurns: request.maxTurns ?? null,
       error: message,
-      transcriptPath: resolveRepoSearchLogUri(transcriptPath),
+      transcriptPath: transcriptUri,
     };
     const artifactPath = upsertRuntimeJsonArtifact({
       id: `repo_search_artifact:${requestId}`,
@@ -258,7 +255,7 @@ export async function executeRepoSearchRequest(
     }
     traceRepoSearch(`execute failed request_id=${requestId} duration_ms=${Date.now() - startedAt} error=${message}`);
     (error as { artifactPath?: string; transcriptPath?: string }).artifactPath = artifactPath;
-    (error as { artifactPath?: string; transcriptPath?: string }).transcriptPath = resolveRepoSearchLogUri(transcriptPath);
+    (error as { artifactPath?: string; transcriptPath?: string }).transcriptPath = transcriptUri;
     throw error;
   }
 }
