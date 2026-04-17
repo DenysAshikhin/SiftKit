@@ -6,7 +6,7 @@ import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-const CURRENT_SCHEMA_VERSION = 10;
+const CURRENT_SCHEMA_VERSION = 11;
 
 let cachedDatabasePath: string | null = null;
 let cachedDatabase: RuntimeDatabase | null = null;
@@ -103,6 +103,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       llama_repetition_penalty REAL,
       llama_max_tokens INTEGER,
       llama_threads INTEGER,
+      llama_ncpu_moe INTEGER,
       llama_flash_attention INTEGER CHECK (llama_flash_attention IN (0, 1) OR llama_flash_attention IS NULL),
       llama_parallel_slots INTEGER,
       llama_reasoning TEXT,
@@ -121,6 +122,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       server_num_ctx INTEGER,
       server_gpu_layers INTEGER,
       server_threads INTEGER,
+      server_ncpu_moe INTEGER,
       server_flash_attention INTEGER CHECK (server_flash_attention IN (0, 1) OR server_flash_attention IS NULL),
       server_parallel_slots INTEGER,
       server_batch_size INTEGER,
@@ -559,6 +561,14 @@ function ensureSchema(database: RuntimeDatabase): void {
     `);
     setSchemaVersion(database, 10);
     currentVersion = 10;
+  }
+  if (currentVersion < 11) {
+    database.exec(`
+      ALTER TABLE app_config ADD COLUMN llama_ncpu_moe INTEGER;
+      ALTER TABLE app_config ADD COLUMN server_ncpu_moe INTEGER;
+    `);
+    setSchemaVersion(database, 11);
+    currentVersion = 11;
   }
   ensureRuntimeArtifactsSchema(database);
   ensureManagedLlamaAndBenchmarkMatrixSchema(database);

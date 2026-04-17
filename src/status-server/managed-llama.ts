@@ -250,6 +250,9 @@ export function buildManagedLlamaArgs(managed: ReturnType<typeof getManagedLlama
   if (managed.Threads !== 0) {
     args.push('-t', String(managed.Threads));
   }
+  if (managed.NcpuMoe !== 0) {
+    args.push('--n-cpu-moe', String(managed.NcpuMoe));
+  }
   args.push(
     '-b', String(managed.BatchSize),
     '-ub', String(managed.UBatchSize),

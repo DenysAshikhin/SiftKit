@@ -84,12 +84,6 @@ export function ManagedLlamaSection({
             onChange={(event) => updateManagedLlamaDraft((preset) => { preset.label = event.target.value; })}
           />
         ), 'managed-llama-top-field')}
-        {renderField('model-presets', 'Model', (
-          <input
-            value={selectedManagedLlamaPreset.Model}
-            onChange={(event) => updateManagedLlamaDraft((preset) => { preset.Model = event.target.value; })}
-          />
-        ), 'managed-llama-top-field')}
         {renderField('model-presets', 'Executable path', (
           <div className="settings-live-nav-control">
             <input
@@ -136,6 +130,9 @@ export function ManagedLlamaSection({
       ))}
       {renderField('model-presets', 'Threads', (
         <input type="number" value={selectedManagedLlamaPreset.Threads} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.Threads = parseIntegerInput(event.target.value, preset.Threads); })} />
+      ))}
+      {renderField('model-presets', 'NcpuMoe', (
+        <input type="number" value={selectedManagedLlamaPreset.NcpuMoe} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.NcpuMoe = parseIntegerInput(event.target.value, preset.NcpuMoe); })} />
       ))}
       {renderField('model-presets', 'Flash attention', (
         <label className="settings-live-toggle-control">

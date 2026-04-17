@@ -2,12 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import type { ReactElement, ReactNode } from 'react';
 
 import { MetricsTab } from '../src/tabs/MetricsTab';
 import { SettingsTab } from '../src/tabs/SettingsTab';
 import { ChatTab } from '../src/tabs/ChatTab';
 import { PresetsSection } from '../src/tabs/settings/PresetsSection';
 import { ManagedLlamaSection } from '../src/tabs/settings/ManagedLlamaSection';
+import { updateActiveManagedLlamaPreset } from '../src/managed-llama-presets';
 import type {
   ChatMessage,
   ChatSession,
@@ -66,6 +68,7 @@ const MANAGED_PRESET = {
   NumCtx: 4096,
   GpuLayers: 0,
   Threads: 4,
+  NcpuMoe: 0,
   FlashAttention: false,
   ParallelSlots: 1,
   BatchSize: 512,
@@ -134,6 +137,7 @@ const DASHBOARD_CONFIG = {
     MaxTokens: 512,
     GpuLayers: 0,
     Threads: 4,
+    NcpuMoe: 0,
     FlashAttention: false,
     ParallelSlots: 1,
     Reasoning: 'auto',
@@ -153,6 +157,7 @@ const DASHBOARD_CONFIG = {
       MaxTokens: 512,
       GpuLayers: 0,
       Threads: 4,
+      NcpuMoe: 0,
       FlashAttention: false,
       ParallelSlots: 1,
       Reasoning: 'auto',
@@ -217,6 +222,39 @@ const CONTEXT_USAGE = {
   usedTokens: 10,
   estimatedTokenFallbackTokens: 0,
 } as ContextUsage;
+
+type CapturedField = {
+  label: string;
+  children: ReactNode;
+};
+
+type InputElementProps = {
+  children?: ReactNode;
+  onChange?: (event: { target: { value: string } }) => void;
+};
+
+function findInputElement(node: ReactNode): ReactElement<InputElementProps> | null {
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const match = findInputElement(child);
+      if (match) {
+        return match;
+      }
+    }
+
+    return null;
+  }
+
+  if (!React.isValidElement<InputElementProps>(node)) {
+    return null;
+  }
+
+  if (node.type === 'input') {
+    return node;
+  }
+
+  return findInputElement(node.props.children ?? null);
+}
 
 test('metrics tab renders tool metrics and idle summary', () => {
   const markup = renderToStaticMarkup(
@@ -313,13 +351,17 @@ test('presets section renders library controls and effective tools', () => {
 });
 
 test('managed llama section renders launcher fields and browse controls', () => {
+  const capturedFields: string[] = [];
   const markup = renderToStaticMarkup(
     <ManagedLlamaSection
       dashboardConfig={DASHBOARD_CONFIG}
       selectedManagedLlamaPreset={MANAGED_PRESET}
       settingsActionBusy={false}
       settingsPathPickerBusyTarget={null}
-      renderField={(_, __, children) => <div>{children}</div>}
+      renderField={(_, label, children) => {
+        capturedFields.push(label);
+        return <div>{children}</div>;
+      }}
       updateSettingsDraft={() => {}}
       updateManagedLlamaDraft={() => {}}
       onAddManagedLlamaPreset={() => {}}
@@ -328,10 +370,50 @@ test('managed llama section renders launcher fields and browse controls', () => 
     />,
   );
 
-  assert.match(markup, /test-model/);
   assert.match(markup, /Browse/);
   assert.match(markup, /127\.0\.0\.1:8080/);
   assert.match(markup, /f16/);
+  assert.equal(capturedFields.includes('NcpuMoe'), true);
+  assert.doesNotMatch(markup, /value="test-model"/);
+});
+
+test('managed llama model name is derived from model path and model field is hidden', () => {
+  const capturedFields: CapturedField[] = [];
+  let updatedConfig: DashboardConfig | null = null;
+
+  const section = ManagedLlamaSection({
+    dashboardConfig: DASHBOARD_CONFIG,
+    selectedManagedLlamaPreset: MANAGED_PRESET,
+    settingsActionBusy: false,
+    settingsPathPickerBusyTarget: null,
+    renderField: (_, label, children) => {
+      capturedFields.push({ label, children });
+      return <div>{children}</div>;
+    },
+    updateSettingsDraft: () => {},
+    updateManagedLlamaDraft: (updater) => {
+      const nextConfig = structuredClone(DASHBOARD_CONFIG);
+      updateActiveManagedLlamaPreset(nextConfig, updater);
+      updatedConfig = nextConfig;
+    },
+    onAddManagedLlamaPreset: () => {},
+    onDeleteManagedLlamaPreset: () => {},
+    onPickManagedLlamaPath: async () => {},
+  });
+
+  const markup = renderToStaticMarkup(section);
+  const modelPathField = capturedFields.find((field) => field.label === 'Model path (.gguf)');
+  const modelPathInput = modelPathField ? findInputElement(modelPathField.children) : null;
+
+  assert.equal(capturedFields.some((field) => field.label === 'Model'), false);
+  assert.doesNotMatch(markup, /value="test-model"/);
+  assert.ok(modelPathInput?.props.onChange);
+  modelPathInput.props.onChange({ target: { value: 'D:\\personal\\models\\Qwen3.5-27B-Q4_K_M.gguf' } });
+  assert.ok(updatedConfig);
+  assert.equal(updatedConfig.Server.LlamaCpp.Presets[0]?.Model, 'Qwen3.5-27B-Q4_K_M.gguf');
+  assert.equal(updatedConfig.Server.LlamaCpp.Model, 'Qwen3.5-27B-Q4_K_M.gguf');
+  assert.equal(updatedConfig.Runtime.Model, 'Qwen3.5-27B-Q4_K_M.gguf');
+  assert.equal(updatedConfig.Server.LlamaCpp.Presets[0]?.ModelPath, 'D:\\personal\\models\\Qwen3.5-27B-Q4_K_M.gguf');
 });
 
 test('chat tab renders session list and composer', () => {

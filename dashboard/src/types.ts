@@ -267,6 +267,7 @@ export type DashboardLlamaCppConfig = {
   MaxTokens: number;
   GpuLayers: number;
   Threads: number;
+  NcpuMoe: number;
   FlashAttention: boolean;
   ParallelSlots: number;
   Reasoning: 'on' | 'off' | 'auto';
@@ -308,6 +309,7 @@ export type DashboardConfig = {
       NumCtx: number;
       GpuLayers: number;
       Threads: number;
+      NcpuMoe: number;
       FlashAttention: boolean;
       ParallelSlots: number;
       BatchSize: number;
@@ -346,6 +348,7 @@ export type DashboardManagedLlamaPreset = {
   NumCtx: number;
   GpuLayers: number;
   Threads: number;
+  NcpuMoe: number;
   FlashAttention: boolean;
   ParallelSlots: number;
   BatchSize: number;

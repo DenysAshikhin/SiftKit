@@ -95,6 +95,7 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'NumCtx', layout: 'quarter', helpText: 'Upper bound for prompt context. Higher values consume more memory.' },
       { label: 'GpuLayers', layout: 'quarter', helpText: 'Number of transformer layers offloaded to the GPU.' },
       { label: 'Threads', layout: 'quarter', helpText: 'CPU worker threads used for llama.cpp execution. Set `0` to omit `-t` and let llama.cpp choose its own default.' },
+      { label: 'NcpuMoe', layout: 'quarter', helpText: 'CPU worker threads reserved for MoE execution. Set `0` to omit `--n-cpu-moe` and leave it disabled.' },
       { label: 'Flash attention', layout: 'quarter', helpText: 'Enables llama.cpp flash-attention optimizations when supported by the selected build and hardware.' },
       { label: 'ParallelSlots', layout: 'quarter', helpText: 'Parallel generation lanes reserved in llama.cpp.' },
       { label: 'BatchSize', layout: 'quarter', helpText: 'Prompt-processing batch size used for managed llama.cpp startup.' },

@@ -22,6 +22,7 @@ function createPreset(overrides: Partial<DashboardManagedLlamaPreset> = {}): Das
     NumCtx: 150000,
     GpuLayers: 999,
     Threads: -1,
+    NcpuMoe: 0,
     FlashAttention: true,
     ParallelSlots: 1,
     BatchSize: 512,
@@ -74,6 +75,7 @@ function createConfig(): DashboardConfig {
       MaxTokens: preset.MaxTokens,
       GpuLayers: preset.GpuLayers,
       Threads: preset.Threads,
+      NcpuMoe: preset.NcpuMoe,
       FlashAttention: preset.FlashAttention,
       ParallelSlots: preset.ParallelSlots,
       Reasoning: preset.Reasoning,
@@ -93,6 +95,7 @@ function createConfig(): DashboardConfig {
         MaxTokens: preset.MaxTokens,
         GpuLayers: preset.GpuLayers,
         Threads: preset.Threads,
+        NcpuMoe: preset.NcpuMoe,
         FlashAttention: preset.FlashAttention,
         ParallelSlots: preset.ParallelSlots,
         Reasoning: preset.Reasoning,
@@ -131,13 +134,14 @@ function createConfig(): DashboardConfig {
 
 test('applyManagedLlamaPresetSelection mirrors the selected managed preset into the active server settings', () => {
   const config = createConfig();
-  Object.assign(config.Server.LlamaCpp.Presets[1] as { Model?: string }, { Model: 'qwen-27b.gguf' });
+  Object.assign(config.Server.LlamaCpp.Presets[1] as { Model?: string; NcpuMoe?: number }, { Model: 'qwen-27b.gguf', NcpuMoe: 8 });
 
   applyManagedLlamaPresetSelection(config, 'qwen-27b');
 
   assert.equal(config.Server.LlamaCpp.ActivePresetId, 'qwen-27b');
   assert.equal(config.Server.LlamaCpp.ModelPath, 'D:\\models\\qwen-27b.gguf');
   assert.equal(config.Server.LlamaCpp.Threads, 0);
+  assert.equal((config.Server.LlamaCpp as { NcpuMoe?: number }).NcpuMoe, 8);
   assert.equal(config.Server.LlamaCpp.Port, 8098);
   assert.equal(config.Server.LlamaCpp.ReasoningBudgetMessage, 'Thinking budget exhausted. You have to provide the answer now.');
   assert.equal(config.Runtime.Model, 'qwen-27b.gguf');

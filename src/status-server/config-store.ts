@@ -45,6 +45,7 @@ export const RUNTIME_OWNED_LLAMA_CPP_KEYS: readonly string[] = [
   'MaxTokens',
   'GpuLayers',
   'Threads',
+  'NcpuMoe',
   'FlashAttention',
   'ParallelSlots',
   'Reasoning',
@@ -63,6 +64,7 @@ const MANAGED_LLAMA_RUNTIME_KEYS: readonly string[] = [
   'MaxTokens',
   'GpuLayers',
   'Threads',
+  'NcpuMoe',
   'FlashAttention',
   'ParallelSlots',
   'Reasoning',
@@ -78,6 +80,7 @@ const MANAGED_LLAMA_FIELD_KEYS: readonly string[] = [
   'NumCtx',
   'GpuLayers',
   'Threads',
+  'NcpuMoe',
   'FlashAttention',
   'ParallelSlots',
   'BatchSize',
@@ -143,6 +146,7 @@ export function getDefaultConfig(): Dict {
     NumCtx: 150000,
     GpuLayers: DEFAULT_LLAMA_GPU_LAYERS,
     Threads: -1,
+    NcpuMoe: 0,
     FlashAttention: true,
     ParallelSlots: 1,
     BatchSize: DEFAULT_LLAMA_BATCH_SIZE,
@@ -182,6 +186,8 @@ export function getDefaultConfig(): Dict {
       RepetitionPenalty: 1.0,
       MaxTokens: 15000,
       GpuLayers: DEFAULT_LLAMA_GPU_LAYERS,
+      Threads: -1,
+      NcpuMoe: 0,
       FlashAttention: true,
       ParallelSlots: 1,
       Reasoning: 'off',
@@ -200,6 +206,8 @@ export function getDefaultConfig(): Dict {
         RepetitionPenalty: 1.0,
         MaxTokens: 15000,
         GpuLayers: DEFAULT_LLAMA_GPU_LAYERS,
+        Threads: -1,
+        NcpuMoe: 0,
         FlashAttention: true,
         ParallelSlots: 1,
         Reasoning: 'off',
@@ -393,6 +401,9 @@ export function normalizeConfig(input: unknown): Dict {
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'Threads')) {
     serverLlama.Threads = runtimeLlama.Threads ?? -1;
   }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'NcpuMoe')) {
+    serverLlama.NcpuMoe = runtimeLlama.NcpuMoe ?? 0;
+  }
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'FlashAttention')) {
     serverLlama.FlashAttention = runtimeLlama.FlashAttention ?? true;
   }
@@ -508,6 +519,7 @@ type AppConfigRow = {
   llama_repetition_penalty: number | null;
   llama_max_tokens: number | null;
   llama_threads: number | null;
+  llama_ncpu_moe: number | null;
   llama_flash_attention: number | null;
   llama_parallel_slots: number | null;
   llama_reasoning: string | null;
@@ -526,6 +538,7 @@ type AppConfigRow = {
   server_num_ctx: number | null;
   server_gpu_layers: number | null;
   server_threads: number | null;
+  server_ncpu_moe: number | null;
   server_flash_attention: number | null;
   server_parallel_slots: number | null;
   server_batch_size: number | null;
@@ -653,6 +666,7 @@ function normalizeConfigToRow(config: Dict): AppConfigRow {
     llama_repetition_penalty: toNullableNumber(runtimeLlama.RepetitionPenalty),
     llama_max_tokens: toNullableInteger(runtimeLlama.MaxTokens),
     llama_threads: toNullableInteger(runtimeLlama.Threads),
+    llama_ncpu_moe: toNullableInteger(runtimeLlama.NcpuMoe),
     llama_flash_attention: toNullableBooleanInteger(runtimeLlama.FlashAttention),
     llama_parallel_slots: toNullableInteger(runtimeLlama.ParallelSlots),
     llama_reasoning: typeof runtimeLlama.Reasoning === 'string' && runtimeLlama.Reasoning.trim() ? runtimeLlama.Reasoning.trim() : null,
@@ -681,6 +695,7 @@ function normalizeConfigToRow(config: Dict): AppConfigRow {
     server_num_ctx: toNullableInteger(serverLlama.NumCtx),
     server_gpu_layers: toNullableInteger(serverLlama.GpuLayers),
     server_threads: toNullableInteger(serverLlama.Threads),
+    server_ncpu_moe: toNullableInteger(serverLlama.NcpuMoe),
     server_flash_attention: toNullableBooleanInteger(serverLlama.FlashAttention),
     server_parallel_slots: toNullableInteger(serverLlama.ParallelSlots),
     server_batch_size: toNullableInteger(serverLlama.BatchSize),
@@ -728,6 +743,7 @@ function rowToConfig(row: AppConfigRow): Dict {
     MaxTokens: row.llama_max_tokens,
     GpuLayers: row.server_gpu_layers,
     Threads: row.llama_threads,
+    NcpuMoe: row.llama_ncpu_moe,
     FlashAttention: row.llama_flash_attention === null ? null : row.llama_flash_attention === 1,
     ParallelSlots: row.llama_parallel_slots,
     Reasoning: row.llama_reasoning,
@@ -765,6 +781,7 @@ function rowToConfig(row: AppConfigRow): Dict {
         NumCtx: row.server_num_ctx,
         GpuLayers: row.server_gpu_layers,
         Threads: row.server_threads,
+        NcpuMoe: row.server_ncpu_moe,
         FlashAttention: row.server_flash_attention === null ? null : row.server_flash_attention === 1,
         ParallelSlots: row.server_parallel_slots,
         BatchSize: row.server_batch_size,
@@ -815,6 +832,7 @@ function readConfigRow(databasePath: string): AppConfigRow | null {
       llama_repetition_penalty,
       llama_max_tokens,
       llama_threads,
+      llama_ncpu_moe,
       llama_flash_attention,
       llama_parallel_slots,
       llama_reasoning,
@@ -833,6 +851,7 @@ function readConfigRow(databasePath: string): AppConfigRow | null {
       server_num_ctx,
       server_gpu_layers,
       server_threads,
+      server_ncpu_moe,
       server_flash_attention,
       server_parallel_slots,
       server_batch_size,
@@ -890,6 +909,7 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
     'llama_repetition_penalty',
     'llama_max_tokens',
     'llama_threads',
+    'llama_ncpu_moe',
     'llama_flash_attention',
     'llama_parallel_slots',
     'llama_reasoning',
@@ -908,6 +928,7 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
     'server_num_ctx',
     'server_gpu_layers',
     'server_threads',
+    'server_ncpu_moe',
     'server_flash_attention',
     'server_parallel_slots',
     'server_batch_size',
@@ -1095,6 +1116,7 @@ type ManagedLlamaConfig = {
   NumCtx: number;
   GpuLayers: number;
   Threads: number;
+  NcpuMoe: number;
   FlashAttention: boolean;
   ParallelSlots: number;
   BatchSize: number;
@@ -1158,6 +1180,7 @@ export function getManagedLlamaConfig(config: unknown): ManagedLlamaConfig {
     NumCtx: getFinitePositiveInteger(serverLlama.NumCtx, Number(defaults.NumCtx ?? 150000)),
     GpuLayers: getFiniteInteger(serverLlama.GpuLayers, Number(defaults.GpuLayers ?? DEFAULT_LLAMA_GPU_LAYERS)),
     Threads: getFiniteInteger(serverLlama.Threads, Number(defaults.Threads ?? -1)),
+    NcpuMoe: getFiniteInteger(serverLlama.NcpuMoe, Number(defaults.NcpuMoe ?? 0)),
     FlashAttention: serverLlama.FlashAttention === null || serverLlama.FlashAttention === undefined
       ? Boolean(defaults.FlashAttention)
       : Boolean(serverLlama.FlashAttention),

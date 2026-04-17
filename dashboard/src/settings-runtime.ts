@@ -15,6 +15,7 @@ export function syncDerivedSettingsFields(config: DashboardConfig): DashboardCon
   config.Runtime.LlamaCpp.NumCtx = config.Server.LlamaCpp.NumCtx;
   config.Runtime.LlamaCpp.GpuLayers = config.Server.LlamaCpp.GpuLayers;
   config.Runtime.LlamaCpp.Threads = config.Server.LlamaCpp.Threads;
+  config.Runtime.LlamaCpp.NcpuMoe = config.Server.LlamaCpp.NcpuMoe;
   config.Runtime.LlamaCpp.FlashAttention = config.Server.LlamaCpp.FlashAttention;
   config.Runtime.LlamaCpp.ParallelSlots = config.Server.LlamaCpp.ParallelSlots;
   config.Runtime.LlamaCpp.MaxTokens = config.Server.LlamaCpp.MaxTokens;
@@ -31,9 +32,9 @@ export function syncDerivedSettingsFields(config: DashboardConfig): DashboardCon
     (preset) => preset.id === config.Server.LlamaCpp.ActivePresetId,
   );
   const runtimeModelId = String(
-    activePreset?.Model
-    || config.Server.LlamaCpp.Model
-    || deriveRuntimeModelId(config.Server.LlamaCpp.ModelPath),
+    deriveRuntimeModelId(config.Server.LlamaCpp.ModelPath)
+    || activePreset?.Model
+    || config.Server.LlamaCpp.Model,
   ).trim();
   config.Runtime.Model = runtimeModelId;
   config.Model = runtimeModelId;

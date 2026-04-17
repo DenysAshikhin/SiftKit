@@ -11,6 +11,7 @@ export type RuntimeLlamaCppConfig = {
   MaxTokens?: number | null;
   GpuLayers?: number | null;
   Threads?: number | null;
+  NcpuMoe?: number | null;
   FlashAttention?: boolean | null;
   ParallelSlots?: number | null;
   Reasoning?: 'on' | 'off' | 'auto' | null;
@@ -36,6 +37,7 @@ export type ServerManagedLlamaCppConfig = {
   NumCtx?: number | null;
   GpuLayers?: number | null;
   Threads?: number | null;
+  NcpuMoe?: number | null;
   FlashAttention?: boolean | null;
   ParallelSlots?: number | null;
   BatchSize?: number | null;

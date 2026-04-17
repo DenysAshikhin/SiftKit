@@ -1,5 +1,5 @@
 import type { DashboardConfig, DashboardManagedLlamaPreset } from './types';
-import { syncDerivedSettingsFields } from './settings-runtime';
+import { deriveRuntimeModelId, syncDerivedSettingsFields } from './settings-runtime';
 
 function createPresetIdFromLabel(label: string): string {
   const normalized = String(label || '')
@@ -11,10 +11,11 @@ function createPresetIdFromLabel(label: string): string {
 }
 
 function buildPresetFromServer(config: DashboardConfig): DashboardManagedLlamaPreset {
+  const model = deriveRuntimeModelId(config.Server.LlamaCpp.ModelPath) || config.Runtime.Model;
   return {
     id: 'default',
     label: 'Default',
-    Model: config.Runtime.Model,
+    Model: model,
     ExecutablePath: config.Server.LlamaCpp.ExecutablePath,
     BaseUrl: config.Server.LlamaCpp.BaseUrl,
     BindHost: config.Server.LlamaCpp.BindHost,
@@ -23,6 +24,7 @@ function buildPresetFromServer(config: DashboardConfig): DashboardManagedLlamaPr
     NumCtx: config.Server.LlamaCpp.NumCtx,
     GpuLayers: config.Server.LlamaCpp.GpuLayers,
     Threads: config.Server.LlamaCpp.Threads,
+    NcpuMoe: config.Server.LlamaCpp.NcpuMoe,
     FlashAttention: config.Server.LlamaCpp.FlashAttention,
     ParallelSlots: config.Server.LlamaCpp.ParallelSlots,
     BatchSize: config.Server.LlamaCpp.BatchSize,
@@ -57,7 +59,9 @@ function ensureManagedLlamaPresets(config: DashboardConfig): DashboardManagedLla
 }
 
 function copyPresetToServer(config: DashboardConfig, preset: DashboardManagedLlamaPreset): void {
-  config.Server.LlamaCpp.Model = preset.Model;
+  const model = deriveRuntimeModelId(preset.ModelPath) || preset.Model;
+  preset.Model = model;
+  config.Server.LlamaCpp.Model = model;
   config.Server.LlamaCpp.ExecutablePath = preset.ExecutablePath;
   config.Server.LlamaCpp.BaseUrl = preset.BaseUrl;
   config.Server.LlamaCpp.BindHost = preset.BindHost;
@@ -66,6 +70,7 @@ function copyPresetToServer(config: DashboardConfig, preset: DashboardManagedLla
   config.Server.LlamaCpp.NumCtx = preset.NumCtx;
   config.Server.LlamaCpp.GpuLayers = preset.GpuLayers;
   config.Server.LlamaCpp.Threads = preset.Threads;
+  config.Server.LlamaCpp.NcpuMoe = preset.NcpuMoe;
   config.Server.LlamaCpp.FlashAttention = preset.FlashAttention;
   config.Server.LlamaCpp.ParallelSlots = preset.ParallelSlots;
   config.Server.LlamaCpp.BatchSize = preset.BatchSize;
