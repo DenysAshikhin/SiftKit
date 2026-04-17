@@ -335,6 +335,42 @@ test('settings tab renders section chrome and fields', () => {
   assert.doesNotMatch(markup, /Managed llama\.cpp/);
 });
 
+test('settings tab renders ncpu moe field in model presets section', () => {
+  const markup = renderToStaticMarkup(
+    <SettingsTab
+      activeSettingsSection="model-presets"
+      dashboardConfig={DASHBOARD_CONFIG}
+      selectedSettingsPreset={PRESET}
+      selectedManagedLlamaPreset={MANAGED_PRESET}
+      selectedSettingsPresetId={PRESET.id}
+      settingsLoading={false}
+      settingsError={null}
+      settingsDirty={false}
+      settingsSavedAtUtc="2026-04-16T12:00:00.000Z"
+      settingsActionBusy={false}
+      settingsRestartSupported={true}
+      settingsSaving={false}
+      settingsRestarting={false}
+      settingsPathPickerBusyTarget={null}
+      setSelectedSettingsPresetId={() => {}}
+      requestSettingsAction={() => {}}
+      updateSettingsDraft={() => {}}
+      updatePresetDraft={() => {}}
+      updateManagedLlamaDraft={() => {}}
+      onAddPreset={() => {}}
+      onDeletePreset={() => {}}
+      onAddManagedLlamaPreset={() => {}}
+      onDeleteManagedLlamaPreset={() => {}}
+      onPickManagedLlamaPath={async () => {}}
+      onReloadDashboardSettings={async () => {}}
+      restartDashboardBackendCore={async () => true}
+      onSaveDashboardSettings={async () => {}}
+    />,
+  );
+
+  assert.match(markup, /NcpuMoe/);
+});
+
 test('presets section renders library controls and effective tools', () => {
   const markup = renderToStaticMarkup(
     <PresetsSection
@@ -377,7 +413,7 @@ test('managed llama section renders launcher fields and browse controls', () => 
   assert.match(markup, /Browse/);
   assert.match(markup, /127\.0\.0\.1:8080/);
   assert.match(markup, /f16/);
-  assert.equal(capturedFields.includes('NcpuMoe'), false);
+  assert.equal(capturedFields.includes('NcpuMoe'), true);
   assert.equal(capturedFields.includes('Reasoning content'), false);
   assert.equal(capturedFields.includes('Preserve thinking'), false);
   assert.doesNotMatch(markup, /value="test-model"/);

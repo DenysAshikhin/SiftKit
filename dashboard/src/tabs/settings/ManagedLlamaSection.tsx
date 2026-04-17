@@ -133,6 +133,9 @@ export function ManagedLlamaSection({
       {renderField('model-presets', 'Threads', (
         <input type="number" value={selectedManagedLlamaPreset.Threads} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.Threads = parseIntegerInput(event.target.value, preset.Threads); })} />
       ))}
+      {renderField('model-presets', 'NcpuMoe', (
+        <input type="number" value={selectedManagedLlamaPreset.NcpuMoe} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.NcpuMoe = parseIntegerInput(event.target.value, preset.NcpuMoe); })} />
+      ))}
       {renderField('model-presets', 'Flash attention', (
         <label className="settings-live-toggle-control">
           <input type="checkbox" checked={selectedManagedLlamaPreset.FlashAttention} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.FlashAttention = event.target.checked; })} />
