@@ -102,7 +102,7 @@ export async function runPresetCli(options: {
       title: preset.label,
       model: typeof runtime.Model === 'string' ? runtime.Model : null,
       contextWindowTokens: Number(runtimeLlama.NumCtx || 150000),
-      thinkingEnabled: preset.thinkingEnabled !== false,
+      thinkingEnabled: true,
       presetId: preset.id,
       mode: 'chat',
       planRepoRoot: process.cwd(),
@@ -127,9 +127,6 @@ export async function runPresetCli(options: {
     config,
     model,
     maxTurns: Number.isFinite(parsed.maxTurns) && Number(parsed.maxTurns) > 0 ? Number(parsed.maxTurns) : preset.maxTurns ?? undefined,
-    thinkingInterval: Number.isFinite(parsed.thinkingInterval) && Number(parsed.thinkingInterval) > 0
-      ? Number(parsed.thinkingInterval)
-      : preset.thinkingInterval ?? undefined,
     logFile: parsed.logFile,
     allowedTools: effectiveAllowedTools,
     includeAgentsMd: preset.includeAgentsMd,

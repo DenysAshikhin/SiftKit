@@ -45,6 +45,8 @@ export function getDefaultConfigObject(): SiftConfig {
     PresencePenalty: 1.5,
     RepetitionPenalty: 1.0,
     Reasoning: 'off' as const,
+    ReasoningContent: false,
+    PreserveThinking: false,
     ReasoningBudget: SIFT_DEFAULT_LLAMA_REASONING_BUDGET,
     ReasoningBudgetMessage: SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
     StartupTimeoutMs: 600_000,

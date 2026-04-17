@@ -71,6 +71,7 @@ export type FinishValidationResult = {
 export type ChatMessage = {
   role: string;
   content?: string;
+  reasoning_content?: string;
   tool_calls?: Array<{
     id: string;
     type: string;
@@ -419,6 +420,8 @@ export type PlannerRequestOptions = {
   timeoutMs: number;
   requestMaxTokens: number;
   thinkingEnabled?: boolean;
+  reasoningContentEnabled?: boolean;
+  preserveThinking?: boolean;
   /** When true, use server-sent-events streaming. */
   stream?: boolean;
   /** Called with accumulated thinking text on each streaming delta. */
@@ -465,6 +468,22 @@ function logProviderRetry(options: {
   });
 }
 
+function serializePlannerMessage(message: ChatMessage, reasoningContentEnabled: boolean): ChatMessage {
+  if (
+    reasoningContentEnabled
+    && message.role === 'assistant'
+    && typeof message.reasoning_content === 'string'
+    && message.reasoning_content.trim()
+  ) {
+    return message;
+  }
+  if (!Object.prototype.hasOwnProperty.call(message, 'reasoning_content')) {
+    return message;
+  }
+  const { reasoning_content: _reasoningContent, ...rest } = message;
+  return rest;
+}
+
 export async function requestPlannerAction(options: PlannerRequestOptions): Promise<PlannerActionResponse> {
   // Mock path — bypass network entirely
   if (Array.isArray(options.mockResponses)) {
@@ -498,14 +517,18 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
 
   const bodyObj: Record<string, unknown> = {
     model: options.model,
-    messages: options.messages,
+    messages: options.messages.map((message) => serializePlannerMessage(message, options.reasoningContentEnabled === true)),
     cache_prompt: true,
     ...(Number.isInteger(options.slotId) ? { id_slot: Number(options.slotId) } : {}),
     temperature: 0.1,
     top_p: 0.95,
     max_tokens: options.requestMaxTokens,
     ...(includeTools ? { tools: toolDefinitions, parallel_tool_calls: true } : {}),
-    chat_template_kwargs: { enable_thinking: !responseFormat && Boolean(options.thinkingEnabled) },
+    chat_template_kwargs: {
+      enable_thinking: Boolean(options.thinkingEnabled),
+      ...(options.thinkingEnabled && options.reasoningContentEnabled ? { reasoning_content: true } : {}),
+      ...(options.thinkingEnabled && options.reasoningContentEnabled && options.preserveThinking ? { preserve_thinking: true } : {}),
+    },
     ...(responseFormat ? { response_format: responseFormat } : {}),
     ...options.extraBody,
     ...(options.stream ? { stream: true } : {}),
@@ -792,6 +815,9 @@ export async function requestFinishValidation(options: {
   prompt: string;
   timeoutMs: number;
   requestMaxTokens: number;
+  thinkingEnabled?: boolean;
+  reasoningContentEnabled?: boolean;
+  preserveThinking?: boolean;
   mockResponses?: string[];
   mockResponseIndex?: number;
   logger?: JsonLogger | null;
@@ -802,7 +828,9 @@ export async function requestFinishValidation(options: {
     messages: [{ role: 'user', content: options.prompt }],
     timeoutMs: options.timeoutMs,
     requestMaxTokens: options.requestMaxTokens,
-    thinkingEnabled: true,
+    thinkingEnabled: options.thinkingEnabled,
+    reasoningContentEnabled: options.reasoningContentEnabled,
+    preserveThinking: options.preserveThinking,
     mockResponses: options.mockResponses,
     mockResponseIndex: options.mockResponseIndex,
     logger: options.logger,
@@ -841,6 +869,9 @@ export async function requestTerminalSynthesis(options: {
   prompt: string;
   timeoutMs: number;
   requestMaxTokens: number;
+  thinkingEnabled?: boolean;
+  reasoningContentEnabled?: boolean;
+  preserveThinking?: boolean;
   mockResponses?: string[];
   mockResponseIndex?: number;
   logger?: JsonLogger | null;
@@ -851,7 +882,9 @@ export async function requestTerminalSynthesis(options: {
     messages: [{ role: 'user', content: options.prompt }],
     timeoutMs: options.timeoutMs,
     requestMaxTokens: options.requestMaxTokens,
-    thinkingEnabled: true,
+    thinkingEnabled: options.thinkingEnabled,
+    reasoningContentEnabled: options.reasoningContentEnabled,
+    preserveThinking: options.preserveThinking,
     mockResponses: options.mockResponses,
     mockResponseIndex: options.mockResponseIndex,
     logger: options.logger,

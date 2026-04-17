@@ -162,13 +162,17 @@ test('llama.cpp provider forwards reasoning mode to chat template kwargs', async
   });
 });
 
-test('llama.cpp provider omits chat template reasoning override in auto mode', async () => {
+test('llama.cpp provider forwards thinking preservation flags when enabled', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
       config.Runtime ??= {};
       config.Runtime.LlamaCpp ??= {};
-      config.Runtime.LlamaCpp.Reasoning = 'auto';
+      config.Runtime.LlamaCpp.Reasoning = 'on';
+      config.Server ??= {};
+      config.Server.LlamaCpp ??= {};
+      config.Server.LlamaCpp.ReasoningContent = true;
+      config.Server.LlamaCpp.PreserveThinking = true;
 
       await generateLlamaCppResponse({
         config,
@@ -178,7 +182,11 @@ test('llama.cpp provider omits chat template reasoning override in auto mode', a
       });
 
       assert.equal(server.state.chatRequests.length, 1);
-      assert.equal('chat_template_kwargs' in server.state.chatRequests[0], false);
+      assert.deepEqual(server.state.chatRequests[0].chat_template_kwargs, {
+        enable_thinking: true,
+        reasoning_content: true,
+        preserve_thinking: true,
+      });
       assert.equal('reasoning_budget' in server.state.chatRequests[0].extra_body, false);
     });
   });

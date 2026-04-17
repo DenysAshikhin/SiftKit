@@ -227,6 +227,111 @@ test('runtime cutover migration heals legacy schema drift where runtime_artifact
   });
 });
 
+test('runtime database initializes fresh app_config schema without re-adding v11 ncpu_moe columns', () => {
+  withTempRepo(() => {
+    const databasePath = getRuntimeDatabasePath();
+
+    const database = getRuntimeDatabase(databasePath);
+    const appConfigColumns = database.prepare('PRAGMA table_info(app_config)').all() as Array<{ name: string }>;
+    const schemaVersion = database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get() as { version?: number } | undefined;
+
+    assert.equal(appConfigColumns.filter((column) => column.name === 'llama_ncpu_moe').length, 1);
+    assert.equal(appConfigColumns.filter((column) => column.name === 'server_ncpu_moe').length, 1);
+    assert.equal(Number(schemaVersion?.version || 0), 11);
+  });
+});
+
+test('runtime database migrates schema v10 to v11 without duplicating existing llama_ncpu_moe column', () => {
+  withTempRepo(() => {
+    const databasePath = getRuntimeDatabasePath();
+    fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+
+    const legacy = new Database(databasePath);
+    legacy.exec(`
+      CREATE TABLE runtime_schema (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        version INTEGER NOT NULL
+      );
+      INSERT INTO runtime_schema (id, version) VALUES (1, 10);
+
+      CREATE TABLE app_config (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        version TEXT NOT NULL,
+        backend TEXT NOT NULL,
+        policy_mode TEXT NOT NULL,
+        raw_log_retention INTEGER NOT NULL CHECK (raw_log_retention IN (0, 1)),
+        prompt_prefix TEXT,
+        runtime_model TEXT,
+        llama_base_url TEXT,
+        llama_num_ctx INTEGER,
+        llama_model_path TEXT,
+        llama_temperature REAL,
+        llama_top_p REAL,
+        llama_top_k INTEGER,
+        llama_min_p REAL,
+        llama_presence_penalty REAL,
+        llama_repetition_penalty REAL,
+        llama_max_tokens INTEGER,
+        llama_threads INTEGER,
+        llama_ncpu_moe INTEGER,
+        llama_flash_attention INTEGER CHECK (llama_flash_attention IN (0, 1) OR llama_flash_attention IS NULL),
+        llama_parallel_slots INTEGER,
+        llama_reasoning TEXT,
+        thresholds_min_characters_for_summary INTEGER NOT NULL,
+        thresholds_min_lines_for_summary INTEGER NOT NULL,
+        interactive_enabled INTEGER NOT NULL CHECK (interactive_enabled IN (0, 1)),
+        interactive_wrapped_commands_json TEXT NOT NULL,
+        interactive_idle_timeout_ms INTEGER NOT NULL,
+        interactive_max_transcript_characters INTEGER NOT NULL,
+        interactive_transcript_retention INTEGER NOT NULL CHECK (interactive_transcript_retention IN (0, 1)),
+        server_executable_path TEXT,
+        server_base_url TEXT,
+        server_bind_host TEXT,
+        server_port INTEGER,
+        server_model_path TEXT,
+        server_num_ctx INTEGER,
+        server_gpu_layers INTEGER,
+        server_threads INTEGER,
+        server_flash_attention INTEGER CHECK (server_flash_attention IN (0, 1) OR server_flash_attention IS NULL),
+        server_parallel_slots INTEGER,
+        server_batch_size INTEGER,
+        server_ubatch_size INTEGER,
+        server_cache_ram INTEGER,
+        server_kv_cache_quant TEXT,
+        server_max_tokens INTEGER,
+        server_temperature REAL,
+        server_top_p REAL,
+        server_top_k INTEGER,
+        server_min_p REAL,
+        server_presence_penalty REAL,
+        server_repetition_penalty REAL,
+        server_reasoning TEXT,
+        server_reasoning_budget INTEGER,
+        server_reasoning_budget_message TEXT,
+        server_startup_timeout_ms INTEGER,
+        server_healthcheck_timeout_ms INTEGER,
+        server_healthcheck_interval_ms INTEGER,
+        server_verbose_logging INTEGER CHECK (server_verbose_logging IN (0, 1) OR server_verbose_logging IS NULL),
+        server_llama_presets_json TEXT NOT NULL DEFAULT '[]',
+        server_llama_active_preset_id TEXT,
+        operation_mode_allowed_tools_json TEXT NOT NULL DEFAULT '{"summary":["find_text","read_lines","json_filter"],"read-only":["repo_rg","repo_get_content","repo_get_childitem","repo_select_string","repo_git","repo_pwd","repo_ls","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}',
+        presets_json TEXT NOT NULL,
+        updated_at_utc TEXT NOT NULL
+      );
+    `);
+    legacy.close();
+
+    closeRuntimeDatabase();
+    const migrated = getRuntimeDatabase(databasePath);
+    const appConfigColumns = migrated.prepare('PRAGMA table_info(app_config)').all() as Array<{ name: string }>;
+    const schemaVersion = migrated.prepare('SELECT version FROM runtime_schema WHERE id = 1').get() as { version?: number } | undefined;
+
+    assert.equal(appConfigColumns.filter((column) => column.name === 'llama_ncpu_moe').length, 1);
+    assert.equal(appConfigColumns.filter((column) => column.name === 'server_ncpu_moe').length, 1);
+    assert.equal(Number(schemaVersion?.version || 0), 11);
+  });
+});
+
 test('runtime database migrates schema v5 GPU fields to schema v6 boolean-only status storage', () => {
   withTempRepo(() => {
     const databasePath = getRuntimeDatabasePath();
@@ -324,7 +429,7 @@ test('runtime database migrates schema v5 GPU fields to schema v6 boolean-only s
       WHERE type = 'table' AND name = 'runtime_status'
     `).get() as { sql: string };
 
-    assert.equal(versionRow.version, 10);
+    assert.equal(versionRow.version, 11);
     assert.equal(appConfigColumns.some((column) => column.name === 'llama_gpu_layers'), false);
     assert.equal(appConfigColumns.some((column) => column.name === 'server_kv_cache_quant'), true);
     assert.equal(appConfigColumns.some((column) => column.name === 'server_llama_presets_json'), true);

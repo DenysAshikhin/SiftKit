@@ -37,6 +37,8 @@ function createPreset(overrides: Partial<DashboardManagedLlamaPreset> = {}): Das
     PresencePenalty: 1.5,
     RepetitionPenalty: 1,
     Reasoning: 'off',
+    ReasoningContent: false,
+    PreserveThinking: false,
     ReasoningBudget: 10000,
     ReasoningBudgetMessage: 'Thinking budget exhausted. You have to provide the answer now.',
     StartupTimeoutMs: 600000,
@@ -79,6 +81,8 @@ function createConfig(): DashboardConfig {
       FlashAttention: preset.FlashAttention,
       ParallelSlots: preset.ParallelSlots,
       Reasoning: preset.Reasoning,
+      ReasoningContent: preset.ReasoningContent,
+      PreserveThinking: preset.PreserveThinking,
     },
     Runtime: {
       Model: '',
@@ -99,6 +103,8 @@ function createConfig(): DashboardConfig {
         FlashAttention: preset.FlashAttention,
         ParallelSlots: preset.ParallelSlots,
         Reasoning: preset.Reasoning,
+        ReasoningContent: preset.ReasoningContent,
+        PreserveThinking: preset.PreserveThinking,
       },
     },
     Thresholds: {
@@ -134,7 +140,20 @@ function createConfig(): DashboardConfig {
 
 test('applyManagedLlamaPresetSelection mirrors the selected managed preset into the active server settings', () => {
   const config = createConfig();
-  Object.assign(config.Server.LlamaCpp.Presets[1] as { Model?: string; NcpuMoe?: number }, { Model: 'qwen-27b.gguf', NcpuMoe: 8 });
+  Object.assign(
+    config.Server.LlamaCpp.Presets[1] as {
+      Model?: string;
+      NcpuMoe?: number;
+      ReasoningContent?: boolean;
+      PreserveThinking?: boolean;
+    },
+    {
+      Model: 'qwen-27b.gguf',
+      NcpuMoe: 8,
+      ReasoningContent: true,
+      PreserveThinking: true,
+    },
+  );
 
   applyManagedLlamaPresetSelection(config, 'qwen-27b');
 
@@ -143,6 +162,8 @@ test('applyManagedLlamaPresetSelection mirrors the selected managed preset into 
   assert.equal(config.Server.LlamaCpp.Threads, 0);
   assert.equal((config.Server.LlamaCpp as { NcpuMoe?: number }).NcpuMoe, 8);
   assert.equal(config.Server.LlamaCpp.Port, 8098);
+  assert.equal(config.Server.LlamaCpp.ReasoningContent, true);
+  assert.equal(config.Server.LlamaCpp.PreserveThinking, true);
   assert.equal(config.Server.LlamaCpp.ReasoningBudgetMessage, 'Thinking budget exhausted. You have to provide the answer now.');
   assert.equal(config.Runtime.Model, 'qwen-27b.gguf');
   assert.equal(config.Model, 'qwen-27b.gguf');

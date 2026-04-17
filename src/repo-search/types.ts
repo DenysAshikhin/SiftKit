@@ -35,7 +35,6 @@ export type RepoSearchExecutionRequest = {
   includeRepoFileListing?: boolean;
   requestMaxTokens?: number;
   maxTurns?: number;
-  thinkingInterval?: number;
   logFile?: string;
   availableModels?: string[];
   mockResponses?: string[];

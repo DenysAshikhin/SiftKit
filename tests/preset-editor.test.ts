@@ -37,8 +37,6 @@ function createPreset(id: string, overrides: Partial<DashboardPreset> = {}): Das
     includeRepoFileListing: false,
     repoRootRequired: false,
     maxTurns: null,
-    thinkingInterval: null,
-    thinkingEnabled: null,
     ...overrides,
   };
 }
@@ -106,8 +104,6 @@ test('applyPresetKindDefaults makes preset kind authoritative over operation mod
     allowedTools: ['find_text'],
     repoRootRequired: false,
     maxTurns: null,
-    thinkingInterval: null,
-    thinkingEnabled: true,
   });
 
   applyPresetKindDefaults(preset, 'plan');
@@ -118,8 +114,6 @@ test('applyPresetKindDefaults makes preset kind authoritative over operation mod
   assert.deepEqual(preset.allowedTools, REPO_TOOL_OPTIONS);
   assert.equal(preset.repoRootRequired, true);
   assert.equal(preset.maxTurns, 45);
-  assert.equal(preset.thinkingInterval, 5);
-  assert.equal(preset.thinkingEnabled, null);
 });
 
 test('applyOperationModeDefaults swaps allowed tools while preserving chat-kind runtime defaults', () => {
@@ -128,7 +122,6 @@ test('applyOperationModeDefaults swaps allowed tools while preserving chat-kind 
     operationMode: 'summary',
     executionFamily: 'chat',
     allowedTools: ['find_text'],
-    thinkingEnabled: null,
   });
 
   applyOperationModeDefaults(preset, 'full');
@@ -137,8 +130,6 @@ test('applyOperationModeDefaults swaps allowed tools while preserving chat-kind 
   assert.deepEqual(preset.allowedTools, []);
   assert.equal(preset.repoRootRequired, false);
   assert.equal(preset.maxTurns, null);
-  assert.equal(preset.thinkingInterval, null);
-  assert.equal(preset.thinkingEnabled, true);
 });
 
 test('getEffectivePresetTools intersects preset allowlist with operation-mode policy', () => {

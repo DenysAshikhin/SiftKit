@@ -196,6 +196,21 @@ function getChoiceReasoningText(choice: Dict | null | undefined): string {
 export type ChatCompletionRequest = { url: string; model: string; body: Dict };
 type BuildChatOptions = { thinkingEnabled?: boolean; stream?: boolean; promptPrefix?: string };
 
+function shouldReplayReasoningContent(config: Dict): boolean {
+  const server = config?.Server && typeof config.Server === 'object' ? config.Server as Dict : null;
+  const serverLlama = server?.LlamaCpp && typeof server.LlamaCpp === 'object' ? server.LlamaCpp as Dict : null;
+  return serverLlama?.ReasoningContent === true;
+}
+
+function shouldPreserveThinking(config: Dict, thinkingEnabled: boolean): boolean {
+  if (!thinkingEnabled || !shouldReplayReasoningContent(config)) {
+    return false;
+  }
+  const server = config?.Server && typeof config.Server === 'object' ? config.Server as Dict : null;
+  const serverLlama = server?.LlamaCpp && typeof server.LlamaCpp === 'object' ? server.LlamaCpp as Dict : null;
+  return serverLlama?.PreserveThinking === true;
+}
+
 export function buildChatCompletionRequest(config: Dict, session: ChatSession, userContent: string, options: BuildChatOptions = {}): ChatCompletionRequest {
   const model = resolveActiveChatModel(config, session);
   const baseUrl = getLlamaBaseUrl(config);
@@ -218,10 +233,21 @@ export function buildChatCompletionRequest(config: Dict, session: ChatSession, u
     : systemPrompt;
   const messages = [
     { role: 'system', content: systemContent },
-    ...priorMessages.map((message: Dict) => ({
-      role: message.role === 'assistant' ? 'assistant' : 'user',
-      content: String(message.content || ''),
-    })),
+    ...priorMessages.map((message: Dict) => {
+      const replayedMessage: Dict = {
+        role: message.role === 'assistant' ? 'assistant' : 'user',
+        content: String(message.content || ''),
+      };
+      if (
+        replayedMessage.role === 'assistant'
+        && shouldReplayReasoningContent(config)
+        && typeof message.thinkingContent === 'string'
+        && message.thinkingContent.trim()
+      ) {
+        replayedMessage.reasoning_content = message.thinkingContent.trim();
+      }
+      return replayedMessage;
+    }),
     { role: 'user', content: userContent },
   ];
   const thinkingEnabled = options.thinkingEnabled !== false;
@@ -235,6 +261,8 @@ export function buildChatCompletionRequest(config: Dict, session: ChatSession, u
     ...(Number.isFinite(runtimeLlama?.MaxTokens) ? { max_tokens: Number(runtimeLlama.MaxTokens) } : {}),
     chat_template_kwargs: {
       enable_thinking: thinkingEnabled,
+      ...(thinkingEnabled && shouldReplayReasoningContent(config) ? { reasoning_content: true } : {}),
+      ...(shouldPreserveThinking(config, thinkingEnabled) ? { preserve_thinking: true } : {}),
     },
     extra_body: {
       ...(Number.isFinite(runtimeLlama?.TopK) ? { top_k: Number(runtimeLlama.TopK) } : {}),

@@ -308,7 +308,6 @@ async function invokeSummaryCore(options: {
       chunkIndex: options.chunkIndex ?? null,
       chunkTotal: options.chunkTotal ?? null,
       chunkPath: options.chunkPath ?? null,
-      reasoningOverride: enforceNonToolOneShot ? 'off' : undefined,
       requestTimeoutSeconds: options.requestTimeoutSeconds,
       llamaCppOverrides: options.llamaCppOverrides,
     });

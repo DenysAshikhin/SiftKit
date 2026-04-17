@@ -95,6 +95,8 @@ const MANAGED_LLAMA_FIELD_KEYS: readonly string[] = [
   'PresencePenalty',
   'RepetitionPenalty',
   'Reasoning',
+  'ReasoningContent',
+  'PreserveThinking',
   'ReasoningBudget',
   'ReasoningBudgetMessage',
   'StartupTimeoutMs',
@@ -125,6 +127,8 @@ const MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS: readonly string[] = [
   'PresencePenalty',
   'RepetitionPenalty',
   'Reasoning',
+  'ReasoningContent',
+  'PreserveThinking',
   'ReasoningBudget',
   'ReasoningBudgetMessage',
   'StartupTimeoutMs',
@@ -161,6 +165,8 @@ export function getDefaultConfig(): Dict {
     PresencePenalty: 1.5,
     RepetitionPenalty: 1.0,
     Reasoning: 'off',
+    ReasoningContent: false,
+    PreserveThinking: false,
     ReasoningBudget: DEFAULT_LLAMA_REASONING_BUDGET,
     ReasoningBudgetMessage: DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
     StartupTimeoutMs: DEFAULT_LLAMA_STARTUP_TIMEOUT_MS,
@@ -446,6 +452,18 @@ export function normalizeConfig(input: unknown): Dict {
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'Reasoning')) {
     serverLlama.Reasoning = runtimeLlama.Reasoning ?? 'off';
   }
+  if (String(serverLlama.Reasoning || '') === 'auto') {
+    serverLlama.Reasoning = 'off';
+  }
+  if (String(runtimeLlama.Reasoning || '') === 'auto') {
+    runtimeLlama.Reasoning = 'off';
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ReasoningContent')) {
+    serverLlama.ReasoningContent = false;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'PreserveThinking')) {
+    serverLlama.PreserveThinking = false;
+  }
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ReasoningBudget')) {
     serverLlama.ReasoningBudget = DEFAULT_LLAMA_REASONING_BUDGET;
   }
@@ -487,6 +505,15 @@ export function normalizeConfig(input: unknown): Dict {
     }
   }
   applyActiveManagedLlamaPreset(serverLlama, preferManagedPresetValues);
+  if (serverLlama.Reasoning !== 'on') {
+    serverLlama.ReasoningContent = false;
+    serverLlama.PreserveThinking = false;
+  } else if (serverLlama.ReasoningContent !== true) {
+    serverLlama.ReasoningContent = false;
+    serverLlama.PreserveThinking = false;
+  } else {
+    serverLlama.PreserveThinking = serverLlama.PreserveThinking === true;
+  }
   serverLlama.VerboseLogging = Boolean(serverLlama.VerboseLogging);
   delete serverLlama.StartupScript;
   delete serverLlama.ShutdownScript;
@@ -1130,7 +1157,9 @@ type ManagedLlamaConfig = {
   MinP: number;
   PresencePenalty: number;
   RepetitionPenalty: number;
-  Reasoning: 'on' | 'off' | 'auto';
+  Reasoning: 'on' | 'off';
+  ReasoningContent: boolean;
+  PreserveThinking: boolean;
   ReasoningBudget: number;
   ReasoningBudgetMessage: string | null;
   StartupTimeoutMs: number;
@@ -1164,6 +1193,8 @@ export function getManagedLlamaConfig(config: unknown): ManagedLlamaConfig {
   const serverLlama = (srv.LlamaCpp ?? {}) as Dict;
   const legacyExecutablePath = getNullableTrimmedString(serverLlama.StartupScript);
   const reasoning = getNullableTrimmedString(serverLlama.Reasoning);
+  const reasoningEnabled = reasoning === 'on';
+  const reasoningContentEnabled = reasoningEnabled && serverLlama.ReasoningContent === true;
   return {
     ExecutablePath: getNullableTrimmedString(serverLlama.ExecutablePath)
       || (
@@ -1199,9 +1230,11 @@ export function getManagedLlamaConfig(config: unknown): ManagedLlamaConfig {
     MinP: getFiniteNumber(serverLlama.MinP, Number(defaults.MinP ?? 0.0)),
     PresencePenalty: getFiniteNumber(serverLlama.PresencePenalty, Number(defaults.PresencePenalty ?? 1.5)),
     RepetitionPenalty: getFiniteNumber(serverLlama.RepetitionPenalty, Number(defaults.RepetitionPenalty ?? 1.0)),
-    Reasoning: reasoning === 'on' || reasoning === 'auto' || reasoning === 'off'
+    Reasoning: reasoning === 'on' || reasoning === 'off'
       ? reasoning
-      : String(defaults.Reasoning || 'off') as 'on' | 'off' | 'auto',
+      : String(defaults.Reasoning || 'off') as 'on' | 'off',
+    ReasoningContent: reasoningContentEnabled,
+    PreserveThinking: reasoningContentEnabled && serverLlama.PreserveThinking === true,
     ReasoningBudget: getFinitePositiveInteger(serverLlama.ReasoningBudget, Number(defaults.ReasoningBudget ?? DEFAULT_LLAMA_REASONING_BUDGET)),
     ReasoningBudgetMessage: getNullableTrimmedString(serverLlama.ReasoningBudgetMessage)
       || getNullableTrimmedString(defaults.ReasoningBudgetMessage)

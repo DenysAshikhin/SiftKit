@@ -82,7 +82,9 @@ const MANAGED_PRESET = {
   MinP: 0.05,
   PresencePenalty: 0,
   RepetitionPenalty: 1.1,
-  Reasoning: 'auto',
+  Reasoning: 'off',
+  ReasoningContent: false,
+  PreserveThinking: false,
   ReasoningBudget: 128,
   ReasoningBudgetMessage: '',
   StartupTimeoutMs: 1000,
@@ -108,8 +110,6 @@ const PRESET = {
   includeRepoFileListing: false,
   repoRootRequired: false,
   maxTurns: null,
-  thinkingInterval: null,
-  thinkingEnabled: null,
 } as DashboardPreset;
 
 const DASHBOARD_CONFIG = {
@@ -140,7 +140,9 @@ const DASHBOARD_CONFIG = {
     NcpuMoe: 0,
     FlashAttention: false,
     ParallelSlots: 1,
-    Reasoning: 'auto',
+    Reasoning: 'off',
+    ReasoningContent: false,
+    PreserveThinking: false,
   },
   Runtime: {
     Model: 'test-model',
@@ -160,7 +162,9 @@ const DASHBOARD_CONFIG = {
       NcpuMoe: 0,
       FlashAttention: false,
       ParallelSlots: 1,
-      Reasoning: 'auto',
+      Reasoning: 'off',
+      ReasoningContent: false,
+      PreserveThinking: false,
     },
   },
   Thresholds: {
@@ -373,8 +377,40 @@ test('managed llama section renders launcher fields and browse controls', () => 
   assert.match(markup, /Browse/);
   assert.match(markup, /127\.0\.0\.1:8080/);
   assert.match(markup, /f16/);
-  assert.equal(capturedFields.includes('NcpuMoe'), true);
+  assert.equal(capturedFields.includes('NcpuMoe'), false);
+  assert.equal(capturedFields.includes('Reasoning content'), false);
+  assert.equal(capturedFields.includes('Preserve thinking'), false);
   assert.doesNotMatch(markup, /value="test-model"/);
+});
+
+test('managed llama section shows thinking preservation controls only when reasoning is enabled', () => {
+  const capturedFields: string[] = [];
+  const markup = renderToStaticMarkup(
+    <ManagedLlamaSection
+      dashboardConfig={DASHBOARD_CONFIG}
+      selectedManagedLlamaPreset={{
+        ...MANAGED_PRESET,
+        Reasoning: 'on',
+        ReasoningContent: true,
+        PreserveThinking: true,
+      }}
+      settingsActionBusy={false}
+      settingsPathPickerBusyTarget={null}
+      renderField={(_, label, children) => {
+        capturedFields.push(label);
+        return <div>{children}</div>;
+      }}
+      updateSettingsDraft={() => {}}
+      updateManagedLlamaDraft={() => {}}
+      onAddManagedLlamaPreset={() => {}}
+      onDeleteManagedLlamaPreset={() => {}}
+      onPickManagedLlamaPath={async () => {}}
+    />,
+  );
+
+  assert.equal(capturedFields.includes('Reasoning content'), true);
+  assert.equal(capturedFields.includes('Preserve thinking'), true);
+  assert.doesNotMatch(markup, /<option value="auto"/);
 });
 
 test('managed llama model name is derived from model path and model field is hidden', () => {
@@ -436,7 +472,6 @@ test('chat tab renders session list and composer', () => {
       showSettings={false}
       planRepoRootInput=""
       planMaxTurnsInput="45"
-      planThinkingIntervalInput="5"
       contextUsage={CONTEXT_USAGE}
       liveToolPromptTokenCount={null}
       thinkingDraft=""
@@ -449,7 +484,6 @@ test('chat tab renders session list and composer', () => {
       onToggleSettings={() => {}}
       onChangePlanRepoRoot={() => {}}
       onChangePlanMaxTurns={() => {}}
-      onChangePlanThinkingInterval={() => {}}
       onChangeChatInput={() => {}}
       onCreateSession={async () => {}}
       onDeleteSession={async () => {}}
@@ -466,4 +500,5 @@ test('chat tab renders session list and composer', () => {
 
   assert.match(markup, /Sessions/);
   assert.match(markup, /Send a local chat message/);
+  assert.doesNotMatch(markup, /think every/u);
 });

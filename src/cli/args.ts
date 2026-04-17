@@ -38,7 +38,6 @@ export type ParsedArgs = {
   preset?: string;
   repoRoot?: string;
   maxTurns?: number;
-  thinkingInterval?: number;
 };
 
 export const KNOWN_COMMANDS = new Set([
@@ -224,9 +223,6 @@ export function parseArguments(tokens: string[]): ParsedArgs {
         break;
       case '--max-turns':
         parsed.maxTurns = Number.parseInt(tokens[++index] || '', 10);
-        break;
-      case '--thinking-interval':
-        parsed.thinkingInterval = Number.parseInt(tokens[++index] || '', 10);
         break;
       default:
         parsed.positionals.push(token);

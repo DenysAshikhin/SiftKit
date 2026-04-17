@@ -63,6 +63,8 @@ const MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS: ReadonlyArray<keyof ServerManagedLlam
   'PresencePenalty',
   'RepetitionPenalty',
   'Reasoning',
+  'ReasoningContent',
+  'PreserveThinking',
   'ReasoningBudget',
   'ReasoningBudgetMessage',
   'StartupTimeoutMs',
@@ -95,6 +97,8 @@ const MANAGED_LLAMA_PRESET_KEYS: ReadonlyArray<Exclude<keyof ServerManagedLlamaC
   'PresencePenalty',
   'RepetitionPenalty',
   'Reasoning',
+  'ReasoningContent',
+  'PreserveThinking',
   'ReasoningBudget',
   'ReasoningBudgetMessage',
   'StartupTimeoutMs',
@@ -148,6 +152,10 @@ function managedLlamaFieldsDiffer(
   return MANAGED_LLAMA_PRESET_KEYS.some((key) => serverRecord[key] !== presetRecord[key]);
 }
 
+function normalizeBinaryReasoning(value: unknown): 'on' | 'off' {
+  return value === 'on' ? 'on' : 'off';
+}
+
 function normalizeManagedLlamaPreset(
   preset: Partial<ServerManagedLlamaCppConfig> | null | undefined,
   fallback: ServerManagedLlamaCppConfig,
@@ -158,6 +166,19 @@ function normalizeManagedLlamaPreset(
     ...fallback,
     ...(preset ?? {}),
   };
+  const normalizedReasoning = normalizeBinaryReasoning(normalizedPreset.Reasoning);
+  if (normalizedPreset.Reasoning !== normalizedReasoning) {
+    normalizedPreset.Reasoning = normalizedReasoning;
+  }
+  if (normalizedPreset.Reasoning !== 'on') {
+    normalizedPreset.ReasoningContent = false;
+    normalizedPreset.PreserveThinking = false;
+  } else if (normalizedPreset.ReasoningContent !== true) {
+    normalizedPreset.ReasoningContent = false;
+    normalizedPreset.PreserveThinking = false;
+  } else if (normalizedPreset.PreserveThinking !== true) {
+    normalizedPreset.PreserveThinking = false;
+  }
   delete (normalizedPreset as Partial<ServerManagedLlamaCppConfig>).Presets;
   delete (normalizedPreset as Partial<ServerManagedLlamaCppConfig>).ActivePresetId;
   return {
@@ -329,6 +350,8 @@ export function toPersistedConfigObject(config: SiftConfig): Omit<SiftConfig, 'P
         PresencePenalty: config.Server?.LlamaCpp?.PresencePenalty ?? null,
         RepetitionPenalty: config.Server?.LlamaCpp?.RepetitionPenalty ?? null,
         Reasoning: config.Server?.LlamaCpp?.Reasoning ?? null,
+        ReasoningContent: config.Server?.LlamaCpp?.ReasoningContent ?? null,
+        PreserveThinking: config.Server?.LlamaCpp?.PreserveThinking ?? null,
         ReasoningBudget: config.Server?.LlamaCpp?.ReasoningBudget ?? null,
         ReasoningBudgetMessage: config.Server?.LlamaCpp?.ReasoningBudgetMessage ?? null,
         StartupTimeoutMs: config.Server?.LlamaCpp?.StartupTimeoutMs ?? null,
@@ -368,6 +391,11 @@ export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info:
     LlamaCpp: { ...defaults.Server?.LlamaCpp },
   };
   updated.Server.LlamaCpp ??= { ...defaults.Server?.LlamaCpp };
+  const initialRuntimeReasoning = normalizeBinaryReasoning(updated.Runtime.LlamaCpp.Reasoning);
+  if (updated.Runtime.LlamaCpp.Reasoning !== initialRuntimeReasoning) {
+    updated.Runtime.LlamaCpp.Reasoning = initialRuntimeReasoning;
+    changed = true;
+  }
 
   const legacyOllama = (updated as SiftConfig & { Ollama?: Record<string, unknown> }).Ollama;
   if (legacyOllama) {
@@ -508,6 +536,8 @@ export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info:
     'PresencePenalty',
     'RepetitionPenalty',
     'Reasoning',
+    'ReasoningContent',
+    'PreserveThinking',
     'ReasoningBudget',
     'ReasoningBudgetMessage',
   ] as const) {
@@ -532,6 +562,16 @@ export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info:
     serverLlama.VerboseLogging = defaults.Server?.LlamaCpp?.VerboseLogging ?? false;
     changed = true;
   }
+  const normalizedServerReasoning = normalizeBinaryReasoning(serverLlama.Reasoning);
+  if (serverLlama.Reasoning !== normalizedServerReasoning) {
+    serverLlama.Reasoning = normalizedServerReasoning;
+    changed = true;
+  }
+  const normalizedRuntimeReasoning = normalizeBinaryReasoning(updated.Runtime.LlamaCpp.Reasoning);
+  if (updated.Runtime.LlamaCpp.Reasoning !== normalizedRuntimeReasoning) {
+    updated.Runtime.LlamaCpp.Reasoning = normalizedRuntimeReasoning;
+    changed = true;
+  }
   if (isBlankManagedLlamaPlaceholder(serverLlama)) {
     const mutableServerLlama = serverLlama as Record<string, string | number | boolean | null | undefined>;
     const defaultManagedLlama = defaults.Server?.LlamaCpp as Record<string, string | number | boolean | null | undefined> | undefined;
@@ -541,6 +581,28 @@ export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info:
     changed = true;
   }
   applyActiveManagedLlamaPreset(serverLlama, defaults.Server?.LlamaCpp ?? serverLlama, preferManagedPresetValues);
+  if (serverLlama.Reasoning !== 'on') {
+    if (serverLlama.ReasoningContent !== false) {
+      serverLlama.ReasoningContent = false;
+      changed = true;
+    }
+    if (serverLlama.PreserveThinking !== false) {
+      serverLlama.PreserveThinking = false;
+      changed = true;
+    }
+  } else if (serverLlama.ReasoningContent !== true) {
+    if (serverLlama.ReasoningContent !== false) {
+      changed = true;
+    }
+    serverLlama.ReasoningContent = false;
+    if (serverLlama.PreserveThinking !== false) {
+      changed = true;
+    }
+    serverLlama.PreserveThinking = false;
+  } else if (serverLlama.PreserveThinking !== true && serverLlama.PreserveThinking !== false) {
+    serverLlama.PreserveThinking = false;
+    changed = true;
+  }
   if (typeof serverLlama.VerboseLogging !== 'boolean') {
     serverLlama.VerboseLogging = Boolean(serverLlama.VerboseLogging);
     changed = true;
@@ -558,6 +620,11 @@ export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info:
     changed = true;
   }
   syncRuntimeLlamaFromManaged(updated.Runtime.LlamaCpp, serverLlama);
+  const syncedRuntimeReasoning = normalizeBinaryReasoning(updated.Runtime.LlamaCpp.Reasoning);
+  if (updated.Runtime.LlamaCpp.Reasoning !== syncedRuntimeReasoning) {
+    updated.Runtime.LlamaCpp.Reasoning = syncedRuntimeReasoning;
+    changed = true;
+  }
 
   if (updated.Runtime.Model === SIFT_PREVIOUS_DEFAULT_MODEL) {
     updated.Runtime.Model = null;

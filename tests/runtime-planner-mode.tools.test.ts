@@ -327,7 +327,7 @@ test('planner token accounting treats tool-step completion tokens as thinking an
   });
 });
 
-test('summary below planner threshold runs one-shot with forced non-thinking', async () => {
+test('summary below planner threshold respects runtime reasoning for one-shot requests', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -339,6 +339,12 @@ test('summary below planner threshold runs one-shot with forced non-thinking', a
       config.Runtime ??= {};
       config.Runtime.LlamaCpp ??= {};
       config.Runtime.LlamaCpp.Reasoning = 'on';
+      config.Server ??= {};
+      config.Server.LlamaCpp ??= {};
+      config.Server.LlamaCpp.Reasoning = 'on';
+      if (Array.isArray(config.Server.LlamaCpp.Presets) && config.Server.LlamaCpp.Presets[0]) {
+        config.Server.LlamaCpp.Presets[0].Reasoning = 'on';
+      }
       await saveConfig(config);
 
       const result = await summarizeRequest({
@@ -353,9 +359,9 @@ test('summary below planner threshold runs one-shot with forced non-thinking', a
       assert.equal(result.WasSummarized, true);
       assert.equal(server.state.chatRequests.length, 1);
       assert.deepEqual(server.state.chatRequests[0].chat_template_kwargs, {
-        enable_thinking: false,
+        enable_thinking: true,
       });
-      assert.equal(server.state.chatRequests[0].extra_body.reasoning_budget, 0);
+      assert.equal('reasoning_budget' in server.state.chatRequests[0].extra_body, false);
       const firstResponseFormatText = JSON.stringify(server.state.chatRequests[0]?.response_format || {});
       assert.equal(server.state.chatRequests[0]?.response_format?.type, 'json_schema');
       assert.match(firstResponseFormatText, /classification/u);
@@ -364,7 +370,7 @@ test('summary below planner threshold runs one-shot with forced non-thinking', a
   });
 });
 
-test('summary above planner threshold uses planner flow without forced non-thinking override', async () => {
+test('summary above planner threshold respects runtime reasoning for planner requests', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -376,6 +382,12 @@ test('summary above planner threshold uses planner flow without forced non-think
       config.Runtime ??= {};
       config.Runtime.LlamaCpp ??= {};
       config.Runtime.LlamaCpp.Reasoning = 'on';
+      config.Server ??= {};
+      config.Server.LlamaCpp ??= {};
+      config.Server.LlamaCpp.Reasoning = 'on';
+      if (Array.isArray(config.Server.LlamaCpp.Presets) && config.Server.LlamaCpp.Presets[0]) {
+        config.Server.LlamaCpp.Presets[0].Reasoning = 'on';
+      }
       await saveConfig(config);
 
       const result = await summarizeRequest({
@@ -390,9 +402,9 @@ test('summary above planner threshold uses planner flow without forced non-think
       assert.equal(result.WasSummarized, true);
       assert.equal(server.state.chatRequests.length >= 1, true);
       assert.deepEqual(server.state.chatRequests[0].chat_template_kwargs, {
-        enable_thinking: false,
+        enable_thinking: true,
       });
-      assert.deepEqual(server.state.chatRequests[0].extra_body.reasoning_budget, 0);
+      assert.equal('reasoning_budget' in server.state.chatRequests[0].extra_body, false);
       const firstResponseFormatText = JSON.stringify(server.state.chatRequests[0]?.response_format || {});
       assert.match(firstResponseFormatText, /tool_name/u);
     }, {

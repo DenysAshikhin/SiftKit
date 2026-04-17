@@ -26,14 +26,16 @@ export function syncDerivedSettingsFields(config: DashboardConfig): DashboardCon
   config.Runtime.LlamaCpp.PresencePenalty = config.Server.LlamaCpp.PresencePenalty;
   config.Runtime.LlamaCpp.RepetitionPenalty = config.Server.LlamaCpp.RepetitionPenalty;
   config.Runtime.LlamaCpp.Reasoning = config.Server.LlamaCpp.Reasoning;
+  config.Runtime.LlamaCpp.ReasoningContent = config.Server.LlamaCpp.ReasoningContent;
+  config.Runtime.LlamaCpp.PreserveThinking = config.Server.LlamaCpp.PreserveThinking;
   config.LlamaCpp = { ...config.Runtime.LlamaCpp };
 
   const activePreset = config.Server.LlamaCpp.Presets.find(
     (preset) => preset.id === config.Server.LlamaCpp.ActivePresetId,
   );
   const runtimeModelId = String(
-    deriveRuntimeModelId(config.Server.LlamaCpp.ModelPath)
-    || activePreset?.Model
+    activePreset?.Model
+    || deriveRuntimeModelId(config.Server.LlamaCpp.ModelPath)
     || config.Server.LlamaCpp.Model,
   ).trim();
   config.Runtime.Model = runtimeModelId;

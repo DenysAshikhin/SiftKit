@@ -54,8 +54,6 @@ export type SiftPreset = {
   includeRepoFileListing: boolean;
   repoRootRequired: boolean;
   maxTurns: number | null;
-  thinkingInterval: number | null;
-  thinkingEnabled: boolean | null;
 };
 
 const PRESET_SURFACES: readonly PresetSurface[] = ['cli', 'web'];
@@ -140,13 +138,6 @@ function normalizeNullableInteger(value: unknown, fallback: number | null): numb
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function normalizeNullableBoolean(value: unknown, fallback: boolean | null): boolean | null {
-  if (value === null || value === undefined || value === '') {
-    return fallback;
-  }
-  return Boolean(value);
-}
-
 function getLegacyExecutionFamily(record: Dict): PresetExecutionFamily | null {
   return isExecutionFamily(record.executionFamily) ? record.executionFamily : null;
 }
@@ -191,8 +182,6 @@ function buildPreset(input: {
   includeRepoFileListing: boolean;
   repoRootRequired: boolean;
   maxTurns: number | null;
-  thinkingInterval: number | null;
-  thinkingEnabled: boolean | null;
 }): SiftPreset {
   return {
     id: input.id,
@@ -211,8 +200,6 @@ function buildPreset(input: {
     includeRepoFileListing: input.includeRepoFileListing,
     repoRootRequired: input.repoRootRequired,
     maxTurns: input.maxTurns,
-    thinkingInterval: input.thinkingInterval,
-    thinkingEnabled: input.thinkingEnabled,
   };
 }
 
@@ -233,8 +220,6 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     includeRepoFileListing: true,
     repoRootRequired: false,
     maxTurns: null,
-    thinkingInterval: null,
-    thinkingEnabled: null,
   }),
   buildPreset({
     id: 'repo-search',
@@ -252,8 +237,6 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     includeRepoFileListing: true,
     repoRootRequired: true,
     maxTurns: 45,
-    thinkingInterval: 5,
-    thinkingEnabled: null,
   }),
   buildPreset({
     id: 'chat',
@@ -271,8 +254,6 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     includeRepoFileListing: true,
     repoRootRequired: false,
     maxTurns: null,
-    thinkingInterval: null,
-    thinkingEnabled: true,
   }),
   buildPreset({
     id: 'plan',
@@ -290,8 +271,6 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     includeRepoFileListing: true,
     repoRootRequired: true,
     maxTurns: 45,
-    thinkingInterval: 5,
-    thinkingEnabled: null,
   }),
 ] as const;
 
@@ -317,8 +296,6 @@ function normalizePresetRecord(input: unknown, fallback: SiftPreset): SiftPreset
     includeRepoFileListing: record.includeRepoFileListing === undefined ? fallback.includeRepoFileListing : Boolean(record.includeRepoFileListing),
     repoRootRequired: record.repoRootRequired === undefined ? fallback.repoRootRequired : Boolean(record.repoRootRequired),
     maxTurns: normalizeNullableInteger(record.maxTurns, fallback.maxTurns),
-    thinkingInterval: normalizeNullableInteger(record.thinkingInterval, fallback.thinkingInterval),
-    thinkingEnabled: normalizeNullableBoolean(record.thinkingEnabled, fallback.thinkingEnabled),
   });
 }
 
@@ -350,8 +327,6 @@ function normalizeUserPreset(input: unknown): SiftPreset | null {
     includeRepoFileListing: record.includeRepoFileListing === undefined ? true : Boolean(record.includeRepoFileListing),
     repoRootRequired: record.repoRootRequired === undefined ? (presetKind === 'plan' || presetKind === 'repo-search') : Boolean(record.repoRootRequired),
     maxTurns: normalizeNullableInteger(record.maxTurns, presetKind === 'plan' || presetKind === 'repo-search' ? 45 : null),
-    thinkingInterval: normalizeNullableInteger(record.thinkingInterval, presetKind === 'plan' || presetKind === 'repo-search' ? 5 : null),
-    thinkingEnabled: normalizeNullableBoolean(record.thinkingEnabled, presetKind === 'chat' ? true : null),
   });
 }
 

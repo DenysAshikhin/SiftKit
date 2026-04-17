@@ -182,7 +182,6 @@ export async function invokePlannerMode(options: {
         rawInputCharacterCount: options.inputText.length,
         chunkInputCharacterCount: options.inputText.length,
         toolDefinitions,
-        reasoningOverride: 'off',
         requestTimeoutSeconds: options.requestTimeoutSeconds,
         llamaCppOverrides: options.llamaCppOverrides,
       });
@@ -237,6 +236,7 @@ export async function invokePlannerMode(options: {
           messages.push({
             role: 'assistant',
             content: providerResponse.text,
+            ...(providerResponse.reasoningText ? { reasoning_content: providerResponse.reasoningText } : {}),
           });
         }
         messages.push({
@@ -263,6 +263,7 @@ export async function invokePlannerMode(options: {
           messages.push({
             role: 'assistant',
             content: providerResponse.text,
+            ...(providerResponse.reasoningText ? { reasoning_content: providerResponse.reasoningText } : {}),
           });
         }
         messages.push({
@@ -394,7 +395,10 @@ export async function invokePlannerMode(options: {
         } catch (error) {
           invalidActionCount += 1;
           const invalidResponseError = getErrorMessage(error);
-          messages.push(buildPlannerAssistantToolMessage(toolAction, `invalid_call_${invalidActionCount}`));
+          messages.push({
+            ...buildPlannerAssistantToolMessage(toolAction, `invalid_call_${invalidActionCount}`),
+            ...(providerResponse.reasoningText ? { reasoning_content: providerResponse.reasoningText } : {}),
+          });
           messages.push({
             role: 'user',
             content: buildPlannerInvalidResponseUserPrompt(invalidResponseError),
@@ -545,7 +549,10 @@ export async function invokePlannerMode(options: {
         }
 
         if (appendReplayMessages) {
-          messages.push(buildPlannerAssistantToolMessage(toolAction, toolCallId));
+          messages.push({
+            ...buildPlannerAssistantToolMessage(toolAction, toolCallId),
+            ...(providerResponse.reasoningText ? { reasoning_content: providerResponse.reasoningText } : {}),
+          });
           messages.push({
             role: 'tool',
             tool_call_id: toolCallId,

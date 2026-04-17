@@ -96,11 +96,9 @@ const THINKING_BUFFER_MIN_TOKENS = 4000;
 const PER_TOOL_RESULT_RATIO = 0.10;
 const DEFAULT_REPO_SEARCH_REQUEST_MAX_TOKENS = 2048;
 const ZERO_OUTPUT_FORCE_THRESHOLD = 10;
-const NON_THINKING_FINISH_AUTO_ACCEPT_TOOL_CALL_THRESHOLD = 10;
 const FORCED_FINISH_MAX_ATTEMPTS = 3;
 const STAGNATION_WARNING_THRESHOLD = 3;
 const STAGNATION_FORCE_THRESHOLD = 4;
-const NON_THINKING_FINISH_FOLLOWUP_PROMPT = 'Are you sure you have everything? If yes, only respond with `yes I am sure`. If not, keep using tool calls to investigate more.';
 const ANSI_RED_CODE = 31;
 
 // ---------------------------------------------------------------------------
@@ -266,22 +264,6 @@ function writeRedConsoleLine(message: string): void {
   process.stderr.write(`${colorize(String(message), ANSI_RED_CODE, { isTTY: true })}\n`);
 }
 
-function normalizeResponseToken(token: string): string {
-  return String(token || '').trim().toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/gu, '');
-}
-
-function isFollowupConfirmationResponse(text: string): boolean {
-  const trimmed = String(text || '').trim();
-  if (!trimmed) {
-    return false;
-  }
-  if (trimmed.toLowerCase() === 'yes i am sure') {
-    return true;
-  }
-  const firstTenWords = trimmed.split(/\s+/u).slice(0, 10).map(normalizeResponseToken).filter(Boolean);
-  return firstTenWords.includes('yes') && firstTenWords.includes('sure');
-}
-
 // ---------------------------------------------------------------------------
 // Task result type
 // ---------------------------------------------------------------------------
@@ -322,10 +304,8 @@ type RunTaskLoopOptions = {
   maxTurns?: number;
   maxInvalidResponses?: number;
   minToolCallsBeforeFinish?: number;
-  thinkingInterval?: number;
   requestMaxTokens: number;
   plannerToolDefinitions?: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;
-  enforceThinkingFinish?: boolean;
   includeAgentsMd?: boolean;
   includeRepoFileListing?: boolean;
   mockResponses?: string[];
@@ -333,6 +313,26 @@ type RunTaskLoopOptions = {
   logger?: JsonLogger | null;
   onProgress?: ((event: RepoSearchProgressEvent) => void) | null;
 };
+
+function isPlannerReasoningEnabled(config: SiftConfig | undefined): boolean {
+  return getConfiguredLlamaSetting(config || {} as SiftConfig, 'Reasoning') === 'on';
+}
+
+function isPlannerReasoningContentEnabled(config: SiftConfig | undefined): boolean {
+  return isPlannerReasoningEnabled(config) && config?.Server?.LlamaCpp?.ReasoningContent === true;
+}
+
+function isPlannerPreserveThinkingEnabled(config: SiftConfig | undefined): boolean {
+  return isPlannerReasoningContentEnabled(config) && config?.Server?.LlamaCpp?.PreserveThinking === true;
+}
+
+function buildAssistantReplayMessage(content: string, thinkingText: string): ChatMessage {
+  return {
+    role: 'assistant',
+    content,
+    ...(thinkingText ? { reasoning_content: thinkingText } : {}),
+  };
+}
 
 export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOptions): Promise<TaskResult> {
   const taskStartedAt = Date.now();
@@ -347,7 +347,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   let reason = 'max_turns';
   let turnsUsed = 0;
   let mockResponseIndex = 0;
-  let forceThinkingOnNextTurn = false;
   let modelPromptTokens = 0;
   let modelOutputTokens = 0;
   let modelToolTokens = 0;
@@ -357,13 +356,14 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const toolStatsByType: Record<string, ToolTypeStats> = {};
   const attemptedCommands = new Set<string>();
   const minToolCallsBeforeFinish = Math.max(0, Number(options.minToolCallsBeforeFinish ?? MIN_TOOL_CALLS_BEFORE_FINISH));
-  const thinkingInterval = Math.max(1, Math.floor(Number(options.thinkingInterval || 5)));
   const totalContextTokens = Math.max(1, Number(options.totalContextTokens || (options.config ? getConfiguredLlamaNumCtx(options.config) : 32000)));
   const thinkingBufferTokens = Math.max(Math.ceil(totalContextTokens * THINKING_BUFFER_RATIO), THINKING_BUFFER_MIN_TOKENS);
   const usablePromptTokens = Math.max(totalContextTokens - thinkingBufferTokens, 0);
   const useEstimatedTokensOnly = Array.isArray(options.mockResponses);
   const requestMaxTokens = options.requestMaxTokens;
-  const followupOnNonThinkingFinish = options.enforceThinkingFinish === true;
+  const plannerThinkingEnabled = isPlannerReasoningEnabled(options.config);
+  const plannerReasoningContentEnabled = isPlannerReasoningContentEnabled(options.config);
+  const plannerPreserveThinkingEnabled = isPlannerPreserveThinkingEnabled(options.config);
   const plannerToolDefinitions = Array.isArray(options.plannerToolDefinitions) && options.plannerToolDefinitions.length > 0
     ? options.plannerToolDefinitions
     : resolveRepoSearchPlannerToolDefinitions();
@@ -373,9 +373,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   let consecutiveSemanticRepeats = 0;
   let consecutiveNoNewEvidence = 0;
   let forcedFinishAttemptsRemaining = 0;
-  let previousPlannerThinkingEnabled: boolean | null = null;
-  let nonThinkingFinishFollowupUsed = false;
-  let pendingNonThinkingFinishOutput: string | null = null;
   let lastLoggedMessageCount = 0;
   const slotId = options.config ? allocateLlamaCppSlotId(options.config) : 0;
   const ignorePolicy = buildIgnorePolicy(options.repoRoot);
@@ -415,12 +412,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   for (let turn = 1; turn <= maxTurns; turn += 1) {
     turnsUsed = turn;
     const inForcedFinishMode = forcedFinishAttemptsRemaining > 0;
-    const plannerThinkingEnabled = inForcedFinishMode
-      ? true
-      : (forceThinkingOnNextTurn || (((commands.length + 1) % thinkingInterval) === 0));
-    if (forceThinkingOnNextTurn && !inForcedFinishMode) {
-      forceThinkingOnNextTurn = false;
-    }
 
     let prompt = renderTaskTranscript(messages);
     let preflight = await preflightPlannerPromptBudget({
@@ -490,6 +481,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
       requestMaxTokens,
       thinkingEnabled: plannerThinkingEnabled,
+      reasoningContentEnabled: plannerReasoningContentEnabled,
+      preserveThinking: plannerPreserveThinkingEnabled,
       stream: Boolean(options.onProgress),
       onThinkingDelta: options.onProgress
         ? (accThinking) => { options.onProgress!({ kind: 'thinking', turn, maxTurns, thinkingText: accThinking }); }
@@ -506,7 +499,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     if (options.onProgress) {
       options.onProgress({ kind: 'llm_end', turn, maxTurns, promptTokenCount: preflight.promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
     }
-    previousPlannerThinkingEnabled = plannerThinkingEnabled;
     if (typeof response.nextMockResponseIndex === 'number') {
       mockResponseIndex = response.nextMockResponseIndex;
     }
@@ -534,18 +526,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     if (Number.isFinite(response.promptEvalTokens) && Number(response.promptEvalTokens) >= 0) modelPromptEvalTokens += Number(response.promptEvalTokens);
 
     if (response.mockExhausted) { reason = 'mock_responses_exhausted'; break; }
-    const responseText = String(response.text || '').trim();
-    if (pendingNonThinkingFinishOutput && isFollowupConfirmationResponse(responseText)) {
-      modelOutputTokens += resolvedCompletionTokens;
-      finalOutput = pendingNonThinkingFinishOutput;
-      pendingNonThinkingFinishOutput = null;
-      options.logger?.write({ kind: 'turn_followup_confirmation_accepted', taskId: task.id, turn, responseText });
-      if (options.onProgress) {
-        options.onProgress({ kind: 'thinking', turn, maxTurns, thinkingText: finalOutput });
-      }
-      reason = 'finish';
-      break;
-    }
 
     let action;
     try {
@@ -555,7 +535,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       modelOutputTokens += resolvedCompletionTokens;
       invalidResponses += 1;
       if (String(response.text || '').trim()) {
-        messages.push({ role: 'assistant', content: String(response.text).trim() });
+        messages.push(buildAssistantReplayMessage(String(response.text).trim(), String(response.thinkingText || '').trim()));
       }
       messages.push({ role: 'user', content: `Invalid action: ${error instanceof Error ? error.message : String(error)}. Return a valid JSON finish action or tool action payload.` });
       options.logger?.write({ kind: 'turn_action_invalid', taskId: task.id, turn, invalidResponses, error: error instanceof Error ? error.message : String(error) });
@@ -583,40 +563,13 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
           ...loopStats,
           finishRejections: loopStats.finishRejections + 1,
         };
-        messages.push({ role: 'assistant', content: response.text });
+        messages.push(buildAssistantReplayMessage(response.text, String(response.thinkingText || '').trim()));
         messages.push({ role: 'user', content: warning });
         history.push({ command: '[finish rejected]', resultText: warning });
         options.logger?.write({ kind: 'turn_finish_rejected', taskId: task.id, turn, toolCallTurns: commands.length, minToolCallsBeforeFinish, warning });
         continue;
       }
-      if (followupOnNonThinkingFinish && !plannerThinkingEnabled && !nonThinkingFinishFollowupUsed) {
-        if (commands.length >= NON_THINKING_FINISH_AUTO_ACCEPT_TOOL_CALL_THRESHOLD) {
-          options.logger?.write({
-            kind: 'turn_non_thinking_finish_auto_accepted',
-            taskId: task.id,
-            turn,
-            toolCallTurns: commands.length,
-            threshold: NON_THINKING_FINISH_AUTO_ACCEPT_TOOL_CALL_THRESHOLD,
-          });
-          finalOutput = action.output;
-          if (options.onProgress) {
-            options.onProgress({ kind: 'thinking', turn, maxTurns, thinkingText: finalOutput });
-          }
-          reason = 'finish';
-          break;
-        }
-        nonThinkingFinishFollowupUsed = true;
-        pendingNonThinkingFinishOutput = action.output;
-        messages.push({ role: 'assistant', content: response.text });
-        messages.push({ role: 'user', content: NON_THINKING_FINISH_FOLLOWUP_PROMPT });
-        history.push({ command: '[follow-up]', resultText: NON_THINKING_FINISH_FOLLOWUP_PROMPT });
-        forceThinkingOnNextTurn = true;
-        options.logger?.write({ kind: 'turn_non_thinking_finish_followup', taskId: task.id, turn, followupPrompt: NON_THINKING_FINISH_FOLLOWUP_PROMPT, forcedThinkingOnNextTurn: true });
-        continue;
-      }
-      options.logger?.write({ kind: 'turn_finish_validation_skipped', taskId: task.id, turn, reason: 'planner_already_thinking' });
-      finalOutput = pendingNonThinkingFinishOutput ?? action.output;
-      pendingNonThinkingFinishOutput = null;
+      finalOutput = action.output;
       if (options.onProgress) {
         options.onProgress({ kind: 'thinking', turn, maxTurns, thinkingText: finalOutput });
       }
@@ -633,7 +586,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       }))
       : [action];
     modelToolTokens += resolvedCompletionTokens;
-    pendingNonThinkingFinishOutput = null;
 
     for (const toolAction of toolActions) {
       const normalizedToolName = String(toolAction.tool_name || '').trim().toLowerCase();
@@ -1066,11 +1018,11 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       }
     }
 
-    if (appendReplayMessages) {
-      messages.push({ role: 'assistant', content: replayAssistantText });
-      messages.push({ role: 'user', content: resultText });
-      history.push({ command: commandToRun, resultText });
-    }
+      if (appendReplayMessages) {
+        messages.push(buildAssistantReplayMessage(replayAssistantText, String(response.thinkingText || '').trim()));
+        messages.push({ role: 'user', content: resultText });
+        history.push({ command: commandToRun, resultText });
+      }
     }
     if (reason === 'forced_finish_attempt_limit') {
       break;
@@ -1092,6 +1044,9 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         mockResponses: options.mockResponses,
         mockResponseIndex,
         requestMaxTokens,
+        thinkingEnabled: plannerThinkingEnabled,
+        reasoningContentEnabled: plannerReasoningContentEnabled,
+        preserveThinking: plannerPreserveThinkingEnabled,
         logger: options.logger || null,
       });
       if (typeof synthesisResponse.nextMockResponseIndex === 'number') {
@@ -1228,7 +1183,6 @@ export async function runRepoSearch(options: {
   includeRepoFileListing?: boolean;
   requestMaxTokens?: number;
   maxTurns?: number;
-  thinkingInterval?: number;
   timeoutMs?: number;
   maxInvalidResponses?: number;
   minToolCallsBeforeFinish?: number;
@@ -1272,10 +1226,8 @@ export async function runRepoSearch(options: {
       maxTurns: options.maxTurns || DEFAULT_MAX_TURNS,
       maxInvalidResponses: options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES,
       minToolCallsBeforeFinish: options.minToolCallsBeforeFinish,
-      thinkingInterval: options.thinkingInterval,
       requestMaxTokens,
       plannerToolDefinitions,
-      enforceThinkingFinish: true,
       includeAgentsMd: options.includeAgentsMd,
       includeRepoFileListing: options.includeRepoFileListing,
       mockResponses: options.mockResponses,

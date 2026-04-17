@@ -44,6 +44,8 @@ export function ManagedLlamaSection({
   if (!dashboardConfig || !selectedManagedLlamaPreset) {
     return null;
   }
+  const reasoningEnabled = selectedManagedLlamaPreset.Reasoning === 'on';
+  const reasoningContentEnabled = reasoningEnabled && selectedManagedLlamaPreset.ReasoningContent;
 
   return (
     <div className="settings-live-grid">
@@ -131,9 +133,6 @@ export function ManagedLlamaSection({
       {renderField('model-presets', 'Threads', (
         <input type="number" value={selectedManagedLlamaPreset.Threads} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.Threads = parseIntegerInput(event.target.value, preset.Threads); })} />
       ))}
-      {renderField('model-presets', 'NcpuMoe', (
-        <input type="number" value={selectedManagedLlamaPreset.NcpuMoe} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.NcpuMoe = parseIntegerInput(event.target.value, preset.NcpuMoe); })} />
-      ))}
       {renderField('model-presets', 'Flash attention', (
         <label className="settings-live-toggle-control">
           <input type="checkbox" checked={selectedManagedLlamaPreset.FlashAttention} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.FlashAttention = event.target.checked; })} />
@@ -181,12 +180,45 @@ export function ManagedLlamaSection({
         <input type="number" step="0.01" value={selectedManagedLlamaPreset.RepetitionPenalty} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.RepetitionPenalty = parseFloatInput(event.target.value, preset.RepetitionPenalty); })} />
       ))}
       {renderField('model-presets', 'Reasoning', (
-        <select value={selectedManagedLlamaPreset.Reasoning} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.Reasoning = event.target.value as 'on' | 'off' | 'auto'; })}>
+        <select
+          value={selectedManagedLlamaPreset.Reasoning}
+          onChange={(event) => updateManagedLlamaDraft((preset) => {
+            preset.Reasoning = event.target.value as 'on' | 'off';
+            if (preset.Reasoning !== 'on') {
+              preset.ReasoningContent = false;
+              preset.PreserveThinking = false;
+            }
+          })}
+        >
           <option value="off">off</option>
           <option value="on">on</option>
-          <option value="auto">auto</option>
         </select>
       ))}
+      {reasoningEnabled ? renderField('model-presets', 'Reasoning content', (
+        <label className="settings-live-toggle-control">
+          <input
+            type="checkbox"
+            checked={selectedManagedLlamaPreset.ReasoningContent}
+            onChange={(event) => updateManagedLlamaDraft((preset) => {
+              preset.ReasoningContent = event.target.checked;
+              if (!preset.ReasoningContent) {
+                preset.PreserveThinking = false;
+              }
+            })}
+          />
+          <span>{selectedManagedLlamaPreset.ReasoningContent ? 'Enabled' : 'Disabled'}</span>
+        </label>
+      )) : null}
+      {reasoningContentEnabled ? renderField('model-presets', 'Preserve thinking', (
+        <label className="settings-live-toggle-control">
+          <input
+            type="checkbox"
+            checked={selectedManagedLlamaPreset.PreserveThinking}
+            onChange={(event) => updateManagedLlamaDraft((preset) => { preset.PreserveThinking = event.target.checked; })}
+          />
+          <span>{selectedManagedLlamaPreset.PreserveThinking ? 'Enabled' : 'Disabled'}</span>
+        </label>
+      )) : null}
       {renderField('model-presets', 'ReasoningBudget', (
         <input type="number" value={selectedManagedLlamaPreset.ReasoningBudget} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.ReasoningBudget = parseIntegerInput(event.target.value, preset.ReasoningBudget); })} />
       ))}

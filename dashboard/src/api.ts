@@ -286,7 +286,6 @@ export function createPlanMessage(
     repoRoot?: string;
     model?: string;
     maxTurns?: number;
-    thinkingInterval?: number;
   }
 ): Promise<ChatSessionResponse> {
   return fetchJson<ChatSessionResponse>(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/plan`, {
@@ -303,7 +302,6 @@ export async function streamPlanMessage(
     repoRoot?: string;
     model?: string;
     maxTurns?: number;
-    thinkingInterval?: number;
   },
   onThinking: (thinkingText: string) => void,
   onToolEvent: (event: {
@@ -428,7 +426,6 @@ export async function streamRepoSearchMessage(
     repoRoot?: string;
     model?: string;
     maxTurns?: number;
-    thinkingInterval?: number;
   },
   onThinking: (thinkingText: string) => void,
   onToolEvent: (event: {

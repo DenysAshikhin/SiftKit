@@ -26,7 +26,7 @@ export async function invokeProviderSummary(options: {
   chunkIndex: number | null;
   chunkTotal: number | null;
   chunkPath: string | null;
-  reasoningOverride?: 'on' | 'off' | 'auto';
+  reasoningOverride?: 'on' | 'off';
   requestTimeoutSeconds?: number;
   llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
 }): Promise<string> {

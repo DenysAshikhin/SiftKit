@@ -14,7 +14,7 @@ export type RuntimeLlamaCppConfig = {
   NcpuMoe?: number | null;
   FlashAttention?: boolean | null;
   ParallelSlots?: number | null;
-  Reasoning?: 'on' | 'off' | 'auto' | null;
+  Reasoning?: 'on' | 'off' | null;
 };
 
 export type ManagedLlamaKvCacheQuantization =
@@ -51,7 +51,9 @@ export type ServerManagedLlamaCppConfig = {
   MinP?: number | null;
   PresencePenalty?: number | null;
   RepetitionPenalty?: number | null;
-  Reasoning?: 'on' | 'off' | 'auto' | null;
+  Reasoning?: 'on' | 'off' | null;
+  ReasoningContent?: boolean | null;
+  PreserveThinking?: boolean | null;
   ReasoningBudget?: number | null;
   ReasoningBudgetMessage?: string | null;
   StartupTimeoutMs?: number | null;

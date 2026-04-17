@@ -21,7 +21,7 @@ export async function invokePlannerProviderAction(options: {
   rawInputCharacterCount: number;
   chunkInputCharacterCount: number;
   toolDefinitions: PlannerToolDefinition[];
-  reasoningOverride?: 'on' | 'off' | 'auto';
+  reasoningOverride?: 'on' | 'off';
   requestTimeoutSeconds?: number;
   llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
 }): Promise<{

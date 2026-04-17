@@ -608,7 +608,10 @@ test('loadConfig handles missing Server fields', async () => {
   await withTestEnvAndServer(async ({ stub }) => {
     delete (stub.state.config as Dict).Server;
     const config = await loadConfig({ ensure: true });
-    assert.equal(typeof config.Server?.LlamaCpp?.StartupScript, 'string');
+    assert.equal(typeof config.Server?.LlamaCpp, 'object');
+    assert.equal(config.Server?.LlamaCpp?.ExecutablePath, null);
+    assert.equal(config.Server?.LlamaCpp?.ReasoningContent, false);
+    assert.equal(config.Server?.LlamaCpp?.PreserveThinking, false);
   });
 });
 
@@ -641,6 +644,41 @@ test('loadConfig removes legacy ChunkThresholdRatio from Thresholds', async () =
     thresholds.ChunkThresholdRatio = 0.8;
     const config = await loadConfig({ ensure: true });
     assert.equal((config.Thresholds as unknown as Dict).ChunkThresholdRatio, undefined);
+  });
+});
+
+test('loadConfig migrates legacy reasoning auto to off and backfills thinking preservation flags', async () => {
+  await withTestEnvAndServer(async ({ stub }) => {
+    const runtime = (stub.state.config.Runtime as Dict) || {};
+    stub.state.config.Runtime = runtime;
+    const runtimeLlamaCpp = (runtime.LlamaCpp as Dict) || {};
+    runtime.LlamaCpp = runtimeLlamaCpp;
+    runtimeLlamaCpp.Reasoning = 'auto';
+
+    const server = ((stub.state.config as Dict).Server as Dict) || {};
+    (stub.state.config as Dict).Server = server;
+    const serverLlamaCpp = (server.LlamaCpp as Dict) || {};
+    server.LlamaCpp = serverLlamaCpp;
+    serverLlamaCpp.Reasoning = 'auto';
+    delete serverLlamaCpp.ReasoningContent;
+    delete serverLlamaCpp.PreserveThinking;
+
+    const presets = Array.isArray(serverLlamaCpp.Presets) ? serverLlamaCpp.Presets as Dict[] : [];
+    if (presets[0]) {
+      presets[0].Reasoning = 'auto';
+      delete presets[0].ReasoningContent;
+      delete presets[0].PreserveThinking;
+    }
+
+    const config = await loadConfig({ ensure: true });
+
+    assert.equal(config.Runtime?.LlamaCpp?.Reasoning, 'off');
+    assert.equal(config.Server?.LlamaCpp?.Reasoning, 'off');
+    assert.equal(config.Server?.LlamaCpp?.ReasoningContent, false);
+    assert.equal(config.Server?.LlamaCpp?.PreserveThinking, false);
+    assert.equal(config.Server?.LlamaCpp?.Presets?.[0]?.Reasoning, 'off');
+    assert.equal(config.Server?.LlamaCpp?.Presets?.[0]?.ReasoningContent, false);
+    assert.equal(config.Server?.LlamaCpp?.Presets?.[0]?.PreserveThinking, false);
   });
 });
 

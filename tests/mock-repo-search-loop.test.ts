@@ -406,22 +406,28 @@ test('runTaskLoop still rejects tool output that exceeds remaining token allowan
   assert.equal(result.reason, 'finish');
 });
 
-test('runTaskLoop follows up once after non-thinking finish and preserves first finish output after confirmation', async () => {
+test('runTaskLoop accepts first finish immediately when runtime reasoning is off', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   const result = await runTaskLoop(
     {
-      id: 'task-validation-pass',
+      id: 'task-finish-no-reasoning',
       question: 'Find planner text.',
       signals: ['done'],
     },
     {
+      config: {
+        Runtime: {
+          LlamaCpp: {
+            NumCtx: 32000,
+            Reasoning: 'off',
+          },
+        },
+      },
       maxTurns: 3,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
-      enforceThinkingFinish: true,
       mockResponses: [
         '{"action":"finish","output":"first finish"}',
-        '{"action":"finish","output":"second finish"}',
       ],
       mockCommandResults: {},
       logger: {
@@ -433,49 +439,39 @@ test('runTaskLoop follows up once after non-thinking finish and preserves first 
   );
 
   const turnRequests = events.filter((event) => event.kind === 'turn_model_request');
-  assert.equal(turnRequests.length, 2);
+  assert.equal(turnRequests.length, 1);
   assert.equal(turnRequests[0].thinkingEnabled, false);
-  assert.equal(turnRequests[1].thinkingEnabled, true);
-
-  const followupEvent = events.find((event) => event.kind === 'turn_non_thinking_finish_followup');
-  assert.equal(Boolean(followupEvent), true);
-  assert.match(
-    String(followupEvent.followupPrompt),
-    /Are you sure you have everything\?/u
-  );
-
-  const followupContent = events
-    .filter((event) => event.kind === 'turn_new_messages')
-    .flatMap((event) => Array.isArray(event.messages) ? event.messages as Array<{ role?: string; content?: unknown }> : [])
-    .filter((m) => m.role === 'user')
-    .map((m) => String(m.content || ''))
-    .find((c) => c.includes('Are you sure')) || '';
-  assert.match(followupContent, /only respond with `yes i am sure`/iu);
+  assert.equal(events.some((event) => event.kind === 'turn_non_thinking_finish_followup'), false);
+  assert.equal(events.some((event) => event.kind === 'turn_non_thinking_finish_auto_accepted'), false);
   assert.equal(result.reason, 'finish');
   assert.equal(result.finalOutput, 'first finish');
+  assert.equal(result.invalidResponses, 0);
 });
 
-test('runTaskLoop triggers non-thinking finish follow-up only once', async () => {
+test('runTaskLoop accepts first finish immediately when runtime reasoning is on', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   const result = await runTaskLoop(
     {
-      id: 'task-validation-fail',
+      id: 'task-finish-with-reasoning',
       question: 'Find planner text.',
       signals: ['final answer'],
     },
     {
-      maxTurns: 5,
-      maxInvalidResponses: 3,
+      config: {
+        Runtime: {
+          LlamaCpp: {
+            NumCtx: 32000,
+            Reasoning: 'on',
+          },
+        },
+      },
+      maxTurns: 3,
+      maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
-      enforceThinkingFinish: true,
       mockResponses: [
-        '{"action":"finish","output":"first answer"}',
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"final answer\\" src"}}',
         '{"action":"finish","output":"final answer"}',
       ],
-      mockCommandResults: {
-        'rg -n "final answer" src': { exitCode: 0, stdout: 'final answer', stderr: '' },
-      },
+      mockCommandResults: {},
       logger: {
         write(event: Record<string, unknown> & { kind: string }) {
           events.push(event);
@@ -484,166 +480,16 @@ test('runTaskLoop triggers non-thinking finish follow-up only once', async () =>
     }
   );
 
-  const followupEvents = events.filter((event) => event.kind === 'turn_non_thinking_finish_followup');
-  assert.equal(followupEvents.length, 1);
   const turnRequests = events.filter((event) => event.kind === 'turn_model_request');
-  assert.equal(turnRequests.length, 3);
-  assert.equal(turnRequests[0].thinkingEnabled, false);
-  assert.equal(turnRequests[1].thinkingEnabled, true);
-  assert.equal(turnRequests[2].thinkingEnabled, false);
-  const skippedValidation = events.find((event) => event.kind === 'turn_finish_validation_skipped');
-  assert.equal(Boolean(skippedValidation), true);
+  assert.equal(turnRequests.length, 1);
+  assert.equal(turnRequests[0].thinkingEnabled, true);
+  assert.equal(events.some((event) => event.kind === 'turn_non_thinking_finish_followup'), false);
+  assert.equal(events.some((event) => event.kind === 'turn_non_thinking_finish_auto_accepted'), false);
   assert.equal(result.reason, 'finish');
   assert.equal(result.finalOutput, 'final answer');
 });
 
-test('runTaskLoop counts malformed response after non-thinking finish follow-up toward invalid response limit', async () => {
-  const result = await runTaskLoop(
-    {
-      id: 'task-validation-invalid',
-      question: 'Find planner text.',
-      signals: ['done'],
-    },
-    {
-      maxTurns: 3,
-      maxInvalidResponses: 1,
-      minToolCallsBeforeFinish: 0,
-      enforceThinkingFinish: true,
-      mockResponses: [
-        '{"action":"finish","output":"done"}',
-        'not-json',
-      ],
-      mockCommandResults: {},
-    }
-  );
-
-  assert.equal(result.reason, 'invalid_response_limit');
-  assert.equal(result.invalidResponses, 1);
-});
-
-test('runTaskLoop accepts exact "yes i am sure" after non-thinking finish follow-up', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
-  const result = await runTaskLoop(
-    {
-      id: 'task-validation-exact-confirmation',
-      question: 'Find planner text.',
-      signals: ['first finish'],
-    },
-    {
-      maxTurns: 3,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      enforceThinkingFinish: true,
-      mockResponses: [
-        '{"action":"finish","output":"first finish"}',
-        'yes i am sure',
-      ],
-      mockCommandResults: {},
-      logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
-          events.push(event);
-        },
-      },
-    }
-  );
-
-  const accepted = events.find((event) => event.kind === 'turn_followup_confirmation_accepted');
-  assert.equal(Boolean(accepted), true);
-  assert.equal(result.reason, 'finish');
-  assert.equal(result.finalOutput, 'first finish');
-  assert.equal(result.invalidResponses, 0);
-});
-
-test('runTaskLoop accepts follow-up confirmation when first ten words include yes and sure', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
-  const result = await runTaskLoop(
-    {
-      id: 'task-validation-fuzzy-confirmation',
-      question: 'Find planner text.',
-      signals: ['first finish'],
-    },
-    {
-      maxTurns: 3,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      enforceThinkingFinish: true,
-      mockResponses: [
-        '{"action":"finish","output":"first finish"}',
-        'yes please proceed, sure this is complete',
-      ],
-      mockCommandResults: {},
-      logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
-          events.push(event);
-        },
-      },
-    }
-  );
-
-  const accepted = events.find((event) => event.kind === 'turn_followup_confirmation_accepted');
-  assert.equal(Boolean(accepted), true);
-  assert.equal(result.reason, 'finish');
-  assert.equal(result.finalOutput, 'first finish');
-  assert.equal(result.invalidResponses, 0);
-});
-
-test('runTaskLoop still follows up after non-thinking finish when fewer than ten tool calls ran', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
-  const mockResponses = [
-    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-1\\" src"}}',
-    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-2\\" src"}}',
-    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-3\\" src"}}',
-    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-4\\" src"}}',
-    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-5\\" src"}}',
-    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-6\\" src"}}',
-    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-7\\" src"}}',
-    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-8\\" src"}}',
-    '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-9\\" src"}}',
-    '{"action":"finish","output":"src\\\\target.ts:9"}',
-    'yes i am sure',
-  ];
-  const mockCommandResults = {
-    'rg -n "hit-1" src': { exitCode: 0, stdout: 'src\\target.ts:1: hit-1', stderr: '' },
-    'rg -n "hit-2" src': { exitCode: 0, stdout: 'src\\target.ts:2: hit-2', stderr: '' },
-    'rg -n "hit-3" src': { exitCode: 0, stdout: 'src\\target.ts:3: hit-3', stderr: '' },
-    'rg -n "hit-4" src': { exitCode: 0, stdout: 'src\\target.ts:4: hit-4', stderr: '' },
-    'rg -n "hit-5" src': { exitCode: 0, stdout: 'src\\target.ts:5: hit-5', stderr: '' },
-    'rg -n "hit-6" src': { exitCode: 0, stdout: 'src\\target.ts:6: hit-6', stderr: '' },
-    'rg -n "hit-7" src': { exitCode: 0, stdout: 'src\\target.ts:7: hit-7', stderr: '' },
-    'rg -n "hit-8" src': { exitCode: 0, stdout: 'src\\target.ts:8: hit-8', stderr: '' },
-    'rg -n "hit-9" src': { exitCode: 0, stdout: 'src\\target.ts:9: hit-9', stderr: '' },
-  };
-  const result = await runTaskLoop(
-    {
-      id: 'task-validation-nine-tool-calls',
-      question: 'Find planner text.',
-      signals: ['src\\target.ts:9'],
-    },
-    {
-      maxTurns: 11,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      thinkingInterval: 20,
-      enforceThinkingFinish: true,
-      mockResponses,
-      mockCommandResults,
-      logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
-          events.push(event);
-        },
-      },
-    }
-  );
-
-  const followupEvent = events.find((event) => event.kind === 'turn_non_thinking_finish_followup');
-  const autoAcceptedEvent = events.find((event) => event.kind === 'turn_non_thinking_finish_auto_accepted');
-  assert.equal(Boolean(followupEvent), true);
-  assert.equal(Boolean(autoAcceptedEvent), false);
-  assert.equal(result.reason, 'finish');
-  assert.equal(result.finalOutput, 'src\\target.ts:9');
-});
-
-test('runTaskLoop auto-accepts non-thinking finish after ten tool calls without follow-up', async () => {
+test('runTaskLoop does not emit follow-up finish events after many reasoning-off tool calls', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   const mockResponses = [
     '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"hit-1\\" src"}}',
@@ -672,16 +518,22 @@ test('runTaskLoop auto-accepts non-thinking finish after ten tool calls without 
   };
   const result = await runTaskLoop(
     {
-      id: 'task-validation-ten-tool-calls',
+      id: 'task-finish-many-tools-no-followup',
       question: 'Find planner text.',
       signals: ['src\\target.ts:10'],
     },
     {
+      config: {
+        Runtime: {
+          LlamaCpp: {
+            NumCtx: 32000,
+            Reasoning: 'off',
+          },
+        },
+      },
       maxTurns: 11,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
-      thinkingInterval: 20,
-      enforceThinkingFinish: true,
       mockResponses,
       mockCommandResults,
       logger: {
@@ -692,35 +544,45 @@ test('runTaskLoop auto-accepts non-thinking finish after ten tool calls without 
     }
   );
 
-  const followupEvent = events.find((event) => event.kind === 'turn_non_thinking_finish_followup');
-  const autoAcceptedEvent = events.find((event) => event.kind === 'turn_non_thinking_finish_auto_accepted');
-  assert.equal(Boolean(followupEvent), false);
-  assert.equal(Boolean(autoAcceptedEvent), true);
+  const turnRequests = events.filter((event) => event.kind === 'turn_model_request');
+  assert.equal(turnRequests.length, 11);
+  assert.equal(turnRequests.every((event) => event.thinkingEnabled === false), true);
+  assert.equal(events.some((event) => event.kind === 'turn_non_thinking_finish_followup'), false);
+  assert.equal(events.some((event) => event.kind === 'turn_non_thinking_finish_auto_accepted'), false);
   assert.equal(result.reason, 'finish');
   assert.equal(result.finalOutput, 'src\\target.ts:10');
+  assert.equal(result.invalidResponses, 0);
 });
 
-test('runTaskLoop forces thinking on after non-thinking finish follow-up and can still hit max turns', async () => {
+test('runTaskLoop keeps reasoning disabled across max-turn exhaustion when runtime reasoning is off', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   const result = await runTaskLoop(
     {
-      id: 'task-validation-max-turns',
+      id: 'task-max-turns-no-reasoning',
       question: 'Find planner text.',
       signals: ['never-hits'],
     },
     {
+      config: {
+        Runtime: {
+          LlamaCpp: {
+            NumCtx: 32000,
+            Reasoning: 'off',
+          },
+        },
+      },
       maxTurns: 3,
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
-      enforceThinkingFinish: true,
       mockResponses: [
-        '{"action":"finish","output":"first answer"}',
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner2\\" src"}}',
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner3\\" src"}}',
       ],
       mockCommandResults: {
         'rg -n "planner" src': { exitCode: 0, stdout: 'planner', stderr: '' },
         'rg -n "planner2" src': { exitCode: 0, stdout: 'planner2', stderr: '' },
+        'rg -n "planner3" src': { exitCode: 0, stdout: 'planner3', stderr: '' },
       },
       logger: {
         write(event: Record<string, unknown> & { kind: string }) {
@@ -733,8 +595,8 @@ test('runTaskLoop forces thinking on after non-thinking finish follow-up and can
   const turnRequests = events.filter((event) => event.kind === 'turn_model_request');
   assert.equal(turnRequests.length, 3);
   assert.equal(turnRequests[0].thinkingEnabled, false);
-  assert.equal(turnRequests[1].thinkingEnabled, true);
   assert.equal(turnRequests[2].thinkingEnabled, false);
+  assert.equal(events.some((event) => event.kind === 'turn_non_thinking_finish_followup'), false);
   assert.equal(result.reason, 'max_turns');
 });
 
@@ -815,12 +677,12 @@ test('runTaskLoop retries transient provider network failures via shared retry h
     assert.equal(result.finalOutput, 'done');
     assert.equal(requestCount, 6);
     // Response-format constrained mode suppresses enable_thinking in the HTTP body.
-    // Verify the engine still tracked the thinking switch internally via logged events.
+    // Verify the engine still tracks the configured binary reasoning mode in logged events.
     const turnRequests = events.filter((event) => event.kind === 'turn_model_request');
     assert.equal(turnRequests.length >= 5, true);
     assert.equal(Boolean(turnRequests[0]?.thinkingEnabled), false);
     assert.equal(Boolean(turnRequests[3]?.thinkingEnabled), false);
-    assert.equal(Boolean(turnRequests[4]?.thinkingEnabled), true);
+    assert.equal(Boolean(turnRequests[4]?.thinkingEnabled), false);
     const retryEvent = events.find((event) => event.kind === 'provider_request_retry');
     assert.equal(Boolean(retryEvent), true);
     assert.equal(retryEvent.stage, 'planner_action');
@@ -1381,12 +1243,12 @@ test('runTaskLoop forces finish mode after ten zero-output commands', async () =
   const forcedStart = events.find((event) => event.kind === 'turn_forced_finish_mode_started');
   assert.ok(forcedStart);
   const turn11Request = events.find((event) => event.kind === 'turn_model_request' && event.turn === 11);
-  assert.equal(turn11Request.thinkingEnabled, true);
+  assert.equal(turn11Request.thinkingEnabled, false);
   assert.equal(result.reason, 'finish');
   assert.equal(result.finalOutput, 'forced conclusion');
 });
 
-test('runTaskLoop enables thinking on every fifth tool-call turn', async () => {
+test('runTaskLoop enables thinking on every tool-call turn when runtime reasoning is on', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   const result = await runTaskLoop(
     {
@@ -1395,6 +1257,14 @@ test('runTaskLoop enables thinking on every fifth tool-call turn', async () => {
       signals: ['done'],
     },
     {
+      config: {
+        Runtime: {
+          LlamaCpp: {
+            NumCtx: 32000,
+            Reasoning: 'on',
+          },
+        },
+      },
       maxTurns: 6,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1424,12 +1294,57 @@ test('runTaskLoop enables thinking on every fifth tool-call turn', async () => {
 
   const turnRequests = events.filter((event) => event.kind === 'turn_model_request');
   assert.equal(turnRequests.length, 6);
+  assert.equal(turnRequests[0].thinkingEnabled, true);
+  assert.equal(turnRequests[1].thinkingEnabled, true);
+  assert.equal(turnRequests[2].thinkingEnabled, true);
+  assert.equal(turnRequests[3].thinkingEnabled, true);
+  assert.equal(turnRequests[4].thinkingEnabled, true);
+  assert.equal(turnRequests[5].thinkingEnabled, true);
+  assert.equal(result.reason, 'finish');
+});
+
+test('runTaskLoop disables thinking on every tool-call turn when runtime reasoning is off', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-no-thinking',
+      question: 'Find planner text.',
+      signals: ['done'],
+    },
+    {
+      config: {
+        Runtime: {
+          LlamaCpp: {
+            NumCtx: 32000,
+            Reasoning: 'off',
+          },
+        },
+      },
+      maxTurns: 3,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"a\\" src"}}',
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"b\\" src"}}',
+        '{"action":"finish","output":"done"}',
+      ],
+      mockCommandResults: {
+        'rg -n "a" src': { exitCode: 0, stdout: 'a', stderr: '' },
+        'rg -n "b" src': { exitCode: 0, stdout: 'b', stderr: '' },
+      },
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+    },
+  );
+
+  const turnRequests = events.filter((event) => event.kind === 'turn_model_request');
+  assert.equal(turnRequests.length, 3);
   assert.equal(turnRequests[0].thinkingEnabled, false);
   assert.equal(turnRequests[1].thinkingEnabled, false);
   assert.equal(turnRequests[2].thinkingEnabled, false);
-  assert.equal(turnRequests[3].thinkingEnabled, false);
-  assert.equal(turnRequests[4].thinkingEnabled, true);
-  assert.equal(turnRequests[5].thinkingEnabled, false);
   assert.equal(result.reason, 'finish');
 });
 

@@ -42,7 +42,6 @@ type ChatTabProps = {
   showSettings: boolean;
   planRepoRootInput: string;
   planMaxTurnsInput: string;
-  planThinkingIntervalInput: string;
   contextUsage: ContextUsage | null;
   liveToolPromptTokenCount: number | null;
   thinkingDraft: string;
@@ -55,7 +54,6 @@ type ChatTabProps = {
   onToggleSettings(): void;
   onChangePlanRepoRoot(value: string): void;
   onChangePlanMaxTurns(value: string): void;
-  onChangePlanThinkingInterval(value: string): void;
   onChangeChatInput(value: string): void;
   onCreateSession(): Promise<void>;
   onDeleteSession(): Promise<void>;
@@ -83,7 +81,6 @@ export function ChatTab({
   showSettings,
   planRepoRootInput,
   planMaxTurnsInput,
-  planThinkingIntervalInput,
   contextUsage,
   liveToolPromptTokenCount,
   thinkingDraft,
@@ -96,7 +93,6 @@ export function ChatTab({
   onToggleSettings,
   onChangePlanRepoRoot,
   onChangePlanMaxTurns,
-  onChangePlanThinkingInterval,
   onChangeChatInput,
   onCreateSession,
   onDeleteSession,
@@ -171,7 +167,7 @@ export function ChatTab({
               ) : null}
               {isRepoToolMode && !showSettings && (
                 <span className="hint settings-summary" title="Click the gear icon to adjust">
-                  {planMaxTurnsInput ? `${planMaxTurnsInput} turns` : ''}{planMaxTurnsInput && planThinkingIntervalInput ? ', ' : ''}{planThinkingIntervalInput ? `think every ${planThinkingIntervalInput}` : ''}
+                  {planMaxTurnsInput ? `${planMaxTurnsInput} turns` : ''}
                 </span>
               )}
             </div>
@@ -219,18 +215,6 @@ export function ChatTab({
                       onChange={(event) => onChangePlanMaxTurns(event.target.value)}
                       disabled={chatBusy}
                     />
-                    <label htmlFor="thinking-interval-input" title="Force a thinking step every N tool calls">Think Every</label>
-                    <input
-                      id="thinking-interval-input"
-                      type="number"
-                      min="1"
-                      max="50"
-                      style={{ width: '70px' }}
-                      value={planThinkingIntervalInput}
-                      onChange={(event) => onChangePlanThinkingInterval(event.target.value)}
-                      disabled={chatBusy}
-                    />
-                    <span className="hint" style={{ fontSize: '0.75rem' }}>steps</span>
                   </div>
                 ) : null}
                 {contextUsage && (

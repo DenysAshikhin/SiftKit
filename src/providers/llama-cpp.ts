@@ -98,6 +98,7 @@ export type LlamaCppGenerateResult = {
 export type LlamaCppChatMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content?: string | Array<{ type?: string; text?: string }>;
+  reasoning_content?: string | Array<{ type?: string; text?: string }>;
   tool_calls?: Array<{
     id?: string;
     type?: string;
@@ -417,7 +418,7 @@ export async function generateLlamaCppResponse(options: {
   timeoutSeconds: number;
   slotId?: number;
   structuredOutput?: LlamaCppStructuredOutput;
-  reasoningOverride?: 'on' | 'off' | 'auto';
+  reasoningOverride?: 'on' | 'off';
   overrides?: Pick<
     RuntimeLlamaCppConfig,
     'Temperature' | 'TopP' | 'TopK' | 'MinP' | 'PresencePenalty' | 'RepetitionPenalty' | 'MaxTokens'
@@ -453,7 +454,7 @@ export async function generateLlamaCppChatResponse(options: {
   cachePrompt?: boolean;
   tools?: unknown[];
   structuredOutput?: LlamaCppStructuredOutput;
-  reasoningOverride?: 'on' | 'off' | 'auto';
+  reasoningOverride?: 'on' | 'off';
   overrides?: Pick<
     RuntimeLlamaCppConfig,
     'Temperature' | 'TopP' | 'TopK' | 'MinP' | 'PresencePenalty' | 'RepetitionPenalty' | 'MaxTokens'
@@ -468,7 +469,14 @@ export async function generateLlamaCppChatResponse(options: {
   const resolvedPresencePenalty = options.overrides?.PresencePenalty ?? getConfiguredLlamaSetting<number>(options.config, 'PresencePenalty');
   const resolvedRepetitionPenalty = options.overrides?.RepetitionPenalty ?? getConfiguredLlamaSetting<number>(options.config, 'RepetitionPenalty');
   const resolvedReasoning = options.reasoningOverride
-    ?? getConfiguredLlamaSetting<'on' | 'off' | 'auto'>(options.config, 'Reasoning');
+    ?? getConfiguredLlamaSetting<'on' | 'off'>(options.config, 'Reasoning');
+  const serverLlama = (
+    options.config.Server?.LlamaCpp
+    && typeof options.config.Server.LlamaCpp === 'object'
+    && !Array.isArray(options.config.Server.LlamaCpp)
+  ) ? options.config.Server.LlamaCpp : null;
+  const reasoningContentEnabled = resolvedReasoning === 'on' && serverLlama?.ReasoningContent === true;
+  const preserveThinkingEnabled = reasoningContentEnabled && serverLlama?.PreserveThinking === true;
   const structuredOutputResponseFormat = getStructuredOutputResponseFormat(options.structuredOutput);
   const promptChars = options.messages.reduce((total, message) => {
     return total + getTextContent(message.content).length;
@@ -502,9 +510,11 @@ export async function generateLlamaCppChatResponse(options: {
     ...(resolvedTemperature === undefined ? {} : { temperature: Number(resolvedTemperature) }),
     ...(resolvedTopP === undefined ? {} : { top_p: Number(resolvedTopP) }),
     ...(resolvedMaxTokens === undefined || resolvedMaxTokens === null ? {} : { max_tokens: Number(resolvedMaxTokens) }),
-    ...(resolvedReasoning === 'auto' || resolvedReasoning === undefined ? {} : {
+    ...(resolvedReasoning === undefined ? {} : {
       chat_template_kwargs: {
         enable_thinking: resolvedReasoning === 'on',
+        ...(reasoningContentEnabled ? { reasoning_content: true } : {}),
+        ...(preserveThinkingEnabled ? { preserve_thinking: true } : {}),
       },
     }),
     ...(structuredOutputResponseFormat === null ? {} : { response_format: structuredOutputResponseFormat }),

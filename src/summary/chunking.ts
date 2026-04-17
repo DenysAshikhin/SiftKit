@@ -204,7 +204,7 @@ export function shouldRetryWithSmallerChunks(options: {
 }
 
 export function getLlamaCppPromptTokenReserve(config: SiftConfig): number {
-  const reasoning = getConfiguredLlamaSetting<'on' | 'off' | 'auto'>(config, 'Reasoning');
+  const reasoning = getConfiguredLlamaSetting<'on' | 'off'>(config, 'Reasoning');
   return reasoning === 'off'
     ? LLAMA_CPP_NON_THINKING_PROMPT_TOKEN_RESERVE
     : LLAMA_CPP_THINKING_PROMPT_TOKEN_RESERVE;

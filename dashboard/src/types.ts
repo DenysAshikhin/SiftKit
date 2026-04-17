@@ -250,8 +250,6 @@ export type DashboardPreset = {
   includeRepoFileListing: boolean;
   repoRootRequired: boolean;
   maxTurns: number | null;
-  thinkingInterval: number | null;
-  thinkingEnabled: boolean | null;
 };
 
 export type DashboardLlamaCppConfig = {
@@ -270,7 +268,9 @@ export type DashboardLlamaCppConfig = {
   NcpuMoe: number;
   FlashAttention: boolean;
   ParallelSlots: number;
-  Reasoning: 'on' | 'off' | 'auto';
+  Reasoning: 'on' | 'off';
+  ReasoningContent: boolean;
+  PreserveThinking: boolean;
 };
 
 export type DashboardConfig = {
@@ -323,7 +323,9 @@ export type DashboardConfig = {
       MinP: number;
       PresencePenalty: number;
       RepetitionPenalty: number;
-      Reasoning: 'on' | 'off' | 'auto';
+      Reasoning: 'on' | 'off';
+      ReasoningContent: boolean;
+      PreserveThinking: boolean;
       ReasoningBudget: number;
       ReasoningBudgetMessage: string;
       StartupTimeoutMs: number;
@@ -362,7 +364,9 @@ export type DashboardManagedLlamaPreset = {
   MinP: number;
   PresencePenalty: number;
   RepetitionPenalty: number;
-  Reasoning: 'on' | 'off' | 'auto';
+  Reasoning: 'on' | 'off';
+  ReasoningContent: boolean;
+  PreserveThinking: boolean;
   ReasoningBudget: number;
   ReasoningBudgetMessage: string;
   StartupTimeoutMs: number;

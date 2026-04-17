@@ -36,6 +36,12 @@ function tableHasColumn(database: RuntimeDatabase, tableName: string, columnName
 }
 
 function detectEffectiveSchemaVersion(database: RuntimeDatabase, storedVersion: number): number {
+  if (
+    tableHasColumn(database, 'app_config', 'llama_ncpu_moe')
+    && tableHasColumn(database, 'app_config', 'server_ncpu_moe')
+  ) {
+    return 11;
+  }
   if (tableHasColumn(database, 'app_config', 'server_reasoning_budget_message')) {
     return 10;
   }
@@ -563,10 +569,16 @@ function ensureSchema(database: RuntimeDatabase): void {
     currentVersion = 10;
   }
   if (currentVersion < 11) {
-    database.exec(`
-      ALTER TABLE app_config ADD COLUMN llama_ncpu_moe INTEGER;
-      ALTER TABLE app_config ADD COLUMN server_ncpu_moe INTEGER;
-    `);
+    const alterStatements: string[] = [];
+    if (!tableHasColumn(database, 'app_config', 'llama_ncpu_moe')) {
+      alterStatements.push('ALTER TABLE app_config ADD COLUMN llama_ncpu_moe INTEGER;');
+    }
+    if (!tableHasColumn(database, 'app_config', 'server_ncpu_moe')) {
+      alterStatements.push('ALTER TABLE app_config ADD COLUMN server_ncpu_moe INTEGER;');
+    }
+    if (alterStatements.length > 0) {
+      database.exec(alterStatements.join('\n'));
+    }
     setSchemaVersion(database, 11);
     currentVersion = 11;
   }

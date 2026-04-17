@@ -145,7 +145,6 @@ function DashboardApp() {
   const [answerDraft, setAnswerDraft] = useState('');
   const [planRepoRootInput, setPlanRepoRootInput] = useState('');
   const [planMaxTurnsInput, setPlanMaxTurnsInput] = useState('45');
-  const [planThinkingIntervalInput, setPlanThinkingIntervalInput] = useState('5');
   const [planToolCalls, setPlanToolCalls] = useState<ChatToolCall[]>([]);
   const [liveToolPromptTokenCount, setLiveToolPromptTokenCount] = useState<number | null>(null);
 
@@ -614,8 +613,6 @@ function DashboardApp() {
         includeRepoFileListing: true,
         repoRootRequired: false,
         maxTurns: null,
-        thinkingInterval: null,
-        thinkingEnabled: null,
       });
     });
     setSelectedSettingsPresetId(addedPresetId);
@@ -652,9 +649,6 @@ function DashboardApp() {
     }
     if (selectedChatPreset.maxTurns !== null) {
       setPlanMaxTurnsInput(String(selectedChatPreset.maxTurns));
-    }
-    if (selectedChatPreset.thinkingInterval !== null) {
-      setPlanThinkingIntervalInput(String(selectedChatPreset.thinkingInterval));
     }
   }, [selectedChatPreset?.id]);
 
@@ -720,14 +714,12 @@ function DashboardApp() {
     setLiveToolPromptTokenCount(null);
     try {
       const parsedMaxTurns = Number(planMaxTurnsInput);
-      const parsedThinkingInterval = Number(planThinkingIntervalInput);
       const response = await streamPlanMessage(
         selectedSessionId,
         {
           content: chatInput.trim(),
           repoRoot: planRepoRootInput.trim() || selectedSession?.planRepoRoot || '',
           ...(Number.isFinite(parsedMaxTurns) && parsedMaxTurns > 0 ? { maxTurns: parsedMaxTurns } : {}),
-          ...(Number.isFinite(parsedThinkingInterval) && parsedThinkingInterval > 0 ? { thinkingInterval: parsedThinkingInterval } : {}),
         },
         (thinkingText) => {
           setThinkingDraft(thinkingText);
@@ -795,14 +787,12 @@ function DashboardApp() {
     setLiveToolPromptTokenCount(null);
     try {
       const parsedMaxTurnsRS = Number(planMaxTurnsInput);
-      const parsedThinkingIntervalRS = Number(planThinkingIntervalInput);
       const response = await streamRepoSearchMessage(
         selectedSessionId,
         {
           content: chatInput.trim(),
           repoRoot: planRepoRootInput.trim() || selectedSession?.planRepoRoot || '',
           ...(Number.isFinite(parsedMaxTurnsRS) && parsedMaxTurnsRS > 0 ? { maxTurns: parsedMaxTurnsRS } : {}),
-          ...(Number.isFinite(parsedThinkingIntervalRS) && parsedThinkingIntervalRS > 0 ? { thinkingInterval: parsedThinkingIntervalRS } : {}),
         },
         (thinkingText) => {
           setThinkingDraft(thinkingText);
@@ -1462,7 +1452,6 @@ function DashboardApp() {
           showSettings={showSettings}
           planRepoRootInput={planRepoRootInput}
           planMaxTurnsInput={planMaxTurnsInput}
-          planThinkingIntervalInput={planThinkingIntervalInput}
           contextUsage={contextUsage}
           liveToolPromptTokenCount={liveToolPromptTokenCount}
           thinkingDraft={thinkingDraft}
@@ -1475,7 +1464,6 @@ function DashboardApp() {
           onToggleSettings={() => setShowSettings((prev) => !prev)}
           onChangePlanRepoRoot={setPlanRepoRootInput}
           onChangePlanMaxTurns={setPlanMaxTurnsInput}
-          onChangePlanThinkingInterval={setPlanThinkingIntervalInput}
           onChangeChatInput={setChatInput}
           onCreateSession={onCreateSession}
           onDeleteSession={onDeleteSession}

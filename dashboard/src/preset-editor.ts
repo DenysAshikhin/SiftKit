@@ -135,14 +135,10 @@ export function applyOperationModeDefaults(
   if (preset.presetKind === 'plan' || preset.presetKind === 'repo-search') {
     preset.repoRootRequired = true;
     preset.maxTurns = preset.maxTurns || 45;
-    preset.thinkingInterval = preset.thinkingInterval || 5;
-    preset.thinkingEnabled = null;
     return;
   }
   preset.repoRootRequired = false;
   preset.maxTurns = null;
-  preset.thinkingInterval = null;
-  preset.thinkingEnabled = preset.presetKind === 'chat' ? true : null;
 }
 
 export function applyPresetKindDefaults(
