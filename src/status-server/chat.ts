@@ -13,6 +13,7 @@ import {
   getLlamaBaseUrl,
   getCompatRuntimeLlamaCpp,
 } from './config-store.js';
+import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
 
 export function buildContextUsage(session: ChatSession): Dict {
   const contextWindowTokens = Math.max(1, Number(session.contextWindowTokens || 150000));
@@ -343,9 +344,12 @@ export function appendChatMessagesWithUsage(
   const now = new Date().toISOString();
   const messages = Array.isArray(session.messages) ? session.messages.slice() : [];
   const promptTokens = getChatUsageValue(usage.promptTokens);
+  const promptCacheTokens = getChatUsageValue(usage.promptCacheTokens);
+  const promptEvalTokens = getChatUsageValue(usage.promptEvalTokens);
   const completionTokens = getChatUsageValue(usage.completionTokens);
   const usageThinkingTokens = getChatUsageValue(usage.thinkingTokens);
-  const userTokens = promptTokens ?? estimateTokenCount(content);
+  const processedPromptTokens = getProcessedPromptTokens(promptTokens, promptCacheTokens, promptEvalTokens);
+  const userTokens = processedPromptTokens ?? estimateTokenCount(content);
   const outputTokens = completionTokens ?? estimateTokenCount(assistantContent);
   const thinkingTokens = usageThinkingTokens ?? 0;
   const toolContextContents = Array.isArray(options.toolContextContents)
@@ -361,7 +365,7 @@ export function appendChatMessagesWithUsage(
     inputTokensEstimate: userTokens,
     outputTokensEstimate: 0,
     thinkingTokens: 0,
-    inputTokensEstimated: promptTokens === null,
+    inputTokensEstimated: processedPromptTokens === null,
     outputTokensEstimated: false,
     thinkingTokensEstimated: false,
     createdAtUtc: now,
@@ -379,8 +383,8 @@ export function appendChatMessagesWithUsage(
     inputTokensEstimated: false,
     outputTokensEstimated: completionTokens === null,
     thinkingTokensEstimated: usageThinkingTokens === null,
-    promptCacheTokens: getChatUsageValue(usage.promptCacheTokens),
-    promptEvalTokens: getChatUsageValue(usage.promptEvalTokens),
+    promptCacheTokens,
+    promptEvalTokens,
     associatedToolTokens,
     thinkingContent: String(thinkingContent || ''),
     createdAtUtc: now,

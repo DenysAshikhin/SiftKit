@@ -1157,7 +1157,7 @@ test('real status server prints one idle metrics line only after the full idle d
       assert.match(block[0], /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} requests=1$/u);
       assert.equal(block[1], '  input:  chars=200 tokens=100');
       assert.equal(block[2], '  output: chars=80 tokens=25 avg_tokens_per_request=25.00');
-      assert.equal(block[3], '  saved:  tokens=75 pct=75.00% ratio=4.00x');
+      assert.equal(block[3], '  ratio:  input/output=4.00x');
       assert.equal(block[4], '  budget: chars_per_token=2.000 chunk_threshold_chars=320,000');
       assert.equal(block[5], '  timing: total=0s avg_request=0.80s gen_tokens_per_s=31.25');
       await waitForAsyncExpectation(async () => {
@@ -1409,7 +1409,7 @@ test('real status server restarts the idle countdown when a new request begins b
       const block = getIdleSummaryBlock(server.stdoutLines, /requests=2/u);
       assert.equal(block[1], '  input:  chars=150 tokens=10');
       assert.equal(block[2], '  output: chars=40 tokens=5 avg_tokens_per_request=2.50');
-      assert.equal(block[3], '  saved:  tokens=5 pct=50.00% ratio=2.00x');
+      assert.equal(block[3], '  ratio:  input/output=2.00x');
       assert.equal(block[4], '  budget: chars_per_token=4.000 chunk_threshold_chars=200');
       assert.equal(block[5], '  timing: total=0s avg_request=0.04s gen_tokens_per_s=66.67');
       assert.equal(readIdleSummarySnapshots(idleSummaryDbPath).length, 1);
@@ -1460,7 +1460,7 @@ test('real status server does not count idle delay while an execution lease rema
       const block = getIdleSummaryBlock(server.stdoutLines, /requests=1/u);
       assert.equal(block[1], '  input:  chars=10 tokens=0');
       assert.equal(block[2], '  output: chars=0 tokens=0 avg_tokens_per_request=0.00');
-      assert.equal(block[3], '  saved:  tokens=0 pct=n/a ratio=n/a');
+      assert.equal(block[3], '  ratio:  input/output=n/a');
       assert.equal(block[4], '  timing: total=0s avg_request=0.01s gen_tokens_per_s=n/a');
       assert.equal(readIdleSummarySnapshots(idleSummaryDbPath).length, 1);
     } finally {

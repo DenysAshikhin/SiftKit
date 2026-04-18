@@ -2,29 +2,139 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildToolMetricRows,
   buildTaskRunsSeries,
   describeToolType,
   getGraphHoverIndex,
   sortToolMetricsByCalls,
   type ToolMetricRow,
 } from '../dashboard/src/metrics-view.ts';
-import type { TaskMetricDay } from '../dashboard/src/types.ts';
+import type { TaskMetricDay, ToolStatsByTask } from '../dashboard/src/types.ts';
 
-test('sortToolMetricsByCalls sorts by calls descending', () => {
+test('buildToolMetricRows merges task kinds into one row per tool', () => {
+  const stats: ToolStatsByTask = {
+    summary: {
+      'get-content': {
+        calls: 2,
+        outputCharsTotal: 20,
+        outputTokensTotal: 10,
+        outputTokensEstimatedCount: 4,
+        lineReadCalls: 1,
+        lineReadLinesTotal: 5,
+        lineReadTokensTotal: 10,
+        finishRejections: 1,
+        semanticRepeatRejects: 0,
+        stagnationWarnings: 0,
+        forcedFinishFromStagnation: 0,
+        promptInsertedTokens: 3,
+        rawToolResultTokens: 6,
+        newEvidenceCalls: 1,
+        noNewEvidenceCalls: 0,
+        lineReadRecommendedLines: 25,
+        lineReadAllowanceTokens: 400,
+      },
+    },
+    plan: {
+      'get-content': {
+        calls: 3,
+        outputCharsTotal: 30,
+        outputTokensTotal: 12,
+        outputTokensEstimatedCount: 6,
+        lineReadCalls: 2,
+        lineReadLinesTotal: 7,
+        lineReadTokensTotal: 14,
+        finishRejections: 0,
+        semanticRepeatRejects: 1,
+        stagnationWarnings: 2,
+        forcedFinishFromStagnation: 3,
+        promptInsertedTokens: 4,
+        rawToolResultTokens: 8,
+        newEvidenceCalls: 0,
+        noNewEvidenceCalls: 2,
+        lineReadRecommendedLines: 40,
+        lineReadAllowanceTokens: 600,
+      },
+      rg: {
+        calls: 5,
+        outputCharsTotal: 50,
+        outputTokensTotal: 20,
+        outputTokensEstimatedCount: 10,
+        lineReadCalls: 0,
+        lineReadLinesTotal: 0,
+        lineReadTokensTotal: 0,
+        finishRejections: 0,
+        semanticRepeatRejects: 0,
+        stagnationWarnings: 0,
+        forcedFinishFromStagnation: 0,
+        promptInsertedTokens: 0,
+        rawToolResultTokens: 0,
+        newEvidenceCalls: 3,
+        noNewEvidenceCalls: 1,
+      },
+    },
+    'repo-search': {},
+    chat: {},
+  };
+
+  assert.deepEqual(buildToolMetricRows(stats), [
+    {
+      toolType: 'get-content',
+      calls: 5,
+      outputCharsTotal: 50,
+      outputTokensTotal: 22,
+      outputTokensEstimatedCount: 10,
+      lineReadCalls: 3,
+      lineReadLinesTotal: 12,
+      lineReadTokensTotal: 24,
+      finishRejections: 1,
+      semanticRepeatRejects: 1,
+      stagnationWarnings: 2,
+      forcedFinishFromStagnation: 3,
+      promptInsertedTokens: 7,
+      rawToolResultTokens: 14,
+      newEvidenceCalls: 1,
+      noNewEvidenceCalls: 2,
+      lineReadRecommendedLines: 40,
+      lineReadAllowanceTokens: 600,
+    },
+    {
+      toolType: 'rg',
+      calls: 5,
+      outputCharsTotal: 50,
+      outputTokensTotal: 20,
+      outputTokensEstimatedCount: 10,
+      lineReadCalls: 0,
+      lineReadLinesTotal: 0,
+      lineReadTokensTotal: 0,
+      finishRejections: 0,
+      semanticRepeatRejects: 0,
+      stagnationWarnings: 0,
+      forcedFinishFromStagnation: 0,
+      promptInsertedTokens: 0,
+      rawToolResultTokens: 0,
+      newEvidenceCalls: 3,
+      noNewEvidenceCalls: 1,
+      lineReadRecommendedLines: null,
+      lineReadAllowanceTokens: null,
+    },
+  ]);
+});
+
+test('sortToolMetricsByCalls sorts by calls descending then tool name', () => {
   const rows: ToolMetricRow[] = [
-    { taskKind: 'plan', toolType: 'get-content', calls: 38 },
-    { taskKind: 'repo-search', toolType: 'get-content', calls: 2196 },
-    { taskKind: 'summary', toolType: 'get-childitem', calls: 1 },
-    { taskKind: 'repo-search', toolType: 'get-childitem', calls: 50 },
+    { toolType: 'get-content', calls: 38 },
+    { toolType: 'rg', calls: 2196 },
+    { toolType: 'get-childitem', calls: 38 },
+    { toolType: 'find_text', calls: 1 },
   ];
 
   assert.deepEqual(
-    sortToolMetricsByCalls(rows).map((row) => `${row.taskKind}:${row.toolType}:${row.calls}`),
+    sortToolMetricsByCalls(rows).map((row) => `${row.toolType}:${row.calls}`),
     [
-      'repo-search:get-content:2196',
-      'repo-search:get-childitem:50',
-      'plan:get-content:38',
-      'summary:get-childitem:1',
+      'rg:2196',
+      'get-childitem:38',
+      'get-content:38',
+      'find_text:1',
     ],
   );
 });

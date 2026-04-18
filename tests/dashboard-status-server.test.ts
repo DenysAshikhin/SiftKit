@@ -238,6 +238,10 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     assert.equal(idleSummaryResponse.statusCode, 200);
     assert.equal(Array.isArray(idleSummaryResponse.body.snapshots), true);
     assert.equal(Object.prototype.hasOwnProperty.call(idleSummaryResponse.body, 'latest'), true);
+    const idleSummarySample = idleSummaryResponse.body.latest || idleSummaryResponse.body.snapshots[0] || {};
+    if (Object.keys(idleSummarySample).length > 0) {
+      assert.equal(Object.prototype.hasOwnProperty.call(idleSummarySample, 'inputOutputRatio'), true);
+    }
 
     const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
       method: 'POST',

@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
 import type { Dict } from '../lib/types.js';
+import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
 import { getRuntimeRoot } from './paths.js';
 import { getRuntimeDatabasePath } from '../config/paths.js';
 import { formatInteger, formatElapsed } from '../lib/text-format.js';
@@ -392,6 +393,14 @@ function toNonNegativeInteger(value: unknown): number | null {
   return Number.isFinite(next) ? next : null;
 }
 
+function getProcessedInputTokensValue(
+  inputTokens: unknown,
+  promptCacheTokens: unknown,
+  promptEvalTokens: unknown,
+): number | null {
+  return toNonNegativeInteger(getProcessedPromptTokens(inputTokens, promptCacheTokens, promptEvalTokens));
+}
+
 function parseJsonObjectText(text: string | null): Dict | null {
   if (typeof text !== 'string' || !text.trim()) {
     return null;
@@ -514,6 +523,21 @@ export function ensureRunLogsTable(database: DatabaseInstance): void {
     CREATE INDEX IF NOT EXISTS idx_run_logs_started ON run_logs(started_at_utc DESC);
     CREATE INDEX IF NOT EXISTS idx_run_logs_group_started ON run_logs(run_group, started_at_utc DESC);
     CREATE INDEX IF NOT EXISTS idx_run_logs_kind_started ON run_logs(run_kind, started_at_utc DESC);
+  `);
+  database.exec(`
+    UPDATE run_logs
+    SET
+      prompt_eval_tokens = CASE
+        WHEN prompt_eval_tokens IS NOT NULL AND prompt_eval_tokens > 0 THEN prompt_eval_tokens
+        WHEN input_tokens IS NULL THEN prompt_eval_tokens
+        ELSE MAX(input_tokens - COALESCE(prompt_cache_tokens, 0), 0)
+      END,
+      input_tokens = CASE
+        WHEN prompt_eval_tokens IS NOT NULL AND prompt_eval_tokens > 0 THEN prompt_eval_tokens
+        WHEN input_tokens IS NULL THEN NULL
+        ELSE MAX(input_tokens - COALESCE(prompt_cache_tokens, 0), 0)
+      END
+    WHERE input_tokens IS NOT NULL
   `);
 }
 
@@ -647,7 +671,11 @@ export function upsertRunArtifactPayload(options: {
     model: typeof options.artifactPayload?.model === 'string' ? options.artifactPayload.model : null,
     backend: typeof options.artifactPayload?.backend === 'string' ? options.artifactPayload.backend : null,
     repoRoot: typeof options.artifactPayload?.repoRoot === 'string' ? options.artifactPayload.repoRoot : null,
-    inputTokens: toNonNegativeInteger(options.artifactPayload?.inputTokens),
+    inputTokens: getProcessedInputTokensValue(
+      options.artifactPayload?.inputTokens,
+      options.artifactPayload?.promptCacheTokens,
+      options.artifactPayload?.promptEvalTokens,
+    ),
     outputTokens: toNonNegativeInteger(options.artifactPayload?.outputTokens),
     thinkingTokens: toNonNegativeInteger(options.artifactPayload?.thinkingTokens),
     toolTokens: toNonNegativeInteger(options.artifactPayload?.toolTokens),
@@ -702,7 +730,7 @@ export function upsertRepoSearchRun(options: {
     model: options.model,
     backend: 'llama.cpp',
     repoRoot: options.repoRoot,
-    inputTokens: toNonNegativeInteger(options.promptTokens),
+    inputTokens: getProcessedInputTokensValue(options.promptTokens, options.promptCacheTokens, options.promptEvalTokens),
     outputTokens: toNonNegativeInteger(options.outputTokens),
     thinkingTokens: toNonNegativeInteger(options.thinkingTokens),
     toolTokens: toNonNegativeInteger(options.toolTokens),
@@ -1116,7 +1144,11 @@ function buildRunLogRow(options: {
       ? requestPayload.backend
       : (runKind === 'repo_search' || runKind === 'plan' ? 'llama.cpp' : null),
     repoRoot: typeof repoSearchPayload?.repoRoot === 'string' ? repoSearchPayload.repoRoot : null,
-    inputTokens: toNonNegativeInteger(requestPayload?.inputTokens ?? failedRequestPayload?.inputTokens ?? repoTotals?.promptTokens ?? null),
+    inputTokens: getProcessedInputTokensValue(
+      requestPayload?.inputTokens ?? failedRequestPayload?.inputTokens ?? repoTotals?.promptTokens ?? null,
+      requestPayload?.promptCacheTokens ?? failedRequestPayload?.promptCacheTokens ?? repoTotals?.promptCacheTokens ?? null,
+      requestPayload?.promptEvalTokens ?? failedRequestPayload?.promptEvalTokens ?? repoTotals?.promptEvalTokens ?? null,
+    ),
     outputTokens: toNonNegativeInteger(requestPayload?.outputTokens ?? failedRequestPayload?.outputTokens ?? abandonedPayload?.outputTokensTotal ?? repoTotals?.outputTokens ?? null),
     thinkingTokens: toNonNegativeInteger(requestPayload?.thinkingTokens ?? failedRequestPayload?.thinkingTokens ?? repoTotals?.thinkingTokens ?? null),
     toolTokens: toNonNegativeInteger(repoTotals?.toolTokens ?? null),
@@ -1334,6 +1366,13 @@ export function normalizeIdleSummarySnapshotRow(row: Dict | null): IdleSummarySn
     outputCharactersTotal: Number(row.output_characters_total) || 0,
     inputTokensTotal: Number(row.input_tokens_total) || 0,
     outputTokensTotal: Number(row.output_tokens_total) || 0,
+    inputOutputRatio: Number.isFinite(row.compression_ratio)
+      ? Number(row.compression_ratio)
+      : (
+        Number(row.output_tokens_total) > 0
+          ? (Number(row.input_tokens_total) || 0) / Number(row.output_tokens_total)
+          : Number.NaN
+      ),
     thinkingTokensTotal: Number(row.thinking_tokens_total) || 0,
     toolTokensTotal: Number(row.tool_tokens_total) || 0,
     promptCacheTokensTotal: Number(row.prompt_cache_tokens_total) || 0,

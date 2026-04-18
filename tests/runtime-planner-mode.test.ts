@@ -67,6 +67,28 @@ const {
   runPowerShellScript,
 } = require('./_runtime-helpers.js');
 
+function buildOversizedAmbiguousCollectionInput(minCharacters) {
+  const document = {
+    usersA: [],
+    usersB: [],
+  };
+
+  for (let index = 0; JSON.stringify(document).length < minCharacters; index += 1) {
+    document.usersA.push({
+      id: index,
+      name: `Alpha ${index}`,
+      note: `candidate-a-${index}`,
+    });
+    document.usersB.push({
+      id: index,
+      name: `Beta ${index}`,
+      note: `candidate-b-${index}`,
+    });
+  }
+
+  return JSON.stringify(document);
+}
+
 test('planner json_filter accepts combined gte and lte bounds in one filter value', async () => {
   await withTempEnv(async () => {
     const plannerLogsPath = getPlannerLogsPath();
@@ -327,6 +349,69 @@ test('planner json_filter supports scalar timestamp ranges on object-root array 
     assert.match(jsonFilterEvent.output.text, /2026-03-30T18:45:22Z/u);
     assert.doesNotMatch(jsonFilterEvent.output.text, /2026-03-30T18:39:59Z/u);
     assert.doesNotMatch(jsonFilterEvent.output.text, /2026-03-30T18:50:01Z/u);
+  });
+});
+
+test('planner returns recoverable json_filter collectionPath guidance without counting an invalid response', async () => {
+  await withTempEnv(async () => {
+    const plannerLogsPath = getPlannerLogsPath();
+    fs.mkdirSync(plannerLogsPath, { recursive: true });
+    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedAmbiguousCollectionInput(threshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Find matching id/name rows.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'recovered after collectionPath guidance');
+      assert.equal(server.state.chatRequests.length, 2);
+      const secondPrompt = getChatRequestText(server.state.chatRequests[1]);
+      assert.doesNotMatch(secondPrompt, /Previous response was invalid:/u);
+      assert.match(secondPrompt, /Candidate collectionPath values: usersA, usersB/u);
+    }, {
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'json_filter',
+            args: {
+              filters: [{ path: 'id', op: 'exists' }],
+              select: ['id', 'name'],
+              limit: 5,
+            },
+          });
+        }
+
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'recovered after collectionPath guidance',
+        });
+      },
+    });
+
+    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
+    const added = after.filter((entry) => !before.has(entry));
+    assert.equal(added.length, 1);
+
+    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    assert.equal(
+      debugDump.events.filter((event) => event.kind === 'planner_invalid_response').length,
+      0,
+    );
+    const jsonFilterEvent = debugDump.events.find((event) => event.kind === 'planner_tool' && event.toolName === 'json_filter');
+    assert.match(String(jsonFilterEvent?.output?.error || ''), /Candidate collectionPath values: usersA, usersB/u);
   });
 });
 

@@ -43,15 +43,25 @@ function getObservedInputCharactersPerContextToken(
   snapshot: StatusSnapshotResponse | null | undefined
 ): number | null {
   const inputCharactersTotal = Number(snapshot?.metrics?.inputCharactersTotal);
-  const inputTokensTotal = Number(snapshot?.metrics?.inputTokensTotal);
+  const totalPromptTokens = (() => {
+    const promptCacheTokensTotal = Number(snapshot?.metrics?.promptCacheTokensTotal);
+    const promptEvalTokensTotal = Number(snapshot?.metrics?.promptEvalTokensTotal);
+    if (
+      Number.isFinite(promptCacheTokensTotal) && promptCacheTokensTotal >= 0
+      && Number.isFinite(promptEvalTokensTotal) && promptEvalTokensTotal >= 0
+    ) {
+      return promptCacheTokensTotal + promptEvalTokensTotal;
+    }
+    return Number(snapshot?.metrics?.inputTokensTotal);
+  })();
   if (!Number.isFinite(inputCharactersTotal) || inputCharactersTotal <= 0) {
     return null;
   }
-  if (!Number.isFinite(inputTokensTotal) || inputTokensTotal <= 0) {
+  if (!Number.isFinite(totalPromptTokens) || totalPromptTokens <= 0) {
     return null;
   }
 
-  return inputCharactersTotal / inputTokensTotal;
+  return inputCharactersTotal / totalPromptTokens;
 }
 
 export async function resolveInputCharactersPerContextToken(): Promise<{ value: number; budgetSource: string }> {

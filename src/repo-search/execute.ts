@@ -11,6 +11,7 @@ import { getNumericTotal, getOutputCharacterCount } from './scorecard.js';
 import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
 import { upsertRepoSearchRun } from '../status-server/dashboard-runs.js';
+import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
 import type {
   RepoSearchExecutionRequest,
   RepoSearchExecutionResult,
@@ -108,6 +109,7 @@ export async function executeRepoSearchRequest(
     const thinkingTokens = getNumericTotal(scorecard, 'thinkingTokens');
     const promptCacheTokens = getNumericTotal(scorecard, 'promptCacheTokens');
     const promptEvalTokens = getNumericTotal(scorecard, 'promptEvalTokens');
+    const inputTokens = getProcessedPromptTokens(promptTokens, promptCacheTokens, promptEvalTokens);
     const scorecardToolStats = (
       scorecard
       && typeof scorecard === 'object'
@@ -165,7 +167,7 @@ export async function executeRepoSearchRequest(
         requestId,
         terminalState: 'completed',
         promptCharacterCount: prompt.length,
-        inputTokens: promptTokens,
+        inputTokens,
         outputCharacterCount,
         outputTokens,
         toolTokens,

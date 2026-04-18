@@ -1,9 +1,24 @@
-import type { TaskMetricDay } from './types';
+import type { TaskMetricDay, ToolStatsByTask } from './types';
 
 export type ToolMetricRow = {
-  taskKind: string;
   toolType: string;
   calls: number;
+  outputCharsTotal: number;
+  outputTokensTotal: number;
+  outputTokensEstimatedCount: number;
+  lineReadCalls: number;
+  lineReadLinesTotal: number;
+  lineReadTokensTotal: number;
+  finishRejections: number;
+  semanticRepeatRejects: number;
+  stagnationWarnings: number;
+  forcedFinishFromStagnation: number;
+  promptInsertedTokens: number;
+  rawToolResultTokens: number;
+  newEvidenceCalls: number;
+  noNewEvidenceCalls: number;
+  lineReadRecommendedLines: number | null;
+  lineReadAllowanceTokens: number | null;
 };
 
 export type GraphPoint = {
@@ -17,8 +32,6 @@ export type TaskRunsSeries = {
   color: string;
   points: GraphPoint[];
 };
-
-const TASK_KIND_ORDER = ['summary', 'repo-search', 'plan', 'chat'] as const;
 
 const TASK_KIND_COLORS: Record<string, string> = {
   summary: '#c08947',
@@ -41,9 +54,8 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   'repo-search': 'Runs repository-aware semantic and keyword code discovery.',
 };
 
-function taskKindSortIndex(taskKind: string): number {
-  const index = TASK_KIND_ORDER.indexOf(taskKind as (typeof TASK_KIND_ORDER)[number]);
-  return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+function toNumber(value: unknown): number {
+  return Number(value || 0);
 }
 
 export function sortToolMetricsByCalls<TRow extends ToolMetricRow>(rows: TRow[]): TRow[] {
@@ -51,17 +63,69 @@ export function sortToolMetricsByCalls<TRow extends ToolMetricRow>(rows: TRow[])
     if (right.calls !== left.calls) {
       return right.calls - left.calls;
     }
-    const leftIndex = taskKindSortIndex(left.taskKind);
-    const rightIndex = taskKindSortIndex(right.taskKind);
-    if (leftIndex !== rightIndex) {
-      return leftIndex - rightIndex;
-    }
-    const taskCompare = left.taskKind.localeCompare(right.taskKind);
-    if (taskCompare !== 0) {
-      return taskCompare;
-    }
     return left.toolType.localeCompare(right.toolType);
   });
+}
+
+export function buildToolMetricRows(toolStats: ToolStatsByTask | null | undefined): ToolMetricRow[] {
+  if (!toolStats) {
+    return [];
+  }
+  const byToolType = new Map<string, ToolMetricRow>();
+  for (const byType of Object.values(toolStats)) {
+    for (const [toolType, stats] of Object.entries(byType || {})) {
+      const current = byToolType.get(toolType);
+      if (!current) {
+        byToolType.set(toolType, {
+          toolType,
+          calls: toNumber(stats.calls),
+          outputCharsTotal: toNumber(stats.outputCharsTotal),
+          outputTokensTotal: toNumber(stats.outputTokensTotal),
+          outputTokensEstimatedCount: toNumber(stats.outputTokensEstimatedCount),
+          lineReadCalls: toNumber(stats.lineReadCalls),
+          lineReadLinesTotal: toNumber(stats.lineReadLinesTotal),
+          lineReadTokensTotal: toNumber(stats.lineReadTokensTotal),
+          finishRejections: toNumber(stats.finishRejections),
+          semanticRepeatRejects: toNumber(stats.semanticRepeatRejects),
+          stagnationWarnings: toNumber(stats.stagnationWarnings),
+          forcedFinishFromStagnation: toNumber(stats.forcedFinishFromStagnation),
+          promptInsertedTokens: toNumber(stats.promptInsertedTokens),
+          rawToolResultTokens: toNumber(stats.rawToolResultTokens),
+          newEvidenceCalls: toNumber(stats.newEvidenceCalls),
+          noNewEvidenceCalls: toNumber(stats.noNewEvidenceCalls),
+          lineReadRecommendedLines: Number.isFinite(Number(stats.lineReadRecommendedLines))
+            ? Number(stats.lineReadRecommendedLines)
+            : null,
+          lineReadAllowanceTokens: Number.isFinite(Number(stats.lineReadAllowanceTokens))
+            ? Number(stats.lineReadAllowanceTokens)
+            : null,
+        });
+        continue;
+      }
+      current.calls += toNumber(stats.calls);
+      current.outputCharsTotal += toNumber(stats.outputCharsTotal);
+      current.outputTokensTotal += toNumber(stats.outputTokensTotal);
+      current.outputTokensEstimatedCount += toNumber(stats.outputTokensEstimatedCount);
+      current.lineReadCalls += toNumber(stats.lineReadCalls);
+      current.lineReadLinesTotal += toNumber(stats.lineReadLinesTotal);
+      current.lineReadTokensTotal += toNumber(stats.lineReadTokensTotal);
+      current.finishRejections += toNumber(stats.finishRejections);
+      current.semanticRepeatRejects += toNumber(stats.semanticRepeatRejects);
+      current.stagnationWarnings += toNumber(stats.stagnationWarnings);
+      current.forcedFinishFromStagnation += toNumber(stats.forcedFinishFromStagnation);
+      current.promptInsertedTokens += toNumber(stats.promptInsertedTokens);
+      current.rawToolResultTokens += toNumber(stats.rawToolResultTokens);
+      current.newEvidenceCalls += toNumber(stats.newEvidenceCalls);
+      current.noNewEvidenceCalls += toNumber(stats.noNewEvidenceCalls);
+      if (Number.isFinite(Number(stats.lineReadRecommendedLines))) {
+        current.lineReadRecommendedLines = Math.max(current.lineReadRecommendedLines ?? 0, Number(stats.lineReadRecommendedLines));
+      }
+      if (Number.isFinite(Number(stats.lineReadAllowanceTokens))) {
+        current.lineReadAllowanceTokens = Math.max(current.lineReadAllowanceTokens ?? 0, Number(stats.lineReadAllowanceTokens));
+      }
+    }
+  }
+  return sortToolMetricsByCalls(Array.from(byToolType.values()));
 }
 
 export function describeToolType(toolType: string): string {
@@ -102,10 +166,10 @@ export function buildTaskRunsSeries(taskMetrics: TaskMetricDay[]): TaskRunsSerie
   }
 
   const taskKinds = Array.from(runsByTaskByDate.keys()).sort((left, right) => {
-    const leftIndex = taskKindSortIndex(left);
-    const rightIndex = taskKindSortIndex(right);
+    const leftIndex = ['summary', 'repo-search', 'plan', 'chat'].indexOf(left);
+    const rightIndex = ['summary', 'repo-search', 'plan', 'chat'].indexOf(right);
     if (leftIndex !== rightIndex) {
-      return leftIndex - rightIndex;
+      return (leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex) - (rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex);
     }
     return left.localeCompare(right);
   });

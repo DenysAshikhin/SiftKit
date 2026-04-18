@@ -3,36 +3,11 @@ import { InteractiveGraph, type InteractiveSeries } from '../components/Interact
 import {
   formatDate,
   formatNumber,
-  formatPercent,
   formatSecondsFromMs,
   formatShortTime,
-  formatTaskKindClass,
-  formatTaskKindLabel,
 } from '../lib/format';
-import { describeToolType } from '../metrics-view';
+import { describeToolType, type ToolMetricRow } from '../metrics-view';
 import type { IdleSummarySnapshot, MetricDay } from '../types';
-
-type ToolMetricRow = {
-  taskKind: string;
-  toolType: string;
-  calls: number;
-  outputCharsTotal: number;
-  outputTokensTotal: number;
-  outputTokensEstimatedCount: number;
-  lineReadCalls: number;
-  lineReadLinesTotal: number;
-  lineReadTokensTotal: number;
-  finishRejections: number;
-  semanticRepeatRejects: number;
-  stagnationWarnings: number;
-  forcedFinishFromStagnation: number;
-  promptInsertedTokens: number;
-  rawToolResultTokens: number;
-  newEvidenceCalls: number;
-  noNewEvidenceCalls: number;
-  lineReadRecommendedLines: number | null;
-  lineReadAllowanceTokens: number | null;
-};
 
 type MetricsTabProps = {
   metrics: MetricDay[];
@@ -88,7 +63,7 @@ export function MetricsTab({
           series={[
             {
               key: 'input-tokens',
-              title: 'Input',
+              title: 'Processed Input',
               unit: 'tok',
               color: '#53b6ff',
               points: metrics.map((day) => ({ label: day.date, value: day.inputTokens })),
@@ -170,7 +145,7 @@ export function MetricsTab({
               },
               {
                 key: 'input',
-                title: 'Input Tokens',
+                title: 'Processed Input Tokens',
                 unit: 'tok',
                 color: '#53b6ff',
                 points: recentIdlePoints.map((snapshot) => ({ label: formatShortTime(snapshot.emittedAtUtc), value: snapshot.inputTokensTotal })),
@@ -212,15 +187,15 @@ export function MetricsTab({
                   <span>Gen Tokens/s: {formatNumber(latestIdleSnapshot.avgTokensPerSecond)}</span>
                 </article>
                 <article className="idle-card token-totals">
-                  <span>Input / Output / Thinking</span>
+                  <span>Processed Input / Output / Thinking</span>
                   <strong>
                     {formatNumber(latestIdleSnapshot.inputTokensTotal)} / {formatNumber(latestIdleSnapshot.outputTokensTotal)} / {formatNumber(latestIdleSnapshot.thinkingTokensTotal)}
                   </strong>
                 </article>
                 <article className="idle-card compression">
-                  <span>Compression</span>
-                  <strong>{formatPercent(latestIdleSnapshot.savedPercent)}</strong>
-                  <span>Ratio: {latestIdleSnapshot.compressionRatio ? `${latestIdleSnapshot.compressionRatio.toFixed(2)}x` : '-'}</span>
+                  <span>Input / Output Ratio</span>
+                  <strong>{Number.isFinite(latestIdleSnapshot.inputOutputRatio) ? `${Number(latestIdleSnapshot.inputOutputRatio).toFixed(2)}x` : '-'}</strong>
+                  <span>Processed input tokens per output token</span>
                 </article>
               </div>
             ) : (
@@ -241,11 +216,10 @@ export function MetricsTab({
                   const rawAvgTokens = entry.calls > 0 ? Math.round(entry.rawToolResultTokens / entry.calls) : 0;
                   return (
                     <article
-                      key={`${entry.taskKind}-${entry.toolType}`}
-                      className={`idle-card idle-metric-card metric-tool task-kind-${formatTaskKindClass(entry.taskKind)}`}
+                      key={entry.toolType}
+                      className="idle-card idle-metric-card metric-tool"
                       title={describeToolType(entry.toolType)}
                     >
-                      <span>{formatTaskKindLabel(entry.taskKind)}</span>
                       <strong>{entry.toolType}</strong>
                       <span>Calls: {formatNumber(entry.calls)}</span>
                       <span>Avg chars: {formatNumber(avgChars)}</span>

@@ -14,6 +14,7 @@ const {
   buildPlannerToolDefinitions,
 } = require('../dist/summary.js');
 const { generateLlamaCppResponse } = require('../dist/providers/llama-cpp.js');
+const { executePlannerTool } = require('../dist/summary/planner/tools.js');
 
 const {
   getChatRequestText,
@@ -21,6 +22,56 @@ const {
   withTempEnv,
   withStubServer,
 } = require('./_runtime-helpers.js');
+
+test('json_filter auto-selects sole top-level array when collectionPath is omitted', () => {
+  const inputText = JSON.stringify({
+    count: 2,
+    rows: [
+      { request_id: 'req-1', failed_request_json: '{"error":"first"}' },
+      { request_id: 'req-2', failed_request_json: '{"error":"second"}' },
+    ],
+  });
+
+  const result = executePlannerTool(inputText, {
+    action: 'tool',
+    tool_name: 'json_filter',
+    args: {
+      filters: [{ path: 'failed_request_json', op: 'exists' }],
+      select: ['request_id', 'failed_request_json'],
+      limit: 10,
+    },
+  });
+
+  assert.equal(result.collectionPath, 'rows');
+  assert.equal(result.matchedCount, 2);
+  assert.match(result.text, /"request_id":"req-1"/u);
+});
+
+test('json_filter picks the best matching top-level array when collectionPath is omitted', () => {
+  const inputText = JSON.stringify({
+    widgetRoots: [
+      { id: 10747904, groupId: 164, childIndex: 0, text: '', isHidden: false },
+      { id: 10747905, groupId: 12, childIndex: 1, text: 'quantity-1', isHidden: false },
+    ],
+    textSearchResults: [
+      { line: 10, text: 'bank quantity button', context: 'widget text' },
+    ],
+  });
+
+  const result = executePlannerTool(inputText, {
+    action: 'tool',
+    tool_name: 'json_filter',
+    args: {
+      filters: [{ path: 'groupId', op: 'eq', value: 12 }],
+      select: ['id', 'groupId', 'childIndex', 'text'],
+      limit: 10,
+    },
+  });
+
+  assert.equal(result.collectionPath, 'widgetRoots');
+  assert.equal(result.matchedCount, 1);
+  assert.match(result.text, /"groupId":12/u);
+});
 
 test('llama.cpp provider reconstructs planner tool actions from empty-content tool_calls responses', async () => {
   await withTempEnv(async () => {

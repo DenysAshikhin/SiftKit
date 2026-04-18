@@ -54,7 +54,7 @@ import { type SettingsSectionId } from './settings-sections';
 import { buildManagedLlamaRestartFailureModal } from './managed-llama-restart';
 import { syncDerivedSettingsFields } from './settings-runtime';
 import { SettingsMockupPage } from './settings-mockup';
-import { buildTaskRunsSeries, sortToolMetricsByCalls } from './metrics-view';
+import { buildTaskRunsSeries, buildToolMetricRows } from './metrics-view';
 import type { InteractiveSeries } from './components/InteractiveGraph';
 import { buildRepoSearchChatSteps } from './lib/chat-steps';
 import {
@@ -163,36 +163,7 @@ function DashboardApp() {
   const recentIdlePoints = idleSummarySnapshots
     .slice(0, 20)
     .reverse();
-  const toolMetricRows = toolMetrics
-    ? Object.entries(toolMetrics).flatMap(([taskKind, byType]) => (
-      Object.entries(byType || {}).map(([toolType, stats]) => ({
-        taskKind,
-        toolType,
-        calls: Number(stats.calls || 0),
-        outputCharsTotal: Number(stats.outputCharsTotal || 0),
-        outputTokensTotal: Number(stats.outputTokensTotal || 0),
-        outputTokensEstimatedCount: Number(stats.outputTokensEstimatedCount || 0),
-        lineReadCalls: Number(stats.lineReadCalls || 0),
-        lineReadLinesTotal: Number(stats.lineReadLinesTotal || 0),
-        lineReadTokensTotal: Number(stats.lineReadTokensTotal || 0),
-        finishRejections: Number(stats.finishRejections || 0),
-        semanticRepeatRejects: Number(stats.semanticRepeatRejects || 0),
-        stagnationWarnings: Number(stats.stagnationWarnings || 0),
-        forcedFinishFromStagnation: Number(stats.forcedFinishFromStagnation || 0),
-        promptInsertedTokens: Number(stats.promptInsertedTokens || 0),
-        rawToolResultTokens: Number(stats.rawToolResultTokens || 0),
-        newEvidenceCalls: Number(stats.newEvidenceCalls || 0),
-        noNewEvidenceCalls: Number(stats.noNewEvidenceCalls || 0),
-        lineReadRecommendedLines: Number.isFinite(Number(stats.lineReadRecommendedLines))
-          ? Number(stats.lineReadRecommendedLines)
-          : null,
-        lineReadAllowanceTokens: Number.isFinite(Number(stats.lineReadAllowanceTokens))
-          ? Number(stats.lineReadAllowanceTokens)
-          : null,
-      }))
-    ))
-    : [];
-  const sortedToolMetricRows = sortToolMetricsByCalls(toolMetricRows);
+  const sortedToolMetricRows = buildToolMetricRows(toolMetrics);
   const taskRunsGraphSeries: InteractiveSeries[] = buildTaskRunsSeries(taskMetrics).map((entry) => ({
     key: entry.key,
     title: entry.title,

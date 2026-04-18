@@ -7,6 +7,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import type { Dict } from '../../lib/types.js';
+import { getProcessedPromptTokens } from '../../lib/provider-helpers.js';
 import { getRuntimeRoot } from '../paths.js';
 import {
   readBody,
@@ -333,7 +334,11 @@ export async function handleChatRoute(
           running: false,
           promptChars: userContent.length,
           terminalState: 'completed',
-          inputTokens: Number.isFinite(Number(usage.promptTokens)) ? Number(usage.promptTokens) : null,
+          inputTokens: getProcessedPromptTokens(
+            usage.promptTokens,
+            usage.promptCacheTokens,
+            usage.promptEvalTokens,
+          ),
           outputChars: assistantContent.length,
           outputTokens: Number.isFinite(Number(usage.completionTokens)) ? Number(usage.completionTokens) : null,
           thinkingTokens: Number.isFinite(Number(usage.thinkingTokens)) ? Number(usage.thinkingTokens) : null,
@@ -443,7 +448,11 @@ export async function handleChatRoute(
           running: false,
           promptChars: userContent.length,
           terminalState: 'completed',
-          inputTokens: generated.usage.promptTokens,
+          inputTokens: getProcessedPromptTokens(
+            generated.usage.promptTokens,
+            generated.usage.promptCacheTokens,
+            generated.usage.promptEvalTokens,
+          ),
           outputChars: generated.assistantContent.length,
           outputTokens: generated.usage.completionTokens,
           thinkingTokens: generated.usage.thinkingTokens,

@@ -1,5 +1,6 @@
 import type { SiftConfig } from '../../config/index.js';
 import { notifyStatusBackend } from '../../config/index.js';
+import { getProcessedPromptTokens } from '../../lib/provider-helpers.js';
 import {
   generateLlamaCppChatResponse,
   type LlamaCppChatMessage,
@@ -75,7 +76,11 @@ export async function invokePlannerProviderAction(options: {
       reasoningOverride: options.reasoningOverride,
       overrides: options.llamaCppOverrides,
     });
-    inputTokens = response.usage?.promptTokens ?? null;
+    inputTokens = getProcessedPromptTokens(
+      response.usage?.promptTokens ?? null,
+      response.usage?.promptCacheTokens ?? null,
+      response.usage?.promptEvalTokens ?? null,
+    );
     outputCharacterCount = response.text.length;
     outputTokens = response.usage?.completionTokens ?? null;
     thinkingTokens = response.usage?.thinkingTokens ?? null;

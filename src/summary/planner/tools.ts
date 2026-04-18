@@ -132,6 +132,157 @@ export function buildPlannerToolDefinitions(allowedTools: readonly PlannerToolNa
   return definitions.filter((definition) => allowed.has(definition.function.name));
 }
 
+type JsonFilterCollectionCandidate = {
+  path: string;
+  collection: unknown[];
+  sampleKeys: string[];
+};
+
+function getJsonFilterCollectionCandidates(parsed: unknown): JsonFilterCollectionCandidate[] {
+  const parsedRecord = getRecord(parsed);
+  if (!parsedRecord) {
+    return [];
+  }
+
+  return Object.entries(parsedRecord)
+    .filter(([, value]) => Array.isArray(value))
+    .map(([path, value]) => {
+      const collection = value as unknown[];
+      const firstRecord = Array.isArray(value)
+        ? collection.map((item) => getRecord(item)).find(Boolean)
+        : null;
+      return {
+        path,
+        collection,
+        sampleKeys: firstRecord ? Object.keys(firstRecord) : [],
+      };
+    });
+}
+
+function getJsonFilterPathHints(args: Record<string, unknown>): string[] {
+  const hints = new Set<string>();
+  const addHint = (value: unknown) => {
+    if (typeof value !== 'string') {
+      return;
+    }
+    const segment = value.split('.').map((part) => part.trim()).find(Boolean);
+    if (segment) {
+      hints.add(segment);
+    }
+  };
+
+  if (Array.isArray(args.filters)) {
+    for (const item of args.filters) {
+      addHint(getRecord(item)?.path);
+    }
+  }
+  if (Array.isArray(args.select)) {
+    for (const item of args.select) {
+      addHint(item);
+    }
+  }
+
+  return Array.from(hints);
+}
+
+function selectJsonFilterCollectionCandidate(
+  candidates: JsonFilterCollectionCandidate[],
+  args: Record<string, unknown>,
+): JsonFilterCollectionCandidate | null {
+  if (candidates.length === 1) {
+    return candidates[0];
+  }
+
+  const pathHints = getJsonFilterPathHints(args);
+  if (pathHints.length === 0) {
+    return null;
+  }
+
+  const ranked = candidates.map((candidate) => ({
+    candidate,
+    score: pathHints.reduce((count, hint) => (
+      candidate.sampleKeys.includes(hint) ? count + 1 : count
+    ), 0),
+  }));
+  const bestScore = Math.max(...ranked.map((entry) => entry.score));
+  if (bestScore <= 0) {
+    return null;
+  }
+
+  const bestMatches = ranked.filter((entry) => entry.score === bestScore);
+  return bestMatches.length === 1 ? bestMatches[0].candidate : null;
+}
+
+function buildJsonFilterCollectionPathGuidanceResult(options: {
+  collectionPath: string;
+  candidates: JsonFilterCollectionCandidate[];
+  error: string;
+}): Record<string, unknown> {
+  const candidatePaths = options.candidates.map((candidate) => candidate.path);
+  const guidance = candidatePaths.length > 0
+    ? `Candidate collectionPath values: ${candidatePaths.join(', ')}.`
+    : 'No top-level array collectionPath candidates were found.';
+  return {
+    tool: 'json_filter',
+    collectionPath: options.collectionPath || '$',
+    matchedCount: 0,
+    candidateCollectionPaths: candidatePaths,
+    error: `${options.error} ${guidance}`.trim(),
+    text: `${options.error} ${guidance}`.trim(),
+  };
+}
+
+function resolveJsonFilterCollection(
+  parsed: unknown,
+  args: Record<string, unknown>,
+): { collectionPath: string; collection: unknown[] } | { recoverableResult: Record<string, unknown> } {
+  const collectionPath = typeof args.collectionPath === 'string' ? args.collectionPath.trim() : '';
+  if (collectionPath) {
+    const collection = getValueByPath(parsed, collectionPath);
+    if (Array.isArray(collection)) {
+      return { collectionPath, collection };
+    }
+
+    const candidates = getJsonFilterCollectionCandidates(parsed);
+    if (candidates.length > 0) {
+      return {
+        recoverableResult: buildJsonFilterCollectionPathGuidanceResult({
+          collectionPath,
+          candidates,
+          error: `json_filter collectionPath "${collectionPath}" is not an array.`,
+        }),
+      };
+    }
+
+    throw new Error(`json_filter collectionPath "${collectionPath}" is not an array.`);
+  }
+
+  if (Array.isArray(parsed)) {
+    return { collectionPath: '$', collection: parsed };
+  }
+
+  const candidates = getJsonFilterCollectionCandidates(parsed);
+  const selectedCandidate = selectJsonFilterCollectionCandidate(candidates, args);
+  if (selectedCandidate) {
+    return {
+      collectionPath: selectedCandidate.path,
+      collection: selectedCandidate.collection,
+    };
+  }
+
+  if (candidates.length > 0) {
+    return {
+      recoverableResult: buildJsonFilterCollectionPathGuidanceResult({
+        collectionPath: '$',
+        candidates,
+        error: 'json_filter collection is not an array.',
+      }),
+    };
+  }
+
+  throw new Error('json_filter collection is not an array.');
+}
+
 function executeFindTextTool(inputText: string, args: Record<string, unknown>): Record<string, unknown> {
   const query = typeof args.query === 'string' ? args.query : '';
   const mode = args.mode === 'regex' ? 'regex' : args.mode === 'literal' ? 'literal' : null;
@@ -227,11 +378,16 @@ function executeJsonFilterTool(inputText: string, args: Record<string, unknown>)
     throw new Error('json_filter requires at least one filter.');
   }
 
-  const collectionPath = typeof args.collectionPath === 'string' ? args.collectionPath : '';
-  const collection = collectionPath ? getValueByPath(parsed, collectionPath) : parsed;
-  if (!Array.isArray(collection)) {
-    throw new Error('json_filter collection is not an array.');
+  const resolvedCollection = resolveJsonFilterCollection(parsed, args);
+  if ('recoverableResult' in resolvedCollection) {
+    return {
+      ...resolvedCollection.recoverableResult,
+      usedFallback: parsedContext.usedFallback,
+      ignoredPrefixPreview: parsedContext.usedFallback ? parsedContext.ignoredPrefixPreview : undefined,
+      parsedSectionPreview: parsedContext.usedFallback ? parsedContext.parsedSectionPreview : undefined,
+    };
   }
+  const { collectionPath, collection } = resolvedCollection;
 
   const select = Array.isArray(args.select)
     ? args.select.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)

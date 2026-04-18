@@ -47,6 +47,7 @@ const IDLE_SNAPSHOT = {
   toolTokensTotal: 1,
   promptCacheTokensTotal: 0,
   promptEvalTokensTotal: 0,
+  inputOutputRatio: 2,
   savedTokens: 3,
   savedPercent: 12,
   compressionRatio: 1.3,
@@ -268,7 +269,6 @@ test('metrics tab renders tool metrics and idle summary', () => {
       recentIdlePoints={[IDLE_SNAPSHOT]}
       latestIdleSnapshot={IDLE_SNAPSHOT}
       sortedToolMetricRows={[{
-        taskKind: 'summary',
         toolType: 'read_lines',
         calls: 2,
         outputCharsTotal: 20,
@@ -293,7 +293,10 @@ test('metrics tab renders tool metrics and idle summary', () => {
   );
 
   assert.match(markup, /Live Idle Summary/);
+  assert.match(markup, /Processed Input \/ Output \/ Thinking/);
+  assert.match(markup, /Input \/ Output Ratio/);
   assert.match(markup, /read_lines/);
+  assert.doesNotMatch(markup, /task-kind-summary/);
 });
 
 test('settings tab renders section chrome and fields', () => {

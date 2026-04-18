@@ -5,13 +5,13 @@ import {
   formatElapsed,
   formatGroupedNumber,
   formatInteger,
-  formatPercentage,
   formatRatio,
   formatSeconds,
   formatTokensPerSecond,
 } from '../lib/text-format.js';
 
 import type { Dict } from '../lib/types.js';
+import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
 import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 import {
   TASK_KINDS,
@@ -28,6 +28,7 @@ export type IdleSummarySnapshot = {
   emittedAtUtc: string;
   inputTokensTotal: number;
   outputTokensTotal: number;
+  inputOutputRatio: number;
   thinkingTokensTotal: number;
   toolTokensTotal: number;
   promptCacheTokensTotal: number;
@@ -208,6 +209,7 @@ export function parseSnapshotToolStatsJson(value: unknown): SnapshotToolStats {
 export function buildIdleSummarySnapshot(metrics: Dict, emittedAt: Date = new Date()): IdleSummarySnapshot {
   const inputTokensTotal = Number(metrics.inputTokensTotal) || 0;
   const outputTokensTotal = Number(metrics.outputTokensTotal) || 0;
+  const inputOutputRatio = outputTokensTotal > 0 ? inputTokensTotal / outputTokensTotal : Number.NaN;
   const thinkingTokensTotal = Number(metrics.thinkingTokensTotal) || 0;
   const toolTokensTotal = Number(metrics.toolTokensTotal) || 0;
   const promptCacheTokensTotal = Number(metrics.promptCacheTokensTotal) || 0;
@@ -218,7 +220,7 @@ export function buildIdleSummarySnapshot(metrics: Dict, emittedAt: Date = new Da
   const completedRequestCount = Number(metrics.completedRequestCount) || 0;
   const savedTokens = inputTokensTotal - outputTokensTotal;
   const savedPercent = inputTokensTotal > 0 ? savedTokens / inputTokensTotal : Number.NaN;
-  const compressionRatio = outputTokensTotal > 0 ? inputTokensTotal / outputTokensTotal : Number.NaN;
+  const compressionRatio = inputOutputRatio;
   const avgOutputTokensPerRequest = completedRequestCount > 0 ? outputTokensTotal / completedRequestCount : Number.NaN;
   const avgRequestMs = completedRequestCount > 0 ? requestDurationMsTotal / completedRequestCount : Number.NaN;
   const avgTokensPerSecond = requestDurationMsTotal > 0 && outputTokensTotal > 0
@@ -236,6 +238,7 @@ export function buildIdleSummarySnapshot(metrics: Dict, emittedAt: Date = new Da
     emittedAtUtc: emittedAt.toISOString(),
     inputTokensTotal,
     outputTokensTotal,
+    inputOutputRatio,
     thinkingTokensTotal,
     toolTokensTotal,
     promptCacheTokensTotal,
@@ -268,7 +271,7 @@ export function buildIdleSummarySnapshotMessage(snapshot: IdleSummarySnapshot, c
     `requests=${formatInteger(snapshot.completedRequestCount)}`,
     formatIdleSummarySection('input', `chars=${formatInteger(snapshot.inputCharactersTotal)} tokens=${formatInteger(snapshot.inputTokensTotal)}`, 36, colorOptions),
     formatIdleSummarySection('output', `chars=${formatInteger(snapshot.outputCharactersTotal)} tokens=${formatInteger(snapshot.outputTokensTotal)} avg_tokens_per_request=${formatGroupedNumber(snapshot.avgOutputTokensPerRequest, 2)}`, 32, colorOptions),
-    formatIdleSummarySection('saved', `tokens=${formatInteger(snapshot.savedTokens)} pct=${formatPercentage(snapshot.savedPercent)} ratio=${formatRatio(snapshot.compressionRatio)}`, 33, colorOptions),
+    formatIdleSummarySection('ratio', `input/output=${formatRatio(snapshot.inputOutputRatio)}`, 33, colorOptions),
   ];
   const budgetParts: string[] = [];
   if (snapshot.inputCharactersPerContextToken !== null) {
@@ -335,6 +338,67 @@ export function ensureIdleSummarySnapshotsTable(database: DatabaseInstance): voi
   }
   if (!existingColumns.includes('tool_stats_json')) {
     database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN tool_stats_json TEXT NOT NULL DEFAULT \'{}\';');
+  }
+  const rows = database.prepare(`
+    SELECT
+      id,
+      input_tokens_total,
+      output_tokens_total,
+      prompt_cache_tokens_total,
+      prompt_eval_tokens_total,
+      task_totals_json
+    FROM idle_summary_snapshots
+    ORDER BY id ASC
+  `).all() as Array<{
+    id: number;
+    input_tokens_total: number;
+    output_tokens_total: number;
+    prompt_cache_tokens_total: number;
+    prompt_eval_tokens_total: number;
+    task_totals_json: string;
+  }>;
+  const updateRow = database.prepare(`
+    UPDATE idle_summary_snapshots
+    SET
+      input_tokens_total = ?,
+      prompt_eval_tokens_total = ?,
+      task_totals_json = ?,
+      saved_tokens = ?,
+      saved_percent = ?,
+      compression_ratio = ?
+    WHERE id = ?
+  `);
+  for (const row of rows) {
+    const inputTokensTotal = Number(getProcessedPromptTokens(
+      row.input_tokens_total,
+      row.prompt_cache_tokens_total,
+      row.prompt_eval_tokens_total,
+    ) || 0);
+    const promptEvalTokensTotal = inputTokensTotal;
+    const outputTokensTotal = Number(row.output_tokens_total) || 0;
+    const savedTokens = inputTokensTotal - outputTokensTotal;
+    const savedPercent = inputTokensTotal > 0 ? savedTokens / inputTokensTotal : Number.NaN;
+    const inputOutputRatio = outputTokensTotal > 0 ? inputTokensTotal / outputTokensTotal : Number.NaN;
+    const taskTotals = normalizeTaskTotals(parseJsonRecord(row.task_totals_json));
+    for (const taskKind of TASK_KINDS) {
+      const taskTotalsRecord = taskTotals[taskKind];
+      const taskInputTokens = Number(getProcessedPromptTokens(
+        taskTotalsRecord.inputTokensTotal,
+        taskTotalsRecord.promptCacheTokensTotal,
+        taskTotalsRecord.promptEvalTokensTotal,
+      ) || 0);
+      taskTotalsRecord.inputTokensTotal = taskInputTokens;
+      taskTotalsRecord.promptEvalTokensTotal = taskInputTokens;
+    }
+    updateRow.run(
+      inputTokensTotal,
+      promptEvalTokensTotal,
+      JSON.stringify(taskTotals),
+      savedTokens,
+      normalizeSqlNumber(savedPercent),
+      normalizeSqlNumber(inputOutputRatio),
+      row.id,
+    );
   }
 }
 

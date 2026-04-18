@@ -127,6 +127,8 @@ export type NormalizationInfo = {
 export type StatusMetricsSnapshot = {
   inputCharactersTotal?: number;
   inputTokensTotal?: number;
+  promptCacheTokensTotal?: number;
+  promptEvalTokensTotal?: number;
 };
 
 export type StatusSnapshotResponse = {

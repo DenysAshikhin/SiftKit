@@ -1,12 +1,14 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
+import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
 import { ensureDirectory } from '../lib/fs.js';
 import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-const CURRENT_SCHEMA_VERSION = 11;
+const CURRENT_SCHEMA_VERSION = 12;
+const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 
 let cachedDatabasePath: string | null = null;
 let cachedDatabase: RuntimeDatabase | null = null;
@@ -36,6 +38,9 @@ function tableHasColumn(database: RuntimeDatabase, tableName: string, columnName
 }
 
 function detectEffectiveSchemaVersion(database: RuntimeDatabase, storedVersion: number): number {
+  if (storedVersion >= 12) {
+    return storedVersion;
+  }
   if (
     tableHasColumn(database, 'app_config', 'llama_ncpu_moe')
     && tableHasColumn(database, 'app_config', 'server_ncpu_moe')
@@ -61,6 +66,84 @@ function detectEffectiveSchemaVersion(database: RuntimeDatabase, storedVersion: 
     return 4;
   }
   return storedVersion;
+}
+
+function getProcessedInputTokenCount(
+  inputTokens: unknown,
+  promptCacheTokens: unknown,
+  promptEvalTokens: unknown,
+): number {
+  return Number(getProcessedPromptTokens(inputTokens, promptCacheTokens, promptEvalTokens) || 0);
+}
+
+function migrateTaskTotalsJsonToProcessedInput(taskTotalsJson: unknown): string {
+  if (typeof taskTotalsJson !== 'string' || !taskTotalsJson.trim()) {
+    return '{}';
+  }
+  try {
+    const parsed = JSON.parse(taskTotalsJson) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return '{}';
+    }
+    for (const taskKind of METRICS_TASK_KINDS) {
+      const entry = parsed[taskKind];
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        continue;
+      }
+      const record = entry as Record<string, unknown>;
+      const processedInputTokens = getProcessedInputTokenCount(
+        record.inputTokensTotal,
+        record.promptCacheTokensTotal,
+        record.promptEvalTokensTotal,
+      );
+      record.inputTokensTotal = processedInputTokens;
+      record.promptEvalTokensTotal = processedInputTokens;
+    }
+    return JSON.stringify(parsed);
+  } catch {
+    return '{}';
+  }
+}
+
+function migrateRuntimeMetricsTotalsToProcessedInput(database: RuntimeDatabase): void {
+  if (!tableExists(database, 'runtime_metrics_totals')) {
+    return;
+  }
+  const row = database.prepare(`
+    SELECT
+      input_tokens_total,
+      prompt_cache_tokens_total,
+      prompt_eval_tokens_total,
+      task_totals_json
+    FROM runtime_metrics_totals
+    WHERE id = 1
+  `).get() as {
+    input_tokens_total?: number;
+    prompt_cache_tokens_total?: number;
+    prompt_eval_tokens_total?: number;
+    task_totals_json?: string;
+  } | undefined;
+  if (!row) {
+    return;
+  }
+  const inputTokensTotal = getProcessedInputTokenCount(
+    row.input_tokens_total,
+    row.prompt_cache_tokens_total,
+    row.prompt_eval_tokens_total,
+  );
+  const taskTotalsJson = migrateTaskTotalsJsonToProcessedInput(row.task_totals_json);
+  database.prepare(`
+    UPDATE runtime_metrics_totals
+    SET
+      input_tokens_total = ?,
+      prompt_eval_tokens_total = ?,
+      task_totals_json = ?
+    WHERE id = 1
+  `).run(
+    inputTokensTotal,
+    inputTokensTotal,
+    taskTotalsJson,
+  );
 }
 
 function getSchemaVersion(database: RuntimeDatabase): number {
@@ -581,6 +664,11 @@ function ensureSchema(database: RuntimeDatabase): void {
     }
     setSchemaVersion(database, 11);
     currentVersion = 11;
+  }
+  if (currentVersion < 12) {
+    migrateRuntimeMetricsTotalsToProcessedInput(database);
+    setSchemaVersion(database, 12);
+    currentVersion = 12;
   }
   ensureRuntimeArtifactsSchema(database);
   ensureManagedLlamaAndBenchmarkMatrixSchema(database);

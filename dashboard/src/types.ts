@@ -119,6 +119,7 @@ export type IdleSummarySnapshot = {
   outputCharactersTotal: number;
   inputTokensTotal: number;
   outputTokensTotal: number;
+  inputOutputRatio: number | null;
   thinkingTokensTotal: number;
   toolTokensTotal: number;
   promptCacheTokensTotal: number;

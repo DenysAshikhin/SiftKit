@@ -189,6 +189,31 @@ export type CompletionUsage = {
   thinkingTokens: number | null;
 };
 
+export function getProcessedPromptTokens(
+  inputTokens: unknown,
+  promptCacheTokens: unknown,
+  promptEvalTokens: unknown,
+): number | null {
+  const totalPromptTokens = getUsageNumber(inputTokens);
+  const cacheTokens = getUsageNumber(promptCacheTokens) ?? 0;
+  const evalTokens = getUsageNumber(promptEvalTokens);
+  if (evalTokens !== null) {
+    if (evalTokens > 0) {
+      return evalTokens;
+    }
+    if (totalPromptTokens === null) {
+      return 0;
+    }
+    if (cacheTokens <= 0) {
+      return totalPromptTokens;
+    }
+  }
+  if (totalPromptTokens !== null) {
+    return Math.max(totalPromptTokens - cacheTokens, 0);
+  }
+  return evalTokens;
+}
+
 /**
  * Extract prompt token usage from a provider response body.  Handles
  * llama.cpp `usage`, `timings`, and `__verbose.timings` fields as well as

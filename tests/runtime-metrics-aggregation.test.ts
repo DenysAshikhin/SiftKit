@@ -10,6 +10,7 @@ const Database = require('better-sqlite3');
 
 const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage, SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT } = require('../dist/config/index.js');
 const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../dist/summary.js');
+const { executeRepoSearchRequest } = require('../dist/repo-search/index.js');
 const { runCommand } = require('../dist/command.js');
 const { runBenchmarkSuite } = require('../dist/benchmark/index.js');
 const { readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs, pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt } = require('../dist/benchmark-matrix/index.js');
@@ -188,6 +189,136 @@ test('summary aggregation records thinking tokens independently from output metr
   });
 });
 
+test('summary aggregation counts only processed prompt tokens when cache metadata is present', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const baselineInputTokens = server.state.metrics.inputTokensTotal;
+      const baselineOutputTokens = server.state.metrics.outputTokensTotal;
+      const result = await summarizeRequest({
+        question: 'summarize this',
+        inputText: 'A'.repeat(5000),
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.WasSummarized, true);
+      assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 23);
+      assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 45);
+      const completionPost = server.state.statusPosts.findLast(
+        (post) => post.running === false
+          && post.taskKind === 'summary'
+          && Object.prototype.hasOwnProperty.call(post, 'inputTokens'),
+      );
+      assert.equal(completionPost.inputTokens, 23);
+      assert.equal(completionPost.promptCacheTokens, 100);
+      assert.equal(completionPost.promptEvalTokens, 23);
+    }, {
+      chatResponse(promptText) {
+        return {
+          id: 'chatcmpl-test',
+          object: 'chat.completion',
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: JSON.stringify(buildStructuredStubDecision(String(promptText))),
+            },
+          }],
+          usage: {
+            prompt_tokens: 123,
+            completion_tokens: 45,
+            prompt_tokens_details: {
+              cached_tokens: 100,
+            },
+          },
+        };
+      },
+      metrics: {
+        inputCharactersTotal: 3_461_904,
+        inputTokensTotal: 1_865_267,
+        outputCharactersTotal: 0,
+        outputTokensTotal: 0,
+        thinkingTokensTotal: 0,
+        completedRequestCount: 0,
+        requestDurationMsTotal: 0,
+      },
+    });
+  });
+});
+
+test('repo-search reports only processed prompt tokens to the status backend when cache metadata is present', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const baselineInputTokens = server.state.metrics.inputTokensTotal;
+      const result = await executeRepoSearchRequest({
+        prompt: 'find planner usage',
+        repoRoot: process.cwd(),
+        statusBackendUrl: server.statusUrl,
+        config: {
+          ...server.state.config,
+          Runtime: {
+            ...server.state.config.Runtime,
+            Model: 'mock-model',
+            LlamaCpp: {
+              ...server.state.config.Runtime.LlamaCpp,
+              BaseUrl: `http://127.0.0.1:${server.port}`,
+              NumCtx: 128000,
+            },
+          },
+          LlamaCpp: {
+            ...server.state.config.LlamaCpp,
+            BaseUrl: `http://127.0.0.1:${server.port}`,
+            NumCtx: 128000,
+          },
+        },
+        model: 'mock-model',
+        maxTurns: 1,
+      });
+
+      assert.equal(result.scorecard.verdict, 'pass');
+      assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 23);
+      const completionPost = server.state.statusPosts.filter((post) => post.running === false && post.taskKind === 'repo-search').at(-1);
+      assert.equal(completionPost.inputTokens, 23);
+      assert.equal(completionPost.promptCacheTokens, 100);
+      assert.equal(completionPost.promptEvalTokens, 23);
+    }, {
+      tokenizeCharsPerToken: 4,
+      assistantContent: '{"action":"finish","output":"done","confidence":0.9}',
+      chatResponse() {
+        return {
+          id: 'chatcmpl-test',
+          object: 'chat.completion',
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: '{"action":"finish","output":"done","confidence":0.9}',
+            },
+          }],
+          usage: {
+            prompt_tokens: 123,
+            completion_tokens: 45,
+            prompt_tokens_details: {
+              cached_tokens: 100,
+            },
+          },
+        };
+      },
+      metrics: {
+        inputCharactersTotal: 3_461_904,
+        inputTokensTotal: 1_865_267,
+        outputCharactersTotal: 0,
+        outputTokensTotal: 0,
+        thinkingTokensTotal: 0,
+        completedRequestCount: 0,
+        requestDurationMsTotal: 0,
+      },
+    });
+  });
+});
+
 test('idle metrics formatter emits ANSI colors when enabled on a TTY', () => {
   const message = buildIdleMetricsLogMessage({
     inputCharactersTotal: 200,
@@ -203,7 +334,7 @@ test('idle metrics formatter emits ANSI colors when enabled on a TTY', () => {
 
   assert.match(message, /\u001b\[36minput\u001b\[0m/u);
   assert.match(message, /\u001b\[32moutput\u001b\[0m/u);
-  assert.match(message, /\u001b\[33msaved\u001b\[0m/u);
+  assert.match(message, /\u001b\[33mratio\u001b\[0m/u);
   assert.match(message, /\u001b\[34mtiming\u001b\[0m/u);
 });
 
@@ -259,7 +390,7 @@ test('idle metrics formatter reports n/a averages when no requests completed', (
     'requests=0',
     '  input:  chars=0 tokens=0',
     '  output: chars=0 tokens=0 avg_tokens_per_request=n/a',
-    '  saved:  tokens=0 pct=n/a ratio=n/a',
+    '  ratio:  input/output=n/a',
     '  timing: total=0s avg_request=n/a gen_tokens_per_s=n/a',
   ].join('\n'));
 });
@@ -283,7 +414,7 @@ test('idle metrics formatter groups large values, formats days in elapsed durati
     'requests=279',
     '  input:  chars=1,868,795 tokens=1,380,110',
     '  output: chars=81,979 tokens=83,526 avg_tokens_per_request=299.38',
-    '  saved:  tokens=1,296,584 pct=93.95% ratio=16.52x',
+    '  ratio:  input/output=16.52x',
     '  budget: chars_per_token=4.150 chunk_threshold_chars=763,603',
     '  timing: total=1:06:03:53 avg_request=387.93s gen_tokens_per_s=0.77',
   ].join('\n'));

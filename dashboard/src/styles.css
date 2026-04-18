@@ -673,14 +673,17 @@ pre {
 
 
 .run-delete-modal {
-  width: min(640px, 100%);
+  width: min(620px, 100%);
   border: 1px solid #6f3f46;
   border-radius: 18px;
   background:
     radial-gradient(120% 120% at 0% 0%, #51303266 0%, transparent 55%),
     linear-gradient(180deg, #182738f7 0%, #12202ef7 100%);
   box-shadow: 0 24px 56px #00000075;
-  padding: 20px;
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 
 .run-delete-header {
@@ -691,22 +694,31 @@ pre {
 }
 
 .run-delete-header h2 {
-  margin: 0 0 6px;
+  margin: 0 0 4px;
+}
+
+.run-delete-header .hint {
+  margin: 0;
+  line-height: 1.45;
 }
 
 .run-delete-close {
-  width: 38px;
-  height: 38px;
+  width: 34px;
+  height: 34px;
   padding: 0;
   border-radius: 999px;
   color: var(--ink-dim);
+  flex: none;
 }
 
 .run-delete-mode-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
-  margin-top: 18px;
+}
+
+.run-delete-mode-row button {
+  padding: 10px 14px;
 }
 
 .run-delete-mode-row button.active {
@@ -715,8 +727,25 @@ pre {
   color: #ffd0c8;
 }
 
+.run-delete-modal .filter-pill-row {
+  gap: 8px;
+  row-gap: 8px;
+}
+
+.run-delete-modal .filter-pill-label {
+  min-width: 0;
+  margin-right: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.72rem;
+}
+
+.run-delete-modal .filter-pill {
+  padding: 6px 12px;
+}
+
 .run-delete-fields {
-  margin-top: 14px;
+  max-width: 280px;
 }
 
 .run-delete-fields label {
@@ -725,18 +754,27 @@ pre {
 }
 
 .run-delete-fields span {
-  font-size: 0.9rem;
+  font-size: 0.82rem;
   color: var(--ink-dim);
+  letter-spacing: 0.02em;
 }
 
 .run-delete-preview {
-  margin-top: 16px;
   display: grid;
-  gap: 6px;
+  gap: 4px;
   border: 1px solid #5d4550;
   border-radius: 14px;
-  padding: 12px 14px;
+  padding: 14px 16px;
   background: #101b27;
+}
+
+.run-delete-preview strong {
+  font-size: 0.95rem;
+}
+
+.run-delete-preview .hint {
+  font-size: 0.82rem;
+  line-height: 1.4;
 }
 
 .run-delete-preview.ready {
@@ -749,7 +787,6 @@ pre {
 }
 
 .run-delete-modal-actions {
-  margin-top: 18px;
   display: flex;
   justify-content: flex-end;
   gap: 10px;
