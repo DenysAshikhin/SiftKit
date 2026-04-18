@@ -13,6 +13,7 @@ import {
   getPresetsForSurface,
   mapLegacyModeToPresetId,
   normalizePresets,
+  normalizeOperationModeAllowedTools,
   REPO_SEARCH_TOOLS,
   resolveSummaryPreset,
 } from '../dist/presets.js';
@@ -154,7 +155,7 @@ test('config persistence stores normalized presets in sqlite', () => {
     assert.equal(loaded.Presets?.find((preset) => preset.id === 'custom-search')?.includeAgentsMd, false);
     assert.equal(loaded.Presets?.find((preset) => preset.id === 'custom-search')?.includeRepoFileListing, true);
     assert.deepEqual(loaded.OperationModeAllowedTools, {
-      summary: ['find_text', 'read_lines', 'json_filter'],
+      summary: ['find_text', 'read_lines', 'json_filter', 'json_get'],
       'read-only': [...REPO_SEARCH_TOOLS],
       full: [],
     });
@@ -175,8 +176,40 @@ test('legacy executionFamily presets migrate to presetKind and operationMode', (
 
 test('default operation mode tool policy matches the builtin capability split', () => {
   assert.deepEqual(getDefaultOperationModeAllowedTools(), {
-    summary: ['find_text', 'read_lines', 'json_filter'],
+    summary: ['find_text', 'read_lines', 'json_filter', 'json_get'],
     'read-only': [...REPO_SEARCH_TOOLS],
+    full: [],
+  });
+});
+
+test('preset normalization rewrites legacy repo tool names to canonical native ones', () => {
+  const presets = normalizePresets([
+    {
+      id: 'custom-search',
+      label: 'Custom Search',
+      presetKind: 'repo-search',
+      operationMode: 'read-only',
+      allowedTools: ['repo_get_content', 'repo_get_childitem', 'repo_ls', 'repo_select_string', 'repo_pwd', 'repo_git'],
+      surfaces: ['web'],
+    },
+  ]);
+
+  assert.deepEqual(findPresetById(presets, 'custom-search')?.allowedTools, [
+    'repo_read_file',
+    'repo_list_files',
+    'repo_rg',
+    'repo_git',
+  ]);
+});
+
+test('operation mode tool normalization rewrites legacy repo tool names to canonical native ones', () => {
+  assert.deepEqual(normalizeOperationModeAllowedTools({
+    summary: ['find_text', 'read_lines', 'json_filter'],
+    'read-only': ['repo_get_content', 'repo_get_childitem', 'repo_ls', 'repo_select_string', 'repo_pwd', 'repo_git'],
+    full: [],
+  }), {
+    summary: ['find_text', 'read_lines', 'json_filter', 'json_get'],
+    'read-only': ['repo_read_file', 'repo_list_files', 'repo_rg', 'repo_git'],
     full: [],
   });
 });

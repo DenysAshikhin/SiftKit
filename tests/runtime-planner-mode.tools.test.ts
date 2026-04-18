@@ -73,6 +73,84 @@ test('json_filter picks the best matching top-level array when collectionPath is
   assert.match(result.text, /"groupId":12/u);
 });
 
+test('find_text counts all hits even when maxHits truncates rendered blocks', () => {
+  const inputText = [
+    'Lumbridge Castle Staircase',
+    'Varrock West Bank',
+    'Lumbridge Castle Courtyard Gate',
+    'Lumbridge Castle Basement Ladder',
+  ].join('\n');
+
+  const result = executePlannerTool(inputText, {
+    action: 'tool',
+    tool_name: 'find_text',
+    args: {
+      query: 'Lumbridge Castle',
+      mode: 'literal',
+      maxHits: 2,
+      contextLines: 0,
+    },
+  });
+
+  assert.equal(result.hitCount, 3);
+  assert.equal(result.returnedHits, 2);
+  assert.equal(result.truncated, true);
+  assert.equal(result.text.split('\n\n').length, 2);
+  assert.match(result.text, /Lumbridge Castle Staircase/u);
+  assert.match(result.text, /Lumbridge Castle Courtyard Gate/u);
+  assert.doesNotMatch(result.text, /Lumbridge Castle Basement Ladder/u);
+});
+
+test('json_get resolves nested paths from embedded json fallback sections', () => {
+  const inputText = [
+    'runner_state_history excerpt follows',
+    JSON.stringify({
+      states: [
+        {
+          scenario_id: 'lumbridge-route',
+          state_json: {
+            steps: [
+              { id: 'step-1', status: 'pending' },
+              { id: 'step-2', status: 'complete' },
+            ],
+          },
+        },
+      ],
+    }),
+  ].join('\n');
+
+  const result = executePlannerTool(inputText, {
+    action: 'tool',
+    tool_name: 'json_get',
+    args: {
+      path: 'states.0.state_json.steps.1.status',
+    },
+  });
+
+  assert.equal(result.path, 'states.0.state_json.steps.1.status');
+  assert.equal(result.found, true);
+  assert.equal(result.usedFallback, true);
+  assert.equal(result.text, '"complete"');
+});
+
+test('json_get reports missing paths explicitly', () => {
+  const inputText = JSON.stringify({
+    states: [{ id: 'state-1' }],
+  });
+
+  const result = executePlannerTool(inputText, {
+    action: 'tool',
+    tool_name: 'json_get',
+    args: {
+      path: 'states.1.id',
+    },
+  });
+
+  assert.equal(result.path, 'states.1.id');
+  assert.equal(result.found, false);
+  assert.match(result.text, /path not found/u);
+});
+
 test('llama.cpp provider reconstructs planner tool actions from empty-content tool_calls responses', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
@@ -478,10 +556,10 @@ test('summary above planner threshold respects runtime reasoning for planner req
 test('buildPlannerToolDefinitions returns qwen-friendly function schemas', () => {
   const toolDefinitions = buildPlannerToolDefinitions();
   assert.equal(Array.isArray(toolDefinitions), true);
-  assert.equal(toolDefinitions.length, 3);
+  assert.equal(toolDefinitions.length, 4);
 
   const toolNames = toolDefinitions.map((entry) => entry?.function?.name).sort();
-  assert.deepEqual(toolNames, ['find_text', 'json_filter', 'read_lines']);
+  assert.deepEqual(toolNames, ['find_text', 'json_filter', 'json_get', 'read_lines']);
 
   for (const entry of toolDefinitions) {
     assert.equal(entry.type, 'function');
@@ -521,6 +599,13 @@ test('buildPlannerToolDefinitions returns qwen-friendly function schemas', () =>
   assert.match(jsonFilter.function.description, /"value":"2026-03-30T18:40:00Z"/i);
   assert.match(jsonFilter.function.description, /do not use/i);
   assert.match(jsonFilter.function.description, /\"value\":\{\"gte\":3200,\"lte\":3215\}/i);
+
+  const jsonGet = toolDefinitions.find((entry) => entry.function.name === 'json_get');
+  assert.deepEqual(jsonGet.function.parameters.required, ['path']);
+  assert.equal(jsonGet.function.parameters.properties.path.type, 'string');
+  assert.match(jsonGet.function.description, /dot-path/i);
+  assert.match(jsonGet.function.description, /example:/i);
+  assert.match(jsonGet.function.description, /"path":"states\.0\.state_json"/i);
 });
 
 test('oversized transition extraction uses planner action grammar before returning a tool-assisted summary', async () => {

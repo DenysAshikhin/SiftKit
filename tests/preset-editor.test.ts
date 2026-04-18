@@ -41,7 +41,7 @@ function createPreset(id: string, overrides: Partial<DashboardPreset> = {}): Das
   };
 }
 
-const SUMMARY_TOOL_OPTIONS: DashboardPresetToolName[] = ['find_text', 'read_lines', 'json_filter'];
+const SUMMARY_TOOL_OPTIONS: DashboardPresetToolName[] = ['find_text', 'read_lines', 'json_filter', 'json_get'];
 const REPO_TOOL_OPTIONS: DashboardPresetToolName[] = PRESET_TOOL_OPTIONS.filter(
   (tool): tool is DashboardPresetToolName => tool.startsWith('repo_'),
 );

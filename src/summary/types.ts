@@ -66,7 +66,7 @@ export type StructuredModelDecision = {
   output: string;
 };
 
-export type PlannerToolName = 'find_text' | 'read_lines' | 'json_filter';
+export type PlannerToolName = 'find_text' | 'read_lines' | 'json_filter' | 'json_get';
 
 export type PlannerToolDefinition = {
   type: 'function';

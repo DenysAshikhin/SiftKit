@@ -5,15 +5,12 @@ export type PresetExecutionFamily = PresetKind;
 export type PresetOperationMode = 'summary' | 'read-only' | 'full';
 export type PresetSurface = 'cli' | 'web';
 
-const SUMMARY_TOOLS = ['find_text', 'read_lines', 'json_filter'] as const;
+const SUMMARY_TOOLS = ['find_text', 'read_lines', 'json_filter', 'json_get'] as const;
 export const REPO_SEARCH_TOOLS = [
   'repo_rg',
-  'repo_get_content',
-  'repo_get_childitem',
-  'repo_select_string',
+  'repo_read_file',
+  'repo_list_files',
   'repo_git',
-  'repo_pwd',
-  'repo_ls',
   'repo_select_object',
   'repo_where_object',
   'repo_sort_object',
@@ -123,8 +120,19 @@ function normalizeToolList(value: unknown, fallback: readonly PresetToolName[]):
       }
       continue;
     }
-    if (PRESET_TOOL_NAME_SET.has(normalized)) {
-      pushTool(normalized as PresetToolName);
+    const mappedToolNames = normalized === 'repo_get_content'
+      ? ['repo_read_file']
+      : normalized === 'repo_get_childitem' || normalized === 'repo_ls'
+        ? ['repo_list_files']
+        : normalized === 'repo_select_string'
+          ? ['repo_rg']
+          : normalized === 'repo_pwd'
+            ? []
+            : [normalized];
+    for (const mappedToolName of mappedToolNames) {
+      if (PRESET_TOOL_NAME_SET.has(mappedToolName)) {
+        pushTool(mappedToolName as PresetToolName);
+      }
     }
   }
   return seen.size > 0 ? Array.from(seen) : [...fallback];
@@ -340,8 +348,17 @@ export function getDefaultOperationModeAllowedTools(): OperationModeAllowedTools
 
 export function normalizeOperationModeAllowedTools(input: unknown): OperationModeAllowedTools {
   const record = (input && typeof input === 'object' && !Array.isArray(input) ? input : {}) as Dict;
+  const summaryTools = normalizeToolList(record.summary, DEFAULT_OPERATION_MODE_ALLOWED_TOOLS.summary);
+  if (
+    summaryTools.includes('find_text')
+    && summaryTools.includes('read_lines')
+    && summaryTools.includes('json_filter')
+    && !summaryTools.includes('json_get')
+  ) {
+    summaryTools.push('json_get');
+  }
   return {
-    summary: normalizeToolList(record.summary, DEFAULT_OPERATION_MODE_ALLOWED_TOOLS.summary),
+    summary: summaryTools,
     'read-only': normalizeToolList(record['read-only'], DEFAULT_OPERATION_MODE_ALLOWED_TOOLS['read-only']),
     full: normalizeToolList(record.full, DEFAULT_OPERATION_MODE_ALLOWED_TOOLS.full),
   };

@@ -117,10 +117,59 @@ function extractInlineThinking(raw: string): { thinkingText: string; text: strin
 // ---------------------------------------------------------------------------
 
 const LEGACY_REPO_SEARCH_TOOL_ALIAS = 'run_repo_cmd';
-const REPO_SEARCH_COMMAND_TOKENS: readonly string[] = [
+const NATIVE_REPO_SEARCH_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
+  repo_read_file: {
+    type: 'function',
+    function: {
+      name: 'repo_read_file',
+      description: 'Read one repository file with optional 1-based line bounds.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          startLine: { type: 'integer' },
+          endLine: { type: 'integer' },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  repo_list_files: {
+    type: 'function',
+    function: {
+      name: 'repo_list_files',
+      description: 'List repository files under an optional path, with optional glob filtering and recursion control.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          glob: { type: 'string' },
+          recurse: { type: 'boolean' },
+        },
+        required: [],
+      },
+    },
+  },
+};
+
+const REPO_SEARCH_EXCLUDED_COMMAND_TOKENS = new Set<string>([
+  'get-content',
+  'get-childitem',
+  'select-string',
+  'pwd',
+  'ls',
+]);
+const ACCEPTED_REPO_SEARCH_COMMAND_TOKENS: readonly string[] = [
   ...new Set<string>([
     ...REPO_SEARCH_PRODUCER_COMMANDS,
     ...REPO_SEARCH_PIPE_COMMANDS,
+  ]),
+];
+
+const REPO_SEARCH_COMMAND_TOKENS: readonly string[] = [
+  ...new Set<string>([
+    ...REPO_SEARCH_PRODUCER_COMMANDS.filter((commandToken) => !REPO_SEARCH_EXCLUDED_COMMAND_TOKENS.has(commandToken)),
+    ...REPO_SEARCH_PIPE_COMMANDS.filter((commandToken) => !REPO_SEARCH_EXCLUDED_COMMAND_TOKENS.has(commandToken)),
   ]),
 ];
 
@@ -132,7 +181,7 @@ function buildRepoSearchToolDescription(commandToken: string): string {
   return `Run one read-only repo command that starts with '${commandToken}'.`;
 }
 
-const REPO_SEARCH_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = Object.fromEntries(
+const COMMAND_REPO_SEARCH_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = Object.fromEntries(
   REPO_SEARCH_COMMAND_TOKENS.map((commandToken) => {
     const toolName = commandTokenToToolName(commandToken);
     return [toolName, {
@@ -150,16 +199,35 @@ const REPO_SEARCH_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> 
   }),
 ) as Record<string, StructuredOutputToolDefinition>;
 
+const REPO_SEARCH_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
+  ...NATIVE_REPO_SEARCH_TOOL_REGISTRY,
+  ...COMMAND_REPO_SEARCH_TOOL_REGISTRY,
+};
+
 const REPO_SEARCH_TOOL_NAME_BY_COMMAND_TOKEN = new Map<string, string>(
-  REPO_SEARCH_COMMAND_TOKENS.map((commandToken) => [commandToken, commandTokenToToolName(commandToken)]),
+  ACCEPTED_REPO_SEARCH_COMMAND_TOKENS.map((commandToken) => [commandToken, commandTokenToToolName(commandToken)]),
 );
 
 const REPO_SEARCH_COMMAND_TOKEN_BY_TOOL_NAME = new Map<string, string>(
-  REPO_SEARCH_COMMAND_TOKENS.map((commandToken) => [commandTokenToToolName(commandToken), commandToken]),
+  ACCEPTED_REPO_SEARCH_COMMAND_TOKENS.map((commandToken) => [commandTokenToToolName(commandToken), commandToken]),
 );
 
 export function getRepoSearchToolNames(): string[] {
   return Object.keys(REPO_SEARCH_TOOL_REGISTRY);
+}
+
+export function getRepoSearchToolNamesForParsing(): string[] {
+  return Array.from(new Set<string>([
+    ...Object.keys(REPO_SEARCH_TOOL_REGISTRY),
+    ...Array.from(REPO_SEARCH_COMMAND_TOKEN_BY_TOOL_NAME.keys()),
+  ]));
+}
+
+export function isRepoSearchNativeToolName(toolName: string): boolean {
+  return Object.prototype.hasOwnProperty.call(
+    NATIVE_REPO_SEARCH_TOOL_REGISTRY,
+    String(toolName || '').trim().toLowerCase(),
+  );
 }
 
 export function isRepoSearchCommandToolName(toolName: string): boolean {
@@ -235,12 +303,12 @@ function normalizeRepoSearchToolCall(
   allowedToolNames: Set<string>,
 ): ToolAction | null {
   const normalizedRawToolName = String(rawToolName || '').trim().toLowerCase();
-  const command = getCommandArgValue(rawArgs);
-  if (!command) {
-    return null;
-  }
   let toolName = normalizedRawToolName;
   if (toolName === LEGACY_REPO_SEARCH_TOOL_ALIAS) {
+    const command = getCommandArgValue(rawArgs);
+    if (!command) {
+      return null;
+    }
     const inferredToolName = getRepoSearchToolNameForCommand(command);
     if (!inferredToolName) {
       return null;
@@ -251,6 +319,10 @@ function normalizeRepoSearchToolCall(
     return null;
   }
   if (isRepoSearchCommandToolName(toolName)) {
+    const command = getCommandArgValue(rawArgs);
+    if (!command) {
+      return null;
+    }
     const expectedCommandToken = getRepoSearchCommandTokenForToolName(toolName);
     const actualCommandToken = getFirstCommandToken(command);
     if (!expectedCommandToken || actualCommandToken !== expectedCommandToken) {
@@ -260,6 +332,30 @@ function normalizeRepoSearchToolCall(
       action: 'tool',
       tool_name: toolName,
       args: { command },
+    };
+  }
+  if (toolName === 'repo_read_file') {
+    return typeof rawArgs.path === 'string' && rawArgs.path.trim()
+      ? {
+        action: 'tool',
+        tool_name: toolName,
+        args: {
+          path: rawArgs.path,
+          ...(rawArgs.startLine === undefined ? {} : { startLine: rawArgs.startLine }),
+          ...(rawArgs.endLine === undefined ? {} : { endLine: rawArgs.endLine }),
+        },
+      }
+      : null;
+  }
+  if (toolName === 'repo_list_files') {
+    return {
+      action: 'tool',
+      tool_name: toolName,
+      args: {
+        ...(typeof rawArgs.path === 'string' ? { path: rawArgs.path } : {}),
+        ...(typeof rawArgs.glob === 'string' ? { glob: rawArgs.glob } : {}),
+        ...(typeof rawArgs.recurse === 'boolean' ? { recurse: rawArgs.recurse } : {}),
+      },
     };
   }
   return {

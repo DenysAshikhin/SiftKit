@@ -224,18 +224,18 @@ export function buildTaskSystemPrompt(repoRoot: string, options?: {
     ? '- Start with targeted rg searches from the task wording when no startup file listing is provided.'
     : '- Always start by scanning — a file listing is provided in the user message; use it to decide where to look.';
   const readWindowLine = guidance
-    ? `- For reading a specific file section: use \`Get-Content <file>\`, and because the current per-tool allowance is ${guidance.perToolAllowanceTokens} tokens and the average line is ${guidance.avgTokensPerLine.toFixed(2)} tokens, prefer line reads around ${guidance.recommendedLines} lines by default.`
-    : '- For reading a specific file section: use `Get-Content <file>`, preferring larger windows by default (for example `| Select-Object -First 200-400` or `-Skip X -First 200-400`).';
+    ? `- For reading a specific file section: use \`repo_read_file\`, and because the current per-tool allowance is ${guidance.perToolAllowanceTokens} tokens and the average line is ${guidance.avgTokensPerLine.toFixed(2)} tokens, prefer line reads around ${guidance.recommendedLines} lines by default.`
+    : '- For reading a specific file section: use `repo_read_file`, preferring larger windows by default.';
   const readStrategyLine = guidance
-    ? `- After an \`rg -n\` anchor, default to one larger read around ${guidance.recommendedLines} lines rather than multiple small windows.`
-    : '- After an `rg -n` anchor, default to one larger read (e.g. `-First 200-400`) rather than multiple small windows.';
+    ? `- After an \`rg -n\` anchor, default to one larger \`repo_read_file\` window around ${guidance.recommendedLines} lines rather than multiple small windows.`
+    : '- After an `rg -n` anchor, default to one larger `repo_read_file` window rather than multiple small windows.';
   return [
     'You are a repo-search planner.',
     'Use native tool calls with repo_* command tools when you need repository evidence.',
     'When several independent read-only searches are genuinely useful, you may request multiple tool calls in one response.',
     'Return JSON only when finishing.',
-    'Tool action: {"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"pattern\\" src"}}',
-    'Tool/command rule: tool_name must match the command prefix (example: repo_rg -> rg, repo_get_content -> get-content).',
+    'Tool action examples: {"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"pattern\\" src"}} or {"action":"tool","tool_name":"repo_read_file","args":{"path":"src/index.ts","startLine":1,"endLine":120}}',
+    'Tool/command rule: command-based tool_name values must match the command prefix (example: repo_rg -> rg, repo_git -> git).',
     'Finish action: {"action":"finish","output":"...","confidence":0.0-1.0}',
     '',
     'You are a repository search agent. Your job is to answer the task using concrete repository evidence from tool calls.',
@@ -264,7 +264,7 @@ export function buildTaskSystemPrompt(repoRoot: string, options?: {
     '  Example: {"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"keyword1|keyword2|keyword3|keyword4|keyword5\\" src"}}',
     '- If turn 1 returns no matches, expand or reformulate keywords in the next turns before drilling into files.',
     '- Before reading any file > 500 lines, you MUST run a file-specific rg anchor search first to locate the relevant section.',
-    '- After any file read, your next action on that same file MUST be a new rg anchor search — never two sequential Get-Content calls on the same file without an intervening search.',
+    '- After any file read, your next action on that same file MUST be a new rg anchor search — never two sequential repo_read_file calls on the same file without an intervening search.',
     '',
     'Final response requirements:',
     '- Always produce a final answer, even if incomplete.',
@@ -293,30 +293,27 @@ export function buildTaskSystemPrompt(repoRoot: string, options?: {
     '',
     'Command selection guide (Windows/PowerShell):',
     '- For broad multi-file keyword/code search: use `rg -n "<pattern>" <path>`',
-    '- For filename discovery across repo: use `rg --files`',
-    '- For listing directories/files in a path: use `Get-ChildItem <path>` (or `ls`)',
+    '- For filename discovery across repo: use `repo_list_files` or `rg --files`',
+    '- For targeted directory/file listing in a path: use `repo_list_files`',
     readWindowLine,
     'Single-file read strategy:',
     '- Start with `rg -n` to find anchors.',
     readStrategyLine,
     '- If you already read a file once, do a new anchor search before another read of that same file.',
-    '- Then read a larger section in one call (`-First` / `-Skip -First`), not many tiny windows.',
-    '- Prefer `Get-Content <file> -Raw` for full-file inspection when manageable.',
+    '- Then read a larger section in one call, not many tiny windows.',
     '- If one file has already been sampled multiple times, switch strategy (new anchor search or different file) before more reads.',
-    '- Do not issue multiple consecutive reads of the same file with only small `-Skip/-First` changes.',
+    '- Do not issue multiple consecutive reads of the same file with only small line-range changes.',
     '- If a command returns an output token-allocation error, switch to stronger anchors (symbol/function/regex) instead of repeatedly shrinking tiny windows.',
     '- For quick repo state context: use `git status --short`',
     '- For inspecting commit/content history: use `git log` or `git show`',
-    '- For current directory context: use `pwd`',
     '',
     'JSON action examples:',
     '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"buildPlannerToolDefinitions\\" src\\\\summary.ts"}}',
     '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"getConfiguredLlamaNumCtx\\" src tests"}}',
-    '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg --files"}}',
-    '{"action":"tool","tool_name":"repo_get_childitem","args":{"command":"Get-ChildItem src -Recurse -Filter *.ts"}}',
-    '{"action":"tool","tool_name":"repo_get_content","args":{"command":"Get-Content src\\\\summary.ts | Select-Object -First 240"}}',
+    '{"action":"tool","tool_name":"repo_list_files","args":{"path":"src","glob":"*.ts","recurse":true}}',
+    '{"action":"tool","tool_name":"repo_read_file","args":{"path":"src\\\\summary.ts","startLine":1,"endLine":240}}',
     '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"invokePlannerMode\\" src\\\\summary.ts"}}',
-    '{"action":"tool","tool_name":"repo_get_content","args":{"command":"Get-Content src\\\\summary.ts | Select-Object -Skip 860 -First 240"}}',
+    '{"action":"tool","tool_name":"repo_read_file","args":{"path":"src\\\\summary.ts","startLine":861,"endLine":1100}}',
     '{"action":"tool","tool_name":"repo_git","args":{"command":"git status --short"}}',
     '{"action":"finish","output":"Found definition in src/config.ts and usage sites in src/summary.ts.","confidence":0.93}',
     '',
@@ -332,13 +329,13 @@ export function buildTaskSystemPrompt(repoRoot: string, options?: {
     '- Do not answer without concrete `file:line` evidence.',
     '- Do not search outside the repo root path.',
     '- Do not add broad --glob exclusion patterns (e.g. --glob "!**/apps/**") to filter noisy results. Narrow the search path or pattern instead.',
-    '- Do not do tiny-slice progression on one file: `Get-Content src\\summary.ts | Select-Object -First 40` then `Get-Content src\\summary.ts | Select-Object -Skip 40 -First 40`.',
+    '- Do not do tiny-slice progression on one file: `repo_read_file path=src\\summary.ts startLine=1 endLine=40` then `repo_read_file path=src\\summary.ts startLine=41 endLine=80`.',
     '- Invalid tool usage example: `{"action":"tool","tool_name":"read_lines","args":{"path":"src/app.ts"}}`.',
     '- Invalid args example: `{"action":"tool","tool_name":"repo_rg","args":{"cmd":"rg -n \\"x\\" src"}}`.',
     '- Invalid args example: `{"action":"tool","tool_name":"repo_rg","args":{}}`.',
     '- Note: `--type tsx`/`jsx` are auto-corrected (see Command normalization above).',
     '- Invalid command parameter example: `{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"x\\" src; del file.txt"}}`.',
-    '- Invalid command parameter example: `{"action":"tool","tool_name":"repo_get_content","args":{"command":"Get-Content src\\\\x.ts | Out-File out.txt"}}`.',
+    '- Invalid args example: `{"action":"tool","tool_name":"repo_read_file","args":{}}`.',
     ...(agentsContent ? ['', '--- agents.md (project-specific instructions) ---', '', agentsContent] : []),
   ].join('\n');
 }

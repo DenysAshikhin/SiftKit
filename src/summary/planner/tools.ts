@@ -34,7 +34,7 @@ export {
 };
 
 export function getPlannerToolName(value: unknown): PlannerToolName | null {
-  return value === 'find_text' || value === 'read_lines' || value === 'json_filter'
+  return value === 'find_text' || value === 'read_lines' || value === 'json_filter' || value === 'json_get'
     ? value
     : null;
 }
@@ -60,7 +60,7 @@ export function escapeUnescapedRegexBraces(query: string): string {
   return normalized;
 }
 
-export function buildPlannerToolDefinitions(allowedTools: readonly PlannerToolName[] = ['find_text', 'read_lines', 'json_filter']): PlannerToolDefinition[] {
+export function buildPlannerToolDefinitions(allowedTools: readonly PlannerToolName[] = ['find_text', 'read_lines', 'json_filter', 'json_get']): PlannerToolDefinition[] {
   const allowed = new Set<PlannerToolName>(allowedTools);
   const definitions: PlannerToolDefinition[] = [
     {
@@ -125,6 +125,20 @@ export function buildPlannerToolDefinitions(allowedTools: readonly PlannerToolNa
             limit: { type: 'integer', description: 'Maximum number of matched items to return.' },
           },
           required: ['filters'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'json_get',
+        description: 'Parse JSON and return the value at one dot-path. Use this for nested object drill-down when you need one exact field rather than filtering an array. Dot paths may include array indexes. Example: {"path":"states.0.state_json"}',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Dot-path to the target value. Array indexes are allowed.' },
+          },
+          required: ['path'],
         },
       },
     },
@@ -336,9 +350,8 @@ function executeFindTextTool(inputText: string, args: Record<string, unknown>): 
     hitCount += 1;
     const start = Math.max(0, index - contextLines);
     const end = Math.min(lines.length - 1, index + contextLines);
-    hitBlocks.push(formatNumberedLineBlock(lines.slice(start, end + 1), start + 1));
-    if (hitCount >= maxHits) {
-      break;
+    if (hitBlocks.length < maxHits) {
+      hitBlocks.push(formatNumberedLineBlock(lines.slice(start, end + 1), start + 1));
     }
   }
 
@@ -348,6 +361,8 @@ function executeFindTextTool(inputText: string, args: Record<string, unknown>): 
     query,
     normalizedQuery,
     hitCount,
+    returnedHits: hitBlocks.length,
+    truncated: hitCount > hitBlocks.length,
     text: hitBlocks.join('\n\n'),
   };
 }
@@ -416,10 +431,31 @@ function executeJsonFilterTool(inputText: string, args: Record<string, unknown>)
   };
 }
 
+function executeJsonGetTool(inputText: string, args: Record<string, unknown>): Record<string, unknown> {
+  const path = typeof args.path === 'string' ? args.path.trim() : '';
+  if (!path) {
+    throw new Error('json_get requires path.');
+  }
+
+  const parsedContext = parseJsonForJsonFilter(inputText);
+  const value = getValueByPath(parsedContext.parsed, path);
+  const found = value !== undefined;
+
+  return {
+    tool: 'json_get',
+    path,
+    found,
+    usedFallback: parsedContext.usedFallback,
+    ignoredPrefixPreview: parsedContext.usedFallback ? parsedContext.ignoredPrefixPreview : undefined,
+    parsedSectionPreview: parsedContext.usedFallback ? parsedContext.parsedSectionPreview : undefined,
+    text: found ? JSON.stringify(value) : `json_get path not found: ${path}`,
+  };
+}
+
 export function executePlannerTool(
   inputText: string,
   action: PlannerToolCall,
-  allowedTools: readonly PlannerToolName[] = ['find_text', 'read_lines', 'json_filter'],
+  allowedTools: readonly PlannerToolName[] = ['find_text', 'read_lines', 'json_filter', 'json_get'],
 ): Record<string, unknown> {
   if (!allowedTools.includes(action.tool_name)) {
     throw new Error(`Planner tool is not allowed by the active preset: ${action.tool_name}`);
@@ -431,6 +467,8 @@ export function executePlannerTool(
       return executeReadLinesTool(inputText, action.args);
     case 'json_filter':
       return executeJsonFilterTool(inputText, action.args);
+    case 'json_get':
+      return executeJsonGetTool(inputText, action.args);
     default:
       throw new Error(`Unsupported planner tool: ${String(action.tool_name)}`);
   }

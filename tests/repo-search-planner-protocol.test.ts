@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import * as http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import { parsePlannerAction, requestPlannerAction } from '../src/repo-search/planner-protocol.js';
+import {
+  getRepoSearchToolNames,
+  parsePlannerAction,
+  requestPlannerAction,
+  resolveRepoSearchPlannerToolDefinitions,
+} from '../src/repo-search/planner-protocol.js';
 
 async function withServer(
   handler: (req: http.IncomingMessage, res: http.ServerResponse) => void,
@@ -39,6 +44,29 @@ test('parsePlannerAction parses tool batches', () => {
       { tool_name: 'repo_rg', args: { command: 'rg -n "repo-search" src' } },
     ],
   });
+});
+
+test('repo-search tool registry exposes native read/list tools and drops redundant legacy ones', () => {
+  const toolNames = getRepoSearchToolNames().sort();
+  assert.equal(toolNames.includes('repo_read_file'), true);
+  assert.equal(toolNames.includes('repo_list_files'), true);
+  assert.equal(toolNames.includes('repo_get_content'), false);
+  assert.equal(toolNames.includes('repo_get_childitem'), false);
+  assert.equal(toolNames.includes('repo_select_string'), false);
+  assert.equal(toolNames.includes('repo_pwd'), false);
+  assert.equal(toolNames.includes('repo_ls'), false);
+
+  const definitions = resolveRepoSearchPlannerToolDefinitions();
+  const readFile = definitions.find((tool) => tool.function.name === 'repo_read_file');
+  assert.deepEqual(readFile?.function?.parameters?.required, ['path']);
+  assert.equal(readFile?.function?.parameters?.properties?.startLine?.type, 'integer');
+  assert.equal(readFile?.function?.parameters?.properties?.endLine?.type, 'integer');
+
+  const listFiles = definitions.find((tool) => tool.function.name === 'repo_list_files');
+  assert.deepEqual(listFiles?.function?.parameters?.required, []);
+  assert.equal(listFiles?.function?.parameters?.properties?.path?.type, 'string');
+  assert.equal(listFiles?.function?.parameters?.properties?.glob?.type, 'string');
+  assert.equal(listFiles?.function?.parameters?.properties?.recurse?.type, 'boolean');
 });
 
 test('requestPlannerAction reconstructs a tool batch from non-streaming multi-tool responses', async () => {

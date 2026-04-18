@@ -26,7 +26,7 @@ export function formatPlannerToolResultHeader(value: Record<string, unknown>): s
     return `read_lines startLine=${value.startLine} endLine=${value.endLine} lineCount=${value.lineCount}`;
   }
   if (tool === 'find_text') {
-    return `find_text mode=${value.mode} query=${JSON.stringify(value.query)} hitCount=${value.hitCount}`;
+    return `find_text mode=${value.mode} query=${JSON.stringify(value.query)} hitCount=${value.hitCount} returnedHits=${value.returnedHits} truncated=${value.truncated}`;
   }
   if (tool === 'json_filter') {
     const base = `json_filter collectionPath=${value.collectionPath} matchedCount=${value.matchedCount}`;
@@ -41,6 +41,20 @@ export function formatPlannerToolResultHeader(value: Record<string, unknown>): s
       ? value.parsedSectionPreview
       : '';
     return `${base}\njson_filter ignored "${ignoredPrefixPreview}" due to not being valid json, here is the parsed valid section: "${parsedSectionPreview}"`;
+  }
+  if (tool === 'json_get') {
+    const base = `json_get path=${value.path} found=${value.found}`;
+    const usedFallback = value.usedFallback === true;
+    if (!usedFallback) {
+      return base;
+    }
+    const ignoredPrefixPreview = typeof value.ignoredPrefixPreview === 'string'
+      ? value.ignoredPrefixPreview
+      : '';
+    const parsedSectionPreview = typeof value.parsedSectionPreview === 'string'
+      ? value.parsedSectionPreview
+      : '';
+    return `${base}\njson_get ignored "${ignoredPrefixPreview}" due to not being valid json, here is the parsed valid section: "${parsedSectionPreview}"`;
   }
   return null;
 }

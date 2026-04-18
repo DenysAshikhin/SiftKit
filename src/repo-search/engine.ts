@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
   getConfiguredLlamaBaseUrl,
   getConfiguredLlamaNumCtx,
@@ -22,12 +24,15 @@ import {
   buildIgnorePolicy,
   evaluateCommandSafety,
   getFirstCommandToken,
+  type IgnorePolicy,
   isSearchNoMatchExit,
   normalizePlannerCommand,
 } from './command-safety.js';
 import {
   getRepoSearchCommandTokenForToolName,
   isRepoSearchCommandToolName,
+  isRepoSearchNativeToolName,
+  getRepoSearchToolNamesForParsing,
   resolveRepoSearchPlannerToolDefinitions,
   parsePlannerAction,
   renderTaskTranscript,
@@ -156,6 +161,205 @@ export const TASK_PACK: TaskDefinition[] = [
 // ---------------------------------------------------------------------------
 // Command execution
 // ---------------------------------------------------------------------------
+
+type NativeRepoToolExecution =
+  | {
+    ok: true;
+    command: string;
+    exitCode: number;
+    output: string;
+    toolType: string;
+    lineReadStats?: {
+      lineReadCalls: number;
+      lineReadLinesTotal: number;
+      lineReadTokensTotal: number;
+    };
+  }
+  | {
+    ok: false;
+    command: string;
+    reason: string;
+    toolType: string;
+  };
+
+function normalizeRepoRelativePathForDisplay(relativePath: string): string {
+  return relativePath.replace(/\\/gu, '/');
+}
+
+function isRepoRelativePathIgnored(relativePath: string, ignorePolicy: IgnorePolicy): boolean {
+  const normalized = normalizeRepoRelativePathForDisplay(relativePath).replace(/^\.\/+/u, '');
+  if (!normalized) {
+    return false;
+  }
+  const segments = normalized.split('/').filter(Boolean);
+  if (segments.some((segment) => ignorePolicy.namesLower.has(segment.toLowerCase()))) {
+    return true;
+  }
+  return ignorePolicy.paths.some((ignoredPath) => (
+    normalized === ignoredPath || normalized.startsWith(`${ignoredPath}/`)
+  ));
+}
+
+function resolveRepoScopedPath(repoRoot: string, rawPath: unknown): {
+  absolutePath: string;
+  relativePath: string;
+} | null {
+  const pathText = typeof rawPath === 'string' ? rawPath.trim() : '';
+  if (!pathText) {
+    return null;
+  }
+  const absolutePath = path.resolve(repoRoot, pathText);
+  const relativePath = path.relative(repoRoot, absolutePath);
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    return null;
+  }
+  return {
+    absolutePath,
+    relativePath: normalizeRepoRelativePathForDisplay(relativePath),
+  };
+}
+
+function globToRegExp(glob: string): RegExp {
+  let pattern = '^';
+  for (let index = 0; index < glob.length; index += 1) {
+    const char = glob[index];
+    if (char === '*') {
+      const next = glob[index + 1];
+      if (next === '*') {
+        pattern += '.*';
+        index += 1;
+        continue;
+      }
+      pattern += '[^/]*';
+      continue;
+    }
+    if (char === '?') {
+      pattern += '[^/]';
+      continue;
+    }
+    if ('\\.[]{}()+-^$|'.includes(char)) {
+      pattern += `\\${char}`;
+      continue;
+    }
+    pattern += char === '\\' ? '/' : char;
+  }
+  pattern += '$';
+  return new RegExp(pattern, 'iu');
+}
+
+function matchesRepoListGlob(relativePath: string, globText: string): boolean {
+  const normalizedPath = normalizeRepoRelativePathForDisplay(relativePath);
+  const normalizedGlob = normalizeRepoRelativePathForDisplay(globText.trim());
+  if (!normalizedGlob) {
+    return true;
+  }
+  const target = normalizedGlob.includes('/') ? normalizedPath : path.posix.basename(normalizedPath);
+  return globToRegExp(normalizedGlob).test(target);
+}
+
+function formatNumberedTextBlock(lines: string[], startLine: number): string {
+  return lines.map((line, index) => `${startLine + index}: ${line}`).join('\n');
+}
+
+function listRepoFilesRecursive(
+  currentAbsolutePath: string,
+  currentRelativePath: string,
+  ignorePolicy: IgnorePolicy,
+  includeFiles: string[],
+  recurse: boolean,
+): void {
+  for (const entry of fs.readdirSync(currentAbsolutePath, { withFileTypes: true })) {
+    const nextRelativePath = currentRelativePath
+      ? `${currentRelativePath}/${entry.name}`
+      : entry.name;
+    if (isRepoRelativePathIgnored(nextRelativePath, ignorePolicy)) {
+      continue;
+    }
+    const nextAbsolutePath = path.join(currentAbsolutePath, entry.name);
+    if (entry.isDirectory()) {
+      if (recurse) {
+        listRepoFilesRecursive(nextAbsolutePath, nextRelativePath, ignorePolicy, includeFiles, recurse);
+      }
+      continue;
+    }
+    if (entry.isFile()) {
+      includeFiles.push(normalizeRepoRelativePathForDisplay(nextRelativePath));
+    }
+  }
+}
+
+function executeNativeRepoTool(
+  toolName: string,
+  args: Record<string, unknown>,
+  repoRoot: string,
+  ignorePolicy: IgnorePolicy,
+): NativeRepoToolExecution {
+  if (toolName === 'repo_read_file') {
+    const resolvedPath = resolveRepoScopedPath(repoRoot, args.path);
+    const startLine = Math.max(1, Math.trunc(Number(args.startLine) || 1));
+    const endLineCandidate = Math.trunc(Number(args.endLine) || 0);
+    const command = `repo_read_file path=${JSON.stringify(String(args.path || ''))} startLine=${startLine}${endLineCandidate > 0 ? ` endLine=${endLineCandidate}` : ''}`;
+    if (!resolvedPath) {
+      return { ok: false, command, reason: 'path must stay within the repository root', toolType: toolName };
+    }
+    if (isRepoRelativePathIgnored(resolvedPath.relativePath, ignorePolicy)) {
+      return { ok: false, command, reason: 'path is ignored by runtime policy', toolType: toolName };
+    }
+    if (!fs.existsSync(resolvedPath.absolutePath) || !fs.statSync(resolvedPath.absolutePath).isFile()) {
+      return { ok: false, command, reason: 'path is not a readable file', toolType: toolName };
+    }
+    const lines = fs.readFileSync(resolvedPath.absolutePath, 'utf8').replace(/\r\n/gu, '\n').split('\n');
+    const clampedStart = Math.min(startLine, lines.length || 1);
+    const requestedEnd = endLineCandidate > 0 ? endLineCandidate : lines.length;
+    const clampedEnd = Math.max(clampedStart, Math.min(requestedEnd, lines.length || clampedStart));
+    const selectedLines = lines.slice(clampedStart - 1, clampedEnd);
+    return {
+      ok: true,
+      command,
+      exitCode: 0,
+      output: formatNumberedTextBlock(selectedLines, clampedStart),
+      toolType: toolName,
+      lineReadStats: {
+        lineReadCalls: 1,
+        lineReadLinesTotal: selectedLines.length,
+        lineReadTokensTotal: Math.max(1, estimateTokenCount(undefined, selectedLines.join('\n'))),
+      },
+    };
+  }
+
+  const pathText = typeof args.path === 'string' && args.path.trim() ? args.path.trim() : '.';
+  const recurse = args.recurse === undefined ? true : args.recurse === true;
+  const globText = typeof args.glob === 'string' ? args.glob.trim() : '';
+  const command = `repo_list_files path=${JSON.stringify(pathText)}${globText ? ` glob=${JSON.stringify(globText)}` : ''} recurse=${recurse}`;
+  const resolvedPath = resolveRepoScopedPath(repoRoot, pathText);
+  if (!resolvedPath) {
+    return { ok: false, command, reason: 'path must stay within the repository root', toolType: toolName };
+  }
+  if (isRepoRelativePathIgnored(resolvedPath.relativePath, ignorePolicy)) {
+    return { ok: false, command, reason: 'path is ignored by runtime policy', toolType: toolName };
+  }
+  if (!fs.existsSync(resolvedPath.absolutePath) || !fs.statSync(resolvedPath.absolutePath).isDirectory()) {
+    return { ok: false, command, reason: 'path is not a readable directory', toolType: toolName };
+  }
+  const matches: string[] = [];
+  listRepoFilesRecursive(
+    resolvedPath.absolutePath,
+    resolvedPath.relativePath === '.' ? '' : resolvedPath.relativePath,
+    ignorePolicy,
+    matches,
+    recurse,
+  );
+  const filteredMatches = globText
+    ? matches.filter((relativePath) => matchesRepoListGlob(relativePath, globText))
+    : matches;
+  return {
+    ok: true,
+    command,
+    exitCode: 0,
+    output: filteredMatches.join('\n'),
+    toolType: toolName,
+  };
+}
 
 function findMockResult(
   command: string,
@@ -367,7 +571,10 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const plannerToolDefinitions = Array.isArray(options.plannerToolDefinitions) && options.plannerToolDefinitions.length > 0
     ? options.plannerToolDefinitions
     : resolveRepoSearchPlannerToolDefinitions();
-  const allowedPlannerToolNames = plannerToolDefinitions.map((toolDefinition) => toolDefinition.function.name);
+  const allowedPlannerToolNames = Array.from(new Set<string>([
+    ...plannerToolDefinitions.map((toolDefinition) => toolDefinition.function.name),
+    ...getRepoSearchToolNamesForParsing(),
+  ]));
   let zeroOutputStreak = 0;
   let consecutiveDuplicates = 0;
   let consecutiveSemanticRepeats = 0;
@@ -589,7 +796,9 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
 
     for (const toolAction of toolActions) {
       const normalizedToolName = String(toolAction.tool_name || '').trim().toLowerCase();
-      if (!isRepoSearchCommandToolName(normalizedToolName)) {
+      const isCommandTool = isRepoSearchCommandToolName(normalizedToolName);
+      const isNativeTool = isRepoSearchNativeToolName(normalizedToolName);
+      if (!isCommandTool && !isNativeTool) {
         invalidResponses += 1;
         const unsupportedToolMessage = `Invalid action: unsupported planner tool "${toolAction.tool_name}" for repo-search. Use one of: ${allowedPlannerToolNames.join(', ')}.`;
         messages.push({ role: 'assistant', content: JSON.stringify(toolAction) });
@@ -599,8 +808,13 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         history.push({ command: '[invalid action]', resultText: unsupportedToolMessage });
         continue;
       }
-      const command = typeof toolAction.args.command === 'string' ? toolAction.args.command : '';
-      if (!command.trim()) {
+      const nativeExecution = isNativeTool
+        ? executeNativeRepoTool(normalizedToolName, toolAction.args, options.repoRoot, ignorePolicy)
+        : null;
+      const command = isCommandTool
+        ? (typeof toolAction.args.command === 'string' ? toolAction.args.command : '')
+        : nativeExecution?.command || '';
+      if (isCommandTool && !command.trim()) {
         invalidResponses += 1;
         const invalidCommandMessage = `Invalid action: ${normalizedToolName} requires args.command.`;
         messages.push({ role: 'assistant', content: JSON.stringify(toolAction) });
@@ -610,9 +824,9 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         history.push({ command: '[invalid action]', resultText: invalidCommandMessage });
         continue;
       }
-      const expectedCommandToken = getRepoSearchCommandTokenForToolName(normalizedToolName);
-      const actualCommandToken = getFirstCommandToken(command);
-      if (!expectedCommandToken || actualCommandToken !== expectedCommandToken) {
+      const expectedCommandToken = isCommandTool ? getRepoSearchCommandTokenForToolName(normalizedToolName) : null;
+      const actualCommandToken = isCommandTool ? getFirstCommandToken(command) : null;
+      if (isCommandTool && (!expectedCommandToken || actualCommandToken !== expectedCommandToken)) {
         invalidResponses += 1;
         const invalidToolCommandMessage = `Invalid action: ${normalizedToolName} only allows commands starting with '${expectedCommandToken || '<unknown>'}'.`;
         messages.push({ role: 'assistant', content: JSON.stringify(toolAction) });
@@ -636,16 +850,26 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       continue;
     }
 
-    const normalized = normalizePlannerCommand(command, { repoRoot: options.repoRoot, ignorePolicy });
-    const fingerprint = normalized.rejected
-      ? ''
-      : fingerprintToolCall({ toolName: normalizedToolName, command: normalized.command });
-    const prospectiveToolType = normalized.rejected
-      ? 'loop'
-      : normalizeToolTypeFromCommand(normalized.command);
+    const normalized = isNativeTool
+      ? { command, rewritten: false, note: '', rejected: false }
+      : normalizePlannerCommand(command, { repoRoot: options.repoRoot, ignorePolicy });
+    const fingerprint = isNativeTool
+      ? fingerprintToolCall({ toolName: normalizedToolName, command })
+      : normalized.rejected
+        ? ''
+        : fingerprintToolCall({ toolName: normalizedToolName, command: normalized.command });
+    const prospectiveToolType = isNativeTool
+      ? normalizedToolName
+      : normalized.rejected
+        ? 'loop'
+        : normalizeToolTypeFromCommand(normalized.command);
 
     // Duplicate check on the normalized command so auto-appended flags don't confuse dedup
-    const normalizedKey = normalized.rejected ? command : normalized.command;
+    const normalizedKey = isNativeTool
+      ? command
+      : normalized.rejected
+        ? command
+        : normalized.command;
     if (attemptedCommands.has(normalizedKey)) {
       consecutiveDuplicates += 1;
       commandFailures += 1;
@@ -700,7 +924,16 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
     consecutiveDuplicates = 0;
     consecutiveSemanticRepeats = 0;
-    if (normalized.rejected) {
+    if (isNativeTool && nativeExecution && !nativeExecution.ok) {
+      safetyRejects += 1;
+      const rejection = `Rejected command: ${nativeExecution.reason}`;
+      commands.push({ command, safe: false, reason: nativeExecution.reason, exitCode: null, output: rejection });
+      messages.push({ role: 'assistant', content: assistantActionText });
+      messages.push({ role: 'user', content: rejection });
+      history.push({ command, resultText: rejection });
+      continue;
+    }
+    if (!isNativeTool && normalized.rejected) {
       safetyRejects += 1;
       const rejection = `Rejected command: ${normalized.rejectedReason}`;
       commands.push({ command, safe: false, reason: normalized.rejectedReason || null, exitCode: null, output: rejection });
@@ -711,10 +944,10 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
 
     const requestedCommand = command;
-    const normalizedCommand = normalized.command;
+    const normalizedCommand = isNativeTool ? command : normalized.command;
     const preExecutionDynamicPerToolRatio = Math.max(PER_TOOL_RESULT_RATIO, Number(commands.length) / Number(maxTurns));
     const preExecutionPerToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * preExecutionDynamicPerToolRatio));
-    const parsedReadWindow = parseGetContentReadWindowCommand(normalizedCommand);
+    const parsedReadWindow = isNativeTool ? null : parseGetContentReadWindowCommand(normalizedCommand);
     let commandToRun = normalizedCommand;
     let lineReadAdjustment: LineReadAdjustment | null = null;
 
@@ -757,7 +990,9 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       }
     }
 
-    const safety = evaluateCommandSafety(commandToRun, options.repoRoot);
+    const safety = isNativeTool
+      ? { safe: true, reason: null }
+      : evaluateCommandSafety(commandToRun, options.repoRoot);
     options.logger?.write({ kind: 'turn_command_safety', taskId: task.id, turn, command: commandToRun, safe: safety.safe, reason: safety.reason });
 
     if (!safety.safe) {
@@ -778,9 +1013,11 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       options.onProgress({ kind: 'tool_start', turn, maxTurns, command: commandToRun, promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
     }
 
-    const executed = await executeRepoCommand(commandToRun, options.repoRoot, options.mockCommandResults || null);
+    const executed = isNativeTool && nativeExecution && nativeExecution.ok
+      ? { exitCode: nativeExecution.exitCode, output: nativeExecution.output }
+      : await executeRepoCommand(commandToRun, options.repoRoot, options.mockCommandResults || null);
     const baseOutput = String(executed.output || '').trim();
-    const executedReadWindow = parseGetContentReadWindowCommand(commandToRun);
+    const executedReadWindow = isNativeTool ? null : parseGetContentReadWindowCommand(commandToRun);
     let lineReadOverlapLines = 0;
     let lineReadNewLinesCovered = 0;
     let lineReadCumulativeUniqueLines = 0;
@@ -878,7 +1115,9 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     const rawResultTokenCount = useEstimatedTokensOnly
       ? estimateTokenCount(options.config, rawResultText)
       : await countTokensWithFallback(options.config, rawResultText);
-    const lineReadStats = getRepoSearchLineReadStats(commandToRun, baseOutput, rawResultTokenCount);
+    const lineReadStats = isNativeTool && nativeExecution && nativeExecution.ok && nativeExecution.lineReadStats
+      ? nativeExecution.lineReadStats
+      : getRepoSearchLineReadStats(commandToRun, baseOutput, rawResultTokenCount);
     const dynamicPerToolRatio = Math.max(PER_TOOL_RESULT_RATIO, Number(commands.length) / Number(maxTurns));
     const perToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * dynamicPerToolRatio));
     const remainingTokenAllowance = Math.max(usablePromptTokens - promptTokenCount, 0);
@@ -906,7 +1145,9 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         resultTokenCountEstimated = true;
       }
     }
-    const toolType = normalizeToolTypeFromCommand(commandToRun);
+    const toolType = isNativeTool
+      ? normalizedToolName
+      : normalizeToolTypeFromCommand(commandToRun);
     const currentToolStats = toolStatsByType[toolType] || createEmptyToolTypeStats();
     toolStatsByType[toolType] = {
       ...currentToolStats,

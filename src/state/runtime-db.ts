@@ -4,11 +4,13 @@ import Database from 'better-sqlite3';
 import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
 import { ensureDirectory } from '../lib/fs.js';
 import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
+import { normalizeOperationModeAllowedTools, normalizePresets } from '../presets.js';
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-const CURRENT_SCHEMA_VERSION = 12;
+const CURRENT_SCHEMA_VERSION = 13;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
+const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["repo_rg","repo_read_file","repo_list_files","repo_git","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}';
 
 let cachedDatabasePath: string | null = null;
 let cachedDatabase: RuntimeDatabase | null = null;
@@ -38,7 +40,7 @@ function tableHasColumn(database: RuntimeDatabase, tableName: string, columnName
 }
 
 function detectEffectiveSchemaVersion(database: RuntimeDatabase, storedVersion: number): number {
-  if (storedVersion >= 12) {
+  if (storedVersion >= 13) {
     return storedVersion;
   }
   if (
@@ -234,7 +236,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       server_verbose_logging INTEGER CHECK (server_verbose_logging IN (0, 1) OR server_verbose_logging IS NULL),
       server_llama_presets_json TEXT NOT NULL DEFAULT '[]',
       server_llama_active_preset_id TEXT,
-      operation_mode_allowed_tools_json TEXT NOT NULL DEFAULT '{"summary":["find_text","read_lines","json_filter"],"read-only":["repo_rg","repo_get_content","repo_get_childitem","repo_select_string","repo_git","repo_pwd","repo_ls","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}',
+      operation_mode_allowed_tools_json TEXT NOT NULL DEFAULT '${DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON}',
       presets_json TEXT NOT NULL,
       updated_at_utc TEXT NOT NULL
     );
@@ -476,6 +478,47 @@ function ensureManagedLlamaAndBenchmarkMatrixSchema(database: RuntimeDatabase): 
   `);
 }
 
+function migrateStoredPlannerToolNames(database: RuntimeDatabase): void {
+  if (!tableExists(database, 'app_config')) {
+    return;
+  }
+  const row = database.prepare(`
+    SELECT operation_mode_allowed_tools_json, presets_json
+    FROM app_config
+    WHERE id = 1
+  `).get() as {
+    operation_mode_allowed_tools_json?: string;
+    presets_json?: string;
+  } | undefined;
+  if (!row) {
+    return;
+  }
+
+  let parsedOperationModeAllowedTools: unknown = undefined;
+  let parsedPresets: unknown = undefined;
+  try {
+    parsedOperationModeAllowedTools = row.operation_mode_allowed_tools_json
+      ? JSON.parse(row.operation_mode_allowed_tools_json)
+      : undefined;
+  } catch {
+    parsedOperationModeAllowedTools = undefined;
+  }
+  try {
+    parsedPresets = row.presets_json ? JSON.parse(row.presets_json) : undefined;
+  } catch {
+    parsedPresets = undefined;
+  }
+
+  database.prepare(`
+    UPDATE app_config
+    SET operation_mode_allowed_tools_json = ?, presets_json = ?
+    WHERE id = 1
+  `).run(
+    JSON.stringify(normalizeOperationModeAllowedTools(parsedOperationModeAllowedTools)),
+    JSON.stringify(normalizePresets(parsedPresets)),
+  );
+}
+
 function ensureSchema(database: RuntimeDatabase): void {
   database.exec('PRAGMA foreign_keys = ON;');
   const storedVersion = getSchemaVersion(database);
@@ -509,7 +552,7 @@ function ensureSchema(database: RuntimeDatabase): void {
   }
   if (currentVersion < 5) {
     database.exec(`
-      ALTER TABLE app_config ADD COLUMN operation_mode_allowed_tools_json TEXT NOT NULL DEFAULT '{"summary":["find_text","read_lines","json_filter"],"read-only":["repo_rg","repo_get_content","repo_get_childitem","repo_select_string","repo_git","repo_pwd","repo_ls","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}';
+      ALTER TABLE app_config ADD COLUMN operation_mode_allowed_tools_json TEXT NOT NULL DEFAULT '${DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON}';
     `);
     setSchemaVersion(database, 5);
     currentVersion = 5;
@@ -553,7 +596,7 @@ function ensureSchema(database: RuntimeDatabase): void {
         server_healthcheck_interval_ms INTEGER,
         server_verbose_logging INTEGER CHECK (server_verbose_logging IN (0, 1) OR server_verbose_logging IS NULL),
         server_verbose_args_json TEXT NOT NULL,
-        operation_mode_allowed_tools_json TEXT NOT NULL DEFAULT '{"summary":["find_text","read_lines","json_filter"],"read-only":["repo_rg","repo_get_content","repo_get_childitem","repo_select_string","repo_git","repo_pwd","repo_ls","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}',
+        operation_mode_allowed_tools_json TEXT NOT NULL DEFAULT '${DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON}',
         presets_json TEXT NOT NULL,
         updated_at_utc TEXT NOT NULL
       );
@@ -669,6 +712,11 @@ function ensureSchema(database: RuntimeDatabase): void {
     migrateRuntimeMetricsTotalsToProcessedInput(database);
     setSchemaVersion(database, 12);
     currentVersion = 12;
+  }
+  if (currentVersion < 13) {
+    migrateStoredPlannerToolNames(database);
+    setSchemaVersion(database, 13);
+    currentVersion = 13;
   }
   ensureRuntimeArtifactsSchema(database);
   ensureManagedLlamaAndBenchmarkMatrixSchema(database);

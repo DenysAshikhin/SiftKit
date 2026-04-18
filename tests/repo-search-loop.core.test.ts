@@ -345,6 +345,55 @@ test('runTaskLoop reports prompt tokens and elapsed time on command progress eve
   assert.equal(result.reason, 'finish');
 });
 
+test('runTaskLoop executes repo_list_files and repo_read_file natively', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const repoRoot = createTempRepoRoot();
+  try {
+    fs.mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, 'src', 'sample.ts'), 'line-1\nline-2\nline-3\n', 'utf8');
+    fs.writeFileSync(path.join(repoRoot, 'src', 'other.ts'), 'other-line\n', 'utf8');
+
+    const result = await runTaskLoop(
+      {
+        id: 'task-native-read-list',
+        question: 'List files, then read the sample file.',
+        signals: ['done'],
+      },
+      {
+        repoRoot,
+        maxTurns: 3,
+        maxInvalidResponses: 2,
+        minToolCallsBeforeFinish: 0,
+        mockResponses: [
+          '{"action":"tool","tool_name":"repo_list_files","args":{"path":"src","glob":"*.ts","recurse":true}}',
+          '{"action":"tool","tool_name":"repo_read_file","args":{"path":"src/sample.ts","startLine":2,"endLine":3}}',
+          '{"action":"finish","output":"done"}',
+          '{"verdict":"pass","reason":"supported"}',
+        ],
+        mockCommandResults: {},
+        logger: {
+          write(event: Record<string, unknown> & { kind: string }) {
+            events.push(event);
+          },
+        },
+      }
+    );
+
+    const commandResults = events.filter((event) => event.kind === 'turn_command_result');
+    assert.equal(commandResults.length >= 2, true);
+    assert.match(String(commandResults[0]?.command || ''), /^repo_list_files/u);
+    assert.match(String(commandResults[0]?.insertedResultText || ''), /src[\\/]other\.ts/u);
+    assert.match(String(commandResults[1]?.command || ''), /^repo_read_file/u);
+    assert.match(String(commandResults[1]?.insertedResultText || ''), /2: line-2/u);
+    assert.match(String(commandResults[1]?.insertedResultText || ''), /3: line-3/u);
+    assert.equal(result.reason, 'finish');
+    assert.equal(result.commandFailures, 0);
+    assert.equal(result.passed, true);
+  } finally {
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
 test('runTaskLoop logs provider request error details and surfaces enriched network failures', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   await assert.rejects(
@@ -802,11 +851,11 @@ test('runTaskLoop prompt includes anti-loop and larger single-file read guidance
   const prompt = String(systemMessage);
   assert.match(prompt, /Single-file read strategy:/u);
   assert.match(prompt, /Start with `rg -n` to find anchors/u);
-  assert.match(prompt, /default to one larger read around \d+ lines rather than multiple small windows/u);
+  assert.match(prompt, /default to one larger `repo_read_file` window around \d+ lines rather than multiple small windows/u);
   assert.match(prompt, /If you already read a file once, do a new anchor search before another read of that same file/u);
   assert.match(prompt, /read a larger section in one call/u);
-  assert.match(prompt, /Prefer `Get-Content <file> -Raw` for full-file inspection when manageable/u);
-  assert.match(prompt, /Do not issue multiple consecutive reads of the same file with only small `-Skip\/-First` changes/u);
+  assert.match(prompt, /For reading a specific file section: use `repo_read_file`/u);
+  assert.match(prompt, /Do not issue multiple consecutive reads of the same file with only small line-range changes/u);
   assert.match(prompt, /If a command returns an output token-allocation error, switch to stronger anchors/u);
   assert.equal(result.reason, 'finish');
 });
@@ -857,12 +906,13 @@ test('runTaskLoop prompt examples use larger reads and anchor-first flow', async
 
   const systemMessage2 = (events.find((event) => event.kind === 'turn_new_messages' && event.turn === 1)?.messages as Array<{ role?: string; content?: unknown }> | undefined)?.find((m) => m.role === 'system')?.content || '';
   const prompt = String(systemMessage2);
-  assert.doesNotMatch(prompt, /Get-Content src\\\\summary\.ts \| Select-Object -First 80/u);
-  assert.match(prompt, /Get-Content src\\\\summary\.ts \| Select-Object -First 240/u);
+  assert.doesNotMatch(prompt, /Get-Content src\\\\summary\.ts/u);
+  assert.match(prompt, /repo_list_files/u);
   assert.match(prompt, /rg -n \\"invokePlannerMode\\" src\\\\summary\.ts/u);
-  assert.match(prompt, /Get-Content src\\\\summary\.ts \| Select-Object -Skip 860 -First 240/u);
-  assert.match(prompt, /Get-Content src\\summary\.ts \| Select-Object -First 40/u);
-  assert.match(prompt, /Get-Content src\\summary\.ts \| Select-Object -Skip 40 -First 40/u);
+  assert.match(prompt, /repo_read_file/u);
+  assert.match(prompt, /"path":"src\\\\summary\.ts","startLine":861,"endLine":1100/u);
+  assert.match(prompt, /repo_read_file path=src\\summary\.ts startLine=1 endLine=40/u);
+  assert.match(prompt, /repo_read_file path=src\\summary\.ts startLine=41 endLine=80/u);
   assert.equal(result.reason, 'finish');
 });
 

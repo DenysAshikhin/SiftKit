@@ -44,3 +44,18 @@ test('buildTaskInitialUserPrompt includes repository file listing when enabled',
   assert.match(prompt, /Repository file listing/u);
   assert.match(prompt, /src\/index\.ts/u);
 });
+
+test('buildTaskSystemPrompt advertises native read and list tools instead of legacy PowerShell read/list commands', () => {
+  withTempRepo((repoRoot) => {
+    const prompt = buildTaskSystemPrompt(repoRoot);
+
+    assert.match(prompt, /repo_read_file/u);
+    assert.match(prompt, /repo_list_files/u);
+    assert.doesNotMatch(prompt, /repo_get_content/u);
+    assert.doesNotMatch(prompt, /repo_get_childitem/u);
+    assert.doesNotMatch(prompt, /repo_select_string/u);
+    assert.doesNotMatch(prompt, /For current directory context: use `pwd`/u);
+    assert.doesNotMatch(prompt, /Get-Content src\\\\summary\.ts/u);
+    assert.doesNotMatch(prompt, /Get-ChildItem src/u);
+  });
+});

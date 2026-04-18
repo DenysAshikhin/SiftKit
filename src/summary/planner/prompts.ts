@@ -110,7 +110,7 @@ export function buildPlannerSystemPrompt(options: {
     '- If you already used `read_lines` once, do another `find_text` search before requesting a second nearby `read_lines` slice.',
     '',
     'Available actions:',
-    '{"action":"tool","tool_name":"find_text|read_lines|json_filter","args":{...}}',
+    '{"action":"tool","tool_name":"find_text|read_lines|json_filter|json_get","args":{...}}',
     allowUnsupportedInput
       ? '{"action":"finish","classification":"summary|command_failure|unsupported_input","raw_review_required":true|false,"output":"final answer text"}'
       : '{"action":"finish","classification":"summary|command_failure","raw_review_required":true|false,"output":"final answer text"}',
@@ -118,6 +118,7 @@ export function buildPlannerSystemPrompt(options: {
     'Example tool calls:',
     '{"action":"tool","tool_name":"find_text","args":{"query":"Lumbridge","mode":"literal","maxHits":5,"contextLines":1}}',
     '{"action":"tool","tool_name":"read_lines","args":{"startLine":1340,"endLine":1405}}',
+    '{"action":"tool","tool_name":"json_get","args":{"path":"states.0.state_json.steps.1.status"}}',
     'Bad read_lines progression example: {"action":"tool","tool_name":"read_lines","args":{"startLine":1340,"endLine":1379}} then {"action":"tool","tool_name":"read_lines","args":{"startLine":1380,"endLine":1419}}',
     'Bad json_filter example: {"action":"tool","tool_name":"json_filter","args":{"filters":[{"path":"from.worldX","op":"gte","value":{"gte":3200,"lte":3215}}]}}',
     '{"action":"tool","tool_name":"json_filter","args":{"collectionPath":"states","filters":[{"path":"timestamp","op":"gte","value":"2026-03-30T18:40:00Z"},{"path":"timestamp","op":"lte","value":"2026-03-30T18:50:00Z"}],"select":["timestamp","lifecycle_state","bridge_state","scenario_id","step_id","state_json"],"limit":100}}',

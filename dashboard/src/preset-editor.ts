@@ -10,13 +10,11 @@ export const PRESET_TOOL_OPTIONS: DashboardPresetToolName[] = [
   'find_text',
   'read_lines',
   'json_filter',
+  'json_get',
   'repo_rg',
-  'repo_get_content',
-  'repo_get_childitem',
-  'repo_select_string',
+  'repo_read_file',
+  'repo_list_files',
   'repo_git',
-  'repo_pwd',
-  'repo_ls',
   'repo_select_object',
   'repo_where_object',
   'repo_sort_object',
@@ -39,20 +37,16 @@ export const PRESET_TOOL_DESCRIPTIONS: Record<DashboardPresetToolName, string> =
     'Read a specific 1-based line range from the input text. Best after a find_text hit when you need surrounding context. Prefer larger contiguous windows over many tiny adjacent slices.',
   json_filter:
     'Parse JSON, filter array items by field conditions, and project only selected fields. Best for narrowing large JSON dumps to the few records that matter without paging through raw text.',
+  json_get:
+    'Parse JSON and return one exact nested value by dot-path. Best for object drill-down when you need a specific field or array element.',
   repo_rg:
     'Run ripgrep against the repository (read-only). Best for fast literal/regex search across a tree to locate symbols, configs, or call sites. Example: rg -n "pattern" src.',
-  repo_get_content:
-    'PowerShell Get-Content equivalent. Best for reading a specific file or a slice of it (combined with Select-Object -Skip / -First) once you already know the path.',
-  repo_get_childitem:
-    'PowerShell Get-ChildItem equivalent. Best for listing files or directories, optionally recursive and filtered by glob, when you need to discover what exists.',
-  repo_select_string:
-    'PowerShell Select-String equivalent. Best for regex line matching inside a known set of files when ripgrep is not preferred or you want PowerShell-style output.',
+  repo_read_file:
+    'Read one repository file with optional 1-based line bounds. Best once ripgrep has already anchored the exact file and region you need.',
+  repo_list_files:
+    'List repository files under an optional path with optional glob filtering and recursion control. Best for directory/file discovery without shell-specific commands.',
   repo_git:
     'Run git read-only commands (status, log, diff, show). Best for inspecting branch state, recent history, or a specific commit without modifying the repo.',
-  repo_pwd:
-    'Print the working directory the tool loop is rooted at. Best for sanity-checking which repository the agent is actually operating against.',
-  repo_ls:
-    'Plain ls / dir listing. Best for a quick flat directory listing when Get-ChildItem is overkill.',
   repo_select_object:
     'PowerShell Select-Object. Best for projecting specific properties or taking a head/tail slice from piped object output.',
   repo_where_object:
@@ -81,15 +75,12 @@ export const PRESET_TOOL_DESCRIPTIONS: Record<DashboardPresetToolName, string> =
     'PowerShell Join-String. Best for concatenating piped values into a single delimited string for compact output or building an argument list.',
 };
 
-const SUMMARY_TOOLS: DashboardPresetToolName[] = ['find_text', 'read_lines', 'json_filter'];
+const SUMMARY_TOOLS: DashboardPresetToolName[] = ['find_text', 'read_lines', 'json_filter', 'json_get'];
 const READ_ONLY_TOOLS: DashboardPresetToolName[] = [
   'repo_rg',
-  'repo_get_content',
-  'repo_get_childitem',
-  'repo_select_string',
+  'repo_read_file',
+  'repo_list_files',
   'repo_git',
-  'repo_pwd',
-  'repo_ls',
   'repo_select_object',
   'repo_where_object',
   'repo_sort_object',

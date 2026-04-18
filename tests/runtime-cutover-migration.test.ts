@@ -5,7 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
 
-import { getDefaultConfig, readConfig } from '../dist/status-server/config-store.js';
+import { getDefaultConfig, readConfig, writeConfig } from '../dist/status-server/config-store.js';
 import { readStatusText } from '../dist/status-server/status-file.js';
 import { getDefaultMetrics, readMetrics } from '../dist/status-server/metrics.js';
 import { readObservedBudgetState } from '../dist/state/observed-budget.js';
@@ -237,7 +237,7 @@ test('runtime database initializes fresh app_config schema without re-adding v11
 
     assert.equal(appConfigColumns.filter((column) => column.name === 'llama_ncpu_moe').length, 1);
     assert.equal(appConfigColumns.filter((column) => column.name === 'server_ncpu_moe').length, 1);
-    assert.equal(Number(schemaVersion?.version || 0), 11);
+    assert.equal(Number(schemaVersion?.version || 0), 13);
   });
 });
 
@@ -328,7 +328,7 @@ test('runtime database migrates schema v10 to v11 without duplicating existing l
 
     assert.equal(appConfigColumns.filter((column) => column.name === 'llama_ncpu_moe').length, 1);
     assert.equal(appConfigColumns.filter((column) => column.name === 'server_ncpu_moe').length, 1);
-    assert.equal(Number(schemaVersion?.version || 0), 11);
+    assert.equal(Number(schemaVersion?.version || 0), 13);
   });
 });
 
@@ -429,13 +429,74 @@ test('runtime database migrates schema v5 GPU fields to schema v6 boolean-only s
       WHERE type = 'table' AND name = 'runtime_status'
     `).get() as { sql: string };
 
-    assert.equal(versionRow.version, 11);
+    assert.equal(versionRow.version, 13);
     assert.equal(appConfigColumns.some((column) => column.name === 'llama_gpu_layers'), false);
     assert.equal(appConfigColumns.some((column) => column.name === 'server_kv_cache_quant'), true);
     assert.equal(appConfigColumns.some((column) => column.name === 'server_llama_presets_json'), true);
     assert.equal(appConfigColumns.some((column) => column.name === 'server_reasoning_budget_message'), true);
     assert.equal(readStatusText(databasePath), 'false');
     assert.match(runtimeStatusSql.sql, /status_text IN \('true', 'false'\)/u);
+  });
+});
+
+test('runtime database migrates stored legacy planner tool names to canonical native ones', () => {
+  withTempRepo(() => {
+    const databasePath = getRuntimeDatabasePath();
+    const config = getDefaultConfig();
+    config.OperationModeAllowedTools = {
+      summary: ['find_text', 'read_lines', 'json_filter'],
+      'read-only': ['repo_rg', 'repo_get_content', 'repo_get_childitem', 'repo_select_string', 'repo_git', 'repo_pwd', 'repo_ls'],
+      full: [],
+    };
+    config.Presets = [
+      {
+        id: 'custom-search',
+        label: 'Custom Search',
+        presetKind: 'repo-search',
+        operationMode: 'read-only',
+        allowedTools: ['repo_get_content', 'repo_get_childitem', 'repo_ls', 'repo_select_string', 'repo_pwd', 'repo_git'],
+        surfaces: ['web'],
+      },
+    ];
+    writeConfig(databasePath, config);
+
+    const prepared = getRuntimeDatabase(databasePath);
+    prepared.prepare('UPDATE runtime_schema SET version = 12 WHERE id = 1').run();
+    prepared.prepare(`
+      UPDATE app_config
+      SET operation_mode_allowed_tools_json = ?, presets_json = ?
+      WHERE id = 1
+    `).run(
+      '{"summary":["find_text","read_lines","json_filter"],"read-only":["repo_rg","repo_get_content","repo_get_childitem","repo_select_string","repo_git","repo_pwd","repo_ls"],"full":[]}',
+      '[{"id":"custom-search","label":"Custom Search","presetKind":"repo-search","operationMode":"read-only","allowedTools":["repo_get_content","repo_get_childitem","repo_ls","repo_select_string","repo_pwd","repo_git"],"surfaces":["web"]}]',
+    );
+
+    closeRuntimeDatabase();
+    const migrated = getRuntimeDatabase(databasePath);
+    const row = migrated.prepare(`
+      SELECT operation_mode_allowed_tools_json, presets_json
+      FROM app_config
+      WHERE id = 1
+    `).get() as {
+      operation_mode_allowed_tools_json: string;
+      presets_json: string;
+    };
+    const schemaVersion = migrated.prepare('SELECT version FROM runtime_schema WHERE id = 1').get() as { version?: number } | undefined;
+
+    assert.equal(Number(schemaVersion?.version || 0), 13);
+    assert.deepEqual(JSON.parse(row.operation_mode_allowed_tools_json), {
+      summary: ['find_text', 'read_lines', 'json_filter', 'json_get'],
+      'read-only': ['repo_rg', 'repo_read_file', 'repo_list_files', 'repo_git'],
+      full: [],
+    });
+    const presets = JSON.parse(row.presets_json) as Array<{ id: string; allowedTools: string[] }>;
+    const customSearchPreset = presets.find((preset) => preset.id === 'custom-search');
+    assert.deepEqual(customSearchPreset?.allowedTools, [
+      'repo_read_file',
+      'repo_list_files',
+      'repo_rg',
+      'repo_git',
+    ]);
   });
 });
 

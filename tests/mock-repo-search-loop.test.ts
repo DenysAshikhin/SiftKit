@@ -363,7 +363,7 @@ test('runTaskLoop increases per-tool cap as tool-call progress grows', async () 
 test('runTaskLoop still rejects tool output that exceeds remaining token allowance', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   const totalContextTokens = 30000;
-  const oversizedQuestion = 'Q'.repeat(90000);
+  const oversizedQuestion = 'Q'.repeat(84000);
   const result = await runTaskLoop(
     {
       id: 'task-remaining-token-guard',
