@@ -802,7 +802,7 @@ test('planner rejects semantically repeated nearby read_lines calls and reprompt
       assert.equal(result.Summary, 'semantic repeat handled');
       assert.equal(server.state.chatRequests.length, 3);
       const followupPrompt = getChatRequestText(server.state.chatRequests[2]);
-      assert.match(followupPrompt, /repeats the same search intent/u);
+      assert.match(followupPrompt, /duplicate command requested x2\. Issue a different\/unique tool call/u);
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
@@ -846,7 +846,7 @@ test('planner rejects semantically repeated nearby read_lines calls and reprompt
   });
 });
 
-test('planner collapses repeated no-new-evidence tool replays and forces finish at x4', async () => {
+test('planner keeps the first real tool output and rewrites one duplicate warning tool turn through x5', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -863,13 +863,20 @@ test('planner collapses repeated no-new-evidence tool replays and forces finish 
       });
 
       assert.equal(result.Classification, 'summary');
-      assert.equal(result.Summary, 'collapsed repeats handled');
-      assert.equal(server.state.chatRequests.length, 5);
-      const thirdPrompt = getChatRequestText(server.state.chatRequests[2]);
-      const fourthPrompt = getChatRequestText(server.state.chatRequests[3]);
-      assert.match(thirdPrompt, /find_text: repeated tool call x2/u);
-      assert.match(fourthPrompt, /find_text: repeated tool call x3/u);
-      assert.match(fourthPrompt, /Use a different command now or you will be forced to answer/u);
+      assert.equal(result.Summary, 'duplicate compaction handled');
+      assert.equal(server.state.chatRequests.length, 6);
+      const finalRequest = server.state.chatRequests[5];
+      const finalMessages = Array.isArray(finalRequest?.messages) ? finalRequest.messages : [];
+      const assistantToolCalls = finalMessages.filter((message) => Array.isArray(message?.tool_calls));
+      const toolMessages = finalMessages.filter((message) => message?.role === 'tool');
+      const duplicateToolMessages = toolMessages.filter((message) => /duplicate command requested/u.test(String(message?.content || '')));
+      const duplicateUserMessages = finalMessages.filter((message) => message?.role === 'user' && /duplicate command requested/u.test(String(message?.content || '')));
+      assert.equal(assistantToolCalls.length, 2);
+      assert.equal(toolMessages.length, 2);
+      assert.equal(duplicateToolMessages.length, 1);
+      assert.equal(duplicateUserMessages.length, 0);
+      assert.match(String(duplicateToolMessages[0]?.content || ''), /duplicate command requested x5\. Issue a different\/unique tool call/u);
+      assert.doesNotMatch(String(duplicateToolMessages[0]?.content || ''), /repeated tool call/u);
     }, {
       assistantContent(_promptText, _parsed, requestIndex) {
         if (requestIndex === 1) {
@@ -912,11 +919,21 @@ test('planner collapses repeated no-new-evidence tool replays and forces finish 
             },
           });
         }
+        if (requestIndex === 5) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'find_text',
+            args: {
+              query: 'NO_MATCH_ALPHA',
+              mode: 'literal',
+            },
+          });
+        }
         return JSON.stringify({
           action: 'finish',
           classification: 'summary',
           raw_review_required: false,
-          output: 'collapsed repeats handled',
+          output: 'duplicate compaction handled',
         });
       },
     });

@@ -77,7 +77,6 @@ import {
 import {
   buildRepeatedToolCallSummary,
   buildPromptToolResult,
-  buildToolReplayFingerprint,
   classifyToolResultNovelty,
   evaluateFinishAttempt,
   fingerprintToolCall,
@@ -102,8 +101,7 @@ const PER_TOOL_RESULT_RATIO = 0.10;
 const DEFAULT_REPO_SEARCH_REQUEST_MAX_TOKENS = 2048;
 const ZERO_OUTPUT_FORCE_THRESHOLD = 10;
 const FORCED_FINISH_MAX_ATTEMPTS = 3;
-const STAGNATION_WARNING_THRESHOLD = 3;
-const STAGNATION_FORCE_THRESHOLD = 4;
+const DUPLICATE_FORCE_THRESHOLD = 5;
 const ANSI_RED_CODE = 31;
 
 // ---------------------------------------------------------------------------
@@ -538,6 +536,27 @@ function buildAssistantReplayMessage(content: string, thinkingText: string): Cha
   };
 }
 
+function buildAssistantToolCallMessage(
+  toolName: string,
+  args: Record<string, unknown>,
+  toolCallId: string,
+  thinkingText: string
+): ChatMessage {
+  return {
+    role: 'assistant',
+    content: '',
+    tool_calls: [{
+      id: toolCallId,
+      type: 'function',
+      function: {
+        name: toolName,
+        arguments: JSON.stringify(args),
+      },
+    }],
+    ...(thinkingText ? { reasoning_content: thinkingText } : {}),
+  };
+}
+
 export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOptions): Promise<TaskResult> {
   const taskStartedAt = Date.now();
   const maxTurns = Math.max(1, Number(options.maxTurns || DEFAULT_MAX_TURNS));
@@ -558,7 +577,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   let modelPromptCacheTokens = 0;
   let modelPromptEvalTokens = 0;
   const toolStatsByType: Record<string, ToolTypeStats> = {};
-  const attemptedCommands = new Set<string>();
   const minToolCallsBeforeFinish = Math.max(0, Number(options.minToolCallsBeforeFinish ?? MIN_TOOL_CALLS_BEFORE_FINISH));
   const totalContextTokens = Math.max(1, Number(options.totalContextTokens || (options.config ? getConfiguredLlamaNumCtx(options.config) : 32000)));
   const thinkingBufferTokens = Math.max(Math.ceil(totalContextTokens * THINKING_BUFFER_RATIO), THINKING_BUFFER_MIN_TOKENS);
@@ -576,9 +594,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     ...getRepoSearchToolNamesForParsing(),
   ]));
   let zeroOutputStreak = 0;
-  let consecutiveDuplicates = 0;
-  let consecutiveSemanticRepeats = 0;
-  let consecutiveNoNewEvidence = 0;
   let forcedFinishAttemptsRemaining = 0;
   let lastLoggedMessageCount = 0;
   const slotId = options.config ? allocateLlamaCppSlotId(options.config) : 0;
@@ -588,13 +603,14 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     : (scanRepoFiles(options.repoRoot, ignorePolicy) || undefined);
   const historicalToolStats = readLatestIdleSummaryToolStats();
   const initialPerToolAllowanceTokens = getRepoSearchPromptBaselinePerToolAllowanceTokens(options.config ?? null);
-  const attemptedFingerprints = new Set<string>();
   const recentEvidenceKeys = new Set<string>();
   const successfulToolCalls: Array<{ toolName: string; promptResultText: string }> = [];
-  let lastReplayFingerprint: string | null = null;
-  let replayRepeatCount = 0;
-  let lastReplayUserMessageIndex = -1;
-  let lastReplayHistoryIndex = -1;
+  let lastSuccessfulNormalizedKey: string | null = null;
+  let lastSuccessfulFingerprint: string | null = null;
+  let duplicateReplayFingerprint: string | null = null;
+  let duplicateReplayCount = 0;
+  let duplicateReplayToolMessageIndex = -1;
+  let duplicateReplayHistoryIndex = -1;
   const fileReadCountByPath = new Map<string, number>();
   const fileReadStateByPath = new Map<string, FileReadState>();
 
@@ -870,60 +886,75 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       : normalized.rejected
         ? command
         : normalized.command;
-    if (attemptedCommands.has(normalizedKey)) {
-      consecutiveDuplicates += 1;
+    const duplicateFingerprint = fingerprint || `${normalizedToolName}|${normalizedKey}`;
+    const isExactDuplicate = Boolean(lastSuccessfulNormalizedKey && normalizedKey === lastSuccessfulNormalizedKey);
+    const isSemanticDuplicate = Boolean(!isExactDuplicate && !normalized.rejected && fingerprint && lastSuccessfulFingerprint && fingerprint === lastSuccessfulFingerprint);
+    if (isExactDuplicate || isSemanticDuplicate) {
+      const isActiveDuplicate = duplicateReplayFingerprint === duplicateFingerprint
+        && duplicateReplayToolMessageIndex >= 0
+        && duplicateReplayToolMessageIndex < messages.length;
+      duplicateReplayFingerprint = duplicateFingerprint;
+      duplicateReplayCount = isActiveDuplicate ? (duplicateReplayCount + 1) : 2;
+      const duplicateMessage = buildRepeatedToolCallSummary(normalizedToolName, duplicateReplayCount);
       commandFailures += 1;
-      const duplicateMessage = `That command was already run ${consecutiveDuplicates} time(s). You MUST use different keywords, a narrower path, or try reading a file directly. If you have enough evidence, use {"action":"finish",...}.`;
-      commands.push({ command, safe: false, reason: 'duplicate command', exitCode: null, output: `Rejected: ${duplicateMessage}` });
-      messages.push({ role: 'assistant', content: assistantActionText });
-      messages.push({ role: 'user', content: duplicateMessage });
-      history.push({ command, resultText: `Rejected: ${duplicateMessage}` });
-      if (consecutiveDuplicates >= 5 && forcedFinishAttemptsRemaining === 0) {
+      const rejectionReason = isExactDuplicate ? 'duplicate command' : 'semantic duplicate command';
+      commands.push({ command, safe: false, reason: rejectionReason, exitCode: null, output: `Rejected: ${duplicateMessage}` });
+      if (isActiveDuplicate) {
+        const previousToolMessage = messages[duplicateReplayToolMessageIndex];
+        messages[duplicateReplayToolMessageIndex] = {
+          role: 'tool',
+          tool_call_id: previousToolMessage?.tool_call_id,
+          content: duplicateMessage,
+        };
+      } else {
+        const duplicateToolCallId = `duplicate_call_${commands.length}`;
+        messages.push(buildAssistantToolCallMessage(
+          normalizedToolName,
+          toolAction.args,
+          duplicateToolCallId,
+          ''
+        ));
+        duplicateReplayToolMessageIndex = messages.length;
+        messages.push({ role: 'tool', tool_call_id: duplicateToolCallId, content: duplicateMessage });
+      }
+      if (duplicateReplayHistoryIndex >= 0 && duplicateReplayHistoryIndex < history.length) {
+        history[duplicateReplayHistoryIndex] = { command: '[duplicate tool call]', resultText: duplicateMessage };
+      } else {
+        duplicateReplayHistoryIndex = history.length;
+        history.push({ command: '[duplicate tool call]', resultText: duplicateMessage });
+      }
+      if (isSemanticDuplicate) {
+        const currentToolStats = toolStatsByType[prospectiveToolType] || createEmptyToolTypeStats();
+        toolStatsByType[prospectiveToolType] = {
+          ...currentToolStats,
+          semanticRepeatRejects: currentToolStats.semanticRepeatRejects + 1,
+        };
+        options.logger?.write({
+          kind: 'turn_semantic_repeat_rejected',
+          taskId: task.id,
+          turn,
+          command,
+          fingerprint,
+          repeats: duplicateReplayCount,
+        });
+      }
+      if (duplicateReplayCount >= DUPLICATE_FORCE_THRESHOLD && forcedFinishAttemptsRemaining === 0) {
         forcedFinishAttemptsRemaining = FORCED_FINISH_MAX_ATTEMPTS;
         messages.push({ role: 'user', content: 'Forced finish mode active. Return {"action":"finish",...} now. Tool calls are blocked.' });
-        options.logger?.write({ kind: 'turn_forced_finish_mode_started', taskId: task.id, turn, attemptsRemaining: forcedFinishAttemptsRemaining, trigger: 'consecutive_duplicates' });
-      }
-      continue;
-    }
-    if (!normalized.rejected && fingerprint && attemptedFingerprints.has(fingerprint)) {
-      consecutiveSemanticRepeats += 1;
-      commandFailures += 1;
-      const semanticMessage = 'That command repeats the same search intent and is unlikely to add new evidence. Change the keywords, path, or tool. If the current evidence is enough, finish now.';
-      const currentToolStats = toolStatsByType[prospectiveToolType] || createEmptyToolTypeStats();
-      toolStatsByType[prospectiveToolType] = {
-        ...currentToolStats,
-        semanticRepeatRejects: currentToolStats.semanticRepeatRejects + 1,
-      };
-      commands.push({ command, safe: false, reason: 'semantic duplicate command', exitCode: null, output: `Rejected: ${semanticMessage}` });
-      messages.push({ role: 'assistant', content: assistantActionText });
-      messages.push({ role: 'user', content: semanticMessage });
-      history.push({ command, resultText: `Rejected: ${semanticMessage}` });
-      options.logger?.write({
-        kind: 'turn_semantic_repeat_rejected',
-        taskId: task.id,
-        turn,
-        command,
-        fingerprint,
-        repeats: consecutiveSemanticRepeats,
-      });
-      if (consecutiveSemanticRepeats >= 2 && forcedFinishAttemptsRemaining === 0) {
-        forcedFinishAttemptsRemaining = FORCED_FINISH_MAX_ATTEMPTS;
-        const forcedMessage = 'Forced finish mode active. Current evidence is already repeating. Return {"action":"finish",...} now. Tool calls are blocked.';
-        messages.push({ role: 'user', content: forcedMessage });
         toolStatsByType[prospectiveToolType] = {
           ...toolStatsByType[prospectiveToolType],
           forcedFinishFromStagnation: Number(toolStatsByType[prospectiveToolType]?.forcedFinishFromStagnation || 0) + 1,
         };
-        options.logger?.write({ kind: 'turn_forced_finish_mode_started', taskId: task.id, turn, attemptsRemaining: forcedFinishAttemptsRemaining, trigger: 'semantic_repetition' });
+        options.logger?.write({
+          kind: 'turn_forced_finish_mode_started',
+          taskId: task.id,
+          turn,
+          attemptsRemaining: forcedFinishAttemptsRemaining,
+          trigger: isSemanticDuplicate ? 'semantic_repetition' : 'consecutive_duplicates',
+        });
       }
       continue;
     }
-    attemptedCommands.add(normalizedKey);
-    if (fingerprint) {
-      attemptedFingerprints.add(fingerprint);
-    }
-    consecutiveDuplicates = 0;
-    consecutiveSemanticRepeats = 0;
     if (isNativeTool && nativeExecution && !nativeExecution.ok) {
       safetyRejects += 1;
       const rejection = `Rejected command: ${nativeExecution.reason}`;
@@ -1201,69 +1232,24 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     });
 
     commands.push({ command: commandToRun, safe: true, reason: null, exitCode: executed.exitCode, output: outputWithRewriteNote });
-    const replayAssistantText = lineReadAdjustment
-      ? JSON.stringify({ action: 'tool', tool_name: normalizedToolName, args: { command: commandToRun } })
-      : assistantActionText;
-    let appendReplayMessages = true;
-    if (novelty.hasNewEvidence) {
-      consecutiveNoNewEvidence = 0;
-      const replayFingerprint = buildToolReplayFingerprint({
-        toolName: toolType,
-        promptResultText: resultText,
-      });
-      lastReplayFingerprint = replayFingerprint;
-      replayRepeatCount = 1;
-      lastReplayUserMessageIndex = messages.length + 1;
-      lastReplayHistoryIndex = history.length;
-    } else {
-      consecutiveNoNewEvidence += 1;
-      const replayFingerprint = buildToolReplayFingerprint({
-        toolName: toolType,
-        promptResultText: resultText,
-      });
-      if (lastReplayFingerprint === replayFingerprint) {
-        replayRepeatCount += 1;
-        const summary = buildRepeatedToolCallSummary(commandToRun, replayRepeatCount);
-        if (lastReplayUserMessageIndex >= 0 && lastReplayUserMessageIndex < messages.length) {
-          messages[lastReplayUserMessageIndex] = { role: 'user', content: summary };
-          appendReplayMessages = false;
-        }
-        if (lastReplayHistoryIndex >= 0 && lastReplayHistoryIndex < history.length) {
-          history[lastReplayHistoryIndex] = { command: '[repeated tool call]', resultText: summary };
-        }
-      } else {
-        lastReplayFingerprint = replayFingerprint;
-        replayRepeatCount = 1;
-        lastReplayUserMessageIndex = messages.length + 1;
-        lastReplayHistoryIndex = history.length;
-      }
-
-      if (replayRepeatCount === STAGNATION_WARNING_THRESHOLD) {
-        const stagnationMessage = 'Repeated tool output x3. Use a different command now or you will be forced to answer.';
-        messages.push({ role: 'user', content: stagnationMessage });
-        history.push({ command: '[stagnation warning]', resultText: stagnationMessage });
-        toolStatsByType[toolType] = {
-          ...toolStatsByType[toolType],
-          stagnationWarnings: toolStatsByType[toolType].stagnationWarnings + 1,
-        };
-        options.logger?.write({ kind: 'turn_stagnation_warning', taskId: task.id, turn, toolType, consecutiveNoNewEvidence });
-      }
-      if (replayRepeatCount >= STAGNATION_FORCE_THRESHOLD && forcedFinishAttemptsRemaining === 0) {
-        forcedFinishAttemptsRemaining = FORCED_FINISH_MAX_ATTEMPTS;
-        messages.push({ role: 'user', content: 'Forced finish mode active. You repeated the same tool output too many times. Return {"action":"finish",...} now. Tool calls are blocked.' });
-        toolStatsByType[toolType] = {
-          ...toolStatsByType[toolType],
-          forcedFinishFromStagnation: toolStatsByType[toolType].forcedFinishFromStagnation + 1,
-        };
-        options.logger?.write({ kind: 'turn_forced_finish_mode_started', taskId: task.id, turn, attemptsRemaining: forcedFinishAttemptsRemaining, trigger: 'no_new_evidence' });
-      }
+    const commandSucceeded = Number(executed.exitCode) === 0 || isSearchNoMatchExit(commandToRun, executed.exitCode);
+    if (commandSucceeded) {
+      duplicateReplayFingerprint = null;
+      duplicateReplayCount = 0;
+      duplicateReplayToolMessageIndex = -1;
+      duplicateReplayHistoryIndex = -1;
+      lastSuccessfulNormalizedKey = normalizedKey;
+      lastSuccessfulFingerprint = fingerprint || null;
     }
-
-      if (appendReplayMessages) {
-        messages.push(buildAssistantReplayMessage(replayAssistantText, String(response.thinkingText || '').trim()));
-        messages.push({ role: 'user', content: resultText });
-        history.push({ command: commandToRun, resultText });
-      }
+    const toolCallId = `call_${commands.length}`;
+    messages.push(buildAssistantToolCallMessage(
+      normalizedToolName,
+      isNativeTool ? toolAction.args : { command: commandToRun },
+      toolCallId,
+      String(response.thinkingText || '').trim()
+    ));
+    messages.push({ role: 'tool', tool_call_id: toolCallId, content: resultText });
+    history.push({ command: commandToRun, resultText });
     }
     if (reason === 'forced_finish_attempt_limit') {
       break;

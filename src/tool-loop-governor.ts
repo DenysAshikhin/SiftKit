@@ -175,10 +175,9 @@ export function buildToolReplayFingerprint(options: BuildToolReplayFingerprintOp
   return `${String(options.toolName || '').trim().toLowerCase()}|${normalizeEvidenceLine(String(options.promptResultText || ''))}`;
 }
 
-export function buildRepeatedToolCallSummary(toolName: string, repeatCount: number): string {
-  const normalizedToolName = String(toolName || 'tool').trim() || 'tool';
+export function buildRepeatedToolCallSummary(_toolName: string, repeatCount: number): string {
   const normalizedRepeatCount = Math.max(2, Math.floor(Number(repeatCount) || 2));
-  return `${normalizedToolName}: repeated tool call x${normalizedRepeatCount}`;
+  return `duplicate command requested x${normalizedRepeatCount}. Issue a different/unique tool call`;
 }
 
 export function evaluateFinishAttempt(options: EvaluateFinishAttemptOptions): FinishAttemptEvaluation {

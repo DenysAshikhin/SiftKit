@@ -820,14 +820,14 @@ test('runTaskLoop blocks exact duplicate commands with explicit error message', 
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "planner" src': { exitCode: 2, stdout: '', stderr: 'boom' },
+        'rg -n "planner" src': { exitCode: 0, stdout: 'src\\planner.ts:10: planner hit', stderr: '' },
       },
     }
   );
 
   assert.equal(result.reason, 'finish');
   assert.equal(result.turnsUsed, 3);
-  assert.equal(result.commandFailures, 2);
+  assert.equal(result.commandFailures, 1);
   assert.equal(result.commands.length, 2);
   assert.equal(result.commands[1].safe, false);
   assert.equal(String(result.commands[1].reason || ''), 'duplicate command');
@@ -981,14 +981,15 @@ test('runTaskLoop widens repeated Get-Content reads on the same file and logs re
     ? turn3NewMessages.messages.filter((message: { role?: string }) => message.role === 'assistant')
     : [];
   assert.equal(turn3AssistantMessages.length > 0, true);
-  const replayedAssistantPayload = String(turn3AssistantMessages[turn3AssistantMessages.length - 1]?.content || '');
-  const replayedAssistantAction = JSON.parse(replayedAssistantPayload);
-  assert.equal(String(replayedAssistantAction?.args?.command || ''), String(commandEvents[1]?.executedCommand || ''));
-  assert.notEqual(String(replayedAssistantAction?.args?.command || ''), String(commandEvents[1]?.requestedCommand || ''));
-  const turn3UserMessages = Array.isArray(turn3NewMessages?.messages)
-    ? turn3NewMessages.messages.filter((message: { role?: string }) => message.role === 'user')
+  const replayedAssistantAction = turn3AssistantMessages[turn3AssistantMessages.length - 1]?.tool_calls?.[0];
+  assert.equal(String(replayedAssistantAction?.function?.name || ''), 'repo_get_content');
+  const replayedAssistantArgs = JSON.parse(String(replayedAssistantAction?.function?.arguments || '{}'));
+  assert.equal(String(replayedAssistantArgs?.command || ''), String(commandEvents[1]?.executedCommand || ''));
+  assert.notEqual(String(replayedAssistantArgs?.command || ''), String(commandEvents[1]?.requestedCommand || ''));
+  const turn3ToolMessages = Array.isArray(turn3NewMessages?.messages)
+    ? turn3NewMessages.messages.filter((message: { role?: string }) => message.role === 'tool')
     : [];
-  const replayedToolResultForPrompt = String(turn3UserMessages[turn3UserMessages.length - 1]?.content || '');
+  const replayedToolResultForPrompt = String(turn3ToolMessages[turn3ToolMessages.length - 1]?.content || '');
   assert.doesNotMatch(replayedToolResultForPrompt, /requested start=/u);
   assert.doesNotMatch(replayedToolResultForPrompt, /adjusted start=/u);
   assert.equal(result.reason, 'finish');
@@ -1165,7 +1166,7 @@ test('runTaskLoop tracks per-file overlap telemetry and isolates histories acros
   assert.equal(result.reason, 'finish');
 });
 
-test('runTaskLoop collapses repeated no-new-evidence tool replays and forces finish at x4', async () => {
+test('runTaskLoop does not compact different commands that happen to return the same evidence', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   const result = await runTaskLoop(
     {
@@ -1202,10 +1203,10 @@ test('runTaskLoop collapses repeated no-new-evidence tool replays and forces fin
   const turn2NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 2);
   const turn3NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 3);
   assert.equal(Array.isArray(turn2NewMessages?.messages) ? turn2NewMessages.messages.length : -1, 2);
-  assert.equal(Array.isArray(turn3NewMessages?.messages) ? turn3NewMessages.messages.length : -1, 0);
+  assert.equal(Array.isArray(turn3NewMessages?.messages) ? turn3NewMessages.messages.length : -1, 2);
 
   const forcedStart = events.find((event) => event.kind === 'turn_forced_finish_mode_started' && event.trigger === 'no_new_evidence');
-  assert.ok(forcedStart);
+  assert.equal(Boolean(forcedStart), false);
   assert.equal(result.reason, 'finish');
 });
 

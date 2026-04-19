@@ -57,8 +57,7 @@ import {
 
 const MAX_PLANNER_TOOL_CALLS = 30;
 const PLANNER_FORCED_FINISH_MAX_ATTEMPTS = 2;
-const PLANNER_STAGNATION_WARNING_THRESHOLD = 3;
-const PLANNER_STAGNATION_FORCE_THRESHOLD = 4;
+const PLANNER_DUPLICATE_FORCE_THRESHOLD = 5;
 
 export async function invokePlannerMode(options: {
   requestId: string;
@@ -129,12 +128,11 @@ export async function invokePlannerMode(options: {
   let invalidActionCount = 0;
   let forcedFinishAttemptsRemaining = 0;
   let consecutiveNoNewEvidence = 0;
-  let consecutiveSemanticRepeats = 0;
   let lastSuccessfulFingerprint: string | null = null;
   const recentEvidenceKeys = new Set<string>();
-  let lastReplayFingerprint: string | null = null;
-  let replayRepeatCount = 0;
-  let lastReplayToolMessageIndex = -1;
+  let duplicateReplayFingerprint: string | null = null;
+  let duplicateReplayCount = 0;
+  let duplicateReplayToolMessageIndex = -1;
 
   while (toolResults.length <= MAX_PLANNER_TOOL_CALLS) {
     const prompt = renderPlannerTranscript(messages);
@@ -395,6 +393,65 @@ export async function invokePlannerMode(options: {
       }
 
       for (const toolAction of toolActions) {
+        const fingerprint = fingerprintToolCall({
+          toolName: toolAction.tool_name,
+          args: toolAction.args,
+        });
+        if (lastSuccessfulFingerprint && lastSuccessfulFingerprint === fingerprint) {
+          const isActiveDuplicate = duplicateReplayFingerprint === fingerprint
+            && duplicateReplayToolMessageIndex >= 0
+            && duplicateReplayToolMessageIndex < messages.length;
+          duplicateReplayFingerprint = fingerprint;
+          duplicateReplayCount = isActiveDuplicate ? (duplicateReplayCount + 1) : 2;
+          const duplicateSummary = buildRepeatedToolCallSummary(toolAction.tool_name, duplicateReplayCount);
+          if (isActiveDuplicate) {
+            const previousToolMessage = messages[duplicateReplayToolMessageIndex];
+            messages[duplicateReplayToolMessageIndex] = {
+              role: 'tool',
+              tool_call_id: previousToolMessage?.tool_call_id,
+              content: duplicateSummary,
+            };
+          } else {
+            const duplicateToolCallId = `duplicate_call_${toolResults.length + 1}`;
+            messages.push({
+              ...buildPlannerAssistantToolMessage(toolAction, duplicateToolCallId),
+              ...(providerResponse.reasoningText ? { reasoning_content: providerResponse.reasoningText } : {}),
+            });
+            duplicateReplayToolMessageIndex = messages.length;
+            messages.push({
+              role: 'tool',
+              tool_call_id: duplicateToolCallId,
+              content: duplicateSummary,
+            });
+          }
+          toolStatsPayload ||= {};
+          const duplicateToolStats = toolStatsPayload[toolAction.tool_name] || createEmptyToolTypeStats();
+          toolStatsPayload[toolAction.tool_name] = {
+            ...duplicateToolStats,
+            semanticRepeatRejects: duplicateToolStats.semanticRepeatRejects + 1,
+          };
+          debugRecorder.record({
+            kind: 'planner_semantic_repeat',
+            toolCall: toolAction,
+            fingerprint,
+            repeats: duplicateReplayCount,
+          });
+          if (duplicateReplayCount >= PLANNER_DUPLICATE_FORCE_THRESHOLD && forcedFinishAttemptsRemaining === 0) {
+            forcedFinishAttemptsRemaining = PLANNER_FORCED_FINISH_MAX_ATTEMPTS;
+            messages.push({
+              role: 'user',
+              content: buildPlannerForcedFinishUserPrompt(
+                'You repeated the same tool call too many times. Produce your final answer now.'
+              ),
+            });
+            toolStatsPayload[toolAction.tool_name] = {
+              ...toolStatsPayload[toolAction.tool_name],
+              forcedFinishFromStagnation: toolStatsPayload[toolAction.tool_name].forcedFinishFromStagnation + 1,
+            };
+          }
+          continue;
+        }
+
         let result: Record<string, unknown>;
         try {
           result = executePlannerTool(options.inputText, toolAction, allowedTools);
@@ -471,100 +528,26 @@ export async function invokePlannerMode(options: {
           promptResultText,
           recentEvidenceKeys,
         });
-        const fingerprint = fingerprintToolCall({
-          toolName: toolAction.tool_name,
-          args: toolAction.args,
-        });
         for (const evidenceKey of novelty.evidenceKeys) {
           recentEvidenceKeys.add(evidenceKey);
         }
         toolStatsPayload[toolAction.tool_name].newEvidenceCalls += novelty.hasNewEvidence ? 1 : 0;
         toolStatsPayload[toolAction.tool_name].noNewEvidenceCalls += novelty.hasNewEvidence ? 0 : 1;
-        if (lastSuccessfulFingerprint && lastSuccessfulFingerprint === fingerprint) {
-          consecutiveSemanticRepeats += 1;
-          messages.push({
-            role: 'user',
-            content: 'That tool call repeats the same search intent and is unlikely to add new evidence. Change strategy or finish now.',
-          });
-          toolStatsPayload[toolAction.tool_name].semanticRepeatRejects += 1;
-          debugRecorder.record({
-            kind: 'planner_semantic_repeat',
-            toolCall: toolAction,
-            fingerprint,
-            repeats: consecutiveSemanticRepeats,
-          });
-          if (consecutiveSemanticRepeats >= 2 && forcedFinishAttemptsRemaining === 0) {
-            forcedFinishAttemptsRemaining = PLANNER_FORCED_FINISH_MAX_ATTEMPTS;
-            messages.push({
-              role: 'user',
-              content: buildPlannerForcedFinishUserPrompt(
-                'Current evidence is already repeating and likely sufficient. Produce your final answer now.'
-              ),
-            });
-            toolStatsPayload[toolAction.tool_name].forcedFinishFromStagnation += 1;
-          }
-        } else {
-          consecutiveSemanticRepeats = 0;
-        }
+        duplicateReplayFingerprint = null;
+        duplicateReplayCount = 0;
+        duplicateReplayToolMessageIndex = -1;
         lastSuccessfulFingerprint = fingerprint;
         consecutiveNoNewEvidence = novelty.hasNewEvidence ? 0 : (consecutiveNoNewEvidence + 1);
         const toolCallId = `call_${toolResults.length + 1}`;
-        let appendReplayMessages = true;
-        const replayFingerprint = buildToolReplayFingerprint({
-          toolName: toolAction.tool_name,
-          promptResultText,
+        messages.push({
+          ...buildPlannerAssistantToolMessage(toolAction, toolCallId),
+          ...(providerResponse.reasoningText ? { reasoning_content: providerResponse.reasoningText } : {}),
         });
-        if (novelty.hasNewEvidence) {
-          lastReplayFingerprint = replayFingerprint;
-          replayRepeatCount = 1;
-          lastReplayToolMessageIndex = messages.length + 1;
-        } else if (lastReplayFingerprint === replayFingerprint) {
-          replayRepeatCount += 1;
-          const summary = buildRepeatedToolCallSummary(toolAction.tool_name, replayRepeatCount);
-          if (lastReplayToolMessageIndex >= 0 && lastReplayToolMessageIndex < messages.length) {
-            const previousToolMessage = messages[lastReplayToolMessageIndex];
-            messages[lastReplayToolMessageIndex] = {
-              role: 'tool',
-              tool_call_id: previousToolMessage?.tool_call_id,
-              content: summary,
-            };
-            appendReplayMessages = false;
-          }
-        } else {
-          lastReplayFingerprint = replayFingerprint;
-          replayRepeatCount = 1;
-          lastReplayToolMessageIndex = messages.length + 1;
-        }
-
-        if (replayRepeatCount === PLANNER_STAGNATION_WARNING_THRESHOLD) {
-          messages.push({
-            role: 'user',
-            content: 'Repeated tool output x3. Use a different command now or you will be forced to answer.',
-          });
-          toolStatsPayload[toolAction.tool_name].stagnationWarnings += 1;
-        }
-        if (replayRepeatCount >= PLANNER_STAGNATION_FORCE_THRESHOLD && forcedFinishAttemptsRemaining === 0) {
-          forcedFinishAttemptsRemaining = PLANNER_FORCED_FINISH_MAX_ATTEMPTS;
-          messages.push({
-            role: 'user',
-            content: buildPlannerForcedFinishUserPrompt(
-              'You repeated the same tool output too many times. Produce your final answer now.'
-            ),
-          });
-          toolStatsPayload[toolAction.tool_name].forcedFinishFromStagnation += 1;
-        }
-
-        if (appendReplayMessages) {
-          messages.push({
-            ...buildPlannerAssistantToolMessage(toolAction, toolCallId),
-            ...(providerResponse.reasoningText ? { reasoning_content: providerResponse.reasoningText } : {}),
-          });
-          messages.push({
-            role: 'tool',
-            tool_call_id: toolCallId,
-            content: promptResultText,
-          });
-        }
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCallId,
+          content: promptResultText,
+        });
         toolResults.push({
           toolName: toolAction.tool_name,
           args: toolAction.args,

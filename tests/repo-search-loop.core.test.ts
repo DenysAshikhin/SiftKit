@@ -1252,6 +1252,130 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
   }
 });
 
+test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the fifth duplicate', async () => {
+  const chatRequests = [];
+  let requestCount = 0;
+  const server = http.createServer(async (req, res) => {
+    if (req.method === 'POST' && req.url === '/tokenize') {
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
+      req.on('end', () => {
+        const parsed = JSON.parse(body || '{}');
+        const content = String(parsed.content || '');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ count: Math.max(1, Math.ceil(content.length / 4)) }));
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/v1/chat/completions') {
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
+      req.on('end', () => {
+        requestCount += 1;
+        const parsed = JSON.parse(body || '{}');
+        chatRequests.push(parsed);
+        const content = requestCount <= 5
+          ? JSON.stringify({
+            action: 'tool',
+            tool_name: 'run_repo_cmd',
+            args: { command: 'rg -n "planner" src' },
+          })
+          : JSON.stringify({
+            action: 'finish',
+            output: 'done',
+          });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          id: 'chatcmpl-test',
+          object: 'chat.completion',
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content,
+              },
+            },
+          ],
+          usage: {
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            total_tokens: 15,
+          },
+        }));
+      });
+      return;
+    }
+
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${Number(address.port)}`;
+
+  try {
+    const result = await runTaskLoop(
+      {
+        id: 'task-duplicate-warning-tool-turn',
+        question: 'Find planner text.',
+        signals: [],
+      },
+      {
+        repoRoot: process.cwd(),
+        baseUrl,
+        model: 'mock-model',
+        config: {
+          Runtime: {
+            LlamaCpp: {
+              BaseUrl: baseUrl,
+              NumCtx: 70000,
+              ParallelSlots: 4,
+              Reasoning: 'off',
+            },
+          },
+          LlamaCpp: {
+            BaseUrl: baseUrl,
+            NumCtx: 70000,
+            ParallelSlots: 4,
+            Reasoning: 'off',
+          },
+        },
+        maxTurns: 6,
+        maxInvalidResponses: 2,
+        minToolCallsBeforeFinish: 0,
+        requestMaxTokens: 256,
+        mockCommandResults: {
+          'rg -n "planner" src': { exitCode: 0, stdout: 'src\\planner.ts:10: planner hit', stderr: '' },
+        },
+      }
+    );
+
+    assert.equal(result.reason, 'finish');
+    assert.equal(chatRequests.length, 6);
+    const finalMessages = Array.isArray(chatRequests[5]?.messages) ? chatRequests[5].messages : [];
+    const assistantToolCalls = finalMessages.filter((message) => Array.isArray(message?.tool_calls));
+    const toolMessages = finalMessages.filter((message) => message?.role === 'tool');
+    const duplicateToolMessages = toolMessages.filter((message) => /duplicate command requested/u.test(String(message?.content || '')));
+    const duplicateUserMessages = finalMessages.filter((message) => message?.role === 'user' && /duplicate command requested/u.test(String(message?.content || '')));
+    assert.equal(assistantToolCalls.length, 2);
+    assert.equal(toolMessages.length, 2);
+    assert.equal(duplicateToolMessages.length, 1);
+    assert.equal(duplicateUserMessages.length, 0);
+    assert.match(String(duplicateToolMessages[0]?.content || ''), /duplicate command requested x5\. Issue a different\/unique tool call/u);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
 test('runTaskLoop synthesizes final output on terminal max_turns', async () => {
   const result = await runTaskLoop(
     {
