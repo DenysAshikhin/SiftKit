@@ -152,6 +152,41 @@ test('planner fails fast when the planner response body is empty', async () => {
   });
 });
 
+test('planner accepts a direct structured summary response for oversized input instead of falling back to chunking', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Summarize oversized input.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'planner direct summary');
+      assert.equal(server.state.chatRequests.length, 1);
+      assert.equal(
+        server.state.chatRequests.some((request) => /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(getChatRequestText(request))),
+        false,
+      );
+    }, {
+      assistantContent() {
+        return JSON.stringify({
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'planner direct summary',
+        });
+      },
+    });
+  });
+});
+
 test('summarizeRequest no longer rejects input larger than 4x chunk threshold when planner mode can handle it', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {

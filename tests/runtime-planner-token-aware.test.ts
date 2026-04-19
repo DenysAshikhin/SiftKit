@@ -67,7 +67,7 @@ const {
   runPowerShellScript,
 } = require('./_runtime-helpers.js');
 
-test('summary flattens token-aware llama.cpp chunking across sibling boundaries', async () => {
+test('oversized llama.cpp summaries stay on planner status path without leaf chunk markers', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -90,9 +90,16 @@ test('summary flattens token-aware llama.cpp chunking across sibling boundaries'
           && typeof post.chunkPath === 'string'
         ))
         .map((post) => String(post.chunkPath));
-      assert.ok(chunkPaths.length >= 3);
-      assert.ok(chunkPaths.every((chunkPath) => !chunkPath.includes('->')));
+      assert.equal(chunkPaths.length, 0);
     }, {
+      assistantContent() {
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'planner finish',
+        });
+      },
       tokenizeCharsPerToken: 1,
       metrics: {
         inputCharactersTotal: 3_461_904,

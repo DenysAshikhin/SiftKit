@@ -144,17 +144,10 @@ export function getMockSummary(prompt: string, question: string, phase: SummaryP
     throw new Error('mock provider failure');
   }
   if (behavior === 'recursive-merge') {
-    if (phase === 'merge' || question.startsWith('Merge these partial summaries into one final answer')) {
-      return toMockDecision({
-        classification: 'summary',
-        rawReviewRequired: false,
-        output: 'merge summary',
-      });
-    }
     return toMockDecision({
       classification: 'summary',
       rawReviewRequired: false,
-      output: 'L'.repeat(150000),
+      output: 'merge summary',
     });
   }
 

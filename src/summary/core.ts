@@ -44,18 +44,13 @@ import {
 } from './artifacts.js';
 import {
   allocateLlamaCppSlotId,
-  estimatePromptTokenCount,
   getLlamaCppChunkThresholdCharacters,
   getPlannerActivationThresholdCharacters,
   getPlannerPromptBudget,
-  getTokenAwareChunkThreshold,
-  planTokenAwareLlamaCppChunks,
-  shouldRetryWithSmallerChunks,
-  splitTextIntoChunks,
 } from './chunking.js';
 import { getSummaryDecision, getPolicyDecision } from './decision.js';
 import { invokeProviderSummary } from './provider-invoke.js';
-import { invokePlannerMode, PLANNER_FALLBACK_TO_CHUNKS } from './planner/mode.js';
+import { invokePlannerMode } from './planner/mode.js';
 import type {
   ChunkPromptContext,
   StructuredModelDecision,
@@ -149,85 +144,12 @@ async function invokeSummaryCore(options: {
       requestTimeoutSeconds: options.requestTimeoutSeconds,
       llamaCppOverrides: options.llamaCppOverrides,
     });
-    if (plannerDecision === PLANNER_FALLBACK_TO_CHUNKS) {
-      // Fall through to normal chunking/provider flow.
-    } else if (plannerDecision) {
+    if (plannerDecision) {
       return plannerDecision;
-    } else {
-      throw new Error(buildPlannerFailureErrorMessage({
-        requestId: options.requestId,
-      }));
     }
-  }
-  if (
-    options.inputText.length > chunkThreshold
-    && !(options.backend === 'llama.cpp' && (llamaPromptBudget?.usablePromptBudgetTokens ?? 0) <= 0)
-  ) {
-    const plannedChunks = options.backend === 'llama.cpp'
-      ? await planTokenAwareLlamaCppChunks({
-        question: options.question,
-        inputText: options.inputText,
-        format: options.format,
-        policyProfile: options.policyProfile,
-        rawReviewRequired: options.rawReviewRequired,
-        promptPrefix: options.promptPrefix,
-        sourceKind: options.sourceKind,
-        commandExitCode: options.commandExitCode,
-        config: options.config,
-        chunkThreshold,
-        phase,
-        chunkContext: options.chunkContext,
-      })
-      : null;
-    const chunks = plannedChunks && plannedChunks.length > 1
-      ? plannedChunks
-      : splitTextIntoChunks(options.inputText, chunkThreshold);
-    if (chunks.length > 1) {
-      const chunkDecisions: StructuredModelDecision[] = [];
-      for (let index = 0; index < chunks.length; index += 1) {
-        const childChunkPath = appendChunkPath(options.chunkPath ?? null, index + 1, chunks.length);
-        chunkDecisions.push(await invokeSummaryCore({
-          ...options,
-          inputText: chunks[index],
-          phase,
-        chunkIndex: index + 1,
-        chunkTotal: chunks.length,
-        chunkPath: childChunkPath,
-        rootInputCharacterCount,
-        chunkThresholdOverride: chunkThreshold,
-        chunkContext: {
-          isGeneratedChunk: true,
-          mayBeTruncated: true,
-            retryMode: 'default',
-            chunkPath: childChunkPath,
-          },
-        }));
-      }
-      const mergeLines = chunkDecisions
-        .map((decision, index) => JSON.stringify({
-          chunk: index + 1,
-          classification: decision.classification,
-          raw_review_required: decision.rawReviewRequired,
-          output: decision.output,
-        }));
-      const mergeRequiresRawReview = chunkDecisions.some((decision) => decision.rawReviewRequired);
-      const mergeInput = [
-        `raw_review_required=${mergeRequiresRawReview ? 'true' : 'false'}`,
-        ...mergeLines,
-      ].join('\n');
-      return invokeSummaryCore({
-        ...options,
-        question: options.question,
-        inputText: mergeInput,
-        phase: 'merge',
-        chunkIndex: options.chunkIndex ?? null,
-        chunkTotal: options.chunkTotal ?? null,
-        chunkPath: options.chunkPath ?? null,
-        rootInputCharacterCount,
-        chunkThresholdOverride: chunkThreshold,
-        chunkContext: undefined,
-      });
-    }
+    throw new Error(buildPlannerFailureErrorMessage({
+      requestId: options.requestId,
+    }));
   }
 
   const useCompactPrompt = options.backend === 'llama.cpp'
@@ -270,25 +192,42 @@ async function invokeSummaryCore(options: {
   traceSummary(
     `preflight done phase=${phase} chunk=${chunkLabel} prompt_tokens=${promptTokenCount ?? 'null'}`
   );
-  const preflightChunkThreshold = effectivePromptLimit !== null && promptTokenCount !== null
-    ? getTokenAwareChunkThreshold({
-      inputLength: options.inputText.length,
-      promptTokenCount,
-      effectivePromptLimit,
-    })
-    : null;
-  if (preflightChunkThreshold !== null) {
+  if (
+    options.backend === 'llama.cpp'
+    && phase === 'leaf'
+    && !options.chunkContext
+    && effectivePromptLimit !== null
+    && promptTokenCount !== null
+    && promptTokenCount > effectivePromptLimit
+  ) {
     traceSummary(
-      `preflight recurse phase=${phase} chunk=${chunkLabel} reduced_chunk_threshold=${preflightChunkThreshold}`
+      `preflight planner handoff phase=${phase} chunk=${chunkLabel} prompt_tokens=${promptTokenCount} `
+      + `effective_prompt_limit=${effectivePromptLimit}`
     );
-    return invokeSummaryCore({
-      ...options,
-      rootInputCharacterCount,
-      chunkThresholdOverride: preflightChunkThreshold,
-      chunkIndex: options.chunkIndex ?? null,
-      chunkTotal: options.chunkTotal ?? null,
-      chunkPath: options.chunkPath ?? null,
+    const plannerDecision = await invokePlannerMode({
+      requestId: options.requestId,
+      slotId: options.slotId,
+      question: options.question,
+      inputText: options.inputText,
+      format: options.format,
+      backend: options.backend,
+      model: options.model,
+      config: options.config,
+      rawReviewRequired: options.rawReviewRequired,
+      sourceKind: options.sourceKind,
+      commandExitCode: options.commandExitCode,
+      debugCommand: options.debugCommand,
+      promptPrefix: options.promptPrefix,
+      allowedTools: options.allowedPlannerTools,
+      requestTimeoutSeconds: options.requestTimeoutSeconds,
+      llamaCppOverrides: options.llamaCppOverrides,
     });
+    if (plannerDecision) {
+      return plannerDecision;
+    }
+    throw new Error(buildPlannerFailureErrorMessage({
+      requestId: options.requestId,
+    }));
   }
 
   try {
@@ -377,36 +316,39 @@ async function invokeSummaryCore(options: {
       chunkTotal: options.chunkTotal ?? null,
       chunkPath: options.chunkPath ?? null,
     });
-    if (!shouldRetryWithSmallerChunks({
-      error: enrichedError,
-      backend: options.backend,
-      inputText: options.inputText,
-      chunkThreshold,
-    })) {
-      throw enrichedError;
+    if (
+      options.backend === 'llama.cpp'
+      && phase === 'leaf'
+      && !options.chunkContext
+      && /llama\.cpp generate failed with HTTP 400\b/iu.test(getErrorMessage(enrichedError))
+    ) {
+      traceSummary(`provider planner handoff phase=${phase} chunk=${chunkLabel} request_id=${options.requestId}`);
+      const plannerDecision = await invokePlannerMode({
+        requestId: options.requestId,
+        slotId: options.slotId,
+        question: options.question,
+        inputText: options.inputText,
+        format: options.format,
+        backend: options.backend,
+        model: options.model,
+        config: options.config,
+        rawReviewRequired: options.rawReviewRequired,
+        sourceKind: options.sourceKind,
+        commandExitCode: options.commandExitCode,
+        debugCommand: options.debugCommand,
+        promptPrefix: options.promptPrefix,
+        allowedTools: options.allowedPlannerTools,
+        requestTimeoutSeconds: options.requestTimeoutSeconds,
+        llamaCppOverrides: options.llamaCppOverrides,
+      });
+      if (plannerDecision) {
+        return plannerDecision;
+      }
+      throw new Error(buildPlannerFailureErrorMessage({
+        requestId: options.requestId,
+      }));
     }
-
-    const reducedThreshold = (
-      effectivePromptLimit !== null && promptTokenCount !== null
-        ? getTokenAwareChunkThreshold({
-          inputLength: options.inputText.length,
-          promptTokenCount,
-          effectivePromptLimit,
-        })
-        : null
-    ) ?? Math.max(1, Math.min(chunkThreshold - 1, Math.floor(options.inputText.length / 2)));
-    if (reducedThreshold >= options.inputText.length) {
-      throw enrichedError;
-    }
-
-    return invokeSummaryCore({
-      ...options,
-      rootInputCharacterCount,
-      chunkThresholdOverride: reducedThreshold,
-      chunkIndex: options.chunkIndex ?? null,
-      chunkTotal: options.chunkTotal ?? null,
-      chunkPath: options.chunkPath ?? null,
-    });
+    throw enrichedError;
   }
 }
 

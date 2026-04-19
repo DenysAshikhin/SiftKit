@@ -15,6 +15,7 @@ const { runBenchmarkSuite } = require('../dist/benchmark/index.js');
 const { readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs, pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt } = require('../dist/benchmark-matrix/index.js');
 const { countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse } = require('../dist/providers/llama-cpp.js');
 const { withExecutionLock } = require('../dist/execution-lock.js');
+const { parseRuntimeArtifactUri, readRuntimeArtifact } = require('../dist/state/runtime-artifacts.js');
 const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../dist/status-server/index.js');
 const { runDebugRequest } = require('../dist/scripts/run-benchmark-fixture-debug.js');
 const { runFixture60MalformedJsonRepro } = require('../dist/scripts/repro-fixture60-malformed-json.js');
@@ -67,7 +68,7 @@ const {
   runPowerShellScript,
 } = require('./_runtime-helpers.js');
 
-test('summarizeRequest recursively merges oversized mock summaries when the external server is available', async () => {
+test('summarizeRequest uses a single oversized mock summary pass when the external server is available', async () => {
   await withTempEnv(async (tempRoot) => {
     await withStubServer(async () => {
       process.env.SIFTKIT_TEST_PROVIDER_BEHAVIOR = 'recursive-merge';
@@ -94,13 +95,13 @@ test('summarizeRequest recursively merges oversized mock summaries when the exte
 
       assert.equal(result.WasSummarized, true);
       assert.equal(result.Summary, 'merge summary');
-      assert.equal(leafCalls, 4);
-      assert.ok(mergeCalls > 1);
+      assert.equal(leafCalls, 1);
+      assert.equal(mergeCalls, 0);
     });
   });
 });
 
-test('summarizeRequest splits using the observed aggregate chars-per-token average', async () => {
+test('summarizeRequest does not split mock summaries even when observed aggregate chars-per-token would allow it', async () => {
   await withTempEnv(async (tempRoot) => {
     await withStubServer(async () => {
       const logPath = path.join(tempRoot, 'provider-events-observed-threshold.jsonl');
@@ -128,8 +129,8 @@ test('summarizeRequest splits using the observed aggregate chars-per-token avera
       assert.equal(threshold, 237565);
       assert.equal(result.WasSummarized, true);
       assert.equal(result.Summary, 'mock summary');
-      assert.equal(leafCalls, 2);
-      assert.equal(mergeCalls, 1);
+      assert.equal(leafCalls, 1);
+      assert.equal(mergeCalls, 0);
     }, {
       metrics: {
         inputCharactersTotal: 3461904,
@@ -181,28 +182,12 @@ test('summarizeRequest does not recurse forever when token-aware planning return
   });
 });
 
-test('summarizeRequest does not re-split token-aware chunks that already exceed the original char threshold', async () => {
+test('summarizeRequest keeps oversized llama.cpp requests on the planner path without chunk leaf markers', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
       const maxRequestChars = getChunkThresholdCharacters(config) * 4;
       const inputText = 'A'.repeat(Math.max(2_000, Math.min(50_000, maxRequestChars)));
-      const threshold = 1_000;
-      const decision = getSummaryDecision(inputText, 'summarize this', 'informational', config);
-      const chunks = await planTokenAwareLlamaCppChunks({
-        question: 'summarize this',
-        inputText,
-        format: 'text',
-        policyProfile: 'general',
-        rawReviewRequired: decision.RawReviewRequired,
-        sourceKind: 'standalone',
-        config,
-        chunkThreshold: threshold,
-        phase: 'leaf',
-      });
-
-      assert.ok(chunks);
-      assert.ok(chunks.length >= 2);
 
       const result = await summarizeRequest({
         question: 'summarize this',
@@ -221,9 +206,16 @@ test('summarizeRequest does not re-split token-aware chunks that already exceed 
         ))
         .map((post) => String(post.chunkPath));
 
-      assert.ok(chunkPaths.length >= 2);
-      assert.ok(chunkPaths.every((chunkPath) => !chunkPath.includes('->')));
+      assert.equal(chunkPaths.length, 0);
     }, {
+      assistantContent() {
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'planner finish',
+        });
+      },
       config: {
         LlamaCpp: {
           NumCtx: 12_000,
@@ -299,8 +291,11 @@ test('runCommand saves a raw log and respects no-summarize mode when the externa
 
       assert.equal(result.WasSummarized, false);
       assert.ok(result.RawLogPath);
-      assert.equal(fs.existsSync(result.RawLogPath), true);
-      const rawLog = fs.readFileSync(result.RawLogPath, 'utf8');
+      const artifactId = parseRuntimeArtifactUri(result.RawLogPath);
+      assert.ok(artifactId);
+      const rawLogArtifact = readRuntimeArtifact(artifactId);
+      assert.ok(rawLogArtifact);
+      const rawLog = rawLogArtifact.contentText || '';
       assert.match(rawLog, /stdout line/u);
       assert.match(rawLog, /stderr line/u);
     });
@@ -321,7 +316,7 @@ test('saveConfig fails closed with the canonical message when the external serve
   });
 });
 
-test('summary retries with smaller chunks when llama.cpp rejects an oversized prompt and tokenization is unavailable', async () => {
+test('summary keeps oversized llama.cpp requests on planner mode when direct prompt limits would reject chunking', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const result = await summarizeRequest({
@@ -334,13 +329,24 @@ test('summary retries with smaller chunks when llama.cpp rejects an oversized pr
       });
 
       assert.equal(result.WasSummarized, true);
-      assert.match(result.Summary, /^summary:/u);
-      assert.ok(server.state.tokenizeRequests.length >= 1);
-      assert.ok(server.state.chatRequests.length >= 3);
+      assert.equal(result.Summary, 'planner finish');
+      assert.equal(server.state.chatRequests.length, 2);
       const promptLengths = server.state.chatRequests.map((request) => getChatRequestText(request).length);
-      assert.ok(promptLengths.some((length) => length > 80000));
-      assert.ok(promptLengths.some((length) => length <= 80000));
+      assert.ok(promptLengths[0] > 80000);
+      assert.ok(promptLengths[1] < 80000);
+      assert.equal(
+        server.state.chatRequests.some((request) => /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(getChatRequestText(request))),
+        false,
+      );
     }, {
+      assistantContent() {
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'planner finish',
+        });
+      },
       rejectPromptCharsOver: 80000,
       metrics: {
         inputCharactersTotal: 3_461_904,
@@ -355,7 +361,7 @@ test('summary retries with smaller chunks when llama.cpp rejects an oversized pr
   });
 });
 
-test('summary resizes llama.cpp chunks before the first chat request when prompt tokenization exceeds context', async () => {
+test('summary hands oversized llama.cpp requests to planner mode before tokenization-based chunking would start', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const result = await summarizeRequest({
@@ -368,13 +374,23 @@ test('summary resizes llama.cpp chunks before the first chat request when prompt
       });
 
       assert.equal(result.WasSummarized, true);
-      assert.match(result.Summary, /^summary:/u);
-      assert.ok(server.state.tokenizeRequests.length >= 3);
-      assert.ok(server.state.chatRequests.length >= 3);
+      assert.equal(result.Summary, 'planner finish');
+      assert.equal(server.state.chatRequests.length, 1);
       const promptLengths = server.state.chatRequests.map((request) => getChatRequestText(request).length);
       assert.ok(promptLengths.every((length) => length < 128000));
-      assert.ok(promptLengths.some((length) => length > 70000));
+      assert.equal(
+        server.state.chatRequests.some((request) => /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(getChatRequestText(request))),
+        false,
+      );
     }, {
+      assistantContent() {
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'planner finish',
+        });
+      },
       tokenizeCharsPerToken: 1,
       metrics: {
         inputCharactersTotal: 3_461_904,
@@ -696,102 +712,6 @@ test('command-output never surfaces unsupported_input for non-empty input', asyn
       assert.equal(result.Classification, 'summary');
       assert.equal(result.RawReviewRequired, false);
       assert.match(result.Summary, /Conservative local fallback/u);
-    });
-  });
-});
-
-test('chunked malformed JSON slices retry with stricter chunk guidance instead of surfacing unsupported_input', async () => {
-  await withTempEnv(async () => {
-    let servedUnsupportedChunk = false;
-    await withStubServer(async (server) => {
-      const config = await loadConfig({ ensure: true });
-      const threshold = getChunkThresholdCharacters(config);
-      const inputText = `{"system_prompt":"${'A'.repeat(threshold + 100)}","workflow":["scan"],"tail":"done"}`;
-
-      const result = await summarizeRequest({
-        question: 'Summarize the main purpose of this JSON packet.',
-        inputText,
-        format: 'text',
-        policyProfile: 'general',
-        backend: 'llama.cpp',
-        model: 'mock-model',
-      });
-
-      assert.equal(result.WasSummarized, true);
-      assert.equal(result.Classification, 'summary');
-      assert.ok(server.state.chatRequests.length >= 5);
-      const plannerPrompt = getChatRequestText(server.state.chatRequests[0]);
-      assert.doesNotMatch(plannerPrompt, /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u);
-      const firstChunkPrompt = getChatRequestText(server.state.chatRequests[1]);
-      const secondChunkPrompt = getChatRequestText(server.state.chatRequests[2]);
-      assert.match(firstChunkPrompt, /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u);
-      assert.doesNotMatch(firstChunkPrompt, /Returning "unsupported_input" for this chunk is invalid/u);
-      assert.match(secondChunkPrompt, /Returning "unsupported_input" for this chunk is invalid/u);
-    }, {
-      assistantContent(promptText) {
-        if (
-          /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(promptText)
-          && !/Returning "unsupported_input" for this chunk is invalid/u.test(promptText)
-          && !servedUnsupportedChunk
-        ) {
-          servedUnsupportedChunk = true;
-          return JSON.stringify({
-            classification: 'unsupported_input',
-            raw_review_required: false,
-            output: UNSUPPORTED_INPUT_MESSAGE,
-          });
-        }
-
-        return JSON.stringify({
-          classification: 'summary',
-          raw_review_required: /<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(promptText),
-          output: /Merge these partial summaries into one final answer/u.test(promptText)
-            ? 'merge summary'
-            : 'chunk retry summary',
-        });
-      },
-    });
-  });
-});
-
-test('chunked unsupported-input leaf retries fall back to a conservative local summary after repeated failures', async () => {
-  await withTempEnv(async () => {
-    await withStubServer(async (server) => {
-      const config = await loadConfig({ ensure: true });
-      const threshold = getChunkThresholdCharacters(config);
-      const inputText = `{"system_prompt":"${'A'.repeat(threshold + 100)}","workflow":["scan"],"tail":"done"}`;
-
-      const result = await summarizeRequest({
-        question: 'Summarize the visible evidence in this large JSON packet.',
-        inputText,
-        format: 'text',
-        policyProfile: 'general',
-        backend: 'llama.cpp',
-        model: 'mock-model',
-      });
-
-      assert.equal(result.WasSummarized, true);
-      assert.equal(result.Classification, 'summary');
-      assert.equal(server.state.chatRequests.length, 6);
-      const mergePrompt = getChatRequestText(server.state.chatRequests[5]);
-      assert.match(mergePrompt, /partial slice of a larger supported input/u);
-      assert.match(mergePrompt, /raw_review_required=true/u);
-    }, {
-      assistantContent(promptText) {
-        if (/<<<BEGIN_LITERAL_INPUT_SLICE>>>/u.test(promptText)) {
-          return JSON.stringify({
-            classification: 'unsupported_input',
-            raw_review_required: false,
-            output: UNSUPPORTED_INPUT_MESSAGE,
-          });
-        }
-
-        return JSON.stringify({
-          classification: 'summary',
-          raw_review_required: false,
-          output: 'merge summary',
-        });
-      },
     });
   });
 });

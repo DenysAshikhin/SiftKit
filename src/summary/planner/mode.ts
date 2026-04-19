@@ -56,7 +56,6 @@ import {
 } from '../../tool-loop-governor.js';
 
 const MAX_PLANNER_TOOL_CALLS = 30;
-export const PLANNER_FALLBACK_TO_CHUNKS = 'fallback_to_chunks';
 const PLANNER_FORCED_FINISH_MAX_ATTEMPTS = 2;
 const PLANNER_STAGNATION_WARNING_THRESHOLD = 3;
 const PLANNER_STAGNATION_FORCE_THRESHOLD = 4;
@@ -78,7 +77,7 @@ export async function invokePlannerMode(options: {
   allowedTools?: PlannerToolName[];
   requestTimeoutSeconds?: number;
   llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
-}): Promise<StructuredModelDecision | null | typeof PLANNER_FALLBACK_TO_CHUNKS> {
+}): Promise<StructuredModelDecision | null> {
   if (options.backend !== 'llama.cpp') {
     return null;
   }
@@ -223,12 +222,19 @@ export async function invokePlannerMode(options: {
       try {
         action = parsePlannerAction(providerResponse.text);
       } catch (error) {
-        if (toolResults.length === 0 && tryRecoverStructuredModelDecision(providerResponse.text)) {
+        const recoveredDecision = toolResults.length === 0
+          ? tryRecoverStructuredModelDecision(providerResponse.text)
+          : null;
+        if (recoveredDecision) {
+          const decision = normalizeStructuredDecision(recoveredDecision, options.format);
           debugRecorder.finish({
-            status: 'fallback',
-            reason: 'planner_non_action_response',
+            status: 'completed',
+            command: options.debugCommand ?? null,
+            finalOutput: decision.output,
+            classification: decision.classification,
+            rawReviewRequired: decision.rawReviewRequired,
           });
-          return PLANNER_FALLBACK_TO_CHUNKS;
+          return decision;
         }
         invalidActionCount += 1;
         const invalidResponseError = getErrorMessage(error);
