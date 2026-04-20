@@ -138,8 +138,13 @@ export function getSessionTelemetryStats(session: ChatSession | null): {
     const answerEndedAt = getIsoTime(message.answerEndedAtUtc);
     const generationStartedAt = thinkingStartedAt ?? answerStartedAt;
     const promptTokens = getPromptTokensForTurn(message, previousMessage);
+    const promptTokensPerSecond = Number.isFinite(message.promptTokensPerSecond) && Number(message.promptTokensPerSecond) > 0
+      ? Number(message.promptTokensPerSecond)
+      : null;
     const promptDurationMs = (
-      Number.isFinite(message.promptEvalDurationMs) && Number(message.promptEvalDurationMs) > 0
+      promptTokensPerSecond !== null && promptTokens !== null
+        ? (promptTokens / promptTokensPerSecond) * 1000
+        : Number.isFinite(message.promptEvalDurationMs) && Number(message.promptEvalDurationMs) > 0
         ? Number(message.promptEvalDurationMs)
         : (requestStartedAt !== null && generationStartedAt !== null && generationStartedAt > requestStartedAt)
             ? generationStartedAt - requestStartedAt
@@ -149,12 +154,22 @@ export function getSessionTelemetryStats(session: ChatSession | null): {
       promptDurationMsTotal += promptDurationMs;
       promptTokensForRateTotal += promptTokens;
     }
-    const generatedTokens = (
-      (Number.isFinite(message.thinkingTokens) && Number(message.thinkingTokens) >= 0 ? Number(message.thinkingTokens) : 0)
-      + (Number.isFinite(message.outputTokensEstimate) && Number(message.outputTokensEstimate) >= 0 ? Number(message.outputTokensEstimate) : 0)
-    );
+    const outputTokensForDirectRate = Number.isFinite(message.outputTokensEstimate) && Number(message.outputTokensEstimate) >= 0
+      ? Number(message.outputTokensEstimate)
+      : 0;
+    const outputTokensPerSecond = Number.isFinite(message.outputTokensPerSecond) && Number(message.outputTokensPerSecond) > 0
+      ? Number(message.outputTokensPerSecond)
+      : null;
+    const generatedTokens = outputTokensPerSecond !== null
+      ? outputTokensForDirectRate
+      : (
+        (Number.isFinite(message.thinkingTokens) && Number(message.thinkingTokens) >= 0 ? Number(message.thinkingTokens) : 0)
+        + outputTokensForDirectRate
+      );
     const generationDurationMs = (
-      Number.isFinite(message.generationDurationMs) && Number(message.generationDurationMs) > 0
+      outputTokensPerSecond !== null && outputTokensForDirectRate > 0
+        ? (outputTokensForDirectRate / outputTokensPerSecond) * 1000
+        : Number.isFinite(message.generationDurationMs) && Number(message.generationDurationMs) > 0
         ? Number(message.generationDurationMs)
         : (generationStartedAt !== null && answerEndedAt !== null && answerEndedAt > generationStartedAt)
             ? answerEndedAt - generationStartedAt

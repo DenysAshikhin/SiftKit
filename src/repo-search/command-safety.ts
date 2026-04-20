@@ -328,7 +328,7 @@ function rewriteRgWithFixedStrings(commandStr: string, pattern: string): string 
   return withoutPattern;
 }
 
-function hasIgnoreDisablingRgFlag(command: string): boolean {
+function hasExplicitIgnoreDisablingRgFlag(command: string): boolean {
   return /(?:^|\s)(?:-u|-uu|-uuu)(?:\s|$)|(?:^|\s)--no-ignore(?:-[a-z]+)*(?:\s|$)/iu.test(command);
 }
 
@@ -437,16 +437,6 @@ export function normalizePlannerCommand(
   const notes: string[] = [];
 
   if (commandToken === 'rg') {
-    if (hasIgnoreDisablingRgFlag(current)) {
-      return {
-        command: current,
-        rewritten: false,
-        note: '',
-        rejected: true,
-        rejectedReason: 'ignore-disabling rg flags are not allowed',
-      };
-    }
-
     // Rewrite unsupported --type tsx/jsx to ts/js
     const unsupportedTypeMap: Record<string, string> = { tsx: 'ts', jsx: 'js' };
     const typeMatches = [...current.matchAll(/(?:^|\s)--type\s+(\S+)/giu)];
@@ -481,7 +471,7 @@ export function normalizePlannerCommand(
     }
 
     // Bypass rg's own .gitignore/.ignore handling — we control exclusions via explicit globs
-    if (!/(?:^|\s)--no-ignore(?:\s|$)/iu.test(current)) {
+    if (!hasExplicitIgnoreDisablingRgFlag(current)) {
       current = appendToFirstSegment(current, '--no-ignore');
       notes.push('added --no-ignore so rg searches gitignored paths');
       wasRewritten = true;

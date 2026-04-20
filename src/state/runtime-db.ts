@@ -8,7 +8,7 @@ import { normalizeOperationModeAllowedTools, normalizePresets } from '../presets
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-const CURRENT_SCHEMA_VERSION = 16;
+const CURRENT_SCHEMA_VERSION = 17;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["repo_rg","repo_read_file","repo_list_files","repo_git","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}';
 
@@ -302,6 +302,8 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       thinking_tokens_estimated INTEGER NOT NULL CHECK (thinking_tokens_estimated IN (0, 1)),
       prompt_cache_tokens INTEGER,
       prompt_eval_tokens INTEGER,
+      prompt_tokens_per_second REAL,
+      output_tokens_per_second REAL,
       request_duration_ms INTEGER,
       prompt_eval_duration_ms INTEGER,
       generation_duration_ms INTEGER,
@@ -789,6 +791,20 @@ function ensureSchema(database: RuntimeDatabase): void {
     }
     setSchemaVersion(database, 16);
     currentVersion = 16;
+  }
+  if (currentVersion < 17) {
+    const alterStatements: string[] = [];
+    if (!tableHasColumn(database, 'chat_messages', 'prompt_tokens_per_second')) {
+      alterStatements.push('ALTER TABLE chat_messages ADD COLUMN prompt_tokens_per_second REAL;');
+    }
+    if (!tableHasColumn(database, 'chat_messages', 'output_tokens_per_second')) {
+      alterStatements.push('ALTER TABLE chat_messages ADD COLUMN output_tokens_per_second REAL;');
+    }
+    if (alterStatements.length > 0) {
+      database.exec(alterStatements.join('\n'));
+    }
+    setSchemaVersion(database, 17);
+    currentVersion = 17;
   }
   ensureRuntimeArtifactsSchema(database);
   ensureManagedLlamaAndBenchmarkMatrixSchema(database);

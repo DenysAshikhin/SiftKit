@@ -6,6 +6,7 @@ import {
   buildProviderErrorMessage,
   getCompletionUsageFromResponseBody,
   getPromptUsageFromResponseBody,
+  getTimingUsageFromResponseBody,
   isTransientProviderHttpResponse,
   normalizeProviderText,
   retryProviderRequest,
@@ -714,6 +715,7 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
   const synthesized = actionFromToolCall(firstChoice, allowedToolNames);
   const promptUsage = getPromptUsageFromResponseBody(response.body);
   const completionUsage = getCompletionUsageFromResponseBody(response.body);
+  const timingUsage = getTimingUsageFromResponseBody(response.body);
   // Prefer raw content text (may include reasoning field); fall back to synthesized tool-call action
   const text = rawChoiceText || synthesized || '';
 
@@ -726,8 +728,8 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
     usageThinkingTokens: completionUsage.thinkingTokens,
     promptCacheTokens: promptUsage.promptCacheTokens,
     promptEvalTokens: promptUsage.promptEvalTokens,
-    promptEvalDurationMs: null,
-    generationDurationMs: null,
+    promptEvalDurationMs: timingUsage.promptEvalDurationMs,
+    generationDurationMs: timingUsage.generationDurationMs,
   };
 }
 
@@ -791,6 +793,8 @@ function requestStreaming(
       let usageThinkingTokens: number | null = null;
       let promptCacheTokens: number | null = null;
       let promptEvalTokens: number | null = null;
+      let promptEvalDurationMs: number | null = null;
+      let generationDurationMs: number | null = null;
       let generationStartedAt: number | null = null;
 
       response.setEncoding('utf8');
@@ -810,11 +814,14 @@ function requestStreaming(
             const parsed = JSON.parse(dataValue) as Record<string, unknown>;
             const parsedUsage = getPromptUsageFromResponseBody(parsed);
             const parsedCompletionUsage = getCompletionUsageFromResponseBody(parsed);
+            const parsedTimingUsage = getTimingUsageFromResponseBody(parsed);
             if (parsedUsage.promptTokens !== null) promptTokens = parsedUsage.promptTokens;
             if (parsedUsage.promptCacheTokens !== null) promptCacheTokens = parsedUsage.promptCacheTokens;
             if (parsedUsage.promptEvalTokens !== null) promptEvalTokens = parsedUsage.promptEvalTokens;
             if (parsedCompletionUsage.completionTokens !== null) completionTokens = parsedCompletionUsage.completionTokens;
             if (parsedCompletionUsage.thinkingTokens !== null) usageThinkingTokens = parsedCompletionUsage.thinkingTokens;
+            if (parsedTimingUsage.promptEvalDurationMs !== null) promptEvalDurationMs = parsedTimingUsage.promptEvalDurationMs;
+            if (parsedTimingUsage.generationDurationMs !== null) generationDurationMs = parsedTimingUsage.generationDurationMs;
             const choices = parsed?.choices as Array<Record<string, unknown>> | undefined;
             const choice = Array.isArray(choices) ? choices[0] : null;
             const delta = choice?.delta && typeof choice.delta === 'object' ? choice.delta as Record<string, unknown> : {};
@@ -894,8 +901,8 @@ function requestStreaming(
           usageThinkingTokens,
           promptCacheTokens,
           promptEvalTokens,
-          promptEvalDurationMs: generationStartedAt === null ? null : Math.max(generationStartedAt - startedAt, 0),
-          generationDurationMs: generationStartedAt === null ? null : Math.max(finishedAt - generationStartedAt, 0),
+          promptEvalDurationMs: promptEvalDurationMs ?? (generationStartedAt === null ? null : Math.max(generationStartedAt - startedAt, 0)),
+          generationDurationMs: generationDurationMs ?? (generationStartedAt === null ? null : Math.max(finishedAt - generationStartedAt, 0)),
         });
       });
     });

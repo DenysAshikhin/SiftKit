@@ -33,6 +33,8 @@ type MessageRow = {
   thinking_tokens_estimated: number;
   prompt_cache_tokens: number | null;
   prompt_eval_tokens: number | null;
+  prompt_tokens_per_second: number | null;
+  output_tokens_per_second: number | null;
   request_duration_ms: number | null;
   prompt_eval_duration_ms: number | null;
   generation_duration_ms: number | null;
@@ -108,6 +110,17 @@ function toNullableNonNegativeInteger(value: unknown): number | null {
   return Math.trunc(parsed);
 }
 
+function toNullableNonNegativeNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return null;
+  }
+  return parsed;
+}
+
 export function estimateTokenCount(value: unknown): number {
   const text = String(value || '');
   if (!text.trim()) {
@@ -164,6 +177,8 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       thinking_tokens_estimated,
       prompt_cache_tokens,
       prompt_eval_tokens,
+      prompt_tokens_per_second,
+      output_tokens_per_second,
       request_duration_ms,
       prompt_eval_duration_ms,
       generation_duration_ms,
@@ -222,6 +237,8 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       thinkingTokensEstimated: message.thinking_tokens_estimated === 1,
       promptCacheTokens: message.prompt_cache_tokens,
       promptEvalTokens: message.prompt_eval_tokens,
+      promptTokensPerSecond: message.prompt_tokens_per_second,
+      outputTokensPerSecond: message.output_tokens_per_second,
       requestDurationMs: message.request_duration_ms,
       promptEvalDurationMs: message.prompt_eval_duration_ms,
       generationDurationMs: message.generation_duration_ms,
@@ -358,6 +375,8 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         thinking_tokens_estimated,
         prompt_cache_tokens,
         prompt_eval_tokens,
+        prompt_tokens_per_second,
+        output_tokens_per_second,
         request_duration_ms,
         prompt_eval_duration_ms,
         generation_duration_ms,
@@ -374,7 +393,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         source_run_id,
         compressed_into_summary,
         position
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     for (let index = 0; index < messages.length; index += 1) {
@@ -392,6 +411,8 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         message.thinkingTokensEstimated === false ? 0 : 1,
         toNullableNonNegativeInteger(message.promptCacheTokens),
         toNullableNonNegativeInteger(message.promptEvalTokens),
+        toNullableNonNegativeNumber(message.promptTokensPerSecond),
+        toNullableNonNegativeNumber(message.outputTokensPerSecond),
         toNullableNonNegativeInteger(message.requestDurationMs),
         toNullableNonNegativeInteger(message.promptEvalDurationMs),
         toNullableNonNegativeInteger(message.generationDurationMs),

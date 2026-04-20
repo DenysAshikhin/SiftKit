@@ -160,7 +160,7 @@ test('requestPlannerAction reconstructs a tool batch from streaming multi-tool r
   });
 });
 
-test('requestPlannerAction reports prompt-eval and generation durations for streaming responses', async () => {
+test('requestPlannerAction uses llama timings from the final streaming chunk when usage is absent', async () => {
   await withServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
       res.statusCode = 404;
@@ -175,7 +175,7 @@ test('requestPlannerAction reports prompt-eval and generation durations for stre
     setTimeout(() => {
       res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"finish\\",\\"output\\":\\"done\\"}"}}]}\n\n');
       setTimeout(() => {
-        res.write('data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":30,"completion_tokens":4,"completion_tokens_details":{"reasoning_tokens":6},"prompt_tokens_details":{"cached_tokens":20}}}\n\n');
+        res.write('data: {"choices":[{"delta":{}}],"timings":{"cache_n":20,"prompt_n":10,"prompt_ms":30.5,"prompt_per_second":327.86,"predicted_n":4,"predicted_ms":18.75,"predicted_per_second":213.33},"__verbose":{"tokens_predicted":4,"timings":{"cache_n":20,"prompt_n":10,"prompt_ms":30.5,"prompt_per_second":327.86,"predicted_n":4,"predicted_ms":18.75,"predicted_per_second":213.33}}}\n\n');
         res.write('data: [DONE]\n\n');
         res.end();
       }, 20);
@@ -192,11 +192,9 @@ test('requestPlannerAction reports prompt-eval and generation durations for stre
 
     assert.equal(result.promptEvalTokens, 10);
     assert.equal(result.completionTokens, 4);
-    assert.equal(result.usageThinkingTokens, 6);
-    assert.equal(Number.isFinite(Number(result.promptEvalDurationMs)), true);
-    assert.equal(Number.isFinite(Number(result.generationDurationMs)), true);
-    assert.ok(Number(result.promptEvalDurationMs) >= 10);
-    assert.ok(Number(result.generationDurationMs) >= 10);
+    assert.equal(result.usageThinkingTokens, null);
+    assert.equal(result.promptEvalDurationMs, 30.5);
+    assert.equal(result.generationDurationMs, 18.75);
   });
 });
 

@@ -693,6 +693,20 @@ export async function handleChatRoute(
           requestDurationMs: Date.now() - startedAt,
           promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
           generationDurationMs: getScorecardTotal(result?.scorecard, 'generationDurationMs'),
+          promptTokensPerSecond: (() => {
+            const promptTokens = getScorecardTotal(result?.scorecard, 'promptEvalTokens');
+            const promptDurationMs = getScorecardTotal(result?.scorecard, 'promptEvalDurationMs');
+            return promptTokens !== null && promptDurationMs !== null && promptDurationMs > 0
+              ? (promptTokens / (promptDurationMs / 1000))
+              : null;
+          })(),
+          outputTokensPerSecond: (() => {
+            const outputTokens = getScorecardTotal(result?.scorecard, 'outputTokens');
+            const generationDurationMs = getScorecardTotal(result?.scorecard, 'generationDurationMs');
+            return outputTokens !== null && generationDurationMs !== null && generationDurationMs > 0
+              ? (outputTokens / (generationDurationMs / 1000))
+              : null;
+          })(),
           speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
           speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
           outputTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
@@ -855,6 +869,20 @@ export async function handleChatRoute(
           requestDurationMs: Date.now() - startedAt,
           promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
           generationDurationMs: getScorecardTotal(result?.scorecard, 'generationDurationMs'),
+          promptTokensPerSecond: (() => {
+            const promptTokens = getScorecardTotal(result?.scorecard, 'promptEvalTokens');
+            const promptDurationMs = getScorecardTotal(result?.scorecard, 'promptEvalDurationMs');
+            return promptTokens !== null && promptDurationMs !== null && promptDurationMs > 0
+              ? (promptTokens / (promptDurationMs / 1000))
+              : null;
+          })(),
+          outputTokensPerSecond: (() => {
+            const outputTokens = getScorecardTotal(result?.scorecard, 'outputTokens');
+            const generationDurationMs = getScorecardTotal(result?.scorecard, 'generationDurationMs');
+            return outputTokens !== null && generationDurationMs !== null && generationDurationMs > 0
+              ? (outputTokens / (generationDurationMs / 1000))
+              : null;
+          })(),
           ...phaseTracker.snapshot(),
           speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
           speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
@@ -1011,6 +1039,20 @@ export async function handleChatRoute(
           requestDurationMs: Date.now() - startedAt,
           promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
           generationDurationMs: getScorecardTotal(result?.scorecard, 'generationDurationMs'),
+          promptTokensPerSecond: (() => {
+            const promptTokens = getScorecardTotal(result?.scorecard, 'promptEvalTokens');
+            const promptDurationMs = getScorecardTotal(result?.scorecard, 'promptEvalDurationMs');
+            return promptTokens !== null && promptDurationMs !== null && promptDurationMs > 0
+              ? (promptTokens / (promptDurationMs / 1000))
+              : null;
+          })(),
+          outputTokensPerSecond: (() => {
+            const outputTokens = getScorecardTotal(result?.scorecard, 'outputTokens');
+            const generationDurationMs = getScorecardTotal(result?.scorecard, 'generationDurationMs');
+            return outputTokens !== null && generationDurationMs !== null && generationDurationMs > 0
+              ? (outputTokens / (generationDurationMs / 1000))
+              : null;
+          })(),
           ...phaseTracker.snapshot(),
           speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
           speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,

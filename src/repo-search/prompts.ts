@@ -287,7 +287,7 @@ export function buildTaskSystemPrompt(repoRoot: string, options?: {
     '- If you try to finish before 5 tool-call turns, you will be told: "that was a shallow search, there might be more hidden references/usages. Dive deeper".',
     '',
     'Command normalization (automatic):',
-    '- All rg commands get `--no-ignore` and ignore-policy `--glob` flags appended automatically. Do not add these yourself.',
+    '- rg commands get `--no-ignore` appended automatically when you do not already supply an ignore-disabling rg flag; ignore-policy `--glob` flags are appended automatically.',
     '- `--type tsx` and `--type jsx` are auto-corrected to `--type ts` and `--type js`.',
     '- Duplicate commands (after normalization) are automatically rejected. Always vary your search pattern or path.',
     '',

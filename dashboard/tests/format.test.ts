@@ -25,6 +25,8 @@ test('getSessionTelemetryStats computes cache hit rate and per-turn averaged acc
         thinkingTokens: 10,
         promptCacheTokens: 60,
         promptEvalTokens: 40,
+        promptTokensPerSecond: 20,
+        outputTokensPerSecond: 10,
         promptEvalDurationMs: 2000,
         generationDurationMs: 8000,
         requestDurationMs: 2000,
@@ -47,6 +49,8 @@ test('getSessionTelemetryStats computes cache hit rate and per-turn averaged acc
         thinkingTokens: 20,
         promptCacheTokens: 30,
         promptEvalTokens: 20,
+        promptTokensPerSecond: 5,
+        outputTokensPerSecond: 8,
         promptEvalDurationMs: 4000,
         generationDurationMs: 5000,
         requestDurationMs: 5000,
@@ -71,7 +75,7 @@ test('getSessionTelemetryStats computes cache hit rate and per-turn averaged acc
     speculativeGeneratedTokens: 16,
     acceptanceRate: 0.6875,
     promptTokensPerSecond: 10,
-    outputTokensPerSecond: 150 / 13,
+    outputTokensPerSecond: 120 / 13,
   });
 });
 

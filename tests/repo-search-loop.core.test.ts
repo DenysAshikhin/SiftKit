@@ -1070,7 +1070,7 @@ test('runTaskLoop rewrites Select-String path scan to include ignore excludes', 
   }
 });
 
-test('runTaskLoop rejects rg ignore-disabling flags', async () => {
+test('runTaskLoop allows rg commands that include --no-ignore explicitly', async () => {
   const result = await runTaskLoop(
     {
       id: 'task-ignore-rg-no-ignore',
@@ -1092,8 +1092,38 @@ test('runTaskLoop rejects rg ignore-disabling flags', async () => {
 
   assert.equal(result.reason, 'finish');
   assert.equal(result.commands.length, 1);
-  assert.equal(result.commands[0].safe, false);
-  assert.equal(result.commands[0].reason, 'ignore-disabling rg flags are not allowed');
+  assert.equal(result.commands[0].safe, true);
+  assert.equal(result.commands[0].reason, null);
+  assert.match(String(result.commands[0].output || ''), /ran 'rg -n "planner" src --no-ignore/u);
+  assert.doesNotMatch(String(result.commands[0].output || ''), /--no-ignore --no-ignore/u);
+});
+
+test('runTaskLoop allows rg commands that include -u explicitly', async () => {
+  const result = await runTaskLoop(
+    {
+      id: 'task-ignore-rg-u',
+      question: 'Find planner text.',
+      signals: [],
+    },
+    {
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src -u"}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {},
+    }
+  );
+
+  assert.equal(result.reason, 'finish');
+  assert.equal(result.commands.length, 1);
+  assert.equal(result.commands[0].safe, true);
+  assert.equal(result.commands[0].reason, null);
+  assert.match(String(result.commands[0].output || ''), /ran 'rg -n "planner" src -u/u);
+  assert.doesNotMatch(String(result.commands[0].output || ''), /src -u --no-ignore/u);
 });
 
 test('runTaskLoop rejects Get-Content reads under ignored directories', async () => {

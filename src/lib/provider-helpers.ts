@@ -189,6 +189,13 @@ export type CompletionUsage = {
   thinkingTokens: number | null;
 };
 
+export type TimingUsage = {
+  promptEvalDurationMs: number | null;
+  generationDurationMs: number | null;
+  promptTokensPerSecond: number | null;
+  outputTokensPerSecond: number | null;
+};
+
 export function getProcessedPromptTokens(
   inputTokens: unknown,
   promptCacheTokens: unknown,
@@ -238,6 +245,19 @@ export function getPromptUsageFromResponseBody(body: Record<string, unknown>): P
   return { promptTokens, promptCacheTokens, promptEvalTokens };
 }
 
+export function getTimingUsageFromResponseBody(body: Record<string, unknown>): TimingUsage {
+  const timings = body?.timings as Record<string, unknown> | undefined;
+  const verboseTimings = body?.__verbose && typeof body.__verbose === 'object'
+    ? (body.__verbose as Record<string, unknown>).timings as Record<string, unknown> | undefined
+    : undefined;
+  return {
+    promptEvalDurationMs: getUsageNumber(timings?.prompt_ms) ?? getUsageNumber(verboseTimings?.prompt_ms),
+    generationDurationMs: getUsageNumber(timings?.predicted_ms) ?? getUsageNumber(verboseTimings?.predicted_ms),
+    promptTokensPerSecond: getUsageNumber(timings?.prompt_per_second) ?? getUsageNumber(verboseTimings?.prompt_per_second),
+    outputTokensPerSecond: getUsageNumber(timings?.predicted_per_second) ?? getUsageNumber(verboseTimings?.predicted_per_second),
+  };
+}
+
 function getThinkingTokensFromUsage(usage: Record<string, unknown> | undefined): number | null {
   if (!usage || typeof usage !== 'object') {
     return null;
@@ -270,8 +290,19 @@ function getThinkingTokensFromUsage(usage: Record<string, unknown> | undefined):
  */
 export function getCompletionUsageFromResponseBody(body: Record<string, unknown>): CompletionUsage {
   const usage = body?.usage as Record<string, unknown> | undefined;
+  const timings = body?.timings as Record<string, unknown> | undefined;
+  const verboseBody = body?.__verbose && typeof body.__verbose === 'object'
+    ? body.__verbose as Record<string, unknown>
+    : undefined;
+  const verboseTimings = verboseBody?.timings && typeof verboseBody.timings === 'object'
+    ? verboseBody.timings as Record<string, unknown>
+    : undefined;
   return {
-    completionTokens: getUsageNumber(usage?.completion_tokens) ?? getUsageNumber(usage?.output_tokens),
+    completionTokens: getUsageNumber(usage?.completion_tokens)
+      ?? getUsageNumber(usage?.output_tokens)
+      ?? getUsageNumber(timings?.predicted_n)
+      ?? getUsageNumber(verboseTimings?.predicted_n)
+      ?? getUsageNumber(verboseBody?.tokens_predicted),
     thinkingTokens: getThinkingTokensFromUsage(usage),
   };
 }

@@ -13,7 +13,12 @@ import {
   getLlamaBaseUrl,
   getCompatRuntimeLlamaCpp,
 } from './config-store.js';
-import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
+import {
+  getCompletionUsageFromResponseBody,
+  getProcessedPromptTokens,
+  getPromptUsageFromResponseBody,
+  getTimingUsageFromResponseBody,
+} from '../lib/provider-helpers.js';
 
 export function buildContextUsage(session: ChatSession): Dict {
   const contextWindowTokens = Math.max(1, Number(session.contextWindowTokens || 150000));
@@ -286,6 +291,10 @@ export type ChatUsage = {
   thinkingTokens: number | null;
   promptCacheTokens: number | null;
   promptEvalTokens: number | null;
+  promptEvalDurationMs?: number | null;
+  generationDurationMs?: number | null;
+  promptTokensPerSecond?: number | null;
+  outputTokensPerSecond?: number | null;
 };
 
 export async function generateChatAssistantMessage(
@@ -316,16 +325,22 @@ export async function generateChatAssistantMessage(
   if (!assistantContent) {
     throw new Error('llama.cpp chat returned an empty assistant message.');
   }
-  const usage = responseBody?.usage && typeof responseBody.usage === 'object' ? responseBody.usage as Dict : {};
+  const promptUsage = getPromptUsageFromResponseBody(responseBody);
+  const completionUsage = getCompletionUsageFromResponseBody(responseBody);
+  const timingUsage = getTimingUsageFromResponseBody(responseBody);
   return {
     assistantContent,
     thinkingContent,
     usage: {
-      promptTokens: getChatUsageValue(usage.prompt_tokens),
-      completionTokens: getChatUsageValue(usage.completion_tokens),
-      thinkingTokens: getThinkingTokensFromUsage(usage),
-      promptCacheTokens: getPromptCacheTokensFromUsage(usage),
-      promptEvalTokens: getPromptEvalTokensFromUsage(usage),
+      promptTokens: promptUsage.promptTokens,
+      completionTokens: completionUsage.completionTokens,
+      thinkingTokens: completionUsage.thinkingTokens,
+      promptCacheTokens: promptUsage.promptCacheTokens,
+      promptEvalTokens: promptUsage.promptEvalTokens,
+      promptEvalDurationMs: timingUsage.promptEvalDurationMs,
+      generationDurationMs: timingUsage.generationDurationMs,
+      promptTokensPerSecond: timingUsage.promptTokensPerSecond,
+      outputTokensPerSecond: timingUsage.outputTokensPerSecond,
     },
   };
 }
@@ -335,6 +350,8 @@ type AppendChatOptions = {
   requestDurationMs?: number | null;
   promptEvalDurationMs?: number | null;
   generationDurationMs?: number | null;
+  promptTokensPerSecond?: number | null;
+  outputTokensPerSecond?: number | null;
   requestStartedAtUtc?: string | null;
   thinkingStartedAtUtc?: string | null;
   thinkingEndedAtUtc?: string | null;
@@ -363,6 +380,10 @@ export function appendChatMessagesWithUsage(
   const promptEvalTokens = getChatUsageValue(usage.promptEvalTokens);
   const completionTokens = getChatUsageValue(usage.completionTokens);
   const usageThinkingTokens = getChatUsageValue(usage.thinkingTokens);
+  const usagePromptEvalDurationMs = getChatUsageValue(usage.promptEvalDurationMs);
+  const usageGenerationDurationMs = getChatUsageValue(usage.generationDurationMs);
+  const usagePromptTokensPerSecond = getChatUsageValue(usage.promptTokensPerSecond);
+  const usageOutputTokensPerSecond = getChatUsageValue(usage.outputTokensPerSecond);
   const processedPromptTokens = getProcessedPromptTokens(promptTokens, promptCacheTokens, promptEvalTokens);
   const userTokens = processedPromptTokens ?? estimateTokenCount(content);
   const explicitOutputTokens = getChatUsageValue(options.outputTokens);
@@ -402,9 +423,19 @@ export function appendChatMessagesWithUsage(
     thinkingTokensEstimated: usageThinkingTokens === null,
     promptCacheTokens,
     promptEvalTokens,
+    promptTokensPerSecond: Number.isFinite(Number(options.promptTokensPerSecond))
+      ? Number(options.promptTokensPerSecond)
+      : usagePromptTokensPerSecond,
+    outputTokensPerSecond: Number.isFinite(Number(options.outputTokensPerSecond))
+      ? Number(options.outputTokensPerSecond)
+      : usageOutputTokensPerSecond,
     requestDurationMs: Number.isFinite(Number(options.requestDurationMs)) ? Number(options.requestDurationMs) : null,
-    promptEvalDurationMs: Number.isFinite(Number(options.promptEvalDurationMs)) ? Number(options.promptEvalDurationMs) : null,
-    generationDurationMs: Number.isFinite(Number(options.generationDurationMs)) ? Number(options.generationDurationMs) : null,
+    promptEvalDurationMs: Number.isFinite(Number(options.promptEvalDurationMs))
+      ? Number(options.promptEvalDurationMs)
+      : usagePromptEvalDurationMs,
+    generationDurationMs: Number.isFinite(Number(options.generationDurationMs))
+      ? Number(options.generationDurationMs)
+      : usageGenerationDurationMs,
     requestStartedAtUtc: typeof options.requestStartedAtUtc === 'string' && options.requestStartedAtUtc.trim() ? options.requestStartedAtUtc : null,
     thinkingStartedAtUtc: typeof options.thinkingStartedAtUtc === 'string' && options.thinkingStartedAtUtc.trim() ? options.thinkingStartedAtUtc : null,
     thinkingEndedAtUtc: typeof options.thinkingEndedAtUtc === 'string' && options.thinkingEndedAtUtc.trim() ? options.thinkingEndedAtUtc : null,
@@ -479,7 +510,17 @@ export async function streamChatAssistantMessage(
       let rawBuffer = '';
       let assistantContent = '';
       let thinkingContent = '';
-      let finalUsage: ChatUsage = { promptTokens: null, completionTokens: null, thinkingTokens: null, promptCacheTokens: null, promptEvalTokens: null };
+      let finalUsage: ChatUsage = {
+        promptTokens: null,
+        completionTokens: null,
+        thinkingTokens: null,
+        promptCacheTokens: null,
+        promptEvalTokens: null,
+        promptEvalDurationMs: null,
+        generationDurationMs: null,
+        promptTokensPerSecond: null,
+        outputTokensPerSecond: null,
+      };
       response.setEncoding('utf8');
       response.on('data', (chunk: string) => {
         rawBuffer += chunk;
@@ -512,16 +553,20 @@ export async function streamChatAssistantMessage(
             if (deltaAnswer) {
               assistantContent += deltaAnswer;
             }
-            if (parsed?.usage && typeof parsed.usage === 'object') {
-              const usage = parsed.usage as Dict;
-              finalUsage = {
-                promptTokens: getChatUsageValue(usage.prompt_tokens),
-                completionTokens: getChatUsageValue(usage.completion_tokens),
-                thinkingTokens: getThinkingTokensFromUsage(usage),
-                promptCacheTokens: getPromptCacheTokensFromUsage(usage),
-                promptEvalTokens: getPromptEvalTokensFromUsage(usage),
-              };
-            }
+            const promptUsage = getPromptUsageFromResponseBody(parsed);
+            const completionUsage = getCompletionUsageFromResponseBody(parsed);
+            const timingUsage = getTimingUsageFromResponseBody(parsed);
+            finalUsage = {
+              promptTokens: promptUsage.promptTokens ?? finalUsage.promptTokens ?? null,
+              completionTokens: completionUsage.completionTokens ?? finalUsage.completionTokens ?? null,
+              thinkingTokens: completionUsage.thinkingTokens ?? finalUsage.thinkingTokens ?? null,
+              promptCacheTokens: promptUsage.promptCacheTokens ?? finalUsage.promptCacheTokens ?? null,
+              promptEvalTokens: promptUsage.promptEvalTokens ?? finalUsage.promptEvalTokens ?? null,
+              promptEvalDurationMs: timingUsage.promptEvalDurationMs ?? finalUsage.promptEvalDurationMs ?? null,
+              generationDurationMs: timingUsage.generationDurationMs ?? finalUsage.generationDurationMs ?? null,
+              promptTokensPerSecond: timingUsage.promptTokensPerSecond ?? finalUsage.promptTokensPerSecond ?? null,
+              outputTokensPerSecond: timingUsage.outputTokensPerSecond ?? finalUsage.outputTokensPerSecond ?? null,
+            };
             if (typeof onProgress === 'function') {
               onProgress({
                 assistantContent,

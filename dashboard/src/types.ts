@@ -162,6 +162,8 @@ export type ChatMessage = {
   thinkingTokensEstimated?: boolean;
   promptCacheTokens?: number | null;
   promptEvalTokens?: number | null;
+  promptTokensPerSecond?: number | null;
+  outputTokensPerSecond?: number | null;
   requestDurationMs?: number | null;
   promptEvalDurationMs?: number | null;
   generationDurationMs?: number | null;

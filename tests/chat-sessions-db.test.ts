@@ -57,6 +57,8 @@ test('chat sessions are persisted in runtime sqlite instead of JSON files', () =
         thinkingTokens: 0,
         promptCacheTokens: null,
         promptEvalTokens: null,
+        promptTokensPerSecond: null,
+        outputTokensPerSecond: null,
         requestDurationMs: null,
         promptEvalDurationMs: null,
         generationDurationMs: null,
@@ -82,6 +84,8 @@ test('chat sessions are persisted in runtime sqlite instead of JSON files', () =
     assert.equal(sessions[0]?.hiddenToolContexts?.length, 1);
     assert.equal(sessions[0]?.messages?.[0]?.promptCacheTokens, null);
     assert.equal(sessions[0]?.messages?.[0]?.promptEvalTokens, null);
+    assert.equal(sessions[0]?.messages?.[0]?.promptTokensPerSecond, null);
+    assert.equal(sessions[0]?.messages?.[0]?.outputTokensPerSecond, null);
     assert.equal(sessions[0]?.messages?.[0]?.requestDurationMs, null);
     assert.equal(sessions[0]?.messages?.[0]?.promptEvalDurationMs, null);
     assert.equal(sessions[0]?.messages?.[0]?.generationDurationMs, null);
