@@ -177,6 +177,8 @@ function importLegacyIdleSummaryDatabase(runtimeRoot: string, database: RuntimeD
           tool_tokens_total,
           prompt_cache_tokens_total,
           prompt_eval_tokens_total,
+          speculative_accepted_tokens_total,
+          speculative_generated_tokens_total,
           task_totals_json,
           tool_stats_json,
           saved_tokens,
@@ -185,7 +187,7 @@ function importLegacyIdleSummaryDatabase(runtimeRoot: string, database: RuntimeD
           request_duration_ms_total,
           avg_request_ms,
           avg_tokens_per_second
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const row of rows) {
         insertSnapshot.run(
@@ -199,6 +201,8 @@ function importLegacyIdleSummaryDatabase(runtimeRoot: string, database: RuntimeD
           Number(row.tool_tokens_total) || 0,
           Number(row.prompt_cache_tokens_total) || 0,
           Number(row.prompt_eval_tokens_total) || 0,
+          Number(row.speculative_accepted_tokens_total) || 0,
+          Number(row.speculative_generated_tokens_total) || 0,
           typeof row.task_totals_json === 'string' ? row.task_totals_json : '{}',
           typeof row.tool_stats_json === 'string' ? row.tool_stats_json : '{}',
           Number(row.saved_tokens) || 0,
@@ -232,6 +236,8 @@ function importLegacyIdleSummaryDatabase(runtimeRoot: string, database: RuntimeD
           tool_tokens,
           prompt_cache_tokens,
           prompt_eval_tokens,
+          speculative_accepted_tokens,
+          speculative_generated_tokens,
           duration_ms,
           request_json,
           planner_debug_json,
@@ -269,6 +275,8 @@ function importLegacyIdleSummaryDatabase(runtimeRoot: string, database: RuntimeD
           Number.isFinite(Number(row.tool_tokens)) ? Number(row.tool_tokens) : null,
           Number.isFinite(Number(row.prompt_cache_tokens)) ? Number(row.prompt_cache_tokens) : null,
           Number.isFinite(Number(row.prompt_eval_tokens)) ? Number(row.prompt_eval_tokens) : null,
+          Number.isFinite(Number(row.speculative_accepted_tokens)) ? Number(row.speculative_accepted_tokens) : null,
+          Number.isFinite(Number(row.speculative_generated_tokens)) ? Number(row.speculative_generated_tokens) : null,
           Number.isFinite(Number(row.duration_ms)) ? Number(row.duration_ms) : null,
           typeof row.request_json === 'string' ? row.request_json : null,
           typeof row.planner_debug_json === 'string' ? row.planner_debug_json : null,

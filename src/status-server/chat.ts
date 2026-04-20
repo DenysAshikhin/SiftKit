@@ -330,7 +330,17 @@ export async function generateChatAssistantMessage(
   };
 }
 
-type AppendChatOptions = { toolContextContents?: string[] };
+type AppendChatOptions = {
+  toolContextContents?: string[];
+  requestDurationMs?: number | null;
+  requestStartedAtUtc?: string | null;
+  thinkingStartedAtUtc?: string | null;
+  thinkingEndedAtUtc?: string | null;
+  answerStartedAtUtc?: string | null;
+  answerEndedAtUtc?: string | null;
+  speculativeAcceptedTokens?: number | null;
+  speculativeGeneratedTokens?: number | null;
+};
 
 export function appendChatMessagesWithUsage(
   runtimeRoot: string,
@@ -385,6 +395,14 @@ export function appendChatMessagesWithUsage(
     thinkingTokensEstimated: usageThinkingTokens === null,
     promptCacheTokens,
     promptEvalTokens,
+    requestDurationMs: Number.isFinite(Number(options.requestDurationMs)) ? Number(options.requestDurationMs) : null,
+    requestStartedAtUtc: typeof options.requestStartedAtUtc === 'string' && options.requestStartedAtUtc.trim() ? options.requestStartedAtUtc : null,
+    thinkingStartedAtUtc: typeof options.thinkingStartedAtUtc === 'string' && options.thinkingStartedAtUtc.trim() ? options.thinkingStartedAtUtc : null,
+    thinkingEndedAtUtc: typeof options.thinkingEndedAtUtc === 'string' && options.thinkingEndedAtUtc.trim() ? options.thinkingEndedAtUtc : null,
+    answerStartedAtUtc: typeof options.answerStartedAtUtc === 'string' && options.answerStartedAtUtc.trim() ? options.answerStartedAtUtc : null,
+    answerEndedAtUtc: typeof options.answerEndedAtUtc === 'string' && options.answerEndedAtUtc.trim() ? options.answerEndedAtUtc : null,
+    speculativeAcceptedTokens: Number.isFinite(Number(options.speculativeAcceptedTokens)) ? Number(options.speculativeAcceptedTokens) : null,
+    speculativeGeneratedTokens: Number.isFinite(Number(options.speculativeGeneratedTokens)) ? Number(options.speculativeGeneratedTokens) : null,
     associatedToolTokens,
     thinkingContent: String(thinkingContent || ''),
     createdAtUtc: now,

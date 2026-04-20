@@ -39,6 +39,15 @@ export function getPromptCacheHitRate(promptCacheTokens: unknown, promptEvalToke
   return cacheTokens / totalPromptTokens;
 }
 
+export function getAcceptanceRate(speculativeAcceptedTokens: unknown, speculativeGeneratedTokens: unknown): number | null {
+  const acceptedTokens = Number(speculativeAcceptedTokens) || 0;
+  const generatedTokens = Number(speculativeGeneratedTokens) || 0;
+  if (generatedTokens <= 0) {
+    return null;
+  }
+  return acceptedTokens / generatedTokens;
+}
+
 export function getCurrentUtcDateKey(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -56,7 +65,10 @@ export type DailyMetrics = {
   toolTokens: number;
   promptCacheTokens: number;
   promptEvalTokens: number;
+  speculativeAcceptedTokens: number;
+  speculativeGeneratedTokens: number;
   cacheHitRate: number | null;
+  acceptanceRate: number | null;
   successCount: number;
   failureCount: number;
   avgDurationMs: number;
@@ -74,7 +86,10 @@ function getEmptyDailyAccumulator(date: string): DailyAccumulator {
     toolTokens: 0,
     promptCacheTokens: 0,
     promptEvalTokens: 0,
+    speculativeAcceptedTokens: 0,
+    speculativeGeneratedTokens: 0,
     cacheHitRate: null,
+    acceptanceRate: null,
     successCount: 0,
     failureCount: 0,
     avgDurationMs: 0,
@@ -95,7 +110,10 @@ function finalizeDailyMetrics(byDay: Map<string, DailyAccumulator>): DailyMetric
       toolTokens: entry.toolTokens,
       promptCacheTokens: entry.promptCacheTokens,
       promptEvalTokens: entry.promptEvalTokens,
+      speculativeAcceptedTokens: entry.speculativeAcceptedTokens,
+      speculativeGeneratedTokens: entry.speculativeGeneratedTokens,
       cacheHitRate: getPromptCacheHitRate(entry.promptCacheTokens, entry.promptEvalTokens),
+      acceptanceRate: getAcceptanceRate(entry.speculativeAcceptedTokens, entry.speculativeGeneratedTokens),
       successCount: entry.successCount,
       failureCount: entry.failureCount,
       avgDurationMs: entry.durationCount > 0 ? Math.round(entry.durationTotalMs / entry.durationCount) : 0,
@@ -113,6 +131,8 @@ export function buildLiveTodayMetrics(currentMetrics: Metrics, idleSummaryDataba
   const toolTokensTotal = Number(totals.toolTokensTotal) || 0;
   const promptCacheTokensTotal = Number(totals.promptCacheTokensTotal) || 0;
   const promptEvalTokensTotal = Number(totals.promptEvalTokensTotal) || 0;
+  const speculativeAcceptedTokensTotal = Number(totals.speculativeAcceptedTokensTotal) || 0;
+  const speculativeGeneratedTokensTotal = Number(totals.speculativeGeneratedTokensTotal) || 0;
   const requestDurationMsTotal = Number(totals.requestDurationMsTotal) || 0;
   const runs = Math.max(0, completedRequestCount - (baseline ? baseline.completedRequestCount : 0));
   const inputTokens = Math.max(0, inputTokensTotal - (baseline ? baseline.inputTokensTotal : 0));
@@ -121,6 +141,8 @@ export function buildLiveTodayMetrics(currentMetrics: Metrics, idleSummaryDataba
   const toolTokens = Math.max(0, toolTokensTotal - (baseline ? baseline.toolTokensTotal : 0));
   const promptCacheTokens = Math.max(0, promptCacheTokensTotal - (baseline ? baseline.promptCacheTokensTotal : 0));
   const promptEvalTokens = Math.max(0, promptEvalTokensTotal - (baseline ? baseline.promptEvalTokensTotal : 0));
+  const speculativeAcceptedTokens = Math.max(0, speculativeAcceptedTokensTotal - (baseline ? baseline.speculativeAcceptedTokensTotal : 0));
+  const speculativeGeneratedTokens = Math.max(0, speculativeGeneratedTokensTotal - (baseline ? baseline.speculativeGeneratedTokensTotal : 0));
   const durationTotalMs = Math.max(0, requestDurationMsTotal - (baseline ? baseline.requestDurationMsTotal : 0));
   return {
     date: day,
@@ -131,7 +153,10 @@ export function buildLiveTodayMetrics(currentMetrics: Metrics, idleSummaryDataba
     toolTokens,
     promptCacheTokens,
     promptEvalTokens,
+    speculativeAcceptedTokens,
+    speculativeGeneratedTokens,
     cacheHitRate: getPromptCacheHitRate(promptCacheTokens, promptEvalTokens),
+    acceptanceRate: getAcceptanceRate(speculativeAcceptedTokens, speculativeGeneratedTokens),
     successCount: 0,
     failureCount: 0,
     avgDurationMs: runs > 0 ? Math.round(durationTotalMs / runs) : 0,
@@ -148,8 +173,11 @@ export function buildDashboardDailyMetricsFromRuns(runs: RunRecord[]): DailyMetr
     current.inputTokens += Number(run.inputTokens || 0);
     current.outputTokens += Number(run.outputTokens || 0);
     current.thinkingTokens += Number(run.thinkingTokens || 0);
+    current.toolTokens += Number(run.toolTokens || 0);
     current.promptCacheTokens += Number(run.promptCacheTokens || 0);
     current.promptEvalTokens += Number(run.promptEvalTokens || 0);
+    current.speculativeAcceptedTokens += Number(run.speculativeAcceptedTokens || 0);
+    current.speculativeGeneratedTokens += Number(run.speculativeGeneratedTokens || 0);
     if (run.status === 'completed') {
       current.successCount += 1;
     } else {
@@ -184,6 +212,8 @@ export function buildDashboardDailyMetricsFromIdleSnapshots(database: DatabaseIn
     const thinkingTokensTotal = Number(row.thinking_tokens_total) || 0;
     const promptCacheTokensTotal = Number(row.prompt_cache_tokens_total) || 0;
     const promptEvalTokensTotal = Number(row.prompt_eval_tokens_total) || 0;
+    const speculativeAcceptedTokensTotal = Number(row.speculative_accepted_tokens_total) || 0;
+    const speculativeGeneratedTokensTotal = Number(row.speculative_generated_tokens_total) || 0;
     const toolTokensTotal = Number(row.tool_tokens_total) || 0;
     const taskTotals = parseSnapshotTaskTotalsJson(row.task_totals_json);
     const requestDurationMsTotal = Number(row.request_duration_ms_total) || 0;
@@ -195,6 +225,8 @@ export function buildDashboardDailyMetricsFromIdleSnapshots(database: DatabaseIn
     current.toolTokens += Math.max(0, previous ? toolTokensTotal - previous.toolTokensTotal : toolTokensTotal);
     current.promptCacheTokens += Math.max(0, previous ? promptCacheTokensTotal - previous.promptCacheTokensTotal : promptCacheTokensTotal);
     current.promptEvalTokens += Math.max(0, previous ? promptEvalTokensTotal - previous.promptEvalTokensTotal : promptEvalTokensTotal);
+    current.speculativeAcceptedTokens += Math.max(0, previous ? speculativeAcceptedTokensTotal - previous.speculativeAcceptedTokensTotal : speculativeAcceptedTokensTotal);
+    current.speculativeGeneratedTokens += Math.max(0, previous ? speculativeGeneratedTokensTotal - previous.speculativeGeneratedTokensTotal : speculativeGeneratedTokensTotal);
     current.durationTotalMs += Math.max(0, previous ? requestDurationMsTotal - previous.requestDurationMsTotal : requestDurationMsTotal);
     current.durationCount += deltaRuns;
     byDay.set(day, current);
@@ -206,6 +238,8 @@ export function buildDashboardDailyMetricsFromIdleSnapshots(database: DatabaseIn
       toolTokensTotal,
       promptCacheTokensTotal,
       promptEvalTokensTotal,
+      speculativeAcceptedTokensTotal,
+      speculativeGeneratedTokensTotal,
       requestDurationMsTotal,
       taskTotals,
     };

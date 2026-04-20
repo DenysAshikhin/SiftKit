@@ -8,7 +8,7 @@ import { normalizeOperationModeAllowedTools, normalizePresets } from '../presets
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-const CURRENT_SCHEMA_VERSION = 13;
+const CURRENT_SCHEMA_VERSION = 15;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["repo_rg","repo_read_file","repo_list_files","repo_git","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}';
 
@@ -259,6 +259,8 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       tool_tokens_total INTEGER NOT NULL,
       prompt_cache_tokens_total INTEGER NOT NULL,
       prompt_eval_tokens_total INTEGER NOT NULL,
+      speculative_accepted_tokens_total INTEGER NOT NULL,
+      speculative_generated_tokens_total INTEGER NOT NULL,
       request_duration_ms_total INTEGER NOT NULL,
       completed_request_count INTEGER NOT NULL,
       task_totals_json TEXT NOT NULL,
@@ -300,6 +302,14 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       thinking_tokens_estimated INTEGER NOT NULL CHECK (thinking_tokens_estimated IN (0, 1)),
       prompt_cache_tokens INTEGER,
       prompt_eval_tokens INTEGER,
+      request_duration_ms INTEGER,
+      request_started_at_utc TEXT,
+      thinking_started_at_utc TEXT,
+      thinking_ended_at_utc TEXT,
+      answer_started_at_utc TEXT,
+      answer_ended_at_utc TEXT,
+      speculative_accepted_tokens INTEGER,
+      speculative_generated_tokens INTEGER,
       associated_tool_tokens INTEGER,
       thinking_content TEXT,
       created_at_utc TEXT NOT NULL,
@@ -717,6 +727,52 @@ function ensureSchema(database: RuntimeDatabase): void {
     migrateStoredPlannerToolNames(database);
     setSchemaVersion(database, 13);
     currentVersion = 13;
+  }
+  if (currentVersion < 14) {
+    const alterStatements: string[] = [];
+    if (!tableHasColumn(database, 'runtime_metrics_totals', 'speculative_accepted_tokens_total')) {
+      alterStatements.push('ALTER TABLE runtime_metrics_totals ADD COLUMN speculative_accepted_tokens_total INTEGER NOT NULL DEFAULT 0;');
+    }
+    if (!tableHasColumn(database, 'runtime_metrics_totals', 'speculative_generated_tokens_total')) {
+      alterStatements.push('ALTER TABLE runtime_metrics_totals ADD COLUMN speculative_generated_tokens_total INTEGER NOT NULL DEFAULT 0;');
+    }
+    if (!tableHasColumn(database, 'chat_messages', 'request_duration_ms')) {
+      alterStatements.push('ALTER TABLE chat_messages ADD COLUMN request_duration_ms INTEGER;');
+    }
+    if (!tableHasColumn(database, 'chat_messages', 'speculative_accepted_tokens')) {
+      alterStatements.push('ALTER TABLE chat_messages ADD COLUMN speculative_accepted_tokens INTEGER;');
+    }
+    if (!tableHasColumn(database, 'chat_messages', 'speculative_generated_tokens')) {
+      alterStatements.push('ALTER TABLE chat_messages ADD COLUMN speculative_generated_tokens INTEGER;');
+    }
+    if (alterStatements.length > 0) {
+      database.exec(alterStatements.join('\n'));
+    }
+    setSchemaVersion(database, 14);
+    currentVersion = 14;
+  }
+  if (currentVersion < 15) {
+    const alterStatements: string[] = [];
+    if (!tableHasColumn(database, 'chat_messages', 'request_started_at_utc')) {
+      alterStatements.push('ALTER TABLE chat_messages ADD COLUMN request_started_at_utc TEXT;');
+    }
+    if (!tableHasColumn(database, 'chat_messages', 'thinking_started_at_utc')) {
+      alterStatements.push('ALTER TABLE chat_messages ADD COLUMN thinking_started_at_utc TEXT;');
+    }
+    if (!tableHasColumn(database, 'chat_messages', 'thinking_ended_at_utc')) {
+      alterStatements.push('ALTER TABLE chat_messages ADD COLUMN thinking_ended_at_utc TEXT;');
+    }
+    if (!tableHasColumn(database, 'chat_messages', 'answer_started_at_utc')) {
+      alterStatements.push('ALTER TABLE chat_messages ADD COLUMN answer_started_at_utc TEXT;');
+    }
+    if (!tableHasColumn(database, 'chat_messages', 'answer_ended_at_utc')) {
+      alterStatements.push('ALTER TABLE chat_messages ADD COLUMN answer_ended_at_utc TEXT;');
+    }
+    if (alterStatements.length > 0) {
+      database.exec(alterStatements.join('\n'));
+    }
+    setSchemaVersion(database, 15);
+    currentVersion = 15;
   }
   ensureRuntimeArtifactsSchema(database);
   ensureManagedLlamaAndBenchmarkMatrixSchema(database);

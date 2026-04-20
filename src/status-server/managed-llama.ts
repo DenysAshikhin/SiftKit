@@ -66,6 +66,18 @@ export const MANAGED_LLAMA_LOG_ALERT_PATTERN = /\b(?:warn(?:ing)?|error|exceptio
 const MANAGED_LLAMA_LOADING_MODEL_503_PATTERN = /"message"\s*:\s*"Loading model"[\s\S]*"type"\s*:\s*"unavailable_error"[\s\S]*"code"\s*:\s*503/iu;
 const MANAGED_LLAMA_GPU_MEMORY_PRESSURE_PATTERN = /projected to use\s+(\d+)\s+MiB of device memory vs\.\s+(\d+)\s+MiB of free device memory/iu;
 const MANAGED_LLAMA_GPU_MEMORY_OOM_PATTERN = /cannot meet free memory target|cudaMalloc failed: out of memory|failed to allocate buffer for kv cache/iu;
+const MANAGED_LLAMA_SPECULATIVE_STATS_PATTERN = /#gen tokens\s*=\s*(\d+).+?#acc tokens\s*=\s*(\d+)/iu;
+const MANAGED_LLAMA_SPECULATIVE_RATE_PATTERN = /draft acceptance rate\s*=\s*[^(]+\(\s*(\d+)\s*\/\s*(\d+)\s*\)/iu;
+
+export type ManagedLlamaSpeculativeMetrics = {
+  speculativeAcceptedTokens: number;
+  speculativeGeneratedTokens: number;
+};
+
+export type ManagedLlamaLogCursor = {
+  stdoutOffset: number;
+  stderrOffset: number;
+};
 
 export type ManagedLlamaStartupFailure = {
   kind: 'gpu_memory_oom';
@@ -81,6 +93,55 @@ export class ManagedLlamaStartupError extends Error {
     this.name = 'ManagedLlamaStartupError';
     this.startupFailure = startupFailure;
   }
+}
+
+export function parseManagedLlamaSpeculativeMetricsText(text: string): ManagedLlamaSpeculativeMetrics | null {
+  let acceptedTokens: number | null = null;
+  let generatedTokens: number | null = null;
+  for (const line of String(text || '').split(/\r?\n/u)) {
+    const statsMatch = MANAGED_LLAMA_SPECULATIVE_STATS_PATTERN.exec(line);
+    if (statsMatch) {
+      generatedTokens = Number.parseInt(statsMatch[1], 10);
+      acceptedTokens = Number.parseInt(statsMatch[2], 10);
+      continue;
+    }
+    const rateMatch = MANAGED_LLAMA_SPECULATIVE_RATE_PATTERN.exec(line);
+    if (rateMatch) {
+      acceptedTokens = Number.parseInt(rateMatch[1], 10);
+      generatedTokens = Number.parseInt(rateMatch[2], 10);
+    }
+  }
+  if (!Number.isFinite(acceptedTokens) || !Number.isFinite(generatedTokens) || acceptedTokens === null || generatedTokens === null) {
+    return null;
+  }
+  return {
+    speculativeAcceptedTokens: Math.max(0, acceptedTokens),
+    speculativeGeneratedTokens: Math.max(0, generatedTokens),
+  };
+}
+
+export function getManagedLlamaLogCursor(logRef: ManagedLlamaLogRef | null): ManagedLlamaLogCursor {
+  if (!logRef) {
+    return { stdoutOffset: 0, stderrOffset: 0 };
+  }
+  const streamText = readManagedLlamaLogTextByStream(logRef.runId);
+  return {
+    stdoutOffset: String(streamText.llama_stdout || '').length,
+    stderrOffset: String(streamText.llama_stderr || '').length,
+  };
+}
+
+export function getManagedLlamaSpeculativeMetricsSince(
+  logRef: ManagedLlamaLogRef | null,
+  cursor: ManagedLlamaLogCursor,
+): ManagedLlamaSpeculativeMetrics | null {
+  if (!logRef) {
+    return null;
+  }
+  const streamText = readManagedLlamaLogTextByStream(logRef.runId);
+  const stdoutText = String(streamText.llama_stdout || '').slice(Math.max(0, cursor.stdoutOffset));
+  const stderrText = String(streamText.llama_stderr || '').slice(Math.max(0, cursor.stderrOffset));
+  return parseManagedLlamaSpeculativeMetricsText(`${stdoutText}\n${stderrText}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -271,6 +332,16 @@ export function buildManagedLlamaArgs(managed: ReturnType<typeof getManagedLlama
   );
   if (managed.ReasoningBudgetMessage) {
     args.push('--reasoning-budget-message', managed.ReasoningBudgetMessage);
+  }
+  if (managed.SpeculativeEnabled) {
+    args.push(
+      '--spec-type', managed.SpeculativeType,
+      '--spec-ngram-size-n', String(managed.SpeculativeNgramSizeN),
+      '--spec-ngram-size-m', String(managed.SpeculativeNgramSizeM),
+      '--spec-ngram-min-hits', String(managed.SpeculativeNgramMinHits),
+      '--draft-max', String(managed.SpeculativeDraftMax),
+      '--draft-min', String(managed.SpeculativeDraftMin),
+    );
   }
   if (managed.FlashAttention) {
     args.push('-fa', 'on');

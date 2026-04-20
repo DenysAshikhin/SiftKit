@@ -28,6 +28,13 @@ export type ManagedLlamaKvCacheQuantization =
   | 'q5_0'
   | 'q5_1';
 
+export type ManagedLlamaSpeculativeType =
+  | 'ngram-simple'
+  | 'ngram-map-k'
+  | 'ngram-map-k4v'
+  | 'ngram-mod'
+  | 'ngram-cache';
+
 export type ServerManagedLlamaCppConfig = {
   ExecutablePath?: string | null;
   BaseUrl?: string | null;
@@ -54,6 +61,13 @@ export type ServerManagedLlamaCppConfig = {
   Reasoning?: 'on' | 'off' | null;
   ReasoningContent?: boolean | null;
   PreserveThinking?: boolean | null;
+  SpeculativeEnabled?: boolean | null;
+  SpeculativeType?: ManagedLlamaSpeculativeType | null;
+  SpeculativeNgramSizeN?: number | null;
+  SpeculativeNgramSizeM?: number | null;
+  SpeculativeNgramMinHits?: number | null;
+  SpeculativeDraftMax?: number | null;
+  SpeculativeDraftMin?: number | null;
   ReasoningBudget?: number | null;
   ReasoningBudgetMessage?: string | null;
   StartupTimeoutMs?: number | null;
@@ -129,6 +143,8 @@ export type StatusMetricsSnapshot = {
   inputTokensTotal?: number;
   promptCacheTokensTotal?: number;
   promptEvalTokensTotal?: number;
+  speculativeAcceptedTokensTotal?: number;
+  speculativeGeneratedTokensTotal?: number;
 };
 
 export type StatusSnapshotResponse = {

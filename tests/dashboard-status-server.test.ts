@@ -138,6 +138,8 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     thinkingTokens: 9,
     promptCacheTokens: 80,
     promptEvalTokens: 40,
+    speculativeAcceptedTokens: 18,
+    speculativeGeneratedTokens: 24,
     requestDurationMs: 3000,
   });
   writeJson(path.join(logsRoot, 'planner_debug_req-summary.json'), {
@@ -230,9 +232,15 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     assert.equal(Number.isFinite(Number(days[0].promptCacheTokens)), true);
     assert.equal(Number.isFinite(Number(days[0].promptEvalTokens)), true);
     assert.equal(Number.isFinite(Number(days[0].cacheHitRate)), true);
+    assert.equal(Number.isFinite(Number(days[0].speculativeAcceptedTokens)), true);
+    assert.equal(Number.isFinite(Number(days[0].speculativeGeneratedTokens)), true);
+    assert.equal(Number.isFinite(Number(days[0].acceptanceRate)), true);
     assert.equal(days[0].promptCacheTokens, 80);
     assert.equal(days[0].promptEvalTokens, 60);
     assert.equal(Math.round(Number(days[0].cacheHitRate) * 1000) / 1000, 0.571);
+    assert.equal(days[0].speculativeAcceptedTokens, 18);
+    assert.equal(days[0].speculativeGeneratedTokens, 24);
+    assert.equal(Math.round(Number(days[0].acceptanceRate) * 1000) / 1000, 0.75);
 
     const idleSummaryResponse = await requestJson(`${baseUrl}/dashboard/metrics/idle-summary`);
     assert.equal(idleSummaryResponse.statusCode, 200);
@@ -542,6 +550,12 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
     const planToolResult = planSse.events.find((event) => event.event === 'tool_result');
     assert.equal(Number.isFinite(Number(planToolStart?.payload?.promptTokenCount)), true);
     assert.equal(Number.isFinite(Number(planToolResult?.payload?.promptTokenCount)), true);
+    const planDoneSession = d(planSse.events.find((event) => event.event === 'done')?.payload).session as Dict;
+    const planDoneMessages = (planDoneSession.messages || []) as Dict[];
+    const latestPlanMessage = planDoneMessages[planDoneMessages.length - 1];
+    assert.equal(typeof latestPlanMessage.requestStartedAtUtc, 'string');
+    assert.equal(typeof latestPlanMessage.answerStartedAtUtc, 'string');
+    assert.equal(typeof latestPlanMessage.answerEndedAtUtc, 'string');
 
     const repoSse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/repo-search/stream`, {
       method: 'POST',
@@ -565,6 +579,12 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
     const repoToolResult = repoSse.events.find((event) => event.event === 'tool_result');
     assert.equal(Number.isFinite(Number(repoToolStart?.payload?.promptTokenCount)), true);
     assert.equal(Number.isFinite(Number(repoToolResult?.payload?.promptTokenCount)), true);
+    const repoDoneSession = d(repoSse.events.find((event) => event.event === 'done')?.payload).session as Dict;
+    const repoDoneMessages = (repoDoneSession.messages || []) as Dict[];
+    const latestRepoMessage = repoDoneMessages[repoDoneMessages.length - 1];
+    assert.equal(typeof latestRepoMessage.requestStartedAtUtc, 'string');
+    assert.equal(typeof latestRepoMessage.answerStartedAtUtc, 'string');
+    assert.equal(typeof latestRepoMessage.answerEndedAtUtc, 'string');
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

@@ -111,6 +111,8 @@ export type StatusMetadata = {
   toolStats: Record<string, ToolTypeStats> | null;
   promptCacheTokens: number | null;
   promptEvalTokens: number | null;
+  speculativeAcceptedTokens: number | null;
+  speculativeGeneratedTokens: number | null;
   requestDurationMs: number | null;
   artifactType: string | null;
   artifactRequestId: string | null;
@@ -142,6 +144,8 @@ export function parseStatusMetadata(bodyText: string): StatusMetadata {
     toolStats: null,
     promptCacheTokens: null,
     promptEvalTokens: null,
+    speculativeAcceptedTokens: null,
+    speculativeGeneratedTokens: null,
     requestDurationMs: null,
     artifactType: null,
     artifactRequestId: null,
@@ -304,6 +308,12 @@ export function parseStatusMetadata(bodyText: string): StatusMetadata {
     }
     if (Number.isFinite(parsed.promptEvalTokens) && Number(parsed.promptEvalTokens) >= 0) {
       metadata.promptEvalTokens = Number(parsed.promptEvalTokens);
+    }
+    if (Number.isFinite(parsed.speculativeAcceptedTokens) && Number(parsed.speculativeAcceptedTokens) >= 0) {
+      metadata.speculativeAcceptedTokens = Number(parsed.speculativeAcceptedTokens);
+    }
+    if (Number.isFinite(parsed.speculativeGeneratedTokens) && Number(parsed.speculativeGeneratedTokens) >= 0) {
+      metadata.speculativeGeneratedTokens = Number(parsed.speculativeGeneratedTokens);
     }
     if (Number.isFinite(parsed.requestDurationMs) && Number(parsed.requestDurationMs) >= 0) {
       metadata.requestDurationMs = Number(parsed.requestDurationMs);

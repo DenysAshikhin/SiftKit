@@ -41,6 +41,13 @@ function buildPresetFromServer(config: DashboardConfig): DashboardManagedLlamaPr
     Reasoning: config.Server.LlamaCpp.Reasoning,
     ReasoningContent: config.Server.LlamaCpp.ReasoningContent,
     PreserveThinking: config.Server.LlamaCpp.PreserveThinking,
+    SpeculativeEnabled: config.Server.LlamaCpp.SpeculativeEnabled,
+    SpeculativeType: config.Server.LlamaCpp.SpeculativeType,
+    SpeculativeNgramSizeN: config.Server.LlamaCpp.SpeculativeNgramSizeN,
+    SpeculativeNgramSizeM: config.Server.LlamaCpp.SpeculativeNgramSizeM,
+    SpeculativeNgramMinHits: config.Server.LlamaCpp.SpeculativeNgramMinHits,
+    SpeculativeDraftMax: config.Server.LlamaCpp.SpeculativeDraftMax,
+    SpeculativeDraftMin: config.Server.LlamaCpp.SpeculativeDraftMin,
     ReasoningBudget: config.Server.LlamaCpp.ReasoningBudget,
     ReasoningBudgetMessage: config.Server.LlamaCpp.ReasoningBudgetMessage,
     StartupTimeoutMs: config.Server.LlamaCpp.StartupTimeoutMs,
@@ -89,6 +96,13 @@ function copyPresetToServer(config: DashboardConfig, preset: DashboardManagedLla
   config.Server.LlamaCpp.Reasoning = preset.Reasoning;
   config.Server.LlamaCpp.ReasoningContent = preset.ReasoningContent;
   config.Server.LlamaCpp.PreserveThinking = preset.PreserveThinking;
+  config.Server.LlamaCpp.SpeculativeEnabled = preset.SpeculativeEnabled;
+  config.Server.LlamaCpp.SpeculativeType = preset.SpeculativeType;
+  config.Server.LlamaCpp.SpeculativeNgramSizeN = preset.SpeculativeNgramSizeN;
+  config.Server.LlamaCpp.SpeculativeNgramSizeM = preset.SpeculativeNgramSizeM;
+  config.Server.LlamaCpp.SpeculativeNgramMinHits = preset.SpeculativeNgramMinHits;
+  config.Server.LlamaCpp.SpeculativeDraftMax = preset.SpeculativeDraftMax;
+  config.Server.LlamaCpp.SpeculativeDraftMin = preset.SpeculativeDraftMin;
   config.Server.LlamaCpp.ReasoningBudget = preset.ReasoningBudget;
   config.Server.LlamaCpp.ReasoningBudgetMessage = preset.ReasoningBudgetMessage;
   config.Server.LlamaCpp.StartupTimeoutMs = preset.StartupTimeoutMs;

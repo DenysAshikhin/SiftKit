@@ -34,8 +34,11 @@ export type RunRecord = {
   inputTokens: number | null;
   outputTokens: number | null;
   thinkingTokens: number | null;
+  toolTokens?: number | null;
   promptCacheTokens: number | null;
   promptEvalTokens: number | null;
+  speculativeAcceptedTokens?: number | null;
+  speculativeGeneratedTokens?: number | null;
   durationMs: number | null;
   rawPaths: Record<string, string | null>;
 };
@@ -66,6 +69,9 @@ export type MetricDay = {
   promptCacheTokens: number;
   promptEvalTokens: number;
   cacheHitRate: number | null;
+  speculativeAcceptedTokens: number;
+  speculativeGeneratedTokens: number;
+  acceptanceRate: number | null;
   successCount: number;
   failureCount: number;
   avgDurationMs: number;
@@ -124,6 +130,8 @@ export type IdleSummarySnapshot = {
   toolTokensTotal: number;
   promptCacheTokensTotal: number;
   promptEvalTokensTotal: number;
+  speculativeAcceptedTokensTotal?: number;
+  speculativeGeneratedTokensTotal?: number;
   savedTokens: number;
   savedPercent: number | null;
   compressionRatio: number | null;
@@ -152,6 +160,14 @@ export type ChatMessage = {
   thinkingTokensEstimated?: boolean;
   promptCacheTokens?: number | null;
   promptEvalTokens?: number | null;
+  requestDurationMs?: number | null;
+  requestStartedAtUtc?: string | null;
+  thinkingStartedAtUtc?: string | null;
+  thinkingEndedAtUtc?: string | null;
+  answerStartedAtUtc?: string | null;
+  answerEndedAtUtc?: string | null;
+  speculativeAcceptedTokens?: number | null;
+  speculativeGeneratedTokens?: number | null;
   associatedToolTokens?: number;
   thinkingContent?: string;
   createdAtUtc: string;
@@ -251,6 +267,13 @@ export type DashboardPreset = {
   maxTurns: number | null;
 };
 
+export type DashboardManagedLlamaSpeculativeType =
+  | 'ngram-simple'
+  | 'ngram-map-k'
+  | 'ngram-map-k4v'
+  | 'ngram-mod'
+  | 'ngram-cache';
+
 export type DashboardLlamaCppConfig = {
   BaseUrl: string;
   NumCtx: number;
@@ -325,6 +348,13 @@ export type DashboardConfig = {
       Reasoning: 'on' | 'off';
       ReasoningContent: boolean;
       PreserveThinking: boolean;
+      SpeculativeEnabled: boolean;
+      SpeculativeType: DashboardManagedLlamaSpeculativeType;
+      SpeculativeNgramSizeN: number;
+      SpeculativeNgramSizeM: number;
+      SpeculativeNgramMinHits: number;
+      SpeculativeDraftMax: number;
+      SpeculativeDraftMin: number;
       ReasoningBudget: number;
       ReasoningBudgetMessage: string;
       StartupTimeoutMs: number;
@@ -366,6 +396,13 @@ export type DashboardManagedLlamaPreset = {
   Reasoning: 'on' | 'off';
   ReasoningContent: boolean;
   PreserveThinking: boolean;
+  SpeculativeEnabled: boolean;
+  SpeculativeType: DashboardManagedLlamaSpeculativeType;
+  SpeculativeNgramSizeN: number;
+  SpeculativeNgramSizeM: number;
+  SpeculativeNgramMinHits: number;
+  SpeculativeDraftMax: number;
+  SpeculativeDraftMin: number;
   ReasoningBudget: number;
   ReasoningBudgetMessage: string;
   StartupTimeoutMs: number;

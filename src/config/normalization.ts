@@ -65,6 +65,13 @@ const MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS: ReadonlyArray<keyof ServerManagedLlam
   'Reasoning',
   'ReasoningContent',
   'PreserveThinking',
+  'SpeculativeEnabled',
+  'SpeculativeType',
+  'SpeculativeNgramSizeN',
+  'SpeculativeNgramSizeM',
+  'SpeculativeNgramMinHits',
+  'SpeculativeDraftMax',
+  'SpeculativeDraftMin',
   'ReasoningBudget',
   'ReasoningBudgetMessage',
   'StartupTimeoutMs',
@@ -99,6 +106,13 @@ const MANAGED_LLAMA_PRESET_KEYS: ReadonlyArray<Exclude<keyof ServerManagedLlamaC
   'Reasoning',
   'ReasoningContent',
   'PreserveThinking',
+  'SpeculativeEnabled',
+  'SpeculativeType',
+  'SpeculativeNgramSizeN',
+  'SpeculativeNgramSizeM',
+  'SpeculativeNgramMinHits',
+  'SpeculativeDraftMax',
+  'SpeculativeDraftMin',
   'ReasoningBudget',
   'ReasoningBudgetMessage',
   'StartupTimeoutMs',
@@ -106,6 +120,8 @@ const MANAGED_LLAMA_PRESET_KEYS: ReadonlyArray<Exclude<keyof ServerManagedLlamaC
   'HealthcheckIntervalMs',
   'VerboseLogging',
 ];
+
+const MANAGED_LLAMA_SPECULATIVE_TYPES = ['ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod', 'ngram-cache'] as const;
 
 function syncRuntimeLlamaFromManaged(
   runtimeLlamaCpp: RuntimeLlamaCppConfig,
@@ -156,6 +172,12 @@ function normalizeBinaryReasoning(value: unknown): 'on' | 'off' {
   return value === 'on' ? 'on' : 'off';
 }
 
+function normalizeManagedSpeculativeType(value: unknown): typeof MANAGED_LLAMA_SPECULATIVE_TYPES[number] {
+  return MANAGED_LLAMA_SPECULATIVE_TYPES.includes(String(value || '') as typeof MANAGED_LLAMA_SPECULATIVE_TYPES[number])
+    ? String(value) as typeof MANAGED_LLAMA_SPECULATIVE_TYPES[number]
+    : 'ngram-map-k';
+}
+
 function normalizeManagedLlamaPreset(
   preset: Partial<ServerManagedLlamaCppConfig> | null | undefined,
   fallback: ServerManagedLlamaCppConfig,
@@ -179,6 +201,23 @@ function normalizeManagedLlamaPreset(
   } else if (normalizedPreset.PreserveThinking !== true) {
     normalizedPreset.PreserveThinking = false;
   }
+  normalizedPreset.SpeculativeEnabled = normalizedPreset.SpeculativeEnabled === true;
+  normalizedPreset.SpeculativeType = normalizeManagedSpeculativeType(normalizedPreset.SpeculativeType);
+  normalizedPreset.SpeculativeNgramSizeN = Number.isFinite(Number(normalizedPreset.SpeculativeNgramSizeN)) && Number(normalizedPreset.SpeculativeNgramSizeN) > 0
+    ? Number(normalizedPreset.SpeculativeNgramSizeN)
+    : 8;
+  normalizedPreset.SpeculativeNgramSizeM = Number.isFinite(Number(normalizedPreset.SpeculativeNgramSizeM)) && Number(normalizedPreset.SpeculativeNgramSizeM) > 0
+    ? Number(normalizedPreset.SpeculativeNgramSizeM)
+    : 16;
+  normalizedPreset.SpeculativeNgramMinHits = Number.isFinite(Number(normalizedPreset.SpeculativeNgramMinHits)) && Number(normalizedPreset.SpeculativeNgramMinHits) > 0
+    ? Number(normalizedPreset.SpeculativeNgramMinHits)
+    : 2;
+  normalizedPreset.SpeculativeDraftMax = Number.isFinite(Number(normalizedPreset.SpeculativeDraftMax)) && Number(normalizedPreset.SpeculativeDraftMax) > 0
+    ? Number(normalizedPreset.SpeculativeDraftMax)
+    : 16;
+  normalizedPreset.SpeculativeDraftMin = Number.isFinite(Number(normalizedPreset.SpeculativeDraftMin))
+    ? Number(normalizedPreset.SpeculativeDraftMin)
+    : 4;
   delete (normalizedPreset as Partial<ServerManagedLlamaCppConfig>).Presets;
   delete (normalizedPreset as Partial<ServerManagedLlamaCppConfig>).ActivePresetId;
   return {
@@ -538,6 +577,13 @@ export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info:
     'Reasoning',
     'ReasoningContent',
     'PreserveThinking',
+    'SpeculativeEnabled',
+    'SpeculativeType',
+    'SpeculativeNgramSizeN',
+    'SpeculativeNgramSizeM',
+    'SpeculativeNgramMinHits',
+    'SpeculativeDraftMax',
+    'SpeculativeDraftMin',
     'ReasoningBudget',
     'ReasoningBudgetMessage',
   ] as const) {
@@ -560,6 +606,34 @@ export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info:
   }
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'VerboseLogging')) {
     serverLlama.VerboseLogging = defaults.Server?.LlamaCpp?.VerboseLogging ?? false;
+    changed = true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeEnabled')) {
+    serverLlama.SpeculativeEnabled = defaults.Server?.LlamaCpp?.SpeculativeEnabled ?? false;
+    changed = true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeType')) {
+    serverLlama.SpeculativeType = defaults.Server?.LlamaCpp?.SpeculativeType ?? 'ngram-map-k';
+    changed = true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeNgramSizeN')) {
+    serverLlama.SpeculativeNgramSizeN = defaults.Server?.LlamaCpp?.SpeculativeNgramSizeN ?? 8;
+    changed = true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeNgramSizeM')) {
+    serverLlama.SpeculativeNgramSizeM = defaults.Server?.LlamaCpp?.SpeculativeNgramSizeM ?? 16;
+    changed = true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeNgramMinHits')) {
+    serverLlama.SpeculativeNgramMinHits = defaults.Server?.LlamaCpp?.SpeculativeNgramMinHits ?? 2;
+    changed = true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeDraftMax')) {
+    serverLlama.SpeculativeDraftMax = defaults.Server?.LlamaCpp?.SpeculativeDraftMax ?? 16;
+    changed = true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeDraftMin')) {
+    serverLlama.SpeculativeDraftMin = defaults.Server?.LlamaCpp?.SpeculativeDraftMin ?? 4;
     changed = true;
   }
   const normalizedServerReasoning = normalizeBinaryReasoning(serverLlama.Reasoning);
@@ -602,6 +676,31 @@ export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info:
   } else if (serverLlama.PreserveThinking !== true && serverLlama.PreserveThinking !== false) {
     serverLlama.PreserveThinking = false;
     changed = true;
+  }
+  const normalizedSpeculativeType = normalizeManagedSpeculativeType(serverLlama.SpeculativeType);
+  if (serverLlama.SpeculativeEnabled !== true && serverLlama.SpeculativeEnabled !== false) {
+    serverLlama.SpeculativeEnabled = false;
+    changed = true;
+  }
+  if (serverLlama.SpeculativeType !== normalizedSpeculativeType) {
+    serverLlama.SpeculativeType = normalizedSpeculativeType;
+    changed = true;
+  }
+  for (const [key, fallback] of [
+    ['SpeculativeNgramSizeN', 8],
+    ['SpeculativeNgramSizeM', 16],
+    ['SpeculativeNgramMinHits', 2],
+    ['SpeculativeDraftMax', 16],
+    ['SpeculativeDraftMin', 4],
+  ] as const) {
+    const value = Number((serverLlama as Record<string, unknown>)[key]);
+    const normalizedValue = key === 'SpeculativeDraftMin'
+      ? (Number.isFinite(value) ? value : fallback)
+      : (Number.isFinite(value) && value > 0 ? value : fallback);
+    if ((serverLlama as Record<string, unknown>)[key] !== normalizedValue) {
+      (serverLlama as Record<string, unknown>)[key] = normalizedValue;
+      changed = true;
+    }
   }
   if (typeof serverLlama.VerboseLogging !== 'boolean') {
     serverLlama.VerboseLogging = Boolean(serverLlama.VerboseLogging);

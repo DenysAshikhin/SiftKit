@@ -56,18 +56,52 @@ export function isMessageTokenEstimateFallback(message: ChatSession['messages'][
     || message.thinkingTokensEstimated === true;
 }
 
-export function getSessionPromptCacheStats(session: ChatSession | null): {
+export function getSessionTelemetryStats(session: ChatSession | null): {
   promptCacheTokens: number;
   promptEvalTokens: number;
   cacheHitRate: number | null;
+  speculativeAcceptedTokens: number;
+  speculativeGeneratedTokens: number;
+  acceptanceRate: number | null;
+  promptTokensPerSecond: number | null;
+  outputTokensPerSecond: number | null;
 } {
   if (!session || !Array.isArray(session.messages)) {
     return {
       promptCacheTokens: 0,
       promptEvalTokens: 0,
       cacheHitRate: null,
+      speculativeAcceptedTokens: 0,
+      speculativeGeneratedTokens: 0,
+      acceptanceRate: null,
+      promptTokensPerSecond: null,
+      outputTokensPerSecond: null,
     };
   }
+  const getIsoTime = (value: string | null | undefined): number | null => {
+    if (typeof value !== 'string' || !value.trim()) {
+      return null;
+    }
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const getPromptTokensForTurn = (message: ChatSession['messages'][number], previousMessage: ChatSession['messages'][number] | null): number | null => {
+    if (Number.isFinite(message.promptEvalTokens) && Number(message.promptEvalTokens) >= 0) {
+      return Number(message.promptEvalTokens);
+    }
+    if (
+      previousMessage
+      && previousMessage.role === 'user'
+      && Number.isFinite(previousMessage.inputTokensEstimate)
+      && Number(previousMessage.inputTokensEstimate) >= 0
+    ) {
+      return Number(previousMessage.inputTokensEstimate);
+    }
+    return null;
+  };
+  const promptThroughputs: number[] = [];
+  const outputThroughputs: number[] = [];
+  const acceptanceRates: number[] = [];
   const promptCacheTokens = session.messages.reduce((sum, message) => (
     Number.isFinite(message.promptCacheTokens) && Number(message.promptCacheTokens) >= 0
       ? sum + Number(message.promptCacheTokens)
@@ -78,11 +112,66 @@ export function getSessionPromptCacheStats(session: ChatSession | null): {
       ? sum + Number(message.promptEvalTokens)
       : sum
   ), 0);
+  const speculativeAcceptedTokens = session.messages.reduce((sum, message) => (
+    Number.isFinite(message.speculativeAcceptedTokens) && Number(message.speculativeAcceptedTokens) >= 0
+      ? sum + Number(message.speculativeAcceptedTokens)
+      : sum
+  ), 0);
+  const speculativeGeneratedTokens = session.messages.reduce((sum, message) => (
+    Number.isFinite(message.speculativeGeneratedTokens) && Number(message.speculativeGeneratedTokens) >= 0
+      ? sum + Number(message.speculativeGeneratedTokens)
+      : sum
+  ), 0);
+  for (let index = 0; index < session.messages.length; index += 1) {
+    const message = session.messages[index];
+    if (!message) {
+      continue;
+    }
+    if (message.role !== 'assistant') {
+      continue;
+    }
+    const previousMessage = index > 0 ? (session.messages[index - 1] ?? null) : null;
+    const requestStartedAt = getIsoTime(message.requestStartedAtUtc);
+    const thinkingStartedAt = getIsoTime(message.thinkingStartedAtUtc);
+    const answerStartedAt = getIsoTime(message.answerStartedAtUtc);
+    const answerEndedAt = getIsoTime(message.answerEndedAtUtc);
+    const generationStartedAt = thinkingStartedAt ?? answerStartedAt;
+    const promptTokens = getPromptTokensForTurn(message, previousMessage);
+    if (requestStartedAt !== null && generationStartedAt !== null && generationStartedAt > requestStartedAt && promptTokens !== null) {
+      promptThroughputs.push(promptTokens / ((generationStartedAt - requestStartedAt) / 1000));
+    }
+    const generatedTokens = (
+      (Number.isFinite(message.thinkingTokens) && Number(message.thinkingTokens) >= 0 ? Number(message.thinkingTokens) : 0)
+      + (Number.isFinite(message.outputTokensEstimate) && Number(message.outputTokensEstimate) >= 0 ? Number(message.outputTokensEstimate) : 0)
+    );
+    if (generationStartedAt !== null && answerEndedAt !== null && answerEndedAt > generationStartedAt) {
+      outputThroughputs.push(generatedTokens / ((answerEndedAt - generationStartedAt) / 1000));
+    }
+    if (
+      Number.isFinite(message.speculativeGeneratedTokens)
+      && Number(message.speculativeGeneratedTokens) > 0
+      && Number.isFinite(message.speculativeAcceptedTokens)
+      && Number(message.speculativeAcceptedTokens) >= 0
+    ) {
+      acceptanceRates.push(Number(message.speculativeAcceptedTokens) / Number(message.speculativeGeneratedTokens));
+    }
+  }
   const totalPromptTokens = promptCacheTokens + promptEvalTokens;
   return {
     promptCacheTokens,
     promptEvalTokens,
     cacheHitRate: totalPromptTokens > 0 ? (promptCacheTokens / totalPromptTokens) : null,
+    speculativeAcceptedTokens,
+    speculativeGeneratedTokens,
+    acceptanceRate: acceptanceRates.length > 0
+      ? (acceptanceRates.reduce((sum, value) => sum + value, 0) / acceptanceRates.length)
+      : null,
+    promptTokensPerSecond: promptThroughputs.length > 0
+      ? (promptThroughputs.reduce((sum, value) => sum + value, 0) / promptThroughputs.length)
+      : null,
+    outputTokensPerSecond: outputThroughputs.length > 0
+      ? (outputThroughputs.reduce((sum, value) => sum + value, 0) / outputThroughputs.length)
+      : null,
   };
 }
 

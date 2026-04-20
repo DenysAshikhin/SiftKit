@@ -131,6 +131,33 @@ export function MetricsTab({
             },
           ]}
         />
+        <InteractiveGraph
+          storageId="speculative-acceptance-rate"
+          title="Speculative Acceptance Rate"
+          series={[
+            {
+              key: 'acceptance-rate',
+              title: 'Acceptance Rate',
+              unit: '%',
+              color: '#ffb86c',
+              points: metrics.map((day) => ({ label: day.date, value: Number.isFinite(day.acceptanceRate) ? Number(day.acceptanceRate) * 100 : 0 })),
+            },
+            {
+              key: 'accepted-tokens',
+              title: 'Accepted Tokens',
+              unit: 'tok',
+              color: '#71d36a',
+              points: metrics.map((day) => ({ label: day.date, value: day.speculativeAcceptedTokens })),
+            },
+            {
+              key: 'generated-tokens',
+              title: 'Generated Tokens',
+              unit: 'tok',
+              color: '#6ec8ff',
+              points: metrics.map((day) => ({ label: day.date, value: day.speculativeGeneratedTokens })),
+            },
+          ]}
+        />
         {idleSummarySnapshots.length > 1 ? (
           <InteractiveGraph
             storageId="recent-snapshot-totals"

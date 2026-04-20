@@ -15,6 +15,8 @@ export type MetricTotals = {
   toolTokensTotal: number;
   promptCacheTokensTotal: number;
   promptEvalTokensTotal: number;
+  speculativeAcceptedTokensTotal: number;
+  speculativeGeneratedTokensTotal: number;
   requestDurationMsTotal: number;
   completedRequestCount: number;
 };
@@ -52,6 +54,8 @@ export type Metrics = {
   toolTokensTotal: number;
   promptCacheTokensTotal: number;
   promptEvalTokensTotal: number;
+  speculativeAcceptedTokensTotal: number;
+  speculativeGeneratedTokensTotal: number;
   requestDurationMsTotal: number;
   completedRequestCount: number;
   taskTotals: TaskTotals;
@@ -71,6 +75,8 @@ function getDefaultMetricTotals(): MetricTotals {
     toolTokensTotal: 0,
     promptCacheTokensTotal: 0,
     promptEvalTokensTotal: 0,
+    speculativeAcceptedTokensTotal: 0,
+    speculativeGeneratedTokensTotal: 0,
     requestDurationMsTotal: 0,
     completedRequestCount: 0,
   };
@@ -105,6 +111,8 @@ export function getDefaultMetrics(): Metrics {
     toolTokensTotal: 0,
     promptCacheTokensTotal: 0,
     promptEvalTokensTotal: 0,
+    speculativeAcceptedTokensTotal: 0,
+    speculativeGeneratedTokensTotal: 0,
     requestDurationMsTotal: 0,
     completedRequestCount: 0,
     taskTotals: getDefaultTaskTotals(),
@@ -132,6 +140,8 @@ function normalizeMetricTotals(input: unknown): MetricTotals {
     'toolTokensTotal',
     'promptCacheTokensTotal',
     'promptEvalTokensTotal',
+    'speculativeAcceptedTokensTotal',
+    'speculativeGeneratedTokensTotal',
     'requestDurationMsTotal',
     'completedRequestCount',
   ];
@@ -267,6 +277,8 @@ export function normalizeMetrics(input: unknown): Metrics {
   metrics.toolTokensTotal = totals.toolTokensTotal;
   metrics.promptCacheTokensTotal = totals.promptCacheTokensTotal;
   metrics.promptEvalTokensTotal = totals.promptEvalTokensTotal;
+  metrics.speculativeAcceptedTokensTotal = totals.speculativeAcceptedTokensTotal;
+  metrics.speculativeGeneratedTokensTotal = totals.speculativeGeneratedTokensTotal;
   metrics.requestDurationMsTotal = totals.requestDurationMsTotal;
   metrics.completedRequestCount = totals.completedRequestCount;
   metrics.taskTotals = normalizeTaskTotals(record.taskTotals);
@@ -290,6 +302,8 @@ export function readMetrics(metricsPath: string): Metrics {
       tool_tokens_total,
       prompt_cache_tokens_total,
       prompt_eval_tokens_total,
+      speculative_accepted_tokens_total,
+      speculative_generated_tokens_total,
       request_duration_ms_total,
       completed_request_count,
       task_totals_json,
@@ -311,6 +325,8 @@ export function readMetrics(metricsPath: string): Metrics {
     toolTokensTotal: Number(row.tool_tokens_total),
     promptCacheTokensTotal: Number(row.prompt_cache_tokens_total),
     promptEvalTokensTotal: Number(row.prompt_eval_tokens_total),
+    speculativeAcceptedTokensTotal: Number(row.speculative_accepted_tokens_total),
+    speculativeGeneratedTokensTotal: Number(row.speculative_generated_tokens_total),
     requestDurationMsTotal: Number(row.request_duration_ms_total),
     completedRequestCount: Number(row.completed_request_count),
     taskTotals: (() => {
@@ -346,13 +362,15 @@ export function writeMetrics(metricsPath: string, metrics: Metrics): void {
       tool_tokens_total,
       prompt_cache_tokens_total,
       prompt_eval_tokens_total,
+      speculative_accepted_tokens_total,
+      speculative_generated_tokens_total,
       request_duration_ms_total,
       completed_request_count,
       task_totals_json,
       tool_stats_json,
-      updated_at_utc
+     updated_at_utc
     ) VALUES (
-      1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     )
     ON CONFLICT(id) DO UPDATE SET
       schema_version = excluded.schema_version,
@@ -364,6 +382,8 @@ export function writeMetrics(metricsPath: string, metrics: Metrics): void {
       tool_tokens_total = excluded.tool_tokens_total,
       prompt_cache_tokens_total = excluded.prompt_cache_tokens_total,
       prompt_eval_tokens_total = excluded.prompt_eval_tokens_total,
+      speculative_accepted_tokens_total = excluded.speculative_accepted_tokens_total,
+      speculative_generated_tokens_total = excluded.speculative_generated_tokens_total,
       request_duration_ms_total = excluded.request_duration_ms_total,
       completed_request_count = excluded.completed_request_count,
       task_totals_json = excluded.task_totals_json,
@@ -379,6 +399,8 @@ export function writeMetrics(metricsPath: string, metrics: Metrics): void {
     normalized.toolTokensTotal,
     normalized.promptCacheTokensTotal,
     normalized.promptEvalTokensTotal,
+    normalized.speculativeAcceptedTokensTotal,
+    normalized.speculativeGeneratedTokensTotal,
     normalized.requestDurationMsTotal,
     normalized.completedRequestCount,
     JSON.stringify(normalized.taskTotals),

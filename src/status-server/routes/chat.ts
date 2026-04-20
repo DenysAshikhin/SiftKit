@@ -50,7 +50,11 @@ import {
   resolvePresetAllowedTools,
   type SiftPreset,
 } from '../../presets.js';
-import { logLine } from '../managed-llama.js';
+import {
+  getManagedLlamaLogCursor,
+  getManagedLlamaSpeculativeMetricsSince,
+  logLine,
+} from '../managed-llama.js';
 import {
   acquireModelRequestWithWait,
   releaseModelRequest,
@@ -124,6 +128,84 @@ async function notifyChatStatus(options: {
     promptEvalTokens: options.promptEvalTokens,
     requestDurationMs: options.requestDurationMs,
   });
+}
+
+type SessionSpeculativeMetrics = {
+  speculativeAcceptedTokens: number | null;
+  speculativeGeneratedTokens: number | null;
+};
+
+type ChatTurnPhaseTimestamps = {
+  requestStartedAtUtc: string | null;
+  thinkingStartedAtUtc: string | null;
+  thinkingEndedAtUtc: string | null;
+  answerStartedAtUtc: string | null;
+  answerEndedAtUtc: string | null;
+};
+
+function createChatTurnPhaseTracker(requestStartedAtUtc: string): {
+  observeThinking(content: string): void;
+  observeAnswer(content: string): void;
+  snapshot(): ChatTurnPhaseTimestamps;
+} {
+  let thinkingStartedAtUtc: string | null = null;
+  let thinkingEndedAtUtc: string | null = null;
+  let answerStartedAtUtc: string | null = null;
+  let answerEndedAtUtc: string | null = null;
+  const getNowUtc = (): string => new Date().toISOString();
+  const hasContent = (value: string): boolean => String(value || '').trim().length > 0;
+  return {
+    observeThinking(content: string): void {
+      if (!hasContent(content)) {
+        return;
+      }
+      const nowUtc = getNowUtc();
+      if (!thinkingStartedAtUtc) {
+        thinkingStartedAtUtc = nowUtc;
+      }
+      thinkingEndedAtUtc = nowUtc;
+    },
+    observeAnswer(content: string): void {
+      if (!hasContent(content)) {
+        return;
+      }
+      const nowUtc = getNowUtc();
+      if (!answerStartedAtUtc) {
+        answerStartedAtUtc = nowUtc;
+      }
+      answerEndedAtUtc = nowUtc;
+    },
+    snapshot(): ChatTurnPhaseTimestamps {
+      return {
+        requestStartedAtUtc,
+        thinkingStartedAtUtc,
+        thinkingEndedAtUtc,
+        answerStartedAtUtc,
+        answerEndedAtUtc,
+      };
+    },
+  };
+}
+
+function captureManagedLlamaSessionCursor(ctx: ServerContext): { stdoutOffset: number; stderrOffset: number } | null {
+  return ctx.managedLlamaLastStartupLogs ? getManagedLlamaLogCursor(ctx.managedLlamaLastStartupLogs) : null;
+}
+
+function readManagedLlamaSessionSpeculativeMetrics(
+  ctx: ServerContext,
+  cursor: { stdoutOffset: number; stderrOffset: number } | null,
+): SessionSpeculativeMetrics {
+  if (!cursor) {
+    return {
+      speculativeAcceptedTokens: null,
+      speculativeGeneratedTokens: null,
+    };
+  }
+  const metrics = getManagedLlamaSpeculativeMetricsSince(ctx.managedLlamaLastStartupLogs, cursor);
+  return {
+    speculativeAcceptedTokens: metrics?.speculativeAcceptedTokens ?? null,
+    speculativeGeneratedTokens: metrics?.speculativeGeneratedTokens ?? null,
+  };
 }
 
 export async function handleChatRoute(
@@ -298,6 +380,8 @@ export async function handleChatRoute(
     const userContent = (parsedBody.content as string).trim();
     const requestId = crypto.randomUUID();
     const startedAt = Date.now();
+    const requestStartedAtUtc = new Date(startedAt).toISOString();
+    const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
     try {
       try {
         await notifyChatStatus({
@@ -349,8 +433,14 @@ export async function handleChatRoute(
       } catch {
         // Best-effort metrics notification.
       }
-      const updatedSession = appendChatMessagesWithUsage(runtimeRoot, activeSession, userContent, assistantContent, usage, thinkingContent);
-      sendJson(res, 200, { session: updatedSession, contextUsage: buildContextUsage(updatedSession) });
+      const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
+      const sessionWithTelemetry = appendChatMessagesWithUsage(runtimeRoot, activeSession, userContent, assistantContent, usage, thinkingContent, {
+        requestDurationMs: Date.now() - startedAt,
+        requestStartedAtUtc,
+        speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
+        speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
+      });
+      sendJson(res, 200, { session: sessionWithTelemetry, contextUsage: buildContextUsage(sessionWithTelemetry) });
     } catch (error) {
       try {
         await notifyChatStatus({
@@ -420,6 +510,9 @@ export async function handleChatRoute(
     const userContent = (parsedBody.content as string).trim();
     const requestId = crypto.randomUUID();
     const startedAt = Date.now();
+    const requestStartedAtUtc = new Date(startedAt).toISOString();
+    const phaseTracker = createChatTurnPhaseTracker(requestStartedAtUtc);
+    const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
     try {
       await notifyChatStatus({
         ctx,
@@ -436,6 +529,8 @@ export async function handleChatRoute(
       const presets = normalizePresets(config.Presets);
       const preset = findPresetById(presets, activeSession.presetId);
       const generated = await streamChatAssistantMessage(config, activeSession, userContent, (progress) => {
+        phaseTracker.observeThinking(progress.thinkingContent);
+        phaseTracker.observeAnswer(progress.assistantContent);
         writeSse('thinking', { thinking: progress.thinkingContent });
         writeSse('answer', { answer: progress.assistantContent });
       }, {
@@ -463,7 +558,20 @@ export async function handleChatRoute(
       } catch {
         // Best-effort metrics notification.
       }
-      const updatedSession = appendChatMessagesWithUsage(runtimeRoot, activeSession, userContent, generated.assistantContent, generated.usage, generated.thinkingContent);
+      const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
+      phaseTracker.observeThinking(generated.thinkingContent);
+      phaseTracker.observeAnswer(generated.assistantContent);
+      const phaseTimestamps = phaseTracker.snapshot();
+      const updatedSession = appendChatMessagesWithUsage(runtimeRoot, activeSession, userContent, generated.assistantContent, generated.usage, generated.thinkingContent, {
+        requestDurationMs: Date.now() - startedAt,
+        requestStartedAtUtc: phaseTimestamps.requestStartedAtUtc,
+        thinkingStartedAtUtc: phaseTimestamps.thinkingStartedAtUtc,
+        thinkingEndedAtUtc: phaseTimestamps.thinkingEndedAtUtc,
+        answerStartedAtUtc: phaseTimestamps.answerStartedAtUtc,
+        answerEndedAtUtc: phaseTimestamps.answerEndedAtUtc,
+        speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
+        speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
+      });
       writeSse('done', { session: updatedSession, contextUsage: buildContextUsage(updatedSession) });
     } catch (error) {
       try {
@@ -530,6 +638,8 @@ export async function handleChatRoute(
       return true;
     }
     try {
+      const startedAt = Date.now();
+      const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
       await ensureManagedLlamaReadyForModelRequest(ctx);
       const executeRepoSearchRequest = loadRepoSearchExecutor();
       const content = (parsedBody.content as string).trim();
@@ -566,6 +676,7 @@ export async function handleChatRoute(
       });
       const assistantContent = buildPlanMarkdownFromRepoSearch(content, resolvedRepoRoot, result);
       const toolContextContents = buildToolContextFromRepoSearchResult(result);
+      const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
         { ...activeSession, presetId: preset?.id || activeSession.presetId || 'plan', mode: 'plan', planRepoRoot: resolvedRepoRoot },
@@ -577,7 +688,12 @@ export async function handleChatRoute(
           promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
         },
         '',
-        { toolContextContents }
+        {
+          toolContextContents,
+          requestDurationMs: Date.now() - startedAt,
+          speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
+          speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
+        }
       );
       sendJson(res, 200, {
         session: updatedSession,
@@ -650,6 +766,10 @@ export async function handleChatRoute(
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     res.write('\n');
     try {
+      const startedAt = Date.now();
+      const requestStartedAtUtc = new Date(startedAt).toISOString();
+      const phaseTracker = createChatTurnPhaseTracker(requestStartedAtUtc);
+      const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
       await ensureManagedLlamaReadyForModelRequest(ctx);
       const executeRepoSearchRequest = loadRepoSearchExecutor();
       const content = (parsedBody.content as string).trim();
@@ -683,16 +803,20 @@ export async function handleChatRoute(
             if (logMessage) logLine(logMessage);
           }
           if (event.kind === 'thinking') {
+            phaseTracker.observeThinking(event.thinkingText || '');
             writeSse('thinking', { thinking: event.thinkingText || '' });
           } else if (event.kind === 'tool_start') {
+            const answer = `Planning step ${event.turn}/${event.maxTurns}: running \`${event.command}\`...`;
             writeSse('tool_start', {
               turn: event.turn,
               maxTurns: event.maxTurns,
               command: event.command,
               promptTokenCount: Number.isFinite(event.promptTokenCount) ? Number(event.promptTokenCount) : null,
             });
-            writeSse('answer', { answer: `Planning step ${event.turn}/${event.maxTurns}: running \`${event.command}\`...` });
+            phaseTracker.observeAnswer(answer);
+            writeSse('answer', { answer });
           } else if (event.kind === 'tool_result') {
+            const answer = `Planning step ${event.turn}/${event.maxTurns}: \`${event.command}\` finished (exit ${event.exitCode ?? '?'})`;
             writeSse('tool_result', {
               turn: event.turn,
               maxTurns: event.maxTurns,
@@ -701,12 +825,15 @@ export async function handleChatRoute(
               outputSnippet: event.outputSnippet,
               promptTokenCount: Number.isFinite(event.promptTokenCount) ? Number(event.promptTokenCount) : null,
             });
-            writeSse('answer', { answer: `Planning step ${event.turn}/${event.maxTurns}: \`${event.command}\` finished (exit ${event.exitCode ?? '?'})` });
+            phaseTracker.observeAnswer(answer);
+            writeSse('answer', { answer });
           }
         },
       });
       const assistantContent = buildPlanMarkdownFromRepoSearch(content, resolvedRepoRoot, result);
+      phaseTracker.observeAnswer(assistantContent);
       const toolContextContents = buildToolContextFromRepoSearchResult(result);
+      const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
         { ...activeSession, presetId: preset?.id || activeSession.presetId || 'plan', mode: 'plan', planRepoRoot: resolvedRepoRoot },
@@ -718,7 +845,13 @@ export async function handleChatRoute(
           promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
         },
         '',
-        { toolContextContents }
+        {
+          toolContextContents,
+          requestDurationMs: Date.now() - startedAt,
+          ...phaseTracker.snapshot(),
+          speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
+          speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
+        }
       );
       writeSse('done', {
         session: updatedSession,
@@ -792,6 +925,10 @@ export async function handleChatRoute(
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     res.write('\n');
     try {
+      const startedAt = Date.now();
+      const requestStartedAtUtc = new Date(startedAt).toISOString();
+      const phaseTracker = createChatTurnPhaseTracker(requestStartedAtUtc);
+      const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
       await ensureManagedLlamaReadyForModelRequest(ctx);
       const executeRepoSearchRequest = loadRepoSearchExecutor();
       const content = (parsedBody.content as string).trim();
@@ -821,6 +958,7 @@ export async function handleChatRoute(
         mockCommandResults: (parsedBody.mockCommandResults && typeof parsedBody.mockCommandResults === 'object' && !Array.isArray(parsedBody.mockCommandResults)) ? parsedBody.mockCommandResults : undefined,
         onProgress(event: RepoSearchProgressEvent) {
           if (event.kind === 'thinking') {
+            phaseTracker.observeThinking(event.thinkingText || '');
             writeSse('answer', { answer: event.thinkingText || '' });
           } else if (event.kind === 'tool_start') {
             const logMessage = buildRepoSearchProgressLogMessage(event, 'repo_search');
@@ -844,7 +982,9 @@ export async function handleChatRoute(
         },
       });
       const assistantContent = buildRepoSearchMarkdown(content, resolvedRepoRoot, result);
+      phaseTracker.observeAnswer(assistantContent);
       const toolContextContents = buildToolContextFromRepoSearchResult(result);
+      const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
         { ...activeSession, presetId: preset?.id || activeSession.presetId || 'repo-search', mode: 'repo-search', planRepoRoot: resolvedRepoRoot },
@@ -856,7 +996,13 @@ export async function handleChatRoute(
           promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
         },
         '',
-        { toolContextContents }
+        {
+          toolContextContents,
+          requestDurationMs: Date.now() - startedAt,
+          ...phaseTracker.snapshot(),
+          speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
+          speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
+        }
       );
       writeSse('done', {
         session: updatedSession,

@@ -1,0 +1,98 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { getSessionTelemetryStats } from '../src/lib/format';
+import type { ChatSession } from '../src/types';
+
+test('getSessionTelemetryStats computes cache hit rate and per-turn averaged acceptance and throughput stats', () => {
+  const session = {
+    id: 'session-1',
+    title: 'Session',
+    model: 'test-model',
+    contextWindowTokens: 100,
+    presetId: 'chat',
+    mode: 'chat',
+    condensedSummary: '',
+    createdAtUtc: '2026-04-16T11:00:00.000Z',
+    updatedAtUtc: '2026-04-16T12:00:00.000Z',
+    messages: [
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: 'Hello',
+        inputTokensEstimate: 0,
+        outputTokensEstimate: 80,
+        thinkingTokens: 10,
+        promptCacheTokens: 60,
+        promptEvalTokens: 40,
+        requestDurationMs: 2000,
+        requestStartedAtUtc: '2026-04-16T11:59:58.000Z',
+        thinkingStartedAtUtc: '2026-04-16T12:00:00.000Z',
+        thinkingEndedAtUtc: '2026-04-16T12:00:03.000Z',
+        answerStartedAtUtc: '2026-04-16T12:00:04.000Z',
+        answerEndedAtUtc: '2026-04-16T12:00:08.000Z',
+        speculativeAcceptedTokens: 9,
+        speculativeGeneratedTokens: 12,
+        createdAtUtc: '2026-04-16T12:00:00.000Z',
+        sourceRunId: null,
+      },
+      {
+        id: 'assistant-2',
+        role: 'assistant',
+        content: 'World',
+        inputTokensEstimate: 0,
+        outputTokensEstimate: 40,
+        thinkingTokens: 20,
+        promptCacheTokens: 30,
+        promptEvalTokens: 20,
+        requestDurationMs: 5000,
+        requestStartedAtUtc: '2026-04-16T12:10:00.000Z',
+        thinkingStartedAtUtc: '2026-04-16T12:10:01.000Z',
+        thinkingEndedAtUtc: '2026-04-16T12:10:03.000Z',
+        answerStartedAtUtc: '2026-04-16T12:10:04.000Z',
+        answerEndedAtUtc: '2026-04-16T12:10:05.000Z',
+        speculativeAcceptedTokens: 2,
+        speculativeGeneratedTokens: 4,
+        createdAtUtc: '2026-04-16T12:10:00.000Z',
+        sourceRunId: null,
+      },
+    ],
+  } as ChatSession;
+
+  assert.deepEqual(getSessionTelemetryStats(session), {
+    promptCacheTokens: 90,
+    promptEvalTokens: 60,
+    cacheHitRate: 0.6,
+    speculativeAcceptedTokens: 11,
+    speculativeGeneratedTokens: 16,
+    acceptanceRate: 0.625,
+    promptTokensPerSecond: 20,
+    outputTokensPerSecond: 13.125,
+  });
+});
+
+test('getSessionTelemetryStats returns null rates when the session has no timing or speculative totals', () => {
+  const session = {
+    id: 'session-2',
+    title: 'Session',
+    model: 'test-model',
+    contextWindowTokens: 100,
+    presetId: 'chat',
+    mode: 'chat',
+    condensedSummary: '',
+    createdAtUtc: '2026-04-16T11:00:00.000Z',
+    updatedAtUtc: '2026-04-16T12:00:00.000Z',
+    messages: [],
+  } as ChatSession;
+
+  assert.deepEqual(getSessionTelemetryStats(session), {
+    promptCacheTokens: 0,
+    promptEvalTokens: 0,
+    cacheHitRate: null,
+    speculativeAcceptedTokens: 0,
+    speculativeGeneratedTokens: 0,
+    acceptanceRate: null,
+    promptTokensPerSecond: null,
+    outputTokensPerSecond: null,
+  });
+});

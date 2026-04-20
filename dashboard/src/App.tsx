@@ -62,7 +62,7 @@ import {
   classifyRunGroup,
   cloneDashboardConfig,
   getDashboardConfigSignature,
-  getSessionPromptCacheStats,
+  getSessionTelemetryStats,
   readSearchParams,
   writeSearchParams,
 } from './lib/format';
@@ -262,7 +262,7 @@ function DashboardApp() {
   const chatMode = getPresetFamily(dashboardConfig, selectedSession);
   const isDirectChatMode = chatMode === 'chat' || chatMode === 'summary';
   const isRepoToolMode = chatMode === 'plan' || chatMode === 'repo-search';
-  const sessionPromptCacheStats = getSessionPromptCacheStats(selectedSession);
+  const sessionPromptCacheStats = getSessionTelemetryStats(selectedSession);
   const settingsDirty = dashboardConfig !== null
     && savedDashboardConfig !== null
     && getDashboardConfigSignature(dashboardConfig) !== getDashboardConfigSignature(savedDashboardConfig);

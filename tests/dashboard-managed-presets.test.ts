@@ -39,6 +39,13 @@ function createPreset(overrides: Partial<DashboardManagedLlamaPreset> = {}): Das
     Reasoning: 'off',
     ReasoningContent: false,
     PreserveThinking: false,
+    SpeculativeEnabled: false,
+    SpeculativeType: 'ngram-map-k',
+    SpeculativeNgramSizeN: 8,
+    SpeculativeNgramSizeM: 16,
+    SpeculativeNgramMinHits: 2,
+    SpeculativeDraftMax: 16,
+    SpeculativeDraftMin: 4,
     ReasoningBudget: 10000,
     ReasoningBudgetMessage: 'Thinking budget exhausted. You have to provide the answer now.',
     StartupTimeoutMs: 600000,
@@ -146,12 +153,18 @@ test('applyManagedLlamaPresetSelection mirrors the selected managed preset into 
       NcpuMoe?: number;
       ReasoningContent?: boolean;
       PreserveThinking?: boolean;
+      SpeculativeEnabled?: boolean;
+      SpeculativeType?: string;
+      SpeculativeDraftMax?: number;
     },
     {
       Model: 'qwen-27b.gguf',
       NcpuMoe: 8,
       ReasoningContent: true,
       PreserveThinking: true,
+      SpeculativeEnabled: true,
+      SpeculativeType: 'ngram-simple',
+      SpeculativeDraftMax: 32,
     },
   );
 
@@ -164,6 +177,9 @@ test('applyManagedLlamaPresetSelection mirrors the selected managed preset into 
   assert.equal(config.Server.LlamaCpp.Port, 8098);
   assert.equal(config.Server.LlamaCpp.ReasoningContent, true);
   assert.equal(config.Server.LlamaCpp.PreserveThinking, true);
+  assert.equal(config.Server.LlamaCpp.SpeculativeEnabled, true);
+  assert.equal(config.Server.LlamaCpp.SpeculativeType, 'ngram-simple');
+  assert.equal(config.Server.LlamaCpp.SpeculativeDraftMax, 32);
   assert.equal(config.Server.LlamaCpp.ReasoningBudgetMessage, 'Thinking budget exhausted. You have to provide the answer now.');
   assert.equal(config.Runtime.Model, 'qwen-27b.gguf');
   assert.equal(config.Model, 'qwen-27b.gguf');

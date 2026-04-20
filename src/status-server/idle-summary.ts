@@ -33,6 +33,8 @@ export type IdleSummarySnapshot = {
   toolTokensTotal: number;
   promptCacheTokensTotal: number;
   promptEvalTokensTotal: number;
+  speculativeAcceptedTokensTotal: number;
+  speculativeGeneratedTokensTotal: number;
   inputCharactersTotal: number;
   outputCharactersTotal: number;
   requestDurationMsTotal: number;
@@ -66,6 +68,8 @@ function getDefaultTaskTotals(): SnapshotTaskTotals {
       toolTokensTotal: 0,
       promptCacheTokensTotal: 0,
       promptEvalTokensTotal: 0,
+      speculativeAcceptedTokensTotal: 0,
+      speculativeGeneratedTokensTotal: 0,
       requestDurationMsTotal: 0,
       completedRequestCount: 0,
     },
@@ -78,6 +82,8 @@ function getDefaultTaskTotals(): SnapshotTaskTotals {
       toolTokensTotal: 0,
       promptCacheTokensTotal: 0,
       promptEvalTokensTotal: 0,
+      speculativeAcceptedTokensTotal: 0,
+      speculativeGeneratedTokensTotal: 0,
       requestDurationMsTotal: 0,
       completedRequestCount: 0,
     },
@@ -90,6 +96,8 @@ function getDefaultTaskTotals(): SnapshotTaskTotals {
       toolTokensTotal: 0,
       promptCacheTokensTotal: 0,
       promptEvalTokensTotal: 0,
+      speculativeAcceptedTokensTotal: 0,
+      speculativeGeneratedTokensTotal: 0,
       requestDurationMsTotal: 0,
       completedRequestCount: 0,
     },
@@ -102,6 +110,8 @@ function getDefaultTaskTotals(): SnapshotTaskTotals {
       toolTokensTotal: 0,
       promptCacheTokensTotal: 0,
       promptEvalTokensTotal: 0,
+      speculativeAcceptedTokensTotal: 0,
+      speculativeGeneratedTokensTotal: 0,
       requestDurationMsTotal: 0,
       completedRequestCount: 0,
     },
@@ -129,6 +139,8 @@ function normalizeTaskTotals(input: unknown): SnapshotTaskTotals {
       toolTokensTotal: toNonNegativeNumber(taskRecord.toolTokensTotal),
       promptCacheTokensTotal: toNonNegativeNumber(taskRecord.promptCacheTokensTotal),
       promptEvalTokensTotal: toNonNegativeNumber(taskRecord.promptEvalTokensTotal),
+      speculativeAcceptedTokensTotal: toNonNegativeNumber(taskRecord.speculativeAcceptedTokensTotal),
+      speculativeGeneratedTokensTotal: toNonNegativeNumber(taskRecord.speculativeGeneratedTokensTotal),
       requestDurationMsTotal: toNonNegativeNumber(taskRecord.requestDurationMsTotal),
       completedRequestCount: toNonNegativeNumber(taskRecord.completedRequestCount),
     };
@@ -214,6 +226,8 @@ export function buildIdleSummarySnapshot(metrics: Dict, emittedAt: Date = new Da
   const toolTokensTotal = Number(metrics.toolTokensTotal) || 0;
   const promptCacheTokensTotal = Number(metrics.promptCacheTokensTotal) || 0;
   const promptEvalTokensTotal = Number(metrics.promptEvalTokensTotal) || 0;
+  const speculativeAcceptedTokensTotal = Number(metrics.speculativeAcceptedTokensTotal) || 0;
+  const speculativeGeneratedTokensTotal = Number(metrics.speculativeGeneratedTokensTotal) || 0;
   const inputCharactersTotal = Number(metrics.inputCharactersTotal) || 0;
   const outputCharactersTotal = Number(metrics.outputCharactersTotal) || 0;
   const requestDurationMsTotal = Number(metrics.requestDurationMsTotal) || 0;
@@ -243,6 +257,8 @@ export function buildIdleSummarySnapshot(metrics: Dict, emittedAt: Date = new Da
     toolTokensTotal,
     promptCacheTokensTotal,
     promptEvalTokensTotal,
+    speculativeAcceptedTokensTotal,
+    speculativeGeneratedTokensTotal,
     inputCharactersTotal,
     outputCharactersTotal,
     requestDurationMsTotal,
@@ -309,6 +325,8 @@ export function ensureIdleSummarySnapshotsTable(database: DatabaseInstance): voi
       tool_tokens_total INTEGER NOT NULL DEFAULT 0,
       prompt_cache_tokens_total INTEGER NOT NULL DEFAULT 0,
       prompt_eval_tokens_total INTEGER NOT NULL DEFAULT 0,
+      speculative_accepted_tokens_total INTEGER NOT NULL DEFAULT 0,
+      speculative_generated_tokens_total INTEGER NOT NULL DEFAULT 0,
       task_totals_json TEXT NOT NULL DEFAULT '{}',
       tool_stats_json TEXT NOT NULL DEFAULT '{}',
       saved_tokens INTEGER NOT NULL,
@@ -329,6 +347,12 @@ export function ensureIdleSummarySnapshotsTable(database: DatabaseInstance): voi
   }
   if (!existingColumns.includes('prompt_eval_tokens_total')) {
     database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN prompt_eval_tokens_total INTEGER NOT NULL DEFAULT 0;');
+  }
+  if (!existingColumns.includes('speculative_accepted_tokens_total')) {
+    database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN speculative_accepted_tokens_total INTEGER NOT NULL DEFAULT 0;');
+  }
+  if (!existingColumns.includes('speculative_generated_tokens_total')) {
+    database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN speculative_generated_tokens_total INTEGER NOT NULL DEFAULT 0;');
   }
   if (!existingColumns.includes('tool_tokens_total')) {
     database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN tool_tokens_total INTEGER NOT NULL DEFAULT 0;');
@@ -415,6 +439,8 @@ export function persistIdleSummarySnapshot(database: DatabaseInstance, snapshot:
       tool_tokens_total,
       prompt_cache_tokens_total,
       prompt_eval_tokens_total,
+      speculative_accepted_tokens_total,
+      speculative_generated_tokens_total,
       task_totals_json,
       tool_stats_json,
       saved_tokens,
@@ -423,7 +449,7 @@ export function persistIdleSummarySnapshot(database: DatabaseInstance, snapshot:
       request_duration_ms_total,
       avg_request_ms,
       avg_tokens_per_second
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     snapshot.emittedAtUtc,
     snapshot.completedRequestCount,
@@ -435,6 +461,8 @@ export function persistIdleSummarySnapshot(database: DatabaseInstance, snapshot:
     snapshot.toolTokensTotal,
     snapshot.promptCacheTokensTotal,
     snapshot.promptEvalTokensTotal,
+    snapshot.speculativeAcceptedTokensTotal,
+    snapshot.speculativeGeneratedTokensTotal,
     JSON.stringify(snapshot.taskTotals),
     JSON.stringify(snapshot.toolStats),
     snapshot.savedTokens,
@@ -458,6 +486,8 @@ export type SnapshotTotals = {
   toolTokensTotal: number;
   promptCacheTokensTotal: number;
   promptEvalTokensTotal: number;
+  speculativeAcceptedTokensTotal: number;
+  speculativeGeneratedTokensTotal: number;
   requestDurationMsTotal: number;
   taskTotals: SnapshotTaskTotals;
 };
@@ -476,6 +506,8 @@ export function querySnapshotTotalsBeforeDate(database: DatabaseInstance | null,
         tool_tokens_total,
         prompt_cache_tokens_total,
         prompt_eval_tokens_total,
+        speculative_accepted_tokens_total,
+        speculative_generated_tokens_total,
         request_duration_ms_total,
         task_totals_json
       FROM idle_summary_snapshots
@@ -495,6 +527,8 @@ export function querySnapshotTotalsBeforeDate(database: DatabaseInstance | null,
     toolTokensTotal: Number(row.tool_tokens_total) || 0,
     promptCacheTokensTotal: Number(row.prompt_cache_tokens_total) || 0,
     promptEvalTokensTotal: Number(row.prompt_eval_tokens_total) || 0,
+    speculativeAcceptedTokensTotal: Number(row.speculative_accepted_tokens_total) || 0,
+    speculativeGeneratedTokensTotal: Number(row.speculative_generated_tokens_total) || 0,
     requestDurationMsTotal: Number(row.request_duration_ms_total) || 0,
     taskTotals: parseSnapshotTaskTotalsJson(row.task_totals_json),
   };
@@ -517,6 +551,8 @@ export function querySnapshotTimeseries(database: DatabaseInstance | null): Snap
         tool_tokens_total,
         prompt_cache_tokens_total,
         prompt_eval_tokens_total,
+        speculative_accepted_tokens_total,
+        speculative_generated_tokens_total,
         request_duration_ms_total,
         task_totals_json,
         tool_stats_json
@@ -531,7 +567,8 @@ export function queryRecentSnapshots(database: DatabaseInstance, limit: number):
     .prepare(`
       SELECT emitted_at_utc, completed_request_count, input_characters_total, output_characters_total,
              input_tokens_total, output_tokens_total, thinking_tokens_total, tool_tokens_total, prompt_cache_tokens_total,
-             prompt_eval_tokens_total, task_totals_json, tool_stats_json, saved_tokens, saved_percent, compression_ratio,
+             prompt_eval_tokens_total, speculative_accepted_tokens_total, speculative_generated_tokens_total,
+             task_totals_json, tool_stats_json, saved_tokens, saved_percent, compression_ratio,
              request_duration_ms_total, avg_request_ms, avg_tokens_per_second
       FROM idle_summary_snapshots ORDER BY id DESC LIMIT ?
     `)

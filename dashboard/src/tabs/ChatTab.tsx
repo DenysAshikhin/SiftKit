@@ -26,6 +26,11 @@ type SessionPromptCacheStats = {
   cacheHitRate: number | null;
   promptCacheTokens: number;
   promptEvalTokens: number;
+  acceptanceRate: number | null;
+  speculativeAcceptedTokens: number;
+  speculativeGeneratedTokens: number;
+  promptTokensPerSecond: number | null;
+  outputTokensPerSecond: number | null;
 };
 
 type ChatTabProps = {
@@ -133,6 +138,12 @@ export function ChatTab({
               <h2>{selectedSession.title}</h2>
               <span className="hint">
                 Cache: {formatPercent(sessionPromptCacheStats.cacheHitRate)}
+                {' | '}
+                Acceptance: {formatPercent(sessionPromptCacheStats.acceptanceRate)}
+                {' | '}
+                Prompt/s: {formatNumber(sessionPromptCacheStats.promptTokensPerSecond)}
+                {' | '}
+                Output/s: {formatNumber(sessionPromptCacheStats.outputTokensPerSecond)}
                 {' | '}
                 {formatNumber(sessionPromptCacheStats.promptCacheTokens)} cached
                 {' | '}

@@ -22,6 +22,8 @@ export type ActiveRunState = {
   chunkTotal: number | null;
   chunkPath: string | null;
   lastNotificationWasRunning: boolean;
+  managedLlamaStdoutOffset: number | null;
+  managedLlamaStderrOffset: number | null;
 };
 
 export type ExecutionLease = { token: string; heartbeatAt: number };

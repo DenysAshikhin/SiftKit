@@ -33,7 +33,12 @@ import {
   upsertRunArtifactPayload,
 } from '../dashboard-runs.js';
 import { loadRepoSearchExecutor } from '../chat.js';
-import { getManagedLlamaStartupFailure, logLine } from '../managed-llama.js';
+import {
+  getManagedLlamaLogCursor,
+  getManagedLlamaSpeculativeMetricsSince,
+  getManagedLlamaStartupFailure,
+  logLine,
+} from '../managed-llama.js';
 import {
   getPublishedStatusText,
   writePublishedStatus,
@@ -348,6 +353,8 @@ export async function handleCoreRoute(
       && metadata.toolStats === null
       && metadata.promptCacheTokens === null
       && metadata.promptEvalTokens === null
+      && metadata.speculativeAcceptedTokens === null
+      && metadata.speculativeGeneratedTokens === null
       && metadata.requestDurationMs === null;
     if (isArtifactOnlyPost) {
       const publishedStatus = getPublishedStatusText(ctx);
@@ -396,6 +403,8 @@ export async function handleCoreRoute(
           chunkTotal: metadata.chunkTotal,
           chunkPath: metadata.chunkPath,
           lastNotificationWasRunning: true,
+          managedLlamaStdoutOffset: null,
+          managedLlamaStderrOffset: null,
         };
       } else {
         runState.lastNotificationWasRunning = true;
@@ -420,6 +429,9 @@ export async function handleCoreRoute(
           runState.chunkPath = metadata.chunkPath;
         }
       }
+      const managedLlamaCursor = getManagedLlamaLogCursor(ctx.managedLlamaLastStartupLogs);
+      runState.managedLlamaStdoutOffset = managedLlamaCursor.stdoutOffset;
+      runState.managedLlamaStderrOffset = managedLlamaCursor.stderrOffset;
       ctx.activeRunsByRequestId.set(requestId, runState);
       ctx.activeRequestIdByStatusPath.set(statusPath, requestId);
     } else {
@@ -454,6 +466,22 @@ export async function handleCoreRoute(
         if (metadata.chunkPath === null && runState.chunkPath !== null) {
           metadata.chunkPath = runState.chunkPath;
         }
+        if (metadata.speculativeAcceptedTokens === null && metadata.speculativeGeneratedTokens === null) {
+          const speculativeMetrics = getManagedLlamaSpeculativeMetricsSince(
+            ctx.managedLlamaLastStartupLogs,
+            {
+              stdoutOffset: Number(runState.managedLlamaStdoutOffset) || 0,
+              stderrOffset: Number(runState.managedLlamaStderrOffset) || 0,
+            },
+          );
+          if (speculativeMetrics) {
+            metadata.speculativeAcceptedTokens = speculativeMetrics.speculativeAcceptedTokens;
+            metadata.speculativeGeneratedTokens = speculativeMetrics.speculativeGeneratedTokens;
+          }
+        }
+        const managedLlamaCursor = getManagedLlamaLogCursor(ctx.managedLlamaLastStartupLogs);
+        runState.managedLlamaStdoutOffset = managedLlamaCursor.stdoutOffset;
+        runState.managedLlamaStderrOffset = managedLlamaCursor.stderrOffset;
         if (metadata.terminalState === 'completed') {
           totalElapsedMs = now - runState.overallStartedAt;
           metadata.totalOutputTokens = runState.outputTokensTotal;
@@ -472,6 +500,8 @@ export async function handleCoreRoute(
       const thinkingTokensDelta = metadata.thinkingTokens ?? 0;
       const promptCacheTokensDelta = metadata.promptCacheTokens ?? 0;
       const promptEvalTokensDelta = metadata.promptEvalTokens ?? 0;
+      const speculativeAcceptedTokensDelta = metadata.speculativeAcceptedTokens ?? 0;
+      const speculativeGeneratedTokensDelta = metadata.speculativeGeneratedTokens ?? 0;
       const requestDurationMsDelta = (
         metadata.requestDurationMs
         ?? (metadata.terminalState ? 0 : (elapsedMs ?? 0))
@@ -496,6 +526,8 @@ export async function handleCoreRoute(
           thinkingTokensTotal: previousTaskTotals.thinkingTokensTotal + thinkingTokensDelta,
           promptCacheTokensTotal: previousTaskTotals.promptCacheTokensTotal + promptCacheTokensDelta,
           promptEvalTokensTotal: previousTaskTotals.promptEvalTokensTotal + promptEvalTokensDelta,
+          speculativeAcceptedTokensTotal: previousTaskTotals.speculativeAcceptedTokensTotal + speculativeAcceptedTokensDelta,
+          speculativeGeneratedTokensTotal: previousTaskTotals.speculativeGeneratedTokensTotal + speculativeGeneratedTokensDelta,
           requestDurationMsTotal: previousTaskTotals.requestDurationMsTotal + requestDurationMsDelta,
           completedRequestCount: previousTaskTotals.completedRequestCount + completedRequestDelta,
         };
@@ -514,6 +546,8 @@ export async function handleCoreRoute(
         thinkingTokensTotal: ctx.metrics.thinkingTokensTotal + thinkingTokensDelta,
         promptCacheTokensTotal: ctx.metrics.promptCacheTokensTotal + promptCacheTokensDelta,
         promptEvalTokensTotal: ctx.metrics.promptEvalTokensTotal + promptEvalTokensDelta,
+        speculativeAcceptedTokensTotal: ctx.metrics.speculativeAcceptedTokensTotal + speculativeAcceptedTokensDelta,
+        speculativeGeneratedTokensTotal: ctx.metrics.speculativeGeneratedTokensTotal + speculativeGeneratedTokensDelta,
         requestDurationMsTotal: ctx.metrics.requestDurationMsTotal + requestDurationMsDelta,
         completedRequestCount: ctx.metrics.completedRequestCount + completedRequestDelta,
         taskTotals,

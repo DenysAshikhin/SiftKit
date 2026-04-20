@@ -209,8 +209,11 @@ export type RunRecord = {
   inputTokens: number | null;
   outputTokens: number | null;
   thinkingTokens: number | null;
+  toolTokens: number | null;
   promptCacheTokens: number | null;
   promptEvalTokens: number | null;
+  speculativeAcceptedTokens: number | null;
+  speculativeGeneratedTokens: number | null;
   durationMs: number | null;
   rawPaths: Dict;
 };
@@ -228,8 +231,11 @@ function normalizeRunRecord(record: Dict): RunRecord {
     inputTokens: Number.isFinite(record.inputTokens) ? Number(record.inputTokens) : null,
     outputTokens: Number.isFinite(record.outputTokens) ? Number(record.outputTokens) : null,
     thinkingTokens: Number.isFinite(record.thinkingTokens) ? Number(record.thinkingTokens) : null,
+    toolTokens: Number.isFinite(record.toolTokens) ? Number(record.toolTokens) : null,
     promptCacheTokens: Number.isFinite(record.promptCacheTokens) ? Number(record.promptCacheTokens) : null,
     promptEvalTokens: Number.isFinite(record.promptEvalTokens) ? Number(record.promptEvalTokens) : null,
+    speculativeAcceptedTokens: Number.isFinite(record.speculativeAcceptedTokens) ? Number(record.speculativeAcceptedTokens) : null,
+    speculativeGeneratedTokens: Number.isFinite(record.speculativeGeneratedTokens) ? Number(record.speculativeGeneratedTokens) : null,
     durationMs: Number.isFinite(record.durationMs) ? Number(record.durationMs) : null,
     rawPaths: record.rawPaths && typeof record.rawPaths === 'object' ? record.rawPaths as Dict : {},
   };
@@ -290,6 +296,8 @@ const RUN_LOG_LIST_SELECT_COLUMNS = `
   tool_tokens,
   prompt_cache_tokens,
   prompt_eval_tokens,
+  speculative_accepted_tokens,
+  speculative_generated_tokens,
   duration_ms
 `;
 
@@ -312,6 +320,8 @@ const RUN_LOG_DETAIL_SELECT_COLUMNS = `
   tool_tokens,
   prompt_cache_tokens,
   prompt_eval_tokens,
+  speculative_accepted_tokens,
+  speculative_generated_tokens,
   duration_ms,
   request_json,
   planner_debug_json,
@@ -362,6 +372,8 @@ type RunLogUpsertRow = {
   toolTokens: number | null;
   promptCacheTokens: number | null;
   promptEvalTokens: number | null;
+  speculativeAcceptedTokens: number | null;
+  speculativeGeneratedTokens: number | null;
   durationMs: number | null;
   requestJson: string | null;
   plannerDebugJson: string | null;
@@ -478,8 +490,11 @@ function normalizeRunRecordFromDbRow(row: Dict): RunRecord {
     inputTokens: toNonNegativeInteger(row.input_tokens),
     outputTokens: toNonNegativeInteger(row.output_tokens),
     thinkingTokens: toNonNegativeInteger(row.thinking_tokens),
+    toolTokens: toNonNegativeInteger(row.tool_tokens),
     promptCacheTokens: toNonNegativeInteger(row.prompt_cache_tokens),
     promptEvalTokens: toNonNegativeInteger(row.prompt_eval_tokens),
+    speculativeAcceptedTokens: toNonNegativeInteger(row.speculative_accepted_tokens),
+    speculativeGeneratedTokens: toNonNegativeInteger(row.speculative_generated_tokens),
     durationMs: toNonNegativeInteger(row.duration_ms),
     rawPaths: {},
   });
@@ -509,6 +524,8 @@ export function ensureRunLogsTable(database: DatabaseInstance): void {
       tool_tokens INTEGER,
       prompt_cache_tokens INTEGER,
       prompt_eval_tokens INTEGER,
+      speculative_accepted_tokens INTEGER,
+      speculative_generated_tokens INTEGER,
       duration_ms INTEGER,
       request_json TEXT,
       planner_debug_json TEXT,
@@ -524,6 +541,14 @@ export function ensureRunLogsTable(database: DatabaseInstance): void {
     CREATE INDEX IF NOT EXISTS idx_run_logs_group_started ON run_logs(run_group, started_at_utc DESC);
     CREATE INDEX IF NOT EXISTS idx_run_logs_kind_started ON run_logs(run_kind, started_at_utc DESC);
   `);
+  const existingColumns = (database.prepare('PRAGMA table_info(run_logs)').all() as Array<{ name: unknown }>)
+    .map((column) => String(column.name));
+  if (!existingColumns.includes('speculative_accepted_tokens')) {
+    database.exec('ALTER TABLE run_logs ADD COLUMN speculative_accepted_tokens INTEGER;');
+  }
+  if (!existingColumns.includes('speculative_generated_tokens')) {
+    database.exec('ALTER TABLE run_logs ADD COLUMN speculative_generated_tokens INTEGER;');
+  }
   database.exec(`
     UPDATE run_logs
     SET
@@ -547,10 +572,10 @@ export function upsertRunLog(database: DatabaseInstance, row: RunLogUpsertRow): 
     INSERT INTO run_logs (
       run_id, request_id, run_kind, run_group, terminal_state,
       started_at_utc, finished_at_utc, title, model, backend, repo_root,
-      input_tokens, output_tokens, thinking_tokens, tool_tokens, prompt_cache_tokens, prompt_eval_tokens, duration_ms,
+      input_tokens, output_tokens, thinking_tokens, tool_tokens, prompt_cache_tokens, prompt_eval_tokens, speculative_accepted_tokens, speculative_generated_tokens, duration_ms,
       request_json, planner_debug_json, failed_request_json, abandoned_request_json, repo_search_json, repo_search_transcript_jsonl,
       source_paths_json, flushed_at_utc, source_deleted_at_utc
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
     ON CONFLICT(run_id) DO UPDATE SET
       request_id = excluded.request_id,
       run_kind = CASE WHEN excluded.run_kind = 'unknown' THEN run_logs.run_kind ELSE excluded.run_kind END,
@@ -568,6 +593,8 @@ export function upsertRunLog(database: DatabaseInstance, row: RunLogUpsertRow): 
       tool_tokens = COALESCE(excluded.tool_tokens, run_logs.tool_tokens),
       prompt_cache_tokens = COALESCE(excluded.prompt_cache_tokens, run_logs.prompt_cache_tokens),
       prompt_eval_tokens = COALESCE(excluded.prompt_eval_tokens, run_logs.prompt_eval_tokens),
+      speculative_accepted_tokens = COALESCE(excluded.speculative_accepted_tokens, run_logs.speculative_accepted_tokens),
+      speculative_generated_tokens = COALESCE(excluded.speculative_generated_tokens, run_logs.speculative_generated_tokens),
       duration_ms = COALESCE(excluded.duration_ms, run_logs.duration_ms),
       request_json = COALESCE(excluded.request_json, run_logs.request_json),
       planner_debug_json = COALESCE(excluded.planner_debug_json, run_logs.planner_debug_json),
@@ -595,6 +622,8 @@ export function upsertRunLog(database: DatabaseInstance, row: RunLogUpsertRow): 
     row.toolTokens,
     row.promptCacheTokens,
     row.promptEvalTokens,
+    row.speculativeAcceptedTokens,
+    row.speculativeGeneratedTokens,
     row.durationMs,
     row.requestJson,
     row.plannerDebugJson,
@@ -681,6 +710,8 @@ export function upsertRunArtifactPayload(options: {
     toolTokens: toNonNegativeInteger(options.artifactPayload?.toolTokens),
     promptCacheTokens: toNonNegativeInteger(options.artifactPayload?.promptCacheTokens),
     promptEvalTokens: toNonNegativeInteger(options.artifactPayload?.promptEvalTokens),
+    speculativeAcceptedTokens: toNonNegativeInteger(options.artifactPayload?.speculativeAcceptedTokens),
+    speculativeGeneratedTokens: toNonNegativeInteger(options.artifactPayload?.speculativeGeneratedTokens),
     durationMs: toNonNegativeInteger(options.artifactPayload?.requestDurationMs),
     requestJson,
     plannerDebugJson,
@@ -714,6 +745,8 @@ export function upsertRepoSearchRun(options: {
   toolTokens: number | null;
   promptCacheTokens: number | null;
   promptEvalTokens: number | null;
+  speculativeAcceptedTokens?: number | null;
+  speculativeGeneratedTokens?: number | null;
 }): void {
   const runKind: RunLogKind = options.taskKind === 'plan' ? 'plan' : 'repo_search';
   const runGroup: RunLogGroup = options.taskKind === 'plan' ? 'planner' : 'repo_search';
@@ -736,6 +769,8 @@ export function upsertRepoSearchRun(options: {
     toolTokens: toNonNegativeInteger(options.toolTokens),
     promptCacheTokens: toNonNegativeInteger(options.promptCacheTokens),
     promptEvalTokens: toNonNegativeInteger(options.promptEvalTokens),
+    speculativeAcceptedTokens: toNonNegativeInteger(options.speculativeAcceptedTokens),
+    speculativeGeneratedTokens: toNonNegativeInteger(options.speculativeGeneratedTokens),
     durationMs: toNonNegativeInteger(options.requestDurationMs),
     requestJson: null,
     plannerDebugJson: null,
@@ -1154,6 +1189,8 @@ function buildRunLogRow(options: {
     toolTokens: toNonNegativeInteger(repoTotals?.toolTokens ?? null),
     promptCacheTokens: toNonNegativeInteger(requestPayload?.promptCacheTokens ?? failedRequestPayload?.promptCacheTokens ?? repoTotals?.promptCacheTokens ?? null),
     promptEvalTokens: toNonNegativeInteger(requestPayload?.promptEvalTokens ?? failedRequestPayload?.promptEvalTokens ?? repoTotals?.promptEvalTokens ?? null),
+    speculativeAcceptedTokens: toNonNegativeInteger(requestPayload?.speculativeAcceptedTokens ?? failedRequestPayload?.speculativeAcceptedTokens ?? repoTotals?.speculativeAcceptedTokens ?? null),
+    speculativeGeneratedTokens: toNonNegativeInteger(requestPayload?.speculativeGeneratedTokens ?? failedRequestPayload?.speculativeGeneratedTokens ?? repoTotals?.speculativeGeneratedTokens ?? null),
     durationMs: toNonNegativeInteger(
       requestPayload?.requestDurationMs
         ?? failedRequestPayload?.requestDurationMs
@@ -1339,6 +1376,7 @@ export {
   buildDashboardToolStats,
   buildLiveTodayMetrics,
   buildLiveTodayTaskDailyMetrics,
+  getAcceptanceRate,
   getCurrentUtcDateKey,
   getPromptCacheHitRate,
   getSnapshotTotalsBeforeDate,
@@ -1377,6 +1415,8 @@ export function normalizeIdleSummarySnapshotRow(row: Dict | null): IdleSummarySn
     toolTokensTotal: Number(row.tool_tokens_total) || 0,
     promptCacheTokensTotal: Number(row.prompt_cache_tokens_total) || 0,
     promptEvalTokensTotal: Number(row.prompt_eval_tokens_total) || 0,
+    speculativeAcceptedTokensTotal: Number(row.speculative_accepted_tokens_total) || 0,
+    speculativeGeneratedTokensTotal: Number(row.speculative_generated_tokens_total) || 0,
     savedTokens: Number(row.saved_tokens) || 0,
     savedPercent: Number.isFinite(row.saved_percent) ? Number(row.saved_percent) : Number.NaN,
     compressionRatio: Number.isFinite(row.compression_ratio) ? Number(row.compression_ratio) : Number.NaN,

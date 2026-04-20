@@ -33,6 +33,14 @@ type MessageRow = {
   thinking_tokens_estimated: number;
   prompt_cache_tokens: number | null;
   prompt_eval_tokens: number | null;
+  request_duration_ms: number | null;
+  request_started_at_utc: string | null;
+  thinking_started_at_utc: string | null;
+  thinking_ended_at_utc: string | null;
+  answer_started_at_utc: string | null;
+  answer_ended_at_utc: string | null;
+  speculative_accepted_tokens: number | null;
+  speculative_generated_tokens: number | null;
   associated_tool_tokens: number | null;
   thinking_content: string | null;
   created_at_utc: string;
@@ -143,6 +151,14 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       thinking_tokens_estimated,
       prompt_cache_tokens,
       prompt_eval_tokens,
+      request_duration_ms,
+      request_started_at_utc,
+      thinking_started_at_utc,
+      thinking_ended_at_utc,
+      answer_started_at_utc,
+      answer_ended_at_utc,
+      speculative_accepted_tokens,
+      speculative_generated_tokens,
       associated_tool_tokens,
       thinking_content,
       created_at_utc,
@@ -191,6 +207,14 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       thinkingTokensEstimated: message.thinking_tokens_estimated === 1,
       promptCacheTokens: message.prompt_cache_tokens,
       promptEvalTokens: message.prompt_eval_tokens,
+      requestDurationMs: message.request_duration_ms,
+      requestStartedAtUtc: message.request_started_at_utc,
+      thinkingStartedAtUtc: message.thinking_started_at_utc,
+      thinkingEndedAtUtc: message.thinking_ended_at_utc,
+      answerStartedAtUtc: message.answer_started_at_utc,
+      answerEndedAtUtc: message.answer_ended_at_utc,
+      speculativeAcceptedTokens: message.speculative_accepted_tokens,
+      speculativeGeneratedTokens: message.speculative_generated_tokens,
       associatedToolTokens: message.associated_tool_tokens,
       thinkingContent: message.thinking_content,
       createdAtUtc: message.created_at_utc,
@@ -317,13 +341,21 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         thinking_tokens_estimated,
         prompt_cache_tokens,
         prompt_eval_tokens,
+        request_duration_ms,
+        request_started_at_utc,
+        thinking_started_at_utc,
+        thinking_ended_at_utc,
+        answer_started_at_utc,
+        answer_ended_at_utc,
+        speculative_accepted_tokens,
+        speculative_generated_tokens,
         associated_tool_tokens,
         thinking_content,
         created_at_utc,
         source_run_id,
         compressed_into_summary,
         position
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     for (let index = 0; index < messages.length; index += 1) {
@@ -341,6 +373,14 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         message.thinkingTokensEstimated === false ? 0 : 1,
         Number.isFinite(Number(message.promptCacheTokens)) ? Number(message.promptCacheTokens) : null,
         Number.isFinite(Number(message.promptEvalTokens)) ? Number(message.promptEvalTokens) : null,
+        Number.isFinite(Number(message.requestDurationMs)) ? Number(message.requestDurationMs) : null,
+        typeof message.requestStartedAtUtc === 'string' && message.requestStartedAtUtc.trim() ? message.requestStartedAtUtc : null,
+        typeof message.thinkingStartedAtUtc === 'string' && message.thinkingStartedAtUtc.trim() ? message.thinkingStartedAtUtc : null,
+        typeof message.thinkingEndedAtUtc === 'string' && message.thinkingEndedAtUtc.trim() ? message.thinkingEndedAtUtc : null,
+        typeof message.answerStartedAtUtc === 'string' && message.answerStartedAtUtc.trim() ? message.answerStartedAtUtc : null,
+        typeof message.answerEndedAtUtc === 'string' && message.answerEndedAtUtc.trim() ? message.answerEndedAtUtc : null,
+        Number.isFinite(Number(message.speculativeAcceptedTokens)) ? Number(message.speculativeAcceptedTokens) : null,
+        Number.isFinite(Number(message.speculativeGeneratedTokens)) ? Number(message.speculativeGeneratedTokens) : null,
         Number.isFinite(Number(message.associatedToolTokens)) ? Number(message.associatedToolTokens) : null,
         typeof message.thinkingContent === 'string' ? message.thinkingContent : null,
         typeof message.createdAtUtc === 'string' && message.createdAtUtc.trim() ? message.createdAtUtc : now,

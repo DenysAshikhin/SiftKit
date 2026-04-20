@@ -33,6 +33,9 @@ const METRIC_DAY = {
   promptCacheTokens: 20,
   promptEvalTokens: 40,
   cacheHitRate: 0.5,
+  speculativeAcceptedTokens: 15,
+  speculativeGeneratedTokens: 20,
+  acceptanceRate: 0.75,
   avgDurationMs: 1200,
 } as MetricDay;
 
@@ -86,13 +89,28 @@ const MANAGED_PRESET = {
   Reasoning: 'off',
   ReasoningContent: false,
   PreserveThinking: false,
+  SpeculativeEnabled: false,
+  SpeculativeType: 'ngram-map-k',
+  SpeculativeNgramSizeN: 8,
+  SpeculativeNgramSizeM: 16,
+  SpeculativeNgramMinHits: 2,
+  SpeculativeDraftMax: 16,
+  SpeculativeDraftMin: 4,
   ReasoningBudget: 128,
   ReasoningBudgetMessage: '',
   StartupTimeoutMs: 1000,
   HealthcheckTimeoutMs: 1000,
   HealthcheckIntervalMs: 500,
   VerboseLogging: false,
-} as DashboardManagedLlamaPreset;
+} as DashboardManagedLlamaPreset & {
+  SpeculativeEnabled: boolean;
+  SpeculativeType: string;
+  SpeculativeNgramSizeN: number;
+  SpeculativeNgramSizeM: number;
+  SpeculativeNgramMinHits: number;
+  SpeculativeDraftMax: number;
+  SpeculativeDraftMin: number;
+};
 
 const PRESET = {
   id: 'summary-default',
@@ -452,6 +470,57 @@ test('managed llama section shows thinking preservation controls only when reaso
   assert.doesNotMatch(markup, /<option value="auto"/);
 });
 
+test('managed llama section hides speculative controls until n-gram speculation is enabled', () => {
+  const capturedFields: string[] = [];
+
+  renderToStaticMarkup(
+    <ManagedLlamaSection
+      dashboardConfig={DASHBOARD_CONFIG}
+      selectedManagedLlamaPreset={MANAGED_PRESET}
+      settingsActionBusy={false}
+      settingsPathPickerBusyTarget={null}
+      renderField={(_, label, children) => {
+        capturedFields.push(label);
+        return <div>{children}</div>;
+      }}
+      updateSettingsDraft={() => {}}
+      updateManagedLlamaDraft={() => {}}
+      onAddManagedLlamaPreset={() => {}}
+      onDeleteManagedLlamaPreset={() => {}}
+      onPickManagedLlamaPath={async () => {}}
+    />,
+  );
+
+  assert.equal(capturedFields.includes('Enable n-gram speculation'), true);
+  assert.equal(capturedFields.includes('Speculative type'), false);
+  assert.equal(capturedFields.includes('SpeculativeDraftMax'), false);
+});
+
+test('managed llama section shows speculative controls when n-gram speculation is enabled', () => {
+  const capturedFields: string[] = [];
+
+  renderToStaticMarkup(
+    <ManagedLlamaSection
+      dashboardConfig={DASHBOARD_CONFIG}
+      selectedManagedLlamaPreset={{ ...MANAGED_PRESET, SpeculativeEnabled: true }}
+      settingsActionBusy={false}
+      settingsPathPickerBusyTarget={null}
+      renderField={(_, label, children) => {
+        capturedFields.push(label);
+        return <div>{children}</div>;
+      }}
+      updateSettingsDraft={() => {}}
+      updateManagedLlamaDraft={() => {}}
+      onAddManagedLlamaPreset={() => {}}
+      onDeleteManagedLlamaPreset={() => {}}
+      onPickManagedLlamaPath={async () => {}}
+    />,
+  );
+
+  assert.equal(capturedFields.includes('Speculative type'), true);
+  assert.equal(capturedFields.includes('SpeculativeDraftMax'), true);
+});
+
 test('managed llama model name is derived from model path and model field is hidden', () => {
   const capturedFields: CapturedField[] = [];
   let updatedConfig: DashboardConfig | null = null;
@@ -501,6 +570,11 @@ test('chat tab renders session list and composer', () => {
         cacheHitRate: 0,
         promptCacheTokens: 0,
         promptEvalTokens: 0,
+        acceptanceRate: 0.75,
+        speculativeAcceptedTokens: 15,
+        speculativeGeneratedTokens: 20,
+        promptTokensPerSecond: 120,
+        outputTokensPerSecond: 80,
       }}
       webPresets={[PRESET]}
       selectedChatPreset={PRESET}
@@ -539,5 +613,25 @@ test('chat tab renders session list and composer', () => {
 
   assert.match(markup, /Sessions/);
   assert.match(markup, /Send a local chat message/);
+  assert.match(markup, /Acceptance:/);
+  assert.match(markup, /Prompt\/s:/);
+  assert.match(markup, /Output\/s:/);
   assert.doesNotMatch(markup, /think every/u);
+});
+
+test('metrics tab renders speculative acceptance graph', () => {
+  const markup = renderToStaticMarkup(
+    <MetricsTab
+      metrics={[METRIC_DAY]}
+      idleSummarySnapshots={[IDLE_SNAPSHOT]}
+      recentIdlePoints={[IDLE_SNAPSHOT]}
+      latestIdleSnapshot={IDLE_SNAPSHOT}
+      sortedToolMetricRows={[]}
+      taskRunsGraphSeries={[]}
+    />,
+  );
+
+  assert.match(markup, /Speculative Acceptance Rate/);
+  assert.match(markup, /Accepted Tokens/);
+  assert.match(markup, /Generated Tokens/);
 });

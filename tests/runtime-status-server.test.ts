@@ -194,6 +194,8 @@ test('real status server persists aggregate metrics and exposes them from GET /s
           outputCharacterCount: 120,
           outputTokens: 25,
           toolTokens: 7,
+          speculativeAcceptedTokens: 9,
+          speculativeGeneratedTokens: 12,
           requestDurationMs: 800,
         }),
       });
@@ -205,14 +207,18 @@ test('real status server persists aggregate metrics and exposes them from GET /s
       assert.equal(status.metrics.outputTokensTotal, 25);
       assert.equal(status.metrics.thinkingTokensTotal, 0);
       assert.equal(status.metrics.toolTokensTotal, 7);
+      assert.equal(status.metrics.speculativeAcceptedTokensTotal, 9);
+      assert.equal(status.metrics.speculativeGeneratedTokensTotal, 12);
       assert.equal(status.metrics.requestDurationMsTotal, 800);
       assert.ok(status.metrics.completedRequestCount >= 0);
       assert.equal(status.metrics.taskTotals.summary.inputTokensTotal, 100);
       assert.equal(status.metrics.taskTotals.summary.outputTokensTotal, 25);
       assert.equal(status.metrics.taskTotals.summary.toolTokensTotal, 7);
+      assert.equal(status.metrics.taskTotals.summary.speculativeAcceptedTokensTotal, 9);
+      assert.equal(status.metrics.taskTotals.summary.speculativeGeneratedTokensTotal, 12);
       assert.equal(status.metrics.taskTotals.plan.inputTokensTotal, 0);
       assert.equal(typeof status.metrics.updatedAtUtc, 'string');
-      assert.equal(fs.existsSync(metricsPath), true);
+      assert.equal(fs.existsSync(path.join(tempRoot, '.siftkit', 'runtime.sqlite')), true);
     }, {
       statusPath,
       configPath,
@@ -227,9 +233,13 @@ test('real status server persists aggregate metrics and exposes them from GET /s
       assert.equal(status.metrics.outputTokensTotal, 25);
       assert.equal(status.metrics.thinkingTokensTotal, 0);
       assert.equal(status.metrics.toolTokensTotal, 7);
+      assert.equal(status.metrics.speculativeAcceptedTokensTotal, 9);
+      assert.equal(status.metrics.speculativeGeneratedTokensTotal, 12);
       assert.equal(status.metrics.taskTotals.summary.inputTokensTotal, 100);
       assert.equal(status.metrics.taskTotals.summary.outputTokensTotal, 25);
       assert.equal(status.metrics.taskTotals.summary.toolTokensTotal, 7);
+      assert.equal(status.metrics.taskTotals.summary.speculativeAcceptedTokensTotal, 9);
+      assert.equal(status.metrics.taskTotals.summary.speculativeGeneratedTokensTotal, 12);
       assert.equal(status.metrics.requestDurationMsTotal, 800);
       assert.ok(status.metrics.completedRequestCount >= 0);
     }, {

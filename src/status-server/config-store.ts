@@ -32,6 +32,8 @@ export const DEFAULT_LLAMA_STARTUP_TIMEOUT_MS = 600_000;
 export const DEFAULT_LLAMA_HEALTHCHECK_TIMEOUT_MS = 2_000;
 export const DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS = 1_000;
 
+const MANAGED_LLAMA_SPECULATIVE_TYPES = ['ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod', 'ngram-cache'] as const;
+
 export const RUNTIME_OWNED_LLAMA_CPP_KEYS: readonly string[] = [
   'BaseUrl',
   'NumCtx',
@@ -97,6 +99,13 @@ const MANAGED_LLAMA_FIELD_KEYS: readonly string[] = [
   'Reasoning',
   'ReasoningContent',
   'PreserveThinking',
+  'SpeculativeEnabled',
+  'SpeculativeType',
+  'SpeculativeNgramSizeN',
+  'SpeculativeNgramSizeM',
+  'SpeculativeNgramMinHits',
+  'SpeculativeDraftMax',
+  'SpeculativeDraftMin',
   'ReasoningBudget',
   'ReasoningBudgetMessage',
   'StartupTimeoutMs',
@@ -129,6 +138,13 @@ const MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS: readonly string[] = [
   'Reasoning',
   'ReasoningContent',
   'PreserveThinking',
+  'SpeculativeEnabled',
+  'SpeculativeType',
+  'SpeculativeNgramSizeN',
+  'SpeculativeNgramSizeM',
+  'SpeculativeNgramMinHits',
+  'SpeculativeDraftMax',
+  'SpeculativeDraftMin',
   'ReasoningBudget',
   'ReasoningBudgetMessage',
   'StartupTimeoutMs',
@@ -167,6 +183,13 @@ export function getDefaultConfig(): Dict {
     Reasoning: 'off',
     ReasoningContent: false,
     PreserveThinking: false,
+    SpeculativeEnabled: false,
+    SpeculativeType: 'ngram-map-k',
+    SpeculativeNgramSizeN: 8,
+    SpeculativeNgramSizeM: 16,
+    SpeculativeNgramMinHits: 2,
+    SpeculativeDraftMax: 16,
+    SpeculativeDraftMin: 4,
     ReasoningBudget: DEFAULT_LLAMA_REASONING_BUDGET,
     ReasoningBudgetMessage: DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
     StartupTimeoutMs: DEFAULT_LLAMA_STARTUP_TIMEOUT_MS,
@@ -245,6 +268,12 @@ export function getDefaultConfig(): Dict {
 
 export function normalizeWindowsPath(value: unknown): string {
   return normalizeWindowsPathShared(String(value || ''));
+}
+
+function getManagedSpeculativeType(value: unknown, fallback: string): string {
+  return MANAGED_LLAMA_SPECULATIVE_TYPES.includes(String(value || '') as typeof MANAGED_LLAMA_SPECULATIVE_TYPES[number])
+    ? String(value)
+    : fallback;
 }
 
 export function isLegacyManagedStartupScriptPath(value: unknown): boolean {
@@ -464,6 +493,27 @@ export function normalizeConfig(input: unknown): Dict {
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'PreserveThinking')) {
     serverLlama.PreserveThinking = false;
   }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeEnabled')) {
+    serverLlama.SpeculativeEnabled = false;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeType')) {
+    serverLlama.SpeculativeType = 'ngram-map-k';
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeNgramSizeN')) {
+    serverLlama.SpeculativeNgramSizeN = 8;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeNgramSizeM')) {
+    serverLlama.SpeculativeNgramSizeM = 16;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeNgramMinHits')) {
+    serverLlama.SpeculativeNgramMinHits = 2;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeDraftMax')) {
+    serverLlama.SpeculativeDraftMax = 16;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeDraftMin')) {
+    serverLlama.SpeculativeDraftMin = 4;
+  }
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ReasoningBudget')) {
     serverLlama.ReasoningBudget = DEFAULT_LLAMA_REASONING_BUDGET;
   }
@@ -514,6 +564,13 @@ export function normalizeConfig(input: unknown): Dict {
   } else {
     serverLlama.PreserveThinking = serverLlama.PreserveThinking === true;
   }
+  serverLlama.SpeculativeEnabled = serverLlama.SpeculativeEnabled === true;
+  serverLlama.SpeculativeType = getManagedSpeculativeType(serverLlama.SpeculativeType, 'ngram-map-k');
+  serverLlama.SpeculativeNgramSizeN = getFinitePositiveInteger(serverLlama.SpeculativeNgramSizeN, 8);
+  serverLlama.SpeculativeNgramSizeM = getFinitePositiveInteger(serverLlama.SpeculativeNgramSizeM, 16);
+  serverLlama.SpeculativeNgramMinHits = getFinitePositiveInteger(serverLlama.SpeculativeNgramMinHits, 2);
+  serverLlama.SpeculativeDraftMax = getFinitePositiveInteger(serverLlama.SpeculativeDraftMax, 16);
+  serverLlama.SpeculativeDraftMin = getFiniteInteger(serverLlama.SpeculativeDraftMin, 4);
   serverLlama.VerboseLogging = Boolean(serverLlama.VerboseLogging);
   delete serverLlama.StartupScript;
   delete serverLlama.ShutdownScript;
@@ -1160,6 +1217,13 @@ type ManagedLlamaConfig = {
   Reasoning: 'on' | 'off';
   ReasoningContent: boolean;
   PreserveThinking: boolean;
+  SpeculativeEnabled: boolean;
+  SpeculativeType: string;
+  SpeculativeNgramSizeN: number;
+  SpeculativeNgramSizeM: number;
+  SpeculativeNgramMinHits: number;
+  SpeculativeDraftMax: number;
+  SpeculativeDraftMin: number;
   ReasoningBudget: number;
   ReasoningBudgetMessage: string | null;
   StartupTimeoutMs: number;
@@ -1235,6 +1299,13 @@ export function getManagedLlamaConfig(config: unknown): ManagedLlamaConfig {
       : String(defaults.Reasoning || 'off') as 'on' | 'off',
     ReasoningContent: reasoningContentEnabled,
     PreserveThinking: reasoningContentEnabled && serverLlama.PreserveThinking === true,
+    SpeculativeEnabled: serverLlama.SpeculativeEnabled === true,
+    SpeculativeType: getManagedSpeculativeType(serverLlama.SpeculativeType, String(defaults.SpeculativeType || 'ngram-map-k')),
+    SpeculativeNgramSizeN: getFinitePositiveInteger(serverLlama.SpeculativeNgramSizeN, Number(defaults.SpeculativeNgramSizeN ?? 8)),
+    SpeculativeNgramSizeM: getFinitePositiveInteger(serverLlama.SpeculativeNgramSizeM, Number(defaults.SpeculativeNgramSizeM ?? 16)),
+    SpeculativeNgramMinHits: getFinitePositiveInteger(serverLlama.SpeculativeNgramMinHits, Number(defaults.SpeculativeNgramMinHits ?? 2)),
+    SpeculativeDraftMax: getFinitePositiveInteger(serverLlama.SpeculativeDraftMax, Number(defaults.SpeculativeDraftMax ?? 16)),
+    SpeculativeDraftMin: getFiniteInteger(serverLlama.SpeculativeDraftMin, Number(defaults.SpeculativeDraftMin ?? 4)),
     ReasoningBudget: getFinitePositiveInteger(serverLlama.ReasoningBudget, Number(defaults.ReasoningBudget ?? DEFAULT_LLAMA_REASONING_BUDGET)),
     ReasoningBudgetMessage: getNullableTrimmedString(serverLlama.ReasoningBudgetMessage)
       || getNullableTrimmedString(defaults.ReasoningBudgetMessage)

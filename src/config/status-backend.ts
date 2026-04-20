@@ -146,6 +146,8 @@ export type NotifyStatusBackendOptions = {
   }> | null;
   promptCacheTokens?: number | null;
   promptEvalTokens?: number | null;
+  speculativeAcceptedTokens?: number | null;
+  speculativeGeneratedTokens?: number | null;
   requestDurationMs?: number | null;
   artifactType?: 'summary_request' | 'planner_debug' | 'planner_failed' | null;
   artifactRequestId?: string | null;
@@ -232,6 +234,12 @@ export async function notifyStatusBackend(options: NotifyStatusBackendOptions): 
   }
   if (!options.running && options.promptEvalTokens !== undefined && options.promptEvalTokens !== null) {
     body.promptEvalTokens = options.promptEvalTokens;
+  }
+  if (!options.running && options.speculativeAcceptedTokens !== undefined && options.speculativeAcceptedTokens !== null) {
+    body.speculativeAcceptedTokens = options.speculativeAcceptedTokens;
+  }
+  if (!options.running && options.speculativeGeneratedTokens !== undefined && options.speculativeGeneratedTokens !== null) {
+    body.speculativeGeneratedTokens = options.speculativeGeneratedTokens;
   }
   if (!options.running && options.requestDurationMs !== undefined && options.requestDurationMs !== null) {
     body.requestDurationMs = options.requestDurationMs;
