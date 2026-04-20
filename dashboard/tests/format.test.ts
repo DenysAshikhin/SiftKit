@@ -25,6 +25,8 @@ test('getSessionTelemetryStats computes cache hit rate and per-turn averaged acc
         thinkingTokens: 10,
         promptCacheTokens: 60,
         promptEvalTokens: 40,
+        promptEvalDurationMs: 2000,
+        generationDurationMs: 8000,
         requestDurationMs: 2000,
         requestStartedAtUtc: '2026-04-16T11:59:58.000Z',
         thinkingStartedAtUtc: '2026-04-16T12:00:00.000Z',
@@ -45,6 +47,8 @@ test('getSessionTelemetryStats computes cache hit rate and per-turn averaged acc
         thinkingTokens: 20,
         promptCacheTokens: 30,
         promptEvalTokens: 20,
+        promptEvalDurationMs: 4000,
+        generationDurationMs: 5000,
         requestDurationMs: 5000,
         requestStartedAtUtc: '2026-04-16T12:10:00.000Z',
         thinkingStartedAtUtc: '2026-04-16T12:10:01.000Z',
@@ -65,9 +69,9 @@ test('getSessionTelemetryStats computes cache hit rate and per-turn averaged acc
     cacheHitRate: 0.6,
     speculativeAcceptedTokens: 11,
     speculativeGeneratedTokens: 16,
-    acceptanceRate: 0.625,
-    promptTokensPerSecond: 20,
-    outputTokensPerSecond: 13.125,
+    acceptanceRate: 0.6875,
+    promptTokensPerSecond: 10,
+    outputTokensPerSecond: 150 / 13,
   });
 });
 

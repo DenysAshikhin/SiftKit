@@ -72,7 +72,15 @@ export function normalizeJsonFilterFilters(
   for (const filter of filters) {
     const pathText = typeof filter.path === 'string' ? filter.path : '';
     const op = typeof filter.op === 'string' ? filter.op : '';
-    const nestedBounds = getRecord(filter.value);
+    const wrappedValue = getRecord(filter.value);
+    const normalizedValue = wrappedValue
+      && Object.keys(wrappedValue).length === 1
+      && Object.prototype.hasOwnProperty.call(wrappedValue, 'value')
+      && !getRecord(wrappedValue.value)
+      && !Array.isArray(wrappedValue.value)
+      ? wrappedValue.value
+      : filter.value;
+    const nestedBounds = getRecord(normalizedValue);
     const nestedEntries = nestedBounds
       ? Object.entries(nestedBounds).filter((entry) => ['eq', 'neq', 'gt', 'gte', 'lt', 'lte'].includes(entry[0]))
       : [];
@@ -87,7 +95,10 @@ export function normalizeJsonFilterFilters(
       continue;
     }
 
-    normalized.push(filter);
+    normalized.push({
+      ...filter,
+      value: normalizedValue,
+    });
   }
 
   return normalized;

@@ -160,6 +160,46 @@ test('requestPlannerAction reconstructs a tool batch from streaming multi-tool r
   });
 });
 
+test('requestPlannerAction reports prompt-eval and generation durations for streaming responses', async () => {
+  await withServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+    setTimeout(() => {
+      res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"finish\\",\\"output\\":\\"done\\"}"}}]}\n\n');
+      setTimeout(() => {
+        res.write('data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":30,"completion_tokens":4,"completion_tokens_details":{"reasoning_tokens":6},"prompt_tokens_details":{"cached_tokens":20}}}\n\n');
+        res.write('data: [DONE]\n\n');
+        res.end();
+      }, 20);
+    }, 20);
+  }, async (baseUrl) => {
+    const result = await requestPlannerAction({
+      baseUrl,
+      model: 'mock-model',
+      messages: [{ role: 'user', content: 'finish' }],
+      timeoutMs: 5000,
+      requestMaxTokens: 512,
+      stream: true,
+    });
+
+    assert.equal(result.promptEvalTokens, 10);
+    assert.equal(result.completionTokens, 4);
+    assert.equal(result.usageThinkingTokens, 6);
+    assert.equal(Number.isFinite(Number(result.promptEvalDurationMs)), true);
+    assert.equal(Number.isFinite(Number(result.generationDurationMs)), true);
+    assert.ok(Number(result.promptEvalDurationMs) >= 10);
+    assert.ok(Number(result.generationDurationMs) >= 10);
+  });
+});
+
 test('requestPlannerAction sends json_schema response_format with tools and no grammar', async () => {
   let capturedBody: Record<string, unknown> | null = null;
   await withServer((req, res) => {

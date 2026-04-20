@@ -331,6 +331,9 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
       Number(latestMessage.inputTokensEstimate || 0),
       Number(repoTotals.promptTokens || 0),
     );
+    assert.equal(latestMessage.sourceRunId, String(repoSearch.requestId));
+    assert.equal(Number(latestMessage.outputTokensEstimate || 0), Number(repoTotals.outputTokens || 0));
+    assert.equal(Number(latestMessage.thinkingTokens || 0), Number(repoTotals.thinkingTokens || 0));
     const latestContent = String(latestMessage.content);
     assert.match(latestContent, /^# Implementation Plan/mu);
     assert.match(latestContent, /Critical Review/mu);

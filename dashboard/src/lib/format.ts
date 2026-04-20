@@ -99,9 +99,10 @@ export function getSessionTelemetryStats(session: ChatSession | null): {
     }
     return null;
   };
-  const promptThroughputs: number[] = [];
-  const outputThroughputs: number[] = [];
-  const acceptanceRates: number[] = [];
+  let promptDurationMsTotal = 0;
+  let promptTokensForRateTotal = 0;
+  let outputDurationMsTotal = 0;
+  let outputTokensForRateTotal = 0;
   const promptCacheTokens = session.messages.reduce((sum, message) => (
     Number.isFinite(message.promptCacheTokens) && Number(message.promptCacheTokens) >= 0
       ? sum + Number(message.promptCacheTokens)
@@ -137,23 +138,31 @@ export function getSessionTelemetryStats(session: ChatSession | null): {
     const answerEndedAt = getIsoTime(message.answerEndedAtUtc);
     const generationStartedAt = thinkingStartedAt ?? answerStartedAt;
     const promptTokens = getPromptTokensForTurn(message, previousMessage);
-    if (requestStartedAt !== null && generationStartedAt !== null && generationStartedAt > requestStartedAt && promptTokens !== null) {
-      promptThroughputs.push(promptTokens / ((generationStartedAt - requestStartedAt) / 1000));
+    const promptDurationMs = (
+      Number.isFinite(message.promptEvalDurationMs) && Number(message.promptEvalDurationMs) > 0
+        ? Number(message.promptEvalDurationMs)
+        : (requestStartedAt !== null && generationStartedAt !== null && generationStartedAt > requestStartedAt)
+            ? generationStartedAt - requestStartedAt
+            : null
+    );
+    if (promptDurationMs !== null && promptDurationMs > 0 && promptTokens !== null) {
+      promptDurationMsTotal += promptDurationMs;
+      promptTokensForRateTotal += promptTokens;
     }
     const generatedTokens = (
       (Number.isFinite(message.thinkingTokens) && Number(message.thinkingTokens) >= 0 ? Number(message.thinkingTokens) : 0)
       + (Number.isFinite(message.outputTokensEstimate) && Number(message.outputTokensEstimate) >= 0 ? Number(message.outputTokensEstimate) : 0)
     );
-    if (generationStartedAt !== null && answerEndedAt !== null && answerEndedAt > generationStartedAt) {
-      outputThroughputs.push(generatedTokens / ((answerEndedAt - generationStartedAt) / 1000));
-    }
-    if (
-      Number.isFinite(message.speculativeGeneratedTokens)
-      && Number(message.speculativeGeneratedTokens) > 0
-      && Number.isFinite(message.speculativeAcceptedTokens)
-      && Number(message.speculativeAcceptedTokens) >= 0
-    ) {
-      acceptanceRates.push(Number(message.speculativeAcceptedTokens) / Number(message.speculativeGeneratedTokens));
+    const generationDurationMs = (
+      Number.isFinite(message.generationDurationMs) && Number(message.generationDurationMs) > 0
+        ? Number(message.generationDurationMs)
+        : (generationStartedAt !== null && answerEndedAt !== null && answerEndedAt > generationStartedAt)
+            ? answerEndedAt - generationStartedAt
+            : null
+    );
+    if (generationDurationMs !== null && generationDurationMs > 0) {
+      outputDurationMsTotal += generationDurationMs;
+      outputTokensForRateTotal += generatedTokens;
     }
   }
   const totalPromptTokens = promptCacheTokens + promptEvalTokens;
@@ -163,14 +172,14 @@ export function getSessionTelemetryStats(session: ChatSession | null): {
     cacheHitRate: totalPromptTokens > 0 ? (promptCacheTokens / totalPromptTokens) : null,
     speculativeAcceptedTokens,
     speculativeGeneratedTokens,
-    acceptanceRate: acceptanceRates.length > 0
-      ? (acceptanceRates.reduce((sum, value) => sum + value, 0) / acceptanceRates.length)
+    acceptanceRate: speculativeGeneratedTokens > 0
+      ? (speculativeAcceptedTokens / speculativeGeneratedTokens)
       : null,
-    promptTokensPerSecond: promptThroughputs.length > 0
-      ? (promptThroughputs.reduce((sum, value) => sum + value, 0) / promptThroughputs.length)
+    promptTokensPerSecond: promptTokensForRateTotal > 0 && promptDurationMsTotal > 0
+      ? (promptTokensForRateTotal / (promptDurationMsTotal / 1000))
       : null,
-    outputTokensPerSecond: outputThroughputs.length > 0
-      ? (outputThroughputs.reduce((sum, value) => sum + value, 0) / outputThroughputs.length)
+    outputTokensPerSecond: outputTokensForRateTotal > 0 && outputDurationMsTotal > 0
+      ? (outputTokensForRateTotal / (outputDurationMsTotal / 1000))
       : null,
   };
 }

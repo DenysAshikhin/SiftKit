@@ -18,6 +18,7 @@ const { withExecutionLock } = require('../dist/execution-lock.js');
 const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../dist/status-server/index.js');
 const { writeConfig } = require('../dist/status-server/config-store.js');
 const { readStatusText } = require('../dist/status-server/status-file.js');
+const { upsertRepoSearchRun } = require('../dist/status-server/dashboard-runs.js');
 const { runDebugRequest } = require('../dist/scripts/run-benchmark-fixture-debug.js');
 const { runFixture60MalformedJsonRepro } = require('../dist/scripts/repro-fixture60-malformed-json.js');
 
@@ -886,6 +887,84 @@ test('real status server aggregates task-scoped tool stats and tool tokens', asy
       assert.equal(status.metrics.toolStats['repo-search'].rg.outputCharsTotal, 210);
       assert.equal(status.metrics.toolStats['repo-search'].rg.outputTokensTotal, 44);
       assert.equal(status.metrics.toolStats['repo-search'].rg.outputTokensEstimatedCount, 1);
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
+test('real status server patches speculative acceptance onto an existing repo-search run log row', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
+    const requestId = 'repo-run-speculative';
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      const database = new Database(runtimeDbPath);
+      try {
+        upsertRepoSearchRun({
+          database,
+          requestId,
+          taskKind: 'repo-search',
+          prompt: 'find tool calls',
+          repoRoot: tempRoot,
+          model: 'mock-model',
+          requestMaxTokens: 512,
+          maxTurns: 2,
+          transcriptText: '',
+          artifactPayload: { requestId, prompt: 'find tool calls', repoRoot: tempRoot },
+          terminalState: 'completed',
+          startedAtUtc: '2026-04-20T11:49:38.706Z',
+          finishedAtUtc: '2026-04-20T11:50:26.779Z',
+          requestDurationMs: 48073,
+          promptTokens: 10,
+          outputTokens: 5,
+          thinkingTokens: 2,
+          toolTokens: 1,
+          promptCacheTokens: 3,
+          promptEvalTokens: 7,
+          speculativeAcceptedTokens: null,
+          speculativeGeneratedTokens: null,
+        });
+      } finally {
+        database.close();
+      }
+
+      await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          running: false,
+          requestId,
+          taskKind: 'repo-search',
+          terminalState: 'completed',
+          promptCharacterCount: 25,
+          inputTokens: 7,
+          outputCharacterCount: 12,
+          outputTokens: 5,
+          thinkingTokens: 2,
+          promptCacheTokens: 3,
+          promptEvalTokens: 7,
+          speculativeAcceptedTokens: 12,
+          speculativeGeneratedTokens: 18,
+          requestDurationMs: 48073,
+        }),
+      });
+
+      const verifyDb = new Database(runtimeDbPath, { readonly: true });
+      try {
+        const row = verifyDb.prepare(`
+          SELECT speculative_accepted_tokens, speculative_generated_tokens
+          FROM run_logs
+          WHERE request_id = ?
+        `).get(requestId);
+        assert.equal(row.speculative_accepted_tokens, 12);
+        assert.equal(row.speculative_generated_tokens, 18);
+      } finally {
+        verifyDb.close();
+      }
     }, {
       statusPath,
       configPath,

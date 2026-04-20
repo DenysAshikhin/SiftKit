@@ -73,6 +73,29 @@ test('json_filter picks the best matching top-level array when collectionPath is
   assert.match(result.text, /"groupId":12/u);
 });
 
+test('json_filter unwraps exact nested value scalar wrappers', () => {
+  const inputText = JSON.stringify({
+    widgetRoots: [
+      { id: 10747904, groupId: 164, childIndex: 0, text: '', isHidden: false },
+      { id: 10747905, groupId: 12, childIndex: 1, text: 'quantity-1', isHidden: false },
+    ],
+  });
+
+  const result = executePlannerTool(inputText, {
+    action: 'tool',
+    tool_name: 'json_filter',
+    args: {
+      filters: [{ path: 'groupId', op: 'eq', value: { value: 12 } }],
+      select: ['id', 'groupId', 'childIndex', 'text'],
+      limit: 10,
+    },
+  });
+
+  assert.equal(result.collectionPath, 'widgetRoots');
+  assert.equal(result.matchedCount, 1);
+  assert.match(result.text, /"groupId":12/u);
+});
+
 test('find_text counts all hits even when maxHits truncates rendered blocks', () => {
   const inputText = [
     'Lumbridge Castle Staircase',

@@ -109,6 +109,8 @@ export async function executeRepoSearchRequest(
     const thinkingTokens = getNumericTotal(scorecard, 'thinkingTokens');
     const promptCacheTokens = getNumericTotal(scorecard, 'promptCacheTokens');
     const promptEvalTokens = getNumericTotal(scorecard, 'promptEvalTokens');
+    const promptEvalDurationMs = getNumericTotal(scorecard, 'promptEvalDurationMs');
+    const generationDurationMs = getNumericTotal(scorecard, 'generationDurationMs');
     const inputTokens = getProcessedPromptTokens(promptTokens, promptCacheTokens, promptEvalTokens);
     const scorecardToolStats = (
       scorecard
@@ -159,6 +161,8 @@ export async function executeRepoSearchRequest(
         toolTokens,
         promptCacheTokens,
         promptEvalTokens,
+        promptEvalDurationMs,
+        generationDurationMs,
       });
       await notifyStatusBackend({
         running: false,
@@ -235,6 +239,8 @@ export async function executeRepoSearchRequest(
         toolTokens: null,
         promptCacheTokens: null,
         promptEvalTokens: null,
+        promptEvalDurationMs: null,
+        generationDurationMs: null,
       });
     } catch {
       // Best effort run-log persistence.

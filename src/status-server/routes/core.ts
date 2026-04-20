@@ -31,6 +31,7 @@ import {
   buildRepoSearchProgressLogMessage,
   getStatusArtifactPath,
   upsertRunArtifactPayload,
+  updateRunLogSpeculativeMetricsByRequestId,
 } from '../dashboard-runs.js';
 import { loadRepoSearchExecutor } from '../chat.js';
 import {
@@ -55,6 +56,7 @@ import {
   hasActiveRuns,
   getIdleSummaryDatabase,
 } from '../server-ops.js';
+import { getRuntimeDatabase } from '../../state/runtime-db.js';
 import type {
   ActiveRunState,
   ServerContext,
@@ -482,6 +484,14 @@ export async function handleCoreRoute(
         const managedLlamaCursor = getManagedLlamaLogCursor(ctx.managedLlamaLastStartupLogs);
         runState.managedLlamaStdoutOffset = managedLlamaCursor.stdoutOffset;
         runState.managedLlamaStderrOffset = managedLlamaCursor.stderrOffset;
+        if (metadata.speculativeAcceptedTokens !== null || metadata.speculativeGeneratedTokens !== null) {
+          updateRunLogSpeculativeMetricsByRequestId({
+            database: getRuntimeDatabase(),
+            requestId,
+            speculativeAcceptedTokens: metadata.speculativeAcceptedTokens,
+            speculativeGeneratedTokens: metadata.speculativeGeneratedTokens,
+          });
+        }
         if (metadata.terminalState === 'completed') {
           totalElapsedMs = now - runState.overallStartedAt;
           metadata.totalOutputTokens = runState.outputTokensTotal;
@@ -491,6 +501,14 @@ export async function handleCoreRoute(
           totalElapsedMs = now - runState.overallStartedAt;
           clearRunState(ctx, requestId);
         }
+      }
+      if (!runState && (metadata.speculativeAcceptedTokens !== null || metadata.speculativeGeneratedTokens !== null)) {
+        updateRunLogSpeculativeMetricsByRequestId({
+          database: getRuntimeDatabase(),
+          requestId,
+          speculativeAcceptedTokens: metadata.speculativeAcceptedTokens,
+          speculativeGeneratedTokens: metadata.speculativeGeneratedTokens,
+        });
       }
       const inputCharactersDelta = metadata.promptCharacterCount ?? 0;
       const outputCharactersDelta = metadata.outputCharacterCount ?? 0;

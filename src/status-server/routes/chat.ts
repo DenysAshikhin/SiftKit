@@ -691,8 +691,13 @@ export async function handleChatRoute(
         {
           toolContextContents,
           requestDurationMs: Date.now() - startedAt,
+          promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
+          generationDurationMs: getScorecardTotal(result?.scorecard, 'generationDurationMs'),
           speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
           speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
+          outputTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
+          thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
+          sourceRunId: String(result.requestId || ''),
         }
       );
       sendJson(res, 200, {
@@ -848,9 +853,14 @@ export async function handleChatRoute(
         {
           toolContextContents,
           requestDurationMs: Date.now() - startedAt,
+          promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
+          generationDurationMs: getScorecardTotal(result?.scorecard, 'generationDurationMs'),
           ...phaseTracker.snapshot(),
           speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
           speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
+          outputTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
+          thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
+          sourceRunId: String(result.requestId || ''),
         }
       );
       writeSse('done', {
@@ -999,9 +1009,14 @@ export async function handleChatRoute(
         {
           toolContextContents,
           requestDurationMs: Date.now() - startedAt,
+          promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
+          generationDurationMs: getScorecardTotal(result?.scorecard, 'generationDurationMs'),
           ...phaseTracker.snapshot(),
           speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
           speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
+          outputTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
+          thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
+          sourceRunId: String(result.requestId || ''),
         }
       );
       writeSse('done', {

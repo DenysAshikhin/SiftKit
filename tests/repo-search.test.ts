@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as http from 'node:http';
+import { createRequire } from 'node:module';
+import type { AddressInfo } from 'node:net';
 
 import { executeRepoSearchRequest } from '../dist/repo-search/index.js';
 import {
@@ -8,6 +11,12 @@ import {
   readRuntimeArtifact,
 } from '../dist/state/runtime-artifacts.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
+
+const requireFromHere = createRequire(__filename);
+const Database = requireFromHere('better-sqlite3') as new (path: string, options?: { readonly?: boolean }) => {
+  prepare: (sql: string) => { get: (...args: unknown[]) => Record<string, unknown> | undefined };
+  close: () => void;
+};
 
 test('executeRepoSearchRequest throws on empty prompt', async () => {
   await withTestEnvAndServer(async () => {
@@ -115,6 +124,103 @@ test('executeRepoSearchRequest with mock command executes and returns scorecard'
     });
     assert.equal(typeof result.scorecard, 'object');
     assert.equal(result.scorecard.verdict, 'pass');
+  });
+});
+
+test('executeRepoSearchRequest persists summed prompt-eval and generation durations for streamed multi-turn runs', async () => {
+  await withTestEnvAndServer(async ({ tempRoot, stub }) => {
+    let requestCount = 0;
+    const modelServer = http.createServer((req, res) => {
+      if (req.method === 'GET' && req.url === '/v1/models') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          data: [{ id: 'mock-model' }],
+        }));
+        return;
+      }
+      if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+        res.statusCode = 404;
+        res.end();
+        return;
+      }
+      requestCount += 1;
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      });
+      if (requestCount === 1) {
+        setTimeout(() => {
+          res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"tool\\",\\"tool_name\\":\\"repo_git\\",\\"args\\":{\\"command\\":\\"git status --short\\"}}"}}]}\n\n');
+          setTimeout(() => {
+            res.write('data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":30,"completion_tokens":4,"completion_tokens_details":{"reasoning_tokens":6},"prompt_tokens_details":{"cached_tokens":20}}}\n\n');
+            res.write('data: [DONE]\n\n');
+            res.end();
+          }, 20);
+        }, 20);
+        return;
+      }
+      setTimeout(() => {
+        res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"finish\\",\\"output\\":\\"done\\",\\"confidence\\":0.9}"}}]}\n\n');
+        setTimeout(() => {
+          res.write('data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":22,"completion_tokens":5,"completion_tokens_details":{"reasoning_tokens":3},"prompt_tokens_details":{"cached_tokens":15}}}\n\n');
+          res.write('data: [DONE]\n\n');
+          res.end();
+        }, 20);
+      }, 20);
+    });
+    await new Promise<void>((resolve, reject) => {
+      modelServer.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
+    });
+    try {
+      const address = modelServer.address() as AddressInfo;
+      const baseUrl = `http://127.0.0.1:${address.port}`;
+      const config = structuredClone(stub.state.config) as Record<string, unknown>;
+      const runtime = (config.Runtime as Record<string, unknown>) || {};
+      config.Runtime = runtime;
+      const runtimeLlama = (runtime.LlamaCpp as Record<string, unknown>) || {};
+      runtime.LlamaCpp = runtimeLlama;
+      runtimeLlama.BaseUrl = baseUrl;
+      runtime.Model = 'mock-model';
+      const topLlama = (config.LlamaCpp as Record<string, unknown>) || {};
+      config.LlamaCpp = topLlama;
+      topLlama.BaseUrl = baseUrl;
+      topLlama.Reasoning = 'on';
+
+      const result = await executeRepoSearchRequest({
+        prompt: 'find build scripts',
+        repoRoot: tempRoot,
+        config,
+        statusBackendUrl: stub.statusUrl,
+        maxTurns: 2,
+        mockCommandResults: {
+          'git status --short': { exitCode: 0, stdout: '', stderr: '' },
+        },
+        onProgress() {},
+      });
+
+      assert.equal(result.scorecard.verdict, 'pass');
+      assert.ok(Number(result.scorecard.totals.promptEvalDurationMs || 0) >= 20);
+      assert.ok(Number(result.scorecard.totals.generationDurationMs || 0) >= 20);
+
+      const database = new Database(`${tempRoot}\\.siftkit\\runtime.sqlite`, { readonly: true });
+      try {
+        const row = database.prepare(`
+          SELECT prompt_eval_duration_ms, generation_duration_ms
+          FROM run_logs
+          WHERE request_id = ?
+        `).get(result.requestId) as Record<string, unknown> | undefined;
+        assert.ok(row);
+        assert.ok(Number(row?.prompt_eval_duration_ms || 0) >= 20);
+        assert.ok(Number(row?.generation_duration_ms || 0) >= 20);
+      } finally {
+        database.close();
+      }
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        modelServer.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
   });
 });
 

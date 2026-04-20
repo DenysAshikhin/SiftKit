@@ -89,6 +89,34 @@ function buildOversizedAmbiguousCollectionInput(minCharacters) {
   return JSON.stringify(document);
 }
 
+function buildOversizedWidgetPayloadInput(minCharacters) {
+  const document = {
+    widgetRootCount: 0,
+    widgetRoots: [],
+    bankGroupDirectLookup: {},
+    textSearchResults: [],
+    currentBankDetection: null,
+  };
+
+  for (let index = 0; JSON.stringify(document).length < minCharacters; index += 1) {
+    const groupId = index % 5 === 0 ? 12 : 164;
+    document.widgetRoots.push({
+      id: 10747904 + index,
+      groupId,
+      childIndex: index,
+      text: groupId === 12 ? `quantity-${index}` : '',
+      name: '',
+      isHidden: false,
+      hasBounds: true,
+      childCount: 0,
+      dynamicChildCount: 0,
+    });
+  }
+
+  document.widgetRootCount = document.widgetRoots.length;
+  return JSON.stringify(document);
+}
+
 test('planner json_filter accepts combined gte and lte bounds in one filter value', async () => {
   await withTempEnv(async () => {
     const plannerLogsPath = getPlannerLogsPath();
@@ -228,6 +256,68 @@ test('planner retries malformed json_filter schema-placeholder args once and the
       true,
     );
     assert.equal(debugDump.final.finalOutput, 'recovered malformed planner tool args');
+  });
+});
+
+test('planner accepts exact nested value scalar wrappers in json_filter args', async () => {
+  await withTempEnv(async () => {
+    const plannerLogsPath = getPlannerLogsPath();
+    fs.mkdirSync(plannerLogsPath, { recursive: true });
+    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedWidgetPayloadInput(threshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Find widgetRoots entries where groupId is 12. Return id, groupId, childIndex, and text.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'nested value wrapper worked');
+    }, {
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'json_filter',
+            args: {
+              filters: [
+                { path: 'groupId', op: 'eq', value: { value: 12 } },
+              ],
+              select: ['id', 'groupId', 'childIndex', 'text'],
+              limit: 100,
+            },
+          });
+        }
+
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'nested value wrapper worked',
+        });
+      },
+    });
+
+    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
+    const added = after.filter((entry) => !before.has(entry));
+    assert.equal(added.length, 1);
+
+    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    const jsonFilterEvent = debugDump.events.find((event) => event.kind === 'planner_tool' && event.toolName === 'json_filter');
+    assert.equal(jsonFilterEvent.output.matchedCount > 0, true);
+    assert.match(jsonFilterEvent.output.text, /"groupId":12/u);
+    assert.equal(
+      debugDump.events.some((event) => event.kind === 'planner_invalid_response'),
+      false,
+    );
   });
 });
 

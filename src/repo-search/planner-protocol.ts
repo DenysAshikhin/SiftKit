@@ -39,6 +39,8 @@ export type PlannerActionResponse = {
   usageThinkingTokens?: number | null;
   promptCacheTokens?: number | null;
   promptEvalTokens?: number | null;
+  promptEvalDurationMs?: number | null;
+  generationDurationMs?: number | null;
 };
 
 export type ToolAction = {
@@ -724,6 +726,8 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
     usageThinkingTokens: completionUsage.thinkingTokens,
     promptCacheTokens: promptUsage.promptCacheTokens,
     promptEvalTokens: promptUsage.promptEvalTokens,
+    promptEvalDurationMs: null,
+    generationDurationMs: null,
   };
 }
 
@@ -787,6 +791,7 @@ function requestStreaming(
       let usageThinkingTokens: number | null = null;
       let promptCacheTokens: number | null = null;
       let promptEvalTokens: number | null = null;
+      let generationStartedAt: number | null = null;
 
       response.setEncoding('utf8');
       response.on('data', (chunk: string) => {
@@ -818,6 +823,9 @@ function requestStreaming(
               : typeof message.reasoning_content === 'string' ? message.reasoning_content : '';
             const deltaContent = typeof delta.content === 'string' ? delta.content : '';
             if (delta.tool_calls && Array.isArray(delta.tool_calls)) {
+              if (generationStartedAt === null) {
+                generationStartedAt = Date.now();
+              }
               for (const tc of delta.tool_calls as Array<{ index?: number; function?: { name?: string; arguments?: string } }>) {
                 const idx = tc.index ?? 0;
                 if (!toolCalls[idx]) toolCalls[idx] = { name: '', arguments: '' };
@@ -826,10 +834,16 @@ function requestStreaming(
               }
             }
             if (deltaThinking) {
+              if (generationStartedAt === null) {
+                generationStartedAt = Date.now();
+              }
               thinkingText += deltaThinking;
               options.onThinkingDelta?.(thinkingText);
             }
             if (deltaContent) {
+              if (generationStartedAt === null) {
+                generationStartedAt = Date.now();
+              }
               contentText += deltaContent;
               options.onContentDelta?.(contentText);
             }
@@ -870,6 +884,7 @@ function requestStreaming(
           finalContentText = extracted.text;
         }
         const text = finalContentText || synthesized || '';
+        const finishedAt = Date.now();
         resolve({
           text: typeof text === 'string' ? text.trim() : text,
           thinkingText: finalThinkingText,
@@ -879,6 +894,8 @@ function requestStreaming(
           usageThinkingTokens,
           promptCacheTokens,
           promptEvalTokens,
+          promptEvalDurationMs: generationStartedAt === null ? null : Math.max(generationStartedAt - startedAt, 0),
+          generationDurationMs: generationStartedAt === null ? null : Math.max(finishedAt - generationStartedAt, 0),
         });
       });
     });

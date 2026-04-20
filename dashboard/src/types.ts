@@ -37,6 +37,8 @@ export type RunRecord = {
   toolTokens?: number | null;
   promptCacheTokens: number | null;
   promptEvalTokens: number | null;
+  promptEvalDurationMs?: number | null;
+  generationDurationMs?: number | null;
   speculativeAcceptedTokens?: number | null;
   speculativeGeneratedTokens?: number | null;
   durationMs: number | null;
@@ -161,6 +163,8 @@ export type ChatMessage = {
   promptCacheTokens?: number | null;
   promptEvalTokens?: number | null;
   requestDurationMs?: number | null;
+  promptEvalDurationMs?: number | null;
+  generationDurationMs?: number | null;
   requestStartedAtUtc?: string | null;
   thinkingStartedAtUtc?: string | null;
   thinkingEndedAtUtc?: string | null;

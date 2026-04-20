@@ -34,6 +34,8 @@ type MessageRow = {
   prompt_cache_tokens: number | null;
   prompt_eval_tokens: number | null;
   request_duration_ms: number | null;
+  prompt_eval_duration_ms: number | null;
+  generation_duration_ms: number | null;
   request_started_at_utc: string | null;
   thinking_started_at_utc: string | null;
   thinking_ended_at_utc: string | null;
@@ -95,6 +97,17 @@ function toNonNegativeInteger(value: unknown, fallback: number = 0): number {
   return Math.trunc(parsed);
 }
 
+function toNullableNonNegativeInteger(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return null;
+  }
+  return Math.trunc(parsed);
+}
+
 export function estimateTokenCount(value: unknown): number {
   const text = String(value || '');
   if (!text.trim()) {
@@ -152,6 +165,8 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       prompt_cache_tokens,
       prompt_eval_tokens,
       request_duration_ms,
+      prompt_eval_duration_ms,
+      generation_duration_ms,
       request_started_at_utc,
       thinking_started_at_utc,
       thinking_ended_at_utc,
@@ -208,6 +223,8 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       promptCacheTokens: message.prompt_cache_tokens,
       promptEvalTokens: message.prompt_eval_tokens,
       requestDurationMs: message.request_duration_ms,
+      promptEvalDurationMs: message.prompt_eval_duration_ms,
+      generationDurationMs: message.generation_duration_ms,
       requestStartedAtUtc: message.request_started_at_utc,
       thinkingStartedAtUtc: message.thinking_started_at_utc,
       thinkingEndedAtUtc: message.thinking_ended_at_utc,
@@ -342,6 +359,8 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         prompt_cache_tokens,
         prompt_eval_tokens,
         request_duration_ms,
+        prompt_eval_duration_ms,
+        generation_duration_ms,
         request_started_at_utc,
         thinking_started_at_utc,
         thinking_ended_at_utc,
@@ -355,7 +374,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         source_run_id,
         compressed_into_summary,
         position
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     for (let index = 0; index < messages.length; index += 1) {
@@ -371,17 +390,19 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         message.inputTokensEstimated === false ? 0 : 1,
         message.outputTokensEstimated === false ? 0 : 1,
         message.thinkingTokensEstimated === false ? 0 : 1,
-        Number.isFinite(Number(message.promptCacheTokens)) ? Number(message.promptCacheTokens) : null,
-        Number.isFinite(Number(message.promptEvalTokens)) ? Number(message.promptEvalTokens) : null,
-        Number.isFinite(Number(message.requestDurationMs)) ? Number(message.requestDurationMs) : null,
+        toNullableNonNegativeInteger(message.promptCacheTokens),
+        toNullableNonNegativeInteger(message.promptEvalTokens),
+        toNullableNonNegativeInteger(message.requestDurationMs),
+        toNullableNonNegativeInteger(message.promptEvalDurationMs),
+        toNullableNonNegativeInteger(message.generationDurationMs),
         typeof message.requestStartedAtUtc === 'string' && message.requestStartedAtUtc.trim() ? message.requestStartedAtUtc : null,
         typeof message.thinkingStartedAtUtc === 'string' && message.thinkingStartedAtUtc.trim() ? message.thinkingStartedAtUtc : null,
         typeof message.thinkingEndedAtUtc === 'string' && message.thinkingEndedAtUtc.trim() ? message.thinkingEndedAtUtc : null,
         typeof message.answerStartedAtUtc === 'string' && message.answerStartedAtUtc.trim() ? message.answerStartedAtUtc : null,
         typeof message.answerEndedAtUtc === 'string' && message.answerEndedAtUtc.trim() ? message.answerEndedAtUtc : null,
-        Number.isFinite(Number(message.speculativeAcceptedTokens)) ? Number(message.speculativeAcceptedTokens) : null,
-        Number.isFinite(Number(message.speculativeGeneratedTokens)) ? Number(message.speculativeGeneratedTokens) : null,
-        Number.isFinite(Number(message.associatedToolTokens)) ? Number(message.associatedToolTokens) : null,
+        toNullableNonNegativeInteger(message.speculativeAcceptedTokens),
+        toNullableNonNegativeInteger(message.speculativeGeneratedTokens),
+        toNullableNonNegativeInteger(message.associatedToolTokens),
         typeof message.thinkingContent === 'string' ? message.thinkingContent : null,
         typeof message.createdAtUtc === 'string' && message.createdAtUtc.trim() ? message.createdAtUtc : now,
         typeof message.sourceRunId === 'string' && message.sourceRunId.trim() ? message.sourceRunId : null,

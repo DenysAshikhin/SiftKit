@@ -333,6 +333,8 @@ export async function generateChatAssistantMessage(
 type AppendChatOptions = {
   toolContextContents?: string[];
   requestDurationMs?: number | null;
+  promptEvalDurationMs?: number | null;
+  generationDurationMs?: number | null;
   requestStartedAtUtc?: string | null;
   thinkingStartedAtUtc?: string | null;
   thinkingEndedAtUtc?: string | null;
@@ -340,6 +342,9 @@ type AppendChatOptions = {
   answerEndedAtUtc?: string | null;
   speculativeAcceptedTokens?: number | null;
   speculativeGeneratedTokens?: number | null;
+  outputTokens?: number | null;
+  thinkingTokens?: number | null;
+  sourceRunId?: string | null;
 };
 
 export function appendChatMessagesWithUsage(
@@ -360,8 +365,10 @@ export function appendChatMessagesWithUsage(
   const usageThinkingTokens = getChatUsageValue(usage.thinkingTokens);
   const processedPromptTokens = getProcessedPromptTokens(promptTokens, promptCacheTokens, promptEvalTokens);
   const userTokens = processedPromptTokens ?? estimateTokenCount(content);
-  const outputTokens = completionTokens ?? estimateTokenCount(assistantContent);
-  const thinkingTokens = usageThinkingTokens ?? 0;
+  const explicitOutputTokens = getChatUsageValue(options.outputTokens);
+  const explicitThinkingTokens = getChatUsageValue(options.thinkingTokens);
+  const outputTokens = explicitOutputTokens ?? completionTokens ?? estimateTokenCount(assistantContent);
+  const thinkingTokens = explicitThinkingTokens ?? usageThinkingTokens ?? 0;
   const toolContextContents = Array.isArray(options.toolContextContents)
     ? options.toolContextContents
       .map((value) => String(value || '').trim())
@@ -396,6 +403,8 @@ export function appendChatMessagesWithUsage(
     promptCacheTokens,
     promptEvalTokens,
     requestDurationMs: Number.isFinite(Number(options.requestDurationMs)) ? Number(options.requestDurationMs) : null,
+    promptEvalDurationMs: Number.isFinite(Number(options.promptEvalDurationMs)) ? Number(options.promptEvalDurationMs) : null,
+    generationDurationMs: Number.isFinite(Number(options.generationDurationMs)) ? Number(options.generationDurationMs) : null,
     requestStartedAtUtc: typeof options.requestStartedAtUtc === 'string' && options.requestStartedAtUtc.trim() ? options.requestStartedAtUtc : null,
     thinkingStartedAtUtc: typeof options.thinkingStartedAtUtc === 'string' && options.thinkingStartedAtUtc.trim() ? options.thinkingStartedAtUtc : null,
     thinkingEndedAtUtc: typeof options.thinkingEndedAtUtc === 'string' && options.thinkingEndedAtUtc.trim() ? options.thinkingEndedAtUtc : null,
@@ -406,7 +415,7 @@ export function appendChatMessagesWithUsage(
     associatedToolTokens,
     thinkingContent: String(thinkingContent || ''),
     createdAtUtc: now,
-    sourceRunId: null,
+    sourceRunId: typeof options.sourceRunId === 'string' && options.sourceRunId.trim() ? options.sourceRunId : null,
   });
   for (const value of toolContextContents) {
     hiddenToolContexts.push({

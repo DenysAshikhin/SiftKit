@@ -488,6 +488,8 @@ export type TaskResult = {
   thinkingTokens: number;
   promptCacheTokens: number;
   promptEvalTokens: number;
+  promptEvalDurationMs: number;
+  generationDurationMs: number;
   toolStats: Record<string, ToolTypeStats>;
   readOverlapSummary: ReadOverlapSummary;
 };
@@ -576,6 +578,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   let modelThinkingTokens = 0;
   let modelPromptCacheTokens = 0;
   let modelPromptEvalTokens = 0;
+  let modelPromptEvalDurationMs = 0;
+  let modelGenerationDurationMs = 0;
   const toolStatsByType: Record<string, ToolTypeStats> = {};
   const minToolCallsBeforeFinish = Math.max(0, Number(options.minToolCallsBeforeFinish ?? MIN_TOOL_CALLS_BEFORE_FINISH));
   const totalContextTokens = Math.max(1, Number(options.totalContextTokens || (options.config ? getConfiguredLlamaNumCtx(options.config) : 32000)));
@@ -747,6 +751,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     modelThinkingTokens += resolvedThinkingTokens;
     if (Number.isFinite(response.promptCacheTokens) && Number(response.promptCacheTokens) >= 0) modelPromptCacheTokens += Number(response.promptCacheTokens);
     if (Number.isFinite(response.promptEvalTokens) && Number(response.promptEvalTokens) >= 0) modelPromptEvalTokens += Number(response.promptEvalTokens);
+    if (Number.isFinite(response.promptEvalDurationMs) && Number(response.promptEvalDurationMs) >= 0) modelPromptEvalDurationMs += Number(response.promptEvalDurationMs);
+    if (Number.isFinite(response.generationDurationMs) && Number(response.generationDurationMs) >= 0) modelGenerationDurationMs += Number(response.generationDurationMs);
 
     if (response.mockExhausted) { reason = 'mock_responses_exhausted'; break; }
 
@@ -1290,6 +1296,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       modelThinkingTokens += resolvedSynthesisThinkingTokens;
       if (Number.isFinite(synthesisResponse.promptCacheTokens) && Number(synthesisResponse.promptCacheTokens) >= 0) modelPromptCacheTokens += Number(synthesisResponse.promptCacheTokens);
       if (Number.isFinite(synthesisResponse.promptEvalTokens) && Number(synthesisResponse.promptEvalTokens) >= 0) modelPromptEvalTokens += Number(synthesisResponse.promptEvalTokens);
+      if (Number.isFinite(synthesisResponse.promptEvalDurationMs) && Number(synthesisResponse.promptEvalDurationMs) >= 0) modelPromptEvalDurationMs += Number(synthesisResponse.promptEvalDurationMs);
+      if (Number.isFinite(synthesisResponse.generationDurationMs) && Number(synthesisResponse.generationDurationMs) >= 0) modelGenerationDurationMs += Number(synthesisResponse.generationDurationMs);
 
       if (!synthesisResponse.mockExhausted && String(synthesisResponse.text || '').trim()) {
         finalOutput = String(synthesisResponse.text).trim();
@@ -1324,6 +1332,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     thinkingTokens: modelThinkingTokens,
     promptCacheTokens: modelPromptCacheTokens,
     promptEvalTokens: modelPromptEvalTokens,
+    promptEvalDurationMs: modelPromptEvalDurationMs,
+    generationDurationMs: modelGenerationDurationMs,
     toolStats: { ...toolStatsByType },
     readOverlapSummary: buildReadOverlapSummary(fileReadStateByPath),
   };
@@ -1359,6 +1369,8 @@ export function buildScorecard(options: { runId: string; model: string; tasks: T
     thinkingTokens: options.tasks.reduce((s, t) => s + Number(t.thinkingTokens || 0), 0),
     promptCacheTokens: options.tasks.reduce((s, t) => s + Number(t.promptCacheTokens || 0), 0),
     promptEvalTokens: options.tasks.reduce((s, t) => s + Number(t.promptEvalTokens || 0), 0),
+    promptEvalDurationMs: options.tasks.reduce((s, t) => s + Number(t.promptEvalDurationMs || 0), 0),
+    generationDurationMs: options.tasks.reduce((s, t) => s + Number(t.generationDurationMs || 0), 0),
   };
   const toolStats: Record<string, ToolTypeStats> = {};
   for (const task of options.tasks) {
