@@ -66,8 +66,8 @@ export const MANAGED_LLAMA_LOG_ALERT_PATTERN = /\b(?:warn(?:ing)?|error|exceptio
 const MANAGED_LLAMA_LOADING_MODEL_503_PATTERN = /"message"\s*:\s*"Loading model"[\s\S]*"type"\s*:\s*"unavailable_error"[\s\S]*"code"\s*:\s*503/iu;
 const MANAGED_LLAMA_GPU_MEMORY_PRESSURE_PATTERN = /projected to use\s+(\d+)\s+MiB of device memory vs\.\s+(\d+)\s+MiB of free device memory/iu;
 const MANAGED_LLAMA_GPU_MEMORY_OOM_PATTERN = /cannot meet free memory target|cudaMalloc failed: out of memory|failed to allocate buffer for kv cache/iu;
-const MANAGED_LLAMA_SPECULATIVE_STATS_PATTERN = /#gen tokens\s*=\s*(\d+).+?#acc tokens\s*=\s*(\d+)/iu;
-const MANAGED_LLAMA_SPECULATIVE_RATE_PATTERN = /draft acceptance rate\s*=\s*[^(]+\(\s*(\d+)\s*\/\s*(\d+)\s*\)/iu;
+const MANAGED_LLAMA_SPECULATIVE_STATS_PATTERN = /^\s*(?:llama_decode:\s+)?statistics\s+\S+:\s+.*?#gen tokens\s*=\s*(\d+),\s+#acc tokens\s*=\s*(\d+)/iu;
+const MANAGED_LLAMA_SPECULATIVE_RATE_PATTERN = /^\s*(?:llama_decode:\s+)?draft acceptance rate\s*=\s*[^(]+\(\s*(\d+)(?:\s+accepted)?\s*\/\s*(\d+)(?:\s+generated)?\s*\)/iu;
 
 export type ManagedLlamaSpeculativeMetrics = {
   speculativeAcceptedTokens: number;
@@ -77,6 +77,11 @@ export type ManagedLlamaSpeculativeMetrics = {
 export type ManagedLlamaLogCursor = {
   stdoutOffset: number;
   stderrOffset: number;
+};
+
+export type ManagedLlamaSpeculativeMetricsSnapshot = ManagedLlamaLogCursor & {
+  latestSpeculativeAcceptedTokens: number | null;
+  latestSpeculativeGeneratedTokens: number | null;
 };
 
 export type ManagedLlamaStartupFailure = {
@@ -95,22 +100,27 @@ export class ManagedLlamaStartupError extends Error {
   }
 }
 
-export function parseManagedLlamaSpeculativeMetricsText(text: string): ManagedLlamaSpeculativeMetrics | null {
-  let acceptedTokens: number | null = null;
-  let generatedTokens: number | null = null;
-  for (const line of String(text || '').split(/\r?\n/u)) {
-    const statsMatch = MANAGED_LLAMA_SPECULATIVE_STATS_PATTERN.exec(line);
-    if (statsMatch) {
-      generatedTokens = Number.parseInt(statsMatch[1], 10);
-      acceptedTokens = Number.parseInt(statsMatch[2], 10);
-      continue;
-    }
-    const rateMatch = MANAGED_LLAMA_SPECULATIVE_RATE_PATTERN.exec(line);
-    if (rateMatch) {
-      acceptedTokens = Number.parseInt(rateMatch[1], 10);
-      generatedTokens = Number.parseInt(rateMatch[2], 10);
-    }
-  }
+function isManagedLlamaEchoLine(line: string): boolean {
+  const normalized = String(line || '');
+  return normalized.includes('update_chat_: Parsing chat message:');
+}
+
+function isManagedLlamaRequestEchoStart(line: string): boolean {
+  return String(line || '').includes('log_server_r: request:');
+}
+
+function isManagedLlamaStructuredLogLine(line: string): boolean {
+  return /^(?:srv|slot|que|res)\s{2,}|^(?:main|init|start|build_info|system_info|load_|create_tensor|llama_|ggml_|print_info|common_|set_|adapters_|CUDA Graph|Parsed message:)/u.test(String(line || ''));
+}
+
+function isManagedLlamaCumulativeStatsLine(line: string): boolean {
+  return /#calls\(/u.test(String(line || ''));
+}
+
+function createManagedLlamaSpeculativeMetrics(
+  acceptedTokens: number | null,
+  generatedTokens: number | null,
+): ManagedLlamaSpeculativeMetrics | null {
   if (!Number.isFinite(acceptedTokens) || !Number.isFinite(generatedTokens) || acceptedTokens === null || generatedTokens === null) {
     return null;
   }
@@ -120,14 +130,169 @@ export function parseManagedLlamaSpeculativeMetricsText(text: string): ManagedLl
   };
 }
 
+function areManagedLlamaSpeculativeMetricsEqual(
+  left: ManagedLlamaSpeculativeMetrics | null,
+  right: ManagedLlamaSpeculativeMetrics | null,
+): boolean {
+  return !!left
+    && !!right
+    && left.speculativeAcceptedTokens === right.speculativeAcceptedTokens
+    && left.speculativeGeneratedTokens === right.speculativeGeneratedTokens;
+}
+
+function parseManagedLlamaSpeculativeMetricsState(text: string): {
+  latest: ManagedLlamaSpeculativeMetrics | null;
+  total: ManagedLlamaSpeculativeMetrics | null;
+} {
+  let totalAcceptedTokens = 0;
+  let totalGeneratedTokens = 0;
+  let hasDiscreteTotals = false;
+  let latestDiscreteMetrics: ManagedLlamaSpeculativeMetrics | null = null;
+  let latestCumulativeMetrics: ManagedLlamaSpeculativeMetrics | null = null;
+  let pendingStatsMetrics: ManagedLlamaSpeculativeMetrics | null = null;
+  let isSkippingRequestEcho = false;
+  for (const line of String(text || '').split(/\r?\n/u)) {
+    if (isSkippingRequestEcho) {
+      if (!isManagedLlamaStructuredLogLine(line)) {
+        continue;
+      }
+      isSkippingRequestEcho = false;
+    }
+    if (isManagedLlamaRequestEchoStart(line)) {
+      isSkippingRequestEcho = true;
+      continue;
+    }
+    if (isManagedLlamaEchoLine(line)) {
+      continue;
+    }
+    const statsMatch = MANAGED_LLAMA_SPECULATIVE_STATS_PATTERN.exec(line);
+    if (statsMatch) {
+      const statsMetrics = createManagedLlamaSpeculativeMetrics(
+        Number.parseInt(statsMatch[2], 10),
+        Number.parseInt(statsMatch[1], 10),
+      );
+      if (!statsMetrics) {
+        continue;
+      }
+      if (isManagedLlamaCumulativeStatsLine(line)) {
+        latestCumulativeMetrics = statsMetrics;
+        pendingStatsMetrics = null;
+        continue;
+      }
+      totalAcceptedTokens += statsMetrics.speculativeAcceptedTokens;
+      totalGeneratedTokens += statsMetrics.speculativeGeneratedTokens;
+      hasDiscreteTotals = true;
+      latestDiscreteMetrics = statsMetrics;
+      pendingStatsMetrics = statsMetrics;
+      continue;
+    }
+    const rateMatch = MANAGED_LLAMA_SPECULATIVE_RATE_PATTERN.exec(line);
+    if (rateMatch) {
+      const rateMetrics = createManagedLlamaSpeculativeMetrics(
+        Number.parseInt(rateMatch[1], 10),
+        Number.parseInt(rateMatch[2], 10),
+      );
+      if (!rateMetrics) {
+        continue;
+      }
+      latestDiscreteMetrics = rateMetrics;
+      if (!areManagedLlamaSpeculativeMetricsEqual(pendingStatsMetrics, rateMetrics)) {
+        totalAcceptedTokens += rateMetrics.speculativeAcceptedTokens;
+        totalGeneratedTokens += rateMetrics.speculativeGeneratedTokens;
+        hasDiscreteTotals = true;
+      }
+      pendingStatsMetrics = null;
+    }
+  }
+  return {
+    latest: latestCumulativeMetrics ?? latestDiscreteMetrics,
+    total: hasDiscreteTotals
+      ? {
+        speculativeAcceptedTokens: totalAcceptedTokens,
+        speculativeGeneratedTokens: totalGeneratedTokens,
+      }
+      : latestCumulativeMetrics,
+  };
+}
+
+export function parseManagedLlamaSpeculativeMetricsText(text: string): ManagedLlamaSpeculativeMetrics | null {
+  return parseManagedLlamaSpeculativeMetricsState(text).total;
+}
+
+function parseManagedLlamaLatestSpeculativeMetricsText(text: string): ManagedLlamaSpeculativeMetrics | null {
+  return parseManagedLlamaSpeculativeMetricsState(text).latest;
+}
+
+function getManagedLlamaPrimaryStreamText(logRef: ManagedLlamaLogRef): {
+  stdoutText: string;
+  stderrText: string;
+} {
+  const streamText = readManagedLlamaLogTextByStream(logRef.runId);
+  const stdoutParts = [
+    String(streamText.startup_script_stdout || ''),
+    String(streamText.llama_stdout || ''),
+  ].filter((entry) => entry.length > 0);
+  const stderrParts = [
+    String(streamText.startup_script_stderr || ''),
+    String(streamText.llama_stderr || ''),
+  ].filter((entry) => entry.length > 0);
+  return {
+    stdoutText: stdoutParts.join('\n'),
+    stderrText: stderrParts.join('\n'),
+  };
+}
+
+function getManagedLlamaSpeculativeMetricsFromSnapshot(
+  snapshot: ManagedLlamaSpeculativeMetricsSnapshot | null,
+): ManagedLlamaSpeculativeMetrics | null {
+  return createManagedLlamaSpeculativeMetrics(
+    snapshot?.latestSpeculativeAcceptedTokens ?? null,
+    snapshot?.latestSpeculativeGeneratedTokens ?? null,
+  );
+}
+
+function subtractManagedLlamaSpeculativeMetrics(
+  currentMetrics: ManagedLlamaSpeculativeMetrics | null,
+  baselineMetrics: ManagedLlamaSpeculativeMetrics | null,
+): ManagedLlamaSpeculativeMetrics | null {
+  if (!currentMetrics || !baselineMetrics) {
+    return null;
+  }
+  if (currentMetrics.speculativeAcceptedTokens < baselineMetrics.speculativeAcceptedTokens
+    || currentMetrics.speculativeGeneratedTokens < baselineMetrics.speculativeGeneratedTokens) {
+    return null;
+  }
+  const deltaMetrics = {
+    speculativeAcceptedTokens: currentMetrics.speculativeAcceptedTokens - baselineMetrics.speculativeAcceptedTokens,
+    speculativeGeneratedTokens: currentMetrics.speculativeGeneratedTokens - baselineMetrics.speculativeGeneratedTokens,
+  };
+  return deltaMetrics.speculativeGeneratedTokens > 0 ? deltaMetrics : null;
+}
+
 export function getManagedLlamaLogCursor(logRef: ManagedLlamaLogRef | null): ManagedLlamaLogCursor {
   if (!logRef) {
     return { stdoutOffset: 0, stderrOffset: 0 };
   }
-  const streamText = readManagedLlamaLogTextByStream(logRef.runId);
+  const { stdoutText, stderrText } = getManagedLlamaPrimaryStreamText(logRef);
   return {
-    stdoutOffset: String(streamText.llama_stdout || '').length,
-    stderrOffset: String(streamText.llama_stderr || '').length,
+    stdoutOffset: stdoutText.length,
+    stderrOffset: stderrText.length,
+  };
+}
+
+export function captureManagedLlamaSpeculativeMetricsSnapshot(
+  logRef: ManagedLlamaLogRef | null,
+): ManagedLlamaSpeculativeMetricsSnapshot | null {
+  if (!logRef) {
+    return null;
+  }
+  const { stdoutText, stderrText } = getManagedLlamaPrimaryStreamText(logRef);
+  const latestMetrics = parseManagedLlamaLatestSpeculativeMetricsText(`${stdoutText}\n${stderrText}`);
+  return {
+    stdoutOffset: stdoutText.length,
+    stderrOffset: stderrText.length,
+    latestSpeculativeAcceptedTokens: latestMetrics?.speculativeAcceptedTokens ?? null,
+    latestSpeculativeGeneratedTokens: latestMetrics?.speculativeGeneratedTokens ?? null,
   };
 }
 
@@ -138,10 +303,29 @@ export function getManagedLlamaSpeculativeMetricsSince(
   if (!logRef) {
     return null;
   }
-  const streamText = readManagedLlamaLogTextByStream(logRef.runId);
-  const stdoutText = String(streamText.llama_stdout || '').slice(Math.max(0, cursor.stdoutOffset));
-  const stderrText = String(streamText.llama_stderr || '').slice(Math.max(0, cursor.stderrOffset));
+  const { stdoutText: fullStdoutText, stderrText: fullStderrText } = getManagedLlamaPrimaryStreamText(logRef);
+  const stdoutText = fullStdoutText.slice(Math.max(0, cursor.stdoutOffset));
+  const stderrText = fullStderrText.slice(Math.max(0, cursor.stderrOffset));
   return parseManagedLlamaSpeculativeMetricsText(`${stdoutText}\n${stderrText}`);
+}
+
+export function getManagedLlamaSpeculativeMetricsDelta(
+  logRef: ManagedLlamaLogRef | null,
+  snapshot: ManagedLlamaSpeculativeMetricsSnapshot | null,
+): ManagedLlamaSpeculativeMetrics | null {
+  if (!logRef || !snapshot) {
+    return null;
+  }
+  const { stdoutText, stderrText } = getManagedLlamaPrimaryStreamText(logRef);
+  const deltaMetrics = parseManagedLlamaSpeculativeMetricsText([
+    stdoutText.slice(Math.max(0, snapshot.stdoutOffset)),
+    stderrText.slice(Math.max(0, snapshot.stderrOffset)),
+  ].join('\n'));
+  const cumulativeDeltaMetrics = subtractManagedLlamaSpeculativeMetrics(
+    parseManagedLlamaLatestSpeculativeMetricsText(`${stdoutText}\n${stderrText}`),
+    getManagedLlamaSpeculativeMetricsFromSnapshot(snapshot),
+  );
+  return cumulativeDeltaMetrics ?? deltaMetrics;
 }
 
 // ---------------------------------------------------------------------------
@@ -268,10 +452,18 @@ function attachStreamCollector(
   }
   stream.setEncoding?.('utf8');
   stream.on('data', (chunk: string | Buffer) => {
-    appendManagedLlamaLogLine(logRef, streamKind, typeof chunk === 'string' ? chunk : chunk.toString('utf8'));
+    try {
+      appendManagedLlamaLogLine(logRef, streamKind, typeof chunk === 'string' ? chunk : chunk.toString('utf8'));
+    } catch {
+      // Ignore teardown races after the runtime DB has already closed.
+    }
   });
   stream.on('error', (error: Error) => {
-    appendManagedLlamaLogLine(logRef, streamKind, `\n[stream-error] ${error.message}\n`);
+    try {
+      appendManagedLlamaLogLine(logRef, streamKind, `\n[stream-error] ${error.message}\n`);
+    } catch {
+      // Ignore teardown races after the runtime DB has already closed.
+    }
   });
 }
 
@@ -428,7 +620,11 @@ function spawnManagedLlamaProcess(
   attachStreamCollector(logRef, MANAGED_STDOUT_STREAM, child.stdout);
   attachStreamCollector(logRef, MANAGED_STDERR_STREAM, child.stderr);
   child.on('exit', (code: number | null) => {
-    flushManagedLlamaLogChunks(logRef.runId);
+    try {
+      flushManagedLlamaLogChunks(logRef.runId);
+    } catch {
+      // The runtime DB may already be gone during test/process teardown.
+    }
     const successStatus: ManagedLlamaRunStatus = purpose === 'shutdown' ? 'stopped' : 'ready';
     try {
       updateManagedLlamaRun({
@@ -443,8 +639,12 @@ function spawnManagedLlamaProcess(
     }
   });
   child.on('error', (error: Error) => {
-    appendManagedLlamaLogLine(logRef, MANAGED_STDERR_STREAM, `\n[spawn-error] ${error.message}\n`);
-    flushManagedLlamaLogChunks(logRef.runId);
+    try {
+      appendManagedLlamaLogLine(logRef, MANAGED_STDERR_STREAM, `\n[spawn-error] ${error.message}\n`);
+      flushManagedLlamaLogChunks(logRef.runId);
+    } catch {
+      // Ignore teardown races after the test/server has already closed.
+    }
     try {
       updateManagedLlamaRun({
         id: logRef.runId,

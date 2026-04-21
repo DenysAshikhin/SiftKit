@@ -51,8 +51,8 @@ import {
   type SiftPreset,
 } from '../../presets.js';
 import {
-  getManagedLlamaLogCursor,
-  getManagedLlamaSpeculativeMetricsSince,
+  captureManagedLlamaSpeculativeMetricsSnapshot,
+  getManagedLlamaSpeculativeMetricsDelta,
   logLine,
 } from '../managed-llama.js';
 import {
@@ -94,6 +94,16 @@ function resolveRepoSearchRoutePreset(
     return fallbackPreset;
   }
   return presets.find((preset) => preset.presetKind === 'plan' || preset.presetKind === 'repo-search') || null;
+}
+
+export function getRepoSearchOutputTokensPerSecond(scorecard: unknown): number | null {
+  const outputTokens = getScorecardTotal(scorecard, 'outputTokens');
+  const thinkingTokens = getScorecardTotal(scorecard, 'thinkingTokens');
+  const generationDurationMs = getScorecardTotal(scorecard, 'generationDurationMs');
+  const generatedTokens = (outputTokens ?? 0) + (thinkingTokens ?? 0);
+  return generatedTokens > 0 && generationDurationMs !== null && generationDurationMs > 0
+    ? (generatedTokens / (generationDurationMs / 1000))
+    : null;
 }
 
 async function notifyChatStatus(options: {
@@ -187,13 +197,13 @@ function createChatTurnPhaseTracker(requestStartedAtUtc: string): {
   };
 }
 
-function captureManagedLlamaSessionCursor(ctx: ServerContext): { stdoutOffset: number; stderrOffset: number } | null {
-  return ctx.managedLlamaLastStartupLogs ? getManagedLlamaLogCursor(ctx.managedLlamaLastStartupLogs) : null;
+function captureManagedLlamaSessionCursor(ctx: ServerContext) {
+  return captureManagedLlamaSpeculativeMetricsSnapshot(ctx.managedLlamaLastStartupLogs);
 }
 
 function readManagedLlamaSessionSpeculativeMetrics(
   ctx: ServerContext,
-  cursor: { stdoutOffset: number; stderrOffset: number } | null,
+  cursor: ReturnType<typeof captureManagedLlamaSessionCursor>,
 ): SessionSpeculativeMetrics {
   if (!cursor) {
     return {
@@ -201,7 +211,7 @@ function readManagedLlamaSessionSpeculativeMetrics(
       speculativeGeneratedTokens: null,
     };
   }
-  const metrics = getManagedLlamaSpeculativeMetricsSince(ctx.managedLlamaLastStartupLogs, cursor);
+  const metrics = getManagedLlamaSpeculativeMetricsDelta(ctx.managedLlamaLastStartupLogs, cursor);
   return {
     speculativeAcceptedTokens: metrics?.speculativeAcceptedTokens ?? null,
     speculativeGeneratedTokens: metrics?.speculativeGeneratedTokens ?? null,
@@ -701,11 +711,7 @@ export async function handleChatRoute(
               : null;
           })(),
           outputTokensPerSecond: (() => {
-            const outputTokens = getScorecardTotal(result?.scorecard, 'outputTokens');
-            const generationDurationMs = getScorecardTotal(result?.scorecard, 'generationDurationMs');
-            return outputTokens !== null && generationDurationMs !== null && generationDurationMs > 0
-              ? (outputTokens / (generationDurationMs / 1000))
-              : null;
+            return getRepoSearchOutputTokensPerSecond(result?.scorecard);
           })(),
           speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
           speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
@@ -877,11 +883,7 @@ export async function handleChatRoute(
               : null;
           })(),
           outputTokensPerSecond: (() => {
-            const outputTokens = getScorecardTotal(result?.scorecard, 'outputTokens');
-            const generationDurationMs = getScorecardTotal(result?.scorecard, 'generationDurationMs');
-            return outputTokens !== null && generationDurationMs !== null && generationDurationMs > 0
-              ? (outputTokens / (generationDurationMs / 1000))
-              : null;
+            return getRepoSearchOutputTokensPerSecond(result?.scorecard);
           })(),
           ...phaseTracker.snapshot(),
           speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
@@ -1047,11 +1049,7 @@ export async function handleChatRoute(
               : null;
           })(),
           outputTokensPerSecond: (() => {
-            const outputTokens = getScorecardTotal(result?.scorecard, 'outputTokens');
-            const generationDurationMs = getScorecardTotal(result?.scorecard, 'generationDurationMs');
-            return outputTokens !== null && generationDurationMs !== null && generationDurationMs > 0
-              ? (outputTokens / (generationDurationMs / 1000))
-              : null;
+            return getRepoSearchOutputTokensPerSecond(result?.scorecard);
           })(),
           ...phaseTracker.snapshot(),
           speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,

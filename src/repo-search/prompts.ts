@@ -413,32 +413,3 @@ export type TaskCommand = {
   output: string;
 };
 
-export function buildTerminalSynthesisFallback(options: {
-  reason: string;
-  commands: TaskCommand[];
-}): string {
-  const lines: string[] = [];
-  if (options.commands.length > 0) {
-    for (let index = options.commands.length - 1; index >= 0; index -= 1) {
-      const command = options.commands[index];
-      const output = String(command.output || '').trim();
-      if (!output) {
-        continue;
-      }
-      const singleLine = output.split(/\r?\n/u).find((line) => line.trim()) || '';
-      if (singleLine) {
-        lines.push(`Latest evidence (${command.command}): ${singleLine}`);
-      }
-      if (lines.length >= 2) {
-        break;
-      }
-    }
-  }
-  if (lines.length === 0) {
-    lines.push('No usable evidence was captured from tool calls.');
-  }
-  return [
-    `Best-effort result (terminated: ${options.reason}).`,
-    ...lines,
-  ].join('\n');
-}

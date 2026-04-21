@@ -56,7 +56,7 @@ test('runTaskLoop stops on invalid response limit', async () => {
     {
       maxTurns: 10,
       maxInvalidResponses: 2,
-      mockResponses: ['oops', 'still bad'],
+      mockResponses: ['oops', 'still bad', 'Synthesized best-effort answer.'],
       mockCommandResults: {},
     }
   );
@@ -64,6 +64,7 @@ test('runTaskLoop stops on invalid response limit', async () => {
   assert.equal(result.reason, 'invalid_response_limit');
   assert.equal(result.invalidResponses, 2);
   assert.equal(result.commands.length, 0);
+  assert.equal(result.finalOutput, 'Synthesized best-effort answer.');
 });
 
 test('runTaskLoop replaces oversized tool output with token allowance error', async () => {
@@ -578,6 +579,7 @@ test('runTaskLoop keeps reasoning disabled across max-turn exhaustion when runti
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner2\\" src"}}',
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner3\\" src"}}',
+        'Synthesized best-effort answer.',
       ],
       mockCommandResults: {
         'rg -n "planner" src': { exitCode: 0, stdout: 'planner', stderr: '' },

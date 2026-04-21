@@ -406,6 +406,7 @@ test('repo-search endpoint reloads executor module per request', async () => {
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
           '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"x\\" src"}}',
+          'Terminal synthesis answer: src/example.ts:1.',
         ],
         mockCommandResults: {
           'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '' },

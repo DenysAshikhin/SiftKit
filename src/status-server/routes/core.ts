@@ -35,8 +35,8 @@ import {
 } from '../dashboard-runs.js';
 import { loadRepoSearchExecutor } from '../chat.js';
 import {
-  getManagedLlamaLogCursor,
-  getManagedLlamaSpeculativeMetricsSince,
+  captureManagedLlamaSpeculativeMetricsSnapshot,
+  getManagedLlamaSpeculativeMetricsDelta,
   getManagedLlamaStartupFailure,
   logLine,
 } from '../managed-llama.js';
@@ -405,8 +405,7 @@ export async function handleCoreRoute(
           chunkTotal: metadata.chunkTotal,
           chunkPath: metadata.chunkPath,
           lastNotificationWasRunning: true,
-          managedLlamaStdoutOffset: null,
-          managedLlamaStderrOffset: null,
+          managedLlamaSpeculativeSnapshot: null,
         };
       } else {
         runState.lastNotificationWasRunning = true;
@@ -431,9 +430,7 @@ export async function handleCoreRoute(
           runState.chunkPath = metadata.chunkPath;
         }
       }
-      const managedLlamaCursor = getManagedLlamaLogCursor(ctx.managedLlamaLastStartupLogs);
-      runState.managedLlamaStdoutOffset = managedLlamaCursor.stdoutOffset;
-      runState.managedLlamaStderrOffset = managedLlamaCursor.stderrOffset;
+      runState.managedLlamaSpeculativeSnapshot = captureManagedLlamaSpeculativeMetricsSnapshot(ctx.managedLlamaLastStartupLogs);
       ctx.activeRunsByRequestId.set(requestId, runState);
       ctx.activeRequestIdByStatusPath.set(statusPath, requestId);
     } else {
@@ -468,22 +465,15 @@ export async function handleCoreRoute(
         if (metadata.chunkPath === null && runState.chunkPath !== null) {
           metadata.chunkPath = runState.chunkPath;
         }
-        if (metadata.speculativeAcceptedTokens === null && metadata.speculativeGeneratedTokens === null) {
-          const speculativeMetrics = getManagedLlamaSpeculativeMetricsSince(
-            ctx.managedLlamaLastStartupLogs,
-            {
-              stdoutOffset: Number(runState.managedLlamaStdoutOffset) || 0,
-              stderrOffset: Number(runState.managedLlamaStderrOffset) || 0,
-            },
-          );
-          if (speculativeMetrics) {
-            metadata.speculativeAcceptedTokens = speculativeMetrics.speculativeAcceptedTokens;
-            metadata.speculativeGeneratedTokens = speculativeMetrics.speculativeGeneratedTokens;
-          }
+        const speculativeMetrics = getManagedLlamaSpeculativeMetricsDelta(
+          ctx.managedLlamaLastStartupLogs,
+          runState.managedLlamaSpeculativeSnapshot,
+        );
+        if (speculativeMetrics) {
+          metadata.speculativeAcceptedTokens = speculativeMetrics.speculativeAcceptedTokens;
+          metadata.speculativeGeneratedTokens = speculativeMetrics.speculativeGeneratedTokens;
         }
-        const managedLlamaCursor = getManagedLlamaLogCursor(ctx.managedLlamaLastStartupLogs);
-        runState.managedLlamaStdoutOffset = managedLlamaCursor.stdoutOffset;
-        runState.managedLlamaStderrOffset = managedLlamaCursor.stderrOffset;
+        runState.managedLlamaSpeculativeSnapshot = captureManagedLlamaSpeculativeMetricsSnapshot(ctx.managedLlamaLastStartupLogs);
         if (metadata.speculativeAcceptedTokens !== null || metadata.speculativeGeneratedTokens !== null) {
           updateRunLogSpeculativeMetricsByRequestId({
             database: getRuntimeDatabase(),

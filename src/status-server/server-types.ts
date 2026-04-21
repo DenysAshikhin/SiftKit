@@ -3,6 +3,7 @@ import type { ChildProcess } from 'node:child_process';
 import type Database from 'better-sqlite3';
 import type { Metrics } from './metrics.js';
 import type { Dict } from '../lib/types.js';
+import type { ManagedLlamaSpeculativeMetricsSnapshot } from './managed-llama.js';
 import type { ManagedLlamaStreamKind } from '../state/managed-llama-runs.js';
 
 export type { Dict };
@@ -22,8 +23,7 @@ export type ActiveRunState = {
   chunkTotal: number | null;
   chunkPath: string | null;
   lastNotificationWasRunning: boolean;
-  managedLlamaStdoutOffset: number | null;
-  managedLlamaStderrOffset: number | null;
+  managedLlamaSpeculativeSnapshot: ManagedLlamaSpeculativeMetricsSnapshot | null;
 };
 
 export type ExecutionLease = { token: string; heartbeatAt: number };

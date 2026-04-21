@@ -102,7 +102,7 @@ export function getSessionTelemetryStats(session: ChatSession | null): {
   let promptDurationMsTotal = 0;
   let promptTokensForRateTotal = 0;
   let outputDurationMsTotal = 0;
-  let outputTokensForRateTotal = 0;
+  let generatedTokensForRateTotal = 0;
   const promptCacheTokens = session.messages.reduce((sum, message) => (
     Number.isFinite(message.promptCacheTokens) && Number(message.promptCacheTokens) >= 0
       ? sum + Number(message.promptCacheTokens)
@@ -154,21 +154,19 @@ export function getSessionTelemetryStats(session: ChatSession | null): {
       promptDurationMsTotal += promptDurationMs;
       promptTokensForRateTotal += promptTokens;
     }
+    const thinkingTokens = Number.isFinite(message.thinkingTokens) && Number(message.thinkingTokens) >= 0
+      ? Number(message.thinkingTokens)
+      : 0;
     const outputTokensForDirectRate = Number.isFinite(message.outputTokensEstimate) && Number(message.outputTokensEstimate) >= 0
       ? Number(message.outputTokensEstimate)
       : 0;
     const outputTokensPerSecond = Number.isFinite(message.outputTokensPerSecond) && Number(message.outputTokensPerSecond) > 0
       ? Number(message.outputTokensPerSecond)
       : null;
-    const generatedTokens = outputTokensPerSecond !== null
-      ? outputTokensForDirectRate
-      : (
-        (Number.isFinite(message.thinkingTokens) && Number(message.thinkingTokens) >= 0 ? Number(message.thinkingTokens) : 0)
-        + outputTokensForDirectRate
-      );
+    const generatedTokens = thinkingTokens + outputTokensForDirectRate;
     const generationDurationMs = (
-      outputTokensPerSecond !== null && outputTokensForDirectRate > 0
-        ? (outputTokensForDirectRate / outputTokensPerSecond) * 1000
+      outputTokensPerSecond !== null && generatedTokens > 0
+        ? (generatedTokens / outputTokensPerSecond) * 1000
         : Number.isFinite(message.generationDurationMs) && Number(message.generationDurationMs) > 0
         ? Number(message.generationDurationMs)
         : (generationStartedAt !== null && answerEndedAt !== null && answerEndedAt > generationStartedAt)
@@ -177,7 +175,7 @@ export function getSessionTelemetryStats(session: ChatSession | null): {
     );
     if (generationDurationMs !== null && generationDurationMs > 0) {
       outputDurationMsTotal += generationDurationMs;
-      outputTokensForRateTotal += generatedTokens;
+      generatedTokensForRateTotal += generatedTokens;
     }
   }
   const totalPromptTokens = promptCacheTokens + promptEvalTokens;
@@ -193,8 +191,8 @@ export function getSessionTelemetryStats(session: ChatSession | null): {
     promptTokensPerSecond: promptTokensForRateTotal > 0 && promptDurationMsTotal > 0
       ? (promptTokensForRateTotal / (promptDurationMsTotal / 1000))
       : null,
-    outputTokensPerSecond: outputTokensForRateTotal > 0 && outputDurationMsTotal > 0
-      ? (outputTokensForRateTotal / (outputDurationMsTotal / 1000))
+    outputTokensPerSecond: generatedTokensForRateTotal > 0 && outputDurationMsTotal > 0
+      ? (generatedTokensForRateTotal / (outputDurationMsTotal / 1000))
       : null,
   };
 }

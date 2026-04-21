@@ -68,7 +68,6 @@ import {
 import {
   buildTaskInitialUserPrompt,
   buildTaskSystemPrompt,
-  buildTerminalSynthesisFallback,
   buildTerminalSynthesisPrompt,
   scanRepoFiles,
   type HistoryEntry,
@@ -1262,55 +1261,63 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
   }
 
-  // Terminal synthesis if no final output
+  // Terminal synthesis if no final output — retry up to 3 times then hard-fail.
   if (!String(finalOutput || '').trim()) {
-    let usedFallback = false;
     const synthesisPrompt = buildTerminalSynthesisPrompt({ question: task.question, reason, history });
     options.logger?.write({ kind: 'task_terminal_synthesis_requested', taskId: task.id, reason });
+    const maxSynthesisAttempts = 3;
+    let lastErrorMessage = '';
+    let successAttempt = 0;
+    for (let attempt = 1; attempt <= maxSynthesisAttempts; attempt += 1) {
+      try {
+        const synthesisResponse = await requestTerminalSynthesis({
+          baseUrl: options.baseUrl,
+          model: options.model,
+          prompt: synthesisPrompt,
+          timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
+          mockResponses: options.mockResponses,
+          mockResponseIndex,
+          requestMaxTokens,
+          thinkingEnabled: plannerThinkingEnabled,
+          reasoningContentEnabled: plannerReasoningContentEnabled,
+          preserveThinking: plannerPreserveThinkingEnabled,
+          logger: options.logger || null,
+        });
+        if (typeof synthesisResponse.nextMockResponseIndex === 'number') {
+          mockResponseIndex = synthesisResponse.nextMockResponseIndex;
+        }
+        if (Number.isFinite(synthesisResponse.promptTokens) && Number(synthesisResponse.promptTokens) >= 0) modelPromptTokens += Number(synthesisResponse.promptTokens);
+        const resolvedSynthesisCompletionTokens = Number.isFinite(synthesisResponse.completionTokens) && Number(synthesisResponse.completionTokens) >= 0
+          ? Number(synthesisResponse.completionTokens)
+          : (String(synthesisResponse.text || '').trim() ? estimateTokenCount(options.config, String(synthesisResponse.text || '')) : 0);
+        const resolvedSynthesisThinkingTokens = Number.isFinite(synthesisResponse.usageThinkingTokens) && Number(synthesisResponse.usageThinkingTokens) >= 0
+          ? Number(synthesisResponse.usageThinkingTokens)
+          : (String(synthesisResponse.thinkingText || '').trim() ? estimateTokenCount(options.config, String(synthesisResponse.thinkingText || '')) : 0);
+        modelOutputTokens += resolvedSynthesisCompletionTokens;
+        modelThinkingTokens += resolvedSynthesisThinkingTokens;
+        if (Number.isFinite(synthesisResponse.promptCacheTokens) && Number(synthesisResponse.promptCacheTokens) >= 0) modelPromptCacheTokens += Number(synthesisResponse.promptCacheTokens);
+        if (Number.isFinite(synthesisResponse.promptEvalTokens) && Number(synthesisResponse.promptEvalTokens) >= 0) modelPromptEvalTokens += Number(synthesisResponse.promptEvalTokens);
+        if (Number.isFinite(synthesisResponse.promptEvalDurationMs) && Number(synthesisResponse.promptEvalDurationMs) >= 0) modelPromptEvalDurationMs += Number(synthesisResponse.promptEvalDurationMs);
+        if (Number.isFinite(synthesisResponse.generationDurationMs) && Number(synthesisResponse.generationDurationMs) >= 0) modelGenerationDurationMs += Number(synthesisResponse.generationDurationMs);
 
-    try {
-      const synthesisResponse = await requestTerminalSynthesis({
-        baseUrl: options.baseUrl,
-        model: options.model,
-        prompt: synthesisPrompt,
-        timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
-        mockResponses: options.mockResponses,
-        mockResponseIndex,
-        requestMaxTokens,
-        thinkingEnabled: plannerThinkingEnabled,
-        reasoningContentEnabled: plannerReasoningContentEnabled,
-        preserveThinking: plannerPreserveThinkingEnabled,
-        logger: options.logger || null,
-      });
-      if (typeof synthesisResponse.nextMockResponseIndex === 'number') {
-        mockResponseIndex = synthesisResponse.nextMockResponseIndex;
+        const text = String(synthesisResponse.text || '').trim();
+        if (!synthesisResponse.mockExhausted && text) {
+          finalOutput = text;
+          successAttempt = attempt;
+          break;
+        }
+        lastErrorMessage = synthesisResponse.mockExhausted ? 'mock_exhausted' : 'empty_output';
+        options.logger?.write({ kind: 'task_terminal_synthesis_retry', taskId: task.id, attempt, error: lastErrorMessage });
+      } catch (error) {
+        lastErrorMessage = error instanceof Error ? error.message : String(error);
+        options.logger?.write({ kind: 'task_terminal_synthesis_retry', taskId: task.id, attempt, error: lastErrorMessage });
       }
-      if (Number.isFinite(synthesisResponse.promptTokens) && Number(synthesisResponse.promptTokens) >= 0) modelPromptTokens += Number(synthesisResponse.promptTokens);
-      const resolvedSynthesisCompletionTokens = Number.isFinite(synthesisResponse.completionTokens) && Number(synthesisResponse.completionTokens) >= 0
-        ? Number(synthesisResponse.completionTokens)
-        : (String(synthesisResponse.text || '').trim() ? estimateTokenCount(options.config, String(synthesisResponse.text || '')) : 0);
-      const resolvedSynthesisThinkingTokens = Number.isFinite(synthesisResponse.usageThinkingTokens) && Number(synthesisResponse.usageThinkingTokens) >= 0
-        ? Number(synthesisResponse.usageThinkingTokens)
-        : (String(synthesisResponse.thinkingText || '').trim() ? estimateTokenCount(options.config, String(synthesisResponse.thinkingText || '')) : 0);
-      modelOutputTokens += resolvedSynthesisCompletionTokens;
-      modelThinkingTokens += resolvedSynthesisThinkingTokens;
-      if (Number.isFinite(synthesisResponse.promptCacheTokens) && Number(synthesisResponse.promptCacheTokens) >= 0) modelPromptCacheTokens += Number(synthesisResponse.promptCacheTokens);
-      if (Number.isFinite(synthesisResponse.promptEvalTokens) && Number(synthesisResponse.promptEvalTokens) >= 0) modelPromptEvalTokens += Number(synthesisResponse.promptEvalTokens);
-      if (Number.isFinite(synthesisResponse.promptEvalDurationMs) && Number(synthesisResponse.promptEvalDurationMs) >= 0) modelPromptEvalDurationMs += Number(synthesisResponse.promptEvalDurationMs);
-      if (Number.isFinite(synthesisResponse.generationDurationMs) && Number(synthesisResponse.generationDurationMs) >= 0) modelGenerationDurationMs += Number(synthesisResponse.generationDurationMs);
-
-      if (!synthesisResponse.mockExhausted && String(synthesisResponse.text || '').trim()) {
-        finalOutput = String(synthesisResponse.text).trim();
-      } else {
-        usedFallback = true;
-        finalOutput = buildTerminalSynthesisFallback({ reason, commands });
-      }
-    } catch (error) {
-      options.logger?.write({ kind: 'task_terminal_synthesis_error', taskId: task.id, error: error instanceof Error ? error.message : String(error) });
-      usedFallback = true;
-      finalOutput = buildTerminalSynthesisFallback({ reason, commands });
     }
-    options.logger?.write({ kind: 'task_terminal_synthesis_result', taskId: task.id, usedFallback, finalOutput });
+    if (!String(finalOutput || '').trim()) {
+      options.logger?.write({ kind: 'task_terminal_synthesis_failed', taskId: task.id, reason, lastError: lastErrorMessage });
+      throw new Error(`Terminal synthesis produced no usable output after ${maxSynthesisAttempts} attempts (reason=${reason}, last=${lastErrorMessage || 'unknown'}).`);
+    }
+    options.logger?.write({ kind: 'task_terminal_synthesis_result', taskId: task.id, attempt: successAttempt, finalOutput });
   }
 
   const evidenceParts = [finalOutput, ...commands.map((item) => item.output)];

@@ -415,6 +415,43 @@ function toNonNegativeInteger(value: unknown): number | null {
   return Number.isFinite(next) ? next : null;
 }
 
+function readPersistedRunLogSpeculativeMetrics(
+  database: DatabaseInstance,
+  requestId: string,
+): { speculativeAcceptedTokens: number | null; speculativeGeneratedTokens: number | null } {
+  const normalizedRequestId = String(requestId || '').trim();
+  if (!normalizedRequestId) {
+    return {
+      speculativeAcceptedTokens: null,
+      speculativeGeneratedTokens: null,
+    };
+  }
+  ensureRunLogsTable(database);
+  const row = database.prepare(`
+    SELECT speculative_accepted_tokens, speculative_generated_tokens
+    FROM run_logs
+    WHERE request_id = ?
+    LIMIT 1
+  `).get(normalizedRequestId) as Dict | undefined;
+  return {
+    speculativeAcceptedTokens: toNonNegativeInteger(row?.speculative_accepted_tokens),
+    speculativeGeneratedTokens: toNonNegativeInteger(row?.speculative_generated_tokens),
+  };
+}
+
+function resolveCanonicalRunLogSpeculativeMetrics(options: {
+  database: DatabaseInstance;
+  requestId: string;
+  fallbackAcceptedTokens: unknown;
+  fallbackGeneratedTokens: unknown;
+}): { speculativeAcceptedTokens: number | null; speculativeGeneratedTokens: number | null } {
+  const persistedMetrics = readPersistedRunLogSpeculativeMetrics(options.database, options.requestId);
+  return {
+    speculativeAcceptedTokens: persistedMetrics.speculativeAcceptedTokens ?? toNonNegativeInteger(options.fallbackAcceptedTokens),
+    speculativeGeneratedTokens: persistedMetrics.speculativeGeneratedTokens ?? toNonNegativeInteger(options.fallbackGeneratedTokens),
+  };
+}
+
 function getProcessedInputTokensValue(
   inputTokens: unknown,
   promptCacheTokens: unknown,
@@ -699,6 +736,12 @@ export function upsertRunArtifactPayload(options: {
     terminalState = 'abandoned';
     abandonedRequestJson = artifactJson;
   }
+  const canonicalSpeculativeMetrics = resolveCanonicalRunLogSpeculativeMetrics({
+    database: options.database,
+    requestId,
+    fallbackAcceptedTokens: options.artifactPayload?.speculativeAcceptedTokens,
+    fallbackGeneratedTokens: options.artifactPayload?.speculativeGeneratedTokens,
+  });
   upsertRunLog(options.database, {
     runId: requestId,
     requestId,
@@ -736,8 +779,8 @@ export function upsertRunArtifactPayload(options: {
     promptEvalTokens: toNonNegativeInteger(options.artifactPayload?.promptEvalTokens),
     promptEvalDurationMs: toNonNegativeInteger(options.artifactPayload?.promptEvalDurationMs),
     generationDurationMs: toNonNegativeInteger(options.artifactPayload?.generationDurationMs),
-    speculativeAcceptedTokens: toNonNegativeInteger(options.artifactPayload?.speculativeAcceptedTokens),
-    speculativeGeneratedTokens: toNonNegativeInteger(options.artifactPayload?.speculativeGeneratedTokens),
+    speculativeAcceptedTokens: canonicalSpeculativeMetrics.speculativeAcceptedTokens,
+    speculativeGeneratedTokens: canonicalSpeculativeMetrics.speculativeGeneratedTokens,
     durationMs: toNonNegativeInteger(options.artifactPayload?.requestDurationMs),
     requestJson,
     plannerDebugJson,
@@ -1133,6 +1176,7 @@ function resolveTitle(
 }
 
 function buildRunLogRow(options: {
+  database: DatabaseInstance;
   requestId: string;
   taskKind: TaskKind | null;
   terminalState: RunLogTerminalState | null;
@@ -1216,6 +1260,12 @@ function buildRunLogRow(options: {
     transcriptPathFromPayload,
   ].filter((entry): entry is string => Boolean(entry && entry.trim()));
   const uniqueSourcePaths = Array.from(new Set(sourcePaths));
+  const canonicalSpeculativeMetrics = resolveCanonicalRunLogSpeculativeMetrics({
+    database: options.database,
+    requestId: options.requestId,
+    fallbackAcceptedTokens: requestPayload?.speculativeAcceptedTokens ?? failedRequestPayload?.speculativeAcceptedTokens ?? repoTotals?.speculativeAcceptedTokens ?? null,
+    fallbackGeneratedTokens: requestPayload?.speculativeGeneratedTokens ?? failedRequestPayload?.speculativeGeneratedTokens ?? repoTotals?.speculativeGeneratedTokens ?? null,
+  });
 
   return {
     runId: options.requestId,
@@ -1245,8 +1295,8 @@ function buildRunLogRow(options: {
     promptEvalTokens: toNonNegativeInteger(requestPayload?.promptEvalTokens ?? failedRequestPayload?.promptEvalTokens ?? repoTotals?.promptEvalTokens ?? null),
     promptEvalDurationMs: toNonNegativeInteger(repoTotals?.promptEvalDurationMs ?? null),
     generationDurationMs: toNonNegativeInteger(repoTotals?.generationDurationMs ?? null),
-    speculativeAcceptedTokens: toNonNegativeInteger(requestPayload?.speculativeAcceptedTokens ?? failedRequestPayload?.speculativeAcceptedTokens ?? repoTotals?.speculativeAcceptedTokens ?? null),
-    speculativeGeneratedTokens: toNonNegativeInteger(requestPayload?.speculativeGeneratedTokens ?? failedRequestPayload?.speculativeGeneratedTokens ?? repoTotals?.speculativeGeneratedTokens ?? null),
+    speculativeAcceptedTokens: canonicalSpeculativeMetrics.speculativeAcceptedTokens,
+    speculativeGeneratedTokens: canonicalSpeculativeMetrics.speculativeGeneratedTokens,
     durationMs: toNonNegativeInteger(
       requestPayload?.requestDurationMs
         ?? failedRequestPayload?.requestDurationMs
@@ -1278,6 +1328,7 @@ export function flushRunArtifactsToDbAndDelete(options: {
   ensureRunLogsTable(options.database);
   const nowUtc = new Date().toISOString();
   const row = buildRunLogRow({
+    database: options.database,
     requestId,
     taskKind: options.taskKind ?? null,
     terminalState: options.terminalState ?? null,

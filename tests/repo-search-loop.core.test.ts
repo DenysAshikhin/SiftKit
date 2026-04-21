@@ -770,6 +770,7 @@ test('runTaskLoop stops at max turns when model keeps asking for tools', async (
       mockResponses: [
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"buildPlannerPrompt\\" src\\\\summary.ts"}}',
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"buildPlannerPrompt\\" src\\\\summary.ts"}}',
+        'Synthesized best-effort answer referencing src\\summary.ts:907.',
       ],
       mockCommandResults: {
         'rg -n "buildPlannerPrompt" src\\summary.ts': {
@@ -784,6 +785,7 @@ test('runTaskLoop stops at max turns when model keeps asking for tools', async (
   assert.equal(result.reason, 'max_turns');
   assert.equal(result.turnsUsed, 2);
   assert.equal(result.commands.length, 2);
+  assert.equal(result.finalOutput, 'Synthesized best-effort answer referencing src\\summary.ts:907.');
 });
 
 test('runTaskLoop prompt omits visible tool-call budget counters', async () => {

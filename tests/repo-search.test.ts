@@ -224,34 +224,47 @@ test('executeRepoSearchRequest persists summed prompt-eval and generation durati
   });
 });
 
-test('executeRepoSearchRequest with empty mock responses still completes', async () => {
+test('executeRepoSearchRequest hard-fails when no mock responses are available and persists a failed artifact', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
-    const result = await executeRepoSearchRequest({
-      prompt: 'find something',
-      repoRoot: tempRoot,
-      maxTurns: 1,
-      mockResponses: [],
-      mockCommandResults: {},
-    });
-    assert.equal(typeof result.requestId, 'string');
-    assert.equal(typeof result.scorecard, 'object');
+    let thrown: Error & { artifactPath?: string } | null = null;
+    try {
+      await executeRepoSearchRequest({
+        prompt: 'find something',
+        repoRoot: tempRoot,
+        maxTurns: 1,
+        mockResponses: [],
+        mockCommandResults: {},
+      });
+    } catch (error) {
+      thrown = error as Error & { artifactPath?: string };
+    }
+    assert.ok(thrown, 'expected executeRepoSearchRequest to throw');
+    assert.match(thrown!.message, /Terminal synthesis produced no usable output after 3 attempts/u);
+    const artifactId = parseRuntimeArtifactUri(thrown!.artifactPath || '');
+    assert.ok(artifactId);
+    assert.ok(readRuntimeArtifact(artifactId as string));
   });
 });
 
-test('executeRepoSearchRequest handles invalid mock response gracefully', async () => {
+test('executeRepoSearchRequest hard-fails on invalid mock response and persists a failed artifact', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
-    const result = await executeRepoSearchRequest({
-      prompt: 'trigger error handling',
-      repoRoot: tempRoot,
-      maxTurns: 1,
-      mockResponses: [
-        'not valid json at all',
-      ],
-      mockCommandResults: {},
-    });
-    assert.equal(typeof result.requestId, 'string');
-    assert.equal(typeof result.scorecard, 'object');
-    const artifactId = parseRuntimeArtifactUri(result.artifactPath);
+    let thrown: Error & { artifactPath?: string } | null = null;
+    try {
+      await executeRepoSearchRequest({
+        prompt: 'trigger error handling',
+        repoRoot: tempRoot,
+        maxTurns: 1,
+        mockResponses: [
+          'not valid json at all',
+        ],
+        mockCommandResults: {},
+      });
+    } catch (error) {
+      thrown = error as Error & { artifactPath?: string };
+    }
+    assert.ok(thrown, 'expected executeRepoSearchRequest to throw');
+    assert.match(thrown!.message, /Terminal synthesis produced no usable output after 3 attempts/u);
+    const artifactId = parseRuntimeArtifactUri(thrown!.artifactPath || '');
     assert.ok(artifactId);
     assert.ok(readRuntimeArtifact(artifactId as string));
   });

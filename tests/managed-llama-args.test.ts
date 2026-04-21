@@ -124,3 +124,39 @@ test('parseManagedLlamaSpeculativeMetricsText returns null when speculative tota
 
   assert.equal(parsed, null);
 });
+
+test('parseManagedLlamaSpeculativeMetricsText ignores echoed request text that mentions speculative regex patterns', () => {
+  const parsed = parseManagedLlamaSpeculativeMetricsText([
+    'srv  log_server_r: request:  {"content":"const MANAGED_LLAMA_SPECULATIVE_STATS_PATTERN = /#gen tokens\\\\s*=\\\\s*(\\\\d+).+?#acc tokens\\\\s*=\\\\s*(\\\\d+)/iu;"}',
+    'srv  log_server_r: request:  {"content":"const MANAGED_LLAMA_SPECULATIVE_RATE_PATTERN = /draft acceptance rate\\\\s*=\\\\s*[^ (]+\\\\(\\\\s*(\\\\d+)\\\\s*\\\\/\\\\s*(\\\\d+)\\\\s*\\\\)/iu;"}',
+    'srv  update_chat_: Parsing chat message: draft acceptance rate = 0.00% (0 / 0)',
+    'llama server ready',
+  ].join('\n'));
+
+  assert.equal(parsed, null);
+});
+
+test('parseManagedLlamaSpeculativeMetricsText ignores echoed multiline request content that mentions acceptance lines without llama_decode prefix', () => {
+  const parsed = parseManagedLlamaSpeculativeMetricsText([
+    'srv  log_server_r: request:  {"content":"Context',
+    'draft acceptance rate = 0.00% (0 / 0)',
+    '#gen tokens = 18, #acc tokens = 12',
+    'still user text"}',
+    'srv  log_server_r: done request: POST /completion 127.0.0.1 200',
+  ].join('\n'));
+
+  assert.equal(parsed, null);
+});
+
+test('parseManagedLlamaSpeculativeMetricsText extracts totals from checkpointed speculative logs without llama_decode prefix', () => {
+  const parsed = parseManagedLlamaSpeculativeMetricsText([
+    'draft acceptance rate = 1.00000 (    8 accepted /     8 generated)',
+    'draft acceptance rate = 1.00000 (    4 accepted /     4 generated)',
+    'statistics ngram_mod: #calls(b,g,a) = 20 2985 131, #gen drafts = 131, #acc drafts = 131, #gen tokens = 6168, #acc tokens = 5837',
+  ].join('\n'));
+
+  assert.deepEqual(parsed, {
+    speculativeAcceptedTokens: 12,
+    speculativeGeneratedTokens: 12,
+  });
+});
