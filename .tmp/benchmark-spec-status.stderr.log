@@ -1,7 +1,6 @@
-[31mrepo_search warning: Error: requested output would consume 17404 tokens, remaining token allowance: 101418, per tool call allowance: 10880[0m
 [31mrepo_search warning: Error: requested output would consume 17893 tokens, remaining token allowance: 101403, per tool call allowance: 10880[0m
-[31mrepo_search warning: Error: requested output would consume 22011 tokens, remaining token allowance: 95405, per tool call allowance: 10880[0m
-[31mrepo_search warning: Error: requested output would consume 15921 tokens, remaining token allowance: 92970, per tool call allowance: 10880[0m
+[31mrepo_search warning: Error: requested output would consume 17893 tokens, remaining token allowance: 101403, per tool call allowance: 10880[0m
+[31mrepo_search warning: Error: requested output would consume 15921 tokens, remaining token allowance: 95233, per tool call allowance: 10880[0m
 [31mrepo_search warning: Error: requested output would consume 17893 tokens, remaining token allowance: 101403, per tool call allowance: 10880[0m
 [31mrepo_search warning: Error: requested output would consume 17893 tokens, remaining token allowance: 101403, per tool call allowance: 10880[0m
 [31mrepo_search warning: Error: requested output would consume 13191 tokens, remaining token allowance: 100880, per tool call allowance: 10880[0m

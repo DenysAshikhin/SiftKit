@@ -997,6 +997,54 @@ test('runTaskLoop keeps raw rewrite notes in logs but inserts compact repo-searc
   assert.equal(result.reason, 'finish');
 });
 
+test('runTaskLoop keeps normalized rg rewrites out of model-visible tool replay and tool output', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-hide-normalized-rg-command-from-model',
+      question: 'Find sendStatusUpdate.',
+      signals: ['done'],
+    },
+    {
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"sendStatusUpdate\\" src"}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'rg -n "sendStatusUpdate" src': {
+          exitCode: 1,
+          stdout: '',
+          stderr: '',
+        },
+      },
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const commandEvent = events.find((event) => event.kind === 'turn_command_result');
+  assert.match(String(commandEvent?.output || ''), /^note:/mu);
+  assert.doesNotMatch(String(commandEvent?.insertedResultText || ''), /^note:/mu);
+  assert.match(String(commandEvent?.insertedResultText || ''), /(?:^|\n)exit_code=1$/u);
+  const turn2NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 2);
+  const turn2AssistantMessages = Array.isArray(turn2NewMessages?.messages)
+    ? turn2NewMessages.messages.filter((message: { role?: string }) => message.role === 'assistant')
+    : [];
+  const replayedAssistantAction = turn2AssistantMessages[turn2AssistantMessages.length - 1]?.tool_calls?.[0];
+  const replayedAssistantArgs = JSON.parse(String(replayedAssistantAction?.function?.arguments || '{}'));
+  assert.equal(String(replayedAssistantArgs?.command || ''), 'rg -n "sendStatusUpdate" src');
+  assert.doesNotMatch(String(replayedAssistantArgs?.command || ''), /--no-ignore/u);
+  assert.doesNotMatch(String(replayedAssistantArgs?.command || ''), /--glob/u);
+  assert.equal(result.reason, 'finish');
+});
+
 test('runTaskLoop widens repeated Get-Content reads on the same file and logs requested vs adjusted window', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   const result = await runTaskLoop(

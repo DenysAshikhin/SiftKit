@@ -161,11 +161,17 @@ export function buildPromptToolResult(options: BuildPromptToolResultOptions): st
     .filter((line) => !/^note:/iu.test(line.trim()))
     .filter((line) => line.trim().length > 0);
   const trimmed = meaningfulLines.join('\n').trim();
-  if (!trimmed) {
-    return String(options.rawOutput || '').trim();
-  }
   const exitCode = Number(options.exitCode);
+  if (!trimmed) {
+    if (Number.isFinite(exitCode) && exitCode !== 0) {
+      return `exit_code=${exitCode}`;
+    }
+    return '';
+  }
   if (Number.isFinite(exitCode) && exitCode !== 0) {
+    if (new RegExp(`^exit_code=${exitCode}(?:\\s|$)`, 'u').test(trimmed)) {
+      return trimmed;
+    }
     return `exit_code=${exitCode}\n${trimmed}`.trim();
   }
   return stripLeadingSuccessExitCode(trimmed);

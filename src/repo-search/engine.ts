@@ -1163,7 +1163,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     const rewriteNotesForPrompt: string[] = [];
     if (normalized.rewritten && normalized.note) {
       rewriteNotesForLogs.push(normalized.note);
-      rewriteNotesForPrompt.push(normalized.note);
     }
     if (lineReadAdjustment) {
       rewriteNotesForLogs.push(
@@ -1210,9 +1209,14 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     const rawResultText = suppressExitCode
       ? outputForPrompt
       : `exit_code=${executed.exitCode}\n${outputForPrompt}`.trim();
+    const modelVisibleCommand = isNativeTool
+      ? ''
+      : normalized.rewritten
+        ? requestedCommand
+        : commandToRun;
     let resultText = buildPromptToolResult({
       toolName: normalizedToolName,
-      command: commandToRun,
+      command: isNativeTool ? commandToRun : modelVisibleCommand,
       exitCode: executed.exitCode,
       rawOutput: rawResultText,
     });
@@ -1321,7 +1325,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       messages as unknown as ToolTranscriptMessage[],
       {
         tool_name: normalizedToolName,
-        args: isNativeTool ? toolAction.args : { command: commandToRun },
+        args: isNativeTool ? toolAction.args : { command: modelVisibleCommand },
       },
       toolCallId,
       resultText,

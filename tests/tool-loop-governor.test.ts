@@ -117,6 +117,17 @@ test('buildPromptToolResult keeps non-zero exit code but strips exit_code=0', ()
   assert.match(errorResult, /^exit_code=1/mu);
 });
 
+test('buildPromptToolResult drops rewrite-only notes from repo-search no-match output', () => {
+  const promptResult = buildPromptToolResult({
+    toolName: 'run_repo_cmd',
+    command: 'rg -n "sendStatusUpdate" src',
+    exitCode: 1,
+    rawOutput: 'note: added path ignore globs from ignore policy',
+  });
+
+  assert.equal(promptResult, 'exit_code=1');
+});
+
 test('buildToolReplayFingerprint normalizes equivalent replay text', () => {
   const first = buildToolReplayFingerprint({
     toolName: 'get-content',
