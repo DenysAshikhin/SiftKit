@@ -376,19 +376,12 @@ export function buildFinishValidationPrompt(options: {
 // Terminal synthesis prompt (for runs that exhaust turns)
 // ---------------------------------------------------------------------------
 
-export type HistoryEntry = {
-  command: string;
-  resultText: string;
-};
-
 export function buildTerminalSynthesisPrompt(options: {
   question: string;
   reason: string;
-  history: HistoryEntry[];
+  transcript: string;
 }): string {
-  const evidenceText = options.history.length > 0
-    ? options.history.map((item) => `Command: ${item.command}\nResult: ${item.resultText}`).join('\n\n')
-    : '[none]';
+  const evidenceText = options.transcript.trim() || '[none]';
   return [
     'You are finalizing a repo-search run that terminated before finish validation passed.',
     'Write a best-effort final answer from available evidence.',

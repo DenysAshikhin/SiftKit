@@ -50,6 +50,11 @@ export type ToolAction = {
   args: Record<string, unknown>;
 };
 
+export type PlannerToolCallCandidate = {
+  tool_name: string;
+  args: Record<string, unknown>;
+};
+
 export type ToolBatchAction = {
   action: 'tool_batch';
   tool_calls: Array<{
@@ -366,6 +371,89 @@ function normalizeRepoSearchToolCall(
     tool_name: toolName,
     args: rawArgs,
   };
+}
+
+function extractJsonFieldString(rawText: string, fieldName: string): string | null {
+  const match = new RegExp(`"${fieldName}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`, 'u').exec(rawText);
+  return match?.[1] ? decodeJsonStringLoose(match[1]).trim() : null;
+}
+
+function extractJsonFieldInteger(rawText: string, fieldName: string): number | null {
+  const match = new RegExp(`"${fieldName}"\\s*:\\s*(-?\\d+)`, 'u').exec(rawText);
+  if (!match?.[1]) {
+    return null;
+  }
+  const value = Number.parseInt(match[1], 10);
+  return Number.isFinite(value) ? value : null;
+}
+
+function extractJsonFieldBoolean(rawText: string, fieldName: string): boolean | null {
+  const match = new RegExp(`"${fieldName}"\\s*:\\s*(true|false)`, 'u').exec(rawText);
+  if (!match?.[1]) {
+    return null;
+  }
+  return match[1] === 'true';
+}
+
+function recoverRepoSearchToolCallCandidateFromParsed(parsed: Record<string, unknown>): PlannerToolCallCandidate | null {
+  const action = typeof parsed.action === 'string' ? parsed.action.trim().toLowerCase() : '';
+  if (action === 'tool') {
+    const toolName = String(
+      parsed.tool_name ?? parsed.toolName ?? parsed.tool ?? parsed.name ?? '',
+    ).trim().toLowerCase();
+    const args = parsed.args && typeof parsed.args === 'object' && !Array.isArray(parsed.args)
+      ? parsed.args as Record<string, unknown>
+      : null;
+    return toolName && args ? { tool_name: toolName, args } : null;
+  }
+  if (action === 'tool_batch' && Array.isArray(parsed.tool_calls) && parsed.tool_calls.length > 0) {
+    const firstToolCall = parsed.tool_calls[0];
+    if (!firstToolCall || typeof firstToolCall !== 'object' || Array.isArray(firstToolCall)) {
+      return null;
+    }
+    const toolRecord = firstToolCall as Record<string, unknown>;
+    const toolName = String(
+      toolRecord.tool_name ?? toolRecord.toolName ?? toolRecord.tool ?? toolRecord.name ?? '',
+    ).trim().toLowerCase();
+    const args = toolRecord.args && typeof toolRecord.args === 'object' && !Array.isArray(toolRecord.args)
+      ? toolRecord.args as Record<string, unknown>
+      : null;
+    return toolName && args ? { tool_name: toolName, args } : null;
+  }
+  return null;
+}
+
+export function recoverRepoSearchToolCallCandidate(text: string): PlannerToolCallCandidate | null {
+  const normalized = stripCodeFence(text);
+  try {
+    const parsed = JSON.parse(normalized) as Record<string, unknown>;
+    const recovered = recoverRepoSearchToolCallCandidateFromParsed(parsed);
+    if (recovered) {
+      return recovered;
+    }
+  } catch {
+    const toolName = extractJsonFieldString(normalized, 'tool_name');
+    if (!toolName) {
+      return null;
+    }
+    const recoveredArgs: Record<string, unknown> = {};
+    const command = extractJsonFieldString(normalized, 'command');
+    const path = extractJsonFieldString(normalized, 'path');
+    const glob = extractJsonFieldString(normalized, 'glob');
+    const startLine = extractJsonFieldInteger(normalized, 'startLine');
+    const endLine = extractJsonFieldInteger(normalized, 'endLine');
+    const recurse = extractJsonFieldBoolean(normalized, 'recurse');
+    if (command) recoveredArgs.command = command;
+    if (path) recoveredArgs.path = path;
+    if (glob) recoveredArgs.glob = glob;
+    if (startLine !== null) recoveredArgs.startLine = startLine;
+    if (endLine !== null) recoveredArgs.endLine = endLine;
+    if (recurse !== null) recoveredArgs.recurse = recurse;
+    return Object.keys(recoveredArgs).length > 0
+      ? { tool_name: toolName.toLowerCase(), args: recoveredArgs }
+      : null;
+  }
+  return null;
 }
 
 function tryRecoverMalformedPlannerToolAction(rawText: string, allowedToolNames: Set<string>): ToolAction | null {

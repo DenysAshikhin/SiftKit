@@ -20,7 +20,10 @@ import {
   formatPlannerResult,
   formatPlannerToolResultTokenGuardError,
 } from './tools.js';
-import { parsePlannerAction } from './parse.js';
+import {
+  parsePlannerAction,
+  recoverPlannerToolCallCandidate,
+} from './parse.js';
 import {
   createPlannerDebugRecorder,
   buildPlannerFailureErrorMessage,
@@ -54,10 +57,28 @@ import {
   classifyToolResultNovelty,
   fingerprintToolCall,
 } from '../../tool-loop-governor.js';
+import {
+  appendToolCallExchange,
+  upsertTrailingUserMessage,
+  type ToolTranscriptAction,
+} from '../../tool-call-messages.js';
 
 const MAX_PLANNER_TOOL_CALLS = 30;
 const PLANNER_FORCED_FINISH_MAX_ATTEMPTS = 2;
 const PLANNER_DUPLICATE_FORCE_THRESHOLD = 5;
+
+function buildPlannerInvalidToolAction(providerText: string): ToolTranscriptAction {
+  const recoveredAction = recoverPlannerToolCallCandidate(providerText);
+  if (recoveredAction?.action === 'tool') {
+    return recoveredAction;
+  }
+  return {
+    tool_name: 'invalid_tool_call',
+    args: {
+      rawResponseText: String(providerText || '').trim(),
+    },
+  };
+}
 
 export async function invokePlannerMode(options: {
   requestId: string;
@@ -133,6 +154,7 @@ export async function invokePlannerMode(options: {
   let duplicateReplayFingerprint: string | null = null;
   let duplicateReplayCount = 0;
   let duplicateReplayToolMessageIndex = -1;
+  let forcedFinishCountdownUserMessageIndex = -1;
 
   while (toolResults.length <= MAX_PLANNER_TOOL_CALLS) {
     const prompt = renderPlannerTranscript(messages);
@@ -236,54 +258,23 @@ export async function invokePlannerMode(options: {
         }
         invalidActionCount += 1;
         const invalidResponseError = getErrorMessage(error);
-        if (providerResponse.text.trim()) {
-          messages.push({
-            role: 'assistant',
-            content: providerResponse.text,
-            ...(providerResponse.reasoningText ? { reasoning_content: providerResponse.reasoningText } : {}),
-          });
-        }
-        messages.push({
-          role: 'user',
-          content: buildPlannerInvalidResponseUserPrompt(invalidResponseError),
-        });
+        const invalidToolResultText = buildPlannerInvalidResponseUserPrompt(invalidResponseError);
+        appendToolCallExchange(
+          messages,
+          buildPlannerInvalidToolAction(providerResponse.text),
+          `invalid_call_${invalidActionCount}`,
+          invalidToolResultText,
+          providerResponse.reasoningText || '',
+        );
         debugRecorder.record({
           kind: 'planner_invalid_response',
           error: invalidResponseError,
+          toolResultText: invalidToolResultText,
         });
         if (invalidActionCount >= 2) {
           debugRecorder.finish({
             status: 'failed',
             reason: 'planner_invalid_response_limit',
-          });
-          return null;
-        }
-        continue;
-      }
-
-      if (forcedFinishAttemptsRemaining > 0 && action.action !== 'finish') {
-        forcedFinishAttemptsRemaining = Math.max(forcedFinishAttemptsRemaining - 1, 0);
-        if (providerResponse.text.trim()) {
-          messages.push({
-            role: 'assistant',
-            content: providerResponse.text,
-            ...(providerResponse.reasoningText ? { reasoning_content: providerResponse.reasoningText } : {}),
-          });
-        }
-        messages.push({
-          role: 'user',
-          content: buildPlannerForcedFinishUserPrompt(
-            'Current evidence is already repeating and likely sufficient. Produce your final answer now.'
-          ),
-        });
-        debugRecorder.record({
-          kind: 'planner_forced_finish_reprompt',
-          attemptsRemaining: forcedFinishAttemptsRemaining,
-        });
-        if (forcedFinishAttemptsRemaining === 0) {
-          debugRecorder.finish({
-            status: 'failed',
-            reason: 'planner_forced_finish_attempt_limit',
           });
           return null;
         }
@@ -337,12 +328,54 @@ export async function invokePlannerMode(options: {
         }))
         : [action];
 
+      if (forcedFinishAttemptsRemaining > 0) {
+        forcedFinishAttemptsRemaining = Math.max(forcedFinishAttemptsRemaining - 1, 0);
+        const rejectedToolAction = toolActions[0];
+        const forcedToolResultText = buildPlannerForcedFinishUserPrompt(
+          'Current evidence is already repeating and likely sufficient. Produce your final answer now.'
+        );
+        appendToolCallExchange(
+          messages,
+          rejectedToolAction,
+          `forced_finish_call_${toolResults.length + 1}`,
+          forcedToolResultText,
+          providerResponse.reasoningText || '',
+        );
+        forcedFinishCountdownUserMessageIndex = upsertTrailingUserMessage(
+          messages,
+          forcedFinishCountdownUserMessageIndex,
+          `Forced finish attempts remaining: ${forcedFinishAttemptsRemaining}. Produce your final answer now.`,
+        );
+        debugRecorder.record({
+          kind: 'planner_forced_finish_reprompt',
+          attemptsRemaining: forcedFinishAttemptsRemaining,
+          toolCall: rejectedToolAction,
+          toolResultText: forcedToolResultText,
+        });
+        if (forcedFinishAttemptsRemaining === 0) {
+          debugRecorder.finish({
+            status: 'failed',
+            reason: 'planner_forced_finish_attempt_limit',
+          });
+          return null;
+        }
+        continue;
+      }
+
       if ((toolResults.length + toolActions.length) > MAX_PLANNER_TOOL_CALLS) {
         debugRecorder.record({
           kind: 'planner_forced_finish',
           reason: 'planner_tool_call_limit',
           toolCallCount: toolResults.length,
         });
+        const limitedToolAction = toolActions[0];
+        appendToolCallExchange(
+          messages,
+          limitedToolAction,
+          `tool_limit_call_${toolResults.length + 1}`,
+          buildPlannerForcedFinishUserPrompt(),
+          providerResponse.reasoningText || '',
+        );
         messages.push({
           role: 'user',
           content: buildPlannerForcedFinishUserPrompt(),
@@ -458,18 +491,19 @@ export async function invokePlannerMode(options: {
         } catch (error) {
           invalidActionCount += 1;
           const invalidResponseError = getErrorMessage(error);
-          messages.push({
-            ...buildPlannerAssistantToolMessage(toolAction, `invalid_call_${invalidActionCount}`),
-            ...(providerResponse.reasoningText ? { reasoning_content: providerResponse.reasoningText } : {}),
-          });
-          messages.push({
-            role: 'user',
-            content: buildPlannerInvalidResponseUserPrompt(invalidResponseError),
-          });
+          const invalidToolResultText = buildPlannerInvalidResponseUserPrompt(invalidResponseError);
+          appendToolCallExchange(
+            messages,
+            toolAction,
+            `invalid_call_${invalidActionCount}`,
+            invalidToolResultText,
+            providerResponse.reasoningText || '',
+          );
           debugRecorder.record({
             kind: 'planner_invalid_response',
             error: invalidResponseError,
             toolCall: toolAction,
+            toolResultText: invalidToolResultText,
           });
           if (invalidActionCount >= 2) {
             debugRecorder.finish({

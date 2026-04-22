@@ -33,6 +33,7 @@ import {
   isRepoSearchCommandToolName,
   isRepoSearchNativeToolName,
   getRepoSearchToolNamesForParsing,
+  recoverRepoSearchToolCallCandidate,
   resolveRepoSearchPlannerToolDefinitions,
   parsePlannerAction,
   renderTaskTranscript,
@@ -70,7 +71,6 @@ import {
   buildTaskSystemPrompt,
   buildTerminalSynthesisPrompt,
   scanRepoFiles,
-  type HistoryEntry,
   type TaskCommand,
 } from './prompts.js';
 import {
@@ -85,6 +85,13 @@ import type {
   RepoSearchMockCommandResult,
   RepoSearchProgressEvent,
 } from './types.js';
+import {
+  appendToolCallExchange,
+  buildAssistantToolCallMessage as buildSharedAssistantToolCallMessage,
+  upsertTrailingUserMessage,
+  type ToolTranscriptAction,
+  type ToolTranscriptMessage,
+} from '../tool-call-messages.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -543,18 +550,19 @@ function buildAssistantToolCallMessage(
   toolCallId: string,
   thinkingText: string
 ): ChatMessage {
+  return buildSharedAssistantToolCallMessage({ tool_name: toolName, args }, toolCallId, thinkingText) as ChatMessage;
+}
+
+function buildInvalidToolCallActionFromResponseText(responseText: string): ToolTranscriptAction {
+  const recovered = recoverRepoSearchToolCallCandidate(responseText);
+  if (recovered) {
+    return recovered;
+  }
   return {
-    role: 'assistant',
-    content: '',
-    tool_calls: [{
-      id: toolCallId,
-      type: 'function',
-      function: {
-        name: toolName,
-        arguments: JSON.stringify(args),
-      },
-    }],
-    ...(thinkingText ? { reasoning_content: thinkingText } : {}),
+    tool_name: 'invalid_tool_call',
+    args: {
+      rawResponseText: String(responseText || '').trim(),
+    },
   };
 }
 
@@ -562,7 +570,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const taskStartedAt = Date.now();
   const maxTurns = Math.max(1, Number(options.maxTurns || DEFAULT_MAX_TURNS));
   const maxInvalidResponses = Math.max(1, Number(options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES));
-  const history: HistoryEntry[] = [];
   const commands: TaskCommand[] = [];
   let finalOutput = '';
   let invalidResponses = 0;
@@ -613,7 +620,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   let duplicateReplayFingerprint: string | null = null;
   let duplicateReplayCount = 0;
   let duplicateReplayToolMessageIndex = -1;
-  let duplicateReplayHistoryIndex = -1;
+  let forcedFinishCountdownUserMessageIndex = -1;
   const fileReadCountByPath = new Map<string, number>();
   const fileReadStateByPath = new Map<string, FileReadState>();
 
@@ -762,13 +769,25 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     } catch (error) {
       modelOutputTokens += resolvedCompletionTokens;
       invalidResponses += 1;
-      if (String(response.text || '').trim()) {
-        messages.push(buildAssistantReplayMessage(String(response.text).trim(), String(response.thinkingText || '').trim()));
-      }
-      messages.push({ role: 'user', content: `Invalid action: ${error instanceof Error ? error.message : String(error)}. Return a valid JSON finish action or tool action payload.` });
-      options.logger?.write({ kind: 'turn_action_invalid', taskId: task.id, turn, invalidResponses, error: error instanceof Error ? error.message : String(error) });
+      const invalidActionMessage = `Invalid action: ${error instanceof Error ? error.message : String(error)}. Return a valid JSON finish action or tool action payload.`;
+      const invalidToolAction = buildInvalidToolCallActionFromResponseText(String(response.text || ''));
+      appendToolCallExchange(
+        messages as unknown as ToolTranscriptMessage[],
+        invalidToolAction,
+        `invalid_call_${invalidResponses}`,
+        invalidActionMessage,
+        String(response.thinkingText || '').trim(),
+      );
+      options.logger?.write({
+        kind: 'turn_action_invalid',
+        taskId: task.id,
+        turn,
+        invalidResponses,
+        error: error instanceof Error ? error.message : String(error),
+        toolAction: invalidToolAction,
+        toolResultText: invalidActionMessage,
+      });
       if (invalidResponses >= maxInvalidResponses) { reason = 'invalid_response_limit'; break; }
-      history.push({ command: '[invalid action]', resultText: `Invalid action: ${error instanceof Error ? error.message : String(error)}` });
       continue;
     }
 
@@ -793,7 +812,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         };
         messages.push(buildAssistantReplayMessage(response.text, String(response.thinkingText || '').trim()));
         messages.push({ role: 'user', content: warning });
-        history.push({ command: '[finish rejected]', resultText: warning });
         options.logger?.write({ kind: 'turn_finish_rejected', taskId: task.id, turn, toolCallTurns: commands.length, minToolCallsBeforeFinish, warning });
         continue;
       }
@@ -822,11 +840,23 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       if (!isCommandTool && !isNativeTool) {
         invalidResponses += 1;
         const unsupportedToolMessage = `Invalid action: unsupported planner tool "${toolAction.tool_name}" for repo-search. Use one of: ${allowedPlannerToolNames.join(', ')}.`;
-        messages.push({ role: 'assistant', content: JSON.stringify(toolAction) });
-        messages.push({ role: 'user', content: unsupportedToolMessage });
-        options.logger?.write({ kind: 'turn_action_invalid', taskId: task.id, turn, invalidResponses, error: unsupportedToolMessage });
+        appendToolCallExchange(
+          messages as unknown as ToolTranscriptMessage[],
+          { tool_name: String(toolAction.tool_name || '').trim() || 'invalid_tool_call', args: toolAction.args },
+          `invalid_call_${invalidResponses}`,
+          unsupportedToolMessage,
+          String(response.thinkingText || '').trim(),
+        );
+        options.logger?.write({
+          kind: 'turn_action_invalid',
+          taskId: task.id,
+          turn,
+          invalidResponses,
+          error: unsupportedToolMessage,
+          toolAction,
+          toolResultText: unsupportedToolMessage,
+        });
         if (invalidResponses >= maxInvalidResponses) { reason = 'invalid_response_limit'; break; }
-        history.push({ command: '[invalid action]', resultText: unsupportedToolMessage });
         continue;
       }
       const nativeExecution = isNativeTool
@@ -838,11 +868,23 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       if (isCommandTool && !command.trim()) {
         invalidResponses += 1;
         const invalidCommandMessage = `Invalid action: ${normalizedToolName} requires args.command.`;
-        messages.push({ role: 'assistant', content: JSON.stringify(toolAction) });
-        messages.push({ role: 'user', content: invalidCommandMessage });
-        options.logger?.write({ kind: 'turn_action_invalid', taskId: task.id, turn, invalidResponses, error: invalidCommandMessage });
+        appendToolCallExchange(
+          messages as unknown as ToolTranscriptMessage[],
+          { tool_name: normalizedToolName, args: toolAction.args },
+          `invalid_call_${invalidResponses}`,
+          invalidCommandMessage,
+          String(response.thinkingText || '').trim(),
+        );
+        options.logger?.write({
+          kind: 'turn_action_invalid',
+          taskId: task.id,
+          turn,
+          invalidResponses,
+          error: invalidCommandMessage,
+          toolAction,
+          toolResultText: invalidCommandMessage,
+        });
         if (invalidResponses >= maxInvalidResponses) { reason = 'invalid_response_limit'; break; }
-        history.push({ command: '[invalid action]', resultText: invalidCommandMessage });
         continue;
       }
       const expectedCommandToken = isCommandTool ? getRepoSearchCommandTokenForToolName(normalizedToolName) : null;
@@ -850,23 +892,42 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       if (isCommandTool && (!expectedCommandToken || actualCommandToken !== expectedCommandToken)) {
         invalidResponses += 1;
         const invalidToolCommandMessage = `Invalid action: ${normalizedToolName} only allows commands starting with '${expectedCommandToken || '<unknown>'}'.`;
-        messages.push({ role: 'assistant', content: JSON.stringify(toolAction) });
-        messages.push({ role: 'user', content: invalidToolCommandMessage });
-        options.logger?.write({ kind: 'turn_action_invalid', taskId: task.id, turn, invalidResponses, error: invalidToolCommandMessage });
+        appendToolCallExchange(
+          messages as unknown as ToolTranscriptMessage[],
+          { tool_name: normalizedToolName, args: toolAction.args },
+          `invalid_call_${invalidResponses}`,
+          invalidToolCommandMessage,
+          String(response.thinkingText || '').trim(),
+        );
+        options.logger?.write({
+          kind: 'turn_action_invalid',
+          taskId: task.id,
+          turn,
+          invalidResponses,
+          error: invalidToolCommandMessage,
+          toolAction,
+          toolResultText: invalidToolCommandMessage,
+        });
         if (invalidResponses >= maxInvalidResponses) { reason = 'invalid_response_limit'; break; }
-        history.push({ command: '[invalid action]', resultText: invalidToolCommandMessage });
         continue;
       }
-      const assistantActionText = JSON.stringify(toolAction);
-
     if (inForcedFinishMode) {
       forcedFinishAttemptsRemaining = Math.max(forcedFinishAttemptsRemaining - 1, 0);
       const forcedReason = `Forced finish mode active. Return a finish action now. Attempts remaining: ${forcedFinishAttemptsRemaining}.`;
       commandFailures += 1;
       commands.push({ command, safe: false, reason: forcedReason, exitCode: null, output: `Rejected command: ${forcedReason}` });
-      messages.push({ role: 'assistant', content: assistantActionText });
-      messages.push({ role: 'user', content: `Rejected command: ${forcedReason}` });
-      history.push({ command, resultText: `Rejected command: ${forcedReason}` });
+      appendToolCallExchange(
+        messages as unknown as ToolTranscriptMessage[],
+        { tool_name: normalizedToolName, args: toolAction.args },
+        `forced_finish_call_${commands.length}`,
+        `Rejected command: ${forcedReason}`,
+        String(response.thinkingText || '').trim(),
+      );
+      forcedFinishCountdownUserMessageIndex = upsertTrailingUserMessage(
+        messages as unknown as ToolTranscriptMessage[],
+        forcedFinishCountdownUserMessageIndex,
+        `Forced finish attempts remaining: ${forcedFinishAttemptsRemaining}. Return a finish action now.`,
+      );
       if (forcedFinishAttemptsRemaining === 0) { reason = 'forced_finish_attempt_limit'; break; }
       continue;
     }
@@ -922,12 +983,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         duplicateReplayToolMessageIndex = messages.length;
         messages.push({ role: 'tool', tool_call_id: duplicateToolCallId, content: duplicateMessage });
       }
-      if (duplicateReplayHistoryIndex >= 0 && duplicateReplayHistoryIndex < history.length) {
-        history[duplicateReplayHistoryIndex] = { command: '[duplicate tool call]', resultText: duplicateMessage };
-      } else {
-        duplicateReplayHistoryIndex = history.length;
-        history.push({ command: '[duplicate tool call]', resultText: duplicateMessage });
-      }
       if (isSemanticDuplicate) {
         const currentToolStats = toolStatsByType[prospectiveToolType] || createEmptyToolTypeStats();
         toolStatsByType[prospectiveToolType] = {
@@ -964,18 +1019,26 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       safetyRejects += 1;
       const rejection = `Rejected command: ${nativeExecution.reason}`;
       commands.push({ command, safe: false, reason: nativeExecution.reason, exitCode: null, output: rejection });
-      messages.push({ role: 'assistant', content: assistantActionText });
-      messages.push({ role: 'user', content: rejection });
-      history.push({ command, resultText: rejection });
+      appendToolCallExchange(
+        messages as unknown as ToolTranscriptMessage[],
+        { tool_name: normalizedToolName, args: toolAction.args },
+        `rejected_call_${commands.length}`,
+        rejection,
+        String(response.thinkingText || '').trim(),
+      );
       continue;
     }
     if (!isNativeTool && normalized.rejected) {
       safetyRejects += 1;
       const rejection = `Rejected command: ${normalized.rejectedReason}`;
       commands.push({ command, safe: false, reason: normalized.rejectedReason || null, exitCode: null, output: rejection });
-      messages.push({ role: 'assistant', content: assistantActionText });
-      messages.push({ role: 'user', content: rejection });
-      history.push({ command, resultText: rejection });
+      appendToolCallExchange(
+        messages as unknown as ToolTranscriptMessage[],
+        { tool_name: normalizedToolName, args: toolAction.args },
+        `rejected_call_${commands.length}`,
+        rejection,
+        String(response.thinkingText || '').trim(),
+      );
       continue;
     }
 
@@ -1035,9 +1098,16 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       safetyRejects += 1;
       const rejection = `Rejected command: ${safety.reason}`;
       commands.push({ command: commandToRun, safe: false, reason: safety.reason, exitCode: null, output: rejection });
-      messages.push({ role: 'assistant', content: assistantActionText });
-      messages.push({ role: 'user', content: rejection });
-      history.push({ command: commandToRun, resultText: rejection });
+      appendToolCallExchange(
+        messages as unknown as ToolTranscriptMessage[],
+        {
+          tool_name: normalizedToolName,
+          args: isNativeTool ? toolAction.args : { command: commandToRun },
+        },
+        `rejected_call_${commands.length}`,
+        rejection,
+        String(response.thinkingText || '').trim(),
+      );
       continue;
     }
 
@@ -1111,15 +1181,13 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       commandFailures += 1;
     }
 
+    let zeroOutputWarningText = '';
     if (baseOutput.length === 0) {
       zeroOutputStreak += 1;
       const remainingBeforeForce = Math.max(ZERO_OUTPUT_FORCE_THRESHOLD - zeroOutputStreak, 0);
-      history.push({
-        command: '[zero-output-warning]',
-        resultText: remainingBeforeForce > 0
-          ? `Zero-output warning: ${remainingBeforeForce} more zero-output command(s) and you will be forced to answer.`
-          : `Zero-output limit reached: you are now forced to answer within ${FORCED_FINISH_MAX_ATTEMPTS} attempt(s).`,
-      });
+      zeroOutputWarningText = remainingBeforeForce > 0
+        ? `Zero-output warning: ${remainingBeforeForce} more zero-output command(s) and you will be forced to answer.`
+        : `Zero-output limit reached: you are now forced to answer within ${FORCED_FINISH_MAX_ATTEMPTS} attempt(s).`;
       options.logger?.write({
         kind: 'turn_zero_output_countdown', taskId: task.id, turn, zeroOutputStreak, remainingBeforeForce,
       });
@@ -1148,6 +1216,9 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       exitCode: executed.exitCode,
       rawOutput: rawResultText,
     });
+    if (zeroOutputWarningText) {
+      resultText = `${zeroOutputWarningText}\n\n${resultText}`.trim();
+    }
     const rawResultTokenCount = useEstimatedTokensOnly
       ? estimateTokenCount(options.config, rawResultText)
       : await countTokensWithFallback(options.config, rawResultText);
@@ -1242,19 +1313,20 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       duplicateReplayFingerprint = null;
       duplicateReplayCount = 0;
       duplicateReplayToolMessageIndex = -1;
-      duplicateReplayHistoryIndex = -1;
       lastSuccessfulNormalizedKey = normalizedKey;
       lastSuccessfulFingerprint = fingerprint || null;
     }
     const toolCallId = `call_${commands.length}`;
-    messages.push(buildAssistantToolCallMessage(
-      normalizedToolName,
-      isNativeTool ? toolAction.args : { command: commandToRun },
+    appendToolCallExchange(
+      messages as unknown as ToolTranscriptMessage[],
+      {
+        tool_name: normalizedToolName,
+        args: isNativeTool ? toolAction.args : { command: commandToRun },
+      },
       toolCallId,
-      String(response.thinkingText || '').trim()
-    ));
-    messages.push({ role: 'tool', tool_call_id: toolCallId, content: resultText });
-    history.push({ command: commandToRun, resultText });
+      resultText,
+      String(response.thinkingText || '').trim(),
+    );
     }
     if (reason === 'forced_finish_attempt_limit') {
       break;
@@ -1263,7 +1335,11 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
 
   // Terminal synthesis if no final output — retry up to 3 times then hard-fail.
   if (!String(finalOutput || '').trim()) {
-    const synthesisPrompt = buildTerminalSynthesisPrompt({ question: task.question, reason, history });
+    const synthesisPrompt = buildTerminalSynthesisPrompt({
+      question: task.question,
+      reason,
+      transcript: renderTaskTranscript(messages.slice(2)),
+    });
     options.logger?.write({ kind: 'task_terminal_synthesis_requested', taskId: task.id, reason });
     const maxSynthesisAttempts = 3;
     let lastErrorMessage = '';

@@ -7,6 +7,7 @@ import type {
   SummarySourceKind,
 } from '../types.js';
 import type { ToolTypeStats } from '../../status-server/metrics.js';
+import { buildAssistantToolCallMessage as buildSharedAssistantToolCallMessage } from '../../tool-call-messages.js';
 import { getRecord, MAX_JSON_FALLBACK_PREVIEW_CHARACTERS } from './json-filter.js';
 import { truncatePlannerText } from './formatters.js';
 
@@ -193,18 +194,5 @@ export function buildPlannerAssistantToolMessage(
   action: PlannerToolCall,
   toolCallId: string
 ): LlamaCppChatMessage {
-  return {
-    role: 'assistant',
-    content: '',
-    tool_calls: [
-      {
-        id: toolCallId,
-        type: 'function',
-        function: {
-          name: action.tool_name,
-          arguments: JSON.stringify(action.args),
-        },
-      },
-    ],
-  };
+  return buildSharedAssistantToolCallMessage(action, toolCallId);
 }

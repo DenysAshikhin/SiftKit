@@ -69,3 +69,36 @@ export function parsePlannerAction(text: string): PlannerAction {
 
   throw new Error('Provider returned an unknown planner action.');
 }
+
+export function recoverPlannerToolCallCandidate(text: string): PlannerAction | null {
+  try {
+    const parsed = JSON.parse(stripCodeFence(text)) as Record<string, unknown>;
+    const action = typeof parsed.action === 'string' ? parsed.action.trim().toLowerCase() : '';
+    if (action === 'tool') {
+      const toolName = getPlannerToolName(parsed.tool_name);
+      const args = getRecord(parsed.args);
+      return toolName && args
+        ? {
+          action: 'tool',
+          tool_name: toolName,
+          args,
+        }
+        : null;
+    }
+    if (action === 'tool_batch' && Array.isArray(parsed.tool_calls) && parsed.tool_calls.length > 0) {
+      const firstToolCall = getRecord(parsed.tool_calls[0]);
+      const toolName = getPlannerToolName(firstToolCall?.tool_name);
+      const args = getRecord(firstToolCall?.args);
+      return toolName && args
+        ? {
+          action: 'tool',
+          tool_name: toolName,
+          args,
+        }
+        : null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}

@@ -621,8 +621,15 @@ test('planner surfaces explicit invalid-json message when json_filter fallback c
       assert.equal(result.Classification, 'summary');
       assert.equal(result.Summary, 'recovered after invalid json tool call');
       assert.equal(server.state.chatRequests.length, 2);
-      const secondPrompt = getChatRequestText(server.state.chatRequests[1]);
-      assert.match(secondPrompt, /Previous response was invalid: json_filter input is not valid JSON to parse\./u);
+      const secondRequest = server.state.chatRequests[1];
+      const secondMessages = Array.isArray(secondRequest?.messages) ? secondRequest.messages : [];
+      const secondPrompt = getChatRequestText(secondRequest);
+      const assistantMessage = secondMessages.find((message) => Array.isArray(message?.tool_calls));
+      const toolMessages = secondMessages.filter((message) => message?.role === 'tool');
+      const assistantToolCall = Array.isArray(assistantMessage?.tool_calls) ? assistantMessage.tool_calls[0] : null;
+      assert.equal(String(assistantToolCall?.function?.name || ''), 'json_filter');
+      assert.equal(toolMessages.length > 0, true);
+      assert.match(secondPrompt, /json_filter input is not valid JSON to parse\./u);
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {

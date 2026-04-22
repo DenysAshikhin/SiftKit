@@ -67,6 +67,87 @@ test('runTaskLoop stops on invalid response limit', async () => {
   assert.equal(result.finalOutput, 'Synthesized best-effort answer.');
 });
 
+test('runTaskLoop replays recoverable invalid planner payloads as tool-call tool-result pairs', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-invalid-recoverable-tool-replay',
+      question: 'Any question.',
+      signals: ['done'],
+    },
+    {
+      maxTurns: 3,
+      maxInvalidResponses: 3,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"planner\\" src"}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {},
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const turn2NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 2);
+  const turn2Messages = Array.isArray(turn2NewMessages?.messages) ? turn2NewMessages.messages : [];
+  const assistantMessage = turn2Messages.find((message: { role?: string }) => message.role === 'assistant');
+  const toolMessage = turn2Messages.find((message: { role?: string }) => message.role === 'tool');
+  const userMessages = turn2Messages.filter((message: { role?: string }) => message.role === 'user');
+  const assistantToolCall = Array.isArray(assistantMessage?.tool_calls) ? assistantMessage.tool_calls[0] : null;
+
+  assert.equal(result.reason, 'finish');
+  assert.equal(String(assistantToolCall?.function?.name || ''), 'repo_rg');
+  assert.equal(JSON.parse(String(assistantToolCall?.function?.arguments || '{}')).command, 'rg -n "planner" src');
+  assert.match(String(toolMessage?.content || ''), /Provider returned an invalid planner payload/u);
+  assert.equal(userMessages.length, 0);
+});
+
+test('runTaskLoop replays unrecoverable invalid planner payloads through invalid_tool_call', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-invalid-fallback-tool-replay',
+      question: 'Any question.',
+      signals: ['done'],
+    },
+    {
+      maxTurns: 3,
+      maxInvalidResponses: 3,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        'oops',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {},
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const turn2NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 2);
+  const turn2Messages = Array.isArray(turn2NewMessages?.messages) ? turn2NewMessages.messages : [];
+  const assistantMessage = turn2Messages.find((message: { role?: string }) => message.role === 'assistant');
+  const toolMessage = turn2Messages.find((message: { role?: string }) => message.role === 'tool');
+  const userMessages = turn2Messages.filter((message: { role?: string }) => message.role === 'user');
+  const assistantToolCall = Array.isArray(assistantMessage?.tool_calls) ? assistantMessage.tool_calls[0] : null;
+  const assistantArgs = JSON.parse(String(assistantToolCall?.function?.arguments || '{}'));
+
+  assert.equal(result.reason, 'finish');
+  assert.equal(String(assistantToolCall?.function?.name || ''), 'invalid_tool_call');
+  assert.equal(String(assistantArgs?.rawResponseText || ''), 'oops');
+  assert.match(String(toolMessage?.content || ''), /Provider returned an invalid planner payload/u);
+  assert.equal(userMessages.length, 0);
+});
+
 test('runTaskLoop replaces oversized tool output with token allowance error', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   const totalContextTokens = 20000;

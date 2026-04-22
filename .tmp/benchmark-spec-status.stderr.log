@@ -1,27 +1,10 @@
-[31mrepo_search warning: Error: requested output would consume 18443 tokens, remaining token allowance: 98087, per tool call allowance: 10880[0m
-[31mrepo_search warning: Error: requested output would consume 18440 tokens, remaining token allowance: 97552, per tool call allowance: 10880[0m
-[31mrepo_search warning: Error: requested output would consume 12648 tokens, remaining token allowance: 90826, per tool call allowance: 10880[0m
-[31mrepo_search warning: Error: requested output would consume 80466 tokens, remaining token allowance: 94927, per tool call allowance: 10880[0m
-[31mrepo_search warning: Error: requested output would consume 80466 tokens, remaining token allowance: 92553, per tool call allowance: 24177[0m
-[31mrepo_search warning: Error: requested output would consume 537131 tokens, remaining token allowance: 98077, per tool call allowance: 10880[0m
-[31mrepo_search warning: Error: requested output would consume 547449 tokens, remaining token allowance: 97432, per tool call allowance: 10880[0m
-[31mrepo_search warning: Error: requested output would consume 30021 tokens, remaining token allowance: 96695, per tool call allowance: 10880[0m
-[31mrepo_search warning: Error: requested output would consume 80466 tokens, remaining token allowance: 85504, per tool call allowance: 19342[0m
-[31mrepo_search warning: Error: requested output would consume 26156 tokens, remaining token allowance: 83616, per tool call allowance: 14506[0m
-[31mrepo_search warning: Error: requested output would consume 249633 tokens, remaining token allowance: 95523, per tool call allowance: 10880[0m
-[31mrepo_search warning: Error: requested output would consume 249632 tokens, remaining token allowance: 94910, per tool call allowance: 10880[0m
-[31mrepo_search warning: Error: requested output would consume 22948 tokens, remaining token allowance: 90787, per tool call allowance: 16924[0m
-C:\Users\denys\Documents\GitHub\SiftKit\dist\state\managed-llama-runs.js:230
-            result[streamKind] = `${result[streamKind]}${chunkText}`;
-                                                         ^
-
-RangeError: Invalid string length
-    at readManagedLlamaLogTextByStream (C:\Users\denys\Documents\GitHub\SiftKit\dist\state\managed-llama-runs.js:230:58)
-    at getManagedLlamaPrimaryStreamText (C:\Users\denys\Documents\GitHub\SiftKit\dist\status-server\managed-llama.js:206:84)
-    at getManagedLlamaSpeculativeMetricsDelta (C:\Users\denys\Documents\GitHub\SiftKit\dist\status-server\managed-llama.js:265:40)
-    at handleCoreRoute (C:\Users\denys\Documents\GitHub\SiftKit\dist\status-server\routes\core.js:441:106)
-    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
-    at async C:\Users\denys\Documents\GitHub\SiftKit\dist\status-server\routes.js:16:13
-    at async Server.<anonymous> (C:\Users\denys\Documents\GitHub\SiftKit\dist\status-server\index.js:141:9)
-
-Node.js v24.14.0
+[31mrepo_search warning: Error: requested output would consume 17404 tokens, remaining token allowance: 101418, per tool call allowance: 10880[0m
+[31mrepo_search warning: Error: requested output would consume 17893 tokens, remaining token allowance: 101403, per tool call allowance: 10880[0m
+[31mrepo_search warning: Error: requested output would consume 22011 tokens, remaining token allowance: 95405, per tool call allowance: 10880[0m
+[31mrepo_search warning: Error: requested output would consume 15921 tokens, remaining token allowance: 92970, per tool call allowance: 10880[0m
+[31mrepo_search warning: Error: requested output would consume 17893 tokens, remaining token allowance: 101403, per tool call allowance: 10880[0m
+[31mrepo_search warning: Error: requested output would consume 17893 tokens, remaining token allowance: 101403, per tool call allowance: 10880[0m
+[31mrepo_search warning: Error: requested output would consume 13191 tokens, remaining token allowance: 100880, per tool call allowance: 10880[0m
+[31mrepo_search warning: Error: requested output would consume 17893 tokens, remaining token allowance: 101403, per tool call allowance: 10880[0m
+[31mrepo_search warning: Error: requested output would consume 17893 tokens, remaining token allowance: 101403, per tool call allowance: 10880[0m
+[31mrepo_search warning: Error: requested output would consume 13191 tokens, remaining token allowance: 100880, per tool call allowance: 10880[0m
