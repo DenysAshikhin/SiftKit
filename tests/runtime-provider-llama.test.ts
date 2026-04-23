@@ -157,7 +157,7 @@ test('llama.cpp provider forwards reasoning mode to chat template kwargs', async
       assert.deepEqual(server.state.chatRequests[0].chat_template_kwargs, {
         enable_thinking: false,
       });
-      assert.equal(server.state.chatRequests[0].extra_body.reasoning_budget, 0);
+      assert.equal('extra_body' in server.state.chatRequests[0], false);
     });
   });
 });
@@ -187,7 +187,7 @@ test('llama.cpp provider forwards thinking preservation flags when enabled', asy
         reasoning_content: true,
         preserve_thinking: true,
       });
-      assert.equal('reasoning_budget' in server.state.chatRequests[0].extra_body, false);
+      assert.equal('extra_body' in server.state.chatRequests[0], false);
     });
   });
 });
@@ -212,7 +212,40 @@ test('llama.cpp provider per-call reasoning override takes precedence over confi
       assert.deepEqual(server.state.chatRequests[0].chat_template_kwargs, {
         enable_thinking: false,
       });
-      assert.equal(server.state.chatRequests[0].extra_body.reasoning_budget, 0);
+      assert.equal('extra_body' in server.state.chatRequests[0], false);
+    });
+  });
+});
+
+test('llama.cpp provider omits sampling knobs from the chat request body', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      config.Runtime ??= {};
+      config.Runtime.LlamaCpp ??= {};
+      config.Runtime.LlamaCpp.Temperature = 0.8;
+      config.Runtime.LlamaCpp.TopP = 0.9;
+      config.Runtime.LlamaCpp.TopK = 25;
+      config.Runtime.LlamaCpp.MinP = 0.05;
+      config.Runtime.LlamaCpp.PresencePenalty = 0.5;
+      config.Runtime.LlamaCpp.RepetitionPenalty = 1.1;
+
+      await generateLlamaCppResponse({
+        config,
+        model: config.Model,
+        prompt: 'test prompt body',
+        timeoutSeconds: 5,
+      });
+
+      assert.equal(server.state.chatRequests.length, 1);
+      const requestBody = server.state.chatRequests[0];
+      assert.equal('temperature' in requestBody, false);
+      assert.equal('top_p' in requestBody, false);
+      assert.equal('top_k' in requestBody, false);
+      assert.equal('min_p' in requestBody, false);
+      assert.equal('presence_penalty' in requestBody, false);
+      assert.equal('repeat_penalty' in requestBody, false);
+      assert.equal('extra_body' in requestBody, false);
     });
   });
 });
@@ -256,7 +289,7 @@ test('llama.cpp provider includes per-request response_format json_schema when s
       assert.match(responseFormatText, /classification/u);
       assert.match(responseFormatText, /raw_review_required/u);
       assert.match(responseFormatText, /output/u);
-      assert.equal('grammar' in (server.state.chatRequests[0]?.extra_body || {}), false);
+      assert.equal('extra_body' in (server.state.chatRequests[0] || {}), false);
     });
   });
 });

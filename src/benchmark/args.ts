@@ -40,30 +40,6 @@ export function parseArguments(argv: string[]): BenchmarkRunnerOptions {
       case '--request-timeout-seconds':
         parsed.requestTimeoutSeconds = Number(argv[++index]);
         break;
-      case '--temperature':
-        parsed.llamaCppOverrides ??= {};
-        parsed.llamaCppOverrides.Temperature = Number(argv[++index]);
-        break;
-      case '--top-p':
-        parsed.llamaCppOverrides ??= {};
-        parsed.llamaCppOverrides.TopP = Number(argv[++index]);
-        break;
-      case '--top-k':
-        parsed.llamaCppOverrides ??= {};
-        parsed.llamaCppOverrides.TopK = Number(argv[++index]);
-        break;
-      case '--min-p':
-        parsed.llamaCppOverrides ??= {};
-        parsed.llamaCppOverrides.MinP = Number(argv[++index]);
-        break;
-      case '--presence-penalty':
-        parsed.llamaCppOverrides ??= {};
-        parsed.llamaCppOverrides.PresencePenalty = Number(argv[++index]);
-        break;
-      case '--repetition-penalty':
-        parsed.llamaCppOverrides ??= {};
-        parsed.llamaCppOverrides.RepetitionPenalty = Number(argv[++index]);
-        break;
       case '--max-tokens':
         parsed.llamaCppOverrides ??= {};
         parsed.llamaCppOverrides.MaxTokens = Number(argv[++index]);

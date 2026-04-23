@@ -513,7 +513,7 @@ test('summary below planner threshold respects runtime reasoning for one-shot re
       assert.deepEqual(server.state.chatRequests[0].chat_template_kwargs, {
         enable_thinking: true,
       });
-      assert.equal('reasoning_budget' in server.state.chatRequests[0].extra_body, false);
+      assert.equal('extra_body' in server.state.chatRequests[0], false);
       const firstResponseFormatText = JSON.stringify(server.state.chatRequests[0]?.response_format || {});
       assert.equal(server.state.chatRequests[0]?.response_format?.type, 'json_schema');
       assert.match(firstResponseFormatText, /classification/u);
@@ -556,7 +556,7 @@ test('summary above planner threshold respects runtime reasoning for planner req
       assert.deepEqual(server.state.chatRequests[0].chat_template_kwargs, {
         enable_thinking: true,
       });
-      assert.equal('reasoning_budget' in server.state.chatRequests[0].extra_body, false);
+      assert.equal('extra_body' in server.state.chatRequests[0], false);
       const firstResponseFormatText = JSON.stringify(server.state.chatRequests[0]?.response_format || {});
       assert.match(firstResponseFormatText, /tool_name/u);
     }, {

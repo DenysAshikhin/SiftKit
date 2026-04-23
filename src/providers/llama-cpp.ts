@@ -414,10 +414,7 @@ export async function generateLlamaCppResponse(options: {
   structuredOutput?: LlamaCppStructuredOutput;
   reasoningOverride?: 'on' | 'off';
   promptTokenCount?: number | null;
-  overrides?: Pick<
-    RuntimeLlamaCppConfig,
-    'Temperature' | 'TopP' | 'TopK' | 'MinP' | 'PresencePenalty' | 'RepetitionPenalty' | 'MaxTokens'
-  >;
+  overrides?: Pick<RuntimeLlamaCppConfig, 'MaxTokens'>;
 }): Promise<LlamaCppGenerateResult> {
   return generateLlamaCppChatResponse({
     config: options.config,
@@ -452,18 +449,9 @@ export async function generateLlamaCppChatResponse(options: {
   structuredOutput?: LlamaCppStructuredOutput;
   reasoningOverride?: 'on' | 'off';
   promptTokenCount?: number | null;
-  overrides?: Pick<
-    RuntimeLlamaCppConfig,
-    'Temperature' | 'TopP' | 'TopK' | 'MinP' | 'PresencePenalty' | 'RepetitionPenalty' | 'MaxTokens'
-  >;
+  overrides?: Pick<RuntimeLlamaCppConfig, 'MaxTokens'>;
 }): Promise<LlamaCppGenerateResult> {
   const baseUrl = getConfiguredLlamaBaseUrl(options.config);
-  const resolvedTemperature = options.overrides?.Temperature ?? getConfiguredLlamaSetting<number>(options.config, 'Temperature');
-  const resolvedTopP = options.overrides?.TopP ?? getConfiguredLlamaSetting<number>(options.config, 'TopP');
-  const resolvedTopK = options.overrides?.TopK ?? getConfiguredLlamaSetting<number>(options.config, 'TopK');
-  const resolvedMinP = options.overrides?.MinP ?? getConfiguredLlamaSetting<number>(options.config, 'MinP');
-  const resolvedPresencePenalty = options.overrides?.PresencePenalty ?? getConfiguredLlamaSetting<number>(options.config, 'PresencePenalty');
-  const resolvedRepetitionPenalty = options.overrides?.RepetitionPenalty ?? getConfiguredLlamaSetting<number>(options.config, 'RepetitionPenalty');
   const resolvedReasoning = options.reasoningOverride
     ?? getConfiguredLlamaSetting<'on' | 'off'>(options.config, 'Reasoning');
   const serverLlama = (
@@ -509,8 +497,6 @@ export async function generateLlamaCppChatResponse(options: {
         ? { parallel_tool_calls: true }
         : {}
     ),
-    ...(resolvedTemperature === undefined ? {} : { temperature: Number(resolvedTemperature) }),
-    ...(resolvedTopP === undefined ? {} : { top_p: Number(resolvedTopP) }),
     max_tokens: maxTokens,
     ...(resolvedReasoning === undefined ? {} : {
       chat_template_kwargs: {
@@ -520,13 +506,6 @@ export async function generateLlamaCppChatResponse(options: {
       },
     }),
     ...(structuredOutputResponseFormat === null ? {} : { response_format: structuredOutputResponseFormat }),
-    extra_body: {
-      ...(resolvedTopK === undefined ? {} : { top_k: Number(resolvedTopK) }),
-      ...(resolvedMinP === undefined ? {} : { min_p: Number(resolvedMinP) }),
-      ...(resolvedPresencePenalty === undefined ? {} : { presence_penalty: Number(resolvedPresencePenalty) }),
-      ...(resolvedRepetitionPenalty === undefined ? {} : { repeat_penalty: Number(resolvedRepetitionPenalty) }),
-      ...(resolvedReasoning === 'off' ? { reasoning_budget: 0 } : {}),
-    },
   });
 
   let response: JsonResponse<LlamaCppChatResponse>;

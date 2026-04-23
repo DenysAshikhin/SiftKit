@@ -88,7 +88,9 @@ import type {
 } from './types.js';
 import {
   appendToolCallExchange,
+  appendToolBatchExchange,
   buildAssistantToolCallMessage as buildSharedAssistantToolCallMessage,
+  type ToolBatchOutcome,
   upsertTrailingUserMessage,
   type ToolTranscriptAction,
   type ToolTranscriptMessage,
@@ -820,6 +822,11 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       : [action];
     modelToolTokens += resolvedCompletionTokens;
 
+    const batchOutcomes: ToolBatchOutcome[] = [];
+    const pendingModeChangeUserMessages: string[] = [];
+    let pendingForcedFinishCountdownText: string | null = null;
+    let batchDuplicateAnchorIndex: number | null = null;
+
     for (const toolAction of toolActions) {
       const normalizedToolName = String(toolAction.tool_name || '').trim().toLowerCase();
       const isCommandTool = isRepoSearchCommandToolName(normalizedToolName);
@@ -827,13 +834,11 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       if (!isCommandTool && !isNativeTool) {
         invalidResponses += 1;
         const unsupportedToolMessage = `Invalid action: unsupported planner tool "${toolAction.tool_name}" for repo-search. Use one of: ${allowedPlannerToolNames.join(', ')}.`;
-        appendToolCallExchange(
-          messages as unknown as ToolTranscriptMessage[],
-          { tool_name: String(toolAction.tool_name || '').trim() || 'invalid_tool_call', args: toolAction.args },
-          `invalid_call_${invalidResponses}`,
-          unsupportedToolMessage,
-          String(response.thinkingText || '').trim(),
-        );
+        batchOutcomes.push({
+          action: { tool_name: String(toolAction.tool_name || '').trim() || 'invalid_tool_call', args: toolAction.args },
+          toolCallId: `invalid_call_${invalidResponses}`,
+          toolContent: unsupportedToolMessage,
+        });
         options.logger?.write({
           kind: 'turn_action_invalid',
           taskId: task.id,
@@ -855,13 +860,11 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       if (isCommandTool && !command.trim()) {
         invalidResponses += 1;
         const invalidCommandMessage = `Invalid action: ${normalizedToolName} requires args.command.`;
-        appendToolCallExchange(
-          messages as unknown as ToolTranscriptMessage[],
-          { tool_name: normalizedToolName, args: toolAction.args },
-          `invalid_call_${invalidResponses}`,
-          invalidCommandMessage,
-          String(response.thinkingText || '').trim(),
-        );
+        batchOutcomes.push({
+          action: { tool_name: normalizedToolName, args: toolAction.args },
+          toolCallId: `invalid_call_${invalidResponses}`,
+          toolContent: invalidCommandMessage,
+        });
         options.logger?.write({
           kind: 'turn_action_invalid',
           taskId: task.id,
@@ -879,13 +882,11 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       if (isCommandTool && (!expectedCommandToken || actualCommandToken !== expectedCommandToken)) {
         invalidResponses += 1;
         const invalidToolCommandMessage = `Invalid action: ${normalizedToolName} only allows commands starting with '${expectedCommandToken || '<unknown>'}'.`;
-        appendToolCallExchange(
-          messages as unknown as ToolTranscriptMessage[],
-          { tool_name: normalizedToolName, args: toolAction.args },
-          `invalid_call_${invalidResponses}`,
-          invalidToolCommandMessage,
-          String(response.thinkingText || '').trim(),
-        );
+        batchOutcomes.push({
+          action: { tool_name: normalizedToolName, args: toolAction.args },
+          toolCallId: `invalid_call_${invalidResponses}`,
+          toolContent: invalidToolCommandMessage,
+        });
         options.logger?.write({
           kind: 'turn_action_invalid',
           taskId: task.id,
@@ -903,18 +904,12 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       const forcedReason = `Forced finish mode active. Return a finish action now. Attempts remaining: ${forcedFinishAttemptsRemaining}.`;
       commandFailures += 1;
       commands.push({ command, safe: false, reason: forcedReason, exitCode: null, output: `Rejected command: ${forcedReason}` });
-      appendToolCallExchange(
-        messages as unknown as ToolTranscriptMessage[],
-        { tool_name: normalizedToolName, args: toolAction.args },
-        `forced_finish_call_${commands.length}`,
-        `Rejected command: ${forcedReason}`,
-        String(response.thinkingText || '').trim(),
-      );
-      forcedFinishCountdownUserMessageIndex = upsertTrailingUserMessage(
-        messages as unknown as ToolTranscriptMessage[],
-        forcedFinishCountdownUserMessageIndex,
-        `Forced finish attempts remaining: ${forcedFinishAttemptsRemaining}. Return a finish action now.`,
-      );
+      batchOutcomes.push({
+        action: { tool_name: normalizedToolName, args: toolAction.args },
+        toolCallId: `forced_finish_call_${commands.length}`,
+        toolContent: `Rejected command: ${forcedReason}`,
+      });
+      pendingForcedFinishCountdownText = `Forced finish attempts remaining: ${forcedFinishAttemptsRemaining}. Return a finish action now.`;
       if (forcedFinishAttemptsRemaining === 0) { reason = 'forced_finish_attempt_limit'; break; }
       continue;
     }
@@ -961,14 +956,12 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         };
       } else {
         const duplicateToolCallId = `duplicate_call_${commands.length}`;
-        messages.push(buildAssistantToolCallMessage(
-          normalizedToolName,
-          toolAction.args,
-          duplicateToolCallId,
-          ''
-        ));
-        duplicateReplayToolMessageIndex = messages.length;
-        messages.push({ role: 'tool', tool_call_id: duplicateToolCallId, content: duplicateMessage });
+        batchOutcomes.push({
+          action: { tool_name: normalizedToolName, args: toolAction.args },
+          toolCallId: duplicateToolCallId,
+          toolContent: duplicateMessage,
+        });
+        batchDuplicateAnchorIndex = batchOutcomes.length - 1;
       }
       if (isSemanticDuplicate) {
         const currentToolStats = toolStatsByType[prospectiveToolType] || createEmptyToolTypeStats();
@@ -987,7 +980,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       }
       if (duplicateReplayCount >= DUPLICATE_FORCE_THRESHOLD && forcedFinishAttemptsRemaining === 0) {
         forcedFinishAttemptsRemaining = FORCED_FINISH_MAX_ATTEMPTS;
-        messages.push({ role: 'user', content: 'Forced finish mode active. Return {"action":"finish",...} now. Tool calls are blocked.' });
+        pendingModeChangeUserMessages.push('Forced finish mode active. Return {"action":"finish",...} now. Tool calls are blocked.');
         toolStatsByType[prospectiveToolType] = {
           ...toolStatsByType[prospectiveToolType],
           forcedFinishFromStagnation: Number(toolStatsByType[prospectiveToolType]?.forcedFinishFromStagnation || 0) + 1,
@@ -1006,26 +999,22 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       safetyRejects += 1;
       const rejection = `Rejected command: ${nativeExecution.reason}`;
       commands.push({ command, safe: false, reason: nativeExecution.reason, exitCode: null, output: rejection });
-      appendToolCallExchange(
-        messages as unknown as ToolTranscriptMessage[],
-        { tool_name: normalizedToolName, args: toolAction.args },
-        `rejected_call_${commands.length}`,
-        rejection,
-        String(response.thinkingText || '').trim(),
-      );
+      batchOutcomes.push({
+        action: { tool_name: normalizedToolName, args: toolAction.args },
+        toolCallId: `rejected_call_${commands.length}`,
+        toolContent: rejection,
+      });
       continue;
     }
     if (!isNativeTool && normalized.rejected) {
       safetyRejects += 1;
       const rejection = `Rejected command: ${normalized.rejectedReason}`;
       commands.push({ command, safe: false, reason: normalized.rejectedReason || null, exitCode: null, output: rejection });
-      appendToolCallExchange(
-        messages as unknown as ToolTranscriptMessage[],
-        { tool_name: normalizedToolName, args: toolAction.args },
-        `rejected_call_${commands.length}`,
-        rejection,
-        String(response.thinkingText || '').trim(),
-      );
+      batchOutcomes.push({
+        action: { tool_name: normalizedToolName, args: toolAction.args },
+        toolCallId: `rejected_call_${commands.length}`,
+        toolContent: rejection,
+      });
       continue;
     }
 
@@ -1085,16 +1074,14 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       safetyRejects += 1;
       const rejection = `Rejected command: ${safety.reason}`;
       commands.push({ command: commandToRun, safe: false, reason: safety.reason, exitCode: null, output: rejection });
-      appendToolCallExchange(
-        messages as unknown as ToolTranscriptMessage[],
-        {
+      batchOutcomes.push({
+        action: {
           tool_name: normalizedToolName,
           args: isNativeTool ? toolAction.args : { command: commandToRun },
         },
-        `rejected_call_${commands.length}`,
-        rejection,
-        String(response.thinkingText || '').trim(),
-      );
+        toolCallId: `rejected_call_${commands.length}`,
+        toolContent: rejection,
+      });
       continue;
     }
 
@@ -1179,7 +1166,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       });
       if (remainingBeforeForce === 0 && forcedFinishAttemptsRemaining === 0) {
         forcedFinishAttemptsRemaining = FORCED_FINISH_MAX_ATTEMPTS;
-        messages.push({ role: 'user', content: 'Forced finish mode active. Return {"action":"finish",...} now. Tool calls are blocked.' });
+        pendingModeChangeUserMessages.push('Forced finish mode active. Return {"action":"finish",...} now. Tool calls are blocked.');
         options.logger?.write({
           kind: 'turn_forced_finish_mode_started', taskId: task.id, turn, attemptsRemaining: forcedFinishAttemptsRemaining,
         });
@@ -1308,16 +1295,34 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       lastSuccessfulFingerprint = fingerprint || null;
     }
     const toolCallId = `call_${commands.length}`;
-    appendToolCallExchange(
-      messages as unknown as ToolTranscriptMessage[],
-      {
+    batchOutcomes.push({
+      action: {
         tool_name: normalizedToolName,
         args: isNativeTool ? toolAction.args : { command: modelVisibleCommand },
       },
       toolCallId,
-      resultText,
+      toolContent: resultText,
+    });
+    }
+
+    const preAppendMessagesLength = messages.length;
+    appendToolBatchExchange(
+      messages as unknown as ToolTranscriptMessage[],
+      batchOutcomes,
       String(response.thinkingText || '').trim(),
     );
+    if (batchDuplicateAnchorIndex !== null && batchOutcomes.length > 0) {
+      duplicateReplayToolMessageIndex = preAppendMessagesLength + 1 + batchDuplicateAnchorIndex;
+    }
+    for (const userMessage of pendingModeChangeUserMessages) {
+      messages.push({ role: 'user', content: userMessage });
+    }
+    if (pendingForcedFinishCountdownText !== null) {
+      forcedFinishCountdownUserMessageIndex = upsertTrailingUserMessage(
+        messages as unknown as ToolTranscriptMessage[],
+        forcedFinishCountdownUserMessageIndex,
+        pendingForcedFinishCountdownText,
+      );
     }
     if (reason === 'forced_finish_attempt_limit') {
       break;

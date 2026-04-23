@@ -6,7 +6,6 @@ import {
   getOptionalBoolean,
   getOptionalInt,
   getOptionalPositiveInt,
-  getRequiredDouble,
   getRequiredInt,
   getRequiredString,
 } from './args.js';
@@ -106,7 +105,6 @@ export function readMatrixManifest(options: MatrixCliOptions): ResolvedMatrixMan
     startScript,
     resolvedModelPath: resolveModelPathForStartScript(baselineModelPath, startScript),
     promptPrefixFile: null,
-    sampling: null,
     contextSize: getRequiredInt(raw.baseline.contextSize, 'baseline.contextSize'),
     maxTokens: getRequiredInt(raw.baseline.maxTokens, 'baseline.maxTokens'),
     reasoning: baselineReasoning as 'on' | 'off' | 'auto',
@@ -131,10 +129,6 @@ export function readMatrixManifest(options: MatrixCliOptions): ResolvedMatrixMan
     }
     idSet.add(normalizedId);
 
-    if (!rawRun.sampling) {
-      throw new Error(`Run '${runId}' is missing its sampling block.`);
-    }
-
     const run: ResolvedMatrixTarget = {
       index: getRequiredInt(rawRun.index, `runs[${runId}].index`),
       id: runId,
@@ -148,14 +142,6 @@ export function readMatrixManifest(options: MatrixCliOptions): ResolvedMatrixMan
       contextSize: getOptionalInt(rawRun.contextSize, `runs[${runId}].contextSize`) ?? baseline.contextSize,
       maxTokens: getOptionalInt(rawRun.maxTokens, `runs[${runId}].maxTokens`) ?? baseline.maxTokens,
       passReasoningArg: getOptionalBoolean(rawRun.passReasoningArg, `runs[${runId}].passReasoningArg`) ?? baseline.passReasoningArg,
-      sampling: {
-        temperature: getRequiredDouble(rawRun.sampling.temperature, `runs[${runId}].sampling.temperature`),
-        topP: getRequiredDouble(rawRun.sampling.topP, `runs[${runId}].sampling.topP`),
-        topK: getRequiredInt(rawRun.sampling.topK, `runs[${runId}].sampling.topK`),
-        minP: getRequiredDouble(rawRun.sampling.minP, `runs[${runId}].sampling.minP`),
-        presencePenalty: getRequiredDouble(rawRun.sampling.presencePenalty, `runs[${runId}].sampling.presencePenalty`),
-        repetitionPenalty: getRequiredDouble(rawRun.sampling.repetitionPenalty, `runs[${runId}].sampling.repetitionPenalty`),
-      },
     };
     run.resolvedModelPath = resolveModelPathForStartScript(run.modelPath, run.startScript);
 

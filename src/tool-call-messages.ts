@@ -53,6 +53,42 @@ export function appendToolCallExchange(
   });
 }
 
+export type ToolBatchOutcome = {
+  action: ToolTranscriptAction;
+  toolCallId: string;
+  toolContent: string;
+};
+
+export function appendToolBatchExchange(
+  messages: ToolTranscriptMessage[],
+  outcomes: ToolBatchOutcome[],
+  thinkingText = '',
+): void {
+  if (outcomes.length === 0) {
+    return;
+  }
+  messages.push({
+    role: 'assistant',
+    content: '',
+    tool_calls: outcomes.map(({ action, toolCallId }) => ({
+      id: toolCallId,
+      type: 'function',
+      function: {
+        name: action.tool_name,
+        arguments: JSON.stringify(action.args),
+      },
+    })),
+    ...(thinkingText ? { reasoning_content: thinkingText } : {}),
+  });
+  for (const { toolCallId, toolContent } of outcomes) {
+    messages.push({
+      role: 'tool',
+      tool_call_id: toolCallId,
+      content: toolContent,
+    });
+  }
+}
+
 export function upsertTrailingUserMessage(
   messages: ToolTranscriptMessage[],
   existingIndex: number,

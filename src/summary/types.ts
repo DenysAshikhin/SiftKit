@@ -28,10 +28,7 @@ export type SummaryRequest = {
   debugCommand?: string | null;
   requestTimeoutSeconds?: number;
   allowedPlannerTools?: PlannerToolName[];
-  llamaCppOverrides?: Pick<
-    RuntimeLlamaCppConfig,
-    'Temperature' | 'TopP' | 'TopK' | 'MinP' | 'PresencePenalty' | 'RepetitionPenalty' | 'MaxTokens'
-  >;
+  llamaCppOverrides?: Pick<RuntimeLlamaCppConfig, 'MaxTokens'>;
 };
 
 export type SummaryResult = {

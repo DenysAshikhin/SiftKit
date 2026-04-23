@@ -30,7 +30,6 @@ function toRunEntry(params: {
   startScript: string;
   promptPrefixFile: string | null;
   reasoning: 'on' | 'off' | 'auto';
-  sampling: RunEntry['sampling'];
   startedAtUtc: string;
 }): RunEntry {
   return {
@@ -44,7 +43,6 @@ function toRunEntry(params: {
     startScript: params.startScript,
     promptPrefixFile: params.promptPrefixFile,
     reasoning: params.reasoning,
-    sampling: params.sampling,
     benchmarkRunUri: null,
     startedAtUtc: params.startedAtUtc,
     completedAtUtc: null,
@@ -145,7 +143,6 @@ export async function runMatrixWithInterrupt(
         startScript: run.startScript,
         promptPrefixFile: run.promptPrefixFile,
         reasoning: run.reasoning,
-        sampling: run.sampling || null,
       });
       const runEntry = toRunEntry({
         recordId: runRecord.id,
@@ -157,7 +154,6 @@ export async function runMatrixWithInterrupt(
         startScript: run.startScript,
         promptPrefixFile: run.promptPrefixFile,
         reasoning: run.reasoning,
-        sampling: run.sampling,
         startedAtUtc: runRecord.startedAtUtc,
       });
       activeRunEntry = runEntry;

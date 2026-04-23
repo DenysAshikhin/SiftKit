@@ -98,23 +98,19 @@ test('buildBenchmarkArgs produces correct node arguments', () => {
   const run = {
     modelId: 'test-model',
     maxTokens: 4096,
-    sampling: {
-      temperature: 0.7,
-      topP: 0.8,
-      topK: 20,
-      minP: 0.0,
-      presencePenalty: 1.5,
-      repetitionPenalty: 1.0,
-    },
   } as unknown as MatrixRun;
   const args = buildBenchmarkArgs(manifest, run, 'C:\\output\\result.json', null);
   assert.ok(Array.isArray(args));
   assert.ok(args.includes('--fixture-root'));
   assert.ok(args.includes('--model'));
   assert.ok(args.includes('test-model'));
-  assert.ok(args.includes('--temperature'));
-  assert.ok(args.includes('0.7'));
   assert.ok(args.includes('--max-tokens'));
+  assert.equal(args.includes('--temperature'), false);
+  assert.equal(args.includes('--top-p'), false);
+  assert.equal(args.includes('--top-k'), false);
+  assert.equal(args.includes('--min-p'), false);
+  assert.equal(args.includes('--presence-penalty'), false);
+  assert.equal(args.includes('--repetition-penalty'), false);
 });
 
 test('buildBenchmarkArgs includes prompt-prefix-file when provided', () => {
@@ -125,7 +121,6 @@ test('buildBenchmarkArgs includes prompt-prefix-file when provided', () => {
   const run = {
     modelId: 'test-model',
     maxTokens: 4096,
-    sampling: null,
   } as unknown as MatrixRun;
   const args = buildBenchmarkArgs(manifest, run, 'C:\\output\\result.json', 'C:\\prefix.txt');
   assert.ok(args.includes('--prompt-prefix-file'));
@@ -198,14 +193,6 @@ test('readMatrixManifest reads and resolves a manifest', () => {
           enabled: true,
           modelId: 'test-model',
           modelPath: path.join(tempRoot, 'test.gguf'),
-          sampling: {
-            temperature: 0.7,
-            topP: 0.8,
-            topK: 20,
-            minP: 0.0,
-            presencePenalty: 1.5,
-            repetitionPenalty: 1.0,
-          },
         },
       ],
     }), 'utf8');

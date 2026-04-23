@@ -87,24 +87,23 @@ All send to `/v1/chat/completions`.
 ### 4.1 Messages only
 - Summary one-shot and bridge path use user-only message payload.
 
-### 4.2 With tools + grammar
+### 4.2 With tools + response_format
 - Summary planner:
   - `tools` with `find_text/read_lines/json_filter`
-  - `extra_body.grammar` for planner action JSON
+  - `response_format` with a `json_schema` describing the allowed planner actions
 - Repo-search planner:
   - `tools` with `run_repo_cmd`
-  - `extra_body.grammar` for planner action JSON
+  - `response_format` with a `json_schema` describing the allowed planner actions
+- `parallel_tool_calls: true` is set whenever tools are included.
 
 ### 4.3 Reasoning/thinking controls
 - Summary one-shot can force non-thinking (`reasoningOverride='off'`) for small top-level inputs.
-- Summary/chat/repo-search use `chat_template_kwargs.enable_thinking`.
-- When disabled, request includes `extra_body.reasoning_budget=0`.
+- Summary/chat/repo-search use top-level `chat_template_kwargs.enable_thinking` as the per-request thinking switch.
+- `chat_template_kwargs.reasoning_content` and `chat_template_kwargs.preserve_thinking` are attached when the matching server capabilities are enabled.
 
 ### 4.4 Sampling and generation knobs
-- Common knobs can include:
-  - `temperature`, `top_p`, `max_tokens`
-  - `extra_body.top_k`, `extra_body.min_p`
-  - `extra_body.presence_penalty`, `extra_body.repeat_penalty`
+- Sampling (`temperature`, `top_p`, `top_k`, `min_p`, `presence_penalty`, `repeat_penalty`, `reasoning_budget`) is configured at `llama-server` startup only — passed as CLI flags by the managed startup scripts. Chat request bodies contain no sampling knobs.
+- `max_tokens` is the only generation knob sent per request; it is computed dynamically from the remaining prompt budget.
 
 ### 4.5 Slot and cache routing
 - Summary/repo-search can send `id_slot`.

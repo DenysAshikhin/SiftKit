@@ -272,20 +272,11 @@ export function buildChatCompletionRequest(config: Dict, session: ChatSession, u
     messages,
     stream: Boolean(options.stream),
     cache_prompt: true,
-    ...(Number.isFinite(runtimeLlama?.Temperature) ? { temperature: Number(runtimeLlama.Temperature) } : {}),
-    ...(Number.isFinite(runtimeLlama?.TopP) ? { top_p: Number(runtimeLlama.TopP) } : {}),
     max_tokens: maxTokens,
     chat_template_kwargs: {
       enable_thinking: thinkingEnabled,
       ...(thinkingEnabled && shouldReplayReasoningContent(config) ? { reasoning_content: true } : {}),
       ...(shouldPreserveThinking(config, thinkingEnabled) ? { preserve_thinking: true } : {}),
-    },
-    extra_body: {
-      ...(Number.isFinite(runtimeLlama?.TopK) ? { top_k: Number(runtimeLlama.TopK) } : {}),
-      ...(Number.isFinite(runtimeLlama?.MinP) ? { min_p: Number(runtimeLlama.MinP) } : {}),
-      ...(Number.isFinite(runtimeLlama?.PresencePenalty) ? { presence_penalty: Number(runtimeLlama.PresencePenalty) } : {}),
-      ...(Number.isFinite(runtimeLlama?.RepetitionPenalty) ? { repeat_penalty: Number(runtimeLlama.RepetitionPenalty) } : {}),
-      ...(thinkingEnabled ? {} : { reasoning_budget: 0 }),
     },
   };
   return {

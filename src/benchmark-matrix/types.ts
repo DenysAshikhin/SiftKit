@@ -1,14 +1,5 @@
 import * as path from 'node:path';
 
-export type BenchmarkSampling = {
-  temperature: number;
-  topP: number;
-  topK: number;
-  minP: number;
-  presencePenalty: number;
-  repetitionPenalty: number;
-};
-
 export type RawMatrixManifest = {
   fixtureRoot: string;
   configUrl: string;
@@ -38,14 +29,6 @@ export type RawMatrixManifest = {
     maxTokens?: number;
     passReasoningArg?: boolean;
     reasoning?: 'on' | 'off' | 'auto';
-    sampling: {
-      temperature: number;
-      topP: number;
-      topK: number;
-      minP: number;
-      presencePenalty: number;
-      repetitionPenalty: number;
-    };
   }>;
 };
 
@@ -59,7 +42,6 @@ export type ResolvedMatrixTarget = {
   resolvedModelPath: string;
   promptPrefixFile: string | null;
   reasoning: 'on' | 'off' | 'auto';
-  sampling: BenchmarkSampling | null;
   contextSize: number;
   maxTokens: number;
   passReasoningArg: boolean;
@@ -99,7 +81,6 @@ export type RunEntry = {
   startScript: string;
   promptPrefixFile: string | null;
   reasoning: 'on' | 'off' | 'auto';
-  sampling: BenchmarkSampling | null;
   benchmarkRunUri: string | null;
   startedAtUtc: string;
   completedAtUtc: string | null;

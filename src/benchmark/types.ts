@@ -18,10 +18,7 @@ export type BenchmarkRunnerOptions = {
   promptPrefix?: string;
   promptPrefixFile?: string;
   requestTimeoutSeconds?: number;
-  llamaCppOverrides?: Pick<
-    RuntimeLlamaCppConfig,
-    'Temperature' | 'TopP' | 'TopK' | 'MinP' | 'PresencePenalty' | 'RepetitionPenalty' | 'MaxTokens'
-  >;
+  llamaCppOverrides?: Pick<RuntimeLlamaCppConfig, 'MaxTokens'>;
 };
 
 export type BenchmarkCaseResult = {

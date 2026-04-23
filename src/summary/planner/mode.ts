@@ -59,7 +59,9 @@ import {
 } from '../../tool-loop-governor.js';
 import {
   appendToolCallExchange,
+  appendToolBatchExchange,
   upsertTrailingUserMessage,
+  type ToolBatchOutcome,
   type ToolTranscriptAction,
 } from '../../tool-call-messages.js';
 
@@ -425,6 +427,10 @@ export async function invokePlannerMode(options: {
         return null;
       }
 
+      const batchOutcomes: ToolBatchOutcome[] = [];
+      const pendingModeChangeUserMessages: string[] = [];
+      let batchDuplicateAnchorIndex: number | null = null;
+
       for (const toolAction of toolActions) {
         const fingerprint = fingerprintToolCall({
           toolName: toolAction.tool_name,
@@ -446,16 +452,12 @@ export async function invokePlannerMode(options: {
             };
           } else {
             const duplicateToolCallId = `duplicate_call_${toolResults.length + 1}`;
-            messages.push({
-              ...buildPlannerAssistantToolMessage(toolAction, duplicateToolCallId),
-              ...(providerResponse.reasoningText ? { reasoning_content: providerResponse.reasoningText } : {}),
+            batchOutcomes.push({
+              action: toolAction,
+              toolCallId: duplicateToolCallId,
+              toolContent: duplicateSummary,
             });
-            duplicateReplayToolMessageIndex = messages.length;
-            messages.push({
-              role: 'tool',
-              tool_call_id: duplicateToolCallId,
-              content: duplicateSummary,
-            });
+            batchDuplicateAnchorIndex = batchOutcomes.length - 1;
           }
           toolStatsPayload ||= {};
           const duplicateToolStats = toolStatsPayload[toolAction.tool_name] || createEmptyToolTypeStats();
@@ -471,12 +473,11 @@ export async function invokePlannerMode(options: {
           });
           if (duplicateReplayCount >= PLANNER_DUPLICATE_FORCE_THRESHOLD && forcedFinishAttemptsRemaining === 0) {
             forcedFinishAttemptsRemaining = PLANNER_FORCED_FINISH_MAX_ATTEMPTS;
-            messages.push({
-              role: 'user',
-              content: buildPlannerForcedFinishUserPrompt(
+            pendingModeChangeUserMessages.push(
+              buildPlannerForcedFinishUserPrompt(
                 'You repeated the same tool call too many times. Produce your final answer now.'
               ),
-            });
+            );
             toolStatsPayload[toolAction.tool_name] = {
               ...toolStatsPayload[toolAction.tool_name],
               forcedFinishFromStagnation: toolStatsPayload[toolAction.tool_name].forcedFinishFromStagnation + 1,
@@ -492,13 +493,11 @@ export async function invokePlannerMode(options: {
           invalidActionCount += 1;
           const invalidResponseError = getErrorMessage(error);
           const invalidToolResultText = buildPlannerInvalidResponseUserPrompt(invalidResponseError);
-          appendToolCallExchange(
-            messages,
-            toolAction,
-            `invalid_call_${invalidActionCount}`,
-            invalidToolResultText,
-            providerResponse.reasoningText || '',
-          );
+          batchOutcomes.push({
+            action: toolAction,
+            toolCallId: `invalid_call_${invalidActionCount}`,
+            toolContent: invalidToolResultText,
+          });
           debugRecorder.record({
             kind: 'planner_invalid_response',
             error: invalidResponseError,
@@ -506,6 +505,7 @@ export async function invokePlannerMode(options: {
             toolResultText: invalidToolResultText,
           });
           if (invalidActionCount >= 2) {
+            appendToolBatchExchange(messages, batchOutcomes, providerResponse.reasoningText || '');
             debugRecorder.finish({
               status: 'failed',
               reason: 'planner_invalid_response_limit',
@@ -573,14 +573,10 @@ export async function invokePlannerMode(options: {
         lastSuccessfulFingerprint = fingerprint;
         consecutiveNoNewEvidence = novelty.hasNewEvidence ? 0 : (consecutiveNoNewEvidence + 1);
         const toolCallId = `call_${toolResults.length + 1}`;
-        messages.push({
-          ...buildPlannerAssistantToolMessage(toolAction, toolCallId),
-          ...(providerResponse.reasoningText ? { reasoning_content: providerResponse.reasoningText } : {}),
-        });
-        messages.push({
-          role: 'tool',
-          tool_call_id: toolCallId,
-          content: promptResultText,
+        batchOutcomes.push({
+          action: toolAction,
+          toolCallId,
+          toolContent: promptResultText,
         });
         toolResults.push({
           toolName: toolAction.tool_name,
@@ -588,6 +584,15 @@ export async function invokePlannerMode(options: {
           result,
           resultText: promptResultText,
         });
+      }
+
+      const preAppendMessagesLength = messages.length;
+      appendToolBatchExchange(messages, batchOutcomes, providerResponse.reasoningText || '');
+      if (batchDuplicateAnchorIndex !== null && batchOutcomes.length > 0) {
+        duplicateReplayToolMessageIndex = preAppendMessagesLength + 1 + batchDuplicateAnchorIndex;
+      }
+      for (const userMessage of pendingModeChangeUserMessages) {
+        messages.push({ role: 'user', content: userMessage });
       }
     } finally {
       traceSummary(`notify running=false phase=planner chunk=none duration_ms=${providerResponse.requestDurationMs}`);

@@ -68,16 +68,6 @@ export function buildBenchmarkArgs(
     args.push('--prompt-prefix-file', promptPrefixFile);
   }
   args.push('--request-timeout-seconds', String(manifest.requestTimeoutSeconds));
-  if (run.sampling) {
-    args.push(
-      '--temperature', String(run.sampling.temperature),
-      '--top-p', String(run.sampling.topP),
-      '--top-k', String(run.sampling.topK),
-      '--min-p', String(run.sampling.minP),
-      '--presence-penalty', String(run.sampling.presencePenalty),
-      '--repetition-penalty', String(run.sampling.repetitionPenalty),
-    );
-  }
   args.push('--max-tokens', String(run.maxTokens));
 
   return args;

@@ -93,7 +93,7 @@ test('buildChatCompletionRequest omits thinking preservation flags when direct c
   assert.deepEqual(request.body.chat_template_kwargs, {
     enable_thinking: false,
   });
-  assert.equal(request.body.extra_body?.reasoning_budget, 0);
+  assert.equal('extra_body' in request.body, false);
 });
 
 test('buildChatCompletionRequest uses dynamic max_tokens from remaining context', () => {
