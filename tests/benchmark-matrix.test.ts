@@ -122,7 +122,7 @@ test('buildBenchmarkArgs includes prompt-prefix-file when provided', () => {
     modelId: 'test-model',
     maxTokens: 4096,
   } as unknown as MatrixRun;
-  const args = buildBenchmarkArgs(manifest, run, 'C:\\output\\result.json', 'C:\\prefix.txt');
+  const args = buildBenchmarkArgs(manifest, run, 'C:\\prefix.txt');
   assert.ok(args.includes('--prompt-prefix-file'));
   assert.ok(args.includes('C:\\prefix.txt'));
 });

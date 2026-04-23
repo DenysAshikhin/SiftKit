@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { buildChatCompletionRequest } from '../src/status-server/chat.ts';
-import { getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
+import { estimatePromptTokenCountFromCharacters, getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
 import type { ChatSession } from '../src/state/chat-sessions.ts';
 import type { Dict } from '../src/lib/types.ts';
 
@@ -105,7 +105,7 @@ test('buildChatCompletionRequest uses dynamic max_tokens from remaining context'
     request.body.max_tokens,
     getDynamicMaxOutputTokens({
       totalContextTokens: 8192,
-      promptTokenCount: Math.max(1, Math.ceil(promptChars / 4)),
+      promptTokenCount: estimatePromptTokenCountFromCharacters(createConfig(), promptChars),
     })
   );
 });
