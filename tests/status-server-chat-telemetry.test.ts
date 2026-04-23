@@ -79,14 +79,20 @@ test('generateChatAssistantMessage uses llama timings for direct chat telemetry'
           },
         },
       ],
+      usage: {
+        completion_tokens: 9,
+        completion_tokens_details: {
+          reasoning_tokens: 4,
+        },
+      },
       timings: {
         cache_n: 7,
         prompt_n: 14,
         prompt_ms: 111.5,
         prompt_per_second: 125.56,
-        predicted_n: 3,
+        predicted_n: 9,
         predicted_ms: 22.25,
-        predicted_per_second: 134.83,
+        predicted_per_second: 404.49,
       },
     }));
   }, async (baseUrl) => {
@@ -99,11 +105,12 @@ test('generateChatAssistantMessage uses llama timings for direct chat telemetry'
     assert.equal(result.assistantContent, 'ok');
     assert.equal(result.usage.promptCacheTokens, 7);
     assert.equal(result.usage.promptEvalTokens, 14);
-    assert.equal(result.usage.completionTokens, 3);
+    assert.equal(result.usage.completionTokens, 5);
+    assert.equal(result.usage.thinkingTokens, 4);
     assert.equal(result.usage.promptEvalDurationMs, 111.5);
     assert.equal(result.usage.generationDurationMs, 22.25);
-    assert.equal(result.usage.promptTokensPerSecond, 125.56);
-    assert.equal(result.usage.outputTokensPerSecond, 134.83);
+    assert.equal(result.usage.promptTokensPerSecond, 14 / (111.5 / 1000));
+    assert.equal(result.usage.generationTokensPerSecond, 9 / (22.25 / 1000));
   });
 });
 
@@ -137,7 +144,7 @@ test('streamChatAssistantMessage uses llama timings from the final SSE chunk whe
     assert.equal(result.usage.completionTokens, 2);
     assert.equal(result.usage.promptEvalDurationMs, 91.25);
     assert.equal(result.usage.generationDurationMs, 18.5);
-    assert.equal(result.usage.promptTokensPerSecond, 120.55);
-    assert.equal(result.usage.outputTokensPerSecond, 108.1);
+    assert.equal(result.usage.promptTokensPerSecond, 11 / (91.25 / 1000));
+    assert.equal(result.usage.generationTokensPerSecond, 2 / (18.5 / 1000));
   });
 });

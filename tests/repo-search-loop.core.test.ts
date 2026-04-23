@@ -14,13 +14,13 @@ import {
   buildScorecard,
   assertConfiguredModelPresent,
   runRepoSearch,
-  resolveRepoSearchRequestMaxTokens,
 } from '../src/repo-search/engine.js';
 import { buildTaskSystemPrompt } from '../src/repo-search/prompts.js';
 import {
   preflightPlannerPromptBudget,
   compactPlannerMessagesOnce,
 } from '../src/repo-search/prompt-budget.js';
+import { getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
 
 function createTempRepoRoot(gitignoreText = '') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-ignore-'));
@@ -78,27 +78,10 @@ test('runRepoSearch does not fail on model inventory mismatch', async () => {
   assert.equal(scorecard.verdict, 'pass');
 });
 
-test('resolveRepoSearchRequestMaxTokens reuses one cap source for repo-search requests', () => {
-  assert.equal(resolveRepoSearchRequestMaxTokens({}), 2048);
-  assert.equal(resolveRepoSearchRequestMaxTokens({ requestMaxTokens: 1025.9 }), 1025);
-  assert.equal(resolveRepoSearchRequestMaxTokens({
-    config: {
-      Runtime: {
-        LlamaCpp: {
-          MaxTokens: 1536,
-        },
-      },
-    },
-  }), 1536);
-  assert.equal(resolveRepoSearchRequestMaxTokens({
-    config: {
-      Runtime: {
-        LlamaCpp: {
-          MaxTokens: 15000,
-        },
-      },
-    },
-  }), 2048);
+test('getDynamicMaxOutputTokens uses 90% of remaining context', () => {
+  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 8192, promptTokenCount: 1000 }), 6472);
+  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 200, promptTokenCount: 199 }), 1);
+  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 200, promptTokenCount: 250 }), 1);
 });
 
 test('parsePlannerAction parses valid tool action', () => {
@@ -1260,7 +1243,6 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
         maxTurns: 2,
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
-        requestMaxTokens: 256,
         mockCommandResults: {
           'rg -n "planner" src': { exitCode: 0, stdout: 'planner hit', stderr: '' },
         },
@@ -1384,7 +1366,6 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
         maxTurns: 6,
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
-        requestMaxTokens: 256,
         mockCommandResults: {
           'rg -n "planner" src': { exitCode: 0, stdout: 'src\\planner.ts:10: planner hit', stderr: '' },
         },
@@ -1434,5 +1415,134 @@ test('runTaskLoop synthesizes final output on terminal max_turns', async () => {
 
   assert.equal(result.reason, 'max_turns');
   assert.equal(result.finalOutput, 'best-effort answer with evidence');
+});
+
+test('runTaskLoop uses dynamic max_tokens for planner requests from live prompt budget', async () => {
+  const chatRequests: Array<Record<string, unknown>> = [];
+  const loggedPromptTokenCounts: number[] = [];
+  const server = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/v1/chat/completions') {
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', () => {
+        chatRequests.push(JSON.parse(body || '{}'));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          choices: [{ message: { role: 'assistant', content: '{"action":"finish","output":"done"}' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+        }));
+      });
+      return;
+    }
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${Number(typeof address === 'object' && address ? address.port : 0)}`;
+
+  try {
+    const result = await runTaskLoop(
+      {
+        id: 'task-dynamic-planner-max-tokens',
+        question: 'Find planner prompt location.',
+        signals: [],
+      },
+      {
+        repoRoot: process.cwd(),
+        baseUrl,
+        model: 'mock-model',
+        totalContextTokens: 20000,
+        maxTurns: 1,
+        minToolCallsBeforeFinish: 0,
+        logger: {
+          path: 'test',
+          write(event: Record<string, unknown>) {
+            if (event.kind === 'turn_preflight_budget' && Number.isFinite(event.promptTokenCount)) {
+              loggedPromptTokenCounts.push(Number(event.promptTokenCount));
+            }
+          },
+        },
+      }
+    );
+
+    assert.equal(result.reason, 'finish');
+    assert.equal(chatRequests.length, 1);
+    assert.equal(loggedPromptTokenCounts.length, 1);
+    assert.equal(
+      Number(chatRequests[0].max_tokens),
+      getDynamicMaxOutputTokens({ totalContextTokens: 20000, promptTokenCount: loggedPromptTokenCounts[0] })
+    );
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', async () => {
+  const chatRequests: Array<Record<string, unknown>> = [];
+  const server = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/v1/chat/completions') {
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', () => {
+        const parsed = JSON.parse(body || '{}');
+        chatRequests.push(parsed);
+        const isTerminalSynthesis = String(parsed?.response_format?.type || '') !== 'json_schema';
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          choices: [{
+            message: {
+              role: 'assistant',
+              content: isTerminalSynthesis ? 'best-effort answer' : 'not-json',
+            },
+          }],
+          usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+        }));
+      });
+      return;
+    }
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${Number(typeof address === 'object' && address ? address.port : 0)}`;
+
+  try {
+    const result = await runTaskLoop(
+      {
+        id: 'task-dynamic-terminal-synthesis-max-tokens',
+        question: 'Find planner prompt location.',
+        signals: [],
+      },
+      {
+        repoRoot: process.cwd(),
+        baseUrl,
+        model: 'mock-model',
+        totalContextTokens: 12000,
+        maxTurns: 1,
+        maxInvalidResponses: 1,
+        minToolCallsBeforeFinish: 0,
+      }
+    );
+
+    assert.equal(result.reason, 'invalid_response_limit');
+    assert.equal(result.finalOutput, 'best-effort answer');
+    assert.equal(chatRequests.length, 2);
+    const synthesisPrompt = String((chatRequests[1].messages as Array<Record<string, unknown>>)?.[0]?.content || '');
+    assert.equal(
+      Number(chatRequests[1].max_tokens),
+      getDynamicMaxOutputTokens({
+        totalContextTokens: 12000,
+        promptTokenCount: Math.max(1, Math.ceil(synthesisPrompt.length / 4)),
+      })
+    );
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
 });
 

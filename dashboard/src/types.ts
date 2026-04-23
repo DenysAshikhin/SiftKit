@@ -163,7 +163,7 @@ export type ChatMessage = {
   promptCacheTokens?: number | null;
   promptEvalTokens?: number | null;
   promptTokensPerSecond?: number | null;
-  outputTokensPerSecond?: number | null;
+  generationTokensPerSecond?: number | null;
   requestDurationMs?: number | null;
   promptEvalDurationMs?: number | null;
   generationDurationMs?: number | null;

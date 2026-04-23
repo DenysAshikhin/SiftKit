@@ -111,7 +111,7 @@ test('requestPlannerAction reconstructs a tool batch from non-streaming multi-to
       model: 'mock-model',
       messages: [{ role: 'user', content: 'find plan and repo-search' }],
       timeoutMs: 5000,
-      requestMaxTokens: 512,
+      maxTokens: 512,
     });
 
     assert.equal(result.mockExhausted, false);
@@ -146,7 +146,7 @@ test('requestPlannerAction reconstructs a tool batch from streaming multi-tool r
       model: 'mock-model',
       messages: [{ role: 'user', content: 'find plan and repo-search' }],
       timeoutMs: 5000,
-      requestMaxTokens: 512,
+      maxTokens: 512,
       stream: true,
     });
 
@@ -186,7 +186,7 @@ test('requestPlannerAction uses llama timings from the final streaming chunk whe
       model: 'mock-model',
       messages: [{ role: 'user', content: 'finish' }],
       timeoutMs: 5000,
-      requestMaxTokens: 512,
+      maxTokens: 512,
       stream: true,
     });
 
@@ -222,7 +222,7 @@ test('requestPlannerAction sends json_schema response_format with tools and no g
       model: 'mock-model',
       messages: [{ role: 'user', content: 'find plan and repo-search' }],
       timeoutMs: 5000,
-      requestMaxTokens: 512,
+      maxTokens: 512,
     });
 
     const captured = capturedBody as Record<string, any>;
@@ -257,7 +257,7 @@ test('requestPlannerAction assembles planner schema dynamically from provided to
       model: 'mock-model',
       messages: [{ role: 'user', content: 'find symbol' }],
       timeoutMs: 5000,
-      requestMaxTokens: 512,
+      maxTokens: 512,
       toolDefinitions: [{
         type: 'function',
         function: {
@@ -298,7 +298,7 @@ test('requestPlannerAction hard-fails on json_schema rejection without fallback 
         model: 'mock-model',
         messages: [{ role: 'user', content: 'find plan and repo-search' }],
         timeoutMs: 5000,
-        requestMaxTokens: 512,
+        maxTokens: 512,
       }),
       /HTTP 400/u,
     );

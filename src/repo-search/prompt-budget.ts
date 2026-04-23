@@ -48,18 +48,16 @@ export async function preflightPlannerPromptBudget(options: {
   messages?: ChatMessage[];
   totalContextTokens: number;
   thinkingBufferTokens: number;
-  requestMaxTokens: number;
 }): Promise<PreflightResult> {
   const totalContextTokens = Math.max(1, Number(options.totalContextTokens || 0));
   const thinkingBufferTokens = Math.max(0, Number(options.thinkingBufferTokens || 0));
-  const requestMaxTokens = Math.max(0, Number(options.requestMaxTokens || 0));
 
   const promptText = typeof options.prompt === 'string'
     ? options.prompt
     : renderTaskTranscript(Array.isArray(options.messages) ? options.messages : []);
 
   const promptTokenCount = await countTokensWithFallback(options.config, promptText);
-  const maxPromptBudget = Math.max(totalContextTokens - thinkingBufferTokens - requestMaxTokens, 0);
+  const maxPromptBudget = Math.max(totalContextTokens - thinkingBufferTokens, 0);
   const overflowTokens = Math.max(promptTokenCount - maxPromptBudget, 0);
 
   return {

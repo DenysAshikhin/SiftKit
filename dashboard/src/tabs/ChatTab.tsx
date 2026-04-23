@@ -30,7 +30,7 @@ type SessionPromptCacheStats = {
   speculativeAcceptedTokens: number;
   speculativeGeneratedTokens: number;
   promptTokensPerSecond: number | null;
-  outputTokensPerSecond: number | null;
+  generationTokensPerSecond: number | null;
 };
 
 type ChatTabProps = {
@@ -143,7 +143,7 @@ export function ChatTab({
                 {' | '}
                 Prompt/s: {formatNumber(sessionPromptCacheStats.promptTokensPerSecond)}
                 {' | '}
-                Output/s: {formatNumber(sessionPromptCacheStats.outputTokensPerSecond)}
+                Generation/s: {formatNumber(sessionPromptCacheStats.generationTokensPerSecond)}
                 {' | '}
                 {formatNumber(sessionPromptCacheStats.promptCacheTokens)} cached
                 {' | '}

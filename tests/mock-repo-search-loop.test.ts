@@ -14,7 +14,6 @@ import {
   buildScorecard,
   assertConfiguredModelPresent,
   runRepoSearch,
-  resolveRepoSearchRequestMaxTokens,
 } from '../src/repo-search/engine.js';
 import { buildTaskSystemPrompt } from '../src/repo-search/prompts.js';
 import {
@@ -285,11 +284,10 @@ test('preflightPlannerPromptBudget reports overflow against context budget', asy
     ],
     totalContextTokens: 7000,
     thinkingBufferTokens: 4000,
-    requestMaxTokens: 2000,
   });
 
   assert.equal(preflight.ok, false);
-  assert.equal(preflight.maxPromptBudget, 1000);
+  assert.equal(preflight.maxPromptBudget, 3000);
   assert.equal(preflight.promptTokenCount > preflight.maxPromptBudget, true);
   assert.equal(preflight.overflowTokens > 0, true);
 });
@@ -332,7 +330,6 @@ test('runTaskLoop fails with planner_preflight_overflow before provider request 
         maxInvalidResponses: 1,
         minToolCallsBeforeFinish: 0,
         totalContextTokens: 7000,
-        requestMaxTokens: 2000,
         logger: {
           write(event: Record<string, unknown> & { kind: string }) {
             events.push(event);
@@ -363,7 +360,6 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       totalContextTokens: 30000,
-      requestMaxTokens: 20000,
       mockResponses: [
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" lib"}}',
@@ -457,7 +453,6 @@ test('runTaskLoop still rejects tool output that exceeds remaining token allowan
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       totalContextTokens,
-      requestMaxTokens: 1000,
       mockResponses: [
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
         '{"action":"finish","output":"done"}',

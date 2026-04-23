@@ -605,7 +605,7 @@ export type PlannerRequestOptions = {
   messages: ChatMessage[];
   slotId?: number;
   timeoutMs: number;
-  requestMaxTokens: number;
+  maxTokens: number;
   thinkingEnabled?: boolean;
   reasoningContentEnabled?: boolean;
   preserveThinking?: boolean;
@@ -709,7 +709,7 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
     ...(Number.isInteger(options.slotId) ? { id_slot: Number(options.slotId) } : {}),
     temperature: 0.1,
     top_p: 0.95,
-    max_tokens: options.requestMaxTokens,
+    max_tokens: options.maxTokens,
     ...(includeTools ? { tools: toolDefinitions, parallel_tool_calls: true } : {}),
     chat_template_kwargs: {
       enable_thinking: Boolean(options.thinkingEnabled),
@@ -1022,7 +1022,7 @@ export async function requestFinishValidation(options: {
   model: string;
   prompt: string;
   timeoutMs: number;
-  requestMaxTokens: number;
+  maxTokens: number;
   thinkingEnabled?: boolean;
   reasoningContentEnabled?: boolean;
   preserveThinking?: boolean;
@@ -1035,7 +1035,7 @@ export async function requestFinishValidation(options: {
     model: options.model,
     messages: [{ role: 'user', content: options.prompt }],
     timeoutMs: options.timeoutMs,
-    requestMaxTokens: options.requestMaxTokens,
+    maxTokens: options.maxTokens,
     thinkingEnabled: options.thinkingEnabled,
     reasoningContentEnabled: options.reasoningContentEnabled,
     preserveThinking: options.preserveThinking,
@@ -1076,7 +1076,7 @@ export async function requestTerminalSynthesis(options: {
   model: string;
   prompt: string;
   timeoutMs: number;
-  requestMaxTokens: number;
+  maxTokens: number;
   thinkingEnabled?: boolean;
   reasoningContentEnabled?: boolean;
   preserveThinking?: boolean;
@@ -1089,7 +1089,7 @@ export async function requestTerminalSynthesis(options: {
     model: options.model,
     messages: [{ role: 'user', content: options.prompt }],
     timeoutMs: options.timeoutMs,
-    requestMaxTokens: options.requestMaxTokens,
+    maxTokens: options.maxTokens,
     thinkingEnabled: options.thinkingEnabled,
     reasoningContentEnabled: options.reasoningContentEnabled,
     preserveThinking: options.preserveThinking,

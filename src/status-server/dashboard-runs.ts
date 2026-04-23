@@ -415,6 +415,13 @@ function toNonNegativeInteger(value: unknown): number | null {
   return Number.isFinite(next) ? next : null;
 }
 
+function toNullableNonNegativeInteger(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  return toNonNegativeInteger(value);
+}
+
 function readPersistedRunLogSpeculativeMetrics(
   database: DatabaseInstance,
   requestId: string,
@@ -434,22 +441,16 @@ function readPersistedRunLogSpeculativeMetrics(
     LIMIT 1
   `).get(normalizedRequestId) as Dict | undefined;
   return {
-    speculativeAcceptedTokens: toNonNegativeInteger(row?.speculative_accepted_tokens),
-    speculativeGeneratedTokens: toNonNegativeInteger(row?.speculative_generated_tokens),
+    speculativeAcceptedTokens: toNullableNonNegativeInteger(row?.speculative_accepted_tokens),
+    speculativeGeneratedTokens: toNullableNonNegativeInteger(row?.speculative_generated_tokens),
   };
 }
 
 function resolveCanonicalRunLogSpeculativeMetrics(options: {
   database: DatabaseInstance;
   requestId: string;
-  fallbackAcceptedTokens: unknown;
-  fallbackGeneratedTokens: unknown;
 }): { speculativeAcceptedTokens: number | null; speculativeGeneratedTokens: number | null } {
-  const persistedMetrics = readPersistedRunLogSpeculativeMetrics(options.database, options.requestId);
-  return {
-    speculativeAcceptedTokens: persistedMetrics.speculativeAcceptedTokens ?? toNonNegativeInteger(options.fallbackAcceptedTokens),
-    speculativeGeneratedTokens: persistedMetrics.speculativeGeneratedTokens ?? toNonNegativeInteger(options.fallbackGeneratedTokens),
-  };
+  return readPersistedRunLogSpeculativeMetrics(options.database, options.requestId);
 }
 
 function getProcessedInputTokensValue(
@@ -542,8 +543,8 @@ function normalizeRunRecordFromDbRow(row: Dict): RunRecord {
     promptEvalTokens: toNonNegativeInteger(row.prompt_eval_tokens),
     promptEvalDurationMs: toNonNegativeInteger(row.prompt_eval_duration_ms),
     generationDurationMs: toNonNegativeInteger(row.generation_duration_ms),
-    speculativeAcceptedTokens: toNonNegativeInteger(row.speculative_accepted_tokens),
-    speculativeGeneratedTokens: toNonNegativeInteger(row.speculative_generated_tokens),
+    speculativeAcceptedTokens: toNullableNonNegativeInteger(row.speculative_accepted_tokens),
+    speculativeGeneratedTokens: toNullableNonNegativeInteger(row.speculative_generated_tokens),
     durationMs: toNonNegativeInteger(row.duration_ms),
     rawPaths: {},
   });
@@ -739,8 +740,6 @@ export function upsertRunArtifactPayload(options: {
   const canonicalSpeculativeMetrics = resolveCanonicalRunLogSpeculativeMetrics({
     database: options.database,
     requestId,
-    fallbackAcceptedTokens: options.artifactPayload?.speculativeAcceptedTokens,
-    fallbackGeneratedTokens: options.artifactPayload?.speculativeGeneratedTokens,
   });
   upsertRunLog(options.database, {
     runId: requestId,
@@ -842,8 +841,8 @@ export function upsertRepoSearchRun(options: {
     promptEvalTokens: toNonNegativeInteger(options.promptEvalTokens),
     promptEvalDurationMs: toNonNegativeInteger(options.promptEvalDurationMs),
     generationDurationMs: toNonNegativeInteger(options.generationDurationMs),
-    speculativeAcceptedTokens: toNonNegativeInteger(options.speculativeAcceptedTokens),
-    speculativeGeneratedTokens: toNonNegativeInteger(options.speculativeGeneratedTokens),
+    speculativeAcceptedTokens: toNullableNonNegativeInteger(options.speculativeAcceptedTokens),
+    speculativeGeneratedTokens: toNullableNonNegativeInteger(options.speculativeGeneratedTokens),
     durationMs: toNonNegativeInteger(options.requestDurationMs),
     requestJson: null,
     plannerDebugJson: null,
@@ -874,8 +873,8 @@ export function updateRunLogSpeculativeMetricsByRequestId(options: {
       speculative_generated_tokens = COALESCE(?, speculative_generated_tokens)
     WHERE request_id = ?
   `).run(
-    toNonNegativeInteger(options.speculativeAcceptedTokens),
-    toNonNegativeInteger(options.speculativeGeneratedTokens),
+    toNullableNonNegativeInteger(options.speculativeAcceptedTokens),
+    toNullableNonNegativeInteger(options.speculativeGeneratedTokens),
     requestId,
   );
 }
@@ -1263,8 +1262,6 @@ function buildRunLogRow(options: {
   const canonicalSpeculativeMetrics = resolveCanonicalRunLogSpeculativeMetrics({
     database: options.database,
     requestId: options.requestId,
-    fallbackAcceptedTokens: requestPayload?.speculativeAcceptedTokens ?? failedRequestPayload?.speculativeAcceptedTokens ?? repoTotals?.speculativeAcceptedTokens ?? null,
-    fallbackGeneratedTokens: requestPayload?.speculativeGeneratedTokens ?? failedRequestPayload?.speculativeGeneratedTokens ?? repoTotals?.speculativeGeneratedTokens ?? null,
   });
 
   return {

@@ -1,7 +1,5 @@
 Make sure to make code as succint and straightforward as possible. 
 
-Keep diffs minimal.
-
 Do not pass functions around dynmically. Functions should be explicit.
 
 Re-use as much code/components as possible.

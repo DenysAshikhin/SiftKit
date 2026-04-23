@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { buildChatCompletionRequest } from '../src/status-server/chat.ts';
+import { getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
 import type { ChatSession } from '../src/state/chat-sessions.ts';
 import type { Dict } from '../src/lib/types.ts';
 
@@ -93,4 +94,18 @@ test('buildChatCompletionRequest omits thinking preservation flags when direct c
     enable_thinking: false,
   });
   assert.equal(request.body.extra_body?.reasoning_budget, 0);
+});
+
+test('buildChatCompletionRequest uses dynamic max_tokens from remaining context', () => {
+  const request = buildChatCompletionRequest(createConfig(), createSession(), 'next question');
+  const promptChars = ((request.body.messages as Array<Record<string, unknown>>) || [])
+    .reduce((total, message) => total + String(message.content || '').length, 0);
+
+  assert.equal(
+    request.body.max_tokens,
+    getDynamicMaxOutputTokens({
+      totalContextTokens: 8192,
+      promptTokenCount: Math.max(1, Math.ceil(promptChars / 4)),
+    })
+  );
 });

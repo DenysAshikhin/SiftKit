@@ -1,10 +1,12 @@
-import { getConfiguredLlamaBaseUrl, getConfiguredLlamaSetting, type RuntimeLlamaCppConfig, type SiftConfig } from '../config/index.js';
+import { getConfiguredLlamaBaseUrl, getConfiguredLlamaNumCtx, getConfiguredLlamaSetting, type RuntimeLlamaCppConfig, type SiftConfig } from '../config/index.js';
 import { requestJsonFull, type FullJsonResponse } from '../lib/http.js';
 import {
   buildTransientProviderHttpError,
   isTransientProviderHttpResponse,
   retryProviderRequest,
 } from '../lib/provider-helpers.js';
+import { estimatePromptTokenCountFromCharacters, getDynamicMaxOutputTokens } from '../lib/dynamic-output-cap.js';
+import { getNormalizedCompletionTokens } from '../lib/telemetry-metrics.js';
 import {
   buildLlamaJsonSchemaResponseFormat,
   buildSummaryDecisionJsonSchema,
@@ -164,14 +166,6 @@ function getThinkingTokenCount(usage: LlamaCppChatResponse['usage']): number | n
   }
 
   return null;
-}
-
-function subtractThinkingTokens(value: number | null, thinkingTokens: number | null): number | null {
-  if (value === null) {
-    return null;
-  }
-
-  return Math.max(value - (thinkingTokens ?? 0), 0);
 }
 
 function getStructuredOutputResponseFormat(
@@ -419,6 +413,7 @@ export async function generateLlamaCppResponse(options: {
   slotId?: number;
   structuredOutput?: LlamaCppStructuredOutput;
   reasoningOverride?: 'on' | 'off';
+  promptTokenCount?: number | null;
   overrides?: Pick<
     RuntimeLlamaCppConfig,
     'Temperature' | 'TopP' | 'TopK' | 'MinP' | 'PresencePenalty' | 'RepetitionPenalty' | 'MaxTokens'
@@ -437,6 +432,7 @@ export async function generateLlamaCppResponse(options: {
     slotId: options.slotId,
     structuredOutput: options.structuredOutput,
     reasoningOverride: options.reasoningOverride,
+    promptTokenCount: options.promptTokenCount,
     overrides: options.overrides,
   });
 }
@@ -455,6 +451,7 @@ export async function generateLlamaCppChatResponse(options: {
   tools?: unknown[];
   structuredOutput?: LlamaCppStructuredOutput;
   reasoningOverride?: 'on' | 'off';
+  promptTokenCount?: number | null;
   overrides?: Pick<
     RuntimeLlamaCppConfig,
     'Temperature' | 'TopP' | 'TopK' | 'MinP' | 'PresencePenalty' | 'RepetitionPenalty' | 'MaxTokens'
@@ -463,7 +460,6 @@ export async function generateLlamaCppChatResponse(options: {
   const baseUrl = getConfiguredLlamaBaseUrl(options.config);
   const resolvedTemperature = options.overrides?.Temperature ?? getConfiguredLlamaSetting<number>(options.config, 'Temperature');
   const resolvedTopP = options.overrides?.TopP ?? getConfiguredLlamaSetting<number>(options.config, 'TopP');
-  const resolvedMaxTokens = options.overrides?.MaxTokens ?? getConfiguredLlamaSetting<number | null>(options.config, 'MaxTokens');
   const resolvedTopK = options.overrides?.TopK ?? getConfiguredLlamaSetting<number>(options.config, 'TopK');
   const resolvedMinP = options.overrides?.MinP ?? getConfiguredLlamaSetting<number>(options.config, 'MinP');
   const resolvedPresencePenalty = options.overrides?.PresencePenalty ?? getConfiguredLlamaSetting<number>(options.config, 'PresencePenalty');
@@ -481,6 +477,12 @@ export async function generateLlamaCppChatResponse(options: {
   const promptChars = options.messages.reduce((total, message) => {
     return total + getTextContent(message.content).length;
   }, 0);
+  const maxTokens = getDynamicMaxOutputTokens({
+    totalContextTokens: Math.max(1, Number(getConfiguredLlamaNumCtx(options.config) || 0)),
+    promptTokenCount: Number.isFinite(options.promptTokenCount) && Number(options.promptTokenCount) > 0
+      ? Number(options.promptTokenCount)
+      : estimatePromptTokenCountFromCharacters(options.config, promptChars),
+  });
   const requestBody = JSON.stringify({
     model: options.model,
     messages: options.messages,
@@ -509,7 +511,7 @@ export async function generateLlamaCppChatResponse(options: {
     ),
     ...(resolvedTemperature === undefined ? {} : { temperature: Number(resolvedTemperature) }),
     ...(resolvedTopP === undefined ? {} : { top_p: Number(resolvedTopP) }),
-    ...(resolvedMaxTokens === undefined || resolvedMaxTokens === null ? {} : { max_tokens: Number(resolvedMaxTokens) }),
+    max_tokens: maxTokens,
     ...(resolvedReasoning === undefined ? {} : {
       chat_template_kwargs: {
         enable_thinking: resolvedReasoning === 'on',
@@ -591,7 +593,7 @@ export async function generateLlamaCppChatResponse(options: {
   const usage = (rawUsage || promptCacheTokens !== null || promptEvalTokens !== null)
     ? {
       promptTokens,
-      completionTokens: subtractThinkingTokens(getUsageValue(rawUsage?.completion_tokens), thinkingTokens),
+      completionTokens: getNormalizedCompletionTokens(getUsageValue(rawUsage?.completion_tokens), thinkingTokens),
       totalTokens: getUsageValue(rawUsage?.total_tokens),
       thinkingTokens,
       promptCacheTokens,

@@ -1,4 +1,10 @@
 import type { DashboardConfig, RunRecord } from '../dashboard/src/types';
+import {
+  getAcceptanceRate,
+  getGenerationTokensPerSecond,
+  getPromptCacheHitRate,
+  getPromptTokensPerSecond,
+} from './lib/telemetry-metrics.js';
 
 export type SpecBenchmarkCase = {
   speculativeEnabled?: boolean;
@@ -25,7 +31,7 @@ export type SpecBenchmarkRunMetrics = {
   speculativeGeneratedTokens: number | null;
   acceptanceRate: number | null;
   promptTokensPerSecond: number | null;
-  outputTokensPerSecond: number | null;
+  generationTokensPerSecond: number | null;
   outputTokens: number;
   thinkingTokens: number;
   generationDurationMs: number | null;
@@ -75,8 +81,8 @@ export function findBenchmarkRun(runs: RunRecord[], prompt: string, startedAtUtc
     .filter((run) => String(run.title || '').trim() === expectedPrompt)
     .filter((run) => Math.max(readTime(run.startedAtUtc), readTime(run.finishedAtUtc)) >= startedAt)
     .sort((left, right) => (
-      Math.max(readTime(right.startedAtUtc), readTime(right.finishedAtUtc))
-      - Math.max(readTime(left.startedAtUtc), readTime(left.finishedAtUtc))
+      Math.max(readTime(left.startedAtUtc), readTime(left.finishedAtUtc))
+      - Math.max(readTime(right.startedAtUtc), readTime(right.finishedAtUtc))
     ))
     .at(0) ?? null;
 }
@@ -134,23 +140,15 @@ export function getRunTelemetryStats(run: RunRecord | null): SpecBenchmarkRunMet
   const thinkingTokens = readNonNegativeNumber(run?.thinkingTokens);
   const promptEvalDurationMs = readNonNegativeNumber(run?.promptEvalDurationMs);
   const generationDurationMs = readNonNegativeNumber(run?.generationDurationMs);
-  const totalPromptTokens = promptCacheTokens + promptEvalTokens;
-  const generatedTokens = outputTokens + thinkingTokens;
   return {
     promptCacheTokens,
     promptEvalTokens,
-    cacheHitRate: totalPromptTokens > 0 ? (promptCacheTokens / totalPromptTokens) : null,
+    cacheHitRate: getPromptCacheHitRate(promptCacheTokens, promptEvalTokens),
     speculativeAcceptedTokens,
     speculativeGeneratedTokens,
-    acceptanceRate: speculativeAcceptedTokens !== null && speculativeGeneratedTokens !== null && speculativeGeneratedTokens > 0
-      ? (speculativeAcceptedTokens / speculativeGeneratedTokens)
-      : null,
-    promptTokensPerSecond: promptEvalTokens > 0 && promptEvalDurationMs > 0
-      ? (promptEvalTokens / (promptEvalDurationMs / 1000))
-      : null,
-    outputTokensPerSecond: generatedTokens > 0 && generationDurationMs > 0
-      ? (generatedTokens / (generationDurationMs / 1000))
-      : null,
+    acceptanceRate: getAcceptanceRate(speculativeAcceptedTokens, speculativeGeneratedTokens),
+    promptTokensPerSecond: getPromptTokensPerSecond(promptEvalTokens, promptEvalDurationMs),
+    generationTokensPerSecond: getGenerationTokensPerSecond(outputTokens, thinkingTokens, generationDurationMs),
     outputTokens,
     thinkingTokens,
     generationDurationMs: generationDurationMs > 0 ? generationDurationMs : null,
@@ -195,9 +193,9 @@ export function applySpeculativeCaseToConfig(config: DashboardConfig, entry: Spe
   return cloned;
 }
 
-export function sortBenchmarkResults<T extends { runMetrics?: { outputTokensPerSecond?: number | null } }>(rows: T[]): T[] {
+export function sortBenchmarkResults<T extends { runMetrics?: { generationTokensPerSecond?: number | null } }>(rows: T[]): T[] {
   return [...rows].sort((left, right) => (
-    Number(right.runMetrics?.outputTokensPerSecond || 0)
-    - Number(left.runMetrics?.outputTokensPerSecond || 0)
+    Number(right.runMetrics?.generationTokensPerSecond || 0)
+    - Number(left.runMetrics?.generationTokensPerSecond || 0)
   ));
 }

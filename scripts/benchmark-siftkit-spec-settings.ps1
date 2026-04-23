@@ -16,10 +16,17 @@ $script:ServiceBaseUrl = "http://${StatusHost}:${StatusPort}"
 $script:StartedStatusProcess = $null
 $script:StartedStatusStdout = $null
 $script:StartedStatusStderr = $null
+$script:CleanupWatchdogProcess = $null
 $script:DefaultBenchmarkPrompts = @(
     'find all non-status-server call sites that pass speculativeAcceptedTokens or speculativeGeneratedTokens into sendStatusUpdate/status backend options; return exact file:line anchors and the source values used',
     'trace the repo-search completion telemetry path end to end: starting at executeRepoSearchRequest, find where promptCacheTokens, promptEvalTokens, outputTokens, thinkingTokens, and requestDurationMs are computed, persisted to run_logs, and exposed through /dashboard/runs; return exact file:line anchors grouped by stage',
-    'trace the canonical speculative metrics flow end to end: find where managed llama logs are parsed, where speculativeAcceptedTokens and speculativeGeneratedTokens are written to run_logs, and where dashboard metrics or idle summaries read those persisted fields; return exact file:line anchors grouped by parse, persist, and read stages'
+    'trace the canonical speculative metrics flow end to end: find where managed llama logs are parsed, where speculativeAcceptedTokens and speculativeGeneratedTokens are written to run_logs, and where dashboard metrics or idle summaries read those persisted fields; return exact file:line anchors grouped by parse, persist, and read stages',
+    'trace the dynamic output token cap path end to end: find where remaining context tokens are computed, where max_tokens is derived for repo-search planner and terminal synthesis, and where summary/chat requests reuse the same cap; return exact file:line anchors grouped by repo-search, shared provider, and chat paths',
+    'find where benchmark acceptanceRate and generationTokensPerSecond are computed and written to summary.csv/results.json; return exact file:line anchors and the exact source expressions used for each metric',
+    'trace the spec benchmark restart lifecycle end to end: find where each case config is applied, where /status/restart is called, where health/readiness is awaited, and where managed llama run baselines are captured; return exact file:line anchors grouped by config, restart, health, and baseline capture',
+    'find every non-test code path that can populate speculativeAcceptedTokens or speculativeGeneratedTokens on a run/session/artifact object; return exact file:line anchors and identify whether each source is managed-llama log delta, persisted run_logs, request payload, or fallback artifact data',
+    'trace the repo-search prompt-budget and tool-output-limit path end to end: find where remaining token allowance is computed, where per tool call allowance is enforced, and where the "requested output would consume" failure text is emitted; return exact file:line anchors grouped by budget calculation, enforcement, and error reporting',
+    'trace the managed llama restart/degraded-mode lifecycle end to end: find where llama_stop and llama_start are invoked, where startup warning/error markers trigger degraded mode, and where status/config endpoints surface server unavailable behavior; return exact file:line anchors grouped by stop/start, degraded mode, and HTTP surface'
 )
 
 function Invoke-JsonGet {
@@ -84,7 +91,128 @@ function Wait-StatusHealth {
     throw "Timed out waiting for ${script:ServiceBaseUrl}/health"
 }
 
+function Get-ListenerPids {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int[]]$Ports
+    )
+
+    $pids = New-Object 'System.Collections.Generic.HashSet[int]'
+    $output = & netstat -ano -p tcp
+    foreach ($line in $output) {
+        foreach ($port in $Ports) {
+            if ($line -match (":{0}\s" -f $port)) {
+                $parts = ($line -split '\s+') | Where-Object { $_ -ne '' }
+                if ($parts.Count -gt 0) {
+                    $pidText = $parts[-1]
+                    $listenerPid = 0
+                    if ([int]::TryParse($pidText, [ref]$listenerPid) -and $listenerPid -gt 0) {
+                        $null = $pids.Add($listenerPid)
+                    }
+                }
+            }
+        }
+    }
+
+    return @($pids)
+}
+
+function Stop-Ports {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int[]]$Ports
+    )
+
+    $pids = @(Get-ListenerPids -Ports $Ports)
+    foreach ($processId in $pids) {
+        try {
+            & taskkill /PID $processId /T /F | Out-Null
+        }
+        catch {
+            Write-Warning ("Failed to kill PID {0}: {1}" -f $processId, $_.Exception.Message)
+        }
+    }
+}
+
+function Start-CleanupWatchdog {
+    $watchdogScriptPath = Join-Path $script:RepoRoot '.tmp\benchmark-spec-cleanup-watchdog.ps1'
+    $watchdogScript = @'
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)]
+    [int]$BenchmarkPid
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+function Get-ListenerPids {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int[]]$Ports
+    )
+
+    $pids = New-Object 'System.Collections.Generic.HashSet[int]'
+    $output = & netstat -ano -p tcp
+    foreach ($line in $output) {
+        foreach ($port in $Ports) {
+            if ($line -match (":{0}\s" -f $port)) {
+                $parts = ($line -split '\s+') | Where-Object { $_ -ne '' }
+                if ($parts.Count -gt 0) {
+                    $pidText = $parts[-1]
+                    $listenerPid = 0
+                    if ([int]::TryParse($pidText, [ref]$listenerPid) -and $listenerPid -gt 0) {
+                        $null = $pids.Add($listenerPid)
+                    }
+                }
+            }
+        }
+    }
+
+    return @($pids)
+}
+
+function Stop-Ports {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int[]]$Ports
+    )
+
+    $pids = @(Get-ListenerPids -Ports $Ports)
+    foreach ($processId in $pids) {
+        try {
+            & taskkill /PID $processId /T /F | Out-Null
+        }
+        catch {
+        }
+    }
+}
+
+while (Get-Process -Id $BenchmarkPid -ErrorAction SilentlyContinue) {
+    Start-Sleep -Seconds 2
+}
+
+Start-Sleep -Seconds 2
+Stop-Ports -Ports @(4765, 8097)
+'@
+
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $watchdogScriptPath) | Out-Null
+    Set-Content -LiteralPath $watchdogScriptPath -Value $watchdogScript -Encoding UTF8
+    $script:CleanupWatchdogProcess = Start-Process `
+        -FilePath 'powershell.exe' `
+        -ArgumentList @(
+            '-ExecutionPolicy', 'Bypass',
+            '-File', $watchdogScriptPath,
+            '-BenchmarkPid', [string]$PID
+        ) `
+        -WorkingDirectory $script:RepoRoot `
+        -WindowStyle Hidden `
+        -PassThru
+}
+
 function Ensure-StatusServer {
+    Stop-Ports -Ports @(4765, 8097)
+
     if (Test-StatusHealth) {
         return
     }
@@ -114,7 +242,7 @@ function Stop-StartedStatusServer {
 
     try {
         if (-not $script:StartedStatusProcess.HasExited) {
-            Stop-Process -Id $script:StartedStatusProcess.Id -Force -ErrorAction SilentlyContinue
+            & taskkill /PID $script:StartedStatusProcess.Id /T /F | Out-Null
         }
     }
     finally {
@@ -168,7 +296,7 @@ function Get-BenchmarkPrompts {
         if ($seenPrompts.Add($trimmedPrompt)) {
             $selectedPrompts.Add($trimmedPrompt) | Out-Null
         }
-        if ($selectedPrompts.Count -ge 3) {
+        if ($selectedPrompts.Count -ge 9) {
             break
         }
     }
@@ -206,8 +334,8 @@ function Write-BenchmarkArtifacts {
     )
 
     $sortedResults = @($Results | Sort-Object {
-        if ($null -ne $_.runMetrics -and $null -ne $_.runMetrics.outputTokensPerSecond) {
-            [double]$_.runMetrics.outputTokensPerSecond
+        if ($null -ne $_.runMetrics -and $null -ne $_.runMetrics.generationTokensPerSecond) {
+            [double]$_.runMetrics.generationTokensPerSecond
         }
         else {
             0
@@ -225,7 +353,7 @@ function Write-BenchmarkArtifacts {
             runId = $_.runId
             managedRunId = $_.managedRunId
             promptTokensPerSecond = if ($null -ne $runMetrics) { $runMetrics.promptTokensPerSecond } else { $null }
-            outputTokensPerSecond = if ($null -ne $runMetrics) { $runMetrics.outputTokensPerSecond } else { $null }
+            generationTokensPerSecond = if ($null -ne $runMetrics) { $runMetrics.generationTokensPerSecond } else { $null }
             acceptanceRate = if ($null -ne $runMetrics) { $runMetrics.acceptanceRate } else { $null }
             promptCacheTokens = if ($null -ne $runMetrics) { $runMetrics.promptCacheTokens } else { $null }
             promptEvalTokens = if ($null -ne $runMetrics) { $runMetrics.promptEvalTokens } else { $null }
@@ -326,7 +454,7 @@ function Get-AverageCaseResult {
             speculativeGeneratedTokens = Get-AverageNumber -Values @($runMetricsSamples | ForEach-Object { $_.speculativeGeneratedTokens }) -RoundToInt
             acceptanceRate = Get-AverageNumber -Values @($runMetricsSamples | ForEach-Object { $_.acceptanceRate })
             promptTokensPerSecond = Get-AverageNumber -Values @($runMetricsSamples | ForEach-Object { $_.promptTokensPerSecond })
-            outputTokensPerSecond = Get-AverageNumber -Values @($runMetricsSamples | ForEach-Object { $_.outputTokensPerSecond })
+            generationTokensPerSecond = Get-AverageNumber -Values @($runMetricsSamples | ForEach-Object { $_.generationTokensPerSecond })
             outputTokens = Get-AverageNumber -Values @($runMetricsSamples | ForEach-Object { $_.outputTokens }) -RoundToInt
             thinkingTokens = Get-AverageNumber -Values @($runMetricsSamples | ForEach-Object { $_.thinkingTokens }) -RoundToInt
             generationDurationMs = Get-AverageNumber -Values @($runMetricsSamples | ForEach-Object { $_.generationDurationMs }) -RoundToInt
@@ -403,6 +531,31 @@ function Find-BenchmarkRun {
     return $matches[0]
 }
 
+function Wait-BenchmarkRun {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PromptText,
+        [Parameter(Mandatory = $true)]
+        [datetime]$StartedAtUtc,
+        [Parameter(Mandatory = $false)]
+        [int]$TimeoutMs = 10000,
+        [Parameter(Mandatory = $false)]
+        [int]$PollIntervalMs = 250
+    )
+
+    $deadlineUtc = (Get-Date).ToUniversalTime().AddMilliseconds([Math]::Max(1, $TimeoutMs))
+    do {
+        $run = Find-BenchmarkRun -Runs (Get-RepoSearchRuns) -PromptText $PromptText -StartedAtUtc $StartedAtUtc
+        if ($null -ne $run) {
+            return $run
+        }
+        Start-Sleep -Milliseconds ([Math]::Max(1, $PollIntervalMs))
+    }
+    while ((Get-Date).ToUniversalTime() -lt $deadlineUtc)
+
+    return $null
+}
+
 function Get-ManagedRuns {
     $response = Invoke-JsonGet -Url "${script:ServiceBaseUrl}/dashboard/admin/managed-llama/runs?limit=100"
     if ($null -eq $response.runs) {
@@ -432,6 +585,69 @@ function Find-ManagedRunForCase {
     }
 
     return $matches[0]
+}
+
+function Get-CacheHitRate {
+    param(
+        [Parameter(Mandatory = $true)]
+        [double]$PromptCacheTokens,
+        [Parameter(Mandatory = $true)]
+        [double]$PromptEvalTokens
+    )
+
+    $totalPromptTokens = $PromptCacheTokens + $PromptEvalTokens
+    if ($totalPromptTokens -le 0) {
+        return $null
+    }
+    return $PromptCacheTokens / $totalPromptTokens
+}
+
+function Get-AcceptanceRate {
+    param(
+        [Parameter(Mandatory = $false)]
+        [Nullable[double]]$SpeculativeAcceptedTokens,
+        [Parameter(Mandatory = $false)]
+        [Nullable[double]]$SpeculativeGeneratedTokens
+    )
+
+    if ($null -eq $SpeculativeGeneratedTokens -or $SpeculativeGeneratedTokens -le 0) {
+        return $null
+    }
+    if ($null -eq $SpeculativeAcceptedTokens) {
+        return $null
+    }
+    return $SpeculativeAcceptedTokens / $SpeculativeGeneratedTokens
+}
+
+function Get-PromptTokensPerSecond {
+    param(
+        [Parameter(Mandatory = $true)]
+        [double]$PromptEvalTokens,
+        [Parameter(Mandatory = $true)]
+        [double]$PromptEvalDurationMs
+    )
+
+    if ($PromptEvalTokens -le 0 -or $PromptEvalDurationMs -le 0) {
+        return $null
+    }
+    return $PromptEvalTokens / ($PromptEvalDurationMs / 1000.0)
+}
+
+function Get-GenerationTokensPerSecond {
+    param(
+        [Parameter(Mandatory = $true)]
+        [double]$OutputTokens,
+        [Parameter(Mandatory = $true)]
+        [double]$ThinkingTokens,
+        [Parameter(Mandatory = $true)]
+        [double]$GenerationDurationMs
+    )
+
+    $generatedTokens = $OutputTokens + $ThinkingTokens
+    if ($generatedTokens -le 0 -or $GenerationDurationMs -le 0) {
+        return $null
+    }
+    return $generatedTokens / ($GenerationDurationMs / 1000.0)
 }
 
 function Get-RunTelemetryStats {
@@ -475,18 +691,15 @@ function Get-RunTelemetryStats {
             $specGenerated = [double]$Run.speculativeGeneratedTokens
         }
     }
-    $totalPromptTokens = $promptCacheTokens + $promptEvalTokens
-    $generatedTokens = $outputTokens + $thinkingTokens
-
     return [ordered]@{
         promptCacheTokens = [int]$promptCacheTokens
         promptEvalTokens = [int]$promptEvalTokens
-        cacheHitRate = if ($totalPromptTokens -gt 0) { $promptCacheTokens / $totalPromptTokens } else { $null }
+        cacheHitRate = Get-CacheHitRate -PromptCacheTokens $promptCacheTokens -PromptEvalTokens $promptEvalTokens
         speculativeAcceptedTokens = if ($null -ne $specAccepted) { [int]$specAccepted } else { $null }
         speculativeGeneratedTokens = if ($null -ne $specGenerated) { [int]$specGenerated } else { $null }
-        acceptanceRate = if ($specGenerated -gt 0) { $specAccepted / $specGenerated } else { $null }
-        promptTokensPerSecond = if ($promptEvalTokens -gt 0 -and $promptEvalDurationMs -gt 0) { $promptEvalTokens / ($promptEvalDurationMs / 1000.0) } else { $null }
-        outputTokensPerSecond = if ($generatedTokens -gt 0 -and $generationDurationMs -gt 0) { $generatedTokens / ($generationDurationMs / 1000.0) } else { $null }
+        acceptanceRate = Get-AcceptanceRate -SpeculativeAcceptedTokens $specAccepted -SpeculativeGeneratedTokens $specGenerated
+        promptTokensPerSecond = Get-PromptTokensPerSecond -PromptEvalTokens $promptEvalTokens -PromptEvalDurationMs $promptEvalDurationMs
+        generationTokensPerSecond = Get-GenerationTokensPerSecond -OutputTokens $outputTokens -ThinkingTokens $thinkingTokens -GenerationDurationMs $generationDurationMs
         outputTokens = [int]$outputTokens
         thinkingTokens = [int]$thinkingTokens
         generationDurationMs = if ($generationDurationMs -gt 0) { [int]$generationDurationMs } else { $null }
@@ -697,6 +910,7 @@ $originalConfig = $null
 $results = New-Object System.Collections.Generic.List[object]
 
 try {
+    Start-CleanupWatchdog
     Ensure-StatusServer
     $originalConfig = Invoke-JsonGet -Url "${script:ServiceBaseUrl}/config?skip_ready=1"
     $cases = @(Get-SelectedCases)
@@ -757,7 +971,7 @@ try {
             }
 
             $cli = Invoke-RepoSearchCli -PromptText $promptText -OutputDir $attemptOutputDirectory
-            $run = Find-BenchmarkRun -Runs (Get-RepoSearchRuns) -PromptText $promptText -StartedAtUtc ([datetime]::Parse($cli.startedAtUtc).ToUniversalTime())
+            $run = Wait-BenchmarkRun -PromptText $promptText -StartedAtUtc ([datetime]::Parse($cli.startedAtUtc).ToUniversalTime())
             $managedRun = Find-ManagedRunForCase -Runs (Get-ManagedRuns) -StartedAtUtc $restartStartedAtUtc
             $managedRunDetail = if ($null -ne $managedRun) { Invoke-JsonGet -Url "${script:ServiceBaseUrl}/dashboard/admin/managed-llama/runs/$($managedRun.id)" } else { $null }
             $logText = if ($null -ne $managedRunDetail) {
@@ -850,6 +1064,7 @@ finally {
     }
 
     Stop-StartedStatusServer
+    Stop-Ports -Ports @(4765, 8097)
 }
 Write-BenchmarkArtifacts -OutputDirectory $outputDirectory -Results $results
 

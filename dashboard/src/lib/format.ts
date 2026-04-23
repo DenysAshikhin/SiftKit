@@ -1,4 +1,5 @@
 import { syncDerivedSettingsFields } from '../settings-runtime';
+import telemetryMetrics from '../../../src/lib/telemetry-metrics.js';
 import type {
   ChatSession,
   DashboardConfig,
@@ -6,6 +7,13 @@ import type {
   RunGroupFilter,
   RunRecord,
 } from '../types';
+
+const {
+  getAcceptanceRate,
+  getGenerationTokensPerSecond,
+  getPromptCacheHitRate,
+  getPromptTokensPerSecond,
+} = telemetryMetrics;
 
 export type RunGroupKey = Exclude<RunGroupFilter, ''>;
 
@@ -64,7 +72,7 @@ export function getSessionTelemetryStats(session: ChatSession | null): {
   speculativeGeneratedTokens: number;
   acceptanceRate: number | null;
   promptTokensPerSecond: number | null;
-  outputTokensPerSecond: number | null;
+  generationTokensPerSecond: number | null;
 } {
   if (!session || !Array.isArray(session.messages)) {
     return {
@@ -75,7 +83,7 @@ export function getSessionTelemetryStats(session: ChatSession | null): {
       speculativeGeneratedTokens: 0,
       acceptanceRate: null,
       promptTokensPerSecond: null,
-      outputTokensPerSecond: null,
+      generationTokensPerSecond: null,
     };
   }
   const getIsoTime = (value: string | null | undefined): number | null => {
@@ -160,13 +168,13 @@ export function getSessionTelemetryStats(session: ChatSession | null): {
     const outputTokensForDirectRate = Number.isFinite(message.outputTokensEstimate) && Number(message.outputTokensEstimate) >= 0
       ? Number(message.outputTokensEstimate)
       : 0;
-    const outputTokensPerSecond = Number.isFinite(message.outputTokensPerSecond) && Number(message.outputTokensPerSecond) > 0
-      ? Number(message.outputTokensPerSecond)
+    const generationTokensPerSecond = Number.isFinite(message.generationTokensPerSecond) && Number(message.generationTokensPerSecond) > 0
+      ? Number(message.generationTokensPerSecond)
       : null;
     const generatedTokens = thinkingTokens + outputTokensForDirectRate;
     const generationDurationMs = (
-      outputTokensPerSecond !== null && generatedTokens > 0
-        ? (generatedTokens / outputTokensPerSecond) * 1000
+      generationTokensPerSecond !== null && generatedTokens > 0
+        ? (generatedTokens / generationTokensPerSecond) * 1000
         : Number.isFinite(message.generationDurationMs) && Number(message.generationDurationMs) > 0
         ? Number(message.generationDurationMs)
         : (generationStartedAt !== null && answerEndedAt !== null && answerEndedAt > generationStartedAt)
@@ -182,18 +190,12 @@ export function getSessionTelemetryStats(session: ChatSession | null): {
   return {
     promptCacheTokens,
     promptEvalTokens,
-    cacheHitRate: totalPromptTokens > 0 ? (promptCacheTokens / totalPromptTokens) : null,
+    cacheHitRate: getPromptCacheHitRate(promptCacheTokens, promptEvalTokens),
     speculativeAcceptedTokens,
     speculativeGeneratedTokens,
-    acceptanceRate: speculativeGeneratedTokens > 0
-      ? (speculativeAcceptedTokens / speculativeGeneratedTokens)
-      : null,
-    promptTokensPerSecond: promptTokensForRateTotal > 0 && promptDurationMsTotal > 0
-      ? (promptTokensForRateTotal / (promptDurationMsTotal / 1000))
-      : null,
-    outputTokensPerSecond: generatedTokensForRateTotal > 0 && outputDurationMsTotal > 0
-      ? (generatedTokensForRateTotal / (outputDurationMsTotal / 1000))
-      : null,
+    acceptanceRate: getAcceptanceRate(speculativeAcceptedTokens, speculativeGeneratedTokens),
+    promptTokensPerSecond: getPromptTokensPerSecond(promptTokensForRateTotal, promptDurationMsTotal),
+    generationTokensPerSecond: getGenerationTokensPerSecond(generatedTokensForRateTotal, 0, outputDurationMsTotal),
   };
 }
 

@@ -36,6 +36,22 @@ test('provider helpers extract llama timings and predicted token counts when usa
     promptEvalDurationMs: 50.5,
     generationDurationMs: 64.25,
     promptTokensPerSecond: 198.02,
-    outputTokensPerSecond: 124.51,
+    generationTokensPerSecond: 124.51,
+  });
+});
+
+test('provider helpers normalize completion tokens by subtracting thinking tokens', () => {
+  const body = {
+    usage: {
+      completion_tokens: 12,
+      completion_tokens_details: {
+        reasoning_tokens: 4,
+      },
+    },
+  } as Record<string, unknown>;
+
+  assert.deepEqual(getCompletionUsageFromResponseBody(body), {
+    completionTokens: 8,
+    thinkingTokens: 4,
   });
 });

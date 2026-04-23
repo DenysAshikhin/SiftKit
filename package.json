@@ -10,7 +10,7 @@
     "start:status": "nodemon --signal SIGINT --watch .\\dist\\status-server --ext js,json .\\dist\\status-server\\index.js",
     "start:status:stable": "node .\\dist\\status-server\\index.js",
     "start:dashboard": "npm --prefix .\\dashboard run dev",
-    "build": "tsc -p .\\tsconfig.json && tsc -p .\\tsconfig.scripts.json && npm --prefix .\\dashboard run build",
+    "build": "tsc -p .\\tsconfig.json && tsc -p .\\tsconfig.scripts.json && npm --prefix .\\dashboard run build && node .\\scripts\\sync-dist-runtime.js",
     "benchmark": "tsx .\\src\\benchmark\\index.ts",
     "benchmark:matrix": "tsx .\\src\\benchmark-matrix\\index.ts",
     "benchmark:import-md": "tsx .\\src\\import-markdown-benchmark.ts",

@@ -26,7 +26,7 @@ test('getSessionTelemetryStats computes cache hit rate and per-turn averaged acc
         promptCacheTokens: 60,
         promptEvalTokens: 40,
         promptTokensPerSecond: 20,
-        outputTokensPerSecond: 10,
+        generationTokensPerSecond: 10,
         promptEvalDurationMs: 2000,
         generationDurationMs: 8000,
         requestDurationMs: 2000,
@@ -50,7 +50,7 @@ test('getSessionTelemetryStats computes cache hit rate and per-turn averaged acc
         promptCacheTokens: 30,
         promptEvalTokens: 20,
         promptTokensPerSecond: 5,
-        outputTokensPerSecond: 8,
+        generationTokensPerSecond: 8,
         promptEvalDurationMs: 4000,
         generationDurationMs: 5000,
         requestDurationMs: 5000,
@@ -75,7 +75,7 @@ test('getSessionTelemetryStats computes cache hit rate and per-turn averaged acc
     speculativeGeneratedTokens: 16,
     acceptanceRate: 0.6875,
     promptTokensPerSecond: 10,
-    outputTokensPerSecond: 150 / 16.5,
+    generationTokensPerSecond: 150 / 16.5,
   });
 });
 
@@ -101,7 +101,7 @@ test('getSessionTelemetryStats uses thinking plus output tokens consistently acr
         promptCacheTokens: 0,
         promptEvalTokens: 0,
         promptTokensPerSecond: null,
-        outputTokensPerSecond: 10,
+        generationTokensPerSecond: 10,
         promptEvalDurationMs: null,
         generationDurationMs: 8_000,
         requestDurationMs: null,
@@ -125,7 +125,7 @@ test('getSessionTelemetryStats uses thinking plus output tokens consistently acr
         promptCacheTokens: 0,
         promptEvalTokens: 0,
         promptTokensPerSecond: null,
-        outputTokensPerSecond: null,
+        generationTokensPerSecond: null,
         promptEvalDurationMs: null,
         generationDurationMs: 4_000,
         requestDurationMs: null,
@@ -150,7 +150,7 @@ test('getSessionTelemetryStats uses thinking plus output tokens consistently acr
     speculativeGeneratedTokens: 0,
     acceptanceRate: null,
     promptTokensPerSecond: null,
-    outputTokensPerSecond: 160 / 14,
+    generationTokensPerSecond: 160 / 14,
   });
 });
 
@@ -176,6 +176,6 @@ test('getSessionTelemetryStats returns null rates when the session has no timing
     speculativeGeneratedTokens: 0,
     acceptanceRate: null,
     promptTokensPerSecond: null,
-    outputTokensPerSecond: null,
+    generationTokensPerSecond: null,
   });
 });

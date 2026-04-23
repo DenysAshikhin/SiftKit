@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { createRequire } from 'node:module';
 
 import { getSessionTelemetryStats } from '../dashboard/src/lib/format';
@@ -20,12 +22,21 @@ const DEFAULT_SPEC_BENCHMARK_PROMPTS = [
   'find all non-status-server call sites that pass speculativeAcceptedTokens or speculativeGeneratedTokens into sendStatusUpdate/status backend options; return exact file:line anchors and the source values used',
   'trace the repo-search completion telemetry path end to end: starting at executeRepoSearchRequest, find where promptCacheTokens, promptEvalTokens, outputTokens, thinkingTokens, and requestDurationMs are computed, persisted to run_logs, and exposed through /dashboard/runs; return exact file:line anchors grouped by stage',
   'trace the canonical speculative metrics flow end to end: find where managed llama logs are parsed, where speculativeAcceptedTokens and speculativeGeneratedTokens are written to run_logs, and where dashboard metrics or idle summaries read those persisted fields; return exact file:line anchors grouped by parse, persist, and read stages',
+  'trace the dynamic output token cap path end to end: find where remaining context tokens are computed, where max_tokens is derived for repo-search planner and terminal synthesis, and where summary/chat requests reuse the same cap; return exact file:line anchors grouped by repo-search, shared provider, and chat paths',
+  'find where benchmark acceptanceRate and generationTokensPerSecond are computed and written to summary.csv/results.json; return exact file:line anchors and the exact source expressions used for each metric',
+  'trace the spec benchmark restart lifecycle end to end: find where each case config is applied, where /status/restart is called, where health/readiness is awaited, and where managed llama run baselines are captured; return exact file:line anchors grouped by config, restart, health, and baseline capture',
+  'find every non-test code path that can populate speculativeAcceptedTokens or speculativeGeneratedTokens on a run/session/artifact object; return exact file:line anchors and identify whether each source is managed-llama log delta, persisted run_logs, request payload, or fallback artifact data',
+  'trace the repo-search prompt-budget and tool-output-limit path end to end: find where remaining token allowance is computed, where per tool call allowance is enforced, and where the \"requested output would consume\" failure text is emitted; return exact file:line anchors grouped by budget calculation, enforcement, and error reporting',
+  'trace the managed llama restart/degraded-mode lifecycle end to end: find where llama_stop and llama_start are invoked, where startup warning/error markers trigger degraded mode, and where status/config endpoints surface server unavailable behavior; return exact file:line anchors grouped by stop/start, degraded mode, and HTTP surface',
 ] as const;
 const DEFAULT_SPEC_BENCHMARK_PROMPT = DEFAULT_SPEC_BENCHMARK_PROMPTS[0];
 
 const require = createRequire(import.meta.url);
 const { normalizeForwardedArgs } = require('../scripts/run-benchmark-spec-settings.js') as {
   normalizeForwardedArgs: (argv: string[]) => string[];
+};
+const { syncDistRuntime } = require('../scripts/sync-dist-runtime.js') as {
+  syncDistRuntime: (sourceRoot: string, targetRoot: string) => void;
 };
 
 test('buildBenchmarkCaseId is stable and descriptive', () => {
@@ -55,7 +66,7 @@ test('buildBenchmarkCaseId uses a dedicated id for the no-spec baseline case', (
   );
 });
 
-test('findBenchmarkRun selects the newest matching repo-search run after the run start', () => {
+test('findBenchmarkRun selects the nearest matching repo-search run after the run start', () => {
   const run = findBenchmarkRun([
     {
       id: 'older',
@@ -69,6 +80,13 @@ test('findBenchmarkRun selects the newest matching repo-search run after the run
       kind: 'repo_search',
       startedAtUtc: '2026-04-20T21:01:00.000Z',
       finishedAtUtc: '2026-04-20T21:01:20.000Z',
+      title: DEFAULT_SPEC_BENCHMARK_PROMPT,
+    },
+    {
+      id: 'later-same-prompt',
+      kind: 'repo_search',
+      startedAtUtc: '2026-04-20T21:05:00.000Z',
+      finishedAtUtc: '2026-04-20T21:05:20.000Z',
       title: DEFAULT_SPEC_BENCHMARK_PROMPT,
     },
     {
@@ -158,7 +176,7 @@ test('getRunTelemetryStats matches the UI-equivalent header metrics for a single
         promptCacheTokens: 200,
         promptEvalTokens: 50,
         promptTokensPerSecond: null,
-        outputTokensPerSecond: null,
+        generationTokensPerSecond: null,
         promptEvalDurationMs: 10,
         generationDurationMs: 2_000,
         requestStartedAtUtc: null,
@@ -174,10 +192,18 @@ test('getRunTelemetryStats matches the UI-equivalent header metrics for a single
     ],
   } as never;
 
+  const sessionStats = getSessionTelemetryStats(session);
   assert.deepEqual(
     getRunTelemetryStats(run),
     {
-      ...getSessionTelemetryStats(session),
+      promptCacheTokens: sessionStats.promptCacheTokens,
+      promptEvalTokens: sessionStats.promptEvalTokens,
+      cacheHitRate: sessionStats.cacheHitRate,
+      speculativeAcceptedTokens: sessionStats.speculativeAcceptedTokens,
+      speculativeGeneratedTokens: sessionStats.speculativeGeneratedTokens,
+      acceptanceRate: sessionStats.acceptanceRate,
+      promptTokensPerSecond: sessionStats.promptTokensPerSecond,
+      generationTokensPerSecond: sessionStats.generationTokensPerSecond,
       outputTokens: 100,
       thinkingTokens: 40,
       generationDurationMs: 2_000,
@@ -207,7 +233,7 @@ test('getRunTelemetryStats preserves null speculative totals when the run has no
       speculativeGeneratedTokens: null,
       acceptanceRate: null,
       promptTokensPerSecond: 5000,
-      outputTokensPerSecond: 70,
+      generationTokensPerSecond: 70,
       outputTokens: 100,
       thinkingTokens: 40,
       generationDurationMs: 2_000,
@@ -319,10 +345,10 @@ test('applySpeculativeCaseToConfig can disable speculative decoding for the base
   assert.equal(updated.Server.LlamaCpp.SpeculativeNgramSizeN, 24);
 });
 
-test('sortBenchmarkResults orders by output tokens per second descending', () => {
+test('sortBenchmarkResults orders by generation tokens per second descending', () => {
   const sorted = sortBenchmarkResults([
-    { caseId: 'slow', runMetrics: { outputTokensPerSecond: 60 } },
-    { caseId: 'fast', runMetrics: { outputTokensPerSecond: 90 } },
+    { caseId: 'slow', runMetrics: { generationTokensPerSecond: 60 } },
+    { caseId: 'fast', runMetrics: { generationTokensPerSecond: 90 } },
   ] as never);
 
   assert.deepEqual(sorted.map((entry) => entry.caseId), ['fast', 'slow']);
@@ -394,9 +420,18 @@ test('spec benchmark script writes a single canonical speculative metrics block'
   const script = fs.readFileSync('scripts/benchmark-siftkit-spec-settings.ps1', 'utf8');
 
   assert.doesNotMatch(script, /\$_\.logMetrics/u);
+  assert.match(script, /function\s+Get-CacheHitRate/u);
+  assert.match(script, /function\s+Get-AcceptanceRate/u);
+  assert.match(script, /function\s+Get-PromptTokensPerSecond/u);
+  assert.match(script, /function\s+Get-GenerationTokensPerSecond/u);
   assert.match(script, /\$runMetrics\s*=\s*\$_\.runMetrics/u);
+  assert.match(script, /generationTokensPerSecond\s*=\s*if\s*\(\$null -ne \$runMetrics\)\s*\{\s*\$runMetrics\.generationTokensPerSecond/u);
   assert.match(script, /speculativeAcceptedTokens\s*=\s*if\s*\(\$null -ne \$runMetrics\)\s*\{\s*\$runMetrics\.speculativeAcceptedTokens/u);
   assert.match(script, /speculativeGeneratedTokens\s*=\s*if\s*\(\$null -ne \$runMetrics\)\s*\{\s*\$runMetrics\.speculativeGeneratedTokens/u);
+  assert.match(script, /cacheHitRate\s*=\s*Get-CacheHitRate/u);
+  assert.match(script, /acceptanceRate\s*=\s*Get-AcceptanceRate/u);
+  assert.match(script, /promptTokensPerSecond\s*=\s*Get-PromptTokensPerSecond/u);
+  assert.match(script, /generationTokensPerSecond\s*=\s*Get-GenerationTokensPerSecond/u);
 });
 
 test('spec benchmark script includes a final no-spec baseline case', () => {
@@ -419,6 +454,28 @@ test('package benchmark command uses a node wrapper instead of forwarding prompt
 
   assert.match(String(pkg.scripts?.['benchmark:spec-settings'] || ''), /node\s+\.\\scripts\\run-benchmark-spec-settings\.js/u);
   assert.doesNotMatch(String(pkg.scripts?.['benchmark:spec-settings'] || ''), /&&/u);
+});
+
+test('package build command syncs dist runtime output after compiling TypeScript', () => {
+  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { scripts?: Record<string, string> };
+
+  assert.match(String(pkg.scripts?.build || ''), /node\s+\.\\scripts\\sync-dist-runtime\.js/u);
+});
+
+test('syncDistRuntime copies fresh compiled files from dist/src into runtime dist paths', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-dist-runtime-'));
+  const sourceRoot = path.join(tempRoot, 'dist', 'src');
+  const targetRoot = path.join(tempRoot, 'dist');
+
+  fs.mkdirSync(path.join(sourceRoot, 'status-server'), { recursive: true });
+  fs.mkdirSync(path.join(targetRoot, 'status-server'), { recursive: true });
+  fs.writeFileSync(path.join(sourceRoot, 'status-server', 'dashboard-runs.js'), 'fresh');
+  fs.writeFileSync(path.join(targetRoot, 'status-server', 'dashboard-runs.js'), 'stale');
+
+  syncDistRuntime(sourceRoot, targetRoot);
+
+  assert.equal(fs.readFileSync(path.join(targetRoot, 'status-server', 'dashboard-runs.js'), 'utf8'), 'fresh');
+  fs.rmSync(tempRoot, { recursive: true, force: true });
 });
 
 test('benchmark wrapper regroups multi-word option values after npm strips quotes on Windows', () => {
@@ -465,9 +522,10 @@ test('benchmark wrapper preserves Prompt as a value option while keeping the tra
   );
 });
 
-test('spec benchmark script runs three benchmark prompts per case and averages metrics', () => {
+test('spec benchmark script runs nine benchmark prompts per case and averages metrics', () => {
   const script = fs.readFileSync('scripts/benchmark-siftkit-spec-settings.ps1', 'utf8');
 
+  assert.equal(DEFAULT_SPEC_BENCHMARK_PROMPTS.length, 9);
   assert.match(script, /function\s+Get-BenchmarkPrompts/u);
   assert.match(script, /\$script:DefaultBenchmarkPrompts\s*=\s*@\(/u);
   assert.match(script, /for\s*\(\$promptIndex\s*=\s*0;\s*\$promptIndex\s*-lt\s*\$benchmarkPrompts\.Count;\s*\$promptIndex\s*\+=\s*1\)/u);
@@ -488,4 +546,23 @@ test('spec benchmark script avoids inline casted if-expressions that break Windo
   const script = fs.readFileSync('scripts/benchmark-siftkit-spec-settings.ps1', 'utf8');
 
   assert.doesNotMatch(script, /\[(?:double|int)\]\(if\s*\(/u);
+});
+
+test('spec benchmark script includes safe process-tree and port cleanup like the ordered safe runner', () => {
+  const script = fs.readFileSync('scripts/benchmark-siftkit-spec-settings.ps1', 'utf8');
+
+  assert.match(script, /function\s+Get-ListenerPids/u);
+  assert.match(script, /function\s+Stop-Ports/u);
+  assert.match(script, /taskkill\s+\/PID\s+\$processId\s+\/T\s+\/F/u);
+  assert.match(script, /function\s+Start-CleanupWatchdog/u);
+  assert.match(script, /BenchmarkPid/u);
+  assert.match(script, /Stop-Ports\s+-Ports\s+@\(4765,\s*8097\)/u);
+});
+
+test('spec benchmark script retries run discovery before marking a prompt sample missing', () => {
+  const script = fs.readFileSync('scripts/benchmark-siftkit-spec-settings.ps1', 'utf8');
+
+  assert.match(script, /function\s+Wait-BenchmarkRun/u);
+  assert.match(script, /Start-Sleep\s+-Milliseconds/u);
+  assert.match(script, /\$run\s*=\s*Wait-BenchmarkRun\s+-PromptText/u);
 });

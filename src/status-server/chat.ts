@@ -2,6 +2,7 @@ import * as http from 'node:http';
 import * as https from 'node:https';
 import * as crypto from 'node:crypto';
 import type { Dict } from '../lib/types.js';
+import { estimatePromptTokenCountFromCharacters, getDynamicMaxOutputTokens } from '../lib/dynamic-output-cap.js';
 import {
   type ChatSession,
   estimateTokenCount,
@@ -19,6 +20,10 @@ import {
   getPromptUsageFromResponseBody,
   getTimingUsageFromResponseBody,
 } from '../lib/provider-helpers.js';
+import {
+  getGenerationTokensPerSecond,
+  getPromptTokensPerSecond,
+} from '../lib/telemetry-metrics.js';
 
 export function buildContextUsage(session: ChatSession): Dict {
   const contextWindowTokens = Math.max(1, Number(session.contextWindowTokens || 150000));
@@ -257,6 +262,11 @@ export function buildChatCompletionRequest(config: Dict, session: ChatSession, u
     { role: 'user', content: userContent },
   ];
   const thinkingEnabled = options.thinkingEnabled !== false;
+  const promptCharacterCount = messages.reduce((total, message) => total + String(message.content || '').length, 0);
+  const maxTokens = getDynamicMaxOutputTokens({
+    totalContextTokens: Math.max(1, Number(session.contextWindowTokens || runtimeLlama?.NumCtx || 150000)),
+    promptTokenCount: estimatePromptTokenCountFromCharacters(config, promptCharacterCount),
+  });
   const body: Dict = {
     model,
     messages,
@@ -264,7 +274,7 @@ export function buildChatCompletionRequest(config: Dict, session: ChatSession, u
     cache_prompt: true,
     ...(Number.isFinite(runtimeLlama?.Temperature) ? { temperature: Number(runtimeLlama.Temperature) } : {}),
     ...(Number.isFinite(runtimeLlama?.TopP) ? { top_p: Number(runtimeLlama.TopP) } : {}),
-    ...(Number.isFinite(runtimeLlama?.MaxTokens) ? { max_tokens: Number(runtimeLlama.MaxTokens) } : {}),
+    max_tokens: maxTokens,
     chat_template_kwargs: {
       enable_thinking: thinkingEnabled,
       ...(thinkingEnabled && shouldReplayReasoningContent(config) ? { reasoning_content: true } : {}),
@@ -294,7 +304,7 @@ export type ChatUsage = {
   promptEvalDurationMs?: number | null;
   generationDurationMs?: number | null;
   promptTokensPerSecond?: number | null;
-  outputTokensPerSecond?: number | null;
+  generationTokensPerSecond?: number | null;
 };
 
 export async function generateChatAssistantMessage(
@@ -339,8 +349,12 @@ export async function generateChatAssistantMessage(
       promptEvalTokens: promptUsage.promptEvalTokens,
       promptEvalDurationMs: timingUsage.promptEvalDurationMs,
       generationDurationMs: timingUsage.generationDurationMs,
-      promptTokensPerSecond: timingUsage.promptTokensPerSecond,
-      outputTokensPerSecond: timingUsage.outputTokensPerSecond,
+      promptTokensPerSecond: getPromptTokensPerSecond(promptUsage.promptEvalTokens, timingUsage.promptEvalDurationMs),
+      generationTokensPerSecond: getGenerationTokensPerSecond(
+        completionUsage.completionTokens,
+        completionUsage.thinkingTokens,
+        timingUsage.generationDurationMs,
+      ),
     },
   };
 }
@@ -351,7 +365,7 @@ type AppendChatOptions = {
   promptEvalDurationMs?: number | null;
   generationDurationMs?: number | null;
   promptTokensPerSecond?: number | null;
-  outputTokensPerSecond?: number | null;
+  generationTokensPerSecond?: number | null;
   requestStartedAtUtc?: string | null;
   thinkingStartedAtUtc?: string | null;
   thinkingEndedAtUtc?: string | null;
@@ -383,7 +397,7 @@ export function appendChatMessagesWithUsage(
   const usagePromptEvalDurationMs = getChatUsageValue(usage.promptEvalDurationMs);
   const usageGenerationDurationMs = getChatUsageValue(usage.generationDurationMs);
   const usagePromptTokensPerSecond = getChatUsageValue(usage.promptTokensPerSecond);
-  const usageOutputTokensPerSecond = getChatUsageValue(usage.outputTokensPerSecond);
+  const usageGenerationTokensPerSecond = getChatUsageValue(usage.generationTokensPerSecond);
   const processedPromptTokens = getProcessedPromptTokens(promptTokens, promptCacheTokens, promptEvalTokens);
   const userTokens = processedPromptTokens ?? estimateTokenCount(content);
   const explicitOutputTokens = getChatUsageValue(options.outputTokens);
@@ -426,9 +440,9 @@ export function appendChatMessagesWithUsage(
     promptTokensPerSecond: Number.isFinite(Number(options.promptTokensPerSecond))
       ? Number(options.promptTokensPerSecond)
       : usagePromptTokensPerSecond,
-    outputTokensPerSecond: Number.isFinite(Number(options.outputTokensPerSecond))
-      ? Number(options.outputTokensPerSecond)
-      : usageOutputTokensPerSecond,
+    generationTokensPerSecond: Number.isFinite(Number(options.generationTokensPerSecond))
+      ? Number(options.generationTokensPerSecond)
+      : usageGenerationTokensPerSecond,
     requestDurationMs: Number.isFinite(Number(options.requestDurationMs)) ? Number(options.requestDurationMs) : null,
     promptEvalDurationMs: Number.isFinite(Number(options.promptEvalDurationMs))
       ? Number(options.promptEvalDurationMs)
@@ -519,7 +533,7 @@ export async function streamChatAssistantMessage(
         promptEvalDurationMs: null,
         generationDurationMs: null,
         promptTokensPerSecond: null,
-        outputTokensPerSecond: null,
+        generationTokensPerSecond: null,
       };
       response.setEncoding('utf8');
       response.on('data', (chunk: string) => {
@@ -564,8 +578,15 @@ export async function streamChatAssistantMessage(
               promptEvalTokens: promptUsage.promptEvalTokens ?? finalUsage.promptEvalTokens ?? null,
               promptEvalDurationMs: timingUsage.promptEvalDurationMs ?? finalUsage.promptEvalDurationMs ?? null,
               generationDurationMs: timingUsage.generationDurationMs ?? finalUsage.generationDurationMs ?? null,
-              promptTokensPerSecond: timingUsage.promptTokensPerSecond ?? finalUsage.promptTokensPerSecond ?? null,
-              outputTokensPerSecond: timingUsage.outputTokensPerSecond ?? finalUsage.outputTokensPerSecond ?? null,
+              promptTokensPerSecond: getPromptTokensPerSecond(
+                promptUsage.promptEvalTokens ?? finalUsage.promptEvalTokens ?? null,
+                timingUsage.promptEvalDurationMs ?? finalUsage.promptEvalDurationMs ?? null,
+              ),
+              generationTokensPerSecond: getGenerationTokensPerSecond(
+                completionUsage.completionTokens ?? finalUsage.completionTokens ?? null,
+                completionUsage.thinkingTokens ?? finalUsage.thinkingTokens ?? null,
+                timingUsage.generationDurationMs ?? finalUsage.generationDurationMs ?? null,
+              ),
             };
             if (typeof onProgress === 'function') {
               onProgress({

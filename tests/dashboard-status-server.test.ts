@@ -353,7 +353,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     const repoSearchEvent = repoRunEvents.find((event) => event.kind === 'repo_search') || null;
     assert.equal(Boolean(repoSearchEvent), true);
     const plannerArtifact = d(repoSearchEvent?.payload);
-    assert.equal(plannerArtifact.requestMaxTokens, 10000);
+    assert.equal(plannerArtifact.requestMaxTokens, null);
     assert.match(String(plannerArtifact.prompt), /Start with a short "Summary of Request and Approach"/u);
     assert.match(String(plannerArtifact.prompt), /Open Questions \(if any\)/u);
     assert.match(String(plannerArtifact.prompt), /misalignment between the request and existing repository behavior/u);

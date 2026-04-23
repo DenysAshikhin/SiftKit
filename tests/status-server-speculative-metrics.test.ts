@@ -305,3 +305,94 @@ test('dashboard runs keep persisted speculative totals when artifact payloads di
     }
   });
 });
+
+test('dashboard runs keep speculative totals null when only artifact payloads provide them', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const runtimeRoot = path.join(tempRoot, '.siftkit');
+    const runtimeDbPath = path.join(runtimeRoot, 'runtime.sqlite');
+    const logsRoot = path.join(runtimeRoot, 'logs');
+    const requestsRoot = path.join(logsRoot, 'requests');
+    const repoSearchPassRoot = path.join(logsRoot, 'repo_search', 'succesful');
+    const requestId = 'repo-run-artifact-only-speculative';
+
+    fs.mkdirSync(requestsRoot, { recursive: true });
+    fs.mkdirSync(repoSearchPassRoot, { recursive: true });
+
+    const database = new Database(runtimeDbPath);
+    try {
+      upsertRepoSearchRun({
+        database,
+        requestId,
+        taskKind: 'repo-search',
+        prompt: 'find speculative metrics',
+        repoRoot: tempRoot,
+        model: 'mock-model',
+        requestMaxTokens: 512,
+        maxTurns: 2,
+        transcriptText: '',
+        artifactPayload: { requestId, prompt: 'find speculative metrics', repoRoot: tempRoot },
+        terminalState: 'completed',
+        startedAtUtc: '2026-04-22T17:00:00.000Z',
+        finishedAtUtc: '2026-04-22T17:00:30.000Z',
+        requestDurationMs: 30000,
+        promptTokens: 10,
+        outputTokens: 5,
+        thinkingTokens: 2,
+        toolTokens: 1,
+        promptCacheTokens: 3,
+        promptEvalTokens: 7,
+        speculativeAcceptedTokens: null,
+        speculativeGeneratedTokens: null,
+      });
+
+      fs.writeFileSync(path.join(requestsRoot, `request_${requestId}.json`), JSON.stringify({
+        requestId,
+        question: 'find speculative metrics',
+        createdAtUtc: '2026-04-22T17:00:00.000Z',
+        speculativeAcceptedTokens: 47,
+        speculativeGeneratedTokens: 47,
+        promptCacheTokens: 3,
+        promptEvalTokens: 7,
+      }, null, 2));
+      fs.writeFileSync(path.join(repoSearchPassRoot, `request_${requestId}.json`), JSON.stringify({
+        requestId,
+        prompt: 'find speculative metrics',
+        repoRoot: tempRoot,
+        createdAtUtc: '2026-04-22T17:00:00.000Z',
+        totals: {
+          promptTokens: 10,
+          outputTokens: 5,
+          thinkingTokens: 2,
+          promptCacheTokens: 3,
+          promptEvalTokens: 7,
+          speculativeAcceptedTokens: 11,
+          speculativeGeneratedTokens: 11,
+        },
+      }, null, 2));
+
+      const flushed = flushRunArtifactsToDbAndDelete({
+        database,
+        requestId,
+        terminalState: 'completed',
+        taskKind: 'repo-search',
+      });
+      assert.equal(flushed, true);
+    } finally {
+      database.close();
+    }
+
+    const verifyDb = new Database(runtimeDbPath);
+    try {
+      const runs = queryDashboardRunsFromDb(verifyDb);
+      const run = runs.find((entry) => entry.id === requestId);
+      assert.equal(run?.speculativeAcceptedTokens, null);
+      assert.equal(run?.speculativeGeneratedTokens, null);
+
+      const detail = queryDashboardRunDetailFromDb(verifyDb, requestId);
+      assert.equal(detail?.run.speculativeAcceptedTokens, null);
+      assert.equal(detail?.run.speculativeGeneratedTokens, null);
+    } finally {
+      verifyDb.close();
+    }
+  });
+});

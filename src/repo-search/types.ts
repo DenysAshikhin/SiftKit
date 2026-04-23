@@ -33,7 +33,6 @@ export type RepoSearchExecutionRequest = {
   allowedTools?: string[];
   includeAgentsMd?: boolean;
   includeRepoFileListing?: boolean;
-  requestMaxTokens?: number;
   maxTurns?: number;
   logFile?: string;
   availableModels?: string[];

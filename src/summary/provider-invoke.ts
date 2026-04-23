@@ -89,6 +89,7 @@ export async function invokeProviderSummary(options: {
       config: options.config,
       model: options.model,
       prompt: options.prompt,
+      promptTokenCount: options.promptTokenCount,
       timeoutSeconds: options.requestTimeoutSeconds ?? 600,
       slotId: options.slotId ?? undefined,
       reasoningOverride: options.reasoningOverride,

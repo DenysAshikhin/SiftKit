@@ -56,6 +56,10 @@ import {
   logLine,
 } from '../managed-llama.js';
 import {
+  getGenerationTokensPerSecond,
+  getPromptTokensPerSecond,
+} from '../../lib/telemetry-metrics.js';
+import {
   acquireModelRequestWithWait,
   releaseModelRequest,
   ensureManagedLlamaReadyForModelRequest,
@@ -96,14 +100,12 @@ function resolveRepoSearchRoutePreset(
   return presets.find((preset) => preset.presetKind === 'plan' || preset.presetKind === 'repo-search') || null;
 }
 
-export function getRepoSearchOutputTokensPerSecond(scorecard: unknown): number | null {
-  const outputTokens = getScorecardTotal(scorecard, 'outputTokens');
-  const thinkingTokens = getScorecardTotal(scorecard, 'thinkingTokens');
-  const generationDurationMs = getScorecardTotal(scorecard, 'generationDurationMs');
-  const generatedTokens = (outputTokens ?? 0) + (thinkingTokens ?? 0);
-  return generatedTokens > 0 && generationDurationMs !== null && generationDurationMs > 0
-    ? (generatedTokens / (generationDurationMs / 1000))
-    : null;
+export function getRepoSearchGenerationTokensPerSecond(scorecard: unknown): number | null {
+  return getGenerationTokensPerSecond(
+    getScorecardTotal(scorecard, 'outputTokens'),
+    getScorecardTotal(scorecard, 'thinkingTokens'),
+    getScorecardTotal(scorecard, 'generationDurationMs'),
+  );
 }
 
 async function notifyChatStatus(options: {
@@ -671,7 +673,6 @@ export async function handleChatRoute(
         includeAgentsMd: preset?.includeAgentsMd !== false,
         includeRepoFileListing: preset?.includeRepoFileListing !== false,
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
-        requestMaxTokens: 10000,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
         logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,
         availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,
@@ -706,12 +707,10 @@ export async function handleChatRoute(
           promptTokensPerSecond: (() => {
             const promptTokens = getScorecardTotal(result?.scorecard, 'promptEvalTokens');
             const promptDurationMs = getScorecardTotal(result?.scorecard, 'promptEvalDurationMs');
-            return promptTokens !== null && promptDurationMs !== null && promptDurationMs > 0
-              ? (promptTokens / (promptDurationMs / 1000))
-              : null;
+            return getPromptTokensPerSecond(promptTokens, promptDurationMs);
           })(),
-          outputTokensPerSecond: (() => {
-            return getRepoSearchOutputTokensPerSecond(result?.scorecard);
+          generationTokensPerSecond: (() => {
+            return getRepoSearchGenerationTokensPerSecond(result?.scorecard);
           })(),
           speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
           speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
@@ -816,7 +815,6 @@ export async function handleChatRoute(
         includeAgentsMd: preset?.includeAgentsMd !== false,
         includeRepoFileListing: preset?.includeRepoFileListing !== false,
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
-        requestMaxTokens: 10000,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
         logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,
         availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,
@@ -878,12 +876,10 @@ export async function handleChatRoute(
           promptTokensPerSecond: (() => {
             const promptTokens = getScorecardTotal(result?.scorecard, 'promptEvalTokens');
             const promptDurationMs = getScorecardTotal(result?.scorecard, 'promptEvalDurationMs');
-            return promptTokens !== null && promptDurationMs !== null && promptDurationMs > 0
-              ? (promptTokens / (promptDurationMs / 1000))
-              : null;
+            return getPromptTokensPerSecond(promptTokens, promptDurationMs);
           })(),
-          outputTokensPerSecond: (() => {
-            return getRepoSearchOutputTokensPerSecond(result?.scorecard);
+          generationTokensPerSecond: (() => {
+            return getRepoSearchGenerationTokensPerSecond(result?.scorecard);
           })(),
           ...phaseTracker.snapshot(),
           speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
@@ -990,7 +986,6 @@ export async function handleChatRoute(
         includeAgentsMd: preset?.includeAgentsMd !== false,
         includeRepoFileListing: preset?.includeRepoFileListing !== false,
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
-        requestMaxTokens: 10000,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
         logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,
         availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,
@@ -1044,12 +1039,10 @@ export async function handleChatRoute(
           promptTokensPerSecond: (() => {
             const promptTokens = getScorecardTotal(result?.scorecard, 'promptEvalTokens');
             const promptDurationMs = getScorecardTotal(result?.scorecard, 'promptEvalDurationMs');
-            return promptTokens !== null && promptDurationMs !== null && promptDurationMs > 0
-              ? (promptTokens / (promptDurationMs / 1000))
-              : null;
+            return getPromptTokensPerSecond(promptTokens, promptDurationMs);
           })(),
-          outputTokensPerSecond: (() => {
-            return getRepoSearchOutputTokensPerSecond(result?.scorecard);
+          generationTokensPerSecond: (() => {
+            return getRepoSearchGenerationTokensPerSecond(result?.scorecard);
           })(),
           ...phaseTracker.snapshot(),
           speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,

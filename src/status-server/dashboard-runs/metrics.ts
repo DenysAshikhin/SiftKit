@@ -2,6 +2,10 @@ import Database from 'better-sqlite3';
 
 import type { SiftConfig } from '../../config/index.js';
 import {
+  getAcceptanceRate as getSharedAcceptanceRate,
+  getPromptCacheHitRate as getSharedPromptCacheHitRate,
+} from '../../lib/telemetry-metrics.js';
+import {
   TASK_KINDS,
   type Metrics,
   type ToolTypeStats,
@@ -30,22 +34,11 @@ type DatabaseInstance = InstanceType<typeof Database>;
 export { type SnapshotTotals } from '../idle-summary.js';
 
 export function getPromptCacheHitRate(promptCacheTokens: unknown, promptEvalTokens: unknown): number | null {
-  const cacheTokens = Number(promptCacheTokens) || 0;
-  const evalTokens = Number(promptEvalTokens) || 0;
-  const totalPromptTokens = cacheTokens + evalTokens;
-  if (totalPromptTokens <= 0) {
-    return null;
-  }
-  return cacheTokens / totalPromptTokens;
+  return getSharedPromptCacheHitRate(promptCacheTokens, promptEvalTokens);
 }
 
 export function getAcceptanceRate(speculativeAcceptedTokens: unknown, speculativeGeneratedTokens: unknown): number | null {
-  const acceptedTokens = Number(speculativeAcceptedTokens) || 0;
-  const generatedTokens = Number(speculativeGeneratedTokens) || 0;
-  if (generatedTokens <= 0) {
-    return null;
-  }
-  return acceptedTokens / generatedTokens;
+  return getSharedAcceptanceRate(speculativeAcceptedTokens, speculativeGeneratedTokens);
 }
 
 export function getCurrentUtcDateKey(): string {

@@ -574,7 +574,7 @@ test('chat tab renders session list and composer', () => {
         speculativeAcceptedTokens: 15,
         speculativeGeneratedTokens: 20,
         promptTokensPerSecond: 120,
-        outputTokensPerSecond: 80,
+        generationTokensPerSecond: 80,
       }}
       webPresets={[PRESET]}
       selectedChatPreset={PRESET}
@@ -615,7 +615,7 @@ test('chat tab renders session list and composer', () => {
   assert.match(markup, /Send a local chat message/);
   assert.match(markup, /Acceptance:/);
   assert.match(markup, /Prompt\/s:/);
-  assert.match(markup, /Output\/s:/);
+  assert.match(markup, /Generation\/s:/);
   assert.doesNotMatch(markup, /think every/u);
 });
 

@@ -29,6 +29,7 @@ function Get-ListenerPids {
             }
         }
     }
+
     return @($pids)
 }
 

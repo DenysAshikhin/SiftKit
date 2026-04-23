@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { getRepoSearchOutputTokensPerSecond } from '../src/status-server/routes/chat.js';
+import { getRepoSearchGenerationTokensPerSecond } from '../src/status-server/routes/chat.js';
 
-test('getRepoSearchOutputTokensPerSecond counts thinking tokens in repo-search generation throughput', () => {
+test('getRepoSearchGenerationTokensPerSecond counts thinking tokens in repo-search generation throughput', () => {
   const scorecard = {
     totals: {
       outputTokens: 607,
@@ -12,12 +12,12 @@ test('getRepoSearchOutputTokensPerSecond counts thinking tokens in repo-search g
     },
   };
 
-  const rate = getRepoSearchOutputTokensPerSecond(scorecard as never);
+  const rate = getRepoSearchGenerationTokensPerSecond(scorecard as never);
 
   assert.equal(rate, (607 + 576) / (15837.164 / 1000));
 });
 
-test('getRepoSearchOutputTokensPerSecond returns null when duration is missing', () => {
+test('getRepoSearchGenerationTokensPerSecond returns null when duration is missing', () => {
   const scorecard = {
     totals: {
       outputTokens: 607,
@@ -26,5 +26,5 @@ test('getRepoSearchOutputTokensPerSecond returns null when duration is missing',
     },
   };
 
-  assert.equal(getRepoSearchOutputTokensPerSecond(scorecard as never), null);
+  assert.equal(getRepoSearchGenerationTokensPerSecond(scorecard as never), null);
 });

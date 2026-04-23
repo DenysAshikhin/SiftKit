@@ -4,7 +4,6 @@ export { executeRepoSearchRequest } from './execute.js';
 export {
   assertConfiguredModelPresent,
   buildScorecard,
-  resolveRepoSearchRequestMaxTokens,
   runRepoSearch,
   runTaskLoop,
   TASK_PACK,

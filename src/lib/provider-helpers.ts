@@ -3,6 +3,7 @@
  * repo-search planner protocol, and any future provider integrations.
  */
 import { sleep } from './time.js';
+import { getNormalizedCompletionTokens } from './telemetry-metrics.js';
 
 // ---------------------------------------------------------------------------
 // Network error serialization
@@ -193,7 +194,7 @@ export type TimingUsage = {
   promptEvalDurationMs: number | null;
   generationDurationMs: number | null;
   promptTokensPerSecond: number | null;
-  outputTokensPerSecond: number | null;
+  generationTokensPerSecond: number | null;
 };
 
 export function getProcessedPromptTokens(
@@ -254,7 +255,7 @@ export function getTimingUsageFromResponseBody(body: Record<string, unknown>): T
     promptEvalDurationMs: getUsageNumber(timings?.prompt_ms) ?? getUsageNumber(verboseTimings?.prompt_ms),
     generationDurationMs: getUsageNumber(timings?.predicted_ms) ?? getUsageNumber(verboseTimings?.predicted_ms),
     promptTokensPerSecond: getUsageNumber(timings?.prompt_per_second) ?? getUsageNumber(verboseTimings?.prompt_per_second),
-    outputTokensPerSecond: getUsageNumber(timings?.predicted_per_second) ?? getUsageNumber(verboseTimings?.predicted_per_second),
+    generationTokensPerSecond: getUsageNumber(timings?.predicted_per_second) ?? getUsageNumber(verboseTimings?.predicted_per_second),
   };
 }
 
@@ -298,11 +299,14 @@ export function getCompletionUsageFromResponseBody(body: Record<string, unknown>
     ? verboseBody.timings as Record<string, unknown>
     : undefined;
   return {
-    completionTokens: getUsageNumber(usage?.completion_tokens)
+    completionTokens: getNormalizedCompletionTokens(
+      getUsageNumber(usage?.completion_tokens)
       ?? getUsageNumber(usage?.output_tokens)
       ?? getUsageNumber(timings?.predicted_n)
       ?? getUsageNumber(verboseTimings?.predicted_n)
       ?? getUsageNumber(verboseBody?.tokens_predicted),
+      getThinkingTokensFromUsage(usage),
+    ),
     thinkingTokens: getThinkingTokensFromUsage(usage),
   };
 }

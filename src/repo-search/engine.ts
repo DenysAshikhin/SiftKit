@@ -17,6 +17,7 @@ import {
   readLatestIdleSummaryToolStats,
 } from '../line-read-guidance.js';
 import { spawnPowerShellAsync } from '../lib/powershell.js';
+import { getDynamicMaxOutputTokens } from '../lib/dynamic-output-cap.js';
 import { colorize } from '../lib/text-format.js';
 import { countLlamaCppTokens, listLlamaCppModels } from '../providers/llama-cpp.js';
 import type { ToolTypeStats } from '../status-server/metrics.js';
@@ -104,7 +105,6 @@ const MIN_TOOL_CALLS_BEFORE_FINISH = 5;
 const THINKING_BUFFER_RATIO = 0.15;
 const THINKING_BUFFER_MIN_TOKENS = 4000;
 const PER_TOOL_RESULT_RATIO = 0.10;
-const DEFAULT_REPO_SEARCH_REQUEST_MAX_TOKENS = 2048;
 const ZERO_OUTPUT_FORCE_THRESHOLD = 10;
 const FORCED_FINISH_MAX_ATTEMPTS = 3;
 const DUPLICATE_FORCE_THRESHOLD = 5;
@@ -445,25 +445,6 @@ function evaluateTaskSignals(task: TaskDefinition, evidenceText: string): {
 }
 
 // ---------------------------------------------------------------------------
-// Request max-tokens resolution
-// ---------------------------------------------------------------------------
-
-export function resolveRepoSearchRequestMaxTokens(options: {
-  config?: SiftConfig;
-  requestMaxTokens?: number;
-} = {}): number {
-  const explicitMaxTokens = Number(options.requestMaxTokens);
-  if (Number.isFinite(explicitMaxTokens) && explicitMaxTokens > 0) {
-    return Math.floor(explicitMaxTokens);
-  }
-  const configuredMaxTokens = Number(getConfiguredLlamaSetting(options.config || {} as SiftConfig, 'MaxTokens'));
-  if (Number.isFinite(configuredMaxTokens) && configuredMaxTokens > 0) {
-    return Math.floor(Math.min(configuredMaxTokens, DEFAULT_REPO_SEARCH_REQUEST_MAX_TOKENS));
-  }
-  return DEFAULT_REPO_SEARCH_REQUEST_MAX_TOKENS;
-}
-
-// ---------------------------------------------------------------------------
 // Console helper
 // ---------------------------------------------------------------------------
 
@@ -514,7 +495,6 @@ type RunTaskLoopOptions = {
   maxTurns?: number;
   maxInvalidResponses?: number;
   minToolCallsBeforeFinish?: number;
-  requestMaxTokens: number;
   plannerToolDefinitions?: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;
   includeAgentsMd?: boolean;
   includeRepoFileListing?: boolean;
@@ -592,7 +572,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const thinkingBufferTokens = Math.max(Math.ceil(totalContextTokens * THINKING_BUFFER_RATIO), THINKING_BUFFER_MIN_TOKENS);
   const usablePromptTokens = Math.max(totalContextTokens - thinkingBufferTokens, 0);
   const useEstimatedTokensOnly = Array.isArray(options.mockResponses);
-  const requestMaxTokens = options.requestMaxTokens;
   const plannerThinkingEnabled = isPlannerReasoningEnabled(options.config);
   const plannerReasoningContentEnabled = isPlannerReasoningContentEnabled(options.config);
   const plannerPreserveThinkingEnabled = isPlannerPreserveThinkingEnabled(options.config);
@@ -652,13 +631,16 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       prompt,
       totalContextTokens,
       thinkingBufferTokens,
-      requestMaxTokens,
+    });
+    let maxOutputTokens = getDynamicMaxOutputTokens({
+      totalContextTokens,
+      promptTokenCount: preflight.promptTokenCount,
     });
 
     options.logger?.write({
       kind: 'turn_preflight_budget', taskId: task.id, turn,
       promptTokenCount: preflight.promptTokenCount, maxPromptBudget: preflight.maxPromptBudget,
-      overflowTokens: preflight.overflowTokens, ok: preflight.ok, compacted: false,
+      overflowTokens: preflight.overflowTokens, ok: preflight.ok, compacted: false, maxOutputTokens,
     });
 
     if (!preflight.ok) {
@@ -669,7 +651,11 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       lastLoggedMessageCount = 0;
       prompt = renderTaskTranscript(messages);
       const afterCompaction = await preflightPlannerPromptBudget({
-        config: useEstimatedTokensOnly ? undefined : options.config, prompt, totalContextTokens, thinkingBufferTokens, requestMaxTokens,
+        config: useEstimatedTokensOnly ? undefined : options.config, prompt, totalContextTokens, thinkingBufferTokens,
+      });
+      maxOutputTokens = getDynamicMaxOutputTokens({
+        totalContextTokens,
+        promptTokenCount: afterCompaction.promptTokenCount,
       });
       options.logger?.write({
         kind: 'turn_preflight_compaction_applied', taskId: task.id, turn,
@@ -678,6 +664,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         maxPromptBudget: afterCompaction.maxPromptBudget,
         droppedMessageCount: compacted.droppedMessageCount,
         summaryInserted: compacted.summaryInserted,
+        maxOutputTokens,
       });
       preflight = afterCompaction;
     }
@@ -686,13 +673,13 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       const overflowError = new Error(
         `planner_preflight_overflow prompt_tokens=${preflight.promptTokenCount} `
         + `max_prompt_tokens=${preflight.maxPromptBudget} overflow_tokens=${preflight.overflowTokens} `
-        + `request_max_tokens=${requestMaxTokens} total_context_tokens=${totalContextTokens} `
+        + `max_output_tokens=${maxOutputTokens} total_context_tokens=${totalContextTokens} `
         + `thinking_buffer_tokens=${thinkingBufferTokens}`,
       );
       options.logger?.write({
         kind: 'turn_preflight_overflow_fail', taskId: task.id, turn,
         promptTokenCount: preflight.promptTokenCount, maxPromptBudget: preflight.maxPromptBudget,
-        overflowTokens: preflight.overflowTokens, requestMaxTokens, totalContextTokens, thinkingBufferTokens,
+        overflowTokens: preflight.overflowTokens, maxOutputTokens, totalContextTokens, thinkingBufferTokens,
         error: overflowError.message,
       });
       throw overflowError;
@@ -712,7 +699,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       messages,
       slotId,
       timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
-      requestMaxTokens,
+      maxTokens: maxOutputTokens,
       thinkingEnabled: plannerThinkingEnabled,
       reasoningContentEnabled: plannerReasoningContentEnabled,
       preserveThinking: plannerPreserveThinkingEnabled,
@@ -1344,7 +1331,21 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       reason,
       transcript: renderTaskTranscript(messages.slice(2)),
     });
-    options.logger?.write({ kind: 'task_terminal_synthesis_requested', taskId: task.id, reason });
+    const synthesisPromptTokenCount = await countTokensWithFallback(
+      useEstimatedTokensOnly ? undefined : options.config,
+      synthesisPrompt,
+    );
+    const synthesisMaxTokens = getDynamicMaxOutputTokens({
+      totalContextTokens,
+      promptTokenCount: synthesisPromptTokenCount,
+    });
+    options.logger?.write({
+      kind: 'task_terminal_synthesis_requested',
+      taskId: task.id,
+      reason,
+      promptTokenCount: synthesisPromptTokenCount,
+      maxOutputTokens: synthesisMaxTokens,
+    });
     const maxSynthesisAttempts = 3;
     let lastErrorMessage = '';
     let successAttempt = 0;
@@ -1357,7 +1358,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
           timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
           mockResponses: options.mockResponses,
           mockResponseIndex,
-          requestMaxTokens,
+          maxTokens: synthesisMaxTokens,
           thinkingEnabled: plannerThinkingEnabled,
           reasoningContentEnabled: plannerReasoningContentEnabled,
           preserveThinking: plannerPreserveThinkingEnabled,
@@ -1507,7 +1508,6 @@ export async function runRepoSearch(options: {
   allowedTools?: string[];
   includeAgentsMd?: boolean;
   includeRepoFileListing?: boolean;
-  requestMaxTokens?: number;
   maxTurns?: number;
   timeoutMs?: number;
   maxInvalidResponses?: number;
@@ -1538,7 +1538,6 @@ export async function runRepoSearch(options: {
     ? [{ id: 'repo-search', question: String(options.taskPrompt), signals: [] }]
     : TASK_PACK;
 
-  const requestMaxTokens = resolveRepoSearchRequestMaxTokens({ config, requestMaxTokens: options.requestMaxTokens });
   const tasks: TaskResult[] = [];
 
   for (const task of tasksToRun) {
@@ -1552,7 +1551,6 @@ export async function runRepoSearch(options: {
       maxTurns: options.maxTurns || DEFAULT_MAX_TURNS,
       maxInvalidResponses: options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES,
       minToolCallsBeforeFinish: options.minToolCallsBeforeFinish,
-      requestMaxTokens,
       plannerToolDefinitions,
       includeAgentsMd: options.includeAgentsMd,
       includeRepoFileListing: options.includeRepoFileListing,
