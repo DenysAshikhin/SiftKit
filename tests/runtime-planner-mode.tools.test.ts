@@ -124,6 +124,54 @@ test('find_text counts all hits even when maxHits truncates rendered blocks', ()
   assert.doesNotMatch(result.text, /Lumbridge Castle Basement Ladder/u);
 });
 
+test('find_text literal matching is case insensitive', () => {
+  const inputText = [
+    '<span className="manage-kv-label">Skill</span>',
+    '<span className="manage-kv-label">Activity</span>',
+    '<span className="manage-kv-label">Loadout</span>',
+    '<span className="manage-kv-label">Savefile</span>',
+  ].join('\n');
+
+  const result = executePlannerTool(inputText, {
+    action: 'tool',
+    tool_name: 'find_text',
+    args: {
+      query: 'SKILL',
+      mode: 'literal',
+      maxHits: 5,
+      contextLines: 0,
+    },
+  });
+
+  assert.equal(result.hitCount, 1);
+  assert.equal(result.returnedHits, 1);
+  assert.match(result.text, /Skill/u);
+});
+
+test('find_text regex matching is case insensitive', () => {
+  const inputText = [
+    '<span className="manage-kv-label">Skill</span>',
+    '<span className="manage-kv-label">Activity</span>',
+    '<span className="manage-kv-label">Loadout</span>',
+    '<span className="manage-kv-label">Savefile</span>',
+  ].join('\n');
+
+  const result = executePlannerTool(inputText, {
+    action: 'tool',
+    tool_name: 'find_text',
+    args: {
+      query: 'SKILL|ACTIVITY|LOADOUT|SAVEFILE',
+      mode: 'regex',
+      maxHits: 10,
+      contextLines: 0,
+    },
+  });
+
+  assert.equal(result.hitCount, 4);
+  assert.equal(result.returnedHits, 4);
+  assert.match(result.text, /Loadout/u);
+});
+
 test('json_get resolves nested paths from embedded json fallback sections', () => {
   const inputText = [
     'runner_state_history excerpt follows',

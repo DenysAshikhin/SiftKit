@@ -308,15 +308,16 @@ function executeFindTextTool(inputText: string, args: Record<string, unknown>): 
   const contextLines = Math.max(0, Math.min(getFiniteInteger(args.contextLines) ?? 0, 3));
   const lines = inputText.replace(/\r\n/gu, '\n').split('\n');
   let matcher: RegExp | null = null;
+  const literalQuery = query.toLowerCase();
   let normalizedQuery: string | null = null;
   if (mode === 'regex') {
     try {
-      matcher = new RegExp(query, 'u');
+      matcher = new RegExp(query, 'iu');
     } catch (error) {
       const escapedBraceQuery = escapeUnescapedRegexBraces(query);
       if (escapedBraceQuery !== query) {
         try {
-          matcher = new RegExp(escapedBraceQuery, 'u');
+          matcher = new RegExp(escapedBraceQuery, 'iu');
           normalizedQuery = escapedBraceQuery;
         } catch {
           // Preserve original parser error below when fallback still fails.
@@ -341,7 +342,7 @@ function executeFindTextTool(inputText: string, args: Record<string, unknown>): 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
     const matched = mode === 'literal'
-      ? line.includes(query)
+      ? line.toLowerCase().includes(literalQuery)
       : Boolean(matcher?.test(line));
     if (!matched) {
       continue;

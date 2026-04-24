@@ -7,6 +7,7 @@ const VALUE_OPTIONS = new Set([
   '-StatusHost',
   '-StatusPort',
   '-RepoRoot',
+  '-CaseSet',
   '-CaseLimit',
 ]);
 

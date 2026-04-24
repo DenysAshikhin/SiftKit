@@ -15,6 +15,8 @@
     "benchmark:matrix": "tsx .\\src\\benchmark-matrix\\index.ts",
     "benchmark:import-md": "tsx .\\src\\import-markdown-benchmark.ts",
     "benchmark:spec-settings": "node .\\scripts\\run-benchmark-spec-settings.js",
+    "benchmark:spec-focused": "node .\\scripts\\run-benchmark-spec-focused.js",
+    "benchmark:spec-focused3": "node .\\scripts\\run-benchmark-spec-focused3.js",
     "test": "npm run build && npx tsx .\\scripts\\run-tests.ts",
     "test:coverage": "npm run build && npx c8 --include=\"dist/**/*.js\" --exclude=\"dist/src/**\" --exclude=\"node_modules/**\" --reporter=text --reporter=text-summary npx tsx --test",
     "test:live": "npm run build && powershell -Command \"$env:SIFTKIT_TEST_USE_EXISTING_SERVER='1'; if (-not $env:SIFTKIT_STATUS_BACKEND_URL) { $env:SIFTKIT_STATUS_BACKEND_URL='http://127.0.0.1:4765/status' }; if (-not $env:SIFTKIT_CONFIG_SERVICE_URL) { $env:SIFTKIT_CONFIG_SERVICE_URL='http://127.0.0.1:4765/config' }; npx tsx --test --test-name-pattern 'concurrent oversized CLI summary requests' .\\tests\\runtime-cli.test.ts\"",

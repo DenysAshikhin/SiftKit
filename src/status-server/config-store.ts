@@ -566,11 +566,11 @@ export function normalizeConfig(input: unknown): Dict {
   }
   serverLlama.SpeculativeEnabled = serverLlama.SpeculativeEnabled === true;
   serverLlama.SpeculativeType = getManagedSpeculativeType(serverLlama.SpeculativeType, 'ngram-map-k');
-  serverLlama.SpeculativeNgramSizeN = getFinitePositiveInteger(serverLlama.SpeculativeNgramSizeN, 8);
-  serverLlama.SpeculativeNgramSizeM = getFinitePositiveInteger(serverLlama.SpeculativeNgramSizeM, 16);
-  serverLlama.SpeculativeNgramMinHits = getFinitePositiveInteger(serverLlama.SpeculativeNgramMinHits, 2);
-  serverLlama.SpeculativeDraftMax = getFinitePositiveInteger(serverLlama.SpeculativeDraftMax, 16);
-  serverLlama.SpeculativeDraftMin = getFiniteInteger(serverLlama.SpeculativeDraftMin, 4);
+  serverLlama.SpeculativeNgramSizeN = getSpeculativeInteger(serverLlama.SpeculativeNgramSizeN, 8, true);
+  serverLlama.SpeculativeNgramSizeM = getSpeculativeInteger(serverLlama.SpeculativeNgramSizeM, 16, true);
+  serverLlama.SpeculativeNgramMinHits = getSpeculativeInteger(serverLlama.SpeculativeNgramMinHits, 2, true);
+  serverLlama.SpeculativeDraftMax = getSpeculativeInteger(serverLlama.SpeculativeDraftMax, 16, true);
+  serverLlama.SpeculativeDraftMin = getSpeculativeInteger(serverLlama.SpeculativeDraftMin, 4, false);
   serverLlama.VerboseLogging = Boolean(serverLlama.VerboseLogging);
   delete serverLlama.StartupScript;
   delete serverLlama.ShutdownScript;
@@ -1095,6 +1095,17 @@ function getFiniteInteger(value: unknown, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function getSpeculativeInteger(value: unknown, fallback: number, requirePositive: boolean): number {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  if (parsed === -1) {
+    return -1;
+  }
+  return !requirePositive || parsed > 0 ? parsed : fallback;
+}
+
 function getFiniteNumber(value: unknown, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -1301,11 +1312,11 @@ export function getManagedLlamaConfig(config: unknown): ManagedLlamaConfig {
     PreserveThinking: reasoningContentEnabled && serverLlama.PreserveThinking === true,
     SpeculativeEnabled: serverLlama.SpeculativeEnabled === true,
     SpeculativeType: getManagedSpeculativeType(serverLlama.SpeculativeType, String(defaults.SpeculativeType || 'ngram-map-k')),
-    SpeculativeNgramSizeN: getFinitePositiveInteger(serverLlama.SpeculativeNgramSizeN, Number(defaults.SpeculativeNgramSizeN ?? 8)),
-    SpeculativeNgramSizeM: getFinitePositiveInteger(serverLlama.SpeculativeNgramSizeM, Number(defaults.SpeculativeNgramSizeM ?? 16)),
-    SpeculativeNgramMinHits: getFinitePositiveInteger(serverLlama.SpeculativeNgramMinHits, Number(defaults.SpeculativeNgramMinHits ?? 2)),
-    SpeculativeDraftMax: getFinitePositiveInteger(serverLlama.SpeculativeDraftMax, Number(defaults.SpeculativeDraftMax ?? 16)),
-    SpeculativeDraftMin: getFiniteInteger(serverLlama.SpeculativeDraftMin, Number(defaults.SpeculativeDraftMin ?? 4)),
+    SpeculativeNgramSizeN: getSpeculativeInteger(serverLlama.SpeculativeNgramSizeN, Number(defaults.SpeculativeNgramSizeN ?? 8), true),
+    SpeculativeNgramSizeM: getSpeculativeInteger(serverLlama.SpeculativeNgramSizeM, Number(defaults.SpeculativeNgramSizeM ?? 16), true),
+    SpeculativeNgramMinHits: getSpeculativeInteger(serverLlama.SpeculativeNgramMinHits, Number(defaults.SpeculativeNgramMinHits ?? 2), true),
+    SpeculativeDraftMax: getSpeculativeInteger(serverLlama.SpeculativeDraftMax, Number(defaults.SpeculativeDraftMax ?? 16), true),
+    SpeculativeDraftMin: getSpeculativeInteger(serverLlama.SpeculativeDraftMin, Number(defaults.SpeculativeDraftMin ?? 4), false),
     ReasoningBudget: getFinitePositiveInteger(serverLlama.ReasoningBudget, Number(defaults.ReasoningBudget ?? DEFAULT_LLAMA_REASONING_BUDGET)),
     ReasoningBudgetMessage: getNullableTrimmedString(serverLlama.ReasoningBudgetMessage)
       || getNullableTrimmedString(defaults.ReasoningBudgetMessage)

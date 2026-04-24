@@ -5,10 +5,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { createRequire } from 'node:module';
 
-import { getSessionTelemetryStats } from '../dashboard/src/lib/format';
 import type { DashboardConfig } from '../dashboard/src/types';
 import {
   DEFAULT_SPEC_BENCHMARK_CASES,
+  FOCUSED3_SPEC_BENCHMARK_CASES,
+  FOCUSED_SPEC_BENCHMARK_CASES,
   applySpeculativeCaseToConfig,
   buildBenchmarkCaseId,
   findBenchmarkRun,
@@ -19,13 +20,13 @@ import {
 } from '../src/benchmark-spec-settings';
 
 const DEFAULT_SPEC_BENCHMARK_PROMPTS = [
-  'find all non-status-server call sites that pass speculativeAcceptedTokens or speculativeGeneratedTokens into sendStatusUpdate/status backend options; return exact file:line anchors and the source values used',
+  'trace the managed-llama log-delta source for speculativeAcceptedTokens and speculativeGeneratedTokens; return exact file:line anchors from log parse through benchmark output',
   'trace the repo-search completion telemetry path end to end: starting at executeRepoSearchRequest, find where promptCacheTokens, promptEvalTokens, outputTokens, thinkingTokens, and requestDurationMs are computed, persisted to run_logs, and exposed through /dashboard/runs; return exact file:line anchors grouped by stage',
   'trace the canonical speculative metrics flow end to end: find where managed llama logs are parsed, where speculativeAcceptedTokens and speculativeGeneratedTokens are written to run_logs, and where dashboard metrics or idle summaries read those persisted fields; return exact file:line anchors grouped by parse, persist, and read stages',
   'trace the dynamic output token cap path end to end: find where remaining context tokens are computed, where max_tokens is derived for repo-search planner and terminal synthesis, and where summary/chat requests reuse the same cap; return exact file:line anchors grouped by repo-search, shared provider, and chat paths',
   'find where benchmark acceptanceRate and generationTokensPerSecond are computed and written to summary.csv/results.json; return exact file:line anchors and the exact source expressions used for each metric',
   'trace the spec benchmark restart lifecycle end to end: find where each case config is applied, where /status/restart is called, where health/readiness is awaited, and where managed llama run baselines are captured; return exact file:line anchors grouped by config, restart, health, and baseline capture',
-  'find every non-test code path that can populate speculativeAcceptedTokens or speculativeGeneratedTokens on a run/session/artifact object; return exact file:line anchors and identify whether each source is managed-llama log delta, persisted run_logs, request payload, or fallback artifact data',
+  'verify that speculativeAcceptedTokens and speculativeGeneratedTokens in the spec benchmark come only from managed-llama log deltas; return exact file:line anchors for parse, delta, and output paths',
   'trace the repo-search prompt-budget and tool-output-limit path end to end: find where remaining token allowance is computed, where per tool call allowance is enforced, and where the \"requested output would consume\" failure text is emitted; return exact file:line anchors grouped by budget calculation, enforcement, and error reporting',
   'trace the managed llama restart/degraded-mode lifecycle end to end: find where llama_stop and llama_start are invoked, where startup warning/error markers trigger degraded mode, and where status/config endpoints surface server unavailable behavior; return exact file:line anchors grouped by stop/start, degraded mode, and HTTP surface',
 ] as const;
@@ -34,6 +35,12 @@ const DEFAULT_SPEC_BENCHMARK_PROMPT = DEFAULT_SPEC_BENCHMARK_PROMPTS[0];
 const require = createRequire(import.meta.url);
 const { normalizeForwardedArgs } = require('../scripts/run-benchmark-spec-settings.js') as {
   normalizeForwardedArgs: (argv: string[]) => string[];
+};
+const { buildFocusedPowerShellArgs } = require('../scripts/run-benchmark-spec-focused.js') as {
+  buildFocusedPowerShellArgs: (repoRoot: string, forwardedArgv: string[]) => string[];
+};
+const { buildFocused3PowerShellArgs } = require('../scripts/run-benchmark-spec-focused3.js') as {
+  buildFocused3PowerShellArgs: (repoRoot: string, forwardedArgv: string[]) => string[];
 };
 const { syncDistRuntime } = require('../scripts/sync-dist-runtime.js') as {
   syncDistRuntime: (sourceRoot: string, targetRoot: string) => void;
@@ -143,7 +150,7 @@ test('getSpeculativeLogDeltaTotals converts cumulative log totals into per-reque
   );
 });
 
-test('getRunTelemetryStats matches the UI-equivalent header metrics for a single repo-search turn', () => {
+test('getRunTelemetryStats uses managed-log delta speculative totals instead of persisted run totals', () => {
   const run = {
     promptCacheTokens: 200,
     promptEvalTokens: 50,
@@ -154,56 +161,25 @@ test('getRunTelemetryStats matches the UI-equivalent header metrics for a single
     speculativeAcceptedTokens: 30,
     speculativeGeneratedTokens: 60,
   } as never;
-  const session = {
-    id: 'session-1',
-    title: 'Session',
-    model: 'test-model',
-    contextWindowTokens: 100,
-    presetId: 'repo-search',
-    mode: 'repo-search',
-    condensedSummary: '',
-    createdAtUtc: '2026-04-16T11:00:00.000Z',
-    updatedAtUtc: '2026-04-16T12:00:00.000Z',
-    messages: [
-      { id: 'user-1', role: 'user', content: DEFAULT_SPEC_BENCHMARK_PROMPT, inputTokensEstimate: 0, outputTokensEstimate: 0, thinkingTokens: 0, createdAtUtc: '2026-04-16T11:59:59.000Z', sourceRunId: null },
-      {
-        id: 'assistant-1',
-        role: 'assistant',
-        content: 'answer',
-        inputTokensEstimate: 0,
-        outputTokensEstimate: 100,
-        thinkingTokens: 40,
-        promptCacheTokens: 200,
-        promptEvalTokens: 50,
-        promptTokensPerSecond: null,
-        generationTokensPerSecond: null,
-        promptEvalDurationMs: 10,
-        generationDurationMs: 2_000,
-        requestStartedAtUtc: null,
-        thinkingStartedAtUtc: null,
-        thinkingEndedAtUtc: null,
-        answerStartedAtUtc: null,
-        answerEndedAtUtc: null,
-        speculativeAcceptedTokens: 30,
-        speculativeGeneratedTokens: 60,
-        createdAtUtc: '2026-04-16T12:00:00.000Z',
-        sourceRunId: null,
-      },
-    ],
-  } as never;
+  const logDelta = {
+    speculative: true,
+    checkpointed: true,
+    speculativeAcceptedTokens: 58,
+    speculativeGeneratedTokens: 258,
+    rawAcceptanceLine: 'draft acceptance rate = 1.00000 (   11 accepted /    11 generated)',
+  };
 
-  const sessionStats = getSessionTelemetryStats(session);
   assert.deepEqual(
-    getRunTelemetryStats(run),
+    getRunTelemetryStats(run, logDelta),
     {
-      promptCacheTokens: sessionStats.promptCacheTokens,
-      promptEvalTokens: sessionStats.promptEvalTokens,
-      cacheHitRate: sessionStats.cacheHitRate,
-      speculativeAcceptedTokens: sessionStats.speculativeAcceptedTokens,
-      speculativeGeneratedTokens: sessionStats.speculativeGeneratedTokens,
-      acceptanceRate: sessionStats.acceptanceRate,
-      promptTokensPerSecond: sessionStats.promptTokensPerSecond,
-      generationTokensPerSecond: sessionStats.generationTokensPerSecond,
+      promptCacheTokens: 200,
+      promptEvalTokens: 50,
+      cacheHitRate: 0.8,
+      speculativeAcceptedTokens: 58,
+      speculativeGeneratedTokens: 258,
+      acceptanceRate: 58 / 258,
+      promptTokensPerSecond: 5000,
+      generationTokensPerSecond: 70,
       outputTokens: 100,
       thinkingTokens: 40,
       generationDurationMs: 2_000,
@@ -211,7 +187,7 @@ test('getRunTelemetryStats matches the UI-equivalent header metrics for a single
   );
 });
 
-test('getRunTelemetryStats preserves null speculative totals when the run has no canonical speculative metrics', () => {
+test('getRunTelemetryStats leaves speculative totals null when managed-log delta is unavailable', () => {
   const run = {
     promptCacheTokens: 200,
     promptEvalTokens: 50,
@@ -219,12 +195,12 @@ test('getRunTelemetryStats preserves null speculative totals when the run has no
     outputTokens: 100,
     thinkingTokens: 40,
     generationDurationMs: 2_000,
-    speculativeAcceptedTokens: null,
-    speculativeGeneratedTokens: null,
+    speculativeAcceptedTokens: 30,
+    speculativeGeneratedTokens: 60,
   } as never;
 
   assert.deepEqual(
-    getRunTelemetryStats(run),
+    getRunTelemetryStats(run, null),
     {
       promptCacheTokens: 200,
       promptEvalTokens: 50,
@@ -374,6 +350,44 @@ test('DEFAULT_SPEC_BENCHMARK_CASES appends a no-spec baseline case', () => {
   assert.equal(buildBenchmarkCaseId(lastEntry as never), 'baseline-no-spec');
 });
 
+test('FOCUSED_SPEC_BENCHMARK_CASES contains baseline, current best, and eight nearby candidates', () => {
+  assert.deepEqual(
+    FOCUSED_SPEC_BENCHMARK_CASES.map(buildBenchmarkCaseId),
+    [
+      'baseline-no-spec',
+      'n24-m64-h2-dmax64-dmin4',
+      'n24-m64-h2-dmax56-dmin4',
+      'n24-m64-h2-dmax72-dmin4',
+      'n24-m64-h2-dmax80-dmin4',
+      'n24-m64-h2-dmax64-dmin2',
+      'n24-m64-h2-dmax64-dmin8',
+      'n24-m48-h2-dmax64-dmin4',
+      'n24-m80-h2-dmax64-dmin4',
+      'n32-m64-h2-dmax64-dmin4',
+    ],
+  );
+});
+
+test('FOCUSED3_SPEC_BENCHMARK_CASES keeps trimmed-mean top two, baseline, and seven next candidates', () => {
+  assert.deepEqual(
+    FOCUSED3_SPEC_BENCHMARK_CASES.map(buildBenchmarkCaseId),
+    [
+      'baseline-no-spec',
+      'n24-m80-h2-dmax64-dmin4',
+      'n24-m64-h2-dmax72-dmin4',
+      'n24-m72-h2-dmax64-dmin4',
+      'n24-m88-h2-dmax64-dmin4',
+      'n24-m80-h2-dmax56-dmin4',
+      'n24-m80-h2-dmax72-dmin4',
+      'n24-m80-h2-dmax80-dmin4',
+      'n24-m72-h2-dmax72-dmin4',
+      'n32-m64-h2-dmax64-dmin4',
+      'n24-munset-hunset-dmax48-dmin12',
+      'n24-munset-hunset-dmax64-dmin48',
+    ],
+  );
+});
+
 test('spec benchmark script exists and targets the CLI run-log path', () => {
   const script = fs.readFileSync('scripts/benchmark-siftkit-spec-settings.ps1', 'utf8');
   const invokeHelper = fs.readFileSync('scripts/invoke-repo-search-benchmark.js', 'utf8');
@@ -391,9 +405,18 @@ test('spec benchmark script exists and targets the CLI run-log path', () => {
 
 test('spec benchmark script invokes repo-search through the node helper without Start-Process argument flattening', () => {
   const script = fs.readFileSync('scripts/benchmark-siftkit-spec-settings.ps1', 'utf8');
+  const invokeHelper = fs.readFileSync('scripts/invoke-repo-search-benchmark.js', 'utf8');
 
   assert.doesNotMatch(script, /-ArgumentList\s+@\('\.\\bin\\siftkit\.js',\s*'repo-search',\s*'--prompt',\s*\$PromptText\)/u);
+  assert.doesNotMatch(script, /--prompt\s+\$PromptText/u);
   assert.match(script, /&\s+node(?:\.exe)?\s+\.\\scripts\\invoke-repo-search-benchmark\.js/u);
+  assert.match(script, /\$promptPath\s*=\s*Join-Path\s+\$OutputDir\s+'prompt\.txt'/u);
+  assert.match(script, /\[System\.IO\.File\]::WriteAllText\(\$promptPath,\s*\$PromptText,/u);
+  assert.match(script, /--prompt-file\s+\$promptPath/u);
+  assert.match(invokeHelper, /readArgValue\(process\.argv,\s*'--prompt-file'\)/u);
+  assert.match(invokeHelper, /fs\.readFileSync\(promptFile,\s*'utf8'\)/u);
+  assert.match(invokeHelper, /repo-search',\s*'--prompt',\s*prompt/u);
+  assert.doesNotMatch(invokeHelper, /command:\s*`siftkit repo-search --prompt "\$\{prompt\}"`/u);
 });
 
 test('spec benchmark script supports short verification runs and incremental artifact writes', () => {
@@ -407,12 +430,17 @@ test('spec benchmark script supports short verification runs and incremental art
   assert.match(script, /Write-BenchmarkArtifacts\s+-OutputDirectory\s+\$outputDirectory\s+-Results\s+\$results/u);
 });
 
-test('spec benchmark script keeps log deltas as internal verification only', () => {
+test('spec benchmark script uses managed log deltas as the benchmark speculative metric source', () => {
   const script = fs.readFileSync('scripts/benchmark-siftkit-spec-settings.ps1', 'utf8');
 
   assert.match(script, /function\s+Get-SpeculativeLogDeltaTotals/u);
   assert.match(script, /\$baselineManagedRunDetail/u);
-  assert.match(script, /\$verifiedLogMetrics\s*=\s*Get-SpeculativeLogDeltaTotals/u);
+  assert.match(script, /\$speculativeLogMetrics\s*=\s*Get-SpeculativeLogDeltaTotals/u);
+  assert.match(script, /Get-RunTelemetryStats\s+-Run\s+\$run\s+-SpeculativeLogMetrics\s+\$speculativeLogMetrics/u);
+  assert.doesNotMatch(script, /Get-SpeculativeMetricsVerificationError/u);
+  assert.doesNotMatch(script, /speculative-metrics-verification/u);
+  assert.doesNotMatch(script, /\$Run\.speculativeAcceptedTokens/u);
+  assert.doesNotMatch(script, /\$Run\.speculativeGeneratedTokens/u);
   assert.doesNotMatch(script, /^\s*logMetrics\s*=/mu);
 });
 
@@ -441,6 +469,35 @@ test('spec benchmark script includes a final no-spec baseline case', () => {
   assert.match(script, /baseline-no-spec/u);
 });
 
+test('spec benchmark script supports the focused ten-case set without changing the default set', () => {
+  const script = fs.readFileSync('scripts/benchmark-siftkit-spec-settings.ps1', 'utf8');
+
+  assert.match(script, /\[ValidateSet\('Default',\s*'Focused10',\s*'Focused3'\)\]/u);
+  assert.match(script, /function\s+Get-FocusedCases/u);
+  assert.match(script, /\$CaseSet\s+-eq\s+'Focused10'/u);
+  assert.match(script, /SpeculativeDraftMax\s*=\s*56/u);
+  assert.match(script, /SpeculativeDraftMax\s*=\s*72/u);
+  assert.match(script, /SpeculativeDraftMax\s*=\s*80/u);
+  assert.match(script, /SpeculativeNgramSizeM\s*=\s*80/u);
+  assert.match(script, /SpeculativeNgramSizeN\s*=\s*32;\s*SpeculativeNgramSizeM\s*=\s*64;\s*SpeculativeNgramMinHits\s*=\s*2;\s*SpeculativeDraftMax\s*=\s*64/u);
+});
+
+test('spec benchmark script supports Focused3 with the next throughput candidates', () => {
+  const script = fs.readFileSync('scripts/benchmark-siftkit-spec-settings.ps1', 'utf8');
+
+  assert.match(script, /function\s+Get-Focused3Cases/u);
+  assert.match(script, /\$CaseSet\s+-eq\s+'Focused3'/u);
+  assert.match(script, /SpeculativeNgramSizeM\s*=\s*80;\s*SpeculativeNgramMinHits\s*=\s*2;\s*SpeculativeDraftMax\s*=\s*64/u);
+  assert.match(script, /SpeculativeNgramSizeM\s*=\s*64;\s*SpeculativeNgramMinHits\s*=\s*2;\s*SpeculativeDraftMax\s*=\s*72/u);
+  assert.match(script, /SpeculativeNgramSizeM\s*=\s*72;\s*SpeculativeNgramMinHits\s*=\s*2;\s*SpeculativeDraftMax\s*=\s*64/u);
+  assert.match(script, /SpeculativeNgramSizeM\s*=\s*88;\s*SpeculativeNgramMinHits\s*=\s*2;\s*SpeculativeDraftMax\s*=\s*64/u);
+  assert.match(script, /SpeculativeNgramSizeM\s*=\s*80;\s*SpeculativeNgramMinHits\s*=\s*2;\s*SpeculativeDraftMax\s*=\s*56/u);
+  assert.match(script, /SpeculativeNgramSizeM\s*=\s*80;\s*SpeculativeNgramMinHits\s*=\s*2;\s*SpeculativeDraftMax\s*=\s*72/u);
+  assert.match(script, /SpeculativeNgramSizeM\s*=\s*80;\s*SpeculativeNgramMinHits\s*=\s*2;\s*SpeculativeDraftMax\s*=\s*80/u);
+  assert.match(script, /SpeculativeNgramSizeM\s*=\s*-1;\s*SpeculativeNgramMinHits\s*=\s*-1;\s*SpeculativeDraftMax\s*=\s*48;\s*SpeculativeDraftMin\s*=\s*12/u);
+  assert.match(script, /SpeculativeNgramSizeM\s*=\s*-1;\s*SpeculativeNgramMinHits\s*=\s*-1;\s*SpeculativeDraftMax\s*=\s*64;\s*SpeculativeDraftMin\s*=\s*48/u);
+});
+
 test('spec benchmark script updates the active managed llama preset before restart', () => {
   const script = fs.readFileSync('scripts/benchmark-siftkit-spec-settings.ps1', 'utf8');
 
@@ -454,6 +511,29 @@ test('package benchmark command uses a node wrapper instead of forwarding prompt
 
   assert.match(String(pkg.scripts?.['benchmark:spec-settings'] || ''), /node\s+\.\\scripts\\run-benchmark-spec-settings\.js/u);
   assert.doesNotMatch(String(pkg.scripts?.['benchmark:spec-settings'] || ''), /&&/u);
+});
+
+test('package focused spec benchmark command preserves the old command and selects Focused10', () => {
+  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { scripts?: Record<string, string> };
+
+  assert.equal(String(pkg.scripts?.['benchmark:spec-settings']), 'node .\\scripts\\run-benchmark-spec-settings.js');
+  assert.equal(String(pkg.scripts?.['benchmark:spec-focused']), 'node .\\scripts\\run-benchmark-spec-focused.js');
+  assert.deepEqual(
+    buildFocusedPowerShellArgs('C:\\repo', ['-CaseLimit', '1']).slice(-4),
+    ['-CaseSet', 'Focused10', '-CaseLimit', '1'],
+  );
+});
+
+test('package focused3 spec benchmark command preserves existing commands and selects Focused3', () => {
+  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { scripts?: Record<string, string> };
+
+  assert.equal(String(pkg.scripts?.['benchmark:spec-settings']), 'node .\\scripts\\run-benchmark-spec-settings.js');
+  assert.equal(String(pkg.scripts?.['benchmark:spec-focused']), 'node .\\scripts\\run-benchmark-spec-focused.js');
+  assert.equal(String(pkg.scripts?.['benchmark:spec-focused3']), 'node .\\scripts\\run-benchmark-spec-focused3.js');
+  assert.deepEqual(
+    buildFocused3PowerShellArgs('C:\\repo', ['-CaseLimit', '1']).slice(-4),
+    ['-CaseSet', 'Focused3', '-CaseLimit', '1'],
+  );
 });
 
 test('package build command syncs dist runtime output after compiling TypeScript', () => {

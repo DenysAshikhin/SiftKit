@@ -178,6 +178,17 @@ function normalizeManagedSpeculativeType(value: unknown): typeof MANAGED_LLAMA_S
     : 'ngram-map-k';
 }
 
+function normalizeSpeculativeInteger(value: unknown, fallback: number, requirePositive: boolean): number {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  if (parsed === -1) {
+    return -1;
+  }
+  return !requirePositive || parsed > 0 ? parsed : fallback;
+}
+
 function normalizeManagedLlamaPreset(
   preset: Partial<ServerManagedLlamaCppConfig> | null | undefined,
   fallback: ServerManagedLlamaCppConfig,
@@ -203,21 +214,11 @@ function normalizeManagedLlamaPreset(
   }
   normalizedPreset.SpeculativeEnabled = normalizedPreset.SpeculativeEnabled === true;
   normalizedPreset.SpeculativeType = normalizeManagedSpeculativeType(normalizedPreset.SpeculativeType);
-  normalizedPreset.SpeculativeNgramSizeN = Number.isFinite(Number(normalizedPreset.SpeculativeNgramSizeN)) && Number(normalizedPreset.SpeculativeNgramSizeN) > 0
-    ? Number(normalizedPreset.SpeculativeNgramSizeN)
-    : 8;
-  normalizedPreset.SpeculativeNgramSizeM = Number.isFinite(Number(normalizedPreset.SpeculativeNgramSizeM)) && Number(normalizedPreset.SpeculativeNgramSizeM) > 0
-    ? Number(normalizedPreset.SpeculativeNgramSizeM)
-    : 16;
-  normalizedPreset.SpeculativeNgramMinHits = Number.isFinite(Number(normalizedPreset.SpeculativeNgramMinHits)) && Number(normalizedPreset.SpeculativeNgramMinHits) > 0
-    ? Number(normalizedPreset.SpeculativeNgramMinHits)
-    : 2;
-  normalizedPreset.SpeculativeDraftMax = Number.isFinite(Number(normalizedPreset.SpeculativeDraftMax)) && Number(normalizedPreset.SpeculativeDraftMax) > 0
-    ? Number(normalizedPreset.SpeculativeDraftMax)
-    : 16;
-  normalizedPreset.SpeculativeDraftMin = Number.isFinite(Number(normalizedPreset.SpeculativeDraftMin))
-    ? Number(normalizedPreset.SpeculativeDraftMin)
-    : 4;
+  normalizedPreset.SpeculativeNgramSizeN = normalizeSpeculativeInteger(normalizedPreset.SpeculativeNgramSizeN, 8, true);
+  normalizedPreset.SpeculativeNgramSizeM = normalizeSpeculativeInteger(normalizedPreset.SpeculativeNgramSizeM, 16, true);
+  normalizedPreset.SpeculativeNgramMinHits = normalizeSpeculativeInteger(normalizedPreset.SpeculativeNgramMinHits, 2, true);
+  normalizedPreset.SpeculativeDraftMax = normalizeSpeculativeInteger(normalizedPreset.SpeculativeDraftMax, 16, true);
+  normalizedPreset.SpeculativeDraftMin = normalizeSpeculativeInteger(normalizedPreset.SpeculativeDraftMin, 4, false);
   delete (normalizedPreset as Partial<ServerManagedLlamaCppConfig>).Presets;
   delete (normalizedPreset as Partial<ServerManagedLlamaCppConfig>).ActivePresetId;
   return {
@@ -686,17 +687,14 @@ export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info:
     serverLlama.SpeculativeType = normalizedSpeculativeType;
     changed = true;
   }
-  for (const [key, fallback] of [
-    ['SpeculativeNgramSizeN', 8],
-    ['SpeculativeNgramSizeM', 16],
-    ['SpeculativeNgramMinHits', 2],
-    ['SpeculativeDraftMax', 16],
-    ['SpeculativeDraftMin', 4],
+  for (const [key, fallback, requirePositive] of [
+    ['SpeculativeNgramSizeN', 8, true],
+    ['SpeculativeNgramSizeM', 16, true],
+    ['SpeculativeNgramMinHits', 2, true],
+    ['SpeculativeDraftMax', 16, true],
+    ['SpeculativeDraftMin', 4, false],
   ] as const) {
-    const value = Number((serverLlama as Record<string, unknown>)[key]);
-    const normalizedValue = key === 'SpeculativeDraftMin'
-      ? (Number.isFinite(value) ? value : fallback)
-      : (Number.isFinite(value) && value > 0 ? value : fallback);
+    const normalizedValue = normalizeSpeculativeInteger((serverLlama as Record<string, unknown>)[key], fallback, requirePositive);
     if ((serverLlama as Record<string, unknown>)[key] !== normalizedValue) {
       (serverLlama as Record<string, unknown>)[key] = normalizedValue;
       changed = true;

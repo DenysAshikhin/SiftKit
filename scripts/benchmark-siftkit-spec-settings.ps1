@@ -5,6 +5,8 @@ param(
     [string]$StatusHost = '127.0.0.1',
     [int]$StatusPort = 4765,
     [string]$RepoRoot = '.',
+    [ValidateSet('Default', 'Focused10', 'Focused3')]
+    [string]$CaseSet = 'Default',
     [int]$CaseLimit = 0
 )
 
@@ -18,13 +20,13 @@ $script:StartedStatusStdout = $null
 $script:StartedStatusStderr = $null
 $script:CleanupWatchdogProcess = $null
 $script:DefaultBenchmarkPrompts = @(
-    'find all non-status-server call sites that pass speculativeAcceptedTokens or speculativeGeneratedTokens into sendStatusUpdate/status backend options; return exact file:line anchors and the source values used',
+    'trace the managed-llama log-delta source for speculativeAcceptedTokens and speculativeGeneratedTokens; return exact file:line anchors from log parse through benchmark output',
     'trace the repo-search completion telemetry path end to end: starting at executeRepoSearchRequest, find where promptCacheTokens, promptEvalTokens, outputTokens, thinkingTokens, and requestDurationMs are computed, persisted to run_logs, and exposed through /dashboard/runs; return exact file:line anchors grouped by stage',
     'trace the canonical speculative metrics flow end to end: find where managed llama logs are parsed, where speculativeAcceptedTokens and speculativeGeneratedTokens are written to run_logs, and where dashboard metrics or idle summaries read those persisted fields; return exact file:line anchors grouped by parse, persist, and read stages',
     'trace the dynamic output token cap path end to end: find where remaining context tokens are computed, where max_tokens is derived for repo-search planner and terminal synthesis, and where summary/chat requests reuse the same cap; return exact file:line anchors grouped by repo-search, shared provider, and chat paths',
     'find where benchmark acceptanceRate and generationTokensPerSecond are computed and written to summary.csv/results.json; return exact file:line anchors and the exact source expressions used for each metric',
     'trace the spec benchmark restart lifecycle end to end: find where each case config is applied, where /status/restart is called, where health/readiness is awaited, and where managed llama run baselines are captured; return exact file:line anchors grouped by config, restart, health, and baseline capture',
-    'find every non-test code path that can populate speculativeAcceptedTokens or speculativeGeneratedTokens on a run/session/artifact object; return exact file:line anchors and identify whether each source is managed-llama log delta, persisted run_logs, request payload, or fallback artifact data',
+    'verify that speculativeAcceptedTokens and speculativeGeneratedTokens in the spec benchmark come only from managed-llama log deltas; return exact file:line anchors for parse, delta, and output paths',
     'trace the repo-search prompt-budget and tool-output-limit path end to end: find where remaining token allowance is computed, where per tool call allowance is enforced, and where the "requested output would consume" failure text is emitted; return exact file:line anchors grouped by budget calculation, enforcement, and error reporting',
     'trace the managed llama restart/degraded-mode lifecycle end to end: find where llama_stop and llama_start are invoked, where startup warning/error markers trigger degraded mode, and where status/config endpoints surface server unavailable behavior; return exact file:line anchors grouped by stop/start, degraded mode, and HTTP surface'
 )
@@ -268,8 +270,48 @@ function Get-DefaultCases {
     )
 }
 
+function Get-FocusedCases {
+    return @(
+        @{ SpeculativeEnabled = $false; SpeculativeNgramSizeN = 24; SpeculativeNgramSizeM = 64; SpeculativeNgramMinHits = 2; SpeculativeDraftMax = 48; SpeculativeDraftMin = 4 },
+        @{ SpeculativeNgramSizeN = 24; SpeculativeNgramSizeM = 64; SpeculativeNgramMinHits = 2; SpeculativeDraftMax = 64; SpeculativeDraftMin = 4 },
+        @{ SpeculativeNgramSizeN = 24; SpeculativeNgramSizeM = 64; SpeculativeNgramMinHits = 2; SpeculativeDraftMax = 56; SpeculativeDraftMin = 4 },
+        @{ SpeculativeNgramSizeN = 24; SpeculativeNgramSizeM = 64; SpeculativeNgramMinHits = 2; SpeculativeDraftMax = 72; SpeculativeDraftMin = 4 },
+        @{ SpeculativeNgramSizeN = 24; SpeculativeNgramSizeM = 64; SpeculativeNgramMinHits = 2; SpeculativeDraftMax = 80; SpeculativeDraftMin = 4 },
+        @{ SpeculativeNgramSizeN = 24; SpeculativeNgramSizeM = 64; SpeculativeNgramMinHits = 2; SpeculativeDraftMax = 64; SpeculativeDraftMin = 2 },
+        @{ SpeculativeNgramSizeN = 24; SpeculativeNgramSizeM = 64; SpeculativeNgramMinHits = 2; SpeculativeDraftMax = 64; SpeculativeDraftMin = 8 },
+        @{ SpeculativeNgramSizeN = 24; SpeculativeNgramSizeM = 48; SpeculativeNgramMinHits = 2; SpeculativeDraftMax = 64; SpeculativeDraftMin = 4 },
+        @{ SpeculativeNgramSizeN = 24; SpeculativeNgramSizeM = 80; SpeculativeNgramMinHits = 2; SpeculativeDraftMax = 64; SpeculativeDraftMin = 4 },
+        @{ SpeculativeNgramSizeN = 32; SpeculativeNgramSizeM = 64; SpeculativeNgramMinHits = 2; SpeculativeDraftMax = 64; SpeculativeDraftMin = 4 }
+    )
+}
+
+function Get-Focused3Cases {
+    return @(
+        @{ SpeculativeEnabled = $false; SpeculativeNgramSizeN = 24; SpeculativeNgramSizeM = 64; SpeculativeNgramMinHits = 2; SpeculativeDraftMax = 48; SpeculativeDraftMin = 4 },
+        @{ SpeculativeNgramSizeN = 24; SpeculativeNgramSizeM = 80; SpeculativeNgramMinHits = 2; SpeculativeDraftMax = 64; SpeculativeDraftMin = 4 },
+        @{ SpeculativeNgramSizeN = 24; SpeculativeNgramSizeM = 64; SpeculativeNgramMinHits = 2; SpeculativeDraftMax = 72; SpeculativeDraftMin = 4 },
+        @{ SpeculativeNgramSizeN = 24; SpeculativeNgramSizeM = 72; SpeculativeNgramMinHits = 2; SpeculativeDraftMax = 64; SpeculativeDraftMin = 4 },
+        @{ SpeculativeNgramSizeN = 24; SpeculativeNgramSizeM = 88; SpeculativeNgramMinHits = 2; SpeculativeDraftMax = 64; SpeculativeDraftMin = 4 },
+        @{ SpeculativeNgramSizeN = 24; SpeculativeNgramSizeM = 80; SpeculativeNgramMinHits = 2; SpeculativeDraftMax = 56; SpeculativeDraftMin = 4 },
+        @{ SpeculativeNgramSizeN = 24; SpeculativeNgramSizeM = 80; SpeculativeNgramMinHits = 2; SpeculativeDraftMax = 72; SpeculativeDraftMin = 4 },
+        @{ SpeculativeNgramSizeN = 24; SpeculativeNgramSizeM = 80; SpeculativeNgramMinHits = 2; SpeculativeDraftMax = 80; SpeculativeDraftMin = 4 },
+        @{ SpeculativeNgramSizeN = 24; SpeculativeNgramSizeM = 72; SpeculativeNgramMinHits = 2; SpeculativeDraftMax = 72; SpeculativeDraftMin = 4 },
+        @{ SpeculativeNgramSizeN = 32; SpeculativeNgramSizeM = 64; SpeculativeNgramMinHits = 2; SpeculativeDraftMax = 64; SpeculativeDraftMin = 4 },
+        @{ SpeculativeNgramSizeN = 24; SpeculativeNgramSizeM = -1; SpeculativeNgramMinHits = -1; SpeculativeDraftMax = 48; SpeculativeDraftMin = 12 },
+        @{ SpeculativeNgramSizeN = 24; SpeculativeNgramSizeM = -1; SpeculativeNgramMinHits = -1; SpeculativeDraftMax = 64; SpeculativeDraftMin = 48 }
+    )
+}
+
 function Get-SelectedCases {
-    $cases = Get-DefaultCases
+    $cases = if ($CaseSet -eq 'Focused3') {
+        Get-Focused3Cases
+    }
+    elseif ($CaseSet -eq 'Focused10') {
+        Get-FocusedCases
+    }
+    else {
+        Get-DefaultCases
+    }
     if ($CaseLimit -le 0 -or $CaseLimit -ge $cases.Count) {
         return @($cases)
     }
@@ -314,7 +356,22 @@ function Get-CaseId {
         return 'baseline-no-spec'
     }
 
-    return "n$($Case.SpeculativeNgramSizeN)-m$($Case.SpeculativeNgramSizeM)-h$($Case.SpeculativeNgramMinHits)-dmax$($Case.SpeculativeDraftMax)-dmin$($Case.SpeculativeDraftMin)"
+    return "$(Get-CaseIdPart -Prefix 'n' -Value $Case.SpeculativeNgramSizeN)-$(Get-CaseIdPart -Prefix 'm' -Value $Case.SpeculativeNgramSizeM)-$(Get-CaseIdPart -Prefix 'h' -Value $Case.SpeculativeNgramMinHits)-$(Get-CaseIdPart -Prefix 'dmax' -Value $Case.SpeculativeDraftMax)-$(Get-CaseIdPart -Prefix 'dmin' -Value $Case.SpeculativeDraftMin)"
+}
+
+function Get-CaseIdPart {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Prefix,
+        [Parameter(Mandatory = $true)]
+        [int]$Value
+    )
+
+    if ($Value -eq -1) {
+        return ('{0}unset' -f $Prefix)
+    }
+
+    return ('{0}{1}' -f $Prefix, $Value)
 }
 
 function New-OutputDirectory {
@@ -653,7 +710,9 @@ function Get-GenerationTokensPerSecond {
 function Get-RunTelemetryStats {
     param(
         [Parameter(Mandatory = $false)]
-        [object]$Run
+        [object]$Run,
+        [Parameter(Mandatory = $false)]
+        [object]$SpeculativeLogMetrics = $null
     )
 
     $promptCacheTokens = 0.0
@@ -684,11 +743,13 @@ function Get-RunTelemetryStats {
         if ($null -ne $Run.promptEvalDurationMs) {
             $promptEvalDurationMs = [double]$Run.promptEvalDurationMs
         }
-        if ($null -ne $Run.speculativeAcceptedTokens) {
-            $specAccepted = [double]$Run.speculativeAcceptedTokens
+    }
+    if ($null -ne $SpeculativeLogMetrics) {
+        if ($null -ne $SpeculativeLogMetrics.speculativeAcceptedTokens) {
+            $specAccepted = [double]$SpeculativeLogMetrics.speculativeAcceptedTokens
         }
-        if ($null -ne $Run.speculativeGeneratedTokens) {
-            $specGenerated = [double]$Run.speculativeGeneratedTokens
+        if ($null -ne $SpeculativeLogMetrics.speculativeGeneratedTokens) {
+            $specGenerated = [double]$SpeculativeLogMetrics.speculativeGeneratedTokens
         }
     }
     return [ordered]@{
@@ -704,33 +765,6 @@ function Get-RunTelemetryStats {
         thinkingTokens = [int]$thinkingTokens
         generationDurationMs = if ($generationDurationMs -gt 0) { [int]$generationDurationMs } else { $null }
     }
-}
-
-function Get-SpeculativeMetricsVerificationError {
-    param(
-        [Parameter(Mandatory = $false)]
-        [object]$RunMetrics,
-        [Parameter(Mandatory = $false)]
-        [hashtable]$VerifiedLogMetrics
-    )
-
-    if ($null -eq $RunMetrics -or $null -eq $VerifiedLogMetrics) {
-        return $null
-    }
-
-    $verifiedAccepted = $VerifiedLogMetrics.speculativeAcceptedTokens
-    $verifiedGenerated = $VerifiedLogMetrics.speculativeGeneratedTokens
-    if ($null -eq $verifiedAccepted -and $null -eq $verifiedGenerated) {
-        return $null
-    }
-
-    $runAccepted = $RunMetrics.speculativeAcceptedTokens
-    $runGenerated = $RunMetrics.speculativeGeneratedTokens
-    if ($runAccepted -eq $verifiedAccepted -and $runGenerated -eq $verifiedGenerated) {
-        return $null
-    }
-
-    return "Persisted run speculative totals ($runAccepted/$runGenerated) did not match managed-llama log delta ($verifiedAccepted/$verifiedGenerated)."
 }
 
 function Get-LatestSpeculativeTotalsFromLogText {
@@ -802,13 +836,15 @@ function Invoke-RepoSearchCli {
 
     $stdoutPath = Join-Path $OutputDir 'cli.stdout.log'
     $stderrPath = Join-Path $OutputDir 'cli.stderr.log'
-    $commandForDisplay = "siftkit repo-search --prompt `"$PromptText`""
+    $promptPath = Join-Path $OutputDir 'prompt.txt'
+    [System.IO.File]::WriteAllText($promptPath, $PromptText, [System.Text.UTF8Encoding]::new($false))
+    $commandForDisplay = "siftkit repo-search --prompt-file `"$promptPath`""
     $startedAt = Get-Date
 
     Push-Location $script:RepoRoot
     try {
         $rawResult = & node .\scripts\invoke-repo-search-benchmark.js `
-            --prompt $PromptText `
+            --prompt-file $promptPath `
             --stdout-path $stdoutPath `
             --stderr-path $stderrPath `
             --repo-root $script:RepoRoot
@@ -987,8 +1023,8 @@ try {
             }
             $baselineLogMetrics = Get-LatestSpeculativeTotalsFromLogText -Text $baselineLogText
             $finalLogMetrics = Get-LatestSpeculativeTotalsFromLogText -Text $logText
-            $verifiedLogMetrics = Get-SpeculativeLogDeltaTotals -Current $finalLogMetrics -Baseline $baselineLogMetrics
-            $runMetrics = if ($null -ne $run) { Get-RunTelemetryStats -Run $run } else { $null }
+            $speculativeLogMetrics = Get-SpeculativeLogDeltaTotals -Current $finalLogMetrics -Baseline $baselineLogMetrics
+            $runMetrics = if ($null -ne $run) { Get-RunTelemetryStats -Run $run -SpeculativeLogMetrics $speculativeLogMetrics } else { $null }
             $row = [ordered]@{
                 promptIndex = $promptIndex + 1
                 caseId = $caseId
@@ -1026,13 +1062,6 @@ try {
             elseif ($null -eq $managedRun) {
                 $row.failureStage = 'managed-run-discovery'
                 $row.error = 'No managed llama run was found for the benchmark case.'
-            }
-            else {
-                $verificationError = Get-SpeculativeMetricsVerificationError -RunMetrics $runMetrics -VerifiedLogMetrics $verifiedLogMetrics
-                if ($null -ne $verificationError) {
-                    $row.failureStage = 'speculative-metrics-verification'
-                    $row.error = $verificationError
-                }
             }
 
             $attemptResults.Add([pscustomobject]$row) | Out-Null

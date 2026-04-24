@@ -107,6 +107,45 @@ test('buildManagedLlamaArgs includes ngram speculative flags when enabled', () =
   ]);
 });
 
+test('buildManagedLlamaArgs omits speculative numeric flags set to -1', () => {
+  const config = createConfig(0) as {
+    Server: {
+      LlamaCpp: {
+        SpeculativeEnabled?: boolean;
+        SpeculativeType?: string;
+        SpeculativeNgramSizeN?: number;
+        SpeculativeNgramSizeM?: number;
+        SpeculativeNgramMinHits?: number;
+        SpeculativeDraftMax?: number;
+        SpeculativeDraftMin?: number;
+      };
+    };
+  };
+  Object.assign(config.Server.LlamaCpp, {
+    SpeculativeEnabled: true,
+    SpeculativeType: 'ngram-mod',
+    SpeculativeNgramSizeN: 24,
+    SpeculativeNgramSizeM: -1,
+    SpeculativeNgramMinHits: -1,
+    SpeculativeDraftMax: 48,
+    SpeculativeDraftMin: 12,
+  });
+
+  const managed = getManagedLlamaConfig(config);
+  const args = buildManagedLlamaArgs(managed);
+
+  assert.equal(managed.SpeculativeNgramSizeM, -1);
+  assert.equal(managed.SpeculativeNgramMinHits, -1);
+  assert.deepEqual(args.slice(args.indexOf('--spec-type'), args.indexOf('--spec-type') + 8), [
+    '--spec-type', 'ngram-mod',
+    '--spec-ngram-size-n', '24',
+    '--draft-max', '48',
+    '--draft-min', '12',
+  ]);
+  assert.equal(args.includes('--spec-ngram-size-m'), false);
+  assert.equal(args.includes('--spec-ngram-min-hits'), false);
+});
+
 test('parseManagedLlamaSpeculativeMetricsText extracts accepted and generated token totals from ngram statistics', () => {
   const parsed = parseManagedLlamaSpeculativeMetricsText([
     'llama_decode: statistics ngram_map_k: #draft tokens = 21, #gen tokens = 18, #acc tokens = 12, #res tokens = 6',
@@ -156,7 +195,16 @@ test('parseManagedLlamaSpeculativeMetricsText extracts totals from checkpointed 
   ].join('\n'));
 
   assert.deepEqual(parsed, {
-    speculativeAcceptedTokens: 12,
-    speculativeGeneratedTokens: 12,
+    speculativeAcceptedTokens: 5837,
+    speculativeGeneratedTokens: 6168,
   });
+});
+
+test('parseManagedLlamaSpeculativeMetricsText ignores draft acceptance rate lines without statistics totals', () => {
+  const parsed = parseManagedLlamaSpeculativeMetricsText([
+    'draft acceptance rate = 1.00000 (    8 accepted /     8 generated)',
+    'draft acceptance rate = 1.00000 (    4 accepted /     4 generated)',
+  ].join('\n'));
+
+  assert.equal(parsed, null);
 });

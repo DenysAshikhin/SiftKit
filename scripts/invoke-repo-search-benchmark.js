@@ -11,11 +11,12 @@ function readArgValue(argv, flag) {
 }
 
 function main() {
-  const prompt = readArgValue(process.argv, '--prompt');
+  const promptFile = readArgValue(process.argv, '--prompt-file');
   const stdoutPath = readArgValue(process.argv, '--stdout-path');
   const stderrPath = readArgValue(process.argv, '--stderr-path');
   const repoRoot = readArgValue(process.argv, '--repo-root') || process.cwd();
   const cliPath = path.resolve(repoRoot, 'bin', 'siftkit.js');
+  const prompt = fs.readFileSync(promptFile, 'utf8');
   const startedAt = new Date();
 
   const result = spawnSync(process.execPath, [cliPath, 'repo-search', '--prompt', prompt], {
@@ -44,7 +45,7 @@ function main() {
   }
 
   process.stdout.write(JSON.stringify({
-    command: `siftkit repo-search --prompt "${prompt}"`,
+    command: `siftkit repo-search --prompt-file ${JSON.stringify(promptFile)}`,
     exitCode: typeof result.status === 'number' ? result.status : 1,
     startedAtUtc: startedAt.toISOString(),
     endedAtUtc: endedAt.toISOString(),

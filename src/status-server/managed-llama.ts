@@ -67,7 +67,6 @@ const MANAGED_LLAMA_LOADING_MODEL_503_PATTERN = /"message"\s*:\s*"Loading model"
 const MANAGED_LLAMA_GPU_MEMORY_PRESSURE_PATTERN = /projected to use\s+(\d+)\s+MiB of device memory vs\.\s+(\d+)\s+MiB of free device memory/iu;
 const MANAGED_LLAMA_GPU_MEMORY_OOM_PATTERN = /cannot meet free memory target|cudaMalloc failed: out of memory|failed to allocate buffer for kv cache/iu;
 const MANAGED_LLAMA_SPECULATIVE_STATS_PATTERN = /^\s*(?:llama_decode:\s+)?statistics\s+\S+:\s+.*?#gen tokens\s*=\s*(\d+),\s+#acc tokens\s*=\s*(\d+)/iu;
-const MANAGED_LLAMA_SPECULATIVE_RATE_PATTERN = /^\s*(?:llama_decode:\s+)?draft acceptance rate\s*=\s*[^(]+\(\s*(\d+)(?:\s+accepted)?\s*\/\s*(\d+)(?:\s+generated)?\s*\)/iu;
 
 export type ManagedLlamaSpeculativeMetrics = {
   speculativeAcceptedTokens: number;
@@ -130,16 +129,6 @@ function createManagedLlamaSpeculativeMetrics(
   };
 }
 
-function areManagedLlamaSpeculativeMetricsEqual(
-  left: ManagedLlamaSpeculativeMetrics | null,
-  right: ManagedLlamaSpeculativeMetrics | null,
-): boolean {
-  return !!left
-    && !!right
-    && left.speculativeAcceptedTokens === right.speculativeAcceptedTokens
-    && left.speculativeGeneratedTokens === right.speculativeGeneratedTokens;
-}
-
 function parseManagedLlamaSpeculativeMetricsState(text: string): {
   latest: ManagedLlamaSpeculativeMetrics | null;
   total: ManagedLlamaSpeculativeMetrics | null;
@@ -149,7 +138,6 @@ function parseManagedLlamaSpeculativeMetricsState(text: string): {
   let hasDiscreteTotals = false;
   let latestDiscreteMetrics: ManagedLlamaSpeculativeMetrics | null = null;
   let latestCumulativeMetrics: ManagedLlamaSpeculativeMetrics | null = null;
-  let pendingStatsMetrics: ManagedLlamaSpeculativeMetrics | null = null;
   let isSkippingRequestEcho = false;
   for (const line of String(text || '').split(/\r?\n/u)) {
     if (isSkippingRequestEcho) {
@@ -176,32 +164,12 @@ function parseManagedLlamaSpeculativeMetricsState(text: string): {
       }
       if (isManagedLlamaCumulativeStatsLine(line)) {
         latestCumulativeMetrics = statsMetrics;
-        pendingStatsMetrics = null;
         continue;
       }
       totalAcceptedTokens += statsMetrics.speculativeAcceptedTokens;
       totalGeneratedTokens += statsMetrics.speculativeGeneratedTokens;
       hasDiscreteTotals = true;
       latestDiscreteMetrics = statsMetrics;
-      pendingStatsMetrics = statsMetrics;
-      continue;
-    }
-    const rateMatch = MANAGED_LLAMA_SPECULATIVE_RATE_PATTERN.exec(line);
-    if (rateMatch) {
-      const rateMetrics = createManagedLlamaSpeculativeMetrics(
-        Number.parseInt(rateMatch[1], 10),
-        Number.parseInt(rateMatch[2], 10),
-      );
-      if (!rateMetrics) {
-        continue;
-      }
-      latestDiscreteMetrics = rateMetrics;
-      if (!areManagedLlamaSpeculativeMetricsEqual(pendingStatsMetrics, rateMetrics)) {
-        totalAcceptedTokens += rateMetrics.speculativeAcceptedTokens;
-        totalGeneratedTokens += rateMetrics.speculativeGeneratedTokens;
-        hasDiscreteTotals = true;
-      }
-      pendingStatsMetrics = null;
     }
   }
   return {
@@ -528,12 +496,12 @@ export function buildManagedLlamaArgs(managed: ReturnType<typeof getManagedLlama
   if (managed.SpeculativeEnabled) {
     args.push(
       '--spec-type', managed.SpeculativeType,
-      '--spec-ngram-size-n', String(managed.SpeculativeNgramSizeN),
-      '--spec-ngram-size-m', String(managed.SpeculativeNgramSizeM),
-      '--spec-ngram-min-hits', String(managed.SpeculativeNgramMinHits),
-      '--draft-max', String(managed.SpeculativeDraftMax),
-      '--draft-min', String(managed.SpeculativeDraftMin),
     );
+    appendManagedLlamaSpeculativeIntegerArg(args, '--spec-ngram-size-n', managed.SpeculativeNgramSizeN);
+    appendManagedLlamaSpeculativeIntegerArg(args, '--spec-ngram-size-m', managed.SpeculativeNgramSizeM);
+    appendManagedLlamaSpeculativeIntegerArg(args, '--spec-ngram-min-hits', managed.SpeculativeNgramMinHits);
+    appendManagedLlamaSpeculativeIntegerArg(args, '--draft-max', managed.SpeculativeDraftMax);
+    appendManagedLlamaSpeculativeIntegerArg(args, '--draft-min', managed.SpeculativeDraftMin);
   }
   if (managed.FlashAttention) {
     args.push('-fa', 'on');
@@ -542,6 +510,12 @@ export function buildManagedLlamaArgs(managed: ReturnType<typeof getManagedLlama
     args.push('--verbose');
   }
   return args;
+}
+
+function appendManagedLlamaSpeculativeIntegerArg(args: string[], flag: string, value: number): void {
+  if (Number.isFinite(value) && value !== -1) {
+    args.push(flag, String(value));
+  }
 }
 
 function buildManagedLlamaStartupExitError(

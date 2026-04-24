@@ -53,6 +53,34 @@ export const DEFAULT_SPEC_BENCHMARK_CASES: SpecBenchmarkCase[] = [
   { speculativeEnabled: false, speculativeNgramSizeN: 24, speculativeNgramSizeM: 64, speculativeNgramMinHits: 2, speculativeDraftMax: 48, speculativeDraftMin: 4 },
 ];
 
+export const FOCUSED_SPEC_BENCHMARK_CASES: SpecBenchmarkCase[] = [
+  { speculativeEnabled: false, speculativeNgramSizeN: 24, speculativeNgramSizeM: 64, speculativeNgramMinHits: 2, speculativeDraftMax: 48, speculativeDraftMin: 4 },
+  { speculativeNgramSizeN: 24, speculativeNgramSizeM: 64, speculativeNgramMinHits: 2, speculativeDraftMax: 64, speculativeDraftMin: 4 },
+  { speculativeNgramSizeN: 24, speculativeNgramSizeM: 64, speculativeNgramMinHits: 2, speculativeDraftMax: 56, speculativeDraftMin: 4 },
+  { speculativeNgramSizeN: 24, speculativeNgramSizeM: 64, speculativeNgramMinHits: 2, speculativeDraftMax: 72, speculativeDraftMin: 4 },
+  { speculativeNgramSizeN: 24, speculativeNgramSizeM: 64, speculativeNgramMinHits: 2, speculativeDraftMax: 80, speculativeDraftMin: 4 },
+  { speculativeNgramSizeN: 24, speculativeNgramSizeM: 64, speculativeNgramMinHits: 2, speculativeDraftMax: 64, speculativeDraftMin: 2 },
+  { speculativeNgramSizeN: 24, speculativeNgramSizeM: 64, speculativeNgramMinHits: 2, speculativeDraftMax: 64, speculativeDraftMin: 8 },
+  { speculativeNgramSizeN: 24, speculativeNgramSizeM: 48, speculativeNgramMinHits: 2, speculativeDraftMax: 64, speculativeDraftMin: 4 },
+  { speculativeNgramSizeN: 24, speculativeNgramSizeM: 80, speculativeNgramMinHits: 2, speculativeDraftMax: 64, speculativeDraftMin: 4 },
+  { speculativeNgramSizeN: 32, speculativeNgramSizeM: 64, speculativeNgramMinHits: 2, speculativeDraftMax: 64, speculativeDraftMin: 4 },
+];
+
+export const FOCUSED3_SPEC_BENCHMARK_CASES: SpecBenchmarkCase[] = [
+  { speculativeEnabled: false, speculativeNgramSizeN: 24, speculativeNgramSizeM: 64, speculativeNgramMinHits: 2, speculativeDraftMax: 48, speculativeDraftMin: 4 },
+  { speculativeNgramSizeN: 24, speculativeNgramSizeM: 80, speculativeNgramMinHits: 2, speculativeDraftMax: 64, speculativeDraftMin: 4 },
+  { speculativeNgramSizeN: 24, speculativeNgramSizeM: 64, speculativeNgramMinHits: 2, speculativeDraftMax: 72, speculativeDraftMin: 4 },
+  { speculativeNgramSizeN: 24, speculativeNgramSizeM: 72, speculativeNgramMinHits: 2, speculativeDraftMax: 64, speculativeDraftMin: 4 },
+  { speculativeNgramSizeN: 24, speculativeNgramSizeM: 88, speculativeNgramMinHits: 2, speculativeDraftMax: 64, speculativeDraftMin: 4 },
+  { speculativeNgramSizeN: 24, speculativeNgramSizeM: 80, speculativeNgramMinHits: 2, speculativeDraftMax: 56, speculativeDraftMin: 4 },
+  { speculativeNgramSizeN: 24, speculativeNgramSizeM: 80, speculativeNgramMinHits: 2, speculativeDraftMax: 72, speculativeDraftMin: 4 },
+  { speculativeNgramSizeN: 24, speculativeNgramSizeM: 80, speculativeNgramMinHits: 2, speculativeDraftMax: 80, speculativeDraftMin: 4 },
+  { speculativeNgramSizeN: 24, speculativeNgramSizeM: 72, speculativeNgramMinHits: 2, speculativeDraftMax: 72, speculativeDraftMin: 4 },
+  { speculativeNgramSizeN: 32, speculativeNgramSizeM: 64, speculativeNgramMinHits: 2, speculativeDraftMax: 64, speculativeDraftMin: 4 },
+  { speculativeNgramSizeN: 24, speculativeNgramSizeM: -1, speculativeNgramMinHits: -1, speculativeDraftMax: 48, speculativeDraftMin: 12 },
+  { speculativeNgramSizeN: 24, speculativeNgramSizeM: -1, speculativeNgramMinHits: -1, speculativeDraftMax: 64, speculativeDraftMin: 48 },
+];
+
 function readTime(value: string | null | undefined): number {
   const parsed = Date.parse(String(value || ''));
   return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
@@ -70,7 +98,11 @@ export function buildBenchmarkCaseId(entry: SpecBenchmarkCase): string {
   if (entry.speculativeEnabled === false) {
     return 'baseline-no-spec';
   }
-  return `n${entry.speculativeNgramSizeN}-m${entry.speculativeNgramSizeM}-h${entry.speculativeNgramMinHits}-dmax${entry.speculativeDraftMax}-dmin${entry.speculativeDraftMin}`;
+  return `${buildBenchmarkCaseIdPart('n', entry.speculativeNgramSizeN)}-${buildBenchmarkCaseIdPart('m', entry.speculativeNgramSizeM)}-${buildBenchmarkCaseIdPart('h', entry.speculativeNgramMinHits)}-${buildBenchmarkCaseIdPart('dmax', entry.speculativeDraftMax)}-${buildBenchmarkCaseIdPart('dmin', entry.speculativeDraftMin)}`;
+}
+
+function buildBenchmarkCaseIdPart(prefix: string, value: number): string {
+  return value === -1 ? `${prefix}unset` : `${prefix}${value}`;
 }
 
 export function findBenchmarkRun(runs: RunRecord[], prompt: string, startedAtUtc: string): RunRecord | null {
@@ -131,11 +163,14 @@ export function getSpeculativeLogDeltaTotals(
   };
 }
 
-export function getRunTelemetryStats(run: RunRecord | null): SpecBenchmarkRunMetrics {
+export function getRunTelemetryStats(
+  run: RunRecord | null,
+  speculativeLogMetrics: SpecLogTotals | null = null,
+): SpecBenchmarkRunMetrics {
   const promptCacheTokens = readNonNegativeNumber(run?.promptCacheTokens);
   const promptEvalTokens = readNonNegativeNumber(run?.promptEvalTokens);
-  const speculativeAcceptedTokens = readOptionalNonNegativeNumber(run?.speculativeAcceptedTokens);
-  const speculativeGeneratedTokens = readOptionalNonNegativeNumber(run?.speculativeGeneratedTokens);
+  const speculativeAcceptedTokens = readOptionalNonNegativeNumber(speculativeLogMetrics?.speculativeAcceptedTokens);
+  const speculativeGeneratedTokens = readOptionalNonNegativeNumber(speculativeLogMetrics?.speculativeGeneratedTokens);
   const outputTokens = readNonNegativeNumber(run?.outputTokens);
   const thinkingTokens = readNonNegativeNumber(run?.thinkingTokens);
   const promptEvalDurationMs = readNonNegativeNumber(run?.promptEvalDurationMs);

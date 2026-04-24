@@ -7,7 +7,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { parsePlannerAction } from '../src/repo-search/planner-protocol.js';
-import { evaluateCommandSafety } from '../src/repo-search/command-safety.js';
+import { evaluateCommandSafety, normalizePlannerCommand } from '../src/repo-search/command-safety.js';
 import { isTransientProviderError, retryProviderRequest } from '../src/lib/provider-helpers.js';
 import {
   runTaskLoop,
@@ -191,6 +191,36 @@ test('evaluateCommandSafety allows allowlisted read-only commands', () => {
     evaluateCommandSafety('Get-ChildItem -Recurse -Filter *.ts -Name | Where-Object { $_ -notmatch \'node_modules\' } | Select-Object -First 30').safe,
     true
   );
+});
+
+test('normalizePlannerCommand adds ignore-case to rg searches by default', () => {
+  const normalized = normalizePlannerCommand('rg -n "SKILL" src', {
+    ignorePolicy: { names: [], namesLower: new Set(), paths: [] },
+  });
+
+  assert.equal(normalized.command, 'rg -n "SKILL" src --no-ignore --ignore-case');
+  assert.equal(normalized.rewritten, true);
+});
+
+test('normalizePlannerCommand does not add ignore-case when rg case behavior is explicit', () => {
+  const ignorePolicy = { names: [], namesLower: new Set(), paths: [] };
+
+  assert.equal(
+    normalizePlannerCommand('rg -n --case-sensitive "SKILL" src', { ignorePolicy }).command,
+    'rg -n --case-sensitive "SKILL" src --no-ignore',
+  );
+  assert.equal(
+    normalizePlannerCommand('rg -n --smart-case "SKILL" src', { ignorePolicy }).command,
+    'rg -n --smart-case "SKILL" src --no-ignore',
+  );
+});
+
+test('normalizePlannerCommand does not add ignore-case to rg file listing', () => {
+  const normalized = normalizePlannerCommand('rg --files src', {
+    ignorePolicy: { names: [], namesLower: new Set(), paths: [] },
+  });
+
+  assert.equal(normalized.command, 'rg --files src --no-ignore');
 });
 
 test('evaluateCommandSafety treats drive-letter regex literals as patterns, not repo-escape paths', () => {

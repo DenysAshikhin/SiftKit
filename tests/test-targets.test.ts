@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as path from 'node:path';
 
-import { resolveTestTargets } from '../scripts/test-targets.ts';
+import { buildNodeTestArgs, resolveTestTargets } from '../scripts/test-targets.ts';
 
 test('resolveTestTargets maps bare test basenames into the tests directory', () => {
   const resolved = resolveTestTargets(process.cwd(), ['mock-repo-search-loop.test.ts']);
@@ -23,6 +23,15 @@ test('resolveTestTargets preserves option values while still resolving later pos
   assert.deepEqual(resolved, [
     '--test-name-pattern',
     'runTaskLoop auto-accepts non-thinking finish after ten tool calls without follow-up',
+    path.join('tests', 'mock-repo-search-loop.test.ts'),
+  ]);
+});
+
+test('buildNodeTestArgs adds the default test timeout before resolved targets', () => {
+  const args = buildNodeTestArgs(process.cwd(), ['mock-repo-search-loop.test.ts']);
+
+  assert.deepEqual(args, [
+    '--test-timeout=30000',
     path.join('tests', 'mock-repo-search-loop.test.ts'),
   ]);
 });

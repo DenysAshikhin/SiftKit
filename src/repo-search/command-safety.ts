@@ -332,6 +332,23 @@ function hasExplicitIgnoreDisablingRgFlag(command: string): boolean {
   return /(?:^|\s)(?:-u|-uu|-uuu)(?:\s|$)|(?:^|\s)--no-ignore(?:-[a-z]+)*(?:\s|$)/iu.test(command);
 }
 
+function hasExplicitRgCaseFlag(command: string): boolean {
+  const tokens = tokenizeSegment(command);
+  return tokens.some((token) => (
+    token === '-i'
+    || token === '--ignore-case'
+    || token === '-s'
+    || token === '--case-sensitive'
+    || token === '-S'
+    || token === '--smart-case'
+  ));
+}
+
+function isRgFileListingCommand(command: string): boolean {
+  const tokens = tokenizeSegment(command);
+  return tokens.some((token) => token === '--files');
+}
+
 function rgAlreadyHasIgnoreGlob(command: string, ignoreName: string): boolean {
   const escaped = ignoreName.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
   return new RegExp(`(?:^|\\s)(?:-g|--glob)\\s+["'][^"']*${escaped}[^"']*["']`, 'iu').test(command);
@@ -474,6 +491,12 @@ export function normalizePlannerCommand(
     if (!hasExplicitIgnoreDisablingRgFlag(current)) {
       current = appendToFirstSegment(current, '--no-ignore');
       notes.push('added --no-ignore so rg searches gitignored paths');
+      wasRewritten = true;
+    }
+
+    if (!isRgFileListingCommand(current) && !hasExplicitRgCaseFlag(current)) {
+      current = appendToFirstSegment(current, '--ignore-case');
+      notes.push('added --ignore-case so rg searches case-insensitively');
       wasRewritten = true;
     }
 
