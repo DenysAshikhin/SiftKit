@@ -100,6 +100,10 @@ function resolveRepoSearchRoutePreset(
   return presets.find((preset) => preset.presetKind === 'plan' || preset.presetKind === 'repo-search') || null;
 }
 
+export function resolveEffectiveRepoFileListing(config: Dict, preset: Pick<SiftPreset, 'includeRepoFileListing'> | null): boolean {
+  return config.IncludeRepoFileListing !== false && preset?.includeRepoFileListing !== false;
+}
+
 export function getRepoSearchGenerationTokensPerSecond(scorecard: unknown): number | null {
   return getGenerationTokensPerSecond(
     getScorecardTotal(scorecard, 'outputTokens'),
@@ -671,7 +675,7 @@ export async function handleChatRoute(
         promptPrefix: preset?.promptPrefix || '',
         allowedTools: getEffectivePresetAllowedTools(config, preset),
         includeAgentsMd: preset?.includeAgentsMd !== false,
-        includeRepoFileListing: preset?.includeRepoFileListing !== false,
+        includeRepoFileListing: resolveEffectiveRepoFileListing(config, preset),
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
         logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,
@@ -813,7 +817,7 @@ export async function handleChatRoute(
         promptPrefix: preset?.promptPrefix || '',
         allowedTools: getEffectivePresetAllowedTools(config, preset),
         includeAgentsMd: preset?.includeAgentsMd !== false,
-        includeRepoFileListing: preset?.includeRepoFileListing !== false,
+        includeRepoFileListing: resolveEffectiveRepoFileListing(config, preset),
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
         logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,
@@ -984,7 +988,7 @@ export async function handleChatRoute(
         promptPrefix: preset?.promptPrefix || '',
         allowedTools: getEffectivePresetAllowedTools(config, preset),
         includeAgentsMd: preset?.includeAgentsMd !== false,
-        includeRepoFileListing: preset?.includeRepoFileListing !== false,
+        includeRepoFileListing: resolveEffectiveRepoFileListing(config, preset),
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
         logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,

@@ -8,7 +8,7 @@ import { normalizeOperationModeAllowedTools, normalizePresets } from '../presets
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-const CURRENT_SCHEMA_VERSION = 17;
+const CURRENT_SCHEMA_VERSION = 18;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["repo_rg","repo_read_file","repo_list_files","repo_git","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}';
 
@@ -181,6 +181,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       backend TEXT NOT NULL,
       policy_mode TEXT NOT NULL,
       raw_log_retention INTEGER NOT NULL CHECK (raw_log_retention IN (0, 1)),
+      include_repo_file_listing INTEGER NOT NULL DEFAULT 1 CHECK (include_repo_file_listing IN (0, 1)),
       prompt_prefix TEXT,
       runtime_model TEXT,
       llama_base_url TEXT,
@@ -492,6 +493,30 @@ function ensureManagedLlamaAndBenchmarkMatrixSchema(database: RuntimeDatabase): 
   `);
 }
 
+function ensureRuntimeMetricsTotalsSchema(database: RuntimeDatabase): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS runtime_metrics_totals (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      schema_version INTEGER NOT NULL,
+      input_characters_total INTEGER NOT NULL,
+      output_characters_total INTEGER NOT NULL,
+      input_tokens_total INTEGER NOT NULL,
+      output_tokens_total INTEGER NOT NULL,
+      thinking_tokens_total INTEGER NOT NULL,
+      tool_tokens_total INTEGER NOT NULL,
+      prompt_cache_tokens_total INTEGER NOT NULL,
+      prompt_eval_tokens_total INTEGER NOT NULL,
+      speculative_accepted_tokens_total INTEGER NOT NULL,
+      speculative_generated_tokens_total INTEGER NOT NULL,
+      request_duration_ms_total INTEGER NOT NULL,
+      completed_request_count INTEGER NOT NULL,
+      task_totals_json TEXT NOT NULL,
+      tool_stats_json TEXT NOT NULL,
+      updated_at_utc TEXT
+    );
+  `);
+}
+
 function migrateStoredPlannerToolNames(database: RuntimeDatabase): void {
   if (!tableExists(database, 'app_config')) {
     return;
@@ -546,6 +571,8 @@ function ensureSchema(database: RuntimeDatabase): void {
     setSchemaVersion(database, CURRENT_SCHEMA_VERSION);
     return;
   }
+  applyBaseSchema(database);
+  ensureRuntimeMetricsTotalsSchema(database);
   if (currentVersion < 2) {
     ensureRuntimeArtifactsSchema(database);
     setSchemaVersion(database, 2);
@@ -805,6 +832,13 @@ function ensureSchema(database: RuntimeDatabase): void {
     }
     setSchemaVersion(database, 17);
     currentVersion = 17;
+  }
+  if (currentVersion < 18) {
+    if (!tableHasColumn(database, 'app_config', 'include_repo_file_listing')) {
+      database.exec('ALTER TABLE app_config ADD COLUMN include_repo_file_listing INTEGER NOT NULL DEFAULT 1 CHECK (include_repo_file_listing IN (0, 1));');
+    }
+    setSchemaVersion(database, 18);
+    currentVersion = 18;
   }
   ensureRuntimeArtifactsSchema(database);
   ensureManagedLlamaAndBenchmarkMatrixSchema(database);

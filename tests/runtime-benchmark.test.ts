@@ -374,12 +374,18 @@ test('repro-fixture60-malformed-json writes chunk artifacts and stops on malform
       ], null, 2), 'utf8');
 
       const config = await loadConfig({ ensure: true });
+      config.Backend = 'llama.cpp';
       config.LlamaCpp.NumCtx = 12_000;
       config.Runtime ??= {};
       config.Runtime.LlamaCpp = {
         ...(config.Runtime.LlamaCpp || {}),
         NumCtx: 12_000,
       };
+      config.Server ??= {};
+      config.Server.LlamaCpp ??= {};
+      config.Server.LlamaCpp.NumCtx = 12_000;
+      config.Server.LlamaCpp.ActivePresetId = 'default';
+      config.Server.LlamaCpp.Presets = [{ id: 'default', label: 'Default', NumCtx: 12_000 }];
       await saveConfig(config);
 
       let stderrText = '';
@@ -454,12 +460,18 @@ test('repro-fixture60-malformed-json writes a completed manifest for valid chunk
       ], null, 2), 'utf8');
 
       const config = await loadConfig({ ensure: true });
+      config.Backend = 'llama.cpp';
       config.LlamaCpp.NumCtx = 12_000;
       config.Runtime ??= {};
       config.Runtime.LlamaCpp = {
         ...(config.Runtime.LlamaCpp || {}),
         NumCtx: 12_000,
       };
+      config.Server ??= {};
+      config.Server.LlamaCpp ??= {};
+      config.Server.LlamaCpp.NumCtx = 12_000;
+      config.Server.LlamaCpp.ActivePresetId = 'default';
+      config.Server.LlamaCpp.Presets = [{ id: 'default', label: 'Default', NumCtx: 12_000 }];
       await saveConfig(config);
 
       const result = await runFixture60MalformedJsonRepro([
@@ -528,12 +540,18 @@ test('repro-fixture60-malformed-json can run a fixture range and stop on a later
       ], null, 2), 'utf8');
 
       const config = await loadConfig({ ensure: true });
+      config.Backend = 'llama.cpp';
       config.LlamaCpp.NumCtx = 12_000;
       config.Runtime ??= {};
       config.Runtime.LlamaCpp = {
         ...(config.Runtime.LlamaCpp || {}),
         NumCtx: 12_000,
       };
+      config.Server ??= {};
+      config.Server.LlamaCpp ??= {};
+      config.Server.LlamaCpp.NumCtx = 12_000;
+      config.Server.LlamaCpp.ActivePresetId = 'default';
+      config.Server.LlamaCpp.Presets = [{ id: 'default', label: 'Default', NumCtx: 12_000 }];
       await saveConfig(config);
 
       const result = await runFixture60MalformedJsonRepro([
@@ -857,7 +875,7 @@ test('benchmark matrix marks interrupted runs failed, preserves benchmark log pa
         rejectInterrupted(new Error('Benchmark matrix interrupted by SIGINT.'));
 
         await assert.rejects(() => runPromise, /Benchmark matrix interrupted by SIGINT/u);
-        await sleep(2600);
+        await sleep(300);
 
         const [sessionEntry] = fs.readdirSync(resultsRoot).sort().reverse();
         const matrixIndex = JSON.parse(fs.readFileSync(path.join(resultsRoot, sessionEntry, 'matrix_index.json'), 'utf8'));
@@ -876,7 +894,7 @@ test('benchmark matrix marks interrupted runs failed, preserves benchmark log pa
         }
       }
     }, {
-      chatDelayMs: 5000,
+      chatDelayMs: 250,
     });
   });
 });
@@ -1077,7 +1095,7 @@ test('benchmark error-log fixtures now reach the model-first summary path', asyn
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
       const maxChars = getChunkThresholdCharacters(config) * 4;
-      const fixtureRoot = path.join(process.cwd(), 'eval', 'fixtures', 'ai_core_60_tests', 'raw');
+      const fixtureRoot = path.resolve(__dirname, '..', 'eval', 'fixtures', 'ai_core_60_tests', 'raw');
       const cases = [
         {
           file: '17_autorun_error_log.txt',

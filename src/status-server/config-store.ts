@@ -202,6 +202,7 @@ export function getDefaultConfig(): Dict {
     Backend: 'llama.cpp',
     PolicyMode: 'conservative',
     RawLogRetention: true,
+    IncludeRepoFileListing: true,
     PromptPrefix: 'Preserve exact technical anchors from the input when they matter: file paths, function names, symbols, commands, error text, and any line numbers or code references that are already present. Quote short code fragments exactly when that precision changes the meaning. Do not invent locations or line numbers that are not in the input.',
     LlamaCpp: {
       BaseUrl: DEFAULT_LLAMA_BASE_URL,
@@ -590,6 +591,7 @@ type AppConfigRow = {
   backend: string;
   policy_mode: string;
   raw_log_retention: number;
+  include_repo_file_listing: number;
   prompt_prefix: string | null;
   runtime_model: string | null;
   llama_base_url: string | null;
@@ -737,6 +739,7 @@ function normalizeConfigToRow(config: Dict): AppConfigRow {
     backend: String(normalized.Backend || 'llama.cpp'),
     policy_mode: String(normalized.PolicyMode || 'conservative'),
     raw_log_retention: normalized.RawLogRetention === false ? 0 : 1,
+    include_repo_file_listing: normalized.IncludeRepoFileListing === false ? 0 : 1,
     prompt_prefix: typeof normalized.PromptPrefix === 'string' ? normalized.PromptPrefix : null,
     runtime_model: typeof runtime.Model === 'string' && runtime.Model.trim() ? runtime.Model.trim() : null,
     llama_base_url: typeof runtimeLlama.BaseUrl === 'string' && runtimeLlama.BaseUrl.trim() ? runtimeLlama.BaseUrl.trim() : null,
@@ -837,6 +840,7 @@ function rowToConfig(row: AppConfigRow): Dict {
     Backend: row.backend,
     PolicyMode: row.policy_mode,
     RawLogRetention: row.raw_log_retention === 1,
+    IncludeRepoFileListing: row.include_repo_file_listing !== 0,
     PromptPrefix: row.prompt_prefix,
     LlamaCpp: { ...runtimeLlama },
     Runtime: {
@@ -903,6 +907,7 @@ function readConfigRow(databasePath: string): AppConfigRow | null {
       backend,
       policy_mode,
       raw_log_retention,
+      include_repo_file_listing,
       prompt_prefix,
       runtime_model,
       llama_base_url,
@@ -980,6 +985,7 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
     'backend',
     'policy_mode',
     'raw_log_retention',
+    'include_repo_file_listing',
     'prompt_prefix',
     'runtime_model',
     'llama_base_url',

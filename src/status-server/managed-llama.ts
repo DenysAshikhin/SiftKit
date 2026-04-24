@@ -42,6 +42,7 @@ import {
   publishStatus,
   resetPendingIdleSummaryMetadata,
 } from './server-ops.js';
+import { getManagedLlamaLogRoot } from './paths.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -54,6 +55,18 @@ export function getPositiveIntegerFromEnv(name: string, fallback: number): numbe
   }
   const parsedValue = Number.parseInt(rawValue, 10);
   if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+    return fallback;
+  }
+  return parsedValue;
+}
+
+function getNonNegativeIntegerFromEnv(name: string, fallback: number): number {
+  const rawValue = process.env[name];
+  if (!rawValue || !rawValue.trim()) {
+    return fallback;
+  }
+  const parsedValue = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(parsedValue) || parsedValue < 0) {
     return fallback;
   }
   return parsedValue;
@@ -685,6 +698,9 @@ function writeManagedLlamaStartupReviewDump(logRef: ManagedLlamaLogRef, dumpOpti
   ].join('\n');
   appendManagedLlamaLogLine(logRef, 'startup_review', `${content}\n`);
   flushManagedLlamaLogChunks(logRef.runId);
+  const logRoot = getManagedLlamaLogRoot();
+  fs.mkdirSync(logRoot, { recursive: true });
+  fs.writeFileSync(path.join(logRoot, 'latest-startup.log'), `${content}\n`, 'utf8');
   const artifact = upsertRuntimeTextArtifact({
     id: `managed_llama_startup_review:${logRef.runId}`,
     artifactKind: 'managed_llama_startup_review',
@@ -717,6 +733,9 @@ function writeManagedLlamaFailureDump(logRef: ManagedLlamaLogRef, entries: LogEn
   ].join('\n');
   appendManagedLlamaLogLine(logRef, 'startup_failure', `${content}\n`);
   flushManagedLlamaLogChunks(logRef.runId);
+  const logRoot = path.join(getManagedLlamaLogRoot(), logRef.runId);
+  fs.mkdirSync(logRoot, { recursive: true });
+  fs.writeFileSync(path.join(logRoot, 'startup-scan-failure.log'), `${content}\n`, 'utf8');
   const artifact = upsertRuntimeTextArtifact({
     id: `managed_llama_startup_failure:${logRef.runId}`,
     artifactKind: 'managed_llama_startup_failure',
@@ -867,7 +886,10 @@ export async function ensureManagedLlamaReady(ctx: ServerContext, _options: Ensu
     publishStatus(ctx);
     return readConfig(ctx.configPath);
   }
-  const graceDelayMs = Math.min(LLAMA_STARTUP_GRACE_DELAY_MS, Math.max(startupDeadline - Date.now(), 0));
+  const graceDelayMs = Math.min(
+    getNonNegativeIntegerFromEnv('SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS', LLAMA_STARTUP_GRACE_DELAY_MS),
+    Math.max(startupDeadline - Date.now(), 0),
+  );
   if (graceDelayMs > 0) {
     await sleep(graceDelayMs);
   }
@@ -943,12 +965,10 @@ export async function ensureManagedLlamaReady(ctx: ServerContext, _options: Ensu
       });
       ctx.managedLlamaStartupWarning = errorMessage;
       ctx.managedLlamaReady = false;
-      if (!/startup logs contained warning\/error markers/iu.test(error instanceof Error ? error.message : '')) {
-        try {
-          await abortManagedLlamaStartup(ctx, config, launched.child);
-        } catch (cleanupError) {
-          process.stderr.write(`[siftKitStatus] Failed to abort managed llama.cpp startup: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}\n`);
-        }
+      try {
+        await abortManagedLlamaStartup(ctx, config, launched.child);
+      } catch (cleanupError) {
+        process.stderr.write(`[siftKitStatus] Failed to abort managed llama.cpp startup: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}\n`);
       }
       throw failure;
     }

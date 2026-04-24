@@ -89,10 +89,12 @@ test('writeConfig persists config to sqlite and never creates config.json', () =
 
       const config = getDefaultConfig();
       config.PolicyMode = 'aggressive';
+      config.IncludeRepoFileListing = false;
       writeConfig(getConfigPath(), config);
 
       const loaded = readConfig(getConfigPath());
       assert.equal(loaded.PolicyMode, 'aggressive');
+      assert.equal(loaded.IncludeRepoFileListing, false);
       assert.equal(
         fs.existsSync(path.join(tempRoot, '.siftkit', 'config.json')),
         false,
@@ -105,6 +107,11 @@ test('writeConfig persists config to sqlite and never creates config.json', () =
       process.chdir(previousCwd);
     }
   });
+});
+
+test('default config includes initial repo file scan', () => {
+  const config = getDefaultConfig();
+  assert.equal(config.IncludeRepoFileListing, true);
 });
 
 test('writeConfig tolerates legacy schema v7 managed llama verbose args columns', () => {

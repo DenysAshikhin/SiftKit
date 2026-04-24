@@ -25,6 +25,7 @@ import {
   normalizeConfig,
   mergeConfig,
 } from '../config-store.js';
+import { resolveEffectiveRepoFileListing } from './chat.js';
 import {
   type RepoSearchProgressEvent,
   buildStatusRequestLogMessage,
@@ -78,6 +79,7 @@ function isStrictConfigPayload(value: unknown): boolean {
     'Backend',
     'PolicyMode',
     'RawLogRetention',
+    'IncludeRepoFileListing',
     'PromptPrefix',
     'LlamaCpp',
     'Runtime',
@@ -261,14 +263,16 @@ export async function handleCoreRoute(
     try {
       await ensureManagedLlamaReadyForModelRequest(ctx);
       const executeRepoSearchRequest = loadRepoSearchExecutor();
+      const config = readConfig(configPath);
       const result = await executeRepoSearchRequest({
         taskKind: 'repo-search',
         prompt: parsedBody.prompt,
         promptPrefix: typeof parsedBody.promptPrefix === 'string' ? (parsedBody.promptPrefix as string) : undefined,
         repoRoot: typeof parsedBody.repoRoot === 'string' && (parsedBody.repoRoot as string).trim() ? (parsedBody.repoRoot as string).trim() : process.cwd(),
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
-        config: readConfig(configPath),
+        config,
         allowedTools: Array.isArray(parsedBody.allowedTools) ? (parsedBody.allowedTools as unknown[]).map((value) => String(value)) : undefined,
+        includeRepoFileListing: resolveEffectiveRepoFileListing(config, null),
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
         logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,

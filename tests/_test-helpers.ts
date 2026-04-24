@@ -149,7 +149,7 @@ export type StubServer = {
 };
 
 export async function startMiniStubServer(options: StubServerOptions = {}): Promise<StubServer> {
-  const config = mergeConfig(getDefaultConfig(), options.config || {});
+  const config = mergeConfig(getDefaultConfig(), { Backend: 'mock', ...(options.config || {}) });
   const state: StubServerState = {
     config,
     chatRequests: [],
@@ -288,6 +288,8 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
     close() {
       return new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
+        server.closeIdleConnections();
+        server.closeAllConnections();
       });
     },
   };
@@ -332,7 +334,7 @@ export async function withTestEnvAndServer(
     'sift_kit_status', 'SIFTKIT_STATUS_PATH', 'SIFTKIT_CONFIG_PATH',
     'SIFTKIT_STATUS_HOST', 'SIFTKIT_STATUS_PORT', 'SIFTKIT_STATUS_BACKEND_URL',
     'SIFTKIT_CONFIG_SERVICE_URL', 'USERPROFILE', 'SIFTKIT_TEST_PROVIDER',
-    'SIFTKIT_IDLE_SUMMARY_DB_PATH',
+    'SIFTKIT_IDLE_SUMMARY_DB_PATH', 'SIFTKIT_LOCK_TIMEOUT_MS',
   ]);
 
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
@@ -342,6 +344,7 @@ export async function withTestEnvAndServer(
   process.env.SIFTKIT_STATUS_PATH = statusPath;
   process.env.SIFTKIT_CONFIG_PATH = configPath;
   process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH = path.join(tempRoot, '.siftkit', 'status', 'idle-summary.sqlite');
+  process.env.SIFTKIT_LOCK_TIMEOUT_MS = '1000';
   process.env.SIFTKIT_TEST_PROVIDER = 'mock';
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -365,6 +368,22 @@ export async function withTestEnvAndServer(
   stub.state.config.LlamaCpp = topLlamaCpp;
   topLlamaCpp.BaseUrl = stub.baseUrl;
   topLlamaCpp.NumCtx = 128000;
+  const server = (stub.state.config.Server as Dict) || {};
+  stub.state.config.Server = server;
+  const serverLlamaCpp = (server.LlamaCpp as Dict) || {};
+  server.LlamaCpp = serverLlamaCpp;
+  const stubPort = Number(new URL(stub.baseUrl).port);
+  serverLlamaCpp.BaseUrl = stub.baseUrl;
+  serverLlamaCpp.Port = stubPort;
+  serverLlamaCpp.NumCtx = 128000;
+  serverLlamaCpp.ActivePresetId = 'default';
+  serverLlamaCpp.Presets = [{
+    id: 'default',
+    label: 'Default',
+    BaseUrl: stub.baseUrl,
+    Port: stubPort,
+    NumCtx: 128000,
+  }];
 
   try {
     await fn({ tempRoot, stub });

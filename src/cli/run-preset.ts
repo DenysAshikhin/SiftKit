@@ -17,6 +17,7 @@ import {
   buildRepoSearchMarkdown,
   generateChatAssistantMessage,
 } from '../status-server/chat.js';
+import { resolveEffectiveRepoFileListing } from '../status-server/routes/chat.js';
 
 function getCliPreset(presetId: string): SiftPreset {
   const config = readConfig(getConfigPath());
@@ -130,7 +131,7 @@ export async function runPresetCli(options: {
     logFile: parsed.logFile,
     allowedTools: effectiveAllowedTools,
     includeAgentsMd: preset.includeAgentsMd,
-    includeRepoFileListing: preset.includeRepoFileListing,
+    includeRepoFileListing: resolveEffectiveRepoFileListing(config, preset),
   });
   const output = preset.presetKind === 'plan'
     ? buildPlanMarkdownFromRepoSearch(prompt, repoRoot, result.scorecard as Record<string, unknown>)

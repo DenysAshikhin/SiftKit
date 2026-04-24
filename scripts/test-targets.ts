@@ -8,6 +8,7 @@ const TEST_RUNNER_OPTIONS_WITH_VALUES = new Set([
   '--test-reporter-destination',
 ]);
 const DEFAULT_TEST_TIMEOUT_MS = 30_000;
+const DEFAULT_TEST_CONCURRENCY = 16;
 
 function hasPathSeparator(value: string): boolean {
   return value.includes('/') || value.includes('\\');
@@ -53,6 +54,8 @@ export function resolveTestTargets(repoRoot: string, rawArgs: string[]): string[
 export function buildNodeTestArgs(repoRoot: string, rawArgs: string[]): string[] {
   return [
     `--test-timeout=${DEFAULT_TEST_TIMEOUT_MS}`,
+    `--test-concurrency=${DEFAULT_TEST_CONCURRENCY}`,
+    '--test-reporter=dot',
     ...resolveTestTargets(repoRoot, rawArgs),
   ];
 }

@@ -396,7 +396,15 @@ export async function getLlamaCppProviderStatus(config: SiftConfig): Promise<Lla
 
   try {
     status.BaseUrl = getConfiguredLlamaBaseUrl(config);
-    await listLlamaCppModels(config);
+    const response = await requestJson<LlamaCppModelListResponse>({
+      url: `${status.BaseUrl.replace(/\/$/u, '')}/v1/models`,
+      method: 'GET',
+      timeoutMs: 500,
+    });
+    if (response.statusCode >= 400) {
+      const detail = response.rawText.trim();
+      throw new Error(`llama.cpp model list failed with HTTP ${response.statusCode}${detail ? `: ${detail}` : '.'}`);
+    }
     status.Reachable = true;
   } catch (error) {
     status.Error = error instanceof Error ? error.message : String(error);

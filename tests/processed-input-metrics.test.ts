@@ -18,6 +18,24 @@ import {
   getRuntimeDatabasePath,
 } from '../src/state/runtime-db.js';
 
+function waitSync(delayMs: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+}
+
+function removeDirectoryWithRetriesSync(targetPath: string): void {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      fs.rmSync(targetPath, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (attempt === 19) {
+        return;
+      }
+      waitSync(50);
+    }
+  }
+}
+
 function withTempRepo(fn: (repoRoot: string) => void): void {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-processed-input-'));
   const previousCwd = process.cwd();
@@ -39,7 +57,7 @@ function withTempRepo(fn: (repoRoot: string) => void): void {
       process.env.USERPROFILE = previousUserProfile;
     }
     closeRuntimeDatabase();
-    fs.rmSync(repoRoot, { recursive: true, force: true });
+    removeDirectoryWithRetriesSync(repoRoot);
   }
 }
 
@@ -221,10 +239,12 @@ test('runtime database migration backfills metrics totals and task totals to pro
       INSERT INTO runtime_metrics_totals (
         id, schema_version, input_characters_total, output_characters_total, input_tokens_total, output_tokens_total,
         thinking_tokens_total, tool_tokens_total, prompt_cache_tokens_total, prompt_eval_tokens_total,
+        speculative_accepted_tokens_total, speculative_generated_tokens_total,
         request_duration_ms_total, completed_request_count, task_totals_json, tool_stats_json, updated_at_utc
       ) VALUES (
         1, 2, 200, 80, 123, 45,
         0, 0, 100, 0,
+        0, 0,
         1000, 1,
         '{"summary":{"inputCharactersTotal":200,"outputCharactersTotal":80,"inputTokensTotal":123,"outputTokensTotal":45,"thinkingTokensTotal":0,"toolTokensTotal":0,"promptCacheTokensTotal":100,"promptEvalTokensTotal":0,"requestDurationMsTotal":1000,"completedRequestCount":1},"plan":{"inputCharactersTotal":0,"outputCharactersTotal":0,"inputTokensTotal":0,"outputTokensTotal":0,"thinkingTokensTotal":0,"toolTokensTotal":0,"promptCacheTokensTotal":0,"promptEvalTokensTotal":0,"requestDurationMsTotal":0,"completedRequestCount":0},"repo-search":{"inputCharactersTotal":0,"outputCharactersTotal":0,"inputTokensTotal":0,"outputTokensTotal":0,"thinkingTokensTotal":0,"toolTokensTotal":0,"promptCacheTokensTotal":0,"promptEvalTokensTotal":0,"requestDurationMsTotal":0,"completedRequestCount":0},"chat":{"inputCharactersTotal":0,"outputCharactersTotal":0,"inputTokensTotal":0,"outputTokensTotal":0,"thinkingTokensTotal":0,"toolTokensTotal":0,"promptCacheTokensTotal":0,"promptEvalTokensTotal":0,"requestDurationMsTotal":0,"completedRequestCount":0}}',
         '{}',
@@ -256,7 +276,7 @@ test('runtime database migration backfills metrics totals and task totals to pro
       WHERE id = 1
     `).get() as { input_tokens_total: number; prompt_eval_tokens_total: number; task_totals_json: string };
 
-    assert.equal(schemaVersionRow.version, 12);
+    assert.equal(schemaVersionRow.version, 18);
     assert.equal(metricsRow.input_tokens_total, 23);
     assert.equal(metricsRow.prompt_eval_tokens_total, 23);
     const taskTotals = JSON.parse(metricsRow.task_totals_json) as {
@@ -264,5 +284,6 @@ test('runtime database migration backfills metrics totals and task totals to pro
     };
     assert.equal(taskTotals.summary.inputTokensTotal, 23);
     assert.equal(taskTotals.summary.promptEvalTokensTotal, 23);
+    closeRuntimeDatabase();
   });
 });

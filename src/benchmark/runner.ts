@@ -125,6 +125,8 @@ export async function runBenchmarkSuite(options: BenchmarkRunnerOptions = {}): P
     startedAtHr,
     fatalError,
   });
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  fs.writeFileSync(outputPath, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
 
   const persistedBenchmarkRun = persistBenchmarkRun({
     payload: artifact as unknown as Record<string, unknown>,
@@ -141,11 +143,12 @@ export async function runBenchmarkSuite(options: BenchmarkRunnerOptions = {}): P
 
   return {
     ...artifact,
-    OutputPath: persistedBenchmarkRun.uri,
+    OutputPath: outputPath,
+    BenchmarkRunUri: persistedBenchmarkRun.uri,
   };
 }
 
 export async function main(): Promise<void> {
   const result = await runBenchmarkSuite(parseArguments(process.argv.slice(2)));
-  process.stdout.write(`${result.OutputPath}\n`);
+  process.stdout.write(`${result.BenchmarkRunUri || result.OutputPath}\n`);
 }

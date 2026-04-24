@@ -35,7 +35,7 @@ export async function invokeBenchmarkProcess(
     throw new Error(`Benchmark entrypoint not found: ${benchmarkScriptPath}. Run 'npm run build' first.`);
   }
 
-  const args = buildBenchmarkArgs(manifest, run, promptPrefixFile);
+  const args = [benchmarkScriptPath, ...buildBenchmarkArgs(manifest, run, promptPrefixFile)];
   const result = await spawnAndWait({
     filePath: nodeExe,
     args,

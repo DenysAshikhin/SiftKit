@@ -1536,7 +1536,8 @@ export async function runRepoSearch(options: {
 
   options.logger?.write({ kind: 'run_start', repoRoot, requestedModel: options.model || null, configuredModel: model, baseUrl });
 
-  const availableModels = options.availableModels || await listLlamaCppModels(config);
+  const availableModels = options.availableModels
+    || (Array.isArray(options.mockResponses) ? [model] : await listLlamaCppModels(config));
   options.logger?.write({ kind: 'model_inventory', configuredModel: model, availableModels });
 
   const tasksToRun: TaskDefinition[] = options.taskPrompt

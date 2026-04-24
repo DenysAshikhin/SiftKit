@@ -104,7 +104,7 @@ test('getManagedLlamaSpeculativeMetricsSince reads speculative totals from persi
     bufferManagedLlamaLogChunk({
       runId: run.id,
       streamKind: 'startup_script_stderr',
-      chunkText: 'llama_decode: draft acceptance rate = 66.67% (12 / 18)\n',
+      chunkText: 'llama_decode: statistics ngram_map_k: #draft tokens = 21, #gen tokens = 18, #acc tokens = 12, #res tokens = 6\n',
     });
     flushManagedLlamaLogChunks(run.id);
 

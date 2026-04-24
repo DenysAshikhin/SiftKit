@@ -42,6 +42,7 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'Backend', layout: 'half', helpText: 'Active inference backend. This dashboard is currently wired to llama.cpp.' },
       { label: 'Policy Mode', layout: 'quarter', helpText: 'Controls how assertive SiftKit should be. Conservative favors visible evidence and lower-risk compression; aggressive allows bolder decisions.' },
       { label: 'Raw log retention', layout: 'quarter', helpText: 'Keeps raw runtime logs and request artifacts instead of trimming them more aggressively.' },
+      { label: 'Initial repo file scan', layout: 'quarter', helpText: 'Adds the repository file listing to the first repo-search or planner tool prompt.' },
       { label: 'Prompt prefix', layout: 'full', helpText: 'Default instruction prefix prepended to summarization and compression prompts.' },
     ],
   },

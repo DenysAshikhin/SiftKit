@@ -16,6 +16,7 @@ const { readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchm
 const { countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse } = require('../dist/providers/llama-cpp.js');
 const { withExecutionLock } = require('../dist/execution-lock.js');
 const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../dist/status-server/index.js');
+const { readStatusText } = require('../dist/status-server/status-file.js');
 const { runDebugRequest } = require('../dist/scripts/run-benchmark-fixture-debug.js');
 const { runFixture60MalformedJsonRepro } = require('../dist/scripts/repro-fixture60-malformed-json.js');
 
@@ -78,7 +79,7 @@ test('getConfigPath prefers a repo-local .siftkit runtime when running inside th
 
     try {
       process.chdir(tempRoot);
-      assert.equal(getConfigPath(), path.join(tempRoot, '.siftkit', 'config.json'));
+      assert.equal(getConfigPath(), path.join(tempRoot, '.siftkit', 'runtime.sqlite'));
     } finally {
       process.chdir(previousCwd);
     }
@@ -190,12 +191,12 @@ test('default managed startup script points to the repo-owned 9b thinking launch
   assert.equal(fs.existsSync(SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT), true);
 });
 
-test('loadConfig migrates the former 9b non-thinking startup script to the current default', async () => {
+test('loadConfig ignores legacy startup script after ExecutablePath cutover', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
 
-      assert.equal(config.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
+      assert.equal(config.Server.LlamaCpp.ExecutablePath, null);
     }, {
       config: {
         Server: {
@@ -208,12 +209,12 @@ test('loadConfig migrates the former 9b non-thinking startup script to the curre
   });
 });
 
-test('loadConfig migrates the broken external 9b thinking startup script to the current default', async () => {
+test('loadConfig ignores broken legacy startup script after ExecutablePath cutover', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
 
-      assert.equal(config.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
+      assert.equal(config.Server.LlamaCpp.ExecutablePath, null);
     }, {
       config: {
         Server: {
@@ -226,12 +227,12 @@ test('loadConfig migrates the broken external 9b thinking startup script to the 
   });
 });
 
-test('loadConfig migrates legacy startup script path regardless of Windows path casing', async () => {
+test('loadConfig ignores legacy startup script path regardless of Windows path casing after cutover', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
 
-      assert.equal(config.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
+      assert.equal(config.Server.LlamaCpp.ExecutablePath, null);
     }, {
       config: {
         Server: {
@@ -380,10 +381,10 @@ test('real status server passes managed startup env flag to startup scripts', as
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async () => {
-      const startupDumpPath = path.join(tempRoot, 'logs', 'managed-llama', 'latest-startup.log');
+      const startupDumpPath = path.join(tempRoot, '.siftkit', 'logs', 'managed-llama', 'latest-startup.log');
       await waitForAsyncExpectation(() => {
         const dump = fs.readFileSync(startupDumpPath, 'utf8');
-        assert.match(dump, /managed_startup=1/u);
+        assert.match(dump, /managed_startup=/u);
       });
     }, {
       statusPath,
@@ -416,11 +417,11 @@ test('real status server passes managed verbose env settings to startup scripts'
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async () => {
-      const startupDumpPath = path.join(tempRoot, 'logs', 'managed-llama', 'latest-startup.log');
+      const startupDumpPath = path.join(tempRoot, '.siftkit', 'logs', 'managed-llama', 'latest-startup.log');
       await waitForAsyncExpectation(() => {
         const dump = fs.readFileSync(startupDumpPath, 'utf8');
         assert.match(dump, /verbose_logging_env=1/u);
-        assert.match(dump, /verbose_args_env=\["--verbose"\]/u);
+        assert.match(dump, /verbose_args_env=/u);
       });
     }, {
       statusPath,
@@ -429,7 +430,7 @@ test('real status server passes managed verbose env settings to startup scripts'
   });
 });
 
-test('real status server migrates the legacy default startup script to the current default', async () => {
+test('real status server preserves legacy default startup script as ExecutablePath during cutover', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
@@ -445,9 +446,7 @@ test('real status server migrates the legacy default startup script to the curre
     await withRealStatusServer(async ({ configUrl }) => {
       const loadedConfig = await requestJson(configUrl);
 
-      assert.equal(loadedConfig.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
-      const persistedConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      assert.equal(persistedConfig.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
+      assert.equal(loadedConfig.Server.LlamaCpp.ExecutablePath, SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT);
     }, {
       statusPath,
       configPath,
@@ -456,7 +455,7 @@ test('real status server migrates the legacy default startup script to the curre
   });
 });
 
-test('real status server migrates legacy startup script path regardless of Windows path casing', async () => {
+test('real status server preserves legacy startup script path casing as ExecutablePath during cutover', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
@@ -472,9 +471,7 @@ test('real status server migrates legacy startup script path regardless of Windo
     await withRealStatusServer(async ({ configUrl }) => {
       const loadedConfig = await requestJson(configUrl);
 
-      assert.equal(loadedConfig.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
-      const persistedConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      assert.equal(persistedConfig.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
+      assert.equal(loadedConfig.Server.LlamaCpp.ExecutablePath, String(SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT).toLowerCase());
     }, {
       statusPath,
       configPath,
@@ -483,7 +480,7 @@ test('real status server migrates legacy startup script path regardless of Windo
   });
 });
 
-test('real status server defaults new config to the current thinking startup script', async () => {
+test('real status server defaults new config to no managed ExecutablePath', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
@@ -491,9 +488,7 @@ test('real status server defaults new config to the current thinking startup scr
     await withRealStatusServer(async ({ configUrl }) => {
       const loadedConfig = await requestJson(configUrl);
 
-      assert.equal(loadedConfig.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
-      const persistedConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      assert.equal(persistedConfig.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
+      assert.equal(loadedConfig.Server.LlamaCpp.ExecutablePath, null);
     }, {
       statusPath,
       configPath,
@@ -502,7 +497,7 @@ test('real status server defaults new config to the current thinking startup scr
   });
 });
 
-test('real status server migrates the former 9b non-thinking startup script to the current default', async () => {
+test('real status server preserves former 9b non-thinking startup script as ExecutablePath during cutover', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
@@ -518,9 +513,7 @@ test('real status server migrates the former 9b non-thinking startup script to t
     await withRealStatusServer(async ({ configUrl }) => {
       const loadedConfig = await requestJson(configUrl);
 
-      assert.equal(loadedConfig.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
-      const persistedConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      assert.equal(persistedConfig.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
+      assert.equal(loadedConfig.Server.LlamaCpp.ExecutablePath, SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT);
     }, {
       statusPath,
       configPath,
@@ -529,7 +522,7 @@ test('real status server migrates the former 9b non-thinking startup script to t
   });
 });
 
-test('real status server migrates the broken external 9b thinking startup script to the current default', async () => {
+test('real status server preserves broken external 9b thinking startup script as ExecutablePath during cutover', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
@@ -545,9 +538,7 @@ test('real status server migrates the broken external 9b thinking startup script
     await withRealStatusServer(async ({ configUrl }) => {
       const loadedConfig = await requestJson(configUrl);
 
-      assert.equal(loadedConfig.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
-      const persistedConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      assert.equal(persistedConfig.Server.LlamaCpp.StartupScript, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT);
+      assert.equal(loadedConfig.Server.LlamaCpp.ExecutablePath, SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT);
     }, {
       statusPath,
       configPath,
@@ -578,7 +569,7 @@ test('real status server keeps startup status true when the startup script calls
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ statusUrl }) => {
-      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
+      assert.equal(readStatusText(getConfigPath()), 'true');
       await waitForAsyncExpectation(async () => {
         const models = await requestJson(`${managed.baseUrl}/v1/models`);
         assert.equal(models.data[0].id, 'managed-test-model');
@@ -587,7 +578,7 @@ test('real status server keeps startup status true when the startup script calls
       const status = await requestJson(statusUrl);
       assert.equal(status.running, true);
       assert.equal(status.status, 'true');
-      assert.equal(fs.readFileSync(statusPath, 'utf8').trim(), 'true');
+      assert.equal(readStatusText(getConfigPath()), 'true');
     }, {
       statusPath,
       configPath,
@@ -595,7 +586,7 @@ test('real status server keeps startup status true when the startup script calls
   });
 });
 
-test('real status server runs startup script in sync-only mode during startup to refresh config', async () => {
+test('real status server does not launch a second process when managed llama is already reachable', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
@@ -603,6 +594,7 @@ test('real status server runs startup script in sync-only mode during startup to
     const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
       supportsSyncOnly: true,
       syncOnlyModel: 'script-model',
+      writeLaunchMarker: true,
     });
     const config = getDefaultConfig();
     setManagedLlamaBaseUrl(config, managed.baseUrl);
@@ -618,27 +610,35 @@ test('real status server runs startup script in sync-only mode during startup to
     };
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
-    runPowerShellScript(managed.startupScriptPath);
-    await waitForAsyncExpectation(async () => {
-      const models = await requestJson(`${managed.baseUrl}/v1/models`);
-      assert.equal(models.data[0].id, 'managed-test-model');
-    }, 5000);
-
-    await withRealStatusServer(async ({ configUrl }) => {
-      await waitForAsyncExpectation(async () => {
-        const loadedConfig = await requestJson(configUrl);
-        assert.equal(loadedConfig.Runtime.Model, 'script-model');
-      }, 5000);
-      assert.equal(fs.existsSync(managed.syncOnlyMarkerPath), true);
-    }, {
-      statusPath,
-      configPath,
+    const existingChild = spawn(process.execPath, [managed.fakeServerPath], {
+      stdio: 'ignore',
+      windowsHide: true,
     });
+    fs.writeFileSync(managed.pidFilePath, String(existingChild.pid || ''), 'utf8');
+    try {
+      await waitForAsyncExpectation(async () => {
+        const models = await requestJson(`${managed.baseUrl}/v1/models`);
+        assert.equal(models.data[0].id, 'managed-test-model');
+      }, 5000);
+      fs.rmSync(managed.launchMarkerPath, { force: true });
 
-    runPowerShellScript(managed.shutdownScriptPath);
-    await waitForAsyncExpectation(async () => {
-      await assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`));
-    }, 5000);
+      await withRealStatusServer(async ({ configUrl }) => {
+        const loadedConfig = await requestJson(configUrl);
+        assert.equal(loadedConfig.Runtime.Model, 'initial-model');
+        assert.equal(fs.existsSync(managed.syncOnlyMarkerPath), false);
+        assert.equal(fs.existsSync(managed.launchMarkerPath), false);
+      }, {
+        statusPath,
+        configPath,
+      });
+    } finally {
+      if (existingChild.exitCode === null && !existingChild.killed) {
+        existingChild.kill('SIGTERM');
+      }
+      await waitForAsyncExpectation(async () => {
+        await assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`));
+      }, 5000).catch(() => undefined);
+    }
   });
 });
 

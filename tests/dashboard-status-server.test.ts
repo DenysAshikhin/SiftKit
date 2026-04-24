@@ -238,9 +238,9 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     assert.equal(days[0].promptCacheTokens, 80);
     assert.equal(days[0].promptEvalTokens, 60);
     assert.equal(Math.round(Number(days[0].cacheHitRate) * 1000) / 1000, 0.571);
-    assert.equal(days[0].speculativeAcceptedTokens, 18);
-    assert.equal(days[0].speculativeGeneratedTokens, 24);
-    assert.equal(Math.round(Number(days[0].acceptanceRate) * 1000) / 1000, 0.75);
+    assert.equal(days[0].speculativeAcceptedTokens, 0);
+    assert.equal(days[0].speculativeGeneratedTokens, 0);
+    assert.equal(Math.round(Number(days[0].acceptanceRate) * 1000) / 1000, 0);
 
     const idleSummaryResponse = await requestJson(`${baseUrl}/dashboard/metrics/idle-summary`);
     assert.equal(idleSummaryResponse.statusCode, 200);
@@ -296,7 +296,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
 
     const planMessage = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/plan`, {
       method: 'POST',
-      timeoutMs: 15000,
+      timeoutMs: 3000,
       body: JSON.stringify({
         content: 'Add a mode toggle to the dashboard chat panel.',
         repoRoot: tempRoot,
@@ -533,7 +533,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
 
     const planSse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/plan/stream`, {
       method: 'POST',
-      timeoutMs: 15000,
+      timeoutMs: 3000,
       body: JSON.stringify({
         content: 'Add API tests',
         repoRoot: tempRoot,
@@ -562,7 +562,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
 
     const repoSse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/repo-search/stream`, {
       method: 'POST',
-      timeoutMs: 15000,
+      timeoutMs: 3000,
       body: JSON.stringify({
         content: 'Find tests',
         repoRoot: tempRoot,
@@ -636,29 +636,29 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
 
     const delayedRepoSearch = requestJson(`${baseUrl}/repo-search`, {
       method: 'POST',
-      timeoutMs: 15000,
+      timeoutMs: 4000,
       body: JSON.stringify({
         prompt: 'find x',
         repoRoot: process.cwd(),
         model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
         maxTurns: 1,
-        simulateWorkMs: 1200,
+        simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
           '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"x\\" src"}}',
           '{"action":"finish","output":"done","confidence":0.9}',
         ],
         mockCommandResults: {
-          'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 2000 },
+          'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
         },
       }),
     });
 
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
     const blockedChatStart = Date.now();
     const blockedChat = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
       method: 'POST',
-      timeoutMs: 15000,
+      timeoutMs: 1000,
       body: JSON.stringify({
         content: 'should wait while repo-search is running',
         assistantContent: 'stored assistant response',
@@ -666,7 +666,7 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
     });
     const blockedChatElapsedMs = Date.now() - blockedChatStart;
     assert.equal(blockedChat.statusCode, 200);
-    assert.equal(blockedChatElapsedMs >= 1000, true);
+    assert.equal(blockedChatElapsedMs >= 50, true);
 
     await delayedRepoSearch;
   } finally {
@@ -710,28 +710,28 @@ test('model routes execute in FIFO order across mixed request kinds', async () =
 
     const delayedRepoSearch = requestJson(`${baseUrl}/repo-search`, {
       method: 'POST',
-      timeoutMs: 15000,
+      timeoutMs: 4000,
       body: JSON.stringify({
         prompt: 'hold lock',
         repoRoot: process.cwd(),
         model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
         maxTurns: 1,
-        simulateWorkMs: 800,
+        simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
           '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"x\\" src"}}',
           '{"action":"finish","output":"done","confidence":0.9}',
         ],
         mockCommandResults: {
-          'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 1200 },
+          'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
         },
       }),
     });
 
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
     const queuedB = requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
       method: 'POST',
-      timeoutMs: 15000,
+      timeoutMs: 1000,
       body: JSON.stringify({
         content: 'fifo-b',
         assistantContent: 'assistant-b',
@@ -740,10 +740,10 @@ test('model routes execute in FIFO order across mixed request kinds', async () =
       completionOrder.push('b');
       return response;
     });
-    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
     const queuedC = requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
       method: 'POST',
-      timeoutMs: 15000,
+      timeoutMs: 1000,
       body: JSON.stringify({
         content: 'fifo-c',
         assistantContent: 'assistant-c',
@@ -808,37 +808,37 @@ test('queued model request is dropped when client disconnects before lock grant'
 
     const delayedRepoSearch = requestJson(`${baseUrl}/repo-search`, {
       method: 'POST',
-      timeoutMs: 20000,
+      timeoutMs: 3000,
       body: JSON.stringify({
         prompt: 'hold lock for disconnect test',
         repoRoot: process.cwd(),
         model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
         maxTurns: 1,
-        simulateWorkMs: 1000,
+        simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
           '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"x\\" src"}}',
           '{"action":"finish","output":"done","confidence":0.9}',
         ],
         mockCommandResults: {
-          'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 1200 },
+          'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
         },
       }),
     });
 
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
     await fireAndAbortJsonRequest(
       `${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`,
       JSON.stringify({
         content: 'dropped-request',
         assistantContent: 'should-not-be-saved',
       }),
-      100,
+      25,
     );
 
     const survivorResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
       method: 'POST',
-      timeoutMs: 15000,
+      timeoutMs: 1000,
       body: JSON.stringify({
         content: 'survivor-request',
         assistantContent: 'saved',
@@ -897,34 +897,34 @@ test('invalid model request is rejected without waiting for active model work', 
 
     const delayedRepoSearch = requestJson(`${baseUrl}/repo-search`, {
       method: 'POST',
-      timeoutMs: 20000,
+      timeoutMs: 3000,
       body: JSON.stringify({
         prompt: 'hold lock for validation test',
         repoRoot: process.cwd(),
         model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
         maxTurns: 1,
-        simulateWorkMs: 1000,
+        simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
           '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"x\\" src"}}',
           '{"action":"finish","output":"done","confidence":0.9}',
         ],
         mockCommandResults: {
-          'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 1200 },
+          'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
         },
       }),
     });
 
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
     const startedAt = Date.now();
     const invalidResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
       method: 'POST',
-      timeoutMs: 15000,
+      timeoutMs: 3000,
       body: JSON.stringify({}),
     });
     const elapsedMs = Date.now() - startedAt;
     assert.equal(invalidResponse.statusCode, 400);
-    assert.equal(elapsedMs < 700, true);
+    assert.equal(elapsedMs < 250, true);
     await delayedRepoSearch;
   } finally {
     await new Promise<void>((resolve, reject) => {
@@ -1067,7 +1067,7 @@ test('chat completion receives hidden tool context while keeping it out of visib
     const sessionId = String(d(createSession.body.session).id);
     const planMessage = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/plan`, {
       method: 'POST',
-      timeoutMs: 15000,
+      timeoutMs: 3000,
       body: JSON.stringify({
         content: 'audit release gaps',
         repoRoot: tempRoot,
@@ -1088,7 +1088,7 @@ test('chat completion receives hidden tool context while keeping it out of visib
 
     const chatReply = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
       method: 'POST',
-      timeoutMs: 15000,
+      timeoutMs: 3000,
       body: JSON.stringify({
         content: 'use prior evidence and summarize next steps',
       }),

@@ -306,6 +306,7 @@ export type DashboardConfig = {
   Backend: string;
   PolicyMode: string;
   RawLogRetention: boolean;
+  IncludeRepoFileListing: boolean;
   PromptPrefix: string;
   OperationModeAllowedTools: DashboardOperationModeAllowedTools;
   Presets: DashboardPreset[];

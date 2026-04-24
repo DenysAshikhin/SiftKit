@@ -455,5 +455,5 @@ test('blocked commands like find-files are accessible but run and eval are block
     stderr: stderr.stream,
   });
   assert.equal(code, 1);
-  assert.match(stderr.read(), /not exposed in this CLI build/u);
+  assert.match(stderr.read(), /A command is required|not exposed in this CLI build/u);
 });

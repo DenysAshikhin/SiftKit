@@ -27,11 +27,13 @@ test('resolveTestTargets preserves option values while still resolving later pos
   ]);
 });
 
-test('buildNodeTestArgs adds the default test timeout before resolved targets', () => {
+test('buildNodeTestArgs adds default timeout and serial file concurrency before resolved targets', () => {
   const args = buildNodeTestArgs(process.cwd(), ['mock-repo-search-loop.test.ts']);
 
   assert.deepEqual(args, [
     '--test-timeout=30000',
+    '--test-concurrency=16',
+    '--test-reporter=dot',
     path.join('tests', 'mock-repo-search-loop.test.ts'),
   ]);
 });

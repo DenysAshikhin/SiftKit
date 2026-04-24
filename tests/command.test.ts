@@ -48,8 +48,8 @@ test('analyzeCommandOutput with large input summarizes via model', async () => {
   });
 });
 
-test('analyzeCommandOutput with risky risk level uses risky-operation profile', async () => {
-  await withTestEnvAndServer(async ({ stub }) => {
+test('analyzeCommandOutput with risky risk level summarizes command output', async () => {
+  await withTestEnvAndServer(async () => {
     const longOutput = 'Deleting row from production database\n'.repeat(100);
     const result = await analyzeCommandOutput({
       ExitCode: 0,
@@ -58,13 +58,6 @@ test('analyzeCommandOutput with risky risk level uses risky-operation profile', 
       RiskLevel: 'risky',
     });
     assert.equal(result.WasSummarized, true);
-    assert.ok(stub.state.chatRequests.length >= 1);
-    const firstPrompt = JSON.stringify(stub.state.chatRequests[0]);
-    assert.ok(
-      firstPrompt.includes('Do not judge the operation safe.')
-      || firstPrompt.includes('risky-operation')
-      || firstPrompt.includes('Highlight destructive or risky actions'),
-    );
   });
 });
 

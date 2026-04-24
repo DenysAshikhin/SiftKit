@@ -1,0 +1,13 @@
+....................
+...........X........
+
+
+Failed tests:
+
+✖ real status server keeps emitting idle summaries when sqlite persistence fails (746.0059ms)
+  Error: read ECONNRESET
+      at TCP.onStreamRead (node:internal/stream_base_commons:216:20) {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }

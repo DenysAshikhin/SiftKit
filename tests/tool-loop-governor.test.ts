@@ -142,8 +142,8 @@ test('buildToolReplayFingerprint normalizes equivalent replay text', () => {
 });
 
 test('buildRepeatedToolCallSummary renders expected repeat text', () => {
-  assert.equal(buildRepeatedToolCallSummary('run_repo_cmd', 2), 'run_repo_cmd: repeated tool call x2');
-  assert.equal(buildRepeatedToolCallSummary('read_lines', 3), 'read_lines: repeated tool call x3');
+  assert.equal(buildRepeatedToolCallSummary('run_repo_cmd', 2), 'duplicate command requested x2. Issue a different/unique tool call');
+  assert.equal(buildRepeatedToolCallSummary('read_lines', 3), 'duplicate command requested x3. Issue a different/unique tool call');
 });
 
 test('classifyToolResultNovelty detects repeated evidence with no new anchors', () => {

@@ -74,6 +74,7 @@ import {
   getIdleSummarySnapshotsPath,
   startStatusServer,
 } from '../dist/status-server/index.js';
+import { writeConfig } from '../dist/status-server/config-store.js';
 import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
 import { runDebugRequest } from '../dist/scripts/run-benchmark-fixture-debug.js';
 import { runFixture60MalformedJsonRepro } from '../dist/scripts/repro-fixture60-malformed-json.js';
@@ -567,7 +568,9 @@ async function startStubStatusServer(options = {}) {
   };
 }
 
-function withTempEnv(fn) {
+let tempEnvQueue = Promise.resolve();
+
+function runWithTempEnv(fn) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-node-test-'));
   const previousCwd = process.cwd();
   const previous = {
@@ -584,12 +587,14 @@ function withTempEnv(fn) {
     SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
     SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
     SIFTKIT_IDLE_SUMMARY_DB_PATH: process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH,
+    SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS,
   };
 
   process.env.USERPROFILE = tempRoot;
   process.env.sift_kit_status = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   process.env.SIFTKIT_STATUS_PATH = process.env.sift_kit_status;
   process.env.SIFTKIT_CONFIG_PATH = path.join(tempRoot, '.siftkit', 'config.json');
+  process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
   delete process.env.SIFTKIT_TEST_PROVIDER_BEHAVIOR;
   delete process.env.SIFTKIT_TEST_PROVIDER_LOG_PATH;
   delete process.env.SIFTKIT_TEST_PROVIDER_SLEEP_MS;
@@ -624,7 +629,41 @@ function withTempEnv(fn) {
     .finally(cleanup);
 }
 
+function withTempEnv(fn) {
+  const queued = tempEnvQueue.then(() => runWithTempEnv(fn), () => runWithTempEnv(fn));
+  tempEnvQueue = queued.catch(() => undefined);
+  return queued;
+}
+
+function seedRuntimeConfigFromJson(configPath) {
+  if (!configPath || !fs.existsSync(configPath) || path.extname(configPath).toLowerCase() !== '.json') {
+    return;
+  }
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  const serverLlama = config?.Server?.LlamaCpp;
+  if (serverLlama && typeof serverLlama === 'object') {
+    if (!serverLlama.BaseUrl && config?.Runtime?.LlamaCpp?.BaseUrl) {
+      serverLlama.BaseUrl = config.Runtime.LlamaCpp.BaseUrl;
+    }
+    if (!serverLlama.ExecutablePath && serverLlama.StartupScript) {
+      serverLlama.ExecutablePath = serverLlama.StartupScript;
+    }
+    if (!serverLlama.ModelPath && serverLlama.ExecutablePath) {
+      const modelPath = path.join(path.dirname(serverLlama.ExecutablePath), 'managed-test-model.gguf');
+      if (!fs.existsSync(modelPath)) {
+        fs.writeFileSync(modelPath, 'fake model', 'utf8');
+      }
+      serverLlama.ModelPath = modelPath;
+    }
+  }
+  writeConfig(getConfigPath(), config);
+}
+
 async function withStubServer(fn, options = {}) {
+  const previous = {
+    SIFTKIT_STATUS_BACKEND_URL: process.env.SIFTKIT_STATUS_BACKEND_URL,
+    SIFTKIT_CONFIG_SERVICE_URL: process.env.SIFTKIT_CONFIG_SERVICE_URL,
+  };
   const server = await startStubStatusServer(options);
   process.env.SIFTKIT_STATUS_BACKEND_URL = server.statusUrl;
   process.env.SIFTKIT_CONFIG_SERVICE_URL = server.configUrl;
@@ -632,6 +671,16 @@ async function withStubServer(fn, options = {}) {
     return await fn(server);
   } finally {
     await server.close();
+    if (previous.SIFTKIT_STATUS_BACKEND_URL === undefined) {
+      delete process.env.SIFTKIT_STATUS_BACKEND_URL;
+    } else {
+      process.env.SIFTKIT_STATUS_BACKEND_URL = previous.SIFTKIT_STATUS_BACKEND_URL;
+    }
+    if (previous.SIFTKIT_CONFIG_SERVICE_URL === undefined) {
+      delete process.env.SIFTKIT_CONFIG_SERVICE_URL;
+    } else {
+      process.env.SIFTKIT_CONFIG_SERVICE_URL = previous.SIFTKIT_CONFIG_SERVICE_URL;
+    }
   }
 }
 
@@ -662,10 +711,12 @@ async function withRealStatusServer(fn, options = {}) {
     SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
     SIFTKIT_IDLE_SUMMARY_DB_PATH: process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH,
     SIFTKIT_EXECUTION_LEASE_STALE_MS: process.env.SIFTKIT_EXECUTION_LEASE_STALE_MS,
+    SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS,
   };
 
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
+  process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
   process.env.sift_kit_status = options.statusPath;
   process.env.SIFTKIT_STATUS_PATH = options.statusPath;
   process.env.SIFTKIT_CONFIG_PATH = options.configPath;
@@ -680,6 +731,7 @@ async function withRealStatusServer(fn, options = {}) {
     delete process.env.SIFTKIT_EXECUTION_LEASE_STALE_MS;
   }
 
+  seedRuntimeConfigFromJson(options.configPath);
   const server = startStatusServer({
     disableManagedLlamaStartup: Boolean(options.disableManagedLlamaStartup),
   });
@@ -721,6 +773,7 @@ async function withRealStatusServer(fn, options = {}) {
 }
 
 async function startStatusServerProcess(options) {
+  seedRuntimeConfigFromJson(options.configPath);
   const childEnv = {
     ...process.env,
     SIFTKIT_STATUS_HOST: '127.0.0.1',
@@ -731,6 +784,7 @@ async function startStatusServerProcess(options) {
     ...(options.idleSummaryDbPath ? { SIFTKIT_IDLE_SUMMARY_DB_PATH: options.idleSummaryDbPath } : {}),
     ...(options.idleSummaryDelayMs ? { SIFTKIT_IDLE_SUMMARY_DELAY_MS: String(options.idleSummaryDelayMs) } : {}),
     ...(options.executionLeaseStaleMs ? { SIFTKIT_EXECUTION_LEASE_STALE_MS: String(options.executionLeaseStaleMs) } : {}),
+    SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: '0',
   };
   const statusServerEntrypoint = path.resolve(__dirname, '..', 'dist', 'status-server', 'index.js');
   const args = [statusServerEntrypoint];
@@ -808,10 +862,29 @@ async function startStatusServerProcess(options) {
     }
   });
 
-  const startupInfo = await startup;
+  const startupTimeoutMs = options.startupTimeoutMs || 10_000;
+  const startupInfo = await Promise.race([
+    startup,
+    new Promise((_, reject) => setTimeout(() => reject(new Error([
+      `Timed out waiting for status server startup after ${startupTimeoutMs} ms.`,
+      `stdout:\n${stdoutLines.join('\n')}`,
+      `stderr:\n${stderrLines.join('\n')}`,
+    ].join('\n'))), startupTimeoutMs)),
+  ]).catch(async (error) => {
+    if (child.exitCode === null && !child.killed) {
+      if (process.platform === 'win32' && child.pid) {
+        spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+      } else {
+        child.kill('SIGTERM');
+      }
+      await Promise.race([closePromise, sleep(2000)]);
+    }
+    throw error;
+  });
 
   return {
     port: startupInfo.port,
+    startupWarning: startupInfo.startupWarning || null,
     statusUrl: `http://127.0.0.1:${startupInfo.port}/status`,
     configUrl: `http://127.0.0.1:${startupInfo.port}/config`,
     executionUrl: `http://127.0.0.1:${startupInfo.port}/execution`,
@@ -844,8 +917,12 @@ async function startStatusServerProcess(options) {
         return;
       }
 
-      child.kill('SIGINT');
-      await new Promise((resolve) => child.once('close', resolve));
+      if (process.platform === 'win32' && child.pid) {
+        spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+      } else {
+        child.kill('SIGINT');
+      }
+      await Promise.race([closePromise, sleep(2000)]);
     },
   };
 }
@@ -938,6 +1015,7 @@ function toSingleQuotedPowerShellLiteral(value) {
 
 function writeManagedLlamaScripts(tempRoot, port, modelId = 'managed-test-model', options = {}) {
   const fakeServerPath = path.join(tempRoot, 'fake-llama-server.js');
+  const modelPath = path.join(tempRoot, `${modelId}.gguf`);
   const startupScriptPath = path.join(tempRoot, 'start-llama.ps1');
   const shutdownScriptPath = path.join(tempRoot, 'stop-llama.ps1');
   const pidFilePath = path.join(tempRoot, 'fake-llama.pid');
@@ -946,12 +1024,14 @@ function writeManagedLlamaScripts(tempRoot, port, modelId = 'managed-test-model'
   const launchMarkerPath = path.join(tempRoot, 'fake-llama.launch');
   const invocationLogPath = path.join(tempRoot, 'fake-llama.invocation.json');
 
+  fs.writeFileSync(modelPath, 'fake model', 'utf8');
   fs.writeFileSync(fakeServerPath, `
 const http = require('node:http');
 const fs = require('node:fs');
 const port = ${JSON.stringify(port)};
 const modelId = ${JSON.stringify(modelId)};
 const readyFilePath = ${JSON.stringify(readyFilePath)};
+const pidFilePath = ${JSON.stringify(pidFilePath)};
 
 const server = http.createServer((req, res) => {
   if (req.method === 'GET' && req.url === '/v1/models') {
@@ -983,15 +1063,14 @@ process.on('SIGINT', shutdown);
 `, 'utf8');
 
   fs.writeFileSync(startupScriptPath, `
-param(
-  [string]$ConfigPath,
-  [string]$ConfigUrl,
-  [string]$StatusPath,
-  [string]$StatusUrl,
-  [string]$HealthUrl,
-  [string]$RuntimeRoot,
-  [string]$ScriptPath
-)
+[string]$ConfigPath = ''
+[string]$ConfigUrl = $env:SIFTKIT_CONFIG_SERVICE_URL
+[string]$StatusPath = ''
+[string]$StatusUrl = ''
+[string]$HealthUrl = $env:SIFTKIT_HEALTH_URL
+[string]$RuntimeRoot = ''
+[string]$ScriptPath = ''
+$RemainingArgs = $args
 
 $pidFile = ${toSingleQuotedPowerShellLiteral(pidFilePath)}
 $nodePath = ${toSingleQuotedPowerShellLiteral(process.execPath)}
@@ -1096,6 +1175,8 @@ $child = if ($launchHangingProcess) {
   Start-Process -FilePath $nodePath -ArgumentList @($serverScript) -PassThru -WindowStyle Hidden
 }
 Set-Content -LiteralPath $pidFile -Value ([string]$child.Id) -Encoding utf8 -NoNewline
+Wait-Process -Id $child.Id
+Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
 exit 0
 `, 'utf8');
 
@@ -1126,6 +1207,7 @@ exit 0
   return {
     baseUrl: `http://127.0.0.1:${port}`,
     fakeServerPath,
+    modelPath,
     startupScriptPath,
     shutdownScriptPath,
     pidFilePath,
@@ -1224,6 +1306,8 @@ server.listen(port, host, () => {
 });
 
 function shutdown() {
+  try { fs.rmSync(readyFilePath, { force: true }); } catch {}
+  try { fs.rmSync(pidFilePath, { force: true }); } catch {}
   server.close(() => process.exit(0));
 }
 

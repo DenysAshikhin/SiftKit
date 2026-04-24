@@ -41,6 +41,7 @@ export type BenchmarkRunResult = {
   Model: string;
   FixtureRoot: string;
   OutputPath: string;
+  BenchmarkRunUri?: string;
   PromptPrefix: string | null;
   CompletedFixtureCount: number;
   FatalError: string | null;

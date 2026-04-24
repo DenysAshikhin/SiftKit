@@ -280,7 +280,7 @@ test('preflightPlannerPromptBudget reports overflow against context budget', asy
   const preflight = await preflightPlannerPromptBudget({
     messages: [
       { role: 'system', content: 'system' },
-      { role: 'user', content: 'x'.repeat(10000) },
+      { role: 'user', content: 'x '.repeat(10000) },
     ],
     totalContextTokens: 7000,
     thinkingBufferTokens: 4000,
@@ -356,21 +356,29 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
       signals: ['done'],
     },
     {
-      maxTurns: 5,
+      maxTurns: 10,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
-      totalContextTokens: 30000,
+      totalContextTokens: 7000,
       mockResponses: [
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" lib"}}',
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" test"}}',
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" docs"}}',
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" scripts"}}',
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" examples"}}',
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" fixtures"}}',
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "planner" src': { exitCode: 0, stdout: 'a'.repeat(6000), stderr: '' },
-        'rg -n "planner" lib': { exitCode: 0, stdout: 'b'.repeat(6000), stderr: '' },
-        'rg -n "planner" test': { exitCode: 0, stdout: 'c'.repeat(6000), stderr: '' },
+        'rg -n "planner" src': { exitCode: 0, stdout: 'a '.repeat(500), stderr: '' },
+        'rg -n "planner" lib': { exitCode: 0, stdout: 'b '.repeat(500), stderr: '' },
+        'rg -n "planner" test': { exitCode: 0, stdout: 'c '.repeat(500), stderr: '' },
+        'rg -n "planner" docs': { exitCode: 0, stdout: 'd '.repeat(500), stderr: '' },
+        'rg -n "planner" scripts': { exitCode: 0, stdout: 'e '.repeat(500), stderr: '' },
+        'rg -n "planner" examples': { exitCode: 0, stdout: 'f '.repeat(320), stderr: '' },
+        'rg -n "planner" fixtures': { exitCode: 0, stdout: 'g '.repeat(320), stderr: '' },
       },
       logger: {
         write(event: Record<string, unknown> & { kind: string }) {

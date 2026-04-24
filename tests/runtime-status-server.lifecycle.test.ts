@@ -25,6 +25,21 @@ const {
   writeManagedLlamaScripts,
 } = require('./_runtime-helpers.js');
 
+function applyManagedScriptConfig(config, managed, overrides = {}) {
+  setManagedLlamaBaseUrl(config, managed.baseUrl);
+  config.Server = {
+    LlamaCpp: {
+      BaseUrl: managed.baseUrl,
+      ModelPath: managed.modelPath,
+      ExecutablePath: managed.startupScriptPath,
+      StartupTimeoutMs: 5000,
+      HealthcheckTimeoutMs: 200,
+      HealthcheckIntervalMs: 50,
+      ...overrides,
+    },
+  };
+}
+
 test('status notification failures fail closed with the canonical message', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
@@ -116,16 +131,7 @@ test('real status server with disableManagedLlamaStartup skips managed llama boo
     const llamaPort = await getFreePort();
     const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
     const config = getDefaultConfig();
-    setManagedLlamaBaseUrl(config, managed.baseUrl);
-    config.Server = {
-      LlamaCpp: {
-        StartupScript: managed.startupScriptPath,
-        ShutdownScript: managed.shutdownScriptPath,
-        StartupTimeoutMs: 5000,
-        HealthcheckTimeoutMs: 200,
-        HealthcheckIntervalMs: 50,
-      },
-    };
+    applyManagedScriptConfig(config, managed);
     writeConfig(configPath, config);
 
     await withRealStatusServer(async ({ statusUrl }) => {
@@ -150,21 +156,12 @@ test('real status server with disableManagedLlamaStartup does not trigger manage
     const llamaPort = await getFreePort();
     const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
     const config = getDefaultConfig();
-    setManagedLlamaBaseUrl(config, managed.baseUrl);
-    config.Server = {
-      LlamaCpp: {
-        StartupScript: managed.startupScriptPath,
-        ShutdownScript: managed.shutdownScriptPath,
-        StartupTimeoutMs: 5000,
-        HealthcheckTimeoutMs: 200,
-        HealthcheckIntervalMs: 50,
-      },
-    };
+    applyManagedScriptConfig(config, managed);
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ configUrl }) => {
       const loadedConfig = await requestJson(configUrl);
-      assert.equal(loadedConfig.Server.LlamaCpp.BaseUrl, 'http://127.0.0.1:8097');
+      assert.equal(loadedConfig.Server.LlamaCpp.BaseUrl, managed.baseUrl);
       await sleep(250);
       assert.equal(fs.existsSync(managed.readyFilePath), false);
     }, {
@@ -217,16 +214,7 @@ test('real status server with disableManagedLlamaStartup leaves an externally st
     const llamaPort = await getFreePort();
     const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
     const config = getDefaultConfig();
-    setManagedLlamaBaseUrl(config, managed.baseUrl);
-    config.Server = {
-      LlamaCpp: {
-        StartupScript: managed.startupScriptPath,
-        ShutdownScript: managed.shutdownScriptPath,
-        StartupTimeoutMs: 5000,
-        HealthcheckTimeoutMs: 200,
-        HealthcheckIntervalMs: 50,
-      },
-    };
+    applyManagedScriptConfig(config, managed);
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     const externalLlama = spawn(process.execPath, [managed.fakeServerPath], {

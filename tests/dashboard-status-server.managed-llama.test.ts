@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as http from 'node:http';
+import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 
@@ -50,13 +51,13 @@ const runtimeHelpers = requireFromHere('./_runtime-helpers.js') as {
     configPath: string;
     idleSummaryDbPath?: string;
     idleSummaryDelayMs?: number;
+    startupTimeoutMs?: number;
     disableManagedLlamaStartup?: boolean;
   }) => Promise<{
     statusUrl: string;
     close: () => Promise<void>;
   }>;
 };
-
 
 function d(value: unknown): Dict {
   return (value || {}) as Dict;
@@ -112,6 +113,17 @@ function restoreDashboardTestRepo(previousCwd: string): void {
   closeRuntimeDatabase();
 }
 
+function stopFakeManagedLlama(readyFilePath: string): void {
+  if (!fs.existsSync(readyFilePath)) {
+    return;
+  }
+  const pid = Number.parseInt(fs.readFileSync(readyFilePath, 'utf8').trim(), 10);
+  if (!Number.isFinite(pid) || pid <= 0) {
+    return;
+  }
+  spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+}
+
 
 test('dashboard plan wakes managed llama after idle shutdown', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-idle-wakeup-'));
@@ -151,7 +163,7 @@ test('dashboard plan wakes managed llama after idle shutdown', async () => {
       Reasoning: 'on',
       ReasoningBudget: 10000,
       ReasoningBudgetMessage: 'Thinking budget exhausted. You have to provide the answer now.',
-      StartupTimeoutMs: 5000,
+      StartupTimeoutMs: 1000,
       HealthcheckTimeoutMs: 200,
       HealthcheckIntervalMs: 50,
       VerboseLogging: false,
@@ -163,6 +175,7 @@ test('dashboard plan wakes managed llama after idle shutdown', async () => {
     statusPath,
     configPath,
     idleSummaryDelayMs: 80,
+    startupTimeoutMs: 3000,
   });
   const baseUrl = new URL(server.statusUrl).origin;
 
@@ -170,7 +183,7 @@ test('dashboard plan wakes managed llama after idle shutdown', async () => {
     await runtimeHelpers.waitForAsyncExpectation(async () => {
       const modelsResponse = await requestJson(`${managed.baseUrl}/v1/models`);
       assert.equal(modelsResponse.statusCode, 200);
-    }, 5000);
+    }, 1000);
     assert.equal(fs.existsSync(managed.readyFilePath), true);
 
     const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
@@ -211,12 +224,12 @@ test('dashboard plan wakes managed llama after idle shutdown', async () => {
       const statusResponse = await requestJson(server.statusUrl);
       assert.equal(statusResponse.statusCode, 200);
       assert.equal(statusResponse.body.status, 'false');
-    }, 5000);
-    await assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`));
+    }, 1000);
+    await assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`, { timeoutMs: 200 }));
 
     const planResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/plan`, {
       method: 'POST',
-      timeoutMs: 15000,
+      timeoutMs: 3000,
       body: JSON.stringify({
         content: 'Find wake-up wiring',
         repoRoot: tempRoot,
@@ -236,9 +249,10 @@ test('dashboard plan wakes managed llama after idle shutdown', async () => {
     await runtimeHelpers.waitForAsyncExpectation(async () => {
       const modelsResponse = await requestJson(`${managed.baseUrl}/v1/models`);
       assert.equal(modelsResponse.statusCode, 200);
-    }, 5000);
+    }, 1000);
   } finally {
     await server.close();
+    stopFakeManagedLlama(managed.readyFilePath);
     restoreDashboardTestRepo(previousCwd);
     try {
       await removeDirectoryWithRetries(tempRoot);

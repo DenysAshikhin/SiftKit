@@ -1,0 +1,19 @@
+✔ listLlamaCppModels returns model list from server (169.1565ms)
+✔ getLlamaCppProviderStatus returns reachable status (132.4928ms)
+✖ getLlamaCppProviderStatus returns unreachable when server is down (5007.1349ms)
+✔ countLlamaCppTokens returns count from server (128.4674ms)
+✔ generateLlamaCppResponse returns text response (121.629ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 1
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 29589.8751
+
+✖ failing tests:
+
+test at tests\llama-cpp.test.ts:2:1929
+✖ getLlamaCppProviderStatus returns unreachable when server is down (5007.1349ms)
+  'test timed out after 5000ms'

@@ -143,6 +143,16 @@ export function SettingsTab(props: SettingsTabProps) {
             <span>{dashboardConfig.RawLogRetention ? 'Enabled' : 'Disabled'}</span>
           </label>
         ))}
+        {renderField('general', 'Initial repo file scan', (
+          <label className="settings-live-toggle-control">
+            <input
+              type="checkbox"
+              checked={dashboardConfig.IncludeRepoFileListing}
+              onChange={(event) => updateSettingsDraft((next) => { next.IncludeRepoFileListing = event.target.checked; })}
+            />
+            <span>{dashboardConfig.IncludeRepoFileListing ? 'Enabled' : 'Disabled'}</span>
+          </label>
+        ))}
         {renderField('general', 'Prompt prefix', (
           <textarea
             rows={5}
