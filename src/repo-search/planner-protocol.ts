@@ -727,6 +727,7 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
     return retryProviderRequest(
       () => requestStreaming(options, bodyJson, stage),
       {
+        maxWaitMs: options.timeoutMs,
         onRetry(event) {
           logProviderRetry({
             logger: options.logger,
@@ -767,6 +768,7 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
         return nextResponse;
       },
       {
+        maxWaitMs: options.timeoutMs,
         onRetry(event) {
           logProviderRetry({
             logger: options.logger,

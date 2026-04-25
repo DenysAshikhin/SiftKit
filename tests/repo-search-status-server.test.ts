@@ -14,6 +14,7 @@ const requireFromHere = createRequire(__filename);
 const runtimeHelpers = requireFromHere('./_runtime-helpers.js') as {
   writeManagedLlamaScripts: (tempRoot: string, port: number, modelId?: string) => {
     baseUrl: string;
+    modelPath: string;
     startupScriptPath: string;
     shutdownScriptPath: string;
     readyFilePath: string;
@@ -465,15 +466,18 @@ test('repo-search wakes managed llama after idle shutdown', async () => {
       Model: 'managed-test-model',
       LlamaCpp: {
         BaseUrl: managed.baseUrl,
+        ModelPath: managed.modelPath,
       },
     },
     Server: {
       LlamaCpp: {
-        StartupScript: managed.startupScriptPath,
+        BaseUrl: managed.baseUrl,
+        ExecutablePath: managed.startupScriptPath,
         ShutdownScript: managed.shutdownScriptPath,
+        ModelPath: managed.modelPath,
         StartupTimeoutMs: 5000,
-        HealthcheckTimeoutMs: 200,
-        HealthcheckIntervalMs: 50,
+        HealthcheckTimeoutMs: 100,
+        HealthcheckIntervalMs: 10,
       },
     },
   }, null, 2)}\n`, 'utf8');

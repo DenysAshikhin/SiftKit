@@ -33,8 +33,8 @@ function applyManagedScriptConfig(config, managed, overrides = {}) {
       ModelPath: managed.modelPath,
       ExecutablePath: managed.startupScriptPath,
       StartupTimeoutMs: 5000,
-      HealthcheckTimeoutMs: 200,
-      HealthcheckIntervalMs: 50,
+      HealthcheckTimeoutMs: 100,
+      HealthcheckIntervalMs: 10,
       ...overrides,
     },
   };
@@ -74,7 +74,7 @@ test('real status server clears stale true status once during startup', async ()
       const status = await requestJson(statusUrl);
       assert.equal(status.running, false);
       assert.equal(status.status, 'false');
-      await sleep(250);
+      await sleep(50);
       const laterStatus = await requestJson(statusUrl);
       assert.equal(laterStatus.running, false);
       assert.equal(laterStatus.status, 'false');
@@ -135,7 +135,7 @@ test('real status server with disableManagedLlamaStartup skips managed llama boo
     writeConfig(configPath, config);
 
     await withRealStatusServer(async ({ statusUrl }) => {
-      await sleep(250);
+      await sleep(50);
       assert.equal(fs.existsSync(managed.readyFilePath), false);
       const status = await requestJson(statusUrl);
       assert.equal(status.running, false);
@@ -162,7 +162,7 @@ test('real status server with disableManagedLlamaStartup does not trigger manage
     await withRealStatusServer(async ({ configUrl }) => {
       const loadedConfig = await requestJson(configUrl);
       assert.equal(loadedConfig.Server.LlamaCpp.BaseUrl, managed.baseUrl);
-      await sleep(250);
+      await sleep(50);
       assert.equal(fs.existsSync(managed.readyFilePath), false);
     }, {
       statusPath,

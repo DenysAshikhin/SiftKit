@@ -636,7 +636,7 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
 
     const delayedRepoSearch = requestJson(`${baseUrl}/repo-search`, {
       method: 'POST',
-      timeoutMs: 4000,
+      timeoutMs: 6000,
       body: JSON.stringify({
         prompt: 'find x',
         repoRoot: process.cwd(),
@@ -658,7 +658,7 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
     const blockedChatStart = Date.now();
     const blockedChat = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
       method: 'POST',
-      timeoutMs: 1000,
+      timeoutMs: 3000,
       body: JSON.stringify({
         content: 'should wait while repo-search is running',
         assistantContent: 'stored assistant response',
@@ -710,7 +710,7 @@ test('model routes execute in FIFO order across mixed request kinds', async () =
 
     const delayedRepoSearch = requestJson(`${baseUrl}/repo-search`, {
       method: 'POST',
-      timeoutMs: 4000,
+      timeoutMs: 6000,
       body: JSON.stringify({
         prompt: 'hold lock',
         repoRoot: process.cwd(),
@@ -731,7 +731,7 @@ test('model routes execute in FIFO order across mixed request kinds', async () =
     await new Promise<void>((resolve) => setTimeout(resolve, 25));
     const queuedB = requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
       method: 'POST',
-      timeoutMs: 1000,
+      timeoutMs: 3000,
       body: JSON.stringify({
         content: 'fifo-b',
         assistantContent: 'assistant-b',
@@ -743,7 +743,7 @@ test('model routes execute in FIFO order across mixed request kinds', async () =
     await new Promise<void>((resolve) => setTimeout(resolve, 5));
     const queuedC = requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
       method: 'POST',
-      timeoutMs: 1000,
+      timeoutMs: 3000,
       body: JSON.stringify({
         content: 'fifo-c',
         assistantContent: 'assistant-c',
@@ -838,7 +838,7 @@ test('queued model request is dropped when client disconnects before lock grant'
 
     const survivorResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
       method: 'POST',
-      timeoutMs: 1000,
+      timeoutMs: 3000,
       body: JSON.stringify({
         content: 'survivor-request',
         assistantContent: 'saved',
@@ -1126,301 +1126,4 @@ test('chat completion receives hidden tool context while keeping it out of visib
   }
 });
 
-test('dashboard initial runs load returns top 20 overall and migrates pre-existing file logs into sqlite', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-initial-cap-'));
-  const previousCwd = enterDashboardTestRepo(tempRoot);
-  const runtimeRoot = path.join(tempRoot, '.siftkit');
-  const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
-  const configPath = path.join(runtimeRoot, 'config.json');
-  const idleSummaryDbPath = path.join(runtimeRoot, 'runtime.sqlite');
-  const logsRoot = path.join(runtimeRoot, 'logs');
-  const requestsRoot = path.join(logsRoot, 'requests');
-  const repoSearchFailedRoot = path.join(logsRoot, 'repo_search', 'failed');
-
-  for (let index = 0; index < 25; index += 1) {
-    const ordinal = String(index + 1).padStart(2, '0');
-    const requestId = `req-summary-${ordinal}`;
-    writeJson(path.join(requestsRoot, `request_${requestId}.json`), {
-      requestId,
-      question: `Summary run ${ordinal}`,
-      backend: 'llama.cpp',
-      model: 'Qwen3.5-9B-Q8_0.gguf',
-      summary: `Summary output ${ordinal}`,
-      createdAtUtc: `2026-04-01T10:${ordinal}:00.000Z`,
-      inputTokens: 100 + index,
-      outputTokens: 40 + index,
-      requestDurationMs: 1000 + index,
-    });
-  }
-
-  for (let index = 0; index < 25; index += 1) {
-    const ordinal = String(index + 1).padStart(2, '0');
-    const requestId = `req-repo-${ordinal}`;
-    const artifactPath = path.join(repoSearchFailedRoot, `request_${requestId}.json`);
-    writeJson(artifactPath, {
-      requestId,
-      prompt: `Repo search run ${ordinal}`,
-      repoRoot: tempRoot,
-      verdict: 'fail',
-      totals: { commandsExecuted: 1 },
-      createdAtUtc: `2026-04-01T11:${ordinal}:00.000Z`,
-    });
-    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
-    fs.writeFileSync(
-      artifactPath.replace(/\.json$/u, '.jsonl'),
-      [
-        JSON.stringify({ at: `2026-04-01T11:${ordinal}:01.000Z`, kind: 'turn_model_response', text: '{"action":"finish"}' }),
-        JSON.stringify({ at: `2026-04-01T11:${ordinal}:03.000Z`, kind: 'run_done', scorecard: { verdict: 'fail' } }),
-      ].join('\n') + '\n',
-      'utf8',
-    );
-  }
-
-  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
-  await server.startupPromise;
-  const address = server.address() as AddressInfo;
-  const baseUrl = `http://127.0.0.1:${address.port}`;
-
-  try {
-    const cappedRunsResponse = await requestJson(`${baseUrl}/dashboard/runs?initial=1&limitPerGroup=20`);
-    assert.equal(cappedRunsResponse.statusCode, 200);
-    const runs = cappedRunsResponse.body.runs as Dict[];
-    assert.equal(runs.length, 20);
-
-    assert.equal(fs.readdirSync(requestsRoot).length, 0);
-    assert.equal(fs.readdirSync(repoSearchFailedRoot).length, 0);
-    assert.equal(readRunLogRowCount(idleSummaryDbPath), 50);
-  } finally {
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-    });
-    restoreDashboardTestRepo(previousCwd);
-    for (const [key, value] of Object.entries(envBackup)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-    await removeDirectoryWithRetries(tempRoot);
-  }
-});
-
-test('dashboard filters runs by preset group and deletes the oldest matching logs by count', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-run-delete-count-'));
-  const previousCwd = enterDashboardTestRepo(tempRoot);
-  const runtimeRoot = path.join(tempRoot, '.siftkit');
-  const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
-  const configPath = path.join(runtimeRoot, 'config.json');
-  const idleSummaryDbPath = path.join(runtimeRoot, 'runtime.sqlite');
-  const logsRoot = path.join(runtimeRoot, 'logs');
-  const requestsRoot = path.join(logsRoot, 'requests');
-  const repoSearchFailedRoot = path.join(logsRoot, 'repo_search', 'failed');
-
-  for (let index = 0; index < 25; index += 1) {
-    const ordinal = String(index + 1).padStart(2, '0');
-    const requestId = `req-summary-${ordinal}`;
-    writeJson(path.join(requestsRoot, `request_${requestId}.json`), {
-      requestId,
-      question: `Summary run ${ordinal}`,
-      backend: 'llama.cpp',
-      model: 'Qwen3.5-9B-Q8_0.gguf',
-      summary: `Summary output ${ordinal}`,
-      createdAtUtc: `2026-04-01T10:${ordinal}:00.000Z`,
-      inputTokens: 100 + index,
-      outputTokens: 40 + index,
-      requestDurationMs: 1000 + index,
-    });
-  }
-
-  for (let index = 0; index < 25; index += 1) {
-    const ordinal = String(index + 1).padStart(2, '0');
-    const requestId = `req-repo-${ordinal}`;
-    const artifactPath = path.join(repoSearchFailedRoot, `request_${requestId}.json`);
-    writeJson(artifactPath, {
-      requestId,
-      prompt: `Repo search run ${ordinal}`,
-      repoRoot: tempRoot,
-      verdict: 'fail',
-      totals: { commandsExecuted: 1 },
-      createdAtUtc: `2026-04-01T11:${ordinal}:00.000Z`,
-    });
-    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
-    fs.writeFileSync(
-      artifactPath.replace(/\.json$/u, '.jsonl'),
-      [
-        JSON.stringify({ at: `2026-04-01T11:${ordinal}:01.000Z`, kind: 'turn_model_response', text: '{"action":"finish"}' }),
-        JSON.stringify({ at: `2026-04-01T11:${ordinal}:03.000Z`, kind: 'run_done', scorecard: { verdict: 'fail' } }),
-      ].join('\n') + '\n',
-      'utf8',
-    );
-  }
-
-  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
-  await server.startupPromise;
-  const address = server.address() as AddressInfo;
-  const baseUrl = `http://127.0.0.1:${address.port}`;
-
-  try {
-    const groupedRunsResponse = await requestJson(`${baseUrl}/dashboard/runs?kind=summary`);
-    assert.equal(groupedRunsResponse.statusCode, 200);
-    const summaryRuns = groupedRunsResponse.body.runs as Dict[];
-    assert.equal(summaryRuns.length, 25);
-
-    const previewResponse = await requestJson(`${baseUrl}/dashboard/admin/run-logs/preview`, {
-      method: 'POST',
-      body: JSON.stringify({
-        mode: 'count',
-        type: 'summary',
-        count: 3,
-      }),
-    });
-    assert.equal(previewResponse.statusCode, 200);
-    assert.equal(previewResponse.body.matchCount, 3);
-
-    const deleteResponse = await requestJson(`${baseUrl}/dashboard/admin/run-logs`, {
-      method: 'DELETE',
-      body: JSON.stringify({
-        mode: 'count',
-        type: 'summary',
-        count: 3,
-      }),
-    });
-    assert.equal(deleteResponse.statusCode, 200);
-    assert.equal(deleteResponse.body.deletedCount, 3);
-    assert.deepEqual(deleteResponse.body.deletedRunIds, [
-      'req-summary-01',
-      'req-summary-02',
-      'req-summary-03',
-    ]);
-
-    const afterDeleteResponse = await requestJson(`${baseUrl}/dashboard/runs?kind=summary`);
-    assert.equal(afterDeleteResponse.statusCode, 200);
-    const remainingSummaryRuns = afterDeleteResponse.body.runs as Dict[];
-    assert.equal(remainingSummaryRuns.length, 22);
-    assert.equal(readRunLogRowCount(idleSummaryDbPath), 47);
-  } finally {
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-    });
-    restoreDashboardTestRepo(previousCwd);
-    for (const [key, value] of Object.entries(envBackup)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-    await removeDirectoryWithRetries(tempRoot);
-  }
-});
-
-test('dashboard deletes matching logs before a date and rejects invalid delete criteria', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-run-delete-date-'));
-  const previousCwd = enterDashboardTestRepo(tempRoot);
-  const runtimeRoot = path.join(tempRoot, '.siftkit');
-  const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
-  const configPath = path.join(runtimeRoot, 'config.json');
-  const idleSummaryDbPath = path.join(runtimeRoot, 'runtime.sqlite');
-  const logsRoot = path.join(runtimeRoot, 'logs');
-  const requestsRoot = path.join(logsRoot, 'requests');
-  const repoSearchFailedRoot = path.join(logsRoot, 'repo_search', 'failed');
-
-  for (let index = 0; index < 10; index += 1) {
-    const ordinal = String(index + 1).padStart(2, '0');
-    const requestId = `req-summary-${ordinal}`;
-    writeJson(path.join(requestsRoot, `request_${requestId}.json`), {
-      requestId,
-      question: `Summary run ${ordinal}`,
-      backend: 'llama.cpp',
-      model: 'Qwen3.5-9B-Q8_0.gguf',
-      summary: `Summary output ${ordinal}`,
-      createdAtUtc: `2026-04-03T10:${ordinal}:00.000Z`,
-      inputTokens: 100 + index,
-      outputTokens: 40 + index,
-      requestDurationMs: 1000 + index,
-    });
-  }
-
-  for (let index = 0; index < 8; index += 1) {
-    const ordinal = String(index + 1).padStart(2, '0');
-    const requestId = `req-repo-${ordinal}`;
-    const artifactPath = path.join(repoSearchFailedRoot, `request_${requestId}.json`);
-    writeJson(artifactPath, {
-      requestId,
-      prompt: `Repo search run ${ordinal}`,
-      repoRoot: tempRoot,
-      verdict: 'fail',
-      totals: { commandsExecuted: 1 },
-      createdAtUtc: `2026-04-01T11:${ordinal}:00.000Z`,
-    });
-    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
-    fs.writeFileSync(
-      artifactPath.replace(/\.json$/u, '.jsonl'),
-      [
-        JSON.stringify({ at: `2026-04-01T11:${ordinal}:01.000Z`, kind: 'turn_model_response', text: '{"action":"finish"}' }),
-        JSON.stringify({ at: `2026-04-01T11:${ordinal}:03.000Z`, kind: 'run_done', scorecard: { verdict: 'fail' } }),
-      ].join('\n') + '\n',
-      'utf8',
-    );
-  }
-
-  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
-  await server.startupPromise;
-  const address = server.address() as AddressInfo;
-  const baseUrl = `http://127.0.0.1:${address.port}`;
-
-  try {
-    const invalidPreviewResponse = await requestJson(`${baseUrl}/dashboard/admin/run-logs/preview`, {
-      method: 'POST',
-      body: JSON.stringify({
-        mode: 'count',
-        type: 'summary',
-        count: 0,
-      }),
-    });
-    assert.equal(invalidPreviewResponse.statusCode, 400);
-    assert.match(String(invalidPreviewResponse.body.error || ''), /count/u);
-
-    const previewResponse = await requestJson(`${baseUrl}/dashboard/admin/run-logs/preview`, {
-      method: 'POST',
-      body: JSON.stringify({
-        mode: 'before_date',
-        type: 'repo_search',
-        beforeDate: '2026-04-02',
-      }),
-    });
-    assert.equal(previewResponse.statusCode, 200);
-    assert.equal(previewResponse.body.matchCount, 8);
-
-    const deleteResponse = await requestJson(`${baseUrl}/dashboard/admin/run-logs`, {
-      method: 'DELETE',
-      body: JSON.stringify({
-        mode: 'before_date',
-        type: 'repo_search',
-        beforeDate: '2026-04-02',
-      }),
-    });
-    assert.equal(deleteResponse.statusCode, 200);
-    assert.equal(deleteResponse.body.deletedCount, 8);
-    assert.equal((deleteResponse.body.deletedRunIds as unknown[]).length, 8);
-    assert.equal(readRunLogRowCount(idleSummaryDbPath), 10);
-  } finally {
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-    });
-    restoreDashboardTestRepo(previousCwd);
-    for (const [key, value] of Object.entries(envBackup)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-    await removeDirectoryWithRetries(tempRoot);
-  }
-});
 

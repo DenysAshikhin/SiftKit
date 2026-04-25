@@ -1,0 +1,1197 @@
+✔ getSessionTelemetryStats computes cache hit rate and per-turn averaged acceptance and throughput stats (1.5528ms)
+✔ getSessionTelemetryStats uses thinking plus output tokens consistently across direct-rate and duration branches (0.2285ms)
+✔ getSessionTelemetryStats returns null rates when the session has no timing or speculative totals (0.1273ms)
+✔ dist\scripts\test-targets.d.ts (559.6055ms)
+✔ dist\scripts\test-targets.js (317.2093ms)
+✔ scripts\test-targets.ts (957.3548ms)
+✔ buildLaunchSignature produces pipe-separated string (0.994ms)
+✔ buildLaunchSignature uses script-controlled when passReasoningArg is false (0.1965ms)
+✔ buildLauncherArgs produces correct PowerShell arguments (0.165ms)
+✔ buildLauncherArgs includes reasoning arg when passReasoningArg is true (0.121ms)
+✔ buildBenchmarkArgs produces correct node arguments (0.2008ms)
+✔ buildBenchmarkArgs includes prompt-prefix-file when provided (0.1494ms)
+✔ pruneOldLauncherLogs deletes old launcher logs (2.297ms)
+✔ pruneOldLauncherLogs returns 0 for empty directory (0.5262ms)
+✔ readMatrixManifest reads and resolves a manifest (8.624ms)
+✔ buildBenchmarkCaseId is stable and descriptive (1.3085ms)
+✔ buildBenchmarkCaseId uses a dedicated id for the no-spec baseline case (0.1371ms)
+✔ findBenchmarkRun selects the nearest matching repo-search run after the run start (0.2212ms)
+✔ getLatestSpeculativeTotalsFromLogText reads checkpointed cumulative statistics (1.356ms)
+✔ getSpeculativeLogDeltaTotals converts cumulative log totals into per-request delta (0.2539ms)
+✔ getRunTelemetryStats uses managed-log delta speculative totals instead of persisted run totals (0.3185ms)
+✔ getRunTelemetryStats leaves speculative totals null when managed-log delta is unavailable (0.1327ms)
+✔ applySpeculativeCaseToConfig updates only the approved speculative settings (0.2138ms)
+✔ applySpeculativeCaseToConfig updates the active managed llama preset used on restart (0.1886ms)
+✔ applySpeculativeCaseToConfig can disable speculative decoding for the baseline run (0.1795ms)
+✔ sortBenchmarkResults orders by generation tokens per second descending (0.181ms)
+✔ DEFAULT_SPEC_BENCHMARK_CASES contains the approved baseline (0.0902ms)
+✔ DEFAULT_SPEC_BENCHMARK_CASES appends a no-spec baseline case (0.1527ms)
+✔ FOCUSED_SPEC_BENCHMARK_CASES contains baseline, current best, and eight nearby candidates (0.1185ms)
+✔ FOCUSED3_SPEC_BENCHMARK_CASES keeps trimmed-mean top two, baseline, and seven next candidates (0.1485ms)
+✔ spec benchmark script exists and targets the CLI run-log path (0.5213ms)
+✔ spec benchmark script invokes repo-search through the node helper without Start-Process argument flattening (0.5008ms)
+✔ spec benchmark script supports short verification runs and incremental artifact writes (0.3383ms)
+✔ spec benchmark script uses managed log deltas as the benchmark speculative metric source (0.4407ms)
+✔ spec benchmark script writes a single canonical speculative metrics block (0.5648ms)
+✔ spec benchmark script includes a final no-spec baseline case (0.2204ms)
+✔ spec benchmark script supports the focused ten-case set without changing the default set (0.3755ms)
+✔ spec benchmark script supports Focused3 with the next throughput candidates (0.559ms)
+✔ spec benchmark script updates the active managed llama preset before restart (0.2385ms)
+✔ package benchmark command uses a node wrapper instead of forwarding prompt args directly to PowerShell (0.2641ms)
+✔ package focused spec benchmark command preserves the old command and selects Focused10 (0.2508ms)
+✔ package focused3 spec benchmark command preserves existing commands and selects Focused3 (0.2225ms)
+✔ package build command syncs dist runtime output after compiling TypeScript (0.1799ms)
+✔ syncDistRuntime copies fresh compiled files from dist/src into runtime dist paths (6.669ms)
+✔ benchmark wrapper regroups multi-word option values after npm strips quotes on Windows (0.1936ms)
+✔ benchmark wrapper preserves Prompt as a value option while keeping the trailing flags intact (0.1509ms)
+✔ spec benchmark script runs nine benchmark prompts per case and averages metrics (0.3927ms)
+✔ spec benchmark script averaging helpers tolerate missing samples from failed attempts (0.381ms)
+✔ spec benchmark script avoids inline casted if-expressions that break Windows PowerShell (0.2632ms)
+✔ spec benchmark script includes safe process-tree and port cleanup like the ordered safe runner (0.2754ms)
+✔ spec benchmark script retries run discovery before marking a prompt sample missing (0.2607ms)
+✔ resolveEffectiveRepoFileListing disables initial repo file scan from global config (0.687ms)
+✔ resolveEffectiveRepoFileListing keeps preset-level disablement (0.1201ms)
+✔ resolveEffectiveRepoFileListing defaults to enabled (0.0923ms)
+✔ chat sessions are persisted in runtime sqlite instead of JSON files (196.4449ms)
+✔ deleteChatSession removes DB rows and reports existence correctly (409.3877ms)
+✔ blocked public commands are not accessible (3.4212ms)
+✔ CLI accepts --h as help alias (47.8246ms)
+✔ CLI accepts -help as help alias (2.2243ms)
+✔ CLI help advertises preset commands (2.2021ms)
+✔ repo-search help works without server startup (0.3771ms)
+✔ repo-search rejects unknown flags before startup checks (0.2099ms)
+✔ repo-search rejects --max-turns for CLI usage (0.1703ms)
+✔ summary requires stdin, --text, or --file (0.4247ms)
+✔ find-files command returns matching files (28.0586ms)
+✔ find-files with --full-path outputs absolute paths (1.6604ms)
+✔ find-files with no patterns returns error (0.2929ms)
+✔ internal op with unknown op returns error (22.7155ms)
+✔ internal op without --op returns error (5.3511ms)
+✔ internal op without --request-file returns error (4.4409ms)
+✔ internal op find-files reads request file and returns results (4.8046ms)
+✔ internal op find-files supports UTF-16 request file (11.3028ms)
+✔ internal op config-get returns config object (432.2473ms)
+✔ internal op test returns test result (663.8849ms)
+✔ summary command with --question and --text produces output (618.5631ms)
+✔ summary command with just a positional question uses stdin text (583.7158ms)
+✔ --prompt shortcut triggers repo-search (6.3201ms)
+✔ empty argv shows help (5.9203ms)
+✔ repo-search --prompt missing value returns error (4.1426ms)
+✔ internal op summary via request file produces output (1211.1574ms)
+✔ internal op summary supports UTF-16 TextFile payload (569.7165ms)
+✔ internal op command via request file runs command (1176.3924ms)
+✔ internal op command-analyze via request file analyzes output (583.5056ms)
+✔ internal op config-set via request file updates config (1169.8256ms)
+✔ internal op install via request file returns installation info (558.2425ms)
+✔ internal op codex-policy via request file installs policy (7.6733ms)
+✔ internal op eval via request file runs evaluation (685.2658ms)
+✔ internal op repo-search via request file executes search (676.6884ms)
+✔ blocked commands like find-files are accessible but run and eval are blocked (0.3226ms)
+✔ preset list shows builtin and custom cli-visible presets (417.706ms)
+✔ analyzeCommandOutput with NoSummarize returns no-summarize result (519.8305ms)
+✔ analyzeCommandOutput with short input returns a result with a policy decision (709.7047ms)
+✔ analyzeCommandOutput with large input summarizes via model (675.031ms)
+✔ analyzeCommandOutput with risky risk level summarizes command output (606.1241ms)
+✔ analyzeCommandOutput reducer "none" preserves full text (1234.2782ms)
+✔ analyzeCommandOutput reducer "tail" creates reduced log (603.5145ms)
+✔ analyzeCommandOutput reducer "errors" extracts error context (1225.1238ms)
+✔ analyzeCommandOutput reducer "diff" filters diff lines (615.8736ms)
+✔ runCommand invokes a real command and produces a result (1237.991ms)
+✔ analyzeCommandOutput default/smart reducer combines head and tail for large output without errors (640.3609ms)
+✔ analyzeCommandOutput with repeated lines compresses them (652.4774ms)
+✔ analyzeCommandOutput with debug risk level uses risky-operation profile (581.0359ms)
+✔ analyzeCommandOutput with nonzero exit code and errors reducer (582.6434ms)
+✔ runCommand handles nonexistent command gracefully (1722.6902ms)
+✔ SIFTKIT_VERSION is a string (1.2814ms)
+✔ getDefaultNumCtx returns the default context window (0.1266ms)
+✔ getDerivedMaxInputCharacters with positive numCtx returns positive result (0.1784ms)
+✔ getDerivedMaxInputCharacters with zero numCtx uses default (0.0839ms)
+✔ getDerivedMaxInputCharacters with custom chars-per-token (0.0872ms)
+✔ getDerivedMaxInputCharacters with zero chars-per-token uses default (0.0777ms)
+✔ ensureDirectory creates nested directories (1.7852ms)
+✔ saveContentAtomically writes content to a file (17.7336ms)
+✔ saveContentAtomically creates parent directories (3.3834ms)
+✔ StatusServerUnavailableError has correct properties (0.2807ms)
+✔ MissingObservedBudgetError has correct properties (0.1868ms)
+✔ MissingObservedBudgetError with custom message (0.0911ms)
+✔ initializeRuntime returns runtime paths (1.0792ms)
+✔ getConfiguredModel throws when model is missing (0.3405ms)
+✔ getConfiguredModel returns Runtime.Model (0.092ms)
+✔ getConfiguredLlamaBaseUrl throws when BaseUrl is missing (0.1217ms)
+✔ getConfiguredLlamaBaseUrl returns Runtime.LlamaCpp.BaseUrl (0.0724ms)
+✔ getConfiguredLlamaNumCtx throws when NumCtx is missing (0.1379ms)
+✔ getConfiguredLlamaNumCtx returns Runtime.LlamaCpp.NumCtx (0.0883ms)
+✔ getConfiguredPromptPrefix returns undefined for empty prefix (0.1222ms)
+✔ getConfiguredPromptPrefix returns trimmed prefix (0.0924ms)
+✔ getConfiguredLlamaSetting returns value from Runtime.LlamaCpp (0.1108ms)
+✔ getConfiguredLlamaSetting returns undefined for missing key (0.079ms)
+✔ getStatusBackendUrl uses env var when set (0.1748ms)
+✔ getStatusServerUnavailableMessage returns a message string (0.1925ms)
+✔ getConfigServiceUrl uses env var when set (0.183ms)
+✔ getExecutionServiceUrl returns execution endpoint URL (0.2247ms)
+✔ loadConfig returns a valid config object (528.0146ms)
+✔ getChunkThresholdCharacters returns a positive number (680.3734ms)
+✔ getEffectiveInputCharactersPerContextToken returns the effective value (632.3845ms)
+✔ getExecutionServerState returns busy status (6.5994ms)
+✔ ensureStatusServerReachable succeeds with running server (4.6349ms)
+[siftkit] healthcheck attempt 1/5 failed url=http://127.0.0.1:1/health timeout_ms=1000 cause=connect ECONNREFUSED 127.0.0.1:1
+[siftkit] healthcheck attempt 2/5 failed url=http://127.0.0.1:1/health timeout_ms=1000 cause=connect ECONNREFUSED 127.0.0.1:1
+[siftkit] healthcheck attempt 3/5 failed url=http://127.0.0.1:1/health timeout_ms=1000 cause=connect ECONNREFUSED 127.0.0.1:1
+[siftkit] healthcheck attempt 4/5 failed url=http://127.0.0.1:1/health timeout_ms=1000 cause=connect ECONNREFUSED 127.0.0.1:1
+[siftkit] healthcheck attempt 5/5 failed url=http://127.0.0.1:1/health timeout_ms=1000 cause=connect ECONNREFUSED 127.0.0.1:1
+✔ ensureStatusServerReachable throws when server is down (1535.4664ms)
+[siftkit] healthcheck attempt 1/5 failed url=http://127.0.0.1:10934/health timeout_ms=50 cause=HTTP 503: {"ok":false}
+[siftkit] healthcheck attempt 2/5 failed url=http://127.0.0.1:10934/health timeout_ms=50 cause=HTTP 503: {"ok":false}
+✔ ensureStatusServerReachable retries transient health failures and succeeds (31.8239ms)
+[siftkit] healthcheck attempt 1/2 failed url=http://127.0.0.1:10938/health timeout_ms=50 cause=HTTP 503: {"ok":false}
+[siftkit] healthcheck attempt 2/2 failed url=http://127.0.0.1:10938/health timeout_ms=50 cause=HTTP 503: {"ok":false}
+✔ ensureStatusServerReachable honors health retry env overrides (16.3213ms)
+✔ notifyStatusBackend retries running status when backend reports busy and then succeeds (31.2332ms)
+✔ notifyStatusBackend fails closed when backend remains busy after retry budget (15.5084ms)
+✔ notifyStatusBackend preserves canonical unavailable error when backend is unreachable (2.5841ms)
+✔ getRuntimeRoot is repo-local and ignores sift_kit_status overrides (0.4268ms)
+✔ getRepoLocalRuntimeRoot returns path when in SiftKit repo (0.2389ms)
+✔ getRepoLocalLogsPath returns path when in SiftKit repo (0.2664ms)
+✔ getConfigPath returns a path string (0.2879ms)
+✔ getInferenceStatusPath returns a path string (0.4708ms)
+✔ loadConfig normalizes legacy previous-default model (516.2397ms)
+✔ loadConfig normalizes legacy NumCtx settings (1123.6211ms)
+✔ loadConfig normalizes legacy Ollama backend (519.5053ms)
+✔ loadConfig handles missing Interactive fields (1129.5066ms)
+✔ loadConfig handles missing Server fields (530.6937ms)
+✔ loadConfig handles missing Thresholds fields (577.9672ms)
+✔ loadConfig removes legacy MaxInputCharacters from Thresholds (583.9352ms)
+✔ loadConfig removes legacy ChunkThresholdRatio from Thresholds (544.7433ms)
+✔ loadConfig migrates legacy reasoning auto to off and backfills thinking preservation flags (530.5528ms)
+✔ loadConfig migrates top-level Model to Runtime.Model (550.0215ms)
+✔ loadConfig replaces legacy startup script paths (1606.4577ms)
+✔ saveConfig round-trips through the config service (461.2241ms)
+✔ dashboard HTTP helpers read JSON and SSE payloads (122.6787ms)
+✔ dashboard file helpers write JSON payloads and remove directories (1.9394ms)
+✔ getManagedFilePickerDialogOptions configures executable picker filters (0.91ms)
+✔ pickManagedFilePath returns selected model path from the dialog runner (0.9134ms)
+✔ pickManagedFilePath reports cancelled selections (0.177ms)
+✔ applyManagedLlamaPresetSelection mirrors the selected managed preset into the active server settings (4.3886ms)
+✔ addManagedLlamaPreset clones the active preset and creates a unique id (0.3795ms)
+✔ deleteManagedLlamaPreset removes the preset and falls back to another preset (0.236ms)
+✔ buildManagedLlamaRestartFailureModal formats GPU OOM memory details (1.1154ms)
+✔ getMetricGraphStorageKey uses the graph id in the storage key (0.7357ms)
+✔ readHiddenSeriesState restores known hidden series from storage (0.6704ms)
+✔ readHiddenSeriesState returns empty state for malformed JSON (0.1362ms)
+✔ readHiddenSeriesState returns empty state for non-object JSON (0.1091ms)
+✔ sanitizeHiddenSeriesState drops unknown and non-hidden entries (0.1172ms)
+✔ writeHiddenSeriesState removes storage when nothing is hidden (0.1445ms)
+✔ writeHiddenSeriesState persists only known hidden series (0.1392ms)
+{"ok":true,"port":10791,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-X20W5M\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-X20W5M\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ dashboard metrics timeseries loads when managed llama is unconfigured (860.9438ms)
+✔ buildToolMetricRows merges task kinds into one row per tool (10.0127ms)
+✔ sortToolMetricsByCalls sorts by calls descending then tool name (0.2285ms)
+✔ describeToolType returns known descriptions and fallback text (0.1643ms)
+✔ getGraphHoverIndex only returns index inside graph bounds (0.1292ms)
+✔ buildTaskRunsSeries combines task rows into line series by date (0.3399ms)
+✔ getPresetById resolves presets by normalized id (0.9222ms)
+✔ getPresetFamily routes from preset kind instead of legacy session mode (0.9153ms)
+✔ getPresetFamily falls back to preset id before legacy session mode when config is unavailable (0.1458ms)
+✔ getDashboardView returns mockup for /mockup path (0.8045ms)
+✔ getDashboardView returns app for root path (0.1478ms)
+✔ normalizeRunLogTypeFilter and toggleRunLogTypeFilter keep logs presets constrained (0.8362ms)
+✔ buildRunLogDeleteCriteria creates typed count and date payloads (0.7321ms)
+✔ describeRunLogDeleteCriteria summarizes the destructive action clearly (0.2085ms)
+✔ previewRunLogDelete posts criteria to the preview endpoint (0.3152ms)
+✔ deleteRunLogs sends delete criteria to the admin endpoint (0.2121ms)
+✔ dashboard plan wakes managed llama after idle shutdown (3412.6993ms)
+{"ok":true,"port":10996,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-initial-cap-wdVnS9\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-initial-cap-wdVnS9\\.siftkit\\runtime.sqlite","startupWarning":null}
+{"ok":true,"port":62322,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-run-delete-count-XwkaeR\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-run-delete-count-XwkaeR\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ dashboard initial runs load returns top 20 overall and migrates pre-existing file logs into sqlite (4615.517ms)
+{"ok":true,"port":62508,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-run-delete-date-0f1P6L\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-run-delete-date-0f1P6L\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ dashboard filters runs by preset group and deletes the oldest matching logs by count (3873.7146ms)
+✔ dashboard deletes matching logs before a date and rejects invalid delete criteria (2721.9637ms)
+{"ok":true,"port":10842,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-status-EICmVc\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-status-EICmVc\\.siftkit\\runtime.sqlite","startupWarning":null}
+2026-04-25 10:26:06 request true task=chat raw_chars=26,000 prompt=26,000
+2026-04-25 10:26:06 request false task=chat total_elapsed=0s output_tokens=0
+2026-04-25 10:26:06 request true task=plan raw_chars=1,346 prompt=1,346 chunk repo-search
+2026-04-25 10:26:06 planner command turn=1/2 prompt_tokens=4,020 elapsed=0s command=rg -n "dashboard" . --no-ignore --ignore-case --glob "!**/.git/**" --glob "!**/.claude/**" --glob "!**/node_modules/**" --glob "!**/.node_modules/**" --glob "!**/.npm-cache/**" --glob "!**/.npm/**" --glob "!**/.pnpm-store/**" --glob "!**/.yarn/**" --glob "!**/__pycache__/**" --glob "!**/.venv/**" --glob "!**/venv/**" --glob "!**/.env/**" --glob "!**/.tox/**" --glob "!**/.pytest_cache/**" --glob "!**/.mypy_cache/**" --glob "!**/.bundle/**" --glob "!**/vendor/**" --glob "!**/target/**" --glob "!**/pkg/**" --glob "!**/dist/**" --glob "!**/build/**" --glob "!**/out/**" --glob "!**/coverage/**" --glob "!**/.cache/**" --glob "!**/bower_components/**" --glob "!**/.parcel-cache/**" --glob "!**/.next/**" --glob "!**/.nuxt/**" --glob "!**/.svelte-kit/**" --glob "!**/.gradle/**" --glob "!**/.gradle-user-home-local/**" --glob "!**/.gradle-user-home/**" --glob "!**/.gradle-native/**" --glob "!**/.gradle-native-test/**" --glob "!**/thinking_bench/**" --glob "!eval/results/**" --glob "!eval/fixtures/**" --glob "!tmp-find/**"
+2026-04-25 10:26:06 planner command turn=2/2 prompt_tokens=4,103 elapsed=0s command=rg -n "/dashboard/chat/sessions" siftKitStatus/index.js --no-ignore --ignore-case --glob "!**/.git/**" --glob "!**/.claude/**" --glob "!**/node_modules/**" --glob "!**/.node_modules/**" --glob "!**/.npm-cache/**" --glob "!**/.npm/**" --glob "!**/.pnpm-store/**" --glob "!**/.yarn/**" --glob "!**/__pycache__/**" --glob "!**/.venv/**" --glob "!**/venv/**" --glob "!**/.env/**" --glob "!**/.tox/**" --glob "!**/.pytest_cache/**" --glob "!**/.mypy_cache/**" --glob "!**/.bundle/**" --glob "!**/vendor/**" --glob "!**/target/**" --glob "!**/pkg/**" --glob "!**/dist/**" --glob "!**/build/**" --glob "!**/out/**" --glob "!**/coverage/**" --glob "!**/.cache/**" --glob "!**/bower_components/**" --glob "!**/.parcel-cache/**" --glob "!**/.next/**" --glob "!**/.nuxt/**" --glob "!**/.svelte-kit/**" --glob "!**/.gradle/**" --glob "!**/.gradle-user-home-local/**" --glob "!**/.gradle-user-home/**" --glob "!**/.gradle-native/**" --glob "!**/.gradle-native-test/**" --glob "!**/thinking_bench/**" --glob "!eval/results/**" --glob "!eval/fixtures/**" --glob "!tmp-find/**"
+2026-04-25 10:26:06 request false task=plan total_elapsed=0s output_tokens=77 tool_tokens=81
+2026-04-25 10:26:06 tool_stats task=plan tool=rg calls=2 output_chars=147 output_tokens=60 output_tokens_estimated=2
+{"ok":true,"port":27388,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-line-read-m1U7h4\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-line-read-m1U7h4\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ dashboard endpoints expose runs, details, metrics, and chat sessions (5870.4279ms)
+2026-04-25 10:26:12 request false task=repo-search
+2026-04-25 10:26:12 tool_stats task=repo-search tool=get-content calls=1 output_chars=400 output_tokens=200 output_tokens_estimated=0
+{"ok":true,"port":62283,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-stream-tokens-MNfszQ\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-stream-tokens-MNfszQ\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ dashboard metrics expose line-read stats and prompt-baseline recommendations (1208.2183ms)
+2026-04-25 10:26:12 request true task=plan raw_chars=1,313 prompt=1,313 chunk repo-search
+2026-04-25 10:26:12 planner command turn=1/1 prompt_tokens=4,007 elapsed=0s command=rg -n "test" . --no-ignore --ignore-case --glob "!**/.git/**" --glob "!**/.claude/**" --glob "!**/node_modules/**" --glob "!**/.node_modules/**" --glob "!**/.npm-cache/**" --glob "!**/.npm/**" --glob "!**/.pnpm-store/**" --glob "!**/.yarn/**" --glob "!**/__pycache__/**" --glob "!**/.venv/**" --glob "!**/venv/**" --glob "!**/.env/**" --glob "!**/.tox/**" --glob "!**/.pytest_cache/**" --glob "!**/.mypy_cache/**" --glob "!**/.bundle/**" --glob "!**/vendor/**" --glob "!**/target/**" --glob "!**/pkg/**" --glob "!**/dist/**" --glob "!**/build/**" --glob "!**/out/**" --glob "!**/coverage/**" --glob "!**/.cache/**" --glob "!**/bower_components/**" --glob "!**/.parcel-cache/**" --glob "!**/.next/**" --glob "!**/.nuxt/**" --glob "!**/.svelte-kit/**" --glob "!**/.gradle/**" --glob "!**/.gradle-user-home-local/**" --glob "!**/.gradle-user-home/**" --glob "!**/.gradle-native/**" --glob "!**/.gradle-native-test/**" --glob "!**/thinking_bench/**" --glob "!eval/results/**" --glob "!eval/fixtures/**" --glob "!tmp-find/**"
+2026-04-25 10:26:13 request false task=plan total_elapsed=0s output_tokens=21 tool_tokens=31
+2026-04-25 10:26:13 tool_stats task=plan tool=rg calls=1 output_chars=30 output_tokens=12 output_tokens_estimated=1
+2026-04-25 10:26:13 request true task=repo-search raw_chars=10 prompt=10 chunk repo-search
+2026-04-25 10:26:13 repo_search command turn=1/1 prompt_tokens=3,486 elapsed=0s command=rg -n "test" . --no-ignore --ignore-case --glob "!**/.git/**" --glob "!**/.claude/**" --glob "!**/node_modules/**" --glob "!**/.node_modules/**" --glob "!**/.npm-cache/**" --glob "!**/.npm/**" --glob "!**/.pnpm-store/**" --glob "!**/.yarn/**" --glob "!**/__pycache__/**" --glob "!**/.venv/**" --glob "!**/venv/**" --glob "!**/.env/**" --glob "!**/.tox/**" --glob "!**/.pytest_cache/**" --glob "!**/.mypy_cache/**" --glob "!**/.bundle/**" --glob "!**/vendor/**" --glob "!**/target/**" --glob "!**/pkg/**" --glob "!**/dist/**" --glob "!**/build/**" --glob "!**/out/**" --glob "!**/coverage/**" --glob "!**/.cache/**" --glob "!**/bower_components/**" --glob "!**/.parcel-cache/**" --glob "!**/.next/**" --glob "!**/.nuxt/**" --glob "!**/.svelte-kit/**" --glob "!**/.gradle/**" --glob "!**/.gradle-user-home-local/**" --glob "!**/.gradle-user-home/**" --glob "!**/.gradle-native/**" --glob "!**/.gradle-native-test/**" --glob "!**/thinking_bench/**" --glob "!eval/results/**" --glob "!eval/fixtures/**" --glob "!tmp-find/**"
+2026-04-25 10:26:13 request false task=repo-search total_elapsed=0s output_tokens=21 tool_tokens=31
+2026-04-25 10:26:13 tool_stats task=repo-search tool=rg calls=1 output_chars=30 output_tokens=12 output_tokens_estimated=1
+{"ok":true,"port":62415,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-lock-w3w4or\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-lock-w3w4or\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ plan/repo-search stream events include backend promptTokenCount (1117.2181ms)
+✔ package start script launches the dedicated dual-server start runner (0.4291ms)
+2026-04-25 10:26:14 request true task=repo-search raw_chars=6 prompt=6 chunk repo-search
+2026-04-25 10:26:14 repo_search llm_start turn=1/1 prompt_tokens=2,178 elapsed=0s
+2026-04-25 10:26:14 repo_search llm_end turn=1/1 prompt_tokens=2,178 elapsed=0s
+2026-04-25 10:26:14 repo_search command turn=1/1 prompt_tokens=3,484 elapsed=0s command=rg -n "x" src --no-ignore --ignore-case --glob "!**/.git/**" --glob "!**/.claude/**" --glob "!**/node_modules/**" --glob "!**/.node_modules/**" --glob "!**/.npm-cache/**" --glob "!**/.npm/**" --glob "!**/.pnpm-store/**" --glob "!**/.yarn/**" --glob "!**/__pycache__/**" --glob "!**/.venv/**" --glob "!**/venv/**" --glob "!**/.env/**" --glob "!**/.tox/**" --glob "!**/.pytest_cache/**" --glob "!**/.mypy_cache/**" --glob "!**/.bundle/**" --glob "!**/vendor/**" --glob "!**/target/**" --glob "!**/pkg/**" --glob "!**/dist/**" --glob "!**/build/**" --glob "!**/out/**" --glob "!**/coverage/**" --glob "!**/.cache/**" --glob "!**/bower_components/**" --glob "!**/.parcel-cache/**" --glob "!**/.next/**" --glob "!**/.nuxt/**" --glob "!**/.svelte-kit/**" --glob "!**/.gradle/**" --glob "!**/.gradle-user-home-local/**" --glob "!**/.gradle-user-home/**" --glob "!**/.gradle-native/**" --glob "!**/.gradle-native-test/**" --glob "!**/thinking_bench/**" --glob "!eval/results/**" --glob "!eval/fixtures/**" --glob "!tmp-find/**"
+2026-04-25 10:26:14 request false task=repo-search total_elapsed=0s output_tokens=21 tool_tokens=31
+2026-04-25 10:26:14 tool_stats task=repo-search tool=rg calls=1 output_chars=18 output_tokens=8 output_tokens_estimated=1
+2026-04-25 10:26:14 request true task=chat raw_chars=40 prompt=40
+2026-04-25 10:26:14 request false task=chat total_elapsed=0s output_tokens=0
+{"ok":true,"port":62512,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-fifo-7eTxMN\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-fifo-7eTxMN\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ repo-search and dashboard chat messages serialize by waiting (1218.688ms)
+2026-04-25 10:26:16 request true task=repo-search raw_chars=9 prompt=9 chunk repo-search
+2026-04-25 10:26:16 repo_search llm_start turn=1/1 prompt_tokens=2,178 elapsed=0s
+2026-04-25 10:26:16 repo_search llm_end turn=1/1 prompt_tokens=2,178 elapsed=0s
+2026-04-25 10:26:16 repo_search command turn=1/1 prompt_tokens=3,485 elapsed=0s command=rg -n "x" src --no-ignore --ignore-case --glob "!**/.git/**" --glob "!**/.claude/**" --glob "!**/node_modules/**" --glob "!**/.node_modules/**" --glob "!**/.npm-cache/**" --glob "!**/.npm/**" --glob "!**/.pnpm-store/**" --glob "!**/.yarn/**" --glob "!**/__pycache__/**" --glob "!**/.venv/**" --glob "!**/venv/**" --glob "!**/.env/**" --glob "!**/.tox/**" --glob "!**/.pytest_cache/**" --glob "!**/.mypy_cache/**" --glob "!**/.bundle/**" --glob "!**/vendor/**" --glob "!**/target/**" --glob "!**/pkg/**" --glob "!**/dist/**" --glob "!**/build/**" --glob "!**/out/**" --glob "!**/coverage/**" --glob "!**/.cache/**" --glob "!**/bower_components/**" --glob "!**/.parcel-cache/**" --glob "!**/.next/**" --glob "!**/.nuxt/**" --glob "!**/.svelte-kit/**" --glob "!**/.gradle/**" --glob "!**/.gradle-user-home-local/**" --glob "!**/.gradle-user-home/**" --glob "!**/.gradle-native/**" --glob "!**/.gradle-native-test/**" --glob "!**/thinking_bench/**" --glob "!eval/results/**" --glob "!eval/fixtures/**" --glob "!tmp-find/**"
+2026-04-25 10:26:16 request false task=repo-search total_elapsed=0s output_tokens=21 tool_tokens=31
+2026-04-25 10:26:16 tool_stats task=repo-search tool=rg calls=1 output_chars=18 output_tokens=8 output_tokens_estimated=1
+2026-04-25 10:26:16 request true task=chat raw_chars=6 prompt=6
+2026-04-25 10:26:16 request false task=chat total_elapsed=0s output_tokens=0
+2026-04-25 10:26:16 request true task=chat raw_chars=6 prompt=6
+2026-04-25 10:26:16 request false task=chat total_elapsed=0s output_tokens=0
+{"ok":true,"port":62690,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-queue-disconnect-GZipG0\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-queue-disconnect-GZipG0\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ model routes execute in FIFO order across mixed request kinds (2508.0278ms)
+2026-04-25 10:26:17 request true task=repo-search raw_chars=29 prompt=29 chunk repo-search
+2026-04-25 10:26:17 repo_search llm_start turn=1/1 prompt_tokens=2,183 elapsed=0s
+2026-04-25 10:26:17 repo_search llm_end turn=1/1 prompt_tokens=2,183 elapsed=0s
+2026-04-25 10:26:17 repo_search command turn=1/1 prompt_tokens=3,493 elapsed=0s command=rg -n "x" src --no-ignore --ignore-case --glob "!**/.git/**" --glob "!**/.claude/**" --glob "!**/node_modules/**" --glob "!**/.node_modules/**" --glob "!**/.npm-cache/**" --glob "!**/.npm/**" --glob "!**/.pnpm-store/**" --glob "!**/.yarn/**" --glob "!**/__pycache__/**" --glob "!**/.venv/**" --glob "!**/venv/**" --glob "!**/.env/**" --glob "!**/.tox/**" --glob "!**/.pytest_cache/**" --glob "!**/.mypy_cache/**" --glob "!**/.bundle/**" --glob "!**/vendor/**" --glob "!**/target/**" --glob "!**/pkg/**" --glob "!**/dist/**" --glob "!**/build/**" --glob "!**/out/**" --glob "!**/coverage/**" --glob "!**/.cache/**" --glob "!**/bower_components/**" --glob "!**/.parcel-cache/**" --glob "!**/.next/**" --glob "!**/.nuxt/**" --glob "!**/.svelte-kit/**" --glob "!**/.gradle/**" --glob "!**/.gradle-user-home-local/**" --glob "!**/.gradle-user-home/**" --glob "!**/.gradle-native/**" --glob "!**/.gradle-native-test/**" --glob "!**/thinking_bench/**" --glob "!eval/results/**" --glob "!eval/fixtures/**" --glob "!tmp-find/**"
+2026-04-25 10:26:17 request false task=repo-search total_elapsed=0s output_tokens=21 tool_tokens=31
+2026-04-25 10:26:17 tool_stats task=repo-search tool=rg calls=1 output_chars=18 output_tokens=8 output_tokens_estimated=1
+2026-04-25 10:26:17 request true task=chat raw_chars=16 prompt=16
+2026-04-25 10:26:17 request false task=chat total_elapsed=0s output_tokens=0
+{"ok":true,"port":62785,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-validate-first-2xK0Sw\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-validate-first-2xK0Sw\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ queued model request is dropped when client disconnects before lock grant (843.4178ms)
+2026-04-25 10:26:18 request true task=repo-search raw_chars=29 prompt=29 chunk repo-search
+2026-04-25 10:26:18 repo_search llm_start turn=1/1 prompt_tokens=2,183 elapsed=0s
+2026-04-25 10:26:18 repo_search llm_end turn=1/1 prompt_tokens=2,183 elapsed=0s
+2026-04-25 10:26:18 repo_search command turn=1/1 prompt_tokens=3,493 elapsed=0s command=rg -n "x" src --no-ignore --ignore-case --glob "!**/.git/**" --glob "!**/.claude/**" --glob "!**/node_modules/**" --glob "!**/.node_modules/**" --glob "!**/.npm-cache/**" --glob "!**/.npm/**" --glob "!**/.pnpm-store/**" --glob "!**/.yarn/**" --glob "!**/__pycache__/**" --glob "!**/.venv/**" --glob "!**/venv/**" --glob "!**/.env/**" --glob "!**/.tox/**" --glob "!**/.pytest_cache/**" --glob "!**/.mypy_cache/**" --glob "!**/.bundle/**" --glob "!**/vendor/**" --glob "!**/target/**" --glob "!**/pkg/**" --glob "!**/dist/**" --glob "!**/build/**" --glob "!**/out/**" --glob "!**/coverage/**" --glob "!**/.cache/**" --glob "!**/bower_components/**" --glob "!**/.parcel-cache/**" --glob "!**/.next/**" --glob "!**/.nuxt/**" --glob "!**/.svelte-kit/**" --glob "!**/.gradle/**" --glob "!**/.gradle-user-home-local/**" --glob "!**/.gradle-user-home/**" --glob "!**/.gradle-native/**" --glob "!**/.gradle-native-test/**" --glob "!**/thinking_bench/**" --glob "!eval/results/**" --glob "!eval/fixtures/**" --glob "!tmp-find/**"
+2026-04-25 10:26:18 request false task=repo-search total_elapsed=0s output_tokens=21 tool_tokens=31
+2026-04-25 10:26:18 tool_stats task=repo-search tool=rg calls=1 output_chars=18 output_tokens=8 output_tokens_estimated=1
+{"ok":true,"port":62849,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-plan-root-gcQnRl\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-plan-root-gcQnRl\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ invalid model request is rejected without waiting for active model work (1177.2746ms)
+{"ok":true,"port":62879,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-toolctx-ey6wdO\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-dashboard-toolctx-ey6wdO\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ plan endpoint rejects missing or invalid repo root (421.8771ms)
+2026-04-25 10:26:19 request true task=plan raw_chars=1,318 prompt=1,318 chunk repo-search
+2026-04-25 10:26:19 planner command turn=1/1 prompt_tokens=4,009 elapsed=0s command=rg -n "name" package.json --no-ignore --ignore-case --glob "!**/.git/**" --glob "!**/.claude/**" --glob "!**/node_modules/**" --glob "!**/.node_modules/**" --glob "!**/.npm-cache/**" --glob "!**/.npm/**" --glob "!**/.pnpm-store/**" --glob "!**/.yarn/**" --glob "!**/__pycache__/**" --glob "!**/.venv/**" --glob "!**/venv/**" --glob "!**/.env/**" --glob "!**/.tox/**" --glob "!**/.pytest_cache/**" --glob "!**/.mypy_cache/**" --glob "!**/.bundle/**" --glob "!**/vendor/**" --glob "!**/target/**" --glob "!**/pkg/**" --glob "!**/dist/**" --glob "!**/build/**" --glob "!**/out/**" --glob "!**/coverage/**" --glob "!**/.cache/**" --glob "!**/bower_components/**" --glob "!**/.parcel-cache/**" --glob "!**/.next/**" --glob "!**/.nuxt/**" --glob "!**/.svelte-kit/**" --glob "!**/.gradle/**" --glob "!**/.gradle-user-home-local/**" --glob "!**/.gradle-user-home/**" --glob "!**/.gradle-native/**" --glob "!**/.gradle-native-test/**" --glob "!**/thinking_bench/**" --glob "!eval/results/**" --glob "!eval/fixtures/**" --glob "!tmp-find/**"
+2026-04-25 10:26:19 request false task=plan total_elapsed=0s output_tokens=21 tool_tokens=36
+2026-04-25 10:26:19 tool_stats task=plan tool=rg calls=1 output_chars=34 output_tokens=14 output_tokens_estimated=1
+2026-04-25 10:26:19 request true task=chat raw_chars=43 prompt=43
+2026-04-25 10:26:20 request false task=chat total_elapsed=0s output_tokens=4
+✔ chat completion receives hidden tool context while keeping it out of visible chat history (671.7988ms)
+✔ dashboard dev server proxies config requests to the status server (1.2383ms)
+✔ runEvaluation runs a fixture manifest and produces scored results (811.061ms)
+✔ runEvaluation with RealLogPath includes real log results (704.1679ms)
+✔ runEvaluation with JSON format fixture validates parse (1259.3706ms)
+✔ runEvaluation skips nonexistent RealLogPath entries (552.8315ms)
+✔ getExecutionLockTimeoutMilliseconds returns default when env not set (3.615ms)
+✔ getExecutionLockTimeoutMilliseconds reads from env (0.2699ms)
+✔ getExecutionLockTimeoutMilliseconds returns default for invalid env (0.1956ms)
+✔ withExecutionLock acquires and releases lock around function (59.3263ms)
+✔ withExecutionLock releases lock even on error (11.98ms)
+✔ findFiles returns matching files in a directory tree (16.2449ms)
+✔ findFiles supports wildcard ? in patterns (3.5712ms)
+✔ findFiles returns empty array for no matches (1.7747ms)
+✔ findFiles supports multiple patterns (3.4616ms)
+✔ installCodexPolicy creates AGENTS.md with policy block (4.0606ms)
+✔ installCodexPolicy updates existing AGENTS.md replacing policy block (4.2329ms)
+✔ installCodexPolicy appends to existing AGENTS.md without existing policy (7.1399ms)
+✔ installSiftKit returns installation info (679.4748ms)
+✔ runInteractiveCapture runs a simple command and produces output (878.9371ms)
+✔ runInteractiveCapture handles nonexistent command (743.9905ms)
+✔ runInteractiveCapture with JSON format (1381.4801ms)
+✔ runInteractiveCapture with empty output handles gracefully (695.6759ms)
+✔ runInteractiveCapture with custom policy profile (1284.6939ms)
+✔ normalizeMetrics backfills missing line-read fields to zero (3.7628ms)
+✔ buildPlannerSystemPrompt reports learned read_lines guidance from idle-summary stats (0.6057ms)
+✔ listLlamaCppModels returns model list from server (664.113ms)
+✔ getLlamaCppProviderStatus returns reachable status (633.8864ms)
+✔ getLlamaCppProviderStatus returns unreachable when server is down (1.348ms)
+✔ countLlamaCppTokens returns count from server (543.6473ms)
+✔ generateLlamaCppResponse returns text response (1184.333ms)
+✔ buildManagedLlamaArgs omits --n-cpu-moe when NcpuMoe is 0 (2.1988ms)
+✔ getDefaultConfig disables NcpuMoe by default (0.239ms)
+✔ buildManagedLlamaArgs includes --n-cpu-moe when NcpuMoe is non-zero (0.745ms)
+✔ buildManagedLlamaArgs omits speculative flags when speculative decoding is disabled (0.2471ms)
+✔ buildManagedLlamaArgs includes ngram speculative flags when enabled (0.4664ms)
+✔ buildManagedLlamaArgs omits speculative numeric flags set to -1 (0.2725ms)
+✔ parseManagedLlamaSpeculativeMetricsText extracts accepted and generated token totals from ngram statistics (0.8695ms)
+✔ parseManagedLlamaSpeculativeMetricsText returns null when speculative totals are absent (0.1293ms)
+✔ parseManagedLlamaSpeculativeMetricsText ignores echoed request text that mentions speculative regex patterns (0.2763ms)
+✔ parseManagedLlamaSpeculativeMetricsText ignores echoed multiline request content that mentions acceptance lines without llama_decode prefix (0.2076ms)
+✔ parseManagedLlamaSpeculativeMetricsText extracts totals from checkpointed speculative logs without llama_decode prefix (0.1365ms)
+✔ parseManagedLlamaSpeculativeMetricsText ignores draft acceptance rate lines without statistics totals (0.1071ms)
+{"ok":true,"port":10826,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-GAZlH4\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-GAZlH4\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ default managed llama config leaves executable and model unset (1.3254ms)
+✔ real status server boots with blank managed llama configuration and waits for manual restart (936.6188ms)
+✔ managed llama log chunks stay buffered until flushed (722.8219ms)
+✔ releaseModelRequest flushes buffered managed llama logs for the active host run (618.904ms)
+✔ getManagedLlamaSpeculativeMetricsSince reads speculative totals from persisted startup script logs (575.4939ms)
+✔ getManagedLlamaSpeculativeMetricsSince sums multiple speculative batches without double-counting paired rate lines (1162.1812ms)
+✔ getManagedLlamaSpeculativeMetricsDelta subtracts the baseline from cumulative speculative totals (518.6565ms)
+✔ getManagedLlamaSpeculativeMetricsDelta handles checkpointed speculative logs without llama_decode prefix (1056.8251ms)
+✔ getManagedLlamaSpeculativeMetricsDelta combines startup and llama streams for checkpointed totals (538.4464ms)
+[31mrepo_search warning: Error: requested output would consume 2503 tokens, remaining token allowance: 13820, per tool call allowance: 1600[0m
+[31mrepo_search warning: Error: requested output would consume 3726 tokens, remaining token allowance: 13818, per tool call allowance: 1600[0m
+[31mrepo_search warning: Error: requested output would consume 253 tokens, remaining token allowance: 237, per tool call allowance: 600[0m
+[31mrepo_search warning: Error: requested output would consume 253 tokens, remaining token allowance: 168, per tool call allowance: 900[0m
+[31mrepo_search warning: Error: requested output would consume 253 tokens, remaining token allowance: 99, per tool call allowance: 1200[0m
+[31mrepo_search warning: Error: requested output would consume 163 tokens, remaining token allowance: 30, per tool call allowance: 1500[0m
+[31mrepo_search warning: Error: requested output would consume 163 tokens, remaining token allowance: 123, per tool call allowance: 1800[0m
+[31mrepo_search warning: Error: requested output would consume 2503 tokens, remaining token allowance: 2324, per tool call allowance: 2550[0m
+✔ runTaskLoop stops on invalid response limit (13.6571ms)
+✔ runTaskLoop replays recoverable invalid planner payloads as tool-call tool-result pairs (2.6406ms)
+✔ runTaskLoop replays unrecoverable invalid planner payloads through invalid_tool_call (1.7101ms)
+✔ runTaskLoop replaces oversized tool output with token allowance error (7.4398ms)
+✔ runTaskLoop preserves raw line-read stats when oversized Get-Content output is replaced (3.452ms)
+✔ runTaskLoop prints a red console warning when tool output exceeds allowance (3.7744ms)
+✔ preflightPlannerPromptBudget reports overflow against context budget (0.2495ms)
+✔ compactPlannerMessagesOnce preserves system and latest user intent (0.7007ms)
+✔ runTaskLoop fails with planner_preflight_overflow before provider request when compaction cannot fit (2.2367ms)
+✔ runTaskLoop applies one-pass compaction and continues when compacted prompt fits (7.3966ms)
+✔ runTaskLoop increases per-tool cap as tool-call progress grows (3.6613ms)
+✔ runTaskLoop still rejects tool output that exceeds remaining token allowance (3.5298ms)
+✔ runTaskLoop accepts first finish immediately when runtime reasoning is off (1.5733ms)
+✔ runTaskLoop accepts first finish immediately when runtime reasoning is on (1.2957ms)
+✔ runTaskLoop does not emit follow-up finish events after many reasoning-off tool calls (3.2863ms)
+✔ runTaskLoop keeps reasoning disabled across max-turn exhaustion when runtime reasoning is off (1.9398ms)
+✔ runTaskLoop retries transient provider network failures via shared retry helper (318.2824ms)
+✔ runTaskLoop waits for planner endpoint warm-up when initial connections are refused (778.2747ms)
+✔ runTaskLoop retries planner calls when endpoint returns HTTP 503 Loading model (265.626ms)
+✔ runTaskLoop blocks exact duplicate commands with explicit error message (1.6781ms)
+✔ runTaskLoop blocks semantic duplicate repo-search commands with explicit error message (1.3331ms)
+✔ runTaskLoop keeps raw rewrite notes in logs but inserts compact repo-search results into the prompt (1.0052ms)
+✔ runTaskLoop keeps normalized rg rewrites out of model-visible tool replay and tool output (1.2178ms)
+✔ runTaskLoop widens repeated Get-Content reads on the same file and logs requested vs adjusted window (281.0016ms)
+✔ runTaskLoop clamps adjusted repeated Get-Content skip to non-negative values (220.8035ms)
+✔ runTaskLoop forces repeated backward same-file reads to non-overlapping forward windows (1.938ms)
+✔ runTaskLoop tracks per-file overlap telemetry and isolates histories across files (1.6162ms)
+✔ runTaskLoop does not compact different commands that happen to return the same evidence (1.543ms)
+✔ runTaskLoop forces finish mode after ten zero-output commands (3.2513ms)
+✔ runTaskLoop enables thinking on every tool-call turn when runtime reasoning is on (1.528ms)
+✔ runTaskLoop disables thinking on every tool-call turn when runtime reasoning is off (1.0611ms)
+✔ buildScorecard aggregates totals and verdict (0.3419ms)
+✔ PRESET_TOOL_OPTIONS exposes every supported tool exactly once (1.3625ms)
+✔ getFallbackPresetId keeps the selected preset when still present (0.2102ms)
+✔ getNextPresetIdAfterDelete selects the next preset after deleting the current one (0.1608ms)
+✔ getNextPresetIdAfterDelete selects the previous preset when the deleted preset was last (0.1329ms)
+✔ getFallbackPresetId defaults to the first preset when selection is missing (0.1302ms)
+✔ getPresetToolsSummary returns a comma-separated list in supported-option order (0.1624ms)
+✔ togglePresetTool adds missing tools and removes existing ones (0.1836ms)
+✔ getDefaultOperationModeForPresetKind maps summary/chat to summary and planner kinds to read-only (0.1345ms)
+✔ getDefaultToolsForOperationMode returns the builtin defaults for each mode (0.1626ms)
+✔ applyPresetKindDefaults makes preset kind authoritative over operation mode and repo settings (0.2717ms)
+✔ applyOperationModeDefaults swaps allowed tools while preserving chat-kind runtime defaults (0.1488ms)
+✔ getEffectivePresetTools intersects preset allowlist with operation-mode policy (0.1739ms)
+✔ applyOperationModeDefaults preserves prompt-context toggles across mode changes (0.1349ms)
+✔ summary planner tool definitions respect the preset allowlist (1.3161ms)
+✔ summary planner tool execution rejects disallowed tools (0.4487ms)
+✔ repo-search rejects presets that disable the repo command tool (1.2937ms)
+✔ repo-search rejects presets that resolve to an empty allowed-tools list (0.2519ms)
+✔ effective tool allowlist intersects operation-mode policy with preset whitelist (0.1502ms)
+✔ builtin presets are present and not deletable (1.6921ms)
+✔ normalizePresets keeps builtin presets even when overlay omits them and preserves non-deletable rule (0.7924ms)
+✔ preset surface filtering separates cli and web visibility (0.2683ms)
+✔ legacy chat modes map to builtin preset ids (0.1264ms)
+✔ config persistence stores normalized presets in sqlite (692.6014ms)
+✔ legacy executionFamily presets migrate to presetKind and operationMode (0.2907ms)
+✔ default operation mode tool policy matches the builtin capability split (0.1685ms)
+✔ preset normalization rewrites legacy repo tool names to canonical native ones (0.1902ms)
+✔ operation mode tool normalization rewrites legacy repo tool names to canonical native ones (0.1914ms)
+✔ preset kind and operation mode helpers resolve the selected preset metadata (0.342ms)
+✔ ensureRunLogsTable backfills processed input tokens from cached prompt usage (9.1858ms)
+✔ ensureIdleSummarySnapshotsTable backfills processed input totals and exposes inputOutputRatio (2.5121ms)
+✔ runtime database migration backfills metrics totals and task totals to processed input semantics (728.7181ms)
+✔ provider helpers extract llama timings and predicted token counts when usage is absent (1.4049ms)
+✔ provider helpers normalize completion tokens by subtracting thinking tokens (0.1693ms)
+✔ readSummaryInput reads UTF-8 file input unchanged (3.5388ms)
+✔ readSummaryInput decodes UTF-16LE file with BOM (4.9179ms)
+✔ readSummaryInput decodes UTF-16BE file with BOM (2.6992ms)
+✔ readSummaryInput detects BOM-less UTF-16LE file (1.1638ms)
+✔ readSummaryInput detects BOM-less UTF-16BE file (1.522ms)
+✔ readSummaryInput decodes UTF-16 stdin buffers (0.3224ms)
+✔ readSummaryInput keeps ambiguous binary-like buffers as UTF-8 fallback (0.2052ms)
+✔ repo-search delegates execution to status server (25.5205ms)
+✔ createJsonLogger buffers transcript events until persist (569.5249ms)
+✔ createJsonLogger persist overwrites the same transcript artifact without duplicating prior content (643.9934ms)
+✔ assertConfiguredModelPresent hard-fails when configured model is missing (1.3847ms)
+✔ runRepoSearch does not fail on model inventory mismatch (20.7296ms)
+✔ getDynamicMaxOutputTokens uses 90% of remaining context (0.153ms)
+✔ parsePlannerAction parses valid tool action (1.081ms)
+✔ parsePlannerAction parses valid finish action (0.1765ms)
+✔ parsePlannerAction rejects invalid payloads (0.2891ms)
+✔ parsePlannerAction recovers malformed escaped command payloads (0.3467ms)
+✔ isTransientProviderError treats ECONNREFUSED as transient (0.2204ms)
+✔ retryProviderRequest retries transient failures and returns on success (0.5641ms)
+✔ retryProviderRequest stops after max wait budget and surfaces the original error (0.3498ms)
+✔ evaluateCommandSafety allows allowlisted read-only commands (1.1968ms)
+✔ normalizePlannerCommand adds ignore-case to rg searches by default (1.2014ms)
+✔ normalizePlannerCommand does not add ignore-case when rg case behavior is explicit (0.3897ms)
+✔ normalizePlannerCommand does not add ignore-case to rg file listing (0.1341ms)
+✔ evaluateCommandSafety treats drive-letter regex literals as patterns, not repo-escape paths (0.3227ms)
+✔ evaluateCommandSafety rejects destructive, network, and chained commands (0.1507ms)
+✔ runTaskLoop rewrites unsupported rg --type tsx and annotates output (8.7712ms)
+✔ runTaskLoop rewrites mixed rg --type ts and --type tsx flags (2.4954ms)
+✔ runTaskLoop reports prompt tokens and elapsed time on command progress events (1.3258ms)
+✔ runTaskLoop executes repo_list_files and repo_read_file natively (5.2094ms)
+✔ runTaskLoop logs provider request error details and surfaces enriched network failures (29060.9988ms)
+✔ runTaskLoop rewrites unsupported rg --type tsx even when --glob is present (4.5607ms)
+✔ runTaskLoop rewrites unsupported rg --type jsx to --type js (2.3811ms)
+✔ runTaskLoop rewrites mixed --type jsx and --type tsx to --type js and --type ts (1.2257ms)
+✔ runTaskLoop counts non-zero command exits as command failures but not invalid responses (1.6563ms)
+✔ runTaskLoop does not count rg exit code 1 (no matches) as a command failure (1.1197ms)
+✔ runTaskLoop does not count grep exit code 1 (no matches) as a command failure (1.0839ms)
+✔ runTaskLoop still counts exit code 1 from non-search commands as a command failure (1.2673ms)
+✔ runTaskLoop stops on finish action (1.0398ms)
+✔ runTaskLoop executes tool batches sequentially and counts each tool call toward finish depth (1.8846ms)
+✔ runTaskLoop accepts corroborated finish before minimum tool-call depth (2.0459ms)
+✔ runTaskLoop stops at max turns when model keeps asking for tools (1.7609ms)
+✔ runTaskLoop prompt omits visible tool-call budget counters (1.2566ms)
+✔ runTaskLoop prompt includes anti-loop and larger single-file read guidance (0.9731ms)
+✔ buildTaskSystemPrompt reports learned get-content line guidance from idle-summary stats (0.7438ms)
+✔ runTaskLoop prompt examples use larger reads and anchor-first flow (0.8442ms)
+✔ runTaskLoop records line-read stats for Get-Content windows (1.0361ms)
+✔ runTaskLoop prompt states ignored paths are auto-filtered by runtime policy (0.8108ms)
+✔ runTaskLoop rewrites Get-ChildItem recurse command to include ignore excludes (1.9757ms)
+✔ runTaskLoop rewrites Select-String path scan to include ignore excludes (2.2815ms)
+[31mrepo_search warning: Error: requested output would consume 10590 tokens, remaining token allowance: 25020, per tool call allowance: 2720[0m
+✔ runTaskLoop allows rg commands that include --no-ignore explicitly (186.3358ms)
+[31mrepo_search warning: Error: requested output would consume 10590 tokens, remaining token allowance: 25020, per tool call allowance: 2720[0m
+✔ runTaskLoop allows rg commands that include -u explicitly (172.1629ms)
+✔ runTaskLoop rejects Get-Content reads under ignored directories (1.837ms)
+✔ runTaskLoop sends append-only chat requests with explicit cache_prompt and a pinned slot (22.1078ms)
+✔ runTaskLoop keeps one duplicate warning tool turn and forces finish on the fifth duplicate (18.5177ms)
+✔ runTaskLoop synthesizes final output on terminal max_turns (1.0886ms)
+✔ runTaskLoop uses dynamic max_tokens for planner requests from live prompt budget (7.7124ms)
+✔ runTaskLoop uses dynamic max_tokens for terminal synthesis requests (7.7043ms)
+✔ parsePlannerAction parses tool batches (1.5595ms)
+✔ repo-search tool registry exposes native read/list tools and drops redundant legacy ones (0.2803ms)
+✔ requestPlannerAction reconstructs a tool batch from non-streaming multi-tool responses (24.5406ms)
+✔ requestPlannerAction reconstructs a tool batch from streaming multi-tool responses (6.2104ms)
+✔ requestPlannerAction uses llama timings from the final streaming chunk when usage is absent (65.522ms)
+✔ requestPlannerAction sends json_schema response_format with tools and no grammar (5.0355ms)
+✔ requestPlannerAction assembles planner schema dynamically from provided tool definitions (3.3817ms)
+✔ requestPlannerAction hard-fails on json_schema rejection without fallback retry (5.0276ms)
+✔ buildTaskSystemPrompt omits agents.md block when disabled (3.3666ms)
+✔ buildTaskInitialUserPrompt omits repository file listing when disabled (0.1527ms)
+✔ buildTaskInitialUserPrompt includes repository file listing when enabled (0.0917ms)
+✔ buildTaskSystemPrompt advertises native read and list tools instead of legacy PowerShell read/list commands (0.8906ms)
+{"ok":true,"port":10852,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-repo-search-status-9vcmTy\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-repo-search-status-9vcmTy\\.siftkit\\runtime.sqlite","startupWarning":null}
+2026-04-25 10:26:06 request true task=repo-search raw_chars=6 prompt=6 chunk repo-search
+2026-04-25 10:26:06 repo_search llm_start turn=1/2 prompt_tokens=2,178 elapsed=0s
+2026-04-25 10:26:06 repo_search llm_end turn=1/2 prompt_tokens=2,178 elapsed=0s
+2026-04-25 10:26:06 repo_search command turn=1/2 prompt_tokens=3,484 elapsed=0s command=rg -n "x" src --no-ignore --ignore-case --glob "!**/.git/**" --glob "!**/.claude/**" --glob "!**/node_modules/**" --glob "!**/.node_modules/**" --glob "!**/.npm-cache/**" --glob "!**/.npm/**" --glob "!**/.pnpm-store/**" --glob "!**/.yarn/**" --glob "!**/__pycache__/**" --glob "!**/.venv/**" --glob "!**/venv/**" --glob "!**/.env/**" --glob "!**/.tox/**" --glob "!**/.pytest_cache/**" --glob "!**/.mypy_cache/**" --glob "!**/.bundle/**" --glob "!**/vendor/**" --glob "!**/target/**" --glob "!**/pkg/**" --glob "!**/dist/**" --glob "!**/build/**" --glob "!**/out/**" --glob "!**/coverage/**" --glob "!**/.cache/**" --glob "!**/bower_components/**" --glob "!**/.parcel-cache/**" --glob "!**/.next/**" --glob "!**/.nuxt/**" --glob "!**/.svelte-kit/**" --glob "!**/.gradle/**" --glob "!**/.gradle-user-home-local/**" --glob "!**/.gradle-user-home/**" --glob "!**/.gradle-native/**" --glob "!**/.gradle-native-test/**" --glob "!**/thinking_bench/**" --glob "!eval/results/**" --glob "!eval/fixtures/**" --glob "!tmp-find/**"
+2026-04-25 10:26:08 repo_search llm_start turn=2/2 prompt_tokens=2,222 elapsed=2s
+2026-04-25 10:26:08 repo_search llm_end turn=2/2 prompt_tokens=2,222 elapsed=2s
+2026-04-25 10:26:08 request false task=repo-search total_elapsed=2s output_tokens=21 tool_tokens=31
+2026-04-25 10:26:08 tool_stats task=repo-search tool=rg calls=1 output_chars=18 output_tokens=8 output_tokens_estimated=1
+{"ok":true,"port":27316,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-status-flush-health-pIjXaI\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-status-flush-health-pIjXaI\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ status server stays responsive while repo-search is running (3032.8769ms)
+2026-04-25 10:26:10 request false task=summary
+{"ok":true,"port":27365,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-repo-search-reload-BUBqKt\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-repo-search-reload-BUBqKt\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ status completion flushing does not block health responses (1766.9882ms)
+✔ buildRepoSearchProgressLogMessage formats planner and repo-search command progress lines (0.8435ms)
+2026-04-25 10:26:11 request true task=repo-search raw_chars=6 prompt=6 chunk repo-search
+2026-04-25 10:26:11 repo_search llm_start turn=1/1 prompt_tokens=2,178 elapsed=0s
+2026-04-25 10:26:11 repo_search llm_end turn=1/1 prompt_tokens=2,178 elapsed=0s
+2026-04-25 10:26:11 repo_search command turn=1/1 prompt_tokens=3,484 elapsed=0s command=rg -n "x" src --no-ignore --ignore-case --glob "!**/.git/**" --glob "!**/.claude/**" --glob "!**/node_modules/**" --glob "!**/.node_modules/**" --glob "!**/.npm-cache/**" --glob "!**/.npm/**" --glob "!**/.pnpm-store/**" --glob "!**/.yarn/**" --glob "!**/__pycache__/**" --glob "!**/.venv/**" --glob "!**/venv/**" --glob "!**/.env/**" --glob "!**/.tox/**" --glob "!**/.pytest_cache/**" --glob "!**/.mypy_cache/**" --glob "!**/.bundle/**" --glob "!**/vendor/**" --glob "!**/target/**" --glob "!**/pkg/**" --glob "!**/dist/**" --glob "!**/build/**" --glob "!**/out/**" --glob "!**/coverage/**" --glob "!**/.cache/**" --glob "!**/bower_components/**" --glob "!**/.parcel-cache/**" --glob "!**/.next/**" --glob "!**/.nuxt/**" --glob "!**/.svelte-kit/**" --glob "!**/.gradle/**" --glob "!**/.gradle-user-home-local/**" --glob "!**/.gradle-user-home/**" --glob "!**/.gradle-native/**" --glob "!**/.gradle-native-test/**" --glob "!**/thinking_bench/**" --glob "!eval/results/**" --glob "!eval/fixtures/**" --glob "!tmp-find/**"
+2026-04-25 10:26:11 request false task=repo-search total_elapsed=0s output_tokens=18 tool_tokens=31
+2026-04-25 10:26:11 tool_stats task=repo-search tool=rg calls=1 output_chars=18 output_tokens=8 output_tokens_estimated=1
+✔ repo-search endpoint reloads executor module per request (1505.8305ms)
+✔ repo-search wakes managed llama after idle shutdown (3861.2912ms)
+✔ synthesis succeeds on attempt 1 sets finalOutput and logs a single result event (13.1846ms)
+✔ synthesis that returns empty text twice then succeeds on attempt 3 sets finalOutput (1.5687ms)
+✔ synthesis that returns empty text 3 times throws a hard-fail error (1.3964ms)
+✔ synthesis with exhausted mocks throws after 3 attempts (no silent dump fallback) (1.2831ms)
+✔ executeRepoSearchRequest throws on empty prompt (15.1655ms)
+✔ executeRepoSearchRequest throws on whitespace-only prompt (4.3661ms)
+✔ executeRepoSearchRequest success path writes transcript and artifact (802.7266ms)
+✔ executeRepoSearchRequest error path flushes transcript once and exposes final transcript URI (667.6676ms)
+✔ executeRepoSearchRequest with mock command executes and returns scorecard (1292.9138ms)
+✔ executeRepoSearchRequest persists summed prompt-eval and generation durations for streamed multi-turn runs (1294.7327ms)
+✔ executeRepoSearchRequest hard-fails when no mock responses are available and persists a failed artifact (700.3667ms)
+[siftkit-trace 2026-04-25T14:26:11.599Z] repo-search execute start request_id=b7a3939d-ddc8-4111-bc67-b4cae11e0775 prompt_chars=27
+✔ executeRepoSearchRequest hard-fails on invalid mock response and persists a failed artifact (1277.1121ms)
+[siftkit-trace 2026-04-25T14:26:12.281Z] repo-search execute done request_id=b7a3939d-ddc8-4111-bc67-b4cae11e0775 verdict=pass duration_ms=682 output_chars=4
+✔ executeRepoSearchRequest trace output when SIFTKIT_TRACE_REPO_SEARCH=1 (685.4006ms)
+Restarting llama-server for [baseline] baseline
+✔ benchmark matrix respects per-run launcher overrides and script-owned reasoning (13.3397ms)
+✔ benchmark matrix defaults request timeout to 30 minutes when omitted (10.0472ms)
+Running [interrupt-run] interrupt run
+Restarting llama-server for [baseline] baseline
+✔ benchmark matrix marks interrupted runs failed, preserves benchmark logs, and restores baseline (4108.7879ms)
+✔ benchmark matrix launch signature changes for script and context changes but ignores metadata-only reasoning when script-owned (10.7988ms)
+✔ benchmark matrix passes reasoning by default when the launcher supports it (14.406ms)
+✔ benchmark matrix prunes llama launcher logs older than 7 days (6.9722ms)
+[fixture60-repro 2026-04-25T14:26:06.378Z] Output root: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-FxsqIB\fixture60-repro-output
+[fixture60-repro 2026-04-25T14:26:06.378Z] Fixture range: 1-1
+[fixture60-repro 2026-04-25T14:26:06.378Z] Fixture count: 1
+[siftkit-trace 2026-04-25T14:26:06.379Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-25T14:26:06.380Z] execution-lock acquire success token=lease-1777127166379 elapsed_ms=1
+[siftkit-trace 2026-04-25T14:26:06.381Z] llama-cpp tokenize start chars=8045
+[siftkit-trace 2026-04-25T14:26:06.382Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[fixture60-repro 2026-04-25T14:26:06.386Z] Fixture 1/1: fixture60-repro-case
+[fixture60-repro 2026-04-25T14:26:06.387Z] Source path: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-FxsqIB\bench-fixtures\case1.txt
+[fixture60-repro 2026-04-25T14:26:06.387Z] Input chars: 11000
+[fixture60-repro 2026-04-25T14:26:06.387Z] Chunk threshold: 5000
+[fixture60-repro 2026-04-25T14:26:06.387Z] Chunk count: 3
+[siftkit-trace 2026-04-25T14:26:06.387Z] llama-cpp tokenize start chars=8039
+[siftkit-trace 2026-04-25T14:26:06.388Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-25T14:26:06.389Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=1800 prompt_chars=8039 base_url=http://127.0.0.1:10808
+[siftkit-trace 2026-04-25T14:26:06.389Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null cache_tokens=null prompt_eval_tokens=null output_chars=83
+[fixture60-repro 2026-04-25T14:26:06.391Z] Fixture 1 chunk 1/3 parsed prompt_tokens=null output_tokens=45
+[siftkit-trace 2026-04-25T14:26:06.396Z] llama-cpp tokenize start chars=8039
+[siftkit-trace 2026-04-25T14:26:06.397Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-25T14:26:06.397Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=1800 prompt_chars=8039 base_url=http://127.0.0.1:10808
+[siftkit-trace 2026-04-25T14:26:06.397Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null cache_tokens=null prompt_eval_tokens=null output_chars=72
+[fixture60-repro 2026-04-25T14:26:06.401Z] Fixture 1 chunk 2/3 malformed: Provider returned an invalid SiftKit decision payload: Unterminated string in JSON at position 72 (line 1 column 73)
+[siftkit-trace 2026-04-25T14:26:06.401Z] execution-lock release token=lease-1777127166379
+✔ repro-fixture60-malformed-json writes chunk artifacts and stops on malformed chunk payload (736.4597ms)
+[fixture60-repro 2026-04-25T14:26:06.385Z] Output root: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-KqZmGD\fixture60-repro-range-output
+[fixture60-repro 2026-04-25T14:26:06.386Z] Fixture range: 1-2
+[fixture60-repro 2026-04-25T14:26:06.386Z] Fixture count: 2
+[siftkit-trace 2026-04-25T14:26:06.387Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-25T14:26:06.388Z] execution-lock acquire success token=lease-1777127166387 elapsed_ms=1
+[siftkit-trace 2026-04-25T14:26:06.389Z] llama-cpp tokenize start chars=8049
+[siftkit-trace 2026-04-25T14:26:06.390Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[fixture60-repro 2026-04-25T14:26:06.392Z] Fixture 1/2: fixture-1
+[fixture60-repro 2026-04-25T14:26:06.393Z] Source path: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-KqZmGD\bench-fixtures\case1.txt
+[fixture60-repro 2026-04-25T14:26:06.393Z] Input chars: 11000
+[fixture60-repro 2026-04-25T14:26:06.394Z] Chunk threshold: 5000
+[fixture60-repro 2026-04-25T14:26:06.394Z] Chunk count: 3
+[siftkit-trace 2026-04-25T14:26:06.396Z] llama-cpp tokenize start chars=8043
+[siftkit-trace 2026-04-25T14:26:06.397Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-25T14:26:06.397Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=1800 prompt_chars=8043 base_url=http://127.0.0.1:10810
+[siftkit-trace 2026-04-25T14:26:06.398Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null cache_tokens=null prompt_eval_tokens=null output_chars=85
+[fixture60-repro 2026-04-25T14:26:06.400Z] Fixture 1 chunk 1/3 parsed prompt_tokens=null output_tokens=45
+[siftkit-trace 2026-04-25T14:26:06.402Z] llama-cpp tokenize start chars=8043
+[siftkit-trace 2026-04-25T14:26:06.403Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-25T14:26:06.403Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=1800 prompt_chars=8043 base_url=http://127.0.0.1:10810
+[siftkit-trace 2026-04-25T14:26:06.404Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null cache_tokens=null prompt_eval_tokens=null output_chars=85
+[fixture60-repro 2026-04-25T14:26:06.406Z] Fixture 1 chunk 2/3 parsed prompt_tokens=null output_tokens=45
+[siftkit-trace 2026-04-25T14:26:06.408Z] llama-cpp tokenize start chars=4043
+[siftkit-trace 2026-04-25T14:26:06.409Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-25T14:26:06.409Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=1800 prompt_chars=4043 base_url=http://127.0.0.1:10810
+[siftkit-trace 2026-04-25T14:26:06.409Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null cache_tokens=null prompt_eval_tokens=null output_chars=85
+[fixture60-repro 2026-04-25T14:26:06.411Z] Fixture 1 chunk 3/3 parsed prompt_tokens=null output_tokens=45
+[siftkit-trace 2026-04-25T14:26:06.415Z] llama-cpp tokenize start chars=8049
+[siftkit-trace 2026-04-25T14:26:06.416Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[fixture60-repro 2026-04-25T14:26:06.417Z] Fixture 2/2: fixture-2
+[fixture60-repro 2026-04-25T14:26:06.419Z] Source path: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-KqZmGD\bench-fixtures\case2.txt
+[fixture60-repro 2026-04-25T14:26:06.419Z] Input chars: 11000
+[fixture60-repro 2026-04-25T14:26:06.419Z] Chunk threshold: 5000
+[fixture60-repro 2026-04-25T14:26:06.419Z] Chunk count: 3
+[siftkit-trace 2026-04-25T14:26:06.420Z] llama-cpp tokenize start chars=8043
+[siftkit-trace 2026-04-25T14:26:06.420Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-25T14:26:06.420Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=1800 prompt_chars=8043 base_url=http://127.0.0.1:10810
+[siftkit-trace 2026-04-25T14:26:06.421Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null cache_tokens=null prompt_eval_tokens=null output_chars=85
+[fixture60-repro 2026-04-25T14:26:06.422Z] Fixture 2 chunk 1/3 parsed prompt_tokens=null output_tokens=45
+[siftkit-trace 2026-04-25T14:26:06.425Z] llama-cpp tokenize start chars=8043
+[siftkit-trace 2026-04-25T14:26:06.426Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-25T14:26:06.426Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=1800 prompt_chars=8043 base_url=http://127.0.0.1:10810
+[siftkit-trace 2026-04-25T14:26:06.427Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null cache_tokens=null prompt_eval_tokens=null output_chars=72
+[fixture60-repro 2026-04-25T14:26:06.433Z] Fixture 2 chunk 2/3 malformed: Provider returned an invalid SiftKit decision payload: Unterminated string in JSON at position 72 (line 1 column 73)
+Provider returned an invalid SiftKit decision payload: Unterminated string in JSON at position 72 (line 1 column 73)
+[siftkit-trace 2026-04-25T14:26:06.433Z] execution-lock release token=lease-1777127166387
+✔ repro-fixture60-malformed-json can run a fixture range and stop on a later malformed fixture (759.6475ms)
+[fixture60-repro 2026-04-25T14:26:06.499Z] Output root: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-9EzShl\fixture60-repro-success-output
+[fixture60-repro 2026-04-25T14:26:06.499Z] Fixture range: 1-1
+[fixture60-repro 2026-04-25T14:26:06.499Z] Fixture count: 1
+[siftkit-trace 2026-04-25T14:26:06.500Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-25T14:26:06.501Z] execution-lock acquire success token=lease-1777127166500 elapsed_ms=2
+[siftkit-trace 2026-04-25T14:26:06.502Z] llama-cpp tokenize start chars=8045
+[siftkit-trace 2026-04-25T14:26:06.503Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[fixture60-repro 2026-04-25T14:26:06.506Z] Fixture 1/1: fixture60-repro-case
+[fixture60-repro 2026-04-25T14:26:06.506Z] Source path: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-9EzShl\bench-fixtures\case1.txt
+[fixture60-repro 2026-04-25T14:26:06.507Z] Input chars: 11000
+[fixture60-repro 2026-04-25T14:26:06.508Z] Chunk threshold: 5000
+[fixture60-repro 2026-04-25T14:26:06.508Z] Chunk count: 3
+[siftkit-trace 2026-04-25T14:26:06.509Z] llama-cpp tokenize start chars=8039
+[siftkit-trace 2026-04-25T14:26:06.509Z] llama-cpp tokenize http_error elapsed_ms=0 status=503
+[siftkit-trace 2026-04-25T14:26:06.510Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=1800 prompt_chars=8039 base_url=http://127.0.0.1:10817
+[siftkit-trace 2026-04-25T14:26:06.511Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null cache_tokens=null prompt_eval_tokens=null output_chars=83
+[fixture60-repro 2026-04-25T14:26:06.513Z] Fixture 1 chunk 1/3 parsed prompt_tokens=null output_tokens=45
+[siftkit-trace 2026-04-25T14:26:06.515Z] llama-cpp tokenize start chars=8039
+[siftkit-trace 2026-04-25T14:26:06.516Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-25T14:26:06.516Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=1800 prompt_chars=8039 base_url=http://127.0.0.1:10817
+[siftkit-trace 2026-04-25T14:26:06.517Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null cache_tokens=null prompt_eval_tokens=null output_chars=83
+[fixture60-repro 2026-04-25T14:26:06.519Z] Fixture 1 chunk 2/3 parsed prompt_tokens=null output_tokens=45
+[siftkit-trace 2026-04-25T14:26:06.520Z] llama-cpp tokenize start chars=4039
+[siftkit-trace 2026-04-25T14:26:06.521Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-25T14:26:06.521Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=1800 prompt_chars=4039 base_url=http://127.0.0.1:10817
+[siftkit-trace 2026-04-25T14:26:06.522Z] llama-cpp generate done elapsed_ms=1 prompt_tokens=123 completion_tokens=45 thinking_tokens=null cache_tokens=null prompt_eval_tokens=null output_chars=83
+[fixture60-repro 2026-04-25T14:26:06.523Z] Fixture 1 chunk 3/3 parsed prompt_tokens=null output_tokens=45
+[fixture60-repro 2026-04-25T14:26:06.531Z] Completed without malformed chunk payloads.
+[siftkit-trace 2026-04-25T14:26:06.531Z] execution-lock release token=lease-1777127166500
+✔ repro-fixture60-malformed-json writes a completed manifest for valid chunk responses (751.6422ms)
+Fixture 1/2 [summarized-case] start
+Fixture 1/2 [summarized-case] completed in 0s
+Fixture 2/2 [raw-case] start
+Fixture 2/2 [raw-case] completed in 0s
+✔ benchmark runner writes prompt, output, classification metadata, per-case duration, and total duration (774.2191ms)
+Fixture 1/1 [timeout-case] start
+Fixture 1/1 [timeout-case] failed fatally after 0s: Benchmark fixture 'timeout-case' timed out after 0.01 seconds.
+✔ benchmark runner times out fatally and writes a partial artifact (1463.343ms)
+Fixture 1/1 [default-timeout-case] start
+Fixture 1/1 [default-timeout-case] completed in 0s
+✔ benchmark runner uses a 30 minute default request timeout when omitted (588.336ms)
+Fixture 1/1 [provider-error-case] start
+Fixture 1/1 [provider-error-case] failed fatally after 0s: mock provider failure
+✔ benchmark runner fails fast on provider errors and writes the fatal error text (1146.0398ms)
+[fixture-debug 2026-04-25T14:26:10.416Z] Output root: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-v8SJEk\file-debug-output
+[fixture-debug 2026-04-25T14:26:10.417Z] Log path: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-v8SJEk\file-debug-output\debug.log
+[fixture-debug 2026-04-25T14:26:10.417Z] Source path: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-v8SJEk\input.txt
+[fixture-debug 2026-04-25T14:26:10.418Z] Input chars: 600
+[fixture-debug 2026-04-25T14:26:10.418Z] Question: summarize this
+[fixture-debug 2026-04-25T14:26:10.418Z] Format: text
+[fixture-debug 2026-04-25T14:26:10.418Z] Policy profile: general
+[fixture-debug 2026-04-25T14:26:10.419Z] Request timeout seconds: 600
+[fixture-debug 2026-04-25T14:26:10.419Z] Calling summarizeRequest...
+[siftkit-trace 2026-04-25T14:26:10.421Z] summary summarizeRequest start input_chars=600
+[siftkit-trace 2026-04-25T14:26:10.421Z] execution-lock acquire start timeout_ms=300000
+✔ run-benchmark-fixture-debug writes an artifact for fixture mode (597.6067ms)
+[siftkit-trace 2026-04-25T14:26:10.424Z] execution-lock acquire success token=lease-1777127170423 elapsed_ms=3
+[siftkit-trace 2026-04-25T14:26:10.424Z] summary loadConfig start
+[siftkit-trace 2026-04-25T14:26:11.555Z] summary loadConfig done
+[siftkit-trace 2026-04-25T14:26:11.555Z] summary decision ready backend=llama.cpp model=qwen3.5-9b-instruct-q4_k_m raw_review_required=false chars=600 lines=1
+[siftkit-trace 2026-04-25T14:26:11.556Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-25T14:26:11.556Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=600 chunk_threshold=219005 planner_threshold=178174
+[siftkit-trace 2026-04-25T14:26:11.556Z] summary preflight start phase=leaf chunk=undefined/undefined prompt_chars=1421 effective_prompt_limit=118000
+[siftkit-trace 2026-04-25T14:26:11.557Z] llama-cpp tokenize start chars=1421
+[siftkit-trace 2026-04-25T14:26:11.558Z] llama-cpp tokenize http_error elapsed_ms=1 status=503
+[siftkit-trace 2026-04-25T14:26:11.558Z] summary preflight done phase=leaf chunk=undefined/undefined prompt_tokens=null
+[siftkit-trace 2026-04-25T14:26:11.559Z] summary notify running=true phase=leaf chunk=none raw_chars=600 chunk_chars=600 prompt_chars=1421
+[siftkit-trace 2026-04-25T14:26:11.559Z] summary provider start backend=llama.cpp model=qwen3.5-9b-instruct-q4_k_m phase=leaf chunk=none timeout_s=600
+[siftkit-trace 2026-04-25T14:26:11.560Z] llama-cpp generate start model=qwen3.5-9b-instruct-q4_k_m timeout_s=600 prompt_chars=1421 base_url=http://127.0.0.1:27329
+[siftkit-trace 2026-04-25T14:26:11.560Z] llama-cpp generate done elapsed_ms=0 prompt_tokens=123 completion_tokens=45 thinking_tokens=null cache_tokens=null prompt_eval_tokens=null output_chars=100
+[siftkit-trace 2026-04-25T14:26:11.561Z] summary provider done phase=leaf chunk=none output_chars=100 output_tokens=45 thinking_tokens=null
+[siftkit-trace 2026-04-25T14:26:11.561Z] summary notify running=false phase=leaf chunk=none duration_ms=2
+[siftkit-trace 2026-04-25T14:26:11.562Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-25T14:26:11.566Z] execution-lock release token=lease-1777127170423
+[fixture-debug 2026-04-25T14:26:11.571Z] summarizeRequest completed in 1.146s
+[fixture-debug 2026-04-25T14:26:11.572Z] Request id: 5ed318d4-9240-476c-88c2-13ec59e63632
+[fixture-debug 2026-04-25T14:26:11.573Z] Result classification: summary
+[fixture-debug 2026-04-25T14:26:11.573Z] Summary path: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-v8SJEk\file-debug-output\summary.txt
+[fixture-debug 2026-04-25T14:26:11.573Z] Artifact path: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-v8SJEk\file-debug-output\result.json
+summary:Preserve exact technical
+[fixture-debug 2026-04-25T14:26:11.583Z] Output root: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-HNUDft\file-debug-failure-output
+[fixture-debug 2026-04-25T14:26:11.583Z] Log path: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-HNUDft\file-debug-failure-output\debug.log
+[fixture-debug 2026-04-25T14:26:11.583Z] Source path: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-HNUDft\input.txt
+[fixture-debug 2026-04-25T14:26:11.583Z] Input chars: 600
+[fixture-debug 2026-04-25T14:26:11.583Z] Question: summarize this
+[fixture-debug 2026-04-25T14:26:11.584Z] Format: text
+[fixture-debug 2026-04-25T14:26:11.584Z] Policy profile: general
+[fixture-debug 2026-04-25T14:26:11.584Z] Request timeout seconds: 600
+[fixture-debug 2026-04-25T14:26:11.585Z] Calling summarizeRequest...
+✔ run-benchmark-fixture-debug supports direct file mode (1166.1633ms)
+[fixture-debug 2026-04-25T14:26:12.164Z] summarizeRequest failed in 576.7ms
+[fixture-debug 2026-04-25T14:26:12.164Z] Artifact path: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-HNUDft\file-debug-failure-output\result.json
+✔ run-benchmark-fixture-debug writes failure artifacts and exits nonzero on summarize errors (594.007ms)
+Fixture 1/1 [summarized-case] start
+[siftkit-trace 2026-04-25T14:26:12.798Z] summary summarizeRequest start input_chars=600
+[siftkit-trace 2026-04-25T14:26:12.798Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-25T14:26:12.799Z] execution-lock acquire success token=lease-1777127172798 elapsed_ms=1
+[siftkit-trace 2026-04-25T14:26:12.799Z] summary loadConfig start
+[siftkit-trace 2026-04-25T14:26:12.821Z] summary loadConfig done
+[siftkit-trace 2026-04-25T14:26:12.821Z] summary decision ready backend=mock model=mock-model raw_review_required=false chars=600 lines=1
+[siftkit-trace 2026-04-25T14:26:12.821Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-25T14:26:12.821Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=600 chunk_threshold=237565 planner_threshold=237565
+[siftkit-trace 2026-04-25T14:26:12.821Z] summary preflight start phase=leaf chunk=undefined/undefined prompt_chars=2813 effective_prompt_limit=null
+[siftkit-trace 2026-04-25T14:26:12.821Z] summary preflight done phase=leaf chunk=undefined/undefined prompt_tokens=null
+[siftkit-trace 2026-04-25T14:26:12.821Z] summary notify running=true phase=leaf chunk=none raw_chars=600 chunk_chars=600 prompt_chars=2813
+[siftkit-trace 2026-04-25T14:26:12.822Z] summary notify running=false phase=leaf chunk=none duration_ms=0
+[siftkit-trace 2026-04-25T14:26:12.822Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-25T14:26:12.826Z] execution-lock release token=lease-1777127172798
+Fixture 1/1 [summarized-case] completed in 0s
+✔ benchmark runner records a custom prompt prefix from file (692.1254ms)
+[siftkit-trace 2026-04-25T14:26:13.406Z] summary summarizeRequest start input_chars=6939
+[siftkit-trace 2026-04-25T14:26:13.406Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-25T14:26:13.407Z] execution-lock acquire success token=lease-1777127173407 elapsed_ms=1
+[siftkit-trace 2026-04-25T14:26:13.407Z] summary loadConfig start
+[siftkit-trace 2026-04-25T14:26:13.430Z] summary loadConfig done
+[siftkit-trace 2026-04-25T14:26:13.430Z] summary decision ready backend=mock model=mock-model raw_review_required=true chars=6939 lines=81
+[siftkit-trace 2026-04-25T14:26:13.430Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-25T14:26:13.430Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=6939 chunk_threshold=237565 planner_threshold=237565
+[siftkit-trace 2026-04-25T14:26:13.430Z] summary preflight start phase=leaf chunk=undefined/undefined prompt_chars=9552 effective_prompt_limit=null
+[siftkit-trace 2026-04-25T14:26:13.430Z] summary preflight done phase=leaf chunk=undefined/undefined prompt_tokens=null
+[siftkit-trace 2026-04-25T14:26:13.430Z] summary notify running=true phase=leaf chunk=none raw_chars=6939 chunk_chars=6939 prompt_chars=9552
+[siftkit-trace 2026-04-25T14:26:13.431Z] summary notify running=false phase=leaf chunk=none duration_ms=0
+[siftkit-trace 2026-04-25T14:26:13.432Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-25T14:26:13.435Z] execution-lock release token=lease-1777127173407
+[siftkit-trace 2026-04-25T14:26:13.435Z] summary summarizeRequest start input_chars=1363
+[siftkit-trace 2026-04-25T14:26:13.435Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-25T14:26:13.436Z] execution-lock acquire success token=lease-1777127173435 elapsed_ms=1
+[siftkit-trace 2026-04-25T14:26:13.436Z] summary loadConfig start
+[siftkit-trace 2026-04-25T14:26:13.456Z] summary loadConfig done
+[siftkit-trace 2026-04-25T14:26:13.456Z] summary decision ready backend=mock model=mock-model raw_review_required=true chars=1363 lines=13
+[siftkit-trace 2026-04-25T14:26:13.456Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-25T14:26:13.456Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=1363 chunk_threshold=238221 planner_threshold=238221
+[siftkit-trace 2026-04-25T14:26:13.456Z] summary preflight start phase=leaf chunk=undefined/undefined prompt_chars=3934 effective_prompt_limit=null
+[siftkit-trace 2026-04-25T14:26:13.456Z] summary preflight done phase=leaf chunk=undefined/undefined prompt_tokens=null
+[siftkit-trace 2026-04-25T14:26:13.456Z] summary notify running=true phase=leaf chunk=none raw_chars=1363 chunk_chars=1363 prompt_chars=3934
+[siftkit-trace 2026-04-25T14:26:13.457Z] summary notify running=false phase=leaf chunk=none duration_ms=0
+[siftkit-trace 2026-04-25T14:26:13.457Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-25T14:26:13.462Z] execution-lock release token=lease-1777127173435
+[siftkit-trace 2026-04-25T14:26:13.469Z] summary summarizeRequest start input_chars=4999971
+[siftkit-trace 2026-04-25T14:26:13.469Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-25T14:26:13.470Z] execution-lock acquire success token=lease-1777127173469 elapsed_ms=1
+[siftkit-trace 2026-04-25T14:26:13.470Z] summary loadConfig start
+[siftkit-trace 2026-04-25T14:26:13.491Z] summary loadConfig done
+[siftkit-trace 2026-04-25T14:26:13.493Z] execution-lock release token=lease-1777127173469
+[siftkit-trace 2026-04-25T14:26:13.494Z] summary summarizeRequest start input_chars=1476
+[siftkit-trace 2026-04-25T14:26:13.494Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-25T14:26:13.494Z] execution-lock acquire success token=lease-1777127173494 elapsed_ms=0
+[siftkit-trace 2026-04-25T14:26:13.494Z] summary loadConfig start
+[siftkit-trace 2026-04-25T14:26:13.516Z] summary loadConfig done
+[siftkit-trace 2026-04-25T14:26:13.516Z] summary decision ready backend=mock model=mock-model raw_review_required=false chars=1476 lines=24
+[siftkit-trace 2026-04-25T14:26:13.516Z] summary invokeSummaryCore start
+[siftkit-trace 2026-04-25T14:26:13.516Z] summary invokeSummaryCore start phase=leaf chunk=undefined/undefined input_chars=1476 chunk_threshold=238491 planner_threshold=238491
+[siftkit-trace 2026-04-25T14:26:13.516Z] summary preflight start phase=leaf chunk=undefined/undefined prompt_chars=4141 effective_prompt_limit=null
+[siftkit-trace 2026-04-25T14:26:13.516Z] summary preflight done phase=leaf chunk=undefined/undefined prompt_tokens=null
+[siftkit-trace 2026-04-25T14:26:13.516Z] summary notify running=true phase=leaf chunk=none raw_chars=1476 chunk_chars=1476 prompt_chars=4141
+[siftkit-trace 2026-04-25T14:26:13.516Z] summary notify running=false phase=leaf chunk=none duration_ms=0
+[siftkit-trace 2026-04-25T14:26:13.517Z] summary invokeSummaryCore done classification=summary
+[siftkit-trace 2026-04-25T14:26:13.520Z] execution-lock release token=lease-1777127173494
+[siftkit-trace 2026-04-25T14:26:13.526Z] summary summarizeRequest start input_chars=3322607
+[siftkit-trace 2026-04-25T14:26:13.526Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-25T14:26:13.526Z] execution-lock acquire success token=lease-1777127173526 elapsed_ms=0
+[siftkit-trace 2026-04-25T14:26:13.526Z] summary loadConfig start
+[siftkit-trace 2026-04-25T14:26:13.549Z] summary loadConfig done
+[siftkit-trace 2026-04-25T14:26:13.551Z] execution-lock release token=lease-1777127173526
+[siftkit-trace 2026-04-25T14:26:13.555Z] summary summarizeRequest start input_chars=979000
+[siftkit-trace 2026-04-25T14:26:13.555Z] execution-lock acquire start timeout_ms=300000
+[siftkit-trace 2026-04-25T14:26:13.555Z] execution-lock acquire success token=lease-1777127173555 elapsed_ms=0
+[siftkit-trace 2026-04-25T14:26:13.555Z] summary loadConfig start
+[siftkit-trace 2026-04-25T14:26:13.576Z] summary loadConfig done
+[siftkit-trace 2026-04-25T14:26:13.578Z] execution-lock release token=lease-1777127173555
+✔ benchmark error-log fixtures now reach the model-first summary path (718.0408ms)
+✔ concurrent oversized CLI summary requests are serialized until the first request fully completes (1069.0977ms)
+✔ CLI summary fails closed with the canonical message when the external server is unreachable (97.5387ms)
+✔ CLI summary succeeds without server preflight health checks (1187.5596ms)
+✔ local-only find-files CLI works without the external server (114.1833ms)
+✔ unsupported input returns the exact terminal message (1113.026ms)
+✔ runtime cutover migration imports legacy files and deletes them (798.5172ms)
+✔ runtime cutover migration imports and deletes legacy files that reappear after completion (1341.3873ms)
+✔ runtime cutover migration is idempotent on fresh runtime roots (645.6216ms)
+✔ runtime cutover migration heals legacy schema drift where runtime_artifacts is missing at schema version 1 (1416.082ms)
+✔ runtime database initializes fresh app_config schema without re-adding v11 ncpu_moe columns (1122.1491ms)
+✔ runtime database migrates schema v10 to v11 without duplicating existing llama_ncpu_moe column (683.4203ms)
+✔ runtime database migrates schema v5 GPU fields to schema v6 boolean-only status storage (1520.2671ms)
+✔ runtime database migrates stored legacy planner tool names to canonical native ones (667.8667ms)
+✔ runtime cutover migration imports and deletes managed-llama .log files (1757.7968ms)
+✔ getRuntimeRoot falls back to cwd outside a siftkit repo (2.0678ms)
+✔ getConfigPath points to repo-local runtime sqlite file (1.3084ms)
+✔ writeConfig persists config to sqlite and never creates config.json (551.2335ms)
+✔ default config includes initial repo file scan (0.1989ms)
+✔ writeConfig tolerates legacy schema v7 managed llama verbose args columns (1480.1344ms)
+✔ readConfig backfills blank managed llama placeholder rows without restoring paths (1384.8436ms)
+✔ writeConfig persists managed llama presets and restores the selected preset into the active launcher config (519.1819ms)
+✔ withExecutionLock acquires and releases execution control through the server (30.4541ms)
+✔ withExecutionLock waits for the server to release execution control before starting (534.3842ms)
+✔ runtime config helpers merge nested overrides and strip derived fields (0.7929ms)
+✔ runtime path helpers resolve planner request artifact paths from the status root (0.4404ms)
+✔ getConfigPath prefers a repo-local .siftkit runtime when running inside the siftkit repo (4.4063ms)
+✔ loadConfig uses the fixed bootstrap chars-per-token budget before observed telemetry exists (1206.4975ms)
+✔ loadConfig immediately switches from bootstrap fallback to observed telemetry when totals appear (538.3479ms)
+✔ loadConfig normalizes legacy defaults and derives effective budgets from the external server (1085.0263ms)
+✔ default managed startup script points to the repo-owned 9b thinking launcher (0.4192ms)
+✔ loadConfig ignores legacy startup script after ExecutablePath cutover (539.8506ms)
+✔ loadConfig ignores broken legacy startup script after ExecutablePath cutover (535.8309ms)
+✔ loadConfig ignores legacy startup script path regardless of Windows path casing after cutover (1152.3382ms)
+✔ loadConfig removes legacy chunk threshold ratio from loaded and persisted config (604.5468ms)
+✔ loadConfig fails closed when observed telemetry previously existed and status metrics later become unusable (583.3374ms)
+✔ loadConfig fails closed when observed telemetry previously existed and the status backend later becomes unavailable (551.9753ms)
+✔ loadConfig derives effective budgets from aggregate prompt character and token totals (519.7607ms)
+✔ saveConfig preserves explicit llama.cpp thread settings through the external server (552.3388ms)
+2026-04-25 10:26:16 llama_start starting executable=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-OPYUGF\start-llama.ps1
+2026-04-25 10:26:16 llama_start verbose_logging=off
+2026-04-25 10:26:17 llama_start ready base_url=http://127.0.0.1:62491
+{"ok":true,"port":62538,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-OPYUGF\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-OPYUGF\\.siftkit\\runtime.sqlite","startupWarning":null}
+2026-04-25 10:26:17 llama_stop stopping pid=39932
+2026-04-25 10:26:17 llama_stop offline base_url=http://127.0.0.1:62491
+✔ real status server passes managed startup env flag to startup scripts (3082.9887ms)
+2026-04-25 10:26:18 llama_start starting executable=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-KU7z15\start-llama.ps1
+2026-04-25 10:26:18 llama_start verbose_logging=on
+2026-04-25 10:26:18 llama_start ready base_url=http://127.0.0.1:62729
+{"ok":true,"port":62749,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-KU7z15\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-KU7z15\\.siftkit\\runtime.sqlite","startupWarning":null}
+2026-04-25 10:26:18 llama_stop stopping pid=44924
+2026-04-25 10:26:19 llama_stop offline base_url=http://127.0.0.1:62729
+{"ok":true,"port":62875,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-iFrD5A\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-iFrD5A\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server passes managed verbose env settings to startup scripts (1446.6986ms)
+{"ok":true,"port":62888,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-myYgRs\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-myYgRs\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server preserves legacy default startup script as ExecutablePath during cutover (506.9708ms)
+{"ok":true,"port":62911,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-LQVcbL\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-LQVcbL\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server preserves legacy startup script path casing as ExecutablePath during cutover (514.0491ms)
+{"ok":true,"port":62931,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-uOZQOv\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-uOZQOv\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server defaults new config to no managed ExecutablePath (437.9427ms)
+{"ok":true,"port":62951,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-eSJxBT\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-eSJxBT\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server preserves former 9b non-thinking startup script as ExecutablePath during cutover (228.2893ms)
+✔ real status server preserves broken external 9b thinking startup script as ExecutablePath during cutover (241.4176ms)
+2026-04-25 10:26:21 llama_start starting executable=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-kmrrOW\start-llama.ps1
+2026-04-25 10:26:21 llama_start verbose_logging=off
+2026-04-25 10:26:21 llama_start ready base_url=http://127.0.0.1:62954
+{"ok":true,"port":62957,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-kmrrOW\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-kmrrOW\\.siftkit\\runtime.sqlite","startupWarning":null}
+2026-04-25 10:26:21 llama_stop stopping pid=57520
+2026-04-25 10:26:22 llama_stop offline base_url=http://127.0.0.1:62954
+✔ real status server keeps startup status true when the startup script calls config before launch (1358.4389ms)
+2026-04-25 10:26:22 llama_stop startup_cleanup base_url=http://127.0.0.1:63058
+{"ok":true,"port":63061,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-6sMdxV\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-6sMdxV\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server does not launch a second process when managed llama is already reachable (263.6287ms)
+✔ summary aggregation accumulates provider usage and duration in status metrics (1244.0003ms)
+✔ summary aggregation records duration without tokens when provider usage is absent (555.2129ms)
+✔ summary aggregation records thinking tokens independently from output metrics (1051.0015ms)
+✔ summary aggregation counts only processed prompt tokens when cache metadata is present (578.0666ms)
+✔ repo-search reports only processed prompt tokens to the status backend when cache metadata is present (1275.9681ms)
+✔ idle metrics formatter emits ANSI colors when enabled on a TTY (0.7381ms)
+✔ idle metrics formatter disables ANSI colors when NO_COLOR is set (0.1635ms)
+✔ idle metrics formatter disables ANSI colors when stdout is not a TTY (0.1239ms)
+✔ idle metrics formatter reports n/a averages when no requests completed (0.1331ms)
+✔ idle metrics formatter groups large values, formats days in elapsed durations, and includes budget details when present (12.1484ms)
+✔ request status log groups large running counts and uses colon elapsed durations (0.6965ms)
+✔ planner find_text auto-normalizes lone regex braces like var.*Unlocks.*=.*{ (1264.482ms)
+✔ planner fails fast when the planner response body is empty (614.7886ms)
+✔ planner accepts a direct structured summary response for oversized input instead of falling back to chunking (1260.4208ms)
+✔ summarizeRequest no longer rejects input larger than 4x chunk threshold when planner mode can handle it (1378.5311ms)
+✔ planner writes a debug dump with input, thinking, tool calls, tool output, and final output (1303.3457ms)
+✔ planner json_filter accepts combined gte and lte bounds in one filter value (1136.691ms)
+✔ planner retries malformed json_filter schema-placeholder args once and then succeeds (1152.2641ms)
+✔ planner accepts exact nested value scalar wrappers in json_filter args (1130.0793ms)
+✔ planner malformed json_filter schema-placeholder args fail on invalid response limit after retry (1213.5545ms)
+✔ planner json_filter supports scalar timestamp ranges on object-root array collections (632.0708ms)
+✔ planner returns recoverable json_filter collectionPath guidance without counting an invalid response (1210.4775ms)
+✔ planner json_filter falls back to embedded JSON in command-output text and reports ignored prefix (577.7144ms)
+✔ planner surfaces explicit invalid-json message when json_filter fallback cannot parse any valid section (1626.4199ms)
+✔ planner failures write failed artifacts through status posts (731.265ms)
+✔ powershell shim preserves pipeline order for oversized planner input (1158.2986ms)
+✔ planner debug dumps always write to the repo-local logs directory (409.4962ms)
+✔ planner read_lines tool results use a compact numbered text block (710.2828ms)
+✔ planner rejects semantically repeated nearby read_lines calls and reprompts for finish (292.6046ms)
+✔ planner keeps the first real tool output and rewrites one duplicate warning tool turn through x5 (406.2102ms)
+✔ planner find_text and json_filter results use compact text blocks in prompts and debug dumps (412.5856ms)
+✔ planner keeps short read_lines output when reported token count is high (429.4111ms)
+✔ planner keeps tool results when they stay within 70 percent of remaining stop-line tokens (293.8025ms)
+✔ planner keeps read_lines output when tokenize is unavailable (189.935ms)
+✔ planner activates once input exceeds 75 percent of context length even before chunking would start (204.4656ms)
+✔ planner allows up to thirty tool calls while prompt headroom remains without visible budget counters (424.0302ms)
+✔ planner reuses one slot within a request and assigns a new slot to the next request (171.3823ms)
+✔ planner fails fast when the next planner turn would exceed non-thinking headroom (148.4092ms)
+✔ planner fails fast when the next planner turn would exceed thinking headroom (700.0547ms)
+✔ json_filter auto-selects sole top-level array when collectionPath is omitted (1.0569ms)
+✔ json_filter picks the best matching top-level array when collectionPath is omitted (0.2728ms)
+✔ json_filter unwraps exact nested value scalar wrappers (0.1334ms)
+✔ find_text counts all hits even when maxHits truncates rendered blocks (0.2572ms)
+✔ find_text literal matching is case insensitive (0.095ms)
+✔ find_text regex matching is case insensitive (0.1662ms)
+✔ json_get resolves nested paths from embedded json fallback sections (0.2435ms)
+✔ json_get reports missing paths explicitly (0.1001ms)
+✔ llama.cpp provider reconstructs planner tool actions from empty-content tool_calls responses (606.8373ms)
+✔ llama.cpp provider reconstructs planner tool batches from empty-content tool_calls responses (544.355ms)
+✔ planner mode executes multi-tool batches sequentially before finishing (1229.0578ms)
+✔ planner token accounting treats tool-step completion tokens as thinking and finish-step tokens as output (577.0342ms)
+✔ summary below planner threshold respects runtime reasoning for one-shot requests (1203.5639ms)
+✔ summary above planner threshold respects runtime reasoning for planner requests (638.5824ms)
+✔ buildPlannerToolDefinitions returns qwen-friendly function schemas (0.5067ms)
+✔ oversized transition extraction uses planner action grammar before returning a tool-assisted summary (651.4523ms)
+✔ planner accepts inputs larger than the former four-chunk cap when it can answer via tools (982.5631ms)
+✔ planner handles oversized monolithic JSON instead of forcing chunk fallback (565.2846ms)
+✔ oversized llama.cpp summaries stay on planner status path without leaf chunk markers (1189.9906ms)
+✔ token-aware llama.cpp chunk planning grows upward when prompt tokens leave slack (7.5913ms)
+✔ token-aware llama.cpp chunk planning starts from the char-threshold guess before growing upward (6.5211ms)
+✔ token-aware llama.cpp chunk planning shrinks after an overshooting growth probe and still stays above the initial guess (6.16ms)
+✔ token-aware llama.cpp chunk planning keeps adjusting until accepted chunks are within 2000 tokens of the limit (6.5563ms)
+✔ token-aware llama.cpp chunk planning leaves a 15k token reserve when reasoning is on (4.9368ms)
+﹣ live llama token-aware chunk planning preserves the 5m benchmark fixture without chat completion (0.1035ms) # SKIP
+✔ getPlannerPromptBudget leaves 27k headroom for a 190k non-thinking context (0.4531ms)
+✔ getPlannerPromptBudget leaves 26,250 tokens of headroom for a 190k thinking context (0.1012ms)
+✔ planner activation threshold at exactly 75% stays on non-planner path (616.165ms)
+✔ llama.cpp provider lists models and parses chat completions from the stub server (1099.0429ms)
+✔ llama.cpp provider returns null usage when the server omits token usage (519.3694ms)
+✔ llama.cpp provider records thinking tokens separately from completion usage (531.8332ms)
+✔ llama.cpp provider forwards reasoning mode to chat template kwargs (1132.1132ms)
+✔ llama.cpp provider forwards thinking preservation flags when enabled (544.9989ms)
+✔ llama.cpp provider per-call reasoning override takes precedence over config reasoning (609.7995ms)
+✔ llama.cpp provider omits sampling knobs from the chat request body (542.8212ms)
+✔ llama.cpp provider enables explicit prompt caching on a supplied slot (515.9051ms)
+✔ llama.cpp provider includes per-request response_format json_schema when structured output is enabled (536.115ms)
+✔ llama.cpp provider enables parallel tool calls when tools are sent (1631.578ms)
+✔ llama.cpp provider does not enable parallel tool calls when no tools are sent (598.596ms)
+✔ llama.cpp provider gets answer content from qwen-style servers when reasoning is off (320.0606ms)
+✔ llama.cpp provider accepts count-only tokenize responses (309.8268ms)
+✔ llama.cpp provider surfaces HTTP 400 errors when json-schema constrained requests are rejected (266.9932ms)
+✔ llama.cpp provider waits for warm-up and retries model-list requests after ECONNREFUSED (783.9507ms)
+✔ llama.cpp provider waits for warm-up and retries chat-completions after ECONNREFUSED (777.6792ms)
+✔ llama.cpp provider retries HTTP 503 Loading model responses for chat-completions (267.5553ms)
+✔ persistEvalResult stores payload in eval_results table (1094.0948ms)
+✔ persistBenchmarkRun stores payload in benchmark_runs table (532.7338ms)
+✔ real status server appends one sqlite snapshot for each emitted idle summary (2080.6523ms)
+✔ real status server keeps emitting idle summaries when sqlite persistence fails (1483.7537ms)
+✔ real status server prints one idle metrics line only after the full idle delay (1896.2575ms)
+✔ real status server shuts down managed llama.cpp after the idle summary block is emitted (3296.0538ms)
+2026-04-25 10:26:16 llama_start starting executable=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-xhsLO0\start-llama.ps1
+2026-04-25 10:26:16 llama_start verbose_logging=off
+2026-04-25 10:26:17 llama_start ready base_url=http://127.0.0.1:62497
+{"ok":true,"port":62534,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-xhsLO0\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-xhsLO0\\.siftkit\\runtime.sqlite","startupWarning":null}
+2026-04-25 10:26:17 llama_stop stopping pid=9708
+2026-04-25 10:26:17 llama_stop offline base_url=http://127.0.0.1:62497
+✔ real status server close() stops managed llama.cpp (2110.7539ms)
+✔ real status server falls back to request-start prompt chars and elapsed time when completion payload is minimal (1243.4756ms)
+✖ real status server restarts the idle countdown when a new request begins before the prior delay expires (1137.3528ms)
+✔ real status server does not count idle delay while an execution lease remains active (1027.2228ms)
+{"ok":true,"port":27420,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-GKtrM2\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-GKtrM2\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ status notification failures fail closed with the canonical message (1231.1567ms)
+{"ok":true,"port":62331,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-3T9gud\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-3T9gud\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server clears stale true status once during startup (880.1435ms)
+{"ok":true,"port":62426,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-IpDhqP\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-IpDhqP\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server initializes a missing status file to false (752.1983ms)
+✔ real status server health reports disableManagedLlamaStartup mode when flagged (717.8706ms)
+{"ok":true,"port":62505,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-qvvh0t\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-qvvh0t\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server with disableManagedLlamaStartup skips managed llama bootstrap during server startup (1909.3529ms)
+{"ok":true,"port":62559,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-0RjlEf\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-0RjlEf\\.siftkit\\runtime.sqlite","startupWarning":null}
+{"ok":true,"port":62634,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-cHuewj\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-cHuewj\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server with disableManagedLlamaStartup does not trigger managed startup from GET /config (795.0757ms)
+✔ real status server accepts partial PUT /config updates and preserves unspecified fields (440.3942ms)
+{"ok":true,"port":62720,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-iBcpSw\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-iBcpSw\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server with disableManagedLlamaStartup leaves an externally started llama running across boot and close (493.6946ms)
+{"ok":true,"port":27386,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-pumrnh\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-pumrnh\\.siftkit\\runtime.sqlite","startupWarning":null}
+{"ok":true,"port":27457,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-Kns4Pi\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-Kns4Pi\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server normalizes legacy non-boolean status text to false (1449.4929ms)
+2026-04-25 10:26:12 request false
+{"ok":true,"port":62368,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-zJYnU1\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-zJYnU1\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server normalizes non-boolean statuses in POST /status payloads (891.5847ms)
+2026-04-25 10:26:13 request false
+2026-04-25 10:26:13 request true
+{"ok":true,"port":62481,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-GEq08R\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-GEq08R\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server accepts boolean-like running payload variants (805.7539ms)
+2026-04-25 10:26:14 request true
+{"ok":true,"port":62547,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-1nYnVj\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-1nYnVj\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server preserves true status while an active request is tracked (2067.0171ms)
+2026-04-25 10:26:16 request true task=summary raw_chars=400
+{"ok":true,"port":62565,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-1nYnVj\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-1nYnVj\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server persists aggregate metrics and exposes them from GET /status (953.262ms)
+2026-04-25 10:26:17 llama_start starting executable=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-UBoibb\start-llama.ps1
+2026-04-25 10:26:17 llama_start verbose_logging=off
+2026-04-25 10:26:17 llama_start ready base_url=http://127.0.0.1:62571
+{"ok":true,"port":62635,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-UBoibb\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-UBoibb\\.siftkit\\runtime.sqlite","startupWarning":null}
+2026-04-25 10:26:17 llama_stop stopping pid=30124
+2026-04-25 10:26:18 llama_stop offline base_url=http://127.0.0.1:62571
+✔ real status server starts managed llama.cpp during server startup before serving requests (1491.4286ms)
+2026-04-25 10:26:18 llama_start starting executable=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-MIBU8e\start-llama.ps1
+2026-04-25 10:26:18 llama_start verbose_logging=off
+2026-04-25 10:26:19 llama_start ready base_url=http://127.0.0.1:62755
+{"ok":true,"port":62811,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-MIBU8e\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-MIBU8e\\.siftkit\\runtime.sqlite","startupWarning":null}
+2026-04-25 10:26:19 llama_stop stopping pid=60208
+2026-04-25 10:26:19 llama_stop offline base_url=http://127.0.0.1:62755
+✔ managed llama scripts no longer receive status-path coordination args or env vars (1695.3108ms)
+2026-04-25 10:26:20 llama_start starting executable=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-fDdZn7\start-llama.ps1
+2026-04-25 10:26:20 llama_start verbose_logging=off
+2026-04-25 10:26:21 llama_start ready base_url=http://127.0.0.1:62882
+{"ok":true,"port":62895,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-fDdZn7\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-fDdZn7\\.siftkit\\runtime.sqlite","startupWarning":null}
+2026-04-25 10:26:21 llama_stop stopping pid=41960
+2026-04-25 10:26:21 llama_stop offline base_url=http://127.0.0.1:62882
+✔ real status server ignores legacy non-boolean status text when starting managed llama.cpp (1406.7195ms)
+2026-04-25 10:26:21 llama_start starting executable=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-Sb1otf\start-llama.ps1
+2026-04-25 10:26:21 llama_start verbose_logging=off
+2026-04-25 10:26:22 llama_start ready base_url=http://127.0.0.1:62962
+{"ok":true,"port":62973,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-Sb1otf\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-Sb1otf\\.siftkit\\runtime.sqlite","startupWarning":null}
+2026-04-25 10:26:22 llama_stop stopping pid=46340
+2026-04-25 10:26:22 llama_stop offline base_url=http://127.0.0.1:62962
+✔ real status server keeps published true status while managed llama stays ready (1696.5698ms)
+2026-04-25 10:26:23 llama_stop startup_cleanup base_url=http://127.0.0.1:63064
+{"ok":true,"port":63069,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-cBRwAo\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-cBRwAo\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server sync-only startup pass does not launch a second llama process (245.3455ms)
+✔ real status server fails closed during startup when managed llama logs contain warnings (1103.0498ms)
+2026-04-25 10:26:24 llama_start starting executable=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-UeHlLt\start-llama.ps1
+2026-04-25 10:26:24 llama_start verbose_logging=off
+2026-04-25 10:26:25 llama_start ready base_url=http://127.0.0.1:63117
+{"ok":true,"port":63118,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-UeHlLt\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-UeHlLt\\.siftkit\\runtime.sqlite","startupWarning":null}
+2026-04-25 10:26:25 llama_stop stopping pid=58612
+2026-04-25 10:26:25 llama_stop offline base_url=http://127.0.0.1:63117
+✔ real status server ignores transient Loading model 503 startup log lines (909.41ms)
+2026-04-25 10:26:25 llama_start starting executable=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-XxxQaH\missing-start-llama.ps1
+2026-04-25 10:26:25 llama_start verbose_logging=off
+[siftKitStatus] Managed llama startup failed; continuing in degraded mode: Configured llama.cpp executable does not exist: C:\Users\denys\AppData\Local\Temp\siftkit-node-test-XxxQaH\missing-start-llama.ps1
+{"ok":true,"port":63167,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-XxxQaH\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-XxxQaH\\.siftkit\\runtime.sqlite","startupWarning":"Configured llama.cpp executable does not exist: C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-XxxQaH\\missing-start-llama.ps1"}
+✔ real status server keeps running in degraded mode when managed llama startup is broken (175.6179ms)
+2026-04-25 10:26:25 llama_stop startup_cleanup base_url=http://127.0.0.1:63172
+{"ok":true,"port":63178,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-dR3hbZ\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-dR3hbZ\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server clears a stale managed llama process during startup before serving requests (1293.5075ms)
+{"ok":true,"port":63185,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-yrqXHf\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-yrqXHf\\.siftkit\\runtime.sqlite","startupWarning":null}
+{"ok":true,"port":63189,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-uwWvQQ\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-uwWvQQ\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server falls back to zeroed metrics when the metrics cache is invalid (157.0133ms)
+{"ok":true,"port":63191,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-jMrVVN\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-jMrVVN\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server resets metrics when metrics schema is outdated (183.2517ms)
+2026-04-25 10:26:27 request true raw_chars=1,000 chunk 1/2
+2026-04-25 10:26:27 request false elapsed=0s output_tokens=2
+2026-04-25 10:26:27 request true raw_chars=1,000 chunk 2/2
+2026-04-25 10:26:27 request false elapsed=0s output_tokens=3
+2026-04-25 10:26:27 request true raw_chars=1,000
+2026-04-25 10:26:27 request false elapsed=0s output_tokens=1
+2026-04-25 10:26:27 request false total_elapsed=0s output_tokens=6
+{"ok":true,"port":63196,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-Ws20Ej\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-Ws20Ej\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server accumulates provider payload totals across a chunked request while counting one completed request (196.738ms)
+2026-04-25 10:26:27 request true task=repo-search raw_chars=150 prompt=150 (30)
+2026-04-25 10:26:27 request false task=repo-search total_elapsed=0s output_tokens=12 tool_tokens=9
+2026-04-25 10:26:27 tool_stats task=repo-search tool=rg calls=2 output_chars=210 output_tokens=44 output_tokens_estimated=1
+{"ok":true,"port":63200,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-TV9vA2\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-TV9vA2\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server aggregates task-scoped tool stats and tool tokens (156.009ms)
+2026-04-25 10:26:27 request false task=repo-search
+{"ok":true,"port":63202,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-95Pj5y\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-95Pj5y\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server patches speculative acceptance onto an existing repo-search run log row (514.809ms)
+2026-04-25 10:26:28 request true raw_chars=426 prompt=468 (86)
+2026-04-25 10:26:28 request false total_elapsed=0s output_tokens=130
+{"ok":true,"port":63204,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-n0uNGi\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-n0uNGi\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server suppresses intermediate false log for single-step completed requests (175.4609ms)
+2026-04-25 10:26:28 request true raw_chars=1,000 chunk 1/2
+2026-04-25 10:26:28 request false elapsed=0s output_tokens=82
+{"ok":true,"port":63207,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-REmc0i\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-REmc0i\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server logs intermediate false line for first chunked leaf step (182.3795ms)
+2026-04-25 10:26:28 request true raw_chars=3,322,607 prompt=342,395 (147,694) chunk 1/10
+2026-04-25 10:26:28 request false elapsed=0s
+2026-04-25 10:26:28 request false raw_chars=3,322,607 prompt=342,395 (147,694) chunk 1/10 failed elapsed=0s error=leaf chunk failed
+2026-04-25 10:26:28 request true raw_chars=281,469 prompt=283,752 (99,240)
+2026-04-25 10:26:28 request false total_elapsed=0s output_tokens=154
+{"ok":true,"port":63211,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-QzwN8z\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-QzwN8z\\.siftkit\\runtime.sqlite","startupWarning":null}
+✔ real status server logs explicit chunk failures and clears them before the next request (189.7588ms)
+2026-04-25 10:26:28 request true raw_chars=3,322,607 prompt=342,395 (147,694) chunk 1/10
+2026-04-25 10:26:28 request false elapsed=0s
+2026-04-25 10:26:28 request false raw_chars=3,322,607 prompt=342,395 (147,694) chunk 1/10 failed elapsed=0s error=Abandoned because a new request started before terminal status.
+2026-04-25 10:26:28 request true raw_chars=281,469 prompt=283,752 (99,240)
+✔ real status server marks a stale active request as abandoned when a new request id starts (189.1195ms)
+✔ summarizeRequest uses a single oversized mock summary pass when the external server is available (1232.0495ms)
+✔ summarizeRequest does not split mock summaries even when observed aggregate chars-per-token would allow it (615.8964ms)
+✔ summarizeRequest does not recurse forever when token-aware planning returns a single full-size chunk (599.0809ms)
+✔ summarizeRequest keeps oversized llama.cpp requests on the planner path without chunk leaf markers (572.3145ms)
+✔ summarizeRequest fails closed when observed telemetry existed and the status snapshot later becomes unusable (527.0036ms)
+✔ runCommand saves a raw log and respects no-summarize mode when the external server is available (1681.9536ms)
+✔ saveConfig fails closed with the canonical message when the external server is unreachable (4.9925ms)
+✔ summary keeps oversized llama.cpp requests on planner mode when direct prompt limits would reject chunking (544.1612ms)
+✔ summary hands oversized llama.cpp requests to planner mode before tokenization-based chunking would start (547.2396ms)
+✔ summary posts the preflight prompt token count in running status updates (347.3088ms)
+✔ summarizeRequest recovers malformed structured llama.cpp JSON when the expected fields are present (329.5698ms)
+✔ summarizeRequest enables per-request response_format json_schema for structured llama.cpp decisions (239.8839ms)
+✔ buildPrompt prepends promptPrefix when provided (0.2495ms)
+✔ buildPrompt wraps generated chunk slices as inert literal input (0.1504ms)
+✔ pass markers with zero failed still use the model summary path (367.9099ms)
+✔ getSummaryDecision keeps command-output raw review false for sparse error-like text with zero exit code (0.2354ms)
+✔ getSummaryDecision requires raw review for command-output with non-zero exit code (0.0832ms)
+✔ getSummaryDecision requires raw review for command-output with dense error signals (0.0813ms)
+✔ runCommand classifies missing executables as command failures with raw review required (702.6003ms)
+✔ summarizeRequest writes a request artifact through status posts for successful calls (254.1872ms)
+✔ artifact upload failures fail closed with the canonical message (356.2091ms)
+✔ command-output never surfaces unsupported_input for non-empty input (365.1486ms)
+✔ provider failures hard fail instead of falling back to a deterministic raw excerpt (393.1542ms)
+✔ empty structured output retries once then fails, and subsequent requests still run (358.8324ms)
+✔ section switch requires confirmation when settings are dirty (0.6574ms)
+✔ section switch continues immediately when settings are clean (0.1216ms)
+✔ save continuation preserves requested action metadata (0.5461ms)
+✔ settings mockup sections expose the expected group order (1.1709ms)
+✔ settings mockup tooltip fields include documented explanatory labels (0.1118ms)
+✔ deriveRuntimeModelId returns the gguf filename from a Windows path (0.5954ms)
+✔ deriveRuntimeModelId returns the filename from a Unix-style path (0.0832ms)
+✔ deriveRuntimeModelId trims whitespace and returns empty text for empty input (0.0686ms)
+✔ syncDerivedSettingsFields uses the active managed preset model when present (0.2652ms)
+✔ settings section order matches the integrated layout (1.3367ms)
+✔ settings tooltip labels include the documented fields (0.219ms)
+✔ every integrated settings field includes help text (0.2913ms)
+✔ policy mode options match the supported UI choices (0.1354ms)
+✔ getRepoSearchGenerationTokensPerSecond counts thinking tokens in repo-search generation throughput (0.6386ms)
+✔ getRepoSearchGenerationTokensPerSecond returns null when duration is missing (0.0963ms)
+✔ generateChatAssistantMessage uses llama timings for direct chat telemetry (19.8381ms)
+✔ streamChatAssistantMessage uses llama timings from the final SSE chunk when usage is absent (4.3946ms)
+✔ buildChatCompletionRequest replays assistant reasoning_content only when enabled and present (1.6893ms)
+✔ buildChatCompletionRequest omits thinking preservation flags when direct chat thinking is toggled off (0.2842ms)
+✔ buildChatCompletionRequest uses dynamic max_tokens from remaining context (0.2238ms)
+2026-04-25 10:26:12 llama_start starting executable=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-UnYgh4\fake-llama-launcher.cmd
+2026-04-25 10:26:12 llama_start verbose_logging=off
+2026-04-25 10:26:12 llama_start ready base_url=http://127.0.0.1:27354
+{"ok":true,"port":27390,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-UnYgh4\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-UnYgh4\\.siftkit\\runtime.sqlite","startupWarning":null}
+2026-04-25 10:26:12 llama_stop stopping pid=56768
+2026-04-25 10:26:12 llama_stop offline base_url=http://127.0.0.1:27354
+2026-04-25 10:26:12 llama_start starting executable=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-UnYgh4\fake-llama-launcher.cmd
+2026-04-25 10:26:12 llama_start verbose_logging=off
+2026-04-25 10:26:12 llama_start ready base_url=http://127.0.0.1:27354
+2026-04-25 10:26:12 llama_stop stopping pid=44384
+2026-04-25 10:26:13 llama_stop offline base_url=http://127.0.0.1:27354
+✔ real status server backend restart endpoint restarts managed llama.cpp and returns the live config (1896.526ms)
+2026-04-25 10:26:13 llama_start starting executable=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-2VkS8r\fake-llama-launcher.cmd
+2026-04-25 10:26:13 llama_start verbose_logging=off
+[siftKitStatus] Managed llama startup failed; continuing in degraded mode: Managed llama.cpp ran out of GPU memory during startup. Needed 25293 MiB; only 22842 MiB was available.
+{"ok":true,"port":62390,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-2VkS8r\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-2VkS8r\\.siftkit\\runtime.sqlite","startupWarning":"Managed llama.cpp ran out of GPU memory during startup. Needed 25293 MiB; only 22842 MiB was available."}
+2026-04-25 10:26:14 llama_start starting executable=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-2VkS8r\fake-llama-launcher.cmd
+2026-04-25 10:26:14 llama_start verbose_logging=off
+✔ real status server backend restart endpoint returns structured GPU OOM details when managed llama.cpp exits during startup (1320.1319ms)
+2026-04-25 10:26:16 llama_start starting executable=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-qUzi9x\fake-llama-launcher.cmd
+2026-04-25 10:26:16 llama_start verbose_logging=off
+2026-04-25 10:26:16 llama_start ready base_url=http://127.0.0.1:62484
+{"ok":true,"port":62517,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-qUzi9x\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-qUzi9x\\.siftkit\\runtime.sqlite","startupWarning":null}
+2026-04-25 10:26:16 llama_stop stopping pid=41868
+2026-04-25 10:26:16 llama_stop offline base_url=http://127.0.0.1:62484
+✔ real status server omits -t when the active managed preset sets Threads to 0 (2513.7467ms)
+✔ terminateProcessTree rejects invalid pid values (0.5462ms)
+✔ terminateProcessTree uses taskkill on Windows and returns true on success (0.4895ms)
+✔ terminateProcessTree falls back to process.kill when taskkill fails (0.1209ms)
+✔ terminateProcessTree uses process.kill on non-Windows platforms (0.0901ms)
+✔ managed llama speculative delta prefers cumulative token stats over rate lines in the same slice (620.8385ms)
+2026-04-25 10:26:12 llama_start starting executable=C:\Users\denys\AppData\Local\Temp\siftkit-node-test-WhX4gA\fake-llama-launcher.cmd
+2026-04-25 10:26:12 llama_start verbose_logging=off
+2026-04-25 10:26:12 llama_start ready base_url=http://127.0.0.1:27381
+{"ok":true,"port":27428,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-WhX4gA\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\AppData\\Local\\Temp\\siftkit-node-test-WhX4gA\\.siftkit\\runtime.sqlite","startupWarning":null}
+2026-04-25 10:26:12 request true task=repo-search raw_chars=24 prompt=24
+2026-04-25 10:26:12 request false task=repo-search total_elapsed=0s output_tokens=5
+2026-04-25 10:26:12 llama_stop stopping pid=2340
+2026-04-25 10:26:13 llama_stop offline base_url=http://127.0.0.1:27381
+✔ real status server uses managed llama cumulative speculative delta for repo-search run logs (1436.58ms)
+✔ dashboard runs keep persisted speculative totals when artifact payloads disagree (145.5865ms)
+✔ dashboard runs keep speculative totals null when only artifact payloads provide them (141.376ms)
+✔ buildSummaryDecisionJsonSchema excludes unsupported_input when disabled (0.7525ms)
+✔ buildSummaryPlannerActionJsonSchema encodes only provided tools (0.252ms)
+✔ buildRepoSearchPlannerActionJsonSchema enforces command args and finish confidence (0.1407ms)
+✔ buildFinishValidationJsonSchema enforces verdict and reason (0.1074ms)
+✔ buildLlamaJsonSchemaResponseFormat wraps schema for chat completions (0.2507ms)
+✔ resolveTestTargets maps bare test basenames into the tests directory (1.0469ms)
+✔ resolveTestTargets preserves explicit test paths (0.1823ms)
+✔ resolveTestTargets preserves option values while still resolving later positional targets (0.1671ms)
+✔ buildNodeTestArgs adds default timeout and serial file concurrency before resolved targets (0.2343ms)
+✔ buildNodeTestArgs defaults to tests/*.test.ts when no explicit targets are provided (7.3556ms)
+✔ buildNodeTestArgs preserves explicit test runner overrides without duplicating defaults (0.1743ms)
+✔ appendToolCallExchange appends assistant tool_call and tool result messages (1.4604ms)
+✔ appendToolBatchExchange emits one assistant message with all tool_calls followed by ordered tool replies (0.2523ms)
+✔ appendToolBatchExchange is a no-op for an empty outcome list (0.0992ms)
+✔ appendToolBatchExchange omits reasoning_content when thinking text is empty (0.1126ms)
+✔ upsertTrailingUserMessage replaces the existing countdown message in place (0.1504ms)
+✔ fingerprintToolCall collapses repo-search exclusion-glob churn (0.8054ms)
+✔ fingerprintToolCall normalizes planner json_filter filter ordering (6.8295ms)
+✔ evaluateFinishAttempt allows corroborated repo-search evidence before five tool calls (0.8672ms)
+✔ evaluateFinishAttempt rejects repo-search finish without corroborating evidence (0.2292ms)
+✔ buildPromptToolResult strips repo-search rewrite notes from model transcript output (0.2192ms)
+✔ buildPromptToolResult keeps non-zero exit code but strips exit_code=0 (0.205ms)
+✔ buildPromptToolResult drops rewrite-only notes from repo-search no-match output (0.154ms)
+✔ buildToolReplayFingerprint normalizes equivalent replay text (0.1362ms)
+✔ buildRepeatedToolCallSummary renders expected repeat text (0.1352ms)
+✔ classifyToolResultNovelty detects repeated evidence with no new anchors (0.228ms)
+ℹ tests 680
+ℹ suites 0
+ℹ pass 678
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 31293.1988
+
+✖ failing tests:
+
+test at tests\runtime-status-server.idle-summary.test.ts:2:8305
+✖ real status server restarts the idle countdown when a new request begins before the prior delay expires (1137.3528ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  2 !== 1
+  
+      at <anonymous> (C:\Users\denys\Documents\GitHub\SiftKit\tests\runtime-status-server.idle-summary.test.ts:319:14) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 2,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

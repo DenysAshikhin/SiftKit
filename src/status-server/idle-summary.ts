@@ -312,117 +312,121 @@ function normalizeSqlNumber(value: unknown): number | null {
 }
 
 export function ensureIdleSummarySnapshotsTable(database: DatabaseInstance): void {
-  database.exec(`
-    CREATE TABLE IF NOT EXISTS idle_summary_snapshots (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      emitted_at_utc TEXT NOT NULL,
-      completed_request_count INTEGER NOT NULL,
-      input_characters_total INTEGER NOT NULL,
-      output_characters_total INTEGER NOT NULL,
-      input_tokens_total INTEGER NOT NULL,
-      output_tokens_total INTEGER NOT NULL,
-      thinking_tokens_total INTEGER NOT NULL,
-      tool_tokens_total INTEGER NOT NULL DEFAULT 0,
-      prompt_cache_tokens_total INTEGER NOT NULL DEFAULT 0,
-      prompt_eval_tokens_total INTEGER NOT NULL DEFAULT 0,
-      speculative_accepted_tokens_total INTEGER NOT NULL DEFAULT 0,
-      speculative_generated_tokens_total INTEGER NOT NULL DEFAULT 0,
-      task_totals_json TEXT NOT NULL DEFAULT '{}',
-      tool_stats_json TEXT NOT NULL DEFAULT '{}',
-      saved_tokens INTEGER NOT NULL,
-      saved_percent REAL,
-      compression_ratio REAL,
-      request_duration_ms_total INTEGER NOT NULL,
-      avg_request_ms REAL,
-      avg_tokens_per_second REAL
-    );
-  `);
-  const existingColumns = (database.prepare('PRAGMA table_info(idle_summary_snapshots)').all() as Array<{ name: unknown }>)
-    .map((column) => String(column.name));
-  if (!existingColumns.includes('thinking_tokens_total')) {
-    database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN thinking_tokens_total INTEGER NOT NULL DEFAULT 0;');
-  }
-  if (!existingColumns.includes('prompt_cache_tokens_total')) {
-    database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN prompt_cache_tokens_total INTEGER NOT NULL DEFAULT 0;');
-  }
-  if (!existingColumns.includes('prompt_eval_tokens_total')) {
-    database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN prompt_eval_tokens_total INTEGER NOT NULL DEFAULT 0;');
-  }
-  if (!existingColumns.includes('speculative_accepted_tokens_total')) {
-    database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN speculative_accepted_tokens_total INTEGER NOT NULL DEFAULT 0;');
-  }
-  if (!existingColumns.includes('speculative_generated_tokens_total')) {
-    database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN speculative_generated_tokens_total INTEGER NOT NULL DEFAULT 0;');
-  }
-  if (!existingColumns.includes('tool_tokens_total')) {
-    database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN tool_tokens_total INTEGER NOT NULL DEFAULT 0;');
-  }
-  if (!existingColumns.includes('task_totals_json')) {
-    database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN task_totals_json TEXT NOT NULL DEFAULT \'{}\';');
-  }
-  if (!existingColumns.includes('tool_stats_json')) {
-    database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN tool_stats_json TEXT NOT NULL DEFAULT \'{}\';');
-  }
-  const rows = database.prepare(`
-    SELECT
-      id,
-      input_tokens_total,
-      output_tokens_total,
-      prompt_cache_tokens_total,
-      prompt_eval_tokens_total,
-      task_totals_json
-    FROM idle_summary_snapshots
-    ORDER BY id ASC
-  `).all() as Array<{
-    id: number;
-    input_tokens_total: number;
-    output_tokens_total: number;
-    prompt_cache_tokens_total: number;
-    prompt_eval_tokens_total: number;
-    task_totals_json: string;
-  }>;
-  const updateRow = database.prepare(`
-    UPDATE idle_summary_snapshots
-    SET
-      input_tokens_total = ?,
-      prompt_eval_tokens_total = ?,
-      task_totals_json = ?,
-      saved_tokens = ?,
-      saved_percent = ?,
-      compression_ratio = ?
-    WHERE id = ?
-  `);
-  for (const row of rows) {
-    const inputTokensTotal = Number(getProcessedPromptTokens(
-      row.input_tokens_total,
-      row.prompt_cache_tokens_total,
-      row.prompt_eval_tokens_total,
-    ) || 0);
-    const promptEvalTokensTotal = inputTokensTotal;
-    const outputTokensTotal = Number(row.output_tokens_total) || 0;
-    const savedTokens = inputTokensTotal - outputTokensTotal;
-    const savedPercent = inputTokensTotal > 0 ? savedTokens / inputTokensTotal : Number.NaN;
-    const inputOutputRatio = outputTokensTotal > 0 ? inputTokensTotal / outputTokensTotal : Number.NaN;
-    const taskTotals = normalizeTaskTotals(parseJsonRecord(row.task_totals_json));
-    for (const taskKind of TASK_KINDS) {
-      const taskTotalsRecord = taskTotals[taskKind];
-      const taskInputTokens = Number(getProcessedPromptTokens(
-        taskTotalsRecord.inputTokensTotal,
-        taskTotalsRecord.promptCacheTokensTotal,
-        taskTotalsRecord.promptEvalTokensTotal,
-      ) || 0);
-      taskTotalsRecord.inputTokensTotal = taskInputTokens;
-      taskTotalsRecord.promptEvalTokensTotal = taskInputTokens;
+  try {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS idle_summary_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        emitted_at_utc TEXT NOT NULL,
+        completed_request_count INTEGER NOT NULL,
+        input_characters_total INTEGER NOT NULL,
+        output_characters_total INTEGER NOT NULL,
+        input_tokens_total INTEGER NOT NULL,
+        output_tokens_total INTEGER NOT NULL,
+        thinking_tokens_total INTEGER NOT NULL,
+        tool_tokens_total INTEGER NOT NULL DEFAULT 0,
+        prompt_cache_tokens_total INTEGER NOT NULL DEFAULT 0,
+        prompt_eval_tokens_total INTEGER NOT NULL DEFAULT 0,
+        speculative_accepted_tokens_total INTEGER NOT NULL DEFAULT 0,
+        speculative_generated_tokens_total INTEGER NOT NULL DEFAULT 0,
+        task_totals_json TEXT NOT NULL DEFAULT '{}',
+        tool_stats_json TEXT NOT NULL DEFAULT '{}',
+        saved_tokens INTEGER NOT NULL,
+        saved_percent REAL,
+        compression_ratio REAL,
+        request_duration_ms_total INTEGER NOT NULL,
+        avg_request_ms REAL,
+        avg_tokens_per_second REAL
+      );
+    `);
+    const existingColumns = (database.prepare('PRAGMA table_info(idle_summary_snapshots)').all() as Array<{ name: unknown }>)
+      .map((column) => String(column.name));
+    if (!existingColumns.includes('thinking_tokens_total')) {
+      database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN thinking_tokens_total INTEGER NOT NULL DEFAULT 0;');
     }
-    updateRow.run(
-      inputTokensTotal,
-      promptEvalTokensTotal,
-      JSON.stringify(taskTotals),
-      savedTokens,
-      normalizeSqlNumber(savedPercent),
-      normalizeSqlNumber(inputOutputRatio),
-      row.id,
-    );
+    if (!existingColumns.includes('prompt_cache_tokens_total')) {
+      database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN prompt_cache_tokens_total INTEGER NOT NULL DEFAULT 0;');
+    }
+    if (!existingColumns.includes('prompt_eval_tokens_total')) {
+      database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN prompt_eval_tokens_total INTEGER NOT NULL DEFAULT 0;');
+    }
+    if (!existingColumns.includes('speculative_accepted_tokens_total')) {
+      database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN speculative_accepted_tokens_total INTEGER NOT NULL DEFAULT 0;');
+    }
+    if (!existingColumns.includes('speculative_generated_tokens_total')) {
+      database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN speculative_generated_tokens_total INTEGER NOT NULL DEFAULT 0;');
+    }
+    if (!existingColumns.includes('tool_tokens_total')) {
+      database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN tool_tokens_total INTEGER NOT NULL DEFAULT 0;');
+    }
+    if (!existingColumns.includes('task_totals_json')) {
+      database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN task_totals_json TEXT NOT NULL DEFAULT \'{}\';');
+    }
+    if (!existingColumns.includes('tool_stats_json')) {
+      database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN tool_stats_json TEXT NOT NULL DEFAULT \'{}\';');
+    }
+    const rows = database.prepare(`
+      SELECT
+        id,
+        input_tokens_total,
+        output_tokens_total,
+        prompt_cache_tokens_total,
+        prompt_eval_tokens_total,
+        task_totals_json
+      FROM idle_summary_snapshots
+      ORDER BY id ASC
+    `).all() as Array<{
+      id: number;
+      input_tokens_total: number;
+      output_tokens_total: number;
+      prompt_cache_tokens_total: number;
+      prompt_eval_tokens_total: number;
+      task_totals_json: string;
+    }>;
+    const updateRow = database.prepare(`
+      UPDATE idle_summary_snapshots
+      SET
+        input_tokens_total = ?,
+        prompt_eval_tokens_total = ?,
+        task_totals_json = ?,
+        saved_tokens = ?,
+        saved_percent = ?,
+        compression_ratio = ?
+      WHERE id = ?
+    `);
+    for (const row of rows) {
+      const inputTokensTotal = Number(getProcessedPromptTokens(
+        row.input_tokens_total,
+        row.prompt_cache_tokens_total,
+        row.prompt_eval_tokens_total,
+      ) || 0);
+      const promptEvalTokensTotal = inputTokensTotal;
+      const outputTokensTotal = Number(row.output_tokens_total) || 0;
+      const savedTokens = inputTokensTotal - outputTokensTotal;
+      const savedPercent = inputTokensTotal > 0 ? savedTokens / inputTokensTotal : Number.NaN;
+      const inputOutputRatio = outputTokensTotal > 0 ? inputTokensTotal / outputTokensTotal : Number.NaN;
+      const taskTotals = normalizeTaskTotals(parseJsonRecord(row.task_totals_json));
+      for (const taskKind of TASK_KINDS) {
+        const taskTotalsRecord = taskTotals[taskKind];
+        const taskInputTokens = Number(getProcessedPromptTokens(
+          taskTotalsRecord.inputTokensTotal,
+          taskTotalsRecord.promptCacheTokensTotal,
+          taskTotalsRecord.promptEvalTokensTotal,
+        ) || 0);
+        taskTotalsRecord.inputTokensTotal = taskInputTokens;
+        taskTotalsRecord.promptEvalTokensTotal = taskInputTokens;
+      }
+      updateRow.run(
+        inputTokensTotal,
+        promptEvalTokensTotal,
+        JSON.stringify(taskTotals),
+        savedTokens,
+        normalizeSqlNumber(savedPercent),
+        normalizeSqlNumber(inputOutputRatio),
+        row.id,
+      );
+    }
+  } catch {
+    return;
   }
 }
 

@@ -374,8 +374,8 @@ test('real status server passes managed startup env flag to startup scripts', as
         StartupScript: managed.startupScriptPath,
         ShutdownScript: managed.shutdownScriptPath,
         StartupTimeoutMs: 5000,
-        HealthcheckTimeoutMs: 200,
-        HealthcheckIntervalMs: 50,
+        HealthcheckTimeoutMs: 100,
+        HealthcheckIntervalMs: 10,
       },
     };
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
@@ -408,8 +408,8 @@ test('real status server passes managed verbose env settings to startup scripts'
         StartupScript: managed.startupScriptPath,
         ShutdownScript: managed.shutdownScriptPath,
         StartupTimeoutMs: 5000,
-        HealthcheckTimeoutMs: 200,
-        HealthcheckIntervalMs: 50,
+        HealthcheckTimeoutMs: 100,
+        HealthcheckIntervalMs: 10,
         VerboseLogging: true,
         VerboseArgs: ['--verbose'],
       },
@@ -562,8 +562,8 @@ test('real status server keeps startup status true when the startup script calls
         StartupScript: managed.startupScriptPath,
         ShutdownScript: managed.shutdownScriptPath,
         StartupTimeoutMs: 5000,
-        HealthcheckTimeoutMs: 200,
-        HealthcheckIntervalMs: 50,
+        HealthcheckTimeoutMs: 100,
+        HealthcheckIntervalMs: 10,
       },
     };
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
@@ -604,8 +604,8 @@ test('real status server does not launch a second process when managed llama is 
         StartupScript: managed.startupScriptPath,
         ShutdownScript: null,
         StartupTimeoutMs: 5000,
-        HealthcheckTimeoutMs: 200,
-        HealthcheckIntervalMs: 50,
+        HealthcheckTimeoutMs: 100,
+        HealthcheckIntervalMs: 10,
       },
     };
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');

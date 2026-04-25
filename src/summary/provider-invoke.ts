@@ -117,20 +117,24 @@ export async function invokeProviderSummary(options: {
   } finally {
     const countOutputTokensAsThinking = options.phase === 'leaf' && options.chunkPath !== null;
     traceSummary(`notify running=false phase=${options.phase} chunk=${chunkLabel} duration_ms=${Date.now() - startedAt}`);
-    await notifyStatusBackend({
-      running: false,
-      taskKind: 'summary',
-      requestId: options.requestId,
-      promptCharacterCount: options.promptCharacterCount,
-      inputTokens,
-      outputCharacterCount,
-      outputTokens: countOutputTokensAsThinking ? null : outputTokens,
-      thinkingTokens: countOutputTokensAsThinking
-        ? sumTokenCounts(thinkingTokens, outputTokens)
-        : thinkingTokens,
-      promptCacheTokens,
-      promptEvalTokens,
-      requestDurationMs: Date.now() - startedAt,
-    });
+    try {
+      await notifyStatusBackend({
+        running: false,
+        taskKind: 'summary',
+        requestId: options.requestId,
+        promptCharacterCount: options.promptCharacterCount,
+        inputTokens,
+        outputCharacterCount,
+        outputTokens: countOutputTokensAsThinking ? null : outputTokens,
+        thinkingTokens: countOutputTokensAsThinking
+          ? sumTokenCounts(thinkingTokens, outputTokens)
+          : thinkingTokens,
+        promptCacheTokens,
+        promptEvalTokens,
+        requestDurationMs: Date.now() - startedAt,
+      });
+    } catch {
+      traceSummary(`notify running=false failed phase=${options.phase} chunk=${chunkLabel}`);
+    }
   }
 }

@@ -84,8 +84,8 @@ test('real status server uses managed llama cumulative speculative delta for rep
       ExecutablePath: managed.executablePath,
       ModelPath: managed.modelPath,
       StartupTimeoutMs: 5000,
-      HealthcheckTimeoutMs: 200,
-      HealthcheckIntervalMs: 50,
+      HealthcheckTimeoutMs: 100,
+      HealthcheckIntervalMs: 10,
     };
     writeConfig(runtimeDbPath, config);
 

@@ -1,12 +1,14 @@
 // @ts-nocheck
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 
 const { getConfigPath } = require('../dist/config/index.js');
 const { getDefaultConfig } = require('../dist/status-server/config-store.js');
 const { readStatusText } = require('../dist/status-server/status-file.js');
 const {
+  getFreePort,
   requestJson,
   withRealStatusServer,
   withTempEnv,
@@ -22,6 +24,16 @@ test('real status server boots with blank managed llama configuration and waits 
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
     const configPath = getConfigPath();
+    const unusedPort = await getFreePort();
+    const config = getDefaultConfig();
+    const unreachableBaseUrl = `http://127.0.0.1:${unusedPort}`;
+    config.LlamaCpp.BaseUrl = unreachableBaseUrl;
+    config.Runtime.LlamaCpp.BaseUrl = unreachableBaseUrl;
+    config.Server.LlamaCpp.BaseUrl = unreachableBaseUrl;
+    config.Server.LlamaCpp.BindHost = '127.0.0.1';
+    config.Server.LlamaCpp.Port = unusedPort;
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 
     await withRealStatusServer(async ({ configUrl, statusUrl }) => {
       const loadedConfig = await requestJson(configUrl);
@@ -35,6 +47,7 @@ test('real status server boots with blank managed llama configuration and waits 
     }, {
       statusPath,
       configPath,
+      disableManagedLlamaStartup: true,
     });
   });
 });

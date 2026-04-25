@@ -409,6 +409,7 @@ test('runTaskLoop executes repo_list_files and repo_read_file natively', async (
 
 test('runTaskLoop logs provider request error details and surfaces enriched network failures', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const startedAt = Date.now();
   await assert.rejects(
     () => runTaskLoop(
       {
@@ -419,6 +420,7 @@ test('runTaskLoop logs provider request error details and surfaces enriched netw
       {
         baseUrl: 'http://127.0.0.1:1',
         model: 'mock-model',
+        timeoutMs: 500,
         maxTurns: 1,
         maxInvalidResponses: 1,
         minToolCallsBeforeFinish: 0,
@@ -431,6 +433,7 @@ test('runTaskLoop logs provider request error details and surfaces enriched netw
     ),
     /provider request failed stage=planner_action/u
   );
+  assert.equal(Date.now() - startedAt < 2_000, true);
 
   const startEvent = events.find((event) => event.kind === 'provider_request_start');
   assert.equal(startEvent?.stage, 'planner_action');

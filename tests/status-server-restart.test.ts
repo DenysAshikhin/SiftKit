@@ -95,8 +95,8 @@ test('real status server backend restart endpoint restarts managed llama.cpp and
         ReasoningBudget: 10000,
         ReasoningBudgetMessage: 'Thinking budget exhausted. You have to provide the answer now.',
         StartupTimeoutMs: 5000,
-        HealthcheckTimeoutMs: 200,
-        HealthcheckIntervalMs: 50,
+        HealthcheckTimeoutMs: 100,
+        HealthcheckIntervalMs: 10,
         VerboseLogging: false,
       },
     };
@@ -189,8 +189,8 @@ test('real status server backend restart endpoint returns structured GPU OOM det
         ReasoningBudget: 10000,
         ReasoningBudgetMessage: 'Thinking budget exhausted. You have to provide the answer now.',
         StartupTimeoutMs: 5000,
-        HealthcheckTimeoutMs: 200,
-        HealthcheckIntervalMs: 50,
+        HealthcheckTimeoutMs: 100,
+        HealthcheckIntervalMs: 10,
         VerboseLogging: false,
       },
     };
@@ -249,8 +249,8 @@ test('real status server omits -t when the active managed preset sets Threads to
         ReasoningBudget: 10000,
         ReasoningBudgetMessage: 'Thinking budget exhausted. You have to provide the answer now.',
         StartupTimeoutMs: 5000,
-        HealthcheckTimeoutMs: 200,
-        HealthcheckIntervalMs: 50,
+        HealthcheckTimeoutMs: 100,
+        HealthcheckIntervalMs: 10,
         VerboseLogging: false,
         Presets: [
           {
@@ -281,8 +281,8 @@ test('real status server omits -t when the active managed preset sets Threads to
             ReasoningBudget: 10000,
             ReasoningBudgetMessage: 'Thinking budget exhausted. You have to provide the answer now.',
             StartupTimeoutMs: 5000,
-            HealthcheckTimeoutMs: 200,
-            HealthcheckIntervalMs: 50,
+            HealthcheckTimeoutMs: 100,
+            HealthcheckIntervalMs: 10,
             VerboseLogging: false,
           },
         ],

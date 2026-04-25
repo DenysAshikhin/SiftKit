@@ -164,8 +164,8 @@ test('dashboard plan wakes managed llama after idle shutdown', async () => {
       ReasoningBudget: 10000,
       ReasoningBudgetMessage: 'Thinking budget exhausted. You have to provide the answer now.',
       StartupTimeoutMs: 1000,
-      HealthcheckTimeoutMs: 200,
-      HealthcheckIntervalMs: 50,
+      HealthcheckTimeoutMs: 100,
+      HealthcheckIntervalMs: 10,
       VerboseLogging: false,
     },
   };

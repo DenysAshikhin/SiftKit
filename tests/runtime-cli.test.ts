@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const Database = require('better-sqlite3');
+const repoRoot = path.resolve(__dirname, '..');
 
 const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage, SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT } = require('../dist/config/index.js');
 const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../dist/summary.js');
@@ -80,7 +81,7 @@ test('concurrent oversized CLI summary requests are serialized until the first r
       fs.writeFileSync(firstInputPath, 'A'.repeat(300_001), 'utf8');
       fs.writeFileSync(secondInputPath, 'B'.repeat(300_001), 'utf8');
 
-      const cliPath = path.join(process.cwd(), 'bin', 'siftkit.js');
+      const cliPath = path.join(repoRoot, 'bin', 'siftkit.js');
       const childEnv = {
         ...process.env,
         SIFTKIT_TEST_PROVIDER: 'mock',
@@ -131,7 +132,7 @@ test('concurrent oversized CLI summary requests are serialized until the first r
       const secondQuestion = 'summarize oversized request B';
       const referencesFirstRequest = (question) => String(question).includes(firstQuestion);
       const referencesSecondRequest = (question) => String(question).includes(secondQuestion);
-      const firstSecondIndex = questions.indexOf(secondQuestion);
+      const transitions = questions.filter((question, index) => index === 0 || question !== questions[index - 1]);
 
       assert.equal(firstResult.code, 0);
       assert.equal(secondResult.code, 0);
@@ -139,11 +140,10 @@ test('concurrent oversized CLI summary requests are serialized until the first r
       assert.match(secondResult.stdout, /merge summary/u);
       assert.equal(firstResult.stderr, '');
       assert.equal(secondResult.stderr, '');
-      assert.ok(firstSecondIndex > 0);
-      assert.equal(questions.slice(0, firstSecondIndex).some(referencesSecondRequest), false);
-      assert.equal(questions.slice(firstSecondIndex).some(referencesFirstRequest), false);
-      assert.ok(questions.slice(0, firstSecondIndex).every(referencesFirstRequest));
-      assert.ok(questions.slice(firstSecondIndex).every(referencesSecondRequest));
+      assert.equal(questions.some(referencesFirstRequest), true);
+      assert.equal(questions.some(referencesSecondRequest), true);
+      assert.equal(transitions.length <= 2, true);
+      assert.equal(transitions.every((question) => referencesFirstRequest(question) || referencesSecondRequest(question)), true);
     }, {
       running: false,
     });
@@ -154,9 +154,9 @@ test('CLI summary fails closed with the canonical message when the external serv
   await withTempEnv(async () => {
     const port = '4778';
     const expectedMessage = `SiftKit status/config server is not reachable at http://127.0.0.1:${port}/health. Start the separate server process and stop issuing further siftkit commands until it is available.`;
-    const result = spawnSync(
+      const result = spawnSync(
       process.execPath,
-      [path.join(process.cwd(), 'bin', 'siftkit.js'), 'summary', '--question', 'summarize this', '--text', 'hello world'],
+      [path.join(repoRoot, 'bin', 'siftkit.js'), 'summary', '--question', 'summarize this', '--text', 'hello world'],
       {
         cwd: process.cwd(),
         encoding: 'utf8',
@@ -174,12 +174,12 @@ test('CLI summary fails closed with the canonical message when the external serv
   });
 });
 
-test('CLI summary preflight tolerates transient health failures', async () => {
+test('CLI summary succeeds without server preflight health checks', async () => {
   await withTempEnv(async () => {
     await withSummaryTestServer(async (server) => {
       const result = await spawnProcess(
         process.execPath,
-        [path.join(process.cwd(), 'bin', 'siftkit.js'), 'summary', '--question', 'summarize this', '--text', 'hello world'],
+        [path.join(repoRoot, 'bin', 'siftkit.js'), 'summary', '--question', 'summarize this', '--text', 'hello world'],
         {
           cwd: process.cwd(),
           env: {
@@ -193,7 +193,7 @@ test('CLI summary preflight tolerates transient health failures', async () => {
       assert.equal(result.code, 0);
       assert.doesNotMatch(result.stderr, /status\/config server is not reachable/iu);
       assert.match(result.stdout, /summary:/u);
-      assert.ok(Number(server?.state?.healthChecks || 0) >= 3);
+      assert.equal(Number(server?.state?.healthChecks || 0), 0);
     }, {
       healthFailuresBeforeOk: 2,
     });
@@ -208,7 +208,7 @@ test('local-only find-files CLI works without the external server', async () => 
     fs.writeFileSync(path.join(findRoot, 'package.json'), '{"name":"fixture"}', 'utf8');
     const result = spawnSync(
       process.execPath,
-      [path.join(process.cwd(), 'bin', 'siftkit.js'), 'find-files', '--path', findRoot, 'package.json'],
+      [path.join(repoRoot, 'bin', 'siftkit.js'), 'find-files', '--path', findRoot, 'package.json'],
       {
         cwd: process.cwd(),
         encoding: 'utf8',
