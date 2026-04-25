@@ -143,6 +143,88 @@ test('loadConfig immediately switches from bootstrap fallback to observed teleme
   });
 });
 
+test('loadConfig uses weighted observed-budget totals instead of status snapshot telemetry once exact observations exist', async () => {
+  await withTempEnv(async (tempRoot) => {
+    await withStubServer(async () => {
+      initializeRuntime();
+      const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
+      const database = new Database(runtimeDbPath);
+      try {
+        database.prepare(`
+          INSERT INTO observed_budget_state (
+            id,
+            observed_telemetry_seen,
+            last_known_chars_per_token,
+            observed_chars_total,
+            observed_tokens_total,
+            updated_at_utc
+          ) VALUES (1, 1, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            observed_telemetry_seen = excluded.observed_telemetry_seen,
+            last_known_chars_per_token = excluded.last_known_chars_per_token,
+            observed_chars_total = excluded.observed_chars_total,
+            observed_tokens_total = excluded.observed_tokens_total,
+            updated_at_utc = excluded.updated_at_utc
+        `).run(2.75, 2750, 1000, '2026-04-25T16:00:00.000Z');
+      } finally {
+        database.close();
+      }
+
+      const config = await loadConfig({ ensure: true });
+      assert.equal(config.Effective.BudgetSource, 'ObservedCharsPerToken');
+      assert.equal(config.Effective.InputCharactersPerContextToken, 2.75);
+      assert.equal(config.Effective.ObservedTelemetrySeen, true);
+    }, {
+      metrics: {
+        inputCharactersTotal: 10,
+        inputTokensTotal: 5000,
+        outputCharactersTotal: 0,
+        outputTokensTotal: 0,
+        thinkingTokensTotal: 0,
+        completedRequestCount: 0,
+        requestDurationMsTotal: 0,
+      },
+    });
+  });
+});
+
+test('loadConfig ignores legacy observed-budget rows without weighted totals and stays on bootstrap until an exact observation exists', async () => {
+  await withTempEnv(async (tempRoot) => {
+    await withStubServer(async () => {
+      initializeRuntime();
+      const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
+      const database = new Database(runtimeDbPath);
+      try {
+        database.prepare(`
+          INSERT INTO observed_budget_state (id, observed_telemetry_seen, last_known_chars_per_token, updated_at_utc)
+          VALUES (1, 1, 0.07915126409690375, '2026-04-25T16:00:00.000Z')
+          ON CONFLICT(id) DO UPDATE SET
+            observed_telemetry_seen = excluded.observed_telemetry_seen,
+            last_known_chars_per_token = excluded.last_known_chars_per_token,
+            updated_at_utc = excluded.updated_at_utc
+        `).run();
+      } finally {
+        database.close();
+      }
+
+      const config = await loadConfig({ ensure: true });
+      assert.equal(config.Effective.BudgetSource, 'ColdStartFixedCharsPerToken');
+      assert.equal(config.Effective.InputCharactersPerContextToken, 2.5);
+      assert.equal(config.Effective.ObservedTelemetrySeen, false);
+    }, {
+      metrics: {
+        inputCharactersTotal: 999999,
+        inputTokensTotal: 1,
+        outputCharactersTotal: 0,
+        outputTokensTotal: 0,
+        thinkingTokensTotal: 0,
+        completedRequestCount: 0,
+        requestDurationMsTotal: 0,
+      },
+    });
+  });
+});
+
 test('loadConfig normalizes legacy defaults and derives effective budgets from the external server', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {

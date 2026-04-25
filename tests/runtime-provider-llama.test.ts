@@ -375,6 +375,99 @@ test('llama.cpp provider accepts count-only tokenize responses', async () => {
   });
 });
 
+test('llama.cpp tokenize updates observed-budget weighted totals from exact char-token counts', async () => {
+  await withTempEnv(async (tempRoot) => {
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+      const tokenCount = await countLlamaCppTokens(config, 'A'.repeat(1234));
+      assert.equal(tokenCount, 1234);
+
+      const database = new Database(path.join(tempRoot, '.siftkit', 'runtime.sqlite'));
+      try {
+        const row = database.prepare(`
+          SELECT observed_telemetry_seen, last_known_chars_per_token, observed_chars_total, observed_tokens_total
+          FROM observed_budget_state
+          WHERE id = 1
+        `).get();
+        assert.equal(row.observed_telemetry_seen, 1);
+        assert.equal(row.observed_chars_total, 1234);
+        assert.equal(row.observed_tokens_total, 1234);
+        assert.equal(row.last_known_chars_per_token, 1);
+      } finally {
+        database.close();
+      }
+    }, {
+      tokenizeCharsPerToken: 1,
+    });
+  });
+});
+
+test('llama.cpp chat responses update observed-budget weighted totals from exact prompt token counts', async () => {
+  await withTempEnv(async (tempRoot) => {
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+      const prompt = 'B'.repeat(500);
+      await generateLlamaCppResponse({
+        config,
+        model: config.Model,
+        prompt,
+        timeoutSeconds: 5,
+      });
+
+      const database = new Database(path.join(tempRoot, '.siftkit', 'runtime.sqlite'));
+      try {
+        const row = database.prepare(`
+          SELECT observed_chars_total, observed_tokens_total, last_known_chars_per_token
+          FROM observed_budget_state
+          WHERE id = 1
+        `).get();
+        assert.equal(row.observed_chars_total, 500);
+        assert.equal(row.observed_tokens_total, 123);
+        assert.equal(row.last_known_chars_per_token, 500 / 123);
+      } finally {
+        database.close();
+      }
+    }, {
+      usage: {
+        prompt_tokens: 123,
+        completion_tokens: 45,
+        total_tokens: 168,
+      },
+    });
+  });
+});
+
+test('estimated token fallback does not mutate observed-budget state', async () => {
+  await withTempEnv(async (tempRoot) => {
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+      const summary = await generateLlamaCppResponse({
+        config,
+        model: config.Model,
+        prompt: 'C'.repeat(500),
+        timeoutSeconds: 5,
+      });
+      assert.match(summary.text, /^summary:/u);
+
+      const database = new Database(path.join(tempRoot, '.siftkit', 'runtime.sqlite'));
+      try {
+        const row = database.prepare(`
+          SELECT observed_telemetry_seen, observed_chars_total, observed_tokens_total
+          FROM observed_budget_state
+          WHERE id = 1
+        `).get();
+        assert.equal(row?.observed_telemetry_seen ?? 0, 0);
+        assert.equal(row?.observed_chars_total ?? null, null);
+        assert.equal(row?.observed_tokens_total ?? null, null);
+      } finally {
+        database.close();
+      }
+    }, {
+      omitUsage: true,
+    });
+  });
+});
+
 test('llama.cpp provider surfaces HTTP 400 errors when json-schema constrained requests are rejected', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
