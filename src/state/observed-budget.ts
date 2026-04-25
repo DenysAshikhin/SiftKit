@@ -1,6 +1,9 @@
 import { getObservedBudgetStatePath } from '../config/paths.js';
 import { getRuntimeDatabase } from './runtime-db.js';
 
+const MIN_VALID_CHARS_PER_TOKEN = 0.1;
+const MAX_VALID_CHARS_PER_TOKEN = 20;
+
 export type ObservedBudgetState = {
   observedTelemetrySeen: boolean;
   lastKnownCharsPerToken: number | null;
@@ -111,6 +114,14 @@ export function recordAccurateCharTokenObservation(options: {
   const chars = Number(options.chars);
   const tokens = Number(options.tokens);
   if (!Number.isFinite(chars) || chars <= 0 || !Number.isFinite(tokens) || tokens <= 0) {
+    return;
+  }
+  const charsPerToken = chars / tokens;
+  if (
+    !Number.isFinite(charsPerToken)
+    || charsPerToken < MIN_VALID_CHARS_PER_TOKEN
+    || charsPerToken > MAX_VALID_CHARS_PER_TOKEN
+  ) {
     return;
   }
 

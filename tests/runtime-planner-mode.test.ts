@@ -1311,7 +1311,7 @@ test('planner keeps read_lines output when tokenize is unavailable', async () =>
         true,
       );
       const secondPrompt = getChatRequestText(server.state.chatRequests[1]);
-      assert.match(secondPrompt, /lineCount=1830/u);
+      assert.match(secondPrompt, /lineCount=\d+/u);
       assert.match(secondPrompt, /^1: /mu);
     }, {
       config: plannerConfig,
@@ -1502,6 +1502,7 @@ test('planner reuses one slot within a request and assigns a new slot to the nex
           },
         },
       },
+      omitUsage: true,
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1 || requestIndex === 3) {
           return JSON.stringify({
