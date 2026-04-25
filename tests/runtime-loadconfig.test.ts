@@ -111,7 +111,7 @@ test('loadConfig uses the fixed bootstrap chars-per-token budget before observed
   });
 });
 
-test('loadConfig immediately switches from bootstrap fallback to observed telemetry when totals appear', async () => {
+test('loadConfig stays on bootstrap fallback when only status totals appear without exact observations', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const coldStartConfig = await loadConfig({ ensure: true });
@@ -131,14 +131,11 @@ test('loadConfig immediately switches from bootstrap fallback to observed teleme
 
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
-      const expectedRatio = 3461904 / 1865267;
-
-      assert.equal(config.Effective.BudgetSource, 'ObservedCharsPerToken');
-      assert.ok(Math.abs(config.Effective.InputCharactersPerContextToken - expectedRatio) < 1e-12);
-      assert.equal(config.Effective.ObservedTelemetrySeen, true);
-      assert.equal(typeof config.Effective.ObservedTelemetryUpdatedAtUtc, 'string');
-      assert.equal(config.Effective.MaxInputCharacters, 237565);
-      assert.equal(config.Effective.ChunkThresholdCharacters, 237565);
+      assert.equal(config.Effective.BudgetSource, 'ColdStartFixedCharsPerToken');
+      assert.equal(config.Effective.InputCharactersPerContextToken, 2.5);
+      assert.equal(config.Effective.ObservedTelemetrySeen, false);
+      assert.equal(config.Effective.MaxInputCharacters, 320000);
+      assert.equal(config.Effective.ChunkThresholdCharacters, 320000);
     });
   });
 });
@@ -147,6 +144,7 @@ test('loadConfig uses weighted observed-budget totals instead of status snapshot
   await withTempEnv(async (tempRoot) => {
     await withStubServer(async () => {
       initializeRuntime();
+      await loadConfig({ ensure: true });
       const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
       const database = new Database(runtimeDbPath);
       try {
@@ -192,6 +190,7 @@ test('loadConfig ignores legacy observed-budget rows without weighted totals and
   await withTempEnv(async (tempRoot) => {
     await withStubServer(async () => {
       initializeRuntime();
+      await loadConfig({ ensure: true });
       const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
       const database = new Database(runtimeDbPath);
       try {
@@ -225,18 +224,17 @@ test('loadConfig ignores legacy observed-budget rows without weighted totals and
   });
 });
 
-test('loadConfig normalizes legacy defaults and derives effective budgets from the external server', async () => {
+test('loadConfig normalizes legacy defaults and keeps bootstrap effective budgets until exact observations exist', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
-      const expectedRatio = 3461904 / 1865267;
 
       assert.equal(config.LlamaCpp.NumCtx, 128000);
       assert.equal(config.LlamaCpp.Threads, -1);
-      assert.equal(config.Effective.BudgetSource, 'ObservedCharsPerToken');
-      assert.ok(Math.abs(config.Effective.InputCharactersPerContextToken - expectedRatio) < 1e-12);
-      assert.equal(config.Effective.MaxInputCharacters, 237565);
-      assert.equal(config.Effective.ChunkThresholdCharacters, 237565);
+      assert.equal(config.Effective.BudgetSource, 'ColdStartFixedCharsPerToken');
+      assert.equal(config.Effective.InputCharactersPerContextToken, 2.5);
+      assert.equal(config.Effective.MaxInputCharacters, 320000);
+      assert.equal(config.Effective.ChunkThresholdCharacters, 320000);
       assert.equal(config.Thresholds.MaxInputCharacters, undefined);
       assert.equal(config.Server.LlamaCpp.ExecutablePath, null);
       assert.equal(config.Server.LlamaCpp.BaseUrl, config.Runtime.LlamaCpp.BaseUrl);
@@ -351,18 +349,28 @@ test('loadConfig removes legacy chunk threshold ratio from loaded and persisted 
   });
 });
 
-test('loadConfig fails closed when observed telemetry previously existed and status metrics later become unusable', async () => {
+test('loadConfig falls back to bootstrap when only a legacy observed-budget ratio exists and status metrics are unusable', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
-      const config = await loadConfig({ ensure: true });
-      assert.equal(config.Effective.BudgetSource, 'ObservedCharsPerToken');
-    });
+      initializeRuntime();
+      await loadConfig({ ensure: true });
+      const database = new Database(path.join('.siftkit', 'runtime.sqlite'));
+      try {
+        database.prepare(`
+          INSERT INTO observed_budget_state (id, observed_telemetry_seen, last_known_chars_per_token, updated_at_utc)
+          VALUES (1, 1, 3.5, '2026-04-25T16:00:00.000Z')
+          ON CONFLICT(id) DO UPDATE SET
+            observed_telemetry_seen = excluded.observed_telemetry_seen,
+            last_known_chars_per_token = excluded.last_known_chars_per_token,
+            updated_at_utc = excluded.updated_at_utc
+        `).run();
+      } finally {
+        database.close();
+      }
 
-    await withStubServer(async () => {
-      await assert.rejects(
-        () => loadConfig({ ensure: true }),
-        /previously recorded a valid observed chars-per-token budget.*no longer provides usable input character\/token totals/u
-      );
+      const config = await loadConfig({ ensure: true });
+      assert.equal(config.Effective.BudgetSource, 'ColdStartFixedCharsPerToken');
+      assert.equal(config.Effective.InputCharactersPerContextToken, 2.5);
     }, {
       metrics: {
         inputCharactersTotal: 0,
@@ -377,20 +385,32 @@ test('loadConfig fails closed when observed telemetry previously existed and sta
   });
 });
 
-test('loadConfig fails closed when observed telemetry previously existed and the status backend later becomes unavailable', async () => {
+test('loadConfig falls back to bootstrap when only a legacy observed-budget ratio exists and the status backend is unavailable', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
-      const config = await loadConfig({ ensure: true });
-      assert.equal(config.Effective.BudgetSource, 'ObservedCharsPerToken');
+      initializeRuntime();
+      await loadConfig({ ensure: true });
+      const database = new Database(path.join('.siftkit', 'runtime.sqlite'));
+      try {
+        database.prepare(`
+          INSERT INTO observed_budget_state (id, observed_telemetry_seen, last_known_chars_per_token, updated_at_utc)
+          VALUES (1, 1, 3.5, '2026-04-25T16:00:00.000Z')
+          ON CONFLICT(id) DO UPDATE SET
+            observed_telemetry_seen = excluded.observed_telemetry_seen,
+            last_known_chars_per_token = excluded.last_known_chars_per_token,
+            updated_at_utc = excluded.updated_at_utc
+        `).run();
+      } finally {
+        database.close();
+      }
     });
 
     await withStubServer(async (server) => {
       process.env.SIFTKIT_CONFIG_SERVICE_URL = server.configUrl;
       process.env.SIFTKIT_STATUS_BACKEND_URL = 'http://127.0.0.1:4779/status';
-      await assert.rejects(
-        () => loadConfig({ ensure: true }),
-        /previously recorded a valid observed chars-per-token budget.*status server is unavailable/i
-      );
+      const config = await loadConfig({ ensure: true });
+      assert.equal(config.Effective.BudgetSource, 'ColdStartFixedCharsPerToken');
+      assert.equal(config.Effective.InputCharactersPerContextToken, 2.5);
     }, {
       metrics: {
         inputCharactersTotal: 0,
@@ -405,17 +425,16 @@ test('loadConfig fails closed when observed telemetry previously existed and the
   });
 });
 
-test('loadConfig derives effective budgets from aggregate prompt character and token totals', async () => {
+test('loadConfig ignores aggregate prompt character and token totals for chars-per-token calibration', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
-      const expectedRatio = 3461904 / 1865267;
 
-      assert.equal(config.Effective.BudgetSource, 'ObservedCharsPerToken');
-      assert.ok(Math.abs(config.Effective.InputCharactersPerContextToken - expectedRatio) < 1e-12);
-      assert.equal(config.Effective.MaxInputCharacters, 237565);
-      assert.equal(config.Effective.ChunkThresholdCharacters, 237565);
-      assert.equal(getChunkThresholdCharacters(config), 237565);
+      assert.equal(config.Effective.BudgetSource, 'ColdStartFixedCharsPerToken');
+      assert.equal(config.Effective.InputCharactersPerContextToken, 2.5);
+      assert.equal(config.Effective.MaxInputCharacters, 320000);
+      assert.equal(config.Effective.ChunkThresholdCharacters, 320000);
+      assert.equal(getChunkThresholdCharacters(config), 320000);
     }, {
       metrics: {
         inputCharactersTotal: 3461904,

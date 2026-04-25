@@ -101,7 +101,7 @@ test('summarizeRequest uses a single oversized mock summary pass when the extern
   });
 });
 
-test('summarizeRequest does not split mock summaries even when observed aggregate chars-per-token would allow it', async () => {
+test('summarizeRequest does not split mock summaries when aggregate status totals are large but no exact observations exist', async () => {
   await withTempEnv(async (tempRoot) => {
     await withStubServer(async () => {
       const logPath = path.join(tempRoot, 'provider-events-observed-threshold.jsonl');
@@ -126,7 +126,7 @@ test('summarizeRequest does not split mock summaries even when observed aggregat
       const leafCalls = events.filter((event) => event.phase === 'leaf').length;
       const mergeCalls = events.filter((event) => event.phase === 'merge').length;
 
-      assert.equal(threshold, 237565);
+      assert.equal(threshold, 320000);
       assert.equal(result.WasSummarized, true);
       assert.equal(result.Summary, 'mock summary');
       assert.equal(leafCalls, 1);
@@ -244,25 +244,37 @@ test('summarizeRequest keeps oversized llama.cpp requests on the planner path wi
   });
 });
 
-test('summarizeRequest fails closed when observed telemetry existed and the status snapshot later becomes unusable', async () => {
+test('summarizeRequest keeps using bootstrap calibration when only a legacy observed-budget ratio exists and status metrics later become unusable', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
-      const config = await loadConfig({ ensure: true });
-      assert.equal(config.Effective.BudgetSource, 'ObservedCharsPerToken');
+      initializeRuntime();
+      await loadConfig({ ensure: true });
+      const database = new Database(path.join('.siftkit', 'runtime.sqlite'));
+      try {
+        database.prepare(`
+          INSERT INTO observed_budget_state (id, observed_telemetry_seen, last_known_chars_per_token, updated_at_utc)
+          VALUES (1, 1, 3.5, '2026-04-25T16:00:00.000Z')
+          ON CONFLICT(id) DO UPDATE SET
+            observed_telemetry_seen = excluded.observed_telemetry_seen,
+            last_known_chars_per_token = excluded.last_known_chars_per_token,
+            updated_at_utc = excluded.updated_at_utc
+        `).run();
+      } finally {
+        database.close();
+      }
     });
 
     await withStubServer(async () => {
-      await assert.rejects(
-        () => summarizeRequest({
-          question: 'summarize this',
-          inputText: 'A'.repeat(5000),
-          format: 'text',
-          policyProfile: 'general',
-          backend: 'mock',
-          model: 'mock-model',
-        }),
-        /previously recorded a valid observed chars-per-token budget.*no longer provides usable input character\/token totals/i
-      );
+      const result = await summarizeRequest({
+        question: 'summarize this',
+        inputText: 'A'.repeat(5000),
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'mock',
+        model: 'mock-model',
+      });
+      assert.equal(result.WasSummarized, true);
+      assert.equal(result.Summary, 'mock summary');
     }, {
       metrics: {
         inputCharactersTotal: 0,

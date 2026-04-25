@@ -8,7 +8,7 @@ import { normalizeOperationModeAllowedTools, normalizePresets } from '../presets
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-const CURRENT_SCHEMA_VERSION = 18;
+const CURRENT_SCHEMA_VERSION = 19;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["repo_rg","repo_read_file","repo_list_files","repo_git","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}';
 
@@ -273,6 +273,8 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       id INTEGER PRIMARY KEY CHECK (id = 1),
       observed_telemetry_seen INTEGER NOT NULL CHECK (observed_telemetry_seen IN (0, 1)),
       last_known_chars_per_token REAL,
+      observed_chars_total REAL,
+      observed_tokens_total REAL,
       updated_at_utc TEXT
     );
 
@@ -839,6 +841,20 @@ function ensureSchema(database: RuntimeDatabase): void {
     }
     setSchemaVersion(database, 18);
     currentVersion = 18;
+  }
+  if (currentVersion < 19) {
+    const alterStatements: string[] = [];
+    if (!tableHasColumn(database, 'observed_budget_state', 'observed_chars_total')) {
+      alterStatements.push('ALTER TABLE observed_budget_state ADD COLUMN observed_chars_total REAL;');
+    }
+    if (!tableHasColumn(database, 'observed_budget_state', 'observed_tokens_total')) {
+      alterStatements.push('ALTER TABLE observed_budget_state ADD COLUMN observed_tokens_total REAL;');
+    }
+    if (alterStatements.length > 0) {
+      database.exec(alterStatements.join('\n'));
+    }
+    setSchemaVersion(database, 19);
+    currentVersion = 19;
   }
   ensureRuntimeArtifactsSchema(database);
   ensureManagedLlamaAndBenchmarkMatrixSchema(database);

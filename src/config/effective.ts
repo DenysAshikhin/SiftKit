@@ -1,16 +1,13 @@
 import {
   readObservedBudgetState,
-  tryWriteObservedBudgetState,
 } from '../state/observed-budget.js';
 import { SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN } from './constants.js';
-import { MissingObservedBudgetError } from './errors.js';
 import {
   getConfiguredLlamaNumCtx,
   getDefaultNumCtx,
   getMissingRuntimeFields,
 } from './getters.js';
-import { getStatusSnapshot } from './status-backend.js';
-import type { NormalizationInfo, SiftConfig, StatusSnapshotResponse } from './types.js';
+import type { NormalizationInfo, SiftConfig } from './types.js';
 
 export function getDerivedMaxInputCharacters(
   numCtx: number,
@@ -39,65 +36,19 @@ export function getChunkThresholdCharacters(config: SiftConfig): number {
   return Math.max(getEffectiveMaxInputCharacters(config), 1);
 }
 
-function getObservedInputCharactersPerContextToken(
-  snapshot: StatusSnapshotResponse | null | undefined
-): number | null {
-  const inputCharactersTotal = Number(snapshot?.metrics?.inputCharactersTotal);
-  const totalPromptTokens = (() => {
-    const promptCacheTokensTotal = Number(snapshot?.metrics?.promptCacheTokensTotal);
-    const promptEvalTokensTotal = Number(snapshot?.metrics?.promptEvalTokensTotal);
-    if (
-      Number.isFinite(promptCacheTokensTotal) && promptCacheTokensTotal >= 0
-      && Number.isFinite(promptEvalTokensTotal) && promptEvalTokensTotal >= 0
-    ) {
-      return promptCacheTokensTotal + promptEvalTokensTotal;
-    }
-    return Number(snapshot?.metrics?.inputTokensTotal);
-  })();
-  if (!Number.isFinite(inputCharactersTotal) || inputCharactersTotal <= 0) {
-    return null;
-  }
-  if (!Number.isFinite(totalPromptTokens) || totalPromptTokens <= 0) {
-    return null;
-  }
-
-  return inputCharactersTotal / totalPromptTokens;
-}
-
 export async function resolveInputCharactersPerContextToken(): Promise<{ value: number; budgetSource: string }> {
   const persistedState = readObservedBudgetState();
-  let snapshot: StatusSnapshotResponse;
-  try {
-    snapshot = await getStatusSnapshot();
-  } catch {
-    if (persistedState.observedTelemetrySeen) {
-      throw new MissingObservedBudgetError(
-        'SiftKit previously recorded a valid observed chars-per-token budget, but the status server is unavailable or no longer exposes usable totals. Refusing to fall back to the hardcoded bootstrap estimate after telemetry has been established.'
-      );
-    }
+  if (
+    persistedState.observedTelemetrySeen
+    && Number.isFinite(persistedState.observedCharsTotal)
+    && Number(persistedState.observedCharsTotal) > 0
+    && Number.isFinite(persistedState.observedTokensTotal)
+    && Number(persistedState.observedTokensTotal) > 0
+  ) {
     return {
-      value: SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN,
-      budgetSource: 'ColdStartFixedCharsPerToken',
-    };
-  }
-
-  const observedValue = getObservedInputCharactersPerContextToken(snapshot);
-  if (observedValue !== null) {
-    tryWriteObservedBudgetState({
-      observedTelemetrySeen: true,
-      lastKnownCharsPerToken: observedValue,
-      updatedAtUtc: new Date().toISOString(),
-    });
-    return {
-      value: observedValue,
+      value: Number(persistedState.observedCharsTotal) / Number(persistedState.observedTokensTotal),
       budgetSource: 'ObservedCharsPerToken',
     };
-  }
-
-  if (persistedState.observedTelemetrySeen) {
-    throw new MissingObservedBudgetError(
-      'SiftKit previously recorded a valid observed chars-per-token budget, but the status server no longer provides usable input character/token totals. Refusing to fall back to the hardcoded bootstrap estimate after telemetry has been established.'
-    );
   }
 
   return {

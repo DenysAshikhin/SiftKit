@@ -7,6 +7,7 @@ import {
 } from '../lib/provider-helpers.js';
 import { estimatePromptTokenCountFromCharacters, getDynamicMaxOutputTokens } from '../lib/dynamic-output-cap.js';
 import { getNormalizedCompletionTokens } from '../lib/telemetry-metrics.js';
+import { tryRecordAccurateCharTokenObservation } from '../state/observed-budget.js';
 import {
   buildLlamaJsonSchemaResponseFormat,
   buildSummaryDecisionJsonSchema,
@@ -330,6 +331,11 @@ export async function countLlamaCppTokens(config: SiftConfig, content: string): 
       ?? getUsageValue(response.body.token_count)
       ?? getUsageValue(response.body.n_tokens);
     if (explicitCount !== null) {
+      tryRecordAccurateCharTokenObservation({
+        chars: content.length,
+        tokens: explicitCount,
+        updatedAtUtc: new Date().toISOString(),
+      });
       traceLlamaCpp(`tokenize done elapsed_ms=${Date.now() - startedAt} tokens=${explicitCount}`);
       return explicitCount;
     }
@@ -339,6 +345,11 @@ export async function countLlamaCppTokens(config: SiftConfig, content: string): 
       return null;
     }
 
+    tryRecordAccurateCharTokenObservation({
+      chars: content.length,
+      tokens: response.body.tokens.length,
+      updatedAtUtc: new Date().toISOString(),
+    });
     traceLlamaCpp(`tokenize done elapsed_ms=${Date.now() - startedAt} tokens=${response.body.tokens.length}`);
     return response.body.tokens.length;
   } catch (error) {
@@ -570,6 +581,13 @@ export async function generateLlamaCppChatResponse(options: {
 
   const rawUsage = response.body.usage;
   const promptTokens = getUsageValue(rawUsage?.prompt_tokens);
+  if (promptTokens !== null && promptTokens > 0) {
+    tryRecordAccurateCharTokenObservation({
+      chars: promptChars,
+      tokens: promptTokens,
+      updatedAtUtc: new Date().toISOString(),
+    });
+  }
   const promptCacheTokens = getPromptTimingValue(response.body.timings?.cache_n)
     ?? getUsageValue(rawUsage?.prompt_tokens_details?.cached_tokens)
     ?? getUsageValue(rawUsage?.input_tokens_details?.cached_tokens);

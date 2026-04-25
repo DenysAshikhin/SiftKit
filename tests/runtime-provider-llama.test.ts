@@ -468,6 +468,37 @@ test('estimated token fallback does not mutate observed-budget state', async () 
   });
 });
 
+test('exact char-token observations accumulate as a weighted average', async () => {
+  await withTempEnv(async (tempRoot) => {
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+      await countLlamaCppTokens(config, 'A'.repeat(100));
+      await generateLlamaCppResponse({
+        config,
+        model: config.Model,
+        prompt: 'B'.repeat(500),
+        timeoutSeconds: 5,
+      });
+
+      const database = new Database(path.join(tempRoot, '.siftkit', 'runtime.sqlite'));
+      try {
+        const row = database.prepare(`
+          SELECT observed_chars_total, observed_tokens_total, last_known_chars_per_token
+          FROM observed_budget_state
+          WHERE id = 1
+        `).get();
+        assert.equal(row.observed_chars_total, 600);
+        assert.equal(row.observed_tokens_total, 223);
+        assert.equal(row.last_known_chars_per_token, 600 / 223);
+      } finally {
+        database.close();
+      }
+    }, {
+      tokenizeCharsPerToken: 1,
+    });
+  });
+});
+
 test('llama.cpp provider surfaces HTTP 400 errors when json-schema constrained requests are rejected', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
