@@ -5,6 +5,7 @@ export async function runSummary(options: {
   argv: string[];
   stdinText?: string | Buffer;
   stdout: NodeJS.WritableStream;
+  timing?: Parameters<typeof summarizeRequest>[0]['timing'];
 }): Promise<number> {
   const parsed = parseArguments(getCommandArgs(options.argv));
   const question = parsed.question || parsed.positionals[0];
@@ -39,6 +40,7 @@ export async function runSummary(options: {
     commandExitCode: process.env.SIFTKIT_SUMMARY_COMMAND_EXIT_CODE?.trim()
       ? Number.parseInt(process.env.SIFTKIT_SUMMARY_COMMAND_EXIT_CODE, 10)
       : undefined,
+    timing: options.timing,
   });
   options.stdout.write(`${result.Summary}\n`);
   return 0;

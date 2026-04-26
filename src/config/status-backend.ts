@@ -149,6 +149,13 @@ export type NotifyStatusBackendOptions = {
   speculativeAcceptedTokens?: number | null;
   speculativeGeneratedTokens?: number | null;
   requestDurationMs?: number | null;
+  providerDurationMs?: number | null;
+  wallDurationMs?: number | null;
+  stdinWaitMs?: number | null;
+  serverPreflightMs?: number | null;
+  lockWaitMs?: number | null;
+  statusRunningMs?: number | null;
+  terminalStatusMs?: number | null;
   artifactType?: 'summary_request' | 'planner_debug' | 'planner_failed' | null;
   artifactRequestId?: string | null;
   artifactPayload?: Record<string, unknown> | null;
@@ -250,6 +257,20 @@ export async function notifyStatusBackend(options: NotifyStatusBackendOptions): 
   if (!options.running && options.requestDurationMs !== undefined && options.requestDurationMs !== null) {
     body.requestDurationMs = options.requestDurationMs;
   }
+  const timingFields = {
+    providerDurationMs: options.providerDurationMs,
+    wallDurationMs: options.wallDurationMs,
+    stdinWaitMs: options.stdinWaitMs,
+    serverPreflightMs: options.serverPreflightMs,
+    lockWaitMs: options.lockWaitMs,
+    statusRunningMs: options.statusRunningMs,
+    terminalStatusMs: options.terminalStatusMs,
+  };
+  for (const [key, value] of Object.entries(timingFields)) {
+    if (!options.running && value !== undefined && value !== null) {
+      body[key] = value;
+    }
+  }
   if (!options.running && options.artifactType) {
     body.artifactType = options.artifactType;
   }
@@ -295,13 +316,17 @@ export async function notifyStatusBackend(options: NotifyStatusBackendOptions): 
 
   const url = (options.statusBackendUrl && options.statusBackendUrl.trim()) ? options.statusBackendUrl.trim() : getStatusBackendUrl();
   const configuredBusyRetryMaxRetries = Number(options.busyRetryMaxRetries);
+  const defaultBusyRetryMaxRetries = options.running && options.taskKind === 'summary' ? 2 : (options.running ? 600 : 0);
   const maxRetries = Number.isFinite(configuredBusyRetryMaxRetries) && configuredBusyRetryMaxRetries >= 0
     ? Math.floor(configuredBusyRetryMaxRetries)
-    : (options.running ? 600 : 0);
+    : defaultBusyRetryMaxRetries;
   const configuredBusyRetryDelayMs = Number(options.busyRetryDelayMs);
+  const defaultBusyRetryDelayMs = options.running && options.taskKind === 'summary'
+    ? readPositiveIntegerEnv('SIFTKIT_SUMMARY_BUSY_RETRY_DELAY_MS', 100)
+    : 1000;
   const busyRetryDelayMs = Number.isFinite(configuredBusyRetryDelayMs) && configuredBusyRetryDelayMs > 0
     ? Math.floor(configuredBusyRetryDelayMs)
-    : 1000;
+    : defaultBusyRetryDelayMs;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const response = await requestJson<{ ok?: boolean; busy?: boolean }>({

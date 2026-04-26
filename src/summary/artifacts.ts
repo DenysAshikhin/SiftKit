@@ -212,6 +212,9 @@ export function buildSummaryRequestArtifact(options: {
   summary?: string | null;
   providerError?: string | null;
   error?: string | null;
+  requestDurationMs?: number | null;
+  providerDurationMs?: number | null;
+  wallDurationMs?: number | null;
 }): SummaryDeferredArtifact {
   return {
     artifactType: 'summary_request',
@@ -228,6 +231,9 @@ export function buildSummaryRequestArtifact(options: {
       summary: options.summary ?? null,
       providerError: options.providerError ?? null,
       error: options.error ?? null,
+      requestDurationMs: options.requestDurationMs ?? null,
+      providerDurationMs: options.providerDurationMs ?? null,
+      wallDurationMs: options.wallDurationMs ?? null,
       plannerDebugPath: buildDeferredPlannerDebugPath(options.requestId),
       failedRequestPath: plannerFailedArtifactByRequestId.has(options.requestId) ? getPlannerFailedPath(options.requestId) : null,
     },

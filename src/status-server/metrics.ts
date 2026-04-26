@@ -18,6 +18,12 @@ export type MetricTotals = {
   speculativeAcceptedTokensTotal: number;
   speculativeGeneratedTokensTotal: number;
   requestDurationMsTotal: number;
+  wallDurationMsTotal: number;
+  stdinWaitMsTotal: number;
+  serverPreflightMsTotal: number;
+  lockWaitMsTotal: number;
+  statusRunningMsTotal: number;
+  terminalStatusMsTotal: number;
   completedRequestCount: number;
 };
 
@@ -57,6 +63,12 @@ export type Metrics = {
   speculativeAcceptedTokensTotal: number;
   speculativeGeneratedTokensTotal: number;
   requestDurationMsTotal: number;
+  wallDurationMsTotal: number;
+  stdinWaitMsTotal: number;
+  serverPreflightMsTotal: number;
+  lockWaitMsTotal: number;
+  statusRunningMsTotal: number;
+  terminalStatusMsTotal: number;
   completedRequestCount: number;
   taskTotals: TaskTotals;
   toolStats: ToolStatsByTask;
@@ -78,6 +90,12 @@ function getDefaultMetricTotals(): MetricTotals {
     speculativeAcceptedTokensTotal: 0,
     speculativeGeneratedTokensTotal: 0,
     requestDurationMsTotal: 0,
+    wallDurationMsTotal: 0,
+    stdinWaitMsTotal: 0,
+    serverPreflightMsTotal: 0,
+    lockWaitMsTotal: 0,
+    statusRunningMsTotal: 0,
+    terminalStatusMsTotal: 0,
     completedRequestCount: 0,
   };
 }
@@ -114,6 +132,12 @@ export function getDefaultMetrics(): Metrics {
     speculativeAcceptedTokensTotal: 0,
     speculativeGeneratedTokensTotal: 0,
     requestDurationMsTotal: 0,
+    wallDurationMsTotal: 0,
+    stdinWaitMsTotal: 0,
+    serverPreflightMsTotal: 0,
+    lockWaitMsTotal: 0,
+    statusRunningMsTotal: 0,
+    terminalStatusMsTotal: 0,
     completedRequestCount: 0,
     taskTotals: getDefaultTaskTotals(),
     toolStats: getDefaultToolStats(),
@@ -143,6 +167,12 @@ function normalizeMetricTotals(input: unknown): MetricTotals {
     'speculativeAcceptedTokensTotal',
     'speculativeGeneratedTokensTotal',
     'requestDurationMsTotal',
+    'wallDurationMsTotal',
+    'stdinWaitMsTotal',
+    'serverPreflightMsTotal',
+    'lockWaitMsTotal',
+    'statusRunningMsTotal',
+    'terminalStatusMsTotal',
     'completedRequestCount',
   ];
   for (const field of fields) {
@@ -262,6 +292,28 @@ function isCurrentSchema(input: unknown): boolean {
   );
 }
 
+type RuntimeMetricsDatabase = ReturnType<typeof getRuntimeDatabase>;
+
+const TIMING_TOTAL_COLUMNS: Array<{ name: string; sql: string }> = [
+  { name: 'wall_duration_ms_total', sql: 'ALTER TABLE runtime_metrics_totals ADD COLUMN wall_duration_ms_total INTEGER NOT NULL DEFAULT 0;' },
+  { name: 'stdin_wait_ms_total', sql: 'ALTER TABLE runtime_metrics_totals ADD COLUMN stdin_wait_ms_total INTEGER NOT NULL DEFAULT 0;' },
+  { name: 'server_preflight_ms_total', sql: 'ALTER TABLE runtime_metrics_totals ADD COLUMN server_preflight_ms_total INTEGER NOT NULL DEFAULT 0;' },
+  { name: 'lock_wait_ms_total', sql: 'ALTER TABLE runtime_metrics_totals ADD COLUMN lock_wait_ms_total INTEGER NOT NULL DEFAULT 0;' },
+  { name: 'status_running_ms_total', sql: 'ALTER TABLE runtime_metrics_totals ADD COLUMN status_running_ms_total INTEGER NOT NULL DEFAULT 0;' },
+  { name: 'terminal_status_ms_total', sql: 'ALTER TABLE runtime_metrics_totals ADD COLUMN terminal_status_ms_total INTEGER NOT NULL DEFAULT 0;' },
+];
+
+function ensureRuntimeMetricsTimingColumns(database: RuntimeMetricsDatabase): void {
+  const columns = (database.prepare('PRAGMA table_info(runtime_metrics_totals)').all() as Array<{ name: unknown }>)
+    .map((column) => String(column.name));
+  const missing = TIMING_TOTAL_COLUMNS
+    .filter((column) => !columns.includes(column.name))
+    .map((column) => column.sql);
+  if (missing.length > 0) {
+    database.exec(missing.join('\n'));
+  }
+}
+
 export function normalizeMetrics(input: unknown): Metrics {
   const metrics = getDefaultMetrics();
   if (!isCurrentSchema(input)) {
@@ -280,6 +332,12 @@ export function normalizeMetrics(input: unknown): Metrics {
   metrics.speculativeAcceptedTokensTotal = totals.speculativeAcceptedTokensTotal;
   metrics.speculativeGeneratedTokensTotal = totals.speculativeGeneratedTokensTotal;
   metrics.requestDurationMsTotal = totals.requestDurationMsTotal;
+  metrics.wallDurationMsTotal = totals.wallDurationMsTotal;
+  metrics.stdinWaitMsTotal = totals.stdinWaitMsTotal;
+  metrics.serverPreflightMsTotal = totals.serverPreflightMsTotal;
+  metrics.lockWaitMsTotal = totals.lockWaitMsTotal;
+  metrics.statusRunningMsTotal = totals.statusRunningMsTotal;
+  metrics.terminalStatusMsTotal = totals.terminalStatusMsTotal;
   metrics.completedRequestCount = totals.completedRequestCount;
   metrics.taskTotals = normalizeTaskTotals(record.taskTotals);
   metrics.toolStats = normalizeToolStats(record.toolStats);
@@ -291,6 +349,7 @@ export function normalizeMetrics(input: unknown): Metrics {
 
 export function readMetrics(metricsPath: string): Metrics {
   const database = getRuntimeDatabase(metricsPath);
+  ensureRuntimeMetricsTimingColumns(database);
   const row = database.prepare(`
     SELECT
       schema_version,
@@ -305,6 +364,12 @@ export function readMetrics(metricsPath: string): Metrics {
       speculative_accepted_tokens_total,
       speculative_generated_tokens_total,
       request_duration_ms_total,
+      wall_duration_ms_total,
+      stdin_wait_ms_total,
+      server_preflight_ms_total,
+      lock_wait_ms_total,
+      status_running_ms_total,
+      terminal_status_ms_total,
       completed_request_count,
       task_totals_json,
       tool_stats_json,
@@ -328,6 +393,12 @@ export function readMetrics(metricsPath: string): Metrics {
     speculativeAcceptedTokensTotal: Number(row.speculative_accepted_tokens_total),
     speculativeGeneratedTokensTotal: Number(row.speculative_generated_tokens_total),
     requestDurationMsTotal: Number(row.request_duration_ms_total),
+    wallDurationMsTotal: Number(row.wall_duration_ms_total),
+    stdinWaitMsTotal: Number(row.stdin_wait_ms_total),
+    serverPreflightMsTotal: Number(row.server_preflight_ms_total),
+    lockWaitMsTotal: Number(row.lock_wait_ms_total),
+    statusRunningMsTotal: Number(row.status_running_ms_total),
+    terminalStatusMsTotal: Number(row.terminal_status_ms_total),
     completedRequestCount: Number(row.completed_request_count),
     taskTotals: (() => {
       try {
@@ -349,6 +420,7 @@ export function readMetrics(metricsPath: string): Metrics {
 
 export function writeMetrics(metricsPath: string, metrics: Metrics): void {
   const database = getRuntimeDatabase(metricsPath);
+  ensureRuntimeMetricsTimingColumns(database);
   const normalized = normalizeMetrics(metrics);
   database.prepare(`
     INSERT INTO runtime_metrics_totals (
@@ -365,12 +437,18 @@ export function writeMetrics(metricsPath: string, metrics: Metrics): void {
       speculative_accepted_tokens_total,
       speculative_generated_tokens_total,
       request_duration_ms_total,
+      wall_duration_ms_total,
+      stdin_wait_ms_total,
+      server_preflight_ms_total,
+      lock_wait_ms_total,
+      status_running_ms_total,
+      terminal_status_ms_total,
       completed_request_count,
       task_totals_json,
       tool_stats_json,
      updated_at_utc
     ) VALUES (
-      1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     )
     ON CONFLICT(id) DO UPDATE SET
       schema_version = excluded.schema_version,
@@ -385,6 +463,12 @@ export function writeMetrics(metricsPath: string, metrics: Metrics): void {
       speculative_accepted_tokens_total = excluded.speculative_accepted_tokens_total,
       speculative_generated_tokens_total = excluded.speculative_generated_tokens_total,
       request_duration_ms_total = excluded.request_duration_ms_total,
+      wall_duration_ms_total = excluded.wall_duration_ms_total,
+      stdin_wait_ms_total = excluded.stdin_wait_ms_total,
+      server_preflight_ms_total = excluded.server_preflight_ms_total,
+      lock_wait_ms_total = excluded.lock_wait_ms_total,
+      status_running_ms_total = excluded.status_running_ms_total,
+      terminal_status_ms_total = excluded.terminal_status_ms_total,
       completed_request_count = excluded.completed_request_count,
       task_totals_json = excluded.task_totals_json,
       tool_stats_json = excluded.tool_stats_json,
@@ -402,6 +486,12 @@ export function writeMetrics(metricsPath: string, metrics: Metrics): void {
     normalized.speculativeAcceptedTokensTotal,
     normalized.speculativeGeneratedTokensTotal,
     normalized.requestDurationMsTotal,
+    normalized.wallDurationMsTotal,
+    normalized.stdinWaitMsTotal,
+    normalized.serverPreflightMsTotal,
+    normalized.lockWaitMsTotal,
+    normalized.statusRunningMsTotal,
+    normalized.terminalStatusMsTotal,
     normalized.completedRequestCount,
     JSON.stringify(normalized.taskTotals),
     JSON.stringify(normalized.toolStats),

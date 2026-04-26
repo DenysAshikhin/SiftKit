@@ -5,6 +5,11 @@ export type CliRunOptions = {
   stdinText?: string | Buffer;
   stdout?: NodeJS.WritableStream;
   stderr?: NodeJS.WritableStream;
+  timing?: {
+    processStartedAtMs?: number | null;
+    stdinWaitMs?: number | null;
+    serverPreflightMs?: number | null;
+  };
 };
 
 export type ParsedArgs = {

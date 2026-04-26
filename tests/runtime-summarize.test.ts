@@ -101,6 +101,111 @@ test('summarizeRequest uses a single oversized mock summary pass when the extern
   });
 });
 
+test('summary command-output pass/fail with Jest pass output is deterministic and skips provider calls', async () => {
+  await withTempEnv(async (tempRoot) => {
+    await withStubServer(async (server) => {
+      const logPath = path.join(tempRoot, 'provider-events-jest-pass.jsonl');
+      process.env.SIFTKIT_TEST_PROVIDER_LOG_PATH = logPath;
+      const result = await summarizeRequest({
+        question: 'Determine whether the targeted Jest run passes. Return pass/fail and warnings/errors.',
+        inputText: [
+          'PASS tests/manage-manager-task.test.ts',
+          'Test Suites: 1 passed, 1 total',
+          'Tests:       7 passed, 7 total',
+          'Time:        18.234 s',
+        ].join('\n'),
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'mock',
+        model: 'mock-model',
+        sourceKind: 'command-output',
+        commandExitCode: 0,
+        timing: {
+          processStartedAtMs: Date.now() - 75,
+          stdinWaitMs: 50,
+          serverPreflightMs: 10,
+        },
+      });
+
+      assert.match(result.Summary, /^PASS:/u);
+      assert.match(result.Summary, /Test Suites: 1 passed, 1 total/u);
+      assert.equal(fs.existsSync(logPath), false);
+      assert.equal(server.state.statusPosts.some((post) => post.running === true), false);
+      const terminalPost = server.state.statusPosts.find((post) => post.terminalState === 'completed');
+      assert.ok(terminalPost);
+      assert.equal(terminalPost.deferredMetadata.providerDurationMs, 0);
+      assert.ok(terminalPost.deferredMetadata.wallDurationMs >= 50);
+      assert.equal(terminalPost.deferredMetadata.stdinWaitMs, 50);
+      assert.equal(terminalPost.deferredMetadata.serverPreflightMs, 10);
+    });
+  });
+});
+
+test('summary command-output pass/fail with Jest failure output is deterministic and lists failing tests', async () => {
+  await withTempEnv(async (tempRoot) => {
+    await withStubServer(async () => {
+      const logPath = path.join(tempRoot, 'provider-events-jest-fail.jsonl');
+      process.env.SIFTKIT_TEST_PROVIDER_LOG_PATH = logPath;
+      const result = await summarizeRequest({
+        question: 'Determine whether the targeted Jest run passes. Return pass/fail, failing tests if any, and any warnings/errors.',
+        inputText: [
+          'FAIL tests/manage-manager-task.test.ts',
+          '  smithing lifecycle',
+          '    x preserves crafted output after manager task completion (21 ms)',
+          '  ● smithing lifecycle › preserves crafted output after manager task completion',
+          '    Error: expected completed task to keep crafted output',
+          'Test Suites: 1 failed, 1 total',
+          'Tests:       1 failed, 6 passed, 7 total',
+        ].join('\n'),
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'mock',
+        model: 'mock-model',
+        sourceKind: 'command-output',
+        commandExitCode: 1,
+      });
+
+      assert.match(result.Summary, /^FAIL:/u);
+      assert.match(result.Summary, /tests\/manage-manager-task\.test\.ts/u);
+      assert.match(result.Summary, /preserves crafted output/u);
+      assert.match(result.Summary, /Error: expected completed task/u);
+      assert.equal(fs.existsSync(logPath), false);
+    });
+  });
+});
+
+test('summary timing metadata records lock wait separately from provider duration', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      server.state.executionLeaseToken = 'held-by-other-process';
+      setTimeout(() => {
+        server.state.executionLeaseToken = null;
+      }, 70);
+      const result = await summarizeRequest({
+        question: 'summarize this',
+        inputText: 'A'.repeat(5000),
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'mock',
+        model: 'mock-model',
+        timing: {
+          processStartedAtMs: Date.now() - 40,
+          stdinWaitMs: 25,
+          serverPreflightMs: 5,
+        },
+      });
+
+      assert.equal(result.WasSummarized, true);
+      const terminalPost = server.state.statusPosts.find((post) => post.terminalState === 'completed');
+      assert.ok(terminalPost);
+      assert.ok(terminalPost.deferredMetadata.lockWaitMs >= 50);
+      assert.ok(terminalPost.deferredMetadata.wallDurationMs >= terminalPost.deferredMetadata.lockWaitMs);
+      assert.equal(terminalPost.deferredMetadata.requestDurationMs, terminalPost.deferredMetadata.providerDurationMs);
+      assert.ok(terminalPost.deferredMetadata.wallDurationMs > terminalPost.deferredMetadata.providerDurationMs);
+    });
+  });
+});
+
 test('summarizeRequest does not split mock summaries when aggregate status totals are large but no exact observations exist', async () => {
   await withTempEnv(async (tempRoot) => {
     await withStubServer(async () => {

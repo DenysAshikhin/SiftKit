@@ -263,6 +263,12 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       speculative_accepted_tokens_total INTEGER NOT NULL,
       speculative_generated_tokens_total INTEGER NOT NULL,
       request_duration_ms_total INTEGER NOT NULL,
+      wall_duration_ms_total INTEGER NOT NULL DEFAULT 0,
+      stdin_wait_ms_total INTEGER NOT NULL DEFAULT 0,
+      server_preflight_ms_total INTEGER NOT NULL DEFAULT 0,
+      lock_wait_ms_total INTEGER NOT NULL DEFAULT 0,
+      status_running_ms_total INTEGER NOT NULL DEFAULT 0,
+      terminal_status_ms_total INTEGER NOT NULL DEFAULT 0,
       completed_request_count INTEGER NOT NULL,
       task_totals_json TEXT NOT NULL,
       tool_stats_json TEXT NOT NULL,
@@ -511,6 +517,12 @@ function ensureRuntimeMetricsTotalsSchema(database: RuntimeDatabase): void {
       speculative_accepted_tokens_total INTEGER NOT NULL,
       speculative_generated_tokens_total INTEGER NOT NULL,
       request_duration_ms_total INTEGER NOT NULL,
+      wall_duration_ms_total INTEGER NOT NULL DEFAULT 0,
+      stdin_wait_ms_total INTEGER NOT NULL DEFAULT 0,
+      server_preflight_ms_total INTEGER NOT NULL DEFAULT 0,
+      lock_wait_ms_total INTEGER NOT NULL DEFAULT 0,
+      status_running_ms_total INTEGER NOT NULL DEFAULT 0,
+      terminal_status_ms_total INTEGER NOT NULL DEFAULT 0,
       completed_request_count INTEGER NOT NULL,
       task_totals_json TEXT NOT NULL,
       tool_stats_json TEXT NOT NULL,
@@ -768,6 +780,24 @@ function ensureSchema(database: RuntimeDatabase): void {
     }
     if (!tableHasColumn(database, 'runtime_metrics_totals', 'speculative_generated_tokens_total')) {
       alterStatements.push('ALTER TABLE runtime_metrics_totals ADD COLUMN speculative_generated_tokens_total INTEGER NOT NULL DEFAULT 0;');
+    }
+    if (!tableHasColumn(database, 'runtime_metrics_totals', 'wall_duration_ms_total')) {
+      alterStatements.push('ALTER TABLE runtime_metrics_totals ADD COLUMN wall_duration_ms_total INTEGER NOT NULL DEFAULT 0;');
+    }
+    if (!tableHasColumn(database, 'runtime_metrics_totals', 'stdin_wait_ms_total')) {
+      alterStatements.push('ALTER TABLE runtime_metrics_totals ADD COLUMN stdin_wait_ms_total INTEGER NOT NULL DEFAULT 0;');
+    }
+    if (!tableHasColumn(database, 'runtime_metrics_totals', 'server_preflight_ms_total')) {
+      alterStatements.push('ALTER TABLE runtime_metrics_totals ADD COLUMN server_preflight_ms_total INTEGER NOT NULL DEFAULT 0;');
+    }
+    if (!tableHasColumn(database, 'runtime_metrics_totals', 'lock_wait_ms_total')) {
+      alterStatements.push('ALTER TABLE runtime_metrics_totals ADD COLUMN lock_wait_ms_total INTEGER NOT NULL DEFAULT 0;');
+    }
+    if (!tableHasColumn(database, 'runtime_metrics_totals', 'status_running_ms_total')) {
+      alterStatements.push('ALTER TABLE runtime_metrics_totals ADD COLUMN status_running_ms_total INTEGER NOT NULL DEFAULT 0;');
+    }
+    if (!tableHasColumn(database, 'runtime_metrics_totals', 'terminal_status_ms_total')) {
+      alterStatements.push('ALTER TABLE runtime_metrics_totals ADD COLUMN terminal_status_ms_total INTEGER NOT NULL DEFAULT 0;');
     }
     if (!tableHasColumn(database, 'chat_messages', 'request_duration_ms')) {
       alterStatements.push('ALTER TABLE chat_messages ADD COLUMN request_duration_ms INTEGER;');

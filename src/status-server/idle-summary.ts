@@ -38,6 +38,12 @@ export type IdleSummarySnapshot = {
   inputCharactersTotal: number;
   outputCharactersTotal: number;
   requestDurationMsTotal: number;
+  wallDurationMsTotal: number;
+  stdinWaitMsTotal: number;
+  serverPreflightMsTotal: number;
+  lockWaitMsTotal: number;
+  statusRunningMsTotal: number;
+  terminalStatusMsTotal: number;
   completedRequestCount: number;
   savedTokens: number;
   savedPercent: number;
@@ -71,6 +77,12 @@ function getDefaultTaskTotals(): SnapshotTaskTotals {
       speculativeAcceptedTokensTotal: 0,
       speculativeGeneratedTokensTotal: 0,
       requestDurationMsTotal: 0,
+      wallDurationMsTotal: 0,
+      stdinWaitMsTotal: 0,
+      serverPreflightMsTotal: 0,
+      lockWaitMsTotal: 0,
+      statusRunningMsTotal: 0,
+      terminalStatusMsTotal: 0,
       completedRequestCount: 0,
     },
     plan: {
@@ -85,6 +97,12 @@ function getDefaultTaskTotals(): SnapshotTaskTotals {
       speculativeAcceptedTokensTotal: 0,
       speculativeGeneratedTokensTotal: 0,
       requestDurationMsTotal: 0,
+      wallDurationMsTotal: 0,
+      stdinWaitMsTotal: 0,
+      serverPreflightMsTotal: 0,
+      lockWaitMsTotal: 0,
+      statusRunningMsTotal: 0,
+      terminalStatusMsTotal: 0,
       completedRequestCount: 0,
     },
     'repo-search': {
@@ -99,6 +117,12 @@ function getDefaultTaskTotals(): SnapshotTaskTotals {
       speculativeAcceptedTokensTotal: 0,
       speculativeGeneratedTokensTotal: 0,
       requestDurationMsTotal: 0,
+      wallDurationMsTotal: 0,
+      stdinWaitMsTotal: 0,
+      serverPreflightMsTotal: 0,
+      lockWaitMsTotal: 0,
+      statusRunningMsTotal: 0,
+      terminalStatusMsTotal: 0,
       completedRequestCount: 0,
     },
     chat: {
@@ -113,6 +137,12 @@ function getDefaultTaskTotals(): SnapshotTaskTotals {
       speculativeAcceptedTokensTotal: 0,
       speculativeGeneratedTokensTotal: 0,
       requestDurationMsTotal: 0,
+      wallDurationMsTotal: 0,
+      stdinWaitMsTotal: 0,
+      serverPreflightMsTotal: 0,
+      lockWaitMsTotal: 0,
+      statusRunningMsTotal: 0,
+      terminalStatusMsTotal: 0,
       completedRequestCount: 0,
     },
   };
@@ -142,6 +172,12 @@ function normalizeTaskTotals(input: unknown): SnapshotTaskTotals {
       speculativeAcceptedTokensTotal: toNonNegativeNumber(taskRecord.speculativeAcceptedTokensTotal),
       speculativeGeneratedTokensTotal: toNonNegativeNumber(taskRecord.speculativeGeneratedTokensTotal),
       requestDurationMsTotal: toNonNegativeNumber(taskRecord.requestDurationMsTotal),
+      wallDurationMsTotal: toNonNegativeNumber(taskRecord.wallDurationMsTotal),
+      stdinWaitMsTotal: toNonNegativeNumber(taskRecord.stdinWaitMsTotal),
+      serverPreflightMsTotal: toNonNegativeNumber(taskRecord.serverPreflightMsTotal),
+      lockWaitMsTotal: toNonNegativeNumber(taskRecord.lockWaitMsTotal),
+      statusRunningMsTotal: toNonNegativeNumber(taskRecord.statusRunningMsTotal),
+      terminalStatusMsTotal: toNonNegativeNumber(taskRecord.terminalStatusMsTotal),
       completedRequestCount: toNonNegativeNumber(taskRecord.completedRequestCount),
     };
   }
@@ -231,6 +267,12 @@ export function buildIdleSummarySnapshot(metrics: Dict, emittedAt: Date = new Da
   const inputCharactersTotal = Number(metrics.inputCharactersTotal) || 0;
   const outputCharactersTotal = Number(metrics.outputCharactersTotal) || 0;
   const requestDurationMsTotal = Number(metrics.requestDurationMsTotal) || 0;
+  const wallDurationMsTotal = Number(metrics.wallDurationMsTotal) || 0;
+  const stdinWaitMsTotal = Number(metrics.stdinWaitMsTotal) || 0;
+  const serverPreflightMsTotal = Number(metrics.serverPreflightMsTotal) || 0;
+  const lockWaitMsTotal = Number(metrics.lockWaitMsTotal) || 0;
+  const statusRunningMsTotal = Number(metrics.statusRunningMsTotal) || 0;
+  const terminalStatusMsTotal = Number(metrics.terminalStatusMsTotal) || 0;
   const completedRequestCount = Number(metrics.completedRequestCount) || 0;
   const savedTokens = inputTokensTotal - outputTokensTotal;
   const savedPercent = inputTokensTotal > 0 ? savedTokens / inputTokensTotal : Number.NaN;
@@ -262,6 +304,12 @@ export function buildIdleSummarySnapshot(metrics: Dict, emittedAt: Date = new Da
     inputCharactersTotal,
     outputCharactersTotal,
     requestDurationMsTotal,
+    wallDurationMsTotal,
+    stdinWaitMsTotal,
+    serverPreflightMsTotal,
+    lockWaitMsTotal,
+    statusRunningMsTotal,
+    terminalStatusMsTotal,
     completedRequestCount,
     savedTokens,
     savedPercent,
@@ -299,7 +347,11 @@ export function buildIdleSummarySnapshotMessage(snapshot: IdleSummarySnapshot, c
   if (budgetParts.length > 0) {
     lines.push(formatIdleSummarySection('budget', budgetParts.join(' '), 35, colorOptions));
   }
-  lines.push(formatIdleSummarySection('timing', `total=${formatElapsed(snapshot.requestDurationMsTotal)} avg_request=${formatSeconds(snapshot.avgRequestMs)} gen_tokens_per_s=${formatTokensPerSecond(snapshot.avgTokensPerSecond)}`, 34, colorOptions));
+  const phaseStatusMs = snapshot.statusRunningMsTotal + snapshot.terminalStatusMsTotal;
+  const wallTiming = snapshot.wallDurationMsTotal > 0
+    ? `wall=${formatElapsed(snapshot.wallDurationMsTotal)} provider=${formatElapsed(snapshot.requestDurationMsTotal)} stdin=${formatElapsed(snapshot.stdinWaitMsTotal)} preflight=${formatElapsed(snapshot.serverPreflightMsTotal)} lock=${formatElapsed(snapshot.lockWaitMsTotal)} status=${formatElapsed(phaseStatusMs)}`
+    : `total=${formatElapsed(snapshot.requestDurationMsTotal)}`;
+  lines.push(formatIdleSummarySection('timing', `${wallTiming} avg_request=${formatSeconds(snapshot.avgRequestMs)} gen_tokens_per_s=${formatTokensPerSecond(snapshot.avgTokensPerSecond)}`, 34, colorOptions));
   return lines.join('\n');
 }
 

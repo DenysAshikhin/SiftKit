@@ -368,6 +368,34 @@ test('idle metrics formatter disables ANSI colors when NO_COLOR is set', () => {
   assert.match(message, /  input:  chars=200 tokens=100/u);
 });
 
+test('idle metrics formatter shows wall and phase timing breakdown when present', () => {
+  const message = buildIdleMetricsLogMessage({
+    inputCharactersTotal: 100,
+    outputCharactersTotal: 10,
+    inputTokensTotal: 20,
+    outputTokensTotal: 5,
+    requestDurationMsTotal: 800,
+    wallDurationMsTotal: 2400,
+    stdinWaitMsTotal: 900,
+    serverPreflightMsTotal: 100,
+    lockWaitMsTotal: 500,
+    statusRunningMsTotal: 200,
+    terminalStatusMsTotal: 100,
+    completedRequestCount: 1,
+  }, {
+    isTTY: false,
+    env: {},
+  });
+
+  assert.match(message, /  timing:/u);
+  assert.match(message, /wall=2s/u);
+  assert.match(message, /provider=0s/u);
+  assert.match(message, /stdin=0s/u);
+  assert.match(message, /preflight=0s/u);
+  assert.match(message, /lock=0s/u);
+  assert.match(message, /status=0s/u);
+});
+
 test('idle metrics formatter disables ANSI colors when stdout is not a TTY', () => {
   const message = buildIdleMetricsLogMessage({
     inputCharactersTotal: 200,

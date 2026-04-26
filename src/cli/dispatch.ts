@@ -44,13 +44,25 @@ export async function runCli(options: CliRunOptions): Promise<number> {
     if (commandName === 'repo-search' && commandHelpRequested) {
       return await runRepoSearchCli({ argv: options.argv, stdout });
     }
+    let serverPreflightMs: number | null = options.timing?.serverPreflightMs ?? null;
     if (SERVER_DEPENDENT_COMMANDS.has(commandName)) {
+      const serverPreflightStartedAt = Date.now();
       await ensureStatusServerReachable();
+      serverPreflightMs = Date.now() - serverPreflightStartedAt;
     }
 
     switch (commandName) {
       case 'summary':
-        return await runSummary({ argv: options.argv, stdinText: options.stdinText, stdout });
+        return await runSummary({
+          argv: options.argv,
+          stdinText: options.stdinText,
+          stdout,
+          timing: {
+            processStartedAtMs: options.timing?.processStartedAtMs ?? null,
+            stdinWaitMs: options.timing?.stdinWaitMs ?? null,
+            serverPreflightMs,
+          },
+        });
       case 'preset':
         if (commandArgs[0] === 'list') {
           return runPresetList({ stdout });

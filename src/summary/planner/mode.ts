@@ -190,6 +190,8 @@ export async function invokePlannerMode(options: {
       promptCacheTokens: number | null;
       promptEvalTokens: number | null;
       requestDurationMs: number;
+      providerDurationMs: number;
+      statusRunningMs: number;
     };
     try {
       providerResponse = await invokePlannerProviderAction({
@@ -610,6 +612,8 @@ export async function invokePlannerMode(options: {
         promptCacheTokens: providerResponse.promptCacheTokens,
         promptEvalTokens: providerResponse.promptEvalTokens,
         requestDurationMs: providerResponse.requestDurationMs,
+        providerDurationMs: providerResponse.providerDurationMs,
+        statusRunningMs: providerResponse.statusRunningMs,
       });
     }
   }

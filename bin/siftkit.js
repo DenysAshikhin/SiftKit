@@ -14,28 +14,34 @@ const { runCli } = require(runtimePath);
 
 async function readStdin() {
   if (process.stdin.isTTY) {
-    return '';
+    return { text: '', stdinWaitMs: 0 };
   }
 
+  const startedAt = Date.now();
   return await new Promise((resolve, reject) => {
     let collected = '';
     process.stdin.setEncoding('utf8');
     process.stdin.on('data', (chunk) => {
       collected += chunk;
     });
-    process.stdin.on('end', () => resolve(collected));
+    process.stdin.on('end', () => resolve({ text: collected, stdinWaitMs: Date.now() - startedAt }));
     process.stdin.on('error', reject);
   });
 }
 
 void (async () => {
   try {
-    const stdinText = await readStdin();
+    const processStartedAtMs = Date.now();
+    const stdin = await readStdin();
     const exitCode = await runCli({
       argv: process.argv.slice(2),
-      stdinText,
+      stdinText: stdin.text,
       stdout: process.stdout,
       stderr: process.stderr,
+      timing: {
+        processStartedAtMs,
+        stdinWaitMs: stdin.stdinWaitMs,
+      },
     });
     process.exit(exitCode);
   } catch (error) {

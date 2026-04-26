@@ -13,6 +13,9 @@ import {
   ensureIdleSummarySnapshotsTable,
 } from '../src/status-server/idle-summary.js';
 import {
+  readMetrics,
+} from '../src/status-server/metrics.js';
+import {
   closeRuntimeDatabase,
   getRuntimeDatabase,
   getRuntimeDatabasePath,
@@ -225,6 +228,53 @@ test('ensureIdleSummarySnapshotsTable backfills processed input totals and expos
   } finally {
     database.close();
   }
+});
+
+test('readMetrics backfills timing columns for already-current runtime databases', () => {
+  withTempRepo(() => {
+    const database = getRuntimeDatabase();
+    const databasePath = getRuntimeDatabasePath();
+    database.exec('DROP TABLE runtime_metrics_totals;');
+    database.exec(`
+      CREATE TABLE runtime_metrics_totals (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        schema_version INTEGER NOT NULL,
+        input_characters_total INTEGER NOT NULL,
+        output_characters_total INTEGER NOT NULL,
+        input_tokens_total INTEGER NOT NULL,
+        output_tokens_total INTEGER NOT NULL,
+        thinking_tokens_total INTEGER NOT NULL,
+        tool_tokens_total INTEGER NOT NULL,
+        prompt_cache_tokens_total INTEGER NOT NULL,
+        prompt_eval_tokens_total INTEGER NOT NULL,
+        speculative_accepted_tokens_total INTEGER NOT NULL,
+        speculative_generated_tokens_total INTEGER NOT NULL,
+        request_duration_ms_total INTEGER NOT NULL,
+        completed_request_count INTEGER NOT NULL,
+        task_totals_json TEXT NOT NULL,
+        tool_stats_json TEXT NOT NULL,
+        updated_at_utc TEXT
+      );
+    `);
+    database.prepare(`
+      INSERT INTO runtime_metrics_totals (
+        id, schema_version, input_characters_total, output_characters_total,
+        input_tokens_total, output_tokens_total, thinking_tokens_total, tool_tokens_total,
+        prompt_cache_tokens_total, prompt_eval_tokens_total, speculative_accepted_tokens_total,
+        speculative_generated_tokens_total, request_duration_ms_total, completed_request_count,
+        task_totals_json, tool_stats_json, updated_at_utc
+      ) VALUES (1, 2, 10, 5, 4, 2, 0, 0, 0, 0, 0, 0, 1000, 1, '{}', '{}', NULL)
+    `).run();
+    closeRuntimeDatabase();
+
+    const metrics = readMetrics(databasePath);
+
+    assert.equal(metrics.requestDurationMsTotal, 1000);
+    assert.equal(metrics.wallDurationMsTotal, 0);
+    const reopened = getRuntimeDatabase(databasePath);
+    const columns = reopened.prepare('PRAGMA table_info(runtime_metrics_totals)').all() as Array<{ name: string }>;
+    assert.ok(columns.some((column) => column.name === 'wall_duration_ms_total'));
+  });
 });
 
 test('runtime database migration backfills metrics totals and task totals to processed input semantics', () => {

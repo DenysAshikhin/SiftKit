@@ -172,6 +172,12 @@ function applyDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTerminal
   const speculativeAcceptedTokensDelta = metadata.speculativeAcceptedTokens ?? 0;
   const speculativeGeneratedTokensDelta = metadata.speculativeGeneratedTokens ?? 0;
   const requestDurationMsDelta = metadata.requestDurationMs ?? 0;
+  const wallDurationMsDelta = metadata.wallDurationMs ?? 0;
+  const stdinWaitMsDelta = metadata.stdinWaitMs ?? 0;
+  const serverPreflightMsDelta = metadata.serverPreflightMs ?? 0;
+  const lockWaitMsDelta = metadata.lockWaitMs ?? 0;
+  const statusRunningMsDelta = metadata.statusRunningMs ?? 0;
+  const terminalStatusMsDelta = metadata.terminalStatusMs ?? 0;
   const completedRequestDelta = job.requestCompleted ? 1 : 0;
   const taskKind = normalizeTaskKind(metadata.taskKind);
   const taskTotals = {
@@ -195,6 +201,12 @@ function applyDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTerminal
       speculativeAcceptedTokensTotal: previousTaskTotals.speculativeAcceptedTokensTotal + speculativeAcceptedTokensDelta,
       speculativeGeneratedTokensTotal: previousTaskTotals.speculativeGeneratedTokensTotal + speculativeGeneratedTokensDelta,
       requestDurationMsTotal: previousTaskTotals.requestDurationMsTotal + requestDurationMsDelta,
+      wallDurationMsTotal: previousTaskTotals.wallDurationMsTotal + wallDurationMsDelta,
+      stdinWaitMsTotal: previousTaskTotals.stdinWaitMsTotal + stdinWaitMsDelta,
+      serverPreflightMsTotal: previousTaskTotals.serverPreflightMsTotal + serverPreflightMsDelta,
+      lockWaitMsTotal: previousTaskTotals.lockWaitMsTotal + lockWaitMsDelta,
+      statusRunningMsTotal: previousTaskTotals.statusRunningMsTotal + statusRunningMsDelta,
+      terminalStatusMsTotal: previousTaskTotals.terminalStatusMsTotal + terminalStatusMsDelta,
       completedRequestCount: previousTaskTotals.completedRequestCount + completedRequestDelta,
     };
     toolStats[taskKind] = mergeToolTypeStats(
@@ -215,6 +227,12 @@ function applyDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTerminal
     speculativeAcceptedTokensTotal: ctx.metrics.speculativeAcceptedTokensTotal + speculativeAcceptedTokensDelta,
     speculativeGeneratedTokensTotal: ctx.metrics.speculativeGeneratedTokensTotal + speculativeGeneratedTokensDelta,
     requestDurationMsTotal: ctx.metrics.requestDurationMsTotal + requestDurationMsDelta,
+    wallDurationMsTotal: ctx.metrics.wallDurationMsTotal + wallDurationMsDelta,
+    stdinWaitMsTotal: ctx.metrics.stdinWaitMsTotal + stdinWaitMsDelta,
+    serverPreflightMsTotal: ctx.metrics.serverPreflightMsTotal + serverPreflightMsDelta,
+    lockWaitMsTotal: ctx.metrics.lockWaitMsTotal + lockWaitMsDelta,
+    statusRunningMsTotal: ctx.metrics.statusRunningMsTotal + statusRunningMsDelta,
+    terminalStatusMsTotal: ctx.metrics.terminalStatusMsTotal + terminalStatusMsDelta,
     completedRequestCount: ctx.metrics.completedRequestCount + completedRequestDelta,
     taskTotals,
     toolStats,
@@ -723,6 +741,12 @@ export async function handleCoreRoute(
         metadata.requestDurationMs
         ?? (metadata.terminalState ? 0 : (elapsedMs ?? 0))
       );
+      const wallDurationMsDelta = metadata.wallDurationMs ?? 0;
+      const stdinWaitMsDelta = metadata.stdinWaitMs ?? 0;
+      const serverPreflightMsDelta = metadata.serverPreflightMs ?? 0;
+      const lockWaitMsDelta = metadata.lockWaitMs ?? 0;
+      const statusRunningMsDelta = metadata.statusRunningMs ?? 0;
+      const terminalStatusMsDelta = metadata.terminalStatusMs ?? 0;
       const completedRequestDelta = requestCompleted ? 1 : 0;
       const taskKind = normalizeTaskKind(metadata.taskKind);
       const taskTotals = {
@@ -746,6 +770,12 @@ export async function handleCoreRoute(
           speculativeAcceptedTokensTotal: previousTaskTotals.speculativeAcceptedTokensTotal + speculativeAcceptedTokensDelta,
           speculativeGeneratedTokensTotal: previousTaskTotals.speculativeGeneratedTokensTotal + speculativeGeneratedTokensDelta,
           requestDurationMsTotal: previousTaskTotals.requestDurationMsTotal + requestDurationMsDelta,
+          wallDurationMsTotal: previousTaskTotals.wallDurationMsTotal + wallDurationMsDelta,
+          stdinWaitMsTotal: previousTaskTotals.stdinWaitMsTotal + stdinWaitMsDelta,
+          serverPreflightMsTotal: previousTaskTotals.serverPreflightMsTotal + serverPreflightMsDelta,
+          lockWaitMsTotal: previousTaskTotals.lockWaitMsTotal + lockWaitMsDelta,
+          statusRunningMsTotal: previousTaskTotals.statusRunningMsTotal + statusRunningMsDelta,
+          terminalStatusMsTotal: previousTaskTotals.terminalStatusMsTotal + terminalStatusMsDelta,
           completedRequestCount: previousTaskTotals.completedRequestCount + completedRequestDelta,
         };
         toolStats[taskKind] = mergeToolTypeStats(
@@ -766,6 +796,12 @@ export async function handleCoreRoute(
         speculativeAcceptedTokensTotal: ctx.metrics.speculativeAcceptedTokensTotal + speculativeAcceptedTokensDelta,
         speculativeGeneratedTokensTotal: ctx.metrics.speculativeGeneratedTokensTotal + speculativeGeneratedTokensDelta,
         requestDurationMsTotal: ctx.metrics.requestDurationMsTotal + requestDurationMsDelta,
+        wallDurationMsTotal: ctx.metrics.wallDurationMsTotal + wallDurationMsDelta,
+        stdinWaitMsTotal: ctx.metrics.stdinWaitMsTotal + stdinWaitMsDelta,
+        serverPreflightMsTotal: ctx.metrics.serverPreflightMsTotal + serverPreflightMsDelta,
+        lockWaitMsTotal: ctx.metrics.lockWaitMsTotal + lockWaitMsDelta,
+        statusRunningMsTotal: ctx.metrics.statusRunningMsTotal + statusRunningMsDelta,
+        terminalStatusMsTotal: ctx.metrics.terminalStatusMsTotal + terminalStatusMsDelta,
         completedRequestCount: ctx.metrics.completedRequestCount + completedRequestDelta,
         taskTotals,
         toolStats,

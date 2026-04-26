@@ -35,11 +35,14 @@ export async function invokePlannerProviderAction(options: {
   promptCacheTokens: number | null;
   promptEvalTokens: number | null;
   requestDurationMs: number;
+  providerDurationMs: number;
+  statusRunningMs: number;
 }> {
   traceSummary(
     `notify running=true phase=planner chunk=none raw_chars=${options.rawInputCharacterCount} `
     + `chunk_chars=${options.chunkInputCharacterCount} prompt_chars=${options.promptText.length}`
   );
+  const statusRunningStartedAt = Date.now();
   await notifyStatusBackend({
     running: true,
     taskKind: 'summary',
@@ -53,6 +56,7 @@ export async function invokePlannerProviderAction(options: {
     chunkThresholdCharacters: options.config.Effective?.ChunkThresholdCharacters ?? null,
     phase: 'planner',
   });
+  const statusRunningMs = Date.now() - statusRunningStartedAt;
   const startedAt = Date.now();
   let inputTokens: number | null = null;
   let outputCharacterCount: number | null = null;
@@ -86,6 +90,7 @@ export async function invokePlannerProviderAction(options: {
     thinkingTokens = response.usage?.thinkingTokens ?? null;
     promptCacheTokens = response.usage?.promptCacheTokens ?? null;
     promptEvalTokens = response.usage?.promptEvalTokens ?? null;
+    const providerDurationMs = Date.now() - startedAt;
     return {
       text: response.text,
       reasoningText: response.reasoningText,
@@ -95,7 +100,9 @@ export async function invokePlannerProviderAction(options: {
       thinkingTokens,
       promptCacheTokens,
       promptEvalTokens,
-      requestDurationMs: Date.now() - startedAt,
+      requestDurationMs: providerDurationMs,
+      providerDurationMs,
+      statusRunningMs,
     };
   } catch (error) {
     traceSummary(`notify running=false phase=planner chunk=none duration_ms=${Date.now() - startedAt}`);

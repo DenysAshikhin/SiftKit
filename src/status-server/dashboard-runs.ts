@@ -217,6 +217,8 @@ export type RunRecord = {
   speculativeAcceptedTokens: number | null;
   speculativeGeneratedTokens: number | null;
   durationMs: number | null;
+  providerDurationMs: number | null;
+  wallDurationMs: number | null;
   rawPaths: Dict;
 };
 
@@ -241,6 +243,8 @@ function normalizeRunRecord(record: Dict): RunRecord {
     speculativeAcceptedTokens: Number.isFinite(record.speculativeAcceptedTokens) ? Number(record.speculativeAcceptedTokens) : null,
     speculativeGeneratedTokens: Number.isFinite(record.speculativeGeneratedTokens) ? Number(record.speculativeGeneratedTokens) : null,
     durationMs: Number.isFinite(record.durationMs) ? Number(record.durationMs) : null,
+    providerDurationMs: Number.isFinite(record.providerDurationMs) ? Number(record.providerDurationMs) : null,
+    wallDurationMs: Number.isFinite(record.wallDurationMs) ? Number(record.wallDurationMs) : null,
     rawPaths: record.rawPaths && typeof record.rawPaths === 'object' ? record.rawPaths as Dict : {},
   };
 }
@@ -304,7 +308,9 @@ const RUN_LOG_LIST_SELECT_COLUMNS = `
   generation_duration_ms,
   speculative_accepted_tokens,
   speculative_generated_tokens,
-  duration_ms
+  duration_ms,
+  provider_duration_ms,
+  wall_duration_ms
 `;
 
 const RUN_LOG_DETAIL_SELECT_COLUMNS = `
@@ -331,6 +337,8 @@ const RUN_LOG_DETAIL_SELECT_COLUMNS = `
   speculative_accepted_tokens,
   speculative_generated_tokens,
   duration_ms,
+  provider_duration_ms,
+  wall_duration_ms,
   request_json,
   planner_debug_json,
   failed_request_json,
@@ -385,6 +393,8 @@ type RunLogUpsertRow = {
   speculativeAcceptedTokens: number | null;
   speculativeGeneratedTokens: number | null;
   durationMs: number | null;
+  providerDurationMs: number | null;
+  wallDurationMs: number | null;
   requestJson: string | null;
   plannerDebugJson: string | null;
   failedRequestJson: string | null;
@@ -545,7 +555,9 @@ function normalizeRunRecordFromDbRow(row: Dict): RunRecord {
     generationDurationMs: toNonNegativeInteger(row.generation_duration_ms),
     speculativeAcceptedTokens: toNullableNonNegativeInteger(row.speculative_accepted_tokens),
     speculativeGeneratedTokens: toNullableNonNegativeInteger(row.speculative_generated_tokens),
-    durationMs: toNonNegativeInteger(row.duration_ms),
+    durationMs: toNonNegativeInteger(row.wall_duration_ms) ?? toNonNegativeInteger(row.duration_ms),
+    providerDurationMs: toNonNegativeInteger(row.provider_duration_ms) ?? toNonNegativeInteger(row.duration_ms),
+    wallDurationMs: toNonNegativeInteger(row.wall_duration_ms),
     rawPaths: {},
   });
 }
@@ -579,6 +591,8 @@ export function ensureRunLogsTable(database: DatabaseInstance): void {
       speculative_accepted_tokens INTEGER,
       speculative_generated_tokens INTEGER,
       duration_ms INTEGER,
+      provider_duration_ms INTEGER,
+      wall_duration_ms INTEGER,
       request_json TEXT,
       planner_debug_json TEXT,
       failed_request_json TEXT,
@@ -607,6 +621,12 @@ export function ensureRunLogsTable(database: DatabaseInstance): void {
   if (!existingColumns.includes('generation_duration_ms')) {
     database.exec('ALTER TABLE run_logs ADD COLUMN generation_duration_ms INTEGER;');
   }
+  if (!existingColumns.includes('provider_duration_ms')) {
+    database.exec('ALTER TABLE run_logs ADD COLUMN provider_duration_ms INTEGER;');
+  }
+  if (!existingColumns.includes('wall_duration_ms')) {
+    database.exec('ALTER TABLE run_logs ADD COLUMN wall_duration_ms INTEGER;');
+  }
   database.exec(`
     UPDATE run_logs
     SET
@@ -630,10 +650,10 @@ export function upsertRunLog(database: DatabaseInstance, row: RunLogUpsertRow): 
     INSERT INTO run_logs (
       run_id, request_id, run_kind, run_group, terminal_state,
       started_at_utc, finished_at_utc, title, model, backend, repo_root,
-      input_tokens, output_tokens, thinking_tokens, tool_tokens, prompt_cache_tokens, prompt_eval_tokens, prompt_eval_duration_ms, generation_duration_ms, speculative_accepted_tokens, speculative_generated_tokens, duration_ms,
+      input_tokens, output_tokens, thinking_tokens, tool_tokens, prompt_cache_tokens, prompt_eval_tokens, prompt_eval_duration_ms, generation_duration_ms, speculative_accepted_tokens, speculative_generated_tokens, duration_ms, provider_duration_ms, wall_duration_ms,
       request_json, planner_debug_json, failed_request_json, abandoned_request_json, repo_search_json, repo_search_transcript_jsonl,
       source_paths_json, flushed_at_utc, source_deleted_at_utc
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
     ON CONFLICT(run_id) DO UPDATE SET
       request_id = excluded.request_id,
       run_kind = CASE WHEN excluded.run_kind = 'unknown' THEN run_logs.run_kind ELSE excluded.run_kind END,
@@ -656,6 +676,8 @@ export function upsertRunLog(database: DatabaseInstance, row: RunLogUpsertRow): 
       speculative_accepted_tokens = COALESCE(excluded.speculative_accepted_tokens, run_logs.speculative_accepted_tokens),
       speculative_generated_tokens = COALESCE(excluded.speculative_generated_tokens, run_logs.speculative_generated_tokens),
       duration_ms = COALESCE(excluded.duration_ms, run_logs.duration_ms),
+      provider_duration_ms = COALESCE(excluded.provider_duration_ms, run_logs.provider_duration_ms),
+      wall_duration_ms = COALESCE(excluded.wall_duration_ms, run_logs.wall_duration_ms),
       request_json = COALESCE(excluded.request_json, run_logs.request_json),
       planner_debug_json = COALESCE(excluded.planner_debug_json, run_logs.planner_debug_json),
       failed_request_json = COALESCE(excluded.failed_request_json, run_logs.failed_request_json),
@@ -687,6 +709,8 @@ export function upsertRunLog(database: DatabaseInstance, row: RunLogUpsertRow): 
     row.speculativeAcceptedTokens,
     row.speculativeGeneratedTokens,
     row.durationMs,
+    row.providerDurationMs,
+    row.wallDurationMs,
     row.requestJson,
     row.plannerDebugJson,
     row.failedRequestJson,
@@ -780,7 +804,9 @@ export function upsertRunArtifactPayload(options: {
     generationDurationMs: toNonNegativeInteger(options.artifactPayload?.generationDurationMs),
     speculativeAcceptedTokens: canonicalSpeculativeMetrics.speculativeAcceptedTokens,
     speculativeGeneratedTokens: canonicalSpeculativeMetrics.speculativeGeneratedTokens,
-    durationMs: toNonNegativeInteger(options.artifactPayload?.requestDurationMs),
+    durationMs: toNonNegativeInteger(options.artifactPayload?.wallDurationMs) ?? toNonNegativeInteger(options.artifactPayload?.requestDurationMs),
+    providerDurationMs: toNonNegativeInteger(options.artifactPayload?.providerDurationMs) ?? toNonNegativeInteger(options.artifactPayload?.requestDurationMs),
+    wallDurationMs: toNonNegativeInteger(options.artifactPayload?.wallDurationMs),
     requestJson,
     plannerDebugJson,
     failedRequestJson,
@@ -844,6 +870,8 @@ export function upsertRepoSearchRun(options: {
     speculativeAcceptedTokens: toNullableNonNegativeInteger(options.speculativeAcceptedTokens),
     speculativeGeneratedTokens: toNullableNonNegativeInteger(options.speculativeGeneratedTokens),
     durationMs: toNonNegativeInteger(options.requestDurationMs),
+    providerDurationMs: toNonNegativeInteger(options.requestDurationMs),
+    wallDurationMs: null,
     requestJson: null,
     plannerDebugJson: null,
     failedRequestJson: options.terminalState === 'failed' ? repoSearchJson : null,
@@ -1295,10 +1323,26 @@ function buildRunLogRow(options: {
     speculativeAcceptedTokens: canonicalSpeculativeMetrics.speculativeAcceptedTokens,
     speculativeGeneratedTokens: canonicalSpeculativeMetrics.speculativeGeneratedTokens,
     durationMs: toNonNegativeInteger(
+      requestPayload?.wallDurationMs
+        ?? failedRequestPayload?.wallDurationMs
+        ?? null,
+    ) ?? toNonNegativeInteger(
       requestPayload?.requestDurationMs
         ?? failedRequestPayload?.requestDurationMs
         ?? abandonedPayload?.totalElapsedMs
         ?? getTranscriptDurationMsFromText(repoSearchTranscriptJsonl)
+        ?? null,
+    ),
+    providerDurationMs: toNonNegativeInteger(
+      requestPayload?.providerDurationMs
+        ?? failedRequestPayload?.providerDurationMs
+        ?? requestPayload?.requestDurationMs
+        ?? failedRequestPayload?.requestDurationMs
+        ?? null,
+    ),
+    wallDurationMs: toNonNegativeInteger(
+      requestPayload?.wallDurationMs
+        ?? failedRequestPayload?.wallDurationMs
         ?? null,
     ),
     requestJson,
@@ -1525,6 +1569,12 @@ export function normalizeIdleSummarySnapshotRow(row: Dict | null): IdleSummarySn
     savedPercent: Number.isFinite(row.saved_percent) ? Number(row.saved_percent) : Number.NaN,
     compressionRatio: Number.isFinite(row.compression_ratio) ? Number(row.compression_ratio) : Number.NaN,
     requestDurationMsTotal: Number(row.request_duration_ms_total) || 0,
+    wallDurationMsTotal: Number(row.wall_duration_ms_total) || 0,
+    stdinWaitMsTotal: Number(row.stdin_wait_ms_total) || 0,
+    serverPreflightMsTotal: Number(row.server_preflight_ms_total) || 0,
+    lockWaitMsTotal: Number(row.lock_wait_ms_total) || 0,
+    statusRunningMsTotal: Number(row.status_running_ms_total) || 0,
+    terminalStatusMsTotal: Number(row.terminal_status_ms_total) || 0,
     avgRequestMs: Number.isFinite(row.avg_request_ms) ? Number(row.avg_request_ms) : Number.NaN,
     avgTokensPerSecond: Number.isFinite(row.avg_tokens_per_second) ? Number(row.avg_tokens_per_second) : Number.NaN,
     avgOutputTokensPerRequest: Number.NaN,

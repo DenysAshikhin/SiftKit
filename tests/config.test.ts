@@ -462,6 +462,50 @@ test('notifyStatusBackend retries running status when backend reports busy and t
   }
 });
 
+test('notifyStatusBackend bounds default busy retries for summary running status', async () => {
+  let postCount = 0;
+  const server = await new Promise<http.Server>((resolve) => {
+    const nextServer = http.createServer((req, res) => {
+      if (req.method === 'POST' && req.url === '/status') {
+        postCount += 1;
+        req.resume();
+        req.on('end', () => {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, busy: true }));
+        });
+        return;
+      }
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'not found' }));
+    });
+    nextServer.listen(0, '127.0.0.1', () => resolve(nextServer));
+  });
+  const previousDelay = process.env.SIFTKIT_SUMMARY_BUSY_RETRY_DELAY_MS;
+  try {
+    process.env.SIFTKIT_SUMMARY_BUSY_RETRY_DELAY_MS = '1';
+    const address = server.address() as AddressInfo;
+    await assert.rejects(
+      () => notifyStatusBackend({
+        running: true,
+        taskKind: 'summary',
+        statusBackendUrl: `http://127.0.0.1:${address.port}/status`,
+        requestId: 'summary-busy-default-request',
+      }),
+      /busy/i,
+    );
+    assert.equal(postCount, 3);
+  } finally {
+    if (previousDelay === undefined) {
+      delete process.env.SIFTKIT_SUMMARY_BUSY_RETRY_DELAY_MS;
+    } else {
+      process.env.SIFTKIT_SUMMARY_BUSY_RETRY_DELAY_MS = previousDelay;
+    }
+    await new Promise<void>((resolve, reject) => {
+      server.close((error: Error | undefined) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
 test('notifyStatusBackend fails closed when backend remains busy after retry budget', async () => {
   let postCount = 0;
   const server = await new Promise<http.Server>((resolve) => {

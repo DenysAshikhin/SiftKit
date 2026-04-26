@@ -22,6 +22,8 @@ export type ProviderSummaryMetrics = {
   promptCacheTokens: number | null;
   promptEvalTokens: number | null;
   requestDurationMs: number;
+  providerDurationMs: number;
+  statusRunningMs: number;
 };
 
 export async function invokeProviderSummary(options: {
@@ -51,6 +53,7 @@ export async function invokeProviderSummary(options: {
     `notify running=true phase=${options.phase} chunk=${chunkLabel} raw_chars=${options.rawInputCharacterCount} `
     + `chunk_chars=${options.chunkInputCharacterCount} prompt_chars=${options.promptCharacterCount}`
   );
+  const statusRunningStartedAt = Date.now();
   await notifyStatusBackend({
     running: true,
     taskKind: 'summary',
@@ -67,6 +70,7 @@ export async function invokeProviderSummary(options: {
     chunkTotal: options.chunkTotal,
     chunkPath: options.chunkPath,
   });
+  const statusRunningMs = Date.now() - statusRunningStartedAt;
   const startedAt = Date.now();
   let inputTokens: number | null = null;
   let outputCharacterCount: number | null = null;
@@ -91,6 +95,7 @@ export async function invokeProviderSummary(options: {
       });
       const mockSummary = getMockSummary(options.prompt, options.question, options.phase);
       outputCharacterCount = mockSummary.length;
+      const providerDurationMs = Date.now() - startedAt;
       return {
         text: mockSummary,
         metrics: {
@@ -104,7 +109,9 @@ export async function invokeProviderSummary(options: {
           thinkingTokens,
           promptCacheTokens,
           promptEvalTokens,
-          requestDurationMs: Date.now() - startedAt,
+          requestDurationMs: providerDurationMs,
+          providerDurationMs,
+          statusRunningMs,
         },
       };
     }
@@ -141,6 +148,7 @@ export async function invokeProviderSummary(options: {
       `provider done phase=${options.phase} chunk=${chunkLabel} output_chars=${outputCharacterCount} `
       + `output_tokens=${outputTokens ?? 'null'} thinking_tokens=${thinkingTokens ?? 'null'}`
     );
+    const providerDurationMs = Date.now() - startedAt;
     return {
       text: response.text.trim(),
       metrics: {
@@ -154,7 +162,9 @@ export async function invokeProviderSummary(options: {
         thinkingTokens,
         promptCacheTokens,
         promptEvalTokens,
-        requestDurationMs: Date.now() - startedAt,
+        requestDurationMs: providerDurationMs,
+        providerDurationMs,
+        statusRunningMs,
       },
     };
   } catch (error) {

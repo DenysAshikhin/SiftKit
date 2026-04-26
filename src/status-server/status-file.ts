@@ -114,6 +114,13 @@ export type StatusMetadata = {
   speculativeAcceptedTokens: number | null;
   speculativeGeneratedTokens: number | null;
   requestDurationMs: number | null;
+  providerDurationMs: number | null;
+  wallDurationMs: number | null;
+  stdinWaitMs: number | null;
+  serverPreflightMs: number | null;
+  lockWaitMs: number | null;
+  statusRunningMs: number | null;
+  terminalStatusMs: number | null;
   artifactType: string | null;
   artifactRequestId: string | null;
   artifactPayload: Dict | null;
@@ -153,6 +160,13 @@ function createEmptyStatusMetadata(): StatusMetadata {
     speculativeAcceptedTokens: null,
     speculativeGeneratedTokens: null,
     requestDurationMs: null,
+    providerDurationMs: null,
+    wallDurationMs: null,
+    stdinWaitMs: null,
+    serverPreflightMs: null,
+    lockWaitMs: null,
+    statusRunningMs: null,
+    terminalStatusMs: null,
     artifactType: null,
     artifactRequestId: null,
     artifactPayload: null,
@@ -328,6 +342,27 @@ export function parseStatusMetadataRecord(parsed: Dict): StatusMetadata {
     }
     if (Number.isFinite(parsed.requestDurationMs) && Number(parsed.requestDurationMs) >= 0) {
       metadata.requestDurationMs = Number(parsed.requestDurationMs);
+    }
+    if (Number.isFinite(parsed.providerDurationMs) && Number(parsed.providerDurationMs) >= 0) {
+      metadata.providerDurationMs = Number(parsed.providerDurationMs);
+    }
+    if (Number.isFinite(parsed.wallDurationMs) && Number(parsed.wallDurationMs) >= 0) {
+      metadata.wallDurationMs = Number(parsed.wallDurationMs);
+    }
+    if (Number.isFinite(parsed.stdinWaitMs) && Number(parsed.stdinWaitMs) >= 0) {
+      metadata.stdinWaitMs = Number(parsed.stdinWaitMs);
+    }
+    if (Number.isFinite(parsed.serverPreflightMs) && Number(parsed.serverPreflightMs) >= 0) {
+      metadata.serverPreflightMs = Number(parsed.serverPreflightMs);
+    }
+    if (Number.isFinite(parsed.lockWaitMs) && Number(parsed.lockWaitMs) >= 0) {
+      metadata.lockWaitMs = Number(parsed.lockWaitMs);
+    }
+    if (Number.isFinite(parsed.statusRunningMs) && Number(parsed.statusRunningMs) >= 0) {
+      metadata.statusRunningMs = Number(parsed.statusRunningMs);
+    }
+    if (Number.isFinite(parsed.terminalStatusMs) && Number(parsed.terminalStatusMs) >= 0) {
+      metadata.terminalStatusMs = Number(parsed.terminalStatusMs);
     }
     if (
       parsed.artifactType === 'summary_request'

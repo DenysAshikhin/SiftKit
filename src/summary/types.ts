@@ -15,6 +15,12 @@ export type SummaryClassification = 'summary' | 'command_failure' | 'unsupported
 
 export type SummaryPhase = 'leaf' | 'merge' | 'planner';
 
+export type SummaryTimingInput = {
+  processStartedAtMs?: number | null;
+  stdinWaitMs?: number | null;
+  serverPreflightMs?: number | null;
+};
+
 export type SummaryRequest = {
   question: string;
   inputText: string;
@@ -29,6 +35,7 @@ export type SummaryRequest = {
   requestTimeoutSeconds?: number;
   allowedPlannerTools?: PlannerToolName[];
   llamaCppOverrides?: Pick<RuntimeLlamaCppConfig, 'MaxTokens'>;
+  timing?: SummaryTimingInput;
 };
 
 export type SummaryResult = {
@@ -132,6 +139,13 @@ export type SummaryFailureContext = {
   promptCacheTokens?: number | null;
   promptEvalTokens?: number | null;
   requestDurationMs?: number | null;
+  providerDurationMs?: number | null;
+  wallDurationMs?: number | null;
+  stdinWaitMs?: number | null;
+  serverPreflightMs?: number | null;
+  lockWaitMs?: number | null;
+  statusRunningMs?: number | null;
+  terminalStatusMs?: number | null;
 };
 
 export type SummaryFailureError = Error & {

@@ -10,7 +10,7 @@ import {
   getConfiguredPromptPrefix,
   notifyStatusBackend,
 } from '../config/index.js';
-import { withExecutionLock } from '../execution-lock.js';
+import { acquireExecutionLock, releaseExecutionLock } from '../execution-lock.js';
 import { getErrorMessage } from '../lib/errors.js';
 import { decodeTextBuffer } from '../lib/text-encoding.js';
 import { countLlamaCppTokens } from '../providers/llama-cpp.js';
@@ -54,6 +54,7 @@ import {
   type ProviderSummaryMetrics,
 } from './provider-invoke.js';
 import { invokePlannerMode } from './planner/mode.js';
+import { parseDeterministicTestOutput } from './test-output.js';
 import type {
   ChunkPromptContext,
   StructuredModelDecision,
@@ -72,6 +73,8 @@ type SummaryCompletionMetrics = {
   promptCacheTokens: number | null;
   promptEvalTokens: number | null;
   requestDurationMs: number;
+  providerDurationMs: number;
+  statusRunningMs: number;
 };
 
 type SummaryCoreResult = {
@@ -96,7 +99,18 @@ function toSummaryCompletionMetrics(
     promptCacheTokens: metrics.promptCacheTokens,
     promptEvalTokens: metrics.promptEvalTokens,
     requestDurationMs: metrics.requestDurationMs,
+    providerDurationMs: metrics.providerDurationMs,
+    statusRunningMs: metrics.statusRunningMs,
   };
+}
+
+function getNonNegativeTiming(value: number | null | undefined): number {
+  return Number.isFinite(value) && Number(value) >= 0 ? Math.trunc(Number(value)) : 0;
+}
+
+function getSummaryWallDurationMs(request: SummaryRequest, fallbackStartedAtMs: number): number {
+  const startedAt = getNonNegativeTiming(request.timing?.processStartedAtMs) || fallbackStartedAtMs;
+  return Math.max(0, Date.now() - startedAt);
 }
 
 function isEmptyDecisionOutputError(error: unknown): boolean {
@@ -380,6 +394,8 @@ async function invokeSummaryCore(options: {
       promptCacheTokens: failureProviderMetrics ? (failureProviderMetrics as ProviderSummaryMetrics).promptCacheTokens : null,
       promptEvalTokens: failureProviderMetrics ? (failureProviderMetrics as ProviderSummaryMetrics).promptEvalTokens : null,
       requestDurationMs: failureProviderMetrics ? (failureProviderMetrics as ProviderSummaryMetrics).requestDurationMs : null,
+      providerDurationMs: failureProviderMetrics ? (failureProviderMetrics as ProviderSummaryMetrics).providerDurationMs : null,
+      statusRunningMs: failureProviderMetrics ? (failureProviderMetrics as ProviderSummaryMetrics).statusRunningMs : null,
     });
     if (
       options.backend === 'llama.cpp'
@@ -427,8 +443,70 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
   }
 
   const requestId = randomUUID();
+  const requestStartedAt = Date.now();
   traceSummary(`summarizeRequest start input_chars=${inputText.length}`);
-  return withExecutionLock(async () => {
+  const sourceKindForFastPath = request.sourceKind || 'standalone';
+  const deterministicTestSummary = sourceKindForFastPath === 'command-output' && isPassFailQuestion(request.question)
+    ? parseDeterministicTestOutput({
+      inputText,
+      commandExitCode: request.commandExitCode,
+    })
+    : null;
+  if (deterministicTestSummary) {
+    const backend = request.backend || 'unknown';
+    const model = request.model || 'unknown';
+    const result: SummaryResult = {
+      RequestId: requestId,
+      WasSummarized: true,
+      PolicyDecision: 'deterministic-test-output',
+      Backend: backend,
+      Model: model,
+      Summary: deterministicTestSummary.summary,
+      Classification: deterministicTestSummary.verdict === 'PASS' ? 'summary' : 'command_failure',
+      RawReviewRequired: deterministicTestSummary.verdict === 'FAIL',
+      ModelCallSucceeded: true,
+      ProviderError: null,
+    };
+    const deferredArtifacts = [
+      buildSummaryRequestArtifact({
+        requestId,
+        question: request.question,
+        inputText,
+        command: request.debugCommand ?? null,
+        backend,
+        model,
+        classification: result.Classification,
+        rawReviewRequired: result.RawReviewRequired,
+        summary: result.Summary,
+        providerError: result.ProviderError,
+        error: null,
+      }),
+    ];
+    await notifyStatusBackend({
+      running: false,
+      taskKind: 'summary',
+      requestId,
+      terminalState: 'completed',
+      deferredMetadata: {
+        rawInputCharacterCount: inputText.length,
+        requestDurationMs: 0,
+        providerDurationMs: 0,
+        wallDurationMs: getSummaryWallDurationMs(request, requestStartedAt),
+        stdinWaitMs: getNonNegativeTiming(request.timing?.stdinWaitMs),
+        serverPreflightMs: getNonNegativeTiming(request.timing?.serverPreflightMs),
+        lockWaitMs: 0,
+        statusRunningMs: 0,
+        terminalStatusMs: 0,
+      },
+      deferredArtifacts,
+    });
+    clearSummaryArtifactState(requestId);
+    return result;
+  }
+  const lockStartedAt = Date.now();
+  const lock = await acquireExecutionLock();
+  const lockWaitMs = Date.now() - lockStartedAt;
+  try {
     let config: SiftConfig | null = null;
     let backend = request.backend || 'unknown';
     let model = request.model || 'unknown';
@@ -496,6 +574,14 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
           terminalState: 'completed',
           deferredMetadata: {
             rawInputCharacterCount: inputText.length,
+            requestDurationMs: 0,
+            providerDurationMs: 0,
+            wallDurationMs: getSummaryWallDurationMs(request, requestStartedAt),
+            stdinWaitMs: getNonNegativeTiming(request.timing?.stdinWaitMs),
+            serverPreflightMs: getNonNegativeTiming(request.timing?.serverPreflightMs),
+            lockWaitMs,
+            statusRunningMs: 0,
+            terminalStatusMs: 0,
           },
           deferredArtifacts,
         });
@@ -570,6 +656,13 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
             promptCacheTokens: summaryCore.completionMetrics?.promptCacheTokens ?? null,
             promptEvalTokens: summaryCore.completionMetrics?.promptEvalTokens ?? null,
             requestDurationMs: summaryCore.completionMetrics?.requestDurationMs ?? null,
+            providerDurationMs: summaryCore.completionMetrics?.providerDurationMs ?? summaryCore.completionMetrics?.requestDurationMs ?? null,
+            wallDurationMs: getSummaryWallDurationMs(request, requestStartedAt),
+            stdinWaitMs: getNonNegativeTiming(request.timing?.stdinWaitMs),
+            serverPreflightMs: getNonNegativeTiming(request.timing?.serverPreflightMs),
+            lockWaitMs,
+            statusRunningMs: summaryCore.completionMetrics?.statusRunningMs ?? null,
+            terminalStatusMs: 0,
           },
           deferredArtifacts,
         });
@@ -635,6 +728,13 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
               promptCacheTokens: failureContext?.promptCacheTokens ?? null,
               promptEvalTokens: failureContext?.promptEvalTokens ?? null,
               requestDurationMs: failureContext?.requestDurationMs ?? null,
+              providerDurationMs: failureContext?.providerDurationMs ?? failureContext?.requestDurationMs ?? null,
+              wallDurationMs: failureContext?.wallDurationMs ?? getSummaryWallDurationMs(request, requestStartedAt),
+              stdinWaitMs: failureContext?.stdinWaitMs ?? getNonNegativeTiming(request.timing?.stdinWaitMs),
+              serverPreflightMs: failureContext?.serverPreflightMs ?? getNonNegativeTiming(request.timing?.serverPreflightMs),
+              lockWaitMs: failureContext?.lockWaitMs ?? lockWaitMs,
+              statusRunningMs: failureContext?.statusRunningMs ?? null,
+              terminalStatusMs: failureContext?.terminalStatusMs ?? 0,
             },
             deferredArtifacts,
           });
@@ -645,7 +745,9 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
       clearSummaryArtifactState(requestId);
       throw error;
     }
-  });
+  } finally {
+    await releaseExecutionLock(lock);
+  }
 }
 
 export function readSummaryInput(options: {
