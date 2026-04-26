@@ -34,11 +34,13 @@ import {
 import {
   buildStatusRequestLogMessage,
   ensureRunLogsTable,
+  getStatusArtifactPath,
   upsertRunArtifactPayload,
 } from './dashboard-runs.js';
 import type {
   ActiveRunState,
   DatabaseInstance,
+  DeferredArtifact,
   ExecutionLease,
   ModelRequestLock,
   ServerContext,
@@ -145,6 +147,107 @@ export function logAbandonedRun(ctx: ServerContext, runState: ActiveRunState, no
   } catch {
     // Best-effort - don't fail the incoming request.
   }
+}
+
+function persistDeferredArtifact(ctx: ServerContext, artifact: DeferredArtifact): void {
+  const artifactPath = getStatusArtifactPath({
+    requestId: artifact.artifactRequestId,
+    taskKind: null,
+    terminalState: null,
+    errorMessage: null,
+    promptCharacterCount: null,
+    promptTokenCount: null,
+    rawInputCharacterCount: null,
+    chunkInputCharacterCount: null,
+    budgetSource: null,
+    inputCharactersPerContextToken: null,
+    chunkThresholdCharacters: null,
+    chunkIndex: null,
+    chunkTotal: null,
+    chunkPath: null,
+    inputTokens: null,
+    outputCharacterCount: null,
+    outputTokens: null,
+    toolTokens: null,
+    thinkingTokens: null,
+    toolStats: null,
+    promptCacheTokens: null,
+    promptEvalTokens: null,
+    speculativeAcceptedTokens: null,
+    speculativeGeneratedTokens: null,
+    requestDurationMs: null,
+    artifactType: artifact.artifactType,
+    artifactRequestId: artifact.artifactRequestId,
+    artifactPayload: artifact.artifactPayload,
+    deferredMetadata: null,
+    deferredArtifacts: null,
+  });
+  if (!artifactPath) {
+    throw new Error(`Unsupported deferred artifact type: ${artifact.artifactType}`);
+  }
+  upsertRuntimeJsonArtifact({
+    id: `status:${artifact.artifactType}:${artifact.artifactRequestId}`,
+    artifactKind: `status_${artifact.artifactType}`,
+    requestId: artifact.artifactRequestId,
+    title: artifactPath,
+    payload: artifact.artifactPayload,
+  });
+  upsertRunArtifactPayload({
+    database: getIdleSummaryDatabase(ctx),
+    requestId: artifact.artifactRequestId,
+    artifactType: artifact.artifactType,
+    artifactPayload: artifact.artifactPayload,
+  });
+}
+
+function scheduleDeferredArtifactDrain(ctx: ServerContext): void {
+  if (ctx.deferredArtifactDrainScheduled || ctx.deferredArtifactDrainRunning || ctx.deferredArtifactQueue.length === 0) {
+    return;
+  }
+  ctx.deferredArtifactDrainScheduled = true;
+  const timer = setTimeout(() => {
+    void drainDeferredArtifacts(ctx);
+  }, 25);
+  if (typeof timer.unref === 'function') {
+    timer.unref();
+  }
+}
+
+async function drainDeferredArtifacts(ctx: ServerContext): Promise<void> {
+  if (ctx.deferredArtifactDrainRunning) {
+    return;
+  }
+  ctx.deferredArtifactDrainScheduled = false;
+  ctx.deferredArtifactDrainRunning = true;
+  try {
+    while (ctx.deferredArtifactQueue.length > 0) {
+      const artifact = ctx.deferredArtifactQueue.shift();
+      if (!artifact) {
+        continue;
+      }
+      try {
+        persistDeferredArtifact(ctx, artifact);
+      } catch (error) {
+        process.stderr.write(
+          `[siftKitStatus] Failed to persist deferred artifact type=${artifact.artifactType} `
+          + `request_id=${artifact.artifactRequestId}: ${error instanceof Error ? error.message : String(error)}\n`
+        );
+      }
+    }
+  } finally {
+    ctx.deferredArtifactDrainRunning = false;
+    if (ctx.deferredArtifactQueue.length > 0) {
+      scheduleDeferredArtifactDrain(ctx);
+    }
+  }
+}
+
+export function enqueueDeferredArtifacts(ctx: ServerContext, artifacts: DeferredArtifact[]): void {
+  if (!Array.isArray(artifacts) || artifacts.length === 0) {
+    return;
+  }
+  ctx.deferredArtifactQueue.push(...artifacts);
+  scheduleDeferredArtifactDrain(ctx);
 }
 
 // ---------------------------------------------------------------------------

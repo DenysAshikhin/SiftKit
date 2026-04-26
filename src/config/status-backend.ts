@@ -152,6 +152,12 @@ export type NotifyStatusBackendOptions = {
   artifactType?: 'summary_request' | 'planner_debug' | 'planner_failed' | null;
   artifactRequestId?: string | null;
   artifactPayload?: Record<string, unknown> | null;
+  deferredMetadata?: Record<string, unknown> | null;
+  deferredArtifacts?: Array<{
+    artifactType: 'summary_request' | 'planner_debug' | 'planner_failed';
+    artifactRequestId: string;
+    artifactPayload: Record<string, unknown>;
+  }> | null;
 };
 
 export async function notifyStatusBackend(options: NotifyStatusBackendOptions): Promise<void> {
@@ -257,6 +263,34 @@ export async function notifyStatusBackend(options: NotifyStatusBackendOptions): 
     && !Array.isArray(options.artifactPayload)
   ) {
     body.artifactPayload = options.artifactPayload;
+  }
+  if (
+    options.deferredMetadata
+    && typeof options.deferredMetadata === 'object'
+    && !Array.isArray(options.deferredMetadata)
+  ) {
+    body.deferredMetadata = options.deferredMetadata;
+  }
+  if (!options.running && options.terminalState && Array.isArray(options.deferredArtifacts) && options.deferredArtifacts.length > 0) {
+    const deferredArtifacts = options.deferredArtifacts
+      .filter((artifact) => (
+        artifact
+        && typeof artifact === 'object'
+        && typeof artifact.artifactType === 'string'
+        && typeof artifact.artifactRequestId === 'string'
+        && artifact.artifactRequestId.trim()
+        && artifact.artifactPayload
+        && typeof artifact.artifactPayload === 'object'
+        && !Array.isArray(artifact.artifactPayload)
+      ))
+      .map((artifact) => ({
+        artifactType: artifact.artifactType,
+        artifactRequestId: artifact.artifactRequestId.trim(),
+        artifactPayload: artifact.artifactPayload,
+      }));
+    if (deferredArtifacts.length > 0) {
+      body.deferredArtifacts = deferredArtifacts;
+    }
   }
 
   const url = (options.statusBackendUrl && options.statusBackendUrl.trim()) ? options.statusBackendUrl.trim() : getStatusBackendUrl();

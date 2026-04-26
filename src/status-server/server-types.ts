@@ -42,6 +42,12 @@ export type ManagedLlamaLogRef = {
   baseUrl: string | null;
 };
 
+export type DeferredArtifact = {
+  artifactType: 'summary_request' | 'planner_debug' | 'planner_failed';
+  artifactRequestId: string;
+  artifactPayload: Dict;
+};
+
 export type SpawnedScript = { child: ChildProcess; logRef: ManagedLlamaLogRef };
 export type EnsureManagedLlamaOptions = { resetStatusBeforeCheck?: boolean; allowUnconfigured?: boolean };
 export type ShutdownManagedLlamaOptions = { force?: boolean; timeoutMs?: number };
@@ -79,6 +85,9 @@ export type ServerContext = {
   activeModelRequest: ModelRequestLock | null;
   modelRequestQueue: ModelRequestWaiter[];
   activeExecutionLease: ExecutionLease | null;
+  deferredArtifactQueue: DeferredArtifact[];
+  deferredArtifactDrainScheduled: boolean;
+  deferredArtifactDrainRunning: boolean;
 
   // Idle summary
   pendingIdleSummaryMetadata: {

@@ -1,5 +1,4 @@
 import * as fs from 'node:fs';
-import { notifyStatusBackend } from '../config/index.js';
 import { createTracer } from '../lib/trace.js';
 import {
   getPlannerDebugPath,
@@ -43,6 +42,12 @@ export function attachSummaryFailureContext(
 
 const plannerDebugPayloadByRequestId = new Map<string, Record<string, unknown>>();
 const plannerFailedArtifactByRequestId = new Set<string>();
+
+export type SummaryDeferredArtifact = {
+  artifactType: 'summary_request' | 'planner_debug' | 'planner_failed';
+  artifactRequestId: string;
+  artifactPayload: Record<string, unknown>;
+};
 
 export function readPlannerDebugPayload(requestId: string): Record<string, unknown> {
   return plannerDebugPayloadByRequestId.get(requestId) ?? {};
@@ -96,29 +101,18 @@ export function createPlannerDebugRecorder(options: {
   };
 }
 
-// ---------- artifact posting via status backend ---------- //
+// ---------- deferred artifact payload builders ---------- //
 
-async function postSummaryArtifact(options: {
-  requestId: string;
-  artifactType: 'summary_request' | 'planner_debug' | 'planner_failed';
-  artifactPayload: Record<string, unknown>;
-}): Promise<void> {
-  await notifyStatusBackend({
-    running: false,
-    requestId: options.requestId,
-    artifactType: options.artifactType,
-    artifactRequestId: options.requestId,
-    artifactPayload: options.artifactPayload,
-  });
-}
-
-export async function finalizePlannerDebugDump(options: {
+export function buildPlannerDebugArtifact(options: {
   requestId: string;
   finalOutput: string;
   classification: SummaryClassification;
   rawReviewRequired: boolean;
   providerError?: string | null;
-}): Promise<void> {
+}): SummaryDeferredArtifact | null {
+  if (!plannerDebugPayloadByRequestId.has(options.requestId)) {
+    return null;
+  }
   updatePlannerDebugDump(options.requestId, (payload) => ({
     ...payload,
     final: {
@@ -131,28 +125,68 @@ export async function finalizePlannerDebugDump(options: {
   }));
   const payload = readPlannerDebugPayload(options.requestId);
   if (Object.keys(payload).length === 0) {
-    return;
+    return null;
   }
-  await postSummaryArtifact({
-    requestId: options.requestId,
+  return {
     artifactType: 'planner_debug',
+    artifactRequestId: options.requestId,
     artifactPayload: payload,
-  });
+  };
+}
+
+export async function finalizePlannerDebugDump(options: {
+  requestId: string;
+  finalOutput: string;
+  classification: SummaryClassification;
+  rawReviewRequired: boolean;
+  providerError?: string | null;
+}): Promise<void> {
+  void buildPlannerDebugArtifact(options);
+}
+
+export function buildDeferredPlannerDebugPath(requestId: string): string | null {
+  return plannerDebugPayloadByRequestId.has(requestId) || fs.existsSync(getPlannerDebugPath(requestId))
+    ? getPlannerDebugPath(requestId)
+    : null;
 }
 
 export function buildPlannerFailureErrorMessage(options: {
   requestId: string;
   reason?: string | null;
 }): string {
-  const debugPath = getPlannerDebugPath(options.requestId);
+  const debugPath = buildDeferredPlannerDebugPath(options.requestId);
   const final = getRecord(readPlannerDebugPayload(options.requestId).final);
   const reason = options.reason
     || (typeof final?.reason === 'string' ? final.reason : null)
     || 'planner_failed';
-  const debugSuffix = fs.existsSync(debugPath)
+  const debugSuffix = debugPath
     ? ` Planner debug dump: ${debugPath}`
     : '';
   return `Planner mode failed: ${reason}.${debugSuffix}`;
+}
+
+export function buildFailedRequestArtifact(options: {
+  requestId: string;
+  question: string;
+  inputText: string;
+  command?: string | null;
+  error: string;
+  providerError?: string | null;
+}): SummaryDeferredArtifact {
+  plannerFailedArtifactByRequestId.add(options.requestId);
+  return {
+    artifactType: 'planner_failed',
+    artifactRequestId: options.requestId,
+    artifactPayload: {
+      requestId: options.requestId,
+      command: options.command ?? null,
+      question: options.question,
+      inputText: options.inputText,
+      error: options.error,
+      providerError: options.providerError ?? options.error,
+      plannerDebugPath: buildDeferredPlannerDebugPath(options.requestId),
+    },
+  };
 }
 
 export async function writeFailedRequestDump(options: {
@@ -163,20 +197,41 @@ export async function writeFailedRequestDump(options: {
   error: string;
   providerError?: string | null;
 }): Promise<void> {
-  await postSummaryArtifact({
-    requestId: options.requestId,
-    artifactType: 'planner_failed',
+  void buildFailedRequestArtifact(options);
+}
+
+export function buildSummaryRequestArtifact(options: {
+  requestId: string;
+  question: string;
+  inputText: string;
+  command?: string | null;
+  backend: string;
+  model: string;
+  classification?: SummaryClassification | null;
+  rawReviewRequired?: boolean | null;
+  summary?: string | null;
+  providerError?: string | null;
+  error?: string | null;
+}): SummaryDeferredArtifact {
+  return {
+    artifactType: 'summary_request',
+    artifactRequestId: options.requestId,
     artifactPayload: {
       requestId: options.requestId,
       command: options.command ?? null,
       question: options.question,
       inputText: options.inputText,
-      error: options.error,
-      providerError: options.providerError ?? options.error,
-      plannerDebugPath: plannerDebugPayloadByRequestId.has(options.requestId) ? getPlannerDebugPath(options.requestId) : null,
+      backend: options.backend,
+      model: options.model,
+      classification: options.classification ?? null,
+      ...(options.rawReviewRequired ? { rawReviewRequired: true } : {}),
+      summary: options.summary ?? null,
+      providerError: options.providerError ?? null,
+      error: options.error ?? null,
+      plannerDebugPath: buildDeferredPlannerDebugPath(options.requestId),
+      failedRequestPath: plannerFailedArtifactByRequestId.has(options.requestId) ? getPlannerFailedPath(options.requestId) : null,
     },
-  });
-  plannerFailedArtifactByRequestId.add(options.requestId);
+  };
 }
 
 export async function writeSummaryRequestDump(options: {
@@ -192,25 +247,7 @@ export async function writeSummaryRequestDump(options: {
   providerError?: string | null;
   error?: string | null;
 }): Promise<void> {
-  await postSummaryArtifact({
-    requestId: options.requestId,
-    artifactType: 'summary_request',
-    artifactPayload: {
-      requestId: options.requestId,
-      command: options.command ?? null,
-      question: options.question,
-      inputText: options.inputText,
-      backend: options.backend,
-      model: options.model,
-      classification: options.classification ?? null,
-      ...(options.rawReviewRequired ? { rawReviewRequired: true } : {}),
-      summary: options.summary ?? null,
-      providerError: options.providerError ?? null,
-      error: options.error ?? null,
-      plannerDebugPath: plannerDebugPayloadByRequestId.has(options.requestId) ? getPlannerDebugPath(options.requestId) : null,
-      failedRequestPath: plannerFailedArtifactByRequestId.has(options.requestId) ? getPlannerFailedPath(options.requestId) : null,
-    },
-  });
+  void buildSummaryRequestArtifact(options);
 }
 
 export function appendTestProviderEvent(event: Record<string, unknown>): void {

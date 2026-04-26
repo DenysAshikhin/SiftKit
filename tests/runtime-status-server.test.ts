@@ -332,6 +332,101 @@ test('real status server starts managed llama.cpp during server startup before s
   });
 });
 
+test('real status server accepts deferred summary artifacts on terminal posts and drains them after responding', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
+    const requestId = 'deferred-summary-request';
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          running: true,
+          requestId,
+          taskKind: 'summary',
+          rawInputCharacterCount: 400,
+          promptCharacterCount: 410,
+          promptTokenCount: 100,
+        }),
+      });
+
+      const terminalResponse = await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          running: false,
+          requestId,
+          taskKind: 'summary',
+          terminalState: 'completed',
+          deferredMetadata: {
+            rawInputCharacterCount: 400,
+            promptCharacterCount: 410,
+            inputTokens: 100,
+            outputCharacterCount: 120,
+            outputTokens: 25,
+            requestDurationMs: 800,
+          },
+          deferredArtifacts: [
+            {
+              artifactType: 'summary_request',
+              artifactRequestId: requestId,
+              artifactPayload: {
+                requestId,
+                question: 'Summarize this short input.',
+                inputText: 'Line one.\nLine two.',
+                backend: 'mock',
+                model: 'mock-model',
+                classification: 'summary',
+                summary: 'mock summary',
+              },
+            },
+          ],
+        }),
+      });
+
+      assert.equal(terminalResponse.ok, true);
+      const immediateStatus = await requestJson(statusUrl);
+      assert.equal(immediateStatus.metrics.inputTokensTotal, 0);
+      assert.equal(immediateStatus.metrics.outputTokensTotal, 0);
+
+      const immediateDb = new Database(runtimeDbPath, { readonly: true });
+      try {
+        const immediateRow = immediateDb.prepare(`
+          SELECT request_json
+          FROM run_logs
+          WHERE request_id = ?
+        `).get(requestId) as { request_json?: string | null } | undefined;
+        assert.equal(immediateRow?.request_json ?? null, null);
+      } finally {
+        immediateDb.close();
+      }
+
+      await waitForAsyncExpectation(async () => {
+        const eventualStatus = await requestJson(statusUrl);
+        assert.equal(eventualStatus.metrics.inputTokensTotal, 100);
+        assert.equal(eventualStatus.metrics.outputTokensTotal, 25);
+        const verifyDb = new Database(runtimeDbPath, { readonly: true });
+        try {
+          const row = verifyDb.prepare(`
+            SELECT request_json
+            FROM run_logs
+            WHERE request_id = ?
+          `).get(requestId) as { request_json?: string | null } | undefined;
+          assert.equal(typeof row?.request_json, 'string');
+          assert.match(String(row?.request_json || ''), /mock summary/u);
+        } finally {
+          verifyDb.close();
+        }
+      }, 2000);
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
 test('managed llama scripts no longer receive status-path coordination args or env vars', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');

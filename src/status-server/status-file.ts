@@ -117,11 +117,17 @@ export type StatusMetadata = {
   artifactType: string | null;
   artifactRequestId: string | null;
   artifactPayload: Dict | null;
+  deferredMetadata: Dict | null;
+  deferredArtifacts: Array<{
+    artifactType: 'summary_request' | 'planner_debug' | 'planner_failed';
+    artifactRequestId: string;
+    artifactPayload: Dict;
+  }> | null;
   totalOutputTokens?: number | null;
 };
 
-export function parseStatusMetadata(bodyText: string): StatusMetadata {
-  const metadata: StatusMetadata = {
+function createEmptyStatusMetadata(): StatusMetadata {
+  return {
     requestId: null,
     taskKind: null,
     terminalState: null,
@@ -150,12 +156,17 @@ export function parseStatusMetadata(bodyText: string): StatusMetadata {
     artifactType: null,
     artifactRequestId: null,
     artifactPayload: null,
+    deferredArtifacts: null,
+    deferredMetadata: null,
   };
-  if (!bodyText || !bodyText.trim()) {
+}
+
+export function parseStatusMetadataRecord(parsed: Dict): StatusMetadata {
+  const metadata = createEmptyStatusMetadata();
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     return metadata;
   }
   try {
-    const parsed = JSON.parse(bodyText) as Dict;
     if (typeof parsed.requestId === 'string' && parsed.requestId.trim()) {
       metadata.requestId = parsed.requestId.trim();
     }
@@ -335,8 +346,58 @@ export function parseStatusMetadata(bodyText: string): StatusMetadata {
     ) {
       metadata.artifactPayload = parsed.artifactPayload as Dict;
     }
+    if (
+      parsed.deferredMetadata
+      && typeof parsed.deferredMetadata === 'object'
+      && !Array.isArray(parsed.deferredMetadata)
+    ) {
+      metadata.deferredMetadata = parsed.deferredMetadata as Dict;
+    }
+    if (Array.isArray(parsed.deferredArtifacts)) {
+      const deferredArtifacts = parsed.deferredArtifacts.flatMap((entry): Array<{
+        artifactType: 'summary_request' | 'planner_debug' | 'planner_failed';
+        artifactRequestId: string;
+        artifactPayload: Dict;
+      }> => {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+          return [];
+        }
+        const record = entry as Dict;
+        if (
+          record.artifactType !== 'summary_request'
+          && record.artifactType !== 'planner_debug'
+          && record.artifactType !== 'planner_failed'
+        ) {
+          return [];
+        }
+        if (typeof record.artifactRequestId !== 'string' || !record.artifactRequestId.trim()) {
+          return [];
+        }
+        if (!record.artifactPayload || typeof record.artifactPayload !== 'object' || Array.isArray(record.artifactPayload)) {
+          return [];
+        }
+        return [{
+          artifactType: record.artifactType,
+          artifactRequestId: record.artifactRequestId.trim(),
+          artifactPayload: record.artifactPayload as Dict,
+        }];
+      });
+      metadata.deferredArtifacts = deferredArtifacts.length > 0 ? deferredArtifacts : null;
+    }
   } catch {
     return metadata;
   }
   return metadata;
+}
+
+export function parseStatusMetadata(bodyText: string): StatusMetadata {
+  const metadata = createEmptyStatusMetadata();
+  if (!bodyText || !bodyText.trim()) {
+    return metadata;
+  }
+  try {
+    return parseStatusMetadataRecord(JSON.parse(bodyText) as Dict);
+  } catch {
+    return metadata;
+  }
 }

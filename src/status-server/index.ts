@@ -152,6 +152,9 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     activeModelRequest: null,
     modelRequestQueue: [],
     activeExecutionLease: null,
+    deferredArtifactQueue: [],
+    deferredArtifactDrainScheduled: false,
+    deferredArtifactDrainRunning: false,
     pendingIdleSummaryMetadata: {
       inputCharactersPerContextToken: null,
       chunkThresholdCharacters: null,

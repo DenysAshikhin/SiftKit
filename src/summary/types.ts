@@ -125,6 +125,13 @@ export type SummaryFailureContext = {
   chunkIndex?: number | null;
   chunkTotal?: number | null;
   chunkPath?: string | null;
+  inputTokens?: number | null;
+  outputCharacterCount?: number | null;
+  outputTokens?: number | null;
+  thinkingTokens?: number | null;
+  promptCacheTokens?: number | null;
+  promptEvalTokens?: number | null;
+  requestDurationMs?: number | null;
 };
 
 export type SummaryFailureError = Error & {

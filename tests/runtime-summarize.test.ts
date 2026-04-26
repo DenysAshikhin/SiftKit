@@ -155,7 +155,7 @@ test('summarizeRequest does not recurse forever when token-aware planning return
       assert.equal(server.state.chatRequests.length, 1);
       assert.equal(
         server.state.statusPosts.filter((post) => !post.artifactType).length,
-        3,
+        2,
       );
     }, {
       config: {
@@ -649,13 +649,13 @@ test('runCommand classifies missing executables as command failures with raw rev
   });
 });
 
-test('summarizeRequest writes a request artifact through status posts for successful calls', async () => {
+test('summarizeRequest queues request artifacts on the terminal status post and persists them asynchronously for successful calls', async () => {
   await withTempEnv(async () => {
     const requestLogsPath = getRequestLogsPath();
     fs.mkdirSync(requestLogsPath, { recursive: true });
     const before = new Set(fs.readdirSync(requestLogsPath));
 
-    await withStubServer(async () => {
+    await withStubServer(async (server) => {
       const result = await summarizeRequest({
         question: 'Summarize this short input.',
         inputText: 'Line one.\nLine two.',
@@ -667,6 +667,32 @@ test('summarizeRequest writes a request artifact through status posts for succes
       });
 
       assert.equal(result.Classification, 'summary');
+      const terminalPost = server.state.statusPosts.findLast((post) => (
+        post.running === false
+        && post.taskKind === 'summary'
+        && post.terminalState === 'completed'
+      ));
+      assert.ok(terminalPost);
+      assert.equal(terminalPost.promptCharacterCount, undefined);
+      assert.equal(terminalPost.inputTokens, undefined);
+      assert.equal(terminalPost.outputCharacterCount, undefined);
+      assert.equal(terminalPost.outputTokens, undefined);
+      assert.equal(typeof terminalPost.deferredMetadata, 'object');
+      assert.ok(Number.isFinite(terminalPost.deferredMetadata.outputCharacterCount));
+      assert.ok(terminalPost.deferredMetadata.outputCharacterCount > 0);
+      assert.ok(Array.isArray(terminalPost.deferredArtifacts));
+      assert.equal(terminalPost.deferredArtifacts.length, 1);
+      assert.equal(terminalPost.deferredArtifacts[0].artifactType, 'summary_request');
+
+      const immediateAfter = fs.readdirSync(requestLogsPath);
+      const immediateAdded = immediateAfter.filter((entry) => !before.has(entry));
+      assert.equal(immediateAdded.length, 0);
+
+      await waitForAsyncExpectation(async () => {
+        const after = fs.readdirSync(requestLogsPath);
+        const added = after.filter((entry) => !before.has(entry));
+        assert.equal(added.length, 1);
+      }, 2000);
     });
 
     const after = fs.readdirSync(requestLogsPath);
@@ -686,20 +712,26 @@ test('summarizeRequest writes a request artifact through status posts for succes
   });
 });
 
-test('artifact upload failures fail closed with the canonical message', async () => {
+test('summary succeeds when deferred artifact persistence is unavailable', async () => {
   await withTempEnv(async () => {
-    await withStubServer(async () => {
-      await assert.rejects(
-        () => summarizeRequest({
-          question: 'Summarize this short input.',
-          inputText: 'Line one.\nLine two.',
-          format: 'text',
-          policyProfile: 'general',
-          backend: 'mock',
-          model: 'mock-model',
-        }),
-        new RegExp(getStatusServerUnavailableMessage().replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u')
-      );
+    await withStubServer(async (server) => {
+      const result = await summarizeRequest({
+        question: 'Summarize this short input.',
+        inputText: 'Line one.\nLine two.',
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'mock',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      const terminalPost = server.state.statusPosts.findLast((post) => (
+        post.running === false
+        && post.taskKind === 'summary'
+        && post.terminalState === 'completed'
+      ));
+      assert.ok(terminalPost);
+      assert.ok(Array.isArray(terminalPost.deferredArtifacts));
     }, {
       failArtifactPosts: true,
     });

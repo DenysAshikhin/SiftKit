@@ -139,6 +139,134 @@ function spawnProcess(command, args, options = {}) {
   });
 }
 
+function scheduleDeferredArtifactWrite(state, parsed, options) {
+  if (!Array.isArray(parsed?.deferredArtifacts) || parsed.deferredArtifacts.length === 0) {
+    return;
+  }
+  const deferredArtifacts = parsed.deferredArtifacts
+    .filter((entry) => entry && typeof entry === 'object' && !Array.isArray(entry))
+    .map((entry) => ({
+      running: false,
+      statusPath: parsed.statusPath,
+      artifactType: entry.artifactType,
+      artifactRequestId: entry.artifactRequestId,
+      artifactPayload: entry.artifactPayload,
+    }));
+  if (deferredArtifacts.length === 0) {
+    return;
+  }
+  setTimeout(() => {
+    for (const artifactPost of deferredArtifacts) {
+      const artifactPath = resolveArtifactLogPathFromStatusPost(artifactPost);
+      if (!artifactPath) {
+        continue;
+      }
+      if (options.failArtifactPosts) {
+        continue;
+      }
+      if (!artifactPost.artifactPayload || typeof artifactPost.artifactPayload !== 'object' || Array.isArray(artifactPost.artifactPayload)) {
+        continue;
+      }
+      fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
+      fs.writeFileSync(artifactPath, `${JSON.stringify(artifactPost.artifactPayload, null, 2)}\n`, 'utf8');
+      state.artifactPosts.push({
+        type: artifactPost.artifactType,
+        requestId: artifactPost.artifactRequestId,
+        path: artifactPath,
+      });
+    }
+  }, 25);
+}
+
+function applyDeferredStatusMetrics(state, parsed) {
+  if (!parsed?.deferredMetadata || typeof parsed.deferredMetadata !== 'object' || Array.isArray(parsed.deferredMetadata)) {
+    return;
+  }
+  const metadata = parsed.deferredMetadata;
+  state.metrics.inputCharactersTotal += Number.isFinite(metadata.promptCharacterCount) ? Number(metadata.promptCharacterCount) : 0;
+  state.metrics.outputCharactersTotal += Number.isFinite(metadata.outputCharacterCount) ? Number(metadata.outputCharacterCount) : 0;
+  state.metrics.inputTokensTotal += Number.isFinite(metadata.inputTokens) ? Number(metadata.inputTokens) : 0;
+  state.metrics.outputTokensTotal += Number.isFinite(metadata.outputTokens) ? Number(metadata.outputTokens) : 0;
+  state.metrics.thinkingTokensTotal += Number.isFinite(metadata.thinkingTokens) ? Number(metadata.thinkingTokens) : 0;
+  state.metrics.toolTokensTotal += Number.isFinite(metadata.toolTokens) ? Number(metadata.toolTokens) : 0;
+  state.metrics.requestDurationMsTotal += Number.isFinite(metadata.requestDurationMs) ? Number(metadata.requestDurationMs) : 0;
+  state.metrics.completedRequestCount += 1;
+  const taskKind = parsed.taskKind;
+  if (taskKind === 'summary' || taskKind === 'plan' || taskKind === 'repo-search' || taskKind === 'chat') {
+    const taskTotals = state.metrics.taskTotals[taskKind];
+    taskTotals.inputCharactersTotal += Number.isFinite(metadata.promptCharacterCount) ? Number(metadata.promptCharacterCount) : 0;
+    taskTotals.outputCharactersTotal += Number.isFinite(metadata.outputCharacterCount) ? Number(metadata.outputCharacterCount) : 0;
+    taskTotals.inputTokensTotal += Number.isFinite(metadata.inputTokens) ? Number(metadata.inputTokens) : 0;
+    taskTotals.outputTokensTotal += Number.isFinite(metadata.outputTokens) ? Number(metadata.outputTokens) : 0;
+    taskTotals.thinkingTokensTotal += Number.isFinite(metadata.thinkingTokens) ? Number(metadata.thinkingTokens) : 0;
+    taskTotals.toolTokensTotal += Number.isFinite(metadata.toolTokens) ? Number(metadata.toolTokens) : 0;
+    taskTotals.requestDurationMsTotal += Number.isFinite(metadata.requestDurationMs) ? Number(metadata.requestDurationMs) : 0;
+    taskTotals.completedRequestCount += 1;
+    if (metadata.toolStats && typeof metadata.toolStats === 'object' && !Array.isArray(metadata.toolStats)) {
+      const existing = state.metrics.toolStats[taskKind];
+      for (const [toolType, rawStats] of Object.entries(metadata.toolStats)) {
+        if (!rawStats || typeof rawStats !== 'object' || Array.isArray(rawStats)) {
+          continue;
+        }
+        const current = existing[toolType] || {
+          calls: 0,
+          outputCharsTotal: 0,
+          outputTokensTotal: 0,
+          outputTokensEstimatedCount: 0,
+          lineReadCalls: 0,
+          lineReadLinesTotal: 0,
+          lineReadTokensTotal: 0,
+          finishRejections: 0,
+          semanticRepeatRejects: 0,
+          stagnationWarnings: 0,
+          forcedFinishFromStagnation: 0,
+          promptInsertedTokens: 0,
+          rawToolResultTokens: 0,
+          newEvidenceCalls: 0,
+          noNewEvidenceCalls: 0,
+        };
+        const stats = rawStats;
+        existing[toolType] = {
+          calls: current.calls + (Number.isFinite(stats.calls) ? Number(stats.calls) : 0),
+          outputCharsTotal: current.outputCharsTotal + (Number.isFinite(stats.outputCharsTotal) ? Number(stats.outputCharsTotal) : 0),
+          outputTokensTotal: current.outputTokensTotal + (Number.isFinite(stats.outputTokensTotal) ? Number(stats.outputTokensTotal) : 0),
+          outputTokensEstimatedCount: current.outputTokensEstimatedCount + (
+            Number.isFinite(stats.outputTokensEstimatedCount) ? Number(stats.outputTokensEstimatedCount) : 0
+          ),
+          lineReadCalls: current.lineReadCalls + (Number.isFinite(stats.lineReadCalls) ? Number(stats.lineReadCalls) : 0),
+          lineReadLinesTotal: current.lineReadLinesTotal + (Number.isFinite(stats.lineReadLinesTotal) ? Number(stats.lineReadLinesTotal) : 0),
+          lineReadTokensTotal: current.lineReadTokensTotal + (Number.isFinite(stats.lineReadTokensTotal) ? Number(stats.lineReadTokensTotal) : 0),
+          finishRejections: current.finishRejections + (Number.isFinite(stats.finishRejections) ? Number(stats.finishRejections) : 0),
+          semanticRepeatRejects: current.semanticRepeatRejects + (
+            Number.isFinite(stats.semanticRepeatRejects) ? Number(stats.semanticRepeatRejects) : 0
+          ),
+          stagnationWarnings: current.stagnationWarnings + (Number.isFinite(stats.stagnationWarnings) ? Number(stats.stagnationWarnings) : 0),
+          forcedFinishFromStagnation: current.forcedFinishFromStagnation + (
+            Number.isFinite(stats.forcedFinishFromStagnation) ? Number(stats.forcedFinishFromStagnation) : 0
+          ),
+          promptInsertedTokens: current.promptInsertedTokens + (
+            Number.isFinite(stats.promptInsertedTokens) ? Number(stats.promptInsertedTokens) : 0
+          ),
+          rawToolResultTokens: current.rawToolResultTokens + (
+            Number.isFinite(stats.rawToolResultTokens) ? Number(stats.rawToolResultTokens) : 0
+          ),
+          newEvidenceCalls: current.newEvidenceCalls + (Number.isFinite(stats.newEvidenceCalls) ? Number(stats.newEvidenceCalls) : 0),
+          noNewEvidenceCalls: current.noNewEvidenceCalls + (Number.isFinite(stats.noNewEvidenceCalls) ? Number(stats.noNewEvidenceCalls) : 0),
+        };
+      }
+    }
+  }
+}
+
+function scheduleDeferredStatusMetrics(state, parsed) {
+  if (!parsed?.deferredMetadata || typeof parsed.deferredMetadata !== 'object' || Array.isArray(parsed.deferredMetadata)) {
+    return;
+  }
+  setTimeout(() => {
+    applyDeferredStatusMetrics(state, parsed);
+  }, 25);
+}
+
 async function waitForTextMatch(getText, pattern, timeoutMs = 2000) {
   const startedAt = Date.now();
   for (;;) {
@@ -413,8 +541,10 @@ async function startStubStatusServer(options = {}) {
         });
       }
       state.statusPosts.push(parsed);
+      scheduleDeferredStatusMetrics(state, parsed);
+      scheduleDeferredArtifactWrite(state, parsed, options);
       state.running = Boolean(parsed.running);
-      if (!parsed.running && !hasArtifactPayload) {
+      if (!parsed.running && !hasArtifactPayload && !parsed.deferredMetadata) {
         state.metrics.inputCharactersTotal += Number.isFinite(parsed.promptCharacterCount) ? Number(parsed.promptCharacterCount) : 0;
         state.metrics.outputCharactersTotal += Number.isFinite(parsed.outputCharacterCount) ? Number(parsed.outputCharacterCount) : 0;
         state.metrics.inputTokensTotal += Number.isFinite(parsed.inputTokens) ? Number(parsed.inputTokens) : 0;

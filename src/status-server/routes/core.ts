@@ -17,6 +17,7 @@ import {
   STATUS_TRUE,
   parseRunning,
   parseStatusMetadata,
+  parseStatusMetadataRecord,
 } from '../status-file.js';
 import { normalizeMetrics, writeMetrics, type TaskKind, type ToolTypeStats } from '../metrics.js';
 import {
@@ -51,6 +52,7 @@ import {
   acquireModelRequestWithWait,
   releaseModelRequest,
   ensureManagedLlamaReadyForModelRequest,
+  enqueueDeferredArtifacts,
   getResolvedRequestId,
   clearRunState,
   logAbandonedRun,
@@ -138,6 +140,131 @@ function buildToolStatsLogMessages(taskKind: TaskKind, stats: Record<string, Too
     );
   }
   return lines;
+}
+
+type DeferredTerminalMetadataJob = {
+  requestId: string;
+  metadata: ReturnType<typeof parseStatusMetadata>;
+  elapsedMs: number | null;
+  totalElapsedMs: number | null;
+  requestCompleted: boolean;
+  suppressLogLine: boolean;
+};
+
+function applyDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTerminalMetadataJob): void {
+  const metadata = job.metadata;
+  if (metadata.speculativeAcceptedTokens !== null || metadata.speculativeGeneratedTokens !== null) {
+    updateRunLogSpeculativeMetricsByRequestId({
+      database: getRuntimeDatabase(),
+      requestId: job.requestId,
+      speculativeAcceptedTokens: metadata.speculativeAcceptedTokens,
+      speculativeGeneratedTokens: metadata.speculativeGeneratedTokens,
+    });
+  }
+  const inputCharactersDelta = metadata.promptCharacterCount ?? 0;
+  const outputCharactersDelta = metadata.outputCharacterCount ?? 0;
+  const inputTokensDelta = metadata.inputTokens ?? 0;
+  const outputTokensDelta = metadata.outputTokens ?? 0;
+  const toolTokensDelta = metadata.toolTokens ?? 0;
+  const thinkingTokensDelta = metadata.thinkingTokens ?? 0;
+  const promptCacheTokensDelta = metadata.promptCacheTokens ?? 0;
+  const promptEvalTokensDelta = metadata.promptEvalTokens ?? 0;
+  const speculativeAcceptedTokensDelta = metadata.speculativeAcceptedTokens ?? 0;
+  const speculativeGeneratedTokensDelta = metadata.speculativeGeneratedTokens ?? 0;
+  const requestDurationMsDelta = metadata.requestDurationMs ?? 0;
+  const completedRequestDelta = job.requestCompleted ? 1 : 0;
+  const taskKind = normalizeTaskKind(metadata.taskKind);
+  const taskTotals = {
+    ...ctx.metrics.taskTotals,
+  };
+  const toolStats = {
+    ...ctx.metrics.toolStats,
+  };
+  if (taskKind) {
+    const previousTaskTotals = ctx.metrics.taskTotals[taskKind];
+    taskTotals[taskKind] = {
+      ...previousTaskTotals,
+      inputCharactersTotal: previousTaskTotals.inputCharactersTotal + inputCharactersDelta,
+      outputCharactersTotal: previousTaskTotals.outputCharactersTotal + outputCharactersDelta,
+      inputTokensTotal: previousTaskTotals.inputTokensTotal + inputTokensDelta,
+      outputTokensTotal: previousTaskTotals.outputTokensTotal + outputTokensDelta,
+      toolTokensTotal: previousTaskTotals.toolTokensTotal + toolTokensDelta,
+      thinkingTokensTotal: previousTaskTotals.thinkingTokensTotal + thinkingTokensDelta,
+      promptCacheTokensTotal: previousTaskTotals.promptCacheTokensTotal + promptCacheTokensDelta,
+      promptEvalTokensTotal: previousTaskTotals.promptEvalTokensTotal + promptEvalTokensDelta,
+      speculativeAcceptedTokensTotal: previousTaskTotals.speculativeAcceptedTokensTotal + speculativeAcceptedTokensDelta,
+      speculativeGeneratedTokensTotal: previousTaskTotals.speculativeGeneratedTokensTotal + speculativeGeneratedTokensDelta,
+      requestDurationMsTotal: previousTaskTotals.requestDurationMsTotal + requestDurationMsDelta,
+      completedRequestCount: previousTaskTotals.completedRequestCount + completedRequestDelta,
+    };
+    toolStats[taskKind] = mergeToolTypeStats(
+      ctx.metrics.toolStats[taskKind],
+      metadata.toolStats,
+    );
+  }
+  ctx.metrics = normalizeMetrics({
+    ...ctx.metrics,
+    inputCharactersTotal: ctx.metrics.inputCharactersTotal + inputCharactersDelta,
+    outputCharactersTotal: ctx.metrics.outputCharactersTotal + outputCharactersDelta,
+    inputTokensTotal: ctx.metrics.inputTokensTotal + inputTokensDelta,
+    outputTokensTotal: ctx.metrics.outputTokensTotal + outputTokensDelta,
+    toolTokensTotal: ctx.metrics.toolTokensTotal + toolTokensDelta,
+    thinkingTokensTotal: ctx.metrics.thinkingTokensTotal + thinkingTokensDelta,
+    promptCacheTokensTotal: ctx.metrics.promptCacheTokensTotal + promptCacheTokensDelta,
+    promptEvalTokensTotal: ctx.metrics.promptEvalTokensTotal + promptEvalTokensDelta,
+    speculativeAcceptedTokensTotal: ctx.metrics.speculativeAcceptedTokensTotal + speculativeAcceptedTokensDelta,
+    speculativeGeneratedTokensTotal: ctx.metrics.speculativeGeneratedTokensTotal + speculativeGeneratedTokensDelta,
+    requestDurationMsTotal: ctx.metrics.requestDurationMsTotal + requestDurationMsDelta,
+    completedRequestCount: ctx.metrics.completedRequestCount + completedRequestDelta,
+    taskTotals,
+    toolStats,
+    updatedAtUtc: new Date().toISOString(),
+  });
+  writeMetrics(ctx.metricsPath, ctx.metrics);
+  if (job.requestCompleted) {
+    ctx.idleSummaryPending = true;
+    scheduleIdleSummaryIfNeeded(ctx);
+  }
+  const logMessage = buildStatusRequestLogMessage({
+    running: false,
+    statusPath: ctx.statusPath,
+    requestId: job.requestId,
+    taskKind: metadata.taskKind,
+    terminalState: metadata.terminalState,
+    errorMessage: metadata.errorMessage,
+    promptCharacterCount: metadata.promptCharacterCount,
+    promptTokenCount: metadata.promptTokenCount,
+    rawInputCharacterCount: metadata.rawInputCharacterCount,
+    chunkInputCharacterCount: metadata.chunkInputCharacterCount,
+    budgetSource: metadata.budgetSource,
+    inputCharactersPerContextToken: metadata.inputCharactersPerContextToken,
+    chunkThresholdCharacters: metadata.chunkThresholdCharacters,
+    chunkIndex: metadata.chunkIndex,
+    chunkTotal: metadata.chunkTotal,
+    chunkPath: metadata.chunkPath,
+    elapsedMs: job.elapsedMs,
+    totalElapsedMs: job.totalElapsedMs,
+    outputTokens: metadata.outputTokens,
+    toolTokens: metadata.toolTokens,
+    totalOutputTokens: metadata.totalOutputTokens ?? null,
+  });
+  if (!job.suppressLogLine) {
+    logLine(logMessage);
+  }
+  if (taskKind && metadata.toolStats) {
+    for (const toolLogLine of buildToolStatsLogMessages(taskKind, metadata.toolStats)) {
+      logLine(toolLogLine);
+    }
+  }
+}
+
+function scheduleDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTerminalMetadataJob): void {
+  const timer = setTimeout(() => {
+    applyDeferredTerminalMetadata(ctx, job);
+  }, 25);
+  if (typeof timer.unref === 'function') {
+    timer.unref();
+  }
 }
 
 export async function handleCoreRoute(
@@ -307,6 +434,23 @@ export async function handleCoreRoute(
       return true;
     }
     const metadata = parseStatusMetadata(bodyText);
+    const deferredMetadata = metadata.deferredMetadata
+      ? parseStatusMetadataRecord(metadata.deferredMetadata)
+      : null;
+    if (deferredMetadata) {
+      deferredMetadata.requestId = metadata.requestId ?? deferredMetadata.requestId;
+      deferredMetadata.taskKind = metadata.taskKind ?? deferredMetadata.taskKind;
+      deferredMetadata.terminalState = metadata.terminalState ?? deferredMetadata.terminalState;
+      deferredMetadata.errorMessage = deferredMetadata.errorMessage ?? metadata.errorMessage;
+    }
+    if (deferredMetadata && (running || metadata.terminalState === null)) {
+      sendJson(res, 400, { error: 'deferredMetadata is only accepted on terminal running=false posts.' });
+      return true;
+    }
+    if (metadata.deferredArtifacts && (running || metadata.terminalState === null)) {
+      sendJson(res, 400, { error: 'deferredArtifacts are only accepted on terminal running=false posts.' });
+      return true;
+    }
     if (metadata.artifactType !== null) {
       if (!metadata.artifactRequestId) {
         sendJson(res, 400, { error: 'Expected artifactRequestId when artifactType is provided.' });
@@ -361,6 +505,8 @@ export async function handleCoreRoute(
       && metadata.promptEvalTokens === null
       && metadata.speculativeAcceptedTokens === null
       && metadata.speculativeGeneratedTokens === null
+      && deferredMetadata === null
+      && metadata.deferredArtifacts === null
       && metadata.requestDurationMs === null;
     if (isArtifactOnlyPost) {
       const publishedStatus = getPublishedStatusText(ctx);
@@ -438,6 +584,65 @@ export async function handleCoreRoute(
       ctx.activeRunsByRequestId.set(requestId, runState);
       ctx.activeRequestIdByStatusPath.set(statusPath, requestId);
     } else {
+      if (deferredMetadata && metadata.terminalState !== null) {
+        let requestCompletedFromQueue = false;
+        let queuedElapsedMs: number | null = null;
+        let queuedTotalElapsedMs: number | null = null;
+        if (runState && Number.isFinite(runState.currentRequestStartedAt)) {
+          const now = Date.now();
+          const resolvedOutputTokens = deferredMetadata.outputTokens ?? 0;
+          const isSingleStepNonChunk = runState.stepCount === 1
+            && runState.chunkIndex === null
+            && runState.chunkTotal === null
+            && runState.chunkPath === null;
+          suppressLogLine = metadata.terminalState === null && isSingleStepNonChunk;
+          queuedElapsedMs = now - runState.currentRequestStartedAt;
+          runState.outputTokensTotal += resolvedOutputTokens;
+          if (deferredMetadata.rawInputCharacterCount === null && runState.rawInputCharacterCount !== null) {
+            deferredMetadata.rawInputCharacterCount = runState.rawInputCharacterCount;
+          }
+          if (deferredMetadata.promptCharacterCount === null && runState.promptCharacterCount !== null) {
+            deferredMetadata.promptCharacterCount = runState.promptCharacterCount;
+          }
+          if (deferredMetadata.promptTokenCount === null && runState.promptTokenCount !== null) {
+            deferredMetadata.promptTokenCount = runState.promptTokenCount;
+          }
+          if (deferredMetadata.chunkIndex === null && runState.chunkIndex !== null) {
+            deferredMetadata.chunkIndex = runState.chunkIndex;
+          }
+          if (deferredMetadata.chunkTotal === null && runState.chunkTotal !== null) {
+            deferredMetadata.chunkTotal = runState.chunkTotal;
+          }
+          if (deferredMetadata.chunkPath === null && runState.chunkPath !== null) {
+            deferredMetadata.chunkPath = runState.chunkPath;
+          }
+          const speculativeMetrics = getManagedLlamaSpeculativeMetricsDelta(
+            ctx.managedLlamaLastStartupLogs,
+            runState.managedLlamaSpeculativeSnapshot,
+          );
+          if (speculativeMetrics) {
+            deferredMetadata.speculativeAcceptedTokens = speculativeMetrics.speculativeAcceptedTokens;
+            deferredMetadata.speculativeGeneratedTokens = speculativeMetrics.speculativeGeneratedTokens;
+          }
+          if (metadata.terminalState === 'completed') {
+            queuedTotalElapsedMs = now - runState.overallStartedAt;
+            deferredMetadata.totalOutputTokens = runState.outputTokensTotal;
+            clearRunState(ctx, requestId);
+            requestCompletedFromQueue = true;
+          } else if (metadata.terminalState === 'failed') {
+            queuedTotalElapsedMs = now - runState.overallStartedAt;
+            clearRunState(ctx, requestId);
+          }
+        }
+        scheduleDeferredTerminalMetadata(ctx, {
+          requestId,
+          metadata: deferredMetadata,
+          elapsedMs: queuedElapsedMs,
+          totalElapsedMs: queuedTotalElapsedMs,
+          requestCompleted: requestCompletedFromQueue,
+          suppressLogLine,
+        });
+      } else {
       if (runState && Number.isFinite(runState.currentRequestStartedAt)) {
         const now = Date.now();
         const resolvedOutputTokens = metadata.outputTokens ?? 0;
@@ -571,6 +776,7 @@ export async function handleCoreRoute(
         ctx.idleSummaryPending = true;
         scheduleIdleSummaryIfNeeded(ctx);
       }
+      }
     }
     const logMessage = buildStatusRequestLogMessage({
       running,
@@ -595,10 +801,10 @@ export async function handleCoreRoute(
       toolTokens: metadata.toolTokens,
       totalOutputTokens: metadata.totalOutputTokens ?? null,
     });
-    if (!suppressLogLine) {
+    if (!suppressLogLine && deferredMetadata === null) {
       logLine(logMessage);
     }
-    if (!running) {
+    if (!running && deferredMetadata === null) {
       const taskKind = normalizeTaskKind(metadata.taskKind);
       if (taskKind && metadata.toolStats) {
         for (const toolLogLine of buildToolStatsLogMessages(taskKind, metadata.toolStats)) {
@@ -608,6 +814,9 @@ export async function handleCoreRoute(
     }
     const publishedStatus = getPublishedStatusText(ctx);
     writePublishedStatus(ctx, publishedStatus);
+    if (!running && metadata.deferredArtifacts) {
+      enqueueDeferredArtifacts(ctx, metadata.deferredArtifacts);
+    }
     sendJson(res, 200, { ok: true, running: publishedStatus === STATUS_TRUE, status: publishedStatus, statusPath, configPath });
     return true;
   }

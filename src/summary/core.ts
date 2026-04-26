@@ -21,7 +21,6 @@ import {
   normalizeInputText,
 } from './measure.js';
 import {
-  appendChunkPath,
   buildCompactPrompt,
   buildPrompt,
 } from './prompt.js';
@@ -34,22 +33,26 @@ import {
 } from './structured.js';
 import {
   attachSummaryFailureContext,
+  buildFailedRequestArtifact,
+  buildPlannerDebugArtifact,
   buildPlannerFailureErrorMessage,
+  buildSummaryRequestArtifact,
   clearSummaryArtifactState,
-  finalizePlannerDebugDump,
   getSummaryFailureContext,
   traceSummary,
-  writeFailedRequestDump,
-  writeSummaryRequestDump,
 } from './artifacts.js';
 import {
   allocateLlamaCppSlotId,
   getLlamaCppChunkThresholdCharacters,
   getPlannerActivationThresholdCharacters,
   getPlannerPromptBudget,
+  sumTokenCounts,
 } from './chunking.js';
 import { getSummaryDecision, getPolicyDecision } from './decision.js';
-import { invokeProviderSummary } from './provider-invoke.js';
+import {
+  invokeProviderSummary,
+  type ProviderSummaryMetrics,
+} from './provider-invoke.js';
 import { invokePlannerMode } from './planner/mode.js';
 import type {
   ChunkPromptContext,
@@ -59,6 +62,42 @@ import type {
   SummaryRequest,
   SummaryResult,
 } from './types.js';
+
+type SummaryCompletionMetrics = {
+  promptCharacterCount: number;
+  inputTokens: number | null;
+  outputCharacterCount: number | null;
+  outputTokens: number | null;
+  thinkingTokens: number | null;
+  promptCacheTokens: number | null;
+  promptEvalTokens: number | null;
+  requestDurationMs: number;
+};
+
+type SummaryCoreResult = {
+  decision: StructuredModelDecision;
+  completionMetrics: SummaryCompletionMetrics | null;
+};
+
+function toSummaryCompletionMetrics(
+  phase: SummaryPhase,
+  chunkPath: string | null,
+  metrics: ProviderSummaryMetrics,
+): SummaryCompletionMetrics {
+  const countOutputTokensAsThinking = phase === 'leaf' && chunkPath !== null;
+  return {
+    promptCharacterCount: metrics.promptCharacterCount,
+    inputTokens: metrics.inputTokens,
+    outputCharacterCount: metrics.outputCharacterCount,
+    outputTokens: countOutputTokensAsThinking ? null : metrics.outputTokens,
+    thinkingTokens: countOutputTokensAsThinking
+      ? sumTokenCounts(metrics.thinkingTokens, metrics.outputTokens)
+      : metrics.thinkingTokens,
+    promptCacheTokens: metrics.promptCacheTokens,
+    promptEvalTokens: metrics.promptEvalTokens,
+    requestDurationMs: metrics.requestDurationMs,
+  };
+}
 
 function isEmptyDecisionOutputError(error: unknown): boolean {
   return /Provider returned an empty SiftKit decision output\./iu.test(getErrorMessage(error));
@@ -89,7 +128,7 @@ async function invokeSummaryCore(options: {
   requestTimeoutSeconds?: number;
   llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
   chunkContext?: ChunkPromptContext;
-}): Promise<StructuredModelDecision> {
+}): Promise<SummaryCoreResult> {
   const rootInputCharacterCount = options.rootInputCharacterCount ?? options.inputText.length;
   const phase = options.phase ?? 'leaf';
   const chunkThreshold = Math.max(
@@ -106,8 +145,6 @@ async function invokeSummaryCore(options: {
   const plannerActivationThreshold = options.backend === 'llama.cpp'
     ? getPlannerActivationThresholdCharacters(options.config)
     : chunkThreshold;
-  const enforceNonToolOneShot = options.backend === 'llama.cpp'
-    && options.inputText.length <= plannerActivationThreshold;
   const chunkLabel = options.chunkPath ?? (
     options.chunkIndex !== null && options.chunkTotal !== null ? `${options.chunkIndex}/${options.chunkTotal}` : 'none'
   );
@@ -145,7 +182,10 @@ async function invokeSummaryCore(options: {
       llamaCppOverrides: options.llamaCppOverrides,
     });
     if (plannerDecision) {
-      return plannerDecision;
+      return {
+        decision: plannerDecision,
+        completionMetrics: null,
+      };
     }
     throw new Error(buildPlannerFailureErrorMessage({
       requestId: options.requestId,
@@ -223,33 +263,41 @@ async function invokeSummaryCore(options: {
       llamaCppOverrides: options.llamaCppOverrides,
     });
     if (plannerDecision) {
-      return plannerDecision;
+      return {
+        decision: plannerDecision,
+        completionMetrics: null,
+      };
     }
     throw new Error(buildPlannerFailureErrorMessage({
       requestId: options.requestId,
     }));
   }
 
+  let providerMetrics: ProviderSummaryMetrics | null = null;
   try {
-    const invokeSummaryProvider = (): Promise<string> => invokeProviderSummary({
-      requestId: options.requestId,
-      slotId: options.slotId,
-      backend: options.backend,
-      config: options.config,
-      model: options.model,
-      prompt,
-      question: options.question,
-      promptCharacterCount: prompt.length,
-      promptTokenCount,
-      rawInputCharacterCount: rootInputCharacterCount,
-      chunkInputCharacterCount: options.inputText.length,
-      phase,
-      chunkIndex: options.chunkIndex ?? null,
-      chunkTotal: options.chunkTotal ?? null,
-      chunkPath: options.chunkPath ?? null,
-      requestTimeoutSeconds: options.requestTimeoutSeconds,
-      llamaCppOverrides: options.llamaCppOverrides,
-    });
+    const invokeSummaryProvider = async (): Promise<string> => {
+      const providerResult = await invokeProviderSummary({
+        requestId: options.requestId,
+        slotId: options.slotId,
+        backend: options.backend,
+        config: options.config,
+        model: options.model,
+        prompt,
+        question: options.question,
+        promptCharacterCount: prompt.length,
+        promptTokenCount,
+        rawInputCharacterCount: rootInputCharacterCount,
+        chunkInputCharacterCount: options.inputText.length,
+        phase,
+        chunkIndex: options.chunkIndex ?? null,
+        chunkTotal: options.chunkTotal ?? null,
+        chunkPath: options.chunkPath ?? null,
+        requestTimeoutSeconds: options.requestTimeoutSeconds,
+        llamaCppOverrides: options.llamaCppOverrides,
+      });
+      providerMetrics = providerResult.metrics;
+      return providerResult.text;
+    };
     const rawResponse = await invokeSummaryProvider();
     let parsedDecision: StructuredModelDecision;
     try {
@@ -281,31 +329,41 @@ async function invokeSummaryCore(options: {
           });
         }
 
-        return normalizeStructuredDecision(
-          buildConservativeChunkFallbackDecision({
-            inputText: options.inputText,
-            question: options.question,
-            format: options.format,
-          }),
-          options.format,
-        );
+        return {
+          decision: normalizeStructuredDecision(
+            buildConservativeChunkFallbackDecision({
+              inputText: options.inputText,
+              question: options.question,
+              format: options.format,
+            }),
+            options.format,
+          ),
+          completionMetrics: providerMetrics ? toSummaryCompletionMetrics(phase, options.chunkPath ?? null, providerMetrics) : null,
+        };
       }
 
       if (!allowUnsupportedInput) {
-        return normalizeStructuredDecision(
-          buildConservativeDirectFallbackDecision({
-            inputText: options.inputText,
-            question: options.question,
-            format: options.format,
-            sourceKind: options.sourceKind,
-          }),
-          options.format,
-        );
+        return {
+          decision: normalizeStructuredDecision(
+            buildConservativeDirectFallbackDecision({
+              inputText: options.inputText,
+              question: options.question,
+              format: options.format,
+              sourceKind: options.sourceKind,
+            }),
+            options.format,
+          ),
+          completionMetrics: providerMetrics ? toSummaryCompletionMetrics(phase, options.chunkPath ?? null, providerMetrics) : null,
+        };
       }
     }
 
-    return normalizeStructuredDecision(parsedDecision, options.format);
+    return {
+      decision: normalizeStructuredDecision(parsedDecision, options.format),
+      completionMetrics: providerMetrics ? toSummaryCompletionMetrics(phase, options.chunkPath ?? null, providerMetrics) : null,
+    };
   } catch (error) {
+    const failureProviderMetrics = providerMetrics as ProviderSummaryMetrics | null;
     const enrichedError = attachSummaryFailureContext(error, {
       requestId: options.requestId,
       promptCharacterCount: prompt.length,
@@ -315,6 +373,13 @@ async function invokeSummaryCore(options: {
       chunkIndex: options.chunkIndex ?? null,
       chunkTotal: options.chunkTotal ?? null,
       chunkPath: options.chunkPath ?? null,
+      inputTokens: failureProviderMetrics ? (failureProviderMetrics as ProviderSummaryMetrics).inputTokens : null,
+      outputCharacterCount: failureProviderMetrics ? (failureProviderMetrics as ProviderSummaryMetrics).outputCharacterCount : null,
+      outputTokens: failureProviderMetrics ? (failureProviderMetrics as ProviderSummaryMetrics).outputTokens : null,
+      thinkingTokens: failureProviderMetrics ? (failureProviderMetrics as ProviderSummaryMetrics).thinkingTokens : null,
+      promptCacheTokens: failureProviderMetrics ? (failureProviderMetrics as ProviderSummaryMetrics).promptCacheTokens : null,
+      promptEvalTokens: failureProviderMetrics ? (failureProviderMetrics as ProviderSummaryMetrics).promptEvalTokens : null,
+      requestDurationMs: failureProviderMetrics ? (failureProviderMetrics as ProviderSummaryMetrics).requestDurationMs : null,
     });
     if (
       options.backend === 'llama.cpp'
@@ -342,7 +407,10 @@ async function invokeSummaryCore(options: {
         llamaCppOverrides: options.llamaCppOverrides,
       });
       if (plannerDecision) {
-        return plannerDecision;
+        return {
+          decision: plannerDecision,
+          completionMetrics: null,
+        };
       }
       throw new Error(buildPlannerFailureErrorMessage({
         requestId: options.requestId,
@@ -406,18 +474,30 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
           ModelCallSucceeded: true,
           ProviderError: null,
         };
-        await writeSummaryRequestDump({
+        const deferredArtifacts = [
+          buildSummaryRequestArtifact({
+            requestId,
+            question: request.question,
+            inputText,
+            command: request.debugCommand ?? null,
+            backend,
+            model,
+            classification: result.Classification,
+            rawReviewRequired: result.RawReviewRequired,
+            summary: result.Summary,
+            providerError: result.ProviderError,
+            error: null,
+          }),
+        ];
+        await notifyStatusBackend({
+          running: false,
+          taskKind: 'summary',
           requestId,
-          question: request.question,
-          inputText,
-          command: request.debugCommand ?? null,
-          backend,
-          model,
-          classification: result.Classification,
-          rawReviewRequired: result.RawReviewRequired,
-          summary: result.Summary,
-          providerError: result.ProviderError,
-          error: null,
+          terminalState: 'completed',
+          deferredMetadata: {
+            rawInputCharacterCount: inputText.length,
+          },
+          deferredArtifacts,
         });
         clearSummaryArtifactState(requestId);
         return result;
@@ -431,7 +511,7 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
         ? request.promptPrefix
         : getConfiguredPromptPrefix(config);
       traceSummary('invokeSummaryCore start');
-      const modelDecision = await invokeSummaryCore({
+      const summaryCore = await invokeSummaryCore({
         requestId,
         slotId,
         question: request.question,
@@ -450,26 +530,52 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
         requestTimeoutSeconds: request.requestTimeoutSeconds,
         llamaCppOverrides: request.llamaCppOverrides,
       });
+      const modelDecision = summaryCore.decision;
       traceSummary(`invokeSummaryCore done classification=${modelDecision.classification}`);
+      const deferredArtifacts = [
+        buildPlannerDebugArtifact({
+          requestId,
+          finalOutput: modelDecision.output.trim(),
+          classification: modelDecision.classification,
+          rawReviewRequired: modelDecision.rawReviewRequired,
+          providerError: null,
+        }),
+        buildSummaryRequestArtifact({
+          requestId,
+          question: request.question,
+          inputText,
+          command: request.debugCommand ?? null,
+          backend,
+          model,
+          classification: modelDecision.classification,
+          rawReviewRequired: modelDecision.rawReviewRequired,
+          summary: modelDecision.output.trim(),
+          providerError: null,
+          error: null,
+        }),
+      ].filter((artifact): artifact is NonNullable<typeof artifact> => artifact !== null);
       try {
         await notifyStatusBackend({
           running: false,
           taskKind: 'summary',
           requestId,
           terminalState: 'completed',
-          rawInputCharacterCount: inputText.length,
+          deferredMetadata: {
+            rawInputCharacterCount: inputText.length,
+            promptCharacterCount: summaryCore.completionMetrics?.promptCharacterCount ?? null,
+            inputTokens: summaryCore.completionMetrics?.inputTokens ?? null,
+            outputCharacterCount: summaryCore.completionMetrics?.outputCharacterCount ?? null,
+            outputTokens: summaryCore.completionMetrics?.outputTokens ?? null,
+            thinkingTokens: summaryCore.completionMetrics?.thinkingTokens ?? null,
+            promptCacheTokens: summaryCore.completionMetrics?.promptCacheTokens ?? null,
+            promptEvalTokens: summaryCore.completionMetrics?.promptEvalTokens ?? null,
+            requestDurationMs: summaryCore.completionMetrics?.requestDurationMs ?? null,
+          },
+          deferredArtifacts,
         });
       } catch {
         traceSummary(`terminal status post failed request_id=${requestId} state=completed`);
       }
-
-      await finalizePlannerDebugDump({
-        requestId,
-        finalOutput: modelDecision.output.trim(),
-        classification: modelDecision.classification,
-        rawReviewRequired: modelDecision.rawReviewRequired,
-        providerError: null,
-      });
 
       const result: SummaryResult = {
         RequestId: requestId,
@@ -483,23 +589,29 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
         ModelCallSucceeded: true,
         ProviderError: null,
       };
-      await writeSummaryRequestDump({
-        requestId,
-        question: request.question,
-        inputText,
-        command: request.debugCommand ?? null,
-        backend,
-        model,
-        classification: result.Classification,
-        rawReviewRequired: result.RawReviewRequired,
-        summary: result.Summary,
-        providerError: result.ProviderError,
-        error: null,
-      });
       clearSummaryArtifactState(requestId);
       return result;
     } catch (error) {
       const failureContext = getSummaryFailureContext(error);
+      const deferredArtifacts = [
+        buildPlannerDebugArtifact({
+          requestId,
+          finalOutput: getErrorMessage(error),
+          classification: 'command_failure',
+          rawReviewRequired: true,
+          providerError: getErrorMessage(error),
+        }),
+        ...(/planner/iu.test(getErrorMessage(error))
+          ? [buildFailedRequestArtifact({
+            requestId,
+            question: request.question,
+            inputText,
+            command: request.debugCommand ?? null,
+            error: getErrorMessage(error),
+            providerError: getErrorMessage(error),
+          })]
+          : []),
+      ].filter((artifact): artifact is NonNullable<typeof artifact> => artifact !== null);
       if (config !== null) {
         try {
           await notifyStatusBackend({
@@ -507,35 +619,28 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
             taskKind: 'summary',
             requestId,
             terminalState: 'failed',
-            errorMessage: getErrorMessage(error),
-            promptCharacterCount: failureContext?.promptCharacterCount ?? null,
-            promptTokenCount: failureContext?.promptTokenCount ?? null,
-            rawInputCharacterCount: failureContext?.rawInputCharacterCount ?? inputText.length,
-            chunkInputCharacterCount: failureContext?.chunkInputCharacterCount ?? null,
-            chunkIndex: failureContext?.chunkIndex ?? null,
-            chunkTotal: failureContext?.chunkTotal ?? null,
-            chunkPath: failureContext?.chunkPath ?? null,
+            deferredMetadata: {
+              errorMessage: getErrorMessage(error),
+              promptCharacterCount: failureContext?.promptCharacterCount ?? null,
+              promptTokenCount: failureContext?.promptTokenCount ?? null,
+              rawInputCharacterCount: failureContext?.rawInputCharacterCount ?? inputText.length,
+              chunkInputCharacterCount: failureContext?.chunkInputCharacterCount ?? null,
+              chunkIndex: failureContext?.chunkIndex ?? null,
+              chunkTotal: failureContext?.chunkTotal ?? null,
+              chunkPath: failureContext?.chunkPath ?? null,
+              inputTokens: failureContext?.inputTokens ?? null,
+              outputCharacterCount: failureContext?.outputCharacterCount ?? null,
+              outputTokens: failureContext?.outputTokens ?? null,
+              thinkingTokens: failureContext?.thinkingTokens ?? null,
+              promptCacheTokens: failureContext?.promptCacheTokens ?? null,
+              promptEvalTokens: failureContext?.promptEvalTokens ?? null,
+              requestDurationMs: failureContext?.requestDurationMs ?? null,
+            },
+            deferredArtifacts,
           });
         } catch {
           traceSummary(`terminal status post failed request_id=${requestId} state=failed`);
         }
-      }
-      await finalizePlannerDebugDump({
-        requestId,
-        finalOutput: getErrorMessage(error),
-        classification: 'command_failure',
-        rawReviewRequired: true,
-        providerError: getErrorMessage(error),
-      });
-      if (/planner/iu.test(getErrorMessage(error))) {
-        await writeFailedRequestDump({
-          requestId,
-          question: request.question,
-          inputText,
-          command: request.debugCommand ?? null,
-          error: getErrorMessage(error),
-          providerError: getErrorMessage(error),
-        });
       }
       clearSummaryArtifactState(requestId);
       throw error;

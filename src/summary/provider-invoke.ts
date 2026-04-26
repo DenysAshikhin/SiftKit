@@ -5,11 +5,24 @@ import { sleep } from '../lib/time.js';
 import { generateLlamaCppResponse } from '../providers/llama-cpp.js';
 import { getMockSummary } from './mock.js';
 import { appendTestProviderEvent, traceSummary } from './artifacts.js';
-import { sumTokenCounts } from './chunking.js';
 import type {
   SummaryPhase,
   SummaryRequest,
 } from './types.js';
+
+export type ProviderSummaryMetrics = {
+  promptCharacterCount: number;
+  promptTokenCount: number | null;
+  rawInputCharacterCount: number;
+  chunkInputCharacterCount: number;
+  inputTokens: number | null;
+  outputCharacterCount: number | null;
+  outputTokens: number | null;
+  thinkingTokens: number | null;
+  promptCacheTokens: number | null;
+  promptEvalTokens: number | null;
+  requestDurationMs: number;
+};
 
 export async function invokeProviderSummary(options: {
   requestId: string;
@@ -30,7 +43,7 @@ export async function invokeProviderSummary(options: {
   reasoningOverride?: 'on' | 'off';
   requestTimeoutSeconds?: number;
   llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
-}): Promise<string> {
+}): Promise<{ text: string; metrics: ProviderSummaryMetrics }> {
   const chunkLabel = options.chunkPath ?? (
     options.chunkIndex !== null && options.chunkTotal !== null ? `${options.chunkIndex}/${options.chunkTotal}` : 'none'
   );
@@ -78,7 +91,22 @@ export async function invokeProviderSummary(options: {
       });
       const mockSummary = getMockSummary(options.prompt, options.question, options.phase);
       outputCharacterCount = mockSummary.length;
-      return mockSummary;
+      return {
+        text: mockSummary,
+        metrics: {
+          promptCharacterCount: options.promptCharacterCount,
+          promptTokenCount: options.promptTokenCount,
+          rawInputCharacterCount: options.rawInputCharacterCount,
+          chunkInputCharacterCount: options.chunkInputCharacterCount,
+          inputTokens,
+          outputCharacterCount,
+          outputTokens,
+          thinkingTokens,
+          promptCacheTokens,
+          promptEvalTokens,
+          requestDurationMs: Date.now() - startedAt,
+        },
+      };
     }
 
     traceSummary(
@@ -113,28 +141,24 @@ export async function invokeProviderSummary(options: {
       `provider done phase=${options.phase} chunk=${chunkLabel} output_chars=${outputCharacterCount} `
       + `output_tokens=${outputTokens ?? 'null'} thinking_tokens=${thinkingTokens ?? 'null'}`
     );
-    return response.text.trim();
-  } finally {
-    const countOutputTokensAsThinking = options.phase === 'leaf' && options.chunkPath !== null;
-    traceSummary(`notify running=false phase=${options.phase} chunk=${chunkLabel} duration_ms=${Date.now() - startedAt}`);
-    try {
-      await notifyStatusBackend({
-        running: false,
-        taskKind: 'summary',
-        requestId: options.requestId,
+    return {
+      text: response.text.trim(),
+      metrics: {
         promptCharacterCount: options.promptCharacterCount,
+        promptTokenCount: options.promptTokenCount,
+        rawInputCharacterCount: options.rawInputCharacterCount,
+        chunkInputCharacterCount: options.chunkInputCharacterCount,
         inputTokens,
         outputCharacterCount,
-        outputTokens: countOutputTokensAsThinking ? null : outputTokens,
-        thinkingTokens: countOutputTokensAsThinking
-          ? sumTokenCounts(thinkingTokens, outputTokens)
-          : thinkingTokens,
+        outputTokens,
+        thinkingTokens,
         promptCacheTokens,
         promptEvalTokens,
         requestDurationMs: Date.now() - startedAt,
-      });
-    } catch {
-      traceSummary(`notify running=false failed phase=${options.phase} chunk=${chunkLabel}`);
-    }
+      },
+    };
+  } catch (error) {
+    traceSummary(`notify running=false phase=${options.phase} chunk=${chunkLabel} duration_ms=${Date.now() - startedAt}`);
+    throw error;
   }
 }

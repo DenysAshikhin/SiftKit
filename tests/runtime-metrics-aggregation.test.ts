@@ -88,13 +88,15 @@ test('summary aggregation accumulates provider usage and duration in status metr
       });
 
       assert.equal(result.WasSummarized, true);
-      assert.ok(server.state.metrics.inputCharactersTotal > baselineInputCharacters);
-      assert.ok(server.state.metrics.outputCharactersTotal > baselineOutputCharacters);
-      assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 123);
-      assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 45);
-      assert.equal(server.state.metrics.thinkingTokensTotal - baselineThinkingTokens, 0);
-      assert.ok(server.state.metrics.completedRequestCount - baselineCompletedRequestCount >= 1);
-      assert.ok(server.state.metrics.requestDurationMsTotal >= baselineRequestDurationMs);
+      await waitForAsyncExpectation(async () => {
+        assert.ok(server.state.metrics.inputCharactersTotal > baselineInputCharacters);
+        assert.ok(server.state.metrics.outputCharactersTotal > baselineOutputCharacters);
+        assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 123);
+        assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 45);
+        assert.equal(server.state.metrics.thinkingTokensTotal - baselineThinkingTokens, 0);
+        assert.ok(server.state.metrics.completedRequestCount - baselineCompletedRequestCount >= 1);
+        assert.ok(server.state.metrics.requestDurationMsTotal >= baselineRequestDurationMs);
+      }, 2000);
     }, {
       metrics: {
         inputCharactersTotal: 3_461_904,
@@ -129,13 +131,15 @@ test('summary aggregation records duration without tokens when provider usage is
       });
 
       assert.equal(result.WasSummarized, true);
-      assert.ok(server.state.metrics.inputCharactersTotal > baselineInputCharacters);
-      assert.ok(server.state.metrics.outputCharactersTotal > baselineOutputCharacters);
-      assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 0);
-      assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 0);
-      assert.equal(server.state.metrics.thinkingTokensTotal - baselineThinkingTokens, 0);
-      assert.ok(server.state.metrics.completedRequestCount - baselineCompletedRequestCount >= 1);
-      assert.ok(server.state.metrics.requestDurationMsTotal >= baselineRequestDurationMs);
+      await waitForAsyncExpectation(async () => {
+        assert.ok(server.state.metrics.inputCharactersTotal > baselineInputCharacters);
+        assert.ok(server.state.metrics.outputCharactersTotal > baselineOutputCharacters);
+        assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 0);
+        assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 0);
+        assert.equal(server.state.metrics.thinkingTokensTotal - baselineThinkingTokens, 0);
+        assert.ok(server.state.metrics.completedRequestCount - baselineCompletedRequestCount >= 1);
+        assert.ok(server.state.metrics.requestDurationMsTotal >= baselineRequestDurationMs);
+      }, 2000);
     }, {
       omitUsage: true,
       metrics: {
@@ -169,11 +173,13 @@ test('summary aggregation records thinking tokens independently from output metr
       });
 
       assert.equal(result.WasSummarized, true);
-      assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 123);
-      assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 33);
-      assert.equal(server.state.metrics.thinkingTokensTotal - baselineThinkingTokens, 12);
-      assert.ok(server.state.metrics.completedRequestCount - baselineCompletedRequestCount >= 1);
-      assert.ok(server.state.metrics.requestDurationMsTotal >= baselineRequestDurationMs);
+      await waitForAsyncExpectation(async () => {
+        assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 123);
+        assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 33);
+        assert.equal(server.state.metrics.thinkingTokensTotal - baselineThinkingTokens, 12);
+        assert.ok(server.state.metrics.completedRequestCount - baselineCompletedRequestCount >= 1);
+        assert.ok(server.state.metrics.requestDurationMsTotal >= baselineRequestDurationMs);
+      }, 2000);
     }, {
       reasoningTokens: 12,
       metrics: {
@@ -204,16 +210,23 @@ test('summary aggregation counts only processed prompt tokens when cache metadat
       });
 
       assert.equal(result.WasSummarized, true);
-      assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 23);
-      assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 45);
+      await waitForAsyncExpectation(async () => {
+        assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 23);
+        assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 45);
+      }, 2000);
       const completionPost = server.state.statusPosts.findLast(
         (post) => post.running === false
           && post.taskKind === 'summary'
-          && Object.prototype.hasOwnProperty.call(post, 'inputTokens'),
+          && post.terminalState === 'completed',
       );
-      assert.equal(completionPost.inputTokens, 23);
-      assert.equal(completionPost.promptCacheTokens, 100);
-      assert.equal(completionPost.promptEvalTokens, 23);
+      assert.equal(completionPost.inputTokens, undefined);
+      assert.equal(completionPost.outputTokens, undefined);
+      assert.equal(completionPost.promptCacheTokens, undefined);
+      assert.equal(completionPost.promptEvalTokens, undefined);
+      assert.equal(completionPost.deferredMetadata.inputTokens, 23);
+      assert.equal(completionPost.deferredMetadata.outputTokens, 45);
+      assert.equal(completionPost.deferredMetadata.promptCacheTokens, 100);
+      assert.equal(completionPost.deferredMetadata.promptEvalTokens, 23);
     }, {
       chatResponse(promptText) {
         return {
