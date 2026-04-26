@@ -45,6 +45,7 @@ export async function invokeProviderSummary(options: {
   reasoningOverride?: 'on' | 'off';
   requestTimeoutSeconds?: number;
   llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
+  statusBackendUrl?: string | null;
 }): Promise<{ text: string; metrics: ProviderSummaryMetrics }> {
   const chunkLabel = options.chunkPath ?? (
     options.chunkIndex !== null && options.chunkTotal !== null ? `${options.chunkIndex}/${options.chunkTotal}` : 'none'
@@ -54,22 +55,27 @@ export async function invokeProviderSummary(options: {
     + `chunk_chars=${options.chunkInputCharacterCount} prompt_chars=${options.promptCharacterCount}`
   );
   const statusRunningStartedAt = Date.now();
-  await notifyStatusBackend({
-    running: true,
-    taskKind: 'summary',
-    requestId: options.requestId,
-    promptCharacterCount: options.promptCharacterCount,
-    promptTokenCount: options.promptTokenCount,
-    rawInputCharacterCount: options.rawInputCharacterCount,
-    chunkInputCharacterCount: options.chunkInputCharacterCount,
-    budgetSource: options.config.Effective?.BudgetSource ?? null,
-    inputCharactersPerContextToken: options.config.Effective?.InputCharactersPerContextToken ?? null,
-    chunkThresholdCharacters: options.config.Effective?.ChunkThresholdCharacters ?? null,
-    phase: options.phase,
-    chunkIndex: options.chunkIndex,
-    chunkTotal: options.chunkTotal,
-    chunkPath: options.chunkPath,
-  });
+  try {
+    await notifyStatusBackend({
+      running: true,
+      taskKind: 'summary',
+      statusBackendUrl: options.statusBackendUrl,
+      requestId: options.requestId,
+      promptCharacterCount: options.promptCharacterCount,
+      promptTokenCount: options.promptTokenCount,
+      rawInputCharacterCount: options.rawInputCharacterCount,
+      chunkInputCharacterCount: options.chunkInputCharacterCount,
+      budgetSource: options.config.Effective?.BudgetSource ?? null,
+      inputCharactersPerContextToken: options.config.Effective?.InputCharactersPerContextToken ?? null,
+      chunkThresholdCharacters: options.config.Effective?.ChunkThresholdCharacters ?? null,
+      phase: options.phase,
+      chunkIndex: options.chunkIndex,
+      chunkTotal: options.chunkTotal,
+      chunkPath: options.chunkPath,
+    });
+  } catch {
+    traceSummary(`notify running=true failed phase=${options.phase} chunk=${chunkLabel} request_id=${options.requestId}`);
+  }
   const statusRunningMs = Date.now() - statusRunningStartedAt;
   const startedAt = Date.now();
   let inputTokens: number | null = null;

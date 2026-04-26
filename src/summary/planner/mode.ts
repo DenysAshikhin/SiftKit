@@ -99,6 +99,7 @@ export async function invokePlannerMode(options: {
   allowedTools?: PlannerToolName[];
   requestTimeoutSeconds?: number;
   llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
+  statusBackendUrl?: string | null;
 }): Promise<StructuredModelDecision | null> {
   if (options.backend !== 'llama.cpp') {
     return null;
@@ -207,6 +208,7 @@ export async function invokePlannerMode(options: {
         toolDefinitions,
         requestTimeoutSeconds: options.requestTimeoutSeconds,
         llamaCppOverrides: options.llamaCppOverrides,
+        statusBackendUrl: options.statusBackendUrl,
       });
     } catch (error) {
       debugRecorder.finish({
@@ -402,6 +404,7 @@ export async function invokePlannerMode(options: {
             toolDefinitions,
             requestTimeoutSeconds: options.requestTimeoutSeconds,
             llamaCppOverrides: options.llamaCppOverrides,
+            statusBackendUrl: options.statusBackendUrl,
           });
           const forcedAction = parsePlannerAction(forcedResponse.text);
           if (forcedAction.action === 'finish') {
@@ -598,23 +601,28 @@ export async function invokePlannerMode(options: {
       }
     } finally {
       traceSummary(`notify running=false phase=planner chunk=none duration_ms=${providerResponse.requestDurationMs}`);
-      await notifyStatusBackend({
-        running: false,
-        taskKind: 'summary',
-        requestId: options.requestId,
-        promptCharacterCount: prompt.length,
-        inputTokens: providerResponse.inputTokens,
-        outputCharacterCount: providerResponse.outputCharacterCount,
-        outputTokens: countOutputTokens ? providerResponse.outputTokens : null,
-        toolTokens: countToolTokens ? providerResponse.outputTokens : null,
-        thinkingTokens: providerResponse.thinkingTokens,
-        toolStats: toolStatsPayload,
-        promptCacheTokens: providerResponse.promptCacheTokens,
-        promptEvalTokens: providerResponse.promptEvalTokens,
-        requestDurationMs: providerResponse.requestDurationMs,
-        providerDurationMs: providerResponse.providerDurationMs,
-        statusRunningMs: providerResponse.statusRunningMs,
-      });
+      try {
+        await notifyStatusBackend({
+          running: false,
+          taskKind: 'summary',
+          statusBackendUrl: options.statusBackendUrl,
+          requestId: options.requestId,
+          promptCharacterCount: prompt.length,
+          inputTokens: providerResponse.inputTokens,
+          outputCharacterCount: providerResponse.outputCharacterCount,
+          outputTokens: countOutputTokens ? providerResponse.outputTokens : null,
+          toolTokens: countToolTokens ? providerResponse.outputTokens : null,
+          thinkingTokens: providerResponse.thinkingTokens,
+          toolStats: toolStatsPayload,
+          promptCacheTokens: providerResponse.promptCacheTokens,
+          promptEvalTokens: providerResponse.promptEvalTokens,
+          requestDurationMs: providerResponse.requestDurationMs,
+          providerDurationMs: providerResponse.providerDurationMs,
+          statusRunningMs: providerResponse.statusRunningMs,
+        });
+      } catch {
+        traceSummary(`notify running=false failed phase=planner chunk=none request_id=${options.requestId}`);
+      }
     }
   }
 

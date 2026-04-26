@@ -227,6 +227,30 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
       res.end(JSON.stringify(state.config));
       return;
     }
+    if (req.method === 'POST' && req.url === '/summary') {
+      const bodyText = await readBody(req);
+      const parsed = (bodyText ? JSON.parse(bodyText) : {}) as Dict;
+      state.chatRequests.push(parsed);
+      const assistantContent = typeof options.assistantContent === 'function'
+        ? options.assistantContent(parsed)
+        : (typeof options.assistantContent === 'string'
+          ? options.assistantContent
+          : 'mock summary output');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        RequestId: 'stub-summary-request',
+        WasSummarized: true,
+        PolicyDecision: 'summary',
+        Backend: 'mock',
+        Model: 'mock-model',
+        Summary: assistantContent,
+        Classification: 'summary',
+        RawReviewRequired: false,
+        ModelCallSucceeded: true,
+        ProviderError: null,
+      }));
+      return;
+    }
     if (req.method === 'GET' && req.url === '/v1/models') {
       const runtime = state.config.Runtime as Dict | undefined;
       const modelId = (runtime && typeof runtime.Model === 'string' ? runtime.Model : undefined)

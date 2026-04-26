@@ -206,6 +206,28 @@ test('summary timing metadata records lock wait separately from provider duratio
   });
 });
 
+test('summary continues when running status notification is busy', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const result = await summarizeRequest({
+        question: 'summarize this',
+        inputText: 'A'.repeat(5000),
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'mock',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.WasSummarized, true);
+      assert.match(result.Summary, /mock summary/u);
+      assert.ok(server.state.statusPosts.filter((post) => post.running === true).length >= 3);
+      assert.ok(server.state.statusPosts.some((post) => post.terminalState === 'completed'));
+    }, {
+      busyStatusPostCount: 3,
+    });
+  });
+});
+
 test('summarizeRequest does not split mock summaries when aggregate status totals are large but no exact observations exist', async () => {
   await withTempEnv(async (tempRoot) => {
     await withStubServer(async () => {

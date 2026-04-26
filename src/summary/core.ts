@@ -141,6 +141,7 @@ async function invokeSummaryCore(options: {
   allowedPlannerTools?: SummaryRequest['allowedPlannerTools'];
   requestTimeoutSeconds?: number;
   llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
+  statusBackendUrl?: string | null;
   chunkContext?: ChunkPromptContext;
 }): Promise<SummaryCoreResult> {
   const rootInputCharacterCount = options.rootInputCharacterCount ?? options.inputText.length;
@@ -194,6 +195,7 @@ async function invokeSummaryCore(options: {
       allowedTools: options.allowedPlannerTools,
       requestTimeoutSeconds: options.requestTimeoutSeconds,
       llamaCppOverrides: options.llamaCppOverrides,
+      statusBackendUrl: options.statusBackendUrl,
     });
     if (plannerDecision) {
       return {
@@ -275,6 +277,7 @@ async function invokeSummaryCore(options: {
       allowedTools: options.allowedPlannerTools,
       requestTimeoutSeconds: options.requestTimeoutSeconds,
       llamaCppOverrides: options.llamaCppOverrides,
+      statusBackendUrl: options.statusBackendUrl,
     });
     if (plannerDecision) {
       return {
@@ -308,6 +311,7 @@ async function invokeSummaryCore(options: {
         chunkPath: options.chunkPath ?? null,
         requestTimeoutSeconds: options.requestTimeoutSeconds,
         llamaCppOverrides: options.llamaCppOverrides,
+        statusBackendUrl: options.statusBackendUrl,
       });
       providerMetrics = providerResult.metrics;
       return providerResult.text;
@@ -421,6 +425,7 @@ async function invokeSummaryCore(options: {
         allowedTools: options.allowedPlannerTools,
         requestTimeoutSeconds: options.requestTimeoutSeconds,
         llamaCppOverrides: options.llamaCppOverrides,
+        statusBackendUrl: options.statusBackendUrl,
       });
       if (plannerDecision) {
         return {
@@ -482,30 +487,35 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
         error: null,
       }),
     ];
-    await notifyStatusBackend({
-      running: false,
-      taskKind: 'summary',
-      requestId,
-      terminalState: 'completed',
-      deferredMetadata: {
-        rawInputCharacterCount: inputText.length,
-        requestDurationMs: 0,
-        providerDurationMs: 0,
-        wallDurationMs: getSummaryWallDurationMs(request, requestStartedAt),
-        stdinWaitMs: getNonNegativeTiming(request.timing?.stdinWaitMs),
-        serverPreflightMs: getNonNegativeTiming(request.timing?.serverPreflightMs),
-        lockWaitMs: 0,
-        statusRunningMs: 0,
-        terminalStatusMs: 0,
-      },
-      deferredArtifacts,
-    });
+    try {
+      await notifyStatusBackend({
+        running: false,
+        taskKind: 'summary',
+        statusBackendUrl: request.statusBackendUrl,
+        requestId,
+        terminalState: 'completed',
+        deferredMetadata: {
+          rawInputCharacterCount: inputText.length,
+          requestDurationMs: 0,
+          providerDurationMs: 0,
+          wallDurationMs: getSummaryWallDurationMs(request, requestStartedAt),
+          stdinWaitMs: getNonNegativeTiming(request.timing?.stdinWaitMs),
+          serverPreflightMs: getNonNegativeTiming(request.timing?.serverPreflightMs),
+          lockWaitMs: 0,
+          statusRunningMs: 0,
+          terminalStatusMs: 0,
+        },
+        deferredArtifacts,
+      });
+    } catch {
+      traceSummary(`terminal status post failed request_id=${requestId} state=completed`);
+    }
     clearSummaryArtifactState(requestId);
     return result;
   }
   const lockStartedAt = Date.now();
-  const lock = await acquireExecutionLock();
-  const lockWaitMs = Date.now() - lockStartedAt;
+  const lock = request.skipExecutionLock ? null : await acquireExecutionLock();
+  const lockWaitMs = request.skipExecutionLock ? 0 : Date.now() - lockStartedAt;
   try {
     let config: SiftConfig | null = null;
     let backend = request.backend || 'unknown';
@@ -567,24 +577,29 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
             error: null,
           }),
         ];
-        await notifyStatusBackend({
-          running: false,
-          taskKind: 'summary',
-          requestId,
-          terminalState: 'completed',
-          deferredMetadata: {
-            rawInputCharacterCount: inputText.length,
-            requestDurationMs: 0,
-            providerDurationMs: 0,
-            wallDurationMs: getSummaryWallDurationMs(request, requestStartedAt),
-            stdinWaitMs: getNonNegativeTiming(request.timing?.stdinWaitMs),
-            serverPreflightMs: getNonNegativeTiming(request.timing?.serverPreflightMs),
-            lockWaitMs,
-            statusRunningMs: 0,
-            terminalStatusMs: 0,
-          },
-          deferredArtifacts,
-        });
+        try {
+          await notifyStatusBackend({
+            running: false,
+            taskKind: 'summary',
+            statusBackendUrl: request.statusBackendUrl,
+            requestId,
+            terminalState: 'completed',
+            deferredMetadata: {
+              rawInputCharacterCount: inputText.length,
+              requestDurationMs: 0,
+              providerDurationMs: 0,
+              wallDurationMs: getSummaryWallDurationMs(request, requestStartedAt),
+              stdinWaitMs: getNonNegativeTiming(request.timing?.stdinWaitMs),
+              serverPreflightMs: getNonNegativeTiming(request.timing?.serverPreflightMs),
+              lockWaitMs,
+              statusRunningMs: 0,
+              terminalStatusMs: 0,
+            },
+            deferredArtifacts,
+          });
+        } catch {
+          traceSummary(`terminal status post failed request_id=${requestId} state=completed`);
+        }
         clearSummaryArtifactState(requestId);
         return result;
       }
@@ -615,6 +630,7 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
         allowedPlannerTools: request.allowedPlannerTools,
         requestTimeoutSeconds: request.requestTimeoutSeconds,
         llamaCppOverrides: request.llamaCppOverrides,
+        statusBackendUrl: request.statusBackendUrl,
       });
       const modelDecision = summaryCore.decision;
       traceSummary(`invokeSummaryCore done classification=${modelDecision.classification}`);
@@ -644,6 +660,7 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
         await notifyStatusBackend({
           running: false,
           taskKind: 'summary',
+          statusBackendUrl: request.statusBackendUrl,
           requestId,
           terminalState: 'completed',
           deferredMetadata: {
@@ -710,8 +727,10 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
           await notifyStatusBackend({
             running: false,
             taskKind: 'summary',
+            statusBackendUrl: request.statusBackendUrl,
             requestId,
             terminalState: 'failed',
+            errorMessage: getErrorMessage(error),
             deferredMetadata: {
               errorMessage: getErrorMessage(error),
               promptCharacterCount: failureContext?.promptCharacterCount ?? null,
@@ -746,7 +765,9 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
       throw error;
     }
   } finally {
-    await releaseExecutionLock(lock);
+    if (lock !== null) {
+      await releaseExecutionLock(lock);
+    }
   }
 }
 

@@ -25,6 +25,7 @@ export async function invokePlannerProviderAction(options: {
   reasoningOverride?: 'on' | 'off';
   requestTimeoutSeconds?: number;
   llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
+  statusBackendUrl?: string | null;
 }): Promise<{
   text: string;
   reasoningText: string | null;
@@ -43,19 +44,24 @@ export async function invokePlannerProviderAction(options: {
     + `chunk_chars=${options.chunkInputCharacterCount} prompt_chars=${options.promptText.length}`
   );
   const statusRunningStartedAt = Date.now();
-  await notifyStatusBackend({
-    running: true,
-    taskKind: 'summary',
-    requestId: options.requestId,
-    promptCharacterCount: options.promptText.length,
-    promptTokenCount: options.promptTokenCount,
-    rawInputCharacterCount: options.rawInputCharacterCount,
-    chunkInputCharacterCount: options.chunkInputCharacterCount,
-    budgetSource: options.config.Effective?.BudgetSource ?? null,
-    inputCharactersPerContextToken: options.config.Effective?.InputCharactersPerContextToken ?? null,
-    chunkThresholdCharacters: options.config.Effective?.ChunkThresholdCharacters ?? null,
-    phase: 'planner',
-  });
+  try {
+    await notifyStatusBackend({
+      running: true,
+      taskKind: 'summary',
+      statusBackendUrl: options.statusBackendUrl,
+      requestId: options.requestId,
+      promptCharacterCount: options.promptText.length,
+      promptTokenCount: options.promptTokenCount,
+      rawInputCharacterCount: options.rawInputCharacterCount,
+      chunkInputCharacterCount: options.chunkInputCharacterCount,
+      budgetSource: options.config.Effective?.BudgetSource ?? null,
+      inputCharactersPerContextToken: options.config.Effective?.InputCharactersPerContextToken ?? null,
+      chunkThresholdCharacters: options.config.Effective?.ChunkThresholdCharacters ?? null,
+      phase: 'planner',
+    });
+  } catch {
+    traceSummary(`notify running=true failed phase=planner chunk=none request_id=${options.requestId}`);
+  }
   const statusRunningMs = Date.now() - statusRunningStartedAt;
   const startedAt = Date.now();
   let inputTokens: number | null = null;
@@ -106,19 +112,24 @@ export async function invokePlannerProviderAction(options: {
     };
   } catch (error) {
     traceSummary(`notify running=false phase=planner chunk=none duration_ms=${Date.now() - startedAt}`);
-    await notifyStatusBackend({
-      running: false,
-      taskKind: 'summary',
-      requestId: options.requestId,
-      promptCharacterCount: options.promptText.length,
-      inputTokens,
-      outputCharacterCount,
-      outputTokens,
-      thinkingTokens,
-      promptCacheTokens,
-      promptEvalTokens,
-      requestDurationMs: Date.now() - startedAt,
-    });
+    try {
+      await notifyStatusBackend({
+        running: false,
+        taskKind: 'summary',
+        requestId: options.requestId,
+        statusBackendUrl: options.statusBackendUrl,
+        promptCharacterCount: options.promptText.length,
+        inputTokens,
+        outputCharacterCount,
+        outputTokens,
+        thinkingTokens,
+        promptCacheTokens,
+        promptEvalTokens,
+        requestDurationMs: Date.now() - startedAt,
+      });
+    } catch {
+      traceSummary(`notify running=false failed phase=planner chunk=none request_id=${options.requestId}`);
+    }
     throw error;
   }
 }

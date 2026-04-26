@@ -555,9 +555,9 @@ function normalizeRunRecordFromDbRow(row: Dict): RunRecord {
     generationDurationMs: toNonNegativeInteger(row.generation_duration_ms),
     speculativeAcceptedTokens: toNullableNonNegativeInteger(row.speculative_accepted_tokens),
     speculativeGeneratedTokens: toNullableNonNegativeInteger(row.speculative_generated_tokens),
-    durationMs: toNonNegativeInteger(row.wall_duration_ms) ?? toNonNegativeInteger(row.duration_ms),
-    providerDurationMs: toNonNegativeInteger(row.provider_duration_ms) ?? toNonNegativeInteger(row.duration_ms),
-    wallDurationMs: toNonNegativeInteger(row.wall_duration_ms),
+    durationMs: toNullableNonNegativeInteger(row.wall_duration_ms) ?? toNullableNonNegativeInteger(row.duration_ms),
+    providerDurationMs: toNullableNonNegativeInteger(row.provider_duration_ms) ?? toNullableNonNegativeInteger(row.duration_ms),
+    wallDurationMs: toNullableNonNegativeInteger(row.wall_duration_ms),
     rawPaths: {},
   });
 }
@@ -804,9 +804,9 @@ export function upsertRunArtifactPayload(options: {
     generationDurationMs: toNonNegativeInteger(options.artifactPayload?.generationDurationMs),
     speculativeAcceptedTokens: canonicalSpeculativeMetrics.speculativeAcceptedTokens,
     speculativeGeneratedTokens: canonicalSpeculativeMetrics.speculativeGeneratedTokens,
-    durationMs: toNonNegativeInteger(options.artifactPayload?.wallDurationMs) ?? toNonNegativeInteger(options.artifactPayload?.requestDurationMs),
-    providerDurationMs: toNonNegativeInteger(options.artifactPayload?.providerDurationMs) ?? toNonNegativeInteger(options.artifactPayload?.requestDurationMs),
-    wallDurationMs: toNonNegativeInteger(options.artifactPayload?.wallDurationMs),
+    durationMs: toNullableNonNegativeInteger(options.artifactPayload?.wallDurationMs) ?? toNullableNonNegativeInteger(options.artifactPayload?.requestDurationMs),
+    providerDurationMs: toNullableNonNegativeInteger(options.artifactPayload?.providerDurationMs) ?? toNullableNonNegativeInteger(options.artifactPayload?.requestDurationMs),
+    wallDurationMs: toNullableNonNegativeInteger(options.artifactPayload?.wallDurationMs),
     requestJson,
     plannerDebugJson,
     failedRequestJson,
@@ -1322,25 +1322,25 @@ function buildRunLogRow(options: {
     generationDurationMs: toNonNegativeInteger(repoTotals?.generationDurationMs ?? null),
     speculativeAcceptedTokens: canonicalSpeculativeMetrics.speculativeAcceptedTokens,
     speculativeGeneratedTokens: canonicalSpeculativeMetrics.speculativeGeneratedTokens,
-    durationMs: toNonNegativeInteger(
+    durationMs: toNullableNonNegativeInteger(
       requestPayload?.wallDurationMs
         ?? failedRequestPayload?.wallDurationMs
         ?? null,
-    ) ?? toNonNegativeInteger(
+    ) ?? toNullableNonNegativeInteger(
       requestPayload?.requestDurationMs
         ?? failedRequestPayload?.requestDurationMs
         ?? abandonedPayload?.totalElapsedMs
         ?? getTranscriptDurationMsFromText(repoSearchTranscriptJsonl)
         ?? null,
     ),
-    providerDurationMs: toNonNegativeInteger(
+    providerDurationMs: toNullableNonNegativeInteger(
       requestPayload?.providerDurationMs
         ?? failedRequestPayload?.providerDurationMs
         ?? requestPayload?.requestDurationMs
         ?? failedRequestPayload?.requestDurationMs
         ?? null,
     ),
-    wallDurationMs: toNonNegativeInteger(
+    wallDurationMs: toNullableNonNegativeInteger(
       requestPayload?.wallDurationMs
         ?? failedRequestPayload?.wallDurationMs
         ?? null,

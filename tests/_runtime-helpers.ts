@@ -155,8 +155,8 @@ function scheduleDeferredArtifactWrite(state, parsed, options) {
   if (deferredArtifacts.length === 0) {
     return;
   }
-  setTimeout(() => {
-    for (const artifactPost of deferredArtifacts) {
+  const writeArtifacts = (artifacts) => {
+    for (const artifactPost of artifacts) {
       const artifactPath = resolveArtifactLogPathFromStatusPost(artifactPost);
       if (!artifactPath) {
         continue;
@@ -175,7 +175,12 @@ function scheduleDeferredArtifactWrite(state, parsed, options) {
         path: artifactPath,
       });
     }
-  }, 25);
+  };
+  writeArtifacts(deferredArtifacts.filter((artifact) => artifact.artifactType !== 'summary_request'));
+  const delayedArtifacts = deferredArtifacts.filter((artifact) => artifact.artifactType === 'summary_request');
+  if (delayedArtifacts.length > 0) {
+    setTimeout(() => writeArtifacts(delayedArtifacts), 25);
+  }
 }
 
 function applyDeferredStatusMetrics(state, parsed) {
@@ -395,6 +400,33 @@ async function startStubStatusServer(options = {}) {
       return;
     }
 
+    if (req.method === 'POST' && req.url === '/summary') {
+      const bodyText = await readBody(req);
+      const parsed = bodyText ? JSON.parse(bodyText) : {};
+      const address = server.address();
+      const port = address && typeof address === 'object' ? address.port : 0;
+      try {
+        const result = await summarizeRequest({
+          question: String(parsed.question || ''),
+          inputText: String(parsed.inputText || ''),
+          format: parsed.format === 'json' ? 'json' : 'text',
+          policyProfile: parsed.policyProfile || 'general',
+          backend: typeof parsed.backend === 'string' ? parsed.backend : undefined,
+          model: typeof parsed.model === 'string' ? parsed.model : undefined,
+          sourceKind: parsed.sourceKind === 'command-output' ? 'command-output' : 'standalone',
+          commandExitCode: Number.isFinite(Number(parsed.commandExitCode)) ? Number(parsed.commandExitCode) : undefined,
+          timing: parsed.timing && typeof parsed.timing === 'object' && !Array.isArray(parsed.timing) ? parsed.timing : undefined,
+          statusBackendUrl: `http://127.0.0.1:${port}/status`,
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+      } catch (error) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+      }
+      return;
+    }
+
     if (req.method === 'GET' && req.url === '/v1/models') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
@@ -541,6 +573,12 @@ async function startStubStatusServer(options = {}) {
         });
       }
       state.statusPosts.push(parsed);
+      const busyStatusPostCount = Number(options.busyStatusPostCount || 0);
+      if (busyStatusPostCount > 0 && state.statusPosts.length <= busyStatusPostCount) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, busy: true }));
+        return;
+      }
       scheduleDeferredStatusMetrics(state, parsed);
       scheduleDeferredArtifactWrite(state, parsed, options);
       state.running = Boolean(parsed.running);

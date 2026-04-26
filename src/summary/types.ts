@@ -36,6 +36,8 @@ export type SummaryRequest = {
   allowedPlannerTools?: PlannerToolName[];
   llamaCppOverrides?: Pick<RuntimeLlamaCppConfig, 'MaxTokens'>;
   timing?: SummaryTimingInput;
+  statusBackendUrl?: string | null;
+  skipExecutionLock?: boolean;
 };
 
 export type SummaryResult = {

@@ -4,6 +4,11 @@
 import * as http from 'node:http';
 import * as crypto from 'node:crypto';
 import type { Dict } from '../../lib/types.js';
+import { summarizeRequest } from '../../summary/core.js';
+import type {
+  SummaryPolicyProfile,
+  SummarySourceKind,
+} from '../../summary/types.js';
 import { mergeToolTypeStats } from '../../line-read-guidance.js';
 import { getRuntimeRoot } from '../paths.js';
 import { sleep } from '../../lib/time.js';
@@ -69,6 +74,46 @@ function normalizeTaskKind(value: unknown): TaskKind | null {
   return value === 'summary' || value === 'plan' || value === 'repo-search' || value === 'chat'
     ? value
     : null;
+}
+
+function normalizeSummaryFormat(value: unknown): 'text' | 'json' {
+  return value === 'json' ? 'json' : 'text';
+}
+
+function normalizeSummaryPolicyProfile(value: unknown): SummaryPolicyProfile {
+  return (
+    value === 'pass-fail'
+    || value === 'unique-errors'
+    || value === 'buried-critical'
+    || value === 'json-extraction'
+    || value === 'diff-summary'
+    || value === 'risky-operation'
+  ) ? value : 'general';
+}
+
+function normalizeSummarySourceKind(value: unknown): SummarySourceKind {
+  return value === 'command-output' ? 'command-output' : 'standalone';
+}
+
+function getOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function getOptionalNumber(value: unknown): number | undefined {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : undefined;
+}
+
+function getSummaryTiming(value: unknown): { processStartedAtMs?: number | null; stdinWaitMs?: number | null; serverPreflightMs?: number | null } | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Dict;
+  return {
+    processStartedAtMs: getOptionalNumber(record.processStartedAtMs) ?? null,
+    stdinWaitMs: getOptionalNumber(record.stdinWaitMs) ?? null,
+    serverPreflightMs: getOptionalNumber(record.serverPreflightMs) ?? null,
+  };
 }
 
 function isStrictConfigPayload(value: unknown): boolean {
@@ -435,6 +480,72 @@ export async function handleCoreRoute(
     } catch (error) {
       sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
     } finally {
+      releaseModelRequest(ctx, modelRequestLock.token);
+    }
+    return true;
+  }
+
+  // -------------------------------------------------------------------------
+  // Summary (top-level)
+  // -------------------------------------------------------------------------
+
+  if (req.method === 'POST' && req.url === '/summary') {
+    let parsedBody: Dict;
+    try {
+      parsedBody = parseJsonBody(await readBody(req));
+    } catch {
+      sendJson(res, 400, { error: 'Expected valid JSON object.' });
+      return true;
+    }
+    const question = getOptionalString(parsedBody.question);
+    if (!question) {
+      sendJson(res, 400, { error: 'Expected question.' });
+      return true;
+    }
+    const inputText = typeof parsedBody.inputText === 'string' ? parsedBody.inputText : '';
+    if (!inputText.trim()) {
+      sendJson(res, 400, { error: 'Expected inputText.' });
+      return true;
+    }
+
+    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'summary', req, res);
+    if (!modelRequestLock) {
+      return true;
+    }
+    const previousStatusUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
+    const previousConfigUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
+    const serviceBaseUrl = ctx.getServiceBaseUrl();
+    process.env.SIFTKIT_STATUS_BACKEND_URL = `${serviceBaseUrl}/status`;
+    process.env.SIFTKIT_CONFIG_SERVICE_URL = `${serviceBaseUrl}/config`;
+    try {
+      await ensureManagedLlamaReadyForModelRequest(ctx);
+      const result = await summarizeRequest({
+        question,
+        inputText,
+        format: normalizeSummaryFormat(parsedBody.format),
+        policyProfile: normalizeSummaryPolicyProfile(parsedBody.policyProfile),
+        backend: getOptionalString(parsedBody.backend),
+        model: getOptionalString(parsedBody.model),
+        sourceKind: normalizeSummarySourceKind(parsedBody.sourceKind),
+        commandExitCode: getOptionalNumber(parsedBody.commandExitCode),
+        timing: getSummaryTiming(parsedBody.timing),
+        statusBackendUrl: `${serviceBaseUrl}/status`,
+        skipExecutionLock: true,
+      });
+      sendJson(res, 200, result);
+    } catch (error) {
+      sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      if (previousStatusUrl === undefined) {
+        delete process.env.SIFTKIT_STATUS_BACKEND_URL;
+      } else {
+        process.env.SIFTKIT_STATUS_BACKEND_URL = previousStatusUrl;
+      }
+      if (previousConfigUrl === undefined) {
+        delete process.env.SIFTKIT_CONFIG_SERVICE_URL;
+      } else {
+        process.env.SIFTKIT_CONFIG_SERVICE_URL = previousConfigUrl;
+      }
       releaseModelRequest(ctx, modelRequestLock.token);
     }
     return true;

@@ -6,7 +6,6 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 
 const { summarizeRequest } = require('../dist/summary.js');
-const { getStatusServerUnavailableMessage } = require('../dist/config/index.js');
 const { writeConfig } = require('../dist/status-server/config-store.js');
 const { readStatusText } = require('../dist/status-server/status-file.js');
 
@@ -40,20 +39,20 @@ function applyManagedScriptConfig(config, managed, overrides = {}) {
   };
 }
 
-test('status notification failures fail closed with the canonical message', async () => {
+test('summary status notification failures do not abort provider work', async () => {
   await withTempEnv(async () => {
-    await withStubServer(async () => {
-      await assert.rejects(
-        () => summarizeRequest({
-          question: 'summarize this',
-          inputText: 'A'.repeat(5000),
-          format: 'text',
-          policyProfile: 'general',
-          backend: 'mock',
-          model: 'mock-model',
-        }),
-        new RegExp(getStatusServerUnavailableMessage().replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u')
-      );
+    await withStubServer(async (server) => {
+      const result = await summarizeRequest({
+        question: 'summarize this',
+        inputText: 'A'.repeat(5000),
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'mock',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.WasSummarized, true);
+      assert.match(result.Summary, /mock summary/u);
     }, {
       failStatusPosts: true,
     });
