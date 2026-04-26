@@ -407,6 +407,54 @@ test('runTaskLoop executes repo_list_files and repo_read_file natively', async (
   }
 });
 
+test('runTaskLoop executes repo_list_files with runner-* glob natively', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const repoRoot = createTempRepoRoot();
+  try {
+    fs.mkdirSync(path.join(repoRoot, 'logs'), { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, 'logs', 'runner-20260425.ndjson'), '{}\n', 'utf8');
+    fs.writeFileSync(path.join(repoRoot, 'logs', 'runner.sqlite3'), '', 'utf8');
+    fs.writeFileSync(path.join(repoRoot, 'logs', 'not-runner.txt'), 'ignored\n', 'utf8');
+
+    const result = await runTaskLoop(
+      {
+        id: 'task-runner-glob',
+        question: 'List runner files.',
+        signals: ['done'],
+      },
+      {
+        repoRoot,
+        maxTurns: 2,
+        maxInvalidResponses: 2,
+        minToolCallsBeforeFinish: 0,
+        mockResponses: [
+          '{"action":"tool","tool_name":"repo_list_files","args":{"path":"logs","glob":"runner-*","recurse":true}}',
+          '{"action":"finish","output":"done"}',
+          '{"verdict":"pass","reason":"supported"}',
+        ],
+        mockCommandResults: {},
+        logger: {
+          write(event: Record<string, unknown> & { kind: string }) {
+            events.push(event);
+          },
+        },
+      }
+    );
+
+    const commandResults = events.filter((event) => event.kind === 'turn_command_result');
+    const output = String(commandResults[0]?.insertedResultText || '');
+    assert.match(String(commandResults[0]?.command || ''), /^repo_list_files/u);
+    assert.match(output, /logs[\\/]runner-20260425\.ndjson/u);
+    assert.doesNotMatch(output, /runner\.sqlite3/u);
+    assert.doesNotMatch(output, /not-runner\.txt/u);
+    assert.equal(result.reason, 'finish');
+    assert.equal(result.commandFailures, 0);
+    assert.equal(result.passed, true);
+  } finally {
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
 test('runTaskLoop logs provider request error details and surfaces enriched network failures', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   const startedAt = Date.now();

@@ -243,7 +243,7 @@ function globToRegExp(glob: string): RegExp {
       pattern += '[^/]';
       continue;
     }
-    if ('\\.[]{}()+-^$|'.includes(char)) {
+    if ('\\.[]{}()+^$|'.includes(char)) {
       pattern += `\\${char}`;
       continue;
     }

@@ -1,0 +1,9 @@
+{"ok":true,"port":4765,"host":"127.0.0.1","statusPath":"C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\.siftkit\\runtime.sqlite","configPath":"C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\.siftkit\\runtime.sqlite","startupWarning":null}
+2026-04-25 20:50:42 request true task=summary raw_chars=5 prompt=2,508
+2026-04-25 20:50:42 request false task=summary total_elapsed=0s output_tokens=0
+2026-04-25 20:50:44 request true task=repo-search raw_chars=78 prompt=78 chunk repo-search
+2026-04-25 20:51:13 request false task=repo-search raw_chars=78 prompt=78 chunk repo-search failed elapsed=29s error=connect ECONNREFUSED 127.0.0.1:8097
+2026-04-25 20:51:14 request true task=summary raw_chars=5 prompt=2,508
+2026-04-25 20:51:14 request false task=summary total_elapsed=0s output_tokens=0
+2026-04-25 20:52:14 request true task=summary raw_chars=5 prompt=821
+2026-04-25 20:52:43 request false task=summary raw_chars=5 prompt=821 failed elapsed=29s error=connect ECONNREFUSED 127.0.0.1:8097
