@@ -678,6 +678,7 @@ export async function handleChatRoute(
         includeRepoFileListing: resolveEffectiveRepoFileListing(config, preset),
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
+        promptTimeoutMs: Number.isFinite(Number(parsedBody.promptTimeoutMs)) ? Number(parsedBody.promptTimeoutMs) : undefined,
         logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,
         availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,
         mockResponses: Array.isArray(parsedBody.mockResponses) ? (parsedBody.mockResponses as unknown[]).map((v) => String(v)) : undefined,

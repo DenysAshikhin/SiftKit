@@ -112,6 +112,18 @@ const FORCED_FINISH_MAX_ATTEMPTS = 3;
 const DUPLICATE_FORCE_THRESHOLD = 5;
 const ANSI_RED_CODE = 31;
 
+function getAbortError(abortSignal?: AbortSignal): Error {
+  return abortSignal?.reason instanceof Error
+    ? abortSignal.reason
+    : new Error(String(abortSignal?.reason || 'Repo search aborted.'));
+}
+
+function throwIfAborted(abortSignal?: AbortSignal): void {
+  if (abortSignal?.aborted) {
+    throw getAbortError(abortSignal);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Slot allocation
 // ---------------------------------------------------------------------------
@@ -389,17 +401,39 @@ function executeRepoCommand(
   command: string,
   repoRoot: string,
   mockCommandResults: Record<string, RepoSearchMockCommandResult> | null,
+  abortSignal?: AbortSignal,
 ): Promise<{ exitCode: number; output: string }> {
+  throwIfAborted(abortSignal);
   const mockResult = mockCommandResults ? findMockResult(command, mockCommandResults) : null;
   if (mockResult) {
     const delayMs = Number(mockResult.delayMs ?? 0);
-    return new Promise((resolve) => {
-      const complete = (): void => resolve({
-        exitCode: Number(mockResult.exitCode ?? 1),
-        output: `${String(mockResult.stdout || '')}${String(mockResult.stderr || '')}`.trim(),
-      });
+    return new Promise((resolve, reject) => {
+      let timeoutHandle: NodeJS.Timeout | null = null;
+      const cleanup = (): void => {
+        if (timeoutHandle) {
+          clearTimeout(timeoutHandle);
+          timeoutHandle = null;
+        }
+        abortSignal?.removeEventListener('abort', abort);
+      };
+      const abort = (): void => {
+        cleanup();
+        reject(getAbortError(abortSignal));
+      };
+      const complete = (): void => {
+        cleanup();
+        resolve({
+          exitCode: Number(mockResult.exitCode ?? 1),
+          output: `${String(mockResult.stdout || '')}${String(mockResult.stderr || '')}`.trim(),
+        });
+      };
+      if (abortSignal?.aborted) {
+        abort();
+        return;
+      }
+      abortSignal?.addEventListener('abort', abort, { once: true });
       if (Number.isFinite(delayMs) && delayMs > 0) {
-        setTimeout(complete, delayMs);
+        timeoutHandle = setTimeout(complete, delayMs);
       } else {
         complete();
       }
@@ -502,6 +536,7 @@ type RunTaskLoopOptions = {
   includeRepoFileListing?: boolean;
   mockResponses?: string[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
+  abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
   onProgress?: ((event: RepoSearchProgressEvent) => void) | null;
 };
@@ -624,6 +659,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   ];
 
   for (let turn = 1; turn <= maxTurns; turn += 1) {
+    throwIfAborted(options.abortSignal);
     turnsUsed = turn;
     const inForcedFinishMode = forcedFinishAttemptsRemaining > 0;
 
@@ -714,6 +750,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         : undefined,
       mockResponses: options.mockResponses,
       mockResponseIndex,
+      abortSignal: options.abortSignal,
       logger: options.logger || null,
       toolDefinitions: plannerToolDefinitions,
     });
@@ -1095,7 +1132,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
 
     const executed = isNativeTool && nativeExecution && nativeExecution.ok
       ? { exitCode: nativeExecution.exitCode, output: nativeExecution.output }
-      : await executeRepoCommand(commandToRun, options.repoRoot, options.mockCommandResults || null);
+      : await executeRepoCommand(commandToRun, options.repoRoot, options.mockCommandResults || null, options.abortSignal);
     const baseOutput = String(executed.output || '').trim();
     const executedReadWindow = isNativeTool ? null : parseGetContentReadWindowCommand(commandToRun);
     let lineReadOverlapLines = 0;
@@ -1521,9 +1558,11 @@ export async function runRepoSearch(options: {
   availableModels?: string[];
   mockResponses?: string[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
+  abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
   onProgress?: ((event: RepoSearchProgressEvent) => void) | null;
 } = {}): Promise<Scorecard> {
+  throwIfAborted(options.abortSignal);
   const plannerToolDefinitions = resolveRepoSearchPlannerToolDefinitions(options.allowedTools);
   if (plannerToolDefinitions.length === 0) {
     throw new Error('No repo-search planner tools are enabled for the active preset.');
@@ -1547,6 +1586,7 @@ export async function runRepoSearch(options: {
   const tasks: TaskResult[] = [];
 
   for (const task of tasksToRun) {
+    throwIfAborted(options.abortSignal);
     const result = await runTaskLoop(task, {
       repoRoot,
       model,
@@ -1562,6 +1602,7 @@ export async function runRepoSearch(options: {
       includeRepoFileListing: options.includeRepoFileListing,
       mockResponses: options.mockResponses,
       mockCommandResults: options.mockCommandResults,
+      abortSignal: options.abortSignal,
       logger: options.logger || null,
       onProgress: options.onProgress || null,
     });

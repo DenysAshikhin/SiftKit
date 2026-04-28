@@ -527,7 +527,7 @@ test('planner token accounting treats tool-step completion tokens as thinking an
   });
 });
 
-test('summary below planner threshold respects runtime reasoning for one-shot requests', async () => {
+test('summary below planner threshold disables thinking for fully ingested one-shot requests', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -559,7 +559,7 @@ test('summary below planner threshold respects runtime reasoning for one-shot re
       assert.equal(result.WasSummarized, true);
       assert.equal(server.state.chatRequests.length, 1);
       assert.deepEqual(server.state.chatRequests[0].chat_template_kwargs, {
-        enable_thinking: true,
+        enable_thinking: false,
       });
       assert.equal('extra_body' in server.state.chatRequests[0], false);
       const firstResponseFormatText = JSON.stringify(server.state.chatRequests[0]?.response_format || {});

@@ -63,6 +63,7 @@ import {
   logAbandonedRun,
   hasActiveRuns,
   getIdleSummaryDatabase,
+  wakeManagedLlamaForIncomingModelRequest,
 } from '../server-ops.js';
 import { getRuntimeDatabase } from '../../state/runtime-db.js';
 import type {
@@ -465,6 +466,7 @@ export async function handleCoreRoute(
         includeRepoFileListing: resolveEffectiveRepoFileListing(config, null),
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
+        promptTimeoutMs: Number.isFinite(Number(parsedBody.promptTimeoutMs)) ? Number(parsedBody.promptTimeoutMs) : undefined,
         logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,
         availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,
         mockResponses: Array.isArray(parsedBody.mockResponses) ? (parsedBody.mockResponses as unknown[]).map((v) => String(v)) : undefined,
@@ -643,6 +645,9 @@ export async function handleCoreRoute(
       return true;
     }
     const requestId = getResolvedRequestId(metadata, statusPath);
+    if (running && normalizeTaskKind(metadata.taskKind) !== null && !ctx.activeModelRequest) {
+      wakeManagedLlamaForIncomingModelRequest(ctx);
+    }
     let elapsedMs: number | null = null;
     let totalElapsedMs: number | null = null;
     let requestCompleted = false;
@@ -811,7 +816,9 @@ export async function handleCoreRoute(
           metadata.speculativeAcceptedTokens = speculativeMetrics.speculativeAcceptedTokens;
           metadata.speculativeGeneratedTokens = speculativeMetrics.speculativeGeneratedTokens;
         }
-        runState.managedLlamaSpeculativeSnapshot = captureManagedLlamaSpeculativeMetricsSnapshot(ctx.managedLlamaLastStartupLogs);
+        if (metadata.terminalState === null) {
+          runState.managedLlamaSpeculativeSnapshot = captureManagedLlamaSpeculativeMetricsSnapshot(ctx.managedLlamaLastStartupLogs);
+        }
         if (metadata.speculativeAcceptedTokens !== null || metadata.speculativeGeneratedTokens !== null) {
           updateRunLogSpeculativeMetricsByRequestId({
             database: getRuntimeDatabase(),

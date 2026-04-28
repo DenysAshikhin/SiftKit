@@ -227,7 +227,7 @@ function Ensure-StatusServer {
     $script:StartedStatusStderr = $stderrPath
     $script:StartedStatusProcess = Start-Process `
         -FilePath 'npm.cmd' `
-        -ArgumentList @('run', 'start:status:stable') `
+        -ArgumentList @('run', 'start:status:stable:server') `
         -WorkingDirectory $script:RepoRoot `
         -RedirectStandardOutput $stdoutPath `
         -RedirectStandardError $stderrPath `

@@ -177,6 +177,53 @@ test('planner json_filter accepts combined gte and lte bounds in one filter valu
   });
 });
 
+test('planner iteration running=false notification is fire-and-forget', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+      const startedAt = Date.now();
+
+      const result = await summarizeRequest({
+        question: 'Find all transitions in the Lumbridge Castle area.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+        statusBackendUrl: server.statusUrl,
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'fire and forget completed');
+      assert.ok(Date.now() - startedAt < 1000);
+      assert.equal(server.state.statusPosts.some((post) => post.running === false && !post.terminalState), true);
+    }, {
+      delayNonTerminalStatusFalseMs: 1500,
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'json_filter',
+            args: {
+              filters: [{ path: 'from.worldX', op: 'gte', value: 3200 }],
+              limit: 1,
+            },
+          });
+        }
+
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'fire and forget completed',
+        });
+      },
+    });
+  });
+});
+
 test('planner retries malformed json_filter schema-placeholder args once and then succeeds', async () => {
   await withTempEnv(async () => {
     const plannerLogsPath = getPlannerLogsPath();
@@ -949,6 +996,16 @@ test('planner keeps the first real tool output and rewrites one duplicate warnin
       const config = await loadConfig({ ensure: true });
       const threshold = getChunkThresholdCharacters(config);
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
+      config.Runtime ??= {};
+      config.Runtime.LlamaCpp ??= {};
+      config.Runtime.LlamaCpp.Reasoning = 'on';
+      config.Server ??= {};
+      config.Server.LlamaCpp ??= {};
+      config.Server.LlamaCpp.Reasoning = 'on';
+      if (Array.isArray(config.Server.LlamaCpp.Presets) && config.Server.LlamaCpp.Presets[0]) {
+        config.Server.LlamaCpp.Presets[0].Reasoning = 'on';
+      }
+      await saveConfig(config);
 
       const result = await summarizeRequest({
         question: 'Find the exact route id.',
@@ -962,7 +1019,15 @@ test('planner keeps the first real tool output and rewrites one duplicate warnin
       assert.equal(result.Classification, 'summary');
       assert.equal(result.Summary, 'duplicate compaction handled');
       assert.equal(server.state.chatRequests.length, 6);
+      for (const request of server.state.chatRequests.slice(0, 5)) {
+        assert.deepEqual(request.chat_template_kwargs, {
+          enable_thinking: true,
+        });
+      }
       const finalRequest = server.state.chatRequests[5];
+      assert.deepEqual(finalRequest.chat_template_kwargs, {
+        enable_thinking: false,
+      });
       const finalMessages = Array.isArray(finalRequest?.messages) ? finalRequest.messages : [];
       const assistantToolCalls = finalMessages.filter((message) => Array.isArray(message?.tool_calls));
       const toolMessages = finalMessages.filter((message) => message?.role === 'tool');

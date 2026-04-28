@@ -20,6 +20,7 @@ import { ensureDirectory } from '../lib/fs.js';
 import { sleep } from '../lib/time.js';
 import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
 import { flushManagedLlamaLogChunks } from '../state/managed-llama-runs.js';
+import { flushManagedLlamaSpeculativeMetricsTracker } from './managed-llama-speculative-tracker.js';
 import { normalizeMetrics, writeMetrics } from './metrics.js';
 import {
   buildIdleSummarySnapshot,
@@ -351,6 +352,28 @@ export function releaseExecutionLease(ctx: ServerContext, token: string): boolea
 // Model request serialisation
 // ---------------------------------------------------------------------------
 
+function getIncomingModelRequestQueuePosition(ctx: ServerContext): number {
+  const activePosition = ctx.activeModelRequest ? 1 : 0;
+  return activePosition + ctx.modelRequestQueue.length + 1;
+}
+
+function logIncomingModelRequest(ctx: ServerContext, kind: string): void {
+  const taskKind = String(kind).trim() || 'unknown';
+  logLine(`request incoming task=${taskKind} queue_position=${getIncomingModelRequestQueuePosition(ctx)}`);
+}
+
+export function wakeManagedLlamaForIncomingModelRequest(ctx: ServerContext): void {
+  if (ctx.disableManagedLlamaStartup) {
+    return;
+  }
+  void ctx.ensureManagedLlamaReady({ allowUnconfigured: true }).catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    ctx.managedLlamaStartupWarning = message;
+    publishStatus(ctx);
+    process.stderr.write(`[siftKitStatus] Failed to wake llama.cpp for incoming request: ${message}\n`);
+  });
+}
+
 export function acquireModelRequest(ctx: ServerContext, kind: string): ModelRequestLock | null {
   if (ctx.activeModelRequest || ctx.modelRequestQueue.length > 0) {
     return null;
@@ -379,6 +402,8 @@ export async function acquireModelRequestWithWait(
   request?: http.IncomingMessage,
   response?: http.ServerResponse,
 ): Promise<ModelRequestLock | null> {
+  logIncomingModelRequest(ctx, kind);
+  wakeManagedLlamaForIncomingModelRequest(ctx);
   let lock = acquireModelRequest(ctx, kind);
   if (lock) {
     return lock;
@@ -457,6 +482,7 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
   }
   if (ctx.managedLlamaLastStartupLogs?.runId) {
     flushManagedLlamaLogChunks(ctx.managedLlamaLastStartupLogs.runId);
+    flushManagedLlamaSpeculativeMetricsTracker(ctx.managedLlamaLastStartupLogs.runId);
   }
   ctx.activeModelRequest = null;
   return true;

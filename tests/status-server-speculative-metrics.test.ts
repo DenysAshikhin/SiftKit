@@ -17,8 +17,13 @@ const {
 } = require('../dist/status-server/managed-llama.js');
 const {
   bufferManagedLlamaLogChunk,
+  createManagedLlamaRun,
   readManagedLlamaLogTextByStream,
+  flushManagedLlamaLogChunks,
 } = require('../dist/state/managed-llama-runs.js');
+const {
+  appendManagedLlamaSpeculativeMetricsChunk,
+} = require('../dist/status-server/managed-llama-speculative-tracker.js');
 
 const {
   getDefaultConfig,
@@ -61,6 +66,46 @@ test('managed llama speculative delta prefers cumulative token stats over rate l
     const delta = getManagedLlamaSpeculativeMetricsDelta(logRef, snapshot);
     assert.equal(delta?.speculativeAcceptedTokens, 4);
     assert.equal(delta?.speculativeGeneratedTokens, 32);
+  });
+});
+
+test('managed llama speculative snapshot prefers tracker state over persisted log text', async () => {
+  await withTempEnv(async () => {
+    const run = createManagedLlamaRun({ id: 'tracker-preferred-run', purpose: 'startup' });
+    const logRef = {
+      runId: run.id,
+      purpose: 'startup',
+      scriptPath: 'mock-llama.exe',
+      baseUrl: 'http://127.0.0.1:8097',
+    };
+
+    bufferManagedLlamaLogChunk({
+      runId: run.id,
+      streamKind: 'startup_script_stdout',
+      chunkText: 'statistics ngram_mod: #gen tokens = 1000, #acc tokens = 900\n',
+    });
+    flushManagedLlamaLogChunks(run.id);
+
+    appendManagedLlamaSpeculativeMetricsChunk({
+      runId: run.id,
+      streamKind: 'startup_script_stdout',
+      chunkText: 'statistics ngram_mod: #gen tokens = 6168, #acc tokens = 5837\n',
+    });
+    const snapshot = captureManagedLlamaSpeculativeMetricsSnapshot(logRef);
+
+    assert.equal(snapshot?.latestSpeculativeAcceptedTokens, 5837);
+    assert.equal(snapshot?.latestSpeculativeGeneratedTokens, 6168);
+
+    appendManagedLlamaSpeculativeMetricsChunk({
+      runId: run.id,
+      streamKind: 'llama_stderr',
+      chunkText: 'statistics ngram_mod: #gen tokens = 6426, #acc tokens = 5895\n',
+    });
+
+    assert.deepEqual(getManagedLlamaSpeculativeMetricsDelta(logRef, snapshot), {
+      speculativeAcceptedTokens: 58,
+      speculativeGeneratedTokens: 258,
+    });
   });
 });
 
@@ -159,6 +204,15 @@ test('real status server uses managed llama cumulative speculative delta for rep
       });
 
       bufferManagedLlamaLogChunk({
+        runId: startupRunId,
+        streamKind: 'startup_script_stderr',
+        chunkText: [
+          'draft acceptance rate = 1.00000 (   47 accepted /    47 generated)',
+          'draft acceptance rate = 1.00000 (   11 accepted /    11 generated)',
+          'statistics ngram_mod: #calls(b,g,a) = 26 5746 137, #gen drafts = 137, #acc drafts = 137, #gen tokens = 6426, #acc tokens = 5895',
+        ].join('\n') + '\n',
+      });
+      appendManagedLlamaSpeculativeMetricsChunk({
         runId: startupRunId,
         streamKind: 'startup_script_stderr',
         chunkText: [

@@ -18,6 +18,10 @@ function readNonNegativeIntegerEnv(key: string, fallback: number): number {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
+function shouldTraceHealthcheckAttempts(): boolean {
+  return String(process.env.SIFTKIT_HEALTHCHECK_TRACE || '').trim() === '1';
+}
+
 export function deriveServiceUrl(configuredUrl: string, nextPath: string): string {
   const target = new URL(configuredUrl);
   target.pathname = nextPath;
@@ -85,10 +89,12 @@ export async function ensureStatusServerReachable(): Promise<void> {
       return;
     } catch (error) {
       const cause = error instanceof Error ? error.message : String(error);
-      process.stderr.write(
-        `[siftkit] healthcheck attempt ${attempt}/${attempts} failed `
-        + `url=${healthUrl} timeout_ms=${timeoutMs} cause=${cause}\n`
-      );
+      if (shouldTraceHealthcheckAttempts()) {
+        process.stderr.write(
+          `[siftkit] healthcheck attempt ${attempt}/${attempts} failed `
+          + `url=${healthUrl} timeout_ms=${timeoutMs} cause=${cause}\n`
+        );
+      }
       if (attempt >= attempts) {
         break;
       }

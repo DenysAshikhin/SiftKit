@@ -1,6 +1,9 @@
 // Repo-search module public API barrel.
 
-export { executeRepoSearchRequest } from './execute.js';
+export {
+  DEFAULT_REPO_SEARCH_PROMPT_TIMEOUT_MS,
+  executeRepoSearchRequest,
+} from './execute.js';
 export {
   assertConfiguredModelPresent,
   buildScorecard,

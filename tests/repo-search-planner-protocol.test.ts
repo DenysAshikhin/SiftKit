@@ -198,6 +198,41 @@ test('requestPlannerAction uses llama timings from the final streaming chunk whe
   });
 });
 
+test('requestPlannerAction aborts an in-flight streaming request', async () => {
+  await withServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+    res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"finish"}}]}\n\n');
+  }, async (baseUrl) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error('Repo search prompt exceeded 20 ms. Please try again.')), 20);
+    try {
+      await assert.rejects(
+        () => requestPlannerAction({
+          baseUrl,
+          model: 'mock-model',
+          messages: [{ role: 'user', content: 'finish slowly' }],
+          timeoutMs: 5000,
+          maxTokens: 512,
+          stream: true,
+          abortSignal: controller.signal,
+        }),
+        /Repo search prompt exceeded 20 ms\. Please try again\./u,
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+});
+
 test('requestPlannerAction sends json_schema response_format with tools and no grammar', async () => {
   let capturedBody: Record<string, unknown> | null = null;
   await withServer((req, res) => {

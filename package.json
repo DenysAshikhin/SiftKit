@@ -8,7 +8,8 @@
   "scripts": {
     "start": "tsx .\\scripts\\start-dev.ts",
     "start:status": "nodemon --signal SIGINT --watch .\\dist\\status-server --ext js,json .\\dist\\status-server\\index.js",
-    "start:status:stable": "node .\\dist\\status-server\\index.js",
+    "start:status:stable": "tsx .\\scripts\\start-dev.ts --stable",
+    "start:status:stable:server": "node .\\dist\\status-server\\index.js",
     "start:dashboard": "npm --prefix .\\dashboard run dev",
     "build": "tsc -p .\\tsconfig.json && tsc -p .\\tsconfig.scripts.json && npm --prefix .\\dashboard run build && node .\\scripts\\sync-dist-runtime.js",
     "build:test": "node .\\scripts\\build-test.js",

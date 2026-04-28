@@ -78,8 +78,9 @@ test('runRepoSearch does not fail on model inventory mismatch', async () => {
   assert.equal(scorecard.verdict, 'pass');
 });
 
-test('getDynamicMaxOutputTokens uses 90% of remaining context', () => {
+test('getDynamicMaxOutputTokens uses the smaller of 25k tokens or 90% of remaining context', () => {
   assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 8192, promptTokenCount: 1000 }), 6472);
+  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 128000, promptTokenCount: 12239 }), 25000);
   assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 200, promptTokenCount: 199 }), 1);
   assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 200, promptTokenCount: 250 }), 1);
 });

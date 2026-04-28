@@ -326,7 +326,7 @@ test('runtime database migration backfills metrics totals and task totals to pro
       WHERE id = 1
     `).get() as { input_tokens_total: number; prompt_eval_tokens_total: number; task_totals_json: string };
 
-    assert.equal(schemaVersionRow.version, 19);
+    assert.equal(schemaVersionRow.version, 20);
     assert.equal(metricsRow.input_tokens_total, 23);
     assert.equal(metricsRow.prompt_eval_tokens_total, 23);
     const taskTotals = JSON.parse(metricsRow.task_totals_json) as {

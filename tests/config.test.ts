@@ -368,6 +368,68 @@ test('ensureStatusServerReachable retries transient health failures and succeeds
   }
 });
 
+test('ensureStatusServerReachable keeps transient retry diagnostics out of stderr by default', async () => {
+  let healthChecks = 0;
+  const server = await new Promise<http.Server>((resolve) => {
+    const nextServer = http.createServer((req, res) => {
+      if (req.method === 'GET' && req.url === '/health') {
+        healthChecks += 1;
+        const ok = healthChecks >= 2;
+        res.writeHead(ok ? 200 : 503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok }));
+        return;
+      }
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'not found' }));
+    });
+    nextServer.listen(0, '127.0.0.1', () => resolve(nextServer));
+  });
+  const previousEnv = {
+    SIFTKIT_STATUS_BACKEND_URL: process.env.SIFTKIT_STATUS_BACKEND_URL,
+    SIFTKIT_CONFIG_SERVICE_URL: process.env.SIFTKIT_CONFIG_SERVICE_URL,
+    SIFTKIT_HEALTHCHECK_ATTEMPTS: process.env.SIFTKIT_HEALTHCHECK_ATTEMPTS,
+    SIFTKIT_HEALTHCHECK_TIMEOUT_MS: process.env.SIFTKIT_HEALTHCHECK_TIMEOUT_MS,
+    SIFTKIT_HEALTHCHECK_BACKOFF_MS: process.env.SIFTKIT_HEALTHCHECK_BACKOFF_MS,
+    SIFTKIT_HEALTHCHECK_TRACE: process.env.SIFTKIT_HEALTHCHECK_TRACE,
+  };
+  const originalWrite = process.stderr.write.bind(process.stderr);
+  let stderrText = '';
+  process.stderr.write = ((chunk: string | Uint8Array, encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void), callback?: (error?: Error | null) => void) => {
+    stderrText += String(chunk);
+    const resolvedCallback = typeof encodingOrCallback === 'function' ? encodingOrCallback : callback;
+    if (resolvedCallback) {
+      resolvedCallback();
+    }
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    const address = server.address() as AddressInfo;
+    process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${address.port}/status`;
+    process.env.SIFTKIT_CONFIG_SERVICE_URL = `http://127.0.0.1:${address.port}/config`;
+    process.env.SIFTKIT_HEALTHCHECK_ATTEMPTS = '3';
+    process.env.SIFTKIT_HEALTHCHECK_TIMEOUT_MS = '50';
+    process.env.SIFTKIT_HEALTHCHECK_BACKOFF_MS = '1';
+    delete process.env.SIFTKIT_HEALTHCHECK_TRACE;
+
+    await ensureStatusServerReachable();
+
+    assert.equal(healthChecks, 2);
+    assert.equal(stderrText, '');
+  } finally {
+    process.stderr.write = originalWrite as typeof process.stderr.write;
+    await new Promise<void>((resolve, reject) => {
+      server.close((error: Error | undefined) => (error ? reject(error) : resolve()));
+    });
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
 test('ensureStatusServerReachable honors health retry env overrides', async () => {
   let healthChecks = 0;
   const server = await new Promise<http.Server>((resolve) => {

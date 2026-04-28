@@ -4,7 +4,10 @@ import * as http from 'node:http';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 
-import { executeRepoSearchRequest } from '../dist/repo-search/index.js';
+import {
+  DEFAULT_REPO_SEARCH_PROMPT_TIMEOUT_MS,
+  executeRepoSearchRequest,
+} from '../dist/repo-search/index.js';
 import {
   listRuntimeArtifacts,
   parseRuntimeArtifactUri,
@@ -124,6 +127,31 @@ test('executeRepoSearchRequest with mock command executes and returns scorecard'
     });
     assert.equal(typeof result.scorecard, 'object');
     assert.equal(result.scorecard.verdict, 'pass');
+  });
+});
+
+test('executeRepoSearchRequest uses a four-minute default prompt timeout', () => {
+  assert.equal(DEFAULT_REPO_SEARCH_PROMPT_TIMEOUT_MS, 240_000);
+});
+
+test('executeRepoSearchRequest fails with try-again error when prompt timeout expires', async () => {
+  await withTestEnvAndServer(async ({ tempRoot }) => {
+    await assert.rejects(
+      () => executeRepoSearchRequest({
+        prompt: 'find slow command',
+        repoRoot: tempRoot,
+        maxTurns: 2,
+        promptTimeoutMs: 20,
+        mockResponses: [
+          '{"action":"tool","tool_name":"repo_git","args":{"command":"git status --short"}}',
+          '{"action":"finish","output":"done","confidence":0.8}',
+        ],
+        mockCommandResults: {
+          'git status --short': { exitCode: 0, stdout: '', stderr: '', delayMs: 200 },
+        },
+      }),
+      /Repo search prompt exceeded 20 ms\. Please try again\./u,
+    );
   });
 });
 

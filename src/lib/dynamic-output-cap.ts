@@ -21,7 +21,7 @@ export function getDynamicMaxOutputTokens(options: {
   const totalContextTokens = Math.max(0, Math.floor(Number(options.totalContextTokens) || 0));
   const promptTokenCount = Math.max(0, Math.floor(Number(options.promptTokenCount) || 0));
   const remainingContextTokens = Math.max(totalContextTokens - promptTokenCount, 0);
-  return Math.max(1, Math.floor(remainingContextTokens * 0.9));
+  return Math.max(1, Math.min(25_000, Math.floor(remainingContextTokens * 0.9)));
 }
 
 export function getDynamicMaxOutputTokensForConfig(options: {

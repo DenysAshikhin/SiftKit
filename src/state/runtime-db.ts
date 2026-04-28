@@ -8,7 +8,7 @@ import { normalizeOperationModeAllowedTools, normalizePresets } from '../presets
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-const CURRENT_SCHEMA_VERSION = 19;
+const CURRENT_SCHEMA_VERSION = 20;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["repo_rg","repo_read_file","repo_list_files","repo_git","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}';
 
@@ -404,7 +404,12 @@ function ensureManagedLlamaAndBenchmarkMatrixSchema(database: RuntimeDatabase): 
       error_message TEXT,
       started_at_utc TEXT NOT NULL,
       finished_at_utc TEXT,
-      updated_at_utc TEXT NOT NULL
+      updated_at_utc TEXT NOT NULL,
+      speculative_accepted_tokens INTEGER,
+      speculative_generated_tokens INTEGER,
+      stdout_character_count INTEGER NOT NULL DEFAULT 0,
+      stderr_character_count INTEGER NOT NULL DEFAULT 0,
+      metrics_updated_at_utc TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_managed_llama_runs_started
       ON managed_llama_runs(started_at_utc DESC);
@@ -886,6 +891,29 @@ function ensureSchema(database: RuntimeDatabase): void {
     setSchemaVersion(database, 19);
     currentVersion = 19;
   }
+  if (currentVersion < 20) {
+    const alterStatements: string[] = [];
+    if (tableExists(database, 'managed_llama_runs') && !tableHasColumn(database, 'managed_llama_runs', 'speculative_accepted_tokens')) {
+      alterStatements.push('ALTER TABLE managed_llama_runs ADD COLUMN speculative_accepted_tokens INTEGER;');
+    }
+    if (tableExists(database, 'managed_llama_runs') && !tableHasColumn(database, 'managed_llama_runs', 'speculative_generated_tokens')) {
+      alterStatements.push('ALTER TABLE managed_llama_runs ADD COLUMN speculative_generated_tokens INTEGER;');
+    }
+    if (tableExists(database, 'managed_llama_runs') && !tableHasColumn(database, 'managed_llama_runs', 'stdout_character_count')) {
+      alterStatements.push('ALTER TABLE managed_llama_runs ADD COLUMN stdout_character_count INTEGER NOT NULL DEFAULT 0;');
+    }
+    if (tableExists(database, 'managed_llama_runs') && !tableHasColumn(database, 'managed_llama_runs', 'stderr_character_count')) {
+      alterStatements.push('ALTER TABLE managed_llama_runs ADD COLUMN stderr_character_count INTEGER NOT NULL DEFAULT 0;');
+    }
+    if (tableExists(database, 'managed_llama_runs') && !tableHasColumn(database, 'managed_llama_runs', 'metrics_updated_at_utc')) {
+      alterStatements.push('ALTER TABLE managed_llama_runs ADD COLUMN metrics_updated_at_utc TEXT;');
+    }
+    if (alterStatements.length > 0) {
+      database.exec(alterStatements.join('\n'));
+    }
+    setSchemaVersion(database, 20);
+    currentVersion = 20;
+  }
   ensureRuntimeArtifactsSchema(database);
   ensureManagedLlamaAndBenchmarkMatrixSchema(database);
 }
@@ -900,19 +928,39 @@ export function getRuntimeDatabasePath(startPath: string = process.cwd()): strin
   return path.join(getRepoRuntimeRoot(startPath), 'runtime.sqlite');
 }
 
+function configureRuntimeDatabase(database: RuntimeDatabase): void {
+  database.exec(`
+    PRAGMA journal_mode = WAL;
+    PRAGMA synchronous = NORMAL;
+  `);
+}
+
+function closeRuntimeDatabaseHandle(database: RuntimeDatabase): void {
+  try {
+    database.exec(`
+      PRAGMA wal_checkpoint(TRUNCATE);
+      PRAGMA journal_mode = DELETE;
+    `);
+  } catch {
+    // Best effort before close.
+  }
+  database.close();
+}
+
 export function getRuntimeDatabase(databasePath: string = getRuntimeDatabasePath()): RuntimeDatabase {
   const resolvedPath = path.resolve(databasePath);
   if (cachedDatabase && cachedDatabasePath === resolvedPath) {
     return cachedDatabase;
   }
   if (cachedDatabase) {
-    cachedDatabase.close();
+    closeRuntimeDatabaseHandle(cachedDatabase);
     cachedDatabase = null;
     cachedDatabasePath = null;
   }
   ensureDirectory(path.dirname(resolvedPath));
   let database: RuntimeDatabase = new Database(resolvedPath);
   try {
+    configureRuntimeDatabase(database);
     ensureSchema(database);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -920,7 +968,7 @@ export function getRuntimeDatabase(databasePath: string = getRuntimeDatabasePath
       throw error;
     }
     try {
-      database.close();
+      closeRuntimeDatabaseHandle(database);
     } catch {
       // Best effort close before reset.
     }
@@ -931,6 +979,7 @@ export function getRuntimeDatabase(databasePath: string = getRuntimeDatabasePath
       }
     }
     database = new Database(resolvedPath);
+    configureRuntimeDatabase(database);
     ensureSchema(database);
   }
   cachedDatabase = database;
@@ -942,7 +991,7 @@ export function closeRuntimeDatabase(): void {
   if (!cachedDatabase) {
     return;
   }
-  cachedDatabase.close();
+  closeRuntimeDatabaseHandle(cachedDatabase);
   cachedDatabase = null;
   cachedDatabasePath = null;
 }

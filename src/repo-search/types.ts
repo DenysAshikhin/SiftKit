@@ -34,6 +34,7 @@ export type RepoSearchExecutionRequest = {
   includeAgentsMd?: boolean;
   includeRepoFileListing?: boolean;
   maxTurns?: number;
+  promptTimeoutMs?: number;
   logFile?: string;
   availableModels?: string[];
   mockResponses?: string[];

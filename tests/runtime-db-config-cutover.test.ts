@@ -14,7 +14,7 @@ import {
   writeConfig,
   getDefaultConfig,
 } from '../dist/status-server/config-store.js';
-import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
+import { closeRuntimeDatabase, getRuntimeDatabase } from '../dist/state/runtime-db.js';
 
 function removeDirectoryWithRetries(targetPath: string, attempts = 40, delayMs = 50): void {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -50,6 +50,27 @@ test('getRuntimeRoot falls back to cwd outside a siftkit repo', () => {
         getRuntimeRoot(),
         path.join(tempRoot, '.siftkit'),
       );
+    } finally {
+      process.chdir(previousCwd);
+    }
+  });
+});
+
+test('runtime database uses WAL journal mode and NORMAL synchronous mode', () => {
+  withTempDir((tempRoot) => {
+    const previousCwd = process.cwd();
+    try {
+      fs.writeFileSync(
+        path.join(tempRoot, 'package.json'),
+        JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+        'utf8',
+      );
+      process.chdir(tempRoot);
+      const database = getRuntimeDatabase();
+      const journalMode = database.prepare('PRAGMA journal_mode').get() as { journal_mode?: string };
+      const synchronous = database.prepare('PRAGMA synchronous').get() as { synchronous?: number };
+      assert.equal(String(journalMode.journal_mode || '').toLowerCase(), 'wal');
+      assert.equal(Number(synchronous.synchronous), 1);
     } finally {
       process.chdir(previousCwd);
     }

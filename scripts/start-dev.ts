@@ -1,15 +1,21 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import * as http from 'node:http';
-import * as net from 'node:net';
+
+import { buildStartupPortChecks, isPortInUse } from './start-dev-ports.js';
 
 type SpawnOptions = { cwd?: string; env?: NodeJS.ProcessEnv };
 
 function startProcess(command: string, args: string[], options: SpawnOptions = {}): ChildProcess {
-  const child = spawn(command, args, {
+  // On Windows, .cmd/.bat files can't be spawned directly without a shell. Avoid
+  // `shell: true` (which triggers Node DEP0190) by wrapping with `cmd.exe /d /s /c`.
+  const isWindowsCmd = process.platform === 'win32' && /\.(cmd|bat)$/iu.test(command);
+  const spawnCommand = isWindowsCmd ? 'cmd.exe' : command;
+  const spawnArgs = isWindowsCmd ? ['/d', '/s', '/c', command, ...args] : args;
+  const child = spawn(spawnCommand, spawnArgs, {
     stdio: 'inherit',
     cwd: options.cwd || process.cwd(),
     env: options.env || process.env,
-    shell: process.platform === 'win32',
+    windowsHide: true,
   });
   child.on('error', (error: Error) => {
     process.stderr.write(`[start-dev] Failed to start ${command}: ${error.message}\n`);
@@ -18,6 +24,8 @@ function startProcess(command: string, args: string[], options: SpawnOptions = {
 }
 
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const useStableStatus = process.argv.includes('--stable');
+const statusScript = useStableStatus ? 'start:status:stable:server' : 'start:status';
 let statusProcess: ChildProcess | null = null;
 let dashboardProcess: ChildProcess | null = null;
 
@@ -88,32 +96,18 @@ function waitForBackendReady(options: { timeoutMs?: number; pollMs?: number } = 
 }
 
 void (async () => {
-  const statusHost = process.env.SIFTKIT_STATUS_HOST || '127.0.0.1';
-  const statusPort = Number.parseInt(process.env.SIFTKIT_STATUS_PORT || '4765', 10);
-  const portInUse = await new Promise<boolean>((resolve) => {
-    const socket = net.createConnection({ host: statusHost, port: statusPort });
-    socket.once('connect', () => {
-      socket.destroy();
-      resolve(true);
-    });
-    socket.once('error', () => {
-      resolve(false);
-    });
-    socket.setTimeout(1000, () => {
-      socket.destroy();
-      resolve(false);
-    });
-  });
-  if (portInUse) {
-    process.stderr.write(
-      `[start-dev] Refusing to start because ${statusHost}:${statusPort} is already in use. `
-      + 'Stop the existing status server process, then run npm start again.\n'
-    );
-    process.exit(1);
-    return;
+  for (const portCheck of buildStartupPortChecks(process.env)) {
+    if (await isPortInUse(portCheck.host, portCheck.port)) {
+      process.stderr.write(
+        `[start-dev] Refusing to start because ${portCheck.name} port ${portCheck.host}:${portCheck.port} is already in use. `
+        + 'Stop the existing process, then run npm start again.\n'
+      );
+      process.exit(1);
+      return;
+    }
   }
 
-  statusProcess = startProcess(npmCommand, ['run', 'start:status']);
+  statusProcess = startProcess(npmCommand, ['run', statusScript]);
   statusProcess.on('exit', (code) => {
     if (!shuttingDown) {
       process.stderr.write(`[start-dev] Status server exited with code ${code ?? 0}; stopping dashboard.\n`);

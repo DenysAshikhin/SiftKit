@@ -660,6 +660,16 @@ async function startStubStatusServer(options = {}) {
         }
         state.metrics.updatedAtUtc = new Date().toISOString();
       }
+      if (
+        Number.isFinite(Number(options.delayNonTerminalStatusFalseMs))
+        && Number(options.delayNonTerminalStatusFalseMs) > 0
+        && parsed.running === false
+        && !parsed.terminalState
+        && !parsed.deferredMetadata
+        && !hasArtifactPayload
+      ) {
+        await sleep(Number(options.delayNonTerminalStatusFalseMs));
+      }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, running: Boolean(parsed.running) }));
       return;

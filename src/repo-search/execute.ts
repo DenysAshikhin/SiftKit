@@ -18,6 +18,12 @@ import type {
   RepoSearchProgressEvent,
 } from './types.js';
 
+export const DEFAULT_REPO_SEARCH_PROMPT_TIMEOUT_MS = 4 * 60 * 1000;
+
+function buildRepoSearchPromptTimeoutError(timeoutMs: number): Error {
+  return new Error(`Repo search prompt exceeded ${timeoutMs} ms. Please try again.`);
+}
+
 export async function executeRepoSearchRequest(
   request: RepoSearchExecutionRequest,
 ): Promise<RepoSearchExecutionResult> {
@@ -29,6 +35,16 @@ export async function executeRepoSearchRequest(
   }
 
   const startedAt = Date.now();
+  const promptTimeoutMs = Number.isFinite(Number(request.promptTimeoutMs)) && Number(request.promptTimeoutMs) > 0
+    ? Math.trunc(Number(request.promptTimeoutMs))
+    : DEFAULT_REPO_SEARCH_PROMPT_TIMEOUT_MS;
+  const abortController = new AbortController();
+  const timeoutHandle = setTimeout(() => {
+    abortController.abort(buildRepoSearchPromptTimeoutError(promptTimeoutMs));
+  }, promptTimeoutMs);
+  if (typeof timeoutHandle.unref === 'function') {
+    timeoutHandle.unref();
+  }
   const repoRoot = path.resolve(String(request.repoRoot || process.cwd()));
   const requestId = randomUUID();
   const taskKind = request.taskKind === 'plan' ? 'plan' : 'repo-search';
@@ -68,6 +84,7 @@ export async function executeRepoSearchRequest(
       availableModels: request.availableModels,
       mockResponses: request.mockResponses,
       mockCommandResults: request.mockCommandResults,
+      abortSignal: abortController.signal,
       onProgress: progressCallback
         ? (event: RepoSearchProgressEvent) => {
           progressCallback({
@@ -187,6 +204,7 @@ export async function executeRepoSearchRequest(
       `execute done request_id=${requestId} verdict=${String(scorecard?.verdict ?? 'unknown')} `
       + `duration_ms=${Date.now() - startedAt} output_chars=${outputCharacterCount}`
     );
+    clearTimeout(timeoutHandle);
     return {
       requestId,
       transcriptPath: transcriptUri,
@@ -263,5 +281,7 @@ export async function executeRepoSearchRequest(
     (error as { artifactPath?: string; transcriptPath?: string }).artifactPath = artifactPath;
     (error as { artifactPath?: string; transcriptPath?: string }).transcriptPath = transcriptUri;
     throw error;
+  } finally {
+    clearTimeout(timeoutHandle);
   }
 }

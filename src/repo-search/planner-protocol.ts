@@ -618,6 +618,7 @@ export type PlannerRequestOptions = {
   /** Mock response array for testing — bypasses the network entirely. */
   mockResponses?: string[];
   mockResponseIndex?: number;
+  abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
   /** Override stage name for logging (default: 'planner_action'). */
   stage?: string;
@@ -672,6 +673,11 @@ function serializePlannerMessage(message: ChatMessage, reasoningContentEnabled: 
 }
 
 export async function requestPlannerAction(options: PlannerRequestOptions): Promise<PlannerActionResponse> {
+  if (options.abortSignal?.aborted) {
+    throw options.abortSignal.reason instanceof Error
+      ? options.abortSignal.reason
+      : new Error(String(options.abortSignal.reason || 'Request aborted.'));
+  }
   // Mock path — bypass network entirely
   if (Array.isArray(options.mockResponses)) {
     const index = options.mockResponseIndex || 0;
@@ -761,6 +767,7 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
           method: 'POST',
           timeoutMs: options.timeoutMs,
           body: bodyJson,
+          abortSignal: options.abortSignal,
         });
         if (isTransientProviderHttpResponse(nextResponse.statusCode, nextResponse.rawText)) {
           throw buildTransientProviderHttpError(nextResponse.statusCode, nextResponse.rawText);
@@ -951,6 +958,7 @@ function requestStreaming(
       response.on('end', () => {
         if (settled) return;
         settled = true;
+        options.abortSignal?.removeEventListener('abort', abortRequest);
         options.logger?.write({ kind: 'provider_request_done', stage, method, url: target.toString(), path: urlPath, statusCode: response.statusCode || 0, elapsedMs: Date.now() - startedAt });
         let synthesized: string | null = null;
         const parsedToolCalls = toolCalls
@@ -1000,11 +1008,24 @@ function requestStreaming(
     request.on('error', (err) => {
       if (!settled) {
         settled = true;
+        options.abortSignal?.removeEventListener('abort', abortRequest);
         const serialized = serializeNetworkError(err);
         options.logger?.write({ kind: 'provider_request_error', stage, method, url: target.toString(), path: urlPath, elapsedMs: Date.now() - startedAt, error: serialized });
         reject(new Error(buildProviderErrorMessage({ stage, method, url: target.toString() }, serialized)));
       }
     });
+
+    const abortRequest = (): void => {
+      const error = options.abortSignal?.reason instanceof Error
+        ? options.abortSignal.reason
+        : new Error(String(options.abortSignal?.reason || 'Request aborted.'));
+      request.destroy(error);
+    };
+    if (options.abortSignal?.aborted) {
+      abortRequest();
+    } else {
+      options.abortSignal?.addEventListener('abort', abortRequest, { once: true });
+    }
 
     request.setTimeout(options.timeoutMs, () => {
       request.destroy(new Error(`Request timed out after ${options.timeoutMs} ms.`));

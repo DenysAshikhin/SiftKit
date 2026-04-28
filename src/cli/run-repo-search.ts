@@ -1,5 +1,6 @@
 import { getStatusBackendUrl } from '../config/index.js';
 import { requestJson } from '../lib/http.js';
+import { DEFAULT_REPO_SEARCH_PROMPT_TIMEOUT_MS } from '../repo-search/execute.js';
 import { getCommandArgs, parseArguments } from './args.js';
 
 export function getRepoSearchServiceUrl(): string {
@@ -37,7 +38,7 @@ export async function runRepoSearchCli(options: {
   }>({
     url: getRepoSearchServiceUrl(),
     method: 'POST',
-    timeoutMs: 10 * 60 * 1000,
+    timeoutMs: DEFAULT_REPO_SEARCH_PROMPT_TIMEOUT_MS + 15_000,
     body: JSON.stringify({
       prompt,
       repoRoot: process.cwd(),

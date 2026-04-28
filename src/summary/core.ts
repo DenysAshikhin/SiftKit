@@ -293,6 +293,9 @@ async function invokeSummaryCore(options: {
   let providerMetrics: ProviderSummaryMetrics | null = null;
   try {
     const invokeSummaryProvider = async (): Promise<string> => {
+      const reasoningOverride = options.backend === 'llama.cpp' && !options.chunkContext
+        ? 'off'
+        : undefined;
       const providerResult = await invokeProviderSummary({
         requestId: options.requestId,
         slotId: options.slotId,
@@ -309,6 +312,7 @@ async function invokeSummaryCore(options: {
         chunkIndex: options.chunkIndex ?? null,
         chunkTotal: options.chunkTotal ?? null,
         chunkPath: options.chunkPath ?? null,
+        reasoningOverride,
         requestTimeoutSeconds: options.requestTimeoutSeconds,
         llamaCppOverrides: options.llamaCppOverrides,
         statusBackendUrl: options.statusBackendUrl,

@@ -37,6 +37,8 @@ import {
   normalizeIdleSummarySnapshotRow,
 } from './dashboard-runs.js';
 import { runRuntimeCutoverMigration } from './runtime-cutover.js';
+import { closeRuntimeDatabase } from '../state/runtime-db.js';
+import { deleteManagedLlamaLogChunksOlderThan } from '../state/managed-llama-runs.js';
 import {
   publishStatus,
   clearIdleSummaryTimer,
@@ -110,6 +112,14 @@ export type { TerminateProcessTreeOptions, StartStatusServerOptions, ExtendedSer
 // Server factory
 // ---------------------------------------------------------------------------
 
+const MANAGED_LLAMA_LOG_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
+const MANAGED_LLAMA_LOG_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
+
+function pruneManagedLlamaLogChunks(): void {
+  const cutoff = new Date(Date.now() - MANAGED_LLAMA_LOG_RETENTION_MS).toISOString();
+  deleteManagedLlamaLogChunksOlderThan({ olderThanUtc: cutoff });
+}
+
 export function startStatusServer(options: StartStatusServerOptions = {}): ExtendedServer {
   const disableManagedLlamaStartup = Boolean(options.disableManagedLlamaStartup);
   const host = process.env.SIFTKIT_STATUS_HOST || '127.0.0.1';
@@ -125,6 +135,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   const metrics = loadedMetrics.metrics;
   void loadedMetrics.resetRequired;
   writeMetrics(metricsPath, metrics);
+  pruneManagedLlamaLogChunks();
 
   let resolveStartupPromise: () => void = () => {};
   let rejectStartupPromise: (error: unknown) => void = () => {};
@@ -170,6 +181,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     managedLlamaReady: false,
     managedLlamaStartupWarning: null,
     bootstrapManagedLlamaStartup: false,
+    managedLlamaLogCleanupTimer: null,
     // Late-bound function references (break circular deps between modules).
     shutdownManagedLlamaIfNeeded: (opts) => shutdownManagedLlamaIfNeeded(ctx, opts),
     ensureManagedLlamaReady: (opts) => ensureManagedLlamaReady(ctx, opts),
@@ -182,6 +194,16 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   }) as ExtendedServer;
 
   ctx.server = server;
+  ctx.managedLlamaLogCleanupTimer = setInterval(() => {
+    try {
+      pruneManagedLlamaLogChunks();
+    } catch (error) {
+      process.stderr.write(`[siftKitStatus] Managed llama log cleanup failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    }
+  }, MANAGED_LLAMA_LOG_CLEANUP_INTERVAL_MS);
+  if (typeof ctx.managedLlamaLogCleanupTimer.unref === 'function') {
+    ctx.managedLlamaLogCleanupTimer.unref();
+  }
 
   // Override close to ensure managed llama shuts down first.
   const originalClose = server.close.bind(server);
@@ -235,10 +257,15 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   });
   server.on('close', () => {
     clearIdleSummaryTimer(ctx);
+    if (ctx.managedLlamaLogCleanupTimer) {
+      clearInterval(ctx.managedLlamaLogCleanupTimer);
+      ctx.managedLlamaLogCleanupTimer = null;
+    }
     if (ctx.idleSummaryDatabase) {
       ctx.idleSummaryDatabase.close();
       ctx.idleSummaryDatabase = null;
     }
+    closeRuntimeDatabase();
   });
   server.shutdownManagedLlamaForServerExit = () => shutdownManagedLlamaForServerExit(ctx);
   server.shutdownManagedLlamaForProcessExitSync = () => shutdownManagedLlamaForProcessExitSync(ctx);

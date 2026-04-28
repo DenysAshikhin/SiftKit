@@ -9,6 +9,7 @@ export type RequestJsonOptions = {
   method: HttpMethod;
   timeoutMs: number;
   body?: string;
+  abortSignal?: AbortSignal;
 };
 
 /**
@@ -140,14 +141,21 @@ export function requestJsonFull<T>(options: RequestJsonOptions): Promise<FullJso
       if (settled) return;
       settled = true;
       clearTimeout(timeoutHandle);
+      options.abortSignal?.removeEventListener('abort', abortRequest);
       resolve(value);
     };
     const rejectOnce = (error: unknown): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timeoutHandle);
+      options.abortSignal?.removeEventListener('abort', abortRequest);
       reject(error);
     };
+    const getAbortError = (): Error => (
+      options.abortSignal?.reason instanceof Error
+        ? options.abortSignal.reason
+        : new Error(String(options.abortSignal?.reason || 'Request aborted.'))
+    );
 
     const target = new URL(options.url);
     const transport = target.protocol === 'https:' ? https : http;
@@ -190,10 +198,18 @@ export function requestJsonFull<T>(options: RequestJsonOptions): Promise<FullJso
     const timeoutHandle = setTimeout(() => {
       request.destroy(new Error(`Request timed out after ${options.timeoutMs} ms.`));
     }, options.timeoutMs);
+    const abortRequest = (): void => {
+      request.destroy(getAbortError());
+    };
     if (typeof timeoutHandle.unref === 'function') {
       timeoutHandle.unref();
     }
 
+    if (options.abortSignal?.aborted) {
+      abortRequest();
+    } else {
+      options.abortSignal?.addEventListener('abort', abortRequest, { once: true });
+    }
     request.on('error', (error) => {
       rejectOnce(error);
     });

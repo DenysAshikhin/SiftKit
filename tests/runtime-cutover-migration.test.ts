@@ -239,7 +239,7 @@ test('runtime database initializes fresh app_config schema without re-adding v11
 
     assert.equal(appConfigColumns.filter((column) => column.name === 'llama_ncpu_moe').length, 1);
     assert.equal(appConfigColumns.filter((column) => column.name === 'server_ncpu_moe').length, 1);
-    assert.equal(Number(schemaVersion?.version || 0), 19);
+    assert.equal(Number(schemaVersion?.version || 0), 20);
   });
 });
 
@@ -330,7 +330,7 @@ test('runtime database migrates schema v10 to v11 without duplicating existing l
 
     assert.equal(appConfigColumns.filter((column) => column.name === 'llama_ncpu_moe').length, 1);
     assert.equal(appConfigColumns.filter((column) => column.name === 'server_ncpu_moe').length, 1);
-    assert.equal(Number(schemaVersion?.version || 0), 19);
+    assert.equal(Number(schemaVersion?.version || 0), 20);
   });
 });
 
@@ -431,7 +431,7 @@ test('runtime database migrates schema v5 GPU fields to schema v6 boolean-only s
       WHERE type = 'table' AND name = 'runtime_status'
     `).get() as { sql: string };
 
-    assert.equal(versionRow.version, 19);
+    assert.equal(versionRow.version, 20);
     assert.equal(appConfigColumns.some((column) => column.name === 'llama_gpu_layers'), false);
     assert.equal(appConfigColumns.some((column) => column.name === 'server_kv_cache_quant'), true);
     assert.equal(appConfigColumns.some((column) => column.name === 'server_llama_presets_json'), true);
@@ -485,7 +485,7 @@ test('runtime database migrates stored legacy planner tool names to canonical na
     };
     const schemaVersion = migrated.prepare('SELECT version FROM runtime_schema WHERE id = 1').get() as { version?: number } | undefined;
 
-    assert.equal(Number(schemaVersion?.version || 0), 19);
+    assert.equal(Number(schemaVersion?.version || 0), 20);
     assert.deepEqual(JSON.parse(row.operation_mode_allowed_tools_json), {
       summary: ['find_text', 'read_lines', 'json_filter', 'json_get'],
       'read-only': ['repo_rg', 'repo_read_file', 'repo_list_files', 'repo_git'],

@@ -18,6 +18,7 @@ import {
   bufferManagedLlamaLogChunk,
   createManagedLlamaRun,
   flushManagedLlamaLogChunks,
+  readManagedLlamaLogTextStatsByStream,
   readManagedLlamaLogTextByStream,
   updateManagedLlamaRun,
   type ManagedLlamaRunStatus,
@@ -42,6 +43,11 @@ import {
   publishStatus,
   resetPendingIdleSummaryMetadata,
 } from './server-ops.js';
+import {
+  appendManagedLlamaSpeculativeMetricsChunk,
+  flushManagedLlamaSpeculativeMetricsTracker,
+  getManagedLlamaSpeculativeMetricsTracker,
+} from './managed-llama-speculative-tracker.js';
 import { getManagedLlamaLogRoot } from './paths.js';
 
 // ---------------------------------------------------------------------------
@@ -75,6 +81,7 @@ function getNonNegativeIntegerFromEnv(name: string, fallback: number): number {
 export const EXECUTION_LEASE_STALE_MS = getPositiveIntegerFromEnv('SIFTKIT_EXECUTION_LEASE_STALE_MS', 10_000);
 export const IDLE_SUMMARY_DELAY_MS = getPositiveIntegerFromEnv('SIFTKIT_IDLE_SUMMARY_DELAY_MS', 600_000);
 export const LLAMA_STARTUP_GRACE_DELAY_MS = 2_000;
+const DEFAULT_MANAGED_LLAMA_METRICS_LOG_TAIL_CHARACTERS = 1_000_000;
 export const MANAGED_LLAMA_LOG_ALERT_PATTERN = /\b(?:warn(?:ing)?|error|exception|fatal)\b/iu;
 const MANAGED_LLAMA_LOADING_MODEL_503_PATTERN = /"message"\s*:\s*"Loading model"[\s\S]*"type"\s*:\s*"unavailable_error"[\s\S]*"code"\s*:\s*503/iu;
 const MANAGED_LLAMA_GPU_MEMORY_PRESSURE_PATTERN = /projected to use\s+(\d+)\s+MiB of device memory vs\.\s+(\d+)\s+MiB of free device memory/iu;
@@ -204,22 +211,100 @@ function parseManagedLlamaLatestSpeculativeMetricsText(text: string): ManagedLla
   return parseManagedLlamaSpeculativeMetricsState(text).latest;
 }
 
-function getManagedLlamaPrimaryStreamText(logRef: ManagedLlamaLogRef): {
+type ManagedLlamaPrimaryStreamText = {
   stdoutText: string;
+  stdoutTotalLength: number;
   stderrText: string;
+  stderrTotalLength: number;
+};
+
+function getManagedLlamaMetricsLogTailCharacters(): number {
+  return getPositiveIntegerFromEnv(
+    'SIFTKIT_MANAGED_LLAMA_METRICS_LOG_TAIL_CHARACTERS',
+    DEFAULT_MANAGED_LLAMA_METRICS_LOG_TAIL_CHARACTERS,
+  );
+}
+
+function appendKnownTailText(
+  currentTailText: string,
+  nextTailText: string,
+  nextTotalLength: number,
+  maxCharacters: number,
+): string {
+  if (nextTotalLength <= 0 || maxCharacters <= 0) {
+    return maxCharacters <= 0 ? '' : currentTailText;
+  }
+  if (nextTotalLength >= maxCharacters) {
+    return nextTailText.slice(Math.max(0, nextTailText.length - maxCharacters));
+  }
+  return `${currentTailText.slice(Math.max(0, currentTailText.length - (maxCharacters - nextTotalLength)))}${nextTailText}`;
+}
+
+function joinManagedLlamaPrimaryStreamText(
+  firstText: string,
+  firstTotalLength: number,
+  secondText: string,
+  secondTotalLength: number,
+  maxCharacters: number,
+): {
+  text: string;
+  totalLength: number;
 } {
-  const streamText = readManagedLlamaLogTextByStream(logRef.runId);
-  const stdoutParts = [
-    String(streamText.startup_script_stdout || ''),
-    String(streamText.llama_stdout || ''),
-  ].filter((entry) => entry.length > 0);
-  const stderrParts = [
-    String(streamText.startup_script_stderr || ''),
-    String(streamText.llama_stderr || ''),
-  ].filter((entry) => entry.length > 0);
+  const hasFirstText = firstTotalLength > 0;
+  const hasSecondText = secondTotalLength > 0;
+  let text = '';
+  let totalLength = 0;
+  if (hasFirstText) {
+    text = appendKnownTailText(text, firstText, firstTotalLength, maxCharacters);
+    totalLength += firstTotalLength;
+  }
+  if (hasFirstText && hasSecondText) {
+    text = appendKnownTailText(text, '\n', 1, maxCharacters);
+    totalLength += 1;
+  }
+  if (hasSecondText) {
+    text = appendKnownTailText(text, secondText, secondTotalLength, maxCharacters);
+    totalLength += secondTotalLength;
+  }
   return {
-    stdoutText: stdoutParts.join('\n'),
-    stderrText: stderrParts.join('\n'),
+    text,
+    totalLength,
+  };
+}
+
+function sliceManagedLlamaTextFromOffset(text: string, totalLength: number, offset: number): string {
+  const textStartOffset = Math.max(0, totalLength - text.length);
+  const normalizedOffset = Math.max(0, offset);
+  if (normalizedOffset <= textStartOffset) {
+    return text;
+  }
+  return text.slice(normalizedOffset - textStartOffset);
+}
+
+function getManagedLlamaPrimaryStreamText(logRef: ManagedLlamaLogRef): ManagedLlamaPrimaryStreamText {
+  const maxCharacters = getManagedLlamaMetricsLogTailCharacters();
+  const streamStats = readManagedLlamaLogTextStatsByStream(logRef.runId, {
+    maxCharactersPerStream: maxCharacters,
+  });
+  const stdout = joinManagedLlamaPrimaryStreamText(
+    streamStats.textByStream.startup_script_stdout,
+    streamStats.characterCountByStream.startup_script_stdout,
+    streamStats.textByStream.llama_stdout,
+    streamStats.characterCountByStream.llama_stdout,
+    maxCharacters,
+  );
+  const stderr = joinManagedLlamaPrimaryStreamText(
+    streamStats.textByStream.startup_script_stderr,
+    streamStats.characterCountByStream.startup_script_stderr,
+    streamStats.textByStream.llama_stderr,
+    streamStats.characterCountByStream.llama_stderr,
+    maxCharacters,
+  );
+  return {
+    stdoutText: stdout.text,
+    stdoutTotalLength: stdout.totalLength,
+    stderrText: stderr.text,
+    stderrTotalLength: stderr.totalLength,
   };
 }
 
@@ -254,10 +339,10 @@ export function getManagedLlamaLogCursor(logRef: ManagedLlamaLogRef | null): Man
   if (!logRef) {
     return { stdoutOffset: 0, stderrOffset: 0 };
   }
-  const { stdoutText, stderrText } = getManagedLlamaPrimaryStreamText(logRef);
+  const { stdoutTotalLength, stderrTotalLength } = getManagedLlamaPrimaryStreamText(logRef);
   return {
-    stdoutOffset: stdoutText.length,
-    stderrOffset: stderrText.length,
+    stdoutOffset: stdoutTotalLength,
+    stderrOffset: stderrTotalLength,
   };
 }
 
@@ -267,11 +352,15 @@ export function captureManagedLlamaSpeculativeMetricsSnapshot(
   if (!logRef) {
     return null;
   }
-  const { stdoutText, stderrText } = getManagedLlamaPrimaryStreamText(logRef);
+  const tracker = getManagedLlamaSpeculativeMetricsTracker(logRef.runId);
+  if (tracker) {
+    return tracker.captureSnapshot();
+  }
+  const { stdoutText, stdoutTotalLength, stderrText, stderrTotalLength } = getManagedLlamaPrimaryStreamText(logRef);
   const latestMetrics = parseManagedLlamaLatestSpeculativeMetricsText(`${stdoutText}\n${stderrText}`);
   return {
-    stdoutOffset: stdoutText.length,
-    stderrOffset: stderrText.length,
+    stdoutOffset: stdoutTotalLength,
+    stderrOffset: stderrTotalLength,
     latestSpeculativeAcceptedTokens: latestMetrics?.speculativeAcceptedTokens ?? null,
     latestSpeculativeGeneratedTokens: latestMetrics?.speculativeGeneratedTokens ?? null,
   };
@@ -284,9 +373,14 @@ export function getManagedLlamaSpeculativeMetricsSince(
   if (!logRef) {
     return null;
   }
-  const { stdoutText: fullStdoutText, stderrText: fullStderrText } = getManagedLlamaPrimaryStreamText(logRef);
-  const stdoutText = fullStdoutText.slice(Math.max(0, cursor.stdoutOffset));
-  const stderrText = fullStderrText.slice(Math.max(0, cursor.stderrOffset));
+  const {
+    stdoutText: fullStdoutText,
+    stdoutTotalLength,
+    stderrText: fullStderrText,
+    stderrTotalLength,
+  } = getManagedLlamaPrimaryStreamText(logRef);
+  const stdoutText = sliceManagedLlamaTextFromOffset(fullStdoutText, stdoutTotalLength, cursor.stdoutOffset);
+  const stderrText = sliceManagedLlamaTextFromOffset(fullStderrText, stderrTotalLength, cursor.stderrOffset);
   return parseManagedLlamaSpeculativeMetricsText(`${stdoutText}\n${stderrText}`);
 }
 
@@ -297,10 +391,14 @@ export function getManagedLlamaSpeculativeMetricsDelta(
   if (!logRef || !snapshot) {
     return null;
   }
-  const { stdoutText, stderrText } = getManagedLlamaPrimaryStreamText(logRef);
+  const tracker = getManagedLlamaSpeculativeMetricsTracker(logRef.runId);
+  if (tracker) {
+    return tracker.getDelta(snapshot);
+  }
+  const { stdoutText, stdoutTotalLength, stderrText, stderrTotalLength } = getManagedLlamaPrimaryStreamText(logRef);
   const deltaMetrics = parseManagedLlamaSpeculativeMetricsText([
-    stdoutText.slice(Math.max(0, snapshot.stdoutOffset)),
-    stderrText.slice(Math.max(0, snapshot.stderrOffset)),
+    sliceManagedLlamaTextFromOffset(stdoutText, stdoutTotalLength, snapshot.stdoutOffset),
+    sliceManagedLlamaTextFromOffset(stderrText, stderrTotalLength, snapshot.stderrOffset),
   ].join('\n'));
   const cumulativeDeltaMetrics = subtractManagedLlamaSpeculativeMetrics(
     parseManagedLlamaLatestSpeculativeMetricsText(`${stdoutText}\n${stderrText}`),
@@ -416,6 +514,11 @@ function createManagedLlamaLogRun(
 }
 
 function appendManagedLlamaLogLine(logRef: ManagedLlamaLogRef, streamKind: ManagedLlamaStreamKind, chunk: string): void {
+  appendManagedLlamaSpeculativeMetricsChunk({
+    runId: logRef.runId,
+    streamKind,
+    chunkText: chunk,
+  });
   bufferManagedLlamaLogChunk({
     runId: logRef.runId,
     streamKind,
@@ -609,6 +712,7 @@ function spawnManagedLlamaProcess(
   child.on('exit', (code: number | null) => {
     try {
       flushManagedLlamaLogChunks(logRef.runId);
+      flushManagedLlamaSpeculativeMetricsTracker(logRef.runId);
     } catch {
       // The runtime DB may already be gone during test/process teardown.
     }
@@ -629,6 +733,7 @@ function spawnManagedLlamaProcess(
     try {
       appendManagedLlamaLogLine(logRef, MANAGED_STDERR_STREAM, `\n[spawn-error] ${error.message}\n`);
       flushManagedLlamaLogChunks(logRef.runId);
+      flushManagedLlamaSpeculativeMetricsTracker(logRef.runId);
     } catch {
       // Ignore teardown races after the test/server has already closed.
     }
@@ -698,6 +803,7 @@ function writeManagedLlamaStartupReviewDump(logRef: ManagedLlamaLogRef, dumpOpti
   ].join('\n');
   appendManagedLlamaLogLine(logRef, 'startup_review', `${content}\n`);
   flushManagedLlamaLogChunks(logRef.runId);
+  flushManagedLlamaSpeculativeMetricsTracker(logRef.runId);
   const logRoot = getManagedLlamaLogRoot();
   fs.mkdirSync(logRoot, { recursive: true });
   fs.writeFileSync(path.join(logRoot, 'latest-startup.log'), `${content}\n`, 'utf8');
@@ -733,6 +839,7 @@ function writeManagedLlamaFailureDump(logRef: ManagedLlamaLogRef, entries: LogEn
   ].join('\n');
   appendManagedLlamaLogLine(logRef, 'startup_failure', `${content}\n`);
   flushManagedLlamaLogChunks(logRef.runId);
+  flushManagedLlamaSpeculativeMetricsTracker(logRef.runId);
   const logRoot = path.join(getManagedLlamaLogRoot(), logRef.runId);
   fs.mkdirSync(logRoot, { recursive: true });
   fs.writeFileSync(path.join(logRoot, 'startup-scan-failure.log'), `${content}\n`, 'utf8');
