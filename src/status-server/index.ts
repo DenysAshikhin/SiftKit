@@ -267,6 +267,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       ctx.idleSummaryDatabase.close();
       ctx.idleSummaryDatabase = null;
     }
+    void ctx.managedLlamaFlushQueue.close();
     closeRuntimeDatabase();
   });
   server.shutdownManagedLlamaForServerExit = () => shutdownManagedLlamaForServerExit(ctx);

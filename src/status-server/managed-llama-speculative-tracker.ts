@@ -115,6 +115,10 @@ export function getManagedLlamaSpeculativeMetricsTracker(runId: string): Managed
   return trackerByRunId.get(String(runId || '').trim()) ?? null;
 }
 
+export function getManagedLlamaSpeculativeMetricsSnapshot(runId: string): ManagedLlamaSpeculativeMetricsSnapshot | null {
+  return trackerByRunId.get(String(runId || '').trim())?.captureSnapshot() ?? null;
+}
+
 export function flushManagedLlamaSpeculativeMetricsTracker(runId: string): boolean {
   const normalizedRunId = String(runId || '').trim();
   const tracker = trackerByRunId.get(normalizedRunId);

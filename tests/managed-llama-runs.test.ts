@@ -181,27 +181,31 @@ test('releaseModelRequest queues buffered managed llama logs for the active host
       },
       managedLlamaFlushQueue: flushQueue,
     } as unknown as Parameters<typeof releaseModelRequest>[0], 'token-1');
-    assert.equal(released, true);
-    assert.equal(flushQueue.getSnapshot().pendingCount, 1);
-    await flushQueue.waitForIdle(1000);
+    try {
+      assert.equal(released, true);
+      assert.equal(flushQueue.getSnapshot().pendingCount, 1);
+      await flushQueue.waitForIdle(1000);
 
-    const row = database.prepare(`
-      SELECT COUNT(*) AS count
-      FROM managed_llama_log_chunks
-      WHERE run_id = ?
-    `).get(run.id) as { count?: number };
-    assert.equal(Number(row.count || 0), 1);
+      const row = database.prepare(`
+        SELECT COUNT(*) AS count
+        FROM managed_llama_log_chunks
+        WHERE run_id = ?
+      `).get(run.id) as { count?: number };
+      assert.equal(Number(row.count || 0), 1);
 
-    const persistedText = readManagedLlamaLogTextByStream(run.id);
-    assert.equal(persistedText.startup_script_stdout, 'during-request\n');
+      const persistedText = readManagedLlamaLogTextByStream(run.id);
+      assert.equal(persistedText.startup_script_stdout, 'during-request\n');
 
-    const metricsRow = database.prepare(`
-      SELECT speculative_accepted_tokens, speculative_generated_tokens
-      FROM managed_llama_runs
-      WHERE id = ?
-    `).get(run.id) as { speculative_accepted_tokens?: number | null; speculative_generated_tokens?: number | null };
-    assert.equal(metricsRow.speculative_accepted_tokens, 40);
-    assert.equal(metricsRow.speculative_generated_tokens, 42);
+      const metricsRow = database.prepare(`
+        SELECT speculative_accepted_tokens, speculative_generated_tokens
+        FROM managed_llama_runs
+        WHERE id = ?
+      `).get(run.id) as { speculative_accepted_tokens?: number | null; speculative_generated_tokens?: number | null };
+      assert.equal(metricsRow.speculative_accepted_tokens, 40);
+      assert.equal(metricsRow.speculative_generated_tokens, 42);
+    } finally {
+      await flushQueue.close();
+    }
   });
 });
 
@@ -232,16 +236,20 @@ test('releaseModelRequest releases the active request when managed llama log flu
     } as unknown as Parameters<typeof releaseModelRequest>[0];
 
     try {
-      const released = releaseModelRequest(ctx, 'token-locked');
+      try {
+        const released = releaseModelRequest(ctx, 'token-locked');
 
-      assert.equal(released, true);
-      assert.equal(ctx.activeModelRequest, null);
-      assert.equal(flushQueue.getSnapshot().pendingCount, 1);
+        assert.equal(released, true);
+        assert.equal(ctx.activeModelRequest, null);
+        assert.equal(flushQueue.getSnapshot().pendingCount, 1);
+      } finally {
+        blocker.exec('ROLLBACK');
+        blocker.close();
+      }
+      await flushQueue.waitForIdle(1000);
     } finally {
-      blocker.exec('ROLLBACK');
-      blocker.close();
+      await flushQueue.close();
     }
-    await flushQueue.waitForIdle(1000);
   });
 });
 

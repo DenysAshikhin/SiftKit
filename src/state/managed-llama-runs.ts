@@ -39,6 +39,11 @@ export type ManagedLlamaPendingLogChunkStats = {
   streamCount: number;
 };
 
+export type ManagedLlamaPendingLogChunkEntry = {
+  streamKind: ManagedLlamaStreamKind;
+  chunkText: string;
+};
+
 export type ManagedLlamaRunRecord = {
   id: string;
   purpose: string;
@@ -294,6 +299,35 @@ export function getManagedLlamaPendingLogChunkStats(runId: string): ManagedLlama
     totalCharacters,
     streamCount,
   };
+}
+
+export function consumeManagedLlamaPendingLogChunks(runId: string): ManagedLlamaPendingLogChunkEntry[] {
+  const normalizedRunId = String(runId || '').trim();
+  if (!normalizedRunId) {
+    return [];
+  }
+  const pending = pendingChunkTextByRunId.get(normalizedRunId);
+  if (!pending) {
+    return [];
+  }
+  pendingChunkTextByRunId.delete(normalizedRunId);
+  return [...pending.entries()]
+    .map(([streamKind, chunkText]) => ({ streamKind, chunkText }))
+    .filter((entry) => entry.chunkText.length > 0);
+}
+
+export function restoreManagedLlamaPendingLogChunks(runId: string, entries: ManagedLlamaPendingLogChunkEntry[]): void {
+  const normalizedRunId = String(runId || '').trim();
+  if (!normalizedRunId) {
+    return;
+  }
+  for (const entry of entries) {
+    bufferManagedLlamaLogChunk({
+      runId: normalizedRunId,
+      streamKind: entry.streamKind,
+      chunkText: entry.chunkText,
+    });
+  }
 }
 
 export function bufferManagedLlamaLogChunk(options: {

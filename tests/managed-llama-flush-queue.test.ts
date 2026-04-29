@@ -24,20 +24,24 @@ test('managed llama flush queue coalesces duplicate run flushes and drains async
     const queue = new ManagedLlamaFlushQueue();
 
     try {
-      assert.equal(queue.enqueue(run.id), true);
-      assert.equal(queue.enqueue(run.id), false);
-      assert.equal(queue.getSnapshot().pendingCount, 1);
-      await queue.drainNow();
-      assert.equal(queue.getSnapshot().pendingCount, 1);
-    } finally {
-      blocker.exec('ROLLBACK');
-      blocker.close();
-    }
+      try {
+        assert.equal(queue.enqueue(run.id), true);
+        assert.equal(queue.enqueue(run.id), false);
+        assert.equal(queue.getSnapshot().pendingCount, 1);
+        await queue.drainNow();
+        assert.equal(queue.getSnapshot().pendingCount, 1);
+      } finally {
+        blocker.exec('ROLLBACK');
+        blocker.close();
+      }
 
-    await queue.waitForIdle(1000);
-    const persistedText = readManagedLlamaLogTextByStream(run.id);
-    assert.equal(persistedText.startup_script_stdout, 'queued\n');
-    assert.equal(queue.getSnapshot().pendingCount, 0);
-    assert.equal(queue.getSnapshot().completedCount, 1);
+      await queue.waitForIdle(1000);
+      const persistedText = readManagedLlamaLogTextByStream(run.id);
+      assert.equal(persistedText.startup_script_stdout, 'queued\n');
+      assert.equal(queue.getSnapshot().pendingCount, 0);
+      assert.equal(queue.getSnapshot().completedCount, 1);
+    } finally {
+      await queue.close();
+    }
   });
 });

@@ -16,13 +16,12 @@ test('managed llama log storage filter omits verbose request bodies across chunk
   assert.match(second, /srv  update_slots/u);
 });
 
-test('managed llama log storage filter caps stored output and records truncation', () => {
-  const filter = new ManagedLlamaLogStorageFilter({ maxStoredCharacters: 40 });
+test('managed llama log storage filter does not cap non-echo diagnostic output', () => {
+  const filter = new ManagedLlamaLogStorageFilter();
 
-  const first = filter.filterChunk('12345678901234567890');
-  const second = filter.filterChunk('abcdefghijABCDEFGHIJextra');
+  const chunk = 'diagnostic-line\n'.repeat(1000);
+  const filtered = filter.filterChunk(chunk);
 
-  assert.equal(first, '12345678901234567890');
-  assert.match(second, /managed llama log truncated/u);
-  assert.ok((first + second).length <= 120);
+  assert.equal(filtered, chunk);
+  assert.doesNotMatch(filtered, /truncated/u);
 });
