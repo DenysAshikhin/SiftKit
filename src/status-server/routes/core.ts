@@ -446,6 +446,12 @@ export async function handleCoreRoute(
       sendJson(res, 400, { error: 'Expected prompt.' });
       return true;
     }
+    try {
+      await ensureManagedLlamaReadyForModelRequest(ctx);
+    } catch (error) {
+      sendServerErrorJson(req, res, 503, error, { taskKind: 'repo-search' });
+      return true;
+    }
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'repo_search', req, res);
     if (!modelRequestLock) {
       return true;
@@ -454,7 +460,6 @@ export async function handleCoreRoute(
       await sleep(Math.max(1, Math.trunc(Number(parsedBody.simulateWorkMs))));
     }
     try {
-      await ensureManagedLlamaReadyForModelRequest(ctx);
       const executeRepoSearchRequest = loadRepoSearchExecutor();
       const config = readConfig(configPath);
       const result = await executeRepoSearchRequest({
@@ -512,13 +517,18 @@ export async function handleCoreRoute(
       return true;
     }
 
+    const serviceBaseUrl = ctx.getServiceBaseUrl();
+    try {
+      await ensureManagedLlamaReadyForModelRequest(ctx);
+    } catch (error) {
+      sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
+      return true;
+    }
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'summary', req, res);
     if (!modelRequestLock) {
       return true;
     }
-    const serviceBaseUrl = ctx.getServiceBaseUrl();
     try {
-      await ensureManagedLlamaReadyForModelRequest(ctx);
       const result = await summarizeRequest({
         question,
         inputText,

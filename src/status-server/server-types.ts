@@ -34,6 +34,8 @@ export type ModelRequestWaiter = {
   kind: string;
   enqueuedAtUtc: string;
   cancelled: boolean;
+  grantedLock: ModelRequestLock | null;
+  resolveLock(lock: ModelRequestLock | null): void;
 };
 
 export type ManagedLlamaLogRef = {

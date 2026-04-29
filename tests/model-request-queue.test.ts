@@ -93,37 +93,65 @@ async function captureStdoutLines(fn: (lines: StdoutLine[]) => Promise<void>): P
 
 test('model request admission logs queue position and wakes llama for immediate requests', async () => {
   const ctx = createQueueContext();
-  const lines = await captureStdoutLines(async () => {
-    const lock = await acquireModelRequestWithWait(ctx, 'summary');
-    assert.ok(lock);
-    assert.equal(releaseModelRequest(ctx, lock.token), true);
-  });
+  try {
+    const lines = await captureStdoutLines(async () => {
+      const lock = await acquireModelRequestWithWait(ctx, 'summary');
+      assert.ok(lock);
+      assert.equal(releaseModelRequest(ctx, lock.token), true);
+    });
 
-  assert.equal((ctx as ServerContext & { readonly wakeCount: number }).wakeCount, 1);
-  assert.ok(lines.some((line) => /request incoming task=summary queue_position=1/u.test(line)), lines.join('\n'));
+    assert.equal((ctx as ServerContext & { readonly wakeCount: number }).wakeCount, 1);
+    assert.ok(lines.some((line) => /request incoming task=summary queue_position=1/u.test(line)), lines.join('\n'));
+  } finally {
+    await ctx.managedLlamaFlushQueue.close();
+  }
 });
 
 test('queued model request logs its FIFO position and wakes llama while waiting', async () => {
   const ctx = createQueueContext();
-  const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
-  assert.ok(activeLock);
-  let queuedLockPromise: Promise<Awaited<ReturnType<typeof acquireModelRequestWithWait>>> | null = null;
-  let capturedLines: StdoutLine[] = [];
+  try {
+    const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(activeLock);
+    let queuedLockPromise: Promise<Awaited<ReturnType<typeof acquireModelRequestWithWait>>> | null = null;
+    let capturedLines: StdoutLine[] = [];
 
-  const lines = await captureStdoutLines(async (currentLines) => {
-    capturedLines = currentLines;
-    queuedLockPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat');
-    try {
-      await new Promise<void>((resolve) => setTimeout(resolve, 30));
-      assert.equal((ctx as ServerContext & { readonly wakeCount: number }).wakeCount, 2);
-      assert.ok(capturedLines.some((line) => /request incoming task=dashboard_chat queue_position=2/u.test(line)), capturedLines.join('\n'));
-    } finally {
-      assert.equal(releaseModelRequest(ctx, activeLock.token), true);
-      const queuedLock = await queuedLockPromise;
-      assert.ok(queuedLock);
-      assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
-    }
-  });
+    const lines = await captureStdoutLines(async (currentLines) => {
+      capturedLines = currentLines;
+      queuedLockPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat');
+      try {
+        await new Promise<void>((resolve) => setTimeout(resolve, 30));
+        assert.equal((ctx as ServerContext & { readonly wakeCount: number }).wakeCount, 2);
+        assert.ok(capturedLines.some((line) => /request incoming task=dashboard_chat queue_position=2/u.test(line)), capturedLines.join('\n'));
+      } finally {
+        assert.equal(releaseModelRequest(ctx, activeLock.token), true);
+        const queuedLock = await queuedLockPromise;
+        assert.ok(queuedLock);
+        assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
+      }
+    });
 
-  assert.ok(lines.some((line) => /request incoming task=dashboard_chat queue_position=2/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /request incoming task=dashboard_chat queue_position=2/u.test(line)), lines.join('\n'));
+  } finally {
+    await ctx.managedLlamaFlushQueue.close();
+  }
+});
+
+test('release grants the next queued model request without waiting for polling timers', async () => {
+  const ctx = createQueueContext();
+  try {
+    const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(activeLock);
+    const queuedLockPromise = acquireModelRequestWithWait(ctx, 'summary');
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+
+    assert.equal(releaseModelRequest(ctx, activeLock.token), true);
+    assert.equal(ctx.modelRequestQueue.length, 0);
+    assert.equal(ctx.activeModelRequest?.kind, 'summary');
+    const queuedLock = await queuedLockPromise;
+    assert.ok(queuedLock);
+    assert.equal(ctx.activeModelRequest?.token, queuedLock.token);
+    assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
+  } finally {
+    await ctx.managedLlamaFlushQueue.close();
+  }
 });

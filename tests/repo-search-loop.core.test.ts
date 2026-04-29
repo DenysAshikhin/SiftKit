@@ -1620,6 +1620,7 @@ test('runTaskLoop uses dynamic max_tokens for planner requests from live prompt 
         totalContextTokens: 20000,
         maxTurns: 1,
         minToolCallsBeforeFinish: 0,
+        includeRepoFileListing: false,
         logger: {
           path: 'test',
           write(event: Record<string, unknown>) {
@@ -1690,6 +1691,7 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
         maxTurns: 1,
         maxInvalidResponses: 1,
         minToolCallsBeforeFinish: 0,
+        includeRepoFileListing: false,
       }
     );
 

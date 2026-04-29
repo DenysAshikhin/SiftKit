@@ -62,7 +62,7 @@ export class ManagedLlamaFlushQueue {
     if (!normalizedRunId) {
       return false;
     }
-    if (this.pendingByRunId.has(normalizedRunId) || this.runningRunId === normalizedRunId) {
+    if (this.pendingByRunId.has(normalizedRunId)) {
       return false;
     }
     this.pendingByRunId.set(normalizedRunId, {
@@ -74,7 +74,9 @@ export class ManagedLlamaFlushQueue {
     });
     this.pendingOrder.push(normalizedRunId);
     logLine(`managed_llama flush enqueue run_id=${normalizedRunId} pending=${this.pendingOrder.length}`);
-    this.scheduleDrain(0);
+    if (!this.draining) {
+      this.scheduleDrain(0);
+    }
     return true;
   }
 

@@ -383,6 +383,15 @@ export async function handleChatRoute(
       sendJson(res, 400, { error: 'Expected content.' });
       return true;
     }
+    const usesProvidedAssistantContent = typeof parsedBody.assistantContent === 'string' && (parsedBody.assistantContent as string).trim();
+    if (!usesProvidedAssistantContent) {
+      try {
+        await ensureManagedLlamaReadyForModelRequest(ctx);
+      } catch (error) {
+        sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
+        return true;
+      }
+    }
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat', req, res);
     if (!modelRequestLock) {
       return true;
@@ -412,11 +421,10 @@ export async function handleChatRoute(
       let assistantContent: string;
       let usage: Partial<ChatUsage>;
       let thinkingContent = '';
-      if (typeof parsedBody.assistantContent === 'string' && (parsedBody.assistantContent as string).trim()) {
+      if (usesProvidedAssistantContent) {
         assistantContent = (parsedBody.assistantContent as string).trim();
         usage = {};
       } else {
-        await ensureManagedLlamaReadyForModelRequest(ctx);
         const config = readConfig(configPath);
         const presets = normalizePresets(config.Presets);
         const preset = findPresetById(presets, activeSession.presetId);
@@ -502,6 +510,12 @@ export async function handleChatRoute(
       sendJson(res, 400, { error: 'Expected content.' });
       return true;
     }
+    try {
+      await ensureManagedLlamaReadyForModelRequest(ctx);
+    } catch (error) {
+      sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
+      return true;
+    }
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat_stream', req, res);
     if (!modelRequestLock) {
       return true;
@@ -540,7 +554,6 @@ export async function handleChatRoute(
       // Best-effort metrics notification.
     }
     try {
-      await ensureManagedLlamaReadyForModelRequest(ctx);
       const config = readConfig(configPath);
       const presets = normalizePresets(config.Presets);
       const preset = findPresetById(presets, activeSession.presetId);
@@ -643,6 +656,12 @@ export async function handleChatRoute(
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
       return true;
     }
+    try {
+      await ensureManagedLlamaReadyForModelRequest(ctx);
+    } catch (error) {
+      sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
+      return true;
+    }
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_plan', req, res);
     if (!modelRequestLock) {
       return true;
@@ -656,7 +675,6 @@ export async function handleChatRoute(
     try {
       const startedAt = Date.now();
       const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
-      await ensureManagedLlamaReadyForModelRequest(ctx);
       const executeRepoSearchRequest = loadRepoSearchExecutor();
       const content = (parsedBody.content as string).trim();
       const config = readConfig(configPath);
@@ -773,6 +791,12 @@ export async function handleChatRoute(
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
       return true;
     }
+    try {
+      await ensureManagedLlamaReadyForModelRequest(ctx);
+    } catch (error) {
+      sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
+      return true;
+    }
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_plan_stream', req, res);
     if (!modelRequestLock) {
       return true;
@@ -799,7 +823,6 @@ export async function handleChatRoute(
       const requestStartedAtUtc = new Date(startedAt).toISOString();
       const phaseTracker = createChatTurnPhaseTracker(requestStartedAtUtc);
       const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
-      await ensureManagedLlamaReadyForModelRequest(ctx);
       const executeRepoSearchRequest = loadRepoSearchExecutor();
       const content = (parsedBody.content as string).trim();
       const config = readConfig(configPath);
@@ -944,6 +967,12 @@ export async function handleChatRoute(
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
       return true;
     }
+    try {
+      await ensureManagedLlamaReadyForModelRequest(ctx);
+    } catch (error) {
+      sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
+      return true;
+    }
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_repo_search_stream', req, res);
     if (!modelRequestLock) {
       return true;
@@ -970,7 +999,6 @@ export async function handleChatRoute(
       const requestStartedAtUtc = new Date(startedAt).toISOString();
       const phaseTracker = createChatTurnPhaseTracker(requestStartedAtUtc);
       const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
-      await ensureManagedLlamaReadyForModelRequest(ctx);
       const executeRepoSearchRequest = loadRepoSearchExecutor();
       const content = (parsedBody.content as string).trim();
       const config = readConfig(configPath);

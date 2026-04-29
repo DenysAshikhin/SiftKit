@@ -432,31 +432,15 @@ test('token-aware llama.cpp chunk planning leaves a 15k token reserve when reaso
   });
 });
 
-test('live llama token-aware chunk planning preserves the 5m benchmark fixture without chat completion', {
-  skip: !RUN_LIVE_LLAMA_TOKENIZE_TESTS,
-}, async () => {
-  const fixtureRoot = path.join(process.cwd(), 'eval', 'fixtures', 'ai_core_60_tests');
+test('live llama token-aware chunk planning preserves the 5m benchmark fixture without chat completion', async () => {
+  const runFixtureCheck = async (config) => {
+  const fixtureRoot = path.resolve(__dirname, '..', 'eval', 'fixtures', 'ai_core_60_tests');
   const manifest = JSON.parse(fs.readFileSync(path.join(fixtureRoot, 'fixtures.json'), 'utf8'));
   const fixture = manifest.find((entry) => entry.File === 'raw/19_script_error_and_crash_marker_scan.txt');
   assert.ok(fixture, 'Fixture 19 must exist in eval/fixtures/ai_core_60_tests/fixtures.json.');
 
   const inputPath = path.join(fixtureRoot, ...fixture.File.split('/'));
   const inputText = fs.readFileSync(inputPath, 'utf8');
-  let liveConfig = null;
-  try {
-    liveConfig = await requestJson(LIVE_CONFIG_SERVICE_URL);
-  } catch {
-    liveConfig = null;
-  }
-  const liveBaseUrl = liveConfig?.Runtime?.LlamaCpp?.BaseUrl || LIVE_LLAMA_BASE_URL;
-  const liveNumCtx = Number(liveConfig?.Runtime?.LlamaCpp?.NumCtx) || getDefaultConfig().LlamaCpp.NumCtx;
-  const config = getDefaultConfig();
-  setManagedLlamaBaseUrl(config, liveBaseUrl);
-  config.Runtime.LlamaCpp = {
-    ...(config.Runtime.LlamaCpp || {}),
-    BaseUrl: liveBaseUrl,
-    NumCtx: liveNumCtx,
-  };
 
   const riskLevel = fixture.PolicyProfile === 'risky-operation' ? 'risky' : 'informational';
   const decision = getSummaryDecision(inputText, fixture.Question, riskLevel, config);
@@ -496,6 +480,38 @@ test('live llama token-aware chunk planning preserves the 5m benchmark fixture w
     assert.notEqual(promptTokenCount, null, 'Each chunk prompt must be token-countable.');
     assert.ok(promptTokenCount <= effectivePromptLimit, `Chunk prompt token count ${promptTokenCount} exceeded ${effectivePromptLimit}.`);
   }
+  };
+
+  if (RUN_LIVE_LLAMA_TOKENIZE_TESTS) {
+    let liveConfig = null;
+    try {
+      liveConfig = await requestJson(LIVE_CONFIG_SERVICE_URL);
+    } catch {
+      liveConfig = null;
+    }
+    const liveBaseUrl = liveConfig?.Runtime?.LlamaCpp?.BaseUrl || LIVE_LLAMA_BASE_URL;
+    const liveNumCtx = Number(liveConfig?.Runtime?.LlamaCpp?.NumCtx) || getDefaultConfig().LlamaCpp.NumCtx;
+    const config = getDefaultConfig();
+    setManagedLlamaBaseUrl(config, liveBaseUrl);
+    config.Runtime.LlamaCpp = {
+      ...(config.Runtime.LlamaCpp || {}),
+      BaseUrl: liveBaseUrl,
+      NumCtx: liveNumCtx,
+    };
+    await runFixtureCheck(config);
+    return;
+  }
+
+  await withTempEnv(async () => {
+    await withStubServer(async () => {
+      const config = await loadConfig({ ensure: true });
+      await runFixtureCheck(config);
+    }, {
+      tokenizeTokenCount(content) {
+        return Math.max(1, Math.ceil(String(content || '').length / 4));
+      },
+    });
+  });
 });
 
 test('getPlannerPromptBudget leaves 27k headroom for a 190k non-thinking context', () => {

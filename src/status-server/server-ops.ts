@@ -17,7 +17,6 @@ import {
   writeStatusText,
 } from './status-file.js';
 import { ensureDirectory } from '../lib/fs.js';
-import { sleep } from '../lib/time.js';
 import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
 import { normalizeMetrics, writeMetrics } from './metrics.js';
 import {
@@ -42,6 +41,7 @@ import type {
   DeferredArtifact,
   ExecutionLease,
   ModelRequestLock,
+  ModelRequestWaiter,
   ServerContext,
 } from './server-types.js';
 import {
@@ -376,13 +376,17 @@ export function acquireModelRequest(ctx: ServerContext, kind: string): ModelRequ
   if (ctx.activeModelRequest || ctx.modelRequestQueue.length > 0) {
     return null;
   }
-  const lock: ModelRequestLock = {
+  const lock = createModelRequestLock(kind);
+  ctx.activeModelRequest = lock;
+  return lock;
+}
+
+function createModelRequestLock(kind: string): ModelRequestLock {
+  return {
     token: crypto.randomUUID(),
     kind: String(kind),
     startedAtUtc: new Date().toISOString(),
   };
-  ctx.activeModelRequest = lock;
-  return lock;
 }
 
 function removeModelRequestWaiter(ctx: ServerContext, queueToken: string): boolean {
@@ -392,6 +396,24 @@ function removeModelRequestWaiter(ctx: ServerContext, queueToken: string): boole
   }
   ctx.modelRequestQueue.splice(index, 1);
   return true;
+}
+
+function grantNextModelRequest(ctx: ServerContext): boolean {
+  if (ctx.activeModelRequest) {
+    return false;
+  }
+  while (ctx.modelRequestQueue.length > 0) {
+    const waiter = ctx.modelRequestQueue.shift();
+    if (!waiter || waiter.cancelled) {
+      continue;
+    }
+    const lock = createModelRequestLock(waiter.kind);
+    waiter.grantedLock = lock;
+    ctx.activeModelRequest = lock;
+    waiter.resolveLock(lock);
+    return true;
+  }
+  return false;
 }
 
 export async function acquireModelRequestWithWait(
@@ -406,16 +428,27 @@ export async function acquireModelRequestWithWait(
   if (lock) {
     return lock;
   }
-  const waiter = {
+  let resolveWaiterLock: (resolvedLock: ModelRequestLock | null) => void = () => {};
+  const waiterLockPromise = new Promise<ModelRequestLock | null>((resolve) => {
+    resolveWaiterLock = resolve;
+  });
+  const waiter: ModelRequestWaiter = {
     queueToken: crypto.randomUUID(),
     kind: String(kind),
     enqueuedAtUtc: new Date().toISOString(),
     cancelled: false,
+    grantedLock: null,
+    resolveLock: resolveWaiterLock,
   };
   ctx.modelRequestQueue.push(waiter);
   const cancelWaiter = (): void => {
+    if (waiter.grantedLock) {
+      return;
+    }
     waiter.cancelled = true;
     removeModelRequestWaiter(ctx, waiter.queueToken);
+    waiter.resolveLock(null);
+    grantNextModelRequest(ctx);
   };
   const onAbortedRequest = (): void => {
     cancelWaiter();
@@ -439,38 +472,22 @@ export async function acquireModelRequestWithWait(
   if (response) {
     response.once('close', onClosedResponse);
   }
-  while (true) {
+  if (response?.destroyed && !response.writableEnded) {
+    cancelWaiter();
+  }
+  try {
+    return await waiterLockPromise;
+  } finally {
     if (response?.destroyed && !response.writableEnded) {
       cancelWaiter();
     }
-    if (waiter.cancelled) {
-      if (request) {
-        request.off('aborted', onAbortedRequest);
-        request.off('close', onClosedRequest);
-      }
-      if (response) {
-        response.off('close', onClosedResponse);
-      }
-      return null;
+    if (request) {
+      request.off('aborted', onAbortedRequest);
+      request.off('close', onClosedRequest);
     }
-    if (!ctx.activeModelRequest && ctx.modelRequestQueue[0]?.queueToken === waiter.queueToken) {
-      ctx.modelRequestQueue.shift();
-      lock = {
-        token: crypto.randomUUID(),
-        kind: waiter.kind,
-        startedAtUtc: new Date().toISOString(),
-      };
-      ctx.activeModelRequest = lock;
-      if (request) {
-        request.off('aborted', onAbortedRequest);
-        request.off('close', onClosedRequest);
-      }
-      if (response) {
-        response.off('close', onClosedResponse);
-      }
-      return lock;
+    if (response) {
+      response.off('close', onClosedResponse);
     }
-    await sleep(25);
   }
 }
 
@@ -479,6 +496,7 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
     return false;
   }
   ctx.activeModelRequest = null;
+  grantNextModelRequest(ctx);
   if (ctx.managedLlamaLastStartupLogs?.runId) {
     ctx.managedLlamaFlushQueue.enqueue(ctx.managedLlamaLastStartupLogs.runId);
   }

@@ -734,6 +734,17 @@ test('planner failures write failed artifacts through status posts', async () =>
         }),
         /planner/i,
       );
+      await waitForAsyncExpectation(async () => {
+        assert.equal(
+          server.state.statusPosts.some((post) => (
+            post.running === false
+            && post.terminalState === 'failed'
+            && typeof post.errorMessage === 'string'
+            && /planner/i.test(post.errorMessage)
+          )),
+          true,
+        );
+      }, 5000);
       statusPosts = server.state.statusPosts.slice();
     }, {
       assistantContent() {

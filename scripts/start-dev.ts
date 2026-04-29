@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import * as http from 'node:http';
 
 import { buildStartupPortChecks, isPortInUse } from './start-dev-ports.js';
+import { stopChildProcessTree } from './start-dev-process.js';
 
 type SpawnOptions = { cwd?: string; env?: NodeJS.ProcessEnv };
 
@@ -36,9 +37,7 @@ function shutdown(signalName: string): void {
   }
   shuttingDown = true;
   for (const child of [statusProcess, dashboardProcess]) {
-    if (child && !child.killed) {
-      child.kill('SIGINT');
-    }
+    stopChildProcessTree(child);
   }
   setTimeout(() => {
     process.exit(signalName === 'SIGINT' ? 130 : 0);

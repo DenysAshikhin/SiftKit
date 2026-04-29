@@ -45,3 +45,25 @@ test('managed llama flush queue coalesces duplicate run flushes and drains async
     }
   });
 });
+
+test('managed llama flush queue records another flush requested while the same run is active', async () => {
+  await withTestEnvAndServer(async () => {
+    const run = createManagedLlamaRun({ purpose: 'startup' });
+    const queue = new ManagedLlamaFlushQueue();
+    type FlushQueueInternals = {
+      runningRunId: string | null;
+      draining: boolean;
+    };
+    const internals = queue as unknown as FlushQueueInternals;
+    internals.runningRunId = run.id;
+    internals.draining = true;
+
+    try {
+      assert.equal(queue.enqueue(run.id), true);
+      assert.equal(queue.getSnapshot().pendingCount, 1);
+      assert.equal(queue.getSnapshot().scheduled, false);
+    } finally {
+      await queue.close();
+    }
+  });
+});

@@ -173,6 +173,7 @@ test('releaseModelRequest queues buffered managed llama logs for the active host
         kind: 'dashboard_chat_stream',
         startedAtUtc: new Date().toISOString(),
       },
+      modelRequestQueue: [],
       managedLlamaLastStartupLogs: {
         runId: run.id,
         purpose: 'startup',
@@ -226,6 +227,7 @@ test('releaseModelRequest releases the active request when managed llama log flu
         kind: 'repo_search',
         startedAtUtc: new Date().toISOString(),
       },
+      modelRequestQueue: [],
       managedLlamaLastStartupLogs: {
         runId: run.id,
         purpose: 'startup',

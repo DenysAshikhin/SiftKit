@@ -12,7 +12,9 @@ import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
 
 const requireFromHere = createRequire(__filename);
 const runtimeHelpers = requireFromHere('./_runtime-helpers.js') as {
-  writeManagedLlamaScripts: (tempRoot: string, port: number, modelId?: string) => {
+  writeManagedLlamaScripts: (tempRoot: string, port: number, modelId?: string, options?: {
+    launchHangingProcess?: boolean;
+  }) => {
     baseUrl: string;
     modelPath: string;
     startupScriptPath: string;
@@ -144,24 +146,131 @@ test('status server stays responsive while repo-search is running', async () => 
     assert.ok(searchResponse.statusCode >= 200 && searchResponse.statusCode < 600);
     assert.equal(typeof searchResponse.body, 'object');
 
-    const finalStatus = await requestJson(`${baseUrl}/status`);
-    const finalMetrics = (finalStatus.body?.metrics as Record<string, unknown>) || {};
-    if (searchResponse.statusCode >= 200 && searchResponse.statusCode < 300) {
-      assert.ok(Number(finalMetrics.completedRequestCount || 0) >= baselineCompleted + 1);
-    } else {
-      assert.ok(Number(finalMetrics.completedRequestCount || 0) >= baselineCompleted);
+    await runtimeHelpers.waitForAsyncExpectation(async () => {
+      const finalStatus = await requestJson(`${baseUrl}/status`);
+      const finalMetrics = (finalStatus.body?.metrics as Record<string, unknown>) || {};
+      if (searchResponse.statusCode >= 200 && searchResponse.statusCode < 300) {
+        assert.ok(Number(finalMetrics.completedRequestCount || 0) >= baselineCompleted + 1);
+      } else {
+        assert.ok(Number(finalMetrics.completedRequestCount || 0) >= baselineCompleted);
+      }
+      assert.ok(Number(finalMetrics.outputTokensTotal || 0) > 0);
+      assert.ok(Number(finalMetrics.toolTokensTotal || 0) > 0);
+      const taskTotals = (finalMetrics.taskTotals as Record<string, unknown>) || {};
+      const repoTaskTotals = ((taskTotals['repo-search'] as Record<string, unknown>) || {});
+      assert.ok(Number(repoTaskTotals.outputTokensTotal || 0) > 0);
+      assert.ok(Number(repoTaskTotals.toolTokensTotal || 0) > 0);
+      const toolStats = ((finalMetrics.toolStats as Record<string, unknown>) || {});
+      const repoToolStats = ((toolStats['repo-search'] as Record<string, unknown>) || {});
+      assert.ok(Number((((repoToolStats.rg || {}) as Record<string, unknown>).calls) || 0) >= 1);
+      assert.ok(Number(finalMetrics.inputCharactersTotal || 0) >= baselineInputChars + 'find x'.length);
+      assert.ok(Number(finalMetrics.requestDurationMsTotal || 0) > baselineDurationMs);
+    }, 5000);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    process.chdir(previousCwd);
+    closeRuntimeDatabase();
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
     }
-    assert.ok(Number(finalMetrics.outputTokensTotal || 0) > 0);
-    assert.ok(Number(finalMetrics.toolTokensTotal || 0) > 0);
-    const taskTotals = (finalMetrics.taskTotals as Record<string, unknown>) || {};
-    const repoTaskTotals = ((taskTotals['repo-search'] as Record<string, unknown>) || {});
-    assert.ok(Number(repoTaskTotals.outputTokensTotal || 0) > 0);
-    assert.ok(Number(repoTaskTotals.toolTokensTotal || 0) > 0);
-    const toolStats = ((finalMetrics.toolStats as Record<string, unknown>) || {});
-    const repoToolStats = ((toolStats['repo-search'] as Record<string, unknown>) || {});
-    assert.ok(Number((((repoToolStats.rg || {}) as Record<string, unknown>).calls) || 0) >= 1);
-    assert.ok(Number(finalMetrics.inputCharactersTotal || 0) >= baselineInputChars + 'find x'.length);
-    assert.ok(Number(finalMetrics.requestDurationMsTotal || 0) > baselineDurationMs);
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('managed llama readiness wait does not hold the model request queue', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-readiness-outside-queue-'));
+  const previousCwd = process.cwd();
+  fs.writeFileSync(
+    path.join(tempRoot, 'package.json'),
+    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+    'utf8',
+  );
+  process.chdir(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup: Record<string, string | undefined> = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+
+  const llamaPort = await runtimeHelpers.getFreePort();
+  const managed = runtimeHelpers.writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
+    launchHangingProcess: true,
+  });
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, `${JSON.stringify({
+    Backend: 'llama.cpp',
+    Model: 'managed-test-model',
+    Runtime: {
+      Model: 'managed-test-model',
+      LlamaCpp: {
+        BaseUrl: managed.baseUrl,
+        NumCtx: 32000,
+        ModelPath: managed.modelPath,
+      },
+    },
+    Server: {
+      LlamaCpp: {
+        BaseUrl: managed.baseUrl,
+        ExecutablePath: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        ModelPath: managed.modelPath,
+        StartupTimeoutMs: 250,
+        HealthcheckTimeoutMs: 20,
+        HealthcheckIntervalMs: 20,
+      },
+    },
+  }, null, 2)}\n`, 'utf8');
+
+  const server = startStatusServer();
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const firstRequest = requestJson(`${baseUrl}/repo-search`, {
+      method: 'POST',
+      timeoutMs: 2500,
+      body: JSON.stringify({
+        prompt: 'hold readiness',
+        repoRoot: process.cwd(),
+        model: 'managed-test-model',
+        maxTurns: 1,
+      }),
+    });
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    const secondStartedAt = Date.now();
+    const secondResponse = await requestJson(`${baseUrl}/summary`, {
+      method: 'POST',
+      timeoutMs: 2500,
+      body: JSON.stringify({
+        question: 'summarize',
+        inputText: 'short text',
+        backend: 'llama.cpp',
+        model: 'managed-test-model',
+      }),
+    });
+    const secondElapsedMs = Date.now() - secondStartedAt;
+    const firstResponse = await firstRequest;
+
+    assert.equal(firstResponse.statusCode, 503);
+    assert.equal(secondResponse.statusCode, 503);
+    assert.ok(secondElapsedMs < 350, `second request waited behind model queue for ${secondElapsedMs}ms`);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
