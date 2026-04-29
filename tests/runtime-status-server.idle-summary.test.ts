@@ -69,10 +69,10 @@ test('real status server prints one idle metrics line only after the full idle d
         body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 200, inputTokens: 100, outputCharacterCount: 80, outputTokens: 25, requestDurationMs: 800 }),
       });
 
-      assert.equal(readStatusText(getConfigPath()), 'true');
+      assert.equal(readStatusText(getConfigPath()), 'false');
       const pendingStatus = await requestJson(server.statusUrl);
-      assert.equal(pendingStatus.running, true);
-      assert.equal(pendingStatus.status, 'true');
+      assert.equal(pendingStatus.running, false);
+      assert.equal(pendingStatus.status, 'false');
 
       await sleep(30);
       assert.equal(server.stdoutLines.some((line) => /idle_metrics/u.test(line)), false);

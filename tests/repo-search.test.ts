@@ -21,6 +21,37 @@ const Database = requireFromHere('better-sqlite3') as new (path: string, options
   close: () => void;
 };
 
+async function captureStdoutLines(fn: () => Promise<void>): Promise<string[]> {
+  const originalWrite = process.stdout.write.bind(process.stdout);
+  const lines: string[] = [];
+  let buffer = '';
+  process.stdout.write = (
+    chunk: string | Uint8Array,
+    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+    callback?: (error?: Error | null) => void,
+  ): boolean => {
+    const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+    buffer += text;
+    const parts = buffer.split(/\r?\n/u);
+    buffer = parts.pop() || '';
+    for (const line of parts) {
+      if (line.trim()) {
+        lines.push(line);
+      }
+    }
+    return originalWrite(chunk, encodingOrCallback as BufferEncoding, callback);
+  };
+  try {
+    await fn();
+  } finally {
+    process.stdout.write = originalWrite;
+  }
+  if (buffer.trim()) {
+    lines.push(buffer.trim());
+  }
+  return lines;
+}
+
 async function waitForRepoSearchRunLogRow(
   databasePath: string,
   requestId: string,
@@ -230,6 +261,29 @@ test('executeRepoSearchRequest with mock command executes and returns scorecard'
     });
     assert.equal(typeof result.scorecard, 'object');
     assert.equal(result.scorecard.verdict, 'pass');
+  });
+});
+
+test('executeRepoSearchRequest logs lifecycle before provider work starts', async () => {
+  await withTestEnvAndServer(async ({ tempRoot }) => {
+    const lines = await captureStdoutLines(async () => {
+      await executeRepoSearchRequest({
+        prompt: 'find lifecycle logs',
+        repoRoot: tempRoot,
+        maxTurns: 1,
+        mockResponses: [
+          '{"action":"finish","output":"done","confidence":0.8}',
+        ],
+        mockCommandResults: {},
+      });
+    });
+
+    assert.ok(lines.some((line) => /repo_search start request_id=.* prompt_chars=/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /repo_search notify_running_start request_id=/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /repo_search notify_running_done request_id=.* ok=true/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /repo_search run_start request_id=/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /repo_search run_done request_id=/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /repo_search completed request_id=/u.test(line)), lines.join('\n'));
   });
 });
 

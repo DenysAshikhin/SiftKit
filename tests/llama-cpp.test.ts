@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as http from 'node:http';
+import type { AddressInfo } from 'node:net';
 
 import {
   countLlamaCppTokens,
@@ -62,6 +64,61 @@ test('countLlamaCppTokens returns count from server', async () => {
       assert.ok((error as Error).message.length > 0);
     }
   });
+});
+
+test('countLlamaCppTokens respects a bounded transient retry timeout', { timeout: 1500 }, async () => {
+  let requestCount = 0;
+  const server = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/tokenize') {
+      requestCount += 1;
+      req.resume();
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        error: {
+          message: 'Loading model',
+          type: 'unavailable_error',
+          code: 503,
+        },
+      }));
+      return;
+    }
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address() as AddressInfo;
+  const config = {
+    Backend: 'llama.cpp',
+    Runtime: {
+      Model: 'test-model',
+      LlamaCpp: {
+        BaseUrl: `http://127.0.0.1:${address.port}`,
+        NumCtx: 10000,
+      },
+    },
+    LlamaCpp: {
+      BaseUrl: `http://127.0.0.1:${address.port}`,
+    },
+    Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },
+    Interactive: { Enabled: true, WrappedCommands: [], IdleTimeoutMs: 900000, MaxTranscriptCharacters: 60000, TranscriptRetention: true },
+  };
+
+  try {
+    const startedAt = Date.now();
+    const count = await countLlamaCppTokens(
+      config as unknown as Parameters<typeof countLlamaCppTokens>[0],
+      'hello world',
+      { timeoutMs: 200, retryMaxWaitMs: 200 },
+    );
+
+    assert.equal(count, null);
+    assert.equal(requestCount, 1);
+    assert.ok(Date.now() - startedAt < 1000);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
 });
 
 test('generateLlamaCppResponse returns text response', async () => {

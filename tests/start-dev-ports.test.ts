@@ -36,6 +36,13 @@ test('start-dev preflights both status and dashboard ports before spawning servi
         'dashboard:127.0.0.1:6876',
       ],
     );
+    assert.deepEqual(
+      checks.map((check) => `${check.service}:${check.fatalIfInUse}`),
+      [
+        'status:true',
+        'dashboard:false',
+      ],
+    );
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }

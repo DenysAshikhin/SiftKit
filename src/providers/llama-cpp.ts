@@ -27,6 +27,11 @@ type LlamaCppTokenizeResponse = {
   n_tokens?: unknown;
 };
 
+export type CountLlamaCppTokensOptions = {
+  timeoutMs?: number;
+  retryMaxWaitMs?: number;
+};
+
 type LlamaCppChatResponse = {
   choices?: Array<{
     message?: {
@@ -293,7 +298,18 @@ function getStructuredToolCallText(
   });
 }
 
-export async function countLlamaCppTokens(config: SiftConfig, content: string): Promise<number | null> {
+function getPositiveTimeoutMs(value: number | undefined, fallback: number): number {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) && numericValue > 0
+    ? Math.max(1, Math.trunc(numericValue))
+    : fallback;
+}
+
+export async function countLlamaCppTokens(
+  config: SiftConfig,
+  content: string,
+  options: CountLlamaCppTokensOptions = {},
+): Promise<number | null> {
   if (!content.trim()) {
     return 0;
   }
@@ -302,11 +318,13 @@ export async function countLlamaCppTokens(config: SiftConfig, content: string): 
   traceLlamaCpp(`tokenize start chars=${content.length}`);
   try {
     const baseUrl = getConfiguredLlamaBaseUrl(config);
+    const timeoutMs = getPositiveTimeoutMs(options.timeoutMs, 10_000);
+    const retryMaxWaitMs = getPositiveTimeoutMs(options.retryMaxWaitMs, 30_000);
     const response = await retryProviderRequest(async () => {
       const nextResponse = await requestJson<LlamaCppTokenizeResponse>({
         url: `${baseUrl.replace(/\/$/u, '')}/tokenize`,
         method: 'POST',
-        timeoutMs: 10_000,
+        timeoutMs,
         body: JSON.stringify({ content }),
       });
       if (isTransientProviderHttpResponse(nextResponse.statusCode, nextResponse.rawText)) {
@@ -314,6 +332,7 @@ export async function countLlamaCppTokens(config: SiftConfig, content: string): 
       }
       return nextResponse;
     }, {
+      maxWaitMs: retryMaxWaitMs,
       onRetry(event) {
         traceLlamaCpp(
           `tokenize retry attempt=${event.attempt} elapsed_ms=${event.elapsedMs} `

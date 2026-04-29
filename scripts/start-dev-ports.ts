@@ -3,9 +3,11 @@ import * as net from 'node:net';
 import * as path from 'node:path';
 
 export type StartupPortCheck = {
+  service: 'status' | 'dashboard';
   name: string;
   host: string;
   port: number;
+  fatalIfInUse: boolean;
 };
 
 type DashboardPackage = {
@@ -38,14 +40,18 @@ export function buildStartupPortChecks(
   const dashboardDevScript = readDashboardDevScript(dashboardPackageJsonPath);
   return [
     {
+      service: 'status',
       name: 'status server',
       host: env.SIFTKIT_STATUS_HOST || '127.0.0.1',
       port: parsePositivePort(env.SIFTKIT_STATUS_PORT, 4765),
+      fatalIfInUse: true,
     },
     {
+      service: 'dashboard',
       name: 'dashboard',
       host: parseCliValue(dashboardDevScript, 'host') || '127.0.0.1',
       port: parsePositivePort(parseCliValue(dashboardDevScript, 'port') || undefined, 6876),
+      fatalIfInUse: false,
     },
   ];
 }

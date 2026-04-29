@@ -7,11 +7,15 @@ export type RepoSearchProgressEvent = {
   kind: string;
   turn?: number;
   maxTurns?: number;
+  taskId?: string;
   thinkingText?: string;
   command?: string;
   outputSnippet?: string;
   exitCode?: number;
   promptTokenCount?: number;
+  promptChars?: number;
+  modelCount?: number;
+  errorMessage?: string;
   elapsedMs?: number;
 };
 

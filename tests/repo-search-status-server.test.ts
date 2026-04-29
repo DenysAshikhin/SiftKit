@@ -183,6 +183,83 @@ test('status server stays responsive while repo-search is running', async () => 
   }
 });
 
+test('repo-search abandons stale running status after acquiring the model lock', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-stale-status-'));
+  const previousCwd = process.cwd();
+  fs.writeFileSync(
+    path.join(tempRoot, 'package.json'),
+    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+    'utf8',
+  );
+  process.chdir(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup: Record<string, string | undefined> = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    await requestJson(`${baseUrl}/status`, {
+      method: 'POST',
+      body: JSON.stringify({
+        running: true,
+        requestId: 'stale-running-request',
+        taskKind: 'summary',
+        rawInputCharacterCount: 100,
+      }),
+    });
+
+    const startedAt = Date.now();
+    const searchResponse = await requestJson(`${baseUrl}/repo-search`, {
+      method: 'POST',
+      timeoutMs: 5000,
+      body: JSON.stringify({
+        prompt: 'find x',
+        repoRoot: process.cwd(),
+        model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+        maxTurns: 1,
+        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        mockResponses: [
+          '{"action":"finish","output":"done","confidence":0.9}',
+        ],
+        mockCommandResults: {},
+      }),
+    });
+    const elapsedMs = Date.now() - startedAt;
+
+    assert.equal(searchResponse.statusCode, 200);
+    assert.ok(elapsedMs < 800, `expected stale status to be abandoned without busy retries, got ${elapsedMs}ms`);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    process.chdir(previousCwd);
+    closeRuntimeDatabase();
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('managed llama readiness wait does not hold the model request queue', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-readiness-outside-queue-'));
   const previousCwd = process.cwd();
@@ -634,7 +711,9 @@ test('repo-search wakes managed llama after idle shutdown', async () => {
       assert.equal(statusResponse.statusCode, 200);
       assert.equal(statusResponse.body.status, 'false');
     }, 5000);
-    await assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`));
+    await runtimeHelpers.waitForAsyncExpectation(async () => {
+      await assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`));
+    }, 5000);
 
     const repoSearchResponse = await requestJson(`${baseUrl}/repo-search`, {
       method: 'POST',

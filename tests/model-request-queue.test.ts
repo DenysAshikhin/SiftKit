@@ -102,6 +102,8 @@ test('model request admission logs queue position and wakes llama for immediate 
 
     assert.equal((ctx as ServerContext & { readonly wakeCount: number }).wakeCount, 1);
     assert.ok(lines.some((line) => /request incoming task=summary queue_position=1/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /request lock_acquired task=summary wait_ms=0/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /request lock_released task=summary held_ms=/u.test(line)), lines.join('\n'));
   } finally {
     await ctx.managedLlamaFlushQueue.close();
   }
@@ -131,6 +133,8 @@ test('queued model request logs its FIFO position and wakes llama while waiting'
     });
 
     assert.ok(lines.some((line) => /request incoming task=dashboard_chat queue_position=2/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /request lock_acquired task=dashboard_chat wait_ms=/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /request lock_released task=dashboard_chat held_ms=/u.test(line)), lines.join('\n'));
   } finally {
     await ctx.managedLlamaFlushQueue.close();
   }

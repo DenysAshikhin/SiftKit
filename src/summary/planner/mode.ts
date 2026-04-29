@@ -6,6 +6,7 @@ import {
 } from '../../line-read-guidance.js';
 import {
   countLlamaCppTokens,
+  type CountLlamaCppTokensOptions,
   type LlamaCppChatMessage,
 } from '../../providers/llama-cpp.js';
 import { getErrorMessage } from '../../lib/errors.js';
@@ -69,6 +70,18 @@ import {
 const MAX_PLANNER_TOOL_CALLS = 30;
 const PLANNER_FORCED_FINISH_MAX_ATTEMPTS = 2;
 const PLANNER_DUPLICATE_FORCE_THRESHOLD = 5;
+
+function getPlannerTokenizeOptions(requestTimeoutSeconds: number | undefined): CountLlamaCppTokensOptions | undefined {
+  const timeoutSeconds = Number(requestTimeoutSeconds);
+  if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
+    return undefined;
+  }
+  const timeoutMs = Math.max(1, Math.trunc(timeoutSeconds * 1000));
+  return {
+    timeoutMs,
+    retryMaxWaitMs: timeoutMs,
+  };
+}
 
 function buildPlannerInvalidToolAction(providerText: string): ToolTranscriptAction {
   const recoveredAction = recoverPlannerToolCallCandidate(providerText);
@@ -160,6 +173,7 @@ export async function invokePlannerMode(options: {
   let duplicateReplayCount = 0;
   let duplicateReplayToolMessageIndex = -1;
   let forcedFinishCountdownUserMessageIndex = -1;
+  const tokenizeOptions = getPlannerTokenizeOptions(options.requestTimeoutSeconds);
 
   while (toolResults.length <= MAX_PLANNER_TOOL_CALLS) {
     const turn = toolResults.length + 1;
@@ -174,7 +188,7 @@ export async function invokePlannerMode(options: {
       promptChars: prompt.length,
     });
     const promptTokenCount = (
-      await countLlamaCppTokens(options.config, prompt)
+      await countLlamaCppTokens(options.config, prompt, tokenizeOptions)
     ) ?? estimatePromptTokenCount(options.config, prompt);
     promptTokenSpan?.end({ promptTokenCount });
     debugRecorder.record({
@@ -419,7 +433,7 @@ export async function invokePlannerMode(options: {
             promptChars: forcedPrompt.length,
           });
           const forcedPromptTokenCount = (
-            await countLlamaCppTokens(options.config, forcedPrompt)
+            await countLlamaCppTokens(options.config, forcedPrompt, tokenizeOptions)
           ) ?? estimatePromptTokenCount(options.config, forcedPrompt);
           forcedPromptTokenSpan?.end({ promptTokenCount: forcedPromptTokenCount });
           const forcedResponse = await invokePlannerProviderAction({
@@ -586,7 +600,7 @@ export async function invokePlannerMode(options: {
           inputChars: rawFormattedResultText.length,
         });
         const rawResultTokenCount = (
-          await countLlamaCppTokens(options.config, rawFormattedResultText)
+          await countLlamaCppTokens(options.config, rawFormattedResultText, tokenizeOptions)
         ) ?? estimatePromptTokenCount(options.config, rawFormattedResultText);
         rawTokenSpan?.end({ tokenCount: rawResultTokenCount });
         const normalizedRawResultTokenCount = Math.max(0, Math.ceil(rawResultTokenCount));
@@ -596,7 +610,7 @@ export async function invokePlannerMode(options: {
           inputChars: formattedResultText.length,
         });
         const resultTokenCount = (
-          await countLlamaCppTokens(options.config, formattedResultText)
+          await countLlamaCppTokens(options.config, formattedResultText, tokenizeOptions)
         ) ?? estimatePromptTokenCount(options.config, formattedResultText);
         formattedTokenSpan?.end({ tokenCount: resultTokenCount });
         const normalizedResultTokenCount = Math.max(0, Math.ceil(resultTokenCount));
@@ -608,7 +622,7 @@ export async function invokePlannerMode(options: {
           toolName: toolAction.tool_name,
           inputChars: promptResultText.length,
         });
-        const exactToolResultTokenCount = await countLlamaCppTokens(options.config, promptResultText);
+        const exactToolResultTokenCount = await countLlamaCppTokens(options.config, promptResultText, tokenizeOptions);
         promptResultTokenSpan?.end({
           tokenCount: exactToolResultTokenCount ?? -1,
         });

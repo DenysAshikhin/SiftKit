@@ -125,8 +125,6 @@ export async function ensureStatusServerReachable(): Promise<void> {
 export type NotifyStatusBackendOptions = {
   running: boolean;
   statusBackendUrl?: string | null;
-  busyRetryMaxRetries?: number;
-  busyRetryDelayMs?: number;
   taskKind?: 'summary' | 'plan' | 'repo-search' | 'chat' | null;
   requestId?: string | null;
   terminalState?: 'completed' | 'failed' | null;
@@ -335,46 +333,18 @@ export async function notifyStatusBackend(options: NotifyStatusBackendOptions): 
   }
 
   const url = (options.statusBackendUrl && options.statusBackendUrl.trim()) ? options.statusBackendUrl.trim() : getStatusBackendUrl();
-  const configuredBusyRetryMaxRetries = Number(options.busyRetryMaxRetries);
-  const defaultBusyRetryMaxRetries = options.running && options.taskKind === 'summary' ? 2 : (options.running ? 600 : 0);
-  const maxRetries = Number.isFinite(configuredBusyRetryMaxRetries) && configuredBusyRetryMaxRetries >= 0
-    ? Math.floor(configuredBusyRetryMaxRetries)
-    : defaultBusyRetryMaxRetries;
-  const configuredBusyRetryDelayMs = Number(options.busyRetryDelayMs);
-  const defaultBusyRetryDelayMs = options.running && options.taskKind === 'summary'
-    ? readPositiveIntegerEnv('SIFTKIT_SUMMARY_BUSY_RETRY_DELAY_MS', 100)
-    : 1000;
-  const busyRetryDelayMs = Number.isFinite(configuredBusyRetryDelayMs) && configuredBusyRetryDelayMs > 0
-    ? Math.floor(configuredBusyRetryDelayMs)
-    : defaultBusyRetryDelayMs;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const response = await requestJson<{ ok?: boolean; busy?: boolean }>({
-        url,
-        method: 'POST',
-        timeoutMs: 2000,
-        body: JSON.stringify(body),
-      });
-      if (response && response.busy) {
-        if (attempt < maxRetries) {
-          await sleep(busyRetryDelayMs);
-          continue;
-        }
-        throw new Error(
-          `Status backend remained busy after ${maxRetries + 1} attempts `
-          + `(delay_ms=${busyRetryDelayMs}).`,
-        );
-      }
-      return;
-    } catch (error) {
-      if (error instanceof Error && /Status backend remained busy/iu.test(error.message)) {
-        throw error;
-      }
-      throw toStatusServerUnavailableError({
-        cause: error,
-        operation: 'status:notify',
-        serviceUrl: url,
-      });
-    }
+  try {
+    await requestJson<{ ok?: boolean; busy?: boolean }>({
+      url,
+      method: 'POST',
+      timeoutMs: 2000,
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    throw toStatusServerUnavailableError({
+      cause: error,
+      operation: 'status:notify',
+      serviceUrl: url,
+    });
   }
 }

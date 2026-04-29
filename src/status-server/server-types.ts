@@ -23,7 +23,6 @@ export type ActiveRunState = {
   chunkIndex: number | null;
   chunkTotal: number | null;
   chunkPath: string | null;
-  lastNotificationWasRunning: boolean;
   managedLlamaSpeculativeSnapshot: ManagedLlamaSpeculativeMetricsSnapshot | null;
 };
 

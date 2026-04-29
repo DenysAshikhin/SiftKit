@@ -67,6 +67,13 @@ import {
 import { notifyStatusBackend } from '../../config/index.js';
 import type { ServerContext } from '../server-types.js';
 
+const DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_MS = 30_000;
+
+function getPositiveNumber(value: unknown, fallback: number): number {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : fallback;
+}
+
 function getEffectivePresetAllowedTools(config: Dict, preset: SiftPreset | null): SiftPreset['allowedTools'] | undefined {
   if (!preset) {
     return undefined;
@@ -696,7 +703,7 @@ export async function handleChatRoute(
         includeRepoFileListing: resolveEffectiveRepoFileListing(config, preset),
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
-        promptTimeoutMs: Number.isFinite(Number(parsedBody.promptTimeoutMs)) ? Number(parsedBody.promptTimeoutMs) : undefined,
+        promptTimeoutMs: getPositiveNumber(parsedBody.promptTimeoutMs, DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_MS),
         logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,
         availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,
         mockResponses: Array.isArray(parsedBody.mockResponses) ? (parsedBody.mockResponses as unknown[]).map((v) => String(v)) : undefined,
@@ -844,6 +851,7 @@ export async function handleChatRoute(
         includeRepoFileListing: resolveEffectiveRepoFileListing(config, preset),
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
+        promptTimeoutMs: getPositiveNumber(parsedBody.promptTimeoutMs, DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_MS),
         logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,
         availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,
         mockResponses: Array.isArray(parsedBody.mockResponses) ? (parsedBody.mockResponses as unknown[]).map((v) => String(v)) : undefined,
@@ -1020,6 +1028,7 @@ export async function handleChatRoute(
         includeRepoFileListing: resolveEffectiveRepoFileListing(config, preset),
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
+        promptTimeoutMs: getPositiveNumber(parsedBody.promptTimeoutMs, DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_MS),
         logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,
         availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,
         mockResponses: Array.isArray(parsedBody.mockResponses) ? (parsedBody.mockResponses as unknown[]).map((v) => String(v)) : undefined,

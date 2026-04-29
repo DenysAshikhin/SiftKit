@@ -29,6 +29,7 @@ const useStableStatus = process.argv.includes('--stable');
 const statusScript = useStableStatus ? 'start:status:stable:server' : 'start:status';
 let statusProcess: ChildProcess | null = null;
 let dashboardProcess: ChildProcess | null = null;
+let reuseExistingDashboard = false;
 
 let shuttingDown = false;
 function shutdown(signalName: string): void {
@@ -97,12 +98,20 @@ function waitForBackendReady(options: { timeoutMs?: number; pollMs?: number } = 
 void (async () => {
   for (const portCheck of buildStartupPortChecks(process.env)) {
     if (await isPortInUse(portCheck.host, portCheck.port)) {
-      process.stderr.write(
-        `[start-dev] Refusing to start because ${portCheck.name} port ${portCheck.host}:${portCheck.port} is already in use. `
-        + 'Stop the existing process, then run npm start again.\n'
-      );
-      process.exit(1);
-      return;
+      if (portCheck.fatalIfInUse) {
+        process.stderr.write(
+          `[start-dev] Refusing to start because ${portCheck.name} port ${portCheck.host}:${portCheck.port} is already in use. `
+          + 'Stop the existing process, then run npm start again.\n'
+        );
+        process.exit(1);
+        return;
+      }
+      if (portCheck.service === 'dashboard') {
+        reuseExistingDashboard = true;
+        process.stderr.write(
+          `[start-dev] Dashboard port ${portCheck.host}:${portCheck.port} is already in use; reusing the existing dashboard.\n`
+        );
+      }
     }
   }
 
@@ -119,6 +128,9 @@ void (async () => {
     process.stderr.write('[start-dev] Backend health was not reachable in time; starting dashboard anyway.\n');
   }
   if (shuttingDown) {
+    return;
+  }
+  if (reuseExistingDashboard) {
     return;
   }
   dashboardProcess = startProcess(npmCommand, ['run', 'start:dashboard']);

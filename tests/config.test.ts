@@ -478,7 +478,7 @@ test('ensureStatusServerReachable honors health retry env overrides', async () =
   }
 });
 
-test('notifyStatusBackend retries running status when backend reports busy and then succeeds', async () => {
+test('notifyStatusBackend ignores legacy busy responses without retrying', async () => {
   let postCount = 0;
   let runningCount = 0;
   const server = await new Promise<http.Server>((resolve) => {
@@ -495,9 +495,8 @@ test('notifyStatusBackend retries running status when backend reports busy and t
           if (parsed.running === true) {
             runningCount += 1;
           }
-          const busy = postCount < 3;
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: true, busy }));
+          res.end(JSON.stringify({ ok: true, busy: true }));
         });
         return;
       }
@@ -511,94 +510,10 @@ test('notifyStatusBackend retries running status when backend reports busy and t
     await notifyStatusBackend({
       running: true,
       statusBackendUrl: `http://127.0.0.1:${address.port}/status`,
-      requestId: 'busy-retry-request',
-      busyRetryMaxRetries: 5,
-      busyRetryDelayMs: 1,
+      requestId: 'legacy-busy-request',
     });
-    assert.equal(postCount, 3);
-    assert.equal(runningCount, 3);
-  } finally {
-    await new Promise<void>((resolve, reject) => {
-      server.close((error: Error | undefined) => (error ? reject(error) : resolve()));
-    });
-  }
-});
-
-test('notifyStatusBackend bounds default busy retries for summary running status', async () => {
-  let postCount = 0;
-  const server = await new Promise<http.Server>((resolve) => {
-    const nextServer = http.createServer((req, res) => {
-      if (req.method === 'POST' && req.url === '/status') {
-        postCount += 1;
-        req.resume();
-        req.on('end', () => {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: true, busy: true }));
-        });
-        return;
-      }
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'not found' }));
-    });
-    nextServer.listen(0, '127.0.0.1', () => resolve(nextServer));
-  });
-  const previousDelay = process.env.SIFTKIT_SUMMARY_BUSY_RETRY_DELAY_MS;
-  try {
-    process.env.SIFTKIT_SUMMARY_BUSY_RETRY_DELAY_MS = '1';
-    const address = server.address() as AddressInfo;
-    await assert.rejects(
-      () => notifyStatusBackend({
-        running: true,
-        taskKind: 'summary',
-        statusBackendUrl: `http://127.0.0.1:${address.port}/status`,
-        requestId: 'summary-busy-default-request',
-      }),
-      /busy/i,
-    );
-    assert.equal(postCount, 3);
-  } finally {
-    if (previousDelay === undefined) {
-      delete process.env.SIFTKIT_SUMMARY_BUSY_RETRY_DELAY_MS;
-    } else {
-      process.env.SIFTKIT_SUMMARY_BUSY_RETRY_DELAY_MS = previousDelay;
-    }
-    await new Promise<void>((resolve, reject) => {
-      server.close((error: Error | undefined) => (error ? reject(error) : resolve()));
-    });
-  }
-});
-
-test('notifyStatusBackend fails closed when backend remains busy after retry budget', async () => {
-  let postCount = 0;
-  const server = await new Promise<http.Server>((resolve) => {
-    const nextServer = http.createServer((req, res) => {
-      if (req.method === 'POST' && req.url === '/status') {
-        postCount += 1;
-        req.resume();
-        req.on('end', () => {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: true, busy: true }));
-        });
-        return;
-      }
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'not found' }));
-    });
-    nextServer.listen(0, '127.0.0.1', () => resolve(nextServer));
-  });
-  try {
-    const address = server.address() as AddressInfo;
-    await assert.rejects(
-      () => notifyStatusBackend({
-        running: true,
-        statusBackendUrl: `http://127.0.0.1:${address.port}/status`,
-        requestId: 'busy-timeout-request',
-        busyRetryMaxRetries: 1,
-        busyRetryDelayMs: 1,
-      }),
-      /busy/i,
-    );
-    assert.equal(postCount, 2);
+    assert.equal(postCount, 1);
+    assert.equal(runningCount, 1);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error: Error | undefined) => (error ? reject(error) : resolve()));
@@ -612,8 +527,6 @@ test('notifyStatusBackend preserves canonical unavailable error when backend is 
       running: true,
       statusBackendUrl: 'http://127.0.0.1:1/status',
       requestId: 'unreachable-request',
-      busyRetryMaxRetries: 1,
-      busyRetryDelayMs: 1,
     }),
     { name: 'StatusServerUnavailableError' },
   );

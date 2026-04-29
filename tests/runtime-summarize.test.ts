@@ -280,7 +280,7 @@ test('summary timing metadata records lock wait separately from provider duratio
   });
 });
 
-test('summary continues when running status notification is busy', async () => {
+test('summary ignores legacy busy running status without retrying', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const result = await summarizeRequest({
@@ -294,7 +294,7 @@ test('summary continues when running status notification is busy', async () => {
 
       assert.equal(result.WasSummarized, true);
       assert.match(result.Summary, /mock summary/u);
-      assert.ok(server.state.statusPosts.filter((post) => post.running === true).length >= 3);
+      assert.equal(server.state.statusPosts.filter((post) => post.running === true).length, 1);
       await waitForAsyncExpectation(async () => {
         assert.ok(server.state.statusPosts.some((post) => post.terminalState === 'completed'));
       }, 1000);

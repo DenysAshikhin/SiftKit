@@ -12,6 +12,7 @@ import { getNumericTotal, getOutputCharacterCount } from './scorecard.js';
 import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../state/runtime-db.js';
 import { upsertRepoSearchRun } from '../status-server/dashboard-runs.js';
+import { logLine } from '../status-server/managed-llama.js';
 import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
 import {
   createTemporaryTimingRecorderFromEnv,
@@ -27,6 +28,33 @@ export const DEFAULT_REPO_SEARCH_PROMPT_TIMEOUT_MS = 4 * 60 * 1000;
 
 function buildRepoSearchPromptTimeoutError(timeoutMs: number): Error {
   return new Error(`Repo search prompt exceeded ${timeoutMs} ms. Please try again.`);
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function logRepoSearchProgress(message: string): void {
+  logLine(`repo_search ${message}`);
+}
+
+function logRepoSearchExecutionProgress(requestId: string, event: RepoSearchProgressEvent, startedAt: number): void {
+  const elapsedMs = Number.isFinite(event.elapsedMs) ? Math.max(0, Math.trunc(Number(event.elapsedMs))) : Date.now() - startedAt;
+  if (event.kind === 'model_inventory_start') {
+    logRepoSearchProgress(`model_inventory_start request_id=${requestId} elapsed_ms=${elapsedMs}`);
+  } else if (event.kind === 'model_inventory_done') {
+    logRepoSearchProgress(
+      `model_inventory_done request_id=${requestId} elapsed_ms=${elapsedMs} model_count=${Math.max(0, Math.trunc(Number(event.modelCount || 0)))}`,
+    );
+  } else if (event.kind === 'preflight_start') {
+    logRepoSearchProgress(
+      `preflight_start request_id=${requestId} turn=${event.turn ?? '?'} prompt_chars=${Math.max(0, Math.trunc(Number(event.promptChars || 0)))} elapsed_ms=${elapsedMs}`,
+    );
+  } else if (event.kind === 'preflight_done') {
+    logRepoSearchProgress(
+      `preflight_done request_id=${requestId} turn=${event.turn ?? '?'} prompt_tokens=${Math.max(0, Math.trunc(Number(event.promptTokenCount || 0)))} elapsed_ms=${elapsedMs}`,
+    );
+  }
 }
 
 type RepoSearchRunPersistenceOptions = Omit<Parameters<typeof upsertRepoSearchRun>[0], 'database'> & {
@@ -114,7 +142,12 @@ export async function executeRepoSearchRequest(
   });
   let timingStatus: 'completed' | 'failed' = 'failed';
   traceRepoSearch(`execute start request_id=${requestId} prompt_chars=${prompt.length}`);
+  logRepoSearchProgress(
+    `start request_id=${requestId} task=${taskKind} prompt_chars=${prompt.length} timeout_ms=${promptTimeoutMs}`,
+  );
   const notifyRunningSpan = timingRecorder?.start('repo.status.notify_running');
+  const notifyRunningStartedAt = Date.now();
+  logRepoSearchProgress(`notify_running_start request_id=${requestId}`);
   try {
     await notifyStatusBackend({
       running: true,
@@ -127,9 +160,16 @@ export async function executeRepoSearchRequest(
       chunkPath: 'repo-search',
     });
     notifyRunningSpan?.end({ ok: true });
-  } catch {
+    logRepoSearchProgress(
+      `notify_running_done request_id=${requestId} ok=true duration_ms=${Date.now() - notifyRunningStartedAt}`,
+    );
+  } catch (error) {
     notifyRunningSpan?.end({ ok: false });
     traceRepoSearch(`notify running=true failed request_id=${requestId}`);
+    logRepoSearchProgress(
+      `notify_running_done request_id=${requestId} ok=false duration_ms=${Date.now() - notifyRunningStartedAt} `
+      + `error=${JSON.stringify(getErrorMessage(error))}`,
+    );
   }
   const folders = ensureRepoSearchLogFolders();
   const tempTranscriptPath = request.logFile
@@ -139,6 +179,7 @@ export async function executeRepoSearchRequest(
 
   try {
     const progressCallback = request.onProgress;
+    logRepoSearchProgress(`run_start request_id=${requestId}`);
     const scorecard = await runRepoSearch({
       repoRoot,
       config: request.config,
@@ -156,13 +197,17 @@ export async function executeRepoSearchRequest(
       timingRecorder,
       onProgress: progressCallback
         ? (event: RepoSearchProgressEvent) => {
+          logRepoSearchExecutionProgress(requestId, event, startedAt);
           progressCallback({
             ...event,
             elapsedMs: Number.isFinite(event?.elapsedMs) ? Number(event.elapsedMs) : (Date.now() - startedAt),
           });
         }
-        : null,
+        : (event: RepoSearchProgressEvent) => {
+          logRepoSearchExecutionProgress(requestId, event, startedAt);
+        },
     });
+    logRepoSearchProgress(`run_done request_id=${requestId}`);
     const targetFolder = scorecard?.verdict === 'pass' ? folders.successful : folders.failed;
     const transcriptPath = `${targetFolder}/request_${requestId}.jsonl`;
     const artifactPathHint = `${targetFolder}/request_${requestId}.json`;
@@ -273,6 +318,10 @@ export async function executeRepoSearchRequest(
       `execute done request_id=${requestId} verdict=${String(scorecard?.verdict ?? 'unknown')} `
       + `duration_ms=${Date.now() - startedAt} output_chars=${outputCharacterCount}`
     );
+    logRepoSearchProgress(
+      `completed request_id=${requestId} duration_ms=${Date.now() - startedAt} `
+      + `verdict=${String(scorecard?.verdict ?? 'unknown')}`,
+    );
     timingStatus = 'completed';
     clearTimeout(timeoutHandle);
     return {
@@ -346,6 +395,9 @@ export async function executeRepoSearchRequest(
       generationDurationMs: null,
     }, timingRecorder);
     traceRepoSearch(`execute failed request_id=${requestId} duration_ms=${Date.now() - startedAt} error=${message}`);
+    logRepoSearchProgress(
+      `failed request_id=${requestId} duration_ms=${Date.now() - startedAt} error=${JSON.stringify(message)}`,
+    );
     (error as { artifactPath?: string; transcriptPath?: string }).artifactPath = artifactPath;
     (error as { artifactPath?: string; transcriptPath?: string }).transcriptPath = transcriptUri;
     throw error;

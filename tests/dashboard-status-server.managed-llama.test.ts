@@ -225,7 +225,9 @@ test('dashboard plan wakes managed llama after idle shutdown', async () => {
       assert.equal(statusResponse.statusCode, 200);
       assert.equal(statusResponse.body.status, 'false');
     }, 1000);
-    await assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`, { timeoutMs: 200 }));
+    await runtimeHelpers.waitForAsyncExpectation(async () => {
+      await assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`, { timeoutMs: 200 }));
+    }, 5000);
 
     const planResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/plan`, {
       method: 'POST',

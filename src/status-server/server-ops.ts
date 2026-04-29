@@ -57,9 +57,9 @@ import {
 export function hasPublishedActivity(ctx: ServerContext): boolean {
   return ctx.bootstrapManagedLlamaStartup
     || ctx.managedLlamaStarting
-    || ctx.managedLlamaReady
-    || hasActiveRuns(ctx)
-    || ctx.idleSummaryPending;
+    || Boolean(ctx.activeModelRequest)
+    || ctx.modelRequestQueue.some((request) => !request.cancelled)
+    || hasActiveRuns(ctx);
 }
 
 export function getPublishedStatusText(ctx: ServerContext): string {
@@ -360,6 +360,29 @@ function logIncomingModelRequest(ctx: ServerContext, kind: string): void {
   logLine(`request incoming task=${taskKind} queue_position=${getIncomingModelRequestQueuePosition(ctx)}`);
 }
 
+function getElapsedMsSinceIso(isoTimestamp: string): number {
+  const startedAtMs = Date.parse(isoTimestamp);
+  return Number.isFinite(startedAtMs) ? Math.max(0, Date.now() - startedAtMs) : 0;
+}
+
+function logModelRequestLockAcquired(lock: ModelRequestLock, waitMs: number): void {
+  logLine(`request lock_acquired task=${lock.kind} wait_ms=${Math.max(0, Math.trunc(waitMs))} token=${lock.token}`);
+}
+
+function logModelRequestLockReleased(lock: ModelRequestLock, queueLength: number): void {
+  logLine(
+    `request lock_released task=${lock.kind} held_ms=${getElapsedMsSinceIso(lock.startedAtUtc)} `
+    + `queue_remaining=${Math.max(0, queueLength)} token=${lock.token}`,
+  );
+}
+
+function logModelRequestWaitCancelled(waiter: ModelRequestWaiter): void {
+  logLine(
+    `request lock_cancelled task=${waiter.kind} wait_ms=${getElapsedMsSinceIso(waiter.enqueuedAtUtc)} `
+    + `token=${waiter.queueToken}`,
+  );
+}
+
 export function wakeManagedLlamaForIncomingModelRequest(ctx: ServerContext): void {
   if (ctx.disableManagedLlamaStartup) {
     return;
@@ -410,6 +433,7 @@ function grantNextModelRequest(ctx: ServerContext): boolean {
     const lock = createModelRequestLock(waiter.kind);
     waiter.grantedLock = lock;
     ctx.activeModelRequest = lock;
+    logModelRequestLockAcquired(lock, getElapsedMsSinceIso(waiter.enqueuedAtUtc));
     waiter.resolveLock(lock);
     return true;
   }
@@ -426,6 +450,7 @@ export async function acquireModelRequestWithWait(
   wakeManagedLlamaForIncomingModelRequest(ctx);
   let lock = acquireModelRequest(ctx, kind);
   if (lock) {
+    logModelRequestLockAcquired(lock, 0);
     return lock;
   }
   let resolveWaiterLock: (resolvedLock: ModelRequestLock | null) => void = () => {};
@@ -447,6 +472,7 @@ export async function acquireModelRequestWithWait(
     }
     waiter.cancelled = true;
     removeModelRequestWaiter(ctx, waiter.queueToken);
+    logModelRequestWaitCancelled(waiter);
     waiter.resolveLock(null);
     grantNextModelRequest(ctx);
   };
@@ -495,7 +521,9 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
   if (!ctx.activeModelRequest || ctx.activeModelRequest.token !== token) {
     return false;
   }
+  const releasedLock = ctx.activeModelRequest;
   ctx.activeModelRequest = null;
+  logModelRequestLockReleased(releasedLock, ctx.modelRequestQueue.length);
   grantNextModelRequest(ctx);
   if (ctx.managedLlamaLastStartupLogs?.runId) {
     ctx.managedLlamaFlushQueue.enqueue(ctx.managedLlamaLastStartupLogs.runId);

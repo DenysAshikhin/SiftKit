@@ -683,6 +683,14 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       taskId: task.id,
       turn,
     });
+    options.onProgress?.({
+      kind: 'preflight_start',
+      taskId: task.id,
+      turn,
+      maxTurns,
+      promptChars: prompt.length,
+      elapsedMs: Date.now() - taskStartedAt,
+    });
     let preflight = await preflightPlannerPromptBudget({
       config: useEstimatedTokensOnly ? undefined : options.config,
       prompt,
@@ -693,6 +701,15 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       promptTokenCount: preflight.promptTokenCount,
       overflowTokens: preflight.overflowTokens,
       ok: preflight.ok,
+    });
+    options.onProgress?.({
+      kind: 'preflight_done',
+      taskId: task.id,
+      turn,
+      maxTurns,
+      promptChars: prompt.length,
+      promptTokenCount: preflight.promptTokenCount,
+      elapsedMs: Date.now() - taskStartedAt,
     });
     let maxOutputTokens = getDynamicMaxOutputTokens({
       totalContextTokens,
@@ -1672,9 +1689,11 @@ export async function runRepoSearch(options: {
   const inventorySpan = options.timingRecorder?.start('repo.model_inventory', {
     mock: Array.isArray(options.mockResponses),
   });
+  options.onProgress?.({ kind: 'model_inventory_start', elapsedMs: 0 });
   const availableModels = options.availableModels
     || (Array.isArray(options.mockResponses) ? [model] : await listLlamaCppModels(config));
   inventorySpan?.end({ modelCount: availableModels.length });
+  options.onProgress?.({ kind: 'model_inventory_done', modelCount: availableModels.length, elapsedMs: 0 });
   options.logger?.write({ kind: 'model_inventory', configuredModel: model, availableModels });
 
   const tasksToRun: TaskDefinition[] = options.taskPrompt

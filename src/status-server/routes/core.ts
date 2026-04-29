@@ -73,6 +73,8 @@ import type {
   ServerContext,
 } from '../server-types.js';
 
+const DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_SECONDS = 30;
+
 function normalizeTaskKind(value: unknown): TaskKind | null {
   return value === 'summary' || value === 'plan' || value === 'repo-search' || value === 'chat'
     ? value
@@ -105,6 +107,11 @@ function getOptionalString(value: unknown): string | undefined {
 function getOptionalNumber(value: unknown): number | undefined {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? numberValue : undefined;
+}
+
+function getPositiveNumber(value: unknown, fallback: number): number {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : fallback;
 }
 
 function getSummaryTiming(value: unknown): { processStartedAtMs?: number | null; stdinWaitMs?: number | null; serverPreflightMs?: number | null } | undefined {
@@ -473,11 +480,11 @@ export async function handleCoreRoute(
         includeRepoFileListing: resolveEffectiveRepoFileListing(config, null),
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
-        promptTimeoutMs: Number.isFinite(Number(parsedBody.promptTimeoutMs)) ? Number(parsedBody.promptTimeoutMs) : undefined,
         logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,
         availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,
         mockResponses: Array.isArray(parsedBody.mockResponses) ? (parsedBody.mockResponses as unknown[]).map((v) => String(v)) : undefined,
         mockCommandResults: (parsedBody.mockCommandResults && typeof parsedBody.mockCommandResults === 'object' && !Array.isArray(parsedBody.mockCommandResults)) ? parsedBody.mockCommandResults : undefined,
+        promptTimeoutMs: getPositiveNumber(parsedBody.promptTimeoutMs, DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_SECONDS * 1000),
         onProgress(event: RepoSearchProgressEvent) {
           if (event.kind === 'tool_start' || event.kind === 'llm_start' || event.kind === 'llm_end') {
             const logMessage = buildRepoSearchProgressLogMessage(event, 'repo_search');
@@ -538,6 +545,7 @@ export async function handleCoreRoute(
         model: getOptionalString(parsedBody.model),
         sourceKind: normalizeSummarySourceKind(parsedBody.sourceKind),
         commandExitCode: getOptionalNumber(parsedBody.commandExitCode),
+        requestTimeoutSeconds: getPositiveNumber(parsedBody.requestTimeoutSeconds, DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_SECONDS),
         timing: getSummaryTiming(parsedBody.timing),
         statusBackendUrl: `${serviceBaseUrl}/status`,
         skipExecutionLock: true,
@@ -667,11 +675,11 @@ export async function handleCoreRoute(
         ctx.pendingIdleSummaryMetadata.chunkThresholdCharacters = metadata.chunkThresholdCharacters;
       }
       if (activeRun && activeRequestId !== requestId) {
-        if (activeRun.lastNotificationWasRunning) {
-          // Another request is actively running — tell the caller to wait and retry.
-          sendJson(res, 200, { ok: true, busy: true, statusPath, configPath });
-          return true;
-        }
+        // Status is observational; the model request queue owns admission control.
+        logLine(
+          `request stale_status_abandoned active_request_id=${activeRequestId} incoming_request_id=${requestId} `
+          + `lock_task=${ctx.activeModelRequest?.kind ?? 'none'}`,
+        );
         logAbandonedRun(ctx, activeRun, now);
         clearRunState(ctx, activeRequestId);
       }
@@ -690,11 +698,9 @@ export async function handleCoreRoute(
           chunkIndex: metadata.chunkIndex,
           chunkTotal: metadata.chunkTotal,
           chunkPath: metadata.chunkPath,
-          lastNotificationWasRunning: true,
           managedLlamaSpeculativeSnapshot: null,
         };
       } else {
-        runState.lastNotificationWasRunning = true;
         runState.currentRequestStartedAt = now;
         runState.stepCount = Number.isFinite(runState.stepCount) ? runState.stepCount + 1 : 1;
         if (runState.rawInputCharacterCount === null && metadata.rawInputCharacterCount !== null) {
@@ -789,9 +795,6 @@ export async function handleCoreRoute(
         suppressLogLine = metadata.terminalState === null && isSingleStepNonChunk;
         elapsedMs = now - runState.currentRequestStartedAt;
         runState.outputTokensTotal += resolvedOutputTokens;
-        if (metadata.terminalState === null) {
-          runState.lastNotificationWasRunning = false;
-        }
         if (metadata.rawInputCharacterCount === null && runState.rawInputCharacterCount !== null) {
           metadata.rawInputCharacterCount = runState.rawInputCharacterCount;
         }

@@ -14,9 +14,10 @@ import {
 import type { NotifyStatusBackendOptions } from '../config/status-backend.js';
 import { acquireExecutionLock, releaseExecutionLock } from '../execution-lock.js';
 import { getErrorMessage } from '../lib/errors.js';
+import { formatTimestamp } from '../lib/text-format.js';
 import { createTemporaryTimingRecorderFromEnv, type TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
 import { decodeTextBuffer } from '../lib/text-encoding.js';
-import { countLlamaCppTokens } from '../providers/llama-cpp.js';
+import { countLlamaCppTokens, type CountLlamaCppTokensOptions } from '../providers/llama-cpp.js';
 import {
   getDeterministicExcerpt,
   getErrorSignalMetrics,
@@ -132,6 +133,22 @@ function getNonNegativeTiming(value: number | null | undefined): number {
 function getSummaryWallDurationMs(request: SummaryRequest, fallbackStartedAtMs: number): number {
   const startedAt = getNonNegativeTiming(request.timing?.processStartedAtMs) || fallbackStartedAtMs;
   return Math.max(0, Date.now() - startedAt);
+}
+
+function getSummaryTokenizeOptions(requestTimeoutSeconds: number | undefined): CountLlamaCppTokensOptions | undefined {
+  const timeoutSeconds = Number(requestTimeoutSeconds);
+  if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
+    return undefined;
+  }
+  const timeoutMs = Math.max(1, Math.trunc(timeoutSeconds * 1000));
+  return {
+    timeoutMs,
+    retryMaxWaitMs: timeoutMs,
+  };
+}
+
+function logSummaryProgress(message: string): void {
+  process.stdout.write(`${formatTimestamp()} summary ${message}\n`);
 }
 
 function isEmptyDecisionOutputError(error: unknown): boolean {
@@ -276,10 +293,23 @@ async function invokeSummaryCore(options: {
     chunk: chunkLabel,
     enabled: effectivePromptLimit !== null && effectivePromptLimit > 0,
   });
+  const tokenizeOptions = getSummaryTokenizeOptions(options.requestTimeoutSeconds);
+  if (effectivePromptLimit !== null && effectivePromptLimit > 0) {
+    logSummaryProgress(
+      `preflight_tokenize_start request_id=${options.requestId} phase=${phase} chunk=${chunkLabel} `
+      + `prompt_chars=${prompt.length} timeout_ms=${tokenizeOptions?.timeoutMs ?? 10000}`,
+    );
+  }
   const promptTokenCount = effectivePromptLimit !== null && effectivePromptLimit > 0
-    ? await countLlamaCppTokens(options.config, prompt)
+    ? await countLlamaCppTokens(options.config, prompt, tokenizeOptions)
     : null;
   promptTokenSpan?.end({ promptTokenCount: promptTokenCount ?? -1 });
+  if (effectivePromptLimit !== null && effectivePromptLimit > 0) {
+    logSummaryProgress(
+      `preflight_tokenize_done request_id=${options.requestId} phase=${phase} chunk=${chunkLabel} `
+      + `prompt_tokens=${promptTokenCount ?? 'null'}`,
+    );
+  }
   traceSummary(
     `preflight done phase=${phase} chunk=${chunkLabel} prompt_tokens=${promptTokenCount ?? 'null'}`
   );
@@ -513,6 +543,7 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
   });
   let timingStatus: 'completed' | 'failed' = 'failed';
   traceSummary(`summarizeRequest start input_chars=${inputText.length}`);
+  logSummaryProgress(`start request_id=${requestId} input_chars=${inputText.length}`);
   const sourceKindForFastPath = request.sourceKind || 'standalone';
   const deterministicTestSummary = sourceKindForFastPath === 'command-output' && isPassFailQuestion(request.question)
     ? parseDeterministicTestOutput({
@@ -581,6 +612,7 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
       });
     }
     clearSummaryArtifactState(requestId);
+    logSummaryProgress(`completed request_id=${requestId} classification=${result.Classification}`);
     return result;
   }
   const lockStartedAt = Date.now();
@@ -596,10 +628,12 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
       });
       if (request.config) {
         traceSummary('normalize provided config start');
+        logSummaryProgress(`config_start request_id=${requestId} source=provided`);
         config = await normalizeLoadedConfig(request.config);
         traceSummary('normalize provided config done');
       } else {
         traceSummary('loadConfig start');
+        logSummaryProgress(`config_start request_id=${requestId} source=load`);
         config = await loadConfig({ ensure: true });
         traceSummary('loadConfig done');
       }
@@ -608,6 +642,7 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
       getConfiguredLlamaNumCtx(config);
       backend = request.backend || config.Backend;
       model = request.model || getConfiguredModel(config);
+      logSummaryProgress(`config_done request_id=${requestId} backend=${backend} model=${model}`);
       const riskLevel = request.policyProfile === 'risky-operation' ? 'risky' : 'informational';
       const sourceKind = request.sourceKind || 'standalone';
       const maxInputCharacters = getChunkThresholdCharacters(config) * 4;
@@ -623,6 +658,10 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
         rawReviewRequired: decision.RawReviewRequired,
         characterCount: decision.CharacterCount,
       });
+      logSummaryProgress(
+        `decision_done request_id=${requestId} backend=${backend} raw_review_required=${decision.RawReviewRequired} `
+        + `chars=${decision.CharacterCount}`,
+      );
       const errorMetrics = getErrorSignalMetrics(inputText);
       if (
         sourceKind === 'command-output'
@@ -683,6 +722,7 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
         });
         timingStatus = 'completed';
         clearSummaryArtifactState(requestId);
+        logSummaryProgress(`completed request_id=${requestId} classification=${result.Classification}`);
         return result;
       }
       traceSummary(
@@ -694,6 +734,7 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
         ? request.promptPrefix
         : getConfiguredPromptPrefix(config);
       traceSummary('invokeSummaryCore start');
+      logSummaryProgress(`core_start request_id=${requestId} backend=${backend}`);
       const coreSpan = timingRecorder?.start('summary.core');
       let summaryCore: SummaryCoreResult;
       try {
@@ -721,6 +762,7 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
       } finally {
         coreSpan?.end();
       }
+      logSummaryProgress(`core_done request_id=${requestId} backend=${backend}`);
       const modelDecision = summaryCore.decision;
       traceSummary(`invokeSummaryCore done classification=${modelDecision.classification}`);
       const deferredArtifacts = [
@@ -785,6 +827,7 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
         ProviderError: null,
       };
       timingStatus = 'completed';
+      logSummaryProgress(`completed request_id=${requestId} classification=${result.Classification}`);
       clearSummaryArtifactState(requestId);
       return result;
     } catch (error) {
@@ -844,6 +887,7 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
         });
       }
       clearSummaryArtifactState(requestId);
+      logSummaryProgress(`failed request_id=${requestId} error=${getErrorMessage(error)}`);
       throw error;
     }
   } finally {

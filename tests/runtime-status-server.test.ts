@@ -268,7 +268,7 @@ test('real status server persists aggregate metrics and exposes them from GET /s
   });
 });
 
-test('real status server starts managed llama.cpp during server startup before serving requests', async () => {
+test('real status server starts managed llama.cpp during server startup before serving requests and reports idle after ready', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
@@ -279,16 +279,16 @@ test('real status server starts managed llama.cpp during server startup before s
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ port, statusUrl }) => {
-      assert.equal(readStatusText(getConfigPath()), 'true');
+      assert.equal(readStatusText(getConfigPath()), 'false');
       await waitForAsyncExpectation(async () => {
         const models = await requestJson(`${managed.baseUrl}/v1/models`);
         assert.equal(models.data[0].id, 'managed-test-model');
       }, 5000);
       await waitForAsyncExpectation(async () => {
         const status = await requestJson(statusUrl);
-        assert.equal(status.running, true);
-        assert.equal(status.status, 'true');
-        assert.equal(readStatusText(getConfigPath()), 'true');
+        assert.equal(status.running, false);
+        assert.equal(status.status, 'false');
+        assert.equal(readStatusText(getConfigPath()), 'false');
       }, 5000);
       const latestStartupDumpPath = path.join(tempRoot, '.siftkit', 'logs', 'managed-llama', 'latest-startup.log');
       assert.equal(fs.existsSync(latestStartupDumpPath), true);
@@ -329,6 +329,38 @@ test('real status server starts managed llama.cpp during server startup before s
       5000
     );
     await sleep(50);
+  });
+});
+
+test('real status server abandons stale running request instead of returning busy', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    await withRealStatusServer(async ({ statusUrl }) => {
+      await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          running: true,
+          requestId: 'stale-running-request',
+          rawInputCharacterCount: 100,
+        }),
+      });
+      const response = await requestJson(statusUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          running: true,
+          requestId: 'fresh-running-request',
+          rawInputCharacterCount: 200,
+        }),
+      });
+
+      assert.equal(response.busy, undefined);
+      assert.equal(response.ok, true);
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
   });
 });
 
@@ -478,8 +510,8 @@ test('real status server ignores legacy non-boolean status text when starting ma
       await waitForAsyncExpectation(async () => {
         assert.equal(fs.existsSync(managed.readyFilePath), true);
         const status = await requestJson(statusUrl);
-        assert.equal(status.running, true);
-        assert.equal(status.status, 'true');
+        assert.equal(status.running, false);
+        assert.equal(status.status, 'false');
       }, 5000);
     }, {
       statusPath,
@@ -489,7 +521,7 @@ test('real status server ignores legacy non-boolean status text when starting ma
   });
 });
 
-test('real status server keeps published true status while managed llama stays ready', async () => {
+test('real status server reports idle false while managed llama stays ready', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
@@ -505,13 +537,13 @@ test('real status server keeps published true status while managed llama stays r
         assert.equal(models.data[0].id, 'managed-test-model');
       }, 5000);
 
-      assert.equal(readStatusText(getConfigPath()), 'true');
+      assert.equal(readStatusText(getConfigPath()), 'false');
       await sleep(FAST_LEASE_WAIT_MS);
 
       const status = await requestJson(statusUrl);
-      assert.equal(status.running, true);
-      assert.equal(status.status, 'true');
-      assert.equal(readStatusText(getConfigPath()), 'true');
+      assert.equal(status.running, false);
+      assert.equal(status.status, 'false');
+      assert.equal(readStatusText(getConfigPath()), 'false');
     }, {
       statusPath,
       configPath,

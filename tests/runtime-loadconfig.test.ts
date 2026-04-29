@@ -648,7 +648,7 @@ test('real status server preserves broken external 9b thinking startup script as
   });
 });
 
-test('real status server keeps startup status true when the startup script calls config before launch', async () => {
+test('real status server allows startup scripts to call config before launch and reports idle after ready', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
@@ -670,16 +670,16 @@ test('real status server keeps startup status true when the startup script calls
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ statusUrl }) => {
-      assert.equal(readStatusText(getConfigPath()), 'true');
+      assert.equal(readStatusText(getConfigPath()), 'false');
       await waitForAsyncExpectation(async () => {
         const models = await requestJson(`${managed.baseUrl}/v1/models`);
         assert.equal(models.data[0].id, 'managed-test-model');
       }, 5000);
 
       const status = await requestJson(statusUrl);
-      assert.equal(status.running, true);
-      assert.equal(status.status, 'true');
-      assert.equal(readStatusText(getConfigPath()), 'true');
+      assert.equal(status.running, false);
+      assert.equal(status.status, 'false');
+      assert.equal(readStatusText(getConfigPath()), 'false');
     }, {
       statusPath,
       configPath,
