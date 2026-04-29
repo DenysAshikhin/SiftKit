@@ -48,6 +48,7 @@ import {
   flushManagedLlamaSpeculativeMetricsTracker,
   getManagedLlamaSpeculativeMetricsTracker,
 } from './managed-llama-speculative-tracker.js';
+import { ManagedLlamaLogStorageFilter } from './managed-llama-log-storage-filter.js';
 import { getManagedLlamaLogRoot } from './paths.js';
 
 // ---------------------------------------------------------------------------
@@ -534,10 +535,24 @@ function attachStreamCollector(
   if (!stream) {
     return;
   }
+  const storageFilter = new ManagedLlamaLogStorageFilter();
   stream.setEncoding?.('utf8');
   stream.on('data', (chunk: string | Buffer) => {
     try {
-      appendManagedLlamaLogLine(logRef, streamKind, typeof chunk === 'string' ? chunk : chunk.toString('utf8'));
+      const chunkText = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      const filteredChunkText = storageFilter.filterChunk(chunkText);
+      appendManagedLlamaSpeculativeMetricsChunk({
+        runId: logRef.runId,
+        streamKind,
+        chunkText,
+      });
+      if (filteredChunkText) {
+        bufferManagedLlamaLogChunk({
+          runId: logRef.runId,
+          streamKind,
+          chunkText: filteredChunkText,
+        });
+      }
     } catch {
       // Ignore teardown races after the runtime DB has already closed.
     }
