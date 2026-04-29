@@ -33,6 +33,12 @@ export type ManagedLlamaLogTextStatsByStream = {
   truncatedByStream: Record<ManagedLlamaStreamKind, boolean>;
 };
 
+export type ManagedLlamaPendingLogChunkStats = {
+  characterCountByStream: Record<ManagedLlamaStreamKind, number>;
+  totalCharacters: number;
+  streamCount: number;
+};
+
 export type ManagedLlamaRunRecord = {
   id: string;
   purpose: string;
@@ -251,6 +257,43 @@ function getPendingChunksForRun(runId: string): Map<ManagedLlamaStreamKind, stri
     pendingChunkTextByRunId.set(runId, pending);
   }
   return pending;
+}
+
+function createEmptyStreamCharacterCounts(): Record<ManagedLlamaStreamKind, number> {
+  return {
+    startup_script_stdout: 0,
+    startup_script_stderr: 0,
+    llama_stdout: 0,
+    llama_stderr: 0,
+    startup_review: 0,
+    startup_failure: 0,
+  };
+}
+
+export function getManagedLlamaPendingLogChunkStats(runId: string): ManagedLlamaPendingLogChunkStats {
+  const normalizedRunId = String(runId || '').trim();
+  const counts = createEmptyStreamCharacterCounts();
+  const pending = normalizedRunId ? pendingChunkTextByRunId.get(normalizedRunId) : null;
+  if (!pending) {
+    return {
+      characterCountByStream: counts,
+      totalCharacters: 0,
+      streamCount: 0,
+    };
+  }
+  let totalCharacters = 0;
+  let streamCount = 0;
+  for (const [streamKind, chunkText] of pending.entries()) {
+    const length = chunkText.length;
+    counts[streamKind] = length;
+    totalCharacters += length;
+    streamCount += length > 0 ? 1 : 0;
+  }
+  return {
+    characterCountByStream: counts,
+    totalCharacters,
+    streamCount,
+  };
 }
 
 export function bufferManagedLlamaLogChunk(options: {

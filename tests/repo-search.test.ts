@@ -53,6 +53,47 @@ async function waitForRepoSearchRunLogRow(
   throw new Error(`Timed out waiting for repo-search run log row: ${requestId}`);
 }
 
+async function startDelayedTerminalStatusServer(delayMs: number): Promise<{
+  statusUrl: string;
+  terminalPostCount: () => number;
+  close: () => Promise<void>;
+}> {
+  let terminalPosts = 0;
+  const server = http.createServer(async (req, res) => {
+    if (req.method !== 'POST' || req.url !== '/status') {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'not found' }));
+      return;
+    }
+    let bodyText = '';
+    req.setEncoding('utf8');
+    for await (const chunk of req) {
+      bodyText += String(chunk);
+    }
+    const parsed = bodyText ? JSON.parse(bodyText) as Record<string, unknown> : {};
+    if (parsed.running === false) {
+      terminalPosts += 1;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const address = server.address() as AddressInfo;
+  return {
+    statusUrl: `http://127.0.0.1:${address.port}/status`,
+    terminalPostCount() {
+      return terminalPosts;
+    },
+    close() {
+      return new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+        server.closeAllConnections();
+      });
+    },
+  };
+}
+
 test('executeRepoSearchRequest throws on empty prompt', async () => {
   await withTestEnvAndServer(async () => {
     await assert.rejects(
@@ -109,6 +150,36 @@ test('executeRepoSearchRequest success path writes transcript and artifact', asy
     assert.equal(artifact?.contentJson?.prompt, 'find test patterns');
     assert.equal(typeof artifact?.contentJson?.verdict, 'string');
     assert.equal(artifact?.contentJson?.transcriptPath, result.transcriptPath);
+  });
+});
+
+test('executeRepoSearchRequest does not wait for terminal status notification', async () => {
+  await withTestEnvAndServer(async ({ tempRoot }) => {
+    const statusServer = await startDelayedTerminalStatusServer(300);
+    try {
+      const startedAt = Date.now();
+      const result = await executeRepoSearchRequest({
+        prompt: 'find async terminal status',
+        repoRoot: tempRoot,
+        statusBackendUrl: statusServer.statusUrl,
+        maxTurns: 1,
+        mockResponses: [
+          '{"action":"finish","output":"done","confidence":0.9}',
+        ],
+        mockCommandResults: {},
+      });
+      const durationMs = Date.now() - startedAt;
+
+      assert.equal(typeof result.requestId, 'string');
+      assert.ok(durationMs < 250, `expected non-blocking terminal notify, got ${durationMs} ms`);
+      const deadline = Date.now() + 1000;
+      while (statusServer.terminalPostCount() === 0 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.equal(statusServer.terminalPostCount(), 1);
+    } finally {
+      await statusServer.close();
+    }
   });
 });
 

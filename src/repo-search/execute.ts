@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { notifyStatusBackend } from '../config/index.js';
+import type { NotifyStatusBackendOptions } from '../config/status-backend.js';
 import {
   createJsonLogger,
   ensureRepoSearchLogFolders,
@@ -51,6 +52,29 @@ function scheduleRepoSearchRunPersistence(
       const message = error instanceof Error ? error.message : String(error);
       traceRepoSearch(`async run-log persistence failed request_id=${options.requestId} error=${message}`);
     }
+  });
+}
+
+function scheduleRepoSearchTerminalStatusNotification(
+  options: NotifyStatusBackendOptions & { requestId: string; terminalState: 'completed' | 'failed' },
+  timingRecorder: TemporaryTimingRecorder | null,
+): void {
+  const scheduleSpan = timingRecorder?.start('repo.status.notify_terminal.schedule', {
+    terminalState: options.terminalState,
+  });
+  scheduleSpan?.end();
+  setImmediate(() => {
+    const startedAt = Date.now();
+    void notifyStatusBackend(options)
+      .then(() => {
+        traceRepoSearch(
+          `async notify running=false done request_id=${options.requestId} state=${options.terminalState} `
+          + `duration_ms=${Date.now() - startedAt}`,
+        );
+      })
+      .catch(() => {
+        traceRepoSearch(`notify running=false failed request_id=${options.requestId} state=${options.terminalState}`);
+      });
   });
 }
 
@@ -204,32 +228,23 @@ export async function executeRepoSearchRequest(
       }> }).toolStats
       : null;
     const finishedAtUtc = new Date().toISOString();
-    try {
-      const notifyCompleteSpan = timingRecorder?.start('repo.status.notify_terminal', {
-        terminalState: 'completed',
-      });
-      await notifyStatusBackend({
-        running: false,
-        taskKind,
-        statusBackendUrl: request.statusBackendUrl,
-        requestId,
-        terminalState: 'completed',
-        promptCharacterCount: prompt.length,
-        inputTokens,
-        outputCharacterCount,
-        outputTokens,
-        toolTokens,
-        thinkingTokens,
-        toolStats: scorecardToolStats,
-        promptCacheTokens,
-        promptEvalTokens,
-        requestDurationMs: Date.now() - startedAt,
-      });
-      notifyCompleteSpan?.end({ ok: true });
-    } catch {
-      timingRecorder?.start('repo.status.notify_terminal').end({ ok: false, terminalState: 'completed' });
-      traceRepoSearch(`notify running=false failed request_id=${requestId} state=completed`);
-    }
+    scheduleRepoSearchTerminalStatusNotification({
+      running: false,
+      taskKind,
+      statusBackendUrl: request.statusBackendUrl,
+      requestId,
+      terminalState: 'completed',
+      promptCharacterCount: prompt.length,
+      inputTokens,
+      outputCharacterCount,
+      outputTokens,
+      toolTokens,
+      thinkingTokens,
+      toolStats: scorecardToolStats,
+      promptCacheTokens,
+      promptEvalTokens,
+      requestDurationMs: Date.now() - startedAt,
+    }, timingRecorder);
     scheduleRepoSearchRunPersistence({
       databasePath: runtimeDatabasePath,
       requestId,
@@ -295,26 +310,17 @@ export async function executeRepoSearchRequest(
     }).uri;
     artifactSpan?.end();
     const failedFinishedAtUtc = new Date().toISOString();
-    try {
-      const notifyFailedSpan = timingRecorder?.start('repo.status.notify_terminal', {
-        terminalState: 'failed',
-      });
-      await notifyStatusBackend({
-        running: false,
-        taskKind,
-        statusBackendUrl: request.statusBackendUrl,
-        requestId,
-        terminalState: 'failed',
-        errorMessage: message,
-        promptCharacterCount: prompt.length,
-        outputCharacterCount: 0,
-        requestDurationMs: Date.now() - startedAt,
-      });
-      notifyFailedSpan?.end({ ok: true });
-    } catch {
-      timingRecorder?.start('repo.status.notify_terminal').end({ ok: false, terminalState: 'failed' });
-      traceRepoSearch(`notify running=false failed request_id=${requestId} state=failed`);
-    }
+    scheduleRepoSearchTerminalStatusNotification({
+      running: false,
+      taskKind,
+      statusBackendUrl: request.statusBackendUrl,
+      requestId,
+      terminalState: 'failed',
+      errorMessage: message,
+      promptCharacterCount: prompt.length,
+      outputCharacterCount: 0,
+      requestDurationMs: Date.now() - startedAt,
+    }, timingRecorder);
     scheduleRepoSearchRunPersistence({
       databasePath: runtimeDatabasePath,
       requestId,

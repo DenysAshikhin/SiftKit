@@ -5,6 +5,7 @@ import type { Metrics } from './metrics.js';
 import type { Dict } from '../lib/types.js';
 import type { ManagedLlamaSpeculativeMetricsSnapshot } from './managed-llama.js';
 import type { ManagedLlamaStreamKind } from '../state/managed-llama-runs.js';
+import type { ManagedLlamaFlushQueue } from './managed-llama-flush-queue.js';
 
 export type { Dict };
 export type DatabaseInstance = InstanceType<typeof Database>;
@@ -108,6 +109,7 @@ export type ServerContext = {
   managedLlamaStartupWarning: string | null;
   bootstrapManagedLlamaStartup: boolean;
   managedLlamaLogCleanupTimer: NodeJS.Timeout | null;
+  managedLlamaFlushQueue: ManagedLlamaFlushQueue;
 
   // Late-bound function references (set by index.ts to break circular deps)
   shutdownManagedLlamaIfNeeded(options?: ShutdownManagedLlamaOptions): Promise<void>;

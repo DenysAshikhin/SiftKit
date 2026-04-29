@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { getDefaultMetrics } from '../dist/status-server/metrics.js';
+import { ManagedLlamaFlushQueue } from '../dist/status-server/managed-llama-flush-queue.js';
 import {
   acquireModelRequestWithWait,
   releaseModelRequest,
@@ -46,6 +47,8 @@ function createQueueContext(): ServerContext {
     managedLlamaReady: false,
     managedLlamaStartupWarning: null,
     bootstrapManagedLlamaStartup: false,
+    managedLlamaLogCleanupTimer: null,
+    managedLlamaFlushQueue: new ManagedLlamaFlushQueue(),
     async shutdownManagedLlamaIfNeeded(): Promise<void> {},
     async ensureManagedLlamaReady(): Promise<Record<string, never>> {
       wakeCount += 1;

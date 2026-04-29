@@ -68,6 +68,39 @@ const {
   runPowerShellScript,
 } = require('./_runtime-helpers.js');
 
+async function startDelayedTerminalSummaryStatusServer(delayMs) {
+  let terminalPosts = 0;
+  const server = http.createServer(async (req, res) => {
+    if (req.method !== 'POST' || req.url !== '/status') {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'not found' }));
+      return;
+    }
+    const bodyText = await readBody(req);
+    const parsed = bodyText ? JSON.parse(bodyText) : {};
+    if (parsed.running === false) {
+      terminalPosts += 1;
+      await sleep(delayMs);
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  return {
+    statusUrl: `http://127.0.0.1:${address.port}/status`,
+    terminalPostCount() {
+      return terminalPosts;
+    },
+    close() {
+      return new Promise((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+        server.closeAllConnections();
+      });
+    },
+  };
+}
+
 test('summarizeRequest uses a single oversized mock summary pass when the external server is available', async () => {
   await withTempEnv(async (tempRoot) => {
     await withStubServer(async () => {
@@ -131,13 +164,50 @@ test('summary command-output pass/fail with Jest pass output is deterministic an
       assert.match(result.Summary, /Test Suites: 1 passed, 1 total/u);
       assert.equal(fs.existsSync(logPath), false);
       assert.equal(server.state.statusPosts.some((post) => post.running === true), false);
-      const terminalPost = server.state.statusPosts.find((post) => post.terminalState === 'completed');
+      let terminalPost;
+      await waitForAsyncExpectation(async () => {
+        terminalPost = server.state.statusPosts.findLast((post) => post.terminalState === 'completed');
+        assert.ok(terminalPost);
+      }, 1000);
       assert.ok(terminalPost);
       assert.equal(terminalPost.deferredMetadata.providerDurationMs, 0);
       assert.ok(terminalPost.deferredMetadata.wallDurationMs >= 50);
       assert.equal(terminalPost.deferredMetadata.stdinWaitMs, 50);
       assert.equal(terminalPost.deferredMetadata.serverPreflightMs, 10);
     });
+  });
+});
+
+test('summarizeRequest does not wait for terminal status notification', async () => {
+  await withTempEnv(async () => {
+    const statusServer = await startDelayedTerminalSummaryStatusServer(300);
+    try {
+      const startedAt = Date.now();
+      const result = await summarizeRequest({
+        question: 'Determine whether the targeted Jest run passes. Return pass/fail and warnings/errors.',
+        inputText: [
+          'PASS tests/async-summary-status.test.ts',
+          'Test Suites: 1 passed, 1 total',
+          'Tests:       1 passed, 1 total',
+        ].join('\n'),
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'mock',
+        model: 'mock-model',
+        sourceKind: 'command-output',
+        commandExitCode: 0,
+        statusBackendUrl: statusServer.statusUrl,
+      });
+      const durationMs = Date.now() - startedAt;
+
+      assert.match(result.Summary, /^PASS:/u);
+      assert.ok(durationMs < 250, `expected non-blocking terminal notify, got ${durationMs} ms`);
+      await waitForAsyncExpectation(async () => {
+        assert.equal(statusServer.terminalPostCount(), 1);
+      }, 1000);
+    } finally {
+      await statusServer.close();
+    }
   });
 });
 
@@ -196,9 +266,13 @@ test('summary timing metadata records lock wait separately from provider duratio
       });
 
       assert.equal(result.WasSummarized, true);
-      const terminalPost = server.state.statusPosts.find((post) => post.terminalState === 'completed');
+      let terminalPost;
+      await waitForAsyncExpectation(async () => {
+        terminalPost = server.state.statusPosts.findLast((post) => post.terminalState === 'completed');
+        assert.ok(terminalPost);
+        assert.ok(terminalPost.deferredMetadata.lockWaitMs >= 50);
+      }, 1000);
       assert.ok(terminalPost);
-      assert.ok(terminalPost.deferredMetadata.lockWaitMs >= 50);
       assert.ok(terminalPost.deferredMetadata.wallDurationMs >= terminalPost.deferredMetadata.lockWaitMs);
       assert.equal(terminalPost.deferredMetadata.requestDurationMs, terminalPost.deferredMetadata.providerDurationMs);
       assert.ok(terminalPost.deferredMetadata.wallDurationMs > terminalPost.deferredMetadata.providerDurationMs);
@@ -221,7 +295,9 @@ test('summary continues when running status notification is busy', async () => {
       assert.equal(result.WasSummarized, true);
       assert.match(result.Summary, /mock summary/u);
       assert.ok(server.state.statusPosts.filter((post) => post.running === true).length >= 3);
-      assert.ok(server.state.statusPosts.some((post) => post.terminalState === 'completed'));
+      await waitForAsyncExpectation(async () => {
+        assert.ok(server.state.statusPosts.some((post) => post.terminalState === 'completed'));
+      }, 1000);
     }, {
       busyStatusPostCount: 3,
     });
@@ -280,10 +356,12 @@ test('summarizeRequest does not recurse forever when token-aware planning return
       assert.equal(result.WasSummarized, true);
       assert.equal(result.Classification, 'summary');
       assert.equal(server.state.chatRequests.length, 1);
-      assert.equal(
-        server.state.statusPosts.filter((post) => !post.artifactType).length,
-        2,
-      );
+      await waitForAsyncExpectation(async () => {
+        assert.equal(
+          server.state.statusPosts.filter((post) => !post.artifactType).length,
+          2,
+        );
+      }, 1000);
     }, {
       config: {
         LlamaCpp: {
@@ -794,11 +872,15 @@ test('summarizeRequest queues request artifacts on the terminal status post and 
       });
 
       assert.equal(result.Classification, 'summary');
-      const terminalPost = server.state.statusPosts.findLast((post) => (
-        post.running === false
-        && post.taskKind === 'summary'
-        && post.terminalState === 'completed'
-      ));
+      let terminalPost;
+      await waitForAsyncExpectation(async () => {
+        terminalPost = server.state.statusPosts.findLast((post) => (
+          post.running === false
+          && post.taskKind === 'summary'
+          && post.terminalState === 'completed'
+        ));
+        assert.ok(terminalPost);
+      }, 1000);
       assert.ok(terminalPost);
       assert.equal(terminalPost.promptCharacterCount, undefined);
       assert.equal(terminalPost.inputTokens, undefined);
@@ -852,11 +934,15 @@ test('summary succeeds when deferred artifact persistence is unavailable', async
       });
 
       assert.equal(result.Classification, 'summary');
-      const terminalPost = server.state.statusPosts.findLast((post) => (
-        post.running === false
-        && post.taskKind === 'summary'
-        && post.terminalState === 'completed'
-      ));
+      let terminalPost;
+      await waitForAsyncExpectation(async () => {
+        terminalPost = server.state.statusPosts.findLast((post) => (
+          post.running === false
+          && post.taskKind === 'summary'
+          && post.terminalState === 'completed'
+        ));
+        assert.ok(terminalPost);
+      }, 1000);
       assert.ok(terminalPost);
       assert.ok(Array.isArray(terminalPost.deferredArtifacts));
     }, {

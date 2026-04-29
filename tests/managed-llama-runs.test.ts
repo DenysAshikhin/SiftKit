@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 
+import { ManagedLlamaFlushQueue } from '../dist/status-server/managed-llama-flush-queue.js';
 import {
   bufferManagedLlamaLogChunk,
   createManagedLlamaRun,
@@ -153,7 +154,7 @@ test('managed llama speculative tracker flushes persisted run metrics', async ()
   });
 });
 
-test('releaseModelRequest flushes buffered managed llama logs for the active host run', async () => {
+test('releaseModelRequest queues buffered managed llama logs for the active host run', async () => {
   await withTestEnvAndServer(async () => {
     const run = createManagedLlamaRun({ purpose: 'startup' });
     const database = getRuntimeDatabase();
@@ -165,6 +166,7 @@ test('releaseModelRequest flushes buffered managed llama logs for the active hos
       chunkText: 'statistics ngram_mod: #gen tokens = 42, #acc tokens = 40\n',
     });
 
+    const flushQueue = new ManagedLlamaFlushQueue();
     const released = releaseModelRequest({
       activeModelRequest: {
         token: 'token-1',
@@ -177,8 +179,11 @@ test('releaseModelRequest flushes buffered managed llama logs for the active hos
         scriptPath: 'fake-launcher.cmd',
         baseUrl: 'http://127.0.0.1:8080',
       },
+      managedLlamaFlushQueue: flushQueue,
     } as unknown as Parameters<typeof releaseModelRequest>[0], 'token-1');
     assert.equal(released, true);
+    assert.equal(flushQueue.getSnapshot().pendingCount, 1);
+    await flushQueue.waitForIdle(1000);
 
     const row = database.prepare(`
       SELECT COUNT(*) AS count
@@ -210,6 +215,7 @@ test('releaseModelRequest releases the active request when managed llama log flu
     const blocker = new Database(getRuntimeDatabasePath());
     blocker.pragma('busy_timeout = 1');
     blocker.exec('BEGIN IMMEDIATE');
+    const flushQueue = new ManagedLlamaFlushQueue();
     const ctx = {
       activeModelRequest: {
         token: 'token-locked',
@@ -222,6 +228,7 @@ test('releaseModelRequest releases the active request when managed llama log flu
         scriptPath: 'fake-launcher.cmd',
         baseUrl: 'http://127.0.0.1:8080',
       },
+      managedLlamaFlushQueue: flushQueue,
     } as unknown as Parameters<typeof releaseModelRequest>[0];
 
     try {
@@ -229,10 +236,12 @@ test('releaseModelRequest releases the active request when managed llama log flu
 
       assert.equal(released, true);
       assert.equal(ctx.activeModelRequest, null);
+      assert.equal(flushQueue.getSnapshot().pendingCount, 1);
     } finally {
       blocker.exec('ROLLBACK');
       blocker.close();
     }
+    await flushQueue.waitForIdle(1000);
   });
 });
 

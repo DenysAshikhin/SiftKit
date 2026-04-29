@@ -11,6 +11,7 @@ import {
   getConfiguredPromptPrefix,
   notifyStatusBackend,
 } from '../config/index.js';
+import type { NotifyStatusBackendOptions } from '../config/status-backend.js';
 import { acquireExecutionLock, releaseExecutionLock } from '../execution-lock.js';
 import { getErrorMessage } from '../lib/errors.js';
 import { createTemporaryTimingRecorderFromEnv, type TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
@@ -78,6 +79,24 @@ type SummaryCompletionMetrics = {
   providerDurationMs: number;
   statusRunningMs: number;
 };
+
+function scheduleSummaryTerminalStatusNotification(
+  options: NotifyStatusBackendOptions & { requestId: string; terminalState: 'completed' | 'failed' },
+): void {
+  setImmediate(() => {
+    const startedAt = Date.now();
+    void notifyStatusBackend(options)
+      .then(() => {
+        traceSummary(
+          `async terminal status post done request_id=${options.requestId} state=${options.terminalState} `
+          + `duration_ms=${Date.now() - startedAt}`,
+        );
+      })
+      .catch(() => {
+        traceSummary(`terminal status post failed request_id=${options.requestId} state=${options.terminalState}`);
+      });
+  });
+}
 
 type SummaryCoreResult = {
   decision: StructuredModelDecision;
@@ -531,29 +550,25 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
         error: null,
       }),
     ];
-    try {
-      await notifyStatusBackend({
-        running: false,
-        taskKind: 'summary',
-        statusBackendUrl: request.statusBackendUrl,
-        requestId,
-        terminalState: 'completed',
-        deferredMetadata: {
-          rawInputCharacterCount: inputText.length,
-          requestDurationMs: 0,
-          providerDurationMs: 0,
-          wallDurationMs: getSummaryWallDurationMs(request, requestStartedAt),
-          stdinWaitMs: getNonNegativeTiming(request.timing?.stdinWaitMs),
-          serverPreflightMs: getNonNegativeTiming(request.timing?.serverPreflightMs),
-          lockWaitMs: 0,
-          statusRunningMs: 0,
-          terminalStatusMs: 0,
-        },
-        deferredArtifacts,
-      });
-    } catch {
-      traceSummary(`terminal status post failed request_id=${requestId} state=completed`);
-    }
+    scheduleSummaryTerminalStatusNotification({
+      running: false,
+      taskKind: 'summary',
+      statusBackendUrl: request.statusBackendUrl,
+      requestId,
+      terminalState: 'completed',
+      deferredMetadata: {
+        rawInputCharacterCount: inputText.length,
+        requestDurationMs: 0,
+        providerDurationMs: 0,
+        wallDurationMs: getSummaryWallDurationMs(request, requestStartedAt),
+        stdinWaitMs: getNonNegativeTiming(request.timing?.stdinWaitMs),
+        serverPreflightMs: getNonNegativeTiming(request.timing?.serverPreflightMs),
+        lockWaitMs: 0,
+        statusRunningMs: 0,
+        terminalStatusMs: 0,
+      },
+      deferredArtifacts,
+    });
     timingStatus = 'completed';
     if (timingRecorder) {
       await timingRecorder.flush({
@@ -647,29 +662,25 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
             error: null,
           }),
         ];
-        try {
-          await notifyStatusBackend({
-            running: false,
-            taskKind: 'summary',
-            statusBackendUrl: request.statusBackendUrl,
-            requestId,
-            terminalState: 'completed',
-            deferredMetadata: {
-              rawInputCharacterCount: inputText.length,
-              requestDurationMs: 0,
-              providerDurationMs: 0,
-              wallDurationMs: getSummaryWallDurationMs(request, requestStartedAt),
-              stdinWaitMs: getNonNegativeTiming(request.timing?.stdinWaitMs),
-              serverPreflightMs: getNonNegativeTiming(request.timing?.serverPreflightMs),
-              lockWaitMs,
-              statusRunningMs: 0,
-              terminalStatusMs: 0,
-            },
-            deferredArtifacts,
-          });
-        } catch {
-          traceSummary(`terminal status post failed request_id=${requestId} state=completed`);
-        }
+        scheduleSummaryTerminalStatusNotification({
+          running: false,
+          taskKind: 'summary',
+          statusBackendUrl: request.statusBackendUrl,
+          requestId,
+          terminalState: 'completed',
+          deferredMetadata: {
+            rawInputCharacterCount: inputText.length,
+            requestDurationMs: 0,
+            providerDurationMs: 0,
+            wallDurationMs: getSummaryWallDurationMs(request, requestStartedAt),
+            stdinWaitMs: getNonNegativeTiming(request.timing?.stdinWaitMs),
+            serverPreflightMs: getNonNegativeTiming(request.timing?.serverPreflightMs),
+            lockWaitMs,
+            statusRunningMs: 0,
+            terminalStatusMs: 0,
+          },
+          deferredArtifacts,
+        });
         timingStatus = 'completed';
         clearSummaryArtifactState(requestId);
         return result;
@@ -734,36 +745,32 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
           error: null,
         }),
       ].filter((artifact): artifact is NonNullable<typeof artifact> => artifact !== null);
-      try {
-        await notifyStatusBackend({
-          running: false,
-          taskKind: 'summary',
-          statusBackendUrl: request.statusBackendUrl,
-          requestId,
-          terminalState: 'completed',
-          deferredMetadata: {
-            rawInputCharacterCount: inputText.length,
-            promptCharacterCount: summaryCore.completionMetrics?.promptCharacterCount ?? null,
-            inputTokens: summaryCore.completionMetrics?.inputTokens ?? null,
-            outputCharacterCount: summaryCore.completionMetrics?.outputCharacterCount ?? null,
-            outputTokens: summaryCore.completionMetrics?.outputTokens ?? null,
-            thinkingTokens: summaryCore.completionMetrics?.thinkingTokens ?? null,
-            promptCacheTokens: summaryCore.completionMetrics?.promptCacheTokens ?? null,
-            promptEvalTokens: summaryCore.completionMetrics?.promptEvalTokens ?? null,
-            requestDurationMs: summaryCore.completionMetrics?.requestDurationMs ?? null,
-            providerDurationMs: summaryCore.completionMetrics?.providerDurationMs ?? summaryCore.completionMetrics?.requestDurationMs ?? null,
-            wallDurationMs: getSummaryWallDurationMs(request, requestStartedAt),
-            stdinWaitMs: getNonNegativeTiming(request.timing?.stdinWaitMs),
-            serverPreflightMs: getNonNegativeTiming(request.timing?.serverPreflightMs),
-            lockWaitMs,
-            statusRunningMs: summaryCore.completionMetrics?.statusRunningMs ?? null,
-            terminalStatusMs: 0,
-          },
-          deferredArtifacts,
-        });
-      } catch {
-        traceSummary(`terminal status post failed request_id=${requestId} state=completed`);
-      }
+      scheduleSummaryTerminalStatusNotification({
+        running: false,
+        taskKind: 'summary',
+        statusBackendUrl: request.statusBackendUrl,
+        requestId,
+        terminalState: 'completed',
+        deferredMetadata: {
+          rawInputCharacterCount: inputText.length,
+          promptCharacterCount: summaryCore.completionMetrics?.promptCharacterCount ?? null,
+          inputTokens: summaryCore.completionMetrics?.inputTokens ?? null,
+          outputCharacterCount: summaryCore.completionMetrics?.outputCharacterCount ?? null,
+          outputTokens: summaryCore.completionMetrics?.outputTokens ?? null,
+          thinkingTokens: summaryCore.completionMetrics?.thinkingTokens ?? null,
+          promptCacheTokens: summaryCore.completionMetrics?.promptCacheTokens ?? null,
+          promptEvalTokens: summaryCore.completionMetrics?.promptEvalTokens ?? null,
+          requestDurationMs: summaryCore.completionMetrics?.requestDurationMs ?? null,
+          providerDurationMs: summaryCore.completionMetrics?.providerDurationMs ?? summaryCore.completionMetrics?.requestDurationMs ?? null,
+          wallDurationMs: getSummaryWallDurationMs(request, requestStartedAt),
+          stdinWaitMs: getNonNegativeTiming(request.timing?.stdinWaitMs),
+          serverPreflightMs: getNonNegativeTiming(request.timing?.serverPreflightMs),
+          lockWaitMs,
+          statusRunningMs: summaryCore.completionMetrics?.statusRunningMs ?? null,
+          terminalStatusMs: 0,
+        },
+        deferredArtifacts,
+      });
 
       const result: SummaryResult = {
         RequestId: requestId,
@@ -802,43 +809,39 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
           : []),
       ].filter((artifact): artifact is NonNullable<typeof artifact> => artifact !== null);
       if (config !== null) {
-        try {
-          await notifyStatusBackend({
-            running: false,
-            taskKind: 'summary',
-            statusBackendUrl: request.statusBackendUrl,
-            requestId,
-            terminalState: 'failed',
+        scheduleSummaryTerminalStatusNotification({
+          running: false,
+          taskKind: 'summary',
+          statusBackendUrl: request.statusBackendUrl,
+          requestId,
+          terminalState: 'failed',
+          errorMessage: getErrorMessage(error),
+          deferredMetadata: {
             errorMessage: getErrorMessage(error),
-            deferredMetadata: {
-              errorMessage: getErrorMessage(error),
-              promptCharacterCount: failureContext?.promptCharacterCount ?? null,
-              promptTokenCount: failureContext?.promptTokenCount ?? null,
-              rawInputCharacterCount: failureContext?.rawInputCharacterCount ?? inputText.length,
-              chunkInputCharacterCount: failureContext?.chunkInputCharacterCount ?? null,
-              chunkIndex: failureContext?.chunkIndex ?? null,
-              chunkTotal: failureContext?.chunkTotal ?? null,
-              chunkPath: failureContext?.chunkPath ?? null,
-              inputTokens: failureContext?.inputTokens ?? null,
-              outputCharacterCount: failureContext?.outputCharacterCount ?? null,
-              outputTokens: failureContext?.outputTokens ?? null,
-              thinkingTokens: failureContext?.thinkingTokens ?? null,
-              promptCacheTokens: failureContext?.promptCacheTokens ?? null,
-              promptEvalTokens: failureContext?.promptEvalTokens ?? null,
-              requestDurationMs: failureContext?.requestDurationMs ?? null,
-              providerDurationMs: failureContext?.providerDurationMs ?? failureContext?.requestDurationMs ?? null,
-              wallDurationMs: failureContext?.wallDurationMs ?? getSummaryWallDurationMs(request, requestStartedAt),
-              stdinWaitMs: failureContext?.stdinWaitMs ?? getNonNegativeTiming(request.timing?.stdinWaitMs),
-              serverPreflightMs: failureContext?.serverPreflightMs ?? getNonNegativeTiming(request.timing?.serverPreflightMs),
-              lockWaitMs: failureContext?.lockWaitMs ?? lockWaitMs,
-              statusRunningMs: failureContext?.statusRunningMs ?? null,
-              terminalStatusMs: failureContext?.terminalStatusMs ?? 0,
-            },
-            deferredArtifacts,
-          });
-        } catch {
-          traceSummary(`terminal status post failed request_id=${requestId} state=failed`);
-        }
+            promptCharacterCount: failureContext?.promptCharacterCount ?? null,
+            promptTokenCount: failureContext?.promptTokenCount ?? null,
+            rawInputCharacterCount: failureContext?.rawInputCharacterCount ?? inputText.length,
+            chunkInputCharacterCount: failureContext?.chunkInputCharacterCount ?? null,
+            chunkIndex: failureContext?.chunkIndex ?? null,
+            chunkTotal: failureContext?.chunkTotal ?? null,
+            chunkPath: failureContext?.chunkPath ?? null,
+            inputTokens: failureContext?.inputTokens ?? null,
+            outputCharacterCount: failureContext?.outputCharacterCount ?? null,
+            outputTokens: failureContext?.outputTokens ?? null,
+            thinkingTokens: failureContext?.thinkingTokens ?? null,
+            promptCacheTokens: failureContext?.promptCacheTokens ?? null,
+            promptEvalTokens: failureContext?.promptEvalTokens ?? null,
+            requestDurationMs: failureContext?.requestDurationMs ?? null,
+            providerDurationMs: failureContext?.providerDurationMs ?? failureContext?.requestDurationMs ?? null,
+            wallDurationMs: failureContext?.wallDurationMs ?? getSummaryWallDurationMs(request, requestStartedAt),
+            stdinWaitMs: failureContext?.stdinWaitMs ?? getNonNegativeTiming(request.timing?.stdinWaitMs),
+            serverPreflightMs: failureContext?.serverPreflightMs ?? getNonNegativeTiming(request.timing?.serverPreflightMs),
+            lockWaitMs: failureContext?.lockWaitMs ?? lockWaitMs,
+            statusRunningMs: failureContext?.statusRunningMs ?? null,
+            terminalStatusMs: failureContext?.terminalStatusMs ?? 0,
+          },
+          deferredArtifacts,
+        });
       }
       clearSummaryArtifactState(requestId);
       throw error;

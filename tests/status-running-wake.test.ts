@@ -7,6 +7,7 @@ import * as path from 'node:path';
 import type { AddressInfo } from 'node:net';
 
 import { getDefaultMetrics } from '../dist/status-server/metrics.js';
+import { ManagedLlamaFlushQueue } from '../dist/status-server/managed-llama-flush-queue.js';
 import { createRequestHandler } from '../dist/status-server/routes.js';
 import type { ServerContext } from '../dist/status-server/server-types.js';
 
@@ -84,6 +85,8 @@ function createStatusContext(tempRoot: string): ServerContext & { readonly wakeC
     managedLlamaReady: false,
     managedLlamaStartupWarning: null,
     bootstrapManagedLlamaStartup: false,
+    managedLlamaLogCleanupTimer: null,
+    managedLlamaFlushQueue: new ManagedLlamaFlushQueue(),
     async shutdownManagedLlamaIfNeeded(): Promise<void> {},
     async ensureManagedLlamaReady(): Promise<Record<string, never>> {
       wakeCount += 1;

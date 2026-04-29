@@ -19,8 +19,6 @@ import {
 import { ensureDirectory } from '../lib/fs.js';
 import { sleep } from '../lib/time.js';
 import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
-import { flushManagedLlamaLogChunks } from '../state/managed-llama-runs.js';
-import { flushManagedLlamaSpeculativeMetricsTracker } from './managed-llama-speculative-tracker.js';
 import { normalizeMetrics, writeMetrics } from './metrics.js';
 import {
   buildIdleSummarySnapshot,
@@ -482,19 +480,7 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
   }
   ctx.activeModelRequest = null;
   if (ctx.managedLlamaLastStartupLogs?.runId) {
-    const runId = ctx.managedLlamaLastStartupLogs.runId;
-    try {
-      flushManagedLlamaLogChunks(runId);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logLine(`managed_llama cleanup warning run_id=${runId} kind=log_flush error=${JSON.stringify(message)}`);
-    }
-    try {
-      flushManagedLlamaSpeculativeMetricsTracker(runId);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logLine(`managed_llama cleanup warning run_id=${runId} kind=speculative_metrics_flush error=${JSON.stringify(message)}`);
-    }
+    ctx.managedLlamaFlushQueue.enqueue(ctx.managedLlamaLastStartupLogs.runId);
   }
   return true;
 }

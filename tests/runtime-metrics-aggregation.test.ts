@@ -291,7 +291,9 @@ test('repo-search reports only processed prompt tokens to the status backend whe
       });
 
       assert.equal(result.scorecard.verdict, 'pass');
-      assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 23);
+      await waitForAsyncExpectation(async () => {
+        assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 23);
+      }, 1000);
       const completionPost = server.state.statusPosts.filter((post) => post.running === false && post.taskKind === 'repo-search').at(-1);
       assert.equal(completionPost.inputTokens, 23);
       assert.equal(completionPost.promptCacheTokens, 100);

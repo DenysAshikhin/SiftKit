@@ -39,6 +39,7 @@ import {
 import { runRuntimeCutoverMigration } from './runtime-cutover.js';
 import { closeRuntimeDatabase } from '../state/runtime-db.js';
 import { deleteManagedLlamaLogChunksOlderThan } from '../state/managed-llama-runs.js';
+import { ManagedLlamaFlushQueue } from './managed-llama-flush-queue.js';
 import {
   publishStatus,
   clearIdleSummaryTimer,
@@ -182,6 +183,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     managedLlamaStartupWarning: null,
     bootstrapManagedLlamaStartup: false,
     managedLlamaLogCleanupTimer: null,
+    managedLlamaFlushQueue: new ManagedLlamaFlushQueue(),
     // Late-bound function references (break circular deps between modules).
     shutdownManagedLlamaIfNeeded: (opts) => shutdownManagedLlamaIfNeeded(ctx, opts),
     ensureManagedLlamaReady: (opts) => ensureManagedLlamaReady(ctx, opts),
