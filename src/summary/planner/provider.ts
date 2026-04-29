@@ -4,7 +4,9 @@ import { getProcessedPromptTokens } from '../../lib/provider-helpers.js';
 import {
   generateLlamaCppChatResponse,
   type LlamaCppChatMessage,
+  type LlamaCppGenerateResult,
 } from '../../providers/llama-cpp.js';
+import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
 import { traceSummary } from '../artifacts.js';
 import type {
   PlannerToolDefinition,
@@ -26,6 +28,7 @@ export async function invokePlannerProviderAction(options: {
   requestTimeoutSeconds?: number;
   llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
   statusBackendUrl?: string | null;
+  timingRecorder?: TemporaryTimingRecorder | null;
 }): Promise<{
   text: string;
   reasoningText: string | null;
@@ -44,6 +47,9 @@ export async function invokePlannerProviderAction(options: {
     + `chunk_chars=${options.chunkInputCharacterCount} prompt_chars=${options.promptText.length}`
   );
   const statusRunningStartedAt = Date.now();
+  const notifyRunningSpan = options.timingRecorder?.start('summary.planner.status.notify_running', {
+    promptChars: options.promptText.length,
+  });
   try {
     await notifyStatusBackend({
       running: true,
@@ -59,7 +65,9 @@ export async function invokePlannerProviderAction(options: {
       chunkThresholdCharacters: options.config.Effective?.ChunkThresholdCharacters ?? null,
       phase: 'planner',
     });
+    notifyRunningSpan?.end({ ok: true });
   } catch {
+    notifyRunningSpan?.end({ ok: false });
     traceSummary(`notify running=true failed phase=planner chunk=none request_id=${options.requestId}`);
   }
   const statusRunningMs = Date.now() - statusRunningStartedAt;
@@ -71,21 +79,30 @@ export async function invokePlannerProviderAction(options: {
   let promptCacheTokens: number | null = null;
   let promptEvalTokens: number | null = null;
   try {
-    const response = await generateLlamaCppChatResponse({
-      config: options.config,
-      model: options.model,
-      messages: options.messages,
-      timeoutSeconds: options.requestTimeoutSeconds ?? 600,
-      slotId: options.slotId ?? undefined,
-      cachePrompt: true,
-      tools: options.toolDefinitions,
-      structuredOutput: {
-        kind: 'siftkit-planner-action-json',
-        tools: options.toolDefinitions,
-      },
-      reasoningOverride: options.reasoningOverride,
-      overrides: options.llamaCppOverrides,
+    const llamaSpan = options.timingRecorder?.start('summary.planner.llama.request', {
+      promptTokenCount: options.promptTokenCount,
+      toolDefinitionCount: options.toolDefinitions.length,
     });
+    let response: LlamaCppGenerateResult;
+    try {
+      response = await generateLlamaCppChatResponse({
+        config: options.config,
+        model: options.model,
+        messages: options.messages,
+        timeoutSeconds: options.requestTimeoutSeconds ?? 600,
+        slotId: options.slotId ?? undefined,
+        cachePrompt: true,
+        tools: options.toolDefinitions,
+        structuredOutput: {
+          kind: 'siftkit-planner-action-json',
+          tools: options.toolDefinitions,
+        },
+        reasoningOverride: options.reasoningOverride,
+        overrides: options.llamaCppOverrides,
+      });
+    } finally {
+      llamaSpan?.end();
+    }
     inputTokens = getProcessedPromptTokens(
       response.usage?.promptTokens ?? null,
       response.usage?.promptCacheTokens ?? null,
@@ -112,6 +129,9 @@ export async function invokePlannerProviderAction(options: {
     };
   } catch (error) {
     traceSummary(`notify running=false phase=planner chunk=none duration_ms=${Date.now() - startedAt}`);
+    const notifyFailedSpan = options.timingRecorder?.start('summary.planner.status.notify_terminal', {
+      terminalState: 'failed',
+    });
     try {
       await notifyStatusBackend({
         running: false,
@@ -127,7 +147,9 @@ export async function invokePlannerProviderAction(options: {
         promptEvalTokens,
         requestDurationMs: Date.now() - startedAt,
       });
+      notifyFailedSpan?.end({ ok: true });
     } catch {
+      notifyFailedSpan?.end({ ok: false });
       traceSummary(`notify running=false failed phase=planner chunk=none request_id=${options.requestId}`);
     }
     throw error;

@@ -13,6 +13,7 @@ import {
 } from '../config/index.js';
 import { acquireExecutionLock, releaseExecutionLock } from '../execution-lock.js';
 import { getErrorMessage } from '../lib/errors.js';
+import { createTemporaryTimingRecorderFromEnv, type TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
 import { decodeTextBuffer } from '../lib/text-encoding.js';
 import { countLlamaCppTokens } from '../providers/llama-cpp.js';
 import {
@@ -144,6 +145,7 @@ async function invokeSummaryCore(options: {
   llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
   statusBackendUrl?: string | null;
   chunkContext?: ChunkPromptContext;
+  timingRecorder?: TemporaryTimingRecorder | null;
 }): Promise<SummaryCoreResult> {
   const rootInputCharacterCount = options.rootInputCharacterCount ?? options.inputText.length;
   const phase = options.phase ?? 'leaf';
@@ -197,6 +199,7 @@ async function invokeSummaryCore(options: {
       requestTimeoutSeconds: options.requestTimeoutSeconds,
       llamaCppOverrides: options.llamaCppOverrides,
       statusBackendUrl: options.statusBackendUrl,
+      timingRecorder: options.timingRecorder || null,
     });
     if (plannerDecision) {
       return {
@@ -217,6 +220,11 @@ async function invokeSummaryCore(options: {
   const allowUnsupportedInput = !useCompactPrompt
     && options.sourceKind !== 'command-output'
     && (options.backend !== 'llama.cpp' || isInternalChunkLeaf(options));
+  const promptRenderSpan = options.timingRecorder?.start('summary.prompt.render', {
+    phase,
+    chunk: chunkLabel,
+    compact: useCompactPrompt,
+  });
   const prompt = useCompactPrompt
     ? buildCompactPrompt({
       question: options.question,
@@ -236,6 +244,7 @@ async function invokeSummaryCore(options: {
       chunkContext: options.chunkContext,
       allowUnsupportedInput,
     });
+  promptRenderSpan?.end({ promptChars: prompt.length });
   const effectivePromptLimit = options.backend === 'llama.cpp'
     ? (llamaPromptBudget?.usablePromptBudgetTokens ?? 0)
     : null;
@@ -243,9 +252,15 @@ async function invokeSummaryCore(options: {
     `preflight start phase=${phase} chunk=${chunkLabel} prompt_chars=${prompt.length} `
     + `effective_prompt_limit=${effectivePromptLimit ?? 'null'}`
   );
+  const promptTokenSpan = options.timingRecorder?.start('summary.prompt.tokenize', {
+    phase,
+    chunk: chunkLabel,
+    enabled: effectivePromptLimit !== null && effectivePromptLimit > 0,
+  });
   const promptTokenCount = effectivePromptLimit !== null && effectivePromptLimit > 0
     ? await countLlamaCppTokens(options.config, prompt)
     : null;
+  promptTokenSpan?.end({ promptTokenCount: promptTokenCount ?? -1 });
   traceSummary(
     `preflight done phase=${phase} chunk=${chunkLabel} prompt_tokens=${promptTokenCount ?? 'null'}`
   );
@@ -279,6 +294,7 @@ async function invokeSummaryCore(options: {
       requestTimeoutSeconds: options.requestTimeoutSeconds,
       llamaCppOverrides: options.llamaCppOverrides,
       statusBackendUrl: options.statusBackendUrl,
+      timingRecorder: options.timingRecorder || null,
     });
     if (plannerDecision) {
       return {
@@ -297,27 +313,40 @@ async function invokeSummaryCore(options: {
       const reasoningOverride = options.backend === 'llama.cpp' && !options.chunkContext
         ? 'off'
         : undefined;
-      const providerResult = await invokeProviderSummary({
-        requestId: options.requestId,
-        slotId: options.slotId,
-        backend: options.backend,
-        config: options.config,
-        model: options.model,
-        prompt,
-        question: options.question,
-        promptCharacterCount: prompt.length,
-        promptTokenCount,
-        rawInputCharacterCount: rootInputCharacterCount,
-        chunkInputCharacterCount: options.inputText.length,
+      const providerSpan = options.timingRecorder?.start('summary.provider.request', {
         phase,
-        chunkIndex: options.chunkIndex ?? null,
-        chunkTotal: options.chunkTotal ?? null,
-        chunkPath: options.chunkPath ?? null,
-        reasoningOverride,
-        requestTimeoutSeconds: options.requestTimeoutSeconds,
-        llamaCppOverrides: options.llamaCppOverrides,
-        statusBackendUrl: options.statusBackendUrl,
+        chunk: chunkLabel,
+        backend: options.backend,
+        promptChars: prompt.length,
+        promptTokenCount: promptTokenCount ?? -1,
       });
+      let providerResult: { text: string; metrics: ProviderSummaryMetrics };
+      try {
+        providerResult = await invokeProviderSummary({
+          requestId: options.requestId,
+          slotId: options.slotId,
+          backend: options.backend,
+          config: options.config,
+          model: options.model,
+          prompt,
+          question: options.question,
+          promptCharacterCount: prompt.length,
+          promptTokenCount,
+          rawInputCharacterCount: rootInputCharacterCount,
+          chunkInputCharacterCount: options.inputText.length,
+          phase,
+          chunkIndex: options.chunkIndex ?? null,
+          chunkTotal: options.chunkTotal ?? null,
+          chunkPath: options.chunkPath ?? null,
+          reasoningOverride,
+          requestTimeoutSeconds: options.requestTimeoutSeconds,
+          llamaCppOverrides: options.llamaCppOverrides,
+          statusBackendUrl: options.statusBackendUrl,
+          timingRecorder: options.timingRecorder || null,
+        });
+      } finally {
+        providerSpan?.end();
+      }
       providerMetrics = providerResult.metrics;
       return providerResult.text;
     };
@@ -431,6 +460,7 @@ async function invokeSummaryCore(options: {
         requestTimeoutSeconds: options.requestTimeoutSeconds,
         llamaCppOverrides: options.llamaCppOverrides,
         statusBackendUrl: options.statusBackendUrl,
+        timingRecorder: options.timingRecorder || null,
       });
       if (plannerDecision) {
         return {
@@ -454,6 +484,15 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
 
   const requestId = randomUUID();
   const requestStartedAt = Date.now();
+  const timingRecorder = createTemporaryTimingRecorderFromEnv({
+    kind: 'summary',
+    requestId,
+    metadata: {
+      inputChars: inputText.length,
+      questionChars: request.question.length,
+    },
+  });
+  let timingStatus: 'completed' | 'failed' = 'failed';
   traceSummary(`summarizeRequest start input_chars=${inputText.length}`);
   const sourceKindForFastPath = request.sourceKind || 'standalone';
   const deterministicTestSummary = sourceKindForFastPath === 'command-output' && isPassFailQuestion(request.question)
@@ -515,6 +554,17 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
     } catch {
       traceSummary(`terminal status post failed request_id=${requestId} state=completed`);
     }
+    timingStatus = 'completed';
+    if (timingRecorder) {
+      await timingRecorder.flush({
+        status: timingStatus,
+        metadata: {
+          durationMs: Date.now() - requestStartedAt,
+        },
+      }).catch((error: Error) => {
+        traceSummary(`temp timing flush failed request_id=${requestId} error=${error.message}`);
+      });
+    }
     clearSummaryArtifactState(requestId);
     return result;
   }
@@ -526,6 +576,9 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
     let backend = request.backend || 'unknown';
     let model = request.model || 'unknown';
     try {
+      const configSpan = timingRecorder?.start('summary.config.load', {
+        provided: Boolean(request.config),
+      });
       if (request.config) {
         traceSummary('normalize provided config start');
         config = await normalizeLoadedConfig(request.config);
@@ -535,6 +588,7 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
         config = await loadConfig({ ensure: true });
         traceSummary('loadConfig done');
       }
+      configSpan?.end();
       getConfiguredLlamaBaseUrl(config);
       getConfiguredLlamaNumCtx(config);
       backend = request.backend || config.Backend;
@@ -545,9 +599,14 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
       if (backend !== 'llama.cpp' && inputText.length > maxInputCharacters) {
         throw new Error(`Error: recieved input of ${inputText.length} characters, current maximum is ${maxInputCharacters} chars`);
       }
+      const decisionSpan = timingRecorder?.start('summary.decision');
       const decision = getSummaryDecision(inputText, request.question, riskLevel, config, {
         sourceKind,
         commandExitCode: request.commandExitCode,
+      });
+      decisionSpan?.end({
+        rawReviewRequired: decision.RawReviewRequired,
+        characterCount: decision.CharacterCount,
       });
       const errorMetrics = getErrorSignalMetrics(inputText);
       if (
@@ -611,6 +670,7 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
         } catch {
           traceSummary(`terminal status post failed request_id=${requestId} state=completed`);
         }
+        timingStatus = 'completed';
         clearSummaryArtifactState(requestId);
         return result;
       }
@@ -623,26 +683,33 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
         ? request.promptPrefix
         : getConfiguredPromptPrefix(config);
       traceSummary('invokeSummaryCore start');
-      const summaryCore = await invokeSummaryCore({
-        requestId,
-        slotId,
-        question: request.question,
-        inputText,
-        format: request.format,
-        policyProfile: request.policyProfile,
-        backend,
-        model,
-        config,
-        rawReviewRequired: decision.RawReviewRequired,
-        sourceKind,
-        commandExitCode: request.commandExitCode,
-        debugCommand: request.debugCommand,
-        promptPrefix: effectivePromptPrefix,
-        allowedPlannerTools: request.allowedPlannerTools,
-        requestTimeoutSeconds: request.requestTimeoutSeconds,
-        llamaCppOverrides: request.llamaCppOverrides,
-        statusBackendUrl: request.statusBackendUrl,
-      });
+      const coreSpan = timingRecorder?.start('summary.core');
+      let summaryCore: SummaryCoreResult;
+      try {
+        summaryCore = await invokeSummaryCore({
+          requestId,
+          slotId,
+          question: request.question,
+          inputText,
+          format: request.format,
+          policyProfile: request.policyProfile,
+          backend,
+          model,
+          config,
+          rawReviewRequired: decision.RawReviewRequired,
+          sourceKind,
+          commandExitCode: request.commandExitCode,
+          debugCommand: request.debugCommand,
+          promptPrefix: effectivePromptPrefix,
+          allowedPlannerTools: request.allowedPlannerTools,
+          requestTimeoutSeconds: request.requestTimeoutSeconds,
+          llamaCppOverrides: request.llamaCppOverrides,
+          statusBackendUrl: request.statusBackendUrl,
+          timingRecorder,
+        });
+      } finally {
+        coreSpan?.end();
+      }
       const modelDecision = summaryCore.decision;
       traceSummary(`invokeSummaryCore done classification=${modelDecision.classification}`);
       const deferredArtifacts = [
@@ -710,6 +777,7 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
         ModelCallSucceeded: true,
         ProviderError: null,
       };
+      timingStatus = 'completed';
       clearSummaryArtifactState(requestId);
       return result;
     } catch (error) {
@@ -778,6 +846,16 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
   } finally {
     if (lock !== null) {
       await releaseExecutionLock(lock);
+    }
+    if (timingRecorder) {
+      await timingRecorder.flush({
+        status: timingStatus,
+        metadata: {
+          durationMs: Date.now() - requestStartedAt,
+        },
+      }).catch((error: Error) => {
+        traceSummary(`temp timing flush failed request_id=${requestId} error=${error.message}`);
+      });
     }
   }
 }

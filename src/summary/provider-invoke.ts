@@ -2,7 +2,8 @@ import type { SiftConfig } from '../config/index.js';
 import { notifyStatusBackend } from '../config/index.js';
 import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
 import { sleep } from '../lib/time.js';
-import { generateLlamaCppResponse } from '../providers/llama-cpp.js';
+import { generateLlamaCppResponse, type LlamaCppGenerateResult } from '../providers/llama-cpp.js';
+import type { TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
 import { getMockSummary } from './mock.js';
 import { appendTestProviderEvent, traceSummary } from './artifacts.js';
 import type {
@@ -46,6 +47,7 @@ export async function invokeProviderSummary(options: {
   requestTimeoutSeconds?: number;
   llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
   statusBackendUrl?: string | null;
+  timingRecorder?: TemporaryTimingRecorder | null;
 }): Promise<{ text: string; metrics: ProviderSummaryMetrics }> {
   const chunkLabel = options.chunkPath ?? (
     options.chunkIndex !== null && options.chunkTotal !== null ? `${options.chunkIndex}/${options.chunkTotal}` : 'none'
@@ -55,6 +57,11 @@ export async function invokeProviderSummary(options: {
     + `chunk_chars=${options.chunkInputCharacterCount} prompt_chars=${options.promptCharacterCount}`
   );
   const statusRunningStartedAt = Date.now();
+  const notifyRunningSpan = options.timingRecorder?.start('summary.status.notify_running', {
+    phase: options.phase,
+    chunk: chunkLabel,
+    promptChars: options.promptCharacterCount,
+  });
   try {
     await notifyStatusBackend({
       running: true,
@@ -73,7 +80,9 @@ export async function invokeProviderSummary(options: {
       chunkTotal: options.chunkTotal,
       chunkPath: options.chunkPath,
     });
+    notifyRunningSpan?.end({ ok: true });
   } catch {
+    notifyRunningSpan?.end({ ok: false });
     traceSummary(`notify running=true failed phase=${options.phase} chunk=${chunkLabel} request_id=${options.requestId}`);
   }
   const statusRunningMs = Date.now() - statusRunningStartedAt;
@@ -86,6 +95,10 @@ export async function invokeProviderSummary(options: {
   let promptEvalTokens: number | null = null;
   try {
     if (options.backend === 'mock') {
+      const mockSpan = options.timingRecorder?.start('summary.provider.mock', {
+        phase: options.phase,
+        chunk: chunkLabel,
+      });
       const rawSleep = process.env.SIFTKIT_TEST_PROVIDER_SLEEP_MS;
       const sleepMs = rawSleep ? Number.parseInt(rawSleep, 10) : 0;
       if (Number.isFinite(sleepMs) && sleepMs > 0) {
@@ -100,6 +113,7 @@ export async function invokeProviderSummary(options: {
         chunkInputCharacterCount: options.chunkInputCharacterCount,
       });
       const mockSummary = getMockSummary(options.prompt, options.question, options.phase);
+      mockSpan?.end({ outputChars: mockSummary.length });
       outputCharacterCount = mockSummary.length;
       const providerDurationMs = Date.now() - startedAt;
       return {
@@ -126,20 +140,30 @@ export async function invokeProviderSummary(options: {
       `provider start backend=${options.backend} model=${options.model} phase=${options.phase} `
       + `chunk=${chunkLabel} timeout_s=${options.requestTimeoutSeconds ?? 600}`
     );
-    const response = await generateLlamaCppResponse({
-      config: options.config,
-      model: options.model,
-      prompt: options.prompt,
-      promptTokenCount: options.promptTokenCount,
-      timeoutSeconds: options.requestTimeoutSeconds ?? 600,
-      slotId: options.slotId ?? undefined,
-      reasoningOverride: options.reasoningOverride,
-      structuredOutput: {
-        kind: 'siftkit-decision-json',
-        allowUnsupportedInput: options.backend !== 'llama.cpp' || options.phase === 'leaf' && options.chunkPath !== null,
-      },
-      overrides: options.llamaCppOverrides,
+    const llamaSpan = options.timingRecorder?.start('summary.llama.request', {
+      phase: options.phase,
+      chunk: chunkLabel,
+      promptTokenCount: options.promptTokenCount ?? -1,
     });
+    let response: LlamaCppGenerateResult;
+    try {
+      response = await generateLlamaCppResponse({
+        config: options.config,
+        model: options.model,
+        prompt: options.prompt,
+        promptTokenCount: options.promptTokenCount,
+        timeoutSeconds: options.requestTimeoutSeconds ?? 600,
+        slotId: options.slotId ?? undefined,
+        reasoningOverride: options.reasoningOverride,
+        structuredOutput: {
+          kind: 'siftkit-decision-json',
+          allowUnsupportedInput: options.backend !== 'llama.cpp' || options.phase === 'leaf' && options.chunkPath !== null,
+        },
+        overrides: options.llamaCppOverrides,
+      });
+    } finally {
+      llamaSpan?.end();
+    }
     inputTokens = getProcessedPromptTokens(
       response.usage?.promptTokens ?? null,
       response.usage?.promptCacheTokens ?? null,

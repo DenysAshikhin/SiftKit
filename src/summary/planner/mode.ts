@@ -42,6 +42,7 @@ import {
   getPlannerPromptBudget,
 } from '../chunking.js';
 import { notifyStatusBackend } from '../../config/index.js';
+import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
 import { invokePlannerProviderAction } from './provider.js';
 import type {
   PlannerAction,
@@ -100,6 +101,7 @@ export async function invokePlannerMode(options: {
   requestTimeoutSeconds?: number;
   llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
   statusBackendUrl?: string | null;
+  timingRecorder?: TemporaryTimingRecorder | null;
 }): Promise<StructuredModelDecision | null> {
   if (options.backend !== 'llama.cpp') {
     return null;
@@ -160,10 +162,21 @@ export async function invokePlannerMode(options: {
   let forcedFinishCountdownUserMessageIndex = -1;
 
   while (toolResults.length <= MAX_PLANNER_TOOL_CALLS) {
+    const turn = toolResults.length + 1;
+    const promptRenderSpan = options.timingRecorder?.start('summary.planner.prompt.render', {
+      turn,
+      messageCount: messages.length,
+    });
     const prompt = renderPlannerTranscript(messages);
+    promptRenderSpan?.end({ promptChars: prompt.length });
+    const promptTokenSpan = options.timingRecorder?.start('summary.planner.prompt.tokenize', {
+      turn,
+      promptChars: prompt.length,
+    });
     const promptTokenCount = (
       await countLlamaCppTokens(options.config, prompt)
     ) ?? estimatePromptTokenCount(options.config, prompt);
+    promptTokenSpan?.end({ promptTokenCount });
     debugRecorder.record({
       kind: 'planner_prompt',
       prompt,
@@ -211,6 +224,7 @@ export async function invokePlannerMode(options: {
         requestTimeoutSeconds: options.requestTimeoutSeconds,
         llamaCppOverrides: options.llamaCppOverrides,
         statusBackendUrl: options.statusBackendUrl,
+        timingRecorder: options.timingRecorder || null,
       });
     } catch (error) {
       debugRecorder.finish({
@@ -248,7 +262,17 @@ export async function invokePlannerMode(options: {
 
       let action: PlannerAction;
       try {
-        action = parsePlannerAction(providerResponse.text);
+        const parseSpan = options.timingRecorder?.start('summary.planner.response.parse', {
+          turn,
+          responseChars: providerResponse.text.length,
+        });
+        try {
+          action = parsePlannerAction(providerResponse.text);
+          parseSpan?.end({ ok: true });
+        } catch (error) {
+          parseSpan?.end({ ok: false });
+          throw error;
+        }
       } catch (error) {
         const recoveredDecision = toolResults.length === 0
           ? tryRecoverStructuredModelDecision(providerResponse.text)
@@ -390,9 +414,14 @@ export async function invokePlannerMode(options: {
         });
         try {
           const forcedPrompt = renderPlannerTranscript(messages);
+          const forcedPromptTokenSpan = options.timingRecorder?.start('summary.planner.prompt.tokenize_forced', {
+            turn,
+            promptChars: forcedPrompt.length,
+          });
           const forcedPromptTokenCount = (
             await countLlamaCppTokens(options.config, forcedPrompt)
           ) ?? estimatePromptTokenCount(options.config, forcedPrompt);
+          forcedPromptTokenSpan?.end({ promptTokenCount: forcedPromptTokenCount });
           const forcedResponse = await invokePlannerProviderAction({
             requestId: options.requestId,
             slotId: options.slotId,
@@ -408,6 +437,7 @@ export async function invokePlannerMode(options: {
             requestTimeoutSeconds: options.requestTimeoutSeconds,
             llamaCppOverrides: options.llamaCppOverrides,
             statusBackendUrl: options.statusBackendUrl,
+            timingRecorder: options.timingRecorder || null,
           });
           const forcedAction = parsePlannerAction(forcedResponse.text);
           if (forcedAction.action === 'finish') {
@@ -495,9 +525,15 @@ export async function invokePlannerMode(options: {
         }
 
         let result: Record<string, unknown>;
+        const toolExecutionSpan = options.timingRecorder?.start('summary.planner.tool.execute', {
+          turn,
+          toolName: toolAction.tool_name,
+        });
         try {
           result = executePlannerTool(options.inputText, toolAction, allowedTools);
+          toolExecutionSpan?.end({ ok: true });
         } catch (error) {
+          toolExecutionSpan?.end({ ok: false });
           invalidActionCount += 1;
           const invalidResponseError = getErrorMessage(error);
           const invalidToolResultText = buildPlannerInvalidResponseUserPrompt(invalidResponseError);
@@ -530,24 +566,52 @@ export async function invokePlannerMode(options: {
           args: toolAction.args,
           output: result,
         });
+        const formatSpan = options.timingRecorder?.start('summary.planner.tool.format', {
+          turn,
+          toolName: toolAction.tool_name,
+        });
         const rawFormattedResultText = formatPlannerResult(result);
         const formattedResultText = buildPromptToolResult({
           toolName: toolAction.tool_name,
           rawOutput: rawFormattedResultText,
         });
+        formatSpan?.end({
+          rawChars: rawFormattedResultText.length,
+          formattedChars: formattedResultText.length,
+        });
         const remainingPromptTokens = Math.max(promptBudget.plannerStopLineTokens - promptTokenCount, 0);
+        const rawTokenSpan = options.timingRecorder?.start('summary.planner.tool.tokenize_raw', {
+          turn,
+          toolName: toolAction.tool_name,
+          inputChars: rawFormattedResultText.length,
+        });
         const rawResultTokenCount = (
           await countLlamaCppTokens(options.config, rawFormattedResultText)
         ) ?? estimatePromptTokenCount(options.config, rawFormattedResultText);
+        rawTokenSpan?.end({ tokenCount: rawResultTokenCount });
         const normalizedRawResultTokenCount = Math.max(0, Math.ceil(rawResultTokenCount));
+        const formattedTokenSpan = options.timingRecorder?.start('summary.planner.tool.tokenize_formatted', {
+          turn,
+          toolName: toolAction.tool_name,
+          inputChars: formattedResultText.length,
+        });
         const resultTokenCount = (
           await countLlamaCppTokens(options.config, formattedResultText)
         ) ?? estimatePromptTokenCount(options.config, formattedResultText);
+        formattedTokenSpan?.end({ tokenCount: resultTokenCount });
         const normalizedResultTokenCount = Math.max(0, Math.ceil(resultTokenCount));
         const promptResultText = normalizedResultTokenCount > (remainingPromptTokens * 0.7)
           ? formatPlannerToolResultTokenGuardError(normalizedResultTokenCount)
           : formattedResultText;
+        const promptResultTokenSpan = options.timingRecorder?.start('summary.planner.tool.tokenize_prompt', {
+          turn,
+          toolName: toolAction.tool_name,
+          inputChars: promptResultText.length,
+        });
         const exactToolResultTokenCount = await countLlamaCppTokens(options.config, promptResultText);
+        promptResultTokenSpan?.end({
+          tokenCount: exactToolResultTokenCount ?? -1,
+        });
         const resolvedToolResultTokenCount = exactToolResultTokenCount ?? estimatePromptTokenCount(options.config, promptResultText);
         const readLineCount = toolAction.tool_name === 'read_lines' && Number.isFinite((result as { lineCount?: unknown }).lineCount)
           ? Number((result as { lineCount?: unknown }).lineCount)
@@ -595,7 +659,13 @@ export async function invokePlannerMode(options: {
       }
 
       const preAppendMessagesLength = messages.length;
+      const appendSpan = options.timingRecorder?.start('summary.planner.tool.append', {
+        turn,
+        outcomeCount: batchOutcomes.length,
+        beforeMessageCount: messages.length,
+      });
       appendToolBatchExchange(messages, batchOutcomes, providerResponse.reasoningText || '');
+      appendSpan?.end({ afterMessageCount: messages.length });
       if (batchDuplicateAnchorIndex !== null && batchOutcomes.length > 0) {
         duplicateReplayToolMessageIndex = preAppendMessagesLength + 1 + batchDuplicateAnchorIndex;
       }
@@ -604,6 +674,9 @@ export async function invokePlannerMode(options: {
       }
     } finally {
       traceSummary(`notify running=false phase=planner chunk=none duration_ms=${providerResponse.requestDurationMs}`);
+      const notifyTerminalSpan = options.timingRecorder?.start('summary.planner.status.notify_terminal', {
+        terminalState: 'iteration',
+      });
       void notifyStatusBackend({
         running: false,
         taskKind: 'summary',
@@ -622,7 +695,10 @@ export async function invokePlannerMode(options: {
         providerDurationMs: providerResponse.providerDurationMs,
         statusRunningMs: providerResponse.statusRunningMs,
       }).catch(() => {
+        notifyTerminalSpan?.end({ ok: false });
         traceSummary(`notify running=false failed phase=planner chunk=none request_id=${options.requestId}`);
+      }).then(() => {
+        notifyTerminalSpan?.end({ ok: true });
       });
     }
   }

@@ -12,6 +12,7 @@ import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
 import { upsertRepoSearchRun } from '../status-server/dashboard-runs.js';
 import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
+import { createTemporaryTimingRecorderFromEnv } from '../lib/temporary-timing-recorder.js';
 import type {
   RepoSearchExecutionRequest,
   RepoSearchExecutionResult,
@@ -48,7 +49,18 @@ export async function executeRepoSearchRequest(
   const repoRoot = path.resolve(String(request.repoRoot || process.cwd()));
   const requestId = randomUUID();
   const taskKind = request.taskKind === 'plan' ? 'plan' : 'repo-search';
+  const timingRecorder = createTemporaryTimingRecorderFromEnv({
+    kind: 'repo-search',
+    requestId,
+    metadata: {
+      taskKind,
+      promptChars: prompt.length,
+      repoRoot,
+    },
+  });
+  let timingStatus: 'completed' | 'failed' = 'failed';
   traceRepoSearch(`execute start request_id=${requestId} prompt_chars=${prompt.length}`);
+  const notifyRunningSpan = timingRecorder?.start('repo.status.notify_running');
   try {
     await notifyStatusBackend({
       running: true,
@@ -60,7 +72,9 @@ export async function executeRepoSearchRequest(
       chunkInputCharacterCount: prompt.length,
       chunkPath: 'repo-search',
     });
+    notifyRunningSpan?.end({ ok: true });
   } catch {
+    notifyRunningSpan?.end({ ok: false });
     traceRepoSearch(`notify running=true failed request_id=${requestId}`);
   }
   const folders = ensureRepoSearchLogFolders();
@@ -85,6 +99,7 @@ export async function executeRepoSearchRequest(
       mockResponses: request.mockResponses,
       mockCommandResults: request.mockCommandResults,
       abortSignal: abortController.signal,
+      timingRecorder,
       onProgress: progressCallback
         ? (event: RepoSearchProgressEvent) => {
           progressCallback({
@@ -111,6 +126,9 @@ export async function executeRepoSearchRequest(
       transcriptPath: transcriptUri,
       scorecard,
     };
+    const artifactSpan = timingRecorder?.start('repo.artifact.persist', {
+      transcriptChars: transcriptText.length,
+    });
     const artifactPath = upsertRuntimeJsonArtifact({
       id: `repo_search_artifact:${requestId}`,
       artifactKind: 'repo_search_artifact',
@@ -118,6 +136,7 @@ export async function executeRepoSearchRequest(
       title: artifactPathHint,
       payload: artifact,
     }).uri;
+    artifactSpan?.end();
     const outputCharacterCount = getOutputCharacterCount(scorecard);
     const promptTokens = getNumericTotal(scorecard, 'promptTokens');
     const outputTokens = getNumericTotal(scorecard, 'outputTokens');
@@ -156,6 +175,7 @@ export async function executeRepoSearchRequest(
       : null;
     try {
       const finishedAtUtc = new Date().toISOString();
+      const runLogSpan = timingRecorder?.start('repo.run_log.persist');
       upsertRepoSearchRun({
         database: getRuntimeDatabase(),
         requestId,
@@ -180,6 +200,10 @@ export async function executeRepoSearchRequest(
         promptEvalDurationMs,
         generationDurationMs,
       });
+      runLogSpan?.end();
+      const notifyCompleteSpan = timingRecorder?.start('repo.status.notify_terminal', {
+        terminalState: 'completed',
+      });
       await notifyStatusBackend({
         running: false,
         taskKind,
@@ -197,13 +221,16 @@ export async function executeRepoSearchRequest(
         promptEvalTokens,
         requestDurationMs: Date.now() - startedAt,
       });
+      notifyCompleteSpan?.end({ ok: true });
     } catch {
+      timingRecorder?.start('repo.status.notify_terminal').end({ ok: false, terminalState: 'completed' });
       traceRepoSearch(`notify running=false failed request_id=${requestId} state=completed`);
     }
     traceRepoSearch(
       `execute done request_id=${requestId} verdict=${String(scorecard?.verdict ?? 'unknown')} `
       + `duration_ms=${Date.now() - startedAt} output_chars=${outputCharacterCount}`
     );
+    timingStatus = 'completed';
     clearTimeout(timeoutHandle);
     return {
       requestId,
@@ -227,6 +254,10 @@ export async function executeRepoSearchRequest(
       error: message,
       transcriptPath: transcriptUri,
     };
+    const artifactSpan = timingRecorder?.start('repo.artifact.persist', {
+      transcriptChars: transcriptText.length,
+      failed: true,
+    });
     const artifactPath = upsertRuntimeJsonArtifact({
       id: `repo_search_artifact:${requestId}`,
       artifactKind: 'repo_search_artifact',
@@ -234,7 +265,9 @@ export async function executeRepoSearchRequest(
       title: artifactPathHint,
       payload: artifact,
     }).uri;
+    artifactSpan?.end();
     try {
+      const runLogSpan = timingRecorder?.start('repo.run_log.persist', { terminalState: 'failed' });
       upsertRepoSearchRun({
         database: getRuntimeDatabase(),
         requestId,
@@ -259,10 +292,14 @@ export async function executeRepoSearchRequest(
         promptEvalDurationMs: null,
         generationDurationMs: null,
       });
+      runLogSpan?.end();
     } catch {
       // Best effort run-log persistence.
     }
     try {
+      const notifyFailedSpan = timingRecorder?.start('repo.status.notify_terminal', {
+        terminalState: 'failed',
+      });
       await notifyStatusBackend({
         running: false,
         taskKind,
@@ -274,7 +311,9 @@ export async function executeRepoSearchRequest(
         outputCharacterCount: 0,
         requestDurationMs: Date.now() - startedAt,
       });
+      notifyFailedSpan?.end({ ok: true });
     } catch {
+      timingRecorder?.start('repo.status.notify_terminal').end({ ok: false, terminalState: 'failed' });
       traceRepoSearch(`notify running=false failed request_id=${requestId} state=failed`);
     }
     traceRepoSearch(`execute failed request_id=${requestId} duration_ms=${Date.now() - startedAt} error=${message}`);
@@ -283,5 +322,15 @@ export async function executeRepoSearchRequest(
     throw error;
   } finally {
     clearTimeout(timeoutHandle);
+    if (timingRecorder) {
+      await timingRecorder.flush({
+        status: timingStatus,
+        metadata: {
+          durationMs: Date.now() - startedAt,
+        },
+      }).catch((error: Error) => {
+        traceRepoSearch(`temp timing flush failed request_id=${requestId} error=${error.message}`);
+      });
+    }
   }
 }

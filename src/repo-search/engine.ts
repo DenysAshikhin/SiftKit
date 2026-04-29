@@ -19,6 +19,7 @@ import {
 import { spawnPowerShellAsync } from '../lib/powershell.js';
 import { getDynamicMaxOutputTokens } from '../lib/dynamic-output-cap.js';
 import { colorize } from '../lib/text-format.js';
+import type { TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
 import { countLlamaCppTokens, listLlamaCppModels } from '../providers/llama-cpp.js';
 import type { ToolTypeStats } from '../status-server/metrics.js';
 import {
@@ -539,6 +540,7 @@ type RunTaskLoopOptions = {
   abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
   onProgress?: ((event: RepoSearchProgressEvent) => void) | null;
+  timingRecorder?: TemporaryTimingRecorder | null;
 };
 
 function isPlannerReasoningEnabled(config: SiftConfig | undefined): boolean {
@@ -624,9 +626,16 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   let lastLoggedMessageCount = 0;
   const slotId = options.config ? allocateLlamaCppSlotId(options.config) : 0;
   const ignorePolicy = buildIgnorePolicy(options.repoRoot);
+  const bootstrapFileListSpan = options.timingRecorder?.start('repo.bootstrap.file_listing', {
+    taskId: task.id,
+    enabled: options.includeRepoFileListing !== false,
+  });
   const bootstrapFileList = options.includeRepoFileListing === false
     ? undefined
     : (scanRepoFiles(options.repoRoot, ignorePolicy) || undefined);
+  bootstrapFileListSpan?.end({
+    fileCount: Array.isArray(bootstrapFileList) ? bootstrapFileList.length : 0,
+  });
   const historicalToolStats = readLatestIdleSummaryToolStats();
   const initialPerToolAllowanceTokens = getRepoSearchPromptBaselinePerToolAllowanceTokens(options.config ?? null);
   const recentEvidenceKeys = new Set<string>();
@@ -663,12 +672,27 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     turnsUsed = turn;
     const inForcedFinishMode = forcedFinishAttemptsRemaining > 0;
 
+    const promptRenderSpan = options.timingRecorder?.start('repo.prompt.render', {
+      taskId: task.id,
+      turn,
+      messageCount: messages.length,
+    });
     let prompt = renderTaskTranscript(messages);
+    promptRenderSpan?.end({ promptChars: prompt.length });
+    const preflightSpan = options.timingRecorder?.start('repo.prompt.preflight', {
+      taskId: task.id,
+      turn,
+    });
     let preflight = await preflightPlannerPromptBudget({
       config: useEstimatedTokensOnly ? undefined : options.config,
       prompt,
       totalContextTokens,
       thinkingBufferTokens,
+    });
+    preflightSpan?.end({
+      promptTokenCount: preflight.promptTokenCount,
+      overflowTokens: preflight.overflowTokens,
+      ok: preflight.ok,
     });
     let maxOutputTokens = getDynamicMaxOutputTokens({
       totalContextTokens,
@@ -682,6 +706,11 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     });
 
     if (!preflight.ok) {
+      const compactionSpan = options.timingRecorder?.start('repo.prompt.compact', {
+        taskId: task.id,
+        turn,
+        beforePromptTokenCount: preflight.promptTokenCount,
+      });
       const compacted = await compactPlannerMessagesOnce({
         messages, config: useEstimatedTokensOnly ? undefined : options.config, maxPromptBudget: preflight.maxPromptBudget,
       });
@@ -690,6 +719,10 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       prompt = renderTaskTranscript(messages);
       const afterCompaction = await preflightPlannerPromptBudget({
         config: useEstimatedTokensOnly ? undefined : options.config, prompt, totalContextTokens, thinkingBufferTokens,
+      });
+      compactionSpan?.end({
+        afterPromptTokenCount: afterCompaction.promptTokenCount,
+        droppedMessageCount: compacted.droppedMessageCount,
       });
       maxOutputTokens = getDynamicMaxOutputTokens({
         totalContextTokens,
@@ -731,29 +764,41 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     lastLoggedMessageCount = messages.length;
     options.logger?.write({ kind: 'turn_new_messages', taskId: task.id, turn, messages: newMessages, promptTokenCount: preflight.promptTokenCount });
 
-    const response: PlannerActionResponse = await requestPlannerAction({
-      baseUrl: options.baseUrl,
-      model: options.model,
-      messages,
-      slotId,
-      timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
-      maxTokens: maxOutputTokens,
-      thinkingEnabled: plannerThinkingEnabled,
-      reasoningContentEnabled: plannerReasoningContentEnabled,
-      preserveThinking: plannerPreserveThinkingEnabled,
-      stream: Boolean(options.onProgress),
-      onThinkingDelta: options.onProgress
-        ? (accThinking) => { options.onProgress!({ kind: 'thinking', turn, maxTurns, thinkingText: accThinking }); }
-        : undefined,
-      onContentDelta: options.onProgress
-        ? (accContent) => { options.onProgress!({ kind: 'thinking', turn, maxTurns, thinkingText: accContent }); }
-        : undefined,
-      mockResponses: options.mockResponses,
-      mockResponseIndex,
-      abortSignal: options.abortSignal,
-      logger: options.logger || null,
-      toolDefinitions: plannerToolDefinitions,
+    const providerSpan = options.timingRecorder?.start('repo.llama.request', {
+      taskId: task.id,
+      turn,
+      promptTokenCount: preflight.promptTokenCount,
+      maxOutputTokens,
+      mock: Array.isArray(options.mockResponses),
     });
+    let response: PlannerActionResponse;
+    try {
+      response = await requestPlannerAction({
+        baseUrl: options.baseUrl,
+        model: options.model,
+        messages,
+        slotId,
+        timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
+        maxTokens: maxOutputTokens,
+        thinkingEnabled: plannerThinkingEnabled,
+        reasoningContentEnabled: plannerReasoningContentEnabled,
+        preserveThinking: plannerPreserveThinkingEnabled,
+        stream: Boolean(options.onProgress),
+        onThinkingDelta: options.onProgress
+          ? (accThinking) => { options.onProgress!({ kind: 'thinking', turn, maxTurns, thinkingText: accThinking }); }
+          : undefined,
+        onContentDelta: options.onProgress
+          ? (accContent) => { options.onProgress!({ kind: 'thinking', turn, maxTurns, thinkingText: accContent }); }
+          : undefined,
+        mockResponses: options.mockResponses,
+        mockResponseIndex,
+        abortSignal: options.abortSignal,
+        logger: options.logger || null,
+        toolDefinitions: plannerToolDefinitions,
+      });
+    } finally {
+      providerSpan?.end();
+    }
 
     if (options.onProgress) {
       options.onProgress({ kind: 'llm_end', turn, maxTurns, promptTokenCount: preflight.promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
@@ -789,10 +834,17 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     if (response.mockExhausted) { reason = 'mock_responses_exhausted'; break; }
 
     let action;
+    const parseSpan = options.timingRecorder?.start('repo.response.parse', {
+      taskId: task.id,
+      turn,
+      responseChars: String(response.text || '').length,
+    });
     try {
       action = parsePlannerAction(response.text, { allowedToolNames: allowedPlannerToolNames });
+      parseSpan?.end({ ok: true });
       options.logger?.write({ kind: 'turn_action_parsed', taskId: task.id, turn, action });
     } catch (error) {
+      parseSpan?.end({ ok: false });
       modelOutputTokens += resolvedCompletionTokens;
       invalidResponses += 1;
       const invalidActionMessage = `Invalid action: ${error instanceof Error ? error.message : String(error)}. Return a valid JSON finish action or tool action payload.`;
@@ -1122,17 +1174,34 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       continue;
     }
 
+    const promptTokenSpan = options.timingRecorder?.start('repo.tool.prompt_tokens', {
+      taskId: task.id,
+      turn,
+      toolName: normalizedToolName,
+    });
     const promptTokenCount = useEstimatedTokensOnly
       ? estimateTokenCount(options.config, prompt)
       : await countTokensWithFallback(options.config, prompt);
+    promptTokenSpan?.end({ promptTokenCount });
 
     if (options.onProgress) {
       options.onProgress({ kind: 'tool_start', turn, maxTurns, command: commandToRun, promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
     }
 
+    const toolExecutionSpan = options.timingRecorder?.start('repo.tool.execute', {
+      taskId: task.id,
+      turn,
+      toolName: normalizedToolName,
+      commandChars: commandToRun.length,
+      native: isNativeTool,
+    });
     const executed = isNativeTool && nativeExecution && nativeExecution.ok
       ? { exitCode: nativeExecution.exitCode, output: nativeExecution.output }
       : await executeRepoCommand(commandToRun, options.repoRoot, options.mockCommandResults || null, options.abortSignal);
+    toolExecutionSpan?.end({
+      exitCode: executed.exitCode,
+      outputChars: String(executed.output || '').length,
+    });
     const baseOutput = String(executed.output || '').trim();
     const executedReadWindow = isNativeTool ? null : parseGetContentReadWindowCommand(commandToRun);
     let lineReadOverlapLines = 0;
@@ -1234,18 +1303,32 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     if (zeroOutputWarningText) {
       resultText = `${zeroOutputWarningText}\n\n${resultText}`.trim();
     }
+    const rawToolTokenSpan = options.timingRecorder?.start('repo.tool.tokenize_raw', {
+      taskId: task.id,
+      turn,
+      toolName: normalizedToolName,
+      inputChars: rawResultText.length,
+    });
     const rawResultTokenCount = useEstimatedTokensOnly
       ? estimateTokenCount(options.config, rawResultText)
       : await countTokensWithFallback(options.config, rawResultText);
+    rawToolTokenSpan?.end({ tokenCount: rawResultTokenCount });
     const lineReadStats = isNativeTool && nativeExecution && nativeExecution.ok && nativeExecution.lineReadStats
       ? nativeExecution.lineReadStats
       : getRepoSearchLineReadStats(commandToRun, baseOutput, rawResultTokenCount);
     const dynamicPerToolRatio = Math.max(PER_TOOL_RESULT_RATIO, Number(commands.length) / Number(maxTurns));
     const perToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * dynamicPerToolRatio));
     const remainingTokenAllowance = Math.max(usablePromptTokens - promptTokenCount, 0);
+    const promptToolTokenSpan = options.timingRecorder?.start('repo.tool.tokenize_prompt', {
+      taskId: task.id,
+      turn,
+      toolName: normalizedToolName,
+      inputChars: resultText.length,
+    });
     const candidateResultTokenCount = useEstimatedTokensOnly
       ? estimateTokenCount(options.config, resultText)
       : await countTokensWithFallback(options.config, resultText);
+    promptToolTokenSpan?.end({ tokenCount: candidateResultTokenCount });
 
     if (rawResultTokenCount > perToolCapTokens || rawResultTokenCount > remainingTokenAllowance) {
       resultText = `Error: requested output would consume ${rawResultTokenCount} tokens, remaining token allowance: ${remainingTokenAllowance}, per tool call allowance: ${perToolCapTokens}`;
@@ -1257,9 +1340,18 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       resultTokenCount = estimateTokenCount(options.config, resultText);
       resultTokenCountEstimated = true;
     } else {
+      const finalToolTokenSpan = options.timingRecorder?.start('repo.tool.tokenize_final', {
+        taskId: task.id,
+        turn,
+        toolName: normalizedToolName,
+        inputChars: resultText.length,
+      });
       const exactResultTokenCount = options.config
         ? await countLlamaCppTokens(options.config, resultText)
         : null;
+      finalToolTokenSpan?.end({
+        tokenCount: Number.isFinite(exactResultTokenCount) ? Number(exactResultTokenCount) : -1,
+      });
       if (Number.isFinite(exactResultTokenCount) && Number(exactResultTokenCount) > 0) {
         resultTokenCount = Number(exactResultTokenCount);
       } else {
@@ -1343,11 +1435,18 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
 
     const preAppendMessagesLength = messages.length;
+    const appendSpan = options.timingRecorder?.start('repo.tool.append', {
+      taskId: task.id,
+      turn,
+      outcomeCount: batchOutcomes.length,
+      beforeMessageCount: messages.length,
+    });
     appendToolBatchExchange(
       messages as unknown as ToolTranscriptMessage[],
       batchOutcomes,
       String(response.thinkingText || '').trim(),
     );
+    appendSpan?.end({ afterMessageCount: messages.length });
     if (batchDuplicateAnchorIndex !== null && batchOutcomes.length > 0) {
       duplicateReplayToolMessageIndex = preAppendMessagesLength + 1 + batchDuplicateAnchorIndex;
     }
@@ -1561,6 +1660,7 @@ export async function runRepoSearch(options: {
   abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
   onProgress?: ((event: RepoSearchProgressEvent) => void) | null;
+  timingRecorder?: TemporaryTimingRecorder | null;
 } = {}): Promise<Scorecard> {
   throwIfAborted(options.abortSignal);
   const plannerToolDefinitions = resolveRepoSearchPlannerToolDefinitions(options.allowedTools);
@@ -1569,14 +1669,22 @@ export async function runRepoSearch(options: {
   }
   const path = await import('node:path');
   const repoRoot = path.resolve(options.repoRoot || process.cwd());
+  const configSpan = options.timingRecorder?.start('repo.config.load', {
+    provided: Boolean(options.config),
+  });
   const config = (options.config || await loadConfig({ ensure: true })) as SiftConfig;
+  configSpan?.end();
   const model = options.model || getConfiguredModel(config);
   const baseUrl = options.baseUrl || getConfiguredLlamaBaseUrl(config);
 
   options.logger?.write({ kind: 'run_start', repoRoot, requestedModel: options.model || null, configuredModel: model, baseUrl });
 
+  const inventorySpan = options.timingRecorder?.start('repo.model_inventory', {
+    mock: Array.isArray(options.mockResponses),
+  });
   const availableModels = options.availableModels
     || (Array.isArray(options.mockResponses) ? [model] : await listLlamaCppModels(config));
+  inventorySpan?.end({ modelCount: availableModels.length });
   options.logger?.write({ kind: 'model_inventory', configuredModel: model, availableModels });
 
   const tasksToRun: TaskDefinition[] = options.taskPrompt
@@ -1605,6 +1713,7 @@ export async function runRepoSearch(options: {
       abortSignal: options.abortSignal,
       logger: options.logger || null,
       onProgress: options.onProgress || null,
+      timingRecorder: options.timingRecorder || null,
     });
     tasks.push(result);
   }
