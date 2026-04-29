@@ -174,6 +174,61 @@ test('CLI summary fails closed with the canonical message when the external serv
   });
 });
 
+test('CLI summary preserves HTTP 500 diagnostic response bodies containing timeout text', async () => {
+  await withTempEnv(async () => {
+    const diagnosticBody = {
+      error: 'SiftKit status/config server is not reachable at http://127.0.0.1:1/health.',
+      errorName: 'StatusServerUnavailableError',
+      diagnosticId: 'diag-1',
+      diagnostic: {
+        name: 'StatusServerUnavailableError',
+        message: 'SiftKit status/config server is not reachable at http://127.0.0.1:1/health.',
+        stack: 'StatusServerUnavailableError: wrapped',
+        cause: {
+          name: 'Error',
+          message: 'Request timed out after 130000 ms.',
+          stack: 'Error: Request timed out after 130000 ms.',
+        },
+      },
+    };
+    const server = http.createServer((req, res) => {
+      if (req.method === 'POST' && req.url === '/summary') {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(diagnosticBody));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    const port = address && typeof address === 'object' ? address.port : 0;
+    try {
+      const result = await spawnProcess(
+        process.execPath,
+        [path.join(repoRoot, 'bin', 'siftkit.js'), 'summary', '--question', 'summarize this', '--text', 'hello world'],
+        {
+          cwd: process.cwd(),
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            SIFTKIT_STATUS_BACKEND_URL: `http://127.0.0.1:${port}/status`,
+            SIFTKIT_CONFIG_SERVICE_URL: `http://127.0.0.1:${port}/config`,
+          },
+        },
+      );
+
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, /HTTP 500:/u);
+      assert.match(result.stderr, /"diagnosticId":"diag-1"/u);
+      assert.match(result.stderr, /Request timed out after 130000 ms/u);
+      assert.doesNotMatch(result.stderr, /^SiftKit status\/config server is not reachable at http:\/\/127\.0\.0\.1:\d+\/health/u);
+    } finally {
+      await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
+  });
+});
+
 test('CLI summary succeeds without server preflight health checks', async () => {
   await withTempEnv(async () => {
     await withSummaryTestServer(async (server) => {

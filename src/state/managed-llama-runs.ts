@@ -501,7 +501,7 @@ export function deleteManagedLlamaLogChunksOlderThan(options: {
       AND run_id NOT IN (
         SELECT id
         FROM managed_llama_runs
-        WHERE status IN ('running', 'ready')
+        WHERE status = 'running'
       )
   `).run(olderThanUtc);
   return Number(result.changes || 0);

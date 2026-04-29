@@ -11,7 +11,7 @@ import {
   getStatusBackendUrl,
   toStatusServerUnavailableError,
 } from './status-backend.js';
-import type { SiftConfig } from './types.js';
+import type { NormalizationInfo, SiftConfig } from './types.js';
 
 export function getConfigServiceUrl(): string {
   const configuredUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
@@ -23,32 +23,52 @@ export function getConfigServiceUrl(): string {
 }
 
 async function getConfigFromService(): Promise<SiftConfig> {
+  const serviceUrl = getConfigServiceUrl();
   try {
     return await requestJson<SiftConfig>({
-      url: getConfigServiceUrl(),
+      url: serviceUrl,
       method: 'GET',
       timeoutMs: 130_000,
     });
-  } catch {
-    throw toStatusServerUnavailableError();
+  } catch (error) {
+    throw toStatusServerUnavailableError({
+      cause: error,
+      operation: 'config:get',
+      serviceUrl,
+    });
   }
 }
 
 async function setConfigInService(config: SiftConfig): Promise<SiftConfig> {
+  const serviceUrl = getConfigServiceUrl();
   try {
     return await requestJson<SiftConfig>({
-      url: getConfigServiceUrl(),
+      url: serviceUrl,
       method: 'PUT',
       timeoutMs: 2000,
       body: JSON.stringify(toPersistedConfigObject(config)),
     });
-  } catch {
-    throw toStatusServerUnavailableError();
+  } catch (error) {
+    throw toStatusServerUnavailableError({
+      cause: error,
+      operation: 'config:set',
+      serviceUrl,
+    });
   }
 }
 
 export async function saveConfig(config: SiftConfig): Promise<SiftConfig> {
   return setConfigInService(config);
+}
+
+async function addLoadedConfigProperties(config: SiftConfig, info: NormalizationInfo): Promise<SiftConfig> {
+  const runtimeBackfilled = applyRuntimeCompatibilityView(config);
+  return addEffectiveConfigProperties(updateRuntimePaths(runtimeBackfilled), info);
+}
+
+export async function normalizeLoadedConfig(config: SiftConfig): Promise<SiftConfig> {
+  const update = normalizeConfig(config);
+  return addLoadedConfigProperties(update.config, update.info);
 }
 
 export async function loadConfig(options?: { ensure?: boolean }): Promise<SiftConfig> {
@@ -60,8 +80,7 @@ export async function loadConfig(options?: { ensure?: boolean }): Promise<SiftCo
     await saveConfig(update.config);
   }
 
-  const runtimeBackfilled = applyRuntimeCompatibilityView(update.config);
-  return addEffectiveConfigProperties(updateRuntimePaths(runtimeBackfilled), update.info);
+  return addLoadedConfigProperties(update.config, update.info);
 }
 
 export async function setTopLevelConfigKey(key: string, value: unknown): Promise<SiftConfig> {

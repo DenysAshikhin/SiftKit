@@ -8,7 +8,7 @@ import { normalizeOperationModeAllowedTools, normalizePresets } from '../presets
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-const CURRENT_SCHEMA_VERSION = 20;
+const CURRENT_SCHEMA_VERSION = 21;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["repo_rg","repo_read_file","repo_list_files","repo_git","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}';
 
@@ -369,6 +369,54 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       ON runtime_artifacts(artifact_kind, created_at_utc DESC);
     CREATE INDEX IF NOT EXISTS idx_runtime_artifacts_request
       ON runtime_artifacts(request_id, created_at_utc DESC);
+
+    CREATE TABLE IF NOT EXISTS runtime_error_events (
+      id TEXT PRIMARY KEY,
+      created_at_utc TEXT NOT NULL,
+      source TEXT NOT NULL,
+      route TEXT NOT NULL,
+      method TEXT NOT NULL,
+      request_id TEXT,
+      task_kind TEXT,
+      status_code INTEGER NOT NULL,
+      error_name TEXT NOT NULL,
+      error_message TEXT NOT NULL,
+      error_stack TEXT,
+      cause_name TEXT,
+      cause_message TEXT,
+      cause_stack TEXT,
+      diagnostic_json TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_runtime_error_events_created
+      ON runtime_error_events(created_at_utc DESC);
+    CREATE INDEX IF NOT EXISTS idx_runtime_error_events_route_created
+      ON runtime_error_events(route, created_at_utc DESC);
+  `);
+}
+
+function ensureRuntimeErrorEventsSchema(database: RuntimeDatabase): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS runtime_error_events (
+      id TEXT PRIMARY KEY,
+      created_at_utc TEXT NOT NULL,
+      source TEXT NOT NULL,
+      route TEXT NOT NULL,
+      method TEXT NOT NULL,
+      request_id TEXT,
+      task_kind TEXT,
+      status_code INTEGER NOT NULL,
+      error_name TEXT NOT NULL,
+      error_message TEXT NOT NULL,
+      error_stack TEXT,
+      cause_name TEXT,
+      cause_message TEXT,
+      cause_stack TEXT,
+      diagnostic_json TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_runtime_error_events_created
+      ON runtime_error_events(created_at_utc DESC);
+    CREATE INDEX IF NOT EXISTS idx_runtime_error_events_route_created
+      ON runtime_error_events(route, created_at_utc DESC);
   `);
 }
 
@@ -587,6 +635,7 @@ function ensureSchema(database: RuntimeDatabase): void {
   if (currentVersion <= 0) {
     applyBaseSchema(database);
     ensureManagedLlamaAndBenchmarkMatrixSchema(database);
+    ensureRuntimeErrorEventsSchema(database);
     setSchemaVersion(database, CURRENT_SCHEMA_VERSION);
     return;
   }
@@ -914,8 +963,14 @@ function ensureSchema(database: RuntimeDatabase): void {
     setSchemaVersion(database, 20);
     currentVersion = 20;
   }
+  if (currentVersion < 21) {
+    ensureRuntimeErrorEventsSchema(database);
+    setSchemaVersion(database, 21);
+    currentVersion = 21;
+  }
   ensureRuntimeArtifactsSchema(database);
   ensureManagedLlamaAndBenchmarkMatrixSchema(database);
+  ensureRuntimeErrorEventsSchema(database);
 }
 
 export function getRepoRuntimeRoot(startPath: string = process.cwd()): string {

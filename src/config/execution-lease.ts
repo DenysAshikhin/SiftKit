@@ -10,9 +10,10 @@ export function getExecutionServiceUrl(): string {
 }
 
 export async function getExecutionServerState(): Promise<{ busy: boolean }> {
+  const serviceUrl = getExecutionServiceUrl();
   try {
     const response = await requestJson<{ busy?: boolean }>({
-      url: getExecutionServiceUrl(),
+      url: serviceUrl,
       method: 'GET',
       timeoutMs: 2000,
     });
@@ -23,15 +24,20 @@ export async function getExecutionServerState(): Promise<{ busy: boolean }> {
     return {
       busy: response.busy,
     };
-  } catch {
-    throw toStatusServerUnavailableError();
+  } catch (error) {
+    throw toStatusServerUnavailableError({
+      cause: error,
+      operation: 'execution:get',
+      serviceUrl,
+    });
   }
 }
 
 export async function tryAcquireExecutionLease(): Promise<{ acquired: boolean; token: string | null }> {
+  const serviceUrl = `${getExecutionServiceUrl().replace(/\/$/u, '')}/acquire`;
   try {
     const response = await requestJson<{ acquired?: boolean; token?: string | null }>({
-      url: `${getExecutionServiceUrl().replace(/\/$/u, '')}/acquire`,
+      url: serviceUrl,
       method: 'POST',
       timeoutMs: 2000,
       body: JSON.stringify({ pid: process.pid }),
@@ -47,33 +53,47 @@ export async function tryAcquireExecutionLease(): Promise<{ acquired: boolean; t
           ? response.token
           : null,
     };
-  } catch {
-    throw toStatusServerUnavailableError();
+  } catch (error) {
+    throw toStatusServerUnavailableError({
+      cause: error,
+      operation: 'execution:acquire',
+      serviceUrl,
+    });
   }
 }
 
 export async function refreshExecutionLease(token: string): Promise<void> {
+  const serviceUrl = `${getExecutionServiceUrl().replace(/\/$/u, '')}/heartbeat`;
   try {
     await requestJson({
-      url: `${getExecutionServiceUrl().replace(/\/$/u, '')}/heartbeat`,
+      url: serviceUrl,
       method: 'POST',
       timeoutMs: 2000,
       body: JSON.stringify({ token }),
     });
-  } catch {
-    throw toStatusServerUnavailableError();
+  } catch (error) {
+    throw toStatusServerUnavailableError({
+      cause: error,
+      operation: 'execution:refresh',
+      serviceUrl,
+    });
   }
 }
 
 export async function releaseExecutionLease(token: string): Promise<void> {
+  const serviceUrl = `${getExecutionServiceUrl().replace(/\/$/u, '')}/release`;
   try {
     await requestJson({
-      url: `${getExecutionServiceUrl().replace(/\/$/u, '')}/release`,
+      url: serviceUrl,
       method: 'POST',
       timeoutMs: 2000,
       body: JSON.stringify({ token }),
     });
-  } catch {
-    throw toStatusServerUnavailableError();
+  } catch (error) {
+    throw toStatusServerUnavailableError({
+      cause: error,
+      operation: 'execution:release',
+      serviceUrl,
+    });
   }
 }

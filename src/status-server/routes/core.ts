@@ -5,6 +5,7 @@ import * as http from 'node:http';
 import * as crypto from 'node:crypto';
 import type { Dict } from '../../lib/types.js';
 import { summarizeRequest } from '../../summary/core.js';
+import type { SiftConfig } from '../../config/index.js';
 import type {
   SummaryPolicyProfile,
   SummarySourceKind,
@@ -18,6 +19,7 @@ import {
   parseJsonBody,
   sendJson,
 } from '../http-utils.js';
+import { sendServerErrorJson } from '../error-response.js';
 import {
   STATUS_TRUE,
   parseRunning,
@@ -480,7 +482,7 @@ export async function handleCoreRoute(
       });
       sendJson(res, 200, result);
     } catch (error) {
-      sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+      sendServerErrorJson(req, res, 500, error, { taskKind: 'repo-search' });
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
     }
@@ -514,11 +516,7 @@ export async function handleCoreRoute(
     if (!modelRequestLock) {
       return true;
     }
-    const previousStatusUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
-    const previousConfigUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
     const serviceBaseUrl = ctx.getServiceBaseUrl();
-    process.env.SIFTKIT_STATUS_BACKEND_URL = `${serviceBaseUrl}/status`;
-    process.env.SIFTKIT_CONFIG_SERVICE_URL = `${serviceBaseUrl}/config`;
     try {
       await ensureManagedLlamaReadyForModelRequest(ctx);
       const result = await summarizeRequest({
@@ -533,21 +531,12 @@ export async function handleCoreRoute(
         timing: getSummaryTiming(parsedBody.timing),
         statusBackendUrl: `${serviceBaseUrl}/status`,
         skipExecutionLock: true,
+        config: readConfig(configPath) as SiftConfig,
       });
       sendJson(res, 200, result);
     } catch (error) {
-      sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+      sendServerErrorJson(req, res, 500, error, { taskKind: 'summary' });
     } finally {
-      if (previousStatusUrl === undefined) {
-        delete process.env.SIFTKIT_STATUS_BACKEND_URL;
-      } else {
-        process.env.SIFTKIT_STATUS_BACKEND_URL = previousStatusUrl;
-      }
-      if (previousConfigUrl === undefined) {
-        delete process.env.SIFTKIT_CONFIG_SERVICE_URL;
-      } else {
-        process.env.SIFTKIT_CONFIG_SERVICE_URL = previousConfigUrl;
-      }
       releaseModelRequest(ctx, modelRequestLock.token);
     }
     return true;
@@ -611,7 +600,10 @@ export async function handleCoreRoute(
           artifactPayload: metadata.artifactPayload,
         });
       } catch (error) {
-        sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+        sendServerErrorJson(req, res, 500, error, {
+          taskKind: metadata.taskKind ?? null,
+          requestId: metadata.requestId ?? null,
+        });
         return true;
       }
     }
@@ -992,7 +984,7 @@ export async function handleCoreRoute(
       }
       sendJson(res, 200, await ctx.ensureManagedLlamaReady({ allowUnconfigured: true }));
     } catch (error) {
-      sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
+      sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
     }
     return true;
   }

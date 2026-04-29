@@ -24,6 +24,9 @@ function Get-SiftTsRuntimePath {
     if ($RelativePath -like 'src\*' -or $RelativePath -like 'src/*') {
         $relativeCandidates += $RelativePath.Substring(4)
     }
+    if ($RelativePath -eq 'src\cli.js' -or $RelativePath -eq 'src/cli.js' -or $RelativePath -eq 'cli.js') {
+        $relativeCandidates += @('cli\index.js', 'cli\dispatch.js')
+    }
 
     $candidatePaths = foreach ($candidateRelativePath in ($relativeCandidates | Select-Object -Unique)) {
         (Get-SiftRepoPath -RelativePath (Join-Path -Path 'dist' -ChildPath $candidateRelativePath))

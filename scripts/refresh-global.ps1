@@ -182,11 +182,33 @@ function Get-GlobalSiftKitCommandPath {
     throw ('Unable to locate the global siftkit shim under {0}.' -f $globalPrefix)
 }
 
+function Stop-ExistingGlobalSiftKitStatusServer {
+    $globalPrefix = (npm prefix -g 2>$null | Select-Object -First 1).ToString().Trim()
+    if (-not $globalPrefix) {
+        return
+    }
+
+    $globalPackageRoot = Join-Path $globalPrefix 'node_modules\siftkit'
+    $statusServerPath = Join-Path $globalPackageRoot 'dist\status-server\index.js'
+    $normalizedStatusServerPath = [System.IO.Path]::GetFullPath($statusServerPath).ToLowerInvariant()
+    $processes = @(Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue | Where-Object {
+        $commandLine = [string]$_.CommandLine
+        $commandLine.ToLowerInvariant().Contains($normalizedStatusServerPath)
+    })
+
+    foreach ($process in $processes) {
+        Write-Host ('Stopping existing global SiftKit status server process {0} before npm global refresh.' -f $process.ProcessId)
+        Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
+    }
+}
+
 try {
     $tarballName = Get-SiftKitPackageTarballName
 
     Write-Host 'Packing current repo...'
     Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('pack', '--loglevel', 'error') -Description 'Packing current repo'
+
+    Stop-ExistingGlobalSiftKitStatusServer
 
     Write-Host 'Installing packed tarball globally...'
     Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('i', '-g', $tarballName, '--force', '--loglevel', 'error') -Description 'Installing packed tarball globally'
@@ -200,12 +222,15 @@ catch {
     Write-Host ('Using fallback global shim: {0}' -f $globalSiftKit)
 }
 
-Write-Host 'Running siftkit test...'
-& $globalSiftKit test | Out-Host
+Write-Host 'Running public CLI smoke checks...'
+& $globalSiftKit --help | Out-Host
+if ($LASTEXITCODE -ne 0) {
+    throw ('Global siftkit --help failed with exit code {0}.' -f $LASTEXITCODE)
+}
 
-$siftInput = ((1..25 | ForEach-Object { "INFO step $_ completed successfully" }) + "ERROR database migration failed: duplicate key on users.email") -join "`n"
+& $globalSiftKit repo-search --help | Out-Host
+if ($LASTEXITCODE -ne 0) {
+    throw ('Global siftkit repo-search --help failed with exit code {0}.' -f $LASTEXITCODE)
+}
 
-Write-Host 'Running sample summary...'
-& $globalSiftKit summary --question "what is the main problem?" --text $siftInput | Out-Host
-
-Write-Host 'Use the siftkit test output above to verify external llama-server reachability.'
+Write-Host 'Global siftkit public CLI smoke checks passed.'

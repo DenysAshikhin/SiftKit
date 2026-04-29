@@ -77,6 +77,9 @@ async function requestSummaryThroughStatusServer(request: SummaryRequest): Promi
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (/^HTTP \d+:/u.test(message)) {
+      throw error;
+    }
     if (/ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|timed out|socket hang up/iu.test(message)) {
       throw new Error(getStatusServerUnavailableMessage());
     }

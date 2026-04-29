@@ -1,4 +1,4 @@
-import type { RuntimeLlamaCppConfig } from '../config/index.js';
+import type { RuntimeLlamaCppConfig, SiftConfig } from '../config/index.js';
 
 export type SummaryPolicyProfile =
   | 'general'
@@ -38,6 +38,7 @@ export type SummaryRequest = {
   timing?: SummaryTimingInput;
   statusBackendUrl?: string | null;
   skipExecutionLock?: boolean;
+  config?: SiftConfig;
 };
 
 export type SummaryResult = {

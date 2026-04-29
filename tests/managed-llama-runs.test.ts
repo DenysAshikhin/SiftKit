@@ -199,7 +199,7 @@ test('releaseModelRequest flushes buffered managed llama logs for the active hos
   });
 });
 
-test('deleteManagedLlamaLogChunksOlderThan prunes old inactive chunks only', async () => {
+test('deleteManagedLlamaLogChunksOlderThan prunes old non-running chunks only', async () => {
   await withTestEnvAndServer(async () => {
     const database = getRuntimeDatabase();
     const oldStopped = createManagedLlamaRun({ id: 'old-stopped-run', purpose: 'startup', status: 'stopped' });
@@ -221,7 +221,7 @@ test('deleteManagedLlamaLogChunksOlderThan prunes old inactive chunks only', asy
     insertChunk.run(oldReady.id, oldUtc);
     insertChunk.run(recentStopped.id, recentUtc);
 
-    assert.equal(deleteManagedLlamaLogChunksOlderThan({ olderThanUtc: cutoffUtc }), 2);
+    assert.equal(deleteManagedLlamaLogChunksOlderThan({ olderThanUtc: cutoffUtc }), 3);
 
     const remainingChunks = database.prepare(`
       SELECT run_id
@@ -229,7 +229,6 @@ test('deleteManagedLlamaLogChunksOlderThan prunes old inactive chunks only', asy
       ORDER BY run_id ASC
     `).all() as Array<{ run_id: string }>;
     assert.deepEqual(remainingChunks.map((row) => row.run_id), [
-      oldReady.id,
       oldRunning.id,
       recentStopped.id,
     ]);

@@ -54,8 +54,12 @@ export function getStatusServerUnavailableMessage(): string {
   return new StatusServerUnavailableError(getStatusServerHealthUrl()).message;
 }
 
-export function toStatusServerUnavailableError(): StatusServerUnavailableError {
-  return new StatusServerUnavailableError(getStatusServerHealthUrl());
+export function toStatusServerUnavailableError(options: {
+  cause?: unknown;
+  operation?: string;
+  serviceUrl?: string;
+} = {}): StatusServerUnavailableError {
+  return new StatusServerUnavailableError(getStatusServerHealthUrl(), options);
 }
 
 export async function getStatusSnapshot(): Promise<StatusSnapshotResponse> {
@@ -65,8 +69,12 @@ export async function getStatusSnapshot(): Promise<StatusSnapshotResponse> {
       method: 'GET',
       timeoutMs: 2000,
     });
-  } catch {
-    throw toStatusServerUnavailableError();
+  } catch (error) {
+    throw toStatusServerUnavailableError({
+      cause: error,
+      operation: 'status:get',
+      serviceUrl: getStatusBackendUrl(),
+    });
   }
 }
 
@@ -75,6 +83,7 @@ export async function ensureStatusServerReachable(): Promise<void> {
   const attempts = readPositiveIntegerEnv('SIFTKIT_HEALTHCHECK_ATTEMPTS', DEFAULT_HEALTHCHECK_ATTEMPTS);
   const timeoutMs = readPositiveIntegerEnv('SIFTKIT_HEALTHCHECK_TIMEOUT_MS', DEFAULT_HEALTHCHECK_TIMEOUT_MS);
   const baseBackoffMs = readNonNegativeIntegerEnv('SIFTKIT_HEALTHCHECK_BACKOFF_MS', DEFAULT_HEALTHCHECK_BACKOFF_MS);
+  let lastError: unknown = null;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
@@ -88,6 +97,7 @@ export async function ensureStatusServerReachable(): Promise<void> {
       }
       return;
     } catch (error) {
+      lastError = error;
       const cause = error instanceof Error ? error.message : String(error);
       if (shouldTraceHealthcheckAttempts()) {
         process.stderr.write(
@@ -105,7 +115,11 @@ export async function ensureStatusServerReachable(): Promise<void> {
     }
   }
 
-  throw toStatusServerUnavailableError();
+  throw toStatusServerUnavailableError({
+    cause: lastError,
+    operation: 'health:get',
+    serviceUrl: healthUrl,
+  });
 }
 
 export type NotifyStatusBackendOptions = {
@@ -356,7 +370,11 @@ export async function notifyStatusBackend(options: NotifyStatusBackendOptions): 
       if (error instanceof Error && /Status backend remained busy/iu.test(error.message)) {
         throw error;
       }
-      throw toStatusServerUnavailableError();
+      throw toStatusServerUnavailableError({
+        cause: error,
+        operation: 'status:notify',
+        serviceUrl: url,
+      });
     }
   }
 }

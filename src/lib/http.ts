@@ -7,7 +7,7 @@ export type HttpMethod = 'GET' | 'PUT' | 'POST' | 'DELETE';
 export type RequestJsonOptions = {
   url: string;
   method: HttpMethod;
-  timeoutMs: number;
+  timeoutMs?: number;
   body?: string;
   abortSignal?: AbortSignal;
 };
@@ -73,9 +73,12 @@ export function requestJson<T>(options: RequestJsonOptions): Promise<T> {
       }
     );
 
-    request.setTimeout(options.timeoutMs, () => {
-      request.destroy(new Error(`Request timed out after ${options.timeoutMs} ms.`));
-    });
+    if (Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0) {
+      const timeoutMs = Math.trunc(Number(options.timeoutMs));
+      request.setTimeout(timeoutMs, () => {
+        request.destroy(new Error(`Request timed out after ${timeoutMs} ms.`));
+      });
+    }
     request.on('error', reject);
     if (options.body) {
       request.write(options.body);
@@ -137,17 +140,18 @@ export function requestText(options: RequestTextOptions): Promise<TextResponse> 
 export function requestJsonFull<T>(options: RequestJsonOptions): Promise<FullJsonResponse<T>> {
   return new Promise((resolve, reject) => {
     let settled = false;
+    let timeoutHandle: NodeJS.Timeout | null = null;
     const resolveOnce = (value: FullJsonResponse<T>): void => {
       if (settled) return;
       settled = true;
-      clearTimeout(timeoutHandle);
+      if (timeoutHandle) clearTimeout(timeoutHandle);
       options.abortSignal?.removeEventListener('abort', abortRequest);
       resolve(value);
     };
     const rejectOnce = (error: unknown): void => {
       if (settled) return;
       settled = true;
-      clearTimeout(timeoutHandle);
+      if (timeoutHandle) clearTimeout(timeoutHandle);
       options.abortSignal?.removeEventListener('abort', abortRequest);
       reject(error);
     };
@@ -195,13 +199,16 @@ export function requestJsonFull<T>(options: RequestJsonOptions): Promise<FullJso
       },
     );
 
-    const timeoutHandle = setTimeout(() => {
-      request.destroy(new Error(`Request timed out after ${options.timeoutMs} ms.`));
-    }, options.timeoutMs);
+    if (Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0) {
+      const timeoutMs = Math.trunc(Number(options.timeoutMs));
+      timeoutHandle = setTimeout(() => {
+        request.destroy(new Error(`Request timed out after ${timeoutMs} ms.`));
+      }, timeoutMs);
+    }
     const abortRequest = (): void => {
       request.destroy(getAbortError());
     };
-    if (typeof timeoutHandle.unref === 'function') {
+    if (timeoutHandle && typeof timeoutHandle.unref === 'function') {
       timeoutHandle.unref();
     }
 

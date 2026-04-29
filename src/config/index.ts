@@ -90,6 +90,7 @@ export {
 export {
   getConfigServiceUrl,
   loadConfig,
+  normalizeLoadedConfig,
   saveConfig,
   setTopLevelConfigKey,
 } from './config-service.js';

@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import {
   loadConfig,
+  normalizeLoadedConfig,
   type SiftConfig,
   getChunkThresholdCharacters,
   getConfiguredLlamaBaseUrl,
@@ -525,9 +526,15 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
     let backend = request.backend || 'unknown';
     let model = request.model || 'unknown';
     try {
-      traceSummary('loadConfig start');
-      config = await loadConfig({ ensure: true });
-      traceSummary('loadConfig done');
+      if (request.config) {
+        traceSummary('normalize provided config start');
+        config = await normalizeLoadedConfig(request.config);
+        traceSummary('normalize provided config done');
+      } else {
+        traceSummary('loadConfig start');
+        config = await loadConfig({ ensure: true });
+        traceSummary('loadConfig done');
+      }
       getConfiguredLlamaBaseUrl(config);
       getConfiguredLlamaNumCtx(config);
       backend = request.backend || config.Backend;

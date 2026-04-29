@@ -1,13 +1,29 @@
 export class StatusServerUnavailableError extends Error {
   healthUrl: string;
+  operation?: string;
+  serviceUrl?: string;
 
-  constructor(healthUrl: string) {
+  constructor(
+    healthUrl: string,
+    options: {
+      cause?: unknown;
+      operation?: string;
+      serviceUrl?: string;
+    } = {},
+  ) {
     super(
       `SiftKit status/config server is not reachable at ${healthUrl}. `
-      + 'Start the separate server process and stop issuing further siftkit commands until it is available.'
+      + 'Start the separate server process and stop issuing further siftkit commands until it is available.',
+      options.cause === undefined ? undefined : { cause: options.cause },
     );
     this.name = 'StatusServerUnavailableError';
     this.healthUrl = healthUrl;
+    if (options.operation) {
+      this.operation = options.operation;
+    }
+    if (options.serviceUrl) {
+      this.serviceUrl = options.serviceUrl;
+    }
   }
 }
 
