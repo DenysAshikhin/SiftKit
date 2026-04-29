@@ -9,10 +9,13 @@ import {
 import { runRepoSearch } from './engine.js';
 import { getNumericTotal, getOutputCharacterCount } from './scorecard.js';
 import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
-import { getRuntimeDatabase } from '../state/runtime-db.js';
+import { getRuntimeDatabase, getRuntimeDatabasePath } from '../state/runtime-db.js';
 import { upsertRepoSearchRun } from '../status-server/dashboard-runs.js';
 import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
-import { createTemporaryTimingRecorderFromEnv } from '../lib/temporary-timing-recorder.js';
+import {
+  createTemporaryTimingRecorderFromEnv,
+  type TemporaryTimingRecorder,
+} from '../lib/temporary-timing-recorder.js';
 import type {
   RepoSearchExecutionRequest,
   RepoSearchExecutionResult,
@@ -23,6 +26,32 @@ export const DEFAULT_REPO_SEARCH_PROMPT_TIMEOUT_MS = 4 * 60 * 1000;
 
 function buildRepoSearchPromptTimeoutError(timeoutMs: number): Error {
   return new Error(`Repo search prompt exceeded ${timeoutMs} ms. Please try again.`);
+}
+
+type RepoSearchRunPersistenceOptions = Omit<Parameters<typeof upsertRepoSearchRun>[0], 'database'> & {
+  databasePath: string;
+};
+
+function scheduleRepoSearchRunPersistence(
+  options: RepoSearchRunPersistenceOptions,
+  timingRecorder: TemporaryTimingRecorder | null,
+): void {
+  const scheduleSpan = timingRecorder?.start('repo.run_log.schedule', {
+    terminalState: options.terminalState,
+  });
+  scheduleSpan?.end();
+  setImmediate(() => {
+    const { databasePath, ...runOptions } = options;
+    try {
+      upsertRepoSearchRun({
+        database: getRuntimeDatabase(databasePath),
+        ...runOptions,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      traceRepoSearch(`async run-log persistence failed request_id=${options.requestId} error=${message}`);
+    }
+  });
 }
 
 export async function executeRepoSearchRequest(
@@ -49,6 +78,7 @@ export async function executeRepoSearchRequest(
   const repoRoot = path.resolve(String(request.repoRoot || process.cwd()));
   const requestId = randomUUID();
   const taskKind = request.taskKind === 'plan' ? 'plan' : 'repo-search';
+  const runtimeDatabasePath = getRuntimeDatabasePath();
   const timingRecorder = createTemporaryTimingRecorderFromEnv({
     kind: 'repo-search',
     requestId,
@@ -173,34 +203,8 @@ export async function executeRepoSearchRequest(
         noNewEvidenceCalls?: number;
       }> }).toolStats
       : null;
+    const finishedAtUtc = new Date().toISOString();
     try {
-      const finishedAtUtc = new Date().toISOString();
-      const runLogSpan = timingRecorder?.start('repo.run_log.persist');
-      upsertRepoSearchRun({
-        database: getRuntimeDatabase(),
-        requestId,
-        taskKind,
-        prompt,
-        repoRoot,
-        model: request.model ?? null,
-        requestMaxTokens: null,
-        maxTurns: request.maxTurns ?? null,
-        transcriptText,
-        artifactPayload: artifact as unknown as Record<string, unknown>,
-        terminalState: 'completed',
-        startedAtUtc: new Date(startedAt).toISOString(),
-        finishedAtUtc,
-        requestDurationMs: Date.now() - startedAt,
-        promptTokens,
-        outputTokens,
-        thinkingTokens,
-        toolTokens,
-        promptCacheTokens,
-        promptEvalTokens,
-        promptEvalDurationMs,
-        generationDurationMs,
-      });
-      runLogSpan?.end();
       const notifyCompleteSpan = timingRecorder?.start('repo.status.notify_terminal', {
         terminalState: 'completed',
       });
@@ -226,6 +230,30 @@ export async function executeRepoSearchRequest(
       timingRecorder?.start('repo.status.notify_terminal').end({ ok: false, terminalState: 'completed' });
       traceRepoSearch(`notify running=false failed request_id=${requestId} state=completed`);
     }
+    scheduleRepoSearchRunPersistence({
+      databasePath: runtimeDatabasePath,
+      requestId,
+      taskKind,
+      prompt,
+      repoRoot,
+      model: request.model ?? null,
+      requestMaxTokens: null,
+      maxTurns: request.maxTurns ?? null,
+      transcriptText,
+      artifactPayload: artifact as unknown as Record<string, unknown>,
+      terminalState: 'completed',
+      startedAtUtc: new Date(startedAt).toISOString(),
+      finishedAtUtc,
+      requestDurationMs: Date.now() - startedAt,
+      promptTokens,
+      outputTokens,
+      thinkingTokens,
+      toolTokens,
+      promptCacheTokens,
+      promptEvalTokens,
+      promptEvalDurationMs,
+      generationDurationMs,
+    }, timingRecorder);
     traceRepoSearch(
       `execute done request_id=${requestId} verdict=${String(scorecard?.verdict ?? 'unknown')} `
       + `duration_ms=${Date.now() - startedAt} output_chars=${outputCharacterCount}`
@@ -266,36 +294,7 @@ export async function executeRepoSearchRequest(
       payload: artifact,
     }).uri;
     artifactSpan?.end();
-    try {
-      const runLogSpan = timingRecorder?.start('repo.run_log.persist', { terminalState: 'failed' });
-      upsertRepoSearchRun({
-        database: getRuntimeDatabase(),
-        requestId,
-        taskKind,
-        prompt,
-        repoRoot,
-        model: request.model ?? null,
-        requestMaxTokens: null,
-        maxTurns: request.maxTurns ?? null,
-        transcriptText,
-        artifactPayload: artifact as unknown as Record<string, unknown>,
-        terminalState: 'failed',
-        startedAtUtc: new Date(startedAt).toISOString(),
-        finishedAtUtc: new Date().toISOString(),
-        requestDurationMs: Date.now() - startedAt,
-        promptTokens: null,
-        outputTokens: null,
-        thinkingTokens: null,
-        toolTokens: null,
-        promptCacheTokens: null,
-        promptEvalTokens: null,
-        promptEvalDurationMs: null,
-        generationDurationMs: null,
-      });
-      runLogSpan?.end();
-    } catch {
-      // Best effort run-log persistence.
-    }
+    const failedFinishedAtUtc = new Date().toISOString();
     try {
       const notifyFailedSpan = timingRecorder?.start('repo.status.notify_terminal', {
         terminalState: 'failed',
@@ -316,6 +315,30 @@ export async function executeRepoSearchRequest(
       timingRecorder?.start('repo.status.notify_terminal').end({ ok: false, terminalState: 'failed' });
       traceRepoSearch(`notify running=false failed request_id=${requestId} state=failed`);
     }
+    scheduleRepoSearchRunPersistence({
+      databasePath: runtimeDatabasePath,
+      requestId,
+      taskKind,
+      prompt,
+      repoRoot,
+      model: request.model ?? null,
+      requestMaxTokens: null,
+      maxTurns: request.maxTurns ?? null,
+      transcriptText,
+      artifactPayload: artifact as unknown as Record<string, unknown>,
+      terminalState: 'failed',
+      startedAtUtc: new Date(startedAt).toISOString(),
+      finishedAtUtc: failedFinishedAtUtc,
+      requestDurationMs: Date.now() - startedAt,
+      promptTokens: null,
+      outputTokens: null,
+      thinkingTokens: null,
+      toolTokens: null,
+      promptCacheTokens: null,
+      promptEvalTokens: null,
+      promptEvalDurationMs: null,
+      generationDurationMs: null,
+    }, timingRecorder);
     traceRepoSearch(`execute failed request_id=${requestId} duration_ms=${Date.now() - startedAt} error=${message}`);
     (error as { artifactPath?: string; transcriptPath?: string }).artifactPath = artifactPath;
     (error as { artifactPath?: string; transcriptPath?: string }).transcriptPath = transcriptUri;

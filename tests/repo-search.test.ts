@@ -21,6 +21,38 @@ const Database = requireFromHere('better-sqlite3') as new (path: string, options
   close: () => void;
 };
 
+async function waitForRepoSearchRunLogRow(
+  databasePath: string,
+  requestId: string,
+): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + 2000;
+  let lastError: unknown = null;
+  while (Date.now() < deadline) {
+    try {
+      const database = new Database(databasePath, { readonly: true });
+      try {
+        const row = database.prepare(`
+          SELECT prompt_eval_duration_ms, generation_duration_ms
+          FROM run_logs
+          WHERE request_id = ?
+        `).get(requestId) as Record<string, unknown> | undefined;
+        if (row) {
+          return row;
+        }
+      } finally {
+        database.close();
+      }
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  if (lastError) {
+    throw lastError;
+  }
+  throw new Error(`Timed out waiting for repo-search run log row: ${requestId}`);
+}
+
 test('executeRepoSearchRequest throws on empty prompt', async () => {
   await withTestEnvAndServer(async () => {
     await assert.rejects(
@@ -231,19 +263,9 @@ test('executeRepoSearchRequest persists summed prompt-eval and generation durati
       assert.ok(Number(result.scorecard.totals.promptEvalDurationMs || 0) >= 20);
       assert.ok(Number(result.scorecard.totals.generationDurationMs || 0) >= 20);
 
-      const database = new Database(`${tempRoot}\\.siftkit\\runtime.sqlite`, { readonly: true });
-      try {
-        const row = database.prepare(`
-          SELECT prompt_eval_duration_ms, generation_duration_ms
-          FROM run_logs
-          WHERE request_id = ?
-        `).get(result.requestId) as Record<string, unknown> | undefined;
-        assert.ok(row);
-        assert.ok(Number(row?.prompt_eval_duration_ms || 0) >= 20);
-        assert.ok(Number(row?.generation_duration_ms || 0) >= 20);
-      } finally {
-        database.close();
-      }
+      const row = await waitForRepoSearchRunLogRow(`${tempRoot}\\.siftkit\\runtime.sqlite`, result.requestId);
+      assert.ok(Number(row.prompt_eval_duration_ms || 0) >= 20);
+      assert.ok(Number(row.generation_duration_ms || 0) >= 20);
     } finally {
       await new Promise<void>((resolve, reject) => {
         modelServer.close((error) => (error ? reject(error) : resolve()));

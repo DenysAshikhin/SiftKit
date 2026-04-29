@@ -480,11 +480,22 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
   if (!ctx.activeModelRequest || ctx.activeModelRequest.token !== token) {
     return false;
   }
-  if (ctx.managedLlamaLastStartupLogs?.runId) {
-    flushManagedLlamaLogChunks(ctx.managedLlamaLastStartupLogs.runId);
-    flushManagedLlamaSpeculativeMetricsTracker(ctx.managedLlamaLastStartupLogs.runId);
-  }
   ctx.activeModelRequest = null;
+  if (ctx.managedLlamaLastStartupLogs?.runId) {
+    const runId = ctx.managedLlamaLastStartupLogs.runId;
+    try {
+      flushManagedLlamaLogChunks(runId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logLine(`managed_llama cleanup warning run_id=${runId} kind=log_flush error=${JSON.stringify(message)}`);
+    }
+    try {
+      flushManagedLlamaSpeculativeMetricsTracker(runId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logLine(`managed_llama cleanup warning run_id=${runId} kind=speculative_metrics_flush error=${JSON.stringify(message)}`);
+    }
+  }
   return true;
 }
 

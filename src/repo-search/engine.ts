@@ -20,7 +20,7 @@ import { spawnPowerShellAsync } from '../lib/powershell.js';
 import { getDynamicMaxOutputTokens } from '../lib/dynamic-output-cap.js';
 import { colorize } from '../lib/text-format.js';
 import type { TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
-import { countLlamaCppTokens, listLlamaCppModels } from '../providers/llama-cpp.js';
+import { listLlamaCppModels } from '../providers/llama-cpp.js';
 import type { ToolTypeStats } from '../status-server/metrics.js';
 import {
   buildIgnorePolicy,
@@ -915,6 +915,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     const pendingModeChangeUserMessages: string[] = [];
     let pendingForcedFinishCountdownText: string | null = null;
     let batchDuplicateAnchorIndex: number | null = null;
+    let acceptedToolPromptTokensThisTurn = 0;
 
     for (const toolAction of toolActions) {
       const normalizedToolName = String(toolAction.tool_name || '').trim().toLowerCase();
@@ -1174,15 +1175,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       continue;
     }
 
-    const promptTokenSpan = options.timingRecorder?.start('repo.tool.prompt_tokens', {
-      taskId: task.id,
-      turn,
-      toolName: normalizedToolName,
-    });
-    const promptTokenCount = useEstimatedTokensOnly
-      ? estimateTokenCount(options.config, prompt)
-      : await countTokensWithFallback(options.config, prompt);
-    promptTokenSpan?.end({ promptTokenCount });
+    const promptTokenCount = preflight.promptTokenCount;
 
     if (options.onProgress) {
       options.onProgress({ kind: 'tool_start', turn, maxTurns, command: commandToRun, promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
@@ -1318,7 +1311,10 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       : getRepoSearchLineReadStats(commandToRun, baseOutput, rawResultTokenCount);
     const dynamicPerToolRatio = Math.max(PER_TOOL_RESULT_RATIO, Number(commands.length) / Number(maxTurns));
     const perToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * dynamicPerToolRatio));
-    const remainingTokenAllowance = Math.max(usablePromptTokens - promptTokenCount, 0);
+    const remainingTokenAllowance = Math.max(
+      usablePromptTokens - promptTokenCount - acceptedToolPromptTokensThisTurn,
+      0
+    );
     const promptToolTokenSpan = options.timingRecorder?.start('repo.tool.tokenize_prompt', {
       taskId: task.id,
       turn,
@@ -1330,33 +1326,26 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       : await countTokensWithFallback(options.config, resultText);
     promptToolTokenSpan?.end({ tokenCount: candidateResultTokenCount });
 
-    if (rawResultTokenCount > perToolCapTokens || rawResultTokenCount > remainingTokenAllowance) {
-      resultText = `Error: requested output would consume ${rawResultTokenCount} tokens, remaining token allowance: ${remainingTokenAllowance}, per tool call allowance: ${perToolCapTokens}`;
+    let resultTokenCount = candidateResultTokenCount;
+    let resultTokenCountEstimated = useEstimatedTokensOnly;
+
+    if (candidateResultTokenCount > perToolCapTokens || candidateResultTokenCount > remainingTokenAllowance) {
+      resultText = `Error: requested output would consume ${candidateResultTokenCount} tokens, remaining token allowance: ${remainingTokenAllowance}, per tool call allowance: ${perToolCapTokens}`;
       writeRedConsoleLine(`repo_search warning: ${resultText}`);
-    }
-    let resultTokenCount = 0;
-    let resultTokenCountEstimated = false;
-    if (useEstimatedTokensOnly) {
-      resultTokenCount = estimateTokenCount(options.config, resultText);
-      resultTokenCountEstimated = true;
-    } else {
-      const finalToolTokenSpan = options.timingRecorder?.start('repo.tool.tokenize_final', {
-        taskId: task.id,
-        turn,
-        toolName: normalizedToolName,
-        inputChars: resultText.length,
-      });
-      const exactResultTokenCount = options.config
-        ? await countLlamaCppTokens(options.config, resultText)
-        : null;
-      finalToolTokenSpan?.end({
-        tokenCount: Number.isFinite(exactResultTokenCount) ? Number(exactResultTokenCount) : -1,
-      });
-      if (Number.isFinite(exactResultTokenCount) && Number(exactResultTokenCount) > 0) {
-        resultTokenCount = Number(exactResultTokenCount);
-      } else {
+
+      if (useEstimatedTokensOnly) {
         resultTokenCount = estimateTokenCount(options.config, resultText);
         resultTokenCountEstimated = true;
+      } else {
+        const rejectionToolTokenSpan = options.timingRecorder?.start('repo.tool.tokenize_rejection', {
+          taskId: task.id,
+          turn,
+          toolName: normalizedToolName,
+          inputChars: resultText.length,
+        });
+        resultTokenCount = await countTokensWithFallback(options.config, resultText);
+        rejectionToolTokenSpan?.end({ tokenCount: resultTokenCount });
+        resultTokenCountEstimated = false;
       }
     }
     const toolType = isNativeTool
@@ -1432,6 +1421,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       toolCallId,
       toolContent: resultText,
     });
+    acceptedToolPromptTokensThisTurn += Math.max(0, Math.ceil(resultTokenCount));
     }
 
     const preAppendMessagesLength = messages.length;

@@ -491,6 +491,59 @@ test('runTaskLoop still rejects tool output that exceeds remaining token allowan
   assert.equal(result.reason, 'finish');
 });
 
+test('runTaskLoop subtracts accepted same-turn tool results from remaining allowance', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-same-turn-token-guard',
+      question: 'Find planner prompt and prompt budget helpers.',
+      signals: ['done'],
+    },
+    {
+      maxTurns: 10,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens: 30000,
+      mockResponses: [
+        JSON.stringify({
+          action: 'tool_batch',
+          tool_calls: [
+            { tool_name: 'run_repo_cmd', args: { command: 'rg -n "planner prompt" src' } },
+            { tool_name: 'run_repo_cmd', args: { command: 'rg -n "prompt budget" src' } },
+          ],
+        }),
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'rg -n "planner prompt" src': {
+          exitCode: 0,
+          stdout: 'src/repo-search/prompts.ts:228:repo-search planner prompt',
+          stderr: '',
+        },
+        'rg -n "prompt budget" src': {
+          exitCode: 0,
+          stdout: 'src/repo-search/prompt-budget.ts:1:prompt budget helper',
+          stderr: '',
+        },
+      },
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
+  assert.equal(commandEvents.length, 2);
+  assert.equal(
+    commandEvents[1].remainingTokenAllowance,
+    commandEvents[0].remainingTokenAllowance - commandEvents[0].resultTokenCount
+  );
+  assert.equal(result.reason, 'finish');
+});
+
 test('runTaskLoop accepts first finish immediately when runtime reasoning is off', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   const result = await runTaskLoop(

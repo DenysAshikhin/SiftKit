@@ -359,6 +359,87 @@ test('runTaskLoop reports prompt tokens and elapsed time on command progress eve
   assert.equal(result.reason, 'finish');
 });
 
+test('runTaskLoop reuses preflight prompt token count for tool progress and allowance', async () => {
+  const tokenizedContent: string[] = [];
+  let chatRequestCount = 0;
+  const server = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/tokenize') {
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', () => {
+        const parsed = JSON.parse(body || '{}') as { content?: string };
+        const content = String(parsed.content || '');
+        tokenizedContent.push(content);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ count: Math.max(1, Math.ceil(content.length / 4)) }));
+      });
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/v1/chat/completions') {
+      chatRequestCount += 1;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{
+          message: {
+            role: 'assistant',
+            content: chatRequestCount === 1
+              ? '{"action":"tool","tool_name":"repo_git","args":{"command":"git status --short"}}'
+              : '{"action":"finish","output":"done"}',
+          },
+        }],
+        usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+      }));
+      return;
+    }
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${Number(typeof address === 'object' && address ? address.port : 0)}`;
+
+  try {
+    const result = await runTaskLoop(
+      {
+        id: 'task-reuse-preflight-prompt-tokens',
+        question: 'Find git status.',
+        signals: [],
+      },
+      {
+        repoRoot: process.cwd(),
+        baseUrl,
+        model: 'mock-model',
+        config: {
+          Runtime: {
+            Model: 'mock-model',
+            LlamaCpp: { BaseUrl: baseUrl, NumCtx: 128000 },
+          },
+          LlamaCpp: { BaseUrl: baseUrl, NumCtx: 128000 },
+        },
+        totalContextTokens: 128000,
+        maxTurns: 2,
+        minToolCallsBeforeFinish: 0,
+        mockCommandResults: {
+          'git status --short': { exitCode: 0, stdout: ' M src/repo-search/engine.ts', stderr: '' },
+        },
+      }
+    );
+
+    assert.equal(result.reason, 'finish');
+    const promptTokenizations = tokenizedContent.filter((content) => content.includes('You are a repo-search planner.'));
+    const uniquePromptTokenizations = new Set(promptTokenizations);
+    assert.equal(promptTokenizations.length, uniquePromptTokenizations.size);
+    const formattedResultTokenizations = tokenizedContent.filter(
+      (content) => content === 'M src/repo-search/engine.ts'
+    );
+    assert.equal(formattedResultTokenizations.length, 1);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
 test('runTaskLoop executes repo_list_files and repo_read_file natively', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   const repoRoot = createTempRepoRoot();

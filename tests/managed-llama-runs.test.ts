@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import Database from 'better-sqlite3';
 
 import {
   bufferManagedLlamaLogChunk,
@@ -9,7 +10,7 @@ import {
   readManagedLlamaLogTextByStream,
   readManagedLlamaLogTextStatsByStream,
 } from '../dist/state/managed-llama-runs.js';
-import { getRuntimeDatabase } from '../dist/state/runtime-db.js';
+import { getRuntimeDatabase, getRuntimeDatabasePath } from '../dist/state/runtime-db.js';
 import {
   captureManagedLlamaSpeculativeMetricsSnapshot,
   getManagedLlamaLogCursor,
@@ -196,6 +197,42 @@ test('releaseModelRequest flushes buffered managed llama logs for the active hos
     `).get(run.id) as { speculative_accepted_tokens?: number | null; speculative_generated_tokens?: number | null };
     assert.equal(metricsRow.speculative_accepted_tokens, 40);
     assert.equal(metricsRow.speculative_generated_tokens, 42);
+  });
+});
+
+test('releaseModelRequest releases the active request when managed llama log flush is database locked', async () => {
+  await withTestEnvAndServer(async () => {
+    const run = createManagedLlamaRun({ purpose: 'startup' });
+    const database = getRuntimeDatabase();
+    database.pragma('busy_timeout = 1');
+    bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'startup_script_stdout', chunkText: 'locked-write\n' });
+
+    const blocker = new Database(getRuntimeDatabasePath());
+    blocker.pragma('busy_timeout = 1');
+    blocker.exec('BEGIN IMMEDIATE');
+    const ctx = {
+      activeModelRequest: {
+        token: 'token-locked',
+        kind: 'repo_search',
+        startedAtUtc: new Date().toISOString(),
+      },
+      managedLlamaLastStartupLogs: {
+        runId: run.id,
+        purpose: 'startup',
+        scriptPath: 'fake-launcher.cmd',
+        baseUrl: 'http://127.0.0.1:8080',
+      },
+    } as unknown as Parameters<typeof releaseModelRequest>[0];
+
+    try {
+      const released = releaseModelRequest(ctx, 'token-locked');
+
+      assert.equal(released, true);
+      assert.equal(ctx.activeModelRequest, null);
+    } finally {
+      blocker.exec('ROLLBACK');
+      blocker.close();
+    }
   });
 });
 

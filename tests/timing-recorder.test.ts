@@ -150,6 +150,9 @@ test('repo-search execution dumps temp timing json with llama and tool phases', 
     assert.equal(labels.has('repo.llama.request'), true);
     assert.equal(labels.has('repo.tool.execute'), true);
     assert.equal(labels.has('repo.tool.append'), true);
+    assert.equal(labels.has('repo.tool.prompt_tokens'), false);
+    assert.equal(labels.has('repo.run_log.persist'), false);
+    assert.equal(labels.has('repo.run_log.schedule'), true);
   });
 });
 
