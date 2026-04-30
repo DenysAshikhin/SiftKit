@@ -184,7 +184,7 @@ test('executeRepoSearchRequest success path writes transcript and artifact', asy
   });
 });
 
-test('executeRepoSearchRequest does not wait for terminal status notification', async () => {
+test('executeRepoSearchRequest waits only for terminal status notification response', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
     const statusServer = await startDelayedTerminalStatusServer(300);
     try {
@@ -202,12 +202,9 @@ test('executeRepoSearchRequest does not wait for terminal status notification', 
       const durationMs = Date.now() - startedAt;
 
       assert.equal(typeof result.requestId, 'string');
-      assert.ok(durationMs < 250, `expected non-blocking terminal notify, got ${durationMs} ms`);
-      const deadline = Date.now() + 1000;
-      while (statusServer.terminalPostCount() === 0 && Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
       assert.equal(statusServer.terminalPostCount(), 1);
+      assert.ok(durationMs >= 250, `expected terminal notify to be awaited, got ${durationMs} ms`);
+      assert.ok(durationMs < 800, `expected only terminal notify response to be awaited, got ${durationMs} ms`);
     } finally {
       await statusServer.close();
     }

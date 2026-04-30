@@ -137,6 +137,8 @@ export type StubServerState = {
 export type StubServerOptions = {
   config?: Dict;
   assistantContent?: string | ((parsed: Dict) => string);
+  executionAcquireDelayMs?: number;
+  executionAcquireDelayCount?: number;
 };
 
 export type StubServer = {
@@ -167,6 +169,7 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
       updatedAtUtc: null,
     },
   };
+  let executionAcquireAttempts = 0;
 
   const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
@@ -185,6 +188,16 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
       return;
     }
     if (req.method === 'POST' && req.url === '/execution/acquire') {
+      executionAcquireAttempts += 1;
+      const delayCount = Number.isFinite(options.executionAcquireDelayCount)
+        ? Number(options.executionAcquireDelayCount)
+        : 0;
+      const delayMs = Number.isFinite(options.executionAcquireDelayMs)
+        ? Number(options.executionAcquireDelayMs)
+        : 0;
+      if (executionAcquireAttempts <= delayCount && delayMs > 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+      }
       const token = `tok-${Date.now()}`;
       state.executionLeaseToken = token;
       res.writeHead(200, { 'Content-Type': 'application/json' });

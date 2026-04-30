@@ -178,7 +178,7 @@ test('summary command-output pass/fail with Jest pass output is deterministic an
   });
 });
 
-test('summarizeRequest does not wait for terminal status notification', async () => {
+test('summarizeRequest waits only for terminal status notification response', async () => {
   await withTempEnv(async () => {
     const statusServer = await startDelayedTerminalSummaryStatusServer(300);
     try {
@@ -201,10 +201,9 @@ test('summarizeRequest does not wait for terminal status notification', async ()
       const durationMs = Date.now() - startedAt;
 
       assert.match(result.Summary, /^PASS:/u);
-      assert.ok(durationMs < 250, `expected non-blocking terminal notify, got ${durationMs} ms`);
-      await waitForAsyncExpectation(async () => {
-        assert.equal(statusServer.terminalPostCount(), 1);
-      }, 1000);
+      assert.equal(statusServer.terminalPostCount(), 1);
+      assert.ok(durationMs >= 250, `expected terminal notify to be awaited, got ${durationMs} ms`);
+      assert.ok(durationMs < 800, `expected only terminal notify response to be awaited, got ${durationMs} ms`);
     } finally {
       await statusServer.close();
     }

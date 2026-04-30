@@ -1,7 +1,9 @@
 import {
+  ensureStatusServerReachable,
   getExecutionServerState,
   refreshExecutionLease,
   releaseExecutionLease,
+  StatusServerUnavailableError,
   tryAcquireExecutionLease,
 } from './config/index.js';
 import { sleep } from './lib/time.js';
@@ -44,6 +46,10 @@ export function getExecutionLockTimeoutMilliseconds(): number {
   return 300_000;
 }
 
+function isExecutionAcquireUnavailableError(error: unknown): error is StatusServerUnavailableError {
+  return error instanceof StatusServerUnavailableError && error.operation === 'execution:acquire';
+}
+
 export async function acquireExecutionLock(): Promise<{
   token: string;
 }> {
@@ -58,7 +64,22 @@ export async function acquireExecutionLock(): Promise<{
   traceExecutionLock(`acquire start timeout_ms=${timeoutMs}`);
 
   while (true) {
-    const lease = await tryAcquireExecutionLease();
+    let lease: { acquired: boolean; token: string | null };
+    try {
+      lease = await tryAcquireExecutionLease();
+    } catch (error) {
+      if (!isExecutionAcquireUnavailableError(error)) {
+        throw error;
+      }
+      await ensureStatusServerReachable();
+      if (Date.now() - startedAt >= timeoutMs) {
+        traceExecutionLock(`acquire timeout elapsed_ms=${Date.now() - startedAt}`);
+        throw new Error(`SiftKit is busy. Timed out after ${timeoutMs} ms waiting for the server to report idle.`);
+      }
+      traceExecutionLock(`acquire retry acquire_endpoint_slow elapsed_ms=${Date.now() - startedAt}`);
+      await sleep(250);
+      continue;
+    }
     if (lease.acquired && lease.token) {
       activeLeaseToken = lease.token;
       activeLockDepth = 1;

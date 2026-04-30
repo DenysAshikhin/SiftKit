@@ -81,22 +81,19 @@ type SummaryCompletionMetrics = {
   statusRunningMs: number;
 };
 
-function scheduleSummaryTerminalStatusNotification(
+async function notifySummaryTerminalStatus(
   options: NotifyStatusBackendOptions & { requestId: string; terminalState: 'completed' | 'failed' },
-): void {
-  setImmediate(() => {
-    const startedAt = Date.now();
-    void notifyStatusBackend(options)
-      .then(() => {
-        traceSummary(
-          `async terminal status post done request_id=${options.requestId} state=${options.terminalState} `
-          + `duration_ms=${Date.now() - startedAt}`,
-        );
-      })
-      .catch(() => {
-        traceSummary(`terminal status post failed request_id=${options.requestId} state=${options.terminalState}`);
-      });
-  });
+): Promise<void> {
+  const startedAt = Date.now();
+  try {
+    await notifyStatusBackend(options);
+    traceSummary(
+      `terminal status post done request_id=${options.requestId} state=${options.terminalState} `
+      + `duration_ms=${Date.now() - startedAt}`,
+    );
+  } catch {
+    traceSummary(`terminal status post failed request_id=${options.requestId} state=${options.terminalState}`);
+  }
 }
 
 type SummaryCoreResult = {
@@ -581,7 +578,7 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
         error: null,
       }),
     ];
-    scheduleSummaryTerminalStatusNotification({
+    await notifySummaryTerminalStatus({
       running: false,
       taskKind: 'summary',
       statusBackendUrl: request.statusBackendUrl,
@@ -701,7 +698,7 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
             error: null,
           }),
         ];
-        scheduleSummaryTerminalStatusNotification({
+        await notifySummaryTerminalStatus({
           running: false,
           taskKind: 'summary',
           statusBackendUrl: request.statusBackendUrl,
@@ -787,7 +784,7 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
           error: null,
         }),
       ].filter((artifact): artifact is NonNullable<typeof artifact> => artifact !== null);
-      scheduleSummaryTerminalStatusNotification({
+      await notifySummaryTerminalStatus({
         running: false,
         taskKind: 'summary',
         statusBackendUrl: request.statusBackendUrl,
@@ -852,7 +849,7 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
           : []),
       ].filter((artifact): artifact is NonNullable<typeof artifact> => artifact !== null);
       if (config !== null) {
-        scheduleSummaryTerminalStatusNotification({
+        await notifySummaryTerminalStatus({
           running: false,
           taskKind: 'summary',
           statusBackendUrl: request.statusBackendUrl,

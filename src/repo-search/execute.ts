@@ -79,27 +79,24 @@ function scheduleRepoSearchRunPersistence(
   });
 }
 
-function scheduleRepoSearchTerminalStatusNotification(
+async function notifyRepoSearchTerminalStatus(
   options: NotifyStatusBackendOptions & { requestId: string; terminalState: 'completed' | 'failed' },
   timingRecorder: TemporaryTimingRecorder | null,
-): void {
+): Promise<void> {
   const scheduleSpan = timingRecorder?.start('repo.status.notify_terminal.schedule', {
     terminalState: options.terminalState,
   });
   scheduleSpan?.end();
-  setImmediate(() => {
-    const startedAt = Date.now();
-    void notifyStatusBackend(options)
-      .then(() => {
-        traceRepoSearch(
-          `async notify running=false done request_id=${options.requestId} state=${options.terminalState} `
-          + `duration_ms=${Date.now() - startedAt}`,
-        );
-      })
-      .catch(() => {
-        traceRepoSearch(`notify running=false failed request_id=${options.requestId} state=${options.terminalState}`);
-      });
-  });
+  const startedAt = Date.now();
+  try {
+    await notifyStatusBackend(options);
+    traceRepoSearch(
+      `notify running=false done request_id=${options.requestId} state=${options.terminalState} `
+      + `duration_ms=${Date.now() - startedAt}`,
+    );
+  } catch {
+    traceRepoSearch(`notify running=false failed request_id=${options.requestId} state=${options.terminalState}`);
+  }
 }
 
 export async function executeRepoSearchRequest(
@@ -262,7 +259,7 @@ export async function executeRepoSearchRequest(
       }> }).toolStats
       : null;
     const finishedAtUtc = new Date().toISOString();
-    scheduleRepoSearchTerminalStatusNotification({
+    await notifyRepoSearchTerminalStatus({
       running: false,
       taskKind,
       statusBackendUrl: request.statusBackendUrl,
@@ -347,7 +344,7 @@ export async function executeRepoSearchRequest(
     }).uri;
     artifactSpan?.end();
     const failedFinishedAtUtc = new Date().toISOString();
-    scheduleRepoSearchTerminalStatusNotification({
+    await notifyRepoSearchTerminalStatus({
       running: false,
       taskKind,
       statusBackendUrl: request.statusBackendUrl,

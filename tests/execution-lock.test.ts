@@ -68,3 +68,14 @@ test('withExecutionLock releases lock even on error', async () => {
     assert.equal(result, 'ok');
   });
 });
+
+test('withExecutionLock retries a slow acquire when health is reachable', async () => {
+  await withTestEnvAndServer(async () => {
+    process.env.SIFTKIT_LOCK_TIMEOUT_MS = '5000';
+    const result = await withExecutionLock(async () => 'ok');
+    assert.equal(result, 'ok');
+  }, {
+    executionAcquireDelayMs: 2100,
+    executionAcquireDelayCount: 1,
+  });
+});
