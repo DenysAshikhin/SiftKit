@@ -52,6 +52,19 @@ test('repo-search help works without server startup', async () => {
   assert.match(stdout.read(), /repo-search/u);
 });
 
+test('run help works without executing --help as a command', async () => {
+  const stdout = makeCaptureStream();
+  const stderr = makeCaptureStream();
+  const code = await runCli({
+    argv: ['run', '--help'],
+    stdout: stdout.stream,
+    stderr: stderr.stream,
+  });
+  assert.equal(code, 0);
+  assert.match(stdout.read(), /siftkit run --command <cmd>/u);
+  assert.equal(stderr.read(), '');
+});
+
 test('repo-search rejects unknown flags before startup checks', async () => {
   const stdout = makeCaptureStream();
   const stderr = makeCaptureStream();

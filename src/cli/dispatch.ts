@@ -44,6 +44,10 @@ export async function runCli(options: CliRunOptions): Promise<number> {
     if (commandName === 'repo-search' && commandHelpRequested) {
       return await runRepoSearchCli({ argv: options.argv, stdout });
     }
+    if (commandName === 'run' && commandHelpRequested) {
+      showHelp(stdout);
+      return 0;
+    }
     let serverPreflightMs: number | null = options.timing?.serverPreflightMs ?? null;
     if (SERVER_DEPENDENT_COMMANDS.has(commandName)) {
       const serverPreflightStartedAt = Date.now();

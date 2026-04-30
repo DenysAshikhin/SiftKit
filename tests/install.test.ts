@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { installCodexPolicy, installShellIntegration, installSiftKit } from '../dist/install.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
@@ -59,6 +60,19 @@ test('installCodexPolicy appends to existing AGENTS.md without existing policy',
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test('PowerShell wrappers do not enable common-parameter parsing for forwarded args', () => {
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const wrapperContent = fs.readFileSync(path.join(repoRoot, 'bin', 'siftkit.ps1'), 'utf8');
+  const postinstallContent = fs.readFileSync(path.join(repoRoot, 'scripts', 'postinstall.js'), 'utf8');
+
+  assert.doesNotMatch(wrapperContent, /\[CmdletBinding\(\)\]/u);
+  assert.doesNotMatch(postinstallContent, /\[CmdletBinding\(\)\]/u);
+  assert.doesNotMatch(wrapperContent, /^\s*(?:\[CmdletBinding\(\)\]\s*)?param\s*\(/u);
+  assert.doesNotMatch(postinstallContent, /^\s*(?:#![^\n]*\n)?\s*(?:\[CmdletBinding\(\)\]\s*)?param\s*\(/u);
+  assert.match(wrapperContent, /\$CliArgs\s*=\s*@\(\$args\)/u);
+  assert.match(postinstallContent, /\$CliArgs\s*=\s*@\(\$args\)/u);
 });
 
 // installShellIntegration is not directly testable because getRepoRoot()

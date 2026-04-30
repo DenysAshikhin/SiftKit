@@ -8,7 +8,7 @@ const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const Database = require('better-sqlite3');
 
-const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage, SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT } = require('../dist/config/index.js');
+const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT } = require('../dist/config/index.js');
 const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../dist/summary.js');
 const { runCommand } = require('../dist/command.js');
 const { runBenchmarkSuite } = require('../dist/benchmark/index.js');
@@ -519,7 +519,7 @@ test('runCommand saves a raw log and respects no-summarize mode when the externa
   });
 });
 
-test('saveConfig fails closed with the canonical message when the external server is unreachable', async () => {
+test('saveConfig reports operation-specific context when the external server is unreachable', async () => {
   await withTempEnv(async () => {
     process.env.SIFTKIT_STATUS_PORT = '4779';
     process.env.SIFTKIT_STATUS_BACKEND_URL = 'http://127.0.0.1:4779/status';
@@ -528,7 +528,14 @@ test('saveConfig fails closed with the canonical message when the external serve
     const config = getDefaultConfig();
     await assert.rejects(
       () => saveConfig(config),
-      new RegExp(getStatusServerUnavailableMessage().replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u')
+      (error) => {
+        assert.equal(error.name, 'StatusServerUnavailableError');
+        assert.match(error.message, /SiftKit status\/config server is not reachable at http:\/\/127\.0\.0\.1:4779\/health\./u);
+        assert.match(error.message, /Operation: config:set\./u);
+        assert.match(error.message, /Service URL: http:\/\/127\.0\.0\.1:4779\/config\./u);
+        assert.match(error.message, /Cause: connect ECONNREFUSED 127\.0\.0\.1:4779\./u);
+        return true;
+      }
     );
   });
 });

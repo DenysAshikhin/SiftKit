@@ -31,13 +31,7 @@ function writeFileIfPossible(filePath, content) {
 const shimDir = getShimDir();
 
 const powershellShim = `#!/usr/bin/env pwsh
-[CmdletBinding()]
-param(
-  [Parameter(ValueFromPipeline = $true)]
-  [object]$InputObject,
-  [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
-  [string[]]$CliArgs
-)
+$CliArgs = @($args)
 $basedir=Split-Path $MyInvocation.MyCommand.Definition -Parent
 $target=Join-Path $basedir 'node_modules\\siftkit\\bin\\siftkit.ps1'
 $ret=0

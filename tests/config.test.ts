@@ -116,6 +116,17 @@ test('StatusServerUnavailableError has correct properties', () => {
   assert.match(error.message, /not reachable/u);
 });
 
+test('StatusServerUnavailableError message includes operation service and cause', () => {
+  const error = new StatusServerUnavailableError('http://localhost:4765/health', {
+    operation: 'config:get',
+    serviceUrl: 'http://localhost:4765/config',
+    cause: new Error('Request timed out after 130000 ms.'),
+  });
+  assert.match(error.message, /Operation: config:get/u);
+  assert.match(error.message, /Service URL: http:\/\/localhost:4765\/config/u);
+  assert.match(error.message, /Cause: Request timed out after 130000 ms\./u);
+});
+
 test('MissingObservedBudgetError has correct properties', () => {
   const error = new MissingObservedBudgetError();
   assert.equal(error.name, 'MissingObservedBudgetError');

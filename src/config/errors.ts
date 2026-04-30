@@ -11,11 +11,16 @@ export class StatusServerUnavailableError extends Error {
       serviceUrl?: string;
     } = {},
   ) {
-    super(
-      `SiftKit status/config server is not reachable at ${healthUrl}. `
-      + 'Start the separate server process and stop issuing further siftkit commands until it is available.',
-      options.cause === undefined ? undefined : { cause: options.cause },
-    );
+    const context = [
+      options.operation ? `Operation: ${options.operation}.` : '',
+      options.serviceUrl ? `Service URL: ${options.serviceUrl}.` : '',
+      options.cause === undefined ? '' : `Cause: ${options.cause instanceof Error ? options.cause.message : String(options.cause)}.`,
+    ].filter(Boolean).join(' ');
+    super([
+      `SiftKit status/config server is not reachable at ${healthUrl}.`,
+      context,
+      'Start the separate server process and stop issuing further siftkit commands until it is available.',
+    ].filter(Boolean).join(' '), options.cause === undefined ? undefined : { cause: options.cause });
     this.name = 'StatusServerUnavailableError';
     this.healthUrl = healthUrl;
     if (options.operation) {

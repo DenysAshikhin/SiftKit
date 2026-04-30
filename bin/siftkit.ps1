@@ -1,11 +1,4 @@
-[CmdletBinding()]
-param(
-    [Parameter(ValueFromPipeline = $true)]
-    [object]$InputObject,
-    [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
-    [string[]]$CliArgs
-)
-
+$CliArgs = @($args)
 $ErrorActionPreference = 'Stop'
 $script:PipelineBuffer = New-Object System.Collections.Generic.List[object]
 
@@ -85,9 +78,11 @@ function Invoke-SiftModuleHelper {
 
 Import-SiftKitCliModule
 
-if ($null -ne $InputObject) {
-    if ($InputObject -isnot [string] -or $InputObject.Length -gt 0) {
-        [void]$script:PipelineBuffer.Add($InputObject)
+if ($MyInvocation.ExpectingInput) {
+    foreach ($item in $input) {
+        if ($item -isnot [string] -or $item.Length -gt 0) {
+            [void]$script:PipelineBuffer.Add($item)
+        }
     }
 }
 
