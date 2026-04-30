@@ -5,8 +5,14 @@ import { StatusServerUnavailableError } from './errors.js';
 import type { StatusSnapshotResponse } from './types.js';
 
 const DEFAULT_HEALTHCHECK_ATTEMPTS = 5;
+const DEFAULT_BUSY_HEALTHCHECK_ATTEMPTS = 60;
 const DEFAULT_HEALTHCHECK_TIMEOUT_MS = 1000;
 const DEFAULT_HEALTHCHECK_BACKOFF_MS = 100;
+const DEFAULT_HEALTHCHECK_MAX_BACKOFF_MS = 1000;
+
+function envHasValue(key: string): boolean {
+  return typeof process.env[key] === 'string' && String(process.env[key]).trim().length > 0;
+}
 
 function readPositiveIntegerEnv(key: string, fallback: number): number {
   const parsed = Number.parseInt(String(process.env[key] || ''), 10);
@@ -20,6 +26,10 @@ function readNonNegativeIntegerEnv(key: string, fallback: number): number {
 
 function shouldTraceHealthcheckAttempts(): boolean {
   return String(process.env.SIFTKIT_HEALTHCHECK_TRACE || '').trim() === '1';
+}
+
+function isTimedOutHealthcheck(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith('Request timed out after ');
 }
 
 export function deriveServiceUrl(configuredUrl: string, nextPath: string): string {
@@ -80,12 +90,18 @@ export async function getStatusSnapshot(): Promise<StatusSnapshotResponse> {
 
 export async function ensureStatusServerReachable(): Promise<void> {
   const healthUrl = getStatusServerHealthUrl();
+  const attemptsConfigured = envHasValue('SIFTKIT_HEALTHCHECK_ATTEMPTS');
   const attempts = readPositiveIntegerEnv('SIFTKIT_HEALTHCHECK_ATTEMPTS', DEFAULT_HEALTHCHECK_ATTEMPTS);
+  const busyAttempts = attemptsConfigured
+    ? attempts
+    : readPositiveIntegerEnv('SIFTKIT_HEALTHCHECK_BUSY_ATTEMPTS', DEFAULT_BUSY_HEALTHCHECK_ATTEMPTS);
+  const maxAttempts = Math.max(attempts, busyAttempts);
   const timeoutMs = readPositiveIntegerEnv('SIFTKIT_HEALTHCHECK_TIMEOUT_MS', DEFAULT_HEALTHCHECK_TIMEOUT_MS);
   const baseBackoffMs = readNonNegativeIntegerEnv('SIFTKIT_HEALTHCHECK_BACKOFF_MS', DEFAULT_HEALTHCHECK_BACKOFF_MS);
+  const maxBackoffMs = readNonNegativeIntegerEnv('SIFTKIT_HEALTHCHECK_MAX_BACKOFF_MS', DEFAULT_HEALTHCHECK_MAX_BACKOFF_MS);
   let lastError: unknown = null;
 
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       const response = await requestJson<{ ok?: boolean }>({
         url: healthUrl,
@@ -98,17 +114,19 @@ export async function ensureStatusServerReachable(): Promise<void> {
       return;
     } catch (error) {
       lastError = error;
+      const isTimeout = isTimedOutHealthcheck(error);
       const cause = error instanceof Error ? error.message : String(error);
       if (shouldTraceHealthcheckAttempts()) {
         process.stderr.write(
-          `[siftkit] healthcheck attempt ${attempt}/${attempts} failed `
+          `[siftkit] healthcheck attempt ${attempt}/${isTimeout ? busyAttempts : attempts} failed `
           + `url=${healthUrl} timeout_ms=${timeoutMs} cause=${cause}\n`
         );
       }
-      if (attempt >= attempts) {
+      if (attempt >= (isTimeout ? busyAttempts : attempts)) {
         break;
       }
-      const delayMs = baseBackoffMs * (2 ** (attempt - 1));
+      const exponentialDelayMs = baseBackoffMs * (2 ** (attempt - 1));
+      const delayMs = maxBackoffMs > 0 ? Math.min(exponentialDelayMs, maxBackoffMs) : exponentialDelayMs;
       if (delayMs > 0) {
         await sleep(delayMs);
       }

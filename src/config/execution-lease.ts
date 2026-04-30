@@ -1,4 +1,4 @@
-import { requestJson } from '../lib/http.js';
+import { requestJson, requestJsonFull } from '../lib/http.js';
 import {
   deriveServiceUrl,
   getStatusBackendUrl,
@@ -83,12 +83,18 @@ export async function refreshExecutionLease(token: string): Promise<void> {
 export async function releaseExecutionLease(token: string): Promise<void> {
   const serviceUrl = `${getExecutionServiceUrl().replace(/\/$/u, '')}/release`;
   try {
-    await requestJson({
+    const response = await requestJsonFull<{ ok?: boolean; released?: boolean; busy?: boolean }>({
       url: serviceUrl,
       method: 'POST',
       timeoutMs: 2000,
       body: JSON.stringify({ token }),
     });
+    if (response.statusCode === 409 && response.body?.released === false) {
+      return;
+    }
+    if (response.statusCode >= 400) {
+      throw new Error(`HTTP ${response.statusCode}: ${response.rawText}`);
+    }
   } catch (error) {
     throw toStatusServerUnavailableError({
       cause: error,

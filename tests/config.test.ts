@@ -31,6 +31,7 @@ import {
   getRepoLocalLogsPath,
   ensureStatusServerReachable,
   notifyStatusBackend,
+  releaseExecutionLease,
   SIFTKIT_VERSION,
   SIFT_DEFAULT_NUM_CTX,
   SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN,
@@ -379,6 +380,59 @@ test('ensureStatusServerReachable retries transient health failures and succeeds
   }
 });
 
+test('ensureStatusServerReachable extends default retries for timed out health checks', async () => {
+  let healthChecks = 0;
+  const timedOutAttempts = 6;
+  const server = await new Promise<http.Server>((resolve) => {
+    const nextServer = http.createServer((req, res) => {
+      if (req.method === 'GET' && req.url === '/health') {
+        healthChecks += 1;
+        if (healthChecks <= timedOutAttempts) {
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+      }
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'not found' }));
+    });
+    nextServer.listen(0, '127.0.0.1', () => resolve(nextServer));
+  });
+  const previousEnv = {
+    SIFTKIT_STATUS_BACKEND_URL: process.env.SIFTKIT_STATUS_BACKEND_URL,
+    SIFTKIT_CONFIG_SERVICE_URL: process.env.SIFTKIT_CONFIG_SERVICE_URL,
+    SIFTKIT_HEALTHCHECK_ATTEMPTS: process.env.SIFTKIT_HEALTHCHECK_ATTEMPTS,
+    SIFTKIT_HEALTHCHECK_TIMEOUT_MS: process.env.SIFTKIT_HEALTHCHECK_TIMEOUT_MS,
+    SIFTKIT_HEALTHCHECK_BACKOFF_MS: process.env.SIFTKIT_HEALTHCHECK_BACKOFF_MS,
+    SIFTKIT_HEALTHCHECK_BUSY_ATTEMPTS: process.env.SIFTKIT_HEALTHCHECK_BUSY_ATTEMPTS,
+  };
+  try {
+    const address = server.address() as AddressInfo;
+    process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${address.port}/status`;
+    process.env.SIFTKIT_CONFIG_SERVICE_URL = `http://127.0.0.1:${address.port}/config`;
+    delete process.env.SIFTKIT_HEALTHCHECK_ATTEMPTS;
+    delete process.env.SIFTKIT_HEALTHCHECK_BUSY_ATTEMPTS;
+    process.env.SIFTKIT_HEALTHCHECK_TIMEOUT_MS = '20';
+    process.env.SIFTKIT_HEALTHCHECK_BACKOFF_MS = '1';
+
+    await ensureStatusServerReachable();
+
+    assert.equal(healthChecks, timedOutAttempts + 1);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error: Error | undefined) => (error ? reject(error) : resolve()));
+    });
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
 test('ensureStatusServerReachable keeps transient retry diagnostics out of stderr by default', async () => {
   let healthChecks = 0;
   const server = await new Promise<http.Server>((resolve) => {
@@ -541,6 +595,43 @@ test('notifyStatusBackend preserves canonical unavailable error when backend is 
     }),
     { name: 'StatusServerUnavailableError' },
   );
+});
+
+test('releaseExecutionLease ignores already-cleared lease responses', async () => {
+  const server = await new Promise<http.Server>((resolve) => {
+    const nextServer = http.createServer((req, res) => {
+      if (req.method === 'POST' && req.url === '/execution/release') {
+        res.writeHead(409, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, released: false, busy: false }));
+        return;
+      }
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'not found' }));
+    });
+    nextServer.listen(0, '127.0.0.1', () => resolve(nextServer));
+  });
+  const previousEnv = {
+    SIFTKIT_STATUS_BACKEND_URL: process.env.SIFTKIT_STATUS_BACKEND_URL,
+    SIFTKIT_CONFIG_SERVICE_URL: process.env.SIFTKIT_CONFIG_SERVICE_URL,
+  };
+  try {
+    const address = server.address() as AddressInfo;
+    process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${address.port}/status`;
+    process.env.SIFTKIT_CONFIG_SERVICE_URL = `http://127.0.0.1:${address.port}/config`;
+
+    await releaseExecutionLease('already-cleared');
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error: Error | undefined) => (error ? reject(error) : resolve()));
+    });
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
 });
 
 test('getRuntimeRoot is repo-local and ignores sift_kit_status overrides', () => {
