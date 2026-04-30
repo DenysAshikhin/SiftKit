@@ -287,28 +287,59 @@ test('executeRepoSearchRequest logs lifecycle before provider work starts', asyn
   });
 });
 
-test('executeRepoSearchRequest uses a four-minute default prompt timeout', () => {
-  assert.equal(DEFAULT_REPO_SEARCH_PROMPT_TIMEOUT_MS, 240_000);
+test('executeRepoSearchRequest uses a three-minute default prompt budget', () => {
+  assert.equal(DEFAULT_REPO_SEARCH_PROMPT_TIMEOUT_MS, 180_000);
 });
 
-test('executeRepoSearchRequest fails with try-again error when prompt timeout expires', async () => {
+test('executeRepoSearchRequest blocks later tools and forces an answer when prompt budget expires', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
-    await assert.rejects(
-      () => executeRepoSearchRequest({
-        prompt: 'find slow command',
-        repoRoot: tempRoot,
-        maxTurns: 2,
-        promptTimeoutMs: 20,
-        mockResponses: [
-          '{"action":"tool","tool_name":"repo_git","args":{"command":"git status --short"}}',
-          '{"action":"finish","output":"done","confidence":0.8}',
-        ],
-        mockCommandResults: {
-          'git status --short': { exitCode: 0, stdout: '', stderr: '', delayMs: 200 },
-        },
-      }),
-      /Repo search prompt exceeded 20 ms\. Please try again\./u,
-    );
+    const result = await executeRepoSearchRequest({
+      prompt: 'find slow command',
+      repoRoot: tempRoot,
+      maxTurns: 3,
+      promptTimeoutMs: 20,
+      mockResponses: [
+        '{"action":"tool","tool_name":"repo_git","args":{"command":"git status --short"}}',
+        '{"action":"tool","tool_name":"repo_git","args":{"command":"git status --porcelain"}}',
+        '{"action":"finish","output":"budget answer","confidence":0.8}',
+      ],
+      mockCommandResults: {
+        'git status --short': { exitCode: 0, stdout: 'slow evidence', stderr: '', delayMs: 40 },
+        'git status --porcelain': { exitCode: 0, stdout: 'should not run', stderr: '' },
+      },
+    });
+
+    const task = (result.scorecard.tasks as Array<{
+      finalOutput: string;
+      commands: Array<{ command: string; safe: boolean; output: string; reason: string | null }>;
+    }>)[0];
+
+    assert.equal(task.finalOutput, 'budget answer');
+    assert.equal(task.commands.length, 2);
+    assert.equal(task.commands[0].output, 'slow evidence');
+    assert.equal(task.commands[1].safe, false);
+    assert.match(task.commands[1].reason || '', /prompt budget expired/u);
+    assert.doesNotMatch(task.commands.map((command) => command.output).join('\n'), /should not run/u);
+  });
+});
+
+test('executeRepoSearchRequest does not count pre-tool queue time against prompt budget', async () => {
+  await withTestEnvAndServer(async ({ tempRoot }) => {
+    const result = await executeRepoSearchRequest({
+      prompt: 'answer without tools',
+      repoRoot: tempRoot,
+      maxTurns: 1,
+      promptTimeoutMs: 1,
+      mockResponses: [
+        '{"action":"finish","output":"done","confidence":0.8}',
+      ],
+      mockCommandResults: {},
+    });
+
+    const task = (result.scorecard.tasks as Array<{ finalOutput: string; commands: unknown[] }>)[0];
+
+    assert.equal(task.finalOutput, 'done');
+    assert.equal(task.commands.length, 0);
   });
 });
 

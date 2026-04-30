@@ -538,6 +538,7 @@ type RunTaskLoopOptions = {
   mockResponses?: string[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
   abortSignal?: AbortSignal;
+  promptTimeoutMs?: number;
   logger?: JsonLogger | null;
   onProgress?: ((event: RepoSearchProgressEvent) => void) | null;
   timingRecorder?: TemporaryTimingRecorder | null;
@@ -640,6 +641,10 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const initialPerToolAllowanceTokens = getRepoSearchPromptBaselinePerToolAllowanceTokens(options.config ?? null);
   const recentEvidenceKeys = new Set<string>();
   const successfulToolCalls: Array<{ toolName: string; promptResultText: string }> = [];
+  const promptBudgetMs = Number.isFinite(Number(options.promptTimeoutMs)) && Number(options.promptTimeoutMs) > 0
+    ? Math.trunc(Number(options.promptTimeoutMs))
+    : 0;
+  let firstToolCallStartedAtMs: number | null = null;
   let lastSuccessfulNormalizedKey: string | null = null;
   let lastSuccessfulFingerprint: string | null = null;
   let duplicateReplayFingerprint: string | null = null;
@@ -1006,41 +1011,72 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         if (invalidResponses >= maxInvalidResponses) { reason = 'invalid_response_limit'; break; }
         continue;
       }
-    if (inForcedFinishMode) {
-      forcedFinishAttemptsRemaining = Math.max(forcedFinishAttemptsRemaining - 1, 0);
-      const forcedReason = `Forced finish mode active. Return a finish action now. Attempts remaining: ${forcedFinishAttemptsRemaining}.`;
-      commandFailures += 1;
-      commands.push({ command, safe: false, reason: forcedReason, exitCode: null, output: `Rejected command: ${forcedReason}` });
-      batchOutcomes.push({
-        action: { tool_name: normalizedToolName, args: toolAction.args },
-        toolCallId: `forced_finish_call_${commands.length}`,
-        toolContent: `Rejected command: ${forcedReason}`,
-      });
-      pendingForcedFinishCountdownText = `Forced finish attempts remaining: ${forcedFinishAttemptsRemaining}. Return a finish action now.`;
-      if (forcedFinishAttemptsRemaining === 0) { reason = 'forced_finish_attempt_limit'; break; }
-      continue;
-    }
+      if (inForcedFinishMode) {
+        forcedFinishAttemptsRemaining = Math.max(forcedFinishAttemptsRemaining - 1, 0);
+        const forcedReason = `Forced finish mode active. Return a finish action now. Attempts remaining: ${forcedFinishAttemptsRemaining}.`;
+        commandFailures += 1;
+        commands.push({ command, safe: false, reason: forcedReason, exitCode: null, output: `Rejected command: ${forcedReason}` });
+        batchOutcomes.push({
+          action: { tool_name: normalizedToolName, args: toolAction.args },
+          toolCallId: `forced_finish_call_${commands.length}`,
+          toolContent: `Rejected command: ${forcedReason}`,
+        });
+        pendingForcedFinishCountdownText = `Forced finish attempts remaining: ${forcedFinishAttemptsRemaining}. Return a finish action now.`;
+        if (forcedFinishAttemptsRemaining === 0) { reason = 'forced_finish_attempt_limit'; break; }
+        continue;
+      }
 
-    const normalized = isNativeTool
-      ? { command, rewritten: false, note: '', rejected: false }
-      : normalizePlannerCommand(command, { repoRoot: options.repoRoot, ignorePolicy });
-    const fingerprint = isNativeTool
-      ? fingerprintToolCall({ toolName: normalizedToolName, command })
-      : normalized.rejected
-        ? ''
-        : fingerprintToolCall({ toolName: normalizedToolName, command: normalized.command });
-    const prospectiveToolType = isNativeTool
-      ? normalizedToolName
-      : normalized.rejected
-        ? 'loop'
-        : normalizeToolTypeFromCommand(normalized.command);
+      if (
+        promptBudgetMs > 0
+        && firstToolCallStartedAtMs !== null
+        && Date.now() - firstToolCallStartedAtMs >= promptBudgetMs
+      ) {
+        forcedFinishAttemptsRemaining = forcedFinishAttemptsRemaining > 0
+          ? Math.max(forcedFinishAttemptsRemaining - 1, 0)
+          : Math.max(FORCED_FINISH_MAX_ATTEMPTS - 1, 0);
+        const forcedReason = `Repo search prompt budget expired after ${promptBudgetMs} ms. Return a finish action now. Attempts remaining: ${forcedFinishAttemptsRemaining}.`;
+        commandFailures += 1;
+        commands.push({ command, safe: false, reason: forcedReason, exitCode: null, output: `Rejected command: ${forcedReason}` });
+        batchOutcomes.push({
+          action: { tool_name: normalizedToolName, args: toolAction.args },
+          toolCallId: `prompt_budget_expired_call_${commands.length}`,
+          toolContent: `Rejected command: ${forcedReason}`,
+        });
+        pendingForcedFinishCountdownText = `Prompt budget expired. Forced finish attempts remaining: ${forcedFinishAttemptsRemaining}. Return a finish action now.`;
+        pendingModeChangeUserMessages.push('Prompt budget expired. Return {"action":"finish",...} now. Tool calls are blocked.');
+        options.logger?.write({
+          kind: 'turn_forced_finish_mode_started',
+          taskId: task.id,
+          turn,
+          attemptsRemaining: forcedFinishAttemptsRemaining,
+          trigger: 'prompt_budget_expired',
+          promptBudgetMs,
+          elapsedMs: Date.now() - firstToolCallStartedAtMs,
+        });
+        if (forcedFinishAttemptsRemaining === 0) { reason = 'forced_finish_attempt_limit'; break; }
+        continue;
+      }
 
-    // Duplicate check on the normalized command so auto-appended flags don't confuse dedup
-    const normalizedKey = isNativeTool
-      ? command
-      : normalized.rejected
+      const normalized = isNativeTool
+        ? { command, rewritten: false, note: '', rejected: false }
+        : normalizePlannerCommand(command, { repoRoot: options.repoRoot, ignorePolicy });
+      const fingerprint = isNativeTool
+        ? fingerprintToolCall({ toolName: normalizedToolName, command })
+        : normalized.rejected
+          ? ''
+          : fingerprintToolCall({ toolName: normalizedToolName, command: normalized.command });
+      const prospectiveToolType = isNativeTool
+        ? normalizedToolName
+        : normalized.rejected
+          ? 'loop'
+          : normalizeToolTypeFromCommand(normalized.command);
+
+      // Duplicate check on the normalized command so auto-appended flags don't confuse dedup
+      const normalizedKey = isNativeTool
         ? command
-        : normalized.command;
+        : normalized.rejected
+          ? command
+          : normalized.command;
     const duplicateFingerprint = fingerprint || `${normalizedToolName}|${normalizedKey}`;
     const isExactDuplicate = Boolean(lastSuccessfulNormalizedKey && normalizedKey === lastSuccessfulNormalizedKey);
     const isSemanticDuplicate = Boolean(!isExactDuplicate && !normalized.rejected && fingerprint && lastSuccessfulFingerprint && fingerprint === lastSuccessfulFingerprint);
@@ -1193,6 +1229,10 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
 
     const promptTokenCount = preflight.promptTokenCount;
+
+    if (firstToolCallStartedAtMs === null) {
+      firstToolCallStartedAtMs = Date.now();
+    }
 
     if (options.onProgress) {
       options.onProgress({ kind: 'tool_start', turn, maxTurns, command: commandToRun, promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
@@ -1665,6 +1705,7 @@ export async function runRepoSearch(options: {
   mockResponses?: string[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
   abortSignal?: AbortSignal;
+  promptTimeoutMs?: number;
   logger?: JsonLogger | null;
   onProgress?: ((event: RepoSearchProgressEvent) => void) | null;
   timingRecorder?: TemporaryTimingRecorder | null;
@@ -1720,6 +1761,7 @@ export async function runRepoSearch(options: {
       mockResponses: options.mockResponses,
       mockCommandResults: options.mockCommandResults,
       abortSignal: options.abortSignal,
+      promptTimeoutMs: options.promptTimeoutMs,
       logger: options.logger || null,
       onProgress: options.onProgress || null,
       timingRecorder: options.timingRecorder || null,

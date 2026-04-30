@@ -15,6 +15,8 @@ export function showHelp(stdout: NodeJS.WritableStream): void {
     '  siftkit -prompt "find x y z in this repo"',
     '  siftkit preset list',
     '  siftkit run --preset <id> ...',
+    '  siftkit run --command <cmd> [--arg <a> ...] --question "..."',
+    '  siftkit run --shell <auto|pwsh|powershell|bash|sh|cmd> --command "<script>" --question "..."',
     '',
     `CLI presets: ${cliPresets.map((preset) => preset.id).join(', ')}`,
     '',

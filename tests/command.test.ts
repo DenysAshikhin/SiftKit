@@ -218,3 +218,20 @@ test('runCommand handles nonexistent command gracefully', async () => {
     assert.ok(result.ExitCode !== 0 || typeof result.Summary === 'string');
   });
 });
+
+test('runCommand with Shell mode runs a script through the platform shell', async () => {
+  await withTestEnvAndServer(async () => {
+    const script = process.platform === 'win32'
+      ? '$x = ""; if ($x) { Write-Output "non-empty" } else { Write-Output "shell-mode-clean" }'
+      : 'x=""; if [ -z "$x" ]; then echo shell-mode-clean; else echo non-empty; fi';
+    const result = await runCommand({
+      Command: script,
+      Shell: 'auto',
+      Question: 'What was printed?',
+      NoSummarize: true,
+    });
+    assert.equal(result.ExitCode, 0);
+    assert.equal(result.WasSummarized, false);
+    assert.equal(typeof result.RawLogPath, 'string');
+  });
+});

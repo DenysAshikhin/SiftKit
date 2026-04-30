@@ -24,11 +24,7 @@ import type {
   RepoSearchProgressEvent,
 } from './types.js';
 
-export const DEFAULT_REPO_SEARCH_PROMPT_TIMEOUT_MS = 4 * 60 * 1000;
-
-function buildRepoSearchPromptTimeoutError(timeoutMs: number): Error {
-  return new Error(`Repo search prompt exceeded ${timeoutMs} ms. Please try again.`);
-}
+export const DEFAULT_REPO_SEARCH_PROMPT_TIMEOUT_MS = 3 * 60 * 1000;
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -120,13 +116,6 @@ export async function executeRepoSearchRequest(
   const promptTimeoutMs = Number.isFinite(Number(request.promptTimeoutMs)) && Number(request.promptTimeoutMs) > 0
     ? Math.trunc(Number(request.promptTimeoutMs))
     : DEFAULT_REPO_SEARCH_PROMPT_TIMEOUT_MS;
-  const abortController = new AbortController();
-  const timeoutHandle = setTimeout(() => {
-    abortController.abort(buildRepoSearchPromptTimeoutError(promptTimeoutMs));
-  }, promptTimeoutMs);
-  if (typeof timeoutHandle.unref === 'function') {
-    timeoutHandle.unref();
-  }
   const repoRoot = path.resolve(String(request.repoRoot || process.cwd()));
   const requestId = randomUUID();
   const taskKind = request.taskKind === 'plan' ? 'plan' : 'repo-search';
@@ -193,7 +182,7 @@ export async function executeRepoSearchRequest(
       availableModels: request.availableModels,
       mockResponses: request.mockResponses,
       mockCommandResults: request.mockCommandResults,
-      abortSignal: abortController.signal,
+      promptTimeoutMs,
       timingRecorder,
       onProgress: progressCallback
         ? (event: RepoSearchProgressEvent) => {
@@ -323,7 +312,6 @@ export async function executeRepoSearchRequest(
       + `verdict=${String(scorecard?.verdict ?? 'unknown')}`,
     );
     timingStatus = 'completed';
-    clearTimeout(timeoutHandle);
     return {
       requestId,
       transcriptPath: transcriptUri,
@@ -402,7 +390,6 @@ export async function executeRepoSearchRequest(
     (error as { artifactPath?: string; transcriptPath?: string }).transcriptPath = transcriptUri;
     throw error;
   } finally {
-    clearTimeout(timeoutHandle);
     if (timingRecorder) {
       await timingRecorder.flush({
         status: timingStatus,

@@ -1,4 +1,5 @@
 import { inspect } from 'node:util';
+import type { ShellName } from '../capture/process.js';
 
 export type CliRunOptions = {
   argv: string[];
@@ -43,6 +44,7 @@ export type ParsedArgs = {
   preset?: string;
   repoRoot?: string;
   maxTurns?: number;
+  shell?: ShellName;
 };
 
 export const KNOWN_COMMANDS = new Set([
@@ -228,6 +230,9 @@ export function parseArguments(tokens: string[]): ParsedArgs {
         break;
       case '--max-turns':
         parsed.maxTurns = Number.parseInt(tokens[++index] || '', 10);
+        break;
+      case '--shell':
+        parsed.shell = tokens[++index] as ShellName;
         break;
       default:
         parsed.positionals.push(token);

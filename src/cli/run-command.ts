@@ -25,6 +25,7 @@ export async function runCommandCli(options: {
     PolicyProfile: (parsed.profile as Parameters<typeof summarizeRequest>[0]['policyProfile']) || 'general',
     Backend: parsed.backend,
     Model: parsed.model,
+    Shell: parsed.shell,
   });
 
   if (result.Summary) {

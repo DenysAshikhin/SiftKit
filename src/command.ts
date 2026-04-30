@@ -5,7 +5,7 @@ import { getDeterministicExcerpt } from './summary/measure.js';
 import { getSummaryDecision } from './summary/decision.js';
 import type { SummaryClassification } from './summary/types.js';
 import { withExecutionLock } from './execution-lock.js';
-import { invokeProcess } from './capture/process.js';
+import { invokeProcess, invokeShellProcess, type ShellName } from './capture/process.js';
 import { upsertRuntimeTextArtifact } from './state/runtime-artifacts.js';
 
 export type CommandRequest = {
@@ -19,6 +19,7 @@ export type CommandRequest = {
   Backend?: string;
   Model?: string;
   NoSummarize?: boolean;
+  Shell?: ShellName;
 };
 
 export type CommandResult = {
@@ -229,11 +230,16 @@ export async function analyzeCommandOutput(request: CommandAnalysisRequest): Pro
 
 export async function runCommand(request: CommandRequest): Promise<CommandResult> {
   return withExecutionLock(async () => {
-    const processResult = invokeProcess(request.Command, request.ArgumentList || []);
+    const processResult = request.Shell
+      ? invokeShellProcess(request.Command, request.Shell)
+      : invokeProcess(request.Command, request.ArgumentList || []);
+    const commandText = request.Shell
+      ? `[${request.Shell}] ${request.Command}`
+      : [request.Command, ...(request.ArgumentList || [])].join(' ');
     return analyzeCommandOutput({
       ExitCode: processResult.ExitCode,
       CombinedText: processResult.Combined,
-      CommandText: [request.Command, ...(request.ArgumentList || [])].join(' '),
+      CommandText: commandText,
       Question: request.Question,
       RiskLevel: request.RiskLevel,
       ReducerProfile: request.ReducerProfile,
