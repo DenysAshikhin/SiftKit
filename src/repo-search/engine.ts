@@ -12,7 +12,6 @@ import {
 import {
   createEmptyToolTypeStats,
   getRepoSearchLineReadStats,
-  getRepoSearchPromptBaselinePerToolAllowanceTokens,
   mergeToolTypeStats,
   readLatestIdleSummaryToolStats,
 } from '../line-read-guidance.js';
@@ -638,7 +637,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     fileCount: Array.isArray(bootstrapFileList) ? bootstrapFileList.length : 0,
   });
   const historicalToolStats = readLatestIdleSummaryToolStats();
-  const initialPerToolAllowanceTokens = getRepoSearchPromptBaselinePerToolAllowanceTokens(options.config ?? null);
   const recentEvidenceKeys = new Set<string>();
   const successfulToolCalls: Array<{ toolName: string; promptResultText: string }> = [];
   const promptBudgetMs = Number.isFinite(Number(options.promptTimeoutMs)) && Number(options.promptTimeoutMs) > 0
@@ -658,8 +656,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     {
       role: 'system',
       content: buildTaskSystemPrompt(options.repoRoot, {
-        globalToolStats: historicalToolStats,
-        initialPerToolAllowanceTokens,
         includeAgentsMd: options.includeAgentsMd,
         includeRepoFileListing: options.includeRepoFileListing,
       }),

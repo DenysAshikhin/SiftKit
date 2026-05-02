@@ -2,8 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { normalizeMetrics } from '../src/status-server/metrics.js';
-import { buildPlannerSystemPrompt } from '../src/summary/planner/prompts.js';
-import { buildPlannerToolDefinitions } from '../src/summary/planner/tools.js';
 
 test('normalizeMetrics backfills missing line-read fields to zero', () => {
   const metrics = normalizeMetrics({
@@ -48,30 +46,3 @@ test('normalizeMetrics backfills missing line-read fields to zero', () => {
   assert.equal(metrics.toolStats.summary['get-content'].rawToolResultTokens, 0);
 });
 
-test('buildPlannerSystemPrompt reports learned read_lines guidance from idle-summary stats', () => {
-  const prompt = buildPlannerSystemPrompt({
-    sourceKind: 'text',
-    rawReviewRequired: false,
-    toolDefinitions: buildPlannerToolDefinitions(),
-    lineReadGuidance: {
-      toolName: 'read_lines',
-      toolStats: {
-        read_lines: {
-          calls: 4,
-          outputCharsTotal: 1200,
-          outputTokensTotal: 400,
-          outputTokensEstimatedCount: 0,
-          lineReadCalls: 4,
-          lineReadLinesTotal: 80,
-          lineReadTokensTotal: 400,
-        },
-      },
-      initialPerToolAllowanceTokens: 400,
-    },
-  });
-
-  assert.match(prompt, /current per-tool allowance is 400 tokens/u);
-  assert.match(prompt, /average line is 5\.00 tokens/u);
-  assert.match(prompt, /prefer `read_lines` windows around 40 lines/u);
-  assert.doesNotMatch(prompt, /Do not use tiny `read_lines` windows \(`<120` lines\)/u);
-});

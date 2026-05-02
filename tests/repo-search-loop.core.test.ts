@@ -999,35 +999,13 @@ test('runTaskLoop prompt includes anti-loop and larger single-file read guidance
   const prompt = String(systemMessage);
   assert.match(prompt, /Single-file read strategy:/u);
   assert.match(prompt, /Start with `rg -n` to find anchors/u);
-  assert.match(prompt, /default to one larger `repo_read_file` window around \d+ lines rather than multiple small windows/u);
+  assert.match(prompt, /default to one larger `repo_read_file` window rather than multiple small windows/u);
   assert.match(prompt, /If you already read a file once, do a new anchor search before another read of that same file/u);
   assert.match(prompt, /read a larger section in one call/u);
   assert.match(prompt, /For reading a specific file section: use `repo_read_file`/u);
   assert.match(prompt, /Do not issue multiple consecutive reads of the same file with only small line-range changes/u);
   assert.match(prompt, /If a command returns an output token-allocation error, switch to stronger anchors/u);
   assert.equal(result.reason, 'finish');
-});
-
-test('buildTaskSystemPrompt reports learned get-content line guidance from idle-summary stats', () => {
-  const prompt = buildTaskSystemPrompt(createTempRepoRoot(), {
-    globalToolStats: {
-      'get-content': {
-        calls: 4,
-        outputCharsTotal: 800,
-        outputTokensTotal: 200,
-        outputTokensEstimatedCount: 0,
-        lineReadCalls: 4,
-        lineReadLinesTotal: 80,
-        lineReadTokensTotal: 200,
-      },
-    },
-    initialPerToolAllowanceTokens: 1600,
-  });
-
-  assert.match(prompt, /current per-tool allowance is 1600 tokens/u);
-  assert.match(prompt, /average line is 2\.50 tokens/u);
-  assert.match(prompt, /prefer line reads around 320 lines/u);
-  assert.doesNotMatch(prompt, /Do not use tiny windows \(`<120` lines\)/u);
 });
 
 test('runTaskLoop prompt examples use larger reads and anchor-first flow', async () => {

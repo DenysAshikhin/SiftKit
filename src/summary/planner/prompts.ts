@@ -1,12 +1,10 @@
 import type { LlamaCppChatMessage } from '../../providers/llama-cpp.js';
-import { buildLineReadGuidance } from '../../line-read-guidance.js';
 import { getSourceInstructions } from '../prompt.js';
 import type {
   PlannerToolCall,
   PlannerToolDefinition,
   SummarySourceKind,
 } from '../types.js';
-import type { ToolTypeStats } from '../../status-server/metrics.js';
 import { buildAssistantToolCallMessage as buildSharedAssistantToolCallMessage } from '../../tool-call-messages.js';
 import { getRecord, MAX_JSON_FALLBACK_PREVIEW_CHARACTERS } from './json-filter.js';
 import { truncatePlannerText } from './formatters.js';
@@ -78,20 +76,8 @@ export function buildPlannerSystemPrompt(options: {
   commandExitCode?: number | null;
   rawReviewRequired: boolean;
   toolDefinitions: PlannerToolDefinition[];
-  lineReadGuidance?: {
-    toolName: string;
-    toolStats: Record<string, ToolTypeStats>;
-    initialPerToolAllowanceTokens: number | null;
-  };
 }): string {
   const allowUnsupportedInput = options.sourceKind !== 'command-output';
-  const guidance = options.lineReadGuidance
-    ? buildLineReadGuidance({
-      toolName: options.lineReadGuidance.toolName,
-      toolStats: options.lineReadGuidance.toolStats,
-      perToolAllowanceTokens: options.lineReadGuidance.initialPerToolAllowanceTokens,
-    })
-    : null;
   const sections = [
     'You are SiftKit, a conservative shell-output compressor for Codex workflows.',
     '',
@@ -105,9 +91,7 @@ export function buildPlannerSystemPrompt(options: {
     '- When the document profile shows top_level=object with object_array_paths=..., use collectionPath to target that array and filter item fields relative to each array element.',
     '- Never emit JSON schema fragments like {"type":"integer"} as argument values. Use concrete literals.',
     '- Regex patterns must be valid JavaScript regex source for find_text. Do not add unnecessary escapes for ordinary quotes.',
-    guidance
-      ? `- After \`find_text\` identifies a useful anchor, the current per-tool allowance is ${guidance.perToolAllowanceTokens} tokens and the average line is ${guidance.avgTokensPerLine.toFixed(2)} tokens, so prefer \`read_lines\` windows around ${guidance.recommendedLines} lines.`
-      : '- After `find_text` identifies a useful anchor, default to one larger contiguous `read_lines` window rather than multiple tiny nearby slices.',
+    '- After `find_text` identifies a useful anchor, default to one larger contiguous `read_lines` window rather than multiple tiny nearby slices.',
     '- If you already used `read_lines` once, do another `find_text` search before requesting a second nearby `read_lines` slice.',
     '',
     'Available actions:',

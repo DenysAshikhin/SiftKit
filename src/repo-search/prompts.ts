@@ -1,8 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { IgnorePolicy } from './command-safety.js';
-import { buildLineReadGuidance } from '../line-read-guidance.js';
-import type { ToolTypeStats } from '../status-server/metrics.js';
 
 // ---------------------------------------------------------------------------
 // Repo file scanner (gitignore-aware, no external dependencies)
@@ -209,26 +207,15 @@ export function readAgentsMd(repoRoot: string): string {
 // ---------------------------------------------------------------------------
 
 export function buildTaskSystemPrompt(repoRoot: string, options?: {
-  globalToolStats?: Record<string, ToolTypeStats>;
-  initialPerToolAllowanceTokens?: number | null;
   includeAgentsMd?: boolean;
   includeRepoFileListing?: boolean;
 }): string {
   const agentsContent = options?.includeAgentsMd === false ? '' : readAgentsMd(repoRoot);
-  const guidance = buildLineReadGuidance({
-    toolName: 'get-content',
-    toolStats: options?.globalToolStats,
-    perToolAllowanceTokens: options?.initialPerToolAllowanceTokens,
-  });
   const startupScanLine = options?.includeRepoFileListing === false
     ? '- Start with targeted rg searches from the task wording when no startup file listing is provided.'
     : '- Always start by scanning — a file listing is provided in the user message; use it to decide where to look.';
-  const readWindowLine = guidance
-    ? `- For reading a specific file section: use \`repo_read_file\`, and because the current per-tool allowance is ${guidance.perToolAllowanceTokens} tokens and the average line is ${guidance.avgTokensPerLine.toFixed(2)} tokens, prefer line reads around ${guidance.recommendedLines} lines by default.`
-    : '- For reading a specific file section: use `repo_read_file`, preferring larger windows by default.';
-  const readStrategyLine = guidance
-    ? `- After an \`rg -n\` anchor, default to one larger \`repo_read_file\` window around ${guidance.recommendedLines} lines rather than multiple small windows.`
-    : '- After an `rg -n` anchor, default to one larger `repo_read_file` window rather than multiple small windows.';
+  const readWindowLine = '- For reading a specific file section: use `repo_read_file`, preferring larger windows by default.';
+  const readStrategyLine = '- After an `rg -n` anchor, default to one larger `repo_read_file` window rather than multiple small windows.';
   return [
     'You are a repo-search planner.',
     'Use native tool calls with repo_* command tools when you need repository evidence.',

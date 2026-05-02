@@ -1,8 +1,6 @@
 import type { SiftConfig } from '../../config/index.js';
 import {
   createEmptyToolTypeStats,
-  getPlannerPromptBaselinePerToolAllowanceTokens,
-  readLatestIdleSummaryToolStats,
 } from '../../line-read-guidance.js';
 import {
   countLlamaCppTokens,
@@ -129,8 +127,6 @@ export async function invokePlannerMode(options: {
     ? options.allowedTools
     : ['find_text', 'read_lines', 'json_filter'];
   const toolDefinitions = buildPlannerToolDefinitions(allowedTools);
-  const historicalToolStats = readLatestIdleSummaryToolStats();
-  const initialPerToolAllowanceTokens = getPlannerPromptBaselinePerToolAllowanceTokens(options.config);
   const toolResults: Array<{ toolName: PlannerToolName; args: Record<string, unknown>; result: unknown; resultText: string }> = [];
   const messages: LlamaCppChatMessage[] = [
     {
@@ -141,11 +137,6 @@ export async function invokePlannerMode(options: {
         commandExitCode: options.commandExitCode,
         rawReviewRequired: options.rawReviewRequired,
         toolDefinitions,
-        lineReadGuidance: {
-          toolName: 'read_lines',
-          toolStats: historicalToolStats,
-          initialPerToolAllowanceTokens,
-        },
       }),
     },
     {
@@ -609,24 +600,31 @@ export async function invokePlannerMode(options: {
           toolName: toolAction.tool_name,
           inputChars: formattedResultText.length,
         });
-        const resultTokenCount = (
-          await countLlamaCppTokens(options.config, formattedResultText, tokenizeOptions)
-        ) ?? estimatePromptTokenCount(options.config, formattedResultText);
+        const formattedTokenCountRaw = await countLlamaCppTokens(options.config, formattedResultText, tokenizeOptions);
+        const formattedTokenCountEstimated = formattedTokenCountRaw === null;
+        const resultTokenCount = formattedTokenCountRaw ?? estimatePromptTokenCount(options.config, formattedResultText);
         formattedTokenSpan?.end({ tokenCount: resultTokenCount });
         const normalizedResultTokenCount = Math.max(0, Math.ceil(resultTokenCount));
-        const promptResultText = normalizedResultTokenCount > (remainingPromptTokens * 0.7)
-          ? formatPlannerToolResultTokenGuardError(normalizedResultTokenCount)
-          : formattedResultText;
-        const promptResultTokenSpan = options.timingRecorder?.start('summary.planner.tool.tokenize_prompt', {
-          turn,
-          toolName: toolAction.tool_name,
-          inputChars: promptResultText.length,
-        });
-        const exactToolResultTokenCount = await countLlamaCppTokens(options.config, promptResultText, tokenizeOptions);
-        promptResultTokenSpan?.end({
-          tokenCount: exactToolResultTokenCount ?? -1,
-        });
-        const resolvedToolResultTokenCount = exactToolResultTokenCount ?? estimatePromptTokenCount(options.config, promptResultText);
+
+        let promptResultText: string;
+        let resolvedToolResultTokenCount: number;
+        let toolResultTokenEstimated: boolean;
+        if (normalizedResultTokenCount > (remainingPromptTokens * 0.7)) {
+          promptResultText = formatPlannerToolResultTokenGuardError(normalizedResultTokenCount);
+          const guardTokenSpan = options.timingRecorder?.start('summary.planner.tool.tokenize_prompt', {
+            turn,
+            toolName: toolAction.tool_name,
+            inputChars: promptResultText.length,
+          });
+          const guardTokenCountRaw = await countLlamaCppTokens(options.config, promptResultText, tokenizeOptions);
+          guardTokenSpan?.end({ tokenCount: guardTokenCountRaw ?? -1 });
+          toolResultTokenEstimated = guardTokenCountRaw === null;
+          resolvedToolResultTokenCount = guardTokenCountRaw ?? estimatePromptTokenCount(options.config, promptResultText);
+        } else {
+          promptResultText = formattedResultText;
+          toolResultTokenEstimated = formattedTokenCountEstimated;
+          resolvedToolResultTokenCount = resultTokenCount;
+        }
         const readLineCount = toolAction.tool_name === 'read_lines' && Number.isFinite((result as { lineCount?: unknown }).lineCount)
           ? Number((result as { lineCount?: unknown }).lineCount)
           : 0;
@@ -637,7 +635,7 @@ export async function invokePlannerMode(options: {
           calls: currentToolStats.calls + 1,
           outputCharsTotal: currentToolStats.outputCharsTotal + promptResultText.length,
           outputTokensTotal: currentToolStats.outputTokensTotal + Math.max(0, Math.ceil(resolvedToolResultTokenCount)),
-          outputTokensEstimatedCount: currentToolStats.outputTokensEstimatedCount + (exactToolResultTokenCount === null ? 1 : 0),
+          outputTokensEstimatedCount: currentToolStats.outputTokensEstimatedCount + (toolResultTokenEstimated ? 1 : 0),
           lineReadCalls: currentToolStats.lineReadCalls + (readLineCount > 0 ? 1 : 0),
           lineReadLinesTotal: currentToolStats.lineReadLinesTotal + readLineCount,
           lineReadTokensTotal: currentToolStats.lineReadTokensTotal + (readLineCount > 0 ? normalizedRawResultTokenCount : 0),
