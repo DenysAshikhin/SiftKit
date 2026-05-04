@@ -84,11 +84,15 @@ async function waitForRepoSearchRunLogRow(
   throw new Error(`Timed out waiting for repo-search run log row: ${requestId}`);
 }
 
-async function startDelayedTerminalStatusServer(delayMs: number): Promise<{
+async function startDelayedStatusServer(options: { runningDelayMs?: number; terminalDelayMs?: number }): Promise<{
   statusUrl: string;
+  runningPostCount: () => number;
   terminalPostCount: () => number;
   close: () => Promise<void>;
 }> {
+  const runningDelayMs = Math.max(0, Math.trunc(Number(options.runningDelayMs || 0)));
+  const terminalDelayMs = Math.max(0, Math.trunc(Number(options.terminalDelayMs || 0)));
+  let runningPosts = 0;
   let terminalPosts = 0;
   const server = http.createServer(async (req, res) => {
     if (req.method !== 'POST' || req.url !== '/status') {
@@ -102,9 +106,12 @@ async function startDelayedTerminalStatusServer(delayMs: number): Promise<{
       bodyText += String(chunk);
     }
     const parsed = bodyText ? JSON.parse(bodyText) as Record<string, unknown> : {};
-    if (parsed.running === false) {
+    if (parsed.running === true) {
+      runningPosts += 1;
+      await new Promise((resolve) => setTimeout(resolve, runningDelayMs));
+    } else if (parsed.running === false) {
       terminalPosts += 1;
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      await new Promise((resolve) => setTimeout(resolve, terminalDelayMs));
     }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
@@ -113,6 +120,9 @@ async function startDelayedTerminalStatusServer(delayMs: number): Promise<{
   const address = server.address() as AddressInfo;
   return {
     statusUrl: `http://127.0.0.1:${address.port}/status`,
+    runningPostCount() {
+      return runningPosts;
+    },
     terminalPostCount() {
       return terminalPosts;
     },
@@ -123,6 +133,30 @@ async function startDelayedTerminalStatusServer(delayMs: number): Promise<{
       });
     },
   };
+}
+
+async function startDelayedTerminalStatusServer(delayMs: number): Promise<{
+  statusUrl: string;
+  terminalPostCount: () => number;
+  close: () => Promise<void>;
+}> {
+  const server = await startDelayedStatusServer({ terminalDelayMs: delayMs });
+  return {
+    statusUrl: server.statusUrl,
+    terminalPostCount: server.terminalPostCount,
+    close: server.close,
+  };
+}
+
+async function waitForStatusCount(readCount: () => number, expected: number): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 500) {
+    if (readCount() >= expected) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(readCount(), expected);
 }
 
 test('executeRepoSearchRequest throws on empty prompt', async () => {
@@ -184,9 +218,39 @@ test('executeRepoSearchRequest success path writes transcript and artifact', asy
   });
 });
 
-test('executeRepoSearchRequest waits only for terminal status notification response', async () => {
+test('executeRepoSearchRequest does not wait for running status notification response before work starts', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
-    const statusServer = await startDelayedTerminalStatusServer(300);
+    const statusServer = await startDelayedStatusServer({ runningDelayMs: 1000 });
+    try {
+      let firstProgressMs: number | null = null;
+      const startedAt = Date.now();
+      const result = await executeRepoSearchRequest({
+        prompt: 'find async running status',
+        repoRoot: tempRoot,
+        statusBackendUrl: statusServer.statusUrl,
+        maxTurns: 1,
+        mockResponses: [
+          '{"action":"finish","output":"done","confidence":0.9}',
+        ],
+        mockCommandResults: {},
+        onProgress() {
+          firstProgressMs ??= Date.now() - startedAt;
+        },
+      });
+
+      assert.equal(typeof result.requestId, 'string');
+      await waitForStatusCount(statusServer.runningPostCount, 1);
+      assert.ok(firstProgressMs !== null, 'expected repo-search progress event');
+      assert.ok(firstProgressMs < 500, `expected work to start before running notify response, got ${firstProgressMs} ms`);
+    } finally {
+      await statusServer.close();
+    }
+  });
+});
+
+test('executeRepoSearchRequest does not wait for terminal status notification response', async () => {
+  await withTestEnvAndServer(async ({ tempRoot }) => {
+    const statusServer = await startDelayedTerminalStatusServer(1000);
     try {
       const startedAt = Date.now();
       const result = await executeRepoSearchRequest({
@@ -202,9 +266,8 @@ test('executeRepoSearchRequest waits only for terminal status notification respo
       const durationMs = Date.now() - startedAt;
 
       assert.equal(typeof result.requestId, 'string');
-      assert.equal(statusServer.terminalPostCount(), 1);
-      assert.ok(durationMs >= 250, `expected terminal notify to be awaited, got ${durationMs} ms`);
-      assert.ok(durationMs < 800, `expected only terminal notify response to be awaited, got ${durationMs} ms`);
+      await waitForStatusCount(statusServer.terminalPostCount, 1);
+      assert.ok(durationMs < 500, `expected terminal notify to be fire-and-forget, got ${durationMs} ms`);
     } finally {
       await statusServer.close();
     }

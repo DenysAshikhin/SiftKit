@@ -73,7 +73,7 @@ import type {
   ServerContext,
 } from '../server-types.js';
 
-const DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_SECONDS = 90;
+const DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_SECONDS = 240;
 const DEFAULT_REPO_SEARCH_PROMPT_BUDGET_MS = 3 * 60 * 1000;
 
 function normalizeTaskKind(value: unknown): TaskKind | null {

@@ -294,6 +294,32 @@ test('deleteManagedLlamaLogChunksOlderThan prunes old non-running chunks only', 
   });
 });
 
+test('managed llama log chunk retention uses created-at index', async () => {
+  await withTestEnvAndServer(async () => {
+    const database = getRuntimeDatabase();
+    const indexes = database.prepare("PRAGMA index_list('managed_llama_log_chunks')").all() as Array<{ name?: string }>;
+    assert.equal(
+      indexes.some((row) => row.name === 'idx_managed_llama_log_chunks_created_at'),
+      true,
+    );
+
+    const planRows = database.prepare(`
+      EXPLAIN QUERY PLAN
+      DELETE FROM managed_llama_log_chunks
+      WHERE created_at_utc < ?
+        AND run_id NOT IN (
+          SELECT id
+          FROM managed_llama_runs
+          WHERE status = 'running'
+        )
+    `).all('2026-04-25T00:00:00.000Z') as Array<{ detail?: string }>;
+    assert.equal(
+      planRows.some((row) => String(row.detail || '').includes('idx_managed_llama_log_chunks_created_at')),
+      true,
+    );
+  });
+});
+
 test('getManagedLlamaSpeculativeMetricsSince reads speculative totals from persisted startup script logs', async () => {
   await withTestEnvAndServer(async () => {
     const run = createManagedLlamaRun({ purpose: 'startup' });

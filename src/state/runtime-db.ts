@@ -369,6 +369,8 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       ON runtime_artifacts(artifact_kind, created_at_utc DESC);
     CREATE INDEX IF NOT EXISTS idx_runtime_artifacts_request
       ON runtime_artifacts(request_id, created_at_utc DESC);
+    CREATE INDEX IF NOT EXISTS idx_runtime_artifacts_updated
+      ON runtime_artifacts(updated_at_utc DESC, id DESC);
 
     CREATE TABLE IF NOT EXISTS runtime_error_events (
       id TEXT PRIMARY KEY,
@@ -436,6 +438,8 @@ function ensureRuntimeArtifactsSchema(database: RuntimeDatabase): void {
       ON runtime_artifacts(artifact_kind, created_at_utc DESC);
     CREATE INDEX IF NOT EXISTS idx_runtime_artifacts_request
       ON runtime_artifacts(request_id, created_at_utc DESC);
+    CREATE INDEX IF NOT EXISTS idx_runtime_artifacts_updated
+      ON runtime_artifacts(updated_at_utc DESC, id DESC);
   `);
 }
 
@@ -483,6 +487,8 @@ function ensureManagedLlamaAndBenchmarkMatrixSchema(database: RuntimeDatabase): 
     );
     CREATE INDEX IF NOT EXISTS idx_managed_llama_log_chunks_run_stream
       ON managed_llama_log_chunks(run_id, stream_kind, sequence ASC);
+    CREATE INDEX IF NOT EXISTS idx_managed_llama_log_chunks_created_at
+      ON managed_llama_log_chunks(created_at_utc);
 
     CREATE TABLE IF NOT EXISTS benchmark_matrix_sessions (
       id TEXT PRIMARY KEY,

@@ -389,6 +389,8 @@ export function ensureIdleSummarySnapshotsTable(database: DatabaseInstance): voi
         avg_request_ms REAL,
         avg_tokens_per_second REAL
       );
+      CREATE INDEX IF NOT EXISTS idx_idle_summary_snapshots_emitted
+        ON idle_summary_snapshots(emitted_at_utc DESC, id DESC);
     `);
     const existingColumns = (database.prepare('PRAGMA table_info(idle_summary_snapshots)').all() as Array<{ name: unknown }>)
       .map((column) => String(column.name));

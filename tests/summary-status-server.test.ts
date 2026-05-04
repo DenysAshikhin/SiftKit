@@ -54,6 +54,12 @@ function requestJson(url: string, options: { method?: string; body?: string; tim
   });
 }
 
+test('summary endpoint defaults model request timeout to 240 seconds', () => {
+  const routeText = fs.readFileSync(path.join(process.cwd(), 'dist', 'status-server', 'routes', 'core.js'), 'utf8');
+
+  assert.match(routeText, /const DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_SECONDS = 240;/u);
+});
+
 test('summary endpoint waits behind the model request queue', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-summary-status-'));
   const previousCwd = process.cwd();

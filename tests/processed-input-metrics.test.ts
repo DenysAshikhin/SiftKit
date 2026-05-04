@@ -120,6 +120,43 @@ test('ensureRunLogsTable backfills processed input tokens from cached prompt usa
   }
 });
 
+test('ensureRunLogsTable creates indexes for request lookup and dashboard ordering', () => {
+  const database = new Database(':memory:');
+  try {
+    ensureRunLogsTable(database);
+
+    const indexes = database.prepare("PRAGMA index_list('run_logs')").all() as Array<{ name?: string }>;
+    assert.equal(indexes.some((row) => row.name === 'idx_run_logs_request_id'), true);
+    assert.equal(indexes.some((row) => row.name === 'idx_run_logs_dashboard_order'), true);
+
+    const requestPlan = database.prepare(`
+      EXPLAIN QUERY PLAN
+      SELECT speculative_accepted_tokens, speculative_generated_tokens
+      FROM run_logs
+      WHERE request_id = ?
+      LIMIT 1
+    `).all('request-1') as Array<{ detail?: string }>;
+    assert.equal(
+      requestPlan.some((row) => String(row.detail || '').includes('idx_run_logs_request_id')),
+      true,
+    );
+
+    const orderPlan = database.prepare(`
+      EXPLAIN QUERY PLAN
+      SELECT id, run_id, request_id
+      FROM run_logs
+      ORDER BY COALESCE(finished_at_utc, started_at_utc, '1970-01-01T00:00:00.000Z') DESC, id DESC
+      LIMIT 20
+    `).all() as Array<{ detail?: string }>;
+    assert.equal(
+      orderPlan.some((row) => String(row.detail || '').includes('idx_run_logs_dashboard_order')),
+      true,
+    );
+  } finally {
+    database.close();
+  }
+});
+
 test('ensureIdleSummarySnapshotsTable backfills processed input totals and exposes inputOutputRatio', () => {
   const database = new Database(':memory:');
   try {
@@ -228,6 +265,52 @@ test('ensureIdleSummarySnapshotsTable backfills processed input totals and expos
   } finally {
     database.close();
   }
+});
+
+test('ensureIdleSummarySnapshotsTable creates emitted-at ordering index', () => {
+  const database = new Database(':memory:');
+  try {
+    ensureIdleSummarySnapshotsTable(database);
+
+    const indexes = database.prepare("PRAGMA index_list('idle_summary_snapshots')").all() as Array<{ name?: string }>;
+    assert.equal(indexes.some((row) => row.name === 'idx_idle_summary_snapshots_emitted'), true);
+
+    const beforeDatePlan = database.prepare(`
+      EXPLAIN QUERY PLAN
+      SELECT id, emitted_at_utc
+      FROM idle_summary_snapshots
+      WHERE emitted_at_utc < ?
+      ORDER BY emitted_at_utc DESC, id DESC
+      LIMIT 1
+    `).all('2026-05-01T00:00:00.000Z') as Array<{ detail?: string }>;
+    assert.equal(
+      beforeDatePlan.some((row) => String(row.detail || '').includes('idx_idle_summary_snapshots_emitted')),
+      true,
+    );
+  } finally {
+    database.close();
+  }
+});
+
+test('runtime database creates runtime artifact updated-at ordering index', () => {
+  withTempRepo(() => {
+    const database = getRuntimeDatabase();
+    const indexes = database.prepare("PRAGMA index_list('runtime_artifacts')").all() as Array<{ name?: string }>;
+    assert.equal(indexes.some((row) => row.name === 'idx_runtime_artifacts_updated'), true);
+
+    const planRows = database.prepare(`
+      EXPLAIN QUERY PLAN
+      SELECT id, artifact_kind, request_id, title, content_text, content_json, created_at_utc, updated_at_utc
+      FROM runtime_artifacts
+      WHERE (? = '' OR request_id = ?)
+      ORDER BY updated_at_utc DESC, id DESC
+      LIMIT ?
+    `).all('', '', 20) as Array<{ detail?: string }>;
+    assert.equal(
+      planRows.some((row) => String(row.detail || '').includes('idx_runtime_artifacts_updated')),
+      true,
+    );
+  });
 });
 
 test('readMetrics backfills timing columns for already-current runtime databases', () => {

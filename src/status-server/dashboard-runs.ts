@@ -606,6 +606,9 @@ export function ensureRunLogsTable(database: DatabaseInstance): void {
     CREATE INDEX IF NOT EXISTS idx_run_logs_started ON run_logs(started_at_utc DESC);
     CREATE INDEX IF NOT EXISTS idx_run_logs_group_started ON run_logs(run_group, started_at_utc DESC);
     CREATE INDEX IF NOT EXISTS idx_run_logs_kind_started ON run_logs(run_kind, started_at_utc DESC);
+    CREATE INDEX IF NOT EXISTS idx_run_logs_request_id ON run_logs(request_id);
+    CREATE INDEX IF NOT EXISTS idx_run_logs_dashboard_order
+      ON run_logs(COALESCE(finished_at_utc, started_at_utc, '1970-01-01T00:00:00.000Z') DESC, id DESC);
   `);
   const existingColumns = (database.prepare('PRAGMA table_info(run_logs)').all() as Array<{ name: unknown }>)
     .map((column) => String(column.name));
