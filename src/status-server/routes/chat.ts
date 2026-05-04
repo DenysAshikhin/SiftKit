@@ -857,25 +857,19 @@ export async function handleChatRoute(
         mockResponses: Array.isArray(parsedBody.mockResponses) ? (parsedBody.mockResponses as unknown[]).map((v) => String(v)) : undefined,
         mockCommandResults: (parsedBody.mockCommandResults && typeof parsedBody.mockCommandResults === 'object' && !Array.isArray(parsedBody.mockCommandResults)) ? parsedBody.mockCommandResults : undefined,
         onProgress(event: RepoSearchProgressEvent) {
-          if (event.kind === 'tool_start') {
-            const logMessage = buildRepoSearchProgressLogMessage(event, 'planner');
-            if (logMessage) logLine(logMessage);
-          }
           if (event.kind === 'thinking') {
             phaseTracker.observeThinking(event.thinkingText || '');
             writeSse('thinking', { thinking: event.thinkingText || '' });
           } else if (event.kind === 'tool_start') {
-            const answer = `Planning step ${event.turn}/${event.maxTurns}: running \`${event.command}\`...`;
+            const logMessage = buildRepoSearchProgressLogMessage(event, 'planner');
+            if (logMessage) logLine(logMessage);
             writeSse('tool_start', {
               turn: event.turn,
               maxTurns: event.maxTurns,
               command: event.command,
               promptTokenCount: Number.isFinite(event.promptTokenCount) ? Number(event.promptTokenCount) : null,
             });
-            phaseTracker.observeAnswer(answer);
-            writeSse('answer', { answer });
           } else if (event.kind === 'tool_result') {
-            const answer = `Planning step ${event.turn}/${event.maxTurns}: \`${event.command}\` finished (exit ${event.exitCode ?? '?'})`;
             writeSse('tool_result', {
               turn: event.turn,
               maxTurns: event.maxTurns,
@@ -884,8 +878,6 @@ export async function handleChatRoute(
               outputSnippet: event.outputSnippet,
               promptTokenCount: Number.isFinite(event.promptTokenCount) ? Number(event.promptTokenCount) : null,
             });
-            phaseTracker.observeAnswer(answer);
-            writeSse('answer', { answer });
           }
         },
       });

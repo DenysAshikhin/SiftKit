@@ -1,5 +1,5 @@
 import { getStatusBackendUrl } from '../config/index.js';
-import { requestJson } from '../lib/http.js';
+import { logHttpClientBoundary, requestJson } from '../lib/http.js';
 import { getCommandArgs, parseArguments } from './args.js';
 
 export function getRepoSearchServiceUrl(): string {
@@ -29,6 +29,7 @@ export async function runRepoSearchCli(options: {
     throw new Error('A --prompt is required for repo-search.');
   }
 
+  const requestStartedAt = Date.now();
   const response = await requestJson<{
     requestId: string;
     transcriptPath: string;
@@ -44,6 +45,11 @@ export async function runRepoSearchCli(options: {
       logFile: parsed.logFile,
     }),
   });
+  logHttpClientBoundary(
+    'repo-search',
+    'caller_response_received',
+    `elapsed_ms=${Math.max(0, Date.now() - requestStartedAt)} no_awaited_flush_before_next=true`,
+  );
 
   const scorecard = response.scorecard && typeof response.scorecard === 'object'
     ? response.scorecard as { tasks?: Array<{ finalOutput?: unknown }> }

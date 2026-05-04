@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { runCli } from '../dist/cli/index.js';
 import { makeCaptureStream } from './_test-helpers.js';
 
-async function runMockRepoSearchCli(port: number): Promise<string> {
+async function runMockRepoSearchCli(port: number): Promise<{ stdout: string; stderr: string }> {
   const oldStatusUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
   const oldConfigUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
   process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${port}/status`;
@@ -14,13 +14,28 @@ async function runMockRepoSearchCli(port: number): Promise<string> {
   try {
     const stdout = makeCaptureStream();
     const stderr = makeCaptureStream();
-    const code = await runCli({
-      argv: ['repo-search', '--prompt', 'find planner tools'],
-      stdout: stdout.stream,
-      stderr: stderr.stream,
-    });
-    assert.equal(code, 0);
-    return stdout.read();
+    const originalStderrWrite = process.stderr.write;
+    let processStderr = '';
+    process.stderr.write = ((chunk: unknown, encoding?: BufferEncoding | ((error?: Error | null) => void), callback?: (error?: Error | null) => void): boolean => {
+      processStderr += String(chunk);
+      if (typeof encoding === 'function') {
+        encoding();
+      } else if (callback) {
+        callback();
+      }
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const code = await runCli({
+        argv: ['repo-search', '--prompt', 'find planner tools'],
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+      });
+      assert.equal(code, 0);
+      return { stdout: stdout.read(), stderr: processStderr + stderr.read() };
+    } finally {
+      process.stderr.write = originalStderrWrite;
+    }
   } finally {
     if (oldStatusUrl === undefined) {
       delete process.env.SIFTKIT_STATUS_BACKEND_URL;
@@ -101,7 +116,11 @@ test('repo-search delegates execution to status server', async () => {
     const first = received[0] as { prompt: string; repoRoot: string };
     assert.equal(first.prompt, 'find planner tools');
     assert.equal(first.repoRoot, process.cwd());
-    assert.equal(output, 'Found planner tools in src/summary.ts\n');
+    assert.equal(output.stdout, 'Found planner tools in src/summary.ts\n');
+    assert.match(output.stderr, /http_client enqueue_intent task=repo-search method=POST path=\/repo-search body_chars=\d+/u);
+    assert.match(output.stderr, /http_client request_sent task=repo-search method=POST path=\/repo-search elapsed_ms=\d+/u);
+    assert.match(output.stderr, /http_client response_done task=repo-search method=POST path=\/repo-search status=200 response_chars=\d+ elapsed_ms=\d+/u);
+    assert.match(output.stderr, /http_client caller_response_received task=repo-search elapsed_ms=\d+ no_awaited_flush_before_next=true/u);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
@@ -142,7 +161,7 @@ test('repo-search CLI leaves prompt timeout to server after queue admission', as
   const port = Number(address.port);
   try {
     const output = await runMockRepoSearchCli(port);
-    assert.equal(output, 'Found planner tools in src/summary.ts\n');
+    assert.equal(output.stdout, 'Found planner tools in src/summary.ts\n');
     assert.deepEqual(timeouts, [1000]);
   } finally {
     http.ClientRequest.prototype.setTimeout = originalSetTimeout;

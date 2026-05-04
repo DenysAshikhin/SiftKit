@@ -555,6 +555,11 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
     assert.equal(Number.isFinite(Number(planToolResult?.payload?.promptTokenCount)), true);
     assert.equal(planToolStart?.payload?.command, 'rg -n "test" .');
     assert.equal(/--no-ignore|--ignore-case|--glob/u.test(String(planToolStart?.payload?.command || '')), false);
+    assert.equal(
+      planSse.events.some((event) => event.event === 'answer' && /Planning step/u.test(String(event.payload?.answer || ''))),
+      false,
+      JSON.stringify(planSse.events),
+    );
     const planDoneSession = d(planSse.events.find((event) => event.event === 'done')?.payload).session as Dict;
     const planDoneMessages = (planDoneSession.messages || []) as Dict[];
     const latestPlanMessage = planDoneMessages[planDoneMessages.length - 1];

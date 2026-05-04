@@ -1,6 +1,7 @@
 import * as http from 'node:http';
 import * as https from 'node:https';
 import { parseJsonText } from './json.js';
+import { formatTimestamp } from './text-format.js';
 
 export type HttpMethod = 'GET' | 'PUT' | 'POST' | 'DELETE';
 
@@ -11,6 +12,31 @@ export type RequestJsonOptions = {
   body?: string;
   abortSignal?: AbortSignal;
 };
+
+type LoggedHttpClientTask = 'repo-search' | 'summary';
+
+function getLoggedHttpClientTask(target: URL): LoggedHttpClientTask | null {
+  if (target.pathname === '/repo-search') {
+    return 'repo-search';
+  }
+  if (target.pathname === '/summary') {
+    return 'summary';
+  }
+  return null;
+}
+
+export function logHttpClientBoundary(task: LoggedHttpClientTask, event: string, fields: string = ''): void {
+  process.stderr.write(`${formatTimestamp()} http_client ${event} task=${task}${fields ? ` ${fields}` : ''}\n`);
+}
+
+function logHttpClientLifecycle(target: URL, method: HttpMethod, event: string, fields: string): void {
+  const task = getLoggedHttpClientTask(target);
+  if (!task) {
+    return;
+  }
+  const path = `${target.pathname}${target.search}`;
+  logHttpClientBoundary(task, event, `method=${method} path=${path}${fields ? ` ${fields}` : ''}`);
+}
 
 /**
  * Full HTTP response shape returned by {@link requestJsonFull}.
@@ -32,9 +58,13 @@ export type FullJsonResponse<T> = {
  * be thrown for non-2xx responses.
  */
 export function requestJson<T>(options: RequestJsonOptions): Promise<T> {
+  const target = new URL(options.url);
+  const transport = target.protocol === 'https:' ? https : http;
+  const startedAt = Date.now();
+  const bodyChars = options.body ? Buffer.byteLength(options.body, 'utf8') : 0;
+  logHttpClientLifecycle(target, options.method, 'enqueue_intent', `body_chars=${bodyChars}`);
   return new Promise((resolve, reject) => {
-    const target = new URL(options.url);
-    const transport = target.protocol === 'https:' ? https : http;
+    logHttpClientLifecycle(target, options.method, 'request_start', '');
     const request = transport.request(
       {
         protocol: target.protocol,
@@ -48,12 +78,24 @@ export function requestJson<T>(options: RequestJsonOptions): Promise<T> {
         } : undefined,
       },
       (response) => {
+        logHttpClientLifecycle(
+          target,
+          options.method,
+          'response_received',
+          `status=${response.statusCode || 0} elapsed_ms=${Math.max(0, Date.now() - startedAt)}`,
+        );
         let responseText = '';
         response.setEncoding('utf8');
         response.on('data', (chunk: string) => {
           responseText += chunk;
         });
         response.on('end', () => {
+          logHttpClientLifecycle(
+            target,
+            options.method,
+            'response_done',
+            `status=${response.statusCode || 0} response_chars=${Buffer.byteLength(responseText, 'utf8')} elapsed_ms=${Math.max(0, Date.now() - startedAt)}`,
+          );
           if ((response.statusCode || 0) >= 400) {
             reject(new Error(`HTTP ${response.statusCode}: ${responseText}`));
             return;
@@ -79,11 +121,20 @@ export function requestJson<T>(options: RequestJsonOptions): Promise<T> {
         request.destroy(new Error(`Request timed out after ${timeoutMs} ms.`));
       });
     }
-    request.on('error', reject);
+    request.on('error', (error) => {
+      logHttpClientLifecycle(
+        target,
+        options.method,
+        'request_error',
+        `elapsed_ms=${Math.max(0, Date.now() - startedAt)} error=${String(error.message || error).replace(/\s+/gu, '_')}`,
+      );
+      reject(error);
+    });
     if (options.body) {
       request.write(options.body);
     }
     request.end();
+    logHttpClientLifecycle(target, options.method, 'request_sent', `elapsed_ms=${Math.max(0, Date.now() - startedAt)}`);
   });
 }
 
