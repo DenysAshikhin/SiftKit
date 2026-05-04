@@ -6,6 +6,8 @@ Re-use as much code/components as possible.
 
 Avoid overengineering of solutions where not 100% necessary.
 
+*DO NOT* keep legacy compatability. Any rework/refactor must be complete and thorough. Old things that were missed will fail loud and clearly.
+
 Ensure as close to 100% branch coverage as possible.
 
 Follow TDD (Test Driven Development) exclusively.

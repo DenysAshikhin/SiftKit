@@ -14,6 +14,33 @@ import { closeRuntimeDatabase, getRuntimeDatabase } from '../dist/state/runtime-
 
 type JsonResponse = { statusCode: number; body: Record<string, unknown> };
 
+async function captureStdoutLines(fn: () => Promise<void>): Promise<string[]> {
+  const originalWrite = process.stdout.write.bind(process.stdout);
+  const lines: string[] = [];
+  let buffer = '';
+  process.stdout.write = (
+    chunk: string | Uint8Array,
+    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+    callback?: (error?: Error | null) => void,
+  ): boolean => {
+    const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+    buffer += text;
+    const parts = buffer.split(/\r?\n/u);
+    buffer = parts.pop() || '';
+    for (const line of parts) {
+      if (line.trim()) lines.push(line);
+    }
+    return originalWrite(chunk, encodingOrCallback as BufferEncoding, callback);
+  };
+  try {
+    await fn();
+  } finally {
+    process.stdout.write = originalWrite;
+  }
+  if (buffer.trim()) lines.push(buffer.trim());
+  return lines;
+}
+
 function requestJson(url: string, options: { method?: string; body?: string; timeoutMs?: number } = {}): Promise<JsonResponse> {
   return new Promise((resolve, reject) => {
     const target = new URL(url);
@@ -127,6 +154,178 @@ test('summary endpoint waits behind the model request queue', async () => {
     assert.equal(summary.statusCode, 200);
     assert.equal(typeof summary.body.Summary, 'string');
     assert.ok(summaryElapsedMs >= 180, `summary did not wait for model queue, elapsed=${summaryElapsedMs}`);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    process.chdir(previousCwd);
+    closeRuntimeDatabase();
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('summary endpoint processes terminal status before granting next queued summary', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-summary-terminal-before-release-'));
+  const previousCwd = process.cwd();
+  fs.writeFileSync(
+    path.join(tempRoot, 'package.json'),
+    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+    'utf8',
+  );
+  process.chdir(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup: Record<string, string | undefined> = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const lines = await captureStdoutLines(async () => {
+      const first = requestJson(`${baseUrl}/summary`, {
+        method: 'POST',
+        timeoutMs: 15000,
+        body: JSON.stringify({
+          question: 'summarize this',
+          inputText: 'First queued summary input.'.repeat(50),
+          format: 'text',
+          policyProfile: 'general',
+          backend: 'mock',
+          model: 'mock-model',
+        }),
+      });
+      await new Promise<void>((resolve) => setTimeout(resolve, 5));
+      const second = requestJson(`${baseUrl}/summary`, {
+        method: 'POST',
+        timeoutMs: 15000,
+        body: JSON.stringify({
+          question: 'summarize this',
+          inputText: 'Second queued summary input.'.repeat(50),
+          format: 'text',
+          policyProfile: 'general',
+          backend: 'mock',
+          model: 'mock-model',
+        }),
+      });
+      const [firstResponse, secondResponse] = await Promise.all([first, second]);
+      assert.equal(firstResponse.statusCode, 200);
+      assert.equal(secondResponse.statusCode, 200);
+      await new Promise<void>((resolve) => setTimeout(resolve, 40));
+    });
+
+    assert.equal(lines.some((line) => /stale_status_abandoned/u.test(line)), false, lines.join('\n'));
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    process.chdir(previousCwd);
+    closeRuntimeDatabase();
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('status terminal post with deferred metadata clears active request before next running post', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-status-terminal-order-'));
+  const previousCwd = process.cwd();
+  fs.writeFileSync(
+    path.join(tempRoot, 'package.json'),
+    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+    'utf8',
+  );
+  process.chdir(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup: Record<string, string | undefined> = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const lines = await captureStdoutLines(async () => {
+      const firstRunning = await requestJson(`${baseUrl}/status`, {
+        method: 'POST',
+        body: JSON.stringify({
+          running: true,
+          taskKind: 'summary',
+          requestId: 'first-summary',
+          statusPath,
+          rawInputCharacterCount: 100,
+          promptCharacterCount: 200,
+          promptTokenCount: 50,
+        }),
+      });
+      const firstTerminal = await requestJson(`${baseUrl}/status`, {
+        method: 'POST',
+        body: JSON.stringify({
+          running: false,
+          taskKind: 'summary',
+          requestId: 'first-summary',
+          statusPath,
+          terminalState: 'completed',
+          deferredMetadata: {
+            outputTokens: 10,
+          },
+        }),
+      });
+      const secondRunning = await requestJson(`${baseUrl}/status`, {
+        method: 'POST',
+        body: JSON.stringify({
+          running: true,
+          taskKind: 'summary',
+          requestId: 'second-summary',
+          statusPath,
+          rawInputCharacterCount: 10,
+          promptCharacterCount: 20,
+          promptTokenCount: 5,
+        }),
+      });
+      assert.equal(firstRunning.statusCode, 200);
+      assert.equal(firstTerminal.statusCode, 200);
+      assert.equal(secondRunning.statusCode, 200);
+      await new Promise<void>((resolve) => setTimeout(resolve, 40));
+    });
+
+    assert.equal(lines.some((line) => /stale_status_abandoned/u.test(line)), false, lines.join('\n'));
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
