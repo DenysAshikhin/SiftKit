@@ -692,8 +692,21 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       promptChars: prompt.length,
       elapsedMs: Date.now() - taskStartedAt,
     });
+    const preflightConfig = useEstimatedTokensOnly ? undefined : options.config;
+    if (preflightConfig) {
+      options.onProgress?.({
+        kind: 'preflight_tokenize_start',
+        taskId: task.id,
+        turn,
+        maxTurns,
+        promptChars: prompt.length,
+        tokenizeTimeoutMs: 10_000,
+        tokenizeRetryMaxWaitMs: 30_000,
+        elapsedMs: Date.now() - taskStartedAt,
+      });
+    }
     let preflight = await preflightPlannerPromptBudget({
-      config: useEstimatedTokensOnly ? undefined : options.config,
+      config: preflightConfig,
       prompt,
       totalContextTokens,
       thinkingBufferTokens,
@@ -712,6 +725,24 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       promptTokenCount: preflight.promptTokenCount,
       elapsedMs: Date.now() - taskStartedAt,
     });
+    if (preflight.tokenizationAttempted) {
+      options.onProgress?.({
+        kind: 'preflight_tokenize_done',
+        taskId: task.id,
+        turn,
+        maxTurns,
+        promptChars: prompt.length,
+        promptTokenCount: preflight.promptTokenCount,
+        tokenCountSource: preflight.tokenCountSource,
+        tokenizeElapsedMs: preflight.tokenizeElapsedMs ?? undefined,
+        tokenizeRetryCount: preflight.tokenizeRetryCount ?? undefined,
+        tokenizeTimeoutMs: preflight.tokenizeTimeoutMs,
+        tokenizeRetryMaxWaitMs: preflight.tokenizeRetryMaxWaitMs,
+        tokenizeStatus: preflight.tokenizeStatus ?? undefined,
+        errorMessage: preflight.tokenizeErrorMessage ?? undefined,
+        elapsedMs: Date.now() - taskStartedAt,
+      });
+    }
     let maxOutputTokens = getDynamicMaxOutputTokens({
       totalContextTokens,
       promptTokenCount: preflight.promptTokenCount,
@@ -735,9 +766,39 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       messages.splice(0, messages.length, ...compacted.messages);
       lastLoggedMessageCount = 0;
       prompt = renderTaskTranscript(messages);
+      if (preflightConfig) {
+        options.onProgress?.({
+          kind: 'preflight_tokenize_start',
+          taskId: task.id,
+          turn,
+          maxTurns,
+          promptChars: prompt.length,
+          tokenizeTimeoutMs: 10_000,
+          tokenizeRetryMaxWaitMs: 30_000,
+          elapsedMs: Date.now() - taskStartedAt,
+        });
+      }
       const afterCompaction = await preflightPlannerPromptBudget({
-        config: useEstimatedTokensOnly ? undefined : options.config, prompt, totalContextTokens, thinkingBufferTokens,
+        config: preflightConfig, prompt, totalContextTokens, thinkingBufferTokens,
       });
+      if (afterCompaction.tokenizationAttempted) {
+        options.onProgress?.({
+          kind: 'preflight_tokenize_done',
+          taskId: task.id,
+          turn,
+          maxTurns,
+          promptChars: prompt.length,
+          promptTokenCount: afterCompaction.promptTokenCount,
+          tokenCountSource: afterCompaction.tokenCountSource,
+          tokenizeElapsedMs: afterCompaction.tokenizeElapsedMs ?? undefined,
+          tokenizeRetryCount: afterCompaction.tokenizeRetryCount ?? undefined,
+          tokenizeTimeoutMs: afterCompaction.tokenizeTimeoutMs,
+          tokenizeRetryMaxWaitMs: afterCompaction.tokenizeRetryMaxWaitMs,
+          tokenizeStatus: afterCompaction.tokenizeStatus ?? undefined,
+          errorMessage: afterCompaction.tokenizeErrorMessage ?? undefined,
+          elapsedMs: Date.now() - taskStartedAt,
+        });
+      }
       compactionSpan?.end({
         afterPromptTokenCount: afterCompaction.promptTokenCount,
         droppedMessageCount: compacted.droppedMessageCount,

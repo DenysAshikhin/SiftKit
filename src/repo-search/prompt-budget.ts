@@ -2,7 +2,12 @@ import {
   getEffectiveInputCharactersPerContextToken,
   type SiftConfig,
 } from '../config/index.js';
-import { countLlamaCppTokens } from '../providers/llama-cpp.js';
+import {
+  DEFAULT_LLAMA_CPP_TOKENIZE_RETRY_MAX_WAIT_MS,
+  DEFAULT_LLAMA_CPP_TOKENIZE_TIMEOUT_MS,
+  countLlamaCppTokensDetailed,
+  type LlamaCppTokenCountResult,
+} from '../providers/llama-cpp.js';
 import type { ChatMessage } from './planner-protocol.js';
 import { renderTaskTranscript } from './planner-protocol.js';
 
@@ -17,18 +22,41 @@ export function estimateTokenCount(config: SiftConfig | undefined, text: string)
   return Math.max(1, Math.ceil(String(text || '').length / charsPerToken));
 }
 
-export async function countTokensWithFallback(config: SiftConfig | undefined, text: string): Promise<number> {
-  try {
-    if (config) {
-      const tokenCount = await countLlamaCppTokens(config, text);
-      if (Number.isFinite(tokenCount) && Number(tokenCount) > 0) {
-        return Number(tokenCount);
-      }
+export type TokenCountWithFallbackResult = {
+  tokenCount: number;
+  source: 'llama.cpp' | 'estimate';
+  llamaTokenCount: LlamaCppTokenCountResult | null;
+};
+
+export async function countTokensWithFallbackDetailed(
+  config: SiftConfig | undefined,
+  text: string,
+): Promise<TokenCountWithFallbackResult> {
+  if (config) {
+    const llamaTokenCount = await countLlamaCppTokensDetailed(config, text);
+    if (Number.isFinite(llamaTokenCount.tokenCount) && Number(llamaTokenCount.tokenCount) > 0) {
+      return {
+        tokenCount: Number(llamaTokenCount.tokenCount),
+        source: 'llama.cpp',
+        llamaTokenCount,
+      };
     }
-  } catch {
-    // Fall back to estimate below.
+    return {
+      tokenCount: estimateTokenCount(config, text),
+      source: 'estimate',
+      llamaTokenCount,
+    };
   }
-  return estimateTokenCount(config, text);
+
+  return {
+    tokenCount: estimateTokenCount(config, text),
+    source: 'estimate',
+    llamaTokenCount: null,
+  };
+}
+
+export async function countTokensWithFallback(config: SiftConfig | undefined, text: string): Promise<number> {
+  return (await countTokensWithFallbackDetailed(config, text)).tokenCount;
 }
 
 // ---------------------------------------------------------------------------
@@ -40,6 +68,14 @@ export type PreflightResult = {
   promptTokenCount: number;
   maxPromptBudget: number;
   overflowTokens: number;
+  tokenCountSource: 'llama.cpp' | 'estimate';
+  tokenizationAttempted: boolean;
+  tokenizeElapsedMs: number | null;
+  tokenizeRetryCount: number | null;
+  tokenizeTimeoutMs: number;
+  tokenizeRetryMaxWaitMs: number;
+  tokenizeStatus: string | null;
+  tokenizeErrorMessage: string | null;
 };
 
 export async function preflightPlannerPromptBudget(options: {
@@ -56,15 +92,25 @@ export async function preflightPlannerPromptBudget(options: {
     ? options.prompt
     : renderTaskTranscript(Array.isArray(options.messages) ? options.messages : []);
 
-  const promptTokenCount = await countTokensWithFallback(options.config, promptText);
+  const tokenCount = await countTokensWithFallbackDetailed(options.config, promptText);
+  const promptTokenCount = tokenCount.tokenCount;
   const maxPromptBudget = Math.max(totalContextTokens - thinkingBufferTokens, 0);
   const overflowTokens = Math.max(promptTokenCount - maxPromptBudget, 0);
+  const llamaTokenCount = tokenCount.llamaTokenCount;
 
   return {
     ok: overflowTokens === 0,
     promptTokenCount,
     maxPromptBudget,
     overflowTokens,
+    tokenCountSource: tokenCount.source,
+    tokenizationAttempted: llamaTokenCount !== null,
+    tokenizeElapsedMs: llamaTokenCount?.elapsedMs ?? null,
+    tokenizeRetryCount: llamaTokenCount?.retryCount ?? null,
+    tokenizeTimeoutMs: llamaTokenCount?.timeoutMs ?? DEFAULT_LLAMA_CPP_TOKENIZE_TIMEOUT_MS,
+    tokenizeRetryMaxWaitMs: llamaTokenCount?.retryMaxWaitMs ?? DEFAULT_LLAMA_CPP_TOKENIZE_RETRY_MAX_WAIT_MS,
+    tokenizeStatus: llamaTokenCount?.status ?? null,
+    tokenizeErrorMessage: llamaTokenCount?.errorMessage ?? null,
   };
 }
 

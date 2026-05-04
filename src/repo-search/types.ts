@@ -17,6 +17,12 @@ export type RepoSearchProgressEvent = {
   modelCount?: number;
   errorMessage?: string;
   elapsedMs?: number;
+  tokenCountSource?: string;
+  tokenizeElapsedMs?: number;
+  tokenizeRetryCount?: number;
+  tokenizeTimeoutMs?: number;
+  tokenizeRetryMaxWaitMs?: number;
+  tokenizeStatus?: string;
 };
 
 export type RepoSearchMockCommandResult = {

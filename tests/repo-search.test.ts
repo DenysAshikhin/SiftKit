@@ -347,6 +347,32 @@ test('executeRepoSearchRequest logs lifecycle before provider work starts', asyn
   });
 });
 
+test('executeRepoSearchRequest logs repo-search preflight tokenization timing', async () => {
+  await withTestEnvAndServer(async ({ tempRoot, stub }) => {
+    const lines = await captureStdoutLines(async () => {
+      await executeRepoSearchRequest({
+        prompt: 'find tokenize timing logs',
+        repoRoot: tempRoot,
+        config: stub.state.config,
+        maxTurns: 1,
+        mockCommandResults: {},
+      });
+    });
+
+    assert.ok(
+      lines.some((line) => /repo_search preflight_tokenize_start request_id=.* turn=1 prompt_chars=\d+ timeout_ms=10000 retry_max_wait_ms=30000/u.test(line)),
+      lines.join('\n'),
+    );
+    assert.ok(
+      lines.some((line) => /repo_search preflight_tokenize_done request_id=.* turn=1 prompt_tokens=321 source=llama\.cpp elapsed_ms=\d+ retry_count=0/u.test(line)),
+      lines.join('\n'),
+    );
+  }, {
+    assistantContent: '{"action":"finish","output":"done","confidence":0.8}',
+    tokenizeTokenCount: 321,
+  });
+});
+
 test('executeRepoSearchRequest uses a three-minute default prompt budget', () => {
   assert.equal(DEFAULT_REPO_SEARCH_PROMPT_TIMEOUT_MS, 180_000);
 });

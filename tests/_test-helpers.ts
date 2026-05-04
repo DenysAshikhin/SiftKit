@@ -139,6 +139,7 @@ export type StubServerOptions = {
   assistantContent?: string | ((parsed: Dict) => string);
   executionAcquireDelayMs?: number;
   executionAcquireDelayCount?: number;
+  tokenizeTokenCount?: number | ((content: string, parsed: Dict) => number | null);
 };
 
 export type StubServer = {
@@ -274,6 +275,21 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
       return;
     }
     if (req.method === 'POST' && req.url === '/tokenize') {
+      const bodyText = await readBody(req);
+      const parsed = (bodyText ? JSON.parse(bodyText) : {}) as Dict;
+      const content = typeof parsed.content === 'string' ? parsed.content : '';
+      if (typeof options.tokenizeTokenCount === 'function') {
+        const tokenCount = options.tokenizeTokenCount(content, parsed);
+        if (Number.isFinite(tokenCount) && Number(tokenCount) >= 0) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ count: Math.trunc(Number(tokenCount)) }));
+          return;
+        }
+      } else if (Number.isFinite(options.tokenizeTokenCount) && Number(options.tokenizeTokenCount) >= 0) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ count: Math.trunc(Number(options.tokenizeTokenCount)) }));
+        return;
+      }
       res.writeHead(503, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'tokenize unavailable' }));
       return;

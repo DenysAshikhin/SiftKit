@@ -17,7 +17,12 @@ import { getErrorMessage } from '../lib/errors.js';
 import { formatTimestamp } from '../lib/text-format.js';
 import { createTemporaryTimingRecorderFromEnv, type TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
 import { decodeTextBuffer } from '../lib/text-encoding.js';
-import { countLlamaCppTokens, type CountLlamaCppTokensOptions } from '../providers/llama-cpp.js';
+import {
+  DEFAULT_LLAMA_CPP_TOKENIZE_RETRY_MAX_WAIT_MS,
+  DEFAULT_LLAMA_CPP_TOKENIZE_TIMEOUT_MS,
+  countLlamaCppTokensDetailed,
+  type CountLlamaCppTokensOptions,
+} from '../providers/llama-cpp.js';
 import {
   getDeterministicExcerpt,
   getErrorSignalMetrics,
@@ -291,20 +296,28 @@ async function invokeSummaryCore(options: {
     enabled: effectivePromptLimit !== null && effectivePromptLimit > 0,
   });
   const tokenizeOptions = getSummaryTokenizeOptions(options.requestTimeoutSeconds);
+  const tokenizeTimeoutMs = tokenizeOptions?.timeoutMs ?? DEFAULT_LLAMA_CPP_TOKENIZE_TIMEOUT_MS;
+  const tokenizeRetryMaxWaitMs = tokenizeOptions?.retryMaxWaitMs ?? DEFAULT_LLAMA_CPP_TOKENIZE_RETRY_MAX_WAIT_MS;
   if (effectivePromptLimit !== null && effectivePromptLimit > 0) {
     logSummaryProgress(
       `preflight_tokenize_start request_id=${options.requestId} phase=${phase} chunk=${chunkLabel} `
-      + `prompt_chars=${prompt.length} timeout_ms=${tokenizeOptions?.timeoutMs ?? 10000}`,
+      + `prompt_chars=${prompt.length} timeout_ms=${tokenizeTimeoutMs} retry_max_wait_ms=${tokenizeRetryMaxWaitMs}`,
     );
   }
-  const promptTokenCount = effectivePromptLimit !== null && effectivePromptLimit > 0
-    ? await countLlamaCppTokens(options.config, prompt, tokenizeOptions)
+  const tokenCountResult = effectivePromptLimit !== null && effectivePromptLimit > 0
+    ? await countLlamaCppTokensDetailed(options.config, prompt, tokenizeOptions)
     : null;
+  const promptTokenCount = tokenCountResult?.tokenCount ?? null;
   promptTokenSpan?.end({ promptTokenCount: promptTokenCount ?? -1 });
   if (effectivePromptLimit !== null && effectivePromptLimit > 0) {
+    const tokenSource = promptTokenCount === null ? 'unavailable' : 'llama.cpp';
+    const tokenErrorSuffix = tokenCountResult?.errorMessage ? ` error=${JSON.stringify(tokenCountResult.errorMessage)}` : '';
     logSummaryProgress(
       `preflight_tokenize_done request_id=${options.requestId} phase=${phase} chunk=${chunkLabel} `
-      + `prompt_tokens=${promptTokenCount ?? 'null'}`,
+      + `prompt_tokens=${promptTokenCount ?? 'null'} source=${tokenSource} `
+      + `elapsed_ms=${tokenCountResult?.elapsedMs ?? 0} retry_count=${tokenCountResult?.retryCount ?? 0} `
+      + `status=${tokenCountResult?.status ?? 'unknown'}`
+      + tokenErrorSuffix,
     );
   }
   traceSummary(

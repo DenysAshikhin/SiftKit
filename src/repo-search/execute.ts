@@ -50,6 +50,24 @@ function logRepoSearchExecutionProgress(requestId: string, event: RepoSearchProg
     logRepoSearchProgress(
       `preflight_done request_id=${requestId} turn=${event.turn ?? '?'} prompt_tokens=${Math.max(0, Math.trunc(Number(event.promptTokenCount || 0)))} elapsed_ms=${elapsedMs}`,
     );
+  } else if (event.kind === 'preflight_tokenize_start') {
+    logRepoSearchProgress(
+      `preflight_tokenize_start request_id=${requestId} turn=${event.turn ?? '?'} `
+      + `prompt_chars=${Math.max(0, Math.trunc(Number(event.promptChars || 0)))} `
+      + `timeout_ms=${Math.max(0, Math.trunc(Number(event.tokenizeTimeoutMs || 0)))} `
+      + `retry_max_wait_ms=${Math.max(0, Math.trunc(Number(event.tokenizeRetryMaxWaitMs || 0)))}`,
+    );
+  } else if (event.kind === 'preflight_tokenize_done') {
+    const errorSuffix = event.errorMessage ? ` error=${JSON.stringify(event.errorMessage)}` : '';
+    logRepoSearchProgress(
+      `preflight_tokenize_done request_id=${requestId} turn=${event.turn ?? '?'} `
+      + `prompt_tokens=${Math.max(0, Math.trunc(Number(event.promptTokenCount || 0)))} `
+      + `source=${event.tokenCountSource || 'unknown'} `
+      + `elapsed_ms=${Math.max(0, Math.trunc(Number(event.tokenizeElapsedMs || 0)))} `
+      + `retry_count=${Math.max(0, Math.trunc(Number(event.tokenizeRetryCount || 0)))} `
+      + `status=${event.tokenizeStatus || 'unknown'}`
+      + errorSuffix,
+    );
   }
 }
 

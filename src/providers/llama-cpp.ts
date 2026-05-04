@@ -27,9 +27,23 @@ type LlamaCppTokenizeResponse = {
   n_tokens?: unknown;
 };
 
+export const DEFAULT_LLAMA_CPP_TOKENIZE_TIMEOUT_MS = 10_000;
+export const DEFAULT_LLAMA_CPP_TOKENIZE_RETRY_MAX_WAIT_MS = 30_000;
+
 export type CountLlamaCppTokensOptions = {
   timeoutMs?: number;
   retryMaxWaitMs?: number;
+};
+
+export type LlamaCppTokenCountResult = {
+  tokenCount: number | null;
+  elapsedMs: number;
+  retryCount: number;
+  timeoutMs: number;
+  retryMaxWaitMs: number;
+  status: 'completed' | 'empty' | 'http_error' | 'error';
+  httpStatusCode: number | null;
+  errorMessage: string | null;
 };
 
 type LlamaCppChatResponse = {
@@ -310,16 +324,35 @@ export async function countLlamaCppTokens(
   content: string,
   options: CountLlamaCppTokensOptions = {},
 ): Promise<number | null> {
+  return (await countLlamaCppTokensDetailed(config, content, options)).tokenCount;
+}
+
+export async function countLlamaCppTokensDetailed(
+  config: SiftConfig,
+  content: string,
+  options: CountLlamaCppTokensOptions = {},
+): Promise<LlamaCppTokenCountResult> {
+  const timeoutMs = getPositiveTimeoutMs(options.timeoutMs, DEFAULT_LLAMA_CPP_TOKENIZE_TIMEOUT_MS);
+  const retryMaxWaitMs = getPositiveTimeoutMs(options.retryMaxWaitMs, DEFAULT_LLAMA_CPP_TOKENIZE_RETRY_MAX_WAIT_MS);
   if (!content.trim()) {
-    return 0;
+    return {
+      tokenCount: 0,
+      elapsedMs: 0,
+      retryCount: 0,
+      timeoutMs,
+      retryMaxWaitMs,
+      status: 'empty',
+      httpStatusCode: null,
+      errorMessage: null,
+    };
   }
 
   const startedAt = Date.now();
+  let retryCount = 0;
+  let lastRetryErrorMessage: string | null = null;
   traceLlamaCpp(`tokenize start chars=${content.length}`);
   try {
     const baseUrl = getConfiguredLlamaBaseUrl(config);
-    const timeoutMs = getPositiveTimeoutMs(options.timeoutMs, 10_000);
-    const retryMaxWaitMs = getPositiveTimeoutMs(options.retryMaxWaitMs, 30_000);
     const response = await retryProviderRequest(async () => {
       const nextResponse = await requestJson<LlamaCppTokenizeResponse>({
         url: `${baseUrl.replace(/\/$/u, '')}/tokenize`,
@@ -334,6 +367,8 @@ export async function countLlamaCppTokens(
     }, {
       maxWaitMs: retryMaxWaitMs,
       onRetry(event) {
+        retryCount += 1;
+        lastRetryErrorMessage = event.error.message;
         traceLlamaCpp(
           `tokenize retry attempt=${event.attempt} elapsed_ms=${event.elapsedMs} `
           + `next_delay_ms=${event.nextDelayMs} code=${event.error.code || 'none'}`
@@ -343,7 +378,16 @@ export async function countLlamaCppTokens(
 
     if (response.statusCode >= 400) {
       traceLlamaCpp(`tokenize http_error elapsed_ms=${Date.now() - startedAt} status=${response.statusCode}`);
-      return null;
+      return {
+        tokenCount: null,
+        elapsedMs: Date.now() - startedAt,
+        retryCount,
+        timeoutMs,
+        retryMaxWaitMs,
+        status: 'http_error',
+        httpStatusCode: response.statusCode,
+        errorMessage: `HTTP ${response.statusCode}`,
+      };
     }
 
     const explicitCount = getUsageValue(response.body.count)
@@ -356,12 +400,30 @@ export async function countLlamaCppTokens(
         updatedAtUtc: new Date().toISOString(),
       });
       traceLlamaCpp(`tokenize done elapsed_ms=${Date.now() - startedAt} tokens=${explicitCount}`);
-      return explicitCount;
+      return {
+        tokenCount: explicitCount,
+        elapsedMs: Date.now() - startedAt,
+        retryCount,
+        timeoutMs,
+        retryMaxWaitMs,
+        status: 'completed',
+        httpStatusCode: response.statusCode,
+        errorMessage: null,
+      };
     }
 
     if (!Array.isArray(response.body.tokens)) {
       traceLlamaCpp(`tokenize done elapsed_ms=${Date.now() - startedAt} tokens=null`);
-      return null;
+      return {
+        tokenCount: null,
+        elapsedMs: Date.now() - startedAt,
+        retryCount,
+        timeoutMs,
+        retryMaxWaitMs,
+        status: 'error',
+        httpStatusCode: response.statusCode,
+        errorMessage: 'Tokenize response did not include token count.',
+      };
     }
 
     tryRecordAccurateCharTokenObservation({
@@ -370,11 +432,29 @@ export async function countLlamaCppTokens(
       updatedAtUtc: new Date().toISOString(),
     });
     traceLlamaCpp(`tokenize done elapsed_ms=${Date.now() - startedAt} tokens=${response.body.tokens.length}`);
-    return response.body.tokens.length;
+    return {
+      tokenCount: response.body.tokens.length,
+      elapsedMs: Date.now() - startedAt,
+      retryCount,
+      timeoutMs,
+      retryMaxWaitMs,
+      status: 'completed',
+      httpStatusCode: response.statusCode,
+      errorMessage: null,
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     traceLlamaCpp(`tokenize error elapsed_ms=${Date.now() - startedAt} message=${JSON.stringify(message)}`);
-    return null;
+    return {
+      tokenCount: null,
+      elapsedMs: Date.now() - startedAt,
+      retryCount,
+      timeoutMs,
+      retryMaxWaitMs,
+      status: 'error',
+      httpStatusCode: null,
+      errorMessage: message || lastRetryErrorMessage,
+    };
   }
 }
 
