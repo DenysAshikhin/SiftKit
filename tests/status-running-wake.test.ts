@@ -64,6 +64,7 @@ function createStatusContext(tempRoot: string): ServerContext & { readonly wakeC
     metrics: getDefaultMetrics(),
     activeRunsByRequestId: new Map(),
     activeRequestIdByStatusPath: new Map(),
+    completedRequestIdByStatusPath: new Map(),
     activeModelRequest: null,
     modelRequestQueue: [],
     activeExecutionLease: null,

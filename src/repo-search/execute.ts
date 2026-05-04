@@ -133,25 +133,32 @@ function scheduleRepoSearchRunningStatusNotification(options: RepoSearchRunningS
   setImmediate(notifyRepoSearchRunningStatus, options);
 }
 
-function notifyRepoSearchTerminalStatus(options: RepoSearchTerminalStatusNotificationOptions): void {
-  void notifyStatusBackend(options)
-    .then(() => {
-      traceRepoSearch(
-        `notify running=false done request_id=${options.requestId} state=${options.terminalState} `
-        + `duration_ms=${Date.now() - options.startedAt}`,
-      );
-    })
-    .catch(() => {
-      traceRepoSearch(`notify running=false failed request_id=${options.requestId} state=${options.terminalState}`);
-    });
-}
-
-function scheduleRepoSearchTerminalStatusNotification(options: RepoSearchTerminalStatusNotificationOptions): void {
-  const scheduleSpan = options.timingRecorder?.start('repo.status.notify_terminal.schedule', {
+async function notifyRepoSearchTerminalStatus(options: RepoSearchTerminalStatusNotificationOptions): Promise<void> {
+  logRepoSearchProgress(
+    `notify_terminal_start request_id=${options.requestId} state=${options.terminalState}`,
+  );
+  const notifySpan = options.timingRecorder?.start('repo.status.notify_terminal', {
     terminalState: options.terminalState,
   });
-  scheduleSpan?.end();
-  setImmediate(notifyRepoSearchTerminalStatus, options);
+  try {
+    await notifyStatusBackend(options);
+    notifySpan?.end({ ok: true });
+    logRepoSearchProgress(
+      `notify_terminal_done request_id=${options.requestId} state=${options.terminalState} `
+      + `ok=true duration_ms=${Date.now() - options.startedAt}`,
+    );
+    traceRepoSearch(
+      `notify running=false done request_id=${options.requestId} state=${options.terminalState} `
+      + `duration_ms=${Date.now() - options.startedAt}`,
+    );
+  } catch (error: unknown) {
+    notifySpan?.end({ ok: false });
+    logRepoSearchProgress(
+      `notify_terminal_done request_id=${options.requestId} state=${options.terminalState} `
+      + `ok=false duration_ms=${Date.now() - options.startedAt} error=${JSON.stringify(getErrorMessage(error))}`,
+    );
+    traceRepoSearch(`notify running=false failed request_id=${options.requestId} state=${options.terminalState}`);
+  }
 }
 
 export async function executeRepoSearchRequest(
@@ -241,7 +248,16 @@ export async function executeRepoSearchRequest(
     const transcriptPath = `${targetFolder}/request_${requestId}.jsonl`;
     const artifactPathHint = `${targetFolder}/request_${requestId}.json`;
     const transcriptText = logger.getText();
+    const persistStartedAt = Date.now();
+    logRepoSearchProgress(
+      `terminal_persist_start request_id=${requestId} state=completed transcript_chars=${transcriptText.length}`,
+    );
+    const transcriptPersistStartedAt = Date.now();
     const transcriptUri = logger.persist(transcriptPath, requestId);
+    logRepoSearchProgress(
+      `transcript_persist_done request_id=${requestId} state=completed `
+      + `duration_ms=${Date.now() - transcriptPersistStartedAt}`,
+    );
     const artifact = {
       requestId,
       prompt,
@@ -257,6 +273,7 @@ export async function executeRepoSearchRequest(
     const artifactSpan = timingRecorder?.start('repo.artifact.persist', {
       transcriptChars: transcriptText.length,
     });
+    const artifactPersistStartedAt = Date.now();
     const artifactPath = upsertRuntimeJsonArtifact({
       id: `repo_search_artifact:${requestId}`,
       artifactKind: 'repo_search_artifact',
@@ -265,6 +282,14 @@ export async function executeRepoSearchRequest(
       payload: artifact,
     }).uri;
     artifactSpan?.end();
+    logRepoSearchProgress(
+      `artifact_persist_done request_id=${requestId} state=completed `
+      + `duration_ms=${Date.now() - artifactPersistStartedAt}`,
+    );
+    logRepoSearchProgress(
+      `terminal_persist_done request_id=${requestId} state=completed `
+      + `duration_ms=${Date.now() - persistStartedAt}`,
+    );
     const outputCharacterCount = getOutputCharacterCount(scorecard);
     const promptTokens = getNumericTotal(scorecard, 'promptTokens');
     const outputTokens = getNumericTotal(scorecard, 'outputTokens');
@@ -302,7 +327,7 @@ export async function executeRepoSearchRequest(
       }> }).toolStats
       : null;
     const finishedAtUtc = new Date().toISOString();
-    scheduleRepoSearchTerminalStatusNotification({
+    await notifyRepoSearchTerminalStatus({
       running: false,
       taskKind,
       statusBackendUrl: request.statusBackendUrl,
@@ -365,7 +390,16 @@ export async function executeRepoSearchRequest(
     const artifactPathHint = `${folders.failed}/request_${requestId}.json`;
     const transcriptText = logger.getText();
     const message = error instanceof Error ? error.message : String(error);
+    const persistStartedAt = Date.now();
+    logRepoSearchProgress(
+      `terminal_persist_start request_id=${requestId} state=failed transcript_chars=${transcriptText.length}`,
+    );
+    const transcriptPersistStartedAt = Date.now();
     const transcriptUri = logger.persist(transcriptPath, requestId);
+    logRepoSearchProgress(
+      `transcript_persist_done request_id=${requestId} state=failed `
+      + `duration_ms=${Date.now() - transcriptPersistStartedAt}`,
+    );
     const artifact = {
       requestId,
       prompt,
@@ -380,6 +414,7 @@ export async function executeRepoSearchRequest(
       transcriptChars: transcriptText.length,
       failed: true,
     });
+    const artifactPersistStartedAt = Date.now();
     const artifactPath = upsertRuntimeJsonArtifact({
       id: `repo_search_artifact:${requestId}`,
       artifactKind: 'repo_search_artifact',
@@ -388,8 +423,16 @@ export async function executeRepoSearchRequest(
       payload: artifact,
     }).uri;
     artifactSpan?.end();
+    logRepoSearchProgress(
+      `artifact_persist_done request_id=${requestId} state=failed `
+      + `duration_ms=${Date.now() - artifactPersistStartedAt}`,
+    );
+    logRepoSearchProgress(
+      `terminal_persist_done request_id=${requestId} state=failed `
+      + `duration_ms=${Date.now() - persistStartedAt}`,
+    );
     const failedFinishedAtUtc = new Date().toISOString();
-    scheduleRepoSearchTerminalStatusNotification({
+    await notifyRepoSearchTerminalStatus({
       running: false,
       taskKind,
       statusBackendUrl: request.statusBackendUrl,

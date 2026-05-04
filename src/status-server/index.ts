@@ -161,6 +161,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     metrics,
     activeRunsByRequestId: new Map(),
     activeRequestIdByStatusPath: new Map(),
+    completedRequestIdByStatusPath: new Map(),
     activeModelRequest: null,
     modelRequestQueue: [],
     activeExecutionLease: null,

@@ -95,7 +95,21 @@ async function startDelayedStatusServer(options: { runningDelayMs?: number; term
   let runningPosts = 0;
   let terminalPosts = 0;
   const server = http.createServer(async (req, res) => {
-    if (req.method !== 'POST' || req.url !== '/status') {
+    if (req.method !== 'POST') {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'not found' }));
+      return;
+    }
+    if (req.url === '/status/complete') {
+      for await (const chunk of req) {
+        void chunk;
+        // Drain request body.
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    if (req.url !== '/status' && req.url !== '/status/terminal-metadata') {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'not found' }));
       return;
@@ -109,7 +123,7 @@ async function startDelayedStatusServer(options: { runningDelayMs?: number; term
     if (parsed.running === true) {
       runningPosts += 1;
       await new Promise((resolve) => setTimeout(resolve, runningDelayMs));
-    } else if (parsed.running === false) {
+    } else if (req.url === '/status/terminal-metadata' && parsed.running === false) {
       terminalPosts += 1;
       await new Promise((resolve) => setTimeout(resolve, terminalDelayMs));
     }
@@ -248,7 +262,7 @@ test('executeRepoSearchRequest does not wait for running status notification res
   });
 });
 
-test('executeRepoSearchRequest does not wait for terminal status notification response', async () => {
+test('executeRepoSearchRequest does not wait for terminal metadata notification response', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
     const statusServer = await startDelayedTerminalStatusServer(1000);
     try {
@@ -267,7 +281,7 @@ test('executeRepoSearchRequest does not wait for terminal status notification re
 
       assert.equal(typeof result.requestId, 'string');
       await waitForStatusCount(statusServer.terminalPostCount, 1);
-      assert.ok(durationMs < 500, `expected terminal notify to be fire-and-forget, got ${durationMs} ms`);
+      assert.ok(durationMs < 500, `expected terminal metadata notify to be fire-and-forget, got ${durationMs} ms`);
     } finally {
       await statusServer.close();
     }
@@ -343,6 +357,12 @@ test('executeRepoSearchRequest logs lifecycle before provider work starts', asyn
     assert.ok(lines.some((line) => /repo_search notify_running_done request_id=.* ok=true/u.test(line)), lines.join('\n'));
     assert.ok(lines.some((line) => /repo_search run_start request_id=/u.test(line)), lines.join('\n'));
     assert.ok(lines.some((line) => /repo_search run_done request_id=/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /repo_search terminal_persist_start request_id=.* state=completed transcript_chars=\d+/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /repo_search transcript_persist_done request_id=.* state=completed duration_ms=\d+/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /repo_search artifact_persist_done request_id=.* state=completed duration_ms=\d+/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /repo_search terminal_persist_done request_id=.* state=completed duration_ms=\d+/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /repo_search notify_terminal_start request_id=.* state=completed/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /repo_search notify_terminal_done request_id=.* state=completed ok=true duration_ms=\d+/u.test(line)), lines.join('\n'));
     assert.ok(lines.some((line) => /repo_search completed request_id=/u.test(line)), lines.join('\n'));
   });
 });

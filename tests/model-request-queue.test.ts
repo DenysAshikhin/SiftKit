@@ -5,7 +5,6 @@ import { getDefaultMetrics } from '../dist/status-server/metrics.js';
 import { ManagedLlamaFlushQueue } from '../dist/status-server/managed-llama-flush-queue.js';
 import {
   acquireModelRequestWithWait,
-  releaseModelRequestAfterDelay,
   releaseModelRequest,
 } from '../dist/status-server/server-ops.js';
 import type { ServerContext } from '../dist/status-server/server-types.js';
@@ -27,6 +26,7 @@ function createQueueContext(): ServerContext {
     metrics: getDefaultMetrics(),
     activeRunsByRequestId: new Map(),
     activeRequestIdByStatusPath: new Map(),
+    completedRequestIdByStatusPath: new Map(),
     activeModelRequest: null,
     modelRequestQueue: [],
     activeExecutionLease: null,
@@ -155,33 +155,6 @@ test('release grants the next queued model request without waiting for polling t
     const queuedLock = await queuedLockPromise;
     assert.ok(queuedLock);
     assert.equal(ctx.activeModelRequest?.token, queuedLock.token);
-    assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
-  } finally {
-    await ctx.managedLlamaFlushQueue.close();
-  }
-});
-
-test('delayed release holds queued model request for terminal status grace window', async () => {
-  const ctx = createQueueContext();
-  try {
-    const activeLock = await acquireModelRequestWithWait(ctx, 'summary');
-    assert.ok(activeLock);
-    let queuedResolvedAt: number | null = null;
-    const queuedLockPromise = acquireModelRequestWithWait(ctx, 'summary').then((lock) => {
-      queuedResolvedAt = Date.now();
-      return lock;
-    });
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
-
-    const releaseStartedAt = Date.now();
-    const releasePromise = releaseModelRequestAfterDelay(ctx, activeLock.token, 10);
-    await new Promise<void>((resolve) => setTimeout(resolve, 3));
-    assert.equal(queuedResolvedAt, null);
-
-    assert.equal(await releasePromise, true);
-    const queuedLock = await queuedLockPromise;
-    assert.ok(queuedLock);
-    assert.ok((queuedResolvedAt ?? 0) - releaseStartedAt >= 8);
     assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
   } finally {
     await ctx.managedLlamaFlushQueue.close();

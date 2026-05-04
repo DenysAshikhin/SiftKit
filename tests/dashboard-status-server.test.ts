@@ -445,7 +445,7 @@ test('dashboard metrics expose line-read stats and prompt-baseline recommendatio
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
-    await requestJson(`${baseUrl}/status`, {
+    await requestJson(`${baseUrl}/status/terminal-metadata`, {
       method: 'POST',
       body: JSON.stringify({
         running: false,
@@ -553,6 +553,8 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
     const planToolResult = planSse.events.find((event) => event.event === 'tool_result');
     assert.equal(Number.isFinite(Number(planToolStart?.payload?.promptTokenCount)), true);
     assert.equal(Number.isFinite(Number(planToolResult?.payload?.promptTokenCount)), true);
+    assert.equal(planToolStart?.payload?.command, 'rg -n "test" .');
+    assert.equal(/--no-ignore|--ignore-case|--glob/u.test(String(planToolStart?.payload?.command || '')), false);
     const planDoneSession = d(planSse.events.find((event) => event.event === 'done')?.payload).session as Dict;
     const planDoneMessages = (planDoneSession.messages || []) as Dict[];
     const latestPlanMessage = planDoneMessages[planDoneMessages.length - 1];
@@ -582,6 +584,8 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
     const repoToolResult = repoSse.events.find((event) => event.event === 'tool_result');
     assert.equal(Number.isFinite(Number(repoToolStart?.payload?.promptTokenCount)), true);
     assert.equal(Number.isFinite(Number(repoToolResult?.payload?.promptTokenCount)), true);
+    assert.equal(repoToolStart?.payload?.command, 'rg -n "test" .');
+    assert.equal(/--no-ignore|--ignore-case|--glob/u.test(String(repoToolStart?.payload?.command || '')), false);
     const repoDoneSession = d(repoSse.events.find((event) => event.event === 'done')?.payload).session as Dict;
     const repoDoneMessages = (repoDoneSession.messages || []) as Dict[];
     const latestRepoMessage = repoDoneMessages[repoDoneMessages.length - 1];

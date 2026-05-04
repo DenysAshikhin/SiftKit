@@ -203,7 +203,7 @@ export type NotifyStatusBackendOptions = {
   }> | null;
 };
 
-export async function notifyStatusBackend(options: NotifyStatusBackendOptions): Promise<void> {
+function buildStatusNotificationBody(options: NotifyStatusBackendOptions): Record<string, unknown> {
   const body: Record<string, unknown> = {
     running: options.running,
     status: options.running ? 'true' : 'false',
@@ -350,19 +350,62 @@ export async function notifyStatusBackend(options: NotifyStatusBackendOptions): 
     }
   }
 
-  const url = (options.statusBackendUrl && options.statusBackendUrl.trim()) ? options.statusBackendUrl.trim() : getStatusBackendUrl();
+  return body;
+}
+
+async function postStatusJson(options: {
+  url: string;
+  body: Record<string, unknown>;
+  timeoutMs: number;
+  operation: string;
+}): Promise<void> {
   try {
     await requestJson<{ ok?: boolean; busy?: boolean }>({
-      url,
+      url: options.url,
       method: 'POST',
-      timeoutMs: 2000,
-      body: JSON.stringify(body),
+      timeoutMs: options.timeoutMs,
+      body: JSON.stringify(options.body),
     });
   } catch (error) {
     throw toStatusServerUnavailableError({
       cause: error,
-      operation: 'status:notify',
-      serviceUrl: url,
+      operation: options.operation,
+      serviceUrl: options.url,
     });
   }
+}
+
+export async function notifyStatusBackend(options: NotifyStatusBackendOptions): Promise<void> {
+  const url = (options.statusBackendUrl && options.statusBackendUrl.trim()) ? options.statusBackendUrl.trim() : getStatusBackendUrl();
+  const body = buildStatusNotificationBody(options);
+  if (!options.running && options.terminalState) {
+    const completionUrl = deriveServiceUrl(url, '/status/complete');
+    const metadataUrl = deriveServiceUrl(url, '/status/terminal-metadata');
+    void postStatusJson({
+      url: metadataUrl,
+      body,
+      timeoutMs: 2000,
+      operation: 'status:terminal-metadata',
+    }).catch(() => undefined);
+    await postStatusJson({
+      url: completionUrl,
+      body: {
+        statusPath: body.statusPath,
+        requestId: body.requestId,
+        taskKind: body.taskKind,
+        terminalState: body.terminalState,
+        updatedAtUtc: body.updatedAtUtc,
+      },
+      timeoutMs: 10,
+      operation: 'status:complete',
+    });
+    return;
+  }
+
+  await postStatusJson({
+    url,
+    timeoutMs: 2000,
+    body,
+    operation: 'status:notify',
+  });
 }

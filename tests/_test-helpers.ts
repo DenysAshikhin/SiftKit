@@ -324,6 +324,21 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
       res.end(JSON.stringify({ ok: true }));
       return;
     }
+    if (req.method === 'POST' && req.url === '/status/complete') {
+      await readBody(req);
+      state.running = false;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/status/terminal-metadata') {
+      const bodyText = await readBody(req);
+      const parsed = (bodyText ? JSON.parse(bodyText) : {}) as Dict;
+      state.statusPosts.push(parsed);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
 
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'not found' }));

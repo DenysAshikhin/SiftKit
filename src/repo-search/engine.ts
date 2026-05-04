@@ -1292,7 +1292,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
 
     if (options.onProgress) {
-      options.onProgress({ kind: 'tool_start', turn, maxTurns, command: commandToRun, promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
+      options.onProgress({ kind: 'tool_start', turn, maxTurns, command: requestedCommand, promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
     }
 
     const toolExecutionSpan = options.timingRecorder?.start('repo.tool.execute', {

@@ -251,7 +251,7 @@ test('summary endpoint processes terminal status before granting next queued sum
   }
 });
 
-test('status terminal post with deferred metadata clears active request before next running post', async () => {
+test('split terminal routes clear active request before next running post', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-status-terminal-order-'));
   const previousCwd = process.cwd();
   fs.writeFileSync(
@@ -294,7 +294,7 @@ test('status terminal post with deferred metadata clears active request before n
           promptTokenCount: 50,
         }),
       });
-      const firstTerminal = await requestJson(`${baseUrl}/status`, {
+      const firstTerminalMetadata = requestJson(`${baseUrl}/status/terminal-metadata`, {
         method: 'POST',
         body: JSON.stringify({
           running: false,
@@ -305,6 +305,31 @@ test('status terminal post with deferred metadata clears active request before n
           deferredMetadata: {
             outputTokens: 10,
           },
+        }),
+      });
+      const firstComplete = requestJson(`${baseUrl}/status/complete`, {
+        method: 'POST',
+        body: JSON.stringify({
+          requestId: 'first-summary',
+          statusPath,
+          taskKind: 'summary',
+          terminalState: 'completed',
+        }),
+      });
+      const [firstTerminalMetadataResponse, firstCompleteResponse] = await Promise.all([
+        firstTerminalMetadata,
+        firstComplete,
+      ]);
+      const lateFirstRunning = await requestJson(`${baseUrl}/status`, {
+        method: 'POST',
+        body: JSON.stringify({
+          running: true,
+          taskKind: 'summary',
+          requestId: 'first-summary',
+          statusPath,
+          rawInputCharacterCount: 100,
+          promptCharacterCount: 200,
+          promptTokenCount: 50,
         }),
       });
       const secondRunning = await requestJson(`${baseUrl}/status`, {
@@ -320,12 +345,79 @@ test('status terminal post with deferred metadata clears active request before n
         }),
       });
       assert.equal(firstRunning.statusCode, 200);
-      assert.equal(firstTerminal.statusCode, 200);
+      assert.equal(firstTerminalMetadataResponse.statusCode, 200);
+      assert.equal(firstCompleteResponse.statusCode, 200);
+      assert.equal(lateFirstRunning.statusCode, 200);
       assert.equal(secondRunning.statusCode, 200);
       await new Promise<void>((resolve) => setTimeout(resolve, 40));
     });
 
     assert.equal(lines.some((line) => /stale_status_abandoned/u.test(line)), false, lines.join('\n'));
+    assert.equal(lines.some((line) => /status complete_start request_id=first-summary state=completed/u.test(line)), true, lines.join('\n'));
+    assert.equal(lines.some((line) => /status complete_done request_id=first-summary state=completed duration_ms=\d+/u.test(line)), true, lines.join('\n'));
+    assert.equal(lines.some((line) => /status terminal_metadata_start request_id=first-summary state=completed/u.test(line)), true, lines.join('\n'));
+    assert.equal(lines.some((line) => /status terminal_metadata_done request_id=first-summary state=completed duration_ms=\d+/u.test(line)), true, lines.join('\n'));
+    assert.equal(lines.some((line) => /late_running_ignored request_id=first-summary/u.test(line)), true, lines.join('\n'));
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    process.chdir(previousCwd);
+    closeRuntimeDatabase();
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('legacy terminal status posts to /status are rejected', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-status-no-legacy-terminal-'));
+  const previousCwd = process.cwd();
+  fs.writeFileSync(
+    path.join(tempRoot, 'package.json'),
+    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+    'utf8',
+  );
+  process.chdir(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup: Record<string, string | undefined> = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const response = await requestJson(`${baseUrl}/status`, {
+      method: 'POST',
+      body: JSON.stringify({
+        running: false,
+        taskKind: 'summary',
+        requestId: 'legacy-terminal',
+        statusPath,
+        terminalState: 'completed',
+      }),
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.match(String(response.body.error || ''), /Terminal status must use/u);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

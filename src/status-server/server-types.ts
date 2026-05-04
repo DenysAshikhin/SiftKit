@@ -84,6 +84,7 @@ export type ServerContext = {
   // Run state
   activeRunsByRequestId: Map<string, ActiveRunState>;
   activeRequestIdByStatusPath: Map<string, string>;
+  completedRequestIdByStatusPath: Map<string, string>;
   activeModelRequest: ModelRequestLock | null;
   modelRequestQueue: ModelRequestWaiter[];
   activeExecutionLease: ExecutionLease | null;

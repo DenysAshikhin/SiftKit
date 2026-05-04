@@ -353,6 +353,7 @@ test('runTaskLoop reports prompt tokens and elapsed time on command progress eve
 
   const toolStart = progressEvents.find((event) => event.kind === 'tool_start');
   assert.equal(typeof toolStart?.command, 'string');
+  assert.equal(toolStart?.command, 'rg -n "planner" src');
   assert.equal(Number.isFinite(toolStart?.promptTokenCount), true);
   assert.equal(Number.isFinite(toolStart?.elapsedMs), true);
   assert.equal(Number(toolStart?.elapsedMs) >= 0, true);

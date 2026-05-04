@@ -487,7 +487,7 @@ export async function handleCoreRoute(
         mockCommandResults: (parsedBody.mockCommandResults && typeof parsedBody.mockCommandResults === 'object' && !Array.isArray(parsedBody.mockCommandResults)) ? parsedBody.mockCommandResults : undefined,
         promptTimeoutMs: getPositiveNumber(parsedBody.promptTimeoutMs, DEFAULT_REPO_SEARCH_PROMPT_BUDGET_MS),
         onProgress(event: RepoSearchProgressEvent) {
-          if (event.kind === 'tool_start' || event.kind === 'llm_start' || event.kind === 'llm_end') {
+          if (event.kind === 'tool_start') {
             const logMessage = buildRepoSearchProgressLogMessage(event, 'repo_search');
             if (logMessage) logLine(logMessage);
           }
@@ -561,11 +561,49 @@ export async function handleCoreRoute(
     return true;
   }
 
+  if (req.method === 'POST' && requestUrl.pathname === '/status/complete') {
+    const routeStartedAt = Date.now();
+    let parsedBody: Dict;
+    try {
+      parsedBody = parseJsonBody(await readBody(req));
+    } catch {
+      sendJson(res, 400, { error: 'Expected valid JSON object.' });
+      return true;
+    }
+    const requestId = typeof parsedBody.requestId === 'string' ? parsedBody.requestId.trim() : '';
+    const terminalState = typeof parsedBody.terminalState === 'string' ? parsedBody.terminalState.trim() : '';
+    const completedStatusPath = statusPath;
+    if (!requestId) {
+      sendJson(res, 400, { error: 'Expected requestId.' });
+      return true;
+    }
+    if (terminalState !== 'completed' && terminalState !== 'failed') {
+      sendJson(res, 400, { error: 'Expected terminalState=completed|failed.' });
+      return true;
+    }
+    logLine(`status complete_start request_id=${requestId} state=${terminalState}`);
+    ctx.completedRequestIdByStatusPath.set(completedStatusPath, requestId);
+    if (ctx.activeRequestIdByStatusPath.get(completedStatusPath) === requestId) {
+      ctx.activeRequestIdByStatusPath.delete(completedStatusPath);
+    }
+    writePublishedStatus(ctx, getPublishedStatusText(ctx));
+    logLine(
+      `status complete_done request_id=${requestId} state=${terminalState} `
+      + `duration_ms=${Date.now() - routeStartedAt}`,
+    );
+    sendJson(res, 200, { ok: true, requestId, terminalState, statusPath: completedStatusPath });
+    return true;
+  }
+
   // -------------------------------------------------------------------------
   // Status (POST)
   // -------------------------------------------------------------------------
 
-  if (req.method === 'POST' && req.url === '/status') {
+  if (
+    req.method === 'POST'
+    && (req.url === '/status' || requestUrl.pathname === '/status/terminal-metadata')
+  ) {
+    const terminalMetadataPost = requestUrl.pathname === '/status/terminal-metadata';
     const bodyText = await readBody(req);
     const running = parseRunning(bodyText);
     if (running === null) {
@@ -573,6 +611,26 @@ export async function handleCoreRoute(
       return true;
     }
     const metadata = parseStatusMetadata(bodyText);
+    if (!terminalMetadataPost && !running && metadata.terminalState !== null) {
+      sendJson(res, 400, { error: 'Terminal status must use /status/complete and /status/terminal-metadata.' });
+      return true;
+    }
+    if (terminalMetadataPost && running) {
+      sendJson(res, 400, { error: 'Terminal metadata requires running=false.' });
+      return true;
+    }
+    if (
+      terminalMetadataPost
+      && metadata.terminalState !== 'completed'
+      && metadata.terminalState !== 'failed'
+    ) {
+      sendJson(res, 400, { error: 'Terminal metadata requires terminalState=completed|failed.' });
+      return true;
+    }
+    const terminalMetadataStartedAt = terminalMetadataPost ? Date.now() : null;
+    if (terminalMetadataPost) {
+      logLine(`status terminal_metadata_start request_id=${metadata.requestId ?? 'unknown'} state=${metadata.terminalState ?? 'unknown'}`);
+    }
     const deferredMetadata = metadata.deferredMetadata
       ? parseStatusMetadataRecord(metadata.deferredMetadata)
       : null;
@@ -656,6 +714,12 @@ export async function handleCoreRoute(
       return true;
     }
     const requestId = getResolvedRequestId(metadata, statusPath);
+    if (running && ctx.completedRequestIdByStatusPath.get(statusPath) === requestId) {
+      logLine(`request late_running_ignored request_id=${requestId} task=${metadata.taskKind ?? 'unknown'}`);
+      const publishedStatus = getPublishedStatusText(ctx);
+      sendJson(res, 200, { ok: true, running: publishedStatus === STATUS_TRUE, status: publishedStatus, statusPath, configPath });
+      return true;
+    }
     if (running && normalizeTaskKind(metadata.taskKind) !== null && !ctx.activeModelRequest) {
       wakeManagedLlamaForIncomingModelRequest(ctx);
     }
@@ -976,6 +1040,12 @@ export async function handleCoreRoute(
     writePublishedStatus(ctx, publishedStatus);
     if (!running && metadata.deferredArtifacts) {
       enqueueDeferredArtifacts(ctx, metadata.deferredArtifacts);
+    }
+    if (terminalMetadataStartedAt !== null) {
+      logLine(
+        `status terminal_metadata_done request_id=${requestId} state=${metadata.terminalState ?? 'unknown'} `
+        + `duration_ms=${Date.now() - terminalMetadataStartedAt}`,
+      );
     }
     sendJson(res, 200, { ok: true, running: publishedStatus === STATUS_TRUE, status: publishedStatus, statusPath, configPath });
     return true;

@@ -71,14 +71,25 @@ const {
 async function startDelayedTerminalSummaryStatusServer(delayMs) {
   let terminalPosts = 0;
   const server = http.createServer(async (req, res) => {
-    if (req.method !== 'POST' || req.url !== '/status') {
+    if (req.method !== 'POST') {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'not found' }));
+      return;
+    }
+    if (req.url === '/status/complete') {
+      await readBody(req);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    if (req.url !== '/status' && req.url !== '/status/terminal-metadata') {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'not found' }));
       return;
     }
     const bodyText = await readBody(req);
     const parsed = bodyText ? JSON.parse(bodyText) : {};
-    if (parsed.running === false) {
+    if (req.url === '/status/terminal-metadata' && parsed.running === false) {
       terminalPosts += 1;
       await sleep(delayMs);
     }
@@ -178,7 +189,7 @@ test('summary command-output pass/fail with Jest pass output is deterministic an
   });
 });
 
-test('summarizeRequest waits only for terminal status notification response', async () => {
+test('summarizeRequest does not wait for terminal metadata notification response', async () => {
   await withTempEnv(async () => {
     const statusServer = await startDelayedTerminalSummaryStatusServer(300);
     try {
@@ -201,9 +212,10 @@ test('summarizeRequest waits only for terminal status notification response', as
       const durationMs = Date.now() - startedAt;
 
       assert.match(result.Summary, /^PASS:/u);
-      assert.equal(statusServer.terminalPostCount(), 1);
-      assert.ok(durationMs >= 250, `expected terminal notify to be awaited, got ${durationMs} ms`);
-      assert.ok(durationMs < 800, `expected only terminal notify response to be awaited, got ${durationMs} ms`);
+      await waitForAsyncExpectation(async () => {
+        assert.equal(statusServer.terminalPostCount(), 1);
+      }, 1000);
+      assert.ok(durationMs < 250, `expected terminal metadata notify to be asynchronous, got ${durationMs} ms`);
     } finally {
       await statusServer.close();
     }

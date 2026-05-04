@@ -38,6 +38,33 @@ const runtimeHelpers = requireFromHere('./_runtime-helpers.js') as {
 type JsonResponse = { statusCode: number; body: Record<string, unknown> };
 type RequestOptions = { method?: string; body?: string; timeoutMs?: number };
 
+async function captureStdoutLines(fn: () => Promise<void>): Promise<string[]> {
+  const originalWrite = process.stdout.write.bind(process.stdout);
+  const lines: string[] = [];
+  let buffer = '';
+  process.stdout.write = (
+    chunk: string | Uint8Array,
+    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+    callback?: (error?: Error | null) => void,
+  ): boolean => {
+    const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+    buffer += text;
+    const parts = buffer.split(/\r?\n/u);
+    buffer = parts.pop() || '';
+    for (const line of parts) {
+      if (line.trim()) lines.push(line);
+    }
+    return originalWrite(chunk, encodingOrCallback as BufferEncoding, callback);
+  };
+  try {
+    await fn();
+  } finally {
+    process.stdout.write = originalWrite;
+  }
+  if (buffer.trim()) lines.push(buffer.trim());
+  return lines;
+}
+
 function requestJson(url: string, options: RequestOptions = {}): Promise<JsonResponse> {
   return new Promise((resolve, reject) => {
     const target = new URL(url);
@@ -420,7 +447,7 @@ test('status completion flushing does not block health responses', async () => {
 
   try {
     const statusStartMs = Date.now();
-    const statusPromise = requestJson(`${baseUrl}/status`, {
+    const statusPromise = requestJson(`${baseUrl}/status/terminal-metadata`, {
       method: 'POST',
       timeoutMs: 5000,
       body: JSON.stringify({
@@ -454,6 +481,81 @@ test('status completion flushing does not block health responses', async () => {
     assert.ok(healthLatencyMs < 250, `expected fast /health during flush, got ${healthLatencyMs}ms`);
   } finally {
     sharedNodeFs.readFileSync = originalReadFileSync;
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    process.chdir(previousCwd);
+    closeRuntimeDatabase();
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('repo-search endpoint logs one model-requested command line per tool call', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-command-log-'));
+  const previousCwd = process.cwd();
+  fs.writeFileSync(
+    path.join(tempRoot, 'package.json'),
+    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+    'utf8',
+  );
+  process.chdir(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup: Record<string, string | undefined> = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const lines = await captureStdoutLines(async () => {
+      const response = await requestJson(`${baseUrl}/repo-search`, {
+        method: 'POST',
+        timeoutMs: 15000,
+        body: JSON.stringify({
+          prompt: 'find planner',
+          repoRoot: process.cwd(),
+          model: 'mock-model',
+          maxTurns: 2,
+          availableModels: ['mock-model'],
+          mockResponses: [
+            '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"planner\\" src"}}',
+            '{"action":"finish","output":"done","confidence":0.9}',
+          ],
+          mockCommandResults: {
+            'rg -n "planner" src': { exitCode: 0, stdout: 'src/example.ts:1:planner', stderr: '' },
+          },
+        }),
+      });
+      assert.equal(response.statusCode, 200);
+    });
+
+    const commandLines = lines.filter((line) => /repo_search command turn=/u.test(line));
+    assert.equal(commandLines.length, 1, lines.join('\n'));
+    assert.match(commandLines[0], /command=rg -n "planner" src$/u);
+    assert.equal(/--no-ignore|--ignore-case|--glob/u.test(commandLines[0]), false, commandLines[0]);
+    assert.equal(lines.some((line) => /repo_search llm_start/u.test(line)), false, lines.join('\n'));
+    assert.equal(lines.some((line) => /repo_search llm_end/u.test(line)), false, lines.join('\n'));
+  } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
@@ -691,7 +793,7 @@ test('repo-search wakes managed llama after idle shutdown', async () => {
         promptCharacterCount: 10,
       }),
     });
-    await requestJson(`${baseUrl}/status`, {
+    await requestJson(`${baseUrl}/status/terminal-metadata`, {
       method: 'POST',
       body: JSON.stringify({
         running: false,
@@ -703,6 +805,14 @@ test('repo-search wakes managed llama after idle shutdown', async () => {
         outputCharacterCount: 1,
         outputTokens: 1,
         requestDurationMs: 10,
+      }),
+    });
+    await requestJson(`${baseUrl}/status/complete`, {
+      method: 'POST',
+      body: JSON.stringify({
+        requestId: 'idle-wakeup-primer',
+        taskKind: 'repo-search',
+        terminalState: 'completed',
       }),
     });
 

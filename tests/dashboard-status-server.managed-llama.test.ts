@@ -205,7 +205,7 @@ test('dashboard plan wakes managed llama after idle shutdown', async () => {
         promptCharacterCount: 10,
       }),
     });
-    await requestJson(`${baseUrl}/status`, {
+    await requestJson(`${baseUrl}/status/terminal-metadata`, {
       method: 'POST',
       body: JSON.stringify({
         running: false,
@@ -217,6 +217,14 @@ test('dashboard plan wakes managed llama after idle shutdown', async () => {
         outputCharacterCount: 1,
         outputTokens: 1,
         requestDurationMs: 10,
+      }),
+    });
+    await requestJson(`${baseUrl}/status/complete`, {
+      method: 'POST',
+      body: JSON.stringify({
+        requestId: 'dashboard-idle-wakeup-primer',
+        taskKind: 'plan',
+        terminalState: 'completed',
       }),
     });
 

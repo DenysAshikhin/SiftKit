@@ -586,6 +586,71 @@ test('notifyStatusBackend ignores legacy busy responses without retrying', async
   }
 });
 
+test('notifyStatusBackend splits terminal completion and metadata routes', async () => {
+  let completionCount = 0;
+  let metadataCount = 0;
+  let metadataBody: Record<string, unknown> | null = null;
+  let resolveMetadataReceived: (() => void) | null = null;
+  const metadataReceived = new Promise<void>((resolve) => {
+    resolveMetadataReceived = resolve;
+  });
+  const server = await new Promise<http.Server>((resolve) => {
+    const nextServer = http.createServer((req, res) => {
+      if (req.method === 'POST' && req.url === '/status/complete') {
+        completionCount += 1;
+        req.resume();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+      }
+      if (req.method === 'POST' && req.url === '/status/terminal-metadata') {
+        let bodyText = '';
+        req.setEncoding('utf8');
+        req.on('data', (chunk: string) => {
+          bodyText += chunk;
+        });
+        req.on('end', () => {
+          metadataCount += 1;
+          metadataBody = bodyText ? JSON.parse(bodyText) : {};
+          resolveMetadataReceived?.();
+          setTimeout(() => {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true }));
+          }, 100);
+        });
+        return;
+      }
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'not found' }));
+    });
+    nextServer.listen(0, '127.0.0.1', () => resolve(nextServer));
+  });
+  try {
+    const address = server.address() as AddressInfo;
+    const startedAt = Date.now();
+    await notifyStatusBackend({
+      running: false,
+      statusBackendUrl: `http://127.0.0.1:${address.port}/status`,
+      requestId: 'split-terminal-request',
+      taskKind: 'summary',
+      terminalState: 'completed',
+      outputTokens: 12,
+    });
+    const elapsedMs = Date.now() - startedAt;
+    await metadataReceived;
+    assert.equal(completionCount, 1);
+    assert.equal(metadataCount, 1);
+    assert.equal(metadataBody?.requestId, 'split-terminal-request');
+    assert.equal(metadataBody?.terminalState, 'completed');
+    assert.ok(elapsedMs < 100, `terminal metadata route was awaited, elapsed=${elapsedMs}`);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error: Error | undefined) => (error ? reject(error) : resolve()));
+      server.closeAllConnections();
+    });
+  }
+});
+
 test('notifyStatusBackend preserves canonical unavailable error when backend is unreachable', async () => {
   await assert.rejects(
     () => notifyStatusBackend({

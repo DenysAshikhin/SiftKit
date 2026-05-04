@@ -264,7 +264,21 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === 'POST' && req.url === '/status') {
+  if (req.method === 'POST' && req.url === '/status/complete') {
+    if (failStatusPosts) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'status unavailable' }));
+      return;
+    }
+
+    await readBody(req);
+    ensureFile(statusPath, 'false');
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, running: false }));
+    return;
+  }
+
+  if (req.method === 'POST' && (req.url === '/status' || req.url === '/status/terminal-metadata')) {
     if (failStatusPosts) {
       res.writeHead(503, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'status unavailable' }));
