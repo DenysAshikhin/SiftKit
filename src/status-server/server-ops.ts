@@ -383,6 +383,14 @@ function logModelRequestWaitCancelled(waiter: ModelRequestWaiter): void {
   );
 }
 
+function syncManagedLlamaFlushQueueModelState(ctx: ServerContext, lastFinishedAtMs?: number): void {
+  ctx.managedLlamaFlushQueue.setModelRequestState({
+    active: Boolean(ctx.activeModelRequest),
+    queueLength: ctx.modelRequestQueue.length,
+    lastFinishedAtMs: lastFinishedAtMs ?? ctx.terminalMetadataLastModelRequestFinishedAtMs,
+  });
+}
+
 export function wakeManagedLlamaForIncomingModelRequest(ctx: ServerContext): void {
   if (ctx.disableManagedLlamaStartup) {
     return;
@@ -401,6 +409,7 @@ export function acquireModelRequest(ctx: ServerContext, kind: string): ModelRequ
   }
   const lock = createModelRequestLock(kind);
   ctx.activeModelRequest = lock;
+  syncManagedLlamaFlushQueueModelState(ctx);
   return lock;
 }
 
@@ -434,9 +443,11 @@ function grantNextModelRequest(ctx: ServerContext): boolean {
     waiter.grantedLock = lock;
     ctx.activeModelRequest = lock;
     logModelRequestLockAcquired(lock, getElapsedMsSinceIso(waiter.enqueuedAtUtc));
+    syncManagedLlamaFlushQueueModelState(ctx);
     waiter.resolveLock(lock);
     return true;
   }
+  syncManagedLlamaFlushQueueModelState(ctx);
   return false;
 }
 
@@ -466,6 +477,7 @@ export async function acquireModelRequestWithWait(
     resolveLock: resolveWaiterLock,
   };
   ctx.modelRequestQueue.push(waiter);
+  syncManagedLlamaFlushQueueModelState(ctx);
   const cancelWaiter = (): void => {
     if (waiter.grantedLock) {
       return;
@@ -475,6 +487,7 @@ export async function acquireModelRequestWithWait(
     logModelRequestWaitCancelled(waiter);
     waiter.resolveLock(null);
     grantNextModelRequest(ctx);
+    syncManagedLlamaFlushQueueModelState(ctx);
   };
   const onAbortedRequest = (): void => {
     cancelWaiter();
@@ -523,9 +536,12 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
   }
   const releasedLock = ctx.activeModelRequest;
   ctx.activeModelRequest = null;
-  ctx.terminalMetadataLastModelRequestFinishedAtMs = Date.now();
+  const finishedAtMs = Date.now();
+  ctx.terminalMetadataLastModelRequestFinishedAtMs = finishedAtMs;
+  syncManagedLlamaFlushQueueModelState(ctx, finishedAtMs);
   logModelRequestLockReleased(releasedLock, ctx.modelRequestQueue.length);
   grantNextModelRequest(ctx);
+  syncManagedLlamaFlushQueueModelState(ctx, finishedAtMs);
   if (ctx.managedLlamaLastStartupLogs?.runId) {
     ctx.managedLlamaFlushQueue.enqueue(ctx.managedLlamaLastStartupLogs.runId);
   }

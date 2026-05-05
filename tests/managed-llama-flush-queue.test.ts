@@ -67,3 +67,44 @@ test('managed llama flush queue records another flush requested while the same r
     }
   });
 });
+
+test('managed llama flush queue waits for model-request idle delay before draining', async () => {
+  await withTestEnvAndServer(async () => {
+    const run = createManagedLlamaRun({ purpose: 'startup' });
+    bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'startup_script_stdout', chunkText: 'idle-gated\n' });
+    const queue = new ManagedLlamaFlushQueue({ idleDelayMs: 80 });
+
+    try {
+      queue.markModelRequestFinished(Date.now());
+      assert.equal(queue.enqueue(run.id), true);
+      await new Promise<void>((resolve) => setTimeout(resolve, 30));
+      assert.equal(queue.getSnapshot().completedCount, 0);
+
+      await queue.waitForIdle(1000);
+      assert.equal(readManagedLlamaLogTextByStream(run.id).startup_script_stdout, 'idle-gated\n');
+    } finally {
+      await queue.close();
+    }
+  });
+});
+
+test('managed llama flush queue pauses while a model request is active and drains after idle', async () => {
+  await withTestEnvAndServer(async () => {
+    const run = createManagedLlamaRun({ purpose: 'startup' });
+    bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'startup_script_stdout', chunkText: 'active-gated\n' });
+    const queue = new ManagedLlamaFlushQueue({ idleDelayMs: 50 });
+
+    try {
+      queue.setModelRequestState({ active: true, queueLength: 0 });
+      assert.equal(queue.enqueue(run.id), true);
+      await new Promise<void>((resolve) => setTimeout(resolve, 80));
+      assert.equal(queue.getSnapshot().completedCount, 0);
+
+      queue.setModelRequestState({ active: false, queueLength: 0, lastFinishedAtMs: Date.now() });
+      await queue.waitForIdle(1000);
+      assert.equal(readManagedLlamaLogTextByStream(run.id).startup_script_stdout, 'active-gated\n');
+    } finally {
+      await queue.close();
+    }
+  });
+});

@@ -116,6 +116,7 @@ export type { TerminateProcessTreeOptions, StartStatusServerOptions, ExtendedSer
 const MANAGED_LLAMA_LOG_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
 const MANAGED_LLAMA_LOG_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 const DEFAULT_TERMINAL_METADATA_IDLE_DELAY_MS = 10_000;
+const DEFAULT_MANAGED_LLAMA_FLUSH_IDLE_DELAY_MS = 10_000;
 
 function getTerminalMetadataIdleDelayMs(options: StartStatusServerOptions): number {
   const configuredValue = options.terminalMetadataIdleDelayMs
@@ -124,6 +125,15 @@ function getTerminalMetadataIdleDelayMs(options: StartStatusServerOptions): numb
     return Math.max(0, Math.trunc(configuredValue));
   }
   return DEFAULT_TERMINAL_METADATA_IDLE_DELAY_MS;
+}
+
+function getManagedLlamaFlushIdleDelayMs(options: StartStatusServerOptions): number {
+  const configuredValue = options.managedLlamaFlushIdleDelayMs
+    ?? Number(process.env.SIFTKIT_MANAGED_LLAMA_FLUSH_IDLE_DELAY_MS);
+  if (Number.isFinite(configuredValue)) {
+    return Math.max(0, Math.trunc(configuredValue));
+  }
+  return DEFAULT_MANAGED_LLAMA_FLUSH_IDLE_DELAY_MS;
 }
 
 function pruneManagedLlamaLogChunks(): void {
@@ -199,7 +209,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     managedLlamaStartupWarning: null,
     bootstrapManagedLlamaStartup: false,
     managedLlamaLogCleanupTimer: null,
-    managedLlamaFlushQueue: new ManagedLlamaFlushQueue(),
+    managedLlamaFlushQueue: new ManagedLlamaFlushQueue({ idleDelayMs: getManagedLlamaFlushIdleDelayMs(options) }),
     // Late-bound function references (break circular deps between modules).
     shutdownManagedLlamaIfNeeded: (opts) => shutdownManagedLlamaIfNeeded(ctx, opts),
     ensureManagedLlamaReady: (opts) => ensureManagedLlamaReady(ctx, opts),

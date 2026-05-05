@@ -69,7 +69,11 @@ export type ExtendedServer = http.Server & {
   startupPromise?: Promise<void>;
 };
 
-export type StartStatusServerOptions = { disableManagedLlamaStartup?: boolean; terminalMetadataIdleDelayMs?: number };
+export type StartStatusServerOptions = {
+  disableManagedLlamaStartup?: boolean;
+  terminalMetadataIdleDelayMs?: number;
+  managedLlamaFlushIdleDelayMs?: number;
+};
 
 /**
  * Shared mutable state for the status server. Created in `startStatusServer`

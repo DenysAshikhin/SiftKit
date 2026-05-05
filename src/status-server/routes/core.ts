@@ -347,7 +347,14 @@ function getTerminalMetadataIdleWaitMs(ctx: ServerContext, fallbackStartedAtMs: 
     return Math.max(1, Math.min(1000, ctx.terminalMetadataIdleDelayMs || 1000));
   }
   const lastFinishedAtMs = ctx.terminalMetadataLastModelRequestFinishedAtMs ?? fallbackStartedAtMs;
-  return Math.max(0, ctx.terminalMetadataIdleDelayMs - (Date.now() - lastFinishedAtMs));
+  const idleWaitMs = Math.max(0, ctx.terminalMetadataIdleDelayMs - (Date.now() - lastFinishedAtMs));
+  if (idleWaitMs > 0) {
+    return idleWaitMs;
+  }
+  if (!ctx.managedLlamaFlushQueue.isIdle()) {
+    return Math.max(1, Math.min(1000, ctx.terminalMetadataIdleDelayMs || 1000));
+  }
+  return 0;
 }
 
 function scheduleTerminalMetadataDrain(ctx: ServerContext, delayMs: number = 0): void {

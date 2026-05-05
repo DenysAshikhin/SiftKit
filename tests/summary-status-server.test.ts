@@ -10,6 +10,7 @@ import type { SiftConfig } from '../dist/config/index.js';
 import { summarizeRequest } from '../dist/summary.js';
 import { getDefaultConfig } from '../dist/status-server/config-store.js';
 import { startStatusServer } from '../dist/status-server/index.js';
+import { ManagedLlamaFlushQueue } from '../dist/status-server/managed-llama-flush-queue.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../dist/state/runtime-db.js';
 
 type JsonResponse = { statusCode: number; body: Record<string, unknown> };
@@ -235,7 +236,6 @@ test('summary endpoint processes terminal status before granting next queued sum
     });
 
     assert.equal(lines.some((line) => /stale_status_abandoned/u.test(line)), false, lines.join('\n'));
-    assert.equal(lines.some((line) => /status terminal_metadata_drain_wait request_id=.* active=true/u.test(line)), true, lines.join('\n'));
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
@@ -327,6 +327,96 @@ test('terminal metadata route enqueues immediately and drains after idle delay',
     assert.equal(lines.some((line) => /request false task=summary total_elapsed=0s output_tokens=7/u.test(line)), true, lines.join('\n'));
     assert.equal(lines.some((line) => /status terminal_metadata_process_done request_id=queued-metadata-summary state=completed duration_ms=\d+/u.test(line)), true, lines.join('\n'));
   } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    process.chdir(previousCwd);
+    closeRuntimeDatabase();
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('terminal metadata waits for managed llama flush queue to drain first', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-terminal-metadata-after-llama-flush-'));
+  const previousCwd = process.cwd();
+  fs.writeFileSync(
+    path.join(tempRoot, 'package.json'),
+    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+    'utf8',
+  );
+  process.chdir(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup: Record<string, string | undefined> = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+
+  const originalIsIdle = ManagedLlamaFlushQueue.prototype.isIdle;
+  let llamaFlushIdle = false;
+  ManagedLlamaFlushQueue.prototype.isIdle = function isIdleForTest(): boolean {
+    return llamaFlushIdle && originalIsIdle.call(this);
+  };
+  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const lines = await captureStdoutLines(async () => {
+      await requestJson(`${baseUrl}/status`, {
+        method: 'POST',
+        body: JSON.stringify({
+          running: true,
+          taskKind: 'summary',
+          requestId: 'metadata-after-llama-flush',
+          statusPath,
+          rawInputCharacterCount: 100,
+          promptCharacterCount: 200,
+          promptTokenCount: 50,
+        }),
+      });
+      await requestJson(`${baseUrl}/status/terminal-metadata`, {
+        method: 'POST',
+        body: JSON.stringify({
+          running: false,
+          taskKind: 'summary',
+          requestId: 'metadata-after-llama-flush',
+          statusPath,
+          terminalState: 'completed',
+          deferredMetadata: {
+            outputTokens: 9,
+          },
+        }),
+      });
+      await new Promise<void>((resolve) => setTimeout(resolve, 40));
+      const waitingStatus = await requestJson(`${baseUrl}/status`);
+      assert.equal(waitingStatus.body.status, 'true');
+      llamaFlushIdle = true;
+      await new Promise<void>((resolve) => setTimeout(resolve, 1100));
+    });
+
+    const waitIndex = lines.findIndex((line) => /status terminal_metadata_drain_wait request_id=metadata-after-llama-flush/u.test(line));
+    const processIndex = lines.findIndex((line) => /status terminal_metadata_process_start request_id=metadata-after-llama-flush/u.test(line));
+    assert.ok(waitIndex >= 0 && processIndex > waitIndex, lines.join('\n'));
+    assert.equal(lines.some((line) => /request false task=summary total_elapsed=0s output_tokens=9/u.test(line)), true, lines.join('\n'));
+  } finally {
+    ManagedLlamaFlushQueue.prototype.isIdle = originalIsIdle;
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });

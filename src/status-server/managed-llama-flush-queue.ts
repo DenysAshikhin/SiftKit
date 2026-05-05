@@ -22,6 +22,16 @@ type ManagedLlamaFlushQueueItem = {
   metricsSnapshot: ManagedLlamaSpeculativeMetricsSnapshot | null;
 };
 
+export type ManagedLlamaFlushQueueOptions = {
+  idleDelayMs?: number;
+};
+
+export type ManagedLlamaModelRequestState = {
+  active: boolean;
+  queueLength: number;
+  lastFinishedAtMs?: number | null;
+};
+
 type FlushWorkerResponse = {
   id: number;
   ok: boolean;
@@ -38,15 +48,26 @@ export type ManagedLlamaFlushQueueSnapshot = {
 };
 
 export class ManagedLlamaFlushQueue {
+  private readonly idleDelayMs: number;
   private readonly pendingByRunId = new Map<string, ManagedLlamaFlushQueueItem>();
   private readonly pendingOrder: string[] = [];
   private scheduled = false;
   private draining = false;
   private runningRunId: string | null = null;
+  private activeModelRequest = false;
+  private modelRequestQueueLength = 0;
+  private lastModelRequestFinishedAtMs: number | null = null;
   private completedCount = 0;
   private failedCount = 0;
   private worker: Worker | null = null;
   private nextWorkerMessageId = 1;
+
+  constructor(options: ManagedLlamaFlushQueueOptions = {}) {
+    const configuredIdleDelayMs = Number(options.idleDelayMs ?? 0);
+    this.idleDelayMs = Number.isFinite(configuredIdleDelayMs)
+      ? Math.max(0, Math.trunc(configuredIdleDelayMs))
+      : 0;
+  }
 
   async close(): Promise<void> {
     const worker = this.worker;
@@ -80,6 +101,26 @@ export class ManagedLlamaFlushQueue {
     return true;
   }
 
+  setModelRequestState(state: ManagedLlamaModelRequestState): void {
+    this.activeModelRequest = Boolean(state.active);
+    this.modelRequestQueueLength = Math.max(0, Math.trunc(Number(state.queueLength || 0)));
+    if (typeof state.lastFinishedAtMs === 'number' && Number.isFinite(state.lastFinishedAtMs)) {
+      this.lastModelRequestFinishedAtMs = Math.max(0, Math.trunc(state.lastFinishedAtMs));
+    }
+    if (this.pendingOrder.length > 0 && !this.draining) {
+      this.scheduleDrain(0);
+    }
+  }
+
+  markModelRequestFinished(finishedAtMs: number = Date.now()): void {
+    if (Number.isFinite(finishedAtMs)) {
+      this.lastModelRequestFinishedAtMs = Math.max(0, Math.trunc(finishedAtMs));
+    }
+    if (this.pendingOrder.length > 0 && !this.draining) {
+      this.scheduleDrain(0);
+    }
+  }
+
   getSnapshot(): ManagedLlamaFlushQueueSnapshot {
     return {
       pendingCount: this.pendingOrder.length,
@@ -101,6 +142,13 @@ export class ManagedLlamaFlushQueue {
     throw new Error(`Timed out waiting for managed llama flush queue after ${timeoutMs} ms.`);
   }
 
+  isIdle(): boolean {
+    return !this.draining
+      && !this.scheduled
+      && this.pendingOrder.length === 0
+      && this.runningRunId === null;
+  }
+
   async drainNow(): Promise<void> {
     if (this.draining) {
       return;
@@ -109,12 +157,27 @@ export class ManagedLlamaFlushQueue {
     this.draining = true;
     try {
       while (this.pendingOrder.length > 0) {
-        const runId = this.pendingOrder.shift();
-        if (!runId) {
+        const nextRunId = this.pendingOrder[0];
+        if (!nextRunId) {
           continue;
         }
-        const item = this.pendingByRunId.get(runId);
+        const item = this.pendingByRunId.get(nextRunId);
         if (!item) {
+          this.pendingOrder.shift();
+          continue;
+        }
+        const idleWaitMs = this.getIdleWaitMs(item.enqueuedAtMs);
+        if (idleWaitMs > 0) {
+          logLine(
+            `managed_llama flush drain_wait run_id=${nextRunId} wait_ms=${Math.max(1, Math.trunc(idleWaitMs))} `
+            + `active=${this.activeModelRequest ? 'true' : 'false'} `
+            + `model_queue_length=${this.modelRequestQueueLength} pending=${this.pendingOrder.length}`,
+          );
+          this.scheduleDrain(idleWaitMs);
+          return;
+        }
+        const runId = this.pendingOrder.shift();
+        if (!runId) {
           continue;
         }
         this.pendingByRunId.delete(runId);
@@ -157,6 +220,14 @@ export class ManagedLlamaFlushQueue {
     } finally {
       this.draining = false;
     }
+  }
+
+  private getIdleWaitMs(fallbackStartedAtMs: number): number {
+    if (this.activeModelRequest || this.modelRequestQueueLength > 0) {
+      return Math.max(1, Math.min(1000, this.idleDelayMs || 1000));
+    }
+    const lastFinishedAtMs = this.lastModelRequestFinishedAtMs ?? fallbackStartedAtMs;
+    return Math.max(0, this.idleDelayMs - (Date.now() - lastFinishedAtMs));
   }
 
   private flushInWorker(
