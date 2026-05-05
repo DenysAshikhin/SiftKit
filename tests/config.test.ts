@@ -590,6 +590,7 @@ test('notifyStatusBackend splits terminal completion and metadata routes', async
   let completionCount = 0;
   let metadataCount = 0;
   let metadataBody: Record<string, unknown> | null = null;
+  const routeOrder: string[] = [];
   let resolveMetadataReceived: (() => void) | null = null;
   const metadataReceived = new Promise<void>((resolve) => {
     resolveMetadataReceived = resolve;
@@ -598,12 +599,14 @@ test('notifyStatusBackend splits terminal completion and metadata routes', async
     const nextServer = http.createServer((req, res) => {
       if (req.method === 'POST' && req.url === '/status/complete') {
         completionCount += 1;
+        routeOrder.push('complete');
         req.resume();
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));
         return;
       }
       if (req.method === 'POST' && req.url === '/status/terminal-metadata') {
+        routeOrder.push('metadata');
         let bodyText = '';
         req.setEncoding('utf8');
         req.on('data', (chunk: string) => {
@@ -640,6 +643,7 @@ test('notifyStatusBackend splits terminal completion and metadata routes', async
     await metadataReceived;
     assert.equal(completionCount, 1);
     assert.equal(metadataCount, 1);
+    assert.deepEqual(routeOrder, ['complete', 'metadata']);
     assert.equal(metadataBody?.requestId, 'split-terminal-request');
     assert.equal(metadataBody?.terminalState, 'completed');
     assert.ok(elapsedMs < 100, `terminal metadata route was awaited, elapsed=${elapsedMs}`);

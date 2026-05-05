@@ -975,6 +975,7 @@ async function startStatusServerProcess(options) {
     SIFTKIT_CONFIG_PATH: options.configPath,
     ...(options.idleSummaryDbPath ? { SIFTKIT_IDLE_SUMMARY_DB_PATH: options.idleSummaryDbPath } : {}),
     ...(options.idleSummaryDelayMs ? { SIFTKIT_IDLE_SUMMARY_DELAY_MS: String(options.idleSummaryDelayMs) } : {}),
+    ...(options.terminalMetadataIdleDelayMs ? { SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS: String(options.terminalMetadataIdleDelayMs) } : {}),
     ...(options.executionLeaseStaleMs ? { SIFTKIT_EXECUTION_LEASE_STALE_MS: String(options.executionLeaseStaleMs) } : {}),
     SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: '0',
   };

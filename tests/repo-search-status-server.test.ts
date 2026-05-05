@@ -28,6 +28,7 @@ const runtimeHelpers = requireFromHere('./_runtime-helpers.js') as {
     configPath: string;
     idleSummaryDbPath?: string;
     idleSummaryDelayMs?: number;
+    terminalMetadataIdleDelayMs?: number;
     disableManagedLlamaStartup?: boolean;
   }) => Promise<{
     statusUrl: string;
@@ -129,7 +130,7 @@ test('status server stays responsive while repo-search is running', async () => 
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
   const address = server.address() as AddressInfo;
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -234,7 +235,7 @@ test('repo-search abandons stale running status after acquiring the model lock',
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
   const address = server.address() as AddressInfo;
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -521,7 +522,7 @@ test('repo-search endpoint logs one model-requested command line per tool call',
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
   const address = server.address() as AddressInfo;
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -774,6 +775,7 @@ test('repo-search wakes managed llama after idle shutdown', async () => {
     statusPath,
     configPath,
     idleSummaryDelayMs: 80,
+    terminalMetadataIdleDelayMs: 50,
   });
   const baseUrl = new URL(server.statusUrl).origin;
 

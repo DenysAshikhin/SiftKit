@@ -381,12 +381,6 @@ export async function notifyStatusBackend(options: NotifyStatusBackendOptions): 
   if (!options.running && options.terminalState) {
     const completionUrl = deriveServiceUrl(url, '/status/complete');
     const metadataUrl = deriveServiceUrl(url, '/status/terminal-metadata');
-    void postStatusJson({
-      url: metadataUrl,
-      body,
-      timeoutMs: 2000,
-      operation: 'status:terminal-metadata',
-    }).catch(() => undefined);
     await postStatusJson({
       url: completionUrl,
       body: {
@@ -399,6 +393,12 @@ export async function notifyStatusBackend(options: NotifyStatusBackendOptions): 
       timeoutMs: 10,
       operation: 'status:complete',
     });
+    void postStatusJson({
+      url: metadataUrl,
+      body,
+      timeoutMs: 2000,
+      operation: 'status:terminal-metadata',
+    }).catch(() => undefined);
     return;
   }
 

@@ -523,6 +523,7 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
   }
   const releasedLock = ctx.activeModelRequest;
   ctx.activeModelRequest = null;
+  ctx.terminalMetadataLastModelRequestFinishedAtMs = Date.now();
   logModelRequestLockReleased(releasedLock, ctx.modelRequestQueue.length);
   grantNextModelRequest(ctx);
   if (ctx.managedLlamaLastStartupLogs?.runId) {

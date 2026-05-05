@@ -50,6 +50,13 @@ export type DeferredArtifact = {
   artifactPayload: Dict;
 };
 
+export type TerminalMetadataQueueItem = {
+  requestId: string;
+  terminalState: 'completed' | 'failed';
+  bodyText: string;
+  capturedAtMs: number;
+};
+
 export type SpawnedScript = { child: ChildProcess; logRef: ManagedLlamaLogRef };
 export type EnsureManagedLlamaOptions = { resetStatusBeforeCheck?: boolean; allowUnconfigured?: boolean };
 export type ShutdownManagedLlamaOptions = { force?: boolean; timeoutMs?: number };
@@ -62,7 +69,7 @@ export type ExtendedServer = http.Server & {
   startupPromise?: Promise<void>;
 };
 
-export type StartStatusServerOptions = { disableManagedLlamaStartup?: boolean };
+export type StartStatusServerOptions = { disableManagedLlamaStartup?: boolean; terminalMetadataIdleDelayMs?: number };
 
 /**
  * Shared mutable state for the status server. Created in `startStatusServer`
@@ -91,6 +98,11 @@ export type ServerContext = {
   deferredArtifactQueue: DeferredArtifact[];
   deferredArtifactDrainScheduled: boolean;
   deferredArtifactDrainRunning: boolean;
+  terminalMetadataQueue: TerminalMetadataQueueItem[];
+  terminalMetadataDrainScheduled: boolean;
+  terminalMetadataDrainRunning: boolean;
+  terminalMetadataLastModelRequestFinishedAtMs: number | null;
+  terminalMetadataIdleDelayMs: number;
 
   // Idle summary
   pendingIdleSummaryMetadata: {

@@ -115,6 +115,16 @@ export type { TerminateProcessTreeOptions, StartStatusServerOptions, ExtendedSer
 
 const MANAGED_LLAMA_LOG_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
 const MANAGED_LLAMA_LOG_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
+const DEFAULT_TERMINAL_METADATA_IDLE_DELAY_MS = 10_000;
+
+function getTerminalMetadataIdleDelayMs(options: StartStatusServerOptions): number {
+  const configuredValue = options.terminalMetadataIdleDelayMs
+    ?? Number(process.env.SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS);
+  if (Number.isFinite(configuredValue)) {
+    return Math.max(0, Math.trunc(configuredValue));
+  }
+  return DEFAULT_TERMINAL_METADATA_IDLE_DELAY_MS;
+}
 
 function pruneManagedLlamaLogChunks(): void {
   const cutoff = new Date(Date.now() - MANAGED_LLAMA_LOG_RETENTION_MS).toISOString();
@@ -168,6 +178,11 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     deferredArtifactQueue: [],
     deferredArtifactDrainScheduled: false,
     deferredArtifactDrainRunning: false,
+    terminalMetadataQueue: [],
+    terminalMetadataDrainScheduled: false,
+    terminalMetadataDrainRunning: false,
+    terminalMetadataLastModelRequestFinishedAtMs: null,
+    terminalMetadataIdleDelayMs: getTerminalMetadataIdleDelayMs(options),
     pendingIdleSummaryMetadata: {
       inputCharactersPerContextToken: null,
       chunkThresholdCharacters: null,

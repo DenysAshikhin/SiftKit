@@ -71,6 +71,7 @@ import { getRuntimeDatabase } from '../../state/runtime-db.js';
 import type {
   ActiveRunState,
   ServerContext,
+  TerminalMetadataQueueItem,
 } from '../server-types.js';
 
 const DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_SECONDS = 240;
@@ -338,6 +339,159 @@ function scheduleDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTermi
   }, 25);
   if (typeof timer.unref === 'function') {
     timer.unref();
+  }
+}
+
+function getTerminalMetadataIdleWaitMs(ctx: ServerContext, fallbackStartedAtMs: number): number {
+  if (ctx.activeModelRequest || ctx.modelRequestQueue.length > 0) {
+    return Math.max(1, Math.min(1000, ctx.terminalMetadataIdleDelayMs || 1000));
+  }
+  const lastFinishedAtMs = ctx.terminalMetadataLastModelRequestFinishedAtMs ?? fallbackStartedAtMs;
+  return Math.max(0, ctx.terminalMetadataIdleDelayMs - (Date.now() - lastFinishedAtMs));
+}
+
+function scheduleTerminalMetadataDrain(ctx: ServerContext, delayMs: number = 0): void {
+  if (ctx.terminalMetadataDrainScheduled || ctx.terminalMetadataDrainRunning || ctx.terminalMetadataQueue.length === 0) {
+    return;
+  }
+  ctx.terminalMetadataDrainScheduled = true;
+  const timer = setTimeout(() => {
+    drainTerminalMetadataQueue(ctx);
+  }, Math.max(0, Math.trunc(delayMs)));
+  if (typeof timer.unref === 'function') {
+    timer.unref();
+  }
+}
+
+function enqueueTerminalMetadata(ctx: ServerContext, item: TerminalMetadataQueueItem): void {
+  ctx.terminalMetadataQueue.push(item);
+  logLine(
+    `status terminal_metadata_enqueued request_id=${item.requestId} state=${item.terminalState} `
+    + `queue_length=${ctx.terminalMetadataQueue.length}`,
+  );
+  scheduleTerminalMetadataDrain(ctx);
+}
+
+function processTerminalMetadataBody(ctx: ServerContext, item: TerminalMetadataQueueItem): void {
+  const metadata = parseStatusMetadata(item.bodyText);
+  const deferredMetadata = metadata.deferredMetadata
+    ? parseStatusMetadataRecord(metadata.deferredMetadata)
+    : null;
+  if (deferredMetadata) {
+    deferredMetadata.requestId = metadata.requestId ?? deferredMetadata.requestId;
+    deferredMetadata.taskKind = metadata.taskKind ?? deferredMetadata.taskKind;
+    deferredMetadata.terminalState = metadata.terminalState ?? deferredMetadata.terminalState;
+    deferredMetadata.errorMessage = deferredMetadata.errorMessage ?? metadata.errorMessage;
+  }
+  const requestId = getResolvedRequestId(metadata, ctx.statusPath);
+  let elapsedMs: number | null = null;
+  let totalElapsedMs: number | null = null;
+  let requestCompleted = false;
+  let suppressLogLine = false;
+  const runState: ActiveRunState | null = ctx.activeRunsByRequestId.get(requestId) || null;
+  const targetMetadata = deferredMetadata ?? metadata;
+  if (runState && Number.isFinite(runState.currentRequestStartedAt)) {
+    const resolvedOutputTokens = targetMetadata.outputTokens ?? 0;
+    const isSingleStepNonChunk = runState.stepCount === 1
+      && runState.chunkIndex === null
+      && runState.chunkTotal === null
+      && runState.chunkPath === null;
+    suppressLogLine = metadata.terminalState === null && isSingleStepNonChunk;
+    elapsedMs = item.capturedAtMs - runState.currentRequestStartedAt;
+    runState.outputTokensTotal += resolvedOutputTokens;
+    if (targetMetadata.rawInputCharacterCount === null && runState.rawInputCharacterCount !== null) {
+      targetMetadata.rawInputCharacterCount = runState.rawInputCharacterCount;
+    }
+    if (targetMetadata.promptCharacterCount === null && runState.promptCharacterCount !== null) {
+      targetMetadata.promptCharacterCount = runState.promptCharacterCount;
+    }
+    if (targetMetadata.promptTokenCount === null && runState.promptTokenCount !== null) {
+      targetMetadata.promptTokenCount = runState.promptTokenCount;
+    }
+    if (targetMetadata.chunkIndex === null && runState.chunkIndex !== null) {
+      targetMetadata.chunkIndex = runState.chunkIndex;
+    }
+    if (targetMetadata.chunkTotal === null && runState.chunkTotal !== null) {
+      targetMetadata.chunkTotal = runState.chunkTotal;
+    }
+    if (targetMetadata.chunkPath === null && runState.chunkPath !== null) {
+      targetMetadata.chunkPath = runState.chunkPath;
+    }
+    const speculativeMetrics = getManagedLlamaSpeculativeMetricsDelta(
+      ctx.managedLlamaLastStartupLogs,
+      runState.managedLlamaSpeculativeSnapshot,
+    );
+    if (speculativeMetrics) {
+      targetMetadata.speculativeAcceptedTokens = speculativeMetrics.speculativeAcceptedTokens;
+      targetMetadata.speculativeGeneratedTokens = speculativeMetrics.speculativeGeneratedTokens;
+    }
+    if (metadata.terminalState === 'completed') {
+      totalElapsedMs = item.capturedAtMs - runState.overallStartedAt;
+      targetMetadata.totalOutputTokens = runState.outputTokensTotal;
+      clearRunState(ctx, requestId);
+      requestCompleted = true;
+    } else if (metadata.terminalState === 'failed') {
+      totalElapsedMs = item.capturedAtMs - runState.overallStartedAt;
+      clearRunState(ctx, requestId);
+    }
+  }
+  applyDeferredTerminalMetadata(ctx, {
+    requestId,
+    metadata: targetMetadata,
+    elapsedMs,
+    totalElapsedMs,
+    requestCompleted,
+    suppressLogLine,
+  });
+  writePublishedStatus(ctx, getPublishedStatusText(ctx));
+  if (metadata.deferredArtifacts) {
+    enqueueDeferredArtifacts(ctx, metadata.deferredArtifacts);
+  }
+}
+
+function drainTerminalMetadataQueue(ctx: ServerContext): void {
+  if (ctx.terminalMetadataDrainRunning) {
+    return;
+  }
+  ctx.terminalMetadataDrainScheduled = false;
+  const nextItem = ctx.terminalMetadataQueue[0] || null;
+  if (!nextItem) {
+    return;
+  }
+  const waitMs = getTerminalMetadataIdleWaitMs(ctx, nextItem.capturedAtMs);
+  if (waitMs > 0) {
+    logLine(
+      `status terminal_metadata_drain_wait request_id=${nextItem.requestId} state=${nextItem.terminalState} `
+      + `wait_ms=${Math.max(1, Math.trunc(waitMs))} active=${ctx.activeModelRequest ? 'true' : 'false'} `
+      + `queue_length=${ctx.terminalMetadataQueue.length} model_queue_length=${ctx.modelRequestQueue.length}`,
+    );
+    scheduleTerminalMetadataDrain(ctx, waitMs);
+    return;
+  }
+  ctx.terminalMetadataDrainRunning = true;
+  const item = ctx.terminalMetadataQueue.shift();
+  if (!item) {
+    ctx.terminalMetadataDrainRunning = false;
+    return;
+  }
+  const startedAt = Date.now();
+  logLine(`status terminal_metadata_process_start request_id=${item.requestId} state=${item.terminalState}`);
+  try {
+    processTerminalMetadataBody(ctx, item);
+    logLine(
+      `status terminal_metadata_process_done request_id=${item.requestId} state=${item.terminalState} `
+      + `duration_ms=${Date.now() - startedAt}`,
+    );
+  } catch (error) {
+    logLine(
+      `status terminal_metadata_process_failed request_id=${item.requestId} state=${item.terminalState} `
+      + `duration_ms=${Date.now() - startedAt} error=${error instanceof Error ? error.message : String(error)}`,
+    );
+  } finally {
+    ctx.terminalMetadataDrainRunning = false;
+    if (ctx.terminalMetadataQueue.length > 0) {
+      scheduleTerminalMetadataDrain(ctx);
+    }
   }
 }
 
@@ -627,10 +781,6 @@ export async function handleCoreRoute(
       sendJson(res, 400, { error: 'Terminal metadata requires terminalState=completed|failed.' });
       return true;
     }
-    const terminalMetadataStartedAt = terminalMetadataPost ? Date.now() : null;
-    if (terminalMetadataPost) {
-      logLine(`status terminal_metadata_start request_id=${metadata.requestId ?? 'unknown'} state=${metadata.terminalState ?? 'unknown'}`);
-    }
     const deferredMetadata = metadata.deferredMetadata
       ? parseStatusMetadataRecord(metadata.deferredMetadata)
       : null;
@@ -646,6 +796,18 @@ export async function handleCoreRoute(
     }
     if (metadata.deferredArtifacts && (running || metadata.terminalState === null)) {
       sendJson(res, 400, { error: 'deferredArtifacts are only accepted on terminal running=false posts.' });
+      return true;
+    }
+    if (terminalMetadataPost) {
+      const requestId = getResolvedRequestId(metadata, statusPath);
+      enqueueTerminalMetadata(ctx, {
+        requestId,
+        terminalState: metadata.terminalState as 'completed' | 'failed',
+        bodyText,
+        capturedAtMs: Date.now(),
+      });
+      const publishedStatus = getPublishedStatusText(ctx);
+      sendJson(res, 200, { ok: true, queued: true, running: publishedStatus === STATUS_TRUE, status: publishedStatus, statusPath, configPath });
       return true;
     }
     if (metadata.artifactType !== null) {
@@ -1040,12 +1202,6 @@ export async function handleCoreRoute(
     writePublishedStatus(ctx, publishedStatus);
     if (!running && metadata.deferredArtifacts) {
       enqueueDeferredArtifacts(ctx, metadata.deferredArtifacts);
-    }
-    if (terminalMetadataStartedAt !== null) {
-      logLine(
-        `status terminal_metadata_done request_id=${requestId} state=${metadata.terminalState ?? 'unknown'} `
-        + `duration_ms=${Date.now() - terminalMetadataStartedAt}`,
-      );
     }
     sendJson(res, 200, { ok: true, running: publishedStatus === STATUS_TRUE, status: publishedStatus, statusPath, configPath });
     return true;
