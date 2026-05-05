@@ -13,7 +13,7 @@ const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCp
 const { runCommand } = require('../dist/command.js');
 const { runBenchmarkSuite } = require('../dist/benchmark/index.js');
 const { readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs, pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt } = require('../dist/benchmark-matrix/index.js');
-const { countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse } = require('../dist/providers/llama-cpp.js');
+const { countLlamaCppTokens, getLlamaCppProviderStatus, listLlamaCppModels, generateLlamaCppResponse } = require('../dist/providers/llama-cpp.js');
 const { withExecutionLock } = require('../dist/execution-lock.js');
 const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../dist/status-server/index.js');
 const { runDebugRequest } = require('../dist/scripts/run-benchmark-fixture-debug.js');
@@ -66,6 +66,47 @@ const {
   waitForAsyncExpectation,
   runPowerShellScript,
 } = require('./_runtime-helpers.js');
+
+function buildStubLlamaConfig(port) {
+  return {
+    Backend: 'llama.cpp',
+    Runtime: {
+      Model: 'warmup-model',
+      LlamaCpp: {
+        BaseUrl: `http://127.0.0.1:${port}`,
+        NumCtx: 10000,
+      },
+    },
+    LlamaCpp: {
+      BaseUrl: `http://127.0.0.1:${port}`,
+    },
+    Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },
+    Interactive: {
+      Enabled: true,
+      WrappedCommands: [],
+      IdleTimeoutMs: 900000,
+      MaxTranscriptCharacters: 60000,
+      TranscriptRetention: true,
+    },
+  };
+}
+
+class ConsoleErrorCapture {
+  constructor() {
+    this.originalError = console.error;
+    this.calls = [];
+  }
+
+  start() {
+    console.error = (...args) => {
+      this.calls.push(args.map((arg) => String(arg)).join(' '));
+    };
+  }
+
+  stop() {
+    console.error = this.originalError;
+  }
+}
 
 test('llama.cpp provider lists models and parses chat completions from the stub server', async () => {
   await withTempEnv(async () => {
@@ -503,17 +544,23 @@ test('llama.cpp provider surfaces HTTP 400 errors when json-schema constrained r
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
+      const capture = new ConsoleErrorCapture();
 
-      await assert.rejects(
-        () => generateLlamaCppResponse({
-          config,
-          model: config.Model,
-          prompt: 'test prompt body',
-          timeoutSeconds: 5,
-          structuredOutput: { kind: 'siftkit-decision-json' },
-        }),
-        /llama\.cpp generate failed with HTTP 400/u
-      );
+      try {
+        capture.start();
+        await assert.rejects(
+          () => generateLlamaCppResponse({
+            config,
+            model: config.Model,
+            prompt: 'test prompt body',
+            timeoutSeconds: 5,
+            structuredOutput: { kind: 'siftkit-decision-json' },
+          }),
+          /llama\.cpp generate failed with HTTP 400/u
+        );
+      } finally {
+        capture.stop();
+      }
 
       assert.equal(server.state.chatRequests.length, 1);
       const responseFormatText = JSON.stringify(server.state.chatRequests[0]?.response_format || {});
@@ -522,6 +569,146 @@ test('llama.cpp provider surfaces HTTP 400 errors when json-schema constrained r
     }, {
       rejectPromptCharsOver: 1,
     });
+  });
+});
+
+test('llama.cpp provider prints model-list HTTP errors to console', async () => {
+  await withTempEnv(async () => {
+    const port = await getFreePort();
+    const capture = new ConsoleErrorCapture();
+    const server = http.createServer((req, res) => {
+      if (req.method === 'GET' && req.url === '/v1/models') {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'model inventory failed' }));
+        return;
+      }
+      res.statusCode = 404;
+      res.end();
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.listen(port, '127.0.0.1', (error) => (error ? reject(error) : resolve()));
+    });
+
+    try {
+      capture.start();
+      await assert.rejects(
+        () => listLlamaCppModels(buildStubLlamaConfig(port)),
+        /llama\.cpp model list failed with HTTP 500/u
+      );
+      assert.equal(capture.calls.some((line) => (
+        line.includes('llama.cpp model_list error')
+        && line.includes('HTTP 500')
+        && line.includes('model inventory failed')
+      )), true);
+    } finally {
+      capture.stop();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+});
+
+test('llama.cpp provider prints status probe errors to console', async () => {
+  await withTempEnv(async () => {
+    const port = await getFreePort();
+    const capture = new ConsoleErrorCapture();
+    const server = http.createServer((req, res) => {
+      if (req.method === 'GET' && req.url === '/v1/models') {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'status probe failed' }));
+        return;
+      }
+      res.statusCode = 404;
+      res.end();
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.listen(port, '127.0.0.1', (error) => (error ? reject(error) : resolve()));
+    });
+
+    try {
+      capture.start();
+      const status = await getLlamaCppProviderStatus(buildStubLlamaConfig(port));
+      assert.equal(status.Reachable, false);
+      assert.equal(capture.calls.some((line) => (
+        line.includes('llama.cpp provider_status error')
+        && line.includes('HTTP 500')
+        && line.includes('status probe failed')
+      )), true);
+    } finally {
+      capture.stop();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+});
+
+test('llama.cpp provider prints tokenize HTTP errors to console', async () => {
+  await withTempEnv(async () => {
+    const port = await getFreePort();
+    const capture = new ConsoleErrorCapture();
+    const server = http.createServer((req, res) => {
+      if (req.method === 'POST' && req.url === '/tokenize') {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'tokenizer failed' }));
+        return;
+      }
+      res.statusCode = 404;
+      res.end();
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.listen(port, '127.0.0.1', (error) => (error ? reject(error) : resolve()));
+    });
+
+    try {
+      capture.start();
+      const count = await countLlamaCppTokens(buildStubLlamaConfig(port), 'hello');
+      assert.equal(count, null);
+      assert.equal(capture.calls.some((line) => (
+        line.includes('llama.cpp tokenize error')
+        && line.includes('HTTP 500')
+      )), true);
+    } finally {
+      capture.stop();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+});
+
+test('llama.cpp provider prints chat completion HTTP errors to console', async () => {
+  await withTempEnv(async () => {
+    const port = await getFreePort();
+    const capture = new ConsoleErrorCapture();
+    const server = http.createServer((req, res) => {
+      if (req.method === 'POST' && req.url === '/v1/chat/completions') {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'chat failed' }));
+        return;
+      }
+      res.statusCode = 404;
+      res.end();
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.listen(port, '127.0.0.1', (error) => (error ? reject(error) : resolve()));
+    });
+
+    try {
+      capture.start();
+      await assert.rejects(
+        () => generateLlamaCppResponse({
+          config: buildStubLlamaConfig(port),
+          model: 'warmup-model',
+          prompt: 'test prompt body',
+          timeoutSeconds: 5,
+        }),
+        /llama\.cpp generate failed with HTTP 500/u
+      );
+      assert.equal(capture.calls.some((line) => (
+        line.includes('llama.cpp generate error')
+        && line.includes('HTTP 500')
+        && line.includes('chat failed')
+      )), true);
+    } finally {
+      capture.stop();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });
 

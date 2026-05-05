@@ -11,7 +11,6 @@ import {
 } from '../lib/text-format.js';
 
 import type { Dict } from '../lib/types.js';
-import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
 import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 import {
   TASK_KINDS,
@@ -417,67 +416,6 @@ export function ensureIdleSummarySnapshotsTable(database: DatabaseInstance): voi
     }
     if (!existingColumns.includes('tool_stats_json')) {
       database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN tool_stats_json TEXT NOT NULL DEFAULT \'{}\';');
-    }
-    const rows = database.prepare(`
-      SELECT
-        id,
-        input_tokens_total,
-        output_tokens_total,
-        prompt_cache_tokens_total,
-        prompt_eval_tokens_total,
-        task_totals_json
-      FROM idle_summary_snapshots
-      ORDER BY id ASC
-    `).all() as Array<{
-      id: number;
-      input_tokens_total: number;
-      output_tokens_total: number;
-      prompt_cache_tokens_total: number;
-      prompt_eval_tokens_total: number;
-      task_totals_json: string;
-    }>;
-    const updateRow = database.prepare(`
-      UPDATE idle_summary_snapshots
-      SET
-        input_tokens_total = ?,
-        prompt_eval_tokens_total = ?,
-        task_totals_json = ?,
-        saved_tokens = ?,
-        saved_percent = ?,
-        compression_ratio = ?
-      WHERE id = ?
-    `);
-    for (const row of rows) {
-      const inputTokensTotal = Number(getProcessedPromptTokens(
-        row.input_tokens_total,
-        row.prompt_cache_tokens_total,
-        row.prompt_eval_tokens_total,
-      ) || 0);
-      const promptEvalTokensTotal = inputTokensTotal;
-      const outputTokensTotal = Number(row.output_tokens_total) || 0;
-      const savedTokens = inputTokensTotal - outputTokensTotal;
-      const savedPercent = inputTokensTotal > 0 ? savedTokens / inputTokensTotal : Number.NaN;
-      const inputOutputRatio = outputTokensTotal > 0 ? inputTokensTotal / outputTokensTotal : Number.NaN;
-      const taskTotals = normalizeTaskTotals(parseJsonRecord(row.task_totals_json));
-      for (const taskKind of TASK_KINDS) {
-        const taskTotalsRecord = taskTotals[taskKind];
-        const taskInputTokens = Number(getProcessedPromptTokens(
-          taskTotalsRecord.inputTokensTotal,
-          taskTotalsRecord.promptCacheTokensTotal,
-          taskTotalsRecord.promptEvalTokensTotal,
-        ) || 0);
-        taskTotalsRecord.inputTokensTotal = taskInputTokens;
-        taskTotalsRecord.promptEvalTokensTotal = taskInputTokens;
-      }
-      updateRow.run(
-        inputTokensTotal,
-        promptEvalTokensTotal,
-        JSON.stringify(taskTotals),
-        savedTokens,
-        normalizeSqlNumber(savedPercent),
-        normalizeSqlNumber(inputOutputRatio),
-        row.id,
-      );
     }
   } catch {
     return;

@@ -92,7 +92,7 @@ async function captureStdoutLines(fn: (lines: StdoutLine[]) => Promise<void>): P
   return lines;
 }
 
-test('model request admission logs queue position and wakes llama for immediate requests', async () => {
+test('model request admission logs queue position without probing llama', async () => {
   const ctx = createQueueContext();
   try {
     const lines = await captureStdoutLines(async () => {
@@ -101,7 +101,7 @@ test('model request admission logs queue position and wakes llama for immediate 
       assert.equal(releaseModelRequest(ctx, lock.token), true);
     });
 
-    assert.equal((ctx as ServerContext & { readonly wakeCount: number }).wakeCount, 1);
+    assert.equal((ctx as ServerContext & { readonly wakeCount: number }).wakeCount, 0);
     assert.ok(lines.some((line) => /request incoming task=summary queue_position=1/u.test(line)), lines.join('\n'));
     assert.ok(lines.some((line) => /request lock_acquired task=summary wait_ms=0/u.test(line)), lines.join('\n'));
     assert.ok(lines.some((line) => /request lock_released task=summary held_ms=/u.test(line)), lines.join('\n'));
@@ -110,7 +110,7 @@ test('model request admission logs queue position and wakes llama for immediate 
   }
 });
 
-test('queued model request logs its FIFO position and wakes llama while waiting', async () => {
+test('queued model request logs its FIFO position without probing llama while waiting', async () => {
   const ctx = createQueueContext();
   try {
     const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
@@ -123,7 +123,7 @@ test('queued model request logs its FIFO position and wakes llama while waiting'
       queuedLockPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat');
       try {
         await new Promise<void>((resolve) => setTimeout(resolve, 30));
-        assert.equal((ctx as ServerContext & { readonly wakeCount: number }).wakeCount, 2);
+        assert.equal((ctx as ServerContext & { readonly wakeCount: number }).wakeCount, 0);
         assert.ok(capturedLines.some((line) => /request incoming task=dashboard_chat queue_position=2/u.test(line)), capturedLines.join('\n'));
       } finally {
         assert.equal(releaseModelRequest(ctx, activeLock.token), true);

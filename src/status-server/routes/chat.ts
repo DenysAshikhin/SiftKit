@@ -391,14 +391,6 @@ export async function handleChatRoute(
       return true;
     }
     const usesProvidedAssistantContent = typeof parsedBody.assistantContent === 'string' && (parsedBody.assistantContent as string).trim();
-    if (!usesProvidedAssistantContent) {
-      try {
-        await ensureManagedLlamaReadyForModelRequest(ctx);
-      } catch (error) {
-        sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
-        return true;
-      }
-    }
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat', req, res);
     if (!modelRequestLock) {
       return true;
@@ -408,6 +400,15 @@ export async function handleChatRoute(
       releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 404, { error: 'Session not found.' });
       return true;
+    }
+    if (!usesProvidedAssistantContent) {
+      try {
+        await ensureManagedLlamaReadyForModelRequest(ctx);
+      } catch (error) {
+        releaseModelRequest(ctx, modelRequestLock.token);
+        sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
+        return true;
+      }
     }
     const userContent = (parsedBody.content as string).trim();
     const requestId = crypto.randomUUID();
@@ -517,12 +518,6 @@ export async function handleChatRoute(
       sendJson(res, 400, { error: 'Expected content.' });
       return true;
     }
-    try {
-      await ensureManagedLlamaReadyForModelRequest(ctx);
-    } catch (error) {
-      sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
-      return true;
-    }
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat_stream', req, res);
     if (!modelRequestLock) {
       return true;
@@ -531,6 +526,13 @@ export async function handleChatRoute(
     if (!activeSession) {
       releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 404, { error: 'Session not found.' });
+      return true;
+    }
+    try {
+      await ensureManagedLlamaReadyForModelRequest(ctx);
+    } catch (error) {
+      releaseModelRequest(ctx, modelRequestLock.token);
+      sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
       return true;
     }
     let clientDisconnected = false;
@@ -663,12 +665,6 @@ export async function handleChatRoute(
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
       return true;
     }
-    try {
-      await ensureManagedLlamaReadyForModelRequest(ctx);
-    } catch (error) {
-      sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
-      return true;
-    }
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_plan', req, res);
     if (!modelRequestLock) {
       return true;
@@ -680,6 +676,12 @@ export async function handleChatRoute(
       return true;
     }
     try {
+      try {
+        await ensureManagedLlamaReadyForModelRequest(ctx);
+      } catch (error) {
+        sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
+        return true;
+      }
       const startedAt = Date.now();
       const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
       const executeRepoSearchRequest = loadRepoSearchExecutor();
@@ -798,12 +800,6 @@ export async function handleChatRoute(
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
       return true;
     }
-    try {
-      await ensureManagedLlamaReadyForModelRequest(ctx);
-    } catch (error) {
-      sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
-      return true;
-    }
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_plan_stream', req, res);
     if (!modelRequestLock) {
       return true;
@@ -812,6 +808,13 @@ export async function handleChatRoute(
     if (!activeSession) {
       releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 404, { error: 'Session not found.' });
+      return true;
+    }
+    try {
+      await ensureManagedLlamaReadyForModelRequest(ctx);
+    } catch (error) {
+      releaseModelRequest(ctx, modelRequestLock.token);
+      sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
       return true;
     }
     let clientDisconnected = false;
@@ -967,12 +970,6 @@ export async function handleChatRoute(
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
       return true;
     }
-    try {
-      await ensureManagedLlamaReadyForModelRequest(ctx);
-    } catch (error) {
-      sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
-      return true;
-    }
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_repo_search_stream', req, res);
     if (!modelRequestLock) {
       return true;
@@ -981,6 +978,13 @@ export async function handleChatRoute(
     if (!activeSession) {
       releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 404, { error: 'Session not found.' });
+      return true;
+    }
+    try {
+      await ensureManagedLlamaReadyForModelRequest(ctx);
+    } catch (error) {
+      releaseModelRequest(ctx, modelRequestLock.token);
+      sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
       return true;
     }
     let clientDisconnected = false;

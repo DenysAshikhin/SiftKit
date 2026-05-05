@@ -288,7 +288,7 @@ test('repo-search abandons stale running status after acquiring the model lock',
   }
 });
 
-test('managed llama readiness wait does not hold the model request queue', async () => {
+test('managed llama readiness wait is serialized by the model request queue', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-readiness-outside-queue-'));
   const previousCwd = process.cwd();
   fs.writeFileSync(
@@ -375,7 +375,95 @@ test('managed llama readiness wait does not hold the model request queue', async
 
     assert.equal(firstResponse.statusCode, 503);
     assert.equal(secondResponse.statusCode, 503);
-    assert.ok(secondElapsedMs < 350, `second request waited behind model queue for ${secondElapsedMs}ms`);
+    assert.ok(secondElapsedMs >= 200, `second request bypassed model queue in ${secondElapsedMs}ms`);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    process.chdir(previousCwd);
+    closeRuntimeDatabase();
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('health reports unavailable while managed llama bootstrap is still starting', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-health-bootstrap-'));
+  const previousCwd = process.cwd();
+  fs.writeFileSync(
+    path.join(tempRoot, 'package.json'),
+    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+    'utf8',
+  );
+  process.chdir(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup: Record<string, string | undefined> = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+
+  const llamaPort = await runtimeHelpers.getFreePort();
+  const managed = runtimeHelpers.writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
+    launchHangingProcess: true,
+  });
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, `${JSON.stringify({
+    Backend: 'llama.cpp',
+    Model: 'managed-test-model',
+    Runtime: {
+      Model: 'managed-test-model',
+      LlamaCpp: {
+        BaseUrl: managed.baseUrl,
+        NumCtx: 32000,
+        ModelPath: managed.modelPath,
+      },
+    },
+    Server: {
+      LlamaCpp: {
+        BaseUrl: managed.baseUrl,
+        ExecutablePath: managed.startupScriptPath,
+        ShutdownScript: managed.shutdownScriptPath,
+        ModelPath: managed.modelPath,
+        StartupTimeoutMs: 900,
+        HealthcheckTimeoutMs: 20,
+        HealthcheckIntervalMs: 20,
+      },
+    },
+  }, null, 2)}\n`, 'utf8');
+
+  const server = startStatusServer();
+  await runtimeHelpers.waitForAsyncExpectation(async () => {
+    assert.notEqual(server.address(), null);
+  }, 1000);
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const bootstrapHealth = await requestJson(`${baseUrl}/health`, { timeoutMs: 1000 });
+    assert.equal(bootstrapHealth.statusCode, 503);
+    assert.equal(bootstrapHealth.body.ok, false);
+    assert.equal(bootstrapHealth.body.startupPending, true);
+
+    await server.startupPromise;
+    const readyHealth = await requestJson(`${baseUrl}/health`, { timeoutMs: 1000 });
+    assert.equal(readyHealth.statusCode, 200);
+    assert.equal(readyHealth.body.ok, true);
+    assert.equal(readyHealth.body.startupPending, false);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

@@ -630,21 +630,6 @@ export function ensureRunLogsTable(database: DatabaseInstance): void {
   if (!existingColumns.includes('wall_duration_ms')) {
     database.exec('ALTER TABLE run_logs ADD COLUMN wall_duration_ms INTEGER;');
   }
-  database.exec(`
-    UPDATE run_logs
-    SET
-      prompt_eval_tokens = CASE
-        WHEN prompt_eval_tokens IS NOT NULL AND prompt_eval_tokens > 0 THEN prompt_eval_tokens
-        WHEN input_tokens IS NULL THEN prompt_eval_tokens
-        ELSE MAX(input_tokens - COALESCE(prompt_cache_tokens, 0), 0)
-      END,
-      input_tokens = CASE
-        WHEN prompt_eval_tokens IS NOT NULL AND prompt_eval_tokens > 0 THEN prompt_eval_tokens
-        WHEN input_tokens IS NULL THEN NULL
-        ELSE MAX(input_tokens - COALESCE(prompt_cache_tokens, 0), 0)
-      END
-    WHERE input_tokens IS NOT NULL
-  `);
 }
 
 export function upsertRunLog(database: DatabaseInstance, row: RunLogUpsertRow): void {

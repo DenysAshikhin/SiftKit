@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+import { isBackendReadyStatusCode } from '../scripts/start-dev-health.ts';
 import { buildStartupPortChecks } from '../scripts/start-dev-ports.ts';
 import { stopChildProcessTree } from '../scripts/start-dev-process.ts';
 
@@ -46,6 +47,13 @@ test('start-dev preflights both status and dashboard ports before spawning servi
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test('start-dev waits for successful backend health, not degraded startup health', () => {
+  assert.equal(isBackendReadyStatusCode(200), true);
+  assert.equal(isBackendReadyStatusCode(204), true);
+  assert.equal(isBackendReadyStatusCode(302), false);
+  assert.equal(isBackendReadyStatusCode(503), false);
 });
 
 test('start-dev shutdown kills child process trees on Windows', () => {

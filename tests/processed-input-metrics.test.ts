@@ -64,7 +64,7 @@ function withTempRepo(fn: (repoRoot: string) => void): void {
   }
 }
 
-test('ensureRunLogsTable backfills processed input tokens from cached prompt usage', () => {
+test('ensureRunLogsTable preserves existing run token fields', () => {
   const database = new Database(':memory:');
   try {
     ensureRunLogsTable(database);
@@ -112,9 +112,62 @@ test('ensureRunLogsTable backfills processed input tokens from cached prompt usa
       SELECT input_tokens, prompt_eval_tokens
       FROM run_logs
       WHERE run_id = 'run-1'
-    `).get() as { input_tokens: number; prompt_eval_tokens: number };
-    assert.equal(row.input_tokens, 23);
-    assert.equal(row.prompt_eval_tokens, 23);
+    `).get() as { input_tokens: number; prompt_eval_tokens: number | null };
+    assert.equal(row.input_tokens, 123);
+    assert.equal(row.prompt_eval_tokens, null);
+  } finally {
+    database.close();
+  }
+});
+
+test('ensureRunLogsTable does not rewrite existing run rows', () => {
+  const database = new Database(':memory:');
+  try {
+    ensureRunLogsTable(database);
+    database.prepare(`
+      INSERT INTO run_logs (
+        run_id, request_id, run_kind, run_group, terminal_state,
+        started_at_utc, finished_at_utc, title, model, backend, repo_root,
+        input_tokens, output_tokens, thinking_tokens, tool_tokens, prompt_cache_tokens, prompt_eval_tokens, duration_ms,
+        request_json, planner_debug_json, failed_request_json, abandoned_request_json, repo_search_json, repo_search_transcript_jsonl,
+        source_paths_json, flushed_at_utc, source_deleted_at_utc
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'run-1',
+      'req-1',
+      'repo_search',
+      'repo_search',
+      'completed',
+      '2026-04-17T00:00:00.000Z',
+      '2026-04-17T00:00:01.000Z',
+      'legacy repo search',
+      'mock-model',
+      'llama.cpp',
+      process.cwd(),
+      123,
+      45,
+      0,
+      0,
+      100,
+      null,
+      1000,
+      null,
+      null,
+      null,
+      null,
+      '{}',
+      '',
+      '[]',
+      '2026-04-17T00:00:01.000Z',
+      null,
+    );
+
+    ensureRunLogsTable(database);
+    const before = Number((database.prepare('SELECT total_changes() AS changes').get() as { changes: number }).changes);
+    ensureRunLogsTable(database);
+    const after = Number((database.prepare('SELECT total_changes() AS changes').get() as { changes: number }).changes);
+
+    assert.equal(after - before, 0);
   } finally {
     database.close();
   }
@@ -157,7 +210,7 @@ test('ensureRunLogsTable creates indexes for request lookup and dashboard orderi
   }
 });
 
-test('ensureIdleSummarySnapshotsTable backfills processed input totals and exposes inputOutputRatio', () => {
+test('ensureIdleSummarySnapshotsTable preserves existing token totals and exposes inputOutputRatio', () => {
   const database = new Database(':memory:');
   try {
     ensureIdleSummarySnapshotsTable(database);
@@ -255,13 +308,14 @@ test('ensureIdleSummarySnapshotsTable backfills processed input totals and expos
     ensureIdleSummarySnapshotsTable(database);
 
     const row = database.prepare('SELECT * FROM idle_summary_snapshots').get() as Record<string, unknown>;
-    assert.equal(Number(row.input_tokens_total), 23);
-    assert.equal(Number(row.prompt_eval_tokens_total), 23);
+    assert.equal(Number(row.input_tokens_total), 123);
+    assert.equal(Number(row.prompt_eval_tokens_total), 0);
     const snapshot = normalizeIdleSummarySnapshotRow(row);
     assert.ok(snapshot);
-    assert.equal(snapshot?.inputTokensTotal, 23);
-    assert.equal(snapshot?.taskTotals.summary.inputTokensTotal, 23);
-    assert.equal(snapshot?.inputOutputRatio, 23 / 45);
+    assert.equal(snapshot?.inputTokensTotal, 123);
+    assert.equal(snapshot?.taskTotals.summary.inputTokensTotal, 123);
+    assert.equal(snapshot?.taskTotals.summary.promptEvalTokensTotal, 0);
+    assert.equal(snapshot?.inputOutputRatio, 2.733);
   } finally {
     database.close();
   }
@@ -360,7 +414,7 @@ test('readMetrics backfills timing columns for already-current runtime databases
   });
 });
 
-test('runtime database migration backfills metrics totals and task totals to processed input semantics', () => {
+test('runtime database schema migration preserves existing metrics token totals', () => {
   withTempRepo(() => {
     const databasePath = getRuntimeDatabasePath();
     getRuntimeDatabase(databasePath);
@@ -410,13 +464,13 @@ test('runtime database migration backfills metrics totals and task totals to pro
     `).get() as { input_tokens_total: number; prompt_eval_tokens_total: number; task_totals_json: string };
 
     assert.equal(schemaVersionRow.version, 21);
-    assert.equal(metricsRow.input_tokens_total, 23);
-    assert.equal(metricsRow.prompt_eval_tokens_total, 23);
+    assert.equal(metricsRow.input_tokens_total, 123);
+    assert.equal(metricsRow.prompt_eval_tokens_total, 0);
     const taskTotals = JSON.parse(metricsRow.task_totals_json) as {
       summary: { inputTokensTotal: number; promptEvalTokensTotal: number };
     };
-    assert.equal(taskTotals.summary.inputTokensTotal, 23);
-    assert.equal(taskTotals.summary.promptEvalTokensTotal, 23);
+    assert.equal(taskTotals.summary.inputTokensTotal, 123);
+    assert.equal(taskTotals.summary.promptEvalTokensTotal, 0);
     closeRuntimeDatabase();
   });
 });

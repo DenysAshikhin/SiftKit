@@ -20,6 +20,14 @@ type LlamaCppModelListResponse = {
   data?: Array<{ id?: string }>;
 };
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function logLlamaCppError(operation: string, message: string): void {
+  console.error(`llama.cpp ${operation} error: ${message}`);
+}
+
 type LlamaCppTokenizeResponse = {
   tokens?: unknown[];
   count?: unknown;
@@ -378,6 +386,7 @@ export async function countLlamaCppTokensDetailed(
 
     if (response.statusCode >= 400) {
       traceLlamaCpp(`tokenize http_error elapsed_ms=${Date.now() - startedAt} status=${response.statusCode}`);
+      logLlamaCppError('tokenize', `HTTP ${response.statusCode}: ${response.rawText.trim()}`);
       return {
         tokenCount: null,
         elapsedMs: Date.now() - startedAt,
@@ -443,8 +452,9 @@ export async function countLlamaCppTokensDetailed(
       errorMessage: null,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     traceLlamaCpp(`tokenize error elapsed_ms=${Date.now() - startedAt} message=${JSON.stringify(message)}`);
+    logLlamaCppError('tokenize', message);
     return {
       tokenCount: null,
       elapsedMs: Date.now() - startedAt,
@@ -460,28 +470,36 @@ export async function countLlamaCppTokensDetailed(
 
 export async function listLlamaCppModels(config: SiftConfig): Promise<string[]> {
   const baseUrl = getConfiguredLlamaBaseUrl(config);
-  const response = await retryProviderRequest(async () => {
-    const nextResponse = await requestJson<LlamaCppModelListResponse>({
-      url: `${baseUrl.replace(/\/$/u, '')}/v1/models`,
-      method: 'GET',
-      timeoutMs: 5000,
+  let response: JsonResponse<LlamaCppModelListResponse>;
+  try {
+    response = await retryProviderRequest(async () => {
+      const nextResponse = await requestJson<LlamaCppModelListResponse>({
+        url: `${baseUrl.replace(/\/$/u, '')}/v1/models`,
+        method: 'GET',
+        timeoutMs: 5000,
+      });
+      if (isTransientProviderHttpResponse(nextResponse.statusCode, nextResponse.rawText)) {
+        throw buildTransientProviderHttpError(nextResponse.statusCode, nextResponse.rawText);
+      }
+      return nextResponse;
+    }, {
+      onRetry(event) {
+        traceLlamaCpp(
+          `model_list retry attempt=${event.attempt} elapsed_ms=${event.elapsedMs} `
+          + `next_delay_ms=${event.nextDelayMs} code=${event.error.code || 'none'}`
+        );
+      },
     });
-    if (isTransientProviderHttpResponse(nextResponse.statusCode, nextResponse.rawText)) {
-      throw buildTransientProviderHttpError(nextResponse.statusCode, nextResponse.rawText);
-    }
-    return nextResponse;
-  }, {
-    onRetry(event) {
-      traceLlamaCpp(
-        `model_list retry attempt=${event.attempt} elapsed_ms=${event.elapsedMs} `
-        + `next_delay_ms=${event.nextDelayMs} code=${event.error.code || 'none'}`
-      );
-    },
-  });
+  } catch (error) {
+    logLlamaCppError('model_list', getErrorMessage(error));
+    throw error;
+  }
 
   if (response.statusCode >= 400) {
     const detail = response.rawText.trim();
-    throw new Error(`llama.cpp model list failed with HTTP ${response.statusCode}${detail ? `: ${detail}` : '.'}`);
+    const message = `llama.cpp model list failed with HTTP ${response.statusCode}${detail ? `: ${detail}` : '.'}`;
+    logLlamaCppError('model_list', message);
+    throw new Error(message);
   }
 
   return (response.body.data || [])
@@ -517,7 +535,8 @@ export async function getLlamaCppProviderStatus(config: SiftConfig): Promise<Lla
     }
     status.Reachable = true;
   } catch (error) {
-    status.Error = error instanceof Error ? error.message : String(error);
+    status.Error = getErrorMessage(error);
+    logLlamaCppError('provider_status', status.Error);
   }
 
   return status;
@@ -653,18 +672,23 @@ export async function generateLlamaCppChatResponse(options: {
       },
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     traceLlamaCpp(`generate error elapsed_ms=${Date.now() - startedAt} message=${JSON.stringify(message)}`);
     if (/^Request timed out after \d+ ms\.$/u.test(message)) {
-      throw new Error(`llama.cpp generate timed out after ${options.timeoutSeconds} seconds.`);
+      const timeoutMessage = `llama.cpp generate timed out after ${options.timeoutSeconds} seconds.`;
+      logLlamaCppError('generate', timeoutMessage);
+      throw new Error(timeoutMessage);
     }
+    logLlamaCppError('generate', message);
     throw error;
   }
 
   if (response.statusCode >= 400) {
     const detail = response.rawText.trim();
     traceLlamaCpp(`generate http_error elapsed_ms=${Date.now() - startedAt} status=${response.statusCode}`);
-    throw new Error(`llama.cpp generate failed with HTTP ${response.statusCode}${detail ? `: ${detail}` : '.'}`);
+    const message = `llama.cpp generate failed with HTTP ${response.statusCode}${detail ? `: ${detail}` : '.'}`;
+    logLlamaCppError('generate', message);
+    throw new Error(message);
   }
 
   const firstChoice = response.body.choices?.[0];
@@ -675,7 +699,9 @@ export async function generateLlamaCppChatResponse(options: {
   if (!text) {
     const rawResponseText = response.rawText.trim();
     traceLlamaCpp(`generate empty_body elapsed_ms=${Date.now() - startedAt} raw=${JSON.stringify(rawResponseText.slice(0, 2000))}`);
-    throw new Error(`llama.cpp did not return a response body. Raw response: ${rawResponseText.slice(0, 2000) || '<empty>'}`);
+    const message = `llama.cpp did not return a response body. Raw response: ${rawResponseText.slice(0, 2000) || '<empty>'}`;
+    logLlamaCppError('generate', message);
+    throw new Error(message);
   }
 
   const rawUsage = response.body.usage;

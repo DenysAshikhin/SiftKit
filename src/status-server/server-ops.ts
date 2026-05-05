@@ -458,7 +458,6 @@ export async function acquireModelRequestWithWait(
   response?: http.ServerResponse,
 ): Promise<ModelRequestLock | null> {
   logIncomingModelRequest(ctx, kind);
-  wakeManagedLlamaForIncomingModelRequest(ctx);
   let lock = acquireModelRequest(ctx, kind);
   if (lock) {
     logModelRequestLockAcquired(lock, 0);

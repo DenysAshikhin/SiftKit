@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import * as http from 'node:http';
 
+import { isBackendReadyStatusCode } from './start-dev-health.js';
 import { buildStartupPortChecks, isPortInUse } from './start-dev-ports.js';
 import { stopChildProcessTree } from './start-dev-process.js';
 
@@ -68,7 +69,7 @@ function waitForBackendReady(options: { timeoutMs?: number; pollMs?: number } = 
         },
         (response) => {
           response.resume();
-          if (response.statusCode && response.statusCode >= 200 && response.statusCode < 500) {
+          if (isBackendReadyStatusCode(response.statusCode)) {
             resolve(true);
             return;
           }

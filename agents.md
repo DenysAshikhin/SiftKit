@@ -46,7 +46,6 @@ Compression target:
 - Allowed public `siftkit` commands are:
   - `siftkit summary ...`
   - `siftkit repo-search ...`
-  - `siftkit run ...`
   - help (`-h`, `--help`, etc.)
 
 ### When to Use `siftkit repo-search`
@@ -60,15 +59,6 @@ Compression target:
 - Pipe form (works in bash; in PowerShell only on simple pipelines, NOT after `if`/`foreach`/script blocks):
   - `<command> 2>&1 | siftkit summary --question "<specific extraction question>"`
 
-### When to Use `siftkit run`
-- Use whenever the agent needs to *execute* a command and have its combined stdout+stderr summarized. This is the canonical, shell-agnostic pattern — no `2>&1` needed.
-- Plain command form (no shell, cross-platform):
-  - `siftkit run --command "<exe>" --arg "<a1>" --arg "<a2>" --question "<...>"`
-- Shell-script form (when you need pipes, redirects, `if`/`else`, env-var assignment, etc.):
-  - `siftkit run --shell auto --command "<full script>" --question "<...>"`
-  - `--shell auto` picks `pwsh` (or `powershell`) on Windows and `bash` (or `sh`) on POSIX.
-  - Pin the shell explicitly when needed: `--shell pwsh`, `--shell powershell`, `--shell bash`, `--shell sh`, `--shell cmd`.
-- Prefer `siftkit run` over the `<cmd> 2>&1 | siftkit summary` pipe form whenever you would otherwise reach for `2>&1`.
 
 ### Timeout Requirement
 - Any command routed through `siftkit` must be given a 5-minute timeout budget in the agent runner.
@@ -84,11 +74,6 @@ Compression target:
   - exact raw lines are immediately needed for patching/debugging.
 
 ### Examples
-- `siftkit run --command "rg" --arg "-n" --arg "buildPlannerToolDefinitions|invokePlannerMode" --arg "src" --arg "tests" --question "extract definition and usage file:line entries"`
-- `siftkit run --command "git" --arg "diff" --question "summarize behavioral changes and risks"`
-- `siftkit run --command "npm" --arg "test" --question "did tests pass? list failing suites and root causes"`
-- `siftkit run --shell auto --command "Get-Content .\logs\app.log -Tail 400" --question "extract errors with timestamps as JSON"`
-- `siftkit run --shell auto --command "$s = git -C . status --short; if ($s) { $s } else { 'CLEAN' }" --question "extract git status as short entries; if CLEAN, state clean worktree"`
 - Pipe form (bash only — fails in PowerShell on script-block expressions): `git diff 2>&1 | siftkit summary --question "summarize behavioral changes and risks"`
 
 ### Compliance Check Before Final Answer
