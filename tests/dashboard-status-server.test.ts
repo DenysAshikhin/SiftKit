@@ -1067,7 +1067,7 @@ test('chat completion receives hidden tool context while keeping it out of visib
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
   await server.startupPromise;
   const address = server.address() as AddressInfo;
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -1101,6 +1101,13 @@ test('chat completion receives hidden tool context while keeping it out of visib
     assert.equal(planMessage.statusCode, 200);
     const planSession = d(planMessage.body.session);
     assert.equal((planSession.hiddenToolContexts as Dict[]).length >= 1, true);
+    const planToolContextText = String((planSession.hiddenToolContexts as Dict[])[0]?.content || '');
+    assert.match(planToolContextText, /Command: rg -n "name" package\.json/u);
+    const persistedPlanSession = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
+    const persistedHiddenToolContexts = d(persistedPlanSession.body.session).hiddenToolContexts as Dict[];
+    assert.equal(Array.isArray(persistedHiddenToolContexts), true);
+    assert.equal(persistedHiddenToolContexts.length >= 1, true);
+    assert.match(String(persistedHiddenToolContexts[0]?.content || ''), /Command: rg -n "name" package\.json/u);
 
     const chatReply = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
       method: 'POST',
@@ -1110,8 +1117,13 @@ test('chat completion receives hidden tool context while keeping it out of visib
       }),
     });
     assert.equal(chatReply.statusCode, 200);
-    const statusAfterChat = await requestJson(`${baseUrl}/status`);
-    const statusMetrics = d(statusAfterChat.body.metrics);
+    let statusMetrics: Dict = {};
+    await runtimeHelpers.waitForAsyncExpectation(async () => {
+      const statusAfterChat = await requestJson(`${baseUrl}/status`);
+      statusMetrics = d(statusAfterChat.body.metrics);
+      assert.equal(Number(statusMetrics.inputTokensTotal) >= 20, true);
+      assert.equal(Number(statusMetrics.outputTokensTotal) >= 4, true);
+    }, 1000);
     assert.equal(Number(statusMetrics.inputTokensTotal) >= 20, true);
     assert.equal(Number(statusMetrics.outputTokensTotal) >= 4, true);
     assert.equal(Number(d(statusMetrics.taskTotals).chat.inputTokensTotal) >= 20, true);
@@ -1121,7 +1133,7 @@ test('chat completion receives hidden tool context while keeping it out of visib
     assert.equal(Array.isArray(captured?.messages), true);
     const systemMessages = (captured?.messages as Dict[]).filter((message) => message && message.role === 'system');
     const hiddenToolSystemMessage = systemMessages.find((message) => String(message.content || '').includes('Internal tool-call context from prior session steps.'));
-    assert.equal(Boolean(hiddenToolSystemMessage), true);
+    assert.equal(Boolean(hiddenToolSystemMessage), true, JSON.stringify(systemMessages));
     assert.match(String(hiddenToolSystemMessage?.content || ''), /Command: rg -n "name" package\.json/u);
   } finally {
     await new Promise<void>((resolve, reject) => {
