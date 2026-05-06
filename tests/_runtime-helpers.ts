@@ -894,6 +894,52 @@ async function withSummaryTestServer(fn, options = {}) {
   });
 }
 
+function getStatusRouteUrl(statusUrl, routePath) {
+  return deriveServiceUrl(statusUrl, routePath);
+}
+
+async function postStatusTerminalMetadata(statusUrl, metadata) {
+  return requestJson(getStatusRouteUrl(statusUrl, '/status/terminal-metadata'), {
+    method: 'POST',
+    body: JSON.stringify({
+      running: false,
+      ...metadata,
+    }),
+  });
+}
+
+async function postStatusComplete(statusUrl, completion) {
+  return requestJson(getStatusRouteUrl(statusUrl, '/status/complete'), {
+    method: 'POST',
+    body: JSON.stringify(completion),
+  });
+}
+
+async function postCompletedStatus(statusUrl, metadata) {
+  const requestId = typeof metadata?.requestId === 'string' ? metadata.requestId.trim() : '';
+  const terminalState = typeof metadata?.terminalState === 'string' ? metadata.terminalState.trim() : '';
+  if (!requestId) {
+    throw new Error('postCompletedStatus requires requestId.');
+  }
+  if (terminalState !== 'completed' && terminalState !== 'failed') {
+    throw new Error('postCompletedStatus requires terminalState=completed|failed.');
+  }
+  const metadataResponse = await postStatusTerminalMetadata(statusUrl, metadata);
+  const completeResponse = await postStatusComplete(statusUrl, {
+    requestId,
+    taskKind: typeof metadata.taskKind === 'string' ? metadata.taskKind : undefined,
+    terminalState,
+  });
+  return { metadataResponse, completeResponse };
+}
+
+function getOptionalNonNegativeInteger(value) {
+  if (!Number.isFinite(Number(value))) {
+    return null;
+  }
+  return Math.max(0, Math.trunc(Number(value)));
+}
+
 async function withRealStatusServer(fn, options = {}) {
   const previous = {
     SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
@@ -902,6 +948,7 @@ async function withRealStatusServer(fn, options = {}) {
     SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
     SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
     SIFTKIT_IDLE_SUMMARY_DB_PATH: process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH,
+    SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS: process.env.SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS,
     SIFTKIT_EXECUTION_LEASE_STALE_MS: process.env.SIFTKIT_EXECUTION_LEASE_STALE_MS,
     SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS,
   };
@@ -922,10 +969,17 @@ async function withRealStatusServer(fn, options = {}) {
   } else {
     delete process.env.SIFTKIT_EXECUTION_LEASE_STALE_MS;
   }
+  const terminalMetadataIdleDelayMs = getOptionalNonNegativeInteger(options.terminalMetadataIdleDelayMs);
+  if (terminalMetadataIdleDelayMs !== null) {
+    process.env.SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS = String(terminalMetadataIdleDelayMs);
+  } else {
+    delete process.env.SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS;
+  }
 
   seedRuntimeConfigFromJson(options.configPath);
   const server = startStatusServer({
     disableManagedLlamaStartup: Boolean(options.disableManagedLlamaStartup),
+    terminalMetadataIdleDelayMs: terminalMetadataIdleDelayMs ?? undefined,
   });
   try {
     const address = await new Promise((resolve) => {
@@ -974,10 +1028,10 @@ async function startStatusServerProcess(options) {
     SIFTKIT_STATUS_PATH: options.statusPath,
     SIFTKIT_CONFIG_PATH: options.configPath,
     ...(options.idleSummaryDbPath ? { SIFTKIT_IDLE_SUMMARY_DB_PATH: options.idleSummaryDbPath } : {}),
-    ...(options.idleSummaryDelayMs ? { SIFTKIT_IDLE_SUMMARY_DELAY_MS: String(options.idleSummaryDelayMs) } : {}),
-    ...(options.terminalMetadataIdleDelayMs ? { SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS: String(options.terminalMetadataIdleDelayMs) } : {}),
-    ...(options.managedLlamaFlushIdleDelayMs ? { SIFTKIT_MANAGED_LLAMA_FLUSH_IDLE_DELAY_MS: String(options.managedLlamaFlushIdleDelayMs) } : {}),
-    ...(options.executionLeaseStaleMs ? { SIFTKIT_EXECUTION_LEASE_STALE_MS: String(options.executionLeaseStaleMs) } : {}),
+    ...(getOptionalNonNegativeInteger(options.idleSummaryDelayMs) !== null ? { SIFTKIT_IDLE_SUMMARY_DELAY_MS: String(getOptionalNonNegativeInteger(options.idleSummaryDelayMs)) } : {}),
+    ...(getOptionalNonNegativeInteger(options.terminalMetadataIdleDelayMs) !== null ? { SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS: String(getOptionalNonNegativeInteger(options.terminalMetadataIdleDelayMs)) } : {}),
+    ...(getOptionalNonNegativeInteger(options.managedLlamaFlushIdleDelayMs) !== null ? { SIFTKIT_MANAGED_LLAMA_FLUSH_IDLE_DELAY_MS: String(getOptionalNonNegativeInteger(options.managedLlamaFlushIdleDelayMs)) } : {}),
+    ...(getOptionalNonNegativeInteger(options.executionLeaseStaleMs) !== null ? { SIFTKIT_EXECUTION_LEASE_STALE_MS: String(getOptionalNonNegativeInteger(options.executionLeaseStaleMs)) } : {}),
     SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: '0',
   };
   const statusServerEntrypoint = path.resolve(__dirname, '..', 'dist', 'status-server', 'index.js');
@@ -1600,6 +1654,7 @@ export {
   resolveArtifactLogPathFromStatusPost, requestJson, sleep,
   removeDirectoryWithRetries, spawnProcess, waitForTextMatch,
   startStubStatusServer, withTempEnv, withStubServer, withSummaryTestServer,
+  getStatusRouteUrl, postStatusTerminalMetadata, postStatusComplete, postCompletedStatus,
   withRealStatusServer, startStatusServerProcess, stripAnsi, captureStdout,
   readIdleSummarySnapshots, getIdleSummaryBlock, getFreePort,
   toSingleQuotedPowerShellLiteral, writeManagedLlamaScripts, writeManagedLlamaLauncher,
