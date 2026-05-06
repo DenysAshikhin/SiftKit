@@ -67,6 +67,7 @@ const {
   writeManagedLlamaScripts,
   waitForAsyncExpectation,
   runPowerShellScript,
+  postCompletedStatus,
 } = require('./_runtime-helpers.js');
 
 
@@ -75,31 +76,47 @@ test('real status server appends one sqlite snapshot for each emitted idle summa
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const idleSummaryDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
+    const firstRequestId = 'idle-persistence-first';
+    const secondRequestId = 'idle-persistence-second';
     const server = await startStatusServerProcess({
       statusPath,
       configPath,
       idleSummaryDelayMs: 60,
+      terminalMetadataIdleDelayMs: 0,
       disableManagedLlamaStartup: true,
     });
 
     try {
       await requestJson(server.statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: true, rawInputCharacterCount: 200 }),
+        body: JSON.stringify({ running: true, requestId: firstRequestId, rawInputCharacterCount: 200 }),
       });
-      await requestJson(server.statusUrl, {
-        method: 'POST',
-        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 200, inputTokens: 100, outputCharacterCount: 80, outputTokens: 25, requestDurationMs: 800 }),
+      await postCompletedStatus(server.statusUrl, {
+        requestId: firstRequestId,
+        taskKind: 'summary',
+        terminalState: 'completed',
+        promptCharacterCount: 200,
+        inputTokens: 100,
+        outputCharacterCount: 80,
+        outputTokens: 25,
+        requestDurationMs: 800,
       });
       await server.waitForStdoutMatch(/requests=1/u, 1000);
 
       await requestJson(server.statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: true, rawInputCharacterCount: 50 }),
+        body: JSON.stringify({ running: true, requestId: secondRequestId, rawInputCharacterCount: 50 }),
       });
-      await requestJson(server.statusUrl, {
-        method: 'POST',
-        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 50, inputTokens: 20, outputCharacterCount: 30, outputTokens: 10, thinkingTokens: 7, requestDurationMs: 200 }),
+      await postCompletedStatus(server.statusUrl, {
+        requestId: secondRequestId,
+        taskKind: 'summary',
+        terminalState: 'completed',
+        promptCharacterCount: 50,
+        inputTokens: 20,
+        outputCharacterCount: 30,
+        outputTokens: 10,
+        thinkingTokens: 7,
+        requestDurationMs: 200,
       });
       await server.waitForStdoutMatch(/requests=2/u, 1000);
 
@@ -126,10 +143,12 @@ test('real status server keeps emitting idle summaries when sqlite persistence f
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const idleSummaryDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
+    const requestId = 'idle-persistence-failure';
     const server = await startStatusServerProcess({
       statusPath,
       configPath,
       idleSummaryDelayMs: 80,
+      terminalMetadataIdleDelayMs: 0,
       disableManagedLlamaStartup: true,
     });
 
@@ -149,11 +168,17 @@ test('real status server keeps emitting idle summaries when sqlite persistence f
 
       await requestJson(server.statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: true, rawInputCharacterCount: 200 }),
+        body: JSON.stringify({ running: true, requestId, rawInputCharacterCount: 200 }),
       });
-      await requestJson(server.statusUrl, {
-        method: 'POST',
-        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 200, inputTokens: 100, outputCharacterCount: 80, outputTokens: 25, requestDurationMs: 800 }),
+      await postCompletedStatus(server.statusUrl, {
+        requestId,
+        taskKind: 'summary',
+        terminalState: 'completed',
+        promptCharacterCount: 200,
+        inputTokens: 100,
+        outputCharacterCount: 80,
+        outputTokens: 25,
+        requestDurationMs: 800,
       });
 
       await server.waitForStdoutMatch(/requests=1/u, 1000);
