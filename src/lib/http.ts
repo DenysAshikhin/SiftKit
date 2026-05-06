@@ -26,6 +26,9 @@ function getLoggedHttpClientTask(target: URL): LoggedHttpClientTask | null {
 }
 
 export function logHttpClientBoundary(task: LoggedHttpClientTask, event: string, fields: string = ''): void {
+  if (process.env.SIFTKIT_HTTP_CLIENT_LOGS !== '1') {
+    return;
+  }
   process.stderr.write(`${formatTimestamp()} http_client ${event} task=${task}${fields ? ` ${fields}` : ''}\n`);
 }
 

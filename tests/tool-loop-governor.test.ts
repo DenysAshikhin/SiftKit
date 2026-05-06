@@ -128,6 +128,28 @@ test('buildPromptToolResult drops rewrite-only notes from repo-search no-match o
   assert.equal(promptResult, 'exit_code=1');
 });
 
+test('buildPromptToolResult strips http_client stderr logs from repo-search output', () => {
+  const promptResult = buildPromptToolResult({
+    toolName: 'run_repo_cmd',
+    command: '.\\gradlew.bat test 2>&1 | siftkit summary --question "Report pass/fail"',
+    exitCode: 0,
+    rawOutput: [
+      'PASS: command exit code was 0 and the captured output contains no obvious error',
+      '2026-05-05 21:38:42 http_client enqueue_intent task=summary method=POST path=/summary body_chars=123',
+      'Daemon will be stopped at the end of the build',
+      '2026-05-05 21:38:42 http_client response_done task=summary method=POST path=/summary status=200 elapsed_ms=25',
+    ].join('\n'),
+  });
+
+  assert.equal(
+    promptResult,
+    [
+      'PASS: command exit code was 0 and the captured output contains no obvious error',
+      'Daemon will be stopped at the end of the build',
+    ].join('\n'),
+  );
+});
+
 test('buildToolReplayFingerprint normalizes equivalent replay text', () => {
   const first = buildToolReplayFingerprint({
     toolName: 'get-content',

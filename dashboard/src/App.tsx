@@ -100,7 +100,7 @@ function DashboardApp() {
   const [selectedRunId, setSelectedRunId] = useState(params.get('run') || '');
   const [selectedRunDetail, setSelectedRunDetail] = useState<RunDetailResponse | null>(null);
   const [repoSearchSimpleFlow, setRepoSearchSimpleFlow] = useState(true);
-  const [runsReloadToken, setRunsReloadToken] = useState(0);
+  const [dashboardRefreshToken, setDashboardRefreshToken] = useState(0);
   const runsSignatureRef = useRef<string>('');
   const runsLoadedRef = useRef<boolean>(false);
   const [showRunDeleteModal, setShowRunDeleteModal] = useState(false);
@@ -188,10 +188,10 @@ function DashboardApp() {
     }, 9000);
   }
 
-  function requestRunsRefresh(): void {
+  function requestDashboardDataRefresh(): void {
     runsSignatureRef.current = '';
     runsLoadedRef.current = false;
-    setRunsReloadToken((previous) => previous + 1);
+    setDashboardRefreshToken((previous) => previous + 1);
   }
 
   function openRunDeleteModal(): void {
@@ -231,7 +231,7 @@ function DashboardApp() {
         setSelectedRunId('');
         setSelectedRunDetail(null);
       }
-      requestRunsRefresh();
+      requestDashboardDataRefresh();
       setShowRunDeleteModal(false);
       enqueueToast('warning', response.deletedCount > 0 ? `${runDeleteSummary || 'Deleted logs'}.` : 'No logs matched the selected criteria.');
     } catch (error) {
@@ -341,12 +341,10 @@ function DashboardApp() {
       }
     }
     void refreshRuns();
-    const handle = window.setInterval(() => { void refreshRuns(); }, 2500);
     return () => {
       cancelled = true;
-      window.clearInterval(handle);
     };
-  }, [search, kindFilter, statusFilter, runsReloadToken]);
+  }, [search, kindFilter, statusFilter, dashboardRefreshToken]);
 
   useEffect(() => {
     if (!showRunDeleteModal) {
@@ -428,12 +426,10 @@ function DashboardApp() {
       }
     }
     void refreshMetrics();
-    const handle = window.setInterval(() => { void refreshMetrics(); }, 3000);
     return () => {
       cancelled = true;
-      window.clearInterval(handle);
     };
-  }, []);
+  }, [dashboardRefreshToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -456,12 +452,10 @@ function DashboardApp() {
       }
     }
     void refreshSessions();
-    const handle = window.setInterval(() => { void refreshSessions(); }, 3000);
     return () => {
       cancelled = true;
-      window.clearInterval(handle);
     };
-  }, [selectedSessionId]);
+  }, [selectedSessionId, dashboardRefreshToken]);
 
   useEffect(() => {
     if (!selectedSessionId) {
@@ -1183,7 +1177,14 @@ function DashboardApp() {
           ) : null}
         </div>
         <h1>SiftKit Local Dashboard</h1>
-        <p>Runs, logs, metrics, and local chat context tracking.</p>
+        <button
+          type="button"
+          className="topbar-refresh-button"
+          onClick={requestDashboardDataRefresh}
+          aria-label="Refresh dashboard data"
+        >
+          Refresh data
+        </button>
       </header>
 
       {toasts.length > 0 && (

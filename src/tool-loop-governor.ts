@@ -56,6 +56,10 @@ function stripLeadingSuccessExitCode(text: string): string {
   return String(text || '').replace(/^exit_code=0\s*\n?/u, '').trim();
 }
 
+function isHttpClientLogLine(line: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+http_client\b/u.test(line.trim());
+}
+
 function isNegativeGlobToken(token: string): boolean {
   return /^["']?!/u.test(token) || /^![^\s]+/u.test(token);
 }
@@ -134,6 +138,7 @@ function extractEvidenceKeys(promptResultText: string): string[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .filter((line) => !/^note:/iu.test(line))
+    .filter((line) => !isHttpClientLogLine(line))
     .filter((line) => !/^exit_code=\d+$/iu.test(line))
     .filter((line) => !/^(read_lines|find_text|json_filter)\b.*=/iu.test(line))
     .filter((line) => !/^error:\srequested output would consume/iu.test(line));
@@ -159,6 +164,7 @@ export function buildPromptToolResult(options: BuildPromptToolResultOptions): st
     .replace(/\r\n/gu, '\n')
     .split('\n')
     .filter((line) => !/^note:/iu.test(line.trim()))
+    .filter((line) => !isHttpClientLogLine(line))
     .filter((line) => line.trim().length > 0);
   const trimmed = meaningfulLines.join('\n').trim();
   const exitCode = Number(options.exitCode);

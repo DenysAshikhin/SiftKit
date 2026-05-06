@@ -67,6 +67,12 @@
   vertical-align: baseline;
 }
 
+.topbar-refresh-button {
+  align-self: center;
+  padding: 7px 12px;
+  border-radius: 8px;
+}
+
 .topbar {
   display: flex;
   align-items: center;

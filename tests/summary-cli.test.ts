@@ -84,10 +84,7 @@ test('summary delegates non-deterministic execution to status server', async () 
     assert.equal(first.sourceKind, 'standalone');
     assert.equal(stdout.read(), 'queued summary output\n');
     const stderrText = processStderr + stderr.read();
-    assert.match(stderrText, /http_client enqueue_intent task=summary method=POST path=\/summary body_chars=\d+/u);
-    assert.match(stderrText, /http_client request_sent task=summary method=POST path=\/summary elapsed_ms=\d+/u);
-    assert.match(stderrText, /http_client response_done task=summary method=POST path=\/summary status=200 response_chars=\d+ elapsed_ms=\d+/u);
-    assert.match(stderrText, /http_client caller_response_received task=summary elapsed_ms=\d+ no_awaited_flush_before_next=true/u);
+    assert.doesNotMatch(stderrText, /http_client\b/u);
   } finally {
     if (oldStatusUrl === undefined) {
       delete process.env.SIFTKIT_STATUS_BACKEND_URL;

@@ -117,10 +117,7 @@ test('repo-search delegates execution to status server', async () => {
     assert.equal(first.prompt, 'find planner tools');
     assert.equal(first.repoRoot, process.cwd());
     assert.equal(output.stdout, 'Found planner tools in src/summary.ts\n');
-    assert.match(output.stderr, /http_client enqueue_intent task=repo-search method=POST path=\/repo-search body_chars=\d+/u);
-    assert.match(output.stderr, /http_client request_sent task=repo-search method=POST path=\/repo-search elapsed_ms=\d+/u);
-    assert.match(output.stderr, /http_client response_done task=repo-search method=POST path=\/repo-search status=200 response_chars=\d+ elapsed_ms=\d+/u);
-    assert.match(output.stderr, /http_client caller_response_received task=repo-search elapsed_ms=\d+ no_awaited_flush_before_next=true/u);
+    assert.doesNotMatch(output.stderr, /http_client\b/u);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
