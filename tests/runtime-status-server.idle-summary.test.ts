@@ -21,6 +21,7 @@ const {
   getFreePort,
   writeManagedLlamaScripts,
   waitForAsyncExpectation,
+  postCompletedStatus,
 } = require('./_runtime-helpers.js');
 
 function applyManagedScriptConfig(config, managed, overrides = {}) {
@@ -43,11 +44,13 @@ test('real status server prints one idle metrics line only after the full idle d
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const idleSummaryDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
+    const requestId = 'idle-summary-metrics';
     const server = await startStatusServerProcess({
       statusPath,
       configPath,
       idleSummaryDbPath,
       idleSummaryDelayMs: 80,
+      terminalMetadataIdleDelayMs: 0,
       disableManagedLlamaStartup: true,
     });
 
@@ -56,6 +59,7 @@ test('real status server prints one idle metrics line only after the full idle d
         method: 'POST',
         body: JSON.stringify({
           running: true,
+          requestId,
           rawInputCharacterCount: 200,
           promptCharacterCount: 200,
           promptTokenCount: 100,
@@ -64,9 +68,15 @@ test('real status server prints one idle metrics line only after the full idle d
         }),
       });
       await server.waitForStdoutMatch(/request true raw_chars=200 prompt=200 \(100\)/u, 1000);
-      await requestJson(server.statusUrl, {
-        method: 'POST',
-        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 200, inputTokens: 100, outputCharacterCount: 80, outputTokens: 25, requestDurationMs: 800 }),
+      await postCompletedStatus(server.statusUrl, {
+        requestId,
+        taskKind: 'summary',
+        terminalState: 'completed',
+        promptCharacterCount: 200,
+        inputTokens: 100,
+        outputCharacterCount: 80,
+        outputTokens: 25,
+        requestDurationMs: 800,
       });
 
       assert.equal(readStatusText(getConfigPath()), 'false');
@@ -124,12 +134,14 @@ test('real status server shuts down managed llama.cpp after the idle summary blo
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     writeConfig(getConfigPath(), config);
+    const requestId = 'idle-summary-llama-shutdown';
 
     const server = await startStatusServerProcess({
       statusPath,
       configPath,
       idleSummaryDbPath,
       idleSummaryDelayMs: 80,
+      terminalMetadataIdleDelayMs: 0,
     });
 
     try {
@@ -141,11 +153,17 @@ test('real status server shuts down managed llama.cpp after the idle summary blo
 
       await requestJson(server.statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: true, rawInputCharacterCount: 50 }),
+        body: JSON.stringify({ running: true, requestId, rawInputCharacterCount: 50 }),
       });
-      await requestJson(server.statusUrl, {
-        method: 'POST',
-        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 50, inputTokens: 10, outputCharacterCount: 5, outputTokens: 1, requestDurationMs: 20 }),
+      await postCompletedStatus(server.statusUrl, {
+        requestId,
+        taskKind: 'summary',
+        terminalState: 'completed',
+        promptCharacterCount: 50,
+        inputTokens: 10,
+        outputCharacterCount: 5,
+        outputTokens: 1,
+        requestDurationMs: 20,
       });
 
       await server.waitForStdoutMatch(/requests=1/u, 1000);
@@ -268,11 +286,14 @@ test('real status server restarts the idle countdown when a new request begins b
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const idleSummaryDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
+    const firstRequestId = 'idle-summary-restart-first';
+    const secondRequestId = 'idle-summary-restart-second';
     const server = await startStatusServerProcess({
       statusPath,
       configPath,
       idleSummaryDbPath,
       idleSummaryDelayMs: 80,
+      terminalMetadataIdleDelayMs: 0,
       disableManagedLlamaStartup: true,
     });
 
@@ -281,14 +302,21 @@ test('real status server restarts the idle countdown when a new request begins b
         method: 'POST',
         body: JSON.stringify({
           running: true,
+          requestId: firstRequestId,
           rawInputCharacterCount: 100,
           inputCharactersPerContextToken: 2,
           chunkThresholdCharacters: 100,
         }),
       });
-      await requestJson(server.statusUrl, {
-        method: 'POST',
-        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 100, inputTokens: 10, outputCharacterCount: 40, outputTokens: 5, requestDurationMs: 50 }),
+      await postCompletedStatus(server.statusUrl, {
+        requestId: firstRequestId,
+        taskKind: 'summary',
+        terminalState: 'completed',
+        promptCharacterCount: 100,
+        inputTokens: 10,
+        outputCharacterCount: 40,
+        outputTokens: 5,
+        requestDurationMs: 50,
       });
 
       await sleep(20);
@@ -296,6 +324,7 @@ test('real status server restarts the idle countdown when a new request begins b
         method: 'POST',
         body: JSON.stringify({
           running: true,
+          requestId: secondRequestId,
           rawInputCharacterCount: 50,
           inputCharactersPerContextToken: 4,
           chunkThresholdCharacters: 200,
@@ -304,9 +333,15 @@ test('real status server restarts the idle countdown when a new request begins b
       await sleep(40);
       assert.equal(server.stdoutLines.some((line) => /idle_metrics/u.test(line)), false);
 
-      await requestJson(server.statusUrl, {
-        method: 'POST',
-        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 50, inputTokens: 0, outputCharacterCount: 0, outputTokens: 0, requestDurationMs: 25 }),
+      await postCompletedStatus(server.statusUrl, {
+        requestId: secondRequestId,
+        taskKind: 'summary',
+        terminalState: 'completed',
+        promptCharacterCount: 50,
+        inputTokens: 0,
+        outputCharacterCount: 0,
+        outputTokens: 0,
+        requestDurationMs: 25,
       });
 
       await server.waitForStdoutMatch(/requests=2/u, 1000);
@@ -328,11 +363,13 @@ test('real status server does not count idle delay while an execution lease rema
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const idleSummaryDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
+    const requestId = 'idle-summary-lease';
     const server = await startStatusServerProcess({
       statusPath,
       configPath,
       idleSummaryDbPath,
       idleSummaryDelayMs: 80,
+      terminalMetadataIdleDelayMs: 0,
       disableManagedLlamaStartup: true,
     });
 
@@ -345,11 +382,17 @@ test('real status server does not count idle delay while an execution lease rema
 
       await requestJson(server.statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: true, rawInputCharacterCount: 10 }),
+        body: JSON.stringify({ running: true, requestId, rawInputCharacterCount: 10 }),
       });
-      await requestJson(server.statusUrl, {
-        method: 'POST',
-        body: JSON.stringify({ running: false, terminalState: 'completed', promptCharacterCount: 10, inputTokens: 0, outputCharacterCount: 0, outputTokens: 0, requestDurationMs: 10 }),
+      await postCompletedStatus(server.statusUrl, {
+        requestId,
+        taskKind: 'summary',
+        terminalState: 'completed',
+        promptCharacterCount: 10,
+        inputTokens: 0,
+        outputCharacterCount: 0,
+        outputTokens: 0,
+        requestDurationMs: 10,
       });
 
       await sleep(120);
