@@ -439,7 +439,7 @@ test('dashboard metrics expose line-read stats and prompt-baseline recommendatio
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
   await server.startupPromise;
   const address = server.address() as AddressInfo;
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -479,9 +479,16 @@ test('dashboard metrics expose line-read stats and prompt-baseline recommendatio
       }),
     });
 
-    const metricsResponse = await requestJson(`${baseUrl}/dashboard/metrics/timeseries`);
-    assert.equal(metricsResponse.statusCode, 200);
-    const repoSearchToolStats = d(metricsResponse.body.toolStats)['repo-search'] as Dict;
+    let metricsBody: Dict = {};
+    await runtimeHelpers.waitForAsyncExpectation(async () => {
+      const metricsResponse = await requestJson(`${baseUrl}/dashboard/metrics/timeseries`);
+      assert.equal(metricsResponse.statusCode, 200);
+      metricsBody = d(metricsResponse.body);
+      const repoSearchToolStats = d(d(metricsBody.toolStats)['repo-search']);
+      const getContentStats = d(repoSearchToolStats['get-content']);
+      assert.equal(getContentStats.lineReadCalls, 1);
+    }, 1000);
+    const repoSearchToolStats = d(d(metricsBody.toolStats)['repo-search']);
     const getContentStats = d(repoSearchToolStats['get-content']);
     assert.equal(getContentStats.lineReadCalls, 1);
     assert.equal(getContentStats.lineReadLinesTotal, 80);
