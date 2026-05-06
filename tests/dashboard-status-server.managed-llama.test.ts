@@ -175,6 +175,7 @@ test('dashboard plan wakes managed llama after idle shutdown', async () => {
     statusPath,
     configPath,
     idleSummaryDelayMs: 80,
+    terminalMetadataIdleDelayMs: 0,
     startupTimeoutMs: 3000,
   });
   const baseUrl = new URL(server.statusUrl).origin;
