@@ -68,6 +68,9 @@ const {
   writeManagedLlamaScripts,
   waitForAsyncExpectation,
   runPowerShellScript,
+  postStatusTerminalMetadata,
+  postStatusComplete,
+  postCompletedStatus,
 } = require('./_runtime-helpers.js');
 
 function applyManagedScriptConfig(config, managed, overrides = {}) {
@@ -384,37 +387,33 @@ test('real status server accepts deferred summary artifacts on terminal posts an
         }),
       });
 
-      const terminalResponse = await requestJson(statusUrl, {
-        method: 'POST',
-        body: JSON.stringify({
-          running: false,
-          requestId,
-          taskKind: 'summary',
-          terminalState: 'completed',
-          deferredMetadata: {
-            rawInputCharacterCount: 400,
-            promptCharacterCount: 410,
-            inputTokens: 100,
-            outputCharacterCount: 120,
-            outputTokens: 25,
-            requestDurationMs: 800,
-          },
-          deferredArtifacts: [
-            {
-              artifactType: 'summary_request',
-              artifactRequestId: requestId,
-              artifactPayload: {
-                requestId,
-                question: 'Summarize this short input.',
-                inputText: 'Line one.\nLine two.',
-                backend: 'mock',
-                model: 'mock-model',
-                classification: 'summary',
-                summary: 'mock summary',
-              },
+      const terminalResponse = await postStatusTerminalMetadata(statusUrl, {
+        requestId,
+        taskKind: 'summary',
+        terminalState: 'completed',
+        deferredMetadata: {
+          rawInputCharacterCount: 400,
+          promptCharacterCount: 410,
+          inputTokens: 100,
+          outputCharacterCount: 120,
+          outputTokens: 25,
+          requestDurationMs: 800,
+        },
+        deferredArtifacts: [
+          {
+            artifactType: 'summary_request',
+            artifactRequestId: requestId,
+            artifactPayload: {
+              requestId,
+              question: 'Summarize this short input.',
+              inputText: 'Line one.\nLine two.',
+              backend: 'mock',
+              model: 'mock-model',
+              classification: 'summary',
+              summary: 'mock summary',
             },
-          ],
-        }),
+          },
+        ],
       });
 
       assert.equal(terminalResponse.ok, true);
@@ -433,6 +432,13 @@ test('real status server accepts deferred summary artifacts on terminal posts an
       } finally {
         immediateDb.close();
       }
+
+      const completeResponse = await postStatusComplete(statusUrl, {
+        requestId,
+        taskKind: 'summary',
+        terminalState: 'completed',
+      });
+      assert.equal(completeResponse.ok, true);
 
       await waitForAsyncExpectation(async () => {
         const eventualStatus = await requestJson(statusUrl);
@@ -454,6 +460,7 @@ test('real status server accepts deferred summary artifacts on terminal posts an
     }, {
       statusPath,
       configPath,
+      terminalMetadataIdleDelayMs: 50,
       disableManagedLlamaStartup: true,
     });
   });
@@ -891,12 +898,18 @@ test('real status server accumulates provider payload totals across a chunked re
         method: 'POST',
         body: JSON.stringify({ running: false, requestId, promptCharacterCount: 400, inputTokens: 5, outputCharacterCount: 60, outputTokens: 1, requestDurationMs: 50 }),
       });
-      await requestJson(statusUrl, {
-        method: 'POST',
-        body: JSON.stringify({ running: false, requestId, terminalState: 'completed', rawInputCharacterCount: 1000 }),
+      await postCompletedStatus(statusUrl, {
+        requestId,
+        taskKind: 'summary',
+        terminalState: 'completed',
+        rawInputCharacterCount: 1000,
       });
 
-      const status = await requestJson(statusUrl);
+      let status = await requestJson(statusUrl);
+      await waitForAsyncExpectation(async () => {
+        status = await requestJson(statusUrl);
+        assert.equal(status.metrics.completedRequestCount, 1);
+      }, 1000);
       assert.equal(status.metrics.inputCharactersTotal, 1610);
       assert.equal(status.metrics.outputCharactersTotal, 310);
       assert.equal(status.metrics.inputTokensTotal, 26);
@@ -907,6 +920,7 @@ test('real status server accumulates provider payload totals across a chunked re
     }, {
       statusPath,
       configPath,
+      terminalMetadataIdleDelayMs: 0,
       disableManagedLlamaStartup: true,
     });
   });
@@ -930,28 +944,24 @@ test('real status server aggregates task-scoped tool stats and tool tokens', asy
           promptTokenCount: 30,
         }),
       });
-      await requestJson(statusUrl, {
-        method: 'POST',
-        body: JSON.stringify({
-          running: false,
-          requestId,
-          taskKind: 'repo-search',
-          terminalState: 'completed',
-          promptCharacterCount: 150,
-          inputTokens: 30,
-          outputCharacterCount: 80,
-          outputTokens: 12,
-          toolTokens: 9,
-          requestDurationMs: 90,
-          toolStats: {
-            rg: {
-              calls: 2,
-              outputCharsTotal: 210,
-              outputTokensTotal: 44,
-              outputTokensEstimatedCount: 1,
-            },
+      await postCompletedStatus(statusUrl, {
+        requestId,
+        taskKind: 'repo-search',
+        terminalState: 'completed',
+        promptCharacterCount: 150,
+        inputTokens: 30,
+        outputCharacterCount: 80,
+        outputTokens: 12,
+        toolTokens: 9,
+        requestDurationMs: 90,
+        toolStats: {
+          rg: {
+            calls: 2,
+            outputCharsTotal: 210,
+            outputTokensTotal: 44,
+            outputTokensEstimatedCount: 1,
           },
-        }),
+        },
       });
 
       const status = await requestJson(statusUrl);
@@ -966,6 +976,7 @@ test('real status server aggregates task-scoped tool stats and tool tokens', asy
     }, {
       statusPath,
       configPath,
+      terminalMetadataIdleDelayMs: 0,
       disableManagedLlamaStartup: true,
     });
   });
@@ -1009,24 +1020,20 @@ test('real status server patches speculative acceptance onto an existing repo-se
         database.close();
       }
 
-      await requestJson(statusUrl, {
-        method: 'POST',
-        body: JSON.stringify({
-          running: false,
-          requestId,
-          taskKind: 'repo-search',
-          terminalState: 'completed',
-          promptCharacterCount: 25,
-          inputTokens: 7,
-          outputCharacterCount: 12,
-          outputTokens: 5,
-          thinkingTokens: 2,
-          promptCacheTokens: 3,
-          promptEvalTokens: 7,
-          speculativeAcceptedTokens: 12,
-          speculativeGeneratedTokens: 18,
-          requestDurationMs: 48073,
-        }),
+      await postCompletedStatus(statusUrl, {
+        requestId,
+        taskKind: 'repo-search',
+        terminalState: 'completed',
+        promptCharacterCount: 25,
+        inputTokens: 7,
+        outputCharacterCount: 12,
+        outputTokens: 5,
+        thinkingTokens: 2,
+        promptCacheTokens: 3,
+        promptEvalTokens: 7,
+        speculativeAcceptedTokens: 12,
+        speculativeGeneratedTokens: 18,
+        requestDurationMs: 48073,
       });
 
       const verifyDb = new Database(runtimeDbPath, { readonly: true });
@@ -1044,6 +1051,7 @@ test('real status server patches speculative acceptance onto an existing repo-se
     }, {
       statusPath,
       configPath,
+      terminalMetadataIdleDelayMs: 0,
       disableManagedLlamaStartup: true,
     });
   });
@@ -1075,24 +1083,26 @@ test('real status server suppresses intermediate false log for single-step compl
             requestDurationMs: 1_000,
           }),
         });
-        await requestJson(statusUrl, {
-          method: 'POST',
-          body: JSON.stringify({
-            running: false,
-            requestId: 'single-step',
-            terminalState: 'completed',
-            rawInputCharacterCount: 426,
-          }),
+        await postCompletedStatus(statusUrl, {
+          requestId: 'single-step',
+          taskKind: 'summary',
+          terminalState: 'completed',
+          rawInputCharacterCount: 426,
         });
+        await waitForAsyncExpectation(async () => {
+          const status = await requestJson(statusUrl);
+          assert.equal(status.metrics.completedRequestCount, 1);
+        }, 1000);
       });
 
-      const falseLines = lines.filter((line) => /request false/u.test(line));
+      const falseLines = lines.filter((line) => /request false .*output_tokens=130/u.test(line));
       assert.equal(falseLines.length, 1, lines.join('\n'));
-      assert.match(falseLines[0], /request false total_elapsed=0s output_tokens=130/u);
+      assert.match(falseLines[0], /request false (?:task=summary )?total_elapsed=0s output_tokens=130/u);
       assert.equal(falseLines.some((line) => /request false elapsed=/u.test(line)), false, lines.join('\n'));
     }, {
       statusPath,
       configPath,
+      terminalMetadataIdleDelayMs: 0,
       disableManagedLlamaStartup: true,
     });
   });
@@ -1126,12 +1136,13 @@ test('real status server logs intermediate false line for first chunked leaf ste
         });
       });
 
-      const falseLines = lines.filter((line) => /request false/u.test(line));
+      const falseLines = lines.filter((line) => /request false elapsed=0s output_tokens=82/u.test(line));
       assert.equal(falseLines.length, 1, lines.join('\n'));
       assert.match(falseLines[0], /request false elapsed=0s output_tokens=82/u);
     }, {
       statusPath,
       configPath,
+      terminalMetadataIdleDelayMs: 0,
       disableManagedLlamaStartup: true,
     });
   });
@@ -1165,20 +1176,17 @@ test('real status server logs explicit chunk failures and clears them before the
             requestDurationMs: 91_000,
           }),
         });
-        await requestJson(statusUrl, {
-          method: 'POST',
-          body: JSON.stringify({
-            running: false,
-            requestId: 'failed-request',
-            terminalState: 'failed',
-            errorMessage: 'leaf chunk failed',
-            rawInputCharacterCount: 3_322_607,
-            promptCharacterCount: 342_395,
-            promptTokenCount: 147_694,
-            chunkIndex: 1,
-            chunkTotal: 10,
-            chunkPath: '1/10',
-          }),
+        await postCompletedStatus(statusUrl, {
+          requestId: 'failed-request',
+          taskKind: 'summary',
+          terminalState: 'failed',
+          errorMessage: 'leaf chunk failed',
+          rawInputCharacterCount: 3_322_607,
+          promptCharacterCount: 342_395,
+          promptTokenCount: 147_694,
+          chunkIndex: 1,
+          chunkTotal: 10,
+          chunkPath: '1/10',
         });
         await requestJson(statusUrl, {
           method: 'POST',
@@ -1200,26 +1208,28 @@ test('real status server logs explicit chunk failures and clears them before the
             requestDurationMs: 18_000,
           }),
         });
-        await requestJson(statusUrl, {
-          method: 'POST',
-          body: JSON.stringify({
-            running: false,
-            requestId: 'next-request',
-            terminalState: 'completed',
-            rawInputCharacterCount: 281_469,
-          }),
+        await postCompletedStatus(statusUrl, {
+          requestId: 'next-request',
+          taskKind: 'summary',
+          terminalState: 'completed',
+          rawInputCharacterCount: 281_469,
         });
+        await waitForAsyncExpectation(async () => {
+          const status = await requestJson(statusUrl);
+          assert.equal(status.metrics.completedRequestCount, 1);
+        }, 1000);
       });
 
-      assert.ok(lines.some((line) => /request false raw_chars=3,322,607 prompt=342,395 \(147,694\) chunk 1\/10 failed elapsed=0s error=leaf chunk failed/u.test(line)), lines.join('\n'));
+      assert.ok(lines.some((line) => /request false (?:task=summary )?raw_chars=3,322,607 prompt=342,395 \(147,694\) chunk 1\/10 failed elapsed=0s error=leaf chunk failed/u.test(line)), lines.join('\n'));
       assert.ok(lines.some((line) => /request true raw_chars=281,469 prompt=283,752 \(99,240\)/u.test(line)), lines.join('\n'));
-      assert.ok(lines.some((line) => /request false total_elapsed=0s output_tokens=154/u.test(line)), lines.join('\n'));
+      assert.ok(lines.some((line) => /request false (?:task=summary )?total_elapsed=0s output_tokens=154/u.test(line)), lines.join('\n'));
 
       const status = await requestJson(statusUrl);
       assert.equal(status.metrics.completedRequestCount, 1);
     }, {
       statusPath,
       configPath,
+      terminalMetadataIdleDelayMs: 0,
       disableManagedLlamaStartup: true,
     });
   });
