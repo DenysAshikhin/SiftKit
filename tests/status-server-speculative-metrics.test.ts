@@ -34,6 +34,7 @@ const {
   writeManagedLlamaLauncher,
   getFreePort,
   waitForAsyncExpectation,
+  postCompletedStatus,
 } = require('./_runtime-helpers.js');
 
 test('managed llama speculative delta prefers cumulative token stats over rate lines in the same slice', async () => {
@@ -230,41 +231,40 @@ test('real status server uses managed llama cumulative speculative delta for rep
       assert.equal(managedLlamaDelta?.speculativeAcceptedTokens, 58);
       assert.equal(managedLlamaDelta?.speculativeGeneratedTokens, 258);
 
-      await requestJson(statusUrl, {
-        method: 'POST',
-        body: JSON.stringify({
-          running: false,
-          requestId,
-          taskKind: 'repo-search',
-          terminalState: 'completed',
-          promptCharacterCount: 24,
-          inputTokens: 7,
-          outputCharacterCount: 12,
-          outputTokens: 5,
-          thinkingTokens: 2,
-          promptCacheTokens: 3,
-          promptEvalTokens: 7,
-          speculativeAcceptedTokens: 47,
-          speculativeGeneratedTokens: 47,
-          requestDurationMs: 48073,
-        }),
+      await postCompletedStatus(statusUrl, {
+        requestId,
+        taskKind: 'repo-search',
+        terminalState: 'completed',
+        promptCharacterCount: 24,
+        inputTokens: 7,
+        outputCharacterCount: 12,
+        outputTokens: 5,
+        thinkingTokens: 2,
+        promptCacheTokens: 3,
+        promptEvalTokens: 7,
+        speculativeAcceptedTokens: 47,
+        speculativeGeneratedTokens: 47,
+        requestDurationMs: 48073,
       });
 
       const verifyDb = new Database(runtimeDbPath, { readonly: true });
       try {
-        const row = verifyDb.prepare(`
-          SELECT speculative_accepted_tokens, speculative_generated_tokens
-          FROM run_logs
-          WHERE request_id = ?
-        `).get(requestId);
-        assert.equal(row.speculative_accepted_tokens, 58);
-        assert.equal(row.speculative_generated_tokens, 258);
+        await waitForAsyncExpectation(async () => {
+          const row = verifyDb.prepare(`
+            SELECT speculative_accepted_tokens, speculative_generated_tokens
+            FROM run_logs
+            WHERE request_id = ?
+          `).get(requestId);
+          assert.equal(row.speculative_accepted_tokens, 58);
+          assert.equal(row.speculative_generated_tokens, 258);
+        }, 1000);
       } finally {
         verifyDb.close();
       }
     }, {
       statusPath,
       configPath: runtimeDbPath,
+      terminalMetadataIdleDelayMs: 0,
     });
   });
 });
