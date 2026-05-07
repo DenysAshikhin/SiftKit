@@ -592,6 +592,32 @@ test('managed llama external server setting updates active preset and server con
   assert.equal(updatedConfig.Server.LlamaCpp.Presets[0]?.ExternalServerEnabled, true);
 });
 
+test('managed llama section renders external server controls', () => {
+  const capturedFields: string[] = [];
+  const markup = renderToStaticMarkup(
+    <ManagedLlamaSection
+      dashboardConfig={DASHBOARD_CONFIG}
+      selectedManagedLlamaPreset={{ ...MANAGED_PRESET, ExternalServerEnabled: true }}
+      settingsActionBusy={false}
+      settingsPathPickerBusyTarget={null}
+      renderField={(_, label, children) => {
+        capturedFields.push(label);
+        return <div>{children}</div>;
+      }}
+      updateSettingsDraft={() => {}}
+      updateManagedLlamaDraft={() => {}}
+      onAddManagedLlamaPreset={() => {}}
+      onDeleteManagedLlamaPreset={() => {}}
+      onPickManagedLlamaPath={async () => {}}
+      onTestLlamaCppBaseUrl={async () => {}}
+    />,
+  );
+
+  assert.equal(capturedFields.includes('External llama.cpp server'), true);
+  assert.match(markup, /Test/);
+  assert.doesNotMatch(markup, /Browse/);
+});
+
 test('chat tab renders session list and composer', () => {
   const markup = renderToStaticMarkup(
     <ChatTab

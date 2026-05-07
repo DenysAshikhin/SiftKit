@@ -89,6 +89,7 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'Preset name', layout: 'half', helpText: 'User-facing label for the selected managed llama preset.' },
       { label: 'Model', layout: 'half', helpText: 'Model identifier saved with this preset. Use the same value that the llama.cpp server reports or expects for requests.' },
       { label: 'Executable path', layout: 'full', helpText: 'Full path to `llama-server.exe` or another directly launchable managed llama executable.' },
+      { label: 'External llama.cpp server', layout: 'half', helpText: 'Uses the Base URL as an already-running llama.cpp server and skips local process launch.' },
       { label: 'Base URL', layout: 'half', helpText: 'HTTP endpoint used for readiness checks and client requests to the managed llama.cpp server.' },
       { label: 'Bind host', layout: 'quarter', helpText: 'Host interface that the managed llama.cpp process should bind to.' },
       { label: 'Port', layout: 'quarter', helpText: 'TCP port that the managed llama.cpp process should listen on.' },

@@ -7,6 +7,7 @@ import type {
   MetricsResponse,
   ManagedFilePickerResponse,
   ManagedFilePickerTarget,
+  LlamaCppConnectionTestResponse,
   RestartBackendResponse,
   RunLogDeleteCriteria,
   RunLogDeletePreviewResponse,
@@ -127,6 +128,17 @@ export function pickManagedFile(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ target, initialPath }),
+  });
+}
+
+export function testLlamaCppBaseUrl(
+  baseUrl: string,
+  healthcheckTimeoutMs: number,
+): Promise<LlamaCppConnectionTestResponse> {
+  return fetchJson<LlamaCppConnectionTestResponse>('/config/llama-cpp/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ BaseUrl: baseUrl, HealthcheckTimeoutMs: healthcheckTimeoutMs }),
   });
 }
 

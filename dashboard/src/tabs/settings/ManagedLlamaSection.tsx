@@ -28,6 +28,7 @@ type ManagedLlamaSectionProps = {
   onAddManagedLlamaPreset(): void;
   onDeleteManagedLlamaPreset(presetId: string): void;
   onPickManagedLlamaPath(target: 'ExecutablePath' | 'ModelPath'): Promise<void>;
+  onTestLlamaCppBaseUrl(baseUrl: string, timeoutMs: number): Promise<void>;
 };
 
 export function ManagedLlamaSection({
@@ -41,6 +42,7 @@ export function ManagedLlamaSection({
   onAddManagedLlamaPreset,
   onDeleteManagedLlamaPreset,
   onPickManagedLlamaPath,
+  onTestLlamaCppBaseUrl,
 }: ManagedLlamaSectionProps) {
   if (!dashboardConfig || !selectedManagedLlamaPreset) {
     return null;
@@ -87,7 +89,7 @@ export function ManagedLlamaSection({
             onChange={(event) => updateManagedLlamaDraft((preset) => { preset.label = event.target.value; })}
           />
         ), 'managed-llama-top-field')}
-        {renderField('model-presets', 'Executable path', (
+        {!selectedManagedLlamaPreset.ExternalServerEnabled ? renderField('model-presets', 'Executable path', (
           <div className="settings-live-nav-control">
             <input
               value={selectedManagedLlamaPreset.ExecutablePath || ''}
@@ -100,10 +102,34 @@ export function ManagedLlamaSection({
               {settingsPathPickerBusyTarget === 'ExecutablePath' ? 'Opening...' : 'Browse...'}
             </button>
           </div>
-        ), 'managed-llama-top-field')}
+        ), 'managed-llama-top-field') : null}
       </div>
+      {renderField('model-presets', 'External llama.cpp server', (
+        <label className="settings-live-toggle-control">
+          <input
+            type="checkbox"
+            checked={selectedManagedLlamaPreset.ExternalServerEnabled}
+            onChange={(event) => updateManagedLlamaDraft((preset) => { preset.ExternalServerEnabled = event.target.checked; })}
+          />
+          <span>{selectedManagedLlamaPreset.ExternalServerEnabled ? 'Enabled' : 'Disabled'}</span>
+        </label>
+      ))}
       {renderField('model-presets', 'Base URL', (
-        <input value={selectedManagedLlamaPreset.BaseUrl} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.BaseUrl = event.target.value; })} />
+        <div className="settings-live-nav-control">
+          <input value={selectedManagedLlamaPreset.BaseUrl} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.BaseUrl = event.target.value; })} />
+          <button
+            type="button"
+            disabled={settingsActionBusy}
+            onClick={() => {
+              void onTestLlamaCppBaseUrl(
+                selectedManagedLlamaPreset.BaseUrl,
+                selectedManagedLlamaPreset.HealthcheckTimeoutMs,
+              );
+            }}
+          >
+            Test
+          </button>
+        </div>
       ))}
       {renderField('model-presets', 'Bind host', (
         <input value={selectedManagedLlamaPreset.BindHost} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.BindHost = event.target.value; })} />
@@ -111,7 +137,7 @@ export function ManagedLlamaSection({
       {renderField('model-presets', 'Port', (
         <input type="number" value={selectedManagedLlamaPreset.Port} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.Port = parseIntegerInput(event.target.value, preset.Port); })} />
       ))}
-      {renderField('model-presets', 'Model path (.gguf)', (
+      {!selectedManagedLlamaPreset.ExternalServerEnabled ? renderField('model-presets', 'Model path (.gguf)', (
         <div className="settings-live-nav-control">
           <input
             value={selectedManagedLlamaPreset.ModelPath || ''}
@@ -124,7 +150,7 @@ export function ManagedLlamaSection({
             {settingsPathPickerBusyTarget === 'ModelPath' ? 'Opening...' : 'Browse...'}
           </button>
         </div>
-      ))}
+      )) : null}
       {renderField('model-presets', 'NumCtx', (
         <input type="number" value={selectedManagedLlamaPreset.NumCtx} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.NumCtx = parseIntegerInput(event.target.value, preset.NumCtx); })} />
       ))}

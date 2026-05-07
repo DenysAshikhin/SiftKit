@@ -14,6 +14,7 @@ import {
   getIdleSummary,
   getMetrics,
   pickManagedFile,
+  testLlamaCppBaseUrl as testLlamaCppBaseUrlRequest,
   getRunDetail,
   getRuns,
   previewRunLogDelete,
@@ -1016,6 +1017,22 @@ function DashboardApp() {
     }
   }
 
+  async function onTestLlamaCppBaseUrl(baseUrl: string, timeoutMs: number): Promise<void> {
+    setSettingsError(null);
+    try {
+      const response = await testLlamaCppBaseUrlRequest(baseUrl, timeoutMs);
+      if (!response.ok) {
+        throw new Error(response.error || `llama.cpp test failed with status ${response.statusCode}`);
+      }
+      setSettingsSavedAtUtc(new Date().toISOString());
+      enqueueToast('info', `llama.cpp reachable at ${response.baseUrl || baseUrl}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSettingsError(message);
+      enqueueToast('error', `llama.cpp test failed: ${message}`);
+    }
+  }
+
   function discardDashboardSettingsChanges(): void {
     if (!savedDashboardConfig) {
       return;
@@ -1403,6 +1420,7 @@ function DashboardApp() {
           onAddManagedLlamaPreset={onAddManagedLlamaPreset}
           onDeleteManagedLlamaPreset={onDeleteManagedLlamaPreset}
           onPickManagedLlamaPath={onPickManagedLlamaPath}
+          onTestLlamaCppBaseUrl={onTestLlamaCppBaseUrl}
           onReloadDashboardSettings={onReloadDashboardSettings}
           restartDashboardBackendCore={restartDashboardBackendCore}
           onSaveDashboardSettings={onSaveDashboardSettings}

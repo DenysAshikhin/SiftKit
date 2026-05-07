@@ -50,6 +50,7 @@ type SettingsTabProps = {
   onAddManagedLlamaPreset(): void;
   onDeleteManagedLlamaPreset(presetId: string): void;
   onPickManagedLlamaPath(target: 'ExecutablePath' | 'ModelPath'): Promise<void>;
+  onTestLlamaCppBaseUrl(baseUrl: string, timeoutMs: number): Promise<void>;
   onReloadDashboardSettings(): Promise<void>;
   restartDashboardBackendCore(): Promise<boolean>;
   onSaveDashboardSettings(): Promise<void>;
@@ -81,6 +82,7 @@ export function SettingsTab(props: SettingsTabProps) {
     onAddManagedLlamaPreset,
     onDeleteManagedLlamaPreset,
     onPickManagedLlamaPath,
+    onTestLlamaCppBaseUrl,
     onReloadDashboardSettings,
     restartDashboardBackendCore,
     onSaveDashboardSettings,
@@ -318,6 +320,7 @@ export function SettingsTab(props: SettingsTabProps) {
         onAddManagedLlamaPreset={onAddManagedLlamaPreset}
         onDeleteManagedLlamaPreset={onDeleteManagedLlamaPreset}
         onPickManagedLlamaPath={onPickManagedLlamaPath}
+        onTestLlamaCppBaseUrl={onTestLlamaCppBaseUrl}
       />
     );
   };

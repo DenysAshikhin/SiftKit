@@ -451,3 +451,10 @@ export type RestartBackendResponse = {
   config?: DashboardConfig;
   startupFailure?: ManagedLlamaStartupFailure | null;
 };
+
+export type LlamaCppConnectionTestResponse = {
+  ok: boolean;
+  statusCode: number;
+  baseUrl?: string;
+  error?: string;
+};
