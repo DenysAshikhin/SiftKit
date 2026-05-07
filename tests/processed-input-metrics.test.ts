@@ -463,7 +463,7 @@ test('runtime database schema migration preserves existing metrics token totals'
       WHERE id = 1
     `).get() as { input_tokens_total: number; prompt_eval_tokens_total: number; task_totals_json: string };
 
-    assert.equal(schemaVersionRow.version, 21);
+    assert.equal(schemaVersionRow.version, 22);
     assert.equal(metricsRow.input_tokens_total, 123);
     assert.equal(metricsRow.prompt_eval_tokens_total, 0);
     const taskTotals = JSON.parse(metricsRow.task_totals_json) as {

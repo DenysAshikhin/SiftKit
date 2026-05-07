@@ -38,6 +38,7 @@ test('settings tooltip labels include the documented fields', () => {
       'Preset name',
       'Model',
       'Executable path',
+      'External llama.cpp server',
       'Base URL',
       'Bind host',
       'Port',
