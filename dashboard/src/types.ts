@@ -330,6 +330,7 @@ export type DashboardConfig = {
   Server: {
     LlamaCpp: {
       Model: string;
+      ExternalServerEnabled: boolean;
       ExecutablePath: string | null;
       BaseUrl: string;
       BindHost: string;
@@ -378,6 +379,7 @@ export type DashboardManagedLlamaPreset = {
   id: string;
   label: string;
   Model: string;
+  ExternalServerEnabled: boolean;
   ExecutablePath: string | null;
   BaseUrl: string;
   BindHost: string;

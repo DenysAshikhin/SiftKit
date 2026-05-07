@@ -64,6 +64,7 @@ const MANAGED_PRESET = {
   id: 'managed',
   label: 'Managed',
   Model: 'test-model',
+  ExternalServerEnabled: false,
   ExecutablePath: null,
   BaseUrl: 'http://127.0.0.1:8080',
   BindHost: '127.0.0.1',
@@ -558,6 +559,37 @@ test('managed llama model name is derived from model path and model field is hid
   assert.equal(updatedConfig.Server.LlamaCpp.Model, 'Qwen3.5-27B-Q4_K_M.gguf');
   assert.equal(updatedConfig.Runtime.Model, 'Qwen3.5-27B-Q4_K_M.gguf');
   assert.equal(updatedConfig.Server.LlamaCpp.Presets[0]?.ModelPath, 'D:\\personal\\models\\Qwen3.5-27B-Q4_K_M.gguf');
+});
+
+test('managed llama external server setting updates active preset and server config', () => {
+  let updatedConfig: DashboardConfig | null = null;
+
+  ManagedLlamaSection({
+    dashboardConfig: DASHBOARD_CONFIG,
+    selectedManagedLlamaPreset: MANAGED_PRESET,
+    settingsActionBusy: false,
+    settingsPathPickerBusyTarget: null,
+    renderField: (_, __, children) => <div>{children}</div>,
+    updateSettingsDraft: () => {},
+    updateManagedLlamaDraft: (updater) => {
+      const nextConfig = structuredClone(DASHBOARD_CONFIG);
+      updateActiveManagedLlamaPreset(nextConfig, updater);
+      updatedConfig = nextConfig;
+    },
+    onAddManagedLlamaPreset: () => {},
+    onDeleteManagedLlamaPreset: () => {},
+    onPickManagedLlamaPath: async () => {},
+  });
+
+  const nextConfig = structuredClone(DASHBOARD_CONFIG);
+  updateActiveManagedLlamaPreset(nextConfig, (preset) => {
+    preset.ExternalServerEnabled = true;
+  });
+  updatedConfig = nextConfig;
+
+  assert.ok(updatedConfig);
+  assert.equal(updatedConfig.Server.LlamaCpp.ExternalServerEnabled, true);
+  assert.equal(updatedConfig.Server.LlamaCpp.Presets[0]?.ExternalServerEnabled, true);
 });
 
 test('chat tab renders session list and composer', () => {

@@ -16,6 +16,7 @@ function buildPresetFromServer(config: DashboardConfig): DashboardManagedLlamaPr
     id: 'default',
     label: 'Default',
     Model: model,
+    ExternalServerEnabled: config.Server.LlamaCpp.ExternalServerEnabled,
     ExecutablePath: config.Server.LlamaCpp.ExecutablePath,
     BaseUrl: config.Server.LlamaCpp.BaseUrl,
     BindHost: config.Server.LlamaCpp.BindHost,
@@ -71,6 +72,7 @@ function copyPresetToServer(config: DashboardConfig, preset: DashboardManagedLla
   const model = deriveRuntimeModelId(preset.ModelPath) || preset.Model;
   preset.Model = model;
   config.Server.LlamaCpp.Model = model;
+  config.Server.LlamaCpp.ExternalServerEnabled = preset.ExternalServerEnabled;
   config.Server.LlamaCpp.ExecutablePath = preset.ExecutablePath;
   config.Server.LlamaCpp.BaseUrl = preset.BaseUrl;
   config.Server.LlamaCpp.BindHost = preset.BindHost;
