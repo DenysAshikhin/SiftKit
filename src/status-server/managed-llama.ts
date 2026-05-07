@@ -992,6 +992,19 @@ export async function ensureManagedLlamaReady(ctx: ServerContext, _options: Ensu
   }
   const managed = getManagedLlamaConfig(config);
   const startupDeadline = Date.now() + managed.StartupTimeoutMs;
+  if (managed.ExternalServerEnabled) {
+    if (await isLlamaServerReachable(config)) {
+      ctx.managedLlamaStartupWarning = null;
+      ctx.managedLlamaReady = true;
+      publishStatus(ctx);
+      return config;
+    }
+    const message = `External llama.cpp server is not reachable at ${baseUrl}.`;
+    ctx.managedLlamaStartupWarning = message;
+    ctx.managedLlamaReady = false;
+    publishStatus(ctx);
+    throw new Error(message);
+  }
   if (ctx.managedLlamaShutdownPromise) {
     await ctx.managedLlamaShutdownPromise;
   }
@@ -1028,21 +1041,17 @@ export async function ensureManagedLlamaReady(ctx: ServerContext, _options: Ensu
     publishStatus(ctx);
     return readConfig(ctx.configPath);
   }
-  if (_options.allowUnconfigured && !hasManagedLlamaLaunchConfig(managed)) {
-    ctx.managedLlamaStartupWarning = null;
+  if (!managed.ExecutablePath || !managed.ModelPath) {
+    const missingFields = [
+      ...(!managed.ExecutablePath ? ['ExecutablePath'] : []),
+      ...(!managed.ModelPath ? ['ModelPath'] : []),
+    ].join(', ');
+    const message = `No local llama.cpp files found; missing config.Server.LlamaCpp.${missingFields}. Configure a local executable/model or enable an external llama.cpp server.`;
+    ctx.managedLlamaStartupWarning = message;
     ctx.managedLlamaReady = false;
     publishStatus(ctx);
+    process.stderr.write(`[siftKitStatus] ${message}\n`);
     return readConfig(ctx.configPath);
-  }
-  if (!managed.ExecutablePath) {
-    const message = `llama.cpp is not reachable at ${baseUrl} and config.Server.LlamaCpp.ExecutablePath is not set.`;
-    ctx.managedLlamaStartupWarning = message;
-    throw new Error(message);
-  }
-  if (!managed.ModelPath) {
-    const message = `llama.cpp is not reachable at ${baseUrl} and config.Server.LlamaCpp.ModelPath is not set.`;
-    ctx.managedLlamaStartupWarning = message;
-    throw new Error(message);
   }
   if (Date.now() >= startupDeadline) {
     const message = `Timed out waiting for llama.cpp server at ${baseUrl} to become ready.`;
@@ -1130,6 +1139,13 @@ export async function shutdownManagedLlamaIfNeeded(ctx: ServerContext, shutdownO
     return;
   }
   const managed = getManagedLlamaConfig(config);
+  if (managed.ExternalServerEnabled) {
+    ctx.managedLlamaReady = false;
+    ctx.managedLlamaHostProcess = null;
+    ctx.managedLlamaLastStartupLogs = null;
+    publishStatus(ctx);
+    return;
+  }
   const hasLaunchConfig = hasManagedLlamaLaunchConfig(managed);
   const hasActiveHostProcess = Boolean(
     ctx.managedLlamaHostProcess
@@ -1203,6 +1219,10 @@ export function shutdownManagedLlamaForProcessExitSync(ctx: ServerContext): void
       terminateProcessTree(ctx.managedLlamaHostProcess.pid);
     } else {
       const managed = getManagedLlamaConfig(config);
+      if (managed.ExternalServerEnabled) {
+        publishStatus(ctx);
+        return;
+      }
       const fallbackPid = hasManagedLlamaLaunchConfig(managed)
         ? findListeningProcessIdByPort(managed.Port)
         : null;
@@ -1247,7 +1267,11 @@ export async function clearPreexistingManagedLlamaIfNeeded(ctx: ServerContext): 
   if (config.Backend !== 'llama.cpp') {
     return;
   }
-  if (!hasManagedLlamaLaunchConfig(getManagedLlamaConfig(config))) {
+  const managed = getManagedLlamaConfig(config);
+  if (managed.ExternalServerEnabled) {
+    return;
+  }
+  if (!hasManagedLlamaLaunchConfig(managed)) {
     return;
   }
   const baseUrl = getLlamaBaseUrl(config);
