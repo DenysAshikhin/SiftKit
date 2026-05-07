@@ -112,6 +112,103 @@ function restoreDashboardTestRepo(previousCwd: string): void {
   closeRuntimeDatabase();
 }
 
+test('config llama cpp test endpoint reports reachable external server', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llama-test-route-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const runtimeRoot = path.join(tempRoot, '.siftkit');
+  const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
+  const configPath = path.join(runtimeRoot, 'config.json');
+  fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+  fs.writeFileSync(statusPath, 'false', 'utf8');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const remotePort = await runtimeHelpers.getFreePort();
+  const remoteServer = http.createServer((request, response) => {
+    if (request.url === '/v1/models') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ data: [{ id: 'remote-model' }] }));
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise<void>((resolve, reject) => {
+    remoteServer.listen(remotePort, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
+  });
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const response = await requestJson(`${baseUrl}/config/llama-cpp/test`, {
+      method: 'POST',
+      body: JSON.stringify({ BaseUrl: `http://127.0.0.1:${remotePort}`, HealthcheckTimeoutMs: 1000 }),
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.ok, true);
+    assert.equal(response.body.statusCode, 200);
+    assert.equal(response.body.baseUrl, `http://127.0.0.1:${remotePort}`);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    await new Promise<void>((resolve, reject) => {
+      remoteServer.close((error) => (error ? reject(error) : resolve()));
+    });
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    restoreDashboardTestRepo(previousCwd);
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
+test('config llama cpp test endpoint reports unreachable external server', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llama-test-route-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const runtimeRoot = path.join(tempRoot, '.siftkit');
+  const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
+  const configPath = path.join(runtimeRoot, 'config.json');
+  fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+  fs.writeFileSync(statusPath, 'false', 'utf8');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const unusedPort = await runtimeHelpers.getFreePort();
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const response = await requestJson(`${baseUrl}/config/llama-cpp/test`, {
+      method: 'POST',
+      body: JSON.stringify({ BaseUrl: `http://127.0.0.1:${unusedPort}`, HealthcheckTimeoutMs: 100 }),
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.ok, false);
+    assert.equal(response.body.statusCode, 0);
+    assert.match(String(response.body.error), /connect|ECONNREFUSED|timed out/i);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    restoreDashboardTestRepo(previousCwd);
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
 test('dashboard endpoints expose runs, details, metrics, and chat sessions', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-status-'));
   const previousCwd = enterDashboardTestRepo(tempRoot);

@@ -4,6 +4,7 @@
 import * as http from 'node:http';
 import * as crypto from 'node:crypto';
 import type { Dict } from '../../lib/types.js';
+import { requestText } from '../../lib/http.js';
 import { summarizeRequest } from '../../summary/core.js';
 import type { SiftConfig } from '../../config/index.js';
 import type {
@@ -1219,6 +1220,49 @@ export async function handleCoreRoute(
   // -------------------------------------------------------------------------
   // Config
   // -------------------------------------------------------------------------
+
+  if (req.method === 'POST' && requestUrl.pathname === '/config/llama-cpp/test') {
+    let parsedBody: Dict;
+    try {
+      parsedBody = parseJsonBody(await readBody(req));
+    } catch {
+      sendJson(res, 400, { ok: false, statusCode: 0, error: 'Expected valid JSON object.' });
+      return true;
+    }
+    const baseUrl = typeof parsedBody.BaseUrl === 'string' && parsedBody.BaseUrl.trim()
+      ? parsedBody.BaseUrl.trim().replace(/\/$/u, '')
+      : '';
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(baseUrl);
+    } catch {
+      sendJson(res, 400, { ok: false, statusCode: 0, error: 'BaseUrl must be an http(s) URL.' });
+      return true;
+    }
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      sendJson(res, 400, { ok: false, statusCode: 0, error: 'BaseUrl must be an http(s) URL.' });
+      return true;
+    }
+    const timeoutMs = Number.isFinite(Number(parsedBody.HealthcheckTimeoutMs)) && Number(parsedBody.HealthcheckTimeoutMs) > 0
+      ? Math.min(Math.trunc(Number(parsedBody.HealthcheckTimeoutMs)), 30_000)
+      : 2_000;
+    try {
+      const response = await requestText({ url: `${baseUrl}/v1/models`, timeoutMs });
+      sendJson(res, 200, {
+        ok: response.statusCode > 0 && response.statusCode < 400,
+        statusCode: response.statusCode,
+        baseUrl,
+      });
+    } catch (error) {
+      sendJson(res, 200, {
+        ok: false,
+        statusCode: 0,
+        baseUrl,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return true;
+  }
 
   if (req.method === 'GET' && requestUrl.pathname === '/config') {
     const skipReady = requestUrl.searchParams.get('skip_ready') === '1';
