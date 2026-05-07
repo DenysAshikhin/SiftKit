@@ -74,6 +74,7 @@ const MANAGED_LLAMA_RUNTIME_KEYS: readonly string[] = [
 
 const MANAGED_LLAMA_FIELD_KEYS: readonly string[] = [
   'Model',
+  'ExternalServerEnabled',
   'ExecutablePath',
   'BaseUrl',
   'BindHost',
@@ -116,6 +117,7 @@ const MANAGED_LLAMA_FIELD_KEYS: readonly string[] = [
 
 const MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS: readonly string[] = [
   'Model',
+  'ExternalServerEnabled',
   'BaseUrl',
   'BindHost',
   'Port',
@@ -158,6 +160,7 @@ export function getDefaultConfig(): Dict {
     id: 'default',
     label: 'Default',
     Model: DEFAULT_LLAMA_MODEL,
+    ExternalServerEnabled: false,
     ExecutablePath: null,
     BaseUrl: DEFAULT_LLAMA_BASE_URL,
     BindHost: DEFAULT_LLAMA_BIND_HOST,
@@ -413,6 +416,10 @@ export function normalizeConfig(input: unknown): Dict {
       ? legacyStartupScript
       : null;
   }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ExternalServerEnabled')) {
+    serverLlama.ExternalServerEnabled = false;
+  }
+  serverLlama.ExternalServerEnabled = serverLlama.ExternalServerEnabled === true;
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'BaseUrl')) {
     serverLlama.BaseUrl = runtimeLlama.BaseUrl ?? DEFAULT_LLAMA_BASE_URL;
   }
@@ -534,7 +541,8 @@ export function normalizeConfig(input: unknown): Dict {
     serverLlama.VerboseLogging = false;
   }
   const managedBlankPlaceholder = (
-    getNullableTrimmedString(serverLlama.ExecutablePath) === null
+    serverLlama.ExternalServerEnabled !== true
+    && getNullableTrimmedString(serverLlama.ExecutablePath) === null
     && getNullableTrimmedString(serverLlama.ModelPath) === null
     && getNullableTrimmedString(serverLlama.BaseUrl) === null
     && getNullableTrimmedString(serverLlama.BindHost) === null
@@ -647,6 +655,7 @@ type AppConfigRow = {
   server_verbose_logging: number | null;
   server_llama_presets_json: string;
   server_llama_active_preset_id: string | null;
+  server_external_server_enabled: number;
   operation_mode_allowed_tools_json: string;
   presets_json: string;
 };
@@ -766,6 +775,7 @@ function normalizeConfigToRow(config: Dict): AppConfigRow {
     interactive_idle_timeout_ms: getFinitePositiveInteger(interactive.IdleTimeoutMs, 900000),
     interactive_max_transcript_characters: getFinitePositiveInteger(interactive.MaxTranscriptCharacters, 60000),
     interactive_transcript_retention: interactive.TranscriptRetention === false ? 0 : 1,
+    server_external_server_enabled: serverLlama.ExternalServerEnabled === true ? 1 : 0,
     server_executable_path: typeof serverLlama.ExecutablePath === 'string' && serverLlama.ExecutablePath.trim()
       ? serverLlama.ExecutablePath.trim()
       : null,
@@ -861,6 +871,7 @@ function rowToConfig(row: AppConfigRow): Dict {
     Server: {
       LlamaCpp: {
         Model: row.runtime_model,
+        ExternalServerEnabled: row.server_external_server_enabled === 1,
         ExecutablePath: row.server_executable_path,
         BaseUrl: row.server_base_url,
         BindHost: row.server_bind_host,
@@ -963,6 +974,7 @@ function readConfigRow(databasePath: string): AppConfigRow | null {
       server_verbose_logging,
       server_llama_presets_json,
       server_llama_active_preset_id,
+      server_external_server_enabled,
       operation_mode_allowed_tools_json,
       presets_json
     FROM app_config
@@ -1041,6 +1053,7 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
     'server_verbose_logging',
     'server_llama_presets_json',
     'server_llama_active_preset_id',
+    'server_external_server_enabled',
     ...(hasLegacyVerboseArgsColumn
       ? ['server_startup_script', 'server_shutdown_script', 'server_verbose_args_json']
       : []),
@@ -1209,6 +1222,7 @@ function applyActiveManagedLlamaPreset(serverLlama: Dict, preferPresetValues: bo
 
 type ManagedLlamaConfig = {
   Model?: string | null;
+  ExternalServerEnabled: boolean;
   ExecutablePath: string | null;
   BaseUrl: string | null;
   BindHost: string;
@@ -1277,6 +1291,7 @@ export function getManagedLlamaConfig(config: unknown): ManagedLlamaConfig {
   const reasoningEnabled = reasoning === 'on';
   const reasoningContentEnabled = reasoningEnabled && serverLlama.ReasoningContent === true;
   return {
+    ExternalServerEnabled: serverLlama.ExternalServerEnabled === true,
     ExecutablePath: getNullableTrimmedString(serverLlama.ExecutablePath)
       || (
         legacyExecutablePath

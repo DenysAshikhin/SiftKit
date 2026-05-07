@@ -22,6 +22,7 @@ export function getDefaultConfigObject(): SiftConfig {
   const defaultManagedLlamaPreset: ServerManagedLlamaPreset = {
     id: 'default',
     label: 'Default',
+    ExternalServerEnabled: false,
     ExecutablePath: null,
     BaseUrl: SIFT_DEFAULT_LLAMA_BASE_URL,
     BindHost: SIFT_DEFAULT_LLAMA_BIND_HOST,

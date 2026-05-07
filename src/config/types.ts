@@ -36,6 +36,7 @@ export type ManagedLlamaSpeculativeType =
   | 'ngram-cache';
 
 export type ServerManagedLlamaCppConfig = {
+  ExternalServerEnabled?: boolean | null;
   ExecutablePath?: string | null;
   BaseUrl?: string | null;
   BindHost?: string | null;

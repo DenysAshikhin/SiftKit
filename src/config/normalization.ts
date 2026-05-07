@@ -42,6 +42,7 @@ const MANAGED_LLAMA_RUNTIME_KEYS: ReadonlyArray<keyof RuntimeLlamaCppConfig> = [
 ];
 
 const MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS: ReadonlyArray<keyof ServerManagedLlamaCppConfig> = [
+  'ExternalServerEnabled',
   'BaseUrl',
   'BindHost',
   'Port',
@@ -81,6 +82,7 @@ const MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS: ReadonlyArray<keyof ServerManagedLlam
 ];
 
 const MANAGED_LLAMA_PRESET_KEYS: ReadonlyArray<Exclude<keyof ServerManagedLlamaCppConfig, 'Presets' | 'ActivePresetId'>> = [
+  'ExternalServerEnabled',
   'ExecutablePath',
   'BaseUrl',
   'BindHost',
@@ -285,7 +287,8 @@ export function applyRuntimeCompatibilityView(config: SiftConfig): SiftConfig {
 }
 
 function isBlankManagedLlamaPlaceholder(serverLlama: ServerManagedLlamaCppConfig): boolean {
-  return !serverLlama.ExecutablePath
+  return serverLlama.ExternalServerEnabled !== true
+    && !serverLlama.ExecutablePath
     && !serverLlama.ModelPath
     && !serverLlama.BaseUrl
     && !serverLlama.BindHost
@@ -367,6 +370,7 @@ export function toPersistedConfigObject(config: SiftConfig): Omit<SiftConfig, 'P
     },
     Server: {
       LlamaCpp: {
+        ExternalServerEnabled: config.Server?.LlamaCpp?.ExternalServerEnabled === true,
         ExecutablePath: config.Server?.LlamaCpp?.ExecutablePath ?? null,
         BaseUrl: config.Server?.LlamaCpp?.BaseUrl ?? null,
         BindHost: config.Server?.LlamaCpp?.BindHost ?? null,
@@ -553,7 +557,16 @@ export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info:
       : defaults.Server?.LlamaCpp?.ExecutablePath ?? null;
     changed = true;
   }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ExternalServerEnabled')) {
+    serverLlama.ExternalServerEnabled = defaults.Server?.LlamaCpp?.ExternalServerEnabled ?? false;
+    changed = true;
+  }
+  if (typeof serverLlama.ExternalServerEnabled !== 'boolean') {
+    serverLlama.ExternalServerEnabled = false;
+    changed = true;
+  }
   for (const key of [
+    'ExternalServerEnabled',
     'BaseUrl',
     'BindHost',
     'Port',

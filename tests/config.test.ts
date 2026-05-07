@@ -799,9 +799,36 @@ test('loadConfig handles missing Server fields', async () => {
     delete (stub.state.config as Dict).Server;
     const config = await loadConfig({ ensure: true });
     assert.equal(typeof config.Server?.LlamaCpp, 'object');
+    assert.equal(config.Server?.LlamaCpp?.ExternalServerEnabled, false);
     assert.equal(config.Server?.LlamaCpp?.ExecutablePath, null);
     assert.equal(config.Server?.LlamaCpp?.ReasoningContent, false);
     assert.equal(config.Server?.LlamaCpp?.PreserveThinking, false);
+  });
+});
+
+test('saveConfig preserves managed llama external server settings', async () => {
+  await withTestEnvAndServer(async () => {
+    const config = await loadConfig({ ensure: true });
+    config.Server ??= { LlamaCpp: {} };
+    config.Server.LlamaCpp ??= {};
+    config.Server.LlamaCpp.ExternalServerEnabled = true;
+    config.Server.LlamaCpp.BaseUrl = 'http://192.168.1.50:8097';
+    if (config.Server.LlamaCpp.Presets?.[0]) {
+      config.Server.LlamaCpp.Presets[0].ExternalServerEnabled = true;
+      config.Server.LlamaCpp.Presets[0].BaseUrl = config.Server.LlamaCpp.BaseUrl;
+    }
+    config.Runtime ??= { Model: null, LlamaCpp: {} };
+    config.Runtime.LlamaCpp ??= {};
+    config.Runtime.LlamaCpp.BaseUrl = config.Server.LlamaCpp.BaseUrl;
+    config.LlamaCpp ??= {};
+    config.LlamaCpp.BaseUrl = config.Server.LlamaCpp.BaseUrl;
+
+    await saveConfig(config);
+    const loaded = await loadConfig({ ensure: true });
+
+    assert.equal(loaded.Server?.LlamaCpp?.ExternalServerEnabled, true);
+    assert.equal(loaded.Server?.LlamaCpp?.BaseUrl, 'http://192.168.1.50:8097');
+    assert.equal(loaded.Runtime?.LlamaCpp?.BaseUrl, 'http://192.168.1.50:8097');
   });
 });
 
