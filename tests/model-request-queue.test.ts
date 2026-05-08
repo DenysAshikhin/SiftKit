@@ -5,6 +5,7 @@ import { getDefaultMetrics } from '../dist/status-server/metrics.js';
 import { ManagedLlamaFlushQueue } from '../dist/status-server/managed-llama-flush-queue.js';
 import {
   acquireModelRequestWithWait,
+  isIdle,
   releaseModelRequest,
 } from '../dist/status-server/server-ops.js';
 import type { ServerContext } from '../dist/status-server/server-types.js';
@@ -157,6 +158,52 @@ test('release grants the next queued model request without waiting for polling t
     assert.equal(ctx.activeModelRequest?.token, queuedLock.token);
     assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
   } finally {
+    await ctx.managedLlamaFlushQueue.close();
+  }
+});
+
+test('active and queued model requests keep the server out of idle state', async () => {
+  const ctx = createQueueContext();
+  try {
+    assert.equal(isIdle(ctx), true);
+
+    const activeLock = await acquireModelRequestWithWait(ctx, 'passthrough');
+    assert.ok(activeLock);
+    assert.equal(isIdle(ctx), false);
+
+    const queuedLockPromise = acquireModelRequestWithWait(ctx, 'summary');
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+    assert.equal(isIdle(ctx), false);
+
+    assert.equal(releaseModelRequest(ctx, activeLock.token), true);
+    const queuedLock = await queuedLockPromise;
+    assert.ok(queuedLock);
+    assert.equal(isIdle(ctx), false);
+
+    assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
+    assert.equal(isIdle(ctx), true);
+  } finally {
+    await ctx.managedLlamaFlushQueue.close();
+  }
+});
+
+test('model request acquire clears pending idle unload timer and release reschedules it', async () => {
+  const ctx = createQueueContext();
+  try {
+    ctx.idleSummaryPending = true;
+    ctx.idleSummaryTimer = setTimeout(() => {}, 10_000);
+
+    const lock = await acquireModelRequestWithWait(ctx, 'passthrough');
+    assert.ok(lock);
+    assert.equal(ctx.idleSummaryTimer, null);
+
+    assert.equal(releaseModelRequest(ctx, lock.token), true);
+    assert.notEqual(ctx.idleSummaryTimer, null);
+  } finally {
+    if (ctx.idleSummaryTimer) {
+      clearTimeout(ctx.idleSummaryTimer);
+      ctx.idleSummaryTimer = null;
+    }
     await ctx.managedLlamaFlushQueue.close();
   }
 });

@@ -261,7 +261,10 @@ export function enqueueDeferredArtifacts(ctx: ServerContext, artifacts: Deferred
 // ---------------------------------------------------------------------------
 
 export function isIdle(ctx: ServerContext): boolean {
-  return !hasActiveRuns(ctx) && !getActiveExecutionLease(ctx);
+  return !hasActiveRuns(ctx)
+    && !getActiveExecutionLease(ctx)
+    && !ctx.activeModelRequest
+    && ctx.modelRequestQueue.length === 0;
 }
 
 export function clearIdleSummaryTimer(ctx: ServerContext): void {
@@ -458,6 +461,7 @@ export async function acquireModelRequestWithWait(
   response?: http.ServerResponse,
 ): Promise<ModelRequestLock | null> {
   logIncomingModelRequest(ctx, kind);
+  clearIdleSummaryTimer(ctx);
   let lock = acquireModelRequest(ctx, kind);
   if (lock) {
     logModelRequestLockAcquired(lock, 0);
@@ -487,6 +491,7 @@ export async function acquireModelRequestWithWait(
     waiter.resolveLock(null);
     grantNextModelRequest(ctx);
     syncManagedLlamaFlushQueueModelState(ctx);
+    scheduleIdleSummaryIfNeeded(ctx);
   };
   const onAbortedRequest = (): void => {
     cancelWaiter();
@@ -544,6 +549,7 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
   if (ctx.managedLlamaLastStartupLogs?.runId) {
     ctx.managedLlamaFlushQueue.enqueue(ctx.managedLlamaLastStartupLogs.runId);
   }
+  scheduleIdleSummaryIfNeeded(ctx);
   return true;
 }
 
