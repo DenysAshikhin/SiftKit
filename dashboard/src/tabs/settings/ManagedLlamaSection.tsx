@@ -9,6 +9,7 @@ import type { DashboardConfig, DashboardManagedLlamaPreset } from '../../types';
 
 const KV_CACHE_QUANT_OPTIONS = ['f32', 'f16', 'bf16', 'q8_0', 'q4_0', 'q4_1', 'iq4_nl', 'q5_0', 'q5_1'] as const;
 const SPECULATIVE_TYPE_OPTIONS = ['ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod', 'ngram-cache'] as const;
+const LOCAL_LLAMA_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]', '0.0.0.0']);
 
 type RenderField = (
   sectionId: SettingsSectionId,
@@ -31,6 +32,15 @@ type ManagedLlamaSectionProps = {
   onTestLlamaCppBaseUrl(baseUrl: string, timeoutMs: number): Promise<void>;
 };
 
+function isRemoteLlamaBaseUrl(baseUrl: string): boolean {
+  try {
+    const parsed = new URL(baseUrl);
+    return !LOCAL_LLAMA_HOSTS.has(parsed.hostname.toLowerCase()) && !parsed.hostname.startsWith('127.');
+  } catch {
+    return false;
+  }
+}
+
 export function ManagedLlamaSection({
   dashboardConfig,
   selectedManagedLlamaPreset,
@@ -49,6 +59,7 @@ export function ManagedLlamaSection({
   }
   const reasoningEnabled = selectedManagedLlamaPreset.Reasoning === 'on';
   const reasoningContentEnabled = reasoningEnabled && selectedManagedLlamaPreset.ReasoningContent;
+  const remoteLlamaBaseUrl = isRemoteLlamaBaseUrl(selectedManagedLlamaPreset.BaseUrl);
 
   return (
     <div className="settings-live-grid">
@@ -115,22 +126,29 @@ export function ManagedLlamaSection({
         </label>
       ))}
       {renderField('model-presets', 'Base URL', (
-        <div className="settings-live-nav-control">
-          <input value={selectedManagedLlamaPreset.BaseUrl} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.BaseUrl = event.target.value; })} />
-          <button
-            type="button"
-            disabled={settingsActionBusy}
-            onClick={() => {
-              void onTestLlamaCppBaseUrl(
-                selectedManagedLlamaPreset.BaseUrl,
-                selectedManagedLlamaPreset.HealthcheckTimeoutMs,
-              );
-            }}
-          >
-            Test
-          </button>
+        <div className="settings-live-stack">
+          <div className="settings-live-nav-control">
+            <input value={selectedManagedLlamaPreset.BaseUrl} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.BaseUrl = event.target.value; })} />
+            <button
+              type="button"
+              disabled={settingsActionBusy}
+              onClick={() => {
+                void onTestLlamaCppBaseUrl(
+                  selectedManagedLlamaPreset.BaseUrl,
+                  selectedManagedLlamaPreset.HealthcheckTimeoutMs,
+                );
+              }}
+            >
+              Test
+            </button>
+          </div>
+          {remoteLlamaBaseUrl ? (
+            <div className="settings-live-warning" role="alert">
+              Remote llama.cpp URL detected. If this llama server is on another machine, the backend URL also needs to use a non-local host.
+            </div>
+          ) : null}
         </div>
-      ))}
+      ), remoteLlamaBaseUrl ? 'settings-live-field-danger' : undefined)}
       {renderField('model-presets', 'Bind host', (
         <input value={selectedManagedLlamaPreset.BindHost} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.BindHost = event.target.value; })} />
       ))}

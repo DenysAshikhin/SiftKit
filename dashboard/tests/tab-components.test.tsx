@@ -618,6 +618,57 @@ test('managed llama section renders external server controls', () => {
   assert.doesNotMatch(markup, /Browse/);
 });
 
+test('managed llama section warns when llama base url is remote', () => {
+  const capturedFields: { label: string; className?: string }[] = [];
+  const markup = renderToStaticMarkup(
+    <ManagedLlamaSection
+      dashboardConfig={DASHBOARD_CONFIG}
+      selectedManagedLlamaPreset={{ ...MANAGED_PRESET, BaseUrl: 'http://192.168.1.20:8097' }}
+      settingsActionBusy={false}
+      settingsPathPickerBusyTarget={null}
+      renderField={(_, label, children, className) => {
+        capturedFields.push({ label, className });
+        return <div>{children}</div>;
+      }}
+      updateSettingsDraft={() => {}}
+      updateManagedLlamaDraft={() => {}}
+      onAddManagedLlamaPreset={() => {}}
+      onDeleteManagedLlamaPreset={() => {}}
+      onPickManagedLlamaPath={async () => {}}
+      onTestLlamaCppBaseUrl={async () => {}}
+    />,
+  );
+
+  assert.equal(capturedFields.find((field) => field.label === 'Base URL')?.className, 'settings-live-field-danger');
+  assert.match(markup, /Remote llama\.cpp URL detected/);
+  assert.match(markup, /backend URL also needs to use a non-local host/);
+});
+
+test('managed llama section does not warn for local llama base url', () => {
+  const capturedFields: { label: string; className?: string }[] = [];
+  const markup = renderToStaticMarkup(
+    <ManagedLlamaSection
+      dashboardConfig={DASHBOARD_CONFIG}
+      selectedManagedLlamaPreset={{ ...MANAGED_PRESET, BaseUrl: 'http://localhost:8097' }}
+      settingsActionBusy={false}
+      settingsPathPickerBusyTarget={null}
+      renderField={(_, label, children, className) => {
+        capturedFields.push({ label, className });
+        return <div>{children}</div>;
+      }}
+      updateSettingsDraft={() => {}}
+      updateManagedLlamaDraft={() => {}}
+      onAddManagedLlamaPreset={() => {}}
+      onDeleteManagedLlamaPreset={() => {}}
+      onPickManagedLlamaPath={async () => {}}
+      onTestLlamaCppBaseUrl={async () => {}}
+    />,
+  );
+
+  assert.equal(capturedFields.find((field) => field.label === 'Base URL')?.className, undefined);
+  assert.doesNotMatch(markup, /Remote llama\.cpp URL detected/);
+});
+
 test('chat tab renders session list and composer', () => {
   const markup = renderToStaticMarkup(
     <ChatTab
