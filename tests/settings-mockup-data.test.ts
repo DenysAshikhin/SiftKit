@@ -33,6 +33,7 @@ test('settings mockup tooltip fields include documented explanatory labels', () 
       'ReasoningBudgetMessage',
       'HealthcheckTimeoutMs',
       'HealthcheckIntervalMs',
+      'SleepIdleSeconds',
     ],
   );
 });

@@ -75,6 +75,7 @@ test('settings tooltip labels include the documented fields', () => {
       'StartupTimeoutMs',
       'HealthcheckTimeoutMs',
       'HealthcheckIntervalMs',
+      'SleepIdleSeconds',
       'Managed llama verbose logging',
     ],
   );

@@ -314,6 +314,9 @@ export function ManagedLlamaSection({
       {renderField('model-presets', 'HealthcheckIntervalMs', (
         <input type="number" value={selectedManagedLlamaPreset.HealthcheckIntervalMs} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.HealthcheckIntervalMs = parseIntegerInput(event.target.value, preset.HealthcheckIntervalMs); })} />
       ))}
+      {renderField('model-presets', 'SleepIdleSeconds', (
+        <input type="number" value={selectedManagedLlamaPreset.SleepIdleSeconds} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.SleepIdleSeconds = parseIntegerInput(event.target.value, preset.SleepIdleSeconds); })} />
+      ))}
       {renderField('model-presets', 'Managed llama verbose logging', (
         <label className="settings-live-toggle-control">
           <input type="checkbox" checked={selectedManagedLlamaPreset.VerboseLogging} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.VerboseLogging = event.target.checked; })} />

@@ -415,6 +415,7 @@ test('writeConfig persists managed llama presets and restores the selected prese
         ModelPath: 'D:\\models\\Qwen3.5-27B-Q4_K_M.gguf',
         Port: 8098,
         Threads: 0,
+        SleepIdleSeconds: 120,
         ReasoningBudgetMessage: 'Budget hit. Answer now.',
       },
     ];
@@ -429,6 +430,7 @@ test('writeConfig persists managed llama presets and restores the selected prese
     assert.equal(loaded.Server?.LlamaCpp?.ModelPath, 'D:\\models\\Qwen3.5-27B-Q4_K_M.gguf');
     assert.equal(loaded.Server?.LlamaCpp?.Port, 8098);
     assert.equal(loaded.Server?.LlamaCpp?.Threads, 0);
+    assert.equal(loaded.Server?.LlamaCpp?.SleepIdleSeconds, 120);
     assert.equal(loaded.Server?.LlamaCpp?.ReasoningBudgetMessage, 'Budget hit. Answer now.');
   });
 });

@@ -73,6 +73,7 @@ const MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS: ReadonlyArray<keyof ServerManagedLlam
   'StartupTimeoutMs',
   'HealthcheckTimeoutMs',
   'HealthcheckIntervalMs',
+  'SleepIdleSeconds',
   'VerboseLogging',
 ];
 
@@ -115,6 +116,7 @@ const MANAGED_LLAMA_PRESET_KEYS: ReadonlyArray<Exclude<keyof ServerManagedLlamaC
   'StartupTimeoutMs',
   'HealthcheckTimeoutMs',
   'HealthcheckIntervalMs',
+  'SleepIdleSeconds',
   'VerboseLogging',
 ];
 
@@ -186,6 +188,11 @@ function normalizeSpeculativeInteger(value: unknown, fallback: number, requirePo
   return !requirePositive || parsed > 0 ? parsed : fallback;
 }
 
+function normalizePositiveInteger(value: unknown, fallback: number): number {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function normalizeManagedLlamaPreset(
   preset: Partial<ServerManagedLlamaCppConfig> | null | undefined,
   fallback: ServerManagedLlamaCppConfig,
@@ -216,6 +223,10 @@ function normalizeManagedLlamaPreset(
   normalizedPreset.SpeculativeNgramMinHits = normalizeSpeculativeInteger(normalizedPreset.SpeculativeNgramMinHits, 2, true);
   normalizedPreset.SpeculativeDraftMax = normalizeSpeculativeInteger(normalizedPreset.SpeculativeDraftMax, 16, true);
   normalizedPreset.SpeculativeDraftMin = normalizeSpeculativeInteger(normalizedPreset.SpeculativeDraftMin, 4, false);
+  normalizedPreset.SleepIdleSeconds = normalizePositiveInteger(
+    normalizedPreset.SleepIdleSeconds,
+    fallback.SleepIdleSeconds ?? 600,
+  );
   delete (normalizedPreset as Partial<ServerManagedLlamaCppConfig>).Presets;
   delete (normalizedPreset as Partial<ServerManagedLlamaCppConfig>).ActivePresetId;
   return {
@@ -386,6 +397,7 @@ export function toPersistedConfigObject(config: SiftConfig): Omit<SiftConfig, 'P
         StartupTimeoutMs: config.Server?.LlamaCpp?.StartupTimeoutMs ?? null,
         HealthcheckTimeoutMs: config.Server?.LlamaCpp?.HealthcheckTimeoutMs ?? null,
         HealthcheckIntervalMs: config.Server?.LlamaCpp?.HealthcheckIntervalMs ?? null,
+        SleepIdleSeconds: config.Server?.LlamaCpp?.SleepIdleSeconds ?? null,
         VerboseLogging: config.Server?.LlamaCpp?.VerboseLogging ?? null,
         Presets: config.Server?.LlamaCpp?.Presets ?? null,
         ActivePresetId: config.Server?.LlamaCpp?.ActivePresetId ?? null,
@@ -593,6 +605,10 @@ export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info:
     updated.Server.LlamaCpp.HealthcheckIntervalMs = defaults.Server?.LlamaCpp?.HealthcheckIntervalMs ?? 1_000;
     changed = true;
   }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SleepIdleSeconds')) {
+    serverLlama.SleepIdleSeconds = defaults.Server?.LlamaCpp?.SleepIdleSeconds ?? 600;
+    changed = true;
+  }
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'VerboseLogging')) {
     serverLlama.VerboseLogging = defaults.Server?.LlamaCpp?.VerboseLogging ?? false;
     changed = true;
@@ -687,6 +703,14 @@ export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info:
       (serverLlama as Record<string, unknown>)[key] = normalizedValue;
       changed = true;
     }
+  }
+  const normalizedSleepIdleSeconds = normalizePositiveInteger(
+    serverLlama.SleepIdleSeconds,
+    defaults.Server?.LlamaCpp?.SleepIdleSeconds ?? 600,
+  );
+  if (serverLlama.SleepIdleSeconds !== normalizedSleepIdleSeconds) {
+    serverLlama.SleepIdleSeconds = normalizedSleepIdleSeconds;
+    changed = true;
   }
   if (typeof serverLlama.VerboseLogging !== 'boolean') {
     serverLlama.VerboseLogging = Boolean(serverLlama.VerboseLogging);

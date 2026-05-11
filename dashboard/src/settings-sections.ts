@@ -126,6 +126,7 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'StartupTimeoutMs', layout: 'quarter', helpText: 'Maximum time allowed for managed llama.cpp startup before the attempt is treated as failed.' },
       { label: 'HealthcheckTimeoutMs', layout: 'quarter', helpText: 'Maximum wait for an individual health probe before it is treated as failed.' },
       { label: 'HealthcheckIntervalMs', layout: 'quarter', helpText: 'Delay between consecutive health probes while waiting for readiness.' },
+      { label: 'SleepIdleSeconds', layout: 'quarter', helpText: 'Seconds llama-server waits while idle before unloading the model and KV cache.' },
       { label: 'Managed llama verbose logging', layout: 'quarter', helpText: 'Enables extra launcher logging for the managed llama.cpp process.' },
     ],
   },

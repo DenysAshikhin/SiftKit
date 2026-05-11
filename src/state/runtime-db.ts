@@ -7,7 +7,7 @@ import { normalizeOperationModeAllowedTools, normalizePresets } from '../presets
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-const CURRENT_SCHEMA_VERSION = 23;
+const CURRENT_SCHEMA_VERSION = 24;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["repo_rg","repo_read_file","repo_list_files","repo_git","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}';
 
@@ -155,6 +155,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       server_startup_timeout_ms INTEGER,
       server_healthcheck_timeout_ms INTEGER,
       server_healthcheck_interval_ms INTEGER,
+      server_sleep_idle_seconds INTEGER,
       server_verbose_logging INTEGER CHECK (server_verbose_logging IN (0, 1) OR server_verbose_logging IS NULL),
       server_llama_presets_json TEXT NOT NULL DEFAULT '[]',
       server_llama_active_preset_id TEXT,
@@ -911,6 +912,13 @@ function ensureSchema(database: RuntimeDatabase): void {
     }
     setSchemaVersion(database, 23);
     currentVersion = 23;
+  }
+  if (currentVersion < 24) {
+    if (!tableHasColumn(database, 'app_config', 'server_sleep_idle_seconds')) {
+      database.exec('ALTER TABLE app_config ADD COLUMN server_sleep_idle_seconds INTEGER;');
+    }
+    setSchemaVersion(database, 24);
+    currentVersion = 24;
   }
   ensureRuntimeArtifactsSchema(database);
   ensureManagedLlamaAndBenchmarkMatrixSchema(database);

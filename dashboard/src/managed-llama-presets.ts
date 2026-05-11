@@ -54,6 +54,7 @@ function buildPresetFromServer(config: DashboardConfig): DashboardManagedLlamaPr
     StartupTimeoutMs: config.Server.LlamaCpp.StartupTimeoutMs,
     HealthcheckTimeoutMs: config.Server.LlamaCpp.HealthcheckTimeoutMs,
     HealthcheckIntervalMs: config.Server.LlamaCpp.HealthcheckIntervalMs,
+    SleepIdleSeconds: config.Server.LlamaCpp.SleepIdleSeconds,
     VerboseLogging: config.Server.LlamaCpp.VerboseLogging,
   };
 }
@@ -110,6 +111,7 @@ function copyPresetToServer(config: DashboardConfig, preset: DashboardManagedLla
   config.Server.LlamaCpp.StartupTimeoutMs = preset.StartupTimeoutMs;
   config.Server.LlamaCpp.HealthcheckTimeoutMs = preset.HealthcheckTimeoutMs;
   config.Server.LlamaCpp.HealthcheckIntervalMs = preset.HealthcheckIntervalMs;
+  config.Server.LlamaCpp.SleepIdleSeconds = preset.SleepIdleSeconds;
   config.Server.LlamaCpp.VerboseLogging = preset.VerboseLogging;
 }
 

@@ -41,9 +41,9 @@ Local-only commands:
 
 The client assumes the external server provides `GET /health`, `GET /status`, `GET /config`, `PUT /config`, `GET /execution`, `POST /execution/acquire`, `POST /execution/heartbeat`, `POST /execution/release`, and `POST /status`. There is no local config fallback and no local status-file fallback for normal operation.
 
-Inference is still external over HTTP, but the status server now supervises the `llama.cpp` lifecycle for normal request flow. Server startup is the readiness gate: when the configured `LlamaCpp.BaseUrl` is down, the server clears stale managed processes, runs `Server.LlamaCpp.StartupScript`, waits until `/v1/models` responds, scans the captured startup logs for warning/error markers, and only then serves as ready while publishing a simple boolean status: `true` while the managed model or request flow is active, `false` when idle.
+Inference is still external over HTTP, but the status server now supervises the `llama.cpp` process lifecycle for normal request flow. Server startup is the readiness gate: when the configured `LlamaCpp.BaseUrl` is down, the server clears stale managed processes, runs the configured `llama-server` executable, waits until `/v1/models` responds, scans the captured startup logs for warning/error markers, and only then serves as ready while publishing a simple boolean status: `true` while startup or request flow is active, `false` when idle.
 
-After the idle summary block is emitted, the status server can run `Server.LlamaCpp.ShutdownScript` and clear the published status back to `false`.
+Model idle unload/reload is delegated to `llama-server` via `--sleep-idle-seconds`; SiftKit does not stop the managed process when its own idle summary block is emitted.
 
 The server also supports a process-level safe mode via `--disable-managed-llama-startup`. In that mode it still serves health, status, and config endpoints, but it skips managed `llama.cpp` startup during boot and `GET /config`, skips stale-process cleanup on boot, and advertises `disableManagedLlamaStartup: true` from `GET /health` so external launchers can verify they will not trigger a second managed model startup.
 

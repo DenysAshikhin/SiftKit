@@ -124,7 +124,7 @@ test('real status server prints one idle metrics line only after the full idle d
   });
 });
 
-test('real status server shuts down managed llama.cpp after the idle summary block is emitted', async () => {
+test('real status server leaves managed llama.cpp running after the idle summary block is emitted', { timeout: 60_000 }, async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
@@ -167,10 +167,8 @@ test('real status server shuts down managed llama.cpp after the idle summary blo
       });
 
       await server.waitForStdoutMatch(/requests=1/u, 1000);
-      await waitForAsyncExpectation(
-        async () => assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`)),
-        5000,
-      );
+      const models = await requestJson(`${managed.baseUrl}/v1/models`);
+      assert.equal(models.data[0].id, 'managed-test-model');
       await waitForAsyncExpectation(async () => {
         assert.equal(readStatusText(getConfigPath()), 'false');
       }, 5000);

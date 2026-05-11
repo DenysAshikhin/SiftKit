@@ -125,7 +125,7 @@ function stopFakeManagedLlama(readyFilePath: string): void {
 }
 
 
-test('dashboard plan wakes managed llama after idle shutdown', async () => {
+test('dashboard plan wakes managed llama when the managed process is offline', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-idle-wakeup-'));
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');

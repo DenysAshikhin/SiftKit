@@ -51,6 +51,7 @@ export const SETTINGS_MOCKUP_TOOLTIP_FIELDS = [
   'ReasoningBudgetMessage',
   'HealthcheckTimeoutMs',
   'HealthcheckIntervalMs',
+  'SleepIdleSeconds',
 ] as const;
 
 export const SETTINGS_MOCKUP_SECTIONS: SettingsMockupSection[] = [
@@ -123,6 +124,7 @@ export const SETTINGS_MOCKUP_SECTIONS: SettingsMockupSection[] = [
       { kind: 'text', label: 'StartupTimeoutMs', value: '120000', layout: 'quarter' },
       { kind: 'text', label: 'HealthcheckTimeoutMs', value: '5000', layout: 'quarter', description: 'Maximum wait for an individual health probe before it is treated as failed.' },
       { kind: 'text', label: 'HealthcheckIntervalMs', value: '1000', layout: 'quarter', description: 'Delay between consecutive health probes while waiting for readiness.' },
+      { kind: 'text', label: 'SleepIdleSeconds', value: '600', layout: 'quarter', description: 'Seconds llama-server waits while idle before unloading the model and KV cache.' },
       { kind: 'toggle', label: 'Managed llama verbose logging', value: true, layout: 'quarter' },
     ],
   },

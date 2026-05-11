@@ -26,6 +26,7 @@ export const MAX_LLAMA_STARTUP_TIMEOUT_MS = 600_000;
 export const DEFAULT_LLAMA_STARTUP_TIMEOUT_MS = 600_000;
 export const DEFAULT_LLAMA_HEALTHCHECK_TIMEOUT_MS = 2_000;
 export const DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS = 1_000;
+export const DEFAULT_LLAMA_SLEEP_IDLE_SECONDS = 600;
 
 const MANAGED_LLAMA_SPECULATIVE_TYPES = ['ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod', 'ngram-cache'] as const;
 
@@ -107,6 +108,7 @@ const MANAGED_LLAMA_FIELD_KEYS: readonly string[] = [
   'StartupTimeoutMs',
   'HealthcheckTimeoutMs',
   'HealthcheckIntervalMs',
+  'SleepIdleSeconds',
   'VerboseLogging',
 ];
 
@@ -147,6 +149,7 @@ const MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS: readonly string[] = [
   'StartupTimeoutMs',
   'HealthcheckTimeoutMs',
   'HealthcheckIntervalMs',
+  'SleepIdleSeconds',
   'VerboseLogging',
 ];
 
@@ -193,6 +196,7 @@ export function getDefaultConfig(): Dict {
     StartupTimeoutMs: DEFAULT_LLAMA_STARTUP_TIMEOUT_MS,
     HealthcheckTimeoutMs: DEFAULT_LLAMA_HEALTHCHECK_TIMEOUT_MS,
     HealthcheckIntervalMs: DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS,
+    SleepIdleSeconds: DEFAULT_LLAMA_SLEEP_IDLE_SECONDS,
     VerboseLogging: false,
   };
   return {
@@ -513,6 +517,9 @@ export function normalizeConfig(input: unknown): Dict {
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'HealthcheckIntervalMs')) {
     serverLlama.HealthcheckIntervalMs = DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS;
   }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SleepIdleSeconds')) {
+    serverLlama.SleepIdleSeconds = DEFAULT_LLAMA_SLEEP_IDLE_SECONDS;
+  }
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'VerboseLogging')) {
     serverLlama.VerboseLogging = false;
   }
@@ -556,6 +563,7 @@ export function normalizeConfig(input: unknown): Dict {
   serverLlama.SpeculativeNgramMinHits = getSpeculativeInteger(serverLlama.SpeculativeNgramMinHits, 2, true);
   serverLlama.SpeculativeDraftMax = getSpeculativeInteger(serverLlama.SpeculativeDraftMax, 16, true);
   serverLlama.SpeculativeDraftMin = getSpeculativeInteger(serverLlama.SpeculativeDraftMin, 4, false);
+  serverLlama.SleepIdleSeconds = getFinitePositiveInteger(serverLlama.SleepIdleSeconds, DEFAULT_LLAMA_SLEEP_IDLE_SECONDS);
   serverLlama.VerboseLogging = Boolean(serverLlama.VerboseLogging);
   delete serverLlama.StartupScript;
   delete serverLlama.ShutdownScript;
@@ -628,6 +636,7 @@ type AppConfigRow = {
   server_startup_timeout_ms: number | null;
   server_healthcheck_timeout_ms: number | null;
   server_healthcheck_interval_ms: number | null;
+  server_sleep_idle_seconds: number | null;
   server_verbose_logging: number | null;
   server_llama_presets_json: string;
   server_llama_active_preset_id: string | null;
@@ -790,6 +799,7 @@ function normalizeConfigToRow(config: Dict): AppConfigRow {
     server_startup_timeout_ms: toNullableInteger(serverLlama.StartupTimeoutMs),
     server_healthcheck_timeout_ms: toNullableInteger(serverLlama.HealthcheckTimeoutMs),
     server_healthcheck_interval_ms: toNullableInteger(serverLlama.HealthcheckIntervalMs),
+    server_sleep_idle_seconds: toNullableInteger(serverLlama.SleepIdleSeconds),
     server_verbose_logging: toNullableBooleanInteger(serverLlama.VerboseLogging),
     server_llama_presets_json: JSON.stringify(
       Array.isArray(serverLlama.Presets) ? serverLlama.Presets : [],
@@ -876,6 +886,7 @@ function rowToConfig(row: AppConfigRow): Dict {
         StartupTimeoutMs: row.server_startup_timeout_ms,
         HealthcheckTimeoutMs: row.server_healthcheck_timeout_ms,
         HealthcheckIntervalMs: row.server_healthcheck_interval_ms,
+        SleepIdleSeconds: row.server_sleep_idle_seconds,
         VerboseLogging: row.server_verbose_logging === null ? false : row.server_verbose_logging === 1,
         Presets: parseManagedLlamaPresetArray(row.server_llama_presets_json),
         ActivePresetId: row.server_llama_active_preset_id,
@@ -947,6 +958,7 @@ function readConfigRow(databasePath: string): AppConfigRow | null {
       server_startup_timeout_ms,
       server_healthcheck_timeout_ms,
       server_healthcheck_interval_ms,
+      server_sleep_idle_seconds,
       server_verbose_logging,
       server_llama_presets_json,
       server_llama_active_preset_id,
@@ -1020,6 +1032,7 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
     'server_startup_timeout_ms',
     'server_healthcheck_timeout_ms',
     'server_healthcheck_interval_ms',
+    'server_sleep_idle_seconds',
     'server_verbose_logging',
     'server_llama_presets_json',
     'server_llama_active_preset_id',
@@ -1220,6 +1233,7 @@ type ManagedLlamaConfig = {
   StartupTimeoutMs: number;
   HealthcheckTimeoutMs: number;
   HealthcheckIntervalMs: number;
+  SleepIdleSeconds: number;
   VerboseLogging: boolean;
 };
 
@@ -1338,6 +1352,7 @@ export function getManagedLlamaConfig(config: unknown): ManagedLlamaConfig {
     StartupTimeoutMs: getManagedStartupTimeoutMs(serverLlama.StartupTimeoutMs, Number(defaults.StartupTimeoutMs)),
     HealthcheckTimeoutMs: getFinitePositiveInteger(serverLlama.HealthcheckTimeoutMs, Number(defaults.HealthcheckTimeoutMs)),
     HealthcheckIntervalMs: getFinitePositiveInteger(serverLlama.HealthcheckIntervalMs, Number(defaults.HealthcheckIntervalMs)),
+    SleepIdleSeconds: getFinitePositiveInteger(serverLlama.SleepIdleSeconds, Number(defaults.SleepIdleSeconds ?? DEFAULT_LLAMA_SLEEP_IDLE_SECONDS)),
     VerboseLogging: Boolean(serverLlama.VerboseLogging),
   };
 }

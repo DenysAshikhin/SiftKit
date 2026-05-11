@@ -46,9 +46,19 @@ import type {
 } from './server-types.js';
 import {
   EXECUTION_LEASE_STALE_MS,
-  IDLE_SUMMARY_DELAY_MS,
   logLine,
 } from './managed-llama.js';
+
+function getPositiveIntegerFromEnv(name: string, fallback: number): number {
+  const rawValue = process.env[name];
+  if (!rawValue || !rawValue.trim()) {
+    return fallback;
+  }
+  const parsedValue = Number.parseInt(rawValue, 10);
+  return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : fallback;
+}
+
+const IDLE_SUMMARY_DELAY_MS = getPositiveIntegerFromEnv('SIFTKIT_IDLE_SUMMARY_DELAY_MS', 600_000);
 
 // ---------------------------------------------------------------------------
 // Published status
@@ -317,12 +327,6 @@ export function scheduleIdleSummaryIfNeeded(ctx: ServerContext): void {
     ctx.idleSummaryPending = false;
     resetPendingIdleSummaryMetadata(ctx);
     publishStatus(ctx);
-    if (!isIdle(ctx)) {
-      logLine('idle_summary shutdown_aborted reason=request_arrived_during_snapshot');
-      scheduleIdleSummaryIfNeeded(ctx);
-      return;
-    }
-    await ctx.shutdownManagedLlamaIfNeeded();
   }, IDLE_SUMMARY_DELAY_MS);
   if (typeof ctx.idleSummaryTimer.unref === 'function') {
     ctx.idleSummaryTimer.unref();

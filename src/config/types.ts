@@ -74,6 +74,7 @@ export type ServerManagedLlamaCppConfig = {
   StartupTimeoutMs?: number | null;
   HealthcheckTimeoutMs?: number | null;
   HealthcheckIntervalMs?: number | null;
+  SleepIdleSeconds?: number | null;
   VerboseLogging?: boolean | null;
   Presets?: ServerManagedLlamaPreset[] | null;
   ActivePresetId?: string | null;

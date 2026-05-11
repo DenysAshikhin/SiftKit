@@ -56,7 +56,7 @@ function requestJson(url: string, timeoutMs = 5000): Promise<JsonResponse> {
   });
 }
 
-test('llama passthrough wakes managed llama after host unload', async () => {
+test('llama passthrough wakes managed llama when the managed process is offline', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llama-passthrough-'));
   const previousCwd = process.cwd();
   fs.writeFileSync(

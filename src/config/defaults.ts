@@ -10,6 +10,7 @@ import {
   SIFT_DEFAULT_LLAMA_PORT,
   SIFT_DEFAULT_LLAMA_REASONING_BUDGET,
   SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
+  SIFT_DEFAULT_LLAMA_SLEEP_IDLE_SECONDS,
   SIFT_DEFAULT_LLAMA_UBATCH_SIZE,
   SIFT_DEFAULT_NUM_CTX,
   SIFT_DEFAULT_PROMPT_PREFIX,
@@ -60,6 +61,7 @@ export function getDefaultConfigObject(): SiftConfig {
     StartupTimeoutMs: 600_000,
     HealthcheckTimeoutMs: 2_000,
     HealthcheckIntervalMs: 1_000,
+    SleepIdleSeconds: SIFT_DEFAULT_LLAMA_SLEEP_IDLE_SECONDS,
     VerboseLogging: false,
   };
   return {

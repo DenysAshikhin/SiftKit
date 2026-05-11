@@ -316,6 +316,7 @@ export type DashboardConfig = {
             StartupTimeoutMs: number;
             HealthcheckTimeoutMs: number;
             HealthcheckIntervalMs: number;
+            SleepIdleSeconds: number;
             VerboseLogging: boolean;
             Presets: DashboardManagedLlamaPreset[];
             ActivePresetId: string;
@@ -363,6 +364,7 @@ export type DashboardManagedLlamaPreset = {
     StartupTimeoutMs: number;
     HealthcheckTimeoutMs: number;
     HealthcheckIntervalMs: number;
+    SleepIdleSeconds: number;
     VerboseLogging: boolean;
 };
 export type DashboardHealth = {

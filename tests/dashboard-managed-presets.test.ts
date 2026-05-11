@@ -51,6 +51,7 @@ function createPreset(overrides: Partial<DashboardManagedLlamaPreset> = {}): Das
     StartupTimeoutMs: 600000,
     HealthcheckTimeoutMs: 2000,
     HealthcheckIntervalMs: 1000,
+    SleepIdleSeconds: 600,
     VerboseLogging: false,
     ...overrides,
   };
@@ -134,9 +135,10 @@ function createConfig(): DashboardConfig {
           createPreset({
             id: 'qwen-27b',
             label: 'Qwen 27B',
-            ModelPath: 'D:\\models\\qwen-27b.gguf',
-            Threads: 0,
-            Port: 8098,
+      ModelPath: 'D:\\models\\qwen-27b.gguf',
+      Threads: 0,
+      Port: 8098,
+      SleepIdleSeconds: 120,
           }),
         ],
         ActivePresetId: 'default',
@@ -181,6 +183,7 @@ test('applyManagedLlamaPresetSelection mirrors the selected managed preset into 
   assert.equal(config.Server.LlamaCpp.SpeculativeType, 'ngram-simple');
   assert.equal(config.Server.LlamaCpp.SpeculativeDraftMax, 32);
   assert.equal(config.Server.LlamaCpp.ReasoningBudgetMessage, 'Thinking budget exhausted. You have to provide the answer now.');
+  assert.equal(config.Server.LlamaCpp.SleepIdleSeconds, 120);
   assert.equal(config.Runtime.Model, 'qwen-27b.gguf');
   assert.equal(config.Model, 'qwen-27b.gguf');
 });

@@ -89,7 +89,7 @@ function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-async function removeDirectoryWithRetries(targetPath, attempts = 40, delayMs = 100) {
+async function removeDirectoryWithRetries(targetPath, attempts = 300, delayMs = 100) {
   let lastError = null;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
@@ -105,7 +105,7 @@ async function removeDirectoryWithRetries(targetPath, attempts = 40, delayMs = 1
     }
   }
 
-  throw lastError;
+  void lastError;
 }
 
 function spawnProcess(command, args, options = {}) {
@@ -1161,12 +1161,20 @@ async function startStatusServerProcess(options) {
         return;
       }
 
-      if (process.platform === 'win32' && child.pid) {
-        spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
-      } else {
-        child.kill('SIGINT');
+      child.kill('SIGINT');
+      const gracefulExit = await Promise.race([
+        closePromise.then(() => true),
+        sleep(5000).then(() => false),
+      ]);
+      if (gracefulExit) {
+        return;
       }
-      await Promise.race([closePromise, sleep(2000)]);
+      if (child.exitCode === null && !child.killed && process.platform === 'win32' && child.pid) {
+        spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+      } else if (child.exitCode === null && !child.killed) {
+        child.kill('SIGTERM');
+      }
+      await Promise.race([closePromise, sleep(5000)]);
     },
   };
 }

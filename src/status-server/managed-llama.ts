@@ -81,7 +81,6 @@ function getNonNegativeIntegerFromEnv(name: string, fallback: number): number {
 }
 
 export const EXECUTION_LEASE_STALE_MS = getPositiveIntegerFromEnv('SIFTKIT_EXECUTION_LEASE_STALE_MS', 10_000);
-export const IDLE_SUMMARY_DELAY_MS = getPositiveIntegerFromEnv('SIFTKIT_IDLE_SUMMARY_DELAY_MS', 600_000);
 export const LLAMA_STARTUP_GRACE_DELAY_MS = 2_000;
 const DEFAULT_MANAGED_LLAMA_METRICS_LOG_TAIL_CHARACTERS = 1_000_000;
 export const MANAGED_LLAMA_LOG_ALERT_PATTERN = /\b(?:warn(?:ing)?|error|exception|fatal)\b/iu;
@@ -473,9 +472,45 @@ function findListeningProcessIdByPort(port: number): number | null {
       }
     }
   } catch {
-    return null;
+    // Fall through to the PowerShell fallback below.
+  }
+  if (process.platform === 'win32') {
+    try {
+      const result = spawnSync('powershell.exe', [
+        '-NoProfile',
+        '-Command',
+        `Get-NetTCPConnection -LocalPort ${Math.trunc(port)} -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty OwningProcess`,
+      ], {
+        encoding: 'utf8',
+        windowsHide: true,
+      });
+      if ((result.status ?? 1) === 0) {
+        const pid = Number.parseInt(String(result.stdout || '').trim(), 10);
+        if (Number.isFinite(pid) && pid > 0) {
+          return pid;
+        }
+      }
+    } catch {
+      return null;
+    }
   }
   return null;
+}
+
+function getManagedLlamaListeningPort(config: Dict, managed: ReturnType<typeof getManagedLlamaConfig>): number {
+  const baseUrl = getManagedLlamaInternalBaseUrl(config) || getLlamaBaseUrl(config);
+  if (baseUrl) {
+    try {
+      const parsed = new URL(baseUrl);
+      const urlPort = Number.parseInt(parsed.port, 10);
+      if (Number.isFinite(urlPort) && urlPort > 0) {
+        return urlPort;
+      }
+    } catch {
+      // Fall back to the configured launcher port below.
+    }
+  }
+  return managed.Port;
 }
 
 // ---------------------------------------------------------------------------
@@ -620,6 +655,7 @@ export function buildManagedLlamaArgs(managed: ReturnType<typeof getManagedLlama
     '--repeat-penalty', String(managed.RepetitionPenalty),
     '--reasoning', managed.Reasoning,
     '--reasoning-budget', String(managed.ReasoningBudget),
+    '--sleep-idle-seconds', String(managed.SleepIdleSeconds),
     '--host', managed.BindHost,
     '--port', String(managed.Port),
   );
@@ -1207,7 +1243,8 @@ export async function shutdownManagedLlamaIfNeeded(ctx: ServerContext, shutdownO
     && ctx.managedLlamaHostProcess.exitCode === null
     && ctx.managedLlamaHostProcess.signalCode === null
   );
-  const fallbackPid = hasLaunchConfig ? findListeningProcessIdByPort(managed.Port) : null;
+  const listeningPort = getManagedLlamaListeningPort(config, managed);
+  const fallbackPid = hasLaunchConfig ? findListeningProcessIdByPort(listeningPort) : null;
   if (!hasActiveHostProcess && !fallbackPid) {
     ctx.managedLlamaReady = false;
     publishStatus(ctx);
@@ -1225,6 +1262,11 @@ export async function shutdownManagedLlamaIfNeeded(ctx: ServerContext, shutdownO
       const hostPid = ctx.managedLlamaHostProcess?.pid ?? 0;
       logLine(`llama_stop stopping pid=${hostPid}`);
       terminateProcessTree(hostPid);
+      const remainingPid = fallbackPid || findListeningProcessIdByPort(listeningPort);
+      if (remainingPid) {
+        logLine(`llama_stop stopping fallback_pid=${remainingPid}`);
+        terminateProcessTree(remainingPid);
+      }
     } else if (fallbackPid) {
       logLine(`llama_stop stopping fallback_pid=${fallbackPid}`);
       terminateProcessTree(fallbackPid);
@@ -1233,7 +1275,7 @@ export async function shutdownManagedLlamaIfNeeded(ctx: ServerContext, shutdownO
       await waitForLlamaServerReachability(config, false, shutdownDeadline);
     } catch (error) {
       if (force) {
-        const forcePid = findListeningProcessIdByPort(managed.Port);
+        const forcePid = findListeningProcessIdByPort(listeningPort);
         if (forcePid) {
           terminateProcessTree(forcePid);
         }
@@ -1345,4 +1387,3 @@ export async function clearPreexistingManagedLlamaIfNeeded(ctx: ServerContext): 
 }
 
 export { dumpManagedLlamaStartupReviewToConsole };
-

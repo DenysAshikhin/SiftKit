@@ -816,7 +816,7 @@ test('repo-search endpoint reloads executor module per request', async () => {
   }
 });
 
-test('repo-search wakes managed llama after idle shutdown', async () => {
+test('repo-search wakes managed llama when the managed process is offline', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-idle-wakeup-'));
   const previousCwd = process.cwd();
   fs.writeFileSync(
