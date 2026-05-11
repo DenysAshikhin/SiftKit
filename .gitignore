@@ -17,6 +17,11 @@ dashboard/node_modules
 /tests/.test-home
 /tests/.test-codex
 /tests/.test-bin
+/tests/.debug-home
+/tests/.debug-concurrent-home
+/tests/.tmp-home
+/.test-shard-output
+/tmp
 
 # Temp/debug files
 .tmp-*
