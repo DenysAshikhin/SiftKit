@@ -170,6 +170,6 @@ test('missing local llama files log degraded startup instead of crashing', async
       process.stderr.write = originalWrite;
     }
 
-    assert.match(stderrWrites.join(''), /No local llama\.cpp files found/u);
+    assert.match(stderrWrites.join(''), /Managed llama\.cpp is not configured/u);
   });
 });

@@ -29,6 +29,7 @@ import {
   readConfig,
   getLlamaBaseUrl,
   getManagedLlamaConfig,
+  getManagedLlamaInternalBaseUrl,
 } from './config-store.js';
 import type {
   Dict,
@@ -490,7 +491,6 @@ export function resolveManagedExecutablePath(executablePath: string | null, conf
     : path.resolve(path.dirname(configPath), executablePath);
 }
 
-export const resolveManagedScriptPath = resolveManagedExecutablePath;
 
 const MANAGED_STDOUT_STREAM: ManagedLlamaStreamKind = 'startup_script_stdout';
 const MANAGED_STDERR_STREAM: ManagedLlamaStreamKind = 'startup_script_stderr';
@@ -531,6 +531,7 @@ function attachStreamCollector(
   logRef: ManagedLlamaLogRef,
   streamKind: ManagedLlamaStreamKind,
   stream: NodeJS.ReadableStream | null,
+  onProgress?: (chars: number) => void,
 ): void {
   if (!stream) {
     return;
@@ -540,6 +541,7 @@ function attachStreamCollector(
   stream.on('data', (chunk: string | Buffer) => {
     try {
       const chunkText = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      onProgress?.(chunkText.length);
       const filteredChunkText = storageFilter.filterChunk(chunkText);
       appendManagedLlamaSpeculativeMetricsChunk({
         runId: logRef.runId,
@@ -705,11 +707,13 @@ function getManagedExecutableInvocation(
     };
 }
 
+type ChildOutputProgress = { stdoutChars: number; stderrChars: number };
+
 function spawnManagedLlamaProcess(
   ctx: ServerContext,
   managed: ReturnType<typeof getManagedLlamaConfig>,
   purpose: string,
-): { child: ChildProcess; logRef: ManagedLlamaLogRef } {
+): { child: ChildProcess; logRef: ManagedLlamaLogRef; progress: ChildOutputProgress } {
   const invocation = getManagedExecutableInvocation(ctx, managed);
   const logRef = createManagedLlamaLogRun(purpose, invocation.resolvedPath, managed.BaseUrl);
   const child = spawn(invocation.filePath, invocation.args, {
@@ -722,8 +726,9 @@ function spawnManagedLlamaProcess(
     windowsHide: true,
     detached: false,
   });
-  attachStreamCollector(logRef, MANAGED_STDOUT_STREAM, child.stdout);
-  attachStreamCollector(logRef, MANAGED_STDERR_STREAM, child.stderr);
+  const progress: ChildOutputProgress = { stdoutChars: 0, stderrChars: 0 };
+  attachStreamCollector(logRef, MANAGED_STDOUT_STREAM, child.stdout, (chars) => { progress.stdoutChars += chars; });
+  attachStreamCollector(logRef, MANAGED_STDERR_STREAM, child.stderr, (chars) => { progress.stderrChars += chars; });
   child.on('exit', (code: number | null) => {
     try {
       flushManagedLlamaLogChunks(logRef.runId);
@@ -765,7 +770,7 @@ function spawnManagedLlamaProcess(
     }
     process.stderr.write(`[siftKitStatus] llama.cpp ${purpose} executable failed to spawn (${managed.ExecutablePath}): ${error.message}\n`);
   });
-  return { child, logRef };
+  return { child, logRef, progress };
 }
 
 // ---------------------------------------------------------------------------
@@ -894,17 +899,29 @@ async function scanManagedLlamaStartupLogsOrFail(ctx: ServerContext, logRef: Man
 // Reachability checks
 // ---------------------------------------------------------------------------
 
-async function isLlamaServerReachable(config: Dict): Promise<boolean> {
-  const baseUrl = getLlamaBaseUrl(config);
+type LlamaReachability = 'ready' | 'loading' | 'offline';
+
+async function probeLlamaServerReachability(config: Dict): Promise<LlamaReachability> {
+  const baseUrl = getManagedLlamaInternalBaseUrl(config);
   if (!baseUrl) {
-    return false;
+    return 'offline';
   }
   try {
     const response = await requestText({ url: `${baseUrl.replace(/\/$/u, '')}/v1/models`, timeoutMs: getManagedLlamaConfig(config).HealthcheckTimeoutMs });
-    return response.statusCode > 0 && response.statusCode < 400;
+    if (response.statusCode > 0 && response.statusCode < 400) {
+      return 'ready';
+    }
+    if (response.statusCode === 503 && MANAGED_LLAMA_LOADING_MODEL_503_PATTERN.test(response.body || '')) {
+      return 'loading';
+    }
+    return 'offline';
   } catch {
-    return false;
+    return 'offline';
   }
+}
+
+async function isLlamaServerReachable(config: Dict): Promise<boolean> {
+  return (await probeLlamaServerReachability(config)) === 'ready';
 }
 
 async function waitForLlamaServerReachability(config: Dict, shouldBeReachable: boolean, deadline: number | null = null): Promise<void> {
@@ -917,20 +934,56 @@ async function waitForLlamaServerReachability(config: Dict, shouldBeReachable: b
     }
     await sleep(managed.HealthcheckIntervalMs);
   }
-  const baseUrl = getLlamaBaseUrl(config) || '<missing>';
-  throw new Error(`Timed out waiting for llama.cpp server at ${baseUrl} to become ${shouldBeReachable ? 'ready' : 'offline'}.`);
+  const probeUrl = getManagedLlamaInternalBaseUrl(config) || getLlamaBaseUrl(config) || '<missing>';
+  throw new Error(`Timed out waiting for llama.cpp server at ${probeUrl} to become ${shouldBeReachable ? 'ready' : 'offline'}.`);
 }
 
 async function waitForManagedLlamaStartup(
   config: Dict,
   launchedChild: ChildProcess,
   logRef: ManagedLlamaLogRef,
-  deadline: number,
+  initialDeadline: number,
+  progress: ChildOutputProgress,
 ): Promise<void> {
   const managed = getManagedLlamaConfig(config);
+  let deadline = initialDeadline;
+  let loggedLoadingExtension = false;
+  let loggedProgressExtension = false;
+  let lastSeenStderrChars = progress.stderrChars;
   while (Date.now() < deadline) {
-    if (await isLlamaServerReachable(config)) {
+    const reachability = await probeLlamaServerReachability(config);
+    if (reachability === 'ready') {
       return;
+    }
+    if (reachability === 'loading') {
+      // llama.cpp is up and mmap-ing the model. Don't let the startup deadline
+      // expire underneath an in-flight model load — extend it.
+      const extension = Math.max(managed.HealthcheckIntervalMs * 4, 5_000);
+      const extendedDeadline = Date.now() + extension;
+      if (extendedDeadline > deadline) {
+        if (!loggedLoadingExtension) {
+          logLine(`llama_start loading_model extending_deadline_ms=${extension}`);
+          loggedLoadingExtension = true;
+        }
+        deadline = extendedDeadline;
+      }
+    } else if (progress.stderrChars > lastSeenStderrChars) {
+      // Llama hasn't bound the listener yet (mmap → GPU offload → warmup all
+      // happen before `server is listening`), but the child is actively
+      // emitting stderr. Treat that as progress and reset the deadline so
+      // StartupTimeoutMs becomes "max silent stall" rather than "max total
+      // startup time". A genuinely-wedged child stops logging and trips the
+      // deadline normally.
+      const newChars = progress.stderrChars - lastSeenStderrChars;
+      lastSeenStderrChars = progress.stderrChars;
+      const extendedDeadline = Date.now() + managed.StartupTimeoutMs;
+      if (extendedDeadline > deadline) {
+        if (!loggedProgressExtension) {
+          logLine(`llama_start stderr_progress extending_deadline_ms=${managed.StartupTimeoutMs} new_chars=${newChars}`);
+          loggedProgressExtension = true;
+        }
+        deadline = extendedDeadline;
+      }
     }
     if (launchedChild.exitCode !== null || launchedChild.signalCode !== null) {
       throw buildManagedLlamaStartupExitError(launchedChild, logRef);
@@ -940,8 +993,8 @@ async function waitForManagedLlamaStartup(
   if (launchedChild.exitCode !== null || launchedChild.signalCode !== null) {
     throw buildManagedLlamaStartupExitError(launchedChild, logRef);
   }
-  const baseUrl = getLlamaBaseUrl(config) || '<missing>';
-  throw new ManagedLlamaStartupError(`Timed out waiting for llama.cpp server at ${baseUrl} to become ready.`);
+  const probeUrl = getManagedLlamaInternalBaseUrl(config) || getLlamaBaseUrl(config) || '<missing>';
+  throw new ManagedLlamaStartupError(`Timed out waiting for llama.cpp server at ${probeUrl} to become ready.`);
 }
 
 async function abortManagedLlamaStartup(ctx: ServerContext, config: Dict, launchedChild: ChildProcess | null = null): Promise<void> {
@@ -979,7 +1032,7 @@ function dumpManagedLlamaStartupReviewToConsole(logRef: ManagedLlamaLogRef | nul
 // High-level lifecycle: ensure ready / shutdown
 // ---------------------------------------------------------------------------
 
-export async function ensureManagedLlamaReady(ctx: ServerContext, _options: EnsureManagedLlamaOptions = {}): Promise<Dict> {
+export async function ensureManagedLlamaReady(ctx: ServerContext, options: EnsureManagedLlamaOptions = {}): Promise<Dict> {
   const config = readConfig(ctx.configPath);
   if (config.Backend !== 'llama.cpp') {
     ctx.managedLlamaStartupWarning = null;
@@ -1046,18 +1099,20 @@ export async function ensureManagedLlamaReady(ctx: ServerContext, _options: Ensu
       ...(!managed.ExecutablePath ? ['ExecutablePath'] : []),
       ...(!managed.ModelPath ? ['ModelPath'] : []),
     ].join(', ');
-    const message = `No local llama.cpp files found; missing config.Server.LlamaCpp.${missingFields}. Configure a local executable/model or enable an external llama.cpp server.`;
+    const message = `Managed llama.cpp is not configured; missing config.Server.LlamaCpp.${missingFields}. Set ExecutablePath and ModelPath in the dashboard's Managed llama.cpp section, or enable an external llama.cpp server.`;
     ctx.managedLlamaStartupWarning = message;
     ctx.managedLlamaReady = false;
     publishStatus(ctx);
     process.stderr.write(`[siftKitStatus] ${message}\n`);
-    return readConfig(ctx.configPath);
-  }
-  if (Date.now() >= startupDeadline) {
-    const message = `Timed out waiting for llama.cpp server at ${baseUrl} to become ready.`;
-    ctx.managedLlamaStartupWarning = message;
+    if (options.allowUnconfigured === true) {
+      return readConfig(ctx.configPath);
+    }
     throw new Error(message);
   }
+  // Recompute the startup deadline at spawn time so any time spent earlier in
+  // this function (awaiting an in-flight shutdown promise, the grace delay,
+  // reachability probes) does not eat into the model-load budget.
+  const spawnStartupDeadline = Date.now() + managed.StartupTimeoutMs;
   ctx.managedLlamaStarting = true;
   ctx.managedLlamaStartupPromise = (async () => {
     logLine(`llama_start starting executable=${managed.ExecutablePath}`);
@@ -1066,7 +1121,7 @@ export async function ensureManagedLlamaReady(ctx: ServerContext, _options: Ensu
     ctx.managedLlamaHostProcess = launched.child;
     ctx.managedLlamaLastStartupLogs = launched.logRef;
     try {
-      await waitForManagedLlamaStartup(config, launched.child, launched.logRef, startupDeadline);
+      await waitForManagedLlamaStartup(config, launched.child, launched.logRef, spawnStartupDeadline, launched.progress);
       await scanManagedLlamaStartupLogsOrFail(ctx, launched.logRef);
       writeManagedLlamaStartupReviewDump(launched.logRef, { result: 'ready', baseUrl });
       updateManagedLlamaRun({
@@ -1159,6 +1214,13 @@ export async function shutdownManagedLlamaIfNeeded(ctx: ServerContext, shutdownO
     return;
   }
   ctx.managedLlamaShutdownPromise = (async () => {
+    // Final pre-kill guard: a request may have arrived in the microtask gap
+    // between the idle-summary timer's sync isIdle check and this point.
+    // Caller can pass `force: true` to override (used during process exit).
+    if (!force && ctx.activeModelRequest) {
+      logLine(`llama_stop aborted reason=active_model_request_${ctx.activeModelRequest.kind}`);
+      return;
+    }
     if (hasActiveHostProcess) {
       const hostPid = ctx.managedLlamaHostProcess?.pid ?? 0;
       logLine(`llama_stop stopping pid=${hostPid}`);

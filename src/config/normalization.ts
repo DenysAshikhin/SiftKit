@@ -1,14 +1,9 @@
-import { normalizeWindowsPath } from '../lib/paths.js';
 import {
   RUNTIME_OWNED_LLAMA_CPP_KEYS,
-  SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT,
-  SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT,
   SIFT_DEFAULT_PROMPT_PREFIX,
-  SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT,
   SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS,
   SIFT_LEGACY_DEFAULT_NUM_CTX,
   SIFT_LEGACY_DERIVED_NUM_CTX,
-  SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT,
   SIFT_PREVIOUS_DEFAULT_MODEL,
   SIFT_PREVIOUS_DEFAULT_NUM_CTX,
 } from './constants.js';
@@ -254,16 +249,6 @@ function applyActiveManagedLlamaPreset(
     return;
   }
   copyManagedLlamaPresetToServer(serverLlamaCpp, activePreset);
-}
-
-export function isLegacyManagedStartupScriptPath(value: unknown): boolean {
-  if (typeof value !== 'string' || !value.trim()) {
-    return false;
-  }
-  const normalized = normalizeWindowsPath(value.trim());
-  return normalized === normalizeWindowsPath(SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT)
-    || normalized === normalizeWindowsPath(SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT)
-    || normalized === normalizeWindowsPath(SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT);
 }
 
 export function applyRuntimeCompatibilityView(config: SiftConfig): SiftConfig {
@@ -543,18 +528,8 @@ export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info:
     changed = true;
   }
   const serverLlama = updated.Server.LlamaCpp;
-  const legacyStartupScript = typeof (serverLlama as { StartupScript?: unknown }).StartupScript === 'string'
-    && String((serverLlama as { StartupScript?: string }).StartupScript).trim()
-    ? String((serverLlama as { StartupScript?: string }).StartupScript).trim()
-    : null;
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ExecutablePath')) {
-    serverLlama.ExecutablePath = (
-      legacyStartupScript
-      && !isLegacyManagedStartupScriptPath(legacyStartupScript)
-      && normalizeWindowsPath(legacyStartupScript) !== normalizeWindowsPath(SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT)
-    )
-      ? legacyStartupScript
-      : defaults.Server?.LlamaCpp?.ExecutablePath ?? null;
+    serverLlama.ExecutablePath = defaults.Server?.LlamaCpp?.ExecutablePath ?? null;
     changed = true;
   }
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ExternalServerEnabled')) {

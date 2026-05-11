@@ -1,6 +1,6 @@
 import * as http from 'node:http';
 import * as https from 'node:https';
-import { getLlamaBaseUrl, getManagedLlamaConfig, readConfig } from '../config-store.js';
+import { getLlamaBaseUrl, getManagedLlamaConfig, getManagedLlamaInternalBaseUrl, readConfig } from '../config-store.js';
 import { readBody, sendJson } from '../http-utils.js';
 import {
   acquireModelRequestWithWait,
@@ -99,15 +99,21 @@ async function proxyLlamaRequest(
   pathname: string,
   config: Dict,
 ): Promise<void> {
-  const baseUrl = getLlamaBaseUrl(config);
-  if (!baseUrl) {
+  const configuredBaseUrl = getLlamaBaseUrl(config);
+  if (!configuredBaseUrl) {
     sendJson(res, 503, { error: 'llama.cpp base URL is not configured.' });
     return;
   }
-  if (isSelfPassthroughBaseUrl(ctx, baseUrl)) {
+  if (isSelfPassthroughBaseUrl(ctx, configuredBaseUrl)) {
     sendJson(res, 500, { error: 'Server.LlamaCpp.BaseUrl points at the SiftKit passthrough server.' });
     return;
   }
+  // For managed llama, route the upstream call through 127.0.0.1:Port — the
+  // configured BaseUrl is what external clients (VMs, other hosts) use to
+  // reach this SiftKit's passthrough; the host itself talks to its own
+  // managed llama over loopback. For external llama, BaseUrl is the only
+  // address we know.
+  const baseUrl = getManagedLlamaInternalBaseUrl(config) || configuredBaseUrl;
   const bodyText = pathname === CHAT_COMPLETIONS_PATH ? await readBody(req) : '';
   const upstreamUrl = buildUpstreamUrl(baseUrl, req.url);
   const transport = upstreamUrl.protocol === 'https:' ? https : http;

@@ -39,7 +39,6 @@ import {
   MissingObservedBudgetError,
   SIFT_PREVIOUS_DEFAULT_MODEL,
   SIFT_LEGACY_DEFAULT_NUM_CTX,
-  SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT,
 } from '../dist/config/index.js';
 import { ensureDirectory, saveContentAtomically } from '../dist/lib/fs.js';
 import { withTestEnvAndServer, type Dict } from './_test-helpers.js';
@@ -832,6 +831,30 @@ test('saveConfig preserves managed llama external server settings', async () => 
   });
 });
 
+test('saveConfig persists managed llama ExecutablePath and ModelPath that the dashboard sends', async () => {
+  await withTestEnvAndServer(async () => {
+    const config = await loadConfig({ ensure: true });
+    config.Server ??= { LlamaCpp: {} };
+    config.Server.LlamaCpp ??= {};
+    const dashboardExecutablePath = 'C:\\\\Users\\\\test\\\\llamacpp\\\\llama-server.exe';
+    const dashboardModelPath = 'D:\\\\models\\\\some-model.gguf';
+    config.Server.LlamaCpp.ExecutablePath = dashboardExecutablePath;
+    config.Server.LlamaCpp.ModelPath = dashboardModelPath;
+    if (config.Server.LlamaCpp.Presets?.[0]) {
+      config.Server.LlamaCpp.Presets[0].ExecutablePath = dashboardExecutablePath;
+      config.Server.LlamaCpp.Presets[0].ModelPath = dashboardModelPath;
+    }
+
+    await saveConfig(config);
+    const loaded = await loadConfig({ ensure: true });
+
+    assert.equal(loaded.Server?.LlamaCpp?.ExecutablePath, dashboardExecutablePath);
+    assert.equal(loaded.Server?.LlamaCpp?.ModelPath, dashboardModelPath);
+    assert.equal(loaded.Server?.LlamaCpp?.Presets?.[0]?.ExecutablePath, dashboardExecutablePath);
+    assert.equal(loaded.Server?.LlamaCpp?.Presets?.[0]?.ModelPath, dashboardModelPath);
+  });
+});
+
 test('loadConfig handles missing Thresholds fields', async () => {
   await withTestEnvAndServer(async ({ stub }) => {
     delete (stub.state.config as Dict).Thresholds;
@@ -907,18 +930,6 @@ test('loadConfig migrates top-level Model to Runtime.Model', async () => {
     delete runtime.Model;
     const config = await loadConfig({ ensure: true });
     assert.equal(typeof config.Effective, 'object');
-  });
-});
-
-test('loadConfig replaces legacy startup script paths', async () => {
-  await withTestEnvAndServer(async ({ stub }) => {
-    const server = ((stub.state.config as Dict).Server as Dict) || {};
-    (stub.state.config as Dict).Server = server;
-    const serverLlamaCpp = (server.LlamaCpp as Dict) || {};
-    server.LlamaCpp = serverLlamaCpp;
-    serverLlamaCpp.StartupScript = SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT;
-    const config = await loadConfig({ ensure: true });
-    assert.notEqual(config.Server?.LlamaCpp?.StartupScript, SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT);
   });
 });
 

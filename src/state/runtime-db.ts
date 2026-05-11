@@ -7,7 +7,7 @@ import { normalizeOperationModeAllowedTools, normalizePresets } from '../presets
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-const CURRENT_SCHEMA_VERSION = 22;
+const CURRENT_SCHEMA_VERSION = 23;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["repo_rg","repo_read_file","repo_list_files","repo_git","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}';
 
@@ -902,6 +902,16 @@ function ensureSchema(database: RuntimeDatabase): void {
     setSchemaVersion(database, 22);
     currentVersion = 22;
   }
+  if (currentVersion < 23) {
+    const legacyColumns = ['server_startup_script', 'server_shutdown_script', 'server_verbose_args_json'];
+    for (const column of legacyColumns) {
+      if (tableHasColumn(database, 'app_config', column)) {
+        database.exec(`ALTER TABLE app_config DROP COLUMN ${column};`);
+      }
+    }
+    setSchemaVersion(database, 23);
+    currentVersion = 23;
+  }
   ensureRuntimeArtifactsSchema(database);
   ensureManagedLlamaAndBenchmarkMatrixSchema(database);
   ensureRuntimeErrorEventsSchema(database);
@@ -1001,6 +1011,74 @@ export function getRuntimeMetadataValue(
     LIMIT 1
   `).get(normalizedKey) as { value?: unknown } | undefined;
   return typeof row?.value === 'string' ? row.value : null;
+}
+
+export interface PruneRuntimeHistoryResult {
+  retentionDays: number;
+  cutoffUtc: string;
+  deleted: { table: string; rows: number }[];
+  vacuumed: boolean;
+}
+
+const RUNTIME_HISTORY_VACUUM_FREELIST_RATIO = 0.1;
+
+export function pruneRuntimeHistory(
+  retentionDays: number,
+  databasePath: string = getRuntimeDatabasePath(),
+): PruneRuntimeHistoryResult {
+  const days = Math.max(1, Math.floor(retentionDays));
+  const cutoffUtc = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const database = getRuntimeDatabase(databasePath);
+  const deleted: { table: string; rows: number }[] = [];
+
+  // managed_llama_log_chunks cascade-deletes via FK ON DELETE CASCADE on the runs table.
+  const deleteStatements: { table: string; sql: string }[] = [
+    { table: 'runtime_artifacts', sql: 'DELETE FROM runtime_artifacts WHERE created_at_utc < ?' },
+    {
+      table: 'run_logs',
+      sql: 'DELETE FROM run_logs WHERE COALESCE(finished_at_utc, started_at_utc, flushed_at_utc) < ?',
+    },
+    {
+      table: 'managed_llama_runs',
+      sql: "DELETE FROM managed_llama_runs WHERE status != 'running' AND COALESCE(finished_at_utc, started_at_utc) < ?",
+    },
+    { table: 'idle_summary_snapshots', sql: 'DELETE FROM idle_summary_snapshots WHERE emitted_at_utc < ?' },
+    { table: 'runtime_error_events', sql: 'DELETE FROM runtime_error_events WHERE created_at_utc < ?' },
+    { table: 'benchmark_runs', sql: 'DELETE FROM benchmark_runs WHERE created_at_utc < ?' },
+  ];
+
+  database.transaction(() => {
+    for (const { table, sql } of deleteStatements) {
+      if (!tableExists(database, table)) {
+        deleted.push({ table, rows: 0 });
+        continue;
+      }
+      const info = database.prepare(sql).run(cutoffUtc);
+      deleted.push({ table, rows: Number(info.changes) || 0 });
+    }
+  })();
+
+  try {
+    database.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+  } catch {
+    // Best-effort; continue.
+  }
+
+  let vacuumed = false;
+  try {
+    const freelistRow = database.prepare('PRAGMA freelist_count').get() as { freelist_count?: number } | undefined;
+    const pageRow = database.prepare('PRAGMA page_count').get() as { page_count?: number } | undefined;
+    const freelistCount = Number(freelistRow?.freelist_count) || 0;
+    const pageCount = Number(pageRow?.page_count) || 0;
+    if (pageCount > 0 && freelistCount / pageCount > RUNTIME_HISTORY_VACUUM_FREELIST_RATIO) {
+      database.exec('VACUUM;');
+      vacuumed = true;
+    }
+  } catch {
+    // VACUUM cannot run inside an open transaction or while locks are held; best-effort.
+  }
+
+  return { retentionDays: days, cutoffUtc, deleted, vacuumed };
 }
 
 export function setRuntimeMetadataValue(

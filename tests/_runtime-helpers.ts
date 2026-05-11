@@ -40,10 +40,6 @@ import {
   getEffectiveInputCharactersPerContextToken,
   initializeRuntime,
   getStatusServerUnavailableMessage,
-  SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT,
-  SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT,
-  SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT,
-  SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT,
 } from '../dist/config/index.js';
 import { summarizeRequest, readSummaryInput } from '../dist/summary/core.js';
 import { buildPrompt } from '../dist/summary/prompt.js';
@@ -837,9 +833,6 @@ function seedRuntimeConfigFromJson(configPath) {
     if (!serverLlama.BaseUrl && config?.Runtime?.LlamaCpp?.BaseUrl) {
       serverLlama.BaseUrl = config.Runtime.LlamaCpp.BaseUrl;
     }
-    if (!serverLlama.ExecutablePath && serverLlama.StartupScript) {
-      serverLlama.ExecutablePath = serverLlama.StartupScript;
-    }
     if (!serverLlama.ModelPath && serverLlama.ExecutablePath) {
       const modelPath = path.join(path.dirname(serverLlama.ExecutablePath), 'managed-test-model.gguf');
       if (!fs.existsSync(modelPath)) {
@@ -951,11 +944,13 @@ async function withRealStatusServer(fn, options = {}) {
     SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS: process.env.SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS,
     SIFTKIT_EXECUTION_LEASE_STALE_MS: process.env.SIFTKIT_EXECUTION_LEASE_STALE_MS,
     SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS,
+    SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE: process.env.SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE,
   };
 
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
   process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
+  process.env.SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE = '1';
   process.env.sift_kit_status = options.statusPath;
   process.env.SIFTKIT_STATUS_PATH = options.statusPath;
   process.env.SIFTKIT_CONFIG_PATH = options.configPath;
@@ -1033,6 +1028,7 @@ async function startStatusServerProcess(options) {
     ...(getOptionalNonNegativeInteger(options.managedLlamaFlushIdleDelayMs) !== null ? { SIFTKIT_MANAGED_LLAMA_FLUSH_IDLE_DELAY_MS: String(getOptionalNonNegativeInteger(options.managedLlamaFlushIdleDelayMs)) } : {}),
     ...(getOptionalNonNegativeInteger(options.executionLeaseStaleMs) !== null ? { SIFTKIT_EXECUTION_LEASE_STALE_MS: String(getOptionalNonNegativeInteger(options.executionLeaseStaleMs)) } : {}),
     SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: '0',
+    SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE: '1',
   };
   const statusServerEntrypoint = path.resolve(__dirname, '..', 'dist', 'status-server', 'index.js');
   const args = [statusServerEntrypoint];
@@ -1280,9 +1276,16 @@ const port = ${JSON.stringify(port)};
 const modelId = ${JSON.stringify(modelId)};
 const readyFilePath = ${JSON.stringify(readyFilePath)};
 const pidFilePath = ${JSON.stringify(pidFilePath)};
+let loadingModelResponses = ${JSON.stringify(Number.isFinite(options.initial503LoadingModelCount) ? Number(options.initial503LoadingModelCount) : 0)};
 
 const server = http.createServer((req, res) => {
   if (req.method === 'GET' && req.url === '/v1/models') {
+    if (loadingModelResponses > 0) {
+      loadingModelResponses -= 1;
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: { message: 'Loading model', type: 'unavailable_error', code: 503 } }));
+      return;
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ data: [{ id: modelId }] }));
     return;
@@ -1630,8 +1633,6 @@ export {
   getChunkThresholdCharacters, getConfiguredLlamaNumCtx,
   getEffectiveInputCharactersPerContextToken, initializeRuntime,
   getStatusServerUnavailableMessage,
-  SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT,
-  SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT,
   summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks,
   getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE,
   runCommand, runBenchmarkSuite,

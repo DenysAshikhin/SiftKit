@@ -332,7 +332,6 @@ test('managed llama readiness wait is serialized by the model request queue', as
       LlamaCpp: {
         BaseUrl: managed.baseUrl,
         ExecutablePath: managed.startupScriptPath,
-        ShutdownScript: managed.shutdownScriptPath,
         ModelPath: managed.modelPath,
         StartupTimeoutMs: 250,
         HealthcheckTimeoutMs: 20,
@@ -437,7 +436,6 @@ test('health reports unavailable while managed llama bootstrap is still starting
       LlamaCpp: {
         BaseUrl: managed.baseUrl,
         ExecutablePath: managed.startupScriptPath,
-        ShutdownScript: managed.shutdownScriptPath,
         ModelPath: managed.modelPath,
         StartupTimeoutMs: 900,
         HealthcheckTimeoutMs: 20,
@@ -850,7 +848,6 @@ test('repo-search wakes managed llama after idle shutdown', async () => {
       LlamaCpp: {
         BaseUrl: managed.baseUrl,
         ExecutablePath: managed.startupScriptPath,
-        ShutdownScript: managed.shutdownScriptPath,
         ModelPath: managed.modelPath,
         StartupTimeoutMs: 5000,
         HealthcheckTimeoutMs: 100,

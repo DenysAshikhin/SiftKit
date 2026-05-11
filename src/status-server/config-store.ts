@@ -21,11 +21,6 @@ export const DEFAULT_LLAMA_CACHE_RAM = 8192;
 export const DEFAULT_LLAMA_KV_CACHE_QUANTIZATION = 'f16';
 export const DEFAULT_LLAMA_REASONING_BUDGET = 10_000;
 export const DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE = 'Thinking budget exhausted. You have to provide the answer now.';
-export const PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-35B-4bit-150k-no-thinking.ps1';
-export const FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k.ps1';
-export const BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT = 'D:\\personal\\models\\Start-Qwen35-9B-Q8-200k-thinking.ps1';
-export const DEFAULT_LLAMA_STARTUP_SCRIPT = 'C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\scripts\\start-qwen35-9b-q8-200k-thinking-managed.ps1';
-export const DEFAULT_LLAMA_SHUTDOWN_SCRIPT = 'C:\\Users\\denys\\Documents\\GitHub\\SiftKit\\scripts\\stop-llama-server.ps1';
 
 export const MAX_LLAMA_STARTUP_TIMEOUT_MS = 600_000;
 export const DEFAULT_LLAMA_STARTUP_TIMEOUT_MS = 600_000;
@@ -280,16 +275,6 @@ function getManagedSpeculativeType(value: unknown, fallback: string): string {
     : fallback;
 }
 
-export function isLegacyManagedStartupScriptPath(value: unknown): boolean {
-  if (typeof value !== 'string' || !value.trim()) {
-    return false;
-  }
-  const normalized = normalizeWindowsPath(value.trim());
-  return normalized === normalizeWindowsPath(PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT)
-    || normalized === normalizeWindowsPath(FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT)
-    || normalized === normalizeWindowsPath(BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT);
-}
-
 export function mergeConfig(baseValue: unknown, patchValue: unknown): unknown {
   if (Array.isArray(baseValue) && Array.isArray(patchValue)) {
     return patchValue.slice();
@@ -404,17 +389,8 @@ export function normalizeConfig(input: unknown): Dict {
       }
     }
   }
-  const legacyStartupScript = typeof serverLlama.StartupScript === 'string' && serverLlama.StartupScript.trim()
-    ? serverLlama.StartupScript.trim()
-    : null;
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ExecutablePath')) {
-    serverLlama.ExecutablePath = (
-      legacyStartupScript
-      && !isLegacyManagedStartupScriptPath(legacyStartupScript)
-      && normalizeWindowsPath(legacyStartupScript) !== normalizeWindowsPath(DEFAULT_LLAMA_STARTUP_SCRIPT)
-    )
-      ? legacyStartupScript
-      : null;
+    serverLlama.ExecutablePath = null;
   }
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ExternalServerEnabled')) {
     serverLlama.ExternalServerEnabled = false;
@@ -985,12 +961,6 @@ function readConfigRow(databasePath: string): AppConfigRow | null {
 
 function writeConfigRow(databasePath: string, row: AppConfigRow): void {
   const database = getRuntimeDatabase(databasePath);
-  const hasLegacyVerboseArgsColumn = Boolean(database.prepare(`
-    SELECT 1 AS present
-    FROM pragma_table_info('app_config')
-    WHERE name = 'server_verbose_args_json'
-    LIMIT 1
-  `).get());
   const columns = [
     'id',
     'version',
@@ -1054,9 +1024,6 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
     'server_llama_presets_json',
     'server_llama_active_preset_id',
     'server_external_server_enabled',
-    ...(hasLegacyVerboseArgsColumn
-      ? ['server_startup_script', 'server_shutdown_script', 'server_verbose_args_json']
-      : []),
     'operation_mode_allowed_tools_json',
     'presets_json',
     'updated_at_utc',
@@ -1075,13 +1042,6 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
       ${assignments.join(',\n      ')}
   `).run({
     ...row,
-    ...(hasLegacyVerboseArgsColumn
-      ? {
-        server_startup_script: null,
-        server_shutdown_script: null,
-        server_verbose_args_json: '[]',
-      }
-      : {}),
     updated_at_utc: new Date().toISOString(),
   });
 }
@@ -1281,25 +1241,58 @@ export function getLlamaBaseUrl(config: unknown): string | null {
   return getManagedLlamaConfig(config).BaseUrl;
 }
 
+/**
+ * Returns the URL the host's own SiftKit should use to talk to its managed
+ * llama. The configured BaseUrl is what *external* clients (VM SiftKits,
+ * other hosts on the LAN) use to reach this llama via the passthrough route.
+ * For host-internal calls we want loopback — otherwise we depend on the
+ * user-supplied BaseUrl being routable from the host back to itself, which
+ * fails when BaseUrl is a stale/wrong LAN IP, when Hyper-V hairpinning is
+ * misconfigured, when Windows Firewall blocks the host's own LAN IP, etc.
+ *
+ * Rules:
+ *   - External llama: always BaseUrl (we have no other handle on it).
+ *   - Managed llama, BaseUrl is loopback (127.0.0.1 / localhost / ::1): use
+ *     BaseUrl as-is so the user's explicit port choice in BaseUrl is honored
+ *     even if it doesn't match Server.LlamaCpp.Port (e.g. test scaffolds).
+ *   - Managed llama, BaseUrl is non-loopback (or missing): use
+ *     http://127.0.0.1:${Port} where Port is the port llama-server was
+ *     launched on. This is the fix for stale LAN-IP BaseUrl.
+ */
+export function getManagedLlamaInternalBaseUrl(config: unknown): string | null {
+  const managed = getManagedLlamaConfig(config);
+  if (managed.ExternalServerEnabled) {
+    return managed.BaseUrl;
+  }
+  const baseUrl = managed.BaseUrl;
+  if (baseUrl) {
+    try {
+      const hostname = new URL(baseUrl).hostname.toLowerCase();
+      if (hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '::1' || hostname === '[::1]') {
+        return baseUrl;
+      }
+    } catch {
+      // Fall through to the loopback-by-port path below.
+    }
+  }
+  if (!managed.Port || managed.Port <= 0) {
+    return baseUrl;
+  }
+  return `http://127.0.0.1:${managed.Port}`;
+}
+
 export function getManagedLlamaConfig(config: unknown): ManagedLlamaConfig {
   const defaults = (getDefaultConfig().Server as Dict).LlamaCpp as Dict;
   const cfg = (config ?? {}) as Dict;
   const srv = (cfg.Server ?? {}) as Dict;
   const serverLlama = (srv.LlamaCpp ?? {}) as Dict;
-  const legacyExecutablePath = getNullableTrimmedString(serverLlama.StartupScript);
   const reasoning = getNullableTrimmedString(serverLlama.Reasoning);
   const reasoningEnabled = reasoning === 'on';
   const reasoningContentEnabled = reasoningEnabled && serverLlama.ReasoningContent === true;
   return {
     ExternalServerEnabled: serverLlama.ExternalServerEnabled === true,
     ExecutablePath: getNullableTrimmedString(serverLlama.ExecutablePath)
-      || (
-        legacyExecutablePath
-        && !isLegacyManagedStartupScriptPath(legacyExecutablePath)
-        && normalizeWindowsPath(legacyExecutablePath) !== normalizeWindowsPath(DEFAULT_LLAMA_STARTUP_SCRIPT)
-          ? legacyExecutablePath
-          : getNullableTrimmedString(defaults.ExecutablePath)
-      ),
+      || getNullableTrimmedString(defaults.ExecutablePath),
     BaseUrl: getNullableTrimmedString(serverLlama.BaseUrl) || getNullableTrimmedString(defaults.BaseUrl),
     BindHost: getNullableTrimmedString(serverLlama.BindHost) || String(defaults.BindHost || DEFAULT_LLAMA_BIND_HOST),
     Port: getFinitePositiveInteger(serverLlama.Port, Number(defaults.Port ?? DEFAULT_LLAMA_PORT)),

@@ -8,7 +8,7 @@ const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const Database = require('better-sqlite3');
 
-const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage, SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT } = require('../dist/config/index.js');
+const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage } = require('../dist/config/index.js');
 const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../dist/summary.js');
 const { runCommand } = require('../dist/command.js');
 const { runBenchmarkSuite } = require('../dist/benchmark/index.js');
@@ -255,69 +255,8 @@ test('loadConfig normalizes legacy defaults and keeps bootstrap effective budget
         },
         Server: {
           LlamaCpp: {
-            StartupScript: SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT,
-          },
-        },
-      },
-    });
-  });
-});
-
-test('default managed startup script points to the repo-owned 9b thinking launcher', () => {
-  assert.match(
-    SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT,
-    /scripts[\\/]+start-qwen35-9b-q8-200k-thinking-managed\.ps1$/iu,
-  );
-  assert.equal(fs.existsSync(SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT), true);
-});
-
-test('loadConfig ignores legacy startup script after ExecutablePath cutover', async () => {
-  await withTempEnv(async () => {
-    await withStubServer(async () => {
-      const config = await loadConfig({ ensure: true });
-
-      assert.equal(config.Server.LlamaCpp.ExecutablePath, null);
-    }, {
-      config: {
-        Server: {
-          LlamaCpp: {
-            StartupScript: SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT,
-          },
-        },
-      },
-    });
-  });
-});
-
-test('loadConfig ignores broken legacy startup script after ExecutablePath cutover', async () => {
-  await withTempEnv(async () => {
-    await withStubServer(async () => {
-      const config = await loadConfig({ ensure: true });
-
-      assert.equal(config.Server.LlamaCpp.ExecutablePath, null);
-    }, {
-      config: {
-        Server: {
-          LlamaCpp: {
-            StartupScript: SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT,
-          },
-        },
-      },
-    });
-  });
-});
-
-test('loadConfig ignores legacy startup script path regardless of Windows path casing after cutover', async () => {
-  await withTempEnv(async () => {
-    await withStubServer(async () => {
-      const config = await loadConfig({ ensure: true });
-
-      assert.equal(config.Server.LlamaCpp.ExecutablePath, null);
-    }, {
-      config: {
-        Server: {
-          LlamaCpp: {
-            StartupScript: String(SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT).toLowerCase(),
+            StartupScript: 'D:\\\\legacy\\\\start-something.ps1',
+            ShutdownScript: 'D:\\\\legacy\\\\stop-something.ps1',
           },
         },
       },
@@ -472,8 +411,7 @@ test('real status server passes managed startup env flag to startup scripts', as
     setManagedLlamaBaseUrl(config, managed.baseUrl);
     config.Server = {
       LlamaCpp: {
-        StartupScript: managed.startupScriptPath,
-        ShutdownScript: managed.shutdownScriptPath,
+        ExecutablePath: managed.startupScriptPath,
         StartupTimeoutMs: 5000,
         HealthcheckTimeoutMs: 100,
         HealthcheckIntervalMs: 10,
@@ -506,13 +444,11 @@ test('real status server passes managed verbose env settings to startup scripts'
     setManagedLlamaBaseUrl(config, managed.baseUrl);
     config.Server = {
       LlamaCpp: {
-        StartupScript: managed.startupScriptPath,
-        ShutdownScript: managed.shutdownScriptPath,
+        ExecutablePath: managed.startupScriptPath,
         StartupTimeoutMs: 5000,
         HealthcheckTimeoutMs: 100,
         HealthcheckIntervalMs: 10,
         VerboseLogging: true,
-        VerboseArgs: ['--verbose'],
       },
     };
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
@@ -527,56 +463,6 @@ test('real status server passes managed verbose env settings to startup scripts'
     }, {
       statusPath,
       configPath,
-    });
-  });
-});
-
-test('real status server preserves legacy default startup script as ExecutablePath during cutover', async () => {
-  await withTempEnv(async (tempRoot) => {
-    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
-    const configPath = path.join(tempRoot, 'config.json');
-    const config = getDefaultConfig();
-    config.Backend = 'noop';
-    config.Server = {
-      LlamaCpp: {
-        StartupScript: SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT,
-      },
-    };
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
-
-    await withRealStatusServer(async ({ configUrl }) => {
-      const loadedConfig = await requestJson(configUrl);
-
-      assert.equal(loadedConfig.Server.LlamaCpp.ExecutablePath, SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT);
-    }, {
-      statusPath,
-      configPath,
-      disableManagedLlamaStartup: true,
-    });
-  });
-});
-
-test('real status server preserves legacy startup script path casing as ExecutablePath during cutover', async () => {
-  await withTempEnv(async (tempRoot) => {
-    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
-    const configPath = path.join(tempRoot, 'config.json');
-    const config = getDefaultConfig();
-    config.Backend = 'noop';
-    config.Server = {
-      LlamaCpp: {
-        StartupScript: String(SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT).toLowerCase(),
-      },
-    };
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
-
-    await withRealStatusServer(async ({ configUrl }) => {
-      const loadedConfig = await requestJson(configUrl);
-
-      assert.equal(loadedConfig.Server.LlamaCpp.ExecutablePath, String(SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT).toLowerCase());
-    }, {
-      statusPath,
-      configPath,
-      disableManagedLlamaStartup: true,
     });
   });
 });
@@ -598,48 +484,52 @@ test('real status server defaults new config to no managed ExecutablePath', asyn
   });
 });
 
-test('real status server preserves former 9b non-thinking startup script as ExecutablePath during cutover', async () => {
+test('real status server PUT /config persists managed ExecutablePath/ModelPath as the dashboard sends them', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
-    const config = getDefaultConfig();
-    config.Backend = 'noop';
-    config.Server = {
-      LlamaCpp: {
-        StartupScript: SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT,
-      },
-    };
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+    const dashboardExecutablePath = path.join(tempRoot, 'dashboard-exe.ps1');
+    const dashboardModelPath = path.join(tempRoot, 'dashboard-model.gguf');
+    fs.writeFileSync(dashboardExecutablePath, '# placeholder', 'utf8');
+    fs.writeFileSync(dashboardModelPath, 'fake model', 'utf8');
 
     await withRealStatusServer(async ({ configUrl }) => {
-      const loadedConfig = await requestJson(configUrl);
+      const initial = await requestJson(configUrl);
+      const dashboardPayload = JSON.parse(JSON.stringify(initial));
+      dashboardPayload.Server.LlamaCpp.ExecutablePath = dashboardExecutablePath;
+      dashboardPayload.Server.LlamaCpp.ModelPath = dashboardModelPath;
+      if (Array.isArray(dashboardPayload.Server.LlamaCpp.Presets) && dashboardPayload.Server.LlamaCpp.Presets[0]) {
+        dashboardPayload.Server.LlamaCpp.Presets[0].ExecutablePath = dashboardExecutablePath;
+        dashboardPayload.Server.LlamaCpp.Presets[0].ModelPath = dashboardModelPath;
+      }
 
-      assert.equal(loadedConfig.Server.LlamaCpp.ExecutablePath, SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT);
-    }, {
-      statusPath,
-      configPath,
-      disableManagedLlamaStartup: true,
-    });
-  });
-});
+      const putResponse = await requestJson(configUrl, {
+        method: 'PUT',
+        body: JSON.stringify(dashboardPayload),
+      });
+      assert.equal(putResponse.Server.LlamaCpp.ExecutablePath, dashboardExecutablePath);
+      assert.equal(putResponse.Server.LlamaCpp.ModelPath, dashboardModelPath);
 
-test('real status server preserves broken external 9b thinking startup script as ExecutablePath during cutover', async () => {
-  await withTempEnv(async (tempRoot) => {
-    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
-    const configPath = path.join(tempRoot, 'config.json');
-    const config = getDefaultConfig();
-    config.Backend = 'noop';
-    config.Server = {
-      LlamaCpp: {
-        StartupScript: SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT,
-      },
-    };
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+      const reloaded = await requestJson(configUrl);
+      assert.equal(reloaded.Server.LlamaCpp.ExecutablePath, dashboardExecutablePath);
+      assert.equal(reloaded.Server.LlamaCpp.ModelPath, dashboardModelPath);
+      assert.ok(Array.isArray(reloaded.Server.LlamaCpp.Presets));
+      assert.equal(reloaded.Server.LlamaCpp.Presets[0].ExecutablePath, dashboardExecutablePath);
+      assert.equal(reloaded.Server.LlamaCpp.Presets[0].ModelPath, dashboardModelPath);
 
-    await withRealStatusServer(async ({ configUrl }) => {
-      const loadedConfig = await requestJson(configUrl);
-
-      assert.equal(loadedConfig.Server.LlamaCpp.ExecutablePath, SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT);
+      const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
+      const database = new Database(runtimeDbPath);
+      try {
+        const row = database.prepare('SELECT server_executable_path, server_model_path, server_llama_presets_json FROM app_config WHERE id = 1').get();
+        assert.equal(row.server_executable_path, dashboardExecutablePath);
+        assert.equal(row.server_model_path, dashboardModelPath);
+        const presets = JSON.parse(row.server_llama_presets_json || '[]');
+        assert.ok(Array.isArray(presets) && presets.length > 0, 'expected non-empty presets in row');
+        assert.equal(presets[0].ExecutablePath, dashboardExecutablePath);
+        assert.equal(presets[0].ModelPath, dashboardModelPath);
+      } finally {
+        database.close();
+      }
     }, {
       statusPath,
       configPath,
@@ -660,8 +550,7 @@ test('real status server allows startup scripts to call config before launch and
     setManagedLlamaBaseUrl(config, managed.baseUrl);
     config.Server = {
       LlamaCpp: {
-        StartupScript: managed.startupScriptPath,
-        ShutdownScript: managed.shutdownScriptPath,
+        ExecutablePath: managed.startupScriptPath,
         StartupTimeoutMs: 5000,
         HealthcheckTimeoutMs: 100,
         HealthcheckIntervalMs: 10,
@@ -702,8 +591,7 @@ test('real status server does not launch a second process when managed llama is 
     config.Runtime.Model = 'initial-model';
     config.Server = {
       LlamaCpp: {
-        StartupScript: managed.startupScriptPath,
-        ShutdownScript: null,
+        ExecutablePath: managed.startupScriptPath,
         StartupTimeoutMs: 5000,
         HealthcheckTimeoutMs: 100,
         HealthcheckIntervalMs: 10,

@@ -37,7 +37,7 @@ import {
   normalizeIdleSummarySnapshotRow,
 } from './dashboard-runs.js';
 import { runRuntimeCutoverMigration } from './runtime-cutover.js';
-import { closeRuntimeDatabase } from '../state/runtime-db.js';
+import { closeRuntimeDatabase, pruneRuntimeHistory } from '../state/runtime-db.js';
 import { deleteManagedLlamaLogChunksOlderThan } from '../state/managed-llama-runs.js';
 import { ManagedLlamaFlushQueue } from './managed-llama-flush-queue.js';
 import {
@@ -117,6 +117,43 @@ const MANAGED_LLAMA_LOG_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
 const MANAGED_LLAMA_LOG_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 const DEFAULT_TERMINAL_METADATA_IDLE_DELAY_MS = 10_000;
 const DEFAULT_MANAGED_LLAMA_FLUSH_IDLE_DELAY_MS = 10_000;
+const DEFAULT_RUNTIME_HISTORY_RETENTION_DAYS = 7;
+const RUNTIME_HISTORY_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+function getRuntimeHistoryRetentionDays(): number {
+  const envValue = Number.parseInt(process.env.SIFTKIT_RUNTIME_HISTORY_RETENTION_DAYS || '', 10);
+  if (Number.isFinite(envValue) && envValue > 0) {
+    return envValue;
+  }
+  return DEFAULT_RUNTIME_HISTORY_RETENTION_DAYS;
+}
+
+function isRuntimeHistoryPruneDisabled(): boolean {
+  const value = String(process.env.SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE || '').trim().toLowerCase();
+  return value === '1' || value === 'true' || value === 'yes';
+}
+
+function runRuntimeHistoryPrune(): void {
+  if (isRuntimeHistoryPruneDisabled()) {
+    return;
+  }
+  try {
+    const result = pruneRuntimeHistory(getRuntimeHistoryRetentionDays());
+    const totalDeleted = result.deleted.reduce((acc, item) => acc + item.rows, 0);
+    if (totalDeleted === 0 && !result.vacuumed) {
+      return;
+    }
+    const breakdown = result.deleted
+      .filter(({ rows }) => rows > 0)
+      .map(({ table, rows }) => `${table}=${rows}`)
+      .join(' ');
+    process.stderr.write(
+      `[siftKitStatus] Pruned runtime history older than ${result.retentionDays}d:${breakdown ? ` ${breakdown}` : ''}${result.vacuumed ? ' vacuum=ran' : ''}\n`,
+    );
+  } catch (error) {
+    process.stderr.write(`[siftKitStatus] Runtime history prune failed: ${error instanceof Error ? error.message : String(error)}\n`);
+  }
+}
 
 function getTerminalMetadataIdleDelayMs(options: StartStatusServerOptions): number {
   const configuredValue = options.terminalMetadataIdleDelayMs
@@ -209,6 +246,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     managedLlamaStartupWarning: null,
     bootstrapManagedLlamaStartup: false,
     managedLlamaLogCleanupTimer: null,
+    runtimeHistoryPruneTimer: null,
     managedLlamaFlushQueue: new ManagedLlamaFlushQueue({ idleDelayMs: getManagedLlamaFlushIdleDelayMs(options) }),
     // Late-bound function references (break circular deps between modules).
     shutdownManagedLlamaIfNeeded: (opts) => shutdownManagedLlamaIfNeeded(ctx, opts),
@@ -231,6 +269,12 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   }, MANAGED_LLAMA_LOG_CLEANUP_INTERVAL_MS);
   if (typeof ctx.managedLlamaLogCleanupTimer.unref === 'function') {
     ctx.managedLlamaLogCleanupTimer.unref();
+  }
+  ctx.runtimeHistoryPruneTimer = setInterval(() => {
+    runRuntimeHistoryPrune();
+  }, RUNTIME_HISTORY_PRUNE_INTERVAL_MS);
+  if (typeof ctx.runtimeHistoryPruneTimer.unref === 'function') {
+    ctx.runtimeHistoryPruneTimer.unref();
   }
 
   // Override close to ensure managed llama shuts down first.
@@ -276,6 +320,10 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       const port = typeof address === 'object' && address ? address.port : requestedPort;
       process.stdout.write(`${JSON.stringify({ ok: true, port, host, statusPath, configPath, startupWarning })}\n`);
       resolveStartupPromise();
+      // Defer history prune until after the ready signal so a large initial cleanup
+      // (DELETE + WAL checkpoint + optional VACUUM on a multi-GB DB) cannot stall
+      // the listen callback or block early request handling.
+      setImmediate(() => runRuntimeHistoryPrune());
     } catch (error) {
       rejectStartupPromise(error);
       dumpManagedLlamaStartupReviewToConsole(ctx.managedLlamaLastStartupLogs);
@@ -288,6 +336,10 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     if (ctx.managedLlamaLogCleanupTimer) {
       clearInterval(ctx.managedLlamaLogCleanupTimer);
       ctx.managedLlamaLogCleanupTimer = null;
+    }
+    if (ctx.runtimeHistoryPruneTimer) {
+      clearInterval(ctx.runtimeHistoryPruneTimer);
+      ctx.runtimeHistoryPruneTimer = null;
     }
     if (ctx.idleSummaryDatabase) {
       ctx.idleSummaryDatabase.close();

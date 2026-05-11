@@ -8,7 +8,7 @@ const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const Database = require('better-sqlite3');
 
-const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage, SIFT_BROKEN_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_FORMER_DEFAULT_LLAMA_STARTUP_SCRIPT, SIFT_PREVIOUS_DEFAULT_LLAMA_STARTUP_SCRIPT } = require('../dist/config/index.js');
+const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage } = require('../dist/config/index.js');
 const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../dist/summary.js');
 const { runCommand } = require('../dist/command.js');
 const { runBenchmarkSuite } = require('../dist/benchmark/index.js');
@@ -1036,18 +1036,20 @@ test('real status server patches speculative acceptance onto an existing repo-se
         requestDurationMs: 48073,
       });
 
-      const verifyDb = new Database(runtimeDbPath, { readonly: true });
-      try {
-        const row = verifyDb.prepare(`
-          SELECT speculative_accepted_tokens, speculative_generated_tokens
-          FROM run_logs
-          WHERE request_id = ?
-        `).get(requestId);
-        assert.equal(row.speculative_accepted_tokens, 12);
-        assert.equal(row.speculative_generated_tokens, 18);
-      } finally {
-        verifyDb.close();
-      }
+      await waitForAsyncExpectation(() => {
+        const verifyDb = new Database(runtimeDbPath, { readonly: true });
+        try {
+          const row = verifyDb.prepare(`
+            SELECT speculative_accepted_tokens, speculative_generated_tokens
+            FROM run_logs
+            WHERE request_id = ?
+          `).get(requestId);
+          assert.equal(row.speculative_accepted_tokens, 12);
+          assert.equal(row.speculative_generated_tokens, 18);
+        } finally {
+          verifyDb.close();
+        }
+      });
     }, {
       statusPath,
       configPath,

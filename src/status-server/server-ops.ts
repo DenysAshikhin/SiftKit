@@ -317,6 +317,11 @@ export function scheduleIdleSummaryIfNeeded(ctx: ServerContext): void {
     ctx.idleSummaryPending = false;
     resetPendingIdleSummaryMetadata(ctx);
     publishStatus(ctx);
+    if (!isIdle(ctx)) {
+      logLine('idle_summary shutdown_aborted reason=request_arrived_during_snapshot');
+      scheduleIdleSummaryIfNeeded(ctx);
+      return;
+    }
     await ctx.shutdownManagedLlamaIfNeeded();
   }, IDLE_SUMMARY_DELAY_MS);
   if (typeof ctx.idleSummaryTimer.unref === 'function') {

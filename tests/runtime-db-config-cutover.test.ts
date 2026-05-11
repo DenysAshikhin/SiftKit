@@ -14,7 +14,7 @@ import {
   writeConfig,
   getDefaultConfig,
 } from '../dist/status-server/config-store.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../dist/state/runtime-db.js';
+import { closeRuntimeDatabase, getRuntimeDatabase, pruneRuntimeHistory } from '../dist/state/runtime-db.js';
 
 function removeDirectoryWithRetries(targetPath: string, attempts = 40, delayMs = 50): void {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -71,6 +71,44 @@ test('runtime database uses WAL journal mode and NORMAL synchronous mode', () =>
       const synchronous = database.prepare('PRAGMA synchronous').get() as { synchronous?: number };
       assert.equal(String(journalMode.journal_mode || '').toLowerCase(), 'wal');
       assert.equal(Number(synchronous.synchronous), 1);
+    } finally {
+      process.chdir(previousCwd);
+    }
+  });
+});
+
+test('pruneRuntimeHistory deletes rows older than the retention window and keeps recent ones', () => {
+  withTempDir((tempRoot) => {
+    const previousCwd = process.cwd();
+    try {
+      fs.writeFileSync(
+        path.join(tempRoot, 'package.json'),
+        JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+        'utf8',
+      );
+      process.chdir(tempRoot);
+      const database = getRuntimeDatabase();
+
+      const oldUtc = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const recentUtc = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString();
+      const insertArtifact = database.prepare(`
+        INSERT INTO runtime_artifacts (id, artifact_kind, request_id, title, content_text, created_at_utc, updated_at_utc)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      insertArtifact.run('old-artifact', 'repo_search_transcript', 'req-old', 'old', 'x', oldUtc, oldUtc);
+      insertArtifact.run('new-artifact', 'repo_search_transcript', 'req-new', 'new', 'x', recentUtc, recentUtc);
+
+      const result = pruneRuntimeHistory(7);
+      const artifactRows = result.deleted.find(({ table }) => table === 'runtime_artifacts');
+      assert.equal(artifactRows?.rows, 1);
+
+      // run_logs is lazily created by dashboard-runs; on a fresh DB the prune should
+      // skip it gracefully without failing.
+      const runLogEntry = result.deleted.find(({ table }) => table === 'run_logs');
+      assert.equal(runLogEntry?.rows, 0);
+
+      const remainingArtifactIds = database.prepare('SELECT id FROM runtime_artifacts ORDER BY id').all().map((row: { id: string }) => row.id);
+      assert.deepEqual(remainingArtifactIds, ['new-artifact']);
     } finally {
       process.chdir(previousCwd);
     }

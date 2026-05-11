@@ -127,6 +127,7 @@ export type ServerContext = {
   managedLlamaStartupWarning: string | null;
   bootstrapManagedLlamaStartup: boolean;
   managedLlamaLogCleanupTimer: NodeJS.Timeout | null;
+  runtimeHistoryPruneTimer: NodeJS.Timeout | null;
   managedLlamaFlushQueue: ManagedLlamaFlushQueue;
 
   // Late-bound function references (set by index.ts to break circular deps)
