@@ -110,27 +110,22 @@ function scheduleRepoSearchRunPersistence(
   });
 }
 
-function notifyRepoSearchRunningStatus(options: RepoSearchRunningStatusNotificationOptions): void {
+async function notifyRepoSearchRunningStatus(options: RepoSearchRunningStatusNotificationOptions): Promise<void> {
   const notifySpan = options.timingRecorder?.start('repo.status.notify_running');
-  void notifyStatusBackend(options)
-    .then(() => {
-      notifySpan?.end({ ok: true });
-      logRepoSearchProgress(
-        `notify_running_done request_id=${options.requestId} ok=true duration_ms=${Date.now() - options.startedAt}`,
-      );
-    })
-    .catch((error: unknown) => {
-      notifySpan?.end({ ok: false });
-      traceRepoSearch(`notify running=true failed request_id=${options.requestId}`);
-      logRepoSearchProgress(
-        `notify_running_done request_id=${options.requestId} ok=false duration_ms=${Date.now() - options.startedAt} `
-        + `error=${JSON.stringify(getErrorMessage(error))}`,
-      );
-    });
-}
-
-function scheduleRepoSearchRunningStatusNotification(options: RepoSearchRunningStatusNotificationOptions): void {
-  setImmediate(notifyRepoSearchRunningStatus, options);
+  try {
+    await notifyStatusBackend(options);
+    notifySpan?.end({ ok: true });
+    logRepoSearchProgress(
+      `notify_running_done request_id=${options.requestId} ok=true duration_ms=${Date.now() - options.startedAt}`,
+    );
+  } catch (error: unknown) {
+    notifySpan?.end({ ok: false });
+    traceRepoSearch(`notify running=true failed request_id=${options.requestId}`);
+    logRepoSearchProgress(
+      `notify_running_done request_id=${options.requestId} ok=false duration_ms=${Date.now() - options.startedAt} `
+      + `error=${JSON.stringify(getErrorMessage(error))}`,
+    );
+  }
 }
 
 async function notifyRepoSearchTerminalStatus(options: RepoSearchTerminalStatusNotificationOptions): Promise<void> {
@@ -195,7 +190,7 @@ export async function executeRepoSearchRequest(
   );
   const notifyRunningStartedAt = Date.now();
   logRepoSearchProgress(`notify_running_start request_id=${requestId}`);
-  scheduleRepoSearchRunningStatusNotification({
+  const runningStatusPromise = notifyRepoSearchRunningStatus({
     running: true,
     taskKind,
     statusBackendUrl: request.statusBackendUrl,
@@ -327,6 +322,10 @@ export async function executeRepoSearchRequest(
       }> }).toolStats
       : null;
     const finishedAtUtc = new Date().toISOString();
+    // Wait for running=true to be server-acknowledged so the runState exists before
+    // terminal-metadata is enqueued; otherwise the late_running_ignored guard on the
+    // server may drop the runState and the request never counts as completed.
+    await runningStatusPromise;
     await notifyRepoSearchTerminalStatus({
       running: false,
       taskKind,
@@ -432,6 +431,7 @@ export async function executeRepoSearchRequest(
       + `duration_ms=${Date.now() - persistStartedAt}`,
     );
     const failedFinishedAtUtc = new Date().toISOString();
+    await runningStatusPromise;
     await notifyRepoSearchTerminalStatus({
       running: false,
       taskKind,

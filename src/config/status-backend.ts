@@ -381,18 +381,23 @@ export async function notifyStatusBackend(options: NotifyStatusBackendOptions): 
   if (!options.running && options.terminalState) {
     const completionUrl = deriveServiceUrl(url, '/status/complete');
     const metadataUrl = deriveServiceUrl(url, '/status/terminal-metadata');
-    await postStatusJson({
-      url: completionUrl,
-      body: {
-        statusPath: body.statusPath,
-        requestId: body.requestId,
-        taskKind: body.taskKind,
-        terminalState: body.terminalState,
-        updatedAtUtc: body.updatedAtUtc,
-      },
-      timeoutMs: 10,
-      operation: 'status:complete',
-    });
+    try {
+      await postStatusJson({
+        url: completionUrl,
+        body: {
+          statusPath: body.statusPath,
+          requestId: body.requestId,
+          taskKind: body.taskKind,
+          terminalState: body.terminalState,
+          updatedAtUtc: body.updatedAtUtc,
+        },
+        timeoutMs: 10,
+        operation: 'status:complete',
+      });
+    } catch {
+      // Best-effort: the server may have processed /status/complete even if the client
+      // timed out. Continue and still fire terminal-metadata so the metrics enqueue is sent.
+    }
     void postStatusJson({
       url: metadataUrl,
       body,
