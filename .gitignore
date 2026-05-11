@@ -28,8 +28,20 @@ dashboard/node_modules
 runtime-*.log
 test-run.log
 trace.log
+test-out.log
 *.tap.out.log
 *.tap.err.log
+/.tmp
+/full-test*.out.txt
+/full-test*.err.txt
+/llama-test*.out.txt
+/llama-test*.err.txt
+/node-test-*.out.txt
+/node-test-*.err.txt
+/npm-test-*.out.txt
+/npm-test-*.err.txt
+/tmp-*.txt
+/tmp-*.ts
 
 # Temp directories
 /tmp-find

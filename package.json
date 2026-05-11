@@ -15,7 +15,6 @@
     "build:test": "node .\\scripts\\build-test.js",
     "benchmark": "tsx .\\src\\benchmark\\index.ts",
     "benchmark:matrix": "tsx .\\src\\benchmark-matrix\\index.ts",
-    "benchmark:import-md": "tsx .\\src\\import-markdown-benchmark.ts",
     "benchmark:spec-settings": "node .\\scripts\\run-benchmark-spec-settings.js",
     "benchmark:spec-focused": "node .\\scripts\\run-benchmark-spec-focused.js",
     "benchmark:spec-focused3": "node .\\scripts\\run-benchmark-spec-focused3.js",
