@@ -177,6 +177,7 @@ export async function handleLlamaPassthroughRoute(
       return true;
     }
     await proxyLlamaRequest(ctx, req, res, pathname, readConfig(ctx.configPath));
+    ctx.idleSummaryPending = true;
   } catch (error) {
     if (!res.headersSent && !res.destroyed) {
       sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
