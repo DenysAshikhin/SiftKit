@@ -159,6 +159,75 @@ function tokenizeSegment(segment: string): string[] {
   return tokens;
 }
 
+function tokenizeDirectCommand(segment: string): string[] | null {
+  const tokens: string[] = [];
+  let current = '';
+  let inSingle = false;
+  let inDouble = false;
+
+  for (let i = 0; i < segment.length; i += 1) {
+    const ch = segment[i];
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      continue;
+    }
+    if (ch === '\\' && inDouble && i + 1 < segment.length && segment[i + 1] === '"') {
+      current += '"';
+      i += 1;
+      continue;
+    }
+    if (ch === '\\' && inSingle && i + 1 < segment.length && segment[i + 1] === "'") {
+      current += "'";
+      i += 1;
+      continue;
+    }
+    if (/\s/u.test(ch) && !inSingle && !inDouble) {
+      if (current) {
+        tokens.push(current);
+        current = '';
+      }
+      continue;
+    }
+    current += ch;
+  }
+
+  if (inSingle || inDouble) {
+    return null;
+  }
+  if (current) {
+    tokens.push(current);
+  }
+  return tokens;
+}
+
+export type DirectRgCommand = {
+  args: string[];
+};
+
+export function parseDirectRgCommand(command: string): DirectRgCommand | null {
+  const trimmed = String(command || '').trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (hasBlockedOperator(trimmed) || hasFileRedirection(trimmed) || /\s2>&1(?:\s|$)/u.test(trimmed)) {
+    return null;
+  }
+  if (splitTopLevelPipes(trimmed).length !== 1) {
+    return null;
+  }
+
+  const tokens = tokenizeDirectCommand(trimmed);
+  if (!tokens || tokens.length === 0 || tokens[0].toLowerCase() !== 'rg') {
+    return null;
+  }
+
+  return { args: tokens.slice(1) };
+}
+
 function referencesPathOutsideRepo(command: string, repoRoot: string): boolean {
   if (!repoRoot) return false;
   const repoRootNormalized = repoRoot.replace(/\//gu, '\\').toLowerCase().replace(/\\+$/u, '');
@@ -454,6 +523,12 @@ export function normalizePlannerCommand(
   const notes: string[] = [];
 
   if (commandToken === 'rg') {
+    if (/(^|\s)--include(?=\s)/iu.test(current)) {
+      current = current.replace(/(^|\s)--include(?=\s)/giu, '$1--glob');
+      notes.push('rewrote unsupported rg --include to --glob');
+      wasRewritten = true;
+    }
+
     // Rewrite unsupported --type tsx/jsx to ts/js
     const unsupportedTypeMap: Record<string, string> = { tsx: 'ts', jsx: 'js' };
     const typeMatches = [...current.matchAll(/(?:^|\s)--type\s+(\S+)/giu)];
@@ -578,8 +653,43 @@ export function normalizePlannerCommand(
 // Misc helpers used by the engine
 // ---------------------------------------------------------------------------
 
-export function isSearchNoMatchExit(command: string, exitCode: number): boolean {
-  if (exitCode !== 1) return false;
+export type SearchExitClassification = {
+  noMatch: boolean;
+  syntaxFailure: boolean;
+  message: string | null;
+};
+
+const SEARCH_FAILURE_PATTERNS = [
+  /ParserError/iu,
+  /The string is missing the terminator/iu,
+  /unrecognized flag/iu,
+  /regex parse error/iu,
+  /error parsing glob/iu,
+  /invalid option/iu,
+  /unknown encoding/iu,
+];
+
+export function classifySearchExit(command: string, exitCode: number, output = ''): SearchExitClassification {
+  if (exitCode !== 1) {
+    return { noMatch: false, syntaxFailure: false, message: null };
+  }
   const trimmed = command.trimStart();
-  return /^(rg|grep|egrep|fgrep|diff|find)\b/u.test(trimmed);
+  if (!/^(rg|grep|egrep|fgrep|diff|find)\b/u.test(trimmed)) {
+    return { noMatch: false, syntaxFailure: false, message: null };
+  }
+
+  const outputText = String(output || '').trim();
+  if (trimmed.startsWith('rg') && SEARCH_FAILURE_PATTERNS.some((pattern) => pattern.test(outputText))) {
+    return {
+      noMatch: false,
+      syntaxFailure: true,
+      message: 'Command syntax failure; use a simpler rg command such as rg -n "from " <path>.',
+    };
+  }
+
+  return { noMatch: true, syntaxFailure: false, message: null };
+}
+
+export function isSearchNoMatchExit(command: string, exitCode: number, output = ''): boolean {
+  return classifySearchExit(command, exitCode, output).noMatch;
 }

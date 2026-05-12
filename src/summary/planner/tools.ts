@@ -304,7 +304,7 @@ function executeFindTextTool(inputText: string, args: Record<string, unknown>): 
     throw new Error('find_text requires query and mode.');
   }
 
-  const maxHits = Math.max(1, Math.min(getFiniteInteger(args.maxHits) ?? 5, 20));
+  const maxHits = Math.max(1, getFiniteInteger(args.maxHits) ?? 5);
   const contextLines = Math.max(0, Math.min(getFiniteInteger(args.contextLines) ?? 0, 3));
   const lines = inputText.replace(/\r\n/gu, '\n').split('\n');
   let matcher: RegExp | null = null;
@@ -408,7 +408,7 @@ function executeJsonFilterTool(inputText: string, args: Record<string, unknown>)
   const select = Array.isArray(args.select)
     ? args.select.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
     : null;
-  const limit = Math.max(1, Math.min(getFiniteInteger(args.limit) ?? 10, 50));
+  const limit = Math.max(1, getFiniteInteger(args.limit) ?? 10);
   const matches: unknown[] = [];
   for (const item of collection) {
     if (!filters.every((filter) => matchesJsonFilter(item, filter))) {

@@ -15,6 +15,7 @@ import {
   mergeToolTypeStats,
   readLatestIdleSummaryToolStats,
 } from '../line-read-guidance.js';
+import { spawnDirectCommand } from '../lib/command-spawn.js';
 import { spawnPowerShellAsync } from '../lib/powershell.js';
 import { getDynamicMaxOutputTokens } from '../lib/dynamic-output-cap.js';
 import { colorize } from '../lib/text-format.js';
@@ -23,11 +24,12 @@ import { listLlamaCppModels } from '../providers/llama-cpp.js';
 import type { ToolTypeStats } from '../status-server/metrics.js';
 import {
   buildIgnorePolicy,
+  classifySearchExit,
   evaluateCommandSafety,
   getFirstCommandToken,
   type IgnorePolicy,
-  isSearchNoMatchExit,
   normalizePlannerCommand,
+  parseDirectRgCommand,
 } from './command-safety.js';
 import {
   getRepoSearchCommandTokenForToolName,
@@ -438,6 +440,14 @@ function executeRepoCommand(
         complete();
       }
     });
+  }
+
+  const directRg = parseDirectRgCommand(command);
+  if (directRg) {
+    return spawnDirectCommand('rg', directRg.args, { cwd: repoRoot, abortSignal }).then((result) => ({
+      exitCode: result.exitCode,
+      output: result.output,
+    }));
   }
 
   return spawnPowerShellAsync(command, { cwd: repoRoot }).then((result) => ({
@@ -1310,6 +1320,10 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       outputChars: String(executed.output || '').length,
     });
     const baseOutput = String(executed.output || '').trim();
+    const searchExit = classifySearchExit(commandToRun, Number(executed.exitCode), baseOutput);
+    const promptedBaseOutput = searchExit.syntaxFailure && searchExit.message
+      ? `${searchExit.message}\n${baseOutput}`.trim()
+      : baseOutput;
     const executedReadWindow = isNativeTool ? null : parseGetContentReadWindowCommand(commandToRun);
     let lineReadOverlapLines = 0;
     let lineReadNewLinesCovered = 0;
@@ -1357,13 +1371,13 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       );
     }
     const outputWithRewriteNote = rewriteNotesForLogs.length > 0
-      ? `${rewriteNotesForLogs.join('\n')}\n${baseOutput}`.trim()
-      : baseOutput;
+      ? `${rewriteNotesForLogs.join('\n')}\n${promptedBaseOutput}`.trim()
+      : promptedBaseOutput;
     const outputForPrompt = rewriteNotesForPrompt.length > 0
-      ? `${rewriteNotesForPrompt.join('\n')}\n${baseOutput}`.trim()
-      : baseOutput;
+      ? `${rewriteNotesForPrompt.join('\n')}\n${promptedBaseOutput}`.trim()
+      : promptedBaseOutput;
 
-    if (Number(executed.exitCode) !== 0 && !isSearchNoMatchExit(commandToRun, executed.exitCode)) {
+    if (Number(executed.exitCode) !== 0 && !searchExit.noMatch) {
       commandFailures += 1;
     }
 
@@ -1392,7 +1406,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     // means the pipeline was terminated early (e.g. `| Select-Object -First N` closed the pipe
     // before rg finished, causing a broken-pipe exit). In that case the output is valid truncated
     // results, not an error, so don't prepend a misleading `exit_code=1` prefix.
-    const suppressExitCode = isSearchNoMatchExit(commandToRun, executed.exitCode) && outputForPrompt.length > 0;
+    const suppressExitCode = searchExit.noMatch && outputForPrompt.length > 0;
     const rawResultText = suppressExitCode
       ? outputForPrompt
       : `exit_code=${executed.exitCode}\n${outputForPrompt}`.trim();
@@ -1518,7 +1532,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     });
 
     commands.push({ command: commandToRun, safe: true, reason: null, exitCode: executed.exitCode, output: outputWithRewriteNote });
-    const commandSucceeded = Number(executed.exitCode) === 0 || isSearchNoMatchExit(commandToRun, executed.exitCode);
+    const commandSucceeded = Number(executed.exitCode) === 0 || searchExit.noMatch;
     if (commandSucceeded) {
       duplicateReplayFingerprint = null;
       duplicateReplayCount = 0;

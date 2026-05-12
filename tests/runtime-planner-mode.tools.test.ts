@@ -96,6 +96,30 @@ test('json_filter unwraps exact nested value scalar wrappers', () => {
   assert.match(result.text, /"groupId":12/u);
 });
 
+test('json_filter honors requested limits above the old safety cap', () => {
+  const inputText = JSON.stringify({
+    testResults: Array.from({ length: 75 }, (_, index) => ({
+      name: `suite-${index}`,
+      status: 'failed',
+    })),
+  });
+
+  const result = executePlannerTool(inputText, {
+    action: 'tool',
+    tool_name: 'json_filter',
+    args: {
+      collectionPath: 'testResults',
+      filters: [{ path: 'status', op: 'eq', value: 'failed' }],
+      select: ['name', 'status'],
+      limit: 60,
+    },
+  });
+
+  assert.equal(result.matchedCount, 60);
+  assert.match(result.text, /"name":"suite-59"/u);
+  assert.doesNotMatch(result.text, /"name":"suite-60"/u);
+});
+
 test('find_text counts all hits even when maxHits truncates rendered blocks', () => {
   const inputText = [
     'Lumbridge Castle Staircase',
@@ -122,6 +146,26 @@ test('find_text counts all hits even when maxHits truncates rendered blocks', ()
   assert.match(result.text, /Lumbridge Castle Staircase/u);
   assert.match(result.text, /Lumbridge Castle Courtyard Gate/u);
   assert.doesNotMatch(result.text, /Lumbridge Castle Basement Ladder/u);
+});
+
+test('find_text honors requested maxHits above the old safety cap', () => {
+  const inputText = Array.from({ length: 25 }, (_, index) => `needle line ${index + 1}`).join('\n');
+
+  const result = executePlannerTool(inputText, {
+    action: 'tool',
+    tool_name: 'find_text',
+    args: {
+      query: 'needle',
+      mode: 'literal',
+      maxHits: 25,
+      contextLines: 0,
+    },
+  });
+
+  assert.equal(result.hitCount, 25);
+  assert.equal(result.returnedHits, 25);
+  assert.equal(result.truncated, false);
+  assert.match(result.text, /needle line 25/u);
 });
 
 test('find_text literal matching is case insensitive', () => {

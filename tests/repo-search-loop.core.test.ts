@@ -7,7 +7,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { parsePlannerAction } from '../src/repo-search/planner-protocol.js';
-import { evaluateCommandSafety, normalizePlannerCommand } from '../src/repo-search/command-safety.js';
+import {
+  classifySearchExit,
+  evaluateCommandSafety,
+  normalizePlannerCommand,
+  parseDirectRgCommand,
+} from '../src/repo-search/command-safety.js';
 import { isTransientProviderError, retryProviderRequest } from '../src/lib/provider-helpers.js';
 import {
   runTaskLoop,
@@ -224,6 +229,58 @@ test('normalizePlannerCommand does not add ignore-case to rg file listing', () =
   assert.equal(normalized.command, 'rg --files src --no-ignore');
 });
 
+test('normalizePlannerCommand rewrites rg --include to --glob', () => {
+  const normalized = normalizePlannerCommand('rg -n "from " apps/runner/src --include "*.ts"', {
+    ignorePolicy: { names: [], namesLower: new Set(), paths: [] },
+  });
+
+  assert.equal(normalized.command, 'rg -n "from " apps/runner/src --glob "*.ts" --no-ignore --ignore-case');
+  assert.match(normalized.note, /rewrote unsupported rg --include to --glob/u);
+});
+
+test('classifySearchExit treats rg exit 1 with empty output as no match', () => {
+  const classification = classifySearchExit('rg -n "missing" src', 1, '');
+
+  assert.equal(classification.noMatch, true);
+  assert.equal(classification.syntaxFailure, false);
+});
+
+test('classifySearchExit treats rg exit 1 with PowerShell ParserError as command failure', () => {
+  const classification = classifySearchExit(
+    'rg -n "from [\'\\"]\\.\\./" apps/runner/src',
+    1,
+    'The string is missing the terminator: ".\nParserError: TerminatorExpectedAtEndOfString',
+  );
+
+  assert.equal(classification.noMatch, false);
+  assert.equal(classification.syntaxFailure, true);
+  assert.match(classification.message || '', /Command syntax failure/u);
+});
+
+test('classifySearchExit treats rg exit 1 with unrecognized flag as command failure', () => {
+  const classification = classifySearchExit(
+    'rg -n "from " apps/runner/src --include "*.ts"',
+    1,
+    'rg: unrecognized flag --include',
+  );
+
+  assert.equal(classification.noMatch, false);
+  assert.equal(classification.syntaxFailure, true);
+  assert.match(classification.message || '', /Command syntax failure/u);
+});
+
+test('parseDirectRgCommand preserves mixed quote regex', () => {
+  const parsed = parseDirectRgCommand('rg -n "from [\'\\"]\\.\\./" apps/runner/src');
+
+  assert.deepEqual(parsed, {
+    args: ['-n', 'from [\'"]\\.\\./', 'apps/runner/src'],
+  });
+});
+
+test('parseDirectRgCommand rejects piped rg commands', () => {
+  assert.equal(parseDirectRgCommand('rg -n "from " apps/runner/src | Select-Object -First 20'), null);
+});
+
 test('evaluateCommandSafety treats drive-letter regex literals as patterns, not repo-escape paths', () => {
   const repoRoot = 'C:\\Users\\denys\\Documents\\GitHub\\SiftKit';
   assert.equal(
@@ -323,6 +380,109 @@ test('runTaskLoop rewrites mixed rg --type ts and --type tsx flags', async () =>
   assert.equal(result.reason, 'finish');
   assert.equal(result.commandFailures, 0);
   assert.equal(result.passed, true);
+});
+
+test('runTaskLoop executes simple rg directly and preserves mixed quote regex', async () => {
+  const repoRoot = createTempRepoRoot();
+  fs.mkdirSync(path.join(repoRoot, 'src'));
+  fs.writeFileSync(
+    path.join(repoRoot, 'src', 'example.ts'),
+    'import { BridgeClient } from "../bridge/bridge.facade.js";\n',
+    'utf8',
+  );
+
+  const result = await runTaskLoop(
+    {
+      id: 'task-direct-rg-mixed-quote',
+      question: 'Find relative imports.',
+      signals: ['BridgeClient'],
+    },
+    {
+      repoRoot,
+      model: 'mock-model',
+      baseUrl: 'http://127.0.0.1:8097',
+      includeRepoFileListing: false,
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"from [\'\\\\\\"]\\\\.\\\\./\\" src"}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+    }
+  );
+
+  assert.equal(result.commandFailures, 0);
+  assert.match(result.commands[0]?.output || '', /BridgeClient/u);
+  assert.equal(result.passed, true);
+});
+
+test('runTaskLoop rewrites rg --include and annotates output', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-rewrite-include',
+      question: 'Find imports.',
+      signals: ['import hit'],
+    },
+    {
+      repoRoot: process.cwd(),
+      model: 'mock-model',
+      baseUrl: 'http://127.0.0.1:8097',
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"from \\" src --include \\"*.ts\\""}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'rg -n "from " src --glob "*.ts"': { exitCode: 0, stdout: 'import hit', stderr: '' },
+      },
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const commandResult = events.find((event) => event.kind === 'turn_command_result');
+  assert.ok(String(commandResult?.command || '').startsWith('rg -n "from " src --glob "*.ts"'));
+  assert.match(String(commandResult?.output || ''), /rewrote unsupported rg --include to --glob/u);
+  assert.equal(result.commandFailures, 0);
+  assert.equal(result.passed, true);
+});
+
+test('runTaskLoop counts rg syntax failures and gives planner guidance', async () => {
+  const result = await runTaskLoop(
+    {
+      id: 'task-rg-syntax-failure',
+      question: 'Find imports.',
+      signals: [],
+    },
+    {
+      repoRoot: process.cwd(),
+      model: 'mock-model',
+      baseUrl: 'http://127.0.0.1:8097',
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"from \\" src --bad-rg-flag"}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'rg -n "from " src --bad-rg-flag': { exitCode: 1, stdout: '', stderr: 'rg: unrecognized flag --bad-rg-flag' },
+      },
+    }
+  );
+
+  assert.equal(result.commandFailures, 1);
+  assert.match(result.commands[0]?.output || '', /Command syntax failure; use a simpler rg command/u);
 });
 
 test('runTaskLoop reports prompt tokens and elapsed time on command progress events', async () => {
