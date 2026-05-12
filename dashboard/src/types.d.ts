@@ -192,6 +192,7 @@ export type ContextUsage = {
     contextWindowTokens: number;
     usedTokens: number;
     chatUsedTokens: number;
+    thinkingUsedTokens: number;
     toolUsedTokens: number;
     totalUsedTokens: number;
     remainingTokens: number;

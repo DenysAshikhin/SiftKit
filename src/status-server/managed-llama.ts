@@ -666,11 +666,15 @@ export function buildManagedLlamaArgs(managed: ReturnType<typeof getManagedLlama
     args.push(
       '--spec-type', managed.SpeculativeType,
     );
-    appendManagedLlamaSpeculativeIntegerArg(args, '--spec-ngram-size-n', managed.SpeculativeNgramSizeN);
-    appendManagedLlamaSpeculativeIntegerArg(args, '--spec-ngram-size-m', managed.SpeculativeNgramSizeM);
-    appendManagedLlamaSpeculativeIntegerArg(args, '--spec-ngram-min-hits', managed.SpeculativeNgramMinHits);
-    appendManagedLlamaSpeculativeIntegerArg(args, '--draft-max', managed.SpeculativeDraftMax);
-    appendManagedLlamaSpeculativeIntegerArg(args, '--draft-min', managed.SpeculativeDraftMin);
+    if (isManagedLlamaMtpSpeculativeType(managed.SpeculativeType)) {
+      appendManagedLlamaSpeculativeIntegerArg(args, '--spec-draft-n-max', managed.SpeculativeDraftMax);
+    } else {
+      appendManagedLlamaSpeculativeIntegerArg(args, '--spec-ngram-size-n', managed.SpeculativeNgramSizeN);
+      appendManagedLlamaSpeculativeIntegerArg(args, '--spec-ngram-size-m', managed.SpeculativeNgramSizeM);
+      appendManagedLlamaSpeculativeIntegerArg(args, '--spec-ngram-min-hits', managed.SpeculativeNgramMinHits);
+      appendManagedLlamaSpeculativeIntegerArg(args, '--draft-max', managed.SpeculativeDraftMax);
+      appendManagedLlamaSpeculativeIntegerArg(args, '--draft-min', managed.SpeculativeDraftMin);
+    }
   }
   if (managed.FlashAttention) {
     args.push('-fa', 'on');
@@ -679,6 +683,10 @@ export function buildManagedLlamaArgs(managed: ReturnType<typeof getManagedLlama
     args.push('--verbose');
   }
   return args;
+}
+
+function isManagedLlamaMtpSpeculativeType(type: string): boolean {
+  return type === 'mtp';
 }
 
 function appendManagedLlamaSpeculativeIntegerArg(args: string[], flag: string, value: number): void {

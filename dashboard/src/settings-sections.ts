@@ -114,7 +114,7 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'Reasoning', layout: 'quarter', helpText: 'Controls whether llama.cpp reasoning is enabled or disabled.' },
       { label: 'Reasoning content', layout: 'quarter', helpText: 'When enabled, assistant history replays include non-empty `reasoning_content` alongside the visible assistant content.' },
       { label: 'Preserve thinking', layout: 'quarter', helpText: 'When enabled, llama.cpp receives `preserve_thinking=true` so historical thinking traces can be reused across turns.' },
-      { label: 'Enable n-gram speculation', layout: 'quarter', helpText: 'Enables llama.cpp n-gram speculative decoding for this managed preset.' },
+      { label: 'Enable speculative decoding', layout: 'quarter', helpText: 'Enables llama.cpp speculative decoding for this managed preset.' },
       { label: 'Speculative type', layout: 'quarter', helpText: 'Selects which llama.cpp n-gram speculative decoding strategy to use.' },
       { label: 'SpeculativeNgramSizeN', layout: 'quarter', helpText: 'Size of the matching n-gram window used to look up speculative continuations. Use -1 to omit the llama.cpp flag.' },
       { label: 'SpeculativeNgramSizeM', layout: 'quarter', helpText: 'Maximum speculative continuation length pulled from matching history. Use -1 to omit the llama.cpp flag.' },

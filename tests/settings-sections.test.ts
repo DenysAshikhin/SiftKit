@@ -63,7 +63,7 @@ test('settings tooltip labels include the documented fields', () => {
       'Reasoning',
       'Reasoning content',
       'Preserve thinking',
-      'Enable n-gram speculation',
+      'Enable speculative decoding',
       'Speculative type',
       'SpeculativeNgramSizeN',
       'SpeculativeNgramSizeM',

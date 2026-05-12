@@ -33,7 +33,8 @@ export type ManagedLlamaSpeculativeType =
   | 'ngram-map-k'
   | 'ngram-map-k4v'
   | 'ngram-mod'
-  | 'ngram-cache';
+  | 'ngram-cache'
+  | 'mtp';
 
 export type ServerManagedLlamaCppConfig = {
   ExternalServerEnabled?: boolean | null;

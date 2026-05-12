@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildChatCompletionRequest } from '../src/status-server/chat.ts';
+import { buildChatCompletionRequest, buildContextUsage } from '../src/status-server/chat.ts';
 import { estimatePromptTokenCountFromCharacters, getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
-import type { ChatSession } from '../src/state/chat-sessions.ts';
+import { estimateTokenCount, type ChatSession } from '../src/state/chat-sessions.ts';
 import type { Dict } from '../src/lib/types.ts';
 
 function createConfig(overrides: Partial<Dict> = {}): Dict {
@@ -108,4 +108,53 @@ test('buildChatCompletionRequest uses dynamic max_tokens from remaining context'
       promptTokenCount: estimatePromptTokenCountFromCharacters(createConfig(), promptChars),
     })
   );
+});
+
+test('buildContextUsage estimates continuation context from session content instead of provider prompt telemetry', () => {
+  const session = {
+    id: 'session-usage',
+    contextWindowTokens: 75000,
+    messages: [
+      {
+        id: 'user-1',
+        role: 'user',
+        content: 'How are tool calls handled?',
+        inputTokensEstimate: 52403,
+        inputTokensEstimated: false,
+      },
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: '# Repo Search Results\n\nTool calls are parsed and executed through the loop.',
+        outputTokensEstimate: 2288,
+        outputTokensEstimated: true,
+        thinkingTokens: 3405,
+        thinkingTokensEstimated: true,
+        thinkingContent: 'Prior reasoning that can be replayed.',
+      },
+    ],
+    hiddenToolContexts: [
+      {
+        content: 'tool transcript content',
+        tokenEstimate: 5708,
+      },
+    ],
+  } as ChatSession;
+
+  const expectedThinkingTokens = estimateTokenCount('Prior reasoning that can be replayed.');
+  const expectedChatTokens = estimateTokenCount('general, coder friendly assistant')
+    + estimateTokenCount('How are tool calls handled?')
+    + estimateTokenCount('# Repo Search Results\n\nTool calls are parsed and executed through the loop.')
+    + expectedThinkingTokens;
+  const expectedToolTokens = estimateTokenCount(
+    'Internal tool-call context from prior session steps. Use this as additional evidence only when relevant.',
+  ) + 5708;
+  const usage = buildContextUsage(session);
+
+  assert.equal(usage.chatUsedTokens, expectedChatTokens);
+  assert.equal(usage.usedTokens, expectedChatTokens);
+  assert.equal(usage.thinkingUsedTokens, expectedThinkingTokens);
+  assert.equal(usage.toolUsedTokens, expectedToolTokens);
+  assert.equal(usage.totalUsedTokens, expectedChatTokens + expectedToolTokens);
+  assert.equal(usage.estimatedTokenFallbackTokens, 0);
 });

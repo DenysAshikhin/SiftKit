@@ -238,6 +238,7 @@ const CHAT_SESSION = {
 const CONTEXT_USAGE = {
   shouldCondense: false,
   chatUsedTokens: 10,
+  thinkingUsedTokens: 0,
   toolUsedTokens: 0,
   totalUsedTokens: 10,
   remainingTokens: 90,
@@ -492,7 +493,7 @@ test('managed llama section hides speculative controls until n-gram speculation 
     />,
   );
 
-  assert.equal(capturedFields.includes('Enable n-gram speculation'), true);
+  assert.equal(capturedFields.includes('Enable speculative decoding'), true);
   assert.equal(capturedFields.includes('Speculative type'), false);
   assert.equal(capturedFields.includes('SpeculativeDraftMax'), false);
 });
@@ -520,6 +521,65 @@ test('managed llama section shows speculative controls when n-gram speculation i
 
   assert.equal(capturedFields.includes('Speculative type'), true);
   assert.equal(capturedFields.includes('SpeculativeDraftMax'), true);
+});
+
+test('managed llama section shows only mtp speculative controls for mtp speculation', () => {
+  const capturedFields: string[] = [];
+
+  renderToStaticMarkup(
+    <ManagedLlamaSection
+      dashboardConfig={DASHBOARD_CONFIG}
+      selectedManagedLlamaPreset={{
+        ...MANAGED_PRESET,
+        SpeculativeEnabled: true,
+        SpeculativeType: 'mtp' as DashboardManagedLlamaPreset['SpeculativeType'],
+      }}
+      settingsActionBusy={false}
+      settingsPathPickerBusyTarget={null}
+      renderField={(_, label, children) => {
+        capturedFields.push(label);
+        return <div>{children}</div>;
+      }}
+      updateSettingsDraft={() => {}}
+      updateManagedLlamaDraft={() => {}}
+      onAddManagedLlamaPreset={() => {}}
+      onDeleteManagedLlamaPreset={() => {}}
+      onPickManagedLlamaPath={async () => {}}
+    />,
+  );
+
+  assert.equal(capturedFields.includes('Speculative type'), true);
+  assert.equal(capturedFields.includes('SpeculativeDraftMax'), true);
+  assert.equal(capturedFields.includes('SpeculativeNgramSizeN'), false);
+  assert.equal(capturedFields.includes('SpeculativeNgramSizeM'), false);
+  assert.equal(capturedFields.includes('SpeculativeNgramMinHits'), false);
+  assert.equal(capturedFields.includes('SpeculativeDraftMin'), false);
+});
+
+test('managed llama section warns when mtp speculation uses parallel slots', () => {
+  const markup = renderToStaticMarkup(
+    <ManagedLlamaSection
+      dashboardConfig={DASHBOARD_CONFIG}
+      selectedManagedLlamaPreset={{
+        ...MANAGED_PRESET,
+        SpeculativeEnabled: true,
+        SpeculativeType: 'mtp' as DashboardManagedLlamaPreset['SpeculativeType'],
+        ParallelSlots: 2,
+      }}
+      settingsActionBusy={false}
+      settingsPathPickerBusyTarget={null}
+      renderField={(_, __, children) => <div>{children}</div>}
+      updateSettingsDraft={() => {}}
+      updateManagedLlamaDraft={() => {}}
+      onAddManagedLlamaPreset={() => {}}
+      onDeleteManagedLlamaPreset={() => {}}
+      onPickManagedLlamaPath={async () => {}}
+    />,
+  );
+
+  assert.match(markup, /role="alert"/);
+  assert.match(markup, /MTP/);
+  assert.match(markup, /parallel slots/);
 });
 
 test('managed llama model name is derived from model path and model field is hidden', () => {
@@ -726,6 +786,67 @@ test('chat tab renders session list and composer', () => {
   assert.match(markup, /Prompt\/s:/);
   assert.match(markup, /Generation\/s:/);
   assert.doesNotMatch(markup, /think every/u);
+});
+
+test('chat tab renders context usage thinking breakdown', () => {
+  const markup = renderToStaticMarkup(
+    <ChatTab
+      sessions={[CHAT_SESSION]}
+      selectedSessionId={CHAT_SESSION.id}
+      selectedSession={CHAT_SESSION}
+      sessionPromptCacheStats={{
+        cacheHitRate: 0,
+        promptCacheTokens: 0,
+        promptEvalTokens: 0,
+        acceptanceRate: null,
+        speculativeAcceptedTokens: 0,
+        speculativeGeneratedTokens: 0,
+        promptTokensPerSecond: null,
+        generationTokensPerSecond: null,
+      }}
+      webPresets={[PRESET]}
+      selectedChatPreset={PRESET}
+      chatMode="chat"
+      isDirectChatMode={true}
+      isRepoToolMode={false}
+      isThinkingEnabledForCurrentSession={true}
+      showSettings={true}
+      planRepoRootInput=""
+      planMaxTurnsInput="45"
+      contextUsage={{
+        ...CONTEXT_USAGE,
+        chatUsedTokens: 24,
+        thinkingUsedTokens: 7,
+        toolUsedTokens: 3,
+        totalUsedTokens: 27,
+        remainingTokens: 73,
+      }}
+      liveToolPromptTokenCount={null}
+      thinkingDraft=""
+      answerDraft=""
+      planToolCalls={[]}
+      chatInput=""
+      chatBusy={false}
+      chatError={null}
+      onSelectSession={() => {}}
+      onToggleSettings={() => {}}
+      onChangePlanRepoRoot={() => {}}
+      onChangePlanMaxTurns={() => {}}
+      onChangeChatInput={() => {}}
+      onCreateSession={async () => {}}
+      onDeleteSession={async () => {}}
+      onUpdateSessionPreset={async () => {}}
+      onToggleThinking={async () => {}}
+      onSavePlanRepoRoot={async () => {}}
+      onClearToolContext={async () => {}}
+      onCondense={async () => {}}
+      onSendPlan={async () => {}}
+      onSendRepoSearch={async () => {}}
+      onSendMessage={async () => {}}
+    />,
+  );
+
+  assert.match(markup, /Thinking\/reasoning: 7/);
 });
 
 test('metrics tab renders speculative acceptance graph', () => {

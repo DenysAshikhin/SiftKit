@@ -28,7 +28,7 @@ export const DEFAULT_LLAMA_HEALTHCHECK_TIMEOUT_MS = 2_000;
 export const DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS = 1_000;
 export const DEFAULT_LLAMA_SLEEP_IDLE_SECONDS = 600;
 
-const MANAGED_LLAMA_SPECULATIVE_TYPES = ['ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod', 'ngram-cache'] as const;
+const MANAGED_LLAMA_SPECULATIVE_TYPES = ['ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod', 'ngram-cache', 'mtp'] as const;
 
 export const RUNTIME_OWNED_LLAMA_CPP_KEYS: readonly string[] = [
   'BaseUrl',

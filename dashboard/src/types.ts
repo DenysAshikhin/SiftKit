@@ -209,6 +209,7 @@ export type ContextUsage = {
   contextWindowTokens: number;
   usedTokens: number;
   chatUsedTokens: number;
+  thinkingUsedTokens: number;
   toolUsedTokens: number;
   totalUsedTokens: number;
   remainingTokens: number;
@@ -278,7 +279,8 @@ export type DashboardManagedLlamaSpeculativeType =
   | 'ngram-map-k'
   | 'ngram-map-k4v'
   | 'ngram-mod'
-  | 'ngram-cache';
+  | 'ngram-cache'
+  | 'mtp';
 
 export type DashboardLlamaCppConfig = {
   BaseUrl: string;

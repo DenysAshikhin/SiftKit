@@ -173,6 +173,44 @@ test('buildManagedLlamaArgs omits speculative numeric flags set to -1', () => {
   assert.equal(args.includes('--spec-ngram-min-hits'), false);
 });
 
+test('buildManagedLlamaArgs includes only mtp speculative flags when mtp is enabled', () => {
+  const config = createConfig(0) as {
+    Server: {
+      LlamaCpp: {
+        SpeculativeEnabled?: boolean;
+        SpeculativeType?: string;
+        SpeculativeNgramSizeN?: number;
+        SpeculativeNgramSizeM?: number;
+        SpeculativeNgramMinHits?: number;
+        SpeculativeDraftMax?: number;
+        SpeculativeDraftMin?: number;
+      };
+    };
+  };
+  Object.assign(config.Server.LlamaCpp, {
+    SpeculativeEnabled: true,
+    SpeculativeType: 'mtp',
+    SpeculativeNgramSizeN: 8,
+    SpeculativeNgramSizeM: 16,
+    SpeculativeNgramMinHits: 2,
+    SpeculativeDraftMax: 3,
+    SpeculativeDraftMin: 1,
+  });
+
+  const args = buildManagedLlamaArgs(getManagedLlamaConfig(config));
+  const speculativeIndex = args.indexOf('--spec-type');
+
+  assert.notEqual(speculativeIndex, -1);
+  assert.deepEqual(args.slice(speculativeIndex, speculativeIndex + 4), [
+    '--spec-type', 'mtp',
+    '--spec-draft-n-max', '3',
+  ]);
+  assert.equal(args.includes('--spec-ngram-size-n'), false);
+  assert.equal(args.includes('--spec-ngram-size-m'), false);
+  assert.equal(args.includes('--spec-ngram-min-hits'), false);
+  assert.equal(args.includes('--draft-min'), false);
+});
+
 test('parseManagedLlamaSpeculativeMetricsText extracts accepted and generated token totals from ngram statistics', () => {
   const parsed = parseManagedLlamaSpeculativeMetricsText([
     'llama_decode: statistics ngram_map_k: #draft tokens = 21, #gen tokens = 18, #acc tokens = 12, #res tokens = 6',

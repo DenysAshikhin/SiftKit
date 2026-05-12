@@ -25,29 +25,43 @@ import {
   getPromptTokensPerSecond,
 } from '../lib/telemetry-metrics.js';
 
+const DEFAULT_CHAT_SYSTEM_PROMPT = 'general, coder friendly assistant';
+const HIDDEN_TOOL_CONTEXT_PROMPT =
+  'Internal tool-call context from prior session steps. Use this as additional evidence only when relevant.';
+
+function getTrimmedString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function getMessageContextTokenEstimate(message: Dict): number {
+  const contentTokens = estimateTokenCount(message.content);
+  return contentTokens + getMessageThinkingTokenEstimate(message);
+}
+
+function getMessageThinkingTokenEstimate(message: Dict): number {
+  return estimateTokenCount(getTrimmedString(message.thinkingContent));
+}
+
+function getHiddenToolContextTokenEstimate(entry: Dict): number {
+  const tokenEstimate = Number(entry?.tokenEstimate);
+  if (Number.isFinite(tokenEstimate) && tokenEstimate >= 0) {
+    return Math.trunc(tokenEstimate);
+  }
+  return estimateTokenCount(entry?.content);
+}
+
 export function buildContextUsage(session: ChatSession): Dict {
   const contextWindowTokens = Math.max(1, Number(session.contextWindowTokens || 150000));
-  const estimatedTokenFallbackTokens = Array.isArray(session.messages)
-    ? session.messages.reduce((sum: number, message: Dict) => {
-      const inputTokens = Number(message.inputTokensEstimate || 0);
-      const outputTokens = Number(message.outputTokensEstimate || 0);
-      const thinkingTokens = Number(message.thinkingTokens || 0);
-      const inputEstimated = message?.inputTokensEstimated === true ? inputTokens : 0;
-      const outputEstimated = message?.outputTokensEstimated === true ? outputTokens : 0;
-      const thinkingEstimated = message?.thinkingTokensEstimated === true ? thinkingTokens : 0;
-      return sum + inputEstimated + outputEstimated + thinkingEstimated;
-    }, 0)
+  const messages = Array.isArray(session.messages) ? session.messages : [];
+  const messageTokens = Array.isArray(session.messages)
+    ? messages.reduce((sum: number, message: Dict) => sum + getMessageContextTokenEstimate(message), 0)
     : 0;
-  const chatUsedTokens = Array.isArray(session.messages)
-    ? session.messages.reduce((sum: number, message: Dict) => (
-      sum
-      + Number(message.inputTokensEstimate || 0)
-      + Number(message.outputTokensEstimate || 0)
-      + Number(message.thinkingTokens || 0)
-    ), 0)
-    : 0;
-  const toolUsedTokens = Array.isArray(session.hiddenToolContexts)
-    ? session.hiddenToolContexts.reduce((sum: number, entry: Dict) => sum + (Number(entry?.tokenEstimate) || 0), 0)
+  const thinkingUsedTokens = messages.reduce((sum: number, message: Dict) => sum + getMessageThinkingTokenEstimate(message), 0);
+  const chatUsedTokens = estimateTokenCount(DEFAULT_CHAT_SYSTEM_PROMPT) + messageTokens;
+  const hiddenToolContexts = Array.isArray(session.hiddenToolContexts) ? session.hiddenToolContexts : [];
+  const toolUsedTokens = hiddenToolContexts.length > 0
+    ? estimateTokenCount(HIDDEN_TOOL_CONTEXT_PROMPT)
+      + hiddenToolContexts.reduce((sum: number, entry: Dict) => sum + getHiddenToolContextTokenEstimate(entry), 0)
     : 0;
   const totalUsedTokens = chatUsedTokens + toolUsedTokens;
   const remainingTokens = Math.max(contextWindowTokens - totalUsedTokens, 0);
@@ -56,12 +70,13 @@ export function buildContextUsage(session: ChatSession): Dict {
     contextWindowTokens,
     usedTokens: chatUsedTokens,
     chatUsedTokens,
+    thinkingUsedTokens,
     toolUsedTokens,
     totalUsedTokens,
     remainingTokens,
     warnThresholdTokens,
     shouldCondense: remainingTokens <= warnThresholdTokens,
-    estimatedTokenFallbackTokens,
+    estimatedTokenFallbackTokens: 0,
   };
 }
 
@@ -238,9 +253,9 @@ export function buildChatCompletionRequest(config: Dict, session: ChatSession, u
   const hiddenToolContextText = hiddenToolContexts.join('\n\n');
   const systemPrompt = typeof options.promptPrefix === 'string' && options.promptPrefix.trim()
     ? options.promptPrefix.trim()
-    : 'general, coder friendly assistant';
+    : DEFAULT_CHAT_SYSTEM_PROMPT;
   const systemContent = hiddenToolContextText
-    ? `${systemPrompt}\n\nInternal tool-call context from prior session steps. Use this as additional evidence only when relevant.\n\n${hiddenToolContextText}`
+    ? `${systemPrompt}\n\n${HIDDEN_TOOL_CONTEXT_PROMPT}\n\n${hiddenToolContextText}`
     : systemPrompt;
   const messages = [
     { role: 'system', content: systemContent },

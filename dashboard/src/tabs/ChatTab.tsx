@@ -231,7 +231,7 @@ export function ChatTab({
                 {contextUsage && (
                   <div className={contextUsage.shouldCondense ? 'usage warning' : 'usage'}>
                     <strong>
-                      <span title="Chat-visible token usage in this session, excluding hidden tool-call context.">
+                      <span title="Replayable chat context tokens in this session, excluding hidden tool-call context.">
                         Context: {formatNumber(contextUsage.chatUsedTokens)} / {formatNumber(contextUsage.contextWindowTokens)} tokens
                       </span>
                     </strong>
@@ -241,6 +241,9 @@ export function ChatTab({
                       {formatNumber(contextUsage.chatUsedTokens)} ({formatNumber(contextUsage.totalUsedTokens)} with tools)
                       {' | '}
                       Warn at: {formatNumber(contextUsage.warnThresholdTokens)}
+                    </span>
+                    <span title="Tokens from preserved assistant thinking/reasoning text that can be replayed into the next request.">
+                      Thinking/reasoning: {formatNumber(contextUsage.thinkingUsedTokens || 0)}
                     </span>
                     {isRepoToolMode && Number.isFinite(liveToolPromptTokenCount) ? (
                       <span title="Latest backend prompt_tokens for an active plan/repo-search tool step.">
