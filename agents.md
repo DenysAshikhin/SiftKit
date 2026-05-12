@@ -61,7 +61,7 @@ Compression target:
 
 
 ### Timeout Requirement
-- Any command routed through `siftkit` must be given a 5-minute timeout budget in the agent runner.
+- Any command routed through `siftkit` must be given a 15-minute timeout budget in the agent runner.
 
 ### Prompt Quality (Mandatory)
 - Prompts must be extraction-oriented and specific.

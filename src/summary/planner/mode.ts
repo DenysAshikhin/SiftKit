@@ -8,10 +8,10 @@ import {
   type LlamaCppChatMessage,
 } from '../../providers/llama-cpp.js';
 import { getErrorMessage } from '../../lib/errors.js';
+import { ModelJson } from '../../lib/model-json.js';
 import {
   buildConservativeDirectFallbackDecision,
   normalizeStructuredDecision,
-  tryRecoverStructuredModelDecision,
 } from '../structured.js';
 import {
   buildPlannerToolDefinitions,
@@ -19,10 +19,6 @@ import {
   formatPlannerResult,
   formatPlannerToolResultTokenGuardError,
 } from './tools.js';
-import {
-  parsePlannerAction,
-  recoverPlannerToolCallCandidate,
-} from './parse.js';
 import {
   createPlannerDebugRecorder,
   buildPlannerFailureErrorMessage,
@@ -81,10 +77,31 @@ function getPlannerTokenizeOptions(requestTimeoutSeconds: number | undefined): C
   };
 }
 
+function tryParseSummaryDecision(providerText: string): StructuredModelDecision | null {
+  try {
+    return ModelJson.parseSummaryDecision(providerText);
+  } catch {
+    return null;
+  }
+}
+
 function buildPlannerInvalidToolAction(providerText: string): ToolTranscriptAction {
-  const recoveredAction = recoverPlannerToolCallCandidate(providerText);
-  if (recoveredAction?.action === 'tool') {
-    return recoveredAction;
+  try {
+    const recoveredAction = ModelJson.parseSummaryPlannerAction(providerText);
+    if (recoveredAction.action === 'tool') {
+      return recoveredAction;
+    }
+    if (recoveredAction.action === 'tool_batch') {
+      const firstToolCall = recoveredAction.tool_calls[0];
+      if (firstToolCall) {
+        return {
+          tool_name: firstToolCall.tool_name,
+          args: firstToolCall.args,
+        };
+      }
+    }
+  } catch {
+    // Invalid responses are fed back to the model as an explicit invalid tool call.
   }
   return {
     tool_name: 'invalid_tool_call',
@@ -272,7 +289,7 @@ export async function invokePlannerMode(options: {
           responseChars: providerResponse.text.length,
         });
         try {
-          action = parsePlannerAction(providerResponse.text);
+          action = ModelJson.parseSummaryPlannerAction(providerResponse.text);
           parseSpan?.end({ ok: true });
         } catch (error) {
           parseSpan?.end({ ok: false });
@@ -280,7 +297,7 @@ export async function invokePlannerMode(options: {
         }
       } catch (error) {
         const recoveredDecision = toolResults.length === 0
-          ? tryRecoverStructuredModelDecision(providerResponse.text)
+          ? tryParseSummaryDecision(providerResponse.text)
           : null;
         if (recoveredDecision) {
           const decision = normalizeStructuredDecision(recoveredDecision, options.format);
@@ -444,7 +461,7 @@ export async function invokePlannerMode(options: {
             statusBackendUrl: options.statusBackendUrl,
             timingRecorder: options.timingRecorder || null,
           });
-          const forcedAction = parsePlannerAction(forcedResponse.text);
+          const forcedAction = ModelJson.parseSummaryPlannerAction(forcedResponse.text);
           if (forcedAction.action === 'finish') {
             const forcedDecision = normalizeStructuredDecision({
               classification: forcedAction.classification,

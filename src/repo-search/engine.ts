@@ -18,6 +18,7 @@ import {
 import { spawnDirectCommand } from '../lib/command-spawn.js';
 import { spawnPowerShellAsync } from '../lib/powershell.js';
 import { getDynamicMaxOutputTokens } from '../lib/dynamic-output-cap.js';
+import { ModelJson } from '../lib/model-json.js';
 import { colorize } from '../lib/text-format.js';
 import type { TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
 import { listLlamaCppModels } from '../providers/llama-cpp.js';
@@ -36,9 +37,7 @@ import {
   isRepoSearchCommandToolName,
   isRepoSearchNativeToolName,
   getRepoSearchToolNamesForParsing,
-  recoverRepoSearchToolCallCandidate,
   resolveRepoSearchPlannerToolDefinitions,
-  parsePlannerAction,
   renderTaskTranscript,
   requestPlannerAction,
   requestTerminalSynthesis,
@@ -230,7 +229,7 @@ function resolveRepoScopedPath(repoRoot: string, rawPath: unknown): {
   }
   const absolutePath = path.resolve(repoRoot, pathText);
   const relativePath = path.relative(repoRoot, absolutePath);
-  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
     return null;
   }
   return {
@@ -582,10 +581,26 @@ function buildAssistantToolCallMessage(
   return buildSharedAssistantToolCallMessage({ tool_name: toolName, args }, toolCallId, thinkingText) as ChatMessage;
 }
 
-function buildInvalidToolCallActionFromResponseText(responseText: string): ToolTranscriptAction {
-  const recovered = recoverRepoSearchToolCallCandidate(responseText);
-  if (recovered) {
-    return recovered;
+function buildInvalidToolCallActionFromResponseText(
+  responseText: string,
+  allowedToolNames: readonly string[]
+): ToolTranscriptAction {
+  try {
+    const action = ModelJson.parseRepoSearchPlannerAction(responseText, { allowedToolNames });
+    if (action.action === 'tool') {
+      return action;
+    }
+    if (action.action === 'tool_batch') {
+      const firstToolCall = action.tool_calls[0];
+      if (firstToolCall) {
+        return {
+          tool_name: firstToolCall.tool_name,
+          args: firstToolCall.args,
+        };
+      }
+    }
+  } catch {
+    // Invalid responses are fed back to the model as an explicit invalid tool call.
   }
   return {
     tool_name: 'invalid_tool_call',
@@ -929,7 +944,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       responseChars: String(response.text || '').length,
     });
     try {
-      action = parsePlannerAction(response.text, { allowedToolNames: allowedPlannerToolNames });
+      action = ModelJson.parseRepoSearchPlannerAction(response.text, { allowedToolNames: allowedPlannerToolNames });
       parseSpan?.end({ ok: true });
       options.logger?.write({ kind: 'turn_action_parsed', taskId: task.id, turn, action });
     } catch (error) {
@@ -937,7 +952,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       modelOutputTokens += resolvedCompletionTokens;
       invalidResponses += 1;
       const invalidActionMessage = `Invalid action: ${error instanceof Error ? error.message : String(error)}. Return a valid JSON finish action or tool action payload.`;
-      const invalidToolAction = buildInvalidToolCallActionFromResponseText(String(response.text || ''));
+      const invalidToolAction = buildInvalidToolCallActionFromResponseText(String(response.text || ''), allowedPlannerToolNames);
       appendToolCallExchange(
         messages as unknown as ToolTranscriptMessage[],
         invalidToolAction,

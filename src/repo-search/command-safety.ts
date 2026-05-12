@@ -88,7 +88,7 @@ function hasFileRedirection(command: string): boolean {
   return /[<>]/u.test(withoutStderrMerge);
 }
 
-function splitTopLevelPipes(command: string): string[] {
+function splitTopLevelPipes(command: string, options: { backslashEscapesQuotes?: boolean } = {}): string[] {
   const parts: string[] = [];
   let current = '';
   let inSingle = false;
@@ -96,6 +96,19 @@ function splitTopLevelPipes(command: string): string[] {
 
   for (let i = 0; i < command.length; i += 1) {
     const ch = command[i];
+    if (
+      options.backslashEscapesQuotes === true
+      && ch === '\\'
+      && i + 1 < command.length
+      && (
+        (inDouble && command[i + 1] === '"')
+        || (inSingle && command[i + 1] === "'")
+      )
+    ) {
+      current += ch + command[i + 1];
+      i += 1;
+      continue;
+    }
     if (ch === "'" && !inDouble) {
       inSingle = !inSingle;
       current += ch;
@@ -119,6 +132,10 @@ function splitTopLevelPipes(command: string): string[] {
   }
 
   return parts;
+}
+
+function splitDirectCommandPipes(command: string): string[] {
+  return splitTopLevelPipes(command, { backslashEscapesQuotes: true });
 }
 
 export function getFirstCommandToken(segment: string): string {
@@ -216,7 +233,7 @@ export function parseDirectRgCommand(command: string): DirectRgCommand | null {
   if (hasBlockedOperator(trimmed) || hasFileRedirection(trimmed) || /\s2>&1(?:\s|$)/u.test(trimmed)) {
     return null;
   }
-  if (splitTopLevelPipes(trimmed).length !== 1) {
+  if (splitDirectCommandPipes(trimmed).length !== 1) {
     return null;
   }
 
@@ -282,6 +299,10 @@ export function evaluateCommandSafety(command: string, repoRoot = ''): SafetyRes
 
   if (/\b(rm|del|mv|cp|move-item|copy-item|remove-item|set-content|add-content|out-file|export-[a-z0-9_-]+|tee-object|curl|wget|invoke-webrequest|invoke-restmethod|start-process)\b/iu.test(trimmed)) {
     return { safe: false, reason: 'destructive, file-writing, or network command is not allowed' };
+  }
+
+  if (parseDirectRgCommand(trimmed)) {
+    return { safe: true, reason: null };
   }
 
   const segments = splitTopLevelPipes(trimmed);
@@ -424,7 +445,9 @@ function rgAlreadyHasIgnoreGlob(command: string, ignoreName: string): boolean {
 }
 
 function appendToFirstSegment(command: string, addition: string): string {
-  const segments = splitTopLevelPipes(command);
+  const segments = getFirstCommandToken(command) === 'rg'
+    ? splitDirectCommandPipes(command)
+    : splitTopLevelPipes(command);
   if (!segments.length) {
     return command;
   }

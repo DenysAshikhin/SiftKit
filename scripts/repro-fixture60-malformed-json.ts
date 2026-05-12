@@ -22,6 +22,8 @@ const { acquireExecutionLock, releaseExecutionLock } = require(path.join(base, '
 const { buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks } = require(path.join(base, 'summary.js'));
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { countLlamaCppTokens, generateLlamaCppResponse } = require(path.join(base, 'providers', 'llama-cpp.js'));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { ModelJson } = require(path.join(base, 'lib', 'model-json.js'));
 
 const LLAMA_CPP_NON_THINKING_PROMPT_TOKEN_RESERVE = 10_000;
 const LLAMA_CPP_THINKING_PROMPT_TOKEN_RESERVE = 15_000;
@@ -169,66 +171,6 @@ function getLlamaCppPromptTokenReserve(config: Record<string, unknown>): number 
 function getLlamaCppChunkThresholdCharacters(config: Record<string, unknown>): number {
   const reserveChars = Math.ceil(getLlamaCppPromptTokenReserve(config) * getEffectiveInputCharactersPerContextToken(config));
   return Math.max(getChunkThresholdCharacters(config) - reserveChars, 1);
-}
-
-function stripCodeFence(text: string): string {
-  const trimmed = String(text || '').trim();
-  const match = /^```(?:json)?\s*([\s\S]*?)\s*```$/u.exec(trimmed);
-  return match ? match[1].trim() : trimmed;
-}
-
-function decodeStructuredOutputText(text: string): string {
-  return text
-    .replace(/\\\\/gu, '\\')
-    .replace(/\\"/gu, '"')
-    .replace(/\\r/gu, '\r')
-    .replace(/\\n/gu, '\n')
-    .replace(/\\t/gu, '\t');
-}
-
-function tryRecoverStructuredModelDecision(text: string): { classification: string; rawReviewRequired: boolean; output: string } | null {
-  const normalized = stripCodeFence(text);
-  const classificationMatch = /"classification"\s*:\s*"(summary|command_failure|unsupported_input)"/iu.exec(normalized);
-  const outputMatch = /"output"\s*:\s*"([\s\S]*?)"(?:\s*[}])?\s*$/u.exec(normalized);
-  if (!classificationMatch || !outputMatch) {
-    return null;
-  }
-  const rawReviewMatch = /"raw_review_required"\s*:\s*(true|false)|"rawReviewRequired"\s*:\s*(true|false)/iu.exec(normalized);
-  return {
-    classification: classificationMatch[1].toLowerCase(),
-    rawReviewRequired: rawReviewMatch ? /true/iu.test(rawReviewMatch[0]) : false,
-    output: decodeStructuredOutputText(outputMatch[1]).trim(),
-  };
-}
-
-function parseStructuredModelDecision(text: string): { classification: string; rawReviewRequired: boolean; output: string } {
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = JSON.parse(stripCodeFence(text)) as Record<string, unknown>;
-  } catch (error) {
-    const recovered = tryRecoverStructuredModelDecision(text);
-    if (recovered) {
-      return recovered;
-    }
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Provider returned an invalid SiftKit decision payload: ${message}`);
-  }
-
-  const classification = typeof parsed.classification === 'string'
-    ? parsed.classification.trim().toLowerCase()
-    : '';
-  if (!['summary', 'command_failure', 'unsupported_input'].includes(classification)) {
-    throw new Error('Provider returned an invalid SiftKit decision classification.');
-  }
-  if (typeof parsed.output !== 'string' || !parsed.output.trim()) {
-    throw new Error('Provider returned an empty SiftKit decision output.');
-  }
-
-  return {
-    classification,
-    rawReviewRequired: Boolean(parsed.raw_review_required ?? parsed.rawReviewRequired ?? false),
-    output: parsed.output.trim(),
-  };
 }
 
 function getFixtureBounds(args: {
@@ -442,7 +384,7 @@ export async function runFixture60MalformedJsonRepro(
         };
 
         try {
-          const parsedDecision = parseStructuredModelDecision(response.text);
+          const parsedDecision = ModelJson.parseSummaryDecision(response.text);
           chunkRecord.parsed = true;
           chunkRecord.classification = parsedDecision.classification;
           chunkRecord.rawReviewRequired = parsedDecision.rawReviewRequired;

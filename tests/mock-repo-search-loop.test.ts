@@ -6,7 +6,6 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { parsePlannerAction } from '../src/repo-search/planner-protocol.js';
 import { evaluateCommandSafety } from '../src/repo-search/command-safety.js';
 import { isTransientProviderError, retryProviderRequest } from '../src/lib/provider-helpers.js';
 import {
@@ -66,7 +65,7 @@ test('runTaskLoop stops on invalid response limit', async () => {
   assert.equal(result.finalOutput, 'Synthesized best-effort answer.');
 });
 
-test('runTaskLoop replays recoverable invalid planner payloads as tool-call tool-result pairs', async () => {
+test('runTaskLoop repairs malformed planner payloads before executing tool calls', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   const result = await runTaskLoop(
     {
@@ -83,7 +82,12 @@ test('runTaskLoop replays recoverable invalid planner payloads as tool-call tool
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
-      mockCommandResults: {},
+      mockCommandResults: {
+        'rg -n "planner" src': {
+          exitCode: 0,
+          stdout: 'src/repo-search/engine.ts: planner anchor',
+        },
+      },
       logger: {
         write(event: Record<string, unknown> & { kind: string }) {
           events.push(event);
@@ -100,9 +104,10 @@ test('runTaskLoop replays recoverable invalid planner payloads as tool-call tool
   const assistantToolCall = Array.isArray(assistantMessage?.tool_calls) ? assistantMessage.tool_calls[0] : null;
 
   assert.equal(result.reason, 'finish');
+  assert.equal(result.invalidResponses, 0);
   assert.equal(String(assistantToolCall?.function?.name || ''), 'repo_rg');
   assert.equal(JSON.parse(String(assistantToolCall?.function?.arguments || '{}')).command, 'rg -n "planner" src');
-  assert.match(String(toolMessage?.content || ''), /Provider returned an invalid planner payload/u);
+  assert.match(String(toolMessage?.content || ''), /planner anchor/u);
   assert.equal(userMessages.length, 0);
 });
 

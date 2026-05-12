@@ -14,7 +14,7 @@ const {
   saveFixture60ChunkingConfig,
 } = require('./helpers/runtime-benchmark-repro.js');
 
-test('repro-fixture60-malformed-json writes chunk artifacts and stops on malformed chunk payload', async () => {
+test('repro-fixture60-malformed-json repairs malformed chunk payloads and completes', async () => {
   await withTempEnv(async (tempRoot) => {
     let chunkResponseCount = 0;
     await withStubServer(async () => {
@@ -43,13 +43,12 @@ test('repro-fixture60-malformed-json writes chunk artifacts and stops on malform
         stderr: { write: (text) => { stderrText += String(text); return true; } },
       });
 
-      assert.equal(result.exitCode, 1);
+      assert.equal(result.exitCode, 0);
       const artifact = JSON.parse(fs.readFileSync(path.join(outputRoot, 'manifest.json'), 'utf8'));
-      assert.equal(artifact.ok, false);
+      assert.equal(artifact.ok, true);
       assert.equal(artifact.chunkCount, 3);
-      assert.equal(artifact.malformedChunk.chunkPath, '2/3');
-      assert.match(artifact.malformedChunk.error, /Provider returned an invalid SiftKit decision payload/u);
-      assert.match(stderrText, /Provider returned an invalid SiftKit decision payload/u);
+      assert.equal(artifact.malformedChunk, null);
+      assert.equal(stderrText, '');
 
       const firstChunkPrompt = fs.readFileSync(
         path.join(outputRoot, 'fixtures', 'fixture-01', 'chunks', 'chunk-01', 'prompt.txt'),
@@ -61,7 +60,9 @@ test('repro-fixture60-malformed-json writes chunk artifacts and stops on malform
       );
       assert.match(firstChunkPrompt, /Chunk path: 1\/3/u);
       assert.equal(secondChunkResponse.endsWith('"output":"broken'), true);
-      assert.equal(artifact.chunks.length, 2);
+      assert.equal(artifact.chunks.length, 3);
+      assert.equal(artifact.chunks[1].parsed, true);
+      assert.equal(artifact.chunks[1].outputPreview, 'broken');
     }, {
       metrics: STABLE_CHUNK_BUDGET_METRICS,
       assistantContent(promptText) {

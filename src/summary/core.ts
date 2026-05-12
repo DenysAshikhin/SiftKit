@@ -17,6 +17,7 @@ import { getErrorMessage } from '../lib/errors.js';
 import { formatTimestamp } from '../lib/text-format.js';
 import { createTemporaryTimingRecorderFromEnv, type TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
 import { decodeTextBuffer } from '../lib/text-encoding.js';
+import { ModelJson } from '../lib/model-json.js';
 import {
   DEFAULT_LLAMA_CPP_TOKENIZE_RETRY_MAX_WAIT_MS,
   DEFAULT_LLAMA_CPP_TOKENIZE_TIMEOUT_MS,
@@ -38,7 +39,6 @@ import {
   buildConservativeDirectFallbackDecision,
   isInternalChunkLeaf,
   normalizeStructuredDecision,
-  parseStructuredModelDecision,
 } from './structured.js';
 import {
   attachSummaryFailureContext,
@@ -412,7 +412,7 @@ async function invokeSummaryCore(options: {
     const rawResponse = await invokeSummaryProvider();
     let parsedDecision: StructuredModelDecision;
     try {
-      parsedDecision = parseStructuredModelDecision(rawResponse);
+      parsedDecision = ModelJson.parseSummaryDecision(rawResponse);
     } catch (error) {
       if (!isEmptyDecisionOutputError(error)) {
         throw error;
@@ -421,7 +421,7 @@ async function invokeSummaryCore(options: {
         `provider empty-output retry phase=${phase} chunk=${chunkLabel} request_id=${options.requestId}`
       );
       const retryRawResponse = await invokeSummaryProvider();
-      parsedDecision = parseStructuredModelDecision(retryRawResponse);
+      parsedDecision = ModelJson.parseSummaryDecision(retryRawResponse);
     }
     if (parsedDecision.classification === 'unsupported_input') {
       if (isInternalChunkLeaf(options)) {

@@ -14,7 +14,7 @@ const {
   saveFixture60ChunkingConfig,
 } = require('./helpers/runtime-benchmark-repro.js');
 
-test('repro-fixture60-malformed-json can run a fixture range and stop on a later malformed fixture', async () => {
+test('repro-fixture60-malformed-json can run a fixture range and repair later malformed fixture output', async () => {
   await withTempEnv(async (tempRoot) => {
     let fixture2ChunkResponses = 0;
     await withStubServer(async () => {
@@ -50,13 +50,15 @@ test('repro-fixture60-malformed-json can run a fixture range and stop on a later
         fixtureRoot,
       });
 
-      assert.equal(result.exitCode, 1);
+      assert.equal(result.exitCode, 0);
       const artifact = JSON.parse(fs.readFileSync(path.join(outputRoot, 'manifest.json'), 'utf8'));
       assert.equal(artifact.fixtureCount, 2);
-      assert.equal(artifact.malformedFixture.fixtureIndex, 2);
+      assert.equal(artifact.malformedFixture, null);
       assert.equal(artifact.fixtures.length, 2);
       assert.equal(artifact.fixtures[0].ok, true);
-      assert.equal(artifact.fixtures[1].malformedChunk.chunkPath, '2/3');
+      assert.equal(artifact.fixtures[1].ok, true);
+      assert.equal(artifact.fixtures[1].chunks[1].parsed, true);
+      assert.equal(artifact.fixtures[1].chunks[1].outputPreview, 'broken');
       assert.match(
         fs.readFileSync(path.join(outputRoot, 'fixtures', 'fixture-01', 'chunks', 'chunk-03', 'response.txt'), 'utf8'),
         /fixture 1 chunk 3/u,

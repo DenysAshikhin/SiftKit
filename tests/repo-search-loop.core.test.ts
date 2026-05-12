@@ -6,7 +6,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { parsePlannerAction } from '../src/repo-search/planner-protocol.js';
+import { ModelJson } from '../src/lib/model-json.js';
+import { getRepoSearchToolNamesForParsing } from '../src/repo-search/planner-protocol.js';
 import {
   classifySearchExit,
   evaluateCommandSafety,
@@ -90,8 +91,12 @@ test('getDynamicMaxOutputTokens uses the smaller of 25k tokens or 90% of remaini
   assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 200, promptTokenCount: 250 }), 1);
 });
 
-test('parsePlannerAction parses valid tool action', () => {
-  const action = parsePlannerAction('{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg planner src"}}');
+function parseRepoSearchPlannerAction(text: string) {
+  return ModelJson.parseRepoSearchPlannerAction(text, { allowedToolNames: getRepoSearchToolNamesForParsing() });
+}
+
+test('ModelJson parses valid repo-search tool action', () => {
+  const action = parseRepoSearchPlannerAction('{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg planner src"}}');
   assert.deepEqual(action, {
     action: 'tool',
     tool_name: 'repo_rg',
@@ -99,8 +104,8 @@ test('parsePlannerAction parses valid tool action', () => {
   });
 });
 
-test('parsePlannerAction parses valid finish action', () => {
-  const action = parsePlannerAction('{"action":"finish","output":"done","confidence":0.7}');
+test('ModelJson parses valid repo-search finish action', () => {
+  const action = parseRepoSearchPlannerAction('{"action":"finish","output":"done","confidence":0.7}');
   assert.deepEqual(action, {
     action: 'finish',
     output: 'done',
@@ -108,21 +113,21 @@ test('parsePlannerAction parses valid finish action', () => {
   });
 });
 
-test('parsePlannerAction rejects invalid payloads', () => {
-  assert.throws(() => parsePlannerAction('not-json'), /invalid planner payload/u);
+test('ModelJson rejects invalid repo-search planner payloads', () => {
+  assert.throws(() => parseRepoSearchPlannerAction('not-json'), /invalid planner payload/u);
   assert.throws(
-    () => parsePlannerAction('{"action":"tool","tool_name":"read_lines","args":{"command":"rg x"}}'),
+    () => parseRepoSearchPlannerAction('{"action":"tool","tool_name":"read_lines","args":{"command":"rg x"}}'),
     /invalid planner tool action/u
   );
   assert.throws(
-    () => parsePlannerAction('{"action":"tool","tool_name":"run_repo_cmd","args":{"bad":"x"}}'),
+    () => parseRepoSearchPlannerAction('{"action":"tool","tool_name":"run_repo_cmd","args":{"bad":"x"}}'),
     /invalid planner tool action/u
   );
 });
 
-test('parsePlannerAction recovers malformed escaped command payloads', () => {
+test('ModelJson repairs malformed escaped command payloads', () => {
   const malformed = '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"D:\\\\\\\\|C:\\\\\\\\|\\\\\\\\\\\\\\\\" src --type ts | Select-Object -First 30"}}';
-  const action = parsePlannerAction(malformed);
+  const action = parseRepoSearchPlannerAction(malformed);
   assert.deepEqual(action, {
     action: 'tool',
     tool_name: 'repo_rg',
@@ -281,6 +286,13 @@ test('parseDirectRgCommand rejects piped rg commands', () => {
   assert.equal(parseDirectRgCommand('rg -n "from " apps/runner/src | Select-Object -First 20'), null);
 });
 
+test('parseDirectRgCommand allows regex alternation after escaped quote in direct rg', () => {
+  const command = 'rg -n "from [\'\\"].*\\.internal|import.*\\/internal\\/" --glob "*.test.ts" apps/runner/src/__tests__';
+  const parsed = parseDirectRgCommand(command);
+  assert.notEqual(parsed, null);
+  assert.equal(evaluateCommandSafety(command, process.cwd()).safe, true);
+});
+
 test('evaluateCommandSafety treats drive-letter regex literals as patterns, not repo-escape paths', () => {
   const repoRoot = 'C:\\Users\\denys\\Documents\\GitHub\\SiftKit';
   assert.equal(
@@ -344,6 +356,18 @@ test('runTaskLoop rewrites unsupported rg --type tsx and annotates output', asyn
   assert.equal(result.reason, 'finish');
   assert.equal(result.commandFailures, 0);
   assert.equal(result.passed, true);
+});
+
+test('normalizePlannerCommand appends rg ignore flags after regex alternation inside quotes', () => {
+  const normalized = normalizePlannerCommand(
+    'rg -n "from [\'\\"].*\\.internal|import.*\\/internal\\/" --glob "*.test.ts" apps/runner/src/__tests__',
+    { repoRoot: process.cwd() },
+  );
+
+  assert.equal(normalized.rejected, undefined);
+  assert.match(normalized.command, /internal\|import/u);
+  assert.doesNotMatch(normalized.command, /--no-ignore\s+\|\s+import/u);
+  assert.match(normalized.command, /apps\/runner\/src\/__tests__ --no-ignore/u);
 });
 
 test('runTaskLoop rewrites mixed rg --type ts and --type tsx flags', async () => {
@@ -644,6 +668,51 @@ test('runTaskLoop executes repo_list_files and repo_read_file natively', async (
     assert.match(String(commandResults[1]?.insertedResultText || ''), /3: line-3/u);
     assert.equal(result.reason, 'finish');
     assert.equal(result.commandFailures, 0);
+    assert.equal(result.passed, true);
+  } finally {
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('runTaskLoop executes repo_list_files at repository root natively', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const repoRoot = createTempRepoRoot();
+  try {
+    fs.mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, 'README.md'), 'root readme\n', 'utf8');
+    fs.writeFileSync(path.join(repoRoot, 'src', 'sample.ts'), 'sample\n', 'utf8');
+
+    const result = await runTaskLoop(
+      {
+        id: 'task-native-root-list',
+        question: 'List repository root files.',
+        signals: ['done'],
+      },
+      {
+        repoRoot,
+        maxTurns: 2,
+        maxInvalidResponses: 2,
+        minToolCallsBeforeFinish: 0,
+        mockResponses: [
+          '{"action":"tool","tool_name":"repo_list_files","args":{"path":".","recurse":false}}',
+          '{"action":"finish","output":"done"}',
+          '{"verdict":"pass","reason":"supported"}',
+        ],
+        mockCommandResults: {},
+        logger: {
+          write(event: Record<string, unknown> & { kind: string }) {
+            events.push(event);
+          },
+        },
+      }
+    );
+
+    const commandResults = events.filter((event) => event.kind === 'turn_command_result');
+    const output = String(commandResults[0]?.insertedResultText || '');
+    assert.match(String(commandResults[0]?.command || ''), /^repo_list_files/u);
+    assert.match(output, /README\.md/u);
+    assert.equal(result.commandFailures, 0);
+    assert.equal(result.safetyRejects, 0);
     assert.equal(result.passed, true);
   } finally {
     fs.rmSync(repoRoot, { recursive: true, force: true });

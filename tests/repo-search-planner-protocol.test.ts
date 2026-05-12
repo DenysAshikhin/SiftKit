@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import * as http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
+import { ModelJson } from '../src/lib/model-json.js';
 import {
   getRepoSearchToolNames,
-  parsePlannerAction,
+  getRepoSearchToolNamesForParsing,
   requestPlannerAction,
   resolveRepoSearchPlannerToolDefinitions,
 } from '../src/repo-search/planner-protocol.js';
@@ -28,14 +29,14 @@ async function withServer(
   }
 }
 
-test('parsePlannerAction parses tool batches', () => {
-  const action = parsePlannerAction(JSON.stringify({
+test('ModelJson parses repo-search tool batches', () => {
+  const action = ModelJson.parseRepoSearchPlannerAction(JSON.stringify({
     action: 'tool_batch',
     tool_calls: [
       { tool_name: 'repo_rg', args: { command: 'rg -n "plan" src' } },
       { tool_name: 'repo_rg', args: { command: 'rg -n "repo-search" src' } },
     ],
-  }));
+  }), { allowedToolNames: getRepoSearchToolNamesForParsing() });
 
   assert.deepEqual(action, {
     action: 'tool_batch',
@@ -115,7 +116,7 @@ test('requestPlannerAction reconstructs a tool batch from non-streaming multi-to
     });
 
     assert.equal(result.mockExhausted, false);
-    assert.deepEqual(parsePlannerAction(result.text), {
+    assert.deepEqual(ModelJson.parseRepoSearchPlannerAction(result.text, { allowedToolNames: getRepoSearchToolNamesForParsing() }), {
       action: 'tool_batch',
       tool_calls: [
         { tool_name: 'repo_rg', args: { command: 'rg -n "plan" src' } },
@@ -150,7 +151,7 @@ test('requestPlannerAction reconstructs a tool batch from streaming multi-tool r
       stream: true,
     });
 
-    assert.deepEqual(parsePlannerAction(result.text), {
+    assert.deepEqual(ModelJson.parseRepoSearchPlannerAction(result.text, { allowedToolNames: getRepoSearchToolNamesForParsing() }), {
       action: 'tool_batch',
       tool_calls: [
         { tool_name: 'repo_rg', args: { command: 'rg -n "plan" src' } },

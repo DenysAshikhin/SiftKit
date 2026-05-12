@@ -4,73 +4,12 @@ import {
   getErrorSignalMetrics,
   isPassFailQuestion,
 } from './measure.js';
-import { stripCodeFence } from '../lib/text-format.js';
 import type {
   ChunkPromptContext,
   StructuredModelDecision,
-  SummaryClassification,
   SummaryPhase,
   SummarySourceKind,
 } from './types.js';
-
-export { stripCodeFence };
-
-export function decodeStructuredOutputText(text: string): string {
-  return text
-    .replace(/\\\\/gu, '\\')
-    .replace(/\\"/gu, '"')
-    .replace(/\\r/gu, '\r')
-    .replace(/\\n/gu, '\n')
-    .replace(/\\t/gu, '\t');
-}
-
-export function tryRecoverStructuredModelDecision(text: string): StructuredModelDecision | null {
-  const normalized = stripCodeFence(text);
-  const classificationMatch = /"classification"\s*:\s*"(summary|command_failure|unsupported_input)"/iu.exec(normalized);
-  const outputMatch = /"output"\s*:\s*"([\s\S]*?)"(?:\s*[}])?\s*$/u.exec(normalized);
-  if (!classificationMatch || !outputMatch) {
-    return null;
-  }
-
-  const rawReviewMatch = /"raw_review_required"\s*:\s*(true|false)|"rawReviewRequired"\s*:\s*(true|false)/iu.exec(normalized);
-  return {
-    classification: classificationMatch[1].toLowerCase() as SummaryClassification,
-    rawReviewRequired: rawReviewMatch ? /true/iu.test(rawReviewMatch[0]) : false,
-    output: decodeStructuredOutputText(outputMatch[1]).trim(),
-  };
-}
-
-export function parseStructuredModelDecision(text: string): StructuredModelDecision {
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = JSON.parse(stripCodeFence(text)) as Record<string, unknown>;
-  } catch (error) {
-    const recovered = tryRecoverStructuredModelDecision(text);
-    if (recovered) {
-      return recovered;
-    }
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Provider returned an invalid SiftKit decision payload: ${message}`);
-  }
-
-  const classification = typeof parsed.classification === 'string'
-    ? parsed.classification.trim().toLowerCase()
-    : '';
-  if (!['summary', 'command_failure', 'unsupported_input'].includes(classification)) {
-    throw new Error('Provider returned an invalid SiftKit decision classification.');
-  }
-
-  const output = parsed.output;
-  if (typeof output !== 'string' || !output.trim()) {
-    throw new Error('Provider returned an empty SiftKit decision output.');
-  }
-
-  return {
-    classification: classification as SummaryClassification,
-    rawReviewRequired: Boolean(parsed.raw_review_required ?? parsed.rawReviewRequired ?? false),
-    output: output.trim(),
-  };
-}
 
 export function ensureRawReviewSentence(
   decision: StructuredModelDecision,

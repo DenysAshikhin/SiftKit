@@ -6,6 +6,7 @@ import {
   retryProviderRequest,
 } from '../lib/provider-helpers.js';
 import { estimatePromptTokenCountFromCharacters, getDynamicMaxOutputTokens } from '../lib/dynamic-output-cap.js';
+import { ModelJson } from '../lib/model-json.js';
 import { getNormalizedCompletionTokens } from '../lib/telemetry-metrics.js';
 import { tryRecordAccurateCharTokenObservation } from '../state/observed-budget.js';
 import {
@@ -247,25 +248,6 @@ function getTextContent(content: string | Array<{ type?: string; text?: string }
     .join('');
 }
 
-function parseToolArguments(argumentsValue: unknown): Record<string, unknown> | null {
-  if (typeof argumentsValue === 'string') {
-    try {
-      const parsed = JSON.parse(argumentsValue) as unknown;
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-        ? parsed as Record<string, unknown>
-        : null;
-    } catch {
-      return null;
-    }
-  }
-
-  if (argumentsValue && typeof argumentsValue === 'object' && !Array.isArray(argumentsValue)) {
-    return argumentsValue as Record<string, unknown>;
-  }
-
-  return null;
-}
-
 function parseStructuredPlannerToolCall(toolCall: {
   function?: {
     name?: string;
@@ -273,7 +255,7 @@ function parseStructuredPlannerToolCall(toolCall: {
   };
 } | null | undefined): PlannerStructuredToolCall | null {
   const toolName = typeof toolCall?.function?.name === 'string' ? toolCall.function.name.trim() : '';
-  const args = parseToolArguments(toolCall?.function?.arguments);
+  const args = ModelJson.parseToolArguments(toolCall?.function?.arguments);
   if (!toolName || !args) {
     return null;
   }

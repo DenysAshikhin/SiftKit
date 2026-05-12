@@ -1,6 +1,7 @@
 import * as http from 'node:http';
 import * as https from 'node:https';
 import { requestJsonFull } from '../lib/http.js';
+import { ModelJson } from '../lib/model-json.js';
 import {
   buildTransientProviderHttpError,
   buildProviderErrorMessage,
@@ -12,7 +13,6 @@ import {
   retryProviderRequest,
   serializeNetworkError,
 } from '../lib/provider-helpers.js';
-import { stripCodeFence } from '../lib/text-format.js';
 import {
   REPO_SEARCH_PIPE_COMMANDS,
   REPO_SEARCH_PRODUCER_COMMANDS,
@@ -46,11 +46,6 @@ export type PlannerActionResponse = {
 
 export type ToolAction = {
   action: 'tool';
-  tool_name: string;
-  args: Record<string, unknown>;
-};
-
-export type PlannerToolCallCandidate = {
   tool_name: string;
   args: Record<string, unknown>;
 };
@@ -124,7 +119,6 @@ function extractInlineThinking(raw: string): { thinkingText: string; text: strin
 // Tool definitions exposed to the LLM
 // ---------------------------------------------------------------------------
 
-const LEGACY_REPO_SEARCH_TOOL_ALIAS = 'run_repo_cmd';
 const NATIVE_REPO_SEARCH_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
   repo_read_file: {
     type: 'function',
@@ -269,209 +263,6 @@ export const TOOL_DEFINITIONS = resolveRepoSearchPlannerToolDefinitions();
 // Action parsing
 // ---------------------------------------------------------------------------
 
-function decodeJsonStringLoose(raw: string): string {
-  let decoded = '';
-  for (let i = 0; i < raw.length; i += 1) {
-    const ch = raw[i];
-    if (ch !== '\\') { decoded += ch; continue; }
-    if (i + 1 >= raw.length) { decoded += '\\'; continue; }
-    const next = raw[i + 1];
-    i += 1;
-    if (next === '"' || next === '\\' || next === '/') { decoded += next; continue; }
-    if (next === 'b') { decoded += '\b'; continue; }
-    if (next === 'f') { decoded += '\f'; continue; }
-    if (next === 'n') { decoded += '\n'; continue; }
-    if (next === 'r') { decoded += '\r'; continue; }
-    if (next === 't') { decoded += '\t'; continue; }
-    if (next === 'u' && i + 4 < raw.length) {
-      const hex = raw.slice(i + 1, i + 5);
-      if (/^[0-9a-fA-F]{4}$/u.test(hex)) {
-        decoded += String.fromCharCode(Number.parseInt(hex, 16));
-        i += 4;
-        continue;
-      }
-    }
-    decoded += next;
-  }
-  return decoded;
-}
-
-function getCommandArgValue(args: Record<string, unknown>): string {
-  const commandValue = typeof args.command === 'string'
-    ? args.command
-    : typeof args.cmd === 'string'
-      ? args.cmd
-      : '';
-  return commandValue.trim();
-}
-
-function normalizeRepoSearchToolCall(
-  rawToolName: string,
-  rawArgs: Record<string, unknown>,
-  allowedToolNames: Set<string>,
-): ToolAction | null {
-  const normalizedRawToolName = String(rawToolName || '').trim().toLowerCase();
-  let toolName = normalizedRawToolName;
-  if (toolName === LEGACY_REPO_SEARCH_TOOL_ALIAS) {
-    const command = getCommandArgValue(rawArgs);
-    if (!command) {
-      return null;
-    }
-    const inferredToolName = getRepoSearchToolNameForCommand(command);
-    if (!inferredToolName) {
-      return null;
-    }
-    toolName = inferredToolName;
-  }
-  if (!allowedToolNames.has(toolName)) {
-    return null;
-  }
-  if (isRepoSearchCommandToolName(toolName)) {
-    const command = getCommandArgValue(rawArgs);
-    if (!command) {
-      return null;
-    }
-    const expectedCommandToken = getRepoSearchCommandTokenForToolName(toolName);
-    const actualCommandToken = getFirstCommandToken(command);
-    if (!expectedCommandToken || actualCommandToken !== expectedCommandToken) {
-      return null;
-    }
-    return {
-      action: 'tool',
-      tool_name: toolName,
-      args: { command },
-    };
-  }
-  if (toolName === 'repo_read_file') {
-    return typeof rawArgs.path === 'string' && rawArgs.path.trim()
-      ? {
-        action: 'tool',
-        tool_name: toolName,
-        args: {
-          path: rawArgs.path,
-          ...(rawArgs.startLine === undefined ? {} : { startLine: rawArgs.startLine }),
-          ...(rawArgs.endLine === undefined ? {} : { endLine: rawArgs.endLine }),
-        },
-      }
-      : null;
-  }
-  if (toolName === 'repo_list_files') {
-    return {
-      action: 'tool',
-      tool_name: toolName,
-      args: {
-        ...(typeof rawArgs.path === 'string' ? { path: rawArgs.path } : {}),
-        ...(typeof rawArgs.glob === 'string' ? { glob: rawArgs.glob } : {}),
-        ...(typeof rawArgs.recurse === 'boolean' ? { recurse: rawArgs.recurse } : {}),
-      },
-    };
-  }
-  return {
-    action: 'tool',
-    tool_name: toolName,
-    args: rawArgs,
-  };
-}
-
-function extractJsonFieldString(rawText: string, fieldName: string): string | null {
-  const match = new RegExp(`"${fieldName}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`, 'u').exec(rawText);
-  return match?.[1] ? decodeJsonStringLoose(match[1]).trim() : null;
-}
-
-function extractJsonFieldInteger(rawText: string, fieldName: string): number | null {
-  const match = new RegExp(`"${fieldName}"\\s*:\\s*(-?\\d+)`, 'u').exec(rawText);
-  if (!match?.[1]) {
-    return null;
-  }
-  const value = Number.parseInt(match[1], 10);
-  return Number.isFinite(value) ? value : null;
-}
-
-function extractJsonFieldBoolean(rawText: string, fieldName: string): boolean | null {
-  const match = new RegExp(`"${fieldName}"\\s*:\\s*(true|false)`, 'u').exec(rawText);
-  if (!match?.[1]) {
-    return null;
-  }
-  return match[1] === 'true';
-}
-
-function recoverRepoSearchToolCallCandidateFromParsed(parsed: Record<string, unknown>): PlannerToolCallCandidate | null {
-  const action = typeof parsed.action === 'string' ? parsed.action.trim().toLowerCase() : '';
-  if (action === 'tool') {
-    const toolName = String(
-      parsed.tool_name ?? parsed.toolName ?? parsed.tool ?? parsed.name ?? '',
-    ).trim().toLowerCase();
-    const args = parsed.args && typeof parsed.args === 'object' && !Array.isArray(parsed.args)
-      ? parsed.args as Record<string, unknown>
-      : null;
-    return toolName && args ? { tool_name: toolName, args } : null;
-  }
-  if (action === 'tool_batch' && Array.isArray(parsed.tool_calls) && parsed.tool_calls.length > 0) {
-    const firstToolCall = parsed.tool_calls[0];
-    if (!firstToolCall || typeof firstToolCall !== 'object' || Array.isArray(firstToolCall)) {
-      return null;
-    }
-    const toolRecord = firstToolCall as Record<string, unknown>;
-    const toolName = String(
-      toolRecord.tool_name ?? toolRecord.toolName ?? toolRecord.tool ?? toolRecord.name ?? '',
-    ).trim().toLowerCase();
-    const args = toolRecord.args && typeof toolRecord.args === 'object' && !Array.isArray(toolRecord.args)
-      ? toolRecord.args as Record<string, unknown>
-      : null;
-    return toolName && args ? { tool_name: toolName, args } : null;
-  }
-  return null;
-}
-
-export function recoverRepoSearchToolCallCandidate(text: string): PlannerToolCallCandidate | null {
-  const normalized = stripCodeFence(text);
-  try {
-    const parsed = JSON.parse(normalized) as Record<string, unknown>;
-    const recovered = recoverRepoSearchToolCallCandidateFromParsed(parsed);
-    if (recovered) {
-      return recovered;
-    }
-  } catch {
-    const toolName = extractJsonFieldString(normalized, 'tool_name');
-    if (!toolName) {
-      return null;
-    }
-    const recoveredArgs: Record<string, unknown> = {};
-    const command = extractJsonFieldString(normalized, 'command');
-    const path = extractJsonFieldString(normalized, 'path');
-    const glob = extractJsonFieldString(normalized, 'glob');
-    const startLine = extractJsonFieldInteger(normalized, 'startLine');
-    const endLine = extractJsonFieldInteger(normalized, 'endLine');
-    const recurse = extractJsonFieldBoolean(normalized, 'recurse');
-    if (command) recoveredArgs.command = command;
-    if (path) recoveredArgs.path = path;
-    if (glob) recoveredArgs.glob = glob;
-    if (startLine !== null) recoveredArgs.startLine = startLine;
-    if (endLine !== null) recoveredArgs.endLine = endLine;
-    if (recurse !== null) recoveredArgs.recurse = recurse;
-    return Object.keys(recoveredArgs).length > 0
-      ? { tool_name: toolName.toLowerCase(), args: recoveredArgs }
-      : null;
-  }
-  return null;
-}
-
-function tryRecoverMalformedPlannerToolAction(rawText: string, allowedToolNames: Set<string>): ToolAction | null {
-  if (!/"action"\s*:\s*"tool"/iu.test(rawText)) {
-    return null;
-  }
-  const toolNameMatch = /"tool_name"\s*:\s*"([^"]+)"/iu.exec(rawText);
-  const toolName = String(toolNameMatch?.[1] || '').trim().toLowerCase();
-  if (!toolName) {
-    return null;
-  }
-  const commandMatch = /"command"\s*:\s*"([\s\S]*)"\s*\}\s*\}\s*$/u.exec(rawText);
-  if (!commandMatch?.[1]) return null;
-  const recoveredCommand = decodeJsonStringLoose(commandMatch[1]).trim();
-  if (!recoveredCommand) return null;
-  return normalizeRepoSearchToolCall(toolName, { command: recoveredCommand }, allowedToolNames);
-}
-
 function parseRepoToolCallCandidate(toolCall: {
   function?: { name?: string; arguments?: unknown };
   name?: string;
@@ -480,11 +271,18 @@ function parseRepoToolCallCandidate(toolCall: {
   const name = typeof toolCall?.function?.name === 'string' ? toolCall.function.name
     : typeof toolCall?.name === 'string' ? toolCall.name : '';
 
-  let args = toolCall?.function?.arguments ?? toolCall?.arguments;
-  if (typeof args === 'string') { try { args = JSON.parse(args); } catch { return null; } }
-  if (!args || typeof args !== 'object' || Array.isArray(args)) return null;
-  const normalizedArgs = args as Record<string, unknown>;
-  return normalizeRepoSearchToolCall(name, normalizedArgs, allowedToolNames);
+  const args = ModelJson.parseToolArguments(toolCall?.function?.arguments ?? toolCall?.arguments);
+  if (!name || !args) return null;
+  try {
+    const action = ModelJson.parseRepoSearchPlannerAction(JSON.stringify({
+      action: 'tool',
+      tool_name: name,
+      args,
+    }), { allowedToolNames: Array.from(allowedToolNames) });
+    return action.action === 'tool' ? action : null;
+  } catch {
+    return null;
+  }
 }
 
 function actionFromToolCall(choice: Record<string, unknown>, allowedToolNames: Set<string>): string | null {
@@ -512,87 +310,6 @@ function actionFromToolCall(choice: Record<string, unknown>, allowedToolNames: S
       args: toolCall.args,
     })),
   });
-}
-
-export function parsePlannerAction(text: string, options?: {
-  allowedToolNames?: readonly string[];
-}): PlannerAction {
-  const allowedToolNameSet = new Set<string>(
-    Array.isArray(options?.allowedToolNames) && options.allowedToolNames.length > 0
-      ? options.allowedToolNames.map((toolName) => String(toolName || '').trim().toLowerCase())
-      : TOOL_DEFINITIONS.map((toolDefinition) => toolDefinition.function.name),
-  );
-  const normalized = stripCodeFence(text);
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = JSON.parse(normalized) as Record<string, unknown>;
-  } catch (error) {
-    const recovered = tryRecoverMalformedPlannerToolAction(normalized, allowedToolNameSet);
-    if (recovered) return recovered;
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Provider returned an invalid planner payload: ${message}`);
-  }
-
-  const action = typeof parsed.action === 'string' ? parsed.action.trim().toLowerCase() : '';
-
-  if (action === 'tool') {
-    // Accept tool_name variants: tool_name, toolName, tool, name
-    const toolName = String(
-      parsed.tool_name ?? parsed.toolName ?? parsed.tool ?? parsed.name ?? '',
-    ).trim().toLowerCase();
-    if (!parsed.args || typeof parsed.args !== 'object' || Array.isArray(parsed.args)) {
-      throw new Error('Provider returned an invalid planner tool action.');
-    }
-    const args = parsed.args as Record<string, unknown>;
-    const normalizedToolAction = normalizeRepoSearchToolCall(toolName, args, allowedToolNameSet);
-    if (!normalizedToolAction) {
-      throw new Error('Provider returned an invalid planner tool action.');
-    }
-    return normalizedToolAction;
-  }
-
-  if (action === 'tool_batch') {
-    if (!Array.isArray(parsed.tool_calls) || parsed.tool_calls.length === 0) {
-      throw new Error('Provider returned an invalid planner tool batch action.');
-    }
-    const toolCalls = parsed.tool_calls.map((toolCall) => {
-      if (!toolCall || typeof toolCall !== 'object' || Array.isArray(toolCall)) {
-        throw new Error('Provider returned an invalid planner tool batch action.');
-      }
-      const toolRecord = toolCall as Record<string, unknown>;
-      const toolName = String(
-        toolRecord.tool_name ?? toolRecord.toolName ?? toolRecord.tool ?? toolRecord.name ?? '',
-      ).trim().toLowerCase();
-      if (!toolRecord.args || typeof toolRecord.args !== 'object' || Array.isArray(toolRecord.args)) {
-        throw new Error('Provider returned an invalid planner tool batch action.');
-      }
-      const args = toolRecord.args as Record<string, unknown>;
-      const normalizedToolAction = normalizeRepoSearchToolCall(toolName, args, allowedToolNameSet);
-      if (!normalizedToolAction) {
-        throw new Error('Provider returned an invalid planner tool batch action.');
-      }
-      return {
-        tool_name: normalizedToolAction.tool_name,
-        args: normalizedToolAction.args,
-      };
-    });
-    return {
-      action: 'tool_batch',
-      tool_calls: toolCalls,
-    };
-  }
-
-  if (action === 'finish') {
-    if (typeof parsed.output !== 'string' || !parsed.output.trim()) {
-      throw new Error('Provider returned an invalid planner finish action.');
-    }
-    const confidence = Number(parsed.confidence);
-    return Number.isFinite(confidence)
-      ? { action: 'finish', output: parsed.output.trim(), confidence }
-      : { action: 'finish', output: parsed.output.trim() };
-  }
-
-  throw new Error('Provider returned an unknown planner action.');
 }
 
 // ---------------------------------------------------------------------------
@@ -1070,24 +787,6 @@ export async function requestFinishValidation(options: {
     responseSchemaName: 'siftkit_finish_validation',
     toolDefinitions: [],
   });
-}
-
-export function parseFinishValidationResponse(text: string): FinishValidationResult {
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = JSON.parse(stripCodeFence(text)) as Record<string, unknown>;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Provider returned an invalid finish validation payload: ${message}`);
-  }
-  const verdict = typeof parsed.verdict === 'string' ? parsed.verdict.trim().toLowerCase() : '';
-  if (verdict !== 'pass' && verdict !== 'fail') {
-    throw new Error('Provider returned an invalid finish validation payload.');
-  }
-  if (typeof parsed.reason !== 'string' || !parsed.reason.trim()) {
-    throw new Error('Provider returned an invalid finish validation payload.');
-  }
-  return { verdict: verdict as 'pass' | 'fail', reason: parsed.reason.trim() };
 }
 
 // ---------------------------------------------------------------------------

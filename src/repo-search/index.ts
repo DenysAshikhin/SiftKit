@@ -23,7 +23,6 @@ export {
   type SafetyResult,
 } from './command-safety.js';
 export {
-  parsePlannerAction,
   type PlannerAction,
   type ToolAction,
   type FinishAction,
