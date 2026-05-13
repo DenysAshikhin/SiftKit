@@ -7,7 +7,7 @@ import { normalizeOperationModeAllowedTools, normalizePresets } from '../presets
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-const CURRENT_SCHEMA_VERSION = 24;
+const CURRENT_SCHEMA_VERSION = 25;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["repo_rg","repo_read_file","repo_list_files","repo_git","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}';
 
@@ -483,6 +483,114 @@ function ensureManagedLlamaAndBenchmarkMatrixSchema(database: RuntimeDatabase): 
   `);
 }
 
+function ensureDashboardBenchmarkSchema(database: RuntimeDatabase): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS benchmark_question_presets (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      task_kind TEXT NOT NULL CHECK (task_kind IN ('repo-search', 'summary')),
+      prompt TEXT NOT NULL,
+      enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+      seeded_key TEXT UNIQUE,
+      created_at_utc TEXT NOT NULL,
+      updated_at_utc TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_benchmark_question_presets_task_title
+      ON benchmark_question_presets(task_kind, title COLLATE NOCASE);
+
+    CREATE TABLE IF NOT EXISTS benchmark_sessions (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed', 'cancelled')),
+      question_preset_count INTEGER NOT NULL,
+      case_count INTEGER NOT NULL,
+      repetitions INTEGER NOT NULL,
+      current_case_index INTEGER,
+      current_prompt_index INTEGER,
+      current_repeat_index INTEGER,
+      restore_status TEXT NOT NULL CHECK (restore_status IN ('pending', 'completed', 'failed')),
+      restore_error TEXT,
+      original_config_json TEXT NOT NULL,
+      started_at_utc TEXT NOT NULL,
+      completed_at_utc TEXT,
+      updated_at_utc TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_benchmark_sessions_status_started
+      ON benchmark_sessions(status, started_at_utc DESC);
+    CREATE INDEX IF NOT EXISTS idx_benchmark_sessions_started
+      ON benchmark_sessions(started_at_utc DESC);
+
+    CREATE TABLE IF NOT EXISTS benchmark_cases (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES benchmark_sessions(id) ON DELETE CASCADE,
+      case_index INTEGER NOT NULL,
+      label TEXT NOT NULL,
+      managed_preset_id TEXT NOT NULL,
+      managed_preset_label TEXT NOT NULL,
+      managed_preset_json TEXT NOT NULL,
+      spec_override_json TEXT NOT NULL,
+      created_at_utc TEXT NOT NULL,
+      UNIQUE(session_id, case_index)
+    );
+    CREATE INDEX IF NOT EXISTS idx_benchmark_cases_session_index
+      ON benchmark_cases(session_id, case_index ASC);
+
+    CREATE TABLE IF NOT EXISTS benchmark_attempts (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES benchmark_sessions(id) ON DELETE CASCADE,
+      case_id TEXT NOT NULL REFERENCES benchmark_cases(id) ON DELETE CASCADE,
+      question_preset_id TEXT NOT NULL REFERENCES benchmark_question_presets(id),
+      task_kind TEXT NOT NULL CHECK (task_kind IN ('repo-search', 'summary')),
+      prompt_title TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      case_label TEXT NOT NULL,
+      managed_preset_id TEXT NOT NULL,
+      managed_preset_label TEXT NOT NULL,
+      case_index INTEGER NOT NULL,
+      prompt_index INTEGER NOT NULL,
+      repeat_index INTEGER NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled', 'skipped')),
+      output_text TEXT,
+      error TEXT,
+      run_id TEXT,
+      managed_run_id TEXT,
+      duration_ms INTEGER,
+      prompt_tokens_per_second REAL,
+      generation_tokens_per_second REAL,
+      acceptance_rate REAL,
+      output_tokens INTEGER,
+      thinking_tokens INTEGER,
+      speculative_accepted_tokens INTEGER,
+      speculative_generated_tokens INTEGER,
+      output_quality_score INTEGER CHECK (output_quality_score BETWEEN 0 AND 10 OR output_quality_score IS NULL),
+      tool_use_quality_score INTEGER CHECK (tool_use_quality_score BETWEEN 0 AND 10 OR tool_use_quality_score IS NULL),
+      review_notes TEXT,
+      reviewed_by TEXT,
+      reviewed_at_utc TEXT,
+      started_at_utc TEXT,
+      completed_at_utc TEXT,
+      updated_at_utc TEXT NOT NULL,
+      UNIQUE(session_id, case_index, prompt_index, repeat_index)
+    );
+    CREATE INDEX IF NOT EXISTS idx_benchmark_attempts_session_order
+      ON benchmark_attempts(session_id, case_index ASC, prompt_index ASC, repeat_index ASC);
+    CREATE INDEX IF NOT EXISTS idx_benchmark_attempts_status_updated
+      ON benchmark_attempts(status, updated_at_utc DESC);
+
+    CREATE TABLE IF NOT EXISTS benchmark_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL REFERENCES benchmark_sessions(id) ON DELETE CASCADE,
+      attempt_id TEXT REFERENCES benchmark_attempts(id) ON DELETE CASCADE,
+      stream_kind TEXT NOT NULL CHECK (stream_kind IN ('orchestrator', 'attempt_stdout', 'attempt_stderr', 'managed_llama')),
+      sequence INTEGER NOT NULL,
+      chunk_text TEXT NOT NULL,
+      created_at_utc TEXT NOT NULL,
+      UNIQUE(session_id, attempt_id, stream_kind, sequence)
+    );
+    CREATE INDEX IF NOT EXISTS idx_benchmark_logs_session_stream
+      ON benchmark_logs(session_id, attempt_id, stream_kind, sequence ASC);
+  `);
+}
+
 function ensureRuntimeMetricsTotalsSchema(database: RuntimeDatabase): void {
   database.exec(`
     CREATE TABLE IF NOT EXISTS runtime_metrics_totals (
@@ -564,6 +672,7 @@ function ensureSchema(database: RuntimeDatabase): void {
   if (currentVersion <= 0) {
     applyBaseSchema(database);
     ensureManagedLlamaAndBenchmarkMatrixSchema(database);
+    ensureDashboardBenchmarkSchema(database);
     ensureRuntimeErrorEventsSchema(database);
     setSchemaVersion(database, CURRENT_SCHEMA_VERSION);
     return;
@@ -920,8 +1029,14 @@ function ensureSchema(database: RuntimeDatabase): void {
     setSchemaVersion(database, 24);
     currentVersion = 24;
   }
+  if (currentVersion < 25) {
+    ensureDashboardBenchmarkSchema(database);
+    setSchemaVersion(database, 25);
+    currentVersion = 25;
+  }
   ensureRuntimeArtifactsSchema(database);
   ensureManagedLlamaAndBenchmarkMatrixSchema(database);
+  ensureDashboardBenchmarkSchema(database);
   ensureRuntimeErrorEventsSchema(database);
 }
 

@@ -395,3 +395,105 @@ export type RestartBackendResponse = {
     config?: DashboardConfig;
     startupFailure?: ManagedLlamaStartupFailure | null;
 };
+export type DashboardBenchmarkTaskKind = 'repo-search' | 'summary';
+export type DashboardBenchmarkSessionStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+export type DashboardBenchmarkRestoreStatus = 'pending' | 'completed' | 'failed';
+export type DashboardBenchmarkAttemptStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'skipped';
+export type DashboardBenchmarkLogStreamKind = 'orchestrator' | 'attempt_stdout' | 'attempt_stderr' | 'managed_llama';
+export type DashboardBenchmarkSortKey = 'completionSpeed' | 'generationTokensPerSecond' | 'acceptanceRate' | 'outputQualityScore' | 'toolUseQualityScore' | 'failureCount' | 'sampleCount';
+export type DashboardBenchmarkQuestionPreset = {
+    id: string;
+    title: string;
+    taskKind: DashboardBenchmarkTaskKind;
+    prompt: string;
+    enabled: boolean;
+    seededKey?: string | null;
+    createdAtUtc: string;
+    updatedAtUtc: string;
+};
+export type DashboardBenchmarkSession = {
+    id: string;
+    status: DashboardBenchmarkSessionStatus;
+    questionPresetCount: number;
+    caseCount: number;
+    repetitions: number;
+    currentCaseIndex: number | null;
+    currentPromptIndex: number | null;
+    currentRepeatIndex: number | null;
+    restoreStatus: DashboardBenchmarkRestoreStatus;
+    restoreError: string | null;
+    originalConfigJson: string;
+    startedAtUtc: string;
+    completedAtUtc: string | null;
+    updatedAtUtc: string;
+};
+export type DashboardBenchmarkCase = {
+    id: string;
+    sessionId: string;
+    caseIndex: number;
+    label: string;
+    managedPresetId: string;
+    managedPresetLabel: string;
+    managedPreset: Record<string, unknown>;
+    specOverride: Record<string, unknown>;
+    createdAtUtc: string;
+};
+export type DashboardBenchmarkAttempt = {
+    id: string;
+    sessionId: string;
+    caseId: string;
+    questionPresetId: string;
+    taskKind: DashboardBenchmarkTaskKind;
+    promptTitle: string;
+    prompt: string;
+    caseLabel: string;
+    managedPresetId: string;
+    managedPresetLabel: string;
+    caseIndex: number;
+    promptIndex: number;
+    repeatIndex: number;
+    status: DashboardBenchmarkAttemptStatus;
+    outputText: string | null;
+    error: string | null;
+    runId: string | null;
+    managedRunId: string | null;
+    durationMs: number | null;
+    promptTokensPerSecond: number | null;
+    generationTokensPerSecond: number | null;
+    acceptanceRate: number | null;
+    outputTokens: number | null;
+    thinkingTokens: number | null;
+    speculativeAcceptedTokens: number | null;
+    speculativeGeneratedTokens: number | null;
+    outputQualityScore: number | null;
+    toolUseQualityScore: number | null;
+    reviewNotes: string | null;
+    reviewedBy: string | null;
+    reviewedAtUtc: string | null;
+    startedAtUtc: string | null;
+    completedAtUtc: string | null;
+    updatedAtUtc: string;
+};
+export type DashboardBenchmarkSessionDetail = {
+    session: DashboardBenchmarkSession;
+    cases: DashboardBenchmarkCase[];
+    attempts: DashboardBenchmarkAttempt[];
+};
+export type DashboardBenchmarkQuestionPresetsResponse = {
+    presets: DashboardBenchmarkQuestionPreset[];
+};
+export type DashboardBenchmarkSessionsResponse = {
+    sessions: DashboardBenchmarkSession[];
+};
+export type DashboardBenchmarkStartRequest = {
+    questionPresetIds: string[];
+    managedPresetIds: string[];
+    repetitions: number;
+    specOverrides: Array<Record<string, unknown>>;
+};
+export type DashboardBenchmarkGradeRequest = {
+    outputQualityScore: number | null;
+    toolUseQualityScore: number | null;
+    reviewNotes: string | null;
+    reviewedBy: string;
+};

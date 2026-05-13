@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   clearToolContext,
+  cancelBenchmarkSession,
   condenseChatSession,
   createPlanMessage,
   streamPlanMessage,
@@ -8,12 +9,16 @@ import {
   deleteRunLogs,
   deleteChatSession,
   getDashboardConfig,
+  getBenchmarkQuestionPresets,
+  getBenchmarkSession,
+  getBenchmarkSessions,
   getDashboardHealth,
   getChatSession,
   getChatSessions,
   getIdleSummary,
   getMetrics,
   pickManagedFile,
+  openBenchmarkSessionEvents,
   testLlamaCppBaseUrl as testLlamaCppBaseUrlRequest,
   getRunDetail,
   getRuns,
@@ -21,7 +26,9 @@ import {
   restartBackend,
   streamChatMessage,
   streamRepoSearchMessage,
+  startBenchmarkSession,
   updateDashboardConfig,
+  updateBenchmarkAttemptGrade,
   updateChatSession,
 } from './api';
 import {
@@ -71,9 +78,10 @@ import { RunsTab } from './tabs/RunsTab';
 import { MetricsTab } from './tabs/MetricsTab';
 import { ChatTab, type ChatToolCall } from './tabs/ChatTab';
 import { SettingsTab } from './tabs/SettingsTab';
-import type { ChatSession, ContextUsage, DashboardConfig, DashboardManagedLlamaPreset, DashboardPreset, IdleSummarySnapshot, MetricDay, RunGroupFilter, TaskMetricDay, ToolStatsByTask, RunDetailResponse, RunLogDeleteType, RunRecord } from './types';
+import { BenchmarkTab } from './tabs/BenchmarkTab';
+import type { ChatSession, ContextUsage, DashboardBenchmarkAttempt, DashboardBenchmarkQuestionPreset, DashboardBenchmarkSession, DashboardBenchmarkSortKey, DashboardConfig, DashboardManagedLlamaPreset, DashboardPreset, IdleSummarySnapshot, MetricDay, RunGroupFilter, TaskMetricDay, ToolStatsByTask, RunDetailResponse, RunLogDeleteType, RunRecord } from './types';
 
-type TabKey = 'runs' | 'metrics' | 'chat' | 'settings';
+type TabKey = 'runs' | 'metrics' | 'benchmark' | 'chat' | 'settings';
 type RunGroupKey = Exclude<RunGroupFilter, ''>;
 type ToastLevel = 'info' | 'warning' | 'error';
 type ToastMessage = {
@@ -119,6 +127,22 @@ function DashboardApp() {
   const [toolMetrics, setToolMetrics] = useState<ToolStatsByTask | null>(null);
   const [metricsError, setMetricsError] = useState<string | null>(null);
   const [idleSummarySnapshots, setIdleSummarySnapshots] = useState<IdleSummarySnapshot[]>([]);
+
+  const [benchmarkQuestionPresets, setBenchmarkQuestionPresets] = useState<DashboardBenchmarkQuestionPreset[]>([]);
+  const [benchmarkSessions, setBenchmarkSessions] = useState<DashboardBenchmarkSession[]>([]);
+  const [selectedBenchmarkSessionId, setSelectedBenchmarkSessionId] = useState(params.get('benchmarkSession') || '');
+  const [selectedBenchmarkSession, setSelectedBenchmarkSession] = useState<DashboardBenchmarkSession | null>(null);
+  const [benchmarkAttempts, setBenchmarkAttempts] = useState<DashboardBenchmarkAttempt[]>([]);
+  const [benchmarkLiveLogLines, setBenchmarkLiveLogLines] = useState<string[]>([]);
+  const [selectedBenchmarkQuestionPresetIds, setSelectedBenchmarkQuestionPresetIds] = useState<string[]>([]);
+  const [selectedBenchmarkManagedPresetIds, setSelectedBenchmarkManagedPresetIds] = useState<string[]>([]);
+  const [benchmarkRepetitions, setBenchmarkRepetitions] = useState(1);
+  const [benchmarkSpecOverrideLabel, setBenchmarkSpecOverrideLabel] = useState('Current spec settings');
+  const [benchmarkSortKey, setBenchmarkSortKey] = useState<DashboardBenchmarkSortKey>('generationTokensPerSecond');
+  const [benchmarkLoading, setBenchmarkLoading] = useState(false);
+  const [benchmarkError, setBenchmarkError] = useState<string | null>(null);
+  const [benchmarkStarting, setBenchmarkStarting] = useState(false);
+  const [benchmarkCancelling, setBenchmarkCancelling] = useState(false);
 
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState(params.get('session') || '');
@@ -269,6 +293,19 @@ function DashboardApp() {
     && getDashboardConfigSignature(dashboardConfig) !== getDashboardConfigSignature(savedDashboardConfig);
   const settingsActionBusy = settingsLoading || settingsSaving || settingsRestarting || settingsPathPickerBusyTarget !== null;
   const settingsRestartSupported = dashboardConfig?.Backend === 'llama.cpp';
+  const benchmarkManagedPresets = dashboardConfig?.Server.LlamaCpp.Presets ?? [];
+  const sortedBenchmarkAttempts = [...benchmarkAttempts].sort((left, right) => {
+    if (benchmarkSortKey === 'completionSpeed') {
+      return Number(left.durationMs || 0) - Number(right.durationMs || 0);
+    }
+    if (benchmarkSortKey === 'failureCount') {
+      return Number(left.status === 'failed') - Number(right.status === 'failed');
+    }
+    if (benchmarkSortKey === 'sampleCount') {
+      return left.repeatIndex - right.repeatIndex;
+    }
+    return Number(right[benchmarkSortKey] || 0) - Number(left[benchmarkSortKey] || 0);
+  });
   const runDeleteCriteria = buildRunLogDeleteCriteria({
     mode: runDeleteMode,
     type: runDeleteType,
@@ -287,8 +324,9 @@ function DashboardApp() {
       status: statusFilter || null,
       run: selectedRunId || null,
       session: selectedSessionId || null,
+      benchmarkSession: selectedBenchmarkSessionId || null,
     });
-  }, [tab, search, kindFilter, statusFilter, selectedRunId, selectedSessionId]);
+  }, [tab, search, kindFilter, statusFilter, selectedRunId, selectedSessionId, selectedBenchmarkSessionId]);
 
   useEffect(() => {
     const onPointerDown = (event: MouseEvent): void => {
@@ -431,6 +469,99 @@ function DashboardApp() {
       cancelled = true;
     };
   }, [dashboardRefreshToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function refreshBenchmarkData() {
+      setBenchmarkLoading(true);
+      setBenchmarkError(null);
+      try {
+        const [presetResponse, sessionResponse] = await Promise.all([
+          getBenchmarkQuestionPresets(),
+          getBenchmarkSessions(50),
+        ]);
+        if (cancelled) {
+          return;
+        }
+        setBenchmarkQuestionPresets(presetResponse.presets);
+        setBenchmarkSessions(sessionResponse.sessions);
+        setSelectedBenchmarkQuestionPresetIds((previous) => (
+          previous.length > 0 ? previous : presetResponse.presets.filter((preset) => preset.enabled).slice(0, 3).map((preset) => preset.id)
+        ));
+        const nextSelectedSessionId = selectedBenchmarkSessionId || sessionResponse.sessions[0]?.id || '';
+        if (nextSelectedSessionId && nextSelectedSessionId !== selectedBenchmarkSessionId) {
+          setSelectedBenchmarkSessionId(nextSelectedSessionId);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setBenchmarkError(error instanceof Error ? error.message : String(error));
+        }
+      } finally {
+        if (!cancelled) {
+          setBenchmarkLoading(false);
+        }
+      }
+    }
+    if (tab === 'benchmark') {
+      void refreshBenchmarkData();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, dashboardRefreshToken]);
+
+  useEffect(() => {
+    if (!selectedBenchmarkSessionId) {
+      setSelectedBenchmarkSession(null);
+      setBenchmarkAttempts([]);
+      return;
+    }
+    let cancelled = false;
+    void getBenchmarkSession(selectedBenchmarkSessionId)
+      .then((detail) => {
+        if (!cancelled) {
+          setSelectedBenchmarkSession(detail.session);
+          setBenchmarkAttempts(detail.attempts);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setBenchmarkError(error instanceof Error ? error.message : String(error));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedBenchmarkSessionId, dashboardRefreshToken]);
+
+  useEffect(() => {
+    if (!selectedBenchmarkSessionId || selectedBenchmarkSession?.status !== 'running') {
+      return;
+    }
+    return openBenchmarkSessionEvents(selectedBenchmarkSessionId, (eventName, payload) => {
+      if (eventName === 'log' && payload && typeof payload === 'object') {
+        const text = String((payload as { text?: unknown }).text || '');
+        if (text) {
+          setBenchmarkLiveLogLines((previous) => [...previous, text.trimEnd()].slice(-200));
+        }
+      }
+      if (eventName === 'attempt' || eventName === 'session' || eventName === 'done') {
+        requestDashboardDataRefresh();
+      }
+      if (eventName === 'error' && payload && typeof payload === 'object') {
+        setBenchmarkError(String((payload as { error?: unknown }).error || 'Benchmark stream error.'));
+      }
+    });
+  }, [selectedBenchmarkSessionId, selectedBenchmarkSession?.status]);
+
+  useEffect(() => {
+    if (benchmarkManagedPresets.length === 0) {
+      return;
+    }
+    setSelectedBenchmarkManagedPresetIds((previous) => (
+      previous.length > 0 || !benchmarkManagedPresets[0] ? previous : [benchmarkManagedPresets[0].id]
+    ));
+  }, [benchmarkManagedPresets]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1017,6 +1148,75 @@ function DashboardApp() {
     }
   }
 
+  function toggleBenchmarkQuestionPreset(id: string): void {
+    setSelectedBenchmarkQuestionPresetIds((previous) => (
+      previous.includes(id) ? previous.filter((entry) => entry !== id) : [...previous, id]
+    ));
+  }
+
+  function toggleBenchmarkManagedPreset(id: string): void {
+    setSelectedBenchmarkManagedPresetIds((previous) => (
+      previous.includes(id) ? previous.filter((entry) => entry !== id) : [...previous, id]
+    ));
+  }
+
+  async function onStartBenchmark(): Promise<void> {
+    setBenchmarkStarting(true);
+    setBenchmarkError(null);
+    setBenchmarkLiveLogLines([]);
+    try {
+      const response = await startBenchmarkSession({
+        questionPresetIds: selectedBenchmarkQuestionPresetIds,
+        managedPresetIds: selectedBenchmarkManagedPresetIds,
+        repetitions: benchmarkRepetitions,
+        specOverrides: [{ label: benchmarkSpecOverrideLabel }],
+      });
+      setSelectedBenchmarkSessionId(response.session.id);
+      setSelectedBenchmarkSession(response.session);
+      setBenchmarkAttempts(response.attempts);
+      enqueueToast('info', 'Benchmark started.');
+    } catch (error) {
+      setBenchmarkError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBenchmarkStarting(false);
+    }
+  }
+
+  async function onCancelBenchmark(sessionId: string): Promise<void> {
+    setBenchmarkCancelling(true);
+    setBenchmarkError(null);
+    try {
+      await cancelBenchmarkSession(sessionId);
+      requestDashboardDataRefresh();
+      enqueueToast('warning', 'Benchmark cancellation requested.');
+    } catch (error) {
+      setBenchmarkError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBenchmarkCancelling(false);
+    }
+  }
+
+  async function onUpdateBenchmarkAttemptGrade(
+    attemptId: string,
+    outputQualityScore: number | null,
+    toolUseQualityScore: number | null,
+    reviewNotes: string | null,
+  ): Promise<void> {
+    try {
+      const response = await updateBenchmarkAttemptGrade(attemptId, {
+        outputQualityScore,
+        toolUseQualityScore,
+        reviewNotes,
+        reviewedBy: 'codex',
+      });
+      setBenchmarkAttempts((previous) => previous.map((attempt) => (
+        attempt.id === response.attempt.id ? response.attempt : attempt
+      )));
+    } catch (error) {
+      setBenchmarkError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   async function onTestLlamaCppBaseUrl(baseUrl: string, timeoutMs: number): Promise<void> {
     setSettingsError(null);
     try {
@@ -1177,6 +1377,12 @@ function DashboardApp() {
                 onClick={() => onRequestTabChange('metrics')}
               >
                 Metrics
+              </button>
+              <button
+                className={tab === 'benchmark' ? 'active' : ''}
+                onClick={() => onRequestTabChange('benchmark')}
+              >
+                Benchmark
               </button>
               <button
                 className={tab === 'chat' ? 'active' : ''}
@@ -1393,6 +1599,33 @@ function DashboardApp() {
             taskRunsGraphSeries={taskRunsGraphSeries}
           />
         </>
+      )}
+      {tab === 'benchmark' && (
+        <BenchmarkTab
+          questionPresets={benchmarkQuestionPresets}
+          sessions={benchmarkSessions}
+          selectedSession={selectedBenchmarkSession}
+          attempts={sortedBenchmarkAttempts}
+          liveLogLines={benchmarkLiveLogLines}
+          managedPresets={benchmarkManagedPresets}
+          selectedQuestionPresetIds={selectedBenchmarkQuestionPresetIds}
+          selectedManagedPresetIds={selectedBenchmarkManagedPresetIds}
+          repetitions={benchmarkRepetitions}
+          specOverrideLabel={benchmarkSpecOverrideLabel}
+          loading={benchmarkLoading}
+          error={benchmarkError}
+          starting={benchmarkStarting}
+          cancelling={benchmarkCancelling}
+          sortKey={benchmarkSortKey}
+          onToggleQuestionPreset={toggleBenchmarkQuestionPreset}
+          onToggleManagedPreset={toggleBenchmarkManagedPreset}
+          onRepetitionsChange={(value) => setBenchmarkRepetitions(Math.max(1, Math.trunc(Number(value) || 1)))}
+          onSpecOverrideLabelChange={setBenchmarkSpecOverrideLabel}
+          onStartBenchmark={onStartBenchmark}
+          onCancelBenchmark={onCancelBenchmark}
+          onSortChange={setBenchmarkSortKey}
+          onUpdateAttemptGrade={onUpdateBenchmarkAttemptGrade}
+        />
       )}
       {tab === 'settings' && (
         <SettingsTab

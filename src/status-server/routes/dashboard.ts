@@ -49,12 +49,82 @@ import {
   readRuntimeArtifact,
 } from '../../state/runtime-artifacts.js';
 import {
+  createBenchmarkQuestionPreset,
+  createBenchmarkSessionPlan,
+  deleteBenchmarkQuestionPreset,
+  listBenchmarkQuestionPresets,
+  listBenchmarkSessions,
+  readBenchmarkLogTextByStream,
+  readBenchmarkSessionDetail,
+  seedBenchmarkQuestionPresets,
+  updateBenchmarkAttemptGrade,
+  updateBenchmarkQuestionPreset,
+  type BenchmarkManagedPresetInput,
+  type BenchmarkSpecOverrideInput,
+  type BenchmarkSessionStatus,
+} from '../../state/dashboard-benchmark.js';
+import {
+  cancelBenchmarkJob,
+  hasActiveBenchmarkJob,
+  startBenchmarkJob,
+  subscribeBenchmarkJob,
+} from '../dashboard-benchmark-runner.js';
+import {
   pickManagedFilePath,
   type ManagedFilePickerTarget,
 } from '../file-picker.js';
 import type { ServerContext } from '../server-types.js';
 import type { SiftConfig } from '../../config/index.js';
 import type { Dict } from '../../lib/types.js';
+
+function writeDashboardSse(res: http.ServerResponse, eventName: string, payload: unknown): void {
+  res.write(`event: ${eventName}\n`);
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+function readArrayOfStrings(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((entry) => String(entry || '').trim()).filter(Boolean) : [];
+}
+
+function readPositiveInteger(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
+}
+
+function getManagedPresetInputs(config: Dict, selectedIds: string[]): BenchmarkManagedPresetInput[] {
+  const server = config.Server && typeof config.Server === 'object' && !Array.isArray(config.Server) ? config.Server as Dict : {};
+  const llama = server.LlamaCpp && typeof server.LlamaCpp === 'object' && !Array.isArray(server.LlamaCpp) ? server.LlamaCpp as Dict : {};
+  const presets = Array.isArray(llama.Presets) ? llama.Presets as Dict[] : [];
+  return selectedIds.map((id) => {
+    const preset = presets.find((entry) => String(entry.id || '') === id);
+    if (!preset) {
+      throw new Error(`Managed llama preset not found: ${id}`);
+    }
+    return {
+      ...preset,
+      id,
+      label: String(preset.label || id),
+    };
+  });
+}
+
+function readSpecOverrides(value: unknown): BenchmarkSpecOverrideInput[] {
+  if (!Array.isArray(value)) {
+    return [{ label: 'Current spec settings' }];
+  }
+  return value
+    .filter((entry): entry is Dict => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry))
+    .map((entry) => ({
+      label: typeof entry.label === 'string' ? entry.label : undefined,
+      SpeculativeEnabled: typeof entry.SpeculativeEnabled === 'boolean' ? entry.SpeculativeEnabled : undefined,
+      SpeculativeType: typeof entry.SpeculativeType === 'string' ? entry.SpeculativeType : undefined,
+      SpeculativeNgramSizeN: Number.isFinite(entry.SpeculativeNgramSizeN) ? Number(entry.SpeculativeNgramSizeN) : undefined,
+      SpeculativeNgramSizeM: Number.isFinite(entry.SpeculativeNgramSizeM) ? Number(entry.SpeculativeNgramSizeM) : undefined,
+      SpeculativeNgramMinHits: Number.isFinite(entry.SpeculativeNgramMinHits) ? Number(entry.SpeculativeNgramMinHits) : undefined,
+      SpeculativeDraftMax: Number.isFinite(entry.SpeculativeDraftMax) ? Number(entry.SpeculativeDraftMax) : undefined,
+      SpeculativeDraftMin: Number.isFinite(entry.SpeculativeDraftMin) ? Number(entry.SpeculativeDraftMin) : undefined,
+    }));
+}
 
 function parseDashboardRunLogDeleteCriteria(body: Dict): { criteria: DashboardRunLogDeleteCriteria | null; error: string | null } {
   const mode = String(body.mode || '').trim().toLowerCase();
@@ -157,6 +227,169 @@ export async function handleDashboardRoute(
       .map(normalizeIdleSummarySnapshotRow)
       .filter((entry): entry is IdleSummarySnapshotRow => entry !== null);
     sendJson(res, 200, { latest: snapshots[0] || null, snapshots });
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/dashboard/benchmark/question-presets') {
+    seedBenchmarkQuestionPresets();
+    sendJson(res, 200, { presets: listBenchmarkQuestionPresets({ includeDisabled: true }) });
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/dashboard/benchmark/question-presets') {
+    let parsedBody: Dict;
+    try {
+      parsedBody = parseJsonBody(await readBody(req));
+    } catch {
+      sendJson(res, 400, { error: 'Expected valid JSON object.' });
+      return true;
+    }
+    try {
+      const preset = createBenchmarkQuestionPreset({
+        title: String(parsedBody.title || ''),
+        taskKind: String(parsedBody.taskKind || '') as 'repo-search' | 'summary',
+        prompt: String(parsedBody.prompt || ''),
+        enabled: parsedBody.enabled !== false,
+      });
+      sendJson(res, 200, { preset });
+    } catch (error) {
+      sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    }
+    return true;
+  }
+
+  if ((req.method === 'PUT' || req.method === 'DELETE') && /^\/dashboard\/benchmark\/question-presets\/[^/]+$/u.test(pathname)) {
+    const presetId = decodeURIComponent(pathname.replace(/^\/dashboard\/benchmark\/question-presets\//u, ''));
+    if (req.method === 'DELETE') {
+      sendJson(res, 200, { ok: true, deleted: deleteBenchmarkQuestionPreset(presetId), id: presetId });
+      return true;
+    }
+    let parsedBody: Dict;
+    try {
+      parsedBody = parseJsonBody(await readBody(req));
+    } catch {
+      sendJson(res, 400, { error: 'Expected valid JSON object.' });
+      return true;
+    }
+    try {
+      const preset = updateBenchmarkQuestionPreset({
+        id: presetId,
+        title: typeof parsedBody.title === 'string' ? parsedBody.title : undefined,
+        taskKind: typeof parsedBody.taskKind === 'string' ? parsedBody.taskKind as 'repo-search' | 'summary' : undefined,
+        prompt: typeof parsedBody.prompt === 'string' ? parsedBody.prompt : undefined,
+        enabled: typeof parsedBody.enabled === 'boolean' ? parsedBody.enabled : undefined,
+      });
+      if (!preset) {
+        sendJson(res, 404, { error: 'Benchmark question preset not found.' });
+      } else {
+        sendJson(res, 200, { preset });
+      }
+    } catch (error) {
+      sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    }
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/dashboard/benchmark/sessions') {
+    const limitValue = Number(requestUrl.searchParams.get('limit') || 50);
+    const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(500, Math.trunc(limitValue))) : 50;
+    const status = String(requestUrl.searchParams.get('status') || '').trim() as BenchmarkSessionStatus | '';
+    sendJson(res, 200, { sessions: listBenchmarkSessions({ limit, status }) });
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/dashboard/benchmark/sessions') {
+    if (hasActiveBenchmarkJob()) {
+      sendJson(res, 409, { error: 'A benchmark session is already running.' });
+      return true;
+    }
+    let parsedBody: Dict;
+    try {
+      parsedBody = parseJsonBody(await readBody(req));
+    } catch {
+      sendJson(res, 400, { error: 'Expected valid JSON object.' });
+      return true;
+    }
+    try {
+      const config = readConfig(ctx.configPath);
+      const managedPresetIds = readArrayOfStrings(parsedBody.managedPresetIds);
+      const sessionPlan = createBenchmarkSessionPlan({
+        questionPresetIds: readArrayOfStrings(parsedBody.questionPresetIds),
+        repetitions: readPositiveInteger(parsedBody.repetitions, 1),
+        managedPresets: getManagedPresetInputs(config, managedPresetIds),
+        specOverrides: readSpecOverrides(parsedBody.specOverrides),
+        originalConfigJson: JSON.stringify(config),
+      });
+      startBenchmarkJob(ctx, sessionPlan.session.id);
+      sendJson(res, 200, sessionPlan);
+    } catch (error) {
+      sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    }
+    return true;
+  }
+
+  if (req.method === 'GET' && /^\/dashboard\/benchmark\/sessions\/[^/]+\/events$/u.test(pathname)) {
+    const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/benchmark\/sessions\//u, '').replace(/\/events$/u, ''));
+    let disconnected = false;
+    req.on('close', () => { disconnected = true; });
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+    res.write('\n');
+    let unsubscribe = (): void => {};
+    unsubscribe = subscribeBenchmarkJob(sessionId, (event) => {
+      if (disconnected) {
+        unsubscribe();
+        return;
+      }
+      writeDashboardSse(res, event.event, event.payload);
+    });
+    return true;
+  }
+
+  if (req.method === 'GET' && /^\/dashboard\/benchmark\/sessions\/[^/]+$/u.test(pathname)) {
+    const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/benchmark\/sessions\//u, ''));
+    const detail = readBenchmarkSessionDetail(sessionId);
+    if (!detail) {
+      sendJson(res, 404, { error: 'Benchmark session not found.' });
+      return true;
+    }
+    sendJson(res, 200, {
+      ...detail,
+      logTextByStream: readBenchmarkLogTextByStream({ sessionId }),
+    });
+    return true;
+  }
+
+  if (req.method === 'POST' && /^\/dashboard\/benchmark\/sessions\/[^/]+\/cancel$/u.test(pathname)) {
+    const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/benchmark\/sessions\//u, '').replace(/\/cancel$/u, ''));
+    sendJson(res, 200, { ok: true, cancelled: cancelBenchmarkJob(sessionId), id: sessionId });
+    return true;
+  }
+
+  if (req.method === 'PUT' && /^\/dashboard\/benchmark\/attempts\/[^/]+\/grade$/u.test(pathname)) {
+    const attemptId = decodeURIComponent(pathname.replace(/^\/dashboard\/benchmark\/attempts\//u, '').replace(/\/grade$/u, ''));
+    let parsedBody: Dict;
+    try {
+      parsedBody = parseJsonBody(await readBody(req));
+    } catch {
+      sendJson(res, 400, { error: 'Expected valid JSON object.' });
+      return true;
+    }
+    try {
+      const attempt = updateBenchmarkAttemptGrade({
+        attemptId,
+        outputQualityScore: parsedBody.outputQualityScore === null ? null : Number(parsedBody.outputQualityScore),
+        toolUseQualityScore: parsedBody.toolUseQualityScore === null ? null : Number(parsedBody.toolUseQualityScore),
+        reviewNotes: typeof parsedBody.reviewNotes === 'string' ? parsedBody.reviewNotes : null,
+        reviewedBy: typeof parsedBody.reviewedBy === 'string' ? parsedBody.reviewedBy : 'codex',
+      });
+      if (!attempt) {
+        sendJson(res, 404, { error: 'Benchmark attempt not found.' });
+      } else {
+        sendJson(res, 200, { attempt });
+      }
+    } catch (error) {
+      sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    }
     return true;
   }
 

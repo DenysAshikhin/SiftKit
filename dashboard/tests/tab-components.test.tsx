@@ -7,6 +7,7 @@ import type { ReactElement, ReactNode } from 'react';
 import { MetricsTab } from '../src/tabs/MetricsTab';
 import { SettingsTab } from '../src/tabs/SettingsTab';
 import { ChatTab } from '../src/tabs/ChatTab';
+import { BenchmarkTab } from '../src/tabs/BenchmarkTab';
 import { PresetsSection } from '../src/tabs/settings/PresetsSection';
 import { ManagedLlamaSection } from '../src/tabs/settings/ManagedLlamaSection';
 import { updateActiveManagedLlamaPreset } from '../src/managed-llama-presets';
@@ -16,6 +17,9 @@ import type {
   ContextUsage,
   DashboardConfig,
   DashboardManagedLlamaPreset,
+  DashboardBenchmarkAttempt,
+  DashboardBenchmarkQuestionPreset,
+  DashboardBenchmarkSession,
   DashboardPreset,
   IdleSummarySnapshot,
   MetricDay,
@@ -59,6 +63,70 @@ const IDLE_SNAPSHOT = {
   avgTokensPerSecond: 8,
   summaryText: '',
 } as IdleSummarySnapshot;
+
+const BENCHMARK_PROMPT = {
+  id: 'prompt-1',
+  title: 'Trace repo-search',
+  taskKind: 'repo-search',
+  prompt: 'Trace repo-search execution.',
+  enabled: true,
+  createdAtUtc: '2026-05-13T12:00:00.000Z',
+  updatedAtUtc: '2026-05-13T12:00:00.000Z',
+} as DashboardBenchmarkQuestionPreset;
+
+const BENCHMARK_SESSION = {
+  id: 'session-1',
+  status: 'running',
+  questionPresetCount: 1,
+  caseCount: 1,
+  repetitions: 2,
+  currentCaseIndex: 0,
+  currentPromptIndex: 0,
+  currentRepeatIndex: 1,
+  restoreStatus: 'pending',
+  restoreError: null,
+  originalConfigJson: '{}',
+  startedAtUtc: '2026-05-13T12:00:00.000Z',
+  completedAtUtc: null,
+  updatedAtUtc: '2026-05-13T12:00:01.000Z',
+} as DashboardBenchmarkSession;
+
+const BENCHMARK_ATTEMPT = {
+  id: 'attempt-1',
+  sessionId: BENCHMARK_SESSION.id,
+  caseId: 'case-1',
+  questionPresetId: BENCHMARK_PROMPT.id,
+  taskKind: 'repo-search',
+  promptTitle: BENCHMARK_PROMPT.title,
+  prompt: BENCHMARK_PROMPT.prompt,
+  caseLabel: 'Managed / n24-m64',
+  managedPresetId: 'managed',
+  managedPresetLabel: 'Managed',
+  caseIndex: 0,
+  promptIndex: 0,
+  repeatIndex: 0,
+  status: 'completed',
+  outputText: 'Found repo-search execution.',
+  error: null,
+  runId: 'run-1',
+  managedRunId: 'managed-run-1',
+  durationMs: 1200,
+  promptTokensPerSecond: 100,
+  generationTokensPerSecond: 42,
+  acceptanceRate: 0.5,
+  outputTokens: 50,
+  thinkingTokens: 5,
+  speculativeAcceptedTokens: 10,
+  speculativeGeneratedTokens: 20,
+  outputQualityScore: null,
+  toolUseQualityScore: 8,
+  reviewNotes: null,
+  reviewedBy: null,
+  reviewedAtUtc: null,
+  startedAtUtc: '2026-05-13T12:00:00.000Z',
+  completedAtUtc: '2026-05-13T12:00:02.000Z',
+  updatedAtUtc: '2026-05-13T12:00:02.000Z',
+} as DashboardBenchmarkAttempt;
 
 const MANAGED_PRESET = {
   id: 'managed',
@@ -356,6 +424,57 @@ test('settings tab renders section chrome and fields', () => {
   assert.match(markup, /Prompt prefix/);
   assert.match(markup, /Model Presets/);
   assert.doesNotMatch(markup, /Managed llama\.cpp/);
+});
+
+test('benchmark tab renders prompt library, run builder, live logs, sortable metrics, and grades', () => {
+  let startCalled = false;
+  let cancelCalled = false;
+  let gradeAttemptId = '';
+  const markup = renderToStaticMarkup(
+    <BenchmarkTab
+      questionPresets={[BENCHMARK_PROMPT]}
+      sessions={[BENCHMARK_SESSION]}
+      selectedSession={BENCHMARK_SESSION}
+      attempts={[BENCHMARK_ATTEMPT]}
+      liveLogLines={['starting attempt', 'finished attempt']}
+      managedPresets={[MANAGED_PRESET]}
+      selectedQuestionPresetIds={[BENCHMARK_PROMPT.id]}
+      selectedManagedPresetIds={[MANAGED_PRESET.id]}
+      repetitions={2}
+      specOverrideLabel="n24-m64"
+      loading={false}
+      error={null}
+      starting={false}
+      cancelling={false}
+      sortKey="generationTokensPerSecond"
+      onToggleQuestionPreset={() => {}}
+      onToggleManagedPreset={() => {}}
+      onRepetitionsChange={() => {}}
+      onSpecOverrideLabelChange={() => {}}
+      onStartBenchmark={async () => { startCalled = true; }}
+      onCancelBenchmark={async () => { cancelCalled = true; }}
+      onSortChange={() => {}}
+      onUpdateAttemptGrade={async (attemptId) => { gradeAttemptId = attemptId; }}
+    />,
+  );
+
+  assert.match(markup, /Benchmark/);
+  assert.match(markup, /Question Presets/);
+  assert.match(markup, /Trace repo-search/);
+  assert.match(markup, /Run Builder/);
+  assert.match(markup, /Repetitions/);
+  assert.match(markup, /Managed/);
+  assert.match(markup, /Live Logs/);
+  assert.match(markup, /starting attempt/);
+  assert.match(markup, /Output Quality/);
+  assert.match(markup, /Tool Use Quality/);
+  assert.match(markup, /Token Speed/);
+  assert.match(markup, /Acceptance/);
+  assert.match(markup, /Ungraded/);
+
+  assert.equal(startCalled, false);
+  assert.equal(cancelCalled, false);
+  assert.equal(gradeAttemptId, '');
 });
 
 test('settings tab renders ncpu moe field in model presets section', () => {

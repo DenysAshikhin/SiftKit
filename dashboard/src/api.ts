@@ -14,6 +14,13 @@ import type {
   RunLogDeleteResponse,
   RunDetailResponse,
   RunsResponse,
+  DashboardBenchmarkAttempt,
+  DashboardBenchmarkGradeRequest,
+  DashboardBenchmarkQuestionPreset,
+  DashboardBenchmarkQuestionPresetsResponse,
+  DashboardBenchmarkSessionDetail,
+  DashboardBenchmarkSessionsResponse,
+  DashboardBenchmarkStartRequest,
 } from './types';
 
 async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
@@ -118,6 +125,95 @@ export async function restartBackend(): Promise<RestartBackendResponse> {
 
 export function getDashboardHealth(): Promise<DashboardHealth> {
   return fetchJson<DashboardHealth>('/health');
+}
+
+export function getBenchmarkQuestionPresets(): Promise<DashboardBenchmarkQuestionPresetsResponse> {
+  return fetchJson<DashboardBenchmarkQuestionPresetsResponse>('/dashboard/benchmark/question-presets');
+}
+
+export function createBenchmarkQuestionPreset(payload: {
+  title: string;
+  taskKind: 'repo-search' | 'summary';
+  prompt: string;
+  enabled: boolean;
+}): Promise<{ preset: DashboardBenchmarkQuestionPreset }> {
+  return fetchJson<{ preset: DashboardBenchmarkQuestionPreset }>('/dashboard/benchmark/question-presets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateBenchmarkQuestionPreset(
+  id: string,
+  payload: Partial<Pick<DashboardBenchmarkQuestionPreset, 'title' | 'taskKind' | 'prompt' | 'enabled'>>,
+): Promise<{ preset: DashboardBenchmarkQuestionPreset }> {
+  return fetchJson<{ preset: DashboardBenchmarkQuestionPreset }>(`/dashboard/benchmark/question-presets/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteBenchmarkQuestionPreset(id: string): Promise<{ ok: boolean; deleted: boolean; id: string }> {
+  return fetchJson<{ ok: boolean; deleted: boolean; id: string }>(`/dashboard/benchmark/question-presets/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+export function getBenchmarkSessions(limit = 50): Promise<DashboardBenchmarkSessionsResponse> {
+  const query = new URLSearchParams();
+  query.set('limit', String(limit));
+  return fetchJson<DashboardBenchmarkSessionsResponse>(`/dashboard/benchmark/sessions?${query.toString()}`);
+}
+
+export function getBenchmarkSession(id: string): Promise<DashboardBenchmarkSessionDetail> {
+  return fetchJson<DashboardBenchmarkSessionDetail>(`/dashboard/benchmark/sessions/${encodeURIComponent(id)}`);
+}
+
+export function startBenchmarkSession(payload: DashboardBenchmarkStartRequest): Promise<DashboardBenchmarkSessionDetail> {
+  return fetchJson<DashboardBenchmarkSessionDetail>('/dashboard/benchmark/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function cancelBenchmarkSession(id: string): Promise<{ ok: boolean; cancelled: boolean; id: string }> {
+  return fetchJson<{ ok: boolean; cancelled: boolean; id: string }>(`/dashboard/benchmark/sessions/${encodeURIComponent(id)}/cancel`, {
+    method: 'POST',
+  });
+}
+
+export function updateBenchmarkAttemptGrade(
+  attemptId: string,
+  payload: DashboardBenchmarkGradeRequest,
+): Promise<{ attempt: DashboardBenchmarkAttempt }> {
+  return fetchJson<{ attempt: DashboardBenchmarkAttempt }>(`/dashboard/benchmark/attempts/${encodeURIComponent(attemptId)}/grade`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function openBenchmarkSessionEvents(
+  sessionId: string,
+  onEvent: (eventName: string, payload: unknown) => void,
+): () => void {
+  const eventSource = new EventSource(`/dashboard/benchmark/sessions/${encodeURIComponent(sessionId)}/events`);
+  const eventNames = ['log', 'attempt', 'session', 'done', 'error'];
+  for (const eventName of eventNames) {
+    eventSource.addEventListener(eventName, (event) => {
+      try {
+        onEvent(eventName, JSON.parse((event as MessageEvent).data) as unknown);
+      } catch {
+        onEvent(eventName, {});
+      }
+    });
+  }
+  return () => {
+    eventSource.close();
+  };
 }
 
 export function pickManagedFile(

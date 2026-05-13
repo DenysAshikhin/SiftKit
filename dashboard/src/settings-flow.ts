@@ -2,7 +2,7 @@ import type { SettingsSectionId } from './settings-sections';
 
 export type DirtyContinuation =
   | { kind: 'switch-section'; nextSection: SettingsSectionId }
-  | { kind: 'switch-tab'; nextTab: 'runs' | 'metrics' | 'chat' | 'settings' }
+  | { kind: 'switch-tab'; nextTab: 'runs' | 'metrics' | 'benchmark' | 'chat' | 'settings' }
   | { kind: 'reload-settings' }
   | { kind: 'restart-backend' };
 
