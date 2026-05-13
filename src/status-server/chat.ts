@@ -3,6 +3,7 @@ import * as https from 'node:https';
 import * as crypto from 'node:crypto';
 import type { Dict } from '../lib/types.js';
 import { estimatePromptTokenCountFromCharacters, getDynamicMaxOutputTokens } from '../lib/dynamic-output-cap.js';
+import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
 import {
   type ChatSession,
   estimateTokenCount,
@@ -695,7 +696,7 @@ export function buildPlanMarkdownFromRepoSearch(userPrompt: string, repoRoot: st
   const tasks = Array.isArray(scorecard.tasks) ? scorecard.tasks as Dict[] : [];
   const primaryTask = tasks[0] && typeof tasks[0] === 'object' ? tasks[0] : null;
   const modelOutput = typeof primaryTask?.finalOutput === 'string' && (primaryTask.finalOutput as string).trim()
-    ? (primaryTask.finalOutput as string).trim()
+    ? RepoSearchOutputFormatter.collapseRepeatedWholeOutput(primaryTask.finalOutput as string)
     : 'No final planner output was produced.';
   const commandEvidence: Array<{ command: string; output: string }> = [];
   for (let taskIndex = tasks.length - 1; taskIndex >= 0; taskIndex -= 1) {
@@ -819,7 +820,7 @@ export function buildRepoSearchMarkdown(userPrompt: string, repoRoot: string, re
   const tasks = Array.isArray(scorecard.tasks) ? scorecard.tasks as Dict[] : [];
   const primaryTask = tasks[0] && typeof tasks[0] === 'object' ? tasks[0] : null;
   const modelOutput = typeof primaryTask?.finalOutput === 'string' && (primaryTask.finalOutput as string).trim()
-    ? (primaryTask.finalOutput as string).trim()
+    ? RepoSearchOutputFormatter.collapseRepeatedWholeOutput(primaryTask.finalOutput as string)
     : 'No repo-search output was produced.';
   const lines = [
     '# Repo Search Results',

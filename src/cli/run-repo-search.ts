@@ -1,5 +1,6 @@
 import { getStatusBackendUrl } from '../config/index.js';
 import { logHttpClientBoundary, requestJson } from '../lib/http.js';
+import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
 import { getCommandArgs, parseArguments } from './args.js';
 
 export function getRepoSearchServiceUrl(): string {
@@ -59,8 +60,9 @@ export async function runRepoSearchCli(options: {
       .map((task) => (typeof task?.finalOutput === 'string' ? task.finalOutput.trim() : ''))
       .filter((value) => value.length > 0)
     : [];
-  if (finalOutputs.length > 0) {
-    options.stdout.write(`${finalOutputs.join('\n\n')}\n`);
+  const formattedOutput = RepoSearchOutputFormatter.formatFinalOutputs(finalOutputs);
+  if (formattedOutput) {
+    options.stdout.write(`${formattedOutput}\n`);
     return 0;
   }
   options.stdout.write(`${JSON.stringify(response.scorecard, null, 2)}\n`);

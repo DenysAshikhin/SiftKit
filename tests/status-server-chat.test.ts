@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildChatCompletionRequest, buildContextUsage } from '../src/status-server/chat.ts';
+import { buildChatCompletionRequest, buildContextUsage, buildRepoSearchMarkdown } from '../src/status-server/chat.ts';
 import { estimatePromptTokenCountFromCharacters, getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
 import { estimateTokenCount, type ChatSession } from '../src/state/chat-sessions.ts';
 import type { Dict } from '../src/lib/types.ts';
@@ -80,6 +80,32 @@ test('buildChatCompletionRequest replays assistant reasoning_content only when e
     role: 'assistant',
     content: 'answer without thinking',
   });
+});
+
+test('buildRepoSearchMarkdown collapses exact repeated final output blocks for display', () => {
+  const repeatedOutput = [
+    '| Category | Concern |',
+    '|---|---|',
+    '| Bank | helper duplication |',
+    '',
+    'Note: exact evidence only.',
+    '| Category | Concern |',
+    '|---|---|',
+    '| Bank | helper duplication |',
+    '',
+    'Note: exact evidence only.',
+  ].join('\n');
+
+  const markdown = buildRepoSearchMarkdown('audit duplicates', 'C:\\repo', {
+    transcriptPath: 'transcript',
+    artifactPath: 'artifact',
+    scorecard: {
+      tasks: [{ finalOutput: repeatedOutput }],
+    },
+  });
+
+  assert.match(markdown, /\| Bank \| helper duplication \|/u);
+  assert.equal(markdown.match(/\| Category \| Concern \|/gu)?.length, 1);
 });
 
 test('buildChatCompletionRequest omits thinking preservation flags when direct chat thinking is toggled off', () => {

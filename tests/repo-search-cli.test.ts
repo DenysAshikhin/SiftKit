@@ -50,7 +50,7 @@ async function runMockRepoSearchCli(port: number): Promise<{ stdout: string; std
   }
 }
 
-function writeMockRepoSearchResponse(res: http.ServerResponse): void {
+function writeMockRepoSearchResponse(res: http.ServerResponse, finalOutput = 'Found planner tools in src/summary.ts'): void {
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({
     requestId: 'req-1',
@@ -62,7 +62,7 @@ function writeMockRepoSearchResponse(res: http.ServerResponse): void {
       tasks: [
         {
           id: 'repo-search',
-          finalOutput: 'Found planner tools in src/summary.ts',
+          finalOutput,
         },
       ],
       totals: {
@@ -162,6 +162,57 @@ test('repo-search CLI leaves prompt timeout to server after queue admission', as
     assert.deepEqual(timeouts, [1000]);
   } finally {
     http.ClientRequest.prototype.setTimeout = originalSetTimeout;
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
+test('repo-search CLI collapses exact repeated final output blocks', async () => {
+  const duplicatedOutput = [
+    '| Category | Concern |',
+    '|---|---|',
+    '| Bank | helper duplication |',
+    '',
+    'Note: exact evidence only.',
+    '| Category | Concern |',
+    '|---|---|',
+    '| Bank | helper duplication |',
+    '',
+    'Note: exact evidence only.',
+  ].join('\n');
+  const expectedOutput = [
+    '| Category | Concern |',
+    '|---|---|',
+    '| Bank | helper duplication |',
+    '',
+    'Note: exact evidence only.',
+    '',
+  ].join('\n');
+
+  const server = http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/repo-search') {
+      req.resume();
+      req.on('end', () => writeMockRepoSearchResponse(res, duplicatedOutput));
+      return;
+    }
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const address = server.address() as AddressInfo;
+  const port = Number(address.port);
+  try {
+    const output = await runMockRepoSearchCli(port);
+    assert.equal(output.stdout, expectedOutput);
+  } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
