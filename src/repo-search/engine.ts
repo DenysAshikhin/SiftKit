@@ -998,9 +998,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         continue;
       }
       finalOutput = action.output;
-      if (options.onProgress) {
-        options.onProgress({ kind: 'thinking', turn, maxTurns, thinkingText: finalOutput });
-      }
       reason = 'finish';
       break;
     }

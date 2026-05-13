@@ -293,6 +293,11 @@ test('parseDirectRgCommand allows regex alternation after escaped quote in direc
   assert.equal(evaluateCommandSafety(command, process.cwd()).safe, true);
 });
 
+test('evaluateCommandSafety allows quoted semicolon rg search patterns', () => {
+  assert.equal(evaluateCommandSafety('rg -n ";;" apps/runner/src --glob "*.ts"').safe, true);
+  assert.equal(evaluateCommandSafety("rg -n 'case;branch' src").safe, true);
+});
+
 test('evaluateCommandSafety treats drive-letter regex literals as patterns, not repo-escape paths', () => {
   const repoRoot = 'C:\\Users\\denys\\Documents\\GitHub\\SiftKit';
   assert.equal(
@@ -317,6 +322,7 @@ test('evaluateCommandSafety rejects destructive, network, and chained commands',
   assert.equal(evaluateCommandSafety('rm -rf .').safe, false);
   assert.equal(evaluateCommandSafety('curl http://127.0.0.1:8097/v1/models').safe, false);
   assert.equal(evaluateCommandSafety('rg planner src; del file.txt').safe, false);
+  assert.equal(evaluateCommandSafety('rg -n ";;" src; del file.txt').safe, false);
   assert.equal(evaluateCommandSafety('rg planner src | findstr summary').safe, false);
   assert.equal(evaluateCommandSafety('Get-Content src\\summary.ts > out.txt').safe, false);
   assert.equal(evaluateCommandSafety('Get-Content src\\summary.ts | Select-Object -First 10 | Out-File out.txt').safe, false);
@@ -542,6 +548,36 @@ test('runTaskLoop reports prompt tokens and elapsed time on command progress eve
   assert.equal(Number.isFinite(toolStart?.elapsedMs), true);
   assert.equal(Number(toolStart?.elapsedMs) >= 0, true);
   assert.equal(result.reason, 'finish');
+});
+
+test('runTaskLoop does not replay final output as thinking progress', async () => {
+  const progressEvents: Array<Record<string, unknown> & { kind: string }> = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-final-output-progress',
+      question: 'Find planner text.',
+      signals: ['planner'],
+    },
+    {
+      maxTurns: 1,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"finish","output":"Duplicated answer body"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {},
+      onProgress(event: Record<string, unknown> & { kind: string }) {
+        progressEvents.push(event);
+      },
+    }
+  );
+
+  assert.equal(result.finalOutput, 'Duplicated answer body');
+  assert.equal(
+    progressEvents.some((event) => event.kind === 'thinking' && event.thinkingText === result.finalOutput),
+    false
+  );
 });
 
 test('runTaskLoop reuses preflight prompt token count for tool progress and allowance', async () => {

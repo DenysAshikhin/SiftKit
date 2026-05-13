@@ -79,7 +79,31 @@ export const REPO_SEARCH_PIPE_COMMANDS = [
 ] as const;
 
 function hasBlockedOperator(command: string): boolean {
-  return /&&|\|\||[;`]/u.test(command);
+  let inSingle = false;
+  let inDouble = false;
+
+  for (let i = 0; i < command.length; i += 1) {
+    const ch = command[i];
+    if (ch === '`') {
+      return true;
+    }
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      continue;
+    }
+    if (inSingle || inDouble) {
+      continue;
+    }
+    if (ch === ';' || (ch === '&' && command[i + 1] === '&') || (ch === '|' && command[i + 1] === '|')) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function hasFileRedirection(command: string): boolean {
