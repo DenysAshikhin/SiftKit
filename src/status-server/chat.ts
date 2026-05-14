@@ -2,6 +2,7 @@ import * as http from 'node:http';
 import * as https from 'node:https';
 import * as crypto from 'node:crypto';
 import type { Dict } from '../lib/types.js';
+import type { RepoSearchExecutionResult } from '../repo-search/types.js';
 import { estimatePromptTokenCountFromCharacters, getDynamicMaxOutputTokens } from '../lib/dynamic-output-cap.js';
 import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
 import {
@@ -841,7 +842,7 @@ export function buildRepoSearchMarkdown(userPrompt: string, repoRoot: string, re
   return lines.join('\n');
 }
 
-export type RepoSearchExecuteFn = (request: Dict) => Promise<Dict>;
+export type RepoSearchExecuteFn = (request: Dict) => Promise<RepoSearchExecutionResult>;
 
 export function loadRepoSearchExecutor(): RepoSearchExecuteFn {
   const modulePath = require.resolve('../repo-search/index.js');

@@ -816,6 +816,94 @@ test('repo-search endpoint reloads executor module per request', async () => {
   }
 });
 
+test('repo-search endpoint rejects duplicated final output before sending success response', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-response-sanity-'));
+  const previousCwd = process.cwd();
+  fs.writeFileSync(
+    path.join(tempRoot, 'package.json'),
+    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+    'utf8',
+  );
+  process.chdir(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup: Record<string, string | undefined> = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+
+  const duplicatedFinalOutput = [
+    'src/alpha.ts:1 covers the first anchor.',
+    'src/beta.ts:2 covers the second anchor.',
+    'src/gamma.ts:3 covers the third anchor.',
+    '',
+    'Conclusion: enough evidence was found.',
+    'src/alpha.ts:1 covers the first anchor.',
+    'src/beta.ts:2 covers the second anchor.',
+    'src/gamma.ts:3 covers the third anchor.',
+    '',
+    'Conclusion: enough evidence was found.',
+  ].join('\n');
+  const commands = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'].map((term) => `rg -n "${term}" src`);
+  const mockCommandResults = Object.fromEntries(commands.map((command, index) => [
+    command,
+    { exitCode: 0, stdout: `src/${index}.ts:1:${command}`, stderr: '' },
+  ]));
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const response = await requestJson(`${baseUrl}/repo-search`, {
+      method: 'POST',
+      timeoutMs: 15000,
+      body: JSON.stringify({
+        prompt: 'find duplicated response',
+        repoRoot: process.cwd(),
+        model: 'mock-model',
+        maxTurns: 8,
+        availableModels: ['mock-model'],
+        mockResponses: [
+          ...commands.map((command) => JSON.stringify({
+            action: 'tool',
+            tool_name: 'repo_rg',
+            args: { command },
+          })),
+          JSON.stringify({ action: 'finish', output: duplicatedFinalOutput }),
+        ],
+        mockCommandResults,
+      }),
+    });
+
+    assert.equal(response.statusCode, 500);
+    assert.match(String(response.body.error || ''), /Repo-search response sanity check failed/u);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    process.chdir(previousCwd);
+    closeRuntimeDatabase();
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('repo-search wakes managed llama when the managed process is offline', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-idle-wakeup-'));
   const previousCwd = process.cwd();

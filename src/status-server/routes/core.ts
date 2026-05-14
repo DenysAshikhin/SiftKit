@@ -44,6 +44,7 @@ import {
   updateRunLogSpeculativeMetricsByRequestId,
 } from '../dashboard-runs.js';
 import { loadRepoSearchExecutor } from '../chat.js';
+import { RepoSearchResponseSanityChecker } from '../../repo-search/response-sanity.js';
 import {
   captureManagedLlamaSpeculativeMetricsSnapshot,
   getManagedLlamaSpeculativeMetricsDelta,
@@ -657,6 +658,7 @@ export async function handleCoreRoute(
           }
         },
       });
+      RepoSearchResponseSanityChecker.assertSafeToSend(result);
       sendJson(res, 200, result);
     } catch (error) {
       sendServerErrorJson(req, res, 500, error, { taskKind: 'repo-search' });
