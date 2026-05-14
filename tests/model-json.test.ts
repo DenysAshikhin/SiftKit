@@ -62,13 +62,72 @@ test('ModelJson rejects invalid summary shape after repair', () => {
   );
 });
 
+test('ModelJson parses direct summary planner tool actions', () => {
+  const action = ModelJson.parseSummaryPlannerAction(JSON.stringify({
+    action: 'read_lines',
+    startLine: 10,
+    endLine: 25,
+  }));
+
+  assert.deepEqual(action, {
+    action: 'tool',
+    tool_name: 'read_lines',
+    args: {
+      startLine: 10,
+      endLine: 25,
+    },
+  });
+});
+
+test('ModelJson rejects wrapped summary planner tool actions', () => {
+  assert.throws(
+    () => ModelJson.parseSummaryPlannerAction(JSON.stringify({
+      action: 'tool',
+      tool_name: 'read_lines',
+      args: {
+        startLine: 10,
+        endLine: 25,
+      },
+    })),
+    /unknown planner action/u,
+  );
+});
+
+test('ModelJson parses direct repo-search planner tool actions', () => {
+  const action = ModelJson.parseRepoSearchPlannerAction(JSON.stringify({
+    action: 'repo_rg',
+    command: 'rg -n "plan" src',
+  }), { allowedToolNames: ['repo_rg'] });
+
+  assert.deepEqual(action, {
+    action: 'tool',
+    tool_name: 'repo_rg',
+    args: {
+      command: 'rg -n "plan" src',
+    },
+  });
+});
+
+test('ModelJson rejects wrapped repo-search planner tool actions', () => {
+  assert.throws(
+    () => ModelJson.parseRepoSearchPlannerAction(JSON.stringify({
+      action: 'tool',
+      tool_name: 'repo_rg',
+      args: {
+        command: 'rg -n "plan" src',
+      },
+    }), { allowedToolNames: ['repo_rg'] }),
+    /unknown planner action/u,
+  );
+});
+
 test('ModelJson rejects unknown repo-search tools after repair', () => {
   assert.throws(
     () => ModelJson.parseRepoSearchPlannerAction(
-      "{'action':'tool','tool_name':'repo_delete_everything','args':{'command':'echo no'}}",
+      "{'action':'repo_delete_everything','command':'echo no'}",
       { allowedToolNames: ['repo_rg'] },
     ),
-    /invalid planner tool action/u,
+    /unknown planner action/u,
   );
 });
 

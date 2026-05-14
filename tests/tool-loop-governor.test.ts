@@ -102,6 +102,21 @@ test('buildPromptToolResult strips repo-search rewrite notes from model transcri
   assert.doesNotMatch(promptResult, /^exit_code=0$/mu);
 });
 
+test('buildPromptToolResult strips command expansion notes but keeps real output', () => {
+  const promptResult = buildPromptToolResult({
+    toolName: 'repo_rg',
+    command: 'rg -n "needle" src --no-ignore',
+    exitCode: 0,
+    rawOutput: [
+      'note: added --no-ignore so rg searches gitignored paths',
+      'src/index.ts:1:needle',
+    ].join('\n'),
+  });
+
+  assert.doesNotMatch(promptResult, /note: added --no-ignore/u);
+  assert.match(promptResult, /src\/index\.ts:1:needle/u);
+});
+
 test('buildPromptToolResult keeps non-zero exit code but strips exit_code=0', () => {
   const okResult = buildPromptToolResult({
     toolName: 'find_text',

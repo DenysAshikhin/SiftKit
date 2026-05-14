@@ -290,15 +290,17 @@ function getStructuredToolCallText(
 
   if (toolCalls.length === 1) {
     return JSON.stringify({
-      action: 'tool',
-      tool_name: toolCalls[0].tool_name,
-      args: toolCalls[0].args,
+      action: toolCalls[0].tool_name,
+      ...toolCalls[0].args,
     });
   }
 
   return JSON.stringify({
     action: 'tool_batch',
-    tool_calls: toolCalls,
+    calls: toolCalls.map((toolCall) => ({
+      action: toolCall.tool_name,
+      ...toolCall.args,
+    })),
   });
 }
 
@@ -599,20 +601,10 @@ export async function generateLlamaCppChatResponse(options: {
       Array.isArray(options.tools)
       && options.tools.length > 0
         ? { tools: options.tools }
-        : options.structuredOutput?.kind === 'siftkit-planner-action-json'
-          && Array.isArray(options.structuredOutput.tools)
-          && options.structuredOutput.tools.length > 0
-        ? { tools: options.structuredOutput.tools }
         : {}
     ),
     ...(
-      (
-        Array.isArray(options.tools) && options.tools.length > 0
-      ) || (
-        options.structuredOutput?.kind === 'siftkit-planner-action-json'
-        && Array.isArray(options.structuredOutput.tools)
-        && options.structuredOutput.tools.length > 0
-      )
+      Array.isArray(options.tools) && options.tools.length > 0
         ? { parallel_tool_calls: true }
         : {}
     ),

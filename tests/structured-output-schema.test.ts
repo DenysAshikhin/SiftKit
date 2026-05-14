@@ -63,7 +63,10 @@ test('buildSummaryPlannerActionJsonSchema encodes only provided tools', () => {
   assert.match(schemaText, /read_lines/u);
   assert.doesNotMatch(schemaText, /json_filter/u);
   assert.match(schemaText, /tool_batch/u);
+  assert.match(schemaText, /calls/u);
   assert.match(schemaText, /finish/u);
+  assert.doesNotMatch(schemaText, /tool_name/u);
+  assert.doesNotMatch(schemaText, /args/u);
 });
 
 test('buildRepoSearchPlannerActionJsonSchema enforces command args and finish confidence', () => {
@@ -85,6 +88,8 @@ test('buildRepoSearchPlannerActionJsonSchema enforces command args and finish co
   assert.match(schemaText, /run_repo_cmd/u);
   assert.match(schemaText, /command/u);
   assert.match(schemaText, /confidence/u);
+  assert.doesNotMatch(schemaText, /tool_name/u);
+  assert.doesNotMatch(schemaText, /args/u);
   assert.match(schemaText, /"additionalProperties":false/u);
 });
 

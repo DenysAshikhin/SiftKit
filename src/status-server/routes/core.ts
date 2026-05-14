@@ -77,7 +77,6 @@ import type {
 } from '../server-types.js';
 
 const DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_SECONDS = 240;
-const DEFAULT_REPO_SEARCH_PROMPT_BUDGET_MS = 3 * 60 * 1000;
 
 function normalizeTaskKind(value: unknown): TaskKind | null {
   return value === 'summary' || value === 'plan' || value === 'repo-search' || value === 'chat'
@@ -650,7 +649,6 @@ export async function handleCoreRoute(
         availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,
         mockResponses: Array.isArray(parsedBody.mockResponses) ? (parsedBody.mockResponses as unknown[]).map((v) => String(v)) : undefined,
         mockCommandResults: (parsedBody.mockCommandResults && typeof parsedBody.mockCommandResults === 'object' && !Array.isArray(parsedBody.mockCommandResults)) ? parsedBody.mockCommandResults : undefined,
-        promptTimeoutMs: getPositiveNumber(parsedBody.promptTimeoutMs, DEFAULT_REPO_SEARCH_PROMPT_BUDGET_MS),
         onProgress(event: RepoSearchProgressEvent) {
           if (event.kind === 'tool_start') {
             const logMessage = buildRepoSearchProgressLogMessage(event, 'repo_search');

@@ -277,7 +277,6 @@ export function buildPlannerRequestPromptReserveText(options: {
   const toolDefinitions = Array.isArray(options.toolDefinitions) && options.toolDefinitions.length > 0
     ? options.toolDefinitions
     : TOOL_DEFINITIONS;
-  const includeTools = stage === 'planner_action' && toolDefinitions.length > 0;
   const defaultResponseSchema = stage === 'planner_action'
     ? buildRepoSearchPlannerActionJsonSchema({ toolDefinitions })
     : stage === 'finish_validation'
@@ -301,7 +300,6 @@ export function buildPlannerRequestPromptReserveText(options: {
     stage,
     model: options.model,
     max_tokens: options.maxTokens,
-    ...(includeTools ? { tools: toolDefinitions, parallel_tool_calls: true } : {}),
     chat_template_kwargs: {
       enable_thinking: Boolean(options.thinkingEnabled),
       ...(options.thinkingEnabled && options.reasoningContentEnabled ? { reasoning_content: true } : {}),
@@ -330,9 +328,8 @@ function parseRepoToolCallCandidate(toolCall: {
   if (!name || !args) return null;
   try {
     const action = ModelJson.parseRepoSearchPlannerAction(JSON.stringify({
-      action: 'tool',
-      tool_name: name,
-      args,
+      action: name,
+      ...args,
     }), { allowedToolNames: Array.from(allowedToolNames) });
     return action.action === 'tool' ? action : null;
   } catch {
@@ -360,9 +357,9 @@ function actionFromToolCall(choice: Record<string, unknown>, allowedToolNames: S
   }
   return JSON.stringify({
     action: 'tool_batch',
-    tool_calls: toolCalls.map((toolCall) => ({
-      tool_name: toolCall.tool_name,
-      args: toolCall.args,
+    calls: toolCalls.map((toolCall) => ({
+      action: toolCall.tool_name,
+      ...toolCall.args,
     })),
   });
 }
@@ -464,7 +461,6 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
     ? options.toolDefinitions
     : TOOL_DEFINITIONS;
   const allowedToolNames = new Set<string>(toolDefinitions.map((toolDefinition) => toolDefinition.function.name));
-  const includeTools = stage === 'planner_action' && toolDefinitions.length > 0;
   const defaultResponseSchema = stage === 'planner_action'
     ? buildRepoSearchPlannerActionJsonSchema({ toolDefinitions })
     : stage === 'finish_validation'
@@ -488,7 +484,6 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
     temperature: 0.1,
     top_p: 0.95,
     max_tokens: options.maxTokens,
-    ...(includeTools ? { tools: toolDefinitions, parallel_tool_calls: true } : {}),
     chat_template_kwargs: {
       enable_thinking: Boolean(options.thinkingEnabled),
       ...(options.thinkingEnabled && options.reasoningContentEnabled ? { reasoning_content: true } : {}),
@@ -746,9 +741,9 @@ function requestStreaming(
         } else if (parsedToolCalls.length > 1) {
           synthesized = JSON.stringify({
             action: 'tool_batch',
-            tool_calls: parsedToolCalls.map((toolCall) => ({
-              tool_name: toolCall.tool_name,
-              args: toolCall.args,
+            calls: parsedToolCalls.map((toolCall) => ({
+              action: toolCall.tool_name,
+              ...toolCall.args,
             })),
           });
         }

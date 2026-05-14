@@ -11,6 +11,10 @@ import { startStatusServer, buildRepoSearchProgressLogMessage } from '../dist/st
 import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
 
 const requireFromHere = createRequire(__filename);
+const Database = requireFromHere('better-sqlite3') as new (path: string, options?: { readonly?: boolean }) => {
+  prepare: (sql: string) => { get: (...args: unknown[]) => Record<string, unknown> | undefined };
+  close: () => void;
+};
 const runtimeHelpers = requireFromHere('./_runtime-helpers.js') as {
   writeManagedLlamaScripts: (tempRoot: string, port: number, modelId?: string, options?: {
     launchHangingProcess?: boolean;
@@ -152,7 +156,7 @@ test('status server stays responsive while repo-search is running', async () => 
         maxTurns: 2,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"x\\" src"}}',
+          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"x\\\" src\"}",
           '{"action":"finish","output":"done","confidence":0.9}',
         ],
         mockCommandResults: {
@@ -625,7 +629,7 @@ test('repo-search endpoint logs one model-requested command line per tool call',
           maxTurns: 2,
           availableModels: ['mock-model'],
           mockResponses: [
-            '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"planner\\" src"}}',
+            "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
             '{"action":"finish","output":"done","confidence":0.9}',
           ],
           mockCommandResults: {
@@ -696,6 +700,221 @@ test('buildRepoSearchProgressLogMessage formats planner and repo-search command 
   }, 'repo_search');
   assert.ok(msg4);
   assert.match(msg4, /^repo_search llm_end turn=18\/45 prompt_tokens=312,345 elapsed=7s$/u);
+});
+
+test('repo-search transcript artifact keeps routine normalized flags out of tool replay', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-effective-transcript-'));
+  const previousCwd = process.cwd();
+  fs.writeFileSync(
+    path.join(tempRoot, 'package.json'),
+    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+    'utf8',
+  );
+  fs.mkdirSync(path.join(tempRoot, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(tempRoot, 'src', 'index.ts'), 'export const needle = true;\n', 'utf8');
+  process.chdir(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
+  const envBackup: Record<string, string | undefined> = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const response = await requestJson(`${baseUrl}/repo-search`, {
+      method: 'POST',
+      timeoutMs: 15000,
+      body: JSON.stringify({
+        prompt: 'find needle',
+        repoRoot: process.cwd(),
+        model: 'mock-model',
+        maxTurns: 2,
+        availableModels: ['mock-model'],
+        mockResponses: [
+          '{"action":"repo_rg","command":"rg -n \\"needle\\" src"}',
+          '{"action":"finish","output":"done","confidence":0.9}',
+        ],
+        mockCommandResults: {
+          'rg -n "needle" src': { exitCode: 0, stdout: 'src/index.ts:1:needle', stderr: '' },
+        },
+      }),
+    });
+
+    assert.equal(response.statusCode, 200);
+    const database = new Database(runtimeDbPath, { readonly: true });
+    try {
+      const transcriptArtifact = database.prepare(
+        "SELECT content_text FROM runtime_artifacts WHERE artifact_kind = 'repo_search_transcript' ORDER BY created_at_utc DESC LIMIT 1"
+      ).get();
+      const transcriptText = String(transcriptArtifact?.content_text || '');
+      const transcriptEvents = transcriptText
+        .trim()
+        .split(/\r?\n/u)
+        .filter((line) => line.length > 0)
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const turnMessagesEvent = transcriptEvents.find((event) => (
+        event.kind === 'turn_new_messages' && event.turn === 2
+      ));
+      const messages = Array.isArray(turnMessagesEvent?.messages)
+        ? turnMessagesEvent.messages as Record<string, unknown>[]
+        : [];
+      const assistantMessage = messages.find((message) => (
+        message.role === 'assistant' && Array.isArray(message.tool_calls)
+      ));
+      const toolCalls = Array.isArray(assistantMessage?.tool_calls)
+        ? assistantMessage.tool_calls as Record<string, unknown>[]
+        : [];
+      const firstCallFunction = (toolCalls[0]?.function || {}) as Record<string, unknown>;
+      const firstCallArgs = JSON.parse(String(firstCallFunction.arguments || '{}')) as { command?: string };
+      assert.equal(String(firstCallFunction.name || ''), 'repo_rg');
+      assert.equal(String(firstCallArgs.command || ''), 'rg -n "needle" src');
+      assert.doesNotMatch(String(firstCallArgs.command || ''), /--no-ignore|--ignore-case|--glob/u);
+    } finally {
+      database.close();
+    }
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    process.chdir(previousCwd);
+    closeRuntimeDatabase();
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('repo-search transcript artifact replays fitted repo_read_file range using per-tool context limits', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-bounded-transcript-'));
+  const previousCwd = process.cwd();
+  fs.writeFileSync(
+    path.join(tempRoot, 'package.json'),
+    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+    'utf8',
+  );
+  fs.mkdirSync(path.join(tempRoot, 'src'), { recursive: true });
+  fs.writeFileSync(
+    path.join(tempRoot, 'src', 'big.ts'),
+    Array.from({ length: 900 }, (_, index) => `export const line${index + 1} = '${'x'.repeat(240)}';`).join('\n'),
+    'utf8',
+  );
+  process.chdir(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
+  const envBackup: Record<string, string | undefined> = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const response = await requestJson(`${baseUrl}/repo-search`, {
+      method: 'POST',
+      timeoutMs: 15000,
+      body: JSON.stringify({
+        prompt: 'read bounded evidence',
+        repoRoot: process.cwd(),
+        model: 'mock-model',
+        maxTurns: 4,
+        availableModels: ['mock-model'],
+        mockResponses: [
+          '{"action":"repo_git","command":"git status --short"}',
+          '{"action":"repo_read_file","path":"src/big.ts","startLine":300,"endLine":900}',
+          '{"action":"finish","output":"done","confidence":0.9}',
+        ],
+        mockCommandResults: {
+          'git status --short': { exitCode: 0, stdout: 'slow evidence', stderr: '', delayMs: 40 },
+        },
+      }),
+    });
+
+    assert.equal(response.statusCode, 200);
+    const database = new Database(runtimeDbPath, { readonly: true });
+    try {
+      const transcriptArtifact = database.prepare(
+        "SELECT content_text FROM runtime_artifacts WHERE artifact_kind = 'repo_search_transcript' ORDER BY created_at_utc DESC LIMIT 1"
+      ).get();
+      const transcriptText = String(transcriptArtifact?.content_text || '');
+      const transcriptEvents = transcriptText
+        .trim()
+        .split(/\r?\n/u)
+        .filter((line) => line.length > 0)
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const turnMessagesEvent = transcriptEvents.find((event) => (
+        event.kind === 'turn_new_messages' && event.turn === 3
+      ));
+      const messages = Array.isArray(turnMessagesEvent?.messages)
+        ? turnMessagesEvent.messages as Record<string, unknown>[]
+        : [];
+      const assistantMessage = messages.find((message) => (
+        message.role === 'assistant' && Array.isArray(message.tool_calls)
+      ));
+      const toolMessage = messages.find((message) => message.role === 'tool');
+      const toolCalls = Array.isArray(assistantMessage?.tool_calls)
+        ? assistantMessage.tool_calls as Record<string, unknown>[]
+        : [];
+      const firstCallFunction = (toolCalls[0]?.function || {}) as Record<string, unknown>;
+      const firstCallArgs = JSON.parse(String(firstCallFunction.arguments || '{}')) as {
+        path?: string;
+        startLine?: number;
+        endLine?: number;
+      };
+      assert.equal(String(firstCallFunction.name || ''), 'repo_read_file');
+      assert.equal(firstCallArgs.path, 'src/big.ts');
+      assert.equal(firstCallArgs.startLine, 300);
+      assert.equal(typeof firstCallArgs.endLine, 'number');
+      assert.equal(Number(firstCallArgs.endLine) < 900, true);
+      assert.match(String(toolMessage?.content || ''), /\d+ lines truncated due to per-tool context limit\./u);
+    } finally {
+      database.close();
+    }
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    process.chdir(previousCwd);
+    closeRuntimeDatabase();
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test('repo-search endpoint reloads executor module per request', async () => {
@@ -781,7 +1000,7 @@ test('repo-search endpoint reloads executor module per request', async () => {
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"x\\" src"}}',
+          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"x\\\" src\"}",
           'Terminal synthesis answer: src/example.ts:1.',
         ],
         mockCommandResults: {
@@ -875,9 +1094,8 @@ test('repo-search endpoint rejects duplicated final output before sending succes
         availableModels: ['mock-model'],
         mockResponses: [
           ...commands.map((command) => JSON.stringify({
-            action: 'tool',
-            tool_name: 'repo_rg',
-            args: { command },
+            action: 'repo_rg',
+            command,
           })),
           JSON.stringify({ action: 'finish', output: duplicatedFinalOutput }),
         ],
@@ -1009,7 +1227,7 @@ test('repo-search wakes managed llama when the managed process is offline', asyn
         model: 'managed-test-model',
         maxTurns: 2,
         mockResponses: [
-          '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"request\\" src/status-server/routes/core.ts"}}',
+          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"request\\\" src/status-server/routes/core.ts\"}",
           '{"action":"finish","output":"done","confidence":0.9}',
         ],
         mockCommandResults: {

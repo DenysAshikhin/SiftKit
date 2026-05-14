@@ -32,9 +32,9 @@ async function withServer(
 test('ModelJson parses repo-search tool batches', () => {
   const action = ModelJson.parseRepoSearchPlannerAction(JSON.stringify({
     action: 'tool_batch',
-    tool_calls: [
-      { tool_name: 'repo_rg', args: { command: 'rg -n "plan" src' } },
-      { tool_name: 'repo_rg', args: { command: 'rg -n "repo-search" src' } },
+    calls: [
+      { action: 'repo_rg', command: 'rg -n "plan" src' },
+      { action: 'repo_rg', command: 'rg -n "repo-search" src' },
     ],
   }), { allowedToolNames: getRepoSearchToolNamesForParsing() });
 
@@ -234,7 +234,7 @@ test('requestPlannerAction aborts an in-flight streaming request', async () => {
   });
 });
 
-test('requestPlannerAction sends json_schema response_format with tools and no grammar', async () => {
+test('requestPlannerAction sends json_schema response_format without native tools or grammar', async () => {
   let capturedBody: Record<string, unknown> | null = null;
   await withServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
@@ -263,8 +263,8 @@ test('requestPlannerAction sends json_schema response_format with tools and no g
 
     const captured = capturedBody as Record<string, any>;
     assert.equal(captured?.response_format?.type, 'json_schema');
-    assert.equal(Array.isArray(captured?.tools), true);
-    assert.equal(captured?.parallel_tool_calls, true);
+    assert.equal('tools' in (captured || {}), false);
+    assert.equal('parallel_tool_calls' in (captured || {}), false);
     assert.equal('grammar' in (captured || {}), false);
   });
 });
@@ -312,7 +312,8 @@ test('requestPlannerAction assembles planner schema dynamically from provided to
     const schemaText = JSON.stringify(captured?.response_format || {});
     assert.match(schemaText, /search_symbol/u);
     assert.doesNotMatch(schemaText, /run_repo_cmd/u);
-    assert.equal(captured?.tools?.[0]?.function?.name, 'search_symbol');
+    assert.doesNotMatch(schemaText, /tool_name/u);
+    assert.equal('tools' in (captured || {}), false);
   });
 });
 

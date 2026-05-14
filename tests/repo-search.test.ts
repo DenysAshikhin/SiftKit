@@ -1,13 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
 import * as http from 'node:http';
+import * as path from 'node:path';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 
-import {
-  DEFAULT_REPO_SEARCH_PROMPT_TIMEOUT_MS,
-  executeRepoSearchRequest,
-} from '../dist/repo-search/index.js';
+import { executeRepoSearchRequest } from '../dist/repo-search/index.js';
 import {
   listRuntimeArtifacts,
   parseRuntimeArtifactUri,
@@ -326,7 +325,7 @@ test('executeRepoSearchRequest with mock command executes and returns scorecard'
       repoRoot: tempRoot,
       maxTurns: 2,
       mockResponses: [
-        '{"action":"tool","tool_name":"repo_git","args":{"command":"git status --short"}}',
+        "{\"action\":\"repo_git\",\"command\":\"git status --short\"}",
         '{"action":"finish","output":"Found scripts","confidence":0.8}',
       ],
       mockCommandResults: {
@@ -384,7 +383,7 @@ test('executeRepoSearchRequest logs repo-search preflight tokenization timing', 
       lines.join('\n'),
     );
     assert.ok(
-      lines.some((line) => /repo_search preflight_tokenize_done request_id=.* turn=1 prompt_tokens=321 source=llama\.cpp elapsed_ms=\d+ retry_count=0/u.test(line)),
+      lines.some((line) => /repo_search preflight_tokenize_done request_id=.* turn=1 prompt_tokens=\d+ source=llama\.cpp elapsed_ms=\d+ retry_count=0/u.test(line)),
       lines.join('\n'),
     );
   }, {
@@ -393,20 +392,15 @@ test('executeRepoSearchRequest logs repo-search preflight tokenization timing', 
   });
 });
 
-test('executeRepoSearchRequest uses a three-minute default prompt budget', () => {
-  assert.equal(DEFAULT_REPO_SEARCH_PROMPT_TIMEOUT_MS, 180_000);
-});
-
-test('executeRepoSearchRequest blocks later tools and forces an answer when prompt budget expires', async () => {
+test('executeRepoSearchRequest does not force finish from elapsed tool-loop time', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
     const result = await executeRepoSearchRequest({
       prompt: 'find slow command',
       repoRoot: tempRoot,
       maxTurns: 3,
-      promptTimeoutMs: 20,
       mockResponses: [
-        '{"action":"tool","tool_name":"repo_git","args":{"command":"git status --short"}}',
-        '{"action":"tool","tool_name":"repo_git","args":{"command":"git status --porcelain"}}',
+        "{\"action\":\"repo_git\",\"command\":\"git status --short\"}",
+        "{\"action\":\"repo_git\",\"command\":\"git status --porcelain\"}",
         '{"action":"finish","output":"budget answer","confidence":0.8}',
       ],
       mockCommandResults: {
@@ -423,29 +417,46 @@ test('executeRepoSearchRequest blocks later tools and forces an answer when prom
     assert.equal(task.finalOutput, 'budget answer');
     assert.equal(task.commands.length, 2);
     assert.equal(task.commands[0].output, 'slow evidence');
-    assert.equal(task.commands[1].safe, false);
-    assert.match(task.commands[1].reason || '', /prompt budget expired/u);
-    assert.doesNotMatch(task.commands.map((command) => command.output).join('\n'), /should not run/u);
+    assert.equal(task.commands[1].safe, true);
+    assert.equal(task.commands[1].output, 'should not run');
   });
 });
 
-test('executeRepoSearchRequest does not count pre-tool queue time against prompt budget', async () => {
+test('executeRepoSearchRequest fits native reads using per-tool context limits', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
+    const sourcePath = path.join(tempRoot, 'src');
+    fs.mkdirSync(sourcePath, { recursive: true });
+    fs.writeFileSync(
+      path.join(sourcePath, 'big.ts'),
+      Array.from({ length: 900 }, (_, index) => `export const line${index + 1} = "${'x'.repeat(240)}";`).join('\n'),
+      'utf8',
+    );
+
     const result = await executeRepoSearchRequest({
-      prompt: 'answer without tools',
+      prompt: 'read enough evidence',
       repoRoot: tempRoot,
-      maxTurns: 1,
-      promptTimeoutMs: 1,
+      maxTurns: 4,
       mockResponses: [
-        '{"action":"finish","output":"done","confidence":0.8}',
+        '{"action":"repo_git","command":"git status --short"}',
+        '{"action":"repo_read_file","path":"src/big.ts","startLine":300,"endLine":900}',
+        '{"action":"finish","output":"budget answer","confidence":0.8}',
       ],
-      mockCommandResults: {},
+      mockCommandResults: {
+        'git status --short': { exitCode: 0, stdout: 'slow evidence', stderr: '', delayMs: 40 },
+      },
     });
 
-    const task = (result.scorecard.tasks as Array<{ finalOutput: string; commands: unknown[] }>)[0];
+    const task = (result.scorecard.tasks as Array<{
+      finalOutput: string;
+      commands: Array<{ command: string; safe: boolean; output: string; reason: string | null }>;
+    }>)[0];
 
-    assert.equal(task.finalOutput, 'done');
-    assert.equal(task.commands.length, 0);
+    assert.equal(task.finalOutput, 'budget answer');
+    assert.equal(task.commands.length, 2);
+    assert.equal(task.commands[1].safe, true);
+    assert.match(task.commands[1].command, /^repo_read_file path="src\/big\.ts" startLine=300 endLine=\d+$/u);
+    assert.match(task.commands[1].output, /\d+ lines truncated due to per-tool context limit\./u);
+    assert.match(task.commands[1].output, /^300: /mu);
   });
 });
 
@@ -473,7 +484,7 @@ test('executeRepoSearchRequest persists summed prompt-eval and generation durati
       });
       if (requestCount === 1) {
         setTimeout(() => {
-          res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"tool\\",\\"tool_name\\":\\"repo_git\\",\\"args\\":{\\"command\\":\\"git status --short\\"}}"}}]}\n\n');
+          res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"repo_git\\",\\"command\\":\\"git status --short\\"}"}}]}\n\n');
           setTimeout(() => {
             res.write('data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":30,"completion_tokens":4,"completion_tokens_details":{"reasoning_tokens":6},"prompt_tokens_details":{"cached_tokens":20}}}\n\n');
             res.write('data: [DONE]\n\n');

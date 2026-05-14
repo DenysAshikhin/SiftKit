@@ -282,7 +282,7 @@ test('llama.cpp provider reconstructs planner tool actions from empty-content to
         },
       });
 
-      assert.equal(summary.text, '{"action":"tool","tool_name":"json_filter","args":{"filters":[{"path":"from.worldX","op":"gte","value":3200}]}}');
+      assert.equal(summary.text, '{"action":"json_filter","filters":[{"path":"from.worldX","op":"gte","value":3200}]}');
     }, {
       chatResponse() {
         return {
@@ -336,7 +336,7 @@ test('llama.cpp provider reconstructs planner tool batches from empty-content to
 
       assert.equal(
         summary.text,
-        '{"action":"tool_batch","tool_calls":[{"tool_name":"find_text","args":{"query":"Lumbridge","mode":"literal"}},{"tool_name":"read_lines","args":{"startLine":10,"endLine":20}}]}',
+        '{"action":"tool_batch","calls":[{"action":"find_text","query":"Lumbridge","mode":"literal"},{"action":"read_lines","startLine":10,"endLine":20}]}',
       );
     }, {
       chatResponse() {
@@ -512,16 +512,13 @@ test('planner token accounting treats tool-step completion tokens as thinking an
                 message: {
                   role: 'assistant',
                   content: JSON.stringify({
-                    action: 'tool',
-                    tool_name: 'json_filter',
-                    args: {
-                      filters: [
-                        { path: 'from.worldX', op: 'gte', value: 3200 },
-                        { path: 'from.worldX', op: 'lte', value: 3215 },
-                      ],
-                      select: ['id', 'label'],
-                      limit: 20,
-                    },
+                    action: 'json_filter',
+                    filters: [
+                      { path: 'from.worldX', op: 'gte', value: 3200 },
+                      { path: 'from.worldX', op: 'lte', value: 3215 },
+                    ],
+                    select: ['id', 'label'],
+                    limit: 20,
                   }),
                 },
               },
@@ -650,10 +647,11 @@ test('summary above planner threshold respects runtime reasoning for planner req
       });
       assert.equal('extra_body' in server.state.chatRequests[0], false);
       const firstResponseFormatText = JSON.stringify(server.state.chatRequests[0]?.response_format || {});
-      assert.match(firstResponseFormatText, /tool_name/u);
+      assert.doesNotMatch(firstResponseFormatText, /tool_name/u);
+      assert.match(firstResponseFormatText, /find_text/u);
     }, {
       assistantContent(promptText, parsed) {
-        if (JSON.stringify(parsed?.response_format || {}).includes('tool_name')) {
+        if (JSON.stringify(parsed?.response_format || {}).includes('find_text')) {
           return JSON.stringify({
             action: 'finish',
             classification: 'summary',
@@ -765,9 +763,9 @@ test('oversized transition extraction uses planner action grammar before returni
       assert.match(firstPrompt, /avoid many tiny adjacent slices unless verifying one exact line or symbol/u);
       assert.match(firstPrompt, /If you already used `read_lines` once, do another `find_text` search before requesting a second nearby `read_lines` slice/u);
       assert.match(firstPrompt, /Example tool calls:/u);
-      assert.match(firstPrompt, /"tool_name":"find_text"/u);
-      assert.match(firstPrompt, /"tool_name":"read_lines"/u);
-      assert.match(firstPrompt, /"tool_name":"json_filter"/u);
+      assert.match(firstPrompt, /"action":"find_text"/u);
+      assert.match(firstPrompt, /"action":"read_lines"/u);
+      assert.match(firstPrompt, /"action":"json_filter"/u);
       assert.match(firstPrompt, /Bad read_lines progression example:/u);
       assert.match(firstPrompt, /"startLine":1340,"endLine":1379/u);
       assert.match(firstPrompt, /"startLine":1380,"endLine":1419/u);
@@ -776,18 +774,15 @@ test('oversized transition extraction uses planner action grammar before returni
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
           return JSON.stringify({
-            action: 'tool',
-            tool_name: 'json_filter',
-            args: {
-              filters: [
-                { path: 'from.worldX', op: 'gte', value: 3200 },
-                { path: 'from.worldX', op: 'lte', value: 3215 },
-                { path: 'from.worldY', op: 'gte', value: 3210 },
-                { path: 'from.worldY', op: 'lte', value: 3225 },
-              ],
-              select: ['id', 'label', 'type', 'from', 'to', 'bidirectional'],
-              limit: 20,
-            },
+            action: 'json_filter',
+            filters: [
+              { path: 'from.worldX', op: 'gte', value: 3200 },
+              { path: 'from.worldX', op: 'lte', value: 3215 },
+              { path: 'from.worldY', op: 'gte', value: 3210 },
+              { path: 'from.worldY', op: 'lte', value: 3225 },
+            ],
+            select: ['id', 'label', 'type', 'from', 'to', 'bidirectional'],
+            limit: 20,
           });
         }
 

@@ -190,11 +190,13 @@ export const TASK_PACK: TaskDefinition[] = [
 type NativeRepoToolExecution =
   | {
     ok: true;
+    requestedCommand?: string;
     command: string;
     exitCode: number;
     output: string;
     toolType: string;
     readFile?: {
+      commandPath: string;
       pathKey: string;
       displayPath: string;
       startLine: number;
@@ -214,6 +216,73 @@ type NativeRepoToolExecution =
     reason: string;
     toolType: string;
   };
+
+type RepoReadFilePlan = {
+  requestedCommand: string;
+  commandPath: string;
+  requestedStartLine: number;
+  requestedEndLine: number;
+  effectiveStartLine: number;
+  effectiveEndLineExclusive: number;
+  totalEndLineExclusive: number;
+  pathKey: string;
+  displayPath: string;
+  lines: string[];
+  hasUnread: boolean;
+  noUnreadOutput: string | null;
+};
+
+function isFailedRepoReadFilePlan(
+  plan: RepoReadFilePlan | { ok: false; command: string; reason: string },
+): plan is { ok: false; command: string; reason: string } {
+  return 'ok' in plan && plan.ok === false;
+}
+
+type EffectiveTranscriptActionOptions = {
+  toolName: string;
+  rawArgs: Record<string, unknown>;
+  isNativeTool: boolean;
+  commandToRun: string;
+};
+
+function parseEffectiveReadFileArgs(command: string, fallbackArgs: Record<string, unknown>): Record<string, unknown> {
+  const match = /^repo_read_file path=("(?:(?:\\")|[^"])*"|\S+) startLine=(\d+)(?: endLine=(\d+))?/u.exec(command.trim());
+  if (!match) {
+    return fallbackArgs;
+  }
+  let pathText = String(fallbackArgs.path || '');
+  try {
+    pathText = JSON.parse(match[1]) as string;
+  } catch {
+    pathText = String(fallbackArgs.path || '');
+  }
+  return {
+    path: pathText,
+    startLine: Number.parseInt(match[2], 10),
+    ...(match[3] ? { endLine: Number.parseInt(match[3], 10) } : {}),
+  };
+}
+
+function buildEffectiveTranscriptAction(options: EffectiveTranscriptActionOptions): ToolTranscriptAction {
+  if (!options.isNativeTool) {
+    return {
+      tool_name: options.toolName,
+      args: { command: options.commandToRun },
+    };
+  }
+
+  if (options.toolName === 'repo_read_file') {
+    return {
+      tool_name: options.toolName,
+      args: parseEffectiveReadFileArgs(options.commandToRun, options.rawArgs),
+    };
+  }
+
+  return {
+    tool_name: options.toolName,
+    args: options.rawArgs,
+  };
+}
 
 function normalizeRepoRelativePathForDisplay(relativePath: string): string {
   return relativePath.replace(/\\/gu, '/');
@@ -294,6 +363,141 @@ function formatNumberedTextBlock(lines: string[], startLine: number): string {
   return lines.map((line, index) => `${startLine + index}: ${line}`).join('\n');
 }
 
+function buildRepoReadFileCommand(pathText: string, startLine: number, endLine?: number): string {
+  const boundedStartLine = Math.max(1, Math.trunc(Number(startLine) || 1));
+  const boundedEndLine = Math.trunc(Number(endLine) || 0);
+  return `repo_read_file path=${JSON.stringify(pathText)} startLine=${boundedStartLine}${boundedEndLine > 0 ? ` endLine=${boundedEndLine}` : ''}`;
+}
+
+function buildRepoListFilesCommand(args: Record<string, unknown>): string {
+  const pathText = typeof args.path === 'string' && args.path.trim() ? args.path.trim() : '.';
+  const recurse = args.recurse === undefined ? true : args.recurse === true;
+  const globText = typeof args.glob === 'string' ? args.glob.trim() : '';
+  return `repo_list_files path=${JSON.stringify(pathText)}${globText ? ` glob=${JSON.stringify(globText)}` : ''} recurse=${recurse}`;
+}
+
+function buildNativeRepoToolRequestedCommand(toolName: string, args: Record<string, unknown>): string {
+  if (toolName === 'repo_read_file') {
+    const startLine = Math.max(1, Math.trunc(Number(args.startLine) || 1));
+    const endLineCandidate = Math.trunc(Number(args.endLine) || 0);
+    return buildRepoReadFileCommand(String(args.path || ''), startLine, endLineCandidate > 0 ? endLineCandidate : undefined);
+  }
+  return buildRepoListFilesCommand(args);
+}
+
+function planRepoReadFile(
+  args: Record<string, unknown>,
+  repoRoot: string,
+  ignorePolicy: IgnorePolicy,
+  fileReadStateByPath?: Map<string, FileReadState>,
+): RepoReadFilePlan | { ok: false; command: string; reason: string } {
+  const commandPath = String(args.path || '');
+  const startLine = Math.max(1, Math.trunc(Number(args.startLine) || 1));
+  const endLineCandidate = Math.trunc(Number(args.endLine) || 0);
+  const requestedCommand = buildRepoReadFileCommand(commandPath, startLine, endLineCandidate > 0 ? endLineCandidate : undefined);
+  const resolvedPath = resolveRepoScopedPath(repoRoot, args.path);
+  if (!resolvedPath) {
+    return { ok: false, command: requestedCommand, reason: 'path must stay within the repository root' };
+  }
+  if (isRepoRelativePathIgnored(resolvedPath.relativePath, ignorePolicy)) {
+    return { ok: false, command: requestedCommand, reason: 'path is ignored by runtime policy' };
+  }
+  if (!fs.existsSync(resolvedPath.absolutePath) || !fs.statSync(resolvedPath.absolutePath).isFile()) {
+    return { ok: false, command: requestedCommand, reason: 'path is not a readable file' };
+  }
+
+  const lines = fs.readFileSync(resolvedPath.absolutePath, 'utf8').replace(/\r\n/gu, '\n').split('\n');
+  const pathKey = normalizeRepoRelativePathForDisplay(resolvedPath.relativePath).toLowerCase();
+  const displayPath = normalizeRepoRelativePathForDisplay(resolvedPath.relativePath);
+  const totalEndLineExclusive = (lines.length || 0) + 1;
+  const clampedStart = Math.min(startLine, lines.length || 1);
+  const requestedEnd = endLineCandidate > 0 ? endLineCandidate : lines.length;
+  const requestedEndExclusive = Math.max(clampedStart + 1, Math.min(requestedEnd + 1, totalEndLineExclusive));
+  const state = fileReadStateByPath ? getOrCreateFileReadState(fileReadStateByPath, pathKey) : null;
+  const hasReturnedRanges = Boolean(state && state.mergedReturnedRanges.length > 0);
+  const unreadRange = findContiguousUnreadRange({
+    requestedStart: clampedStart,
+    totalEnd: hasReturnedRanges ? totalEndLineExclusive : requestedEndExclusive,
+    returnedRanges: state?.mergedReturnedRanges || [],
+  });
+
+  return {
+    requestedCommand,
+    commandPath,
+    requestedStartLine: clampedStart,
+    requestedEndLine: requestedEndExclusive - 1,
+    effectiveStartLine: unreadRange.start,
+    effectiveEndLineExclusive: unreadRange.end,
+    totalEndLineExclusive,
+    pathKey,
+    displayPath,
+    lines,
+    hasUnread: unreadRange.hasUnread,
+    noUnreadOutput: unreadRange.hasUnread ? null : `No unread lines remain for ${displayPath}.`,
+  };
+}
+
+function buildRepoReadFileExecution(
+  toolName: string,
+  plan: RepoReadFilePlan,
+  noteText: string | null,
+): NativeRepoToolExecution {
+  if (!plan.hasUnread) {
+    const output = [noteText, plan.noUnreadOutput || ''].filter((part) => String(part || '').trim()).join('\n').trim();
+    return {
+      ok: true,
+      requestedCommand: plan.requestedCommand,
+      command: plan.requestedCommand,
+      exitCode: 0,
+      output,
+      toolType: toolName,
+      outputUnit: 'lines',
+      readFile: {
+        commandPath: plan.commandPath,
+        pathKey: plan.pathKey,
+        displayPath: plan.displayPath,
+        startLine: plan.effectiveStartLine,
+        endLineExclusive: plan.effectiveStartLine,
+        totalEndLineExclusive: plan.totalEndLineExclusive,
+      },
+      lineReadStats: {
+        lineReadCalls: 0,
+        lineReadLinesTotal: 0,
+        lineReadTokensTotal: 0,
+      },
+    };
+  }
+
+  const selectedLines = plan.lines.slice(plan.effectiveStartLine - 1, plan.effectiveEndLineExclusive - 1);
+  const output = [noteText, formatNumberedTextBlock(selectedLines, plan.effectiveStartLine)]
+    .filter((part) => String(part || '').trim())
+    .join('\n')
+    .trim();
+  const executedCommand = buildRepoReadFileCommand(plan.commandPath, plan.effectiveStartLine, plan.effectiveEndLineExclusive - 1);
+  return {
+    ok: true,
+    requestedCommand: plan.requestedCommand,
+    command: executedCommand,
+    exitCode: 0,
+    output,
+    toolType: toolName,
+    outputUnit: 'lines',
+    readFile: {
+      commandPath: plan.commandPath,
+      pathKey: plan.pathKey,
+      displayPath: plan.displayPath,
+      startLine: plan.effectiveStartLine,
+      endLineExclusive: plan.effectiveEndLineExclusive,
+      totalEndLineExclusive: plan.totalEndLineExclusive,
+    },
+    lineReadStats: {
+      lineReadCalls: 1,
+      lineReadLinesTotal: selectedLines.length,
+      lineReadTokensTotal: Math.max(1, estimateTokenCount(undefined, selectedLines.join('\n'))),
+    },
+  };
+}
+
 function listRepoFilesRecursive(
   currentAbsolutePath: string,
   currentRelativePath: string,
@@ -329,83 +533,17 @@ function executeNativeRepoTool(
   fileReadStateByPath?: Map<string, FileReadState>,
 ): NativeRepoToolExecution {
   if (toolName === 'repo_read_file') {
-    const resolvedPath = resolveRepoScopedPath(repoRoot, args.path);
-    const startLine = Math.max(1, Math.trunc(Number(args.startLine) || 1));
-    const endLineCandidate = Math.trunc(Number(args.endLine) || 0);
-    const command = `repo_read_file path=${JSON.stringify(String(args.path || ''))} startLine=${startLine}${endLineCandidate > 0 ? ` endLine=${endLineCandidate}` : ''}`;
-    if (!resolvedPath) {
-      return { ok: false, command, reason: 'path must stay within the repository root', toolType: toolName };
+    const plan = planRepoReadFile(args, repoRoot, ignorePolicy, fileReadStateByPath);
+    if (isFailedRepoReadFilePlan(plan)) {
+      return { ok: false, command: plan.command, reason: plan.reason, toolType: toolName };
     }
-    if (isRepoRelativePathIgnored(resolvedPath.relativePath, ignorePolicy)) {
-      return { ok: false, command, reason: 'path is ignored by runtime policy', toolType: toolName };
-    }
-    if (!fs.existsSync(resolvedPath.absolutePath) || !fs.statSync(resolvedPath.absolutePath).isFile()) {
-      return { ok: false, command, reason: 'path is not a readable file', toolType: toolName };
-    }
-    const lines = fs.readFileSync(resolvedPath.absolutePath, 'utf8').replace(/\r\n/gu, '\n').split('\n');
-    const pathKey = normalizeRepoRelativePathForDisplay(resolvedPath.relativePath).toLowerCase();
-    const totalEndLineExclusive = (lines.length || 0) + 1;
-    const clampedStart = Math.min(startLine, lines.length || 1);
-    const requestedEnd = endLineCandidate > 0 ? endLineCandidate : lines.length;
-    const requestedEndExclusive = Math.max(clampedStart + 1, Math.min(requestedEnd + 1, totalEndLineExclusive));
-    const state = fileReadStateByPath ? getOrCreateFileReadState(fileReadStateByPath, pathKey) : null;
-    const hasReturnedRanges = Boolean(state && state.mergedReturnedRanges.length > 0);
-    const unreadRange = findContiguousUnreadRange({
-      requestedStart: clampedStart,
-      totalEnd: hasReturnedRanges ? totalEndLineExclusive : requestedEndExclusive,
-      returnedRanges: state?.mergedReturnedRanges || [],
-    });
-    if (!unreadRange.hasUnread) {
-      return {
-        ok: true,
-        command,
-        exitCode: 0,
-        output: `No unread lines remain for ${normalizeRepoRelativePathForDisplay(resolvedPath.relativePath)}.`,
-        toolType: toolName,
-        outputUnit: 'lines',
-        readFile: {
-          pathKey,
-          displayPath: normalizeRepoRelativePathForDisplay(resolvedPath.relativePath),
-          startLine: unreadRange.start,
-          endLineExclusive: unreadRange.end,
-          totalEndLineExclusive,
-        },
-        lineReadStats: {
-          lineReadCalls: 0,
-          lineReadLinesTotal: 0,
-          lineReadTokensTotal: 0,
-        },
-      };
-    }
-    const clampedEndExclusive = unreadRange.end;
-    const selectedLines = lines.slice(unreadRange.start - 1, clampedEndExclusive - 1);
-    const executedCommand = `repo_read_file path=${JSON.stringify(String(args.path || ''))} startLine=${unreadRange.start} endLine=${clampedEndExclusive - 1}`;
-    return {
-      ok: true,
-      command: executedCommand,
-      exitCode: 0,
-      output: formatNumberedTextBlock(selectedLines, unreadRange.start),
-      toolType: toolName,
-      outputUnit: 'lines',
-      readFile: {
-        pathKey,
-        displayPath: normalizeRepoRelativePathForDisplay(resolvedPath.relativePath),
-        startLine: unreadRange.start,
-        endLineExclusive: clampedEndExclusive,
-        totalEndLineExclusive,
-      },
-      lineReadStats: {
-        lineReadCalls: 1,
-        lineReadLinesTotal: selectedLines.length,
-        lineReadTokensTotal: Math.max(1, estimateTokenCount(undefined, selectedLines.join('\n'))),
-      },
-    };
+    return buildRepoReadFileExecution(toolName, plan, null);
   }
 
   const pathText = typeof args.path === 'string' && args.path.trim() ? args.path.trim() : '.';
   const recurse = args.recurse === undefined ? true : args.recurse === true;
   const globText = typeof args.glob === 'string' ? args.glob.trim() : '';
-  const command = `repo_list_files path=${JSON.stringify(pathText)}${globText ? ` glob=${JSON.stringify(globText)}` : ''} recurse=${recurse}`;
+  const command = buildRepoListFilesCommand(args);
   const resolvedPath = resolveRepoScopedPath(repoRoot, pathText);
   if (!resolvedPath) {
     return { ok: false, command, reason: 'path must stay within the repository root', toolType: toolName };
@@ -429,6 +567,7 @@ function executeNativeRepoTool(
     : matches;
   return {
     ok: true,
+    requestedCommand: command,
     command,
     exitCode: 0,
     output: filteredMatches.join('\n'),
@@ -603,7 +742,6 @@ type RunTaskLoopOptions = {
   mockResponses?: string[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
   abortSignal?: AbortSignal;
-  promptTimeoutMs?: number;
   logger?: JsonLogger | null;
   onProgress?: ((event: RepoSearchProgressEvent) => void) | null;
   timingRecorder?: TemporaryTimingRecorder | null;
@@ -721,10 +859,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const historicalToolStats = readLatestIdleSummaryToolStats();
   const recentEvidenceKeys = new Set<string>();
   const successfulToolCalls: Array<{ toolName: string; promptResultText: string }> = [];
-  const promptBudgetMs = Number.isFinite(Number(options.promptTimeoutMs)) && Number(options.promptTimeoutMs) > 0
-    ? Math.trunc(Number(options.promptTimeoutMs))
-    : 0;
-  let firstToolCallStartedAtMs: number | null = null;
   let lastSuccessfulNormalizedKey: string | null = null;
   let lastSuccessfulFingerprint: string | null = null;
   let duplicateReplayFingerprint: string | null = null;
@@ -1135,12 +1269,10 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         if (invalidResponses >= maxInvalidResponses) { reason = 'invalid_response_limit'; break; }
         continue;
       }
-      const nativeExecution = isNativeTool
-        ? executeNativeRepoTool(normalizedToolName, toolAction.args, options.repoRoot, ignorePolicy, fileReadStateByPath)
-        : null;
+      let nativeExecution: NativeRepoToolExecution | null = null;
       const command = isCommandTool
         ? (typeof toolAction.args.command === 'string' ? toolAction.args.command : '')
-        : nativeExecution?.command || '';
+        : buildNativeRepoToolRequestedCommand(normalizedToolName, toolAction.args);
       if (isCommandTool && !command.trim()) {
         invalidResponses += 1;
         const invalidCommandMessage = `Invalid action: ${normalizedToolName} requires args.command.`;
@@ -1189,42 +1321,16 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         commandFailures += 1;
         commands.push({ command, safe: false, reason: forcedReason, exitCode: null, output: `Rejected command: ${forcedReason}` });
         batchOutcomes.push({
-          action: { tool_name: normalizedToolName, args: toolAction.args },
+          action: buildEffectiveTranscriptAction({
+            toolName: normalizedToolName,
+            rawArgs: toolAction.args,
+            isNativeTool,
+            commandToRun: command,
+          }),
           toolCallId: `forced_finish_call_${commands.length}`,
           toolContent: `Rejected command: ${forcedReason}`,
         });
         pendingForcedFinishCountdownText = `Forced finish attempts remaining: ${forcedFinishAttemptsRemaining}. Return a finish action now.`;
-        if (forcedFinishAttemptsRemaining === 0) { reason = 'forced_finish_attempt_limit'; break; }
-        continue;
-      }
-
-      if (
-        promptBudgetMs > 0
-        && firstToolCallStartedAtMs !== null
-        && Date.now() - firstToolCallStartedAtMs >= promptBudgetMs
-      ) {
-        forcedFinishAttemptsRemaining = forcedFinishAttemptsRemaining > 0
-          ? Math.max(forcedFinishAttemptsRemaining - 1, 0)
-          : Math.max(FORCED_FINISH_MAX_ATTEMPTS - 1, 0);
-        const forcedReason = `Repo search prompt budget expired after ${promptBudgetMs} ms. Return a finish action now. Attempts remaining: ${forcedFinishAttemptsRemaining}.`;
-        commandFailures += 1;
-        commands.push({ command, safe: false, reason: forcedReason, exitCode: null, output: `Rejected command: ${forcedReason}` });
-        batchOutcomes.push({
-          action: { tool_name: normalizedToolName, args: toolAction.args },
-          toolCallId: `prompt_budget_expired_call_${commands.length}`,
-          toolContent: `Rejected command: ${forcedReason}`,
-        });
-        pendingForcedFinishCountdownText = `Prompt budget expired. Forced finish attempts remaining: ${forcedFinishAttemptsRemaining}. Return a finish action now.`;
-        pendingModeChangeUserMessages.push('Prompt budget expired. Return {"action":"finish",...} now. Tool calls are blocked.');
-        options.logger?.write({
-          kind: 'turn_forced_finish_mode_started',
-          taskId: task.id,
-          turn,
-          attemptsRemaining: forcedFinishAttemptsRemaining,
-          trigger: 'prompt_budget_expired',
-          promptBudgetMs,
-          elapsedMs: Date.now() - firstToolCallStartedAtMs,
-        });
         if (forcedFinishAttemptsRemaining === 0) { reason = 'forced_finish_attempt_limit'; break; }
         continue;
       }
@@ -1273,7 +1379,12 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       } else {
         const duplicateToolCallId = `duplicate_call_${commands.length}`;
         batchOutcomes.push({
-          action: { tool_name: normalizedToolName, args: toolAction.args },
+          action: buildEffectiveTranscriptAction({
+            toolName: normalizedToolName,
+            rawArgs: toolAction.args,
+            isNativeTool,
+            commandToRun: command,
+          }),
           toolCallId: duplicateToolCallId,
           toolContent: duplicateMessage,
         });
@@ -1311,12 +1422,27 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       }
       continue;
     }
+    if (isNativeTool) {
+      if (normalizedToolName === 'repo_read_file') {
+        const nativeReadPlan = planRepoReadFile(toolAction.args, options.repoRoot, ignorePolicy, fileReadStateByPath);
+        nativeExecution = isFailedRepoReadFilePlan(nativeReadPlan)
+          ? { ok: false, command: nativeReadPlan.command, reason: nativeReadPlan.reason, toolType: normalizedToolName }
+          : buildRepoReadFileExecution(normalizedToolName, nativeReadPlan, null);
+      } else {
+        nativeExecution = executeNativeRepoTool(normalizedToolName, toolAction.args, options.repoRoot, ignorePolicy, fileReadStateByPath);
+      }
+    }
     if (isNativeTool && nativeExecution && !nativeExecution.ok) {
       safetyRejects += 1;
       const rejection = `Rejected command: ${nativeExecution.reason}`;
       commands.push({ command, safe: false, reason: nativeExecution.reason, exitCode: null, output: rejection });
       batchOutcomes.push({
-        action: { tool_name: normalizedToolName, args: toolAction.args },
+        action: buildEffectiveTranscriptAction({
+          toolName: normalizedToolName,
+          rawArgs: toolAction.args,
+          isNativeTool,
+          commandToRun: nativeExecution.command,
+        }),
         toolCallId: `rejected_call_${commands.length}`,
         toolContent: rejection,
       });
@@ -1327,15 +1453,22 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       const rejection = `Rejected command: ${normalized.rejectedReason}`;
       commands.push({ command, safe: false, reason: normalized.rejectedReason || null, exitCode: null, output: rejection });
       batchOutcomes.push({
-        action: { tool_name: normalizedToolName, args: toolAction.args },
+        action: buildEffectiveTranscriptAction({
+          toolName: normalizedToolName,
+          rawArgs: toolAction.args,
+          isNativeTool,
+          commandToRun: command,
+        }),
         toolCallId: `rejected_call_${commands.length}`,
         toolContent: rejection,
       });
       continue;
     }
 
-    const requestedCommand = command;
-    const normalizedCommand = isNativeTool ? command : normalized.command;
+    const requestedCommand = isNativeTool && nativeExecution?.ok
+      ? nativeExecution.requestedCommand || command
+      : command;
+    const normalizedCommand = isNativeTool && nativeExecution?.ok ? nativeExecution.command : isNativeTool ? command : normalized.command;
     const preExecutionDynamicPerToolRatio = Math.max(PER_TOOL_RESULT_RATIO, Number(commands.length) / Number(maxTurns));
     const preExecutionPerToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * preExecutionDynamicPerToolRatio));
     const parsedReadWindow = isNativeTool ? null : parseGetContentReadWindowCommand(normalizedCommand);
@@ -1392,11 +1525,16 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       safetyRejects += 1;
       const rejection = `Rejected command: ${safety.reason}`;
       commands.push({ command: commandToRun, safe: false, reason: safety.reason, exitCode: null, output: rejection });
+      const rejectedModelVisibleCommand = isNativeTool || lineReadAdjustment || !normalized.rewritten
+        ? commandToRun
+        : requestedCommand;
       batchOutcomes.push({
-        action: {
-          tool_name: normalizedToolName,
-          args: isNativeTool ? toolAction.args : { command: commandToRun },
-        },
+        action: buildEffectiveTranscriptAction({
+          toolName: normalizedToolName,
+          rawArgs: toolAction.args,
+          isNativeTool,
+          commandToRun: rejectedModelVisibleCommand,
+        }),
         toolCallId: `rejected_call_${commands.length}`,
         toolContent: rejection,
       });
@@ -1404,10 +1542,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
 
     const promptTokenCount = preflight.promptTokenCount;
-
-    if (firstToolCallStartedAtMs === null) {
-      firstToolCallStartedAtMs = Date.now();
-    }
 
     if (options.onProgress) {
       options.onProgress({ kind: 'tool_start', turn, maxTurns, command: requestedCommand, promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
@@ -1518,14 +1652,12 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     const rawResultText = suppressExitCode
       ? outputForPrompt
       : `exit_code=${executed.exitCode}\n${outputForPrompt}`.trim();
-    const modelVisibleCommand = isNativeTool
-      ? ''
-      : normalized.rewritten
-        ? requestedCommand
-        : commandToRun;
+    const promptVisibleCommand = isNativeTool || lineReadAdjustment || !normalized.rewritten
+      ? commandToRun
+      : requestedCommand;
     let resultText = buildPromptToolResult({
       toolName: normalizedToolName,
-      command: isNativeTool ? commandToRun : modelVisibleCommand,
+      command: isNativeTool ? commandToRun : promptVisibleCommand,
       exitCode: executed.exitCode,
       rawOutput: rawResultText,
     });
@@ -1542,7 +1674,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       ? estimateTokenCount(options.config, rawResultText)
       : await countTokensWithFallback(options.config, rawResultText);
     rawToolTokenSpan?.end({ tokenCount: rawResultTokenCount });
-    const lineReadStats = isNativeTool && nativeExecution && nativeExecution.ok && nativeExecution.lineReadStats
+    let lineReadStats = isNativeTool && nativeExecution && nativeExecution.ok && nativeExecution.lineReadStats
       ? nativeExecution.lineReadStats
       : getRepoSearchLineReadStats(commandToRun, baseOutput, rawResultTokenCount);
     const dynamicPerToolRatio = Math.max(PER_TOOL_RESULT_RATIO, Number(commands.length) / Number(maxTurns));
@@ -1564,10 +1696,14 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
 
     let resultTokenCount = candidateResultTokenCount;
     let resultTokenCountEstimated = useEstimatedTokensOnly;
+    let fittedReturnedSegmentCount: number | null = null;
 
     if (candidateResultTokenCount > perToolCapTokens || candidateResultTokenCount > remainingTokenAllowance) {
       const commandSucceededForFitting = Number(executed.exitCode) === 0 || searchExit.noMatch;
       if (commandSucceededForFitting) {
+        const resultLinesForFitting = resultText.split(/\r?\n/u).filter((line) => line.length > 0);
+        const fitHeaderText = undefined;
+        const fitSegments = resultLinesForFitting;
         const fitter = new ToolOutputFitter({
           async countToolOutputTokens(text: string): Promise<number> {
             return useEstimatedTokensOnly
@@ -1576,13 +1712,15 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
           },
         });
         const fitResult = await fitter.fitSegments({
-          segments: resultText.split(/\r?\n/u).filter((line) => line.length > 0),
+          headerText: fitHeaderText,
+          segments: fitSegments,
           separator: '\n',
           maxTokens: Math.min(perToolCapTokens, Math.max(1, remainingTokenAllowance)),
           unit: nativeExecution && nativeExecution.ok && nativeExecution.outputUnit
             ? nativeExecution.outputUnit
             : 'lines',
         });
+        fittedReturnedSegmentCount = fitResult.returnedLineCount;
         resultText = fitResult.visibleText;
         const fitTokenSpan = options.timingRecorder?.start('repo.tool.tokenize_fit', {
           taskId: task.id,
@@ -1619,12 +1757,23 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       const fileReadState = getOrCreateFileReadState(fileReadStateByPath, nativeExecution.readFile.pathKey);
       const returnedLineCount = Math.min(
         nativeExecution.lineReadStats.lineReadLinesTotal,
-        resultText.split(/\r?\n/u).filter((line) => /^\d+:/u.test(line)).length,
+        fittedReturnedSegmentCount ?? resultText.split(/\r?\n/u).filter((line) => /^\d+:/u.test(line)).length,
       );
       if (returnedLineCount > 0) {
+        const returnedEndLineExclusive = nativeExecution.readFile.startLine + returnedLineCount;
+        commandToRun = buildRepoReadFileCommand(
+          nativeExecution.readFile.commandPath,
+          nativeExecution.readFile.startLine,
+          returnedEndLineExclusive - 1,
+        );
+        lineReadStats = {
+          lineReadCalls: 1,
+          lineReadLinesTotal: returnedLineCount,
+          lineReadTokensTotal: Math.max(1, estimateTokenCount(options.config, resultText)),
+        };
         fileReadState.mergedReturnedRanges = mergeRange(fileReadState.mergedReturnedRanges, {
           start: nativeExecution.readFile.startLine,
-          end: nativeExecution.readFile.startLine + returnedLineCount,
+          end: returnedEndLineExclusive,
         });
       }
     }
@@ -1632,8 +1781,16 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       const fileReadState = getOrCreateFileReadState(fileReadStateByPath, parsedReadWindow.pathKey);
       const returnedLineCount = Math.min(
         Math.max(0, executedReadWindow.requestedEnd - executedReadWindow.requestedStart),
-        resultText.split(/\r?\n/u).filter((line) => /^\d+:/u.test(line)).length,
+        fittedReturnedSegmentCount ?? Math.max(0, executedReadWindow.requestedEnd - executedReadWindow.requestedStart),
       );
+      const executedLineCount = Math.max(0, executedReadWindow.requestedEnd - executedReadWindow.requestedStart);
+      if (fittedReturnedSegmentCount !== null && returnedLineCount < executedLineCount) {
+        const adjustedNewLinesCovered = Math.min(lineReadNewLinesCovered, returnedLineCount);
+        fileReadState.totalLinesRead += returnedLineCount - executedLineCount;
+        fileReadState.uniqueLinesRead += adjustedNewLinesCovered - lineReadNewLinesCovered;
+        lineReadNewLinesCovered = adjustedNewLinesCovered;
+        lineReadCumulativeUniqueLines = fileReadState.uniqueLinesRead;
+      }
       if (returnedLineCount > 0) {
         fileReadState.mergedReturnedRanges = mergeRange(fileReadState.mergedReturnedRanges, {
           start: executedReadWindow.requestedStart,
@@ -1675,6 +1832,11 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       successfulToolCalls.push({ toolName: toolType, promptResultText: resultText });
     }
 
+    const modelVisibleCommand = isNativeTool || lineReadAdjustment || !normalized.rewritten
+      ? commandToRun
+      : requestedCommand;
+    const commandOutputText = isNativeTool && nativeExecution?.ok ? resultText : outputWithRewriteNote;
+
     options.logger?.write({
       kind: 'turn_command_result', taskId: task.id, turn, command: commandToRun,
       requestedCommand,
@@ -1691,12 +1853,12 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       lineReadOverlapLines: executedReadWindow ? lineReadOverlapLines : undefined,
       lineReadNewLinesCovered: executedReadWindow ? lineReadNewLinesCovered : undefined,
       lineReadCumulativeUniqueLines: executedReadWindow ? lineReadCumulativeUniqueLines : undefined,
-      exitCode: executed.exitCode, output: outputWithRewriteNote,
+      exitCode: executed.exitCode, output: commandOutputText,
       promptTokenCount, resultTokenCount, perToolCapTokens, remainingTokenAllowance,
       insertedResultText: resultText,
     });
 
-    commands.push({ command: commandToRun, safe: true, reason: null, exitCode: executed.exitCode, output: outputWithRewriteNote });
+    commands.push({ command: commandToRun, safe: true, reason: null, exitCode: executed.exitCode, output: commandOutputText });
     const commandSucceeded = Number(executed.exitCode) === 0 || searchExit.noMatch;
     if (commandSucceeded) {
       duplicateReplayFingerprint = null;
@@ -1707,10 +1869,12 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
     const toolCallId = `call_${commands.length}`;
     batchOutcomes.push({
-      action: {
-        tool_name: normalizedToolName,
-        args: isNativeTool ? toolAction.args : { command: modelVisibleCommand },
-      },
+      action: buildEffectiveTranscriptAction({
+        toolName: normalizedToolName,
+        rawArgs: toolAction.args,
+        isNativeTool,
+        commandToRun: modelVisibleCommand,
+      }),
       toolCallId,
       toolContent: resultText,
     });
@@ -1941,7 +2105,6 @@ export async function runRepoSearch(options: {
   mockResponses?: string[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
   abortSignal?: AbortSignal;
-  promptTimeoutMs?: number;
   logger?: JsonLogger | null;
   onProgress?: ((event: RepoSearchProgressEvent) => void) | null;
   timingRecorder?: TemporaryTimingRecorder | null;
@@ -1997,7 +2160,6 @@ export async function runRepoSearch(options: {
       mockResponses: options.mockResponses,
       mockCommandResults: options.mockCommandResults,
       abortSignal: options.abortSignal,
-      promptTimeoutMs: options.promptTimeoutMs,
       logger: options.logger || null,
       onProgress: options.onProgress || null,
       timingRecorder: options.timingRecorder || null,

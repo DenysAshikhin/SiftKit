@@ -29,16 +29,14 @@ function getRequiredList(value: unknown): string[] {
   return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
 }
 
-function getToolArgSchema(tool: StructuredOutputToolDefinition): JsonSchemaObject {
+function getToolArgProperties(tool: StructuredOutputToolDefinition): Record<string, unknown> {
   const parameters = getObjectRecord(tool.function.parameters);
-  const properties = getObjectRecord(parameters.properties);
-  const required = getRequiredList(parameters.required);
-  return {
-    type: 'object',
-    properties,
-    required,
-    additionalProperties: false,
-  };
+  return getObjectRecord(parameters.properties);
+}
+
+function getToolArgRequired(tool: StructuredOutputToolDefinition): string[] {
+  const parameters = getObjectRecord(tool.function.parameters);
+  return getRequiredList(parameters.required);
 }
 
 function buildOneOf(values: JsonSchema[]): JsonSchema {
@@ -52,11 +50,10 @@ function buildPlannerToolActionSchema(tool: StructuredOutputToolDefinition): Jso
   return {
     type: 'object',
     properties: {
-      action: { const: 'tool' },
-      tool_name: { const: tool.function.name },
-      args: getToolArgSchema(tool),
+      action: { const: tool.function.name },
+      ...getToolArgProperties(tool),
     },
-    required: ['action', 'tool_name', 'args'],
+    required: ['action', ...getToolArgRequired(tool)],
     additionalProperties: false,
   };
 }
@@ -65,10 +62,10 @@ function buildPlannerToolBatchItemSchema(tool: StructuredOutputToolDefinition): 
   return {
     type: 'object',
     properties: {
-      tool_name: { const: tool.function.name },
-      args: getToolArgSchema(tool),
+      action: { const: tool.function.name },
+      ...getToolArgProperties(tool),
     },
-    required: ['tool_name', 'args'],
+    required: ['action', ...getToolArgRequired(tool)],
     additionalProperties: false,
   };
 }
@@ -78,13 +75,13 @@ function buildPlannerToolBatchActionSchema(toolDefinitions: StructuredOutputTool
     type: 'object',
     properties: {
       action: { const: 'tool_batch' },
-      tool_calls: {
+      calls: {
         type: 'array',
         minItems: 1,
         items: buildOneOf(toolDefinitions.map((tool) => buildPlannerToolBatchItemSchema(tool))),
       },
     },
-    required: ['action', 'tool_calls'],
+    required: ['action', 'calls'],
     additionalProperties: false,
   };
 }

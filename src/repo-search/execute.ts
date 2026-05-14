@@ -24,8 +24,6 @@ import type {
   RepoSearchProgressEvent,
 } from './types.js';
 
-export const DEFAULT_REPO_SEARCH_PROMPT_TIMEOUT_MS = 3 * 60 * 1000;
-
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -167,9 +165,6 @@ export async function executeRepoSearchRequest(
   }
 
   const startedAt = Date.now();
-  const promptTimeoutMs = Number.isFinite(Number(request.promptTimeoutMs)) && Number(request.promptTimeoutMs) > 0
-    ? Math.trunc(Number(request.promptTimeoutMs))
-    : DEFAULT_REPO_SEARCH_PROMPT_TIMEOUT_MS;
   const repoRoot = path.resolve(String(request.repoRoot || process.cwd()));
   const requestId = randomUUID();
   const taskKind = request.taskKind === 'plan' ? 'plan' : 'repo-search';
@@ -186,7 +181,7 @@ export async function executeRepoSearchRequest(
   let timingStatus: 'completed' | 'failed' = 'failed';
   traceRepoSearch(`execute start request_id=${requestId} prompt_chars=${prompt.length}`);
   logRepoSearchProgress(
-    `start request_id=${requestId} task=${taskKind} prompt_chars=${prompt.length} timeout_ms=${promptTimeoutMs}`,
+    `start request_id=${requestId} task=${taskKind} prompt_chars=${prompt.length}`,
   );
   const notifyRunningStartedAt = Date.now();
   logRepoSearchProgress(`notify_running_start request_id=${requestId}`);
@@ -224,7 +219,6 @@ export async function executeRepoSearchRequest(
       availableModels: request.availableModels,
       mockResponses: request.mockResponses,
       mockCommandResults: request.mockCommandResults,
-      promptTimeoutMs,
       timingRecorder,
       onProgress: progressCallback
         ? (event: RepoSearchProgressEvent) => {

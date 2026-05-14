@@ -400,8 +400,8 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
         maxTurns: 2,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"dashboard\\" ."}}',
-          '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"/dashboard/chat/sessions\\" siftKitStatus/index.js"}}',
+          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"dashboard\\\" .\"}",
+          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"/dashboard/chat/sessions\\\" siftKitStatus/index.js\"}",
           '{"action":"finish","output":"Plan: update dashboard/src/App.tsx and siftKitStatus/index.js; include a risks section for endpoint lock contention and stale repo-root paths.","confidence":0.92}',
         ],
         mockCommandResults: {
@@ -644,7 +644,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"test\\" ."}}',
+          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"test\\\" .\"}",
           '{"action":"finish","output":"done","confidence":0.9}',
         ],
         mockCommandResults: {
@@ -680,7 +680,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"test\\" ."}}',
+          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"test\\\" .\"}",
           '{"action":"finish","output":"done","confidence":0.9}',
         ],
         mockCommandResults: {
@@ -758,7 +758,7 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"x\\" src"}}',
+          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"x\\\" src\"}",
           '{"action":"finish","output":"done","confidence":0.9}',
         ],
         mockCommandResults: {
@@ -832,7 +832,7 @@ test('model routes execute in FIFO order across mixed request kinds', async () =
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"x\\" src"}}',
+          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"x\\\" src\"}",
           '{"action":"finish","output":"done","confidence":0.9}',
         ],
         mockCommandResults: {
@@ -930,7 +930,7 @@ test('queued model request is dropped when client disconnects before lock grant'
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"x\\" src"}}',
+          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"x\\\" src\"}",
           '{"action":"finish","output":"done","confidence":0.9}',
         ],
         mockCommandResults: {
@@ -1019,7 +1019,7 @@ test('invalid model request is rejected without waiting for active model work', 
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"x\\" src"}}',
+          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"x\\\" src\"}",
           '{"action":"finish","output":"done","confidence":0.9}',
         ],
         mockCommandResults: {
@@ -1187,7 +1187,7 @@ test('chat completion receives hidden tool context while keeping it out of visib
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          '{"action":"tool","tool_name":"repo_rg","args":{"command":"rg -n \\"name\\" package.json"}}',
+          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"name\\\" package.json\"}",
           '{"action":"finish","output":"done","confidence":0.9}',
         ],
         mockCommandResults: {

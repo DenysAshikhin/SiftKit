@@ -22,7 +22,6 @@ type RepoSearchParserOptions = {
 
 const SUMMARY_CLASSIFICATIONS = new Set<string>(['summary', 'command_failure', 'unsupported_input']);
 const SUMMARY_PLANNER_TOOL_NAMES = new Set<string>(['find_text', 'read_lines', 'json_filter', 'json_get']);
-const LEGACY_REPO_SEARCH_TOOL_ALIAS = 'run_repo_cmd';
 
 export class ModelJson {
   static parseSummaryDecision(text: string): StructuredModelDecision {
@@ -128,29 +127,28 @@ export class ModelJson {
 
   private static validateSummaryPlannerAction(parsed: Record<string, unknown>): SummaryPlannerAction {
     const action = this.getAction(parsed);
-    if (action === 'tool') {
-      const toolName = this.getSummaryPlannerToolName(parsed.tool_name);
-      const args = this.getRecord(parsed.args);
-      if (!toolName || !args) {
-        throw new Error('Provider returned an invalid planner tool action.');
-      }
-      return { action: 'tool', tool_name: toolName, args };
+    const directToolName = this.getSummaryPlannerToolName(action);
+    if (directToolName) {
+      return {
+        action: 'tool',
+        tool_name: directToolName,
+        args: this.getDirectToolArgs(parsed),
+      };
     }
 
     if (action === 'tool_batch') {
-      if (!Array.isArray(parsed.tool_calls) || parsed.tool_calls.length === 0) {
+      if (!Array.isArray(parsed.calls) || parsed.calls.length === 0) {
         throw new Error('Provider returned an invalid planner tool batch action.');
       }
       return {
         action: 'tool_batch',
-        tool_calls: parsed.tool_calls.map((toolCall) => {
+        tool_calls: parsed.calls.map((toolCall) => {
           const toolRecord = this.getRecord(toolCall);
-          const toolName = this.getSummaryPlannerToolName(toolRecord?.tool_name);
-          const args = this.getRecord(toolRecord?.args);
-          if (!toolName || !args) {
+          const toolName = toolRecord ? this.getSummaryPlannerToolName(this.getAction(toolRecord)) : null;
+          if (!toolRecord || !toolName) {
             throw new Error('Provider returned an invalid planner tool batch action.');
           }
-          return { tool_name: toolName, args };
+          return { tool_name: toolName, args: this.getDirectToolArgs(toolRecord) };
         }),
       };
     }
@@ -177,8 +175,8 @@ export class ModelJson {
     allowedToolNames: Set<string>
   ): RepoSearchPlannerAction {
     const action = this.getAction(parsed);
-    if (action === 'tool') {
-      const toolAction = this.parseRepoSearchToolAction(parsed, allowedToolNames, 'tool');
+    if (allowedToolNames.has(action)) {
+      const toolAction = this.normalizeRepoSearchToolCall(action, this.getDirectToolArgs(parsed), allowedToolNames);
       if (!toolAction) {
         throw new Error('Provider returned an invalid planner tool action.');
       }
@@ -186,15 +184,18 @@ export class ModelJson {
     }
 
     if (action === 'tool_batch') {
-      if (!Array.isArray(parsed.tool_calls) || parsed.tool_calls.length === 0) {
+      if (!Array.isArray(parsed.calls) || parsed.calls.length === 0) {
         throw new Error('Provider returned an invalid planner tool batch action.');
       }
-      const toolCalls = parsed.tool_calls.map((toolCall) => {
+      const toolCalls = parsed.calls.map((toolCall) => {
         const toolRecord = this.getRecord(toolCall);
         if (!toolRecord) {
           throw new Error('Provider returned an invalid planner tool batch action.');
         }
-        const toolAction = this.parseRepoSearchToolAction(toolRecord, allowedToolNames, 'tool_batch');
+        const toolName = this.getAction(toolRecord);
+        const toolAction = allowedToolNames.has(toolName)
+          ? this.normalizeRepoSearchToolCall(toolName, this.getDirectToolArgs(toolRecord), allowedToolNames)
+          : null;
         if (!toolAction) {
           throw new Error('Provider returned an invalid planner tool batch action.');
         }
@@ -220,40 +221,12 @@ export class ModelJson {
     throw new Error('Provider returned an unknown planner action.');
   }
 
-  private static parseRepoSearchToolAction(
-    parsed: Record<string, unknown>,
-    allowedToolNames: Set<string>,
-    source: 'tool' | 'tool_batch'
-  ): RepoSearchToolAction | null {
-    const rawToolName = this.getRepoSearchToolName(parsed);
-    const args = this.getRecord(parsed.args);
-    if (!rawToolName || !args) {
-      return null;
-    }
-    const normalizedToolCall = this.normalizeRepoSearchToolCall(rawToolName, args, allowedToolNames);
-    if (!normalizedToolCall && source === 'tool') {
-      return null;
-    }
-    return normalizedToolCall;
-  }
-
   private static normalizeRepoSearchToolCall(
     rawToolName: string,
     rawArgs: Record<string, unknown>,
     allowedToolNames: Set<string>
   ): RepoSearchToolAction | null {
-    let toolName = rawToolName;
-    if (toolName === LEGACY_REPO_SEARCH_TOOL_ALIAS) {
-      const command = this.getCommandArgValue(rawArgs);
-      if (!command) {
-        return null;
-      }
-      const inferredToolName = this.getRepoSearchToolNameForCommand(command);
-      if (!inferredToolName) {
-        return null;
-      }
-      toolName = inferredToolName;
-    }
+    const toolName = rawToolName;
 
     if (!allowedToolNames.has(toolName)) {
       return null;
@@ -331,10 +304,14 @@ export class ModelJson {
       : null;
   }
 
-  private static getRepoSearchToolName(parsed: Record<string, unknown>): string {
-    return String(
-      parsed.tool_name ?? parsed.toolName ?? parsed.tool ?? parsed.name ?? '',
-    ).trim().toLowerCase();
+  private static getDirectToolArgs(parsed: Record<string, unknown>): Record<string, unknown> {
+    const args: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (key !== 'action') {
+        args[key] = value;
+      }
+    }
+    return args;
   }
 
   private static getAllowedToolNames(options: RepoSearchParserOptions): Set<string> {
@@ -352,11 +329,6 @@ export class ModelJson {
     return commandValue.trim();
   }
 
-  private static getRepoSearchToolNameForCommand(command: string): string | null {
-    const commandToken = getFirstCommandToken(String(command || '').trim());
-    return commandToken ? this.commandTokenToToolName(commandToken) : null;
-  }
-
   private static getRepoSearchCommandTokenForToolName(toolName: string): string | null {
     const prefix = 'repo_';
     return toolName.startsWith(prefix)
@@ -366,9 +338,5 @@ export class ModelJson {
 
   private static isRepoSearchCommandToolName(toolName: string): boolean {
     return toolName.startsWith('repo_') && toolName !== 'repo_read_file' && toolName !== 'repo_list_files';
-  }
-
-  private static commandTokenToToolName(commandToken: string): string {
-    return `repo_${String(commandToken || '').trim().toLowerCase().replace(/[^a-z0-9]+/gu, '_')}`;
   }
 }

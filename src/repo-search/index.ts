@@ -1,7 +1,6 @@
 // Repo-search module public API barrel.
 
 export {
-  DEFAULT_REPO_SEARCH_PROMPT_TIMEOUT_MS,
   executeRepoSearchRequest,
 } from './execute.js';
 export {

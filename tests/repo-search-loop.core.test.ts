@@ -96,7 +96,7 @@ function parseRepoSearchPlannerAction(text: string) {
 }
 
 test('ModelJson parses valid repo-search tool action', () => {
-  const action = parseRepoSearchPlannerAction('{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg planner src"}}');
+  const action = parseRepoSearchPlannerAction("{\"action\":\"repo_rg\",\"command\":\"rg planner src\"}");
   assert.deepEqual(action, {
     action: 'tool',
     tool_name: 'repo_rg',
@@ -116,17 +116,17 @@ test('ModelJson parses valid repo-search finish action', () => {
 test('ModelJson rejects invalid repo-search planner payloads', () => {
   assert.throws(() => parseRepoSearchPlannerAction('not-json'), /invalid planner payload/u);
   assert.throws(
-    () => parseRepoSearchPlannerAction('{"action":"tool","tool_name":"read_lines","args":{"command":"rg x"}}'),
-    /invalid planner tool action/u
+    () => parseRepoSearchPlannerAction("{\"action\":\"read_lines\",\"command\":\"rg x\"}"),
+    /unknown planner action/u
   );
   assert.throws(
     () => parseRepoSearchPlannerAction('{"action":"tool","tool_name":"run_repo_cmd","args":{"bad":"x"}}'),
-    /invalid planner tool action/u
+    /unknown planner action/u
   );
 });
 
 test('ModelJson repairs malformed escaped command payloads', () => {
-  const malformed = '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"D:\\\\\\\\|C:\\\\\\\\|\\\\\\\\\\\\\\\\" src --type ts | Select-Object -First 30"}}';
+  const malformed = '{"action":"repo_rg","command":"rg -n \\"D:\\\\\\\\|C:\\\\\\\\|\\\\\\\\\\\\\\\\" src --type ts | Select-Object -First 30"';
   const action = parseRepoSearchPlannerAction(malformed);
   assert.deepEqual(action, {
     action: 'tool',
@@ -341,7 +341,7 @@ test('runTaskLoop rewrites unsupported rg --type tsx and annotates output', asyn
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"foo\\" --type tsx src"}}',
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"foo\\\" --type tsx src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -389,7 +389,7 @@ test('runTaskLoop rewrites mixed rg --type ts and --type tsx flags', async () =>
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"foo\\" --type ts --type tsx src"}}',
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"foo\\\" --type ts --type tsx src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -436,7 +436,7 @@ test('runTaskLoop executes simple rg directly and preserves mixed quote regex', 
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"from [\'\\\\\\"]\\\\.\\\\./\\" src"}}',
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"from ['\\\\\\\"]\\\\.\\\\./\\\" src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -464,7 +464,7 @@ test('runTaskLoop rewrites rg --include and annotates output', async () => {
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"from \\" src --include \\"*.ts\\""}}',
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"from \\\" src --include \\\"*.ts\\\"\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -501,7 +501,7 @@ test('runTaskLoop counts rg syntax failures and gives planner guidance', async (
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"from \\" src --bad-rg-flag"}}',
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"from \\\" src --bad-rg-flag\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -528,7 +528,7 @@ test('runTaskLoop reports prompt tokens and elapsed time on command progress eve
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -605,7 +605,7 @@ test('runTaskLoop reuses preflight prompt token count for tool progress and allo
           message: {
             role: 'assistant',
             content: chatRequestCount === 1
-              ? '{"action":"tool","tool_name":"repo_git","args":{"command":"git status --short"}}'
+              ? "{\"action\":\"repo_git\",\"command\":\"git status --short\"}"
               : '{"action":"finish","output":"done"}',
           },
         }],
@@ -681,8 +681,8 @@ test('runTaskLoop executes repo_list_files and repo_read_file natively', async (
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockResponses: [
-          '{"action":"tool","tool_name":"repo_list_files","args":{"path":"src","glob":"*.ts","recurse":true}}',
-          '{"action":"tool","tool_name":"repo_read_file","args":{"path":"src/sample.ts","startLine":2,"endLine":3}}',
+          "{\"action\":\"repo_list_files\",\"path\":\"src\",\"glob\":\"*.ts\",\"recurse\":true}",
+          "{\"action\":\"repo_read_file\",\"path\":\"src/sample.ts\",\"startLine\":2,\"endLine\":3}",
           '{"action":"finish","output":"done"}',
           '{"verdict":"pass","reason":"supported"}',
         ],
@@ -730,7 +730,7 @@ test('runTaskLoop executes repo_list_files at repository root natively', async (
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockResponses: [
-          '{"action":"tool","tool_name":"repo_list_files","args":{"path":".","recurse":false}}',
+          "{\"action\":\"repo_list_files\",\"path\":\".\",\"recurse\":false}",
           '{"action":"finish","output":"done"}',
           '{"verdict":"pass","reason":"supported"}',
         ],
@@ -776,7 +776,7 @@ test('runTaskLoop executes repo_list_files with runner-* glob natively', async (
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockResponses: [
-          '{"action":"tool","tool_name":"repo_list_files","args":{"path":"logs","glob":"runner-*","recurse":true}}',
+          "{\"action\":\"repo_list_files\",\"path\":\"logs\",\"glob\":\"runner-*\",\"recurse\":true}",
           '{"action":"finish","output":"done"}',
           '{"verdict":"pass","reason":"supported"}',
         ],
@@ -857,7 +857,7 @@ test('runTaskLoop rewrites unsupported rg --type tsx even when --glob is present
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"foo\\" --type tsx --glob \\"*.tsx\\" src"}}',
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"foo\\\" --type tsx --glob \\\"*.tsx\\\" src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -892,7 +892,7 @@ test('runTaskLoop rewrites unsupported rg --type jsx to --type js', async () => 
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"foo\\" --type jsx src"}}',
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"foo\\\" --type jsx src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -928,7 +928,7 @@ test('runTaskLoop rewrites mixed --type jsx and --type tsx to --type js and --ty
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"foo\\" --type jsx --type tsx src"}}',
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"foo\\\" --type jsx --type tsx src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -963,7 +963,7 @@ test('runTaskLoop counts non-zero command exits as command failures but not inva
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -998,7 +998,7 @@ test('runTaskLoop does not count rg exit code 1 (no matches) as a command failur
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"better-sqlite3\\" src --type ts"}}',
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"better-sqlite3\\\" src --type ts\"}",
         '{"action":"finish","output":"no matches found"}',
         '{"verdict":"pass","reason":"valid no-results answer"}',
       ],
@@ -1024,7 +1024,7 @@ test('runTaskLoop does not count grep exit code 1 (no matches) as a command fail
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"grep -rn \\"TODO\\" src"}}',
+        "{\"action\":\"repo_grep\",\"command\":\"grep -rn \\\"TODO\\\" src\"}",
         '{"action":"finish","output":"no TODOs found"}',
         '{"verdict":"pass","reason":"valid no-results answer"}',
       ],
@@ -1050,7 +1050,7 @@ test('runTaskLoop still counts exit code 1 from non-search commands as a command
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"git log --oneline"}}',
+        "{\"action\":\"repo_git\",\"command\":\"git log --oneline\"}",
         '{"action":"finish","output":"failed"}',
         '{"verdict":"pass","reason":"ok"}',
       ],
@@ -1103,9 +1103,9 @@ test('runTaskLoop executes tool batches sequentially and counts each tool call t
       mockResponses: [
         JSON.stringify({
           action: 'tool_batch',
-          tool_calls: [
-            { tool_name: 'run_repo_cmd', args: { command: 'rg -n "planner prompt" src' } },
-            { tool_name: 'run_repo_cmd', args: { command: 'rg -n "prompt budget" src' } },
+          calls: [
+            { action: 'repo_rg', command: 'rg -n "planner prompt" src' },
+            { action: 'repo_rg', command: 'rg -n "prompt budget" src' },
           ],
         }),
         '{"action":"finish","output":"done"}',
@@ -1146,8 +1146,8 @@ test('runTaskLoop accepts corroborated finish before minimum tool-call depth', a
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 2,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content src\\\\summary.ts | Select-Object -First 20"}}',
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
+        "{\"action\":\"repo_get_content\",\"command\":\"Get-Content src\\\\summary.ts | Select-Object -First 20\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -1180,8 +1180,8 @@ test('runTaskLoop stops at max turns when model keeps asking for tools', async (
       maxTurns: 2,
       maxInvalidResponses: 3,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"buildPlannerPrompt\\" src\\\\summary.ts"}}',
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"buildPlannerPrompt\\" src\\\\summary.ts"}}',
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"buildPlannerPrompt\\\" src\\\\summary.ts\"}",
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"buildPlannerPrompt\\\" src\\\\summary.ts\"}",
         'Synthesized best-effort answer referencing src\\summary.ts:907.',
       ],
       mockCommandResults: {
@@ -1213,8 +1213,8 @@ test('runTaskLoop prompt omits visible tool-call budget counters', async () => {
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"summary\\" src"}}',
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"summary\\\" src\"}",
         '{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
@@ -1320,7 +1320,7 @@ test('runTaskLoop records line-read stats for Get-Content windows', async () => 
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content src\\\\summary.ts | Select-Object -Skip 40 -First 6"}}',
+        "{\"action\":\"repo_get_content\",\"command\":\"Get-Content src\\\\summary.ts | Select-Object -Skip 40 -First 6\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -1382,7 +1382,7 @@ test('runTaskLoop rewrites Get-ChildItem recurse command to include ignore exclu
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockResponses: [
-          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-ChildItem src -Recurse -Filter *.ts"}}',
+          "{\"action\":\"repo_get_childitem\",\"command\":\"Get-ChildItem src -Recurse -Filter *.ts\"}",
           '{"action":"finish","output":"done"}',
           '{"verdict":"pass","reason":"supported"}',
         ],
@@ -1430,7 +1430,7 @@ test('runTaskLoop rewrites Select-String path scan to include ignore excludes', 
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockResponses: [
-          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Select-String -Path \\"src\\\\*.ts\\" -Pattern \\"planner\\""}}',
+          "{\"action\":\"repo_select_string\",\"command\":\"Select-String -Path \\\"src\\\\*.ts\\\" -Pattern \\\"planner\\\"\"}",
           '{"action":"finish","output":"done"}',
           '{"verdict":"pass","reason":"supported"}',
         ],
@@ -1474,7 +1474,7 @@ test('runTaskLoop allows rg commands that include --no-ignore explicitly', async
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src --no-ignore"}}',
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src --no-ignore\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -1502,7 +1502,7 @@ test('runTaskLoop allows rg commands that include -u explicitly', async () => {
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src -u"}}',
+        '{"action":"repo_rg","command":"rg -n \\"planner\\" src -u"}',
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -1533,7 +1533,7 @@ test('runTaskLoop rejects Get-Content reads under ignored directories', async ()
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockResponses: [
-          '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"Get-Content node_modules\\\\leftpad\\\\index.js"}}',
+          "{\"action\":\"repo_get_content\",\"command\":\"Get-Content node_modules\\\\leftpad\\\\index.js\"}",
           '{"action":"finish","output":"done"}',
           '{"verdict":"pass","reason":"supported"}',
         ],
@@ -1581,9 +1581,8 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
         chatRequests.push(parsed);
         const content = requestCount === 1
           ? JSON.stringify({
-            action: 'tool',
-            tool_name: 'run_repo_cmd',
-            args: { command: 'rg -n "planner" src' },
+            action: 'repo_rg',
+            command: 'rg -n "planner" src',
           })
           : JSON.stringify({
             action: 'finish',
@@ -1663,8 +1662,8 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
     assert.equal(Number.isInteger(chatRequests[0].id_slot), true);
     assert.equal(chatRequests[0].id_slot, chatRequests[1].id_slot);
     assert.equal(chatRequests[0]?.response_format?.type, 'json_schema');
-    assert.equal(Array.isArray(chatRequests[0].tools), true);
-    assert.equal(chatRequests[0].parallel_tool_calls, true);
+    assert.equal('tools' in chatRequests[0], false);
+    assert.equal('parallel_tool_calls' in chatRequests[0], false);
     assert.equal(chatRequests[1].messages.length > chatRequests[0].messages.length, true);
     assert.doesNotMatch(JSON.stringify(chatRequests[0].messages), /Tool-call budget remaining:/u);
     assert.doesNotMatch(JSON.stringify(chatRequests[1].messages), /Tool-call budget remaining:/u);
@@ -1704,9 +1703,8 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
         chatRequests.push(parsed);
         const content = requestCount <= 5
           ? JSON.stringify({
-            action: 'tool',
-            tool_name: 'run_repo_cmd',
-            args: { command: 'rg -n "planner" src' },
+            action: 'repo_rg',
+            command: 'rg -n "planner" src',
           })
           : JSON.stringify({
             action: 'finish',
@@ -1807,7 +1805,7 @@ test('runTaskLoop synthesizes final output on terminal max_turns', async () => {
       maxTurns: 1,
       maxInvalidResponses: 3,
       mockResponses: [
-        '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"buildPlannerPrompt\\" src\\\\summary.ts"}}',
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"buildPlannerPrompt\\\" src\\\\summary.ts\"}",
         'best-effort answer with evidence',
       ],
       mockCommandResults: {

@@ -93,16 +93,10 @@ test('planner find_text auto-normalizes lone regex braces like var.*Unlocks.*=.*
     }, {
       assistantContent(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
-          return JSON.stringify({
-            action: 'tool',
-            tool_name: 'find_text',
-            args: {
-              query: 'var.*Unlocks.*=.*{',
+          return JSON.stringify({ action: 'find_text', query: 'var.*Unlocks.*=.*{',
               mode: 'regex',
               maxHits: 3,
-              contextLines: 2,
-            },
-          });
+              contextLines: 2, });
         }
 
         if (requestIndex === 2) {

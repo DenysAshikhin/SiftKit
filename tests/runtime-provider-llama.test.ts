@@ -335,7 +335,7 @@ test('llama.cpp provider includes per-request response_format json_schema when s
   });
 });
 
-test('llama.cpp provider enables parallel tool calls when tools are sent', async () => {
+test('llama.cpp provider omits native tools for structured planner JSON', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -352,7 +352,8 @@ test('llama.cpp provider enables parallel tool calls when tools are sent', async
       });
 
       assert.equal(server.state.chatRequests.length, 1);
-      assert.equal(server.state.chatRequests[0].parallel_tool_calls, true);
+      assert.equal('tools' in server.state.chatRequests[0], false);
+      assert.equal('parallel_tool_calls' in server.state.chatRequests[0], false);
     });
   });
 });
