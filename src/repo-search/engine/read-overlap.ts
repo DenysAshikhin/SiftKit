@@ -42,6 +42,7 @@ type ReadWindow = {
 export type FileReadState = {
   windows: ReadWindow[];
   mergedExecutedRanges: ReadRange[];
+  mergedReturnedRanges: ReadRange[];
   totalLinesRead: number;
   uniqueLinesRead: number;
   overlapLines: number;
@@ -175,6 +176,7 @@ export function getOrCreateFileReadState(fileReadStateByPath: Map<string, FileRe
   const createdState: FileReadState = {
     windows: [],
     mergedExecutedRanges: [],
+    mergedReturnedRanges: [],
     totalLinesRead: 0,
     uniqueLinesRead: 0,
     overlapLines: 0,

@@ -14,6 +14,7 @@ import {
   assertConfiguredModelPresent,
   runRepoSearch,
 } from '../src/repo-search/engine.js';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 import { buildTaskSystemPrompt } from '../src/repo-search/prompts.js';
 import {
   preflightPlannerPromptBudget,
@@ -152,12 +153,16 @@ test('runTaskLoop replays unrecoverable invalid planner payloads through invalid
   assert.equal(userMessages.length, 0);
 });
 
-test('runTaskLoop replaces oversized tool output with token allowance error', async () => {
+test('runTaskLoop truncates oversized rg output to the largest fitting prefix', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   const totalContextTokens = 20000;
   const thinkingBufferTokens = Math.max(Math.ceil(totalContextTokens * 0.15), 4000);
   const usablePromptTokens = Math.max(totalContextTokens - thinkingBufferTokens, 0);
   const baselinePerToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * 0.10));
+  const oversizedOutput = Array.from(
+    { length: 500 },
+    (_, index) => `src/example-${index + 1}.ts:${index + 1}: ${'x'.repeat(80)}`
+  ).join('\n');
   const result = await runTaskLoop(
     {
       id: 'task-token-guard',
@@ -177,7 +182,7 @@ test('runTaskLoop replaces oversized tool output with token allowance error', as
       mockCommandResults: {
         'rg -n "planner" src': {
           exitCode: 0,
-          stdout: 'x'.repeat(10000),
+          stdout: oversizedOutput,
           stderr: '',
         },
       },
@@ -192,11 +197,173 @@ test('runTaskLoop replaces oversized tool output with token allowance error', as
   const commandEvent = events.find((event) => event.kind === 'turn_command_result');
   assert.equal(typeof commandEvent?.insertedResultText, 'string');
   assert.equal(commandEvent?.perToolCapTokens, baselinePerToolCapTokens);
-  assert.match(
-    String(commandEvent?.insertedResultText || ''),
-    /^Error: requested output would consume \d+ tokens, remaining token allowance: \d+, per tool call allowance: \d+$/u
-  );
+  assert.equal(Number(commandEvent?.resultTokenCount) <= Number(commandEvent?.perToolCapTokens), true);
+  assert.doesNotMatch(String(commandEvent?.insertedResultText || ''), /^Error: requested output would consume/u);
+  assert.match(String(commandEvent?.insertedResultText || ''), /^src\/example-1\.ts:1:/u);
+  assert.match(String(commandEvent?.insertedResultText || ''), /\d+ lines truncated due to per-tool context limit\./u);
   assert.equal(result.reason, 'finish');
+});
+
+test('runTaskLoop advances overlapping repo_read_file calls to the next unread span', async () => {
+  const repoRoot = createTempRepoRoot();
+  const targetPath = path.join(repoRoot, 'target.ts');
+  fs.writeFileSync(
+    targetPath,
+    Array.from({ length: 14 }, (_, index) => `line-${index + 1}`).join('\n'),
+    'utf8'
+  );
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-native-read-unread-span',
+      question: 'Read target file.',
+      signals: ['done'],
+    },
+    {
+      repoRoot,
+      maxTurns: 4,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens: 20000,
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['repo_read_file']),
+      mockResponses: [
+        '{"action":"tool","tool_name":"repo_read_file","args":{"path":"target.ts","startLine":1,"endLine":5}}',
+        '{"action":"tool","tool_name":"repo_read_file","args":{"path":"target.ts","startLine":1,"endLine":5}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {},
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
+  assert.equal(result.reason, 'finish');
+  assert.match(String(commandEvents[0]?.insertedResultText || ''), /^1: line-1/mu);
+  assert.match(String(commandEvents[0]?.insertedResultText || ''), /^5: line-5/mu);
+  assert.match(String(commandEvents[1]?.insertedResultText || ''), /^6: line-6/mu);
+  assert.doesNotMatch(String(commandEvents[1]?.insertedResultText || ''), /^1: line-1/mu);
+});
+
+test('runTaskLoop bounds repo_read_file unread span at the next returned range', async () => {
+  const repoRoot = createTempRepoRoot();
+  fs.writeFileSync(
+    path.join(repoRoot, 'target.ts'),
+    Array.from({ length: 20 }, (_, index) => `line-${index + 1}`).join('\n'),
+    'utf8'
+  );
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  await runTaskLoop(
+    {
+      id: 'task-native-read-next-range-bound',
+      question: 'Read target file.',
+      signals: ['done'],
+    },
+    {
+      repoRoot,
+      maxTurns: 4,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens: 20000,
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['repo_read_file']),
+      mockResponses: [
+        '{"action":"tool","tool_name":"repo_read_file","args":{"path":"target.ts","startLine":11,"endLine":15}}',
+        '{"action":"tool","tool_name":"repo_read_file","args":{"path":"target.ts","startLine":1,"endLine":20}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {},
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
+  assert.match(String(commandEvents[1]?.insertedResultText || ''), /^1: line-1/mu);
+  assert.match(String(commandEvents[1]?.insertedResultText || ''), /^10: line-10/mu);
+  assert.doesNotMatch(String(commandEvents[1]?.insertedResultText || ''), /^11: line-11/mu);
+});
+
+test('runTaskLoop reports when repo_read_file has no unread lines left', async () => {
+  const repoRoot = createTempRepoRoot();
+  fs.writeFileSync(path.join(repoRoot, 'target.ts'), ['line-1', 'line-2', 'line-3'].join('\n'), 'utf8');
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  await runTaskLoop(
+    {
+      id: 'task-native-read-exhausted',
+      question: 'Read target file.',
+      signals: ['done'],
+    },
+    {
+      repoRoot,
+      maxTurns: 4,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens: 20000,
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['repo_read_file']),
+      mockResponses: [
+        '{"action":"tool","tool_name":"repo_read_file","args":{"path":"target.ts","startLine":1,"endLine":3}}',
+        '{"action":"tool","tool_name":"repo_read_file","args":{"path":"target.ts","startLine":1,"endLine":3}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {},
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
+  assert.match(String(commandEvents[1]?.insertedResultText || ''), /No unread lines remain for target\.ts\./u);
+});
+
+test('runTaskLoop truncates oversized repo_list_files output with omitted file count', async () => {
+  const repoRoot = createTempRepoRoot();
+  for (let index = 1; index <= 160; index += 1) {
+    fs.writeFileSync(path.join(repoRoot, `file-${String(index).padStart(3, '0')}.ts`), 'export {};\n', 'utf8');
+  }
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  await runTaskLoop(
+    {
+      id: 'task-native-list-truncate',
+      question: 'List files.',
+      signals: ['done'],
+    },
+    {
+      repoRoot,
+      maxTurns: 3,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens: 7000,
+      includeRepoFileListing: false,
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['repo_list_files']),
+      mockResponses: [
+        '{"action":"tool","tool_name":"repo_list_files","args":{"path":".","recurse":true}}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {},
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+    }
+  );
+
+  const commandEvent = events.find((event) => event.kind === 'turn_command_result');
+  assert.match(String(commandEvent?.insertedResultText || ''), /^file-001\.ts/mu);
+  assert.match(String(commandEvent?.insertedResultText || ''), /\d+ files truncated due to per-tool context limit\./u);
 });
 
 test('runTaskLoop preserves raw line-read stats when oversized Get-Content output is replaced', async () => {
@@ -234,7 +401,7 @@ test('runTaskLoop preserves raw line-read stats when oversized Get-Content outpu
   );
 });
 
-test('runTaskLoop prints a red console warning when tool output exceeds allowance', async () => {
+test('runTaskLoop does not print a red console warning when successful output is fitted', async () => {
   const writes = [];
   const originalWrite = process.stderr.write;
   process.stderr.write = ((chunk, encoding, callback) => {
@@ -278,7 +445,7 @@ test('runTaskLoop prints a red console warning when tool output exceeds allowanc
   }
 
   const redWarning = writes.find((line) => /\x1b\[31m.*requested output would consume/u.test(line));
-  assert.equal(Boolean(redWarning), true);
+  assert.equal(Boolean(redWarning), false);
 });
 
 test('preflightPlannerPromptBudget reports overflow against context budget', async () => {
@@ -295,6 +462,32 @@ test('preflightPlannerPromptBudget reports overflow against context budget', asy
   assert.equal(preflight.maxPromptBudget, 3000);
   assert.equal(preflight.promptTokenCount > preflight.maxPromptBudget, true);
   assert.equal(preflight.overflowTokens > 0, true);
+});
+
+test('preflightPlannerPromptBudget reserves provider prompt overhead against context budget', async () => {
+  const withoutReserve = await preflightPlannerPromptBudget({
+    messages: [
+      { role: 'system', content: 'system' },
+      { role: 'user', content: 'short request' },
+    ],
+    totalContextTokens: 4200,
+    thinkingBufferTokens: 4000,
+  });
+  const withReserve = await preflightPlannerPromptBudget({
+    messages: [
+      { role: 'system', content: 'system' },
+      { role: 'user', content: 'short request' },
+    ],
+    providerPromptReserveText: 'provider tools and response schema '.repeat(900),
+    totalContextTokens: 4200,
+    thinkingBufferTokens: 4000,
+  });
+
+  assert.equal(withoutReserve.ok, true);
+  assert.equal(withReserve.ok, false);
+  assert.equal(withReserve.providerPromptReserveTokenCount > 0, true);
+  assert.equal(withReserve.promptTokenCount > withoutReserve.promptTokenCount, true);
+  assert.equal(withReserve.promptTokenCount > withReserve.maxPromptBudget, true);
 });
 
 test('compactPlannerMessagesOnce preserves system and latest user intent', async () => {
@@ -315,6 +508,26 @@ test('compactPlannerMessagesOnce preserves system and latest user intent', async
   assert.equal(compacted.droppedMessageCount > 0, true);
   assert.equal(compacted.summaryInserted, true);
   assert.match(transcript, /\[COMPRESSED HISTORICAL EVIDENCE\]/u);
+  assert.match(transcript, /latest user intent must remain/u);
+  assert.match(String(compacted.messages[0]?.role || ''), /^system$/u);
+});
+
+test('compactPlannerMessagesOnce budgets provider prompt overhead while selecting history', async () => {
+  const messages = [
+    { role: 'system', content: 'system message' },
+    { role: 'assistant', content: 'older assistant details ' + 'a'.repeat(2000) },
+    { role: 'tool', content: 'older tool output ' + 'b'.repeat(2000), tool_call_id: 'call_1' },
+    { role: 'user', content: 'latest user intent must remain' },
+  ];
+  const compacted = await compactPlannerMessagesOnce({
+    messages,
+    providerPromptReserveText: 'provider overhead '.repeat(500),
+    maxPromptBudget: 2800,
+  });
+  const transcript = compacted.messages.map((message) => String(message.content || '')).join('\n');
+
+  assert.equal(compacted.droppedMessageCount > 0, true);
+  assert.equal(compacted.promptTokenCount <= 2800, true);
   assert.match(transcript, /latest user intent must remain/u);
   assert.match(String(compacted.messages[0]?.role || ''), /^system$/u);
 });
@@ -352,6 +565,42 @@ test('runTaskLoop fails with planner_preflight_overflow before provider request 
   assert.equal(Number(overflowEvent.overflowTokens) > 0, true);
 });
 
+test('runTaskLoop includes planner provider reserve in dynamic output budget', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-provider-reserve-budget',
+      question: 'Find planner budget references.',
+      signals: ['done'],
+    },
+    {
+      maxTurns: 1,
+      maxInvalidResponses: 1,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens: 32000,
+      mockResponses: [
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {},
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+    }
+  );
+  const budgetEvent = events.find((event) => event.kind === 'turn_preflight_budget');
+
+  assert.equal(result.reason, 'finish');
+  assert.equal(Number(budgetEvent?.providerPromptReserveTokenCount) > 0, true);
+  assert.equal(
+    Number(budgetEvent?.promptTokenCount),
+    Number(budgetEvent?.transcriptPromptTokenCount) + Number(budgetEvent?.providerPromptReserveTokenCount)
+  );
+  assert.equal(Number(budgetEvent?.maxOutputTokens) < 25000, true);
+});
+
 test('runTaskLoop applies one-pass compaction and continues when compacted prompt fits', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   const result = await runTaskLoop(
@@ -365,6 +614,7 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       totalContextTokens: 7000,
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['repo_rg']),
       mockResponses: [
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" lib"}}',
@@ -396,6 +646,8 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
   const compactionEvents = events.filter((event) => event.kind === 'turn_preflight_compaction_applied');
   assert.equal(compactionEvents.length >= 1, true);
   assert.equal(compactionEvents[0].droppedMessageCount > 0, true);
+  assert.equal(Number(compactionEvents[0].beforeProviderPromptReserveTokenCount) > 0, true);
+  assert.equal(Number(compactionEvents[0].providerPromptReserveTokenCount) > 0, true);
   const newMessagesEvents = events.filter((event) => event.kind === 'turn_new_messages');
   const allCompactedContent = newMessagesEvents
     .flatMap((event) => Array.isArray(event.messages) ? event.messages as Array<{ content?: unknown }> : [])
@@ -451,7 +703,7 @@ test('runTaskLoop increases per-tool cap as tool-call progress grows', async () 
   assert.equal(result.reason, 'finish');
 });
 
-test('runTaskLoop still rejects tool output that exceeds remaining token allowance', async () => {
+test('runTaskLoop fits tool output that exceeds remaining token allowance', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   const totalContextTokens = 30000;
   const oversizedQuestion = 'Q'.repeat(84000);
@@ -466,6 +718,7 @@ test('runTaskLoop still rejects tool output that exceeds remaining token allowan
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       totalContextTokens,
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['repo_rg']),
       mockResponses: [
         '{"action":"tool","tool_name":"run_repo_cmd","args":{"command":"rg -n \\"planner\\" src"}}',
         '{"action":"finish","output":"done"}',
@@ -489,10 +742,8 @@ test('runTaskLoop still rejects tool output that exceeds remaining token allowan
   const commandEvent = events.find((event) => event.kind === 'turn_command_result');
   assert.equal(typeof commandEvent?.insertedResultText, 'string');
   assert.equal(commandEvent?.perToolCapTokens > commandEvent?.remainingTokenAllowance, true);
-  assert.match(
-    String(commandEvent?.insertedResultText || ''),
-    /^Error: requested output would consume \d+ tokens, remaining token allowance: \d+, per tool call allowance: \d+$/u
-  );
+  assert.doesNotMatch(String(commandEvent?.insertedResultText || ''), /^Error: requested output would consume/u);
+  assert.match(String(commandEvent?.insertedResultText || ''), /\d+ lines truncated due to per-tool context limit\./u);
   assert.equal(result.reason, 'finish');
 });
 

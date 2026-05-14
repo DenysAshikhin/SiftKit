@@ -1037,7 +1037,7 @@ test('planner keeps the first real tool output and rewrites one duplicate warnin
       }
       const finalRequest = server.state.chatRequests[5];
       assert.deepEqual(finalRequest.chat_template_kwargs, {
-        enable_thinking: false,
+        enable_thinking: true,
       });
       const finalMessages = Array.isArray(finalRequest?.messages) ? finalRequest.messages : [];
       const assistantToolCalls = finalMessages.filter((message) => Array.isArray(message?.tool_calls));
@@ -1424,6 +1424,229 @@ test('planner keeps read_lines output when tokenize is unavailable', async () =>
   });
 });
 
+test('planner fits oversized read_lines output and reports omitted lines', async () => {
+  await withTempEnv(async () => {
+    const plannerConfig = {
+      LlamaCpp: {
+        NumCtx: 19000,
+        Reasoning: 'off',
+      },
+      Runtime: {
+        LlamaCpp: {
+          NumCtx: 19000,
+          Reasoning: 'off',
+        },
+      },
+    };
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedMultilinePlannerInput(threshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Read many lines, then summarize.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+        allowedPlannerTools: ['read_lines'],
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'fitted read_lines output');
+      assert.equal(server.state.chatRequests.length, 2);
+      const secondPrompt = getChatRequestText(server.state.chatRequests[1]);
+      assert.match(secondPrompt, /read_lines startLine=1 endLine=\d+ lineCount=\d+/u);
+      assert.match(secondPrompt, /^1: /mu);
+      assert.match(secondPrompt, /\d+ lines truncated due to per-tool context limit\./u);
+      assert.doesNotMatch(secondPrompt, /Error: tool call results in \d+ tokens/u);
+    }, {
+      config: plannerConfig,
+      tokenizeTokenCount(content) {
+        if (/Planner mode:/u.test(content)) {
+          return 1000;
+        }
+        if (/read_lines startLine=/u.test(content)) {
+          return Math.max(1, String(content).length * 10);
+        }
+        return 1000;
+      },
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'read_lines',
+            args: {
+              startLine: 1,
+              endLine: 4000,
+            },
+          });
+        }
+
+        if (requestIndex === 2) {
+          return JSON.stringify({
+            action: 'finish',
+            classification: 'summary',
+            raw_review_required: false,
+            output: 'fitted read_lines output',
+          });
+        }
+
+        throw new Error(`unexpected fitted read_lines request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
+      },
+    });
+  });
+});
+
+test('planner advances repeated read_lines calls to one unread span', async () => {
+  await withTempEnv(async () => {
+    const plannerConfig = {
+      LlamaCpp: {
+        NumCtx: 190000,
+        Reasoning: 'off',
+      },
+      Runtime: {
+        LlamaCpp: {
+          NumCtx: 190000,
+          Reasoning: 'off',
+        },
+      },
+    };
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedMultilinePlannerInput(threshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Read overlapping lines, then summarize.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+        allowedPlannerTools: ['read_lines'],
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'advanced read_lines output');
+      assert.equal(server.state.chatRequests.length, 3);
+      const thirdPrompt = getChatRequestText(server.state.chatRequests[2]);
+      assert.match(thirdPrompt, /read_lines startLine=6 endLine=\d+ lineCount=\d+/u);
+      assert.match(thirdPrompt, /^6: /mu);
+    }, {
+      config: plannerConfig,
+      tokenizeTokenCount(content) {
+        if (/Planner mode:/u.test(content)) {
+          return 1000;
+        }
+        return Math.max(1, Math.ceil(String(content).length / 4));
+      },
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1 || requestIndex === 2) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'read_lines',
+            args: {
+              startLine: 1,
+              endLine: 5,
+            },
+          });
+        }
+
+        if (requestIndex === 3) {
+          return JSON.stringify({
+            action: 'finish',
+            classification: 'summary',
+            raw_review_required: false,
+            output: 'advanced read_lines output',
+          });
+        }
+
+        throw new Error(`unexpected repeated read_lines request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
+      },
+    });
+  });
+});
+
+test('planner fits oversized find_text output and reports omitted results', async () => {
+  await withTempEnv(async () => {
+    const plannerConfig = {
+      LlamaCpp: {
+        NumCtx: 19000,
+        Reasoning: 'off',
+      },
+      Runtime: {
+        LlamaCpp: {
+          NumCtx: 19000,
+          Reasoning: 'off',
+        },
+      },
+    };
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedMultilinePlannerInput(threshold + 1000)
+        .split('\n')
+        .map((line) => `${line} needle`)
+        .join('\n');
+
+      const result = await summarizeRequest({
+        question: 'Find needle matches, then summarize.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+        allowedPlannerTools: ['find_text'],
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'fitted find_text output');
+      assert.equal(server.state.chatRequests.length, 2);
+      const secondPrompt = getChatRequestText(server.state.chatRequests[1]);
+      assert.match(secondPrompt, /find_text mode=literal query="needle" hitCount=\d+ returnedHits=\d+ truncated=true/u);
+      assert.match(secondPrompt, /\d+ results truncated due to per-tool context limit\./u);
+      assert.doesNotMatch(secondPrompt, /Error: tool call results in \d+ tokens/u);
+    }, {
+      config: plannerConfig,
+      tokenizeTokenCount(content) {
+        if (/Planner mode:/u.test(content)) {
+          return 1000;
+        }
+        if (/find_text mode=/u.test(content)) {
+          return Math.max(1, String(content).length * 10);
+        }
+        return 1000;
+      },
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex === 1) {
+          return JSON.stringify({
+            action: 'tool',
+            tool_name: 'find_text',
+            args: {
+              query: 'needle',
+              mode: 'literal',
+              maxHits: 400,
+            },
+          });
+        }
+
+        if (requestIndex === 2) {
+          return JSON.stringify({
+            action: 'finish',
+            classification: 'summary',
+            raw_review_required: false,
+            output: 'fitted find_text output',
+          });
+        }
+
+        throw new Error(`unexpected fitted find_text request ${requestIndex}: ${String(promptText).slice(0, 120)}`);
+      },
+    });
+  });
+});
+
 test('planner activates once input exceeds 75 percent of context length even before chunking would start', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
@@ -1742,4 +1965,3 @@ test('planner fails fast when the next planner turn would exceed thinking headro
     });
   });
 });
-

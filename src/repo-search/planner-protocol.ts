@@ -259,6 +259,61 @@ export function resolveRepoSearchPlannerToolDefinitions(
 
 export const TOOL_DEFINITIONS = resolveRepoSearchPlannerToolDefinitions();
 
+export function buildPlannerRequestPromptReserveText(options: {
+  stage?: string;
+  model: string;
+  messageRoles: readonly string[];
+  toolDefinitions?: StructuredOutputToolDefinition[];
+  maxTokens: number;
+  thinkingEnabled: boolean;
+  reasoningContentEnabled: boolean;
+  preserveThinking: boolean;
+  responseSchema?: Record<string, unknown> | null;
+  responseSchemaName?: string;
+  extraBody?: Record<string, unknown>;
+  stream?: boolean;
+}): string {
+  const stage = options.stage || 'planner_action';
+  const toolDefinitions = Array.isArray(options.toolDefinitions) && options.toolDefinitions.length > 0
+    ? options.toolDefinitions
+    : TOOL_DEFINITIONS;
+  const includeTools = stage === 'planner_action' && toolDefinitions.length > 0;
+  const defaultResponseSchema = stage === 'planner_action'
+    ? buildRepoSearchPlannerActionJsonSchema({ toolDefinitions })
+    : stage === 'finish_validation'
+      ? buildFinishValidationJsonSchema()
+      : null;
+  const responseSchema = options.responseSchema === undefined
+    ? defaultResponseSchema
+    : options.responseSchema;
+  const responseFormat = responseSchema === null
+    ? null
+    : buildLlamaJsonSchemaResponseFormat({
+      name: options.responseSchemaName || (stage === 'finish_validation' ? 'siftkit_finish_validation' : 'siftkit_repo_search_planner_action'),
+      schema: responseSchema,
+    });
+  const messageTemplateReserve = options.messageRoles.map((role) => ({
+    role: String(role || 'unknown'),
+    template: '<|im_start|>role\\ncontent<|im_end|>',
+  }));
+
+  return JSON.stringify({
+    stage,
+    model: options.model,
+    max_tokens: options.maxTokens,
+    ...(includeTools ? { tools: toolDefinitions, parallel_tool_calls: true } : {}),
+    chat_template_kwargs: {
+      enable_thinking: Boolean(options.thinkingEnabled),
+      ...(options.thinkingEnabled && options.reasoningContentEnabled ? { reasoning_content: true } : {}),
+      ...(options.thinkingEnabled && options.reasoningContentEnabled && options.preserveThinking ? { preserve_thinking: true } : {}),
+    },
+    ...(responseFormat ? { response_format: responseFormat } : {}),
+    ...(options.stream ? { stream: true } : {}),
+    message_template_reserve: messageTemplateReserve,
+    ...options.extraBody,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Action parsing
 // ---------------------------------------------------------------------------

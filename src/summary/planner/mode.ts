@@ -17,7 +17,7 @@ import {
   buildPlannerToolDefinitions,
   executePlannerTool,
   formatPlannerResult,
-  formatPlannerToolResultTokenGuardError,
+  formatPlannerToolResultHeader,
 } from './tools.js';
 import {
   createPlannerDebugRecorder,
@@ -60,6 +60,11 @@ import {
   type ToolBatchOutcome,
   type ToolTranscriptAction,
 } from '../../tool-call-messages.js';
+import {
+  findContiguousUnreadRange,
+  ToolOutputFitter,
+  type ToolOutputTruncationUnit,
+} from '../../tool-output-fit.js';
 
 const MAX_PLANNER_TOOL_CALLS = 30;
 const PLANNER_FORCED_FINISH_MAX_ATTEMPTS = 2;
@@ -181,7 +186,10 @@ export async function invokePlannerMode(options: {
   let duplicateReplayCount = 0;
   let duplicateReplayToolMessageIndex = -1;
   let forcedFinishCountdownUserMessageIndex = -1;
+  let lastSuccessfulReadLinesArgsText: string | null = null;
   const tokenizeOptions = getPlannerTokenizeOptions(options.requestTimeoutSeconds);
+  const inputLines = options.inputText.replace(/\r\n/gu, '\n').split('\n');
+  const readLinesReturnedRanges: Array<{ start: number; end: number }> = [];
 
   while (toolResults.length <= MAX_PLANNER_TOOL_CALLS) {
     const turn = toolResults.length + 1;
@@ -230,7 +238,6 @@ export async function invokePlannerMode(options: {
       statusRunningMs: number;
     };
     try {
-      const forceFinalAnswer = forcedFinishAttemptsRemaining > 0;
       providerResponse = await invokePlannerProviderAction({
         requestId: options.requestId,
         slotId: options.slotId,
@@ -242,7 +249,6 @@ export async function invokePlannerMode(options: {
         rawInputCharacterCount: options.inputText.length,
         chunkInputCharacterCount: options.inputText.length,
         toolDefinitions,
-        reasoningOverride: forceFinalAnswer ? 'off' : undefined,
         requestTimeoutSeconds: options.requestTimeoutSeconds,
         llamaCppOverrides: options.llamaCppOverrides,
         statusBackendUrl: options.statusBackendUrl,
@@ -455,7 +461,6 @@ export async function invokePlannerMode(options: {
             rawInputCharacterCount: options.inputText.length,
             chunkInputCharacterCount: options.inputText.length,
             toolDefinitions,
-            reasoningOverride: 'off',
             requestTimeoutSeconds: options.requestTimeoutSeconds,
             llamaCppOverrides: options.llamaCppOverrides,
             statusBackendUrl: options.statusBackendUrl,
@@ -496,7 +501,9 @@ export async function invokePlannerMode(options: {
           toolName: toolAction.tool_name,
           args: toolAction.args,
         });
-        if (lastSuccessfulFingerprint && lastSuccessfulFingerprint === fingerprint) {
+        const readLinesExactRepeat = toolAction.tool_name === 'read_lines'
+          && lastSuccessfulReadLinesArgsText === JSON.stringify(toolAction.args);
+        if (!readLinesExactRepeat && lastSuccessfulFingerprint && lastSuccessfulFingerprint === fingerprint) {
           const isActiveDuplicate = duplicateReplayFingerprint === fingerprint
             && duplicateReplayToolMessageIndex >= 0
             && duplicateReplayToolMessageIndex < messages.length;
@@ -546,13 +553,44 @@ export async function invokePlannerMode(options: {
           continue;
         }
 
+        let effectiveToolAction = toolAction;
+        let readLinesNoUnread = false;
+        if (toolAction.tool_name === 'read_lines') {
+          const requestedStart = Math.max(1, Math.trunc(Number(toolAction.args.startLine) || 1));
+          const requestedEnd = Math.max(requestedStart, Math.trunc(Number(toolAction.args.endLine) || requestedStart));
+          const requestedEndExclusive = Math.min(requestedEnd + 1, inputLines.length + 1);
+          const hasReturnedRanges = readLinesReturnedRanges.length > 0;
+          const unreadRange = findContiguousUnreadRange({
+            requestedStart: Math.min(requestedStart, inputLines.length || 1),
+            totalEnd: hasReturnedRanges ? inputLines.length + 1 : requestedEndExclusive,
+            returnedRanges: readLinesReturnedRanges,
+          });
+          readLinesNoUnread = !unreadRange.hasUnread;
+          effectiveToolAction = {
+            ...toolAction,
+            args: unreadRange.hasUnread
+              ? { ...toolAction.args, startLine: unreadRange.start, endLine: unreadRange.end - 1 }
+              : { ...toolAction.args, startLine: unreadRange.start, endLine: unreadRange.end },
+          };
+        }
+
         let result: Record<string, unknown>;
         const toolExecutionSpan = options.timingRecorder?.start('summary.planner.tool.execute', {
           turn,
-          toolName: toolAction.tool_name,
+          toolName: effectiveToolAction.tool_name,
         });
         try {
-          result = executePlannerTool(options.inputText, toolAction, allowedTools);
+          if (effectiveToolAction.tool_name === 'read_lines' && readLinesNoUnread) {
+            result = {
+              tool: 'read_lines',
+              startLine: effectiveToolAction.args.startLine,
+              endLine: effectiveToolAction.args.endLine,
+              lineCount: 0,
+              text: 'No unread lines remain for input text.',
+            };
+          } else {
+            result = executePlannerTool(options.inputText, effectiveToolAction, allowedTools);
+          }
           toolExecutionSpan?.end({ ok: true });
         } catch (error) {
           toolExecutionSpan?.end({ ok: false });
@@ -594,7 +632,7 @@ export async function invokePlannerMode(options: {
         });
         const rawFormattedResultText = formatPlannerResult(result);
         const formattedResultText = buildPromptToolResult({
-          toolName: toolAction.tool_name,
+          toolName: effectiveToolAction.tool_name,
           rawOutput: rawFormattedResultText,
         });
         formatSpan?.end({
@@ -627,16 +665,39 @@ export async function invokePlannerMode(options: {
         let resolvedToolResultTokenCount: number;
         let toolResultTokenEstimated: boolean;
         if (normalizedResultTokenCount > (remainingPromptTokens * 0.7)) {
-          promptResultText = formatPlannerToolResultTokenGuardError(normalizedResultTokenCount);
-          const guardTokenSpan = options.timingRecorder?.start('summary.planner.tool.tokenize_prompt', {
+          const headerText = formatPlannerToolResultHeader(result);
+          const resultBodyText = typeof result.text === 'string' ? result.text : formattedResultText;
+          const unit: ToolOutputTruncationUnit = effectiveToolAction.tool_name === 'find_text' ? 'results' : 'lines';
+          const separator = effectiveToolAction.tool_name === 'find_text' ? '\n\n' : '\n';
+          const segments = effectiveToolAction.tool_name === 'find_text'
+            ? resultBodyText.split(/\n\s*\n/u).filter((segment) => segment.trim().length > 0)
+            : resultBodyText.split(/\r?\n/u).filter((line) => line.length > 0);
+          const fitter = new ToolOutputFitter({
+            async countToolOutputTokens(textToCount: string): Promise<number> {
+              const tokenCountRaw = await countLlamaCppTokens(options.config, textToCount, tokenizeOptions);
+              return tokenCountRaw ?? estimatePromptTokenCount(options.config, textToCount);
+            },
+          });
+          const fitResult = await fitter.fitSegments({
+            headerText: headerText || undefined,
+            segments,
+            separator,
+            maxTokens: Math.max(1, Math.floor(remainingPromptTokens * 0.7)),
+            unit,
+          });
+          promptResultText = buildPromptToolResult({
+            toolName: effectiveToolAction.tool_name,
+            rawOutput: fitResult.visibleText,
+          });
+          const fitTokenSpan = options.timingRecorder?.start('summary.planner.tool.tokenize_prompt', {
             turn,
-            toolName: toolAction.tool_name,
+            toolName: effectiveToolAction.tool_name,
             inputChars: promptResultText.length,
           });
-          const guardTokenCountRaw = await countLlamaCppTokens(options.config, promptResultText, tokenizeOptions);
-          guardTokenSpan?.end({ tokenCount: guardTokenCountRaw ?? -1 });
-          toolResultTokenEstimated = guardTokenCountRaw === null;
-          resolvedToolResultTokenCount = guardTokenCountRaw ?? estimatePromptTokenCount(options.config, promptResultText);
+          const fitTokenCountRaw = await countLlamaCppTokens(options.config, promptResultText, tokenizeOptions);
+          fitTokenSpan?.end({ tokenCount: fitTokenCountRaw ?? -1 });
+          toolResultTokenEstimated = fitTokenCountRaw === null;
+          resolvedToolResultTokenCount = fitTokenCountRaw ?? estimatePromptTokenCount(options.config, promptResultText);
         } else {
           promptResultText = formattedResultText;
           toolResultTokenEstimated = formattedTokenCountEstimated;
@@ -666,22 +727,35 @@ export async function invokePlannerMode(options: {
         for (const evidenceKey of novelty.evidenceKeys) {
           recentEvidenceKeys.add(evidenceKey);
         }
+        if (effectiveToolAction.tool_name === 'read_lines') {
+          const returnedLineCount = promptResultText.split(/\r?\n/u).filter((line) => /^\d+:/u.test(line)).length;
+          const returnedStartLine = Math.max(1, Math.trunc(Number(result.startLine) || 1));
+          if (returnedLineCount > 0) {
+            readLinesReturnedRanges.push({
+              start: returnedStartLine,
+              end: returnedStartLine + returnedLineCount,
+            });
+          }
+        }
         toolStatsPayload[toolAction.tool_name].newEvidenceCalls += novelty.hasNewEvidence ? 1 : 0;
         toolStatsPayload[toolAction.tool_name].noNewEvidenceCalls += novelty.hasNewEvidence ? 0 : 1;
         duplicateReplayFingerprint = null;
         duplicateReplayCount = 0;
         duplicateReplayToolMessageIndex = -1;
         lastSuccessfulFingerprint = fingerprint;
+        lastSuccessfulReadLinesArgsText = effectiveToolAction.tool_name === 'read_lines'
+          ? JSON.stringify(toolAction.args)
+          : null;
         consecutiveNoNewEvidence = novelty.hasNewEvidence ? 0 : (consecutiveNoNewEvidence + 1);
         const toolCallId = `call_${toolResults.length + 1}`;
         batchOutcomes.push({
-          action: toolAction,
+          action: effectiveToolAction,
           toolCallId,
           toolContent: promptResultText,
         });
         toolResults.push({
-          toolName: toolAction.tool_name,
-          args: toolAction.args,
+          toolName: effectiveToolAction.tool_name,
+          args: effectiveToolAction.args,
           result,
           resultText: promptResultText,
         });

@@ -66,6 +66,8 @@ export async function countTokensWithFallback(config: SiftConfig | undefined, te
 export type PreflightResult = {
   ok: boolean;
   promptTokenCount: number;
+  transcriptPromptTokenCount: number;
+  providerPromptReserveTokenCount: number;
   maxPromptBudget: number;
   overflowTokens: number;
   tokenCountSource: 'llama.cpp' | 'estimate';
@@ -82,6 +84,7 @@ export async function preflightPlannerPromptBudget(options: {
   config?: SiftConfig;
   prompt?: string;
   messages?: ChatMessage[];
+  providerPromptReserveText?: string;
   totalContextTokens: number;
   thinkingBufferTokens: number;
 }): Promise<PreflightResult> {
@@ -93,24 +96,41 @@ export async function preflightPlannerPromptBudget(options: {
     : renderTaskTranscript(Array.isArray(options.messages) ? options.messages : []);
 
   const tokenCount = await countTokensWithFallbackDetailed(options.config, promptText);
-  const promptTokenCount = tokenCount.tokenCount;
+  const transcriptPromptTokenCount = tokenCount.tokenCount;
+  const providerPromptReserveText = String(options.providerPromptReserveText || '').trim();
+  const reserveTokenCount = providerPromptReserveText
+    ? await countTokensWithFallbackDetailed(options.config, providerPromptReserveText)
+    : null;
+  const providerPromptReserveTokenCount = reserveTokenCount?.tokenCount ?? 0;
+  const promptTokenCount = transcriptPromptTokenCount + providerPromptReserveTokenCount;
   const maxPromptBudget = Math.max(totalContextTokens - thinkingBufferTokens, 0);
   const overflowTokens = Math.max(promptTokenCount - maxPromptBudget, 0);
   const llamaTokenCount = tokenCount.llamaTokenCount;
+  const reserveLlamaTokenCount = reserveTokenCount?.llamaTokenCount ?? null;
 
   return {
     ok: overflowTokens === 0,
     promptTokenCount,
+    transcriptPromptTokenCount,
+    providerPromptReserveTokenCount,
     maxPromptBudget,
     overflowTokens,
-    tokenCountSource: tokenCount.source,
-    tokenizationAttempted: llamaTokenCount !== null,
-    tokenizeElapsedMs: llamaTokenCount?.elapsedMs ?? null,
-    tokenizeRetryCount: llamaTokenCount?.retryCount ?? null,
-    tokenizeTimeoutMs: llamaTokenCount?.timeoutMs ?? DEFAULT_LLAMA_CPP_TOKENIZE_TIMEOUT_MS,
-    tokenizeRetryMaxWaitMs: llamaTokenCount?.retryMaxWaitMs ?? DEFAULT_LLAMA_CPP_TOKENIZE_RETRY_MAX_WAIT_MS,
-    tokenizeStatus: llamaTokenCount?.status ?? null,
-    tokenizeErrorMessage: llamaTokenCount?.errorMessage ?? null,
+    tokenCountSource: tokenCount.source === 'llama.cpp' && (!reserveTokenCount || reserveTokenCount.source === 'llama.cpp')
+      ? 'llama.cpp'
+      : 'estimate',
+    tokenizationAttempted: llamaTokenCount !== null || reserveLlamaTokenCount !== null,
+    tokenizeElapsedMs: (llamaTokenCount?.elapsedMs ?? 0) + (reserveLlamaTokenCount?.elapsedMs ?? 0) || null,
+    tokenizeRetryCount: (llamaTokenCount?.retryCount ?? 0) + (reserveLlamaTokenCount?.retryCount ?? 0) || null,
+    tokenizeTimeoutMs: Math.max(
+      llamaTokenCount?.timeoutMs ?? DEFAULT_LLAMA_CPP_TOKENIZE_TIMEOUT_MS,
+      reserveLlamaTokenCount?.timeoutMs ?? DEFAULT_LLAMA_CPP_TOKENIZE_TIMEOUT_MS,
+    ),
+    tokenizeRetryMaxWaitMs: Math.max(
+      llamaTokenCount?.retryMaxWaitMs ?? DEFAULT_LLAMA_CPP_TOKENIZE_RETRY_MAX_WAIT_MS,
+      reserveLlamaTokenCount?.retryMaxWaitMs ?? DEFAULT_LLAMA_CPP_TOKENIZE_RETRY_MAX_WAIT_MS,
+    ),
+    tokenizeStatus: reserveLlamaTokenCount?.status ?? llamaTokenCount?.status ?? null,
+    tokenizeErrorMessage: reserveLlamaTokenCount?.errorMessage ?? llamaTokenCount?.errorMessage ?? null,
   };
 }
 
@@ -179,6 +199,7 @@ export async function compactPlannerMessagesOnce(options: {
   messages: ChatMessage[];
   config?: SiftConfig;
   maxPromptBudget: number;
+  providerPromptReserveText?: string;
 }): Promise<{
   messages: ChatMessage[];
   droppedMessageCount: number;
@@ -187,9 +208,18 @@ export async function compactPlannerMessagesOnce(options: {
 }> {
   const sourceMessages = Array.isArray(options.messages) ? options.messages : [];
   const maxPromptBudget = Math.max(0, Number(options.maxPromptBudget || 0));
+  const providerPromptReserveText = String(options.providerPromptReserveText || '').trim();
+  const providerPromptReserveTokenCount = providerPromptReserveText
+    ? await countTokensWithFallback(options.config, providerPromptReserveText)
+    : 0;
 
   if (sourceMessages.length === 0) {
-    return { messages: [], droppedMessageCount: 0, summaryInserted: false, promptTokenCount: 0 };
+    return {
+      messages: [],
+      droppedMessageCount: 0,
+      summaryInserted: false,
+      promptTokenCount: providerPromptReserveTokenCount,
+    };
   }
 
   const requiredIndices = new Set<number>();
@@ -215,14 +245,18 @@ export async function compactPlannerMessagesOnce(options: {
     const tentativeIndices = new Set(selectedIndices);
     tentativeIndices.add(index);
     const tentative = buildCompactedMessages(sourceMessages, tentativeIndices).messages;
-    const tentativePromptTokens = await countTokensWithFallback(options.config, renderTaskTranscript(tentative));
+    const tentativePromptTokens =
+      await countTokensWithFallback(options.config, renderTaskTranscript(tentative))
+      + providerPromptReserveTokenCount;
     if (tentativePromptTokens <= maxPromptBudget) {
       selectedIndices = tentativeIndices;
     }
   }
 
   const compacted = buildCompactedMessages(sourceMessages, selectedIndices);
-  const promptTokenCount = await countTokensWithFallback(options.config, renderTaskTranscript(compacted.messages));
+  const promptTokenCount =
+    await countTokensWithFallback(options.config, renderTaskTranscript(compacted.messages))
+    + providerPromptReserveTokenCount;
 
   return {
     messages: compacted.messages,

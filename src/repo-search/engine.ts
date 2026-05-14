@@ -38,6 +38,7 @@ import {
   isRepoSearchNativeToolName,
   getRepoSearchToolNamesForParsing,
   resolveRepoSearchPlannerToolDefinitions,
+  buildPlannerRequestPromptReserveText,
   renderTaskTranscript,
   requestPlannerAction,
   requestTerminalSynthesis,
@@ -96,6 +97,11 @@ import {
   type ToolTranscriptAction,
   type ToolTranscriptMessage,
 } from '../tool-call-messages.js';
+import {
+  findContiguousUnreadRange,
+  ToolOutputFitter,
+  type ToolOutputTruncationUnit,
+} from '../tool-output-fit.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -188,6 +194,14 @@ type NativeRepoToolExecution =
     exitCode: number;
     output: string;
     toolType: string;
+    readFile?: {
+      pathKey: string;
+      displayPath: string;
+      startLine: number;
+      endLineExclusive: number;
+      totalEndLineExclusive: number;
+    };
+    outputUnit?: ToolOutputTruncationUnit;
     lineReadStats?: {
       lineReadCalls: number;
       lineReadLinesTotal: number;
@@ -312,6 +326,7 @@ function executeNativeRepoTool(
   args: Record<string, unknown>,
   repoRoot: string,
   ignorePolicy: IgnorePolicy,
+  fileReadStateByPath?: Map<string, FileReadState>,
 ): NativeRepoToolExecution {
   if (toolName === 'repo_read_file') {
     const resolvedPath = resolveRepoScopedPath(repoRoot, args.path);
@@ -328,16 +343,57 @@ function executeNativeRepoTool(
       return { ok: false, command, reason: 'path is not a readable file', toolType: toolName };
     }
     const lines = fs.readFileSync(resolvedPath.absolutePath, 'utf8').replace(/\r\n/gu, '\n').split('\n');
+    const pathKey = normalizeRepoRelativePathForDisplay(resolvedPath.relativePath).toLowerCase();
+    const totalEndLineExclusive = (lines.length || 0) + 1;
     const clampedStart = Math.min(startLine, lines.length || 1);
     const requestedEnd = endLineCandidate > 0 ? endLineCandidate : lines.length;
-    const clampedEnd = Math.max(clampedStart, Math.min(requestedEnd, lines.length || clampedStart));
-    const selectedLines = lines.slice(clampedStart - 1, clampedEnd);
+    const requestedEndExclusive = Math.max(clampedStart + 1, Math.min(requestedEnd + 1, totalEndLineExclusive));
+    const state = fileReadStateByPath ? getOrCreateFileReadState(fileReadStateByPath, pathKey) : null;
+    const hasReturnedRanges = Boolean(state && state.mergedReturnedRanges.length > 0);
+    const unreadRange = findContiguousUnreadRange({
+      requestedStart: clampedStart,
+      totalEnd: hasReturnedRanges ? totalEndLineExclusive : requestedEndExclusive,
+      returnedRanges: state?.mergedReturnedRanges || [],
+    });
+    if (!unreadRange.hasUnread) {
+      return {
+        ok: true,
+        command,
+        exitCode: 0,
+        output: `No unread lines remain for ${normalizeRepoRelativePathForDisplay(resolvedPath.relativePath)}.`,
+        toolType: toolName,
+        outputUnit: 'lines',
+        readFile: {
+          pathKey,
+          displayPath: normalizeRepoRelativePathForDisplay(resolvedPath.relativePath),
+          startLine: unreadRange.start,
+          endLineExclusive: unreadRange.end,
+          totalEndLineExclusive,
+        },
+        lineReadStats: {
+          lineReadCalls: 0,
+          lineReadLinesTotal: 0,
+          lineReadTokensTotal: 0,
+        },
+      };
+    }
+    const clampedEndExclusive = unreadRange.end;
+    const selectedLines = lines.slice(unreadRange.start - 1, clampedEndExclusive - 1);
+    const executedCommand = `repo_read_file path=${JSON.stringify(String(args.path || ''))} startLine=${unreadRange.start} endLine=${clampedEndExclusive - 1}`;
     return {
       ok: true,
-      command,
+      command: executedCommand,
       exitCode: 0,
-      output: formatNumberedTextBlock(selectedLines, clampedStart),
+      output: formatNumberedTextBlock(selectedLines, unreadRange.start),
       toolType: toolName,
+      outputUnit: 'lines',
+      readFile: {
+        pathKey,
+        displayPath: normalizeRepoRelativePathForDisplay(resolvedPath.relativePath),
+        startLine: unreadRange.start,
+        endLineExclusive: clampedEndExclusive,
+        totalEndLineExclusive,
+      },
       lineReadStats: {
         lineReadCalls: 1,
         lineReadLinesTotal: selectedLines.length,
@@ -377,6 +433,7 @@ function executeNativeRepoTool(
     exitCode: 0,
     output: filteredMatches.join('\n'),
     toolType: toolName,
+    outputUnit: 'files',
   };
 }
 
@@ -703,8 +760,19 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       turn,
       messageCount: messages.length,
     });
+    let providerPromptReserveText = buildPlannerRequestPromptReserveText({
+      stage: 'planner_action',
+      model: String(options.model || ''),
+      messageRoles: messages.map((message) => String(message.role || 'unknown')),
+      toolDefinitions: plannerToolDefinitions,
+      maxTokens: totalContextTokens,
+      thinkingEnabled: plannerThinkingEnabled,
+      reasoningContentEnabled: plannerReasoningContentEnabled,
+      preserveThinking: plannerPreserveThinkingEnabled,
+      stream: Boolean(options.onProgress),
+    });
     let prompt = renderTaskTranscript(messages);
-    promptRenderSpan?.end({ promptChars: prompt.length });
+    promptRenderSpan?.end({ promptChars: prompt.length, providerPromptReserveChars: providerPromptReserveText.length });
     const preflightSpan = options.timingRecorder?.start('repo.prompt.preflight', {
       taskId: task.id,
       turn,
@@ -733,6 +801,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     let preflight = await preflightPlannerPromptBudget({
       config: preflightConfig,
       prompt,
+      providerPromptReserveText,
       totalContextTokens,
       thinkingBufferTokens,
     });
@@ -775,7 +844,10 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
 
     options.logger?.write({
       kind: 'turn_preflight_budget', taskId: task.id, turn,
-      promptTokenCount: preflight.promptTokenCount, maxPromptBudget: preflight.maxPromptBudget,
+      promptTokenCount: preflight.promptTokenCount,
+      transcriptPromptTokenCount: preflight.transcriptPromptTokenCount,
+      providerPromptReserveTokenCount: preflight.providerPromptReserveTokenCount,
+      maxPromptBudget: preflight.maxPromptBudget,
       overflowTokens: preflight.overflowTokens, ok: preflight.ok, compacted: false, maxOutputTokens,
     });
 
@@ -786,10 +858,25 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         beforePromptTokenCount: preflight.promptTokenCount,
       });
       const compacted = await compactPlannerMessagesOnce({
-        messages, config: useEstimatedTokensOnly ? undefined : options.config, maxPromptBudget: preflight.maxPromptBudget,
+        messages,
+        config: useEstimatedTokensOnly ? undefined : options.config,
+        maxPromptBudget: preflight.maxPromptBudget,
+        providerPromptReserveText,
       });
       messages.splice(0, messages.length, ...compacted.messages);
       lastLoggedMessageCount = 0;
+      const beforeProviderPromptReserveTokenCount = preflight.providerPromptReserveTokenCount;
+      providerPromptReserveText = buildPlannerRequestPromptReserveText({
+        stage: 'planner_action',
+        model: String(options.model || ''),
+        messageRoles: messages.map((message) => String(message.role || 'unknown')),
+        toolDefinitions: plannerToolDefinitions,
+        maxTokens: totalContextTokens,
+        thinkingEnabled: plannerThinkingEnabled,
+        reasoningContentEnabled: plannerReasoningContentEnabled,
+        preserveThinking: plannerPreserveThinkingEnabled,
+        stream: Boolean(options.onProgress),
+      });
       prompt = renderTaskTranscript(messages);
       if (preflightConfig) {
         options.onProgress?.({
@@ -804,7 +891,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         });
       }
       const afterCompaction = await preflightPlannerPromptBudget({
-        config: preflightConfig, prompt, totalContextTokens, thinkingBufferTokens,
+        config: preflightConfig, prompt, providerPromptReserveText, totalContextTokens, thinkingBufferTokens,
       });
       if (afterCompaction.tokenizationAttempted) {
         options.onProgress?.({
@@ -836,6 +923,9 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         kind: 'turn_preflight_compaction_applied', taskId: task.id, turn,
         beforePromptTokenCount: preflight.promptTokenCount,
         afterPromptTokenCount: afterCompaction.promptTokenCount,
+        transcriptPromptTokenCount: afterCompaction.transcriptPromptTokenCount,
+        beforeProviderPromptReserveTokenCount,
+        providerPromptReserveTokenCount: afterCompaction.providerPromptReserveTokenCount,
         maxPromptBudget: afterCompaction.maxPromptBudget,
         droppedMessageCount: compacted.droppedMessageCount,
         summaryInserted: compacted.summaryInserted,
@@ -853,7 +943,10 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       );
       options.logger?.write({
         kind: 'turn_preflight_overflow_fail', taskId: task.id, turn,
-        promptTokenCount: preflight.promptTokenCount, maxPromptBudget: preflight.maxPromptBudget,
+        promptTokenCount: preflight.promptTokenCount,
+        transcriptPromptTokenCount: preflight.transcriptPromptTokenCount,
+        providerPromptReserveTokenCount: preflight.providerPromptReserveTokenCount,
+        maxPromptBudget: preflight.maxPromptBudget,
         overflowTokens: preflight.overflowTokens, maxOutputTokens, totalContextTokens, thinkingBufferTokens,
         error: overflowError.message,
       });
@@ -1043,7 +1136,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         continue;
       }
       const nativeExecution = isNativeTool
-        ? executeNativeRepoTool(normalizedToolName, toolAction.args, options.repoRoot, ignorePolicy)
+        ? executeNativeRepoTool(normalizedToolName, toolAction.args, options.repoRoot, ignorePolicy, fileReadStateByPath)
         : null;
       const command = isCommandTool
         ? (typeof toolAction.args.command === 'string' ? toolAction.args.command : '')
@@ -1159,7 +1252,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     const duplicateFingerprint = fingerprint || `${normalizedToolName}|${normalizedKey}`;
     const isExactDuplicate = Boolean(lastSuccessfulNormalizedKey && normalizedKey === lastSuccessfulNormalizedKey);
     const isSemanticDuplicate = Boolean(!isExactDuplicate && !normalized.rejected && fingerprint && lastSuccessfulFingerprint && fingerprint === lastSuccessfulFingerprint);
-    if (isExactDuplicate || isSemanticDuplicate) {
+    const canAdvanceRepeatedRead = normalizedToolName === 'repo_read_file' || Boolean(!isNativeTool && parseGetContentReadWindowCommand(normalizedKey));
+    if (!canAdvanceRepeatedRead && (isExactDuplicate || isSemanticDuplicate)) {
       const isActiveDuplicate = duplicateReplayFingerprint === duplicateFingerprint
         && duplicateReplayToolMessageIndex >= 0
         && duplicateReplayToolMessageIndex < messages.length;
@@ -1257,13 +1351,15 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         const avgTokensPerLine = resolveAvgTokensPerLine(currentGetContentStats, historicalGetContentStats);
         const minLinesFromCap = Math.max(1, Math.ceil(minTokensFromCap / avgTokensPerLine));
         const existingReadState = getOrCreateFileReadState(fileReadStateByPath, parsedReadWindow.pathKey);
-        const previousExecutedMaxEnd = getPreviousExecutedMaxEnd(existingReadState);
+        const previousReturnedMaxEnd = existingReadState.mergedReturnedRanges.length > 0
+          ? Math.max(...existingReadState.mergedReturnedRanges.map((range) => range.end))
+          : getPreviousExecutedMaxEnd(existingReadState);
         const adjustedWindow = computeAdjustedReadWindow({
           requestedStart: parsedReadWindow.requestedStart,
           requestedEnd: parsedReadWindow.requestedEnd,
           minLinesFromCap,
           roundingStep: LINE_READ_ROUNDING_STEP,
-          previousExecutedMaxEnd,
+          previousExecutedMaxEnd: previousReturnedMaxEnd,
         });
         if (adjustedWindow.adjusted) {
           const adjustedFirst = Math.max(1, adjustedWindow.end - adjustedWindow.start);
@@ -1470,22 +1566,79 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     let resultTokenCountEstimated = useEstimatedTokensOnly;
 
     if (candidateResultTokenCount > perToolCapTokens || candidateResultTokenCount > remainingTokenAllowance) {
-      resultText = `Error: requested output would consume ${candidateResultTokenCount} tokens, remaining token allowance: ${remainingTokenAllowance}, per tool call allowance: ${perToolCapTokens}`;
-      writeRedConsoleLine(`repo_search warning: ${resultText}`);
-
-      if (useEstimatedTokensOnly) {
-        resultTokenCount = estimateTokenCount(options.config, resultText);
-        resultTokenCountEstimated = true;
-      } else {
-        const rejectionToolTokenSpan = options.timingRecorder?.start('repo.tool.tokenize_rejection', {
+      const commandSucceededForFitting = Number(executed.exitCode) === 0 || searchExit.noMatch;
+      if (commandSucceededForFitting) {
+        const fitter = new ToolOutputFitter({
+          async countToolOutputTokens(text: string): Promise<number> {
+            return useEstimatedTokensOnly
+              ? estimateTokenCount(options.config, text)
+              : await countTokensWithFallback(options.config, text);
+          },
+        });
+        const fitResult = await fitter.fitSegments({
+          segments: resultText.split(/\r?\n/u).filter((line) => line.length > 0),
+          separator: '\n',
+          maxTokens: Math.min(perToolCapTokens, Math.max(1, remainingTokenAllowance)),
+          unit: nativeExecution && nativeExecution.ok && nativeExecution.outputUnit
+            ? nativeExecution.outputUnit
+            : 'lines',
+        });
+        resultText = fitResult.visibleText;
+        const fitTokenSpan = options.timingRecorder?.start('repo.tool.tokenize_fit', {
           taskId: task.id,
           turn,
           toolName: normalizedToolName,
           inputChars: resultText.length,
         });
-        resultTokenCount = await countTokensWithFallback(options.config, resultText);
-        rejectionToolTokenSpan?.end({ tokenCount: resultTokenCount });
-        resultTokenCountEstimated = false;
+        resultTokenCount = useEstimatedTokensOnly
+          ? estimateTokenCount(options.config, resultText)
+          : await countTokensWithFallback(options.config, resultText);
+        fitTokenSpan?.end({ tokenCount: resultTokenCount });
+        resultTokenCountEstimated = useEstimatedTokensOnly;
+      } else {
+        resultText = `Error: requested output would consume ${candidateResultTokenCount} tokens, remaining token allowance: ${remainingTokenAllowance}, per tool call allowance: ${perToolCapTokens}`;
+        writeRedConsoleLine(`repo_search warning: ${resultText}`);
+
+        if (useEstimatedTokensOnly) {
+          resultTokenCount = estimateTokenCount(options.config, resultText);
+          resultTokenCountEstimated = true;
+        } else {
+          const rejectionToolTokenSpan = options.timingRecorder?.start('repo.tool.tokenize_rejection', {
+            taskId: task.id,
+            turn,
+            toolName: normalizedToolName,
+            inputChars: resultText.length,
+          });
+          resultTokenCount = await countTokensWithFallback(options.config, resultText);
+          rejectionToolTokenSpan?.end({ tokenCount: resultTokenCount });
+          resultTokenCountEstimated = false;
+        }
+      }
+    }
+    if (nativeExecution && nativeExecution.ok && nativeExecution.readFile && nativeExecution.lineReadStats && nativeExecution.lineReadStats.lineReadLinesTotal > 0) {
+      const fileReadState = getOrCreateFileReadState(fileReadStateByPath, nativeExecution.readFile.pathKey);
+      const returnedLineCount = Math.min(
+        nativeExecution.lineReadStats.lineReadLinesTotal,
+        resultText.split(/\r?\n/u).filter((line) => /^\d+:/u.test(line)).length,
+      );
+      if (returnedLineCount > 0) {
+        fileReadState.mergedReturnedRanges = mergeRange(fileReadState.mergedReturnedRanges, {
+          start: nativeExecution.readFile.startLine,
+          end: nativeExecution.readFile.startLine + returnedLineCount,
+        });
+      }
+    }
+    if (!isNativeTool && parsedReadWindow && executedReadWindow && executedReadWindow.pathKey === parsedReadWindow.pathKey) {
+      const fileReadState = getOrCreateFileReadState(fileReadStateByPath, parsedReadWindow.pathKey);
+      const returnedLineCount = Math.min(
+        Math.max(0, executedReadWindow.requestedEnd - executedReadWindow.requestedStart),
+        resultText.split(/\r?\n/u).filter((line) => /^\d+:/u.test(line)).length,
+      );
+      if (returnedLineCount > 0) {
+        fileReadState.mergedReturnedRanges = mergeRange(fileReadState.mergedReturnedRanges, {
+          start: executedReadWindow.requestedStart,
+          end: executedReadWindow.requestedStart + returnedLineCount,
+        });
       }
     }
     const toolType = isNativeTool
