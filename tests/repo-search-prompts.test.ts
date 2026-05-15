@@ -59,3 +59,51 @@ test('buildTaskSystemPrompt advertises native read and list tools instead of leg
     assert.doesNotMatch(prompt, /Get-ChildItem src/u);
   });
 });
+
+test('buildTaskSystemPrompt preserves load-bearing planner rules after compression', () => {
+  withTempRepo((repoRoot) => {
+    const prompt = buildTaskSystemPrompt(repoRoot);
+
+    // Header / output contract
+    assert.match(prompt, /You are a repo-search planner\./u);
+    assert.match(prompt, /tool_batch/u);
+    assert.match(prompt, /"action":"finish"/u);
+
+    // Anchor-before-read
+    assert.match(prompt, /3 of your first 5/u);
+    assert.match(prompt, /5 keywords/u);
+    assert.match(prompt, /500 lines/u);
+
+    // Finish gate + minimum depth
+    assert.match(prompt, /5 tool-call turns/u);
+    assert.match(prompt, /shallow search/u);
+    assert.match(prompt, /anchor/u);
+
+    // Output style
+    assert.match(prompt, /<=20-line window/u);
+
+    // Command discipline
+    assert.match(prompt, /read-only/u);
+    assert.match(prompt, /PowerShell/u);
+    assert.match(prompt, /tiny|small/u); // do-not-tiny-slice rule survives in some form
+    assert.match(prompt, /duplicate/iu);
+
+    // Auto-normalization notice (still relevant — engine appends --no-ignore)
+    assert.match(prompt, /--no-ignore/u);
+    assert.match(prompt, /--type tsx/u);
+
+    // Unix bans
+    assert.match(prompt, /head/u);
+    assert.match(prompt, /xargs/u);
+  });
+});
+
+test('buildTaskSystemPrompt compression keeps prompt under 6000 chars (no agents.md)', () => {
+  withTempRepo((repoRoot) => {
+    const prompt = buildTaskSystemPrompt(repoRoot, { includeAgentsMd: false });
+    assert.ok(
+      prompt.length <= 6000,
+      `expected compressed prompt <= 6000 chars, got ${prompt.length}`,
+    );
+  });
+});

@@ -1263,14 +1263,14 @@ test('runTaskLoop prompt includes anti-loop and larger single-file read guidance
 
   const systemMessage = (events.find((event) => event.kind === 'turn_new_messages' && event.turn === 1)?.messages as Array<{ role?: string; content?: unknown }> | undefined)?.find((m) => m.role === 'system')?.content || '';
   const prompt = String(systemMessage);
-  assert.match(prompt, /Single-file read strategy:/u);
-  assert.match(prompt, /Start with `rg -n` to find anchors/u);
-  assert.match(prompt, /default to one larger `repo_read_file` window rather than multiple small windows/u);
-  assert.match(prompt, /If you already read a file once, do a new anchor search before another read of that same file/u);
-  assert.match(prompt, /read a larger section in one call/u);
-  assert.match(prompt, /For reading a specific file section: use `repo_read_file`/u);
-  assert.match(prompt, /Do not issue multiple consecutive reads of the same file with only small line-range changes/u);
-  assert.match(prompt, /If a command returns an output token-allocation error, switch to stronger anchors/u);
+  // Substance: anchor-first read flow, larger windows over tiny slices, recovery on token-budget errors.
+  assert.match(prompt, /Anchor-before-read/u);
+  assert.match(prompt, /rg.*anchor|anchor.*rg/iu);
+  assert.match(prompt, /repo_read_file/u);
+  assert.match(prompt, /one large window per anchor|larger window/u);
+  assert.match(prompt, /never tiny|tiny-slice/u);
+  assert.match(prompt, /Two reads of the same file must have an `rg` search between them/u);
+  assert.match(prompt, /strengthen the anchor/u);
   assert.equal(result.reason, 'finish');
 });
 
@@ -1300,11 +1300,10 @@ test('runTaskLoop prompt examples use larger reads and anchor-first flow', async
   const prompt = String(systemMessage2);
   assert.doesNotMatch(prompt, /Get-Content src\\\\summary\.ts/u);
   assert.match(prompt, /repo_list_files/u);
-  assert.match(prompt, /rg -n \\"invokePlannerMode\\" src\\\\summary\.ts/u);
+  assert.match(prompt, /rg -n \\"invokePlannerMode\\"/u);
   assert.match(prompt, /repo_read_file/u);
   assert.match(prompt, /"path":"src\\\\summary\.ts","startLine":861,"endLine":1100/u);
-  assert.match(prompt, /repo_read_file path=src\\summary\.ts startLine=1 endLine=40/u);
-  assert.match(prompt, /repo_read_file path=src\\summary\.ts startLine=41 endLine=80/u);
+  assert.match(prompt, /tiny-slice/u);
   assert.equal(result.reason, 'finish');
 });
 

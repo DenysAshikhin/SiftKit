@@ -49,6 +49,7 @@ export class ToolOutputFitter {
       };
     }
 
+    const truncationTargetTokens = Math.max(1, Math.floor(maxTokens * 0.5));
     let low = 0;
     let high = totalCount;
     let bestCount = 0;
@@ -56,7 +57,7 @@ export class ToolOutputFitter {
       const mid = Math.floor((low + high) / 2);
       const candidate = this.buildCandidate(input, mid);
       const tokenCount = await this.tokenCounter.countToolOutputTokens(candidate);
-      if (tokenCount <= maxTokens) {
+      if (tokenCount <= truncationTargetTokens) {
         bestCount = mid;
         low = mid + 1;
       } else {

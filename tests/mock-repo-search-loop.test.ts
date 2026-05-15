@@ -820,7 +820,11 @@ test('runTaskLoop increases per-tool cap as tool-call progress grows', async () 
 test('runTaskLoop fits tool output that exceeds remaining token allowance', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   const totalContextTokens = 30000;
-  const oversizedQuestion = 'Q'.repeat(84000);
+  // Sized to pin the regime where remainingTokenAllowance < perToolCapTokens after
+  // the system prompt + question consume most of totalContextTokens. The prior
+  // 84_000 was tuned to the older, larger system prompt; bumped to keep the
+  // assertion pinned to the same budget regime after the prompt was compressed.
+  const oversizedQuestion = 'Q'.repeat(90000);
   const result = await runTaskLoop(
     {
       id: 'task-remaining-token-guard',
