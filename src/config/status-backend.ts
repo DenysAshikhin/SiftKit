@@ -1,5 +1,6 @@
 import { requestJson } from '../lib/http.js';
 import { sleep } from '../lib/time.js';
+import { getStatusServerConnectHost } from '../lib/status-host.js';
 import { getInferenceStatusPath } from './paths.js';
 import { StatusServerUnavailableError } from './errors.js';
 import type { StatusSnapshotResponse } from './types.js';
@@ -46,7 +47,7 @@ export function getStatusBackendUrl(): string {
     return configuredUrl.trim();
   }
 
-  const host = process.env.SIFTKIT_STATUS_HOST?.trim() || '127.0.0.1';
+  const host = getStatusServerConnectHost();
   const port = process.env.SIFTKIT_STATUS_PORT?.trim() || '4765';
   return `http://${host}:${port}/status`;
 }

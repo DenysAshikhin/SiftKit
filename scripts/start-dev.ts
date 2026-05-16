@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import * as http from 'node:http';
 
 import { isBackendReadyStatusCode } from './start-dev-health.js';
-import { buildStartupPortChecks, isPortInUse } from './start-dev-ports.js';
+import { buildStartupPortChecks, getStatusServerConnectHost, isPortInUse } from './start-dev-ports.js';
 import { stopChildProcessTree } from './start-dev-process.js';
 
 type SpawnOptions = { cwd?: string; env?: NodeJS.ProcessEnv };
@@ -47,7 +47,7 @@ function shutdown(signalName: string): void {
 }
 
 function waitForBackendReady(options: { timeoutMs?: number; pollMs?: number } = {}): Promise<boolean> {
-  const host = process.env.SIFTKIT_STATUS_HOST || '127.0.0.1';
+  const host = getStatusServerConnectHost();
   const port = Number.parseInt(process.env.SIFTKIT_STATUS_PORT || '4765', 10);
   const timeoutMs = Number.isFinite(Number(options.timeoutMs)) ? Number(options.timeoutMs) : 30000;
   const pollMs = Number.isFinite(Number(options.pollMs)) ? Number(options.pollMs) : 400;

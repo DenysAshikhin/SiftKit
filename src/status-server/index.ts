@@ -21,6 +21,7 @@ import {
   formatElapsed,
 } from '../lib/text-format.js';
 import { ensureStatusFile } from './status-file.js';
+import { getStatusServerBindHost, getStatusServerConnectHost } from '../lib/status-host.js';
 import { readMetricsWithResetDecision, writeMetrics } from './metrics.js';
 import {
   buildIdleSummarySnapshot,
@@ -180,7 +181,7 @@ function pruneManagedLlamaLogChunks(): void {
 
 export function startStatusServer(options: StartStatusServerOptions = {}): ExtendedServer {
   const disableManagedLlamaStartup = Boolean(options.disableManagedLlamaStartup);
-  const host = process.env.SIFTKIT_STATUS_HOST || '127.0.0.1';
+  const host = getStatusServerBindHost();
   const requestedPort = Number.parseInt(process.env.SIFTKIT_STATUS_PORT || '4765', 10);
   const statusPath = getStatusPath();
   const configPath = getConfigPath();
@@ -213,7 +214,9 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     getServiceBaseUrl() {
       const address = ctx.server?.address?.();
       const port = typeof address === 'object' && address ? address.port : requestedPort;
-      return `http://${host}:${port}`;
+      // `host` may be a wildcard bind address (0.0.0.0); a base URL must be
+      // dialable, so resolve the connect host instead.
+      return `http://${getStatusServerConnectHost()}:${port}`;
     },
     metrics,
     activeRunsByRequestId: new Map(),

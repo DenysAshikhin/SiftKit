@@ -21,6 +21,24 @@ function parsePositivePort(rawValue: string | undefined, fallback: number): numb
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+// Wildcard / unspecified addresses are bind-only — they can never be dialed.
+const WILDCARD_STATUS_HOSTS = new Set(['0.0.0.0', '::', '[::]', '*']);
+
+/**
+ * Address to use when *connecting* to the local status server. Mirrors
+ * `getStatusServerConnectHost` in src/lib/status-host.ts — duplicated because
+ * tsconfig.scripts.json's `rootDir: scripts` forbids importing from ../src.
+ * The status server now binds `0.0.0.0` by default, which is not a dialable
+ * target, so it must collapse to loopback for client connections.
+ */
+export function getStatusServerConnectHost(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = (env.SIFTKIT_STATUS_HOST ?? '').trim();
+  if (!configured || WILDCARD_STATUS_HOSTS.has(configured)) {
+    return '127.0.0.1';
+  }
+  return configured;
+}
+
 function parseCliValue(command: string, optionName: string): string | null {
   const escapedOptionName = optionName.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
   const match = new RegExp(`(?:^|\\s)--${escapedOptionName}\\s+([^\\s]+)`, 'u').exec(command);
@@ -42,7 +60,7 @@ export function buildStartupPortChecks(
     {
       service: 'status',
       name: 'status server',
-      host: env.SIFTKIT_STATUS_HOST || '127.0.0.1',
+      host: getStatusServerConnectHost(env),
       port: parsePositivePort(env.SIFTKIT_STATUS_PORT, 4765),
       fatalIfInUse: true,
     },

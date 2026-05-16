@@ -22,7 +22,20 @@
       "Bash(node dist/scripts/run-tests.js runtime-planner-mode.test.ts runtime-status-server.test.ts runtime-status-server.lifecycle.test.ts)",
       "Bash(git stash *)",
       "Bash(node dist/scripts/run-tests.js runtime-status-server.test.ts --test-name-pattern \"sync-only startup pass does not launch a second llama process\")",
-      "Bash(node dist/scripts/run-tests.js host-sync.test.ts runtime-planner-mode.test.ts runtime-planner-mode.fallbacks.test.ts runtime-summarize.test.ts config.test.ts)"
+      "Bash(node dist/scripts/run-tests.js host-sync.test.ts runtime-planner-mode.test.ts runtime-planner-mode.fallbacks.test.ts runtime-summarize.test.ts config.test.ts)",
+      "Bash(curl -s --max-time 10 http://10.0.0.9:8097/props)",
+      "Bash(curl -s --max-time 10 http://10.0.0.9:8097/slots)",
+      "Bash(curl -s --max-time 10 http://10.0.0.9:8097/v1/models)",
+      "Bash(curl -s --max-time 12 \"http://10.0.0.9:8097/config?skip_ready=1\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" --max-time 12 \"http://10.0.0.9:8097/config?skip_ready=1\")",
+      "Bash(curl -s --max-time 8 http://127.0.0.1:8097/config)",
+      "Bash(curl -s -o /dev/null -w '%{http_code}\\\\n' --max-time 3 http://127.0.0.1:__TRACKED_VAR__/config)",
+      "Bash(curl -s --max-time 12 \"http://10.0.0.9:4765/config?skip_ready=1\" -w \"\\\\n[HTTP %{http_code}]\\\\n\")",
+      "Bash(curl -s --max-time 6 \"http://10.0.0.9:4765/health\" -w \"\\\\n[HTTP %{http_code}]\\\\n\")",
+      "Bash(curl -s -o /dev/null --max-time 6 \"http://10.0.0.9:8097/health\" -w \"[HTTP %{http_code}]\\\\n\")",
+      "Bash(node .\\\\dist\\\\scripts\\\\run-tests.js status-host.test.ts start-dev-ports.test.ts config.test.ts error-diagnostics.test.ts)",
+      "Bash(node ./dist/scripts/run-tests.js status-host.test.ts start-dev-ports.test.ts config.test.ts error-diagnostics.test.ts)",
+      "Bash(node ./dist/scripts/run-tests.js runtime-status-server.lifecycle.test.ts llama-passthrough-status-server.test.ts host-sync.test.ts)"
     ]
   }
 }
