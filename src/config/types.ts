@@ -29,12 +29,14 @@ export type ManagedLlamaKvCacheQuantization =
   | 'q5_1';
 
 export type ManagedLlamaSpeculativeType =
+  | 'draft-simple'
+  | 'draft-eagle3'
+  | 'draft-mtp'
   | 'ngram-simple'
   | 'ngram-map-k'
   | 'ngram-map-k4v'
   | 'ngram-mod'
-  | 'ngram-cache'
-  | 'mtp';
+  | 'ngram-cache';
 
 export type ServerManagedLlamaCppConfig = {
   ExternalServerEnabled?: boolean | null;

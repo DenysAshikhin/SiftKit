@@ -120,7 +120,7 @@ const MANAGED_LLAMA_PRESET_KEYS: ReadonlyArray<Exclude<keyof ServerManagedLlamaC
   'VerboseLogging',
 ];
 
-const MANAGED_LLAMA_SPECULATIVE_TYPES = ['ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod', 'ngram-cache', 'mtp'] as const;
+const MANAGED_LLAMA_SPECULATIVE_TYPES = ['draft-simple', 'draft-eagle3', 'draft-mtp', 'ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod', 'ngram-cache'] as const;
 
 function syncRuntimeLlamaFromManaged(
   runtimeLlamaCpp: RuntimeLlamaCppConfig,

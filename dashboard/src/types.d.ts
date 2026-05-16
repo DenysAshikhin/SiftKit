@@ -231,7 +231,7 @@ export type DashboardPreset = {
     repoRootRequired: boolean;
     maxTurns: number | null;
 };
-export type DashboardManagedLlamaSpeculativeType = 'ngram-simple' | 'ngram-map-k' | 'ngram-map-k4v' | 'ngram-mod' | 'ngram-cache';
+export type DashboardManagedLlamaSpeculativeType = 'draft-simple' | 'draft-eagle3' | 'draft-mtp' | 'ngram-simple' | 'ngram-map-k' | 'ngram-map-k4v' | 'ngram-mod' | 'ngram-cache';
 export type DashboardLlamaCppConfig = {
     BaseUrl: string;
     NumCtx: number;

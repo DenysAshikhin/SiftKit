@@ -275,12 +275,14 @@ export type DashboardPreset = {
 };
 
 export type DashboardManagedLlamaSpeculativeType =
+  | 'draft-simple'
+  | 'draft-eagle3'
+  | 'draft-mtp'
   | 'ngram-simple'
   | 'ngram-map-k'
   | 'ngram-map-k4v'
   | 'ngram-mod'
-  | 'ngram-cache'
-  | 'mtp';
+  | 'ngram-cache';
 
 export type DashboardLlamaCppConfig = {
   BaseUrl: string;

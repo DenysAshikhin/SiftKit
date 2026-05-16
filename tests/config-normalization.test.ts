@@ -16,11 +16,11 @@ function createSpeculativeTypeConfig(speculativeType: string): SiftConfig {
   return config;
 }
 
-test('normalizeConfig accepts mtp speculative decoding type', () => {
-  const { config } = normalizeConfig(createSpeculativeTypeConfig('mtp'));
+test('normalizeConfig accepts draft-mtp speculative decoding type', () => {
+  const { config } = normalizeConfig(createSpeculativeTypeConfig('draft-mtp'));
 
-  assert.equal(config.Server?.LlamaCpp?.SpeculativeType, 'mtp');
-  assert.equal(config.Server?.LlamaCpp?.Presets?.[0]?.SpeculativeType, 'mtp');
+  assert.equal(config.Server?.LlamaCpp?.SpeculativeType, 'draft-mtp');
+  assert.equal(config.Server?.LlamaCpp?.Presets?.[0]?.SpeculativeType, 'draft-mtp');
 });
 
 test('normalizeConfig falls back unknown speculative decoding type to ngram-map-k', () => {

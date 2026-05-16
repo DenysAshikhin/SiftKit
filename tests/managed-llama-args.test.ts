@@ -173,7 +173,7 @@ test('buildManagedLlamaArgs omits speculative numeric flags set to -1', () => {
   assert.equal(args.includes('--spec-ngram-min-hits'), false);
 });
 
-test('buildManagedLlamaArgs includes only mtp speculative flags when mtp is enabled', () => {
+test('buildManagedLlamaArgs includes only mtp speculative flags when draft-mtp is enabled', () => {
   const config = createConfig(0) as {
     Server: {
       LlamaCpp: {
@@ -189,7 +189,7 @@ test('buildManagedLlamaArgs includes only mtp speculative flags when mtp is enab
   };
   Object.assign(config.Server.LlamaCpp, {
     SpeculativeEnabled: true,
-    SpeculativeType: 'mtp',
+    SpeculativeType: 'draft-mtp',
     SpeculativeNgramSizeN: 8,
     SpeculativeNgramSizeM: 16,
     SpeculativeNgramMinHits: 2,
@@ -202,7 +202,7 @@ test('buildManagedLlamaArgs includes only mtp speculative flags when mtp is enab
 
   assert.notEqual(speculativeIndex, -1);
   assert.deepEqual(args.slice(speculativeIndex, speculativeIndex + 4), [
-    '--spec-type', 'mtp',
+    '--spec-type', 'draft-mtp',
     '--spec-draft-n-max', '3',
   ]);
   assert.equal(args.includes('--spec-ngram-size-n'), false);

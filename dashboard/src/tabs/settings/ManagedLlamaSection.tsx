@@ -8,7 +8,7 @@ import type { SettingsSectionId } from '../../settings-sections';
 import type { DashboardConfig, DashboardManagedLlamaPreset, DashboardManagedLlamaSpeculativeType } from '../../types';
 
 const KV_CACHE_QUANT_OPTIONS = ['f32', 'f16', 'bf16', 'q8_0', 'q4_0', 'q4_1', 'iq4_nl', 'q5_0', 'q5_1'] as const;
-const SPECULATIVE_TYPE_OPTIONS = ['ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod', 'ngram-cache', 'mtp'] as const;
+const SPECULATIVE_TYPE_OPTIONS = ['draft-simple', 'draft-eagle3', 'draft-mtp', 'ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod', 'ngram-cache'] as const;
 const LOCAL_LLAMA_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]', '0.0.0.0']);
 
 type RenderField = (
@@ -42,7 +42,7 @@ function isRemoteLlamaBaseUrl(baseUrl: string): boolean {
 }
 
 function isMtpSpeculativeType(type: DashboardManagedLlamaSpeculativeType): boolean {
-  return type === 'mtp';
+  return type === 'draft-mtp';
 }
 
 export function ManagedLlamaSection({

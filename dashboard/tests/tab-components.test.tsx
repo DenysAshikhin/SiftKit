@@ -651,7 +651,7 @@ test('managed llama section shows only mtp speculative controls for mtp speculat
       selectedManagedLlamaPreset={{
         ...MANAGED_PRESET,
         SpeculativeEnabled: true,
-        SpeculativeType: 'mtp' as DashboardManagedLlamaPreset['SpeculativeType'],
+        SpeculativeType: 'draft-mtp' as DashboardManagedLlamaPreset['SpeculativeType'],
       }}
       settingsActionBusy={false}
       settingsPathPickerBusyTarget={null}
@@ -682,7 +682,7 @@ test('managed llama section warns when mtp speculation uses parallel slots', () 
       selectedManagedLlamaPreset={{
         ...MANAGED_PRESET,
         SpeculativeEnabled: true,
-        SpeculativeType: 'mtp' as DashboardManagedLlamaPreset['SpeculativeType'],
+        SpeculativeType: 'draft-mtp' as DashboardManagedLlamaPreset['SpeculativeType'],
         ParallelSlots: 2,
       }}
       settingsActionBusy={false}

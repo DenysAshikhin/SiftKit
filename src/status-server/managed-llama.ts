@@ -696,7 +696,7 @@ export function buildManagedLlamaArgs(managed: ReturnType<typeof getManagedLlama
 }
 
 function isManagedLlamaMtpSpeculativeType(type: string): boolean {
-  return type === 'mtp';
+  return type === 'draft-mtp';
 }
 
 function appendManagedLlamaSpeculativeIntegerArg(args: string[], flag: string, value: number): void {
