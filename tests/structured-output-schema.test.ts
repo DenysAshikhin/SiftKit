@@ -69,7 +69,7 @@ test('buildSummaryPlannerActionJsonSchema encodes only provided tools', () => {
   assert.doesNotMatch(schemaText, /args/u);
 });
 
-test('buildRepoSearchPlannerActionJsonSchema enforces command args and finish confidence', () => {
+test('buildRepoSearchPlannerActionJsonSchema enforces command args and output-only finish', () => {
   const schema = buildRepoSearchPlannerActionJsonSchema({
     toolDefinitions: [{
       type: 'function',
@@ -87,7 +87,7 @@ test('buildRepoSearchPlannerActionJsonSchema enforces command args and finish co
   const schemaText = JSON.stringify(schema);
   assert.match(schemaText, /run_repo_cmd/u);
   assert.match(schemaText, /command/u);
-  assert.match(schemaText, /confidence/u);
+  assert.doesNotMatch(schemaText, /confidence/u);
   assert.doesNotMatch(schemaText, /tool_name/u);
   assert.doesNotMatch(schemaText, /args/u);
   assert.match(schemaText, /"additionalProperties":false/u);

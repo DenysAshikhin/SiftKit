@@ -157,7 +157,7 @@ test('status server stays responsive while repo-search is running', async () => 
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
           "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"x\\\" src\"}",
-          '{"action":"finish","output":"done","confidence":0.9}',
+          '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
           'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 2000 },
@@ -266,7 +266,7 @@ test('repo-search abandons stale running status after acquiring the model lock',
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          '{"action":"finish","output":"done","confidence":0.9}',
+          '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {},
       }),
@@ -630,7 +630,7 @@ test('repo-search endpoint logs one model-requested command line per tool call',
           availableModels: ['mock-model'],
           mockResponses: [
             "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
-            '{"action":"finish","output":"done","confidence":0.9}',
+            '{"action":"finish","output":"done"}',
           ],
           mockCommandResults: {
             'rg -n "planner" src': { exitCode: 0, stdout: 'src/example.ts:1:planner', stderr: '' },
@@ -746,7 +746,7 @@ test('repo-search transcript artifact keeps routine normalized flags out of tool
         availableModels: ['mock-model'],
         mockResponses: [
           '{"action":"repo_rg","command":"rg -n \\"needle\\" src"}',
-          '{"action":"finish","output":"done","confidence":0.9}',
+          '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
           'rg -n "needle" src': { exitCode: 0, stdout: 'src/index.ts:1:needle', stderr: '' },
@@ -852,7 +852,7 @@ test('repo-search transcript artifact replays fitted repo_read_file range using 
         mockResponses: [
           '{"action":"repo_git","command":"git status --short"}',
           '{"action":"repo_read_file","path":"src/big.ts","startLine":300,"endLine":900}',
-          '{"action":"finish","output":"done","confidence":0.9}',
+          '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
           'git status --short': { exitCode: 0, stdout: 'slow evidence', stderr: '', delayMs: 40 },
@@ -1228,7 +1228,7 @@ test('repo-search wakes managed llama when the managed process is offline', asyn
         maxTurns: 2,
         mockResponses: [
           "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"request\\\" src/status-server/routes/core.ts\"}",
-          '{"action":"finish","output":"done","confidence":0.9}',
+          '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
           'rg -n "request" src/status-server/routes/core.ts': { exitCode: 0, stdout: 'src/status-server/routes/core.ts:1:request', stderr: '' },

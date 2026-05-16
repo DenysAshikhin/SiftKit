@@ -5,7 +5,10 @@ import { getDefaultMetrics } from '../dist/status-server/metrics.js';
 import { ManagedLlamaFlushQueue } from '../dist/status-server/managed-llama-flush-queue.js';
 import {
   acquireModelRequestWithWait,
+  clearCompletedStatusRequestIdForDifferentRequest,
   isIdle,
+  MAX_COMPLETED_STATUS_PATH_ENTRIES,
+  rememberCompletedStatusRequestId,
   releaseModelRequest,
 } from '../dist/status-server/server-ops.js';
 import type { ServerContext } from '../dist/status-server/server-types.js';
@@ -61,6 +64,25 @@ function createQueueContext(): ServerContext {
     },
   } as ServerContext & { readonly wakeCount: number };
 }
+
+test('completed status request ids are bounded and cleared when a status path is reused', () => {
+  const ctx = createQueueContext();
+
+  for (let index = 0; index <= MAX_COMPLETED_STATUS_PATH_ENTRIES; index += 1) {
+    rememberCompletedStatusRequestId(ctx, `status-${index}.txt`, `request-${index}`);
+  }
+
+  assert.equal(ctx.completedRequestIdByStatusPath.size, MAX_COMPLETED_STATUS_PATH_ENTRIES);
+  assert.equal(ctx.completedRequestIdByStatusPath.has('status-0.txt'), false);
+  assert.equal(ctx.completedRequestIdByStatusPath.get(`status-${MAX_COMPLETED_STATUS_PATH_ENTRIES}.txt`), `request-${MAX_COMPLETED_STATUS_PATH_ENTRIES}`);
+
+  rememberCompletedStatusRequestId(ctx, 'active-status.txt', 'completed-request');
+  clearCompletedStatusRequestIdForDifferentRequest(ctx, 'active-status.txt', 'completed-request');
+  assert.equal(ctx.completedRequestIdByStatusPath.get('active-status.txt'), 'completed-request');
+
+  clearCompletedStatusRequestIdForDifferentRequest(ctx, 'active-status.txt', 'next-request');
+  assert.equal(ctx.completedRequestIdByStatusPath.has('active-status.txt'), false);
+});
 
 async function captureStdoutLines(fn: (lines: StdoutLine[]) => Promise<void>): Promise<StdoutLine[]> {
   const originalWrite = process.stdout.write.bind(process.stdout);

@@ -300,7 +300,7 @@ test('repo-search reports only processed prompt tokens to the status backend whe
       assert.equal(completionPost.promptEvalTokens, 23);
     }, {
       tokenizeCharsPerToken: 4,
-      assistantContent: '{"action":"finish","output":"done","confidence":0.9}',
+      assistantContent: '{"action":"finish","output":"done"}',
       chatResponse() {
         return {
           id: 'chatcmpl-test',
@@ -309,7 +309,7 @@ test('repo-search reports only processed prompt tokens to the status backend whe
             index: 0,
             message: {
               role: 'assistant',
-              content: '{"action":"finish","output":"done","confidence":0.9}',
+              content: '{"action":"finish","output":"done"}',
             },
           }],
           usage: {

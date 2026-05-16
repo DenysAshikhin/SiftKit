@@ -61,7 +61,6 @@ export type ToolBatchAction = {
 export type FinishAction = {
   action: 'finish';
   output: string;
-  confidence?: number;
 };
 
 export type PlannerAction = ToolAction | ToolBatchAction | FinishAction;

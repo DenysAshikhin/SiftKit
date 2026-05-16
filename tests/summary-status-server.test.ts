@@ -129,7 +129,7 @@ test('summary endpoint waits behind the model request queue', async () => {
         maxTurns: 1,
         availableModels: ['mock-model'],
         mockResponses: [
-          '{"action":"finish","output":"done","confidence":0.9}',
+          '{"action":"finish","output":"done"}',
         ],
       }),
     });
@@ -514,6 +514,18 @@ test('split terminal routes clear active request before next running post', asyn
           promptTokenCount: 50,
         }),
       });
+      const repeatedLateFirstRunning = await requestJson(`${baseUrl}/status`, {
+        method: 'POST',
+        body: JSON.stringify({
+          running: true,
+          taskKind: 'summary',
+          requestId: 'first-summary',
+          statusPath,
+          rawInputCharacterCount: 100,
+          promptCharacterCount: 200,
+          promptTokenCount: 50,
+        }),
+      });
       const secondRunning = await requestJson(`${baseUrl}/status`, {
         method: 'POST',
         body: JSON.stringify({
@@ -530,6 +542,7 @@ test('split terminal routes clear active request before next running post', asyn
       assert.equal(firstTerminalMetadataResponse.statusCode, 200);
       assert.equal(firstCompleteResponse.statusCode, 200);
       assert.equal(lateFirstRunning.statusCode, 200);
+      assert.equal(repeatedLateFirstRunning.statusCode, 200);
       assert.equal(secondRunning.statusCode, 200);
       await new Promise<void>((resolve) => setTimeout(resolve, 150));
     });
@@ -541,7 +554,7 @@ test('split terminal routes clear active request before next running post', asyn
     assert.equal(lines.some((line) => /status terminal_metadata_process_start request_id=first-summary state=completed/u.test(line)), true, lines.join('\n'));
     assert.equal(lines.some((line) => /status terminal_metadata_process_done request_id=first-summary state=completed duration_ms=\d+/u.test(line)), true, lines.join('\n'));
     assert.equal(lines.some((line) => /request false task=summary total_elapsed=0s output_tokens=10/u.test(line)), true, lines.join('\n'));
-    assert.equal(lines.some((line) => /late_running_ignored request_id=first-summary/u.test(line)), true, lines.join('\n'));
+    assert.equal(lines.filter((line) => /late_running_ignored request_id=first-summary/u.test(line)).length, 2, lines.join('\n'));
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

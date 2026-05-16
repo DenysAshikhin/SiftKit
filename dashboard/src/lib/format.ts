@@ -458,8 +458,6 @@ export function extractFinishOutput(raw: string): string {
   let content = raw.slice(start);
   if (content.endsWith('"}') || content.endsWith('"\n}')) {
     content = content.slice(0, content.lastIndexOf('"'));
-  } else if (content.includes('","confidence"')) {
-    content = content.slice(0, content.indexOf('","confidence"'));
   }
   return content
     .replace(/\\n/g, '\n')

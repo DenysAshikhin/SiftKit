@@ -105,12 +105,18 @@ test('ModelJson parses valid repo-search tool action', () => {
 });
 
 test('ModelJson parses valid repo-search finish action', () => {
-  const action = parseRepoSearchPlannerAction('{"action":"finish","output":"done","confidence":0.7}');
+  const action = parseRepoSearchPlannerAction('{"action":"finish","output":"done"}');
   assert.deepEqual(action, {
     action: 'finish',
     output: 'done',
-    confidence: 0.7,
   });
+});
+
+test('ModelJson rejects repo-search finish confidence', () => {
+  assert.throws(
+    () => parseRepoSearchPlannerAction('{"action":"finish","output":"done","confidence":0.7}'),
+    /invalid planner finish action/u
+  );
 });
 
 test('ModelJson rejects invalid repo-search planner payloads', () => {

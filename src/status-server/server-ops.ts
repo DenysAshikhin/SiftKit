@@ -49,6 +49,31 @@ import {
   logLine,
 } from './managed-llama.js';
 
+export const MAX_COMPLETED_STATUS_PATH_ENTRIES = 1000;
+
+export function rememberCompletedStatusRequestId(ctx: ServerContext, statusPath: string, requestId: string): void {
+  ctx.completedRequestIdByStatusPath.delete(statusPath);
+  ctx.completedRequestIdByStatusPath.set(statusPath, requestId);
+  while (ctx.completedRequestIdByStatusPath.size > MAX_COMPLETED_STATUS_PATH_ENTRIES) {
+    const oldestStatusPath = ctx.completedRequestIdByStatusPath.keys().next().value as string | undefined;
+    if (!oldestStatusPath) {
+      return;
+    }
+    ctx.completedRequestIdByStatusPath.delete(oldestStatusPath);
+  }
+}
+
+export function clearCompletedStatusRequestIdForDifferentRequest(
+  ctx: ServerContext,
+  statusPath: string,
+  requestId: string,
+): void {
+  const completedRequestId = ctx.completedRequestIdByStatusPath.get(statusPath);
+  if (completedRequestId && completedRequestId !== requestId) {
+    ctx.completedRequestIdByStatusPath.delete(statusPath);
+  }
+}
+
 function getPositiveIntegerFromEnv(name: string, fallback: number): number {
   const rawValue = process.env[name];
   if (!rawValue || !rawValue.trim()) {

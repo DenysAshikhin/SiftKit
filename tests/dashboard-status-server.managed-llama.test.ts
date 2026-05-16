@@ -248,7 +248,7 @@ test('dashboard plan wakes managed llama when the managed process is offline', a
         model: 'managed-test-model',
         mockResponses: [
           "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"ensureManagedLlamaReady\\\" src/status-server\"}",
-          '{"action":"finish","output":"done","confidence":0.9}',
+          '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
           'rg -n "ensureManagedLlamaReady" src/status-server': { exitCode: 0, stdout: 'src/status-server/managed-llama.ts:1:ensureManagedLlamaReady', stderr: '' },

@@ -26,6 +26,37 @@ import {
 import { releaseModelRequest } from '../dist/status-server/server-ops.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
 
+async function captureStdoutLines(fn: () => Promise<void> | void): Promise<string[]> {
+  const originalWrite = process.stdout.write.bind(process.stdout);
+  const lines: string[] = [];
+  let buffer = '';
+  process.stdout.write = (
+    chunk: string | Uint8Array,
+    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+    callback?: (error?: Error | null) => void,
+  ): boolean => {
+    const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+    buffer += text;
+    const parts = buffer.split(/\r?\n/u);
+    buffer = parts.pop() || '';
+    for (const line of parts) {
+      if (line.trim()) {
+        lines.push(line);
+      }
+    }
+    return originalWrite(chunk, encodingOrCallback as BufferEncoding, callback);
+  };
+  try {
+    await fn();
+  } finally {
+    process.stdout.write = originalWrite;
+  }
+  if (buffer.trim()) {
+    lines.push(buffer.trim());
+  }
+  return lines;
+}
+
 test('managed llama log chunks stay buffered until flushed', async () => {
   await withTestEnvAndServer(async () => {
     const run = createManagedLlamaRun({ purpose: 'startup' });
@@ -55,6 +86,35 @@ test('managed llama log chunks stay buffered until flushed', async () => {
 
     const persistedText = readManagedLlamaLogTextByStream(run.id);
     assert.equal(persistedText.startup_script_stdout, 'first\nsecond\n');
+  });
+});
+
+test('managed llama pending log chunks emit peak size logs', async () => {
+  await withTestEnvAndServer(async () => {
+    const run = createManagedLlamaRun({ purpose: 'startup' });
+
+    const lines = await captureStdoutLines(() => {
+      bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'llama_stdout', chunkText: 'first' });
+      bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'llama_stderr', chunkText: ' plus' });
+      flushManagedLlamaLogChunks(run.id);
+      bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'llama_stdout', chunkText: 'x' });
+    });
+
+    assert.equal(
+      lines.some((line) => new RegExp(`managed_llama pending_log_peak run_id=${run.id} pending_chars=5 stream=llama_stdout stream_chars=5`, 'u').test(line)),
+      true,
+      lines.join('\n'),
+    );
+    assert.equal(
+      lines.some((line) => new RegExp(`managed_llama pending_log_peak run_id=${run.id} pending_chars=10 stream=llama_stderr stream_chars=5`, 'u').test(line)),
+      true,
+      lines.join('\n'),
+    );
+    assert.equal(
+      lines.some((line) => new RegExp(`managed_llama pending_log_peak run_id=${run.id} pending_chars=1 stream=llama_stdout stream_chars=1`, 'u').test(line)),
+      true,
+      lines.join('\n'),
+    );
   });
 });
 

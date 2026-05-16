@@ -209,13 +209,11 @@ export class ModelJson {
 
     if (action === 'finish') {
       const output = typeof parsed.output === 'string' ? parsed.output.trim() : '';
-      if (!output) {
+      const keys = Object.keys(parsed);
+      if (!output || keys.some((key) => key !== 'action' && key !== 'output')) {
         throw new Error('Provider returned an invalid planner finish action.');
       }
-      const confidence = Number(parsed.confidence);
-      return Number.isFinite(confidence)
-        ? { action: 'finish', output, confidence } satisfies RepoSearchFinishAction
-        : { action: 'finish', output } satisfies RepoSearchFinishAction;
+      return { action: 'finish', output } satisfies RepoSearchFinishAction;
     }
 
     throw new Error('Provider returned an unknown planner action.');

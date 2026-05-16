@@ -111,7 +111,6 @@ function buildRepoSearchPlannerFinishActionSchema(): JsonSchemaObject {
     properties: {
       action: { const: 'finish' },
       output: { type: 'string' },
-      confidence: { type: 'number' },
     },
     required: ['action', 'output'],
     additionalProperties: false,

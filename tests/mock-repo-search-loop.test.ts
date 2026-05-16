@@ -328,7 +328,7 @@ test('runTaskLoop replays only returned repo_read_file range after fitting overs
       mockResponses: [
         '{"action":"repo_rg","command":"rg -n \\"needle\\" src"}',
         '{"action":"repo_read_file","path":"src/big.ts","startLine":300,"endLine":900}',
-        '{"action":"finish","output":"done","confidence":0.8}',
+        '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
@@ -1140,7 +1140,7 @@ test('runTaskLoop retries transient provider network failures via shared retry h
 
       const toolIndex = requestCount <= 4 ? requestCount : null;
       const content = toolIndex === null
-        ? '{"action":"finish","output":"done","confidence":0.9}'
+        ? '{"action":"finish","output":"done"}'
         : `{"action":"repo_rg","command":"rg -n \\"q${toolIndex}\\" src"}`;
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({

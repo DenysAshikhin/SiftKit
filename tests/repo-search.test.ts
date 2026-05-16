@@ -198,7 +198,7 @@ test('executeRepoSearchRequest success path writes transcript and artifact', asy
       repoRoot: tempRoot,
       maxTurns: 1,
       mockResponses: [
-        '{"action":"finish","output":"Found test patterns in tests/","confidence":0.9}',
+        '{"action":"finish","output":"Found test patterns in tests/"}',
       ],
       mockCommandResults: {},
       onProgress(event) {
@@ -243,7 +243,7 @@ test('executeRepoSearchRequest does not wait for running status notification res
         statusBackendUrl: statusServer.statusUrl,
         maxTurns: 1,
         mockResponses: [
-          '{"action":"finish","output":"done","confidence":0.9}',
+          '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {},
         onProgress() {
@@ -272,7 +272,7 @@ test('executeRepoSearchRequest does not wait for terminal metadata notification 
         statusBackendUrl: statusServer.statusUrl,
         maxTurns: 1,
         mockResponses: [
-          '{"action":"finish","output":"done","confidence":0.9}',
+          '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {},
       });
@@ -326,7 +326,7 @@ test('executeRepoSearchRequest with mock command executes and returns scorecard'
       maxTurns: 2,
       mockResponses: [
         "{\"action\":\"repo_git\",\"command\":\"git status --short\"}",
-        '{"action":"finish","output":"Found scripts","confidence":0.8}',
+        '{"action":"finish","output":"Found scripts"}',
       ],
       mockCommandResults: {
         'git status --short': { exitCode: 0, stdout: '', stderr: '' },
@@ -345,7 +345,7 @@ test('executeRepoSearchRequest logs lifecycle before provider work starts', asyn
         repoRoot: tempRoot,
         maxTurns: 1,
         mockResponses: [
-          '{"action":"finish","output":"done","confidence":0.8}',
+          '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {},
       });
@@ -387,7 +387,7 @@ test('executeRepoSearchRequest logs repo-search preflight tokenization timing', 
       lines.join('\n'),
     );
   }, {
-    assistantContent: '{"action":"finish","output":"done","confidence":0.8}',
+    assistantContent: '{"action":"finish","output":"done"}',
     tokenizeTokenCount: 321,
   });
 });
@@ -401,7 +401,7 @@ test('executeRepoSearchRequest does not force finish from elapsed tool-loop time
       mockResponses: [
         "{\"action\":\"repo_git\",\"command\":\"git status --short\"}",
         "{\"action\":\"repo_git\",\"command\":\"git status --porcelain\"}",
-        '{"action":"finish","output":"budget answer","confidence":0.8}',
+        '{"action":"finish","output":"budget answer"}',
       ],
       mockCommandResults: {
         'git status --short': { exitCode: 0, stdout: 'slow evidence', stderr: '', delayMs: 40 },
@@ -439,7 +439,7 @@ test('executeRepoSearchRequest fits native reads using per-tool context limits',
       mockResponses: [
         '{"action":"repo_git","command":"git status --short"}',
         '{"action":"repo_read_file","path":"src/big.ts","startLine":300,"endLine":900}',
-        '{"action":"finish","output":"budget answer","confidence":0.8}',
+        '{"action":"finish","output":"budget answer"}',
       ],
       mockCommandResults: {
         'git status --short': { exitCode: 0, stdout: 'slow evidence', stderr: '', delayMs: 40 },
@@ -494,7 +494,7 @@ test('executeRepoSearchRequest persists summed prompt-eval and generation durati
         return;
       }
       setTimeout(() => {
-        res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"finish\\",\\"output\\":\\"done\\",\\"confidence\\":0.9}"}}]}\n\n');
+        res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"finish\\",\\"output\\":\\"done\\"}"}}]}\n\n');
         setTimeout(() => {
           res.write('data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":22,"completion_tokens":5,"completion_tokens_details":{"reasoning_tokens":3},"prompt_tokens_details":{"cached_tokens":15}}}\n\n');
           res.write('data: [DONE]\n\n');
@@ -603,7 +603,7 @@ test('executeRepoSearchRequest trace output when SIFTKIT_TRACE_REPO_SEARCH=1', a
         repoRoot: tempRoot,
         maxTurns: 1,
         mockResponses: [
-          '{"action":"finish","output":"done","confidence":0.5}',
+          '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {},
       });

@@ -68,6 +68,8 @@ import {
   hasActiveRuns,
   getIdleSummaryDatabase,
   wakeManagedLlamaForIncomingModelRequest,
+  clearCompletedStatusRequestIdForDifferentRequest,
+  rememberCompletedStatusRequestId,
 } from '../server-ops.js';
 import { getRuntimeDatabase } from '../../state/runtime-db.js';
 import type {
@@ -746,7 +748,7 @@ export async function handleCoreRoute(
       return true;
     }
     logLine(`status complete_start request_id=${requestId} state=${terminalState}`);
-    ctx.completedRequestIdByStatusPath.set(completedStatusPath, requestId);
+    rememberCompletedStatusRequestId(ctx, completedStatusPath, requestId);
     if (ctx.activeRequestIdByStatusPath.get(completedStatusPath) === requestId) {
       ctx.activeRequestIdByStatusPath.delete(completedStatusPath);
     }
@@ -886,6 +888,7 @@ export async function handleCoreRoute(
       return true;
     }
     const requestId = getResolvedRequestId(metadata, statusPath);
+    clearCompletedStatusRequestIdForDifferentRequest(ctx, statusPath, requestId);
     if (running && ctx.completedRequestIdByStatusPath.get(statusPath) === requestId) {
       logLine(`request late_running_ignored request_id=${requestId} task=${metadata.taskKind ?? 'unknown'}`);
       const publishedStatus = getPublishedStatusText(ctx);

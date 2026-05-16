@@ -402,7 +402,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
         mockResponses: [
           "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"dashboard\\\" .\"}",
           "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"/dashboard/chat/sessions\\\" siftKitStatus/index.js\"}",
-          '{"action":"finish","output":"Plan: update dashboard/src/App.tsx and siftKitStatus/index.js; include a risks section for endpoint lock contention and stale repo-root paths.","confidence":0.92}',
+          '{"action":"finish","output":"Plan: update dashboard/src/App.tsx and siftKitStatus/index.js; include a risks section for endpoint lock contention and stale repo-root paths."}',
         ],
         mockCommandResults: {
           'rg -n "dashboard" .': { exitCode: 0, stdout: 'dashboard/src/App.tsx:1:import { useEffect }', stderr: '' },
@@ -645,7 +645,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
           "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"test\\\" .\"}",
-          '{"action":"finish","output":"done","confidence":0.9}',
+          '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
           'rg -n "test" .': { exitCode: 0, stdout: 'tests/example.test.ts:1:test()', stderr: '' },
@@ -681,7 +681,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
           "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"test\\\" .\"}",
-          '{"action":"finish","output":"done","confidence":0.9}',
+          '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
           'rg -n "test" .': { exitCode: 0, stdout: 'tests/example.test.ts:1:test()', stderr: '' },
@@ -759,7 +759,7 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
           "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"x\\\" src\"}",
-          '{"action":"finish","output":"done","confidence":0.9}',
+          '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
           'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
@@ -833,7 +833,7 @@ test('model routes execute in FIFO order across mixed request kinds', async () =
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
           "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"x\\\" src\"}",
-          '{"action":"finish","output":"done","confidence":0.9}',
+          '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
           'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
@@ -931,7 +931,7 @@ test('queued model request is dropped when client disconnects before lock grant'
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
           "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"x\\\" src\"}",
-          '{"action":"finish","output":"done","confidence":0.9}',
+          '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
           'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
@@ -1020,7 +1020,7 @@ test('invalid model request is rejected without waiting for active model work', 
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
           "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"x\\\" src\"}",
-          '{"action":"finish","output":"done","confidence":0.9}',
+          '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
           'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
@@ -1188,7 +1188,7 @@ test('chat completion receives hidden tool context while keeping it out of visib
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
           "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"name\\\" package.json\"}",
-          '{"action":"finish","output":"done","confidence":0.9}',
+          '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
           'rg -n "name" package.json': { exitCode: 0, stdout: 'package.json:2:  "name": "siftkit"', stderr: '' },
