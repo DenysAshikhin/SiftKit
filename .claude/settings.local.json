@@ -35,7 +35,15 @@
       "Bash(curl -s -o /dev/null --max-time 6 \"http://10.0.0.9:8097/health\" -w \"[HTTP %{http_code}]\\\\n\")",
       "Bash(node .\\\\dist\\\\scripts\\\\run-tests.js status-host.test.ts start-dev-ports.test.ts config.test.ts error-diagnostics.test.ts)",
       "Bash(node ./dist/scripts/run-tests.js status-host.test.ts start-dev-ports.test.ts config.test.ts error-diagnostics.test.ts)",
-      "Bash(node ./dist/scripts/run-tests.js runtime-status-server.lifecycle.test.ts llama-passthrough-status-server.test.ts host-sync.test.ts)"
+      "Bash(node ./dist/scripts/run-tests.js runtime-status-server.lifecycle.test.ts llama-passthrough-status-server.test.ts host-sync.test.ts)",
+      "Bash(node ./dist/scripts/run-tests.js status-host.test.ts start-dev-ports.test.ts)",
+      "Bash(curl -s --max-time 8 \"http://127.0.0.1:4765/config\")",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\).on\\('end',\\(\\)=>{const j=JSON.parse\\(d\\);console.log\\(JSON.stringify\\({Runtime_LlamaCpp_BaseUrl:j.Runtime?.LlamaCpp?.BaseUrl,Server_LlamaCpp_BaseUrl:j.Server?.LlamaCpp?.BaseUrl,LlamaCpp_BaseUrl:j.LlamaCpp?.BaseUrl,ExternalServerEnabled:j.Server?.LlamaCpp?.ExternalServerEnabled,activePreset:j.Server?.LlamaCpp?.ActivePresetId},null,1\\)\\);}\\)\")",
+      "Bash(curl -s --max-time 10 \"http://127.0.0.1:4765/config?skip_ready=1\" -w \"\\\\n[HTTP %{http_code}]\" -o C:/Users/brawl1/cfg.json)",
+      "Read(//c/Users/brawl1/**)",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\).on\\('end',\\(\\)=>{try{const j=JSON.parse\\(d\\);console.log\\(JSON.stringify\\({R:j.Runtime?.LlamaCpp?.BaseUrl,S:j.Server?.LlamaCpp?.BaseUrl,L:j.LlamaCpp?.BaseUrl,ext:j.Server?.LlamaCpp?.ExternalServerEnabled,ap:j.Server?.LlamaCpp?.ActivePresetId},null,1\\)\\);}catch\\(e\\){console.log\\('len='+d.length,'head='+d.slice\\(0,200\\)\\);}}\\)\")",
+      "Bash(netstat -ano -p tcp)",
+      "Bash(curl -s --max-time 8 \"http://127.0.0.1:4765/config\" -w \" [HTTP %{http_code}]\")"
     ]
   }
 }
