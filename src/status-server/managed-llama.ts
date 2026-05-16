@@ -549,6 +549,13 @@ function createManagedLlamaLogRun(
   };
 }
 
+function enqueueManagedLlamaLogFlush(ctx: ServerContext, logRef: ManagedLlamaLogRef): void {
+  if (!ctx.managedLlamaReady) {
+    return;
+  }
+  ctx.managedLlamaFlushQueue.enqueue(logRef.runId);
+}
+
 function appendManagedLlamaLogLine(logRef: ManagedLlamaLogRef, streamKind: ManagedLlamaStreamKind, chunk: string): void {
   appendManagedLlamaSpeculativeMetricsChunk({
     runId: logRef.runId,
@@ -563,6 +570,7 @@ function appendManagedLlamaLogLine(logRef: ManagedLlamaLogRef, streamKind: Manag
 }
 
 function attachStreamCollector(
+  ctx: ServerContext,
   logRef: ManagedLlamaLogRef,
   streamKind: ManagedLlamaStreamKind,
   stream: NodeJS.ReadableStream | null,
@@ -589,6 +597,7 @@ function attachStreamCollector(
           streamKind,
           chunkText: filteredChunkText,
         });
+        enqueueManagedLlamaLogFlush(ctx, logRef);
       }
     } catch {
       // Ignore teardown races after the runtime DB has already closed.
@@ -597,6 +606,7 @@ function attachStreamCollector(
   stream.on('error', (error: Error) => {
     try {
       appendManagedLlamaLogLine(logRef, streamKind, `\n[stream-error] ${error.message}\n`);
+      enqueueManagedLlamaLogFlush(ctx, logRef);
     } catch {
       // Ignore teardown races after the runtime DB has already closed.
     }
@@ -771,8 +781,8 @@ function spawnManagedLlamaProcess(
     detached: false,
   });
   const progress: ChildOutputProgress = { stdoutChars: 0, stderrChars: 0 };
-  attachStreamCollector(logRef, MANAGED_STDOUT_STREAM, child.stdout, (chars) => { progress.stdoutChars += chars; });
-  attachStreamCollector(logRef, MANAGED_STDERR_STREAM, child.stderr, (chars) => { progress.stderrChars += chars; });
+  attachStreamCollector(ctx, logRef, MANAGED_STDOUT_STREAM, child.stdout, (chars) => { progress.stdoutChars += chars; });
+  attachStreamCollector(ctx, logRef, MANAGED_STDERR_STREAM, child.stderr, (chars) => { progress.stderrChars += chars; });
   child.on('exit', (code: number | null) => {
     try {
       flushManagedLlamaLogChunks(logRef.runId);
@@ -917,26 +927,14 @@ function writeManagedLlamaFailureDump(logRef: ManagedLlamaLogRef, entries: LogEn
   return artifact.uri;
 }
 
-function failManagedLlamaStartup(ctx: ServerContext, message: string): void {
-  ctx.managedLlamaStartupWarning = message;
-  process.stderr.write(`[siftKitStatus] ${message}\n`);
-  process.stderr.write('[siftKitStatus] Continuing in degraded mode until managed llama.cpp becomes reachable.\n');
-}
-
-async function scanManagedLlamaStartupLogsOrFail(ctx: ServerContext, logRef: ManagedLlamaLogRef): Promise<void> {
+async function scanManagedLlamaStartupLogsOrFail(logRef: ManagedLlamaLogRef): Promise<void> {
   const entries = collectManagedLlamaAlertMatches(logRef);
   const matchedEntries = entries.filter((entry) => entry.matchingLines.length > 0);
   if (matchedEntries.length === 0) {
     return;
   }
   const dumpPath = writeManagedLlamaFailureDump(logRef, entries);
-  const error = new Error(`Managed llama.cpp startup logs contained warning/error markers. Dumped logs to ${dumpPath}.`);
-  setImmediate(() => {
-    void shutdownManagedLlamaIfNeeded(ctx).finally(() => {
-      failManagedLlamaStartup(ctx, error.message);
-    });
-  });
-  throw error;
+  throw new Error(`Managed llama.cpp startup logs contained warning/error markers. Dumped logs to ${dumpPath}.`);
 }
 
 // ---------------------------------------------------------------------------
@@ -1042,14 +1040,14 @@ async function waitForManagedLlamaStartup(
 }
 
 async function abortManagedLlamaStartup(ctx: ServerContext, config: Dict, launchedChild: ChildProcess | null = null): Promise<void> {
+  const managed = getManagedLlamaConfig(config);
+  const listeningPort = getManagedLlamaListeningPort(config, managed);
   if (launchedChild && launchedChild.pid && launchedChild.exitCode === null && launchedChild.signalCode === null) {
     terminateProcessTree(launchedChild.pid);
-  } else {
-    const managed = getManagedLlamaConfig(config);
-    const fallbackPid = findListeningProcessIdByPort(managed.Port);
-    if (fallbackPid) {
-      terminateProcessTree(fallbackPid);
-    }
+  }
+  const fallbackPid = findListeningProcessIdByPort(listeningPort);
+  if (fallbackPid) {
+    terminateProcessTree(fallbackPid);
   }
   try {
     await waitForLlamaServerReachability(config, false);
@@ -1166,7 +1164,7 @@ export async function ensureManagedLlamaReady(ctx: ServerContext, options: Ensur
     ctx.managedLlamaLastStartupLogs = launched.logRef;
     try {
       await waitForManagedLlamaStartup(config, launched.child, launched.logRef, spawnStartupDeadline, launched.progress);
-      await scanManagedLlamaStartupLogsOrFail(ctx, launched.logRef);
+      await scanManagedLlamaStartupLogsOrFail(launched.logRef);
       writeManagedLlamaStartupReviewDump(launched.logRef, { result: 'ready', baseUrl });
       updateManagedLlamaRun({
         id: launched.logRef.runId,

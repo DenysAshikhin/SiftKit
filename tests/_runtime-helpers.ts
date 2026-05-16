@@ -942,6 +942,7 @@ async function withRealStatusServer(fn, options = {}) {
     SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
     SIFTKIT_IDLE_SUMMARY_DB_PATH: process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH,
     SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS: process.env.SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS,
+    SIFTKIT_MANAGED_LLAMA_FLUSH_IDLE_DELAY_MS: process.env.SIFTKIT_MANAGED_LLAMA_FLUSH_IDLE_DELAY_MS,
     SIFTKIT_EXECUTION_LEASE_STALE_MS: process.env.SIFTKIT_EXECUTION_LEASE_STALE_MS,
     SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS,
     SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE: process.env.SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE,
@@ -970,11 +971,18 @@ async function withRealStatusServer(fn, options = {}) {
   } else {
     delete process.env.SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS;
   }
+  const managedLlamaFlushIdleDelayMs = getOptionalNonNegativeInteger(options.managedLlamaFlushIdleDelayMs);
+  if (managedLlamaFlushIdleDelayMs !== null) {
+    process.env.SIFTKIT_MANAGED_LLAMA_FLUSH_IDLE_DELAY_MS = String(managedLlamaFlushIdleDelayMs);
+  } else {
+    delete process.env.SIFTKIT_MANAGED_LLAMA_FLUSH_IDLE_DELAY_MS;
+  }
 
   seedRuntimeConfigFromJson(options.configPath);
   const server = startStatusServer({
     disableManagedLlamaStartup: Boolean(options.disableManagedLlamaStartup),
     terminalMetadataIdleDelayMs: terminalMetadataIdleDelayMs ?? undefined,
+    managedLlamaFlushIdleDelayMs: managedLlamaFlushIdleDelayMs ?? undefined,
   });
   try {
     const address = await new Promise((resolve) => {
@@ -1274,6 +1282,7 @@ function writeManagedLlamaScripts(tempRoot, port, modelId = 'managed-test-model'
   const readyFilePath = path.join(tempRoot, 'fake-llama.ready');
   const syncOnlyMarkerPath = path.join(tempRoot, 'fake-llama.sync-only');
   const launchMarkerPath = path.join(tempRoot, 'fake-llama.launch');
+  const deferredLogMarkerPath = path.join(tempRoot, 'fake-llama.deferred-log');
   const invocationLogPath = path.join(tempRoot, 'fake-llama.invocation.json');
 
   fs.writeFileSync(modelPath, 'fake model', 'utf8');
@@ -1336,6 +1345,8 @@ $nodePath = ${toSingleQuotedPowerShellLiteral(process.execPath)}
 $serverScript = ${toSingleQuotedPowerShellLiteral(fakeServerPath)}
 $startupLogLine = ${toSingleQuotedPowerShellLiteral(options.startupLogLine || '')}
 $llamaLogLine = ${toSingleQuotedPowerShellLiteral(options.llamaLogLine || '')}
+$deferredLogLine = ${toSingleQuotedPowerShellLiteral(options.deferredLogLine || '')}
+$deferredLogMarkerPath = ${toSingleQuotedPowerShellLiteral(deferredLogMarkerPath)}
 $launchHangingProcess = ${options.launchHangingProcess ? '$true' : '$false'}
 $preflightConfigGet = ${options.preflightConfigGet ? '$true' : '$false'}
 $emitManagedStartupFlag = ${options.emitManagedStartupFlag ? '$true' : '$false'}
@@ -1434,6 +1445,15 @@ $child = if ($launchHangingProcess) {
   Start-Process -FilePath $nodePath -ArgumentList @($serverScript) -PassThru -WindowStyle Hidden
 }
 Set-Content -LiteralPath $pidFile -Value ([string]$child.Id) -Encoding utf8 -NoNewline
+if ($deferredLogLine) {
+  $deadline = (Get-Date).AddSeconds(10)
+  while (-not (Test-Path -LiteralPath $deferredLogMarkerPath) -and (Get-Date) -lt $deadline) {
+    Start-Sleep -Milliseconds 25
+  }
+  if (Test-Path -LiteralPath $deferredLogMarkerPath) {
+    Write-Error $deferredLogLine
+  }
+}
 Wait-Process -Id $child.Id
 Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
 exit 0
@@ -1473,6 +1493,7 @@ exit 0
     readyFilePath,
     syncOnlyMarkerPath,
     launchMarkerPath,
+    deferredLogMarkerPath,
     invocationLogPath,
   };
 }

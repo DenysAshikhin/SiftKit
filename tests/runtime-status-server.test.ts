@@ -335,6 +335,48 @@ test('real status server starts managed llama.cpp during server startup before s
   });
 });
 
+test('managed llama live stream logs flush after idle without model request release', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
+    const llamaPort = await getFreePort();
+    const deferredLogLine = 'deferred-live-stderr-log';
+    const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', { deferredLogLine });
+    const config = getDefaultConfig();
+    applyManagedScriptConfig(config, managed);
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    await withRealStatusServer(async () => {
+      const latestStartupDumpPath = path.join(tempRoot, '.siftkit', 'logs', 'managed-llama', 'latest-startup.log');
+      await waitForAsyncExpectation(
+        async () => assert.equal(fs.existsSync(latestStartupDumpPath), true),
+        5000
+      );
+
+      fs.writeFileSync(managed.deferredLogMarkerPath, '1', 'utf8');
+
+      await waitForAsyncExpectation(async () => {
+        const database = new Database(runtimeDbPath, { readonly: true });
+        try {
+          const row = database.prepare(`
+            SELECT GROUP_CONCAT(chunk_text, '') AS text
+            FROM managed_llama_log_chunks
+            WHERE stream_kind = 'startup_script_stderr'
+          `).get();
+          assert.ok(String(row?.text || '').includes(deferredLogLine));
+        } finally {
+          database.close();
+        }
+      }, 5000);
+    }, {
+      statusPath,
+      configPath,
+      managedLlamaFlushIdleDelayMs: 50,
+    });
+  });
+});
+
 test('real status server abandons stale running request instead of returning busy', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
@@ -1289,5 +1331,4 @@ test('real status server marks a stale active request as abandoned when a new re
     });
   });
 });
-
 
