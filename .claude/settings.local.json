@@ -10,7 +10,19 @@
       "Bash(npx jest:*)",
       "Bash(npm run:*)",
       "Bash(npx tsx:*)",
-      "Bash(node --test --test-name-pattern=\"status server|repo.search.*status|concurrent|busy|stale|abandoned|llm_start|llm_end|progress.*log|buildRepoSearch\")"
+      "Bash(node --test --test-name-pattern=\"status server|repo.search.*status|concurrent|busy|stale|abandoned|llm_start|llm_end|progress.*log|buildRepoSearch\")",
+      "Bash(xargs grep -l \"context\\\\|slot\\\\|parallel\")",
+      "Bash(node -e ' *)",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\(JSON.stringify\\(p.scripts,null,1\\)\\); console.log\\('devDeps:', Object.keys\\(p.devDependencies||{}\\).join\\(', '\\)\\);\")",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\('deps jsonrepair:', \\(p.dependencies||{}\\).jsonrepair\\); console.log\\('all deps:', Object.keys\\(p.dependencies||{}\\).join\\(', '\\)\\);\")",
+      "Bash(npm install *)",
+      "Bash(node dist/scripts/run-tests.js host-sync.test.ts)",
+      "Bash(node dist/scripts/run-tests.js runtime-planner-mode.fallbacks.test.ts)",
+      "Bash(node dist/scripts/run-tests.js)",
+      "Bash(node dist/scripts/run-tests.js runtime-planner-mode.test.ts runtime-status-server.test.ts runtime-status-server.lifecycle.test.ts)",
+      "Bash(git stash *)",
+      "Bash(node dist/scripts/run-tests.js runtime-status-server.test.ts --test-name-pattern \"sync-only startup pass does not launch a second llama process\")",
+      "Bash(node dist/scripts/run-tests.js host-sync.test.ts runtime-planner-mode.test.ts runtime-planner-mode.fallbacks.test.ts runtime-summarize.test.ts config.test.ts)"
     ]
   }
 }

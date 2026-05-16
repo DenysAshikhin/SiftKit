@@ -147,7 +147,12 @@ export function buildPlannerInitialUserPrompt(options: {
 export function buildPlannerInvalidResponseUserPrompt(message: string): string {
   return [
     `Previous response was invalid: ${message.trim().replace(/\s+/gu, ' ')}`,
-    'Retry with one corrected JSON action and concrete literal argument values.',
+    'Reply with exactly one JSON object and nothing else — no markdown fences, no commentary.',
+    'Put the action name in "action" and tool arguments at the top level, using concrete literal values.',
+    'Valid examples:',
+    '{"action":"find_text","query":"error","mode":"literal","maxHits":5,"contextLines":1}',
+    '{"action":"read_lines","startLine":120,"endLine":180}',
+    '{"action":"finish","classification":"summary","raw_review_required":false,"output":"final answer text"}',
   ].join('\n');
 }
 

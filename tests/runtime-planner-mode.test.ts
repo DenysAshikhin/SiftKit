@@ -380,7 +380,7 @@ test('planner malformed json_filter schema-placeholder args fail on invalid resp
     assert.equal(debugDump.final.reason, 'planner_invalid_response_limit');
     assert.equal(
       debugDump.events.filter((event) => event.kind === 'planner_invalid_response').length,
-      2,
+      4,
     );
   });
 });

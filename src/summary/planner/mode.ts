@@ -69,6 +69,10 @@ import {
 const MAX_PLANNER_TOOL_CALLS = 30;
 const PLANNER_FORCED_FINISH_MAX_ATTEMPTS = 2;
 const PLANNER_DUPLICATE_FORCE_THRESHOLD = 5;
+// How many malformed model replies the planner tolerates before giving up.
+// A couple of garbled responses should not abort a whole large-input request;
+// each invalid reply is fed back with corrective guidance before retrying.
+const MAX_PLANNER_INVALID_RESPONSES = 4;
 
 function getPlannerTokenizeOptions(requestTimeoutSeconds: number | undefined): CountLlamaCppTokensOptions | undefined {
   const timeoutSeconds = Number(requestTimeoutSeconds);
@@ -331,7 +335,7 @@ export async function invokePlannerMode(options: {
           error: invalidResponseError,
           toolResultText: invalidToolResultText,
         });
-        if (invalidActionCount >= 2) {
+        if (invalidActionCount >= MAX_PLANNER_INVALID_RESPONSES) {
           debugRecorder.finish({
             status: 'failed',
             reason: 'planner_invalid_response_limit',
@@ -608,7 +612,7 @@ export async function invokePlannerMode(options: {
             toolCall: toolAction,
             toolResultText: invalidToolResultText,
           });
-          if (invalidActionCount >= 2) {
+          if (invalidActionCount >= MAX_PLANNER_INVALID_RESPONSES) {
             appendToolBatchExchange(messages, batchOutcomes, providerResponse.reasoningText || '');
             debugRecorder.finish({
               status: 'failed',

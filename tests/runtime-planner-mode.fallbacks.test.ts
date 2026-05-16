@@ -146,6 +146,43 @@ test('planner fails fast when the planner response body is empty', async () => {
   });
 });
 
+test('planner tolerates several malformed replies before succeeding instead of aborting after two', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      const threshold = getChunkThresholdCharacters(config);
+      const inputText = buildOversizedTransitionsInput(threshold + 1000);
+
+      const result = await summarizeRequest({
+        question: 'Find all transitions in the Lumbridge Castle area.',
+        inputText,
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+      });
+
+      assert.equal(result.Classification, 'summary');
+      assert.equal(result.Summary, 'planner tolerated invalid replies');
+      // Three malformed replies are fed back with corrective guidance; the
+      // fourth reply finishes. The old limit aborted after the second.
+      assert.equal(server.state.chatRequests.length, 4);
+    }, {
+      assistantContent(promptText, parsed, requestIndex) {
+        if (requestIndex < 4) {
+          return 'this is not a valid planner action';
+        }
+        return JSON.stringify({
+          action: 'finish',
+          classification: 'summary',
+          raw_review_required: false,
+          output: 'planner tolerated invalid replies',
+        });
+      },
+    });
+  });
+});
+
 test('planner accepts a direct structured summary response for oversized input instead of falling back to chunking', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {

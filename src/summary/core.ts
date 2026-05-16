@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import {
+  applyHostLlamaRuntimeSettings,
   loadConfig,
   normalizeLoadedConfig,
   type SiftConfig,
@@ -653,6 +654,18 @@ export async function summarizeRequest(request: SummaryRequest): Promise<Summary
       backend = request.backend || config.Backend;
       model = request.model || getConfiguredModel(config);
       logSummaryProgress(`config_done request_id=${requestId} backend=${backend} model=${model}`);
+      if (backend === 'llama.cpp') {
+        // In pass-through mode the prompt-budget math must use the host's real
+        // context window, not this client's (possibly stale) local NumCtx.
+        const localNumCtx = getConfiguredLlamaNumCtx(config);
+        config = await applyHostLlamaRuntimeSettings(config);
+        const effectiveNumCtx = getConfiguredLlamaNumCtx(config);
+        if (effectiveNumCtx !== localNumCtx) {
+          logSummaryProgress(
+            `host_sync request_id=${requestId} num_ctx_local=${localNumCtx} num_ctx_host=${effectiveNumCtx}`,
+          );
+        }
+      }
       const riskLevel = request.policyProfile === 'risky-operation' ? 'risky' : 'informational';
       const sourceKind = request.sourceKind || 'standalone';
       const maxInputCharacters = getChunkThresholdCharacters(config) * 4;

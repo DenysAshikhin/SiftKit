@@ -67,6 +67,11 @@ export {
 } from './effective.js';
 
 export {
+  applyHostLlamaRuntimeSettings,
+  resetHostLlamaSettingsCacheForTests,
+} from './host-sync.js';
+
+export {
   ensureStatusServerReachable,
   getStatusBackendUrl,
   getStatusServerHealthUrl,
