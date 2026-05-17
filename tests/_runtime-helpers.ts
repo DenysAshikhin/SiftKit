@@ -1280,8 +1280,6 @@ function writeManagedLlamaScripts(tempRoot, port, modelId = 'managed-test-model'
   const shutdownScriptPath = path.join(tempRoot, 'stop-llama.ps1');
   const pidFilePath = path.join(tempRoot, 'fake-llama.pid');
   const readyFilePath = path.join(tempRoot, 'fake-llama.ready');
-  const syncOnlyMarkerPath = path.join(tempRoot, 'fake-llama.sync-only');
-  const launchMarkerPath = path.join(tempRoot, 'fake-llama.launch');
   const deferredLogMarkerPath = path.join(tempRoot, 'fake-llama.deferred-log');
   const invocationLogPath = path.join(tempRoot, 'fake-llama.invocation.json');
 
@@ -1366,38 +1364,8 @@ $launchHangingProcess = ${options.launchHangingProcess ? '$true' : '$false'}
 $preflightConfigGet = ${options.preflightConfigGet ? '$true' : '$false'}
 $emitManagedStartupFlag = ${options.emitManagedStartupFlag ? '$true' : '$false'}
 $emitVerboseEnvFlags = ${options.emitVerboseEnvFlags ? '$true' : '$false'}
-$supportsSyncOnly = ${options.supportsSyncOnly === false ? '$false' : '$true'}
-$syncOnlyModel = ${toSingleQuotedPowerShellLiteral(options.syncOnlyModel || '')}
-$syncOnlyMarkerPath = ${toSingleQuotedPowerShellLiteral(syncOnlyMarkerPath)}
-$launchMarkerPath = ${toSingleQuotedPowerShellLiteral(launchMarkerPath)}
-$writeLaunchMarker = ${options.writeLaunchMarker ? '$true' : '$false'}
 $captureInvocation = ${options.captureInvocation ? '$true' : '$false'}
 $invocationLogPath = ${toSingleQuotedPowerShellLiteral(invocationLogPath)}
-
-function Set-Json {
-  param(
-    [string]$Url,
-    [object]$Body
-  )
-
-  $json = $Body | ConvertTo-Json -Depth 20
-  Invoke-RestMethod -Uri $Url -Method Put -ContentType 'application/json' -Body $json -TimeoutSec 10 | Out-Null
-}
-
-$syncOnly = $supportsSyncOnly -and ($env:SIFTKIT_MANAGED_LLAMA_SYNC_ONLY -eq '1')
-if ($syncOnly) {
-  Set-Content -LiteralPath $syncOnlyMarkerPath -Value '1' -Encoding utf8 -NoNewline
-  if ($ConfigUrl -and $syncOnlyModel) {
-    $config = Invoke-RestMethod -Uri $ConfigUrl -Method Get -TimeoutSec 10
-    if (-not $config.Runtime) {
-      $config | Add-Member -MemberType NoteProperty -Name Runtime -Value @{} -Force
-    }
-    $config.Model = $syncOnlyModel
-    $config.Runtime.Model = $syncOnlyModel
-    Set-Json -Url $ConfigUrl -Body $config
-  }
-  exit 0
-}
 
 if (Test-Path -LiteralPath $pidFile) {
   try {
@@ -1430,10 +1398,6 @@ if ($preflightConfigGet -and $ConfigUrl) {
   }
   catch {
   }
-}
-
-if ($writeLaunchMarker) {
-  Set-Content -LiteralPath $launchMarkerPath -Value '1' -Encoding utf8 -NoNewline
 }
 
 if ($captureInvocation) {
@@ -1506,8 +1470,6 @@ exit 0
     shutdownScriptPath,
     pidFilePath,
     readyFilePath,
-    syncOnlyMarkerPath,
-    launchMarkerPath,
     deferredLogMarkerPath,
     invocationLogPath,
   };

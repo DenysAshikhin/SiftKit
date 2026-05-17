@@ -54,7 +54,11 @@
       "Bash(sed -n '433,440p;495,512p' tests/runtime-planner-token-aware.test.ts)",
       "Bash(node ./dist/scripts/run-tests.js runtime-cutover-migration.test.ts processed-input-metrics.test.ts runtime-benchmark.test.ts runtime-planner-token-aware.test.ts dashboard-status-server.managed-llama.test.ts repo-search-status-server.test.ts runtime-loadconfig.test.ts runtime-status-server.test.ts)",
       "Bash(node ./dist/scripts/run-tests.js runtime-status-server.test.ts)",
-      "Bash(node ./dist/scripts/run-tests.js runtime-loadconfig.test.ts)"
+      "Bash(node ./dist/scripts/run-tests.js runtime-loadconfig.test.ts)",
+      "Bash(node ./dist/scripts/run-tests.js runtime-cutover-migration.test.ts processed-input-metrics.test.ts runtime-benchmark.test.ts runtime-planner-token-aware.test.ts repo-search-status-server.test.ts runtime-status-server.test.ts runtime-loadconfig.test.ts dashboard-status-server.managed-llama.test.ts)",
+      "Bash(node ./dist/scripts/run-tests.js repo-search-status-server.test.ts)",
+      "Bash(awk 'NR>=1125 && NR<=1320 && /^test\\\\\\(|^}\\\\\\);/' tests/repo-search-status-server.test.ts)",
+      "Bash(awk -F: '$1+0>1120')"
     ]
   }
 }

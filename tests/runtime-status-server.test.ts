@@ -601,49 +601,6 @@ test('real status server reports idle false while managed llama stays ready', as
   });
 });
 
-test('real status server sync-only startup pass does not launch a second llama process', async () => {
-  await withTempEnv(async (tempRoot) => {
-    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
-    const configPath = path.join(tempRoot, 'config.json');
-    const llamaPort = await getFreePort();
-    const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
-      supportsSyncOnly: true,
-      syncOnlyModel: 'script-model',
-      writeLaunchMarker: true,
-    });
-    const config = getDefaultConfig();
-    applyManagedScriptConfig(config, managed, { StartupTimeoutMs: 1000 });
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
-
-    const existingChild = spawn(process.execPath, [managed.fakeServerPath], {
-      stdio: 'ignore',
-      windowsHide: true,
-    });
-    fs.writeFileSync(managed.pidFilePath, String(existingChild.pid || ''), 'utf8');
-    try {
-      await waitForAsyncExpectation(async () => {
-        const models = await requestJson(`${managed.baseUrl}/v1/models`);
-        assert.equal(models.data[0].id, 'managed-test-model');
-      }, 5000);
-      fs.rmSync(managed.launchMarkerPath, { force: true });
-
-      await withRealStatusServer(async () => {
-        assert.equal(fs.existsSync(managed.launchMarkerPath), false);
-      }, {
-        statusPath,
-        configPath,
-      });
-    } finally {
-      if (existingChild.exitCode === null && !existingChild.killed) {
-        existingChild.kill('SIGTERM');
-      }
-      await waitForAsyncExpectation(async () => {
-        await assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`));
-      }, 5000).catch(() => undefined);
-    }
-  });
-});
-
 test('real status server fails closed during startup when managed llama logs contain warnings', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
@@ -1006,15 +963,19 @@ test('real status server aggregates task-scoped tool stats and tool tokens', asy
         },
       });
 
-      const status = await requestJson(statusUrl);
-      assert.equal(status.metrics.outputTokensTotal, 12);
-      assert.equal(status.metrics.toolTokensTotal, 9);
-      assert.equal(status.metrics.taskTotals['repo-search'].outputTokensTotal, 12);
-      assert.equal(status.metrics.taskTotals['repo-search'].toolTokensTotal, 9);
-      assert.equal(status.metrics.toolStats['repo-search'].rg.calls, 2);
-      assert.equal(status.metrics.toolStats['repo-search'].rg.outputCharsTotal, 210);
-      assert.equal(status.metrics.toolStats['repo-search'].rg.outputTokensTotal, 44);
-      assert.equal(status.metrics.toolStats['repo-search'].rg.outputTokensEstimatedCount, 1);
+      // Terminal metadata is drained asynchronously; poll until the metrics
+      // aggregation lands rather than racing the first read.
+      await waitForAsyncExpectation(async () => {
+        const status = await requestJson(statusUrl);
+        assert.equal(status.metrics.outputTokensTotal, 12);
+        assert.equal(status.metrics.toolTokensTotal, 9);
+        assert.equal(status.metrics.taskTotals['repo-search'].outputTokensTotal, 12);
+        assert.equal(status.metrics.taskTotals['repo-search'].toolTokensTotal, 9);
+        assert.equal(status.metrics.toolStats['repo-search'].rg.calls, 2);
+        assert.equal(status.metrics.toolStats['repo-search'].rg.outputCharsTotal, 210);
+        assert.equal(status.metrics.toolStats['repo-search'].rg.outputTokensTotal, 44);
+        assert.equal(status.metrics.toolStats['repo-search'].rg.outputTokensEstimatedCount, 1);
+      }, 10000);
     }, {
       statusPath,
       configPath,

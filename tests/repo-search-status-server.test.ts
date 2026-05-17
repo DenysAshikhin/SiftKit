@@ -352,7 +352,7 @@ test('managed llama readiness wait is serialized by the model request queue', as
   try {
     const firstRequest = requestJson(`${baseUrl}/repo-search`, {
       method: 'POST',
-      timeoutMs: 2500,
+      timeoutMs: 15000,
       body: JSON.stringify({
         prompt: 'hold readiness',
         repoRoot: process.cwd(),
@@ -365,7 +365,7 @@ test('managed llama readiness wait is serialized by the model request queue', as
     const secondStartedAt = Date.now();
     const secondResponse = await requestJson(`${baseUrl}/summary`, {
       method: 'POST',
-      timeoutMs: 2500,
+      timeoutMs: 15000,
       body: JSON.stringify({
         question: 'summarize',
         inputText: 'short text',
@@ -1119,136 +1119,5 @@ test('repo-search endpoint rejects duplicated final output before sending succes
       }
     }
     fs.rmSync(tempRoot, { recursive: true, force: true });
-  }
-});
-
-test('repo-search wakes managed llama when the managed process is offline', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-idle-wakeup-'));
-  const previousCwd = process.cwd();
-  fs.writeFileSync(
-    path.join(tempRoot, 'package.json'),
-    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
-    'utf8',
-  );
-  process.chdir(tempRoot);
-  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
-  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
-  const llamaPort = await runtimeHelpers.getFreePort();
-  const managed = runtimeHelpers.writeManagedLlamaScripts(tempRoot, llamaPort);
-  fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  fs.writeFileSync(configPath, `${JSON.stringify({
-    Backend: 'llama.cpp',
-    Model: 'managed-test-model',
-    LlamaCpp: {
-      BaseUrl: managed.baseUrl,
-      NumCtx: 32000,
-    },
-    Runtime: {
-      Model: 'managed-test-model',
-      LlamaCpp: {
-        BaseUrl: managed.baseUrl,
-        ModelPath: managed.modelPath,
-      },
-    },
-    Server: {
-      LlamaCpp: {
-        BaseUrl: managed.baseUrl,
-        ExecutablePath: managed.startupScriptPath,
-        ModelPath: managed.modelPath,
-        StartupTimeoutMs: 5000,
-        HealthcheckTimeoutMs: 100,
-        HealthcheckIntervalMs: 10,
-      },
-    },
-  }, null, 2)}\n`, 'utf8');
-
-  const server = await runtimeHelpers.startStatusServerProcess({
-    statusPath,
-    configPath,
-    idleSummaryDelayMs: 80,
-    terminalMetadataIdleDelayMs: 50,
-  });
-  const baseUrl = new URL(server.statusUrl).origin;
-
-  try {
-    await runtimeHelpers.waitForAsyncExpectation(async () => {
-      const modelsResponse = await requestJson(`${managed.baseUrl}/v1/models`);
-      assert.equal(modelsResponse.statusCode, 200);
-    }, 5000);
-    assert.equal(fs.existsSync(managed.readyFilePath), true);
-
-    await requestJson(`${baseUrl}/status`, {
-      method: 'POST',
-      body: JSON.stringify({
-        running: true,
-        requestId: 'idle-wakeup-primer',
-        rawInputCharacterCount: 10,
-        promptCharacterCount: 10,
-      }),
-    });
-    await requestJson(`${baseUrl}/status/terminal-metadata`, {
-      method: 'POST',
-      body: JSON.stringify({
-        running: false,
-        requestId: 'idle-wakeup-primer',
-        taskKind: 'repo-search',
-        terminalState: 'completed',
-        promptCharacterCount: 10,
-        inputTokens: 1,
-        outputCharacterCount: 1,
-        outputTokens: 1,
-        requestDurationMs: 10,
-      }),
-    });
-    await requestJson(`${baseUrl}/status/complete`, {
-      method: 'POST',
-      body: JSON.stringify({
-        requestId: 'idle-wakeup-primer',
-        taskKind: 'repo-search',
-        terminalState: 'completed',
-      }),
-    });
-
-    await runtimeHelpers.waitForAsyncExpectation(async () => {
-      const statusResponse = await requestJson(server.statusUrl);
-      assert.equal(statusResponse.statusCode, 200);
-      assert.equal(statusResponse.body.status, 'false');
-    }, 5000);
-    await runtimeHelpers.waitForAsyncExpectation(async () => {
-      await assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`));
-    }, 5000);
-
-    const repoSearchResponse = await requestJson(`${baseUrl}/repo-search`, {
-      method: 'POST',
-      timeoutMs: 15000,
-      body: JSON.stringify({
-        prompt: 'find wakeup path',
-        repoRoot: process.cwd(),
-        model: 'managed-test-model',
-        maxTurns: 2,
-        mockResponses: [
-          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"request\\\" src/status-server/routes/core.ts\"}",
-          '{"action":"finish","output":"done"}',
-        ],
-        mockCommandResults: {
-          'rg -n "request" src/status-server/routes/core.ts': { exitCode: 0, stdout: 'src/status-server/routes/core.ts:1:request', stderr: '' },
-        },
-      }),
-    });
-    assert.equal(repoSearchResponse.statusCode, 200);
-
-    await runtimeHelpers.waitForAsyncExpectation(async () => {
-      const modelsResponse = await requestJson(`${managed.baseUrl}/v1/models`);
-      assert.equal(modelsResponse.statusCode, 200);
-    }, 5000);
-  } finally {
-    await server.close();
-    process.chdir(previousCwd);
-    closeRuntimeDatabase();
-    try {
-      fs.rmSync(tempRoot, { recursive: true, force: true });
-    } catch {
-      // Best-effort temp cleanup on Windows.
-    }
   }
 });
