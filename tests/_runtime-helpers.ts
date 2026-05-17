@@ -1294,8 +1294,23 @@ const modelId = ${JSON.stringify(modelId)};
 const readyFilePath = ${JSON.stringify(readyFilePath)};
 const pidFilePath = ${JSON.stringify(pidFilePath)};
 let loadingModelResponses = ${JSON.stringify(Number.isFinite(options.initial503LoadingModelCount) ? Number(options.initial503LoadingModelCount) : 0)};
+const tokenizeCharsPerToken = ${JSON.stringify(Number.isFinite(options.tokenizeCharsPerToken) && Number(options.tokenizeCharsPerToken) > 0 ? Number(options.tokenizeCharsPerToken) : 4)};
 
 const server = http.createServer((req, res) => {
+  if (req.method === 'POST' && req.url === '/tokenize') {
+    let bodyText = '';
+    req.on('data', (chunk) => { bodyText += chunk; });
+    req.on('end', () => {
+      let content = '';
+      try { content = String((JSON.parse(bodyText || '{}') || {}).content || ''); }
+      catch (parseError) { content = ''; }
+      const count = content.trim() ? Math.max(1, Math.ceil(content.length / tokenizeCharsPerToken)) : 0;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ count }));
+    });
+    return;
+  }
+
   if (req.method === 'GET' && req.url === '/v1/models') {
     if (loadingModelResponses > 0) {
       loadingModelResponses -= 1;

@@ -432,7 +432,14 @@ test('token-aware llama.cpp chunk planning leaves a 15k token reserve when reaso
   });
 });
 
-test('live llama token-aware chunk planning preserves the 5m benchmark fixture without chat completion', async () => {
+// eval/fixtures/ai_core_60_tests is gitignored benchmark data, absent on a
+// fresh clone. Skip rather than fail when the manifest is not present locally.
+const aiCore60FixtureManifestPresent = fs.existsSync(
+  path.resolve(__dirname, '..', 'eval', 'fixtures', 'ai_core_60_tests', 'fixtures.json'),
+);
+test('live llama token-aware chunk planning preserves the 5m benchmark fixture without chat completion', {
+  skip: aiCore60FixtureManifestPresent ? false : 'eval/fixtures/ai_core_60_tests is gitignored and not present locally',
+}, async () => {
   const runFixtureCheck = async (config) => {
   const fixtureRoot = path.resolve(__dirname, '..', 'eval', 'fixtures', 'ai_core_60_tests');
   const manifest = JSON.parse(fs.readFileSync(path.join(fixtureRoot, 'fixtures.json'), 'utf8'));

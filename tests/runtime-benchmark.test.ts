@@ -391,7 +391,14 @@ test('benchmark runner records a custom prompt prefix from file', async () => {
   });
 });
 
-test('benchmark error-log fixtures now reach the model-first summary path', async () => {
+// eval/fixtures/ai_core_60_tests is gitignored benchmark data, absent on a
+// fresh clone. Skip rather than fail when it is not present locally.
+const aiCoreRawFixturesPresent = fs.existsSync(
+  path.resolve(__dirname, '..', 'eval', 'fixtures', 'ai_core_60_tests', 'raw'),
+);
+test('benchmark error-log fixtures now reach the model-first summary path', {
+  skip: aiCoreRawFixturesPresent ? false : 'eval/fixtures/ai_core_60_tests is gitignored and not present locally',
+}, async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });

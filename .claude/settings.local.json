@@ -43,7 +43,18 @@
       "Read(//c/Users/brawl1/**)",
       "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\).on\\('end',\\(\\)=>{try{const j=JSON.parse\\(d\\);console.log\\(JSON.stringify\\({R:j.Runtime?.LlamaCpp?.BaseUrl,S:j.Server?.LlamaCpp?.BaseUrl,L:j.LlamaCpp?.BaseUrl,ext:j.Server?.LlamaCpp?.ExternalServerEnabled,ap:j.Server?.LlamaCpp?.ActivePresetId},null,1\\)\\);}catch\\(e\\){console.log\\('len='+d.length,'head='+d.slice\\(0,200\\)\\);}}\\)\")",
       "Bash(netstat -ano -p tcp)",
-      "Bash(curl -s --max-time 8 \"http://127.0.0.1:4765/config\" -w \" [HTTP %{http_code}]\")"
+      "Bash(curl -s --max-time 8 \"http://127.0.0.1:4765/config\" -w \" [HTTP %{http_code}]\")",
+      "Bash(node ./dist/scripts/run-tests.js host-sync.test.ts llama-passthrough-status-server.test.ts)",
+      "Bash(node ./dist/scripts/run-tests.js llama-passthrough-idle-rearm.test.ts status-server-chat.test.ts)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(git check-ignore *)",
+      "Bash(git log *)",
+      "Bash(grep -rnE \"version.{0,20}23|, 23\\\\\\)|23\\\\\\)\" tests/runtime-cutover-migration.test.ts tests/processed-input-metrics.test.ts)",
+      "Bash(awk -F: '$1+0 > 280 && $1+0 < 400')",
+      "Bash(sed -n '433,440p;495,512p' tests/runtime-planner-token-aware.test.ts)",
+      "Bash(node ./dist/scripts/run-tests.js runtime-cutover-migration.test.ts processed-input-metrics.test.ts runtime-benchmark.test.ts runtime-planner-token-aware.test.ts dashboard-status-server.managed-llama.test.ts repo-search-status-server.test.ts runtime-loadconfig.test.ts runtime-status-server.test.ts)",
+      "Bash(node ./dist/scripts/run-tests.js runtime-status-server.test.ts)",
+      "Bash(node ./dist/scripts/run-tests.js runtime-loadconfig.test.ts)"
     ]
   }
 }

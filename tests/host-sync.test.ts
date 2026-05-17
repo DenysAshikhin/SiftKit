@@ -6,6 +6,7 @@ import type { AddressInfo } from 'node:net';
 import {
   applyHostLlamaRuntimeSettings,
   getConfiguredLlamaNumCtx,
+  getConfiguredModel,
   resetHostLlamaSettingsCacheForTests,
   type SiftConfig,
 } from '../dist/config/index.js';
@@ -80,10 +81,10 @@ test('applyHostLlamaRuntimeSettings leaves the config untouched when this SiftKi
   assert.equal(getConfiguredLlamaNumCtx(resolved), 150_000);
 });
 
-test('applyHostLlamaRuntimeSettings overlays the host SiftKit NumCtx/Reasoning in pass-through mode', async () => {
+test('applyHostLlamaRuntimeSettings overlays the host SiftKit NumCtx/Reasoning/Model in pass-through mode', async () => {
   resetHostLlamaSettingsCacheForTests();
   const host = await startHostConfigServer({
-    Runtime: { LlamaCpp: { NumCtx: 75_008, Reasoning: 'off' } },
+    Runtime: { Model: 'host-loaded-model.gguf', LlamaCpp: { NumCtx: 75_008, Reasoning: 'off' } },
   });
   try {
     const config = makeClientConfig({
@@ -96,6 +97,8 @@ test('applyHostLlamaRuntimeSettings overlays the host SiftKit NumCtx/Reasoning i
 
     // The client's stale local NumCtx (150k) is replaced by the host's real 75008.
     assert.equal(getConfiguredLlamaNumCtx(resolved), 75_008);
+    // The client's stale local model ('mock-model') is replaced by the host's.
+    assert.equal(getConfiguredModel(resolved), 'host-loaded-model.gguf');
     // The host config is read without booting the host's managed llama.
     assert.equal(host.requestUrls.some((url) => url.includes('skip_ready=1')), true);
 
@@ -123,6 +126,8 @@ test('applyHostLlamaRuntimeSettings falls back to the local config when the host
     const resolved = await applyHostLlamaRuntimeSettings(config);
 
     assert.equal(getConfiguredLlamaNumCtx(resolved), 150_000);
+    // With no host config to read, the local model is left untouched.
+    assert.equal(getConfiguredModel(resolved), 'mock-model');
   } finally {
     await host.close();
   }

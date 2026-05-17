@@ -12,7 +12,11 @@ import type { Dict } from '../../lib/types.js';
 
 const CHAT_COMPLETIONS_PATH = '/v1/chat/completions';
 const MODELS_PATH = '/v1/models';
+const TOKENIZE_PATH = '/tokenize';
 const CHAT_COMPLETIONS_TIMEOUT_MS = 600_000;
+// Tokenize is fast even for large prompts; bound it well above the client's
+// own tokenize timeout/retry window so the proxy is not the first to give up.
+const TOKENIZE_TIMEOUT_MS = 60_000;
 const HOP_BY_HOP_RESPONSE_HEADERS = new Set([
   'connection',
   'keep-alive',
@@ -25,7 +29,7 @@ const HOP_BY_HOP_RESPONSE_HEADERS = new Set([
 ]);
 
 function isLlamaPassthroughPath(pathname: string): boolean {
-  return pathname === MODELS_PATH || pathname === CHAT_COMPLETIONS_PATH;
+  return pathname === MODELS_PATH || pathname === CHAT_COMPLETIONS_PATH || pathname === TOKENIZE_PATH;
 }
 
 function isAllowedLlamaPassthroughMethod(pathname: string, method: string | undefined): boolean {
@@ -33,6 +37,7 @@ function isAllowedLlamaPassthroughMethod(pathname: string, method: string | unde
   if (pathname === MODELS_PATH) {
     return normalizedMethod === 'GET';
   }
+  // Chat completions and tokenize are both POST.
   return normalizedMethod === 'POST';
 }
 
@@ -89,6 +94,9 @@ function getPassthroughTimeoutMs(pathname: string, config: Dict): number {
   if (pathname === MODELS_PATH) {
     return getManagedLlamaConfig(config).HealthcheckTimeoutMs;
   }
+  if (pathname === TOKENIZE_PATH) {
+    return TOKENIZE_TIMEOUT_MS;
+  }
   return CHAT_COMPLETIONS_TIMEOUT_MS;
 }
 
@@ -114,7 +122,7 @@ async function proxyLlamaRequest(
   // managed llama over loopback. For external llama, BaseUrl is the only
   // address we know.
   const baseUrl = getManagedLlamaInternalBaseUrl(config) || configuredBaseUrl;
-  const bodyText = pathname === CHAT_COMPLETIONS_PATH ? await readBody(req) : '';
+  const bodyText = String(req.method || 'GET').toUpperCase() === 'POST' ? await readBody(req) : '';
   const upstreamUrl = buildUpstreamUrl(baseUrl, req.url);
   const transport = upstreamUrl.protocol === 'https:' ? https : http;
   const timeoutMs = getPassthroughTimeoutMs(pathname, config);
@@ -163,6 +171,28 @@ export async function handleLlamaPassthroughRoute(
   }
   if (!isAllowedLlamaPassthroughMethod(pathname, req.method)) {
     sendJson(res, 405, { error: 'Method not allowed.' });
+    return true;
+  }
+  if (pathname === TOKENIZE_PATH) {
+    // Tokenize is a cheap, stateless call issued during preflight, before a
+    // chat slot is held. Routing it through the model-request queue would
+    // stall preflight behind an in-flight chat completion, so proxy it
+    // directly — but still wake a sleeping managed llama, which tokenize needs.
+    try {
+      await ensureManagedLlamaReadyForModelRequest(ctx);
+    } catch (error) {
+      sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
+      return true;
+    }
+    try {
+      await proxyLlamaRequest(ctx, req, res, pathname, readConfig(ctx.configPath));
+    } catch (error) {
+      if (!res.headersSent && !res.destroyed) {
+        sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
+      } else {
+        res.destroy(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
     return true;
   }
   const modelRequestLock = await acquireModelRequestWithWait(ctx, getLlamaPassthroughKind(pathname), req, res);

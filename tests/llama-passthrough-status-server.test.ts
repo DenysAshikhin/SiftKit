@@ -56,6 +56,45 @@ function requestJson(url: string, timeoutMs = 5000): Promise<JsonResponse> {
   });
 }
 
+function requestJsonPost(url: string, body: unknown, timeoutMs = 5000): Promise<JsonResponse> {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const payload = JSON.stringify(body);
+    const request = http.request(
+      {
+        protocol: target.protocol,
+        hostname: target.hostname,
+        port: target.port,
+        path: `${target.pathname}${target.search}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload),
+        },
+      },
+      (response) => {
+        let responseText = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk: string) => {
+          responseText += chunk;
+        });
+        response.on('end', () => {
+          resolve({
+            statusCode: response.statusCode || 0,
+            body: responseText ? JSON.parse(responseText) as Record<string, unknown> : {},
+          });
+        });
+      },
+    );
+    request.on('error', reject);
+    request.setTimeout(timeoutMs, () => {
+      request.destroy(new Error('request timeout'));
+    });
+    request.write(payload);
+    request.end();
+  });
+}
+
 test('llama passthrough wakes managed llama when the managed process is offline', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llama-passthrough-'));
   const previousCwd = process.cwd();
@@ -206,6 +245,87 @@ test('llama passthrough waits through 503 Loading model responses without timing
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual(response.body, { data: [{ id: 'managed-passthrough-503-model' }] });
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    process.chdir(previousCwd);
+    closeRuntimeDatabase();
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('llama passthrough proxies POST /tokenize to managed llama', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llama-passthrough-tokenize-'));
+  const previousCwd = process.cwd();
+  fs.writeFileSync(
+    path.join(tempRoot, 'package.json'),
+    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+    'utf8',
+  );
+  process.chdir(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup: Record<string, string | undefined> = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+
+  const llamaPort = await runtimeHelpers.getFreePort();
+  // The fake llama tokenizes at 4 characters per token.
+  const managed = runtimeHelpers.writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-tokenize-model', {
+    tokenizeCharsPerToken: 4,
+  });
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, `${JSON.stringify({
+    Backend: 'llama.cpp',
+    Model: 'managed-tokenize-model',
+    Runtime: {
+      Model: 'managed-tokenize-model',
+      LlamaCpp: {
+        BaseUrl: managed.baseUrl,
+        NumCtx: 32000,
+        ModelPath: managed.modelPath,
+      },
+    },
+    Server: {
+      LlamaCpp: {
+        BaseUrl: managed.baseUrl,
+        ExecutablePath: managed.startupScriptPath,
+        ModelPath: managed.modelPath,
+        StartupTimeoutMs: 10000,
+        HealthcheckTimeoutMs: 50,
+        HealthcheckIntervalMs: 25,
+      },
+    },
+  }, null, 2)}\n`, 'utf8');
+
+  const server = startStatusServer();
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    // 16 characters at 4 chars/token => 4 tokens.
+    const response = await requestJsonPost(`${baseUrl}/tokenize`, { content: 'abcdefghijklmnop' });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.count, 4);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
