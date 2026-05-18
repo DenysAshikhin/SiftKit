@@ -1,7 +1,6 @@
 import { requestJson } from '../lib/http.js';
 import { addEffectiveConfigProperties } from './effective.js';
 import {
-  applyRuntimeCompatibilityView,
   normalizeConfig,
   toPersistedConfigObject,
   updateRuntimePaths,
@@ -62,8 +61,7 @@ export async function saveConfig(config: SiftConfig): Promise<SiftConfig> {
 }
 
 async function addLoadedConfigProperties(config: SiftConfig, info: NormalizationInfo): Promise<SiftConfig> {
-  const runtimeBackfilled = applyRuntimeCompatibilityView(config);
-  return addEffectiveConfigProperties(updateRuntimePaths(runtimeBackfilled), info);
+  return addEffectiveConfigProperties(updateRuntimePaths(config), info);
 }
 
 export async function normalizeLoadedConfig(config: SiftConfig): Promise<SiftConfig> {
