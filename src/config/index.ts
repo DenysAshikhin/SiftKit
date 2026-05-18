@@ -29,7 +29,9 @@ export {
 export type {
   ManagedLlamaKvCacheQuantization,
   RuntimeLlamaCppConfig,
-  ServerManagedLlamaCppConfig,
+  ManagedLlamaSettings,
+  ServerManagedLlamaPreset,
+  ServerLlamaCppConfig,
   SiftConfig,
 } from './types.js';
 

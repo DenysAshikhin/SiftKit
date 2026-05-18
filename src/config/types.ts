@@ -38,7 +38,7 @@ export type ManagedLlamaSpeculativeType =
   | 'ngram-mod'
   | 'ngram-cache';
 
-export type ServerManagedLlamaCppConfig = {
+export type ManagedLlamaSettings = {
   ExternalServerEnabled?: boolean | null;
   ExecutablePath?: string | null;
   BaseUrl?: string | null;
@@ -83,31 +83,31 @@ export type ServerManagedLlamaCppConfig = {
   HealthcheckIntervalMs?: number | null;
   SleepIdleSeconds?: number | null;
   VerboseLogging?: boolean | null;
-  Presets?: ServerManagedLlamaPreset[] | null;
-  ActivePresetId?: string | null;
 };
 
 export type ServerManagedLlamaPreset = {
   id: string;
   label: string;
-} & Omit<ServerManagedLlamaCppConfig, 'Presets' | 'ActivePresetId'>;
+} & ManagedLlamaSettings;
+
+export type ServerLlamaCppConfig = {
+  Presets: ServerManagedLlamaPreset[];
+  ActivePresetId: string;
+};
 
 export type SiftConfig = {
   Version: string;
   Backend: string;
-  Model?: string | null;
   PolicyMode: string;
   RawLogRetention: boolean;
   PromptPrefix?: string | null;
-  LlamaCpp: RuntimeLlamaCppConfig;
-  Runtime?: {
-    Model?: string | null;
-    LlamaCpp?: RuntimeLlamaCppConfig;
+  Runtime: {
+    Model: string | null;
+    LlamaCpp: RuntimeLlamaCppConfig;
   };
   Thresholds: {
     MinCharactersForSummary: number;
     MinLinesForSummary: number;
-    MaxInputCharacters?: number;
   };
   Interactive: {
     Enabled: boolean;
@@ -116,8 +116,8 @@ export type SiftConfig = {
     MaxTranscriptCharacters: number;
     TranscriptRetention: boolean;
   };
-  Server?: {
-    LlamaCpp?: ServerManagedLlamaCppConfig;
+  Server: {
+    LlamaCpp: ServerLlamaCppConfig;
   };
   Paths?: {
     RuntimeRoot: string;
@@ -136,15 +136,11 @@ export type SiftConfig = {
     ObservedTelemetryUpdatedAtUtc: string | null;
     MaxInputCharacters: number | null;
     ChunkThresholdCharacters: number | null;
-    LegacyMaxInputCharactersRemoved: boolean;
-    LegacyMaxInputCharactersValue: number | null;
   };
 };
 
 export type NormalizationInfo = {
   changed: boolean;
-  legacyMaxInputCharactersRemoved: boolean;
-  legacyMaxInputCharactersValue: number | null;
 };
 
 export type StatusMetricsSnapshot = {
