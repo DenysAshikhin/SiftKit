@@ -10,33 +10,34 @@ export function deriveRuntimeModelId(modelPath: string | null): string {
 }
 
 export function syncDerivedSettingsFields(config: DashboardConfig): DashboardConfig {
-  config.Runtime.LlamaCpp.BaseUrl = config.Server.LlamaCpp.BaseUrl;
-  config.Runtime.LlamaCpp.ModelPath = config.Server.LlamaCpp.ModelPath;
-  config.Runtime.LlamaCpp.NumCtx = config.Server.LlamaCpp.NumCtx;
-  config.Runtime.LlamaCpp.GpuLayers = config.Server.LlamaCpp.GpuLayers;
-  config.Runtime.LlamaCpp.Threads = config.Server.LlamaCpp.Threads;
-  config.Runtime.LlamaCpp.NcpuMoe = config.Server.LlamaCpp.NcpuMoe;
-  config.Runtime.LlamaCpp.FlashAttention = config.Server.LlamaCpp.FlashAttention;
-  config.Runtime.LlamaCpp.ParallelSlots = config.Server.LlamaCpp.ParallelSlots;
-  config.Runtime.LlamaCpp.MaxTokens = config.Server.LlamaCpp.MaxTokens;
-  config.Runtime.LlamaCpp.Temperature = config.Server.LlamaCpp.Temperature;
-  config.Runtime.LlamaCpp.TopP = config.Server.LlamaCpp.TopP;
-  config.Runtime.LlamaCpp.TopK = config.Server.LlamaCpp.TopK;
-  config.Runtime.LlamaCpp.MinP = config.Server.LlamaCpp.MinP;
-  config.Runtime.LlamaCpp.PresencePenalty = config.Server.LlamaCpp.PresencePenalty;
-  config.Runtime.LlamaCpp.RepetitionPenalty = config.Server.LlamaCpp.RepetitionPenalty;
-  config.Runtime.LlamaCpp.Reasoning = config.Server.LlamaCpp.Reasoning;
-  config.Runtime.LlamaCpp.ReasoningContent = config.Server.LlamaCpp.ReasoningContent;
-  config.Runtime.LlamaCpp.PreserveThinking = config.Server.LlamaCpp.PreserveThinking;
+  const presets = config.Server.LlamaCpp.Presets;
+  const activePreset = presets.find((preset) => preset.id === config.Server.LlamaCpp.ActivePresetId)
+    ?? presets[0];
+  if (!activePreset) {
+    return config;
+  }
+  config.Runtime.LlamaCpp.BaseUrl = activePreset.BaseUrl;
+  config.Runtime.LlamaCpp.ModelPath = activePreset.ModelPath;
+  config.Runtime.LlamaCpp.NumCtx = activePreset.NumCtx;
+  config.Runtime.LlamaCpp.GpuLayers = activePreset.GpuLayers;
+  config.Runtime.LlamaCpp.Threads = activePreset.Threads;
+  config.Runtime.LlamaCpp.NcpuMoe = activePreset.NcpuMoe;
+  config.Runtime.LlamaCpp.FlashAttention = activePreset.FlashAttention;
+  config.Runtime.LlamaCpp.ParallelSlots = activePreset.ParallelSlots;
+  config.Runtime.LlamaCpp.MaxTokens = activePreset.MaxTokens;
+  config.Runtime.LlamaCpp.Temperature = activePreset.Temperature;
+  config.Runtime.LlamaCpp.TopP = activePreset.TopP;
+  config.Runtime.LlamaCpp.TopK = activePreset.TopK;
+  config.Runtime.LlamaCpp.MinP = activePreset.MinP;
+  config.Runtime.LlamaCpp.PresencePenalty = activePreset.PresencePenalty;
+  config.Runtime.LlamaCpp.RepetitionPenalty = activePreset.RepetitionPenalty;
+  config.Runtime.LlamaCpp.Reasoning = activePreset.Reasoning;
+  config.Runtime.LlamaCpp.ReasoningContent = activePreset.ReasoningContent;
+  config.Runtime.LlamaCpp.PreserveThinking = activePreset.PreserveThinking;
   config.LlamaCpp = { ...config.Runtime.LlamaCpp };
 
-  const activePreset = config.Server.LlamaCpp.Presets.find(
-    (preset) => preset.id === config.Server.LlamaCpp.ActivePresetId,
-  );
   const runtimeModelId = String(
-    activePreset?.Model
-    || deriveRuntimeModelId(config.Server.LlamaCpp.ModelPath)
-    || config.Server.LlamaCpp.Model,
+    activePreset.Model || deriveRuntimeModelId(activePreset.ModelPath),
   ).trim();
   config.Runtime.Model = runtimeModelId;
   config.Model = runtimeModelId;

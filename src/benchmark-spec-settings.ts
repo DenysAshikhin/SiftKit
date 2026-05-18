@@ -204,27 +204,19 @@ function getActiveManagedLlamaPreset(config: DashboardConfig): DashboardConfig['
 export function applySpeculativeCaseToConfig(config: DashboardConfig, entry: SpecBenchmarkCase): DashboardConfig {
   const cloned = JSON.parse(JSON.stringify(config)) as DashboardConfig;
   const activePreset = getActiveManagedLlamaPreset(cloned);
-  cloned.Server.LlamaCpp.SpeculativeEnabled = entry.speculativeEnabled !== false;
-  cloned.Server.LlamaCpp.SpeculativeType = 'ngram-mod';
-  if (activePreset) {
-    activePreset.SpeculativeEnabled = entry.speculativeEnabled !== false;
-    activePreset.SpeculativeType = 'ngram-mod';
+  if (!activePreset) {
+    return cloned;
   }
+  activePreset.SpeculativeEnabled = entry.speculativeEnabled !== false;
+  activePreset.SpeculativeType = 'ngram-mod';
   if (entry.speculativeEnabled === false) {
     return cloned;
   }
-  cloned.Server.LlamaCpp.SpeculativeNgramSizeN = entry.speculativeNgramSizeN;
-  cloned.Server.LlamaCpp.SpeculativeNgramSizeM = entry.speculativeNgramSizeM;
-  cloned.Server.LlamaCpp.SpeculativeNgramMinHits = entry.speculativeNgramMinHits;
-  cloned.Server.LlamaCpp.SpeculativeDraftMax = entry.speculativeDraftMax;
-  cloned.Server.LlamaCpp.SpeculativeDraftMin = entry.speculativeDraftMin;
-  if (activePreset) {
-    activePreset.SpeculativeNgramSizeN = entry.speculativeNgramSizeN;
-    activePreset.SpeculativeNgramSizeM = entry.speculativeNgramSizeM;
-    activePreset.SpeculativeNgramMinHits = entry.speculativeNgramMinHits;
-    activePreset.SpeculativeDraftMax = entry.speculativeDraftMax;
-    activePreset.SpeculativeDraftMin = entry.speculativeDraftMin;
-  }
+  activePreset.SpeculativeNgramSizeN = entry.speculativeNgramSizeN;
+  activePreset.SpeculativeNgramSizeM = entry.speculativeNgramSizeM;
+  activePreset.SpeculativeNgramMinHits = entry.speculativeNgramMinHits;
+  activePreset.SpeculativeDraftMax = entry.speculativeDraftMax;
+  activePreset.SpeculativeDraftMin = entry.speculativeDraftMin;
   return cloned;
 }
 
