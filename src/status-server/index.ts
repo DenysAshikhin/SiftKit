@@ -37,7 +37,6 @@ import {
   buildDashboardDailyMetrics,
   normalizeIdleSummarySnapshotRow,
 } from './dashboard-runs.js';
-import { runRuntimeCutoverMigration } from './runtime-cutover.js';
 import { closeRuntimeDatabase, pruneRuntimeHistory } from '../state/runtime-db.js';
 import { deleteManagedLlamaLogChunksOlderThan } from '../state/managed-llama-runs.js';
 import { ManagedLlamaFlushQueue } from './managed-llama-flush-queue.js';
@@ -187,7 +186,6 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   const configPath = getConfigPath();
   const metricsPath = getMetricsPath();
   const idleSummarySnapshotsPath = getIdleSummarySnapshotsPath();
-  runRuntimeCutoverMigration();
   ensureStatusFile(statusPath);
   writeConfig(configPath, readConfig(configPath));
   const loadedMetrics = readMetricsWithResetDecision(metricsPath);
