@@ -30,187 +30,57 @@ export const DEFAULT_LLAMA_SLEEP_IDLE_SECONDS = 600;
 
 const MANAGED_LLAMA_SPECULATIVE_TYPES = ['draft-simple', 'draft-eagle3', 'draft-mtp', 'ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod', 'ngram-cache'] as const;
 
-export const RUNTIME_OWNED_LLAMA_CPP_KEYS: readonly string[] = [
-  'BaseUrl',
-  'NumCtx',
-  'ModelPath',
-  'Temperature',
-  'TopP',
-  'TopK',
-  'MinP',
-  'PresencePenalty',
-  'RepetitionPenalty',
-  'MaxTokens',
-  'GpuLayers',
-  'Threads',
-  'NcpuMoe',
-  'FlashAttention',
-  'ParallelSlots',
-  'Reasoning',
-];
-
-const MANAGED_LLAMA_RUNTIME_KEYS: readonly string[] = [
-  'BaseUrl',
-  'NumCtx',
-  'ModelPath',
-  'Temperature',
-  'TopP',
-  'TopK',
-  'MinP',
-  'PresencePenalty',
-  'RepetitionPenalty',
-  'MaxTokens',
-  'GpuLayers',
-  'Threads',
-  'NcpuMoe',
-  'FlashAttention',
-  'ParallelSlots',
-  'Reasoning',
-];
-
-const MANAGED_LLAMA_FIELD_KEYS: readonly string[] = [
-  'Model',
-  'ExternalServerEnabled',
-  'ExecutablePath',
-  'BaseUrl',
-  'BindHost',
-  'Port',
-  'ModelPath',
-  'NumCtx',
-  'GpuLayers',
-  'Threads',
-  'NcpuMoe',
-  'FlashAttention',
-  'ParallelSlots',
-  'BatchSize',
-  'UBatchSize',
-  'CacheRam',
-  'KvCacheQuantization',
-  'MaxTokens',
-  'Temperature',
-  'TopP',
-  'TopK',
-  'MinP',
-  'PresencePenalty',
-  'RepetitionPenalty',
-  'Reasoning',
-  'ReasoningContent',
-  'PreserveThinking',
-  'SpeculativeEnabled',
-  'SpeculativeType',
-  'SpeculativeMtpEnabled',
-  'SpeculativeNgramSizeN',
-  'SpeculativeNgramSizeM',
-  'SpeculativeNgramMinHits',
-  'SpeculativeNgramModNMatch',
-  'SpeculativeNgramModNMin',
-  'SpeculativeNgramModNMax',
-  'SpeculativeDraftMax',
-  'SpeculativeDraftMin',
-  'ReasoningBudget',
-  'ReasoningBudgetMessage',
-  'StartupTimeoutMs',
-  'HealthcheckTimeoutMs',
-  'HealthcheckIntervalMs',
-  'SleepIdleSeconds',
-  'VerboseLogging',
-];
-
-const MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS: readonly string[] = [
-  'Model',
-  'ExternalServerEnabled',
-  'BaseUrl',
-  'BindHost',
-  'Port',
-  'NumCtx',
-  'GpuLayers',
-  'Threads',
-  'FlashAttention',
-  'ParallelSlots',
-  'BatchSize',
-  'UBatchSize',
-  'CacheRam',
-  'KvCacheQuantization',
-  'MaxTokens',
-  'Temperature',
-  'TopP',
-  'TopK',
-  'MinP',
-  'PresencePenalty',
-  'RepetitionPenalty',
-  'Reasoning',
-  'ReasoningContent',
-  'PreserveThinking',
-  'SpeculativeEnabled',
-  'SpeculativeType',
-  'SpeculativeMtpEnabled',
-  'SpeculativeNgramSizeN',
-  'SpeculativeNgramSizeM',
-  'SpeculativeNgramMinHits',
-  'SpeculativeNgramModNMatch',
-  'SpeculativeNgramModNMin',
-  'SpeculativeNgramModNMax',
-  'SpeculativeDraftMax',
-  'SpeculativeDraftMin',
-  'ReasoningBudget',
-  'ReasoningBudgetMessage',
-  'StartupTimeoutMs',
-  'HealthcheckTimeoutMs',
-  'HealthcheckIntervalMs',
-  'SleepIdleSeconds',
-  'VerboseLogging',
-];
+const DEFAULT_MANAGED_LLAMA_PRESET: Dict = {
+  id: 'default',
+  label: 'Default',
+  Model: DEFAULT_LLAMA_MODEL,
+  ExternalServerEnabled: false,
+  ExecutablePath: null,
+  BaseUrl: DEFAULT_LLAMA_BASE_URL,
+  BindHost: DEFAULT_LLAMA_BIND_HOST,
+  Port: DEFAULT_LLAMA_PORT,
+  ModelPath: null,
+  NumCtx: 150000,
+  GpuLayers: DEFAULT_LLAMA_GPU_LAYERS,
+  Threads: -1,
+  NcpuMoe: 0,
+  FlashAttention: true,
+  ParallelSlots: 1,
+  BatchSize: DEFAULT_LLAMA_BATCH_SIZE,
+  UBatchSize: DEFAULT_LLAMA_UBATCH_SIZE,
+  CacheRam: DEFAULT_LLAMA_CACHE_RAM,
+  KvCacheQuantization: DEFAULT_LLAMA_KV_CACHE_QUANTIZATION,
+  MaxTokens: 15000,
+  Temperature: 0.7,
+  TopP: 0.8,
+  TopK: 20,
+  MinP: 0.0,
+  PresencePenalty: 1.5,
+  RepetitionPenalty: 1.0,
+  Reasoning: 'off',
+  ReasoningContent: false,
+  PreserveThinking: false,
+  SpeculativeEnabled: false,
+  SpeculativeType: 'ngram-map-k',
+  SpeculativeMtpEnabled: false,
+  SpeculativeNgramSizeN: 8,
+  SpeculativeNgramSizeM: 16,
+  SpeculativeNgramMinHits: 2,
+  SpeculativeNgramModNMatch: 24,
+  SpeculativeNgramModNMin: 4,
+  SpeculativeNgramModNMax: 16,
+  SpeculativeDraftMax: 16,
+  SpeculativeDraftMin: 4,
+  ReasoningBudget: DEFAULT_LLAMA_REASONING_BUDGET,
+  ReasoningBudgetMessage: DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
+  StartupTimeoutMs: DEFAULT_LLAMA_STARTUP_TIMEOUT_MS,
+  HealthcheckTimeoutMs: DEFAULT_LLAMA_HEALTHCHECK_TIMEOUT_MS,
+  HealthcheckIntervalMs: DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS,
+  SleepIdleSeconds: DEFAULT_LLAMA_SLEEP_IDLE_SECONDS,
+  VerboseLogging: false,
+};
 
 export function getDefaultConfig(): Dict {
-  const defaultManagedLlamaPreset = {
-    id: 'default',
-    label: 'Default',
-    Model: DEFAULT_LLAMA_MODEL,
-    ExternalServerEnabled: false,
-    ExecutablePath: null,
-    BaseUrl: DEFAULT_LLAMA_BASE_URL,
-    BindHost: DEFAULT_LLAMA_BIND_HOST,
-    Port: DEFAULT_LLAMA_PORT,
-    ModelPath: null,
-    NumCtx: 150000,
-    GpuLayers: DEFAULT_LLAMA_GPU_LAYERS,
-    Threads: -1,
-    NcpuMoe: 0,
-    FlashAttention: true,
-    ParallelSlots: 1,
-    BatchSize: DEFAULT_LLAMA_BATCH_SIZE,
-    UBatchSize: DEFAULT_LLAMA_UBATCH_SIZE,
-    CacheRam: DEFAULT_LLAMA_CACHE_RAM,
-    KvCacheQuantization: DEFAULT_LLAMA_KV_CACHE_QUANTIZATION,
-    MaxTokens: 15000,
-    Temperature: 0.7,
-    TopP: 0.8,
-    TopK: 20,
-    MinP: 0.0,
-    PresencePenalty: 1.5,
-    RepetitionPenalty: 1.0,
-    Reasoning: 'off',
-    ReasoningContent: false,
-    PreserveThinking: false,
-    SpeculativeEnabled: false,
-    SpeculativeType: 'ngram-map-k',
-    SpeculativeMtpEnabled: false,
-    SpeculativeNgramSizeN: 8,
-    SpeculativeNgramSizeM: 16,
-    SpeculativeNgramMinHits: 2,
-    SpeculativeNgramModNMatch: 24,
-    SpeculativeNgramModNMin: 4,
-    SpeculativeNgramModNMax: 16,
-    SpeculativeDraftMax: 16,
-    SpeculativeDraftMin: 4,
-    ReasoningBudget: DEFAULT_LLAMA_REASONING_BUDGET,
-    ReasoningBudgetMessage: DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
-    StartupTimeoutMs: DEFAULT_LLAMA_STARTUP_TIMEOUT_MS,
-    HealthcheckTimeoutMs: DEFAULT_LLAMA_HEALTHCHECK_TIMEOUT_MS,
-    HealthcheckIntervalMs: DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS,
-    SleepIdleSeconds: DEFAULT_LLAMA_SLEEP_IDLE_SECONDS,
-    VerboseLogging: false,
-  };
   return {
     Version: '0.1.0',
     Backend: 'llama.cpp',
@@ -218,49 +88,13 @@ export function getDefaultConfig(): Dict {
     RawLogRetention: true,
     IncludeRepoFileListing: true,
     PromptPrefix: 'Preserve exact technical anchors from the input when they matter: file paths, function names, symbols, commands, error text, and any line numbers or code references that are already present. Quote short code fragments exactly when that precision changes the meaning. Do not invent locations or line numbers that are not in the input.',
-    LlamaCpp: {
-      BaseUrl: DEFAULT_LLAMA_BASE_URL,
-      NumCtx: 150000,
-      ModelPath: null,
-      Temperature: 0.7,
-      TopP: 0.8,
-      TopK: 20,
-      MinP: 0.0,
-      PresencePenalty: 1.5,
-      RepetitionPenalty: 1.0,
-      MaxTokens: 15000,
-      GpuLayers: DEFAULT_LLAMA_GPU_LAYERS,
-      Threads: -1,
-      NcpuMoe: 0,
-      FlashAttention: true,
-      ParallelSlots: 1,
-      Reasoning: 'off',
-    },
     Runtime: {
       Model: DEFAULT_LLAMA_MODEL,
-      LlamaCpp: {
-        BaseUrl: DEFAULT_LLAMA_BASE_URL,
-        NumCtx: 150000,
-        ModelPath: null,
-        Temperature: 0.7,
-        TopP: 0.8,
-        TopK: 20,
-        MinP: 0.0,
-        PresencePenalty: 1.5,
-        RepetitionPenalty: 1.0,
-        MaxTokens: 15000,
-        GpuLayers: DEFAULT_LLAMA_GPU_LAYERS,
-        Threads: -1,
-        NcpuMoe: 0,
-        FlashAttention: true,
-        ParallelSlots: 1,
-        Reasoning: 'off',
-      },
+      LlamaCpp: {},
     },
     Thresholds: {
       MinCharactersForSummary: 500,
       MinLinesForSummary: 16,
-      ChunkThresholdRatio: 1.0,
     },
     Interactive: {
       Enabled: true,
@@ -271,9 +105,8 @@ export function getDefaultConfig(): Dict {
     },
     Server: {
       LlamaCpp: {
-        ...defaultManagedLlamaPreset,
-        Presets: [defaultManagedLlamaPreset],
-        ActivePresetId: defaultManagedLlamaPreset.id,
+        Presets: [{ ...DEFAULT_MANAGED_LLAMA_PRESET }],
+        ActivePresetId: String(DEFAULT_MANAGED_LLAMA_PRESET.id),
       },
     },
     OperationModeAllowedTools: getDefaultOperationModeAllowedTools(),
@@ -316,291 +149,41 @@ export function mergeConfig(baseValue: unknown, patchValue: unknown): unknown {
 }
 
 export function normalizeConfig(input: unknown): Dict {
-  const inputServerLlama = (
-    input
-    && typeof input === 'object'
-    && !Array.isArray(input)
-    && (input as Dict).Server
-    && typeof (input as Dict).Server === 'object'
-    && !Array.isArray((input as Dict).Server)
-    && ((input as Dict).Server as Dict).LlamaCpp
-    && typeof ((input as Dict).Server as Dict).LlamaCpp === 'object'
-    && !Array.isArray(((input as Dict).Server as Dict).LlamaCpp)
-  ) ? (((input as Dict).Server as Dict).LlamaCpp as Dict) : null;
-  const preferManagedPresetValues = Boolean(
-    inputServerLlama
-    && (
-      Object.prototype.hasOwnProperty.call(inputServerLlama, 'Presets')
-      || Object.prototype.hasOwnProperty.call(inputServerLlama, 'ActivePresetId')
-    )
-  );
   const merged = mergeConfig(getDefaultConfig(), input || {}) as Dict;
   if (merged.Backend === 'ollama') {
     merged.Backend = 'llama.cpp';
   }
-  merged.LlamaCpp = (merged.LlamaCpp && typeof merged.LlamaCpp === 'object') ? merged.LlamaCpp : {};
-  merged.Runtime = (merged.Runtime && typeof merged.Runtime === 'object') ? merged.Runtime : {};
-  const runtime = merged.Runtime as Dict;
-  runtime.LlamaCpp = (runtime.LlamaCpp && typeof runtime.LlamaCpp === 'object') ? runtime.LlamaCpp : {};
-  const runtimeLlama = runtime.LlamaCpp as Dict;
-  const ollama = merged.Ollama as Dict | undefined;
-  if (ollama) {
-    if (ollama.BaseUrl !== undefined) {
-      runtimeLlama.BaseUrl = runtimeLlama.BaseUrl ?? ollama.BaseUrl;
-    }
-    if (ollama.NumCtx !== undefined) {
-      runtimeLlama.NumCtx = runtimeLlama.NumCtx ?? Number(ollama.NumCtx);
-    }
-    if (ollama.Temperature !== undefined) {
-      runtimeLlama.Temperature = runtimeLlama.Temperature ?? Number(ollama.Temperature);
-    }
-    if (ollama.TopP !== undefined) {
-      runtimeLlama.TopP = runtimeLlama.TopP ?? Number(ollama.TopP);
-    }
-    if (ollama.TopK !== undefined) {
-      runtimeLlama.TopK = runtimeLlama.TopK ?? Number(ollama.TopK);
-    }
-    if (ollama.MinP !== undefined) {
-      runtimeLlama.MinP = runtimeLlama.MinP ?? Number(ollama.MinP);
-    }
-    if (ollama.PresencePenalty !== undefined) {
-      runtimeLlama.PresencePenalty = runtimeLlama.PresencePenalty ?? Number(ollama.PresencePenalty);
-    }
-    if (ollama.RepetitionPenalty !== undefined) {
-      runtimeLlama.RepetitionPenalty = runtimeLlama.RepetitionPenalty ?? Number(ollama.RepetitionPenalty);
-    }
-    if (Object.prototype.hasOwnProperty.call(ollama, 'NumPredict')) {
-      runtimeLlama.MaxTokens = runtimeLlama.MaxTokens ?? ollama.NumPredict;
-    }
-  }
-  delete merged.Ollama;
   delete merged.Paths;
-  merged.Server = (merged.Server && typeof merged.Server === 'object') ? merged.Server : {};
-  const server = merged.Server as Dict;
-  server.LlamaCpp = (server.LlamaCpp && typeof server.LlamaCpp === 'object') ? server.LlamaCpp : {};
-  const serverLlama = server.LlamaCpp as Dict;
-  const defaultServerLlama = ((getDefaultConfig().Server as Dict).LlamaCpp || {}) as Dict;
-  if (typeof merged.Model === 'string' && merged.Model.trim() && !runtime.Model) {
-    runtime.Model = merged.Model;
-  }
+  delete merged.Ollama;
   delete merged.Model;
-  if ((!merged.PromptPrefix || !String(merged.PromptPrefix).trim()) && typeof runtime.PromptPrefix === 'string' && runtime.PromptPrefix.trim()) {
-    merged.PromptPrefix = runtime.PromptPrefix;
-  }
+  delete merged.LlamaCpp;
+
+  merged.Runtime = (merged.Runtime && typeof merged.Runtime === 'object' && !Array.isArray(merged.Runtime))
+    ? merged.Runtime : {};
+  const runtime = merged.Runtime as Dict;
   delete runtime.PromptPrefix;
+  runtime.Model = getNullableTrimmedString(runtime.Model);
+  runtime.LlamaCpp = (runtime.LlamaCpp && typeof runtime.LlamaCpp === 'object' && !Array.isArray(runtime.LlamaCpp))
+    ? runtime.LlamaCpp : {};
+
   if (!merged.PromptPrefix || !String(merged.PromptPrefix).trim()) {
     merged.PromptPrefix = (getDefaultConfig() as Dict).PromptPrefix;
   }
   if (merged.Thresholds && typeof merged.Thresholds === 'object') {
     delete (merged.Thresholds as Dict).MaxInputCharacters;
+    delete (merged.Thresholds as Dict).ChunkThresholdRatio;
   }
-  const llamaCpp = merged.LlamaCpp as Dict;
-  if (llamaCpp && typeof llamaCpp === 'object') {
-    for (const key of RUNTIME_OWNED_LLAMA_CPP_KEYS) {
-      if (Object.prototype.hasOwnProperty.call(llamaCpp, key)) {
-        if (!Object.prototype.hasOwnProperty.call(runtimeLlama, key)) {
-          runtimeLlama[key] = llamaCpp[key];
-        }
-        delete llamaCpp[key];
-      }
-    }
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ExecutablePath')) {
-    serverLlama.ExecutablePath = null;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ExternalServerEnabled')) {
-    serverLlama.ExternalServerEnabled = false;
-  }
-  serverLlama.ExternalServerEnabled = serverLlama.ExternalServerEnabled === true;
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'BaseUrl')) {
-    serverLlama.BaseUrl = runtimeLlama.BaseUrl ?? DEFAULT_LLAMA_BASE_URL;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'BindHost')) {
-    serverLlama.BindHost = DEFAULT_LLAMA_BIND_HOST;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'Port')) {
-    serverLlama.Port = DEFAULT_LLAMA_PORT;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ModelPath')) {
-    serverLlama.ModelPath = runtimeLlama.ModelPath ?? null;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'Model')) {
-    serverLlama.Model = runtime.Model ?? deriveModelIdFromPath(serverLlama.ModelPath) ?? DEFAULT_LLAMA_MODEL;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'NumCtx')) {
-    serverLlama.NumCtx = runtimeLlama.NumCtx ?? 150000;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'GpuLayers')) {
-    serverLlama.GpuLayers = runtimeLlama.GpuLayers ?? DEFAULT_LLAMA_GPU_LAYERS;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'Threads')) {
-    serverLlama.Threads = runtimeLlama.Threads ?? -1;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'NcpuMoe')) {
-    serverLlama.NcpuMoe = runtimeLlama.NcpuMoe ?? 0;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'FlashAttention')) {
-    serverLlama.FlashAttention = runtimeLlama.FlashAttention ?? true;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ParallelSlots')) {
-    serverLlama.ParallelSlots = runtimeLlama.ParallelSlots ?? 1;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'BatchSize')) {
-    serverLlama.BatchSize = DEFAULT_LLAMA_BATCH_SIZE;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'UBatchSize')) {
-    serverLlama.UBatchSize = DEFAULT_LLAMA_UBATCH_SIZE;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'CacheRam')) {
-    serverLlama.CacheRam = DEFAULT_LLAMA_CACHE_RAM;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'KvCacheQuantization')) {
-    serverLlama.KvCacheQuantization = DEFAULT_LLAMA_KV_CACHE_QUANTIZATION;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'MaxTokens')) {
-    serverLlama.MaxTokens = runtimeLlama.MaxTokens ?? 15000;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'Temperature')) {
-    serverLlama.Temperature = runtimeLlama.Temperature ?? 0.7;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'TopP')) {
-    serverLlama.TopP = runtimeLlama.TopP ?? 0.8;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'TopK')) {
-    serverLlama.TopK = runtimeLlama.TopK ?? 20;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'MinP')) {
-    serverLlama.MinP = runtimeLlama.MinP ?? 0.0;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'PresencePenalty')) {
-    serverLlama.PresencePenalty = runtimeLlama.PresencePenalty ?? 1.5;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'RepetitionPenalty')) {
-    serverLlama.RepetitionPenalty = runtimeLlama.RepetitionPenalty ?? 1.0;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'Reasoning')) {
-    serverLlama.Reasoning = runtimeLlama.Reasoning ?? 'off';
-  }
-  if (String(serverLlama.Reasoning || '') === 'auto') {
-    serverLlama.Reasoning = 'off';
-  }
-  if (String(runtimeLlama.Reasoning || '') === 'auto') {
-    runtimeLlama.Reasoning = 'off';
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ReasoningContent')) {
-    serverLlama.ReasoningContent = false;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'PreserveThinking')) {
-    serverLlama.PreserveThinking = false;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeEnabled')) {
-    serverLlama.SpeculativeEnabled = false;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeType')) {
-    serverLlama.SpeculativeType = 'ngram-map-k';
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeMtpEnabled')) {
-    serverLlama.SpeculativeMtpEnabled = false;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeNgramSizeN')) {
-    serverLlama.SpeculativeNgramSizeN = 8;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeNgramSizeM')) {
-    serverLlama.SpeculativeNgramSizeM = 16;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeNgramMinHits')) {
-    serverLlama.SpeculativeNgramMinHits = 2;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeNgramModNMatch')) {
-    serverLlama.SpeculativeNgramModNMatch = 24;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeNgramModNMin')) {
-    serverLlama.SpeculativeNgramModNMin = 4;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeNgramModNMax')) {
-    serverLlama.SpeculativeNgramModNMax = 16;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeDraftMax')) {
-    serverLlama.SpeculativeDraftMax = 16;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeDraftMin')) {
-    serverLlama.SpeculativeDraftMin = 4;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ReasoningBudget')) {
-    serverLlama.ReasoningBudget = DEFAULT_LLAMA_REASONING_BUDGET;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'ReasoningBudgetMessage')) {
-    serverLlama.ReasoningBudgetMessage = DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'StartupTimeoutMs')) {
-    serverLlama.StartupTimeoutMs = DEFAULT_LLAMA_STARTUP_TIMEOUT_MS;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'HealthcheckTimeoutMs')) {
-    serverLlama.HealthcheckTimeoutMs = DEFAULT_LLAMA_HEALTHCHECK_TIMEOUT_MS;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'HealthcheckIntervalMs')) {
-    serverLlama.HealthcheckIntervalMs = DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SleepIdleSeconds')) {
-    serverLlama.SleepIdleSeconds = DEFAULT_LLAMA_SLEEP_IDLE_SECONDS;
-  }
-  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'VerboseLogging')) {
-    serverLlama.VerboseLogging = false;
-  }
-  const managedBlankPlaceholder = (
-    serverLlama.ExternalServerEnabled !== true
-    && getNullableTrimmedString(serverLlama.ExecutablePath) === null
-    && getNullableTrimmedString(serverLlama.ModelPath) === null
-    && getNullableTrimmedString(serverLlama.BaseUrl) === null
-    && getNullableTrimmedString(serverLlama.BindHost) === null
-    && (toNullableInteger(serverLlama.Port) === null || Number(serverLlama.Port) <= 0)
-    && (toNullableInteger(serverLlama.NumCtx) === null || Number(serverLlama.NumCtx) <= 0)
-    && (toNullableInteger(serverLlama.BatchSize) === null || Number(serverLlama.BatchSize) <= 0)
-    && (toNullableInteger(serverLlama.UBatchSize) === null || Number(serverLlama.UBatchSize) <= 0)
-    && (toNullableInteger(serverLlama.CacheRam) === null || Number(serverLlama.CacheRam) <= 0)
-    && getNullableTrimmedString(serverLlama.KvCacheQuantization) === null
-    && (toNullableInteger(serverLlama.MaxTokens) === null || Number(serverLlama.MaxTokens) <= 0)
-    && (toNullableNumber(serverLlama.Temperature) === null || Number(serverLlama.Temperature) <= 0)
-    && (toNullableNumber(serverLlama.TopP) === null || Number(serverLlama.TopP) <= 0)
-    && (toNullableInteger(serverLlama.TopK) === null || Number(serverLlama.TopK) <= 0)
-    && getNullableTrimmedString(serverLlama.Reasoning) === null
-  );
-  if (managedBlankPlaceholder) {
-    for (const key of MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS) {
-      serverLlama[key] = defaultServerLlama[key];
-    }
-  }
-  applyActiveManagedLlamaPreset(serverLlama, preferManagedPresetValues);
-  if (serverLlama.Reasoning !== 'on') {
-    serverLlama.ReasoningContent = false;
-    serverLlama.PreserveThinking = false;
-  } else if (serverLlama.ReasoningContent !== true) {
-    serverLlama.ReasoningContent = false;
-    serverLlama.PreserveThinking = false;
-  } else {
-    serverLlama.PreserveThinking = serverLlama.PreserveThinking === true;
-  }
-  serverLlama.SpeculativeEnabled = serverLlama.SpeculativeEnabled === true;
-  serverLlama.SpeculativeType = getManagedSpeculativeType(serverLlama.SpeculativeType, 'ngram-map-k');
-  serverLlama.SpeculativeMtpEnabled = serverLlama.SpeculativeMtpEnabled === true;
-  serverLlama.SpeculativeNgramSizeN = getSpeculativeInteger(serverLlama.SpeculativeNgramSizeN, 8, true);
-  serverLlama.SpeculativeNgramSizeM = getSpeculativeInteger(serverLlama.SpeculativeNgramSizeM, 16, true);
-  serverLlama.SpeculativeNgramMinHits = getSpeculativeInteger(serverLlama.SpeculativeNgramMinHits, 2, true);
-  serverLlama.SpeculativeNgramModNMatch = getSpeculativeInteger(serverLlama.SpeculativeNgramModNMatch, 24, true);
-  serverLlama.SpeculativeNgramModNMin = getSpeculativeInteger(serverLlama.SpeculativeNgramModNMin, 4, true);
-  serverLlama.SpeculativeNgramModNMax = getSpeculativeInteger(serverLlama.SpeculativeNgramModNMax, 16, true);
-  serverLlama.SpeculativeDraftMax = getSpeculativeInteger(serverLlama.SpeculativeDraftMax, 16, true);
-  serverLlama.SpeculativeDraftMin = getSpeculativeInteger(serverLlama.SpeculativeDraftMin, 4, false);
-  serverLlama.SleepIdleSeconds = getFinitePositiveInteger(serverLlama.SleepIdleSeconds, DEFAULT_LLAMA_SLEEP_IDLE_SECONDS);
-  serverLlama.VerboseLogging = Boolean(serverLlama.VerboseLogging);
-  delete serverLlama.StartupScript;
-  delete serverLlama.ShutdownScript;
-  delete serverLlama.VerboseArgs;
-  for (const key of MANAGED_LLAMA_RUNTIME_KEYS) {
-    if (Object.prototype.hasOwnProperty.call(serverLlama, key)) {
-      runtimeLlama[key] = serverLlama[key];
-    }
-  }
+
+  merged.Server = (merged.Server && typeof merged.Server === 'object' && !Array.isArray(merged.Server))
+    ? merged.Server : {};
+  const server = merged.Server as Dict;
+  const serverLlama = (server.LlamaCpp && typeof server.LlamaCpp === 'object' && !Array.isArray(server.LlamaCpp))
+    ? server.LlamaCpp as Dict : {};
+  const presets = normalizeManagedLlamaPresetArray(serverLlama.Presets, {});
+  const activeId = getNullableTrimmedString(serverLlama.ActivePresetId);
+  const activePreset = presets.find((preset) => String(preset.id) === activeId) || presets[0];
+  server.LlamaCpp = { Presets: presets, ActivePresetId: String(activePreset.id) };
+
   merged.OperationModeAllowedTools = normalizeOperationModeAllowedTools(merged.OperationModeAllowedTools);
   merged.Presets = normalizePresets(merged.Presets);
   return merged;
@@ -1162,26 +745,13 @@ function getManagedKvCacheQuantization(value: unknown, fallback: string): string
   return fallback;
 }
 
-function copyManagedLlamaFields(target: Dict, source: Dict): void {
-  for (const key of MANAGED_LLAMA_FIELD_KEYS) {
-    if (Object.prototype.hasOwnProperty.call(source, key)) {
-      target[key] = source[key];
-    }
-  }
-}
-
-function managedLlamaFieldsDiffer(left: Dict, right: Dict): boolean {
-  return MANAGED_LLAMA_FIELD_KEYS.some((key) => left[key] !== right[key]);
-}
-
 function normalizeManagedLlamaPresetRecord(input: unknown, fallbackId: string, fallbackLabel: string): Dict {
   const record = (input && typeof input === 'object' && !Array.isArray(input)) ? input as Dict : {};
-  const managed = getManagedLlamaConfig({ Server: { LlamaCpp: record } });
   return {
     id: getNullableTrimmedString(record.id) || fallbackId,
     label: getNullableTrimmedString(record.label) || fallbackLabel,
     Model: getNullableTrimmedString(record.Model) || deriveModelIdFromPath(record.ModelPath) || DEFAULT_LLAMA_MODEL,
-    ...managed,
+    ...resolveManagedLlamaSettings(record),
   };
 }
 
@@ -1206,19 +776,6 @@ function normalizeManagedLlamaPresetArray(value: unknown, fallbackSource: Dict):
     label: 'Default',
     ...fallbackSource,
   }, 'default', 'Default')];
-}
-
-function applyActiveManagedLlamaPreset(serverLlama: Dict, preferPresetValues: boolean): void {
-  const presets = normalizeManagedLlamaPresetArray(serverLlama.Presets, serverLlama);
-  const activePresetId = getNullableTrimmedString(serverLlama.ActivePresetId);
-  const activePreset = presets.find((preset) => preset.id === activePresetId) || presets[0];
-  serverLlama.Presets = presets;
-  serverLlama.ActivePresetId = String(activePreset.id);
-  if (!preferPresetValues && managedLlamaFieldsDiffer(serverLlama, activePreset)) {
-    copyManagedLlamaFields(activePreset, serverLlama);
-    return;
-  }
-  copyManagedLlamaFields(serverLlama, activePreset);
 }
 
 type ManagedLlamaConfig = {
@@ -1327,11 +884,27 @@ export function getManagedLlamaInternalBaseUrl(config: unknown): string | null {
   return `http://127.0.0.1:${managed.Port}`;
 }
 
-export function getManagedLlamaConfig(config: unknown): ManagedLlamaConfig {
-  const defaults = (getDefaultConfig().Server as Dict).LlamaCpp as Dict;
+export function getActiveManagedLlamaPreset(config: unknown): Dict {
   const cfg = (config ?? {}) as Dict;
-  const srv = (cfg.Server ?? {}) as Dict;
-  const serverLlama = (srv.LlamaCpp ?? {}) as Dict;
+  const serverLlama = ((cfg.Server as Dict | undefined)?.LlamaCpp ?? {}) as Dict;
+  const presets = normalizeManagedLlamaPresetArray(serverLlama.Presets, serverLlama);
+  const activeId = getNullableTrimmedString(serverLlama.ActivePresetId);
+  return presets.find((preset) => String(preset.id) === activeId) || presets[0];
+}
+
+export function getManagedLlamaConfig(config: unknown): ManagedLlamaConfig {
+  const preset = getActiveManagedLlamaPreset(config);
+  return {
+    Model: getNullableTrimmedString(preset.Model),
+    ...resolveManagedLlamaSettings(preset),
+  };
+}
+
+// Pure per-record defaulting: takes ONE flat managed-llama record (a preset
+// body) and applies defaults/validation. No preset lookup, so it is safe to
+// call from normalizeManagedLlamaPresetRecord without recursion.
+function resolveManagedLlamaSettings(serverLlama: Dict): ManagedLlamaConfig {
+  const defaults = DEFAULT_MANAGED_LLAMA_PRESET;
   const reasoning = getNullableTrimmedString(serverLlama.Reasoning);
   const reasoningEnabled = reasoning === 'on';
   const reasoningContentEnabled = reasoningEnabled && serverLlama.ReasoningContent === true;
