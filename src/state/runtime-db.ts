@@ -7,7 +7,7 @@ import { normalizeOperationModeAllowedTools, normalizePresets } from '../presets
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-export const CURRENT_SCHEMA_VERSION = 25;
+export const CURRENT_SCHEMA_VERSION = 26;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["repo_rg","repo_read_file","repo_list_files","repo_git","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}';
 
@@ -105,21 +105,6 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       include_repo_file_listing INTEGER NOT NULL DEFAULT 1 CHECK (include_repo_file_listing IN (0, 1)),
       prompt_prefix TEXT,
       runtime_model TEXT,
-      llama_base_url TEXT,
-      llama_num_ctx INTEGER,
-      llama_model_path TEXT,
-      llama_temperature REAL,
-      llama_top_p REAL,
-      llama_top_k INTEGER,
-      llama_min_p REAL,
-      llama_presence_penalty REAL,
-      llama_repetition_penalty REAL,
-      llama_max_tokens INTEGER,
-      llama_threads INTEGER,
-      llama_ncpu_moe INTEGER,
-      llama_flash_attention INTEGER CHECK (llama_flash_attention IN (0, 1) OR llama_flash_attention IS NULL),
-      llama_parallel_slots INTEGER,
-      llama_reasoning TEXT,
       thresholds_min_characters_for_summary INTEGER NOT NULL,
       thresholds_min_lines_for_summary INTEGER NOT NULL,
       interactive_enabled INTEGER NOT NULL CHECK (interactive_enabled IN (0, 1)),
@@ -127,36 +112,6 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       interactive_idle_timeout_ms INTEGER NOT NULL,
       interactive_max_transcript_characters INTEGER NOT NULL,
       interactive_transcript_retention INTEGER NOT NULL CHECK (interactive_transcript_retention IN (0, 1)),
-      server_executable_path TEXT,
-      server_base_url TEXT,
-      server_bind_host TEXT,
-      server_port INTEGER,
-      server_model_path TEXT,
-      server_num_ctx INTEGER,
-      server_gpu_layers INTEGER,
-      server_threads INTEGER,
-      server_ncpu_moe INTEGER,
-      server_flash_attention INTEGER CHECK (server_flash_attention IN (0, 1) OR server_flash_attention IS NULL),
-      server_parallel_slots INTEGER,
-      server_batch_size INTEGER,
-      server_ubatch_size INTEGER,
-      server_cache_ram INTEGER,
-      server_kv_cache_quant TEXT,
-      server_max_tokens INTEGER,
-      server_temperature REAL,
-      server_top_p REAL,
-      server_top_k INTEGER,
-      server_min_p REAL,
-      server_presence_penalty REAL,
-      server_repetition_penalty REAL,
-      server_reasoning TEXT,
-      server_reasoning_budget INTEGER,
-      server_reasoning_budget_message TEXT,
-      server_startup_timeout_ms INTEGER,
-      server_healthcheck_timeout_ms INTEGER,
-      server_healthcheck_interval_ms INTEGER,
-      server_sleep_idle_seconds INTEGER,
-      server_verbose_logging INTEGER CHECK (server_verbose_logging IN (0, 1) OR server_verbose_logging IS NULL),
       server_llama_presets_json TEXT NOT NULL DEFAULT '[]',
       server_llama_active_preset_id TEXT,
       server_external_server_enabled INTEGER NOT NULL DEFAULT 0 CHECK (server_external_server_enabled IN (0, 1)),
@@ -662,6 +617,60 @@ function migrateStoredPlannerToolNames(database: RuntimeDatabase): void {
   );
 }
 
+const V26_DROPPED_APP_CONFIG_COLUMNS: readonly string[] = [
+  'llama_base_url', 'llama_num_ctx', 'llama_model_path', 'llama_temperature',
+  'llama_top_p', 'llama_top_k', 'llama_min_p', 'llama_presence_penalty',
+  'llama_repetition_penalty', 'llama_max_tokens', 'llama_threads',
+  'llama_ncpu_moe', 'llama_flash_attention', 'llama_parallel_slots', 'llama_reasoning',
+  'server_executable_path', 'server_base_url', 'server_bind_host', 'server_port',
+  'server_model_path', 'server_num_ctx', 'server_gpu_layers', 'server_threads',
+  'server_ncpu_moe', 'server_flash_attention', 'server_parallel_slots',
+  'server_batch_size', 'server_ubatch_size', 'server_cache_ram',
+  'server_kv_cache_quant', 'server_max_tokens', 'server_temperature',
+  'server_top_p', 'server_top_k', 'server_min_p', 'server_presence_penalty',
+  'server_repetition_penalty', 'server_reasoning', 'server_reasoning_budget',
+  'server_reasoning_budget_message', 'server_startup_timeout_ms',
+  'server_healthcheck_timeout_ms', 'server_healthcheck_interval_ms',
+  'server_sleep_idle_seconds', 'server_verbose_logging',
+];
+
+/**
+ * Collapses managed-llama config onto the active preset. The presets array was
+ * already kept in sync with the server_* columns by applyActiveManagedLlamaPreset,
+ * so an existing non-empty presets json is authoritative. When the presets json
+ * is empty the server_* columns were the only copy: synthesize one preset id so
+ * post-migration reads always resolve an active preset. Then drop the redundant
+ * server_ and llama_ columns.
+ */
+function migrateAppConfigToPresetSourceOfTruth(database: RuntimeDatabase): void {
+  if (!tableExists(database, 'app_config')) {
+    return;
+  }
+  if (tableHasColumn(database, 'app_config', 'server_llama_presets_json')) {
+    const row = database.prepare(
+      'SELECT server_llama_presets_json AS presetsJson FROM app_config WHERE id = 1',
+    ).get() as { presetsJson?: string } | undefined;
+    let presets: unknown[] = [];
+    try {
+      presets = row?.presetsJson ? (JSON.parse(row.presetsJson) as unknown[]) : [];
+    } catch {
+      presets = [];
+    }
+    if (!Array.isArray(presets) || presets.length === 0) {
+      database.prepare(`
+        UPDATE app_config
+        SET server_llama_presets_json = ?, server_llama_active_preset_id = 'default'
+        WHERE id = 1
+      `).run(JSON.stringify([{ id: 'default', label: 'Default' }]));
+    }
+  }
+  for (const column of V26_DROPPED_APP_CONFIG_COLUMNS) {
+    if (tableHasColumn(database, 'app_config', column)) {
+      database.exec(`ALTER TABLE app_config DROP COLUMN ${column};`);
+    }
+  }
+}
+
 function ensureSchema(database: RuntimeDatabase): void {
   database.exec('PRAGMA foreign_keys = ON;');
   const storedVersion = getSchemaVersion(database);
@@ -1033,6 +1042,11 @@ function ensureSchema(database: RuntimeDatabase): void {
     ensureDashboardBenchmarkSchema(database);
     setSchemaVersion(database, 25);
     currentVersion = 25;
+  }
+  if (currentVersion < 26) {
+    migrateAppConfigToPresetSourceOfTruth(database);
+    setSchemaVersion(database, 26);
+    currentVersion = 26;
   }
   ensureRuntimeArtifactsSchema(database);
   ensureManagedLlamaAndBenchmarkMatrixSchema(database);
