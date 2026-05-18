@@ -637,38 +637,68 @@ git commit -m "refactor: app_config row mapping reads/writes only preset columns
 
 ---
 
-## Task 6: Normalization — drop legacy blocks and preset-copy helpers
+## Task 6: Collapse the client-side normalizer to a thin relay
 
 **Files:**
-- Modify: `src/config/normalization.ts`
+- Modify: `src/config/normalization.ts`, `src/config/config-service.ts`
 
-- [ ] **Step 1: Delete the legacy blocks**
+`src/config/normalization.ts` is the **client-side** config normalizer (consumed by `config-service.ts`, which talks to the authoritative server `/config` endpoint). It is now entirely legacy: a flat `Server.LlamaCpp.*` backfiller, `applyActiveManagedLlamaPreset` sync, `legacyOllama` / `legacyMaxInputCharacters` / `legacyRuntimePromptPrefix` migrations, and `applyRuntimeCompatibilityView` which exists only to synthesize the deleted top-level `LlamaCpp`/`Model`. Since the server already returns a normalized `SiftConfig`, the client side becomes a thin relay.
 
-In `src/config/normalization.ts` `normalizeConfig` (or the inner normalizer):
-- Delete the `legacyOllama` block (read + spread + `delete updated.Ollama`).
-- Delete the top-level `Model` migration block (`if (typeof updated.Model === 'string' ...)` and the `delete updated.Model`).
-- Delete the `legacyRuntimePromptPrefix` block and the `delete updated.Runtime.PromptPrefix`.
-- Delete the `RUNTIME_OWNED_LLAMA_CPP_KEYS` loop that copies `updated.LlamaCpp[key]` into `Runtime.LlamaCpp` and the `updated.LlamaCpp ??= {}` initialization.
-- Delete the `hadExplicitMaxInputCharacters` / `legacyMaxInputCharactersValue` block and the `legacyMaxInputCharactersRemoved` tracking.
+- [ ] **Step 1: Replace the entire contents of `src/config/normalization.ts`**
 
-- [ ] **Step 2: Delete preset-copy helpers**
+```typescript
+import { initializeRuntime } from './paths.js';
+import type { NormalizationInfo, SiftConfig } from './types.js';
 
-Delete `copyManagedLlamaPresetToServer`, `copyManagedLlamaServerToPreset`, `MANAGED_LLAMA_PRESET_KEYS`, and `MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS` if defined here. Where `normalizeConfig` invoked `applyActiveManagedLlamaPreset`, replace with a normalize-only step that runs `Server.LlamaCpp.Presets` through `normalizeManagedLlamaPresetArray` and sets `ActivePresetId` to a valid id (first preset when missing). The server-llama normalization that re-normalized `SpeculativeType` etc. now normalizes each preset entry instead.
+/**
+ * The status server `/config` endpoint is the authoritative normalizer
+ * (see status-server/config-store.ts). The client trusts what it returns;
+ * this is a passthrough kept so callers have a stable normalize entry point.
+ */
+export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info: NormalizationInfo } {
+  return { config, info: { changed: false } };
+}
 
-- [ ] **Step 3: Update `NormalizationInfo` producers**
+export function updateRuntimePaths(config: SiftConfig): SiftConfig {
+  return {
+    ...config,
+    Paths: initializeRuntime(),
+  };
+}
 
-Change every `return { changed, legacyMaxInputCharactersRemoved, legacyMaxInputCharactersValue }` to `return { changed }`. Update `normalizeConfig`'s return shape accordingly.
+/** Strips derived fields (`Paths`, `Effective`) before persisting via PUT /config. */
+export function toPersistedConfigObject(config: SiftConfig): Omit<SiftConfig, 'Paths' | 'Effective'> {
+  const persisted = { ...config };
+  delete (persisted as Partial<SiftConfig>).Paths;
+  delete (persisted as Partial<SiftConfig>).Effective;
+  return persisted;
+}
+```
 
-- [ ] **Step 4: Build**
+This deletes `applyRuntimeCompatibilityView`, `isBlankManagedLlamaPlaceholder`, `syncRuntimeLlamaFromManaged`, `copyManagedLlamaPresetToServer`, `copyManagedLlamaServerToPreset`, `managedLlamaFieldsDiffer`, `normalizeManagedLlamaPreset`, `applyActiveManagedLlamaPreset`, `normalizeBinaryReasoning`, `normalizeManagedSpeculativeType`, `normalizeSpeculativeInteger`, `normalizePositiveInteger`, the `MANAGED_LLAMA_*` const arrays, and all legacy blocks — by replacing the whole file.
+
+- [ ] **Step 2: Update `src/config/config-service.ts`**
+
+`applyRuntimeCompatibilityView` no longer exists. In `addLoadedConfigProperties`, drop the compat-view call:
+
+```typescript
+async function addLoadedConfigProperties(config: SiftConfig, info: NormalizationInfo): Promise<SiftConfig> {
+  return addEffectiveConfigProperties(updateRuntimePaths(config), info);
+}
+```
+
+Remove `applyRuntimeCompatibilityView` from the `./normalization.js` import. Keep `normalizeConfig`, `toPersistedConfigObject`, `updateRuntimePaths`.
+
+- [ ] **Step 3: Build**
 
 Run: `npm run build`
-Expected: errors only in `getters.ts`, `effective.ts`, `host-sync.ts`, dashboard — addressed next.
+Expected: remaining errors only in `getters.ts`, `effective.ts`, `host-sync.ts`, `defaults.ts`, `managed-llama.ts`, dashboard — addressed next.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add src/config/normalization.ts
-git commit -m "refactor: remove legacy config normalization and preset-copy helpers"
+git add src/config/normalization.ts src/config/config-service.ts
+git commit -m "refactor: collapse client config normalizer to a thin relay"
 ```
 
 ---
@@ -963,7 +993,7 @@ No commit — this step changes only the local filesystem.
 - §2 Resolver → Task 4 + Task 4B (config-store `normalizeConfig` collapse); `getRuntimeLlamaCpp` rename → Task 7.
 - §3 Schema migration → Task 1.
 - §4 Launch snapshot → Task 3 (module), Task 8 (write), Task 7 (read/merge).
-- §5 Legacy deletions → Task 6 (normalization), Task 7 (getters/effective/host-sync/defaults), Task 9 (cutover), Task 12 (disk files).
+- §5 Legacy deletions → Task 6 (client normalizer collapsed to thin relay; `applyRuntimeCompatibilityView` deleted), Task 7 (getters/effective/host-sync/defaults), Task 9 (cutover), Task 12 (disk files).
 - §6 Testing → Tasks 1,3,4,8 (new tests), Task 11 (rewrites), Task 9 (cutover test deleted).
 
 **Type consistency:** `ManagedLlamaSettings`, `ServerManagedLlamaPreset`, `ServerLlamaCppConfig`, `RuntimeLaunchSnapshot`, `getActiveManagedLlamaPreset`, `getRuntimeLlamaCpp`, `buildRuntimeLaunchSnapshot`, `readRuntimeLaunchSnapshot`/`writeRuntimeLaunchSnapshot` are used consistently across tasks.
