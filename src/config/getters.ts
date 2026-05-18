@@ -1,12 +1,18 @@
 import { SIFT_DEFAULT_NUM_CTX, type RuntimeOwnedLlamaCppKey } from './constants.js';
-import type { RuntimeLlamaCppConfig, SiftConfig } from './types.js';
+import type { RuntimeLlamaCppConfig, ServerManagedLlamaPreset, SiftConfig } from './types.js';
 
 export function getDefaultNumCtx(): number {
   return SIFT_DEFAULT_NUM_CTX;
 }
 
-export function getCompatRuntimeLlamaCpp(config: SiftConfig): RuntimeLlamaCppConfig {
-  return config.Runtime?.LlamaCpp ?? config.LlamaCpp ?? {};
+export function getRuntimeLlamaCpp(config: SiftConfig): RuntimeLlamaCppConfig {
+  return config.Runtime.LlamaCpp;
+}
+
+export function getActiveManagedLlamaPreset(config: SiftConfig): ServerManagedLlamaPreset | undefined {
+  const serverLlama = config.Server.LlamaCpp;
+  const presets = Array.isArray(serverLlama.Presets) ? serverLlama.Presets : [];
+  return presets.find((preset) => preset.id === serverLlama.ActivePresetId) ?? presets[0];
 }
 
 export function getFinitePositiveNumber(value: unknown): number | null {
@@ -15,7 +21,7 @@ export function getFinitePositiveNumber(value: unknown): number | null {
 }
 
 export function getConfiguredModel(config: SiftConfig): string {
-  const model = config.Runtime?.Model ?? config.Model;
+  const model = config.Runtime.Model;
   if (typeof model === 'string' && model.trim()) {
     return model.trim();
   }
@@ -29,7 +35,7 @@ export function getConfiguredPromptPrefix(config: SiftConfig): string | undefine
 }
 
 export function getConfiguredLlamaBaseUrl(config: SiftConfig): string {
-  const baseUrl = getCompatRuntimeLlamaCpp(config).BaseUrl;
+  const baseUrl = getRuntimeLlamaCpp(config).BaseUrl;
   if (typeof baseUrl === 'string' && baseUrl.trim()) {
     return baseUrl.trim();
   }
@@ -38,7 +44,7 @@ export function getConfiguredLlamaBaseUrl(config: SiftConfig): string {
 }
 
 export function getConfiguredLlamaNumCtx(config: SiftConfig): number {
-  const numCtx = getFinitePositiveNumber(getCompatRuntimeLlamaCpp(config).NumCtx);
+  const numCtx = getFinitePositiveNumber(getRuntimeLlamaCpp(config).NumCtx);
   if (numCtx !== null) {
     return numCtx;
   }
@@ -50,7 +56,7 @@ export function getConfiguredLlamaSetting<T>(
   config: SiftConfig,
   key: RuntimeOwnedLlamaCppKey
 ): T | undefined {
-  const runtimeValue = getCompatRuntimeLlamaCpp(config)[key];
+  const runtimeValue = getRuntimeLlamaCpp(config)[key];
   return (runtimeValue === undefined || runtimeValue === null) ? undefined : runtimeValue as T;
 }
 

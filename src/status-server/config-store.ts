@@ -7,6 +7,7 @@ import {
   type SiftPreset,
 } from '../presets.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
+import { readRuntimeLaunchSnapshot } from './runtime-launch-snapshot.js';
 
 export const DEFAULT_LLAMA_MODEL = 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
 export const DEFAULT_LLAMA_BASE_URL = 'http://127.0.0.1:8097';
@@ -409,12 +410,21 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
 
 export function readConfig(configPath: string): Dict {
   const existingRow = readConfigRow(configPath);
-  if (existingRow) {
-    return rowToConfig(existingRow);
+  const config = existingRow
+    ? rowToConfig(existingRow)
+    : (() => {
+      const fallback = normalizeConfig({});
+      writeConfigRow(configPath, normalizeConfigToRow(fallback));
+      return fallback;
+    })();
+  const snapshot = readRuntimeLaunchSnapshot(configPath);
+  if (snapshot) {
+    const runtime = (config.Runtime as Dict | undefined) ?? {};
+    runtime.Model = snapshot.Model;
+    runtime.LlamaCpp = snapshot.LlamaCpp as unknown as Dict;
+    config.Runtime = runtime;
   }
-  const fallback = normalizeConfig({});
-  writeConfigRow(configPath, normalizeConfigToRow(fallback));
-  return fallback;
+  return config;
 }
 
 export function writeConfig(configPath: string, config: Dict): void {
@@ -563,18 +573,11 @@ type ManagedLlamaConfig = {
   VerboseLogging: boolean;
 };
 
-export function getCompatRuntimeLlamaCpp(config: unknown): Dict {
+export function getRuntimeLlamaCpp(config: unknown): Dict {
   const cfg = (config ?? {}) as Dict;
   const runtime = (cfg.Runtime ?? {}) as Dict;
   const runtimeLlama = runtime.LlamaCpp;
-  if (runtimeLlama && typeof runtimeLlama === 'object') {
-    return runtimeLlama as Dict;
-  }
-  const llama = cfg.LlamaCpp;
-  if (llama && typeof llama === 'object') {
-    return llama as Dict;
-  }
-  return {};
+  return (runtimeLlama && typeof runtimeLlama === 'object') ? runtimeLlama as Dict : {};
 }
 
 export function getLlamaBaseUrl(config: unknown): string | null {

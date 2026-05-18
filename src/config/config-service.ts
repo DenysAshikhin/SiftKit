@@ -10,7 +10,7 @@ import {
   getStatusBackendUrl,
   toStatusServerUnavailableError,
 } from './status-backend.js';
-import type { NormalizationInfo, SiftConfig } from './types.js';
+import type { SiftConfig } from './types.js';
 
 export function getConfigServiceUrl(): string {
   const configuredUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
@@ -60,25 +60,18 @@ export async function saveConfig(config: SiftConfig): Promise<SiftConfig> {
   return setConfigInService(config);
 }
 
-async function addLoadedConfigProperties(config: SiftConfig, info: NormalizationInfo): Promise<SiftConfig> {
-  return addEffectiveConfigProperties(updateRuntimePaths(config), info);
+async function addLoadedConfigProperties(config: SiftConfig): Promise<SiftConfig> {
+  return addEffectiveConfigProperties(updateRuntimePaths(config));
 }
 
 export async function normalizeLoadedConfig(config: SiftConfig): Promise<SiftConfig> {
-  const update = normalizeConfig(config);
-  return addLoadedConfigProperties(update.config, update.info);
+  return addLoadedConfigProperties(normalizeConfig(config).config);
 }
 
 export async function loadConfig(options?: { ensure?: boolean }): Promise<SiftConfig> {
   void options;
   const config = await getConfigFromService();
-
-  const update = normalizeConfig(config);
-  if (update.info.changed) {
-    await saveConfig(update.config);
-  }
-
-  return addLoadedConfigProperties(update.config, update.info);
+  return addLoadedConfigProperties(normalizeConfig(config).config);
 }
 
 export async function setTopLevelConfigKey(key: string, value: unknown): Promise<SiftConfig> {

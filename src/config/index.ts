@@ -51,7 +51,8 @@ export {
 } from './paths.js';
 
 export {
-  getCompatRuntimeLlamaCpp,
+  getRuntimeLlamaCpp,
+  getActiveManagedLlamaPreset,
   getConfiguredLlamaBaseUrl,
   getConfiguredLlamaNumCtx,
   getConfiguredLlamaSetting,

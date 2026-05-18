@@ -14,7 +14,7 @@ import { requestJsonFull } from '../lib/http.js';
 import {
   DEFAULT_LLAMA_MODEL,
   getLlamaBaseUrl,
-  getCompatRuntimeLlamaCpp,
+  getRuntimeLlamaCpp,
 } from './config-store.js';
 import {
   getCompletionUsageFromResponseBody,
@@ -245,7 +245,7 @@ export function buildChatCompletionRequest(config: Dict, session: ChatSession, u
   if (!baseUrl) {
     throw new Error('llama.cpp base URL is not configured.');
   }
-  const runtimeLlama = getCompatRuntimeLlamaCpp(config);
+  const runtimeLlama = getRuntimeLlamaCpp(config);
   const priorMessages = Array.isArray(session.messages) ? session.messages : [];
   const hiddenToolContexts = Array.isArray(session.hiddenToolContexts)
     ? (session.hiddenToolContexts as Dict[])

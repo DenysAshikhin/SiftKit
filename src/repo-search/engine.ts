@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
   applyHostLlamaRuntimeSettings,
+  getActiveManagedLlamaPreset,
   getConfiguredLlamaBaseUrl,
   getConfiguredLlamaNumCtx,
   getConfiguredLlamaSetting,
@@ -753,11 +754,13 @@ function isPlannerReasoningEnabled(config: SiftConfig | undefined): boolean {
 }
 
 function isPlannerReasoningContentEnabled(config: SiftConfig | undefined): boolean {
-  return isPlannerReasoningEnabled(config) && config?.Server?.LlamaCpp?.ReasoningContent === true;
+  return isPlannerReasoningEnabled(config)
+    && (config ? getActiveManagedLlamaPreset(config)?.ReasoningContent === true : false);
 }
 
 function isPlannerPreserveThinkingEnabled(config: SiftConfig | undefined): boolean {
-  return isPlannerReasoningContentEnabled(config) && config?.Server?.LlamaCpp?.PreserveThinking === true;
+  return isPlannerReasoningContentEnabled(config)
+    && (config ? getActiveManagedLlamaPreset(config)?.PreserveThinking === true : false);
 }
 
 function buildAssistantReplayMessage(content: string, thinkingText: string): ChatMessage {

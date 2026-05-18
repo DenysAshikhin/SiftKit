@@ -1,4 +1,4 @@
-import { getConfiguredLlamaBaseUrl, getConfiguredLlamaNumCtx, getConfiguredLlamaSetting, type RuntimeLlamaCppConfig, type SiftConfig } from '../config/index.js';
+import { getActiveManagedLlamaPreset, getConfiguredLlamaBaseUrl, getConfiguredLlamaNumCtx, getConfiguredLlamaSetting, type RuntimeLlamaCppConfig, type SiftConfig } from '../config/index.js';
 import { requestJsonFull, type FullJsonResponse } from '../lib/http.js';
 import {
   buildTransientProviderHttpError,
@@ -575,13 +575,9 @@ export async function generateLlamaCppChatResponse(options: {
   const baseUrl = getConfiguredLlamaBaseUrl(options.config);
   const resolvedReasoning = options.reasoningOverride
     ?? getConfiguredLlamaSetting<'on' | 'off'>(options.config, 'Reasoning');
-  const serverLlama = (
-    options.config.Server?.LlamaCpp
-    && typeof options.config.Server.LlamaCpp === 'object'
-    && !Array.isArray(options.config.Server.LlamaCpp)
-  ) ? options.config.Server.LlamaCpp : null;
-  const reasoningContentEnabled = resolvedReasoning === 'on' && serverLlama?.ReasoningContent === true;
-  const preserveThinkingEnabled = reasoningContentEnabled && serverLlama?.PreserveThinking === true;
+  const activePreset = getActiveManagedLlamaPreset(options.config);
+  const reasoningContentEnabled = resolvedReasoning === 'on' && activePreset?.ReasoningContent === true;
+  const preserveThinkingEnabled = reasoningContentEnabled && activePreset?.PreserveThinking === true;
   const structuredOutputResponseFormat = getStructuredOutputResponseFormat(options.structuredOutput);
   const promptChars = options.messages.reduce((total, message) => {
     return total + getTextContent(message.content).length;

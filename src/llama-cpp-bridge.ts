@@ -57,19 +57,21 @@ async function main(): Promise<void> {
   const config: SiftConfig = {
     Version: '0.1.0',
     Backend: 'llama.cpp',
-    Model: getRequiredArg(args, 'model'),
     PolicyMode: 'conservative',
     RawLogRetention: true,
-    LlamaCpp: {
-      BaseUrl: getRequiredArg(args, 'base-url'),
-      NumCtx: Number(getRequiredArg(args, 'num-ctx')),
-      Temperature: Number(getRequiredArg(args, 'temperature')),
-      TopP: Number(getRequiredArg(args, 'top-p')),
-      TopK: Number(getRequiredArg(args, 'top-k')),
-      MinP: Number(getRequiredArg(args, 'min-p')),
-      PresencePenalty: Number(getRequiredArg(args, 'presence-penalty')),
-      RepetitionPenalty: Number(getRequiredArg(args, 'repeat-penalty')),
-      ...(maxTokens === null ? {} : { MaxTokens: maxTokens }),
+    Runtime: {
+      Model: getRequiredArg(args, 'model'),
+      LlamaCpp: {
+        BaseUrl: getRequiredArg(args, 'base-url'),
+        NumCtx: Number(getRequiredArg(args, 'num-ctx')),
+        Temperature: Number(getRequiredArg(args, 'temperature')),
+        TopP: Number(getRequiredArg(args, 'top-p')),
+        TopK: Number(getRequiredArg(args, 'top-k')),
+        MinP: Number(getRequiredArg(args, 'min-p')),
+        PresencePenalty: Number(getRequiredArg(args, 'presence-penalty')),
+        RepetitionPenalty: Number(getRequiredArg(args, 'repeat-penalty')),
+        ...(maxTokens === null ? {} : { MaxTokens: maxTokens }),
+      },
     },
     Thresholds: {
       MinCharactersForSummary: 500,
@@ -81,6 +83,9 @@ async function main(): Promise<void> {
       IdleTimeoutMs: 900000,
       MaxTranscriptCharacters: 60000,
       TranscriptRetention: true,
+    },
+    Server: {
+      LlamaCpp: { Presets: [], ActivePresetId: '' },
     },
   };
 

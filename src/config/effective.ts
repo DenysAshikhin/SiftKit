@@ -7,7 +7,7 @@ import {
   getDefaultNumCtx,
   getMissingRuntimeFields,
 } from './getters.js';
-import type { NormalizationInfo, SiftConfig } from './types.js';
+import type { SiftConfig } from './types.js';
 
 export function getDerivedMaxInputCharacters(
   numCtx: number,
@@ -58,8 +58,7 @@ export async function resolveInputCharactersPerContextToken(): Promise<{ value: 
 }
 
 export async function addEffectiveConfigProperties(
-  config: SiftConfig,
-  info: NormalizationInfo
+  config: SiftConfig
 ): Promise<SiftConfig> {
   const effectiveBudget = await resolveInputCharactersPerContextToken();
   const missingRuntimeFields = getMissingRuntimeFields(config);
@@ -81,8 +80,6 @@ export async function addEffectiveConfigProperties(
       ObservedTelemetryUpdatedAtUtc: readObservedBudgetState().updatedAtUtc,
       MaxInputCharacters: maxInputCharacters,
       ChunkThresholdCharacters: maxInputCharacters,
-      LegacyMaxInputCharactersRemoved: info.legacyMaxInputCharactersRemoved,
-      LegacyMaxInputCharactersValue: info.legacyMaxInputCharactersValue,
     },
   };
 }
