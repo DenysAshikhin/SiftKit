@@ -44,9 +44,13 @@ function buildPresetFromServer(config: DashboardConfig): DashboardManagedLlamaPr
     PreserveThinking: config.Server.LlamaCpp.PreserveThinking,
     SpeculativeEnabled: config.Server.LlamaCpp.SpeculativeEnabled,
     SpeculativeType: config.Server.LlamaCpp.SpeculativeType,
+    SpeculativeMtpEnabled: config.Server.LlamaCpp.SpeculativeMtpEnabled,
     SpeculativeNgramSizeN: config.Server.LlamaCpp.SpeculativeNgramSizeN,
     SpeculativeNgramSizeM: config.Server.LlamaCpp.SpeculativeNgramSizeM,
     SpeculativeNgramMinHits: config.Server.LlamaCpp.SpeculativeNgramMinHits,
+    SpeculativeNgramModNMatch: config.Server.LlamaCpp.SpeculativeNgramModNMatch,
+    SpeculativeNgramModNMin: config.Server.LlamaCpp.SpeculativeNgramModNMin,
+    SpeculativeNgramModNMax: config.Server.LlamaCpp.SpeculativeNgramModNMax,
     SpeculativeDraftMax: config.Server.LlamaCpp.SpeculativeDraftMax,
     SpeculativeDraftMin: config.Server.LlamaCpp.SpeculativeDraftMin,
     ReasoningBudget: config.Server.LlamaCpp.ReasoningBudget,
@@ -101,9 +105,13 @@ function copyPresetToServer(config: DashboardConfig, preset: DashboardManagedLla
   config.Server.LlamaCpp.PreserveThinking = preset.PreserveThinking;
   config.Server.LlamaCpp.SpeculativeEnabled = preset.SpeculativeEnabled;
   config.Server.LlamaCpp.SpeculativeType = preset.SpeculativeType;
+  config.Server.LlamaCpp.SpeculativeMtpEnabled = preset.SpeculativeMtpEnabled;
   config.Server.LlamaCpp.SpeculativeNgramSizeN = preset.SpeculativeNgramSizeN;
   config.Server.LlamaCpp.SpeculativeNgramSizeM = preset.SpeculativeNgramSizeM;
   config.Server.LlamaCpp.SpeculativeNgramMinHits = preset.SpeculativeNgramMinHits;
+  config.Server.LlamaCpp.SpeculativeNgramModNMatch = preset.SpeculativeNgramModNMatch;
+  config.Server.LlamaCpp.SpeculativeNgramModNMin = preset.SpeculativeNgramModNMin;
+  config.Server.LlamaCpp.SpeculativeNgramModNMax = preset.SpeculativeNgramModNMax;
   config.Server.LlamaCpp.SpeculativeDraftMax = preset.SpeculativeDraftMax;
   config.Server.LlamaCpp.SpeculativeDraftMin = preset.SpeculativeDraftMin;
   config.Server.LlamaCpp.ReasoningBudget = preset.ReasoningBudget;

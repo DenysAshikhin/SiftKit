@@ -63,9 +63,13 @@ const MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS: ReadonlyArray<keyof ServerManagedLlam
   'PreserveThinking',
   'SpeculativeEnabled',
   'SpeculativeType',
+  'SpeculativeMtpEnabled',
   'SpeculativeNgramSizeN',
   'SpeculativeNgramSizeM',
   'SpeculativeNgramMinHits',
+  'SpeculativeNgramModNMatch',
+  'SpeculativeNgramModNMin',
+  'SpeculativeNgramModNMax',
   'SpeculativeDraftMax',
   'SpeculativeDraftMin',
   'ReasoningBudget',
@@ -106,9 +110,13 @@ const MANAGED_LLAMA_PRESET_KEYS: ReadonlyArray<Exclude<keyof ServerManagedLlamaC
   'PreserveThinking',
   'SpeculativeEnabled',
   'SpeculativeType',
+  'SpeculativeMtpEnabled',
   'SpeculativeNgramSizeN',
   'SpeculativeNgramSizeM',
   'SpeculativeNgramMinHits',
+  'SpeculativeNgramModNMatch',
+  'SpeculativeNgramModNMin',
+  'SpeculativeNgramModNMax',
   'SpeculativeDraftMax',
   'SpeculativeDraftMin',
   'ReasoningBudget',
@@ -218,9 +226,13 @@ function normalizeManagedLlamaPreset(
   }
   normalizedPreset.SpeculativeEnabled = normalizedPreset.SpeculativeEnabled === true;
   normalizedPreset.SpeculativeType = normalizeManagedSpeculativeType(normalizedPreset.SpeculativeType);
+  normalizedPreset.SpeculativeMtpEnabled = normalizedPreset.SpeculativeMtpEnabled === true;
   normalizedPreset.SpeculativeNgramSizeN = normalizeSpeculativeInteger(normalizedPreset.SpeculativeNgramSizeN, 8, true);
   normalizedPreset.SpeculativeNgramSizeM = normalizeSpeculativeInteger(normalizedPreset.SpeculativeNgramSizeM, 16, true);
   normalizedPreset.SpeculativeNgramMinHits = normalizeSpeculativeInteger(normalizedPreset.SpeculativeNgramMinHits, 2, true);
+  normalizedPreset.SpeculativeNgramModNMatch = normalizeSpeculativeInteger(normalizedPreset.SpeculativeNgramModNMatch, 24, true);
+  normalizedPreset.SpeculativeNgramModNMin = normalizeSpeculativeInteger(normalizedPreset.SpeculativeNgramModNMin, 4, true);
+  normalizedPreset.SpeculativeNgramModNMax = normalizeSpeculativeInteger(normalizedPreset.SpeculativeNgramModNMax, 16, true);
   normalizedPreset.SpeculativeDraftMax = normalizeSpeculativeInteger(normalizedPreset.SpeculativeDraftMax, 16, true);
   normalizedPreset.SpeculativeDraftMin = normalizeSpeculativeInteger(normalizedPreset.SpeculativeDraftMin, 4, false);
   normalizedPreset.SleepIdleSeconds = normalizePositiveInteger(

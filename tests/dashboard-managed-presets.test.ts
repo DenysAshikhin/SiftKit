@@ -41,9 +41,13 @@ function createPreset(overrides: Partial<DashboardManagedLlamaPreset> = {}): Das
     PreserveThinking: false,
     SpeculativeEnabled: false,
     SpeculativeType: 'ngram-map-k',
+    SpeculativeMtpEnabled: false,
     SpeculativeNgramSizeN: 8,
     SpeculativeNgramSizeM: 16,
     SpeculativeNgramMinHits: 2,
+    SpeculativeNgramModNMatch: 24,
+    SpeculativeNgramModNMin: 4,
+    SpeculativeNgramModNMax: 16,
     SpeculativeDraftMax: 16,
     SpeculativeDraftMin: 4,
     ReasoningBudget: 10000,
@@ -186,6 +190,35 @@ test('applyManagedLlamaPresetSelection mirrors the selected managed preset into 
   assert.equal(config.Server.LlamaCpp.SleepIdleSeconds, 120);
   assert.equal(config.Runtime.Model, 'qwen-27b.gguf');
   assert.equal(config.Model, 'qwen-27b.gguf');
+});
+
+test('applyManagedLlamaPresetSelection mirrors the MTP combination and ngram-mod fields into the active server settings', () => {
+  const config = createConfig();
+  Object.assign(
+    config.Server.LlamaCpp.Presets[1] as {
+      SpeculativeEnabled?: boolean;
+      SpeculativeType?: string;
+      SpeculativeMtpEnabled?: boolean;
+      SpeculativeNgramModNMatch?: number;
+      SpeculativeNgramModNMin?: number;
+      SpeculativeNgramModNMax?: number;
+    },
+    {
+      SpeculativeEnabled: true,
+      SpeculativeType: 'ngram-mod',
+      SpeculativeMtpEnabled: true,
+      SpeculativeNgramModNMatch: 24,
+      SpeculativeNgramModNMin: 12,
+      SpeculativeNgramModNMax: 48,
+    },
+  );
+
+  applyManagedLlamaPresetSelection(config, 'qwen-27b');
+
+  assert.equal(config.Server.LlamaCpp.SpeculativeMtpEnabled, true);
+  assert.equal(config.Server.LlamaCpp.SpeculativeNgramModNMatch, 24);
+  assert.equal(config.Server.LlamaCpp.SpeculativeNgramModNMin, 12);
+  assert.equal(config.Server.LlamaCpp.SpeculativeNgramModNMax, 48);
 });
 
 test('addManagedLlamaPreset clones the active preset and creates a unique id', () => {

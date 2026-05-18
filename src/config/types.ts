@@ -67,9 +67,13 @@ export type ServerManagedLlamaCppConfig = {
   PreserveThinking?: boolean | null;
   SpeculativeEnabled?: boolean | null;
   SpeculativeType?: ManagedLlamaSpeculativeType | null;
+  SpeculativeMtpEnabled?: boolean | null;
   SpeculativeNgramSizeN?: number | null;
   SpeculativeNgramSizeM?: number | null;
   SpeculativeNgramMinHits?: number | null;
+  SpeculativeNgramModNMatch?: number | null;
+  SpeculativeNgramModNMin?: number | null;
+  SpeculativeNgramModNMax?: number | null;
   SpeculativeDraftMax?: number | null;
   SpeculativeDraftMin?: number | null;
   ReasoningBudget?: number | null;

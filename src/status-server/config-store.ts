@@ -98,9 +98,13 @@ const MANAGED_LLAMA_FIELD_KEYS: readonly string[] = [
   'PreserveThinking',
   'SpeculativeEnabled',
   'SpeculativeType',
+  'SpeculativeMtpEnabled',
   'SpeculativeNgramSizeN',
   'SpeculativeNgramSizeM',
   'SpeculativeNgramMinHits',
+  'SpeculativeNgramModNMatch',
+  'SpeculativeNgramModNMin',
+  'SpeculativeNgramModNMax',
   'SpeculativeDraftMax',
   'SpeculativeDraftMin',
   'ReasoningBudget',
@@ -139,9 +143,13 @@ const MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS: readonly string[] = [
   'PreserveThinking',
   'SpeculativeEnabled',
   'SpeculativeType',
+  'SpeculativeMtpEnabled',
   'SpeculativeNgramSizeN',
   'SpeculativeNgramSizeM',
   'SpeculativeNgramMinHits',
+  'SpeculativeNgramModNMatch',
+  'SpeculativeNgramModNMin',
+  'SpeculativeNgramModNMax',
   'SpeculativeDraftMax',
   'SpeculativeDraftMin',
   'ReasoningBudget',
@@ -186,9 +194,13 @@ export function getDefaultConfig(): Dict {
     PreserveThinking: false,
     SpeculativeEnabled: false,
     SpeculativeType: 'ngram-map-k',
+    SpeculativeMtpEnabled: false,
     SpeculativeNgramSizeN: 8,
     SpeculativeNgramSizeM: 16,
     SpeculativeNgramMinHits: 2,
+    SpeculativeNgramModNMatch: 24,
+    SpeculativeNgramModNMin: 4,
+    SpeculativeNgramModNMax: 16,
     SpeculativeDraftMax: 16,
     SpeculativeDraftMin: 4,
     ReasoningBudget: DEFAULT_LLAMA_REASONING_BUDGET,
@@ -487,6 +499,9 @@ export function normalizeConfig(input: unknown): Dict {
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeType')) {
     serverLlama.SpeculativeType = 'ngram-map-k';
   }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeMtpEnabled')) {
+    serverLlama.SpeculativeMtpEnabled = false;
+  }
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeNgramSizeN')) {
     serverLlama.SpeculativeNgramSizeN = 8;
   }
@@ -495,6 +510,15 @@ export function normalizeConfig(input: unknown): Dict {
   }
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeNgramMinHits')) {
     serverLlama.SpeculativeNgramMinHits = 2;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeNgramModNMatch')) {
+    serverLlama.SpeculativeNgramModNMatch = 24;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeNgramModNMin')) {
+    serverLlama.SpeculativeNgramModNMin = 4;
+  }
+  if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeNgramModNMax')) {
+    serverLlama.SpeculativeNgramModNMax = 16;
   }
   if (!Object.prototype.hasOwnProperty.call(serverLlama, 'SpeculativeDraftMax')) {
     serverLlama.SpeculativeDraftMax = 16;
@@ -558,9 +582,13 @@ export function normalizeConfig(input: unknown): Dict {
   }
   serverLlama.SpeculativeEnabled = serverLlama.SpeculativeEnabled === true;
   serverLlama.SpeculativeType = getManagedSpeculativeType(serverLlama.SpeculativeType, 'ngram-map-k');
+  serverLlama.SpeculativeMtpEnabled = serverLlama.SpeculativeMtpEnabled === true;
   serverLlama.SpeculativeNgramSizeN = getSpeculativeInteger(serverLlama.SpeculativeNgramSizeN, 8, true);
   serverLlama.SpeculativeNgramSizeM = getSpeculativeInteger(serverLlama.SpeculativeNgramSizeM, 16, true);
   serverLlama.SpeculativeNgramMinHits = getSpeculativeInteger(serverLlama.SpeculativeNgramMinHits, 2, true);
+  serverLlama.SpeculativeNgramModNMatch = getSpeculativeInteger(serverLlama.SpeculativeNgramModNMatch, 24, true);
+  serverLlama.SpeculativeNgramModNMin = getSpeculativeInteger(serverLlama.SpeculativeNgramModNMin, 4, true);
+  serverLlama.SpeculativeNgramModNMax = getSpeculativeInteger(serverLlama.SpeculativeNgramModNMax, 16, true);
   serverLlama.SpeculativeDraftMax = getSpeculativeInteger(serverLlama.SpeculativeDraftMax, 16, true);
   serverLlama.SpeculativeDraftMin = getSpeculativeInteger(serverLlama.SpeculativeDraftMin, 4, false);
   serverLlama.SleepIdleSeconds = getFinitePositiveInteger(serverLlama.SleepIdleSeconds, DEFAULT_LLAMA_SLEEP_IDLE_SECONDS);
@@ -1223,9 +1251,13 @@ type ManagedLlamaConfig = {
   PreserveThinking: boolean;
   SpeculativeEnabled: boolean;
   SpeculativeType: string;
+  SpeculativeMtpEnabled: boolean;
   SpeculativeNgramSizeN: number;
   SpeculativeNgramSizeM: number;
   SpeculativeNgramMinHits: number;
+  SpeculativeNgramModNMatch: number;
+  SpeculativeNgramModNMin: number;
+  SpeculativeNgramModNMax: number;
   SpeculativeDraftMax: number;
   SpeculativeDraftMin: number;
   ReasoningBudget: number;
@@ -1340,9 +1372,13 @@ export function getManagedLlamaConfig(config: unknown): ManagedLlamaConfig {
     PreserveThinking: reasoningContentEnabled && serverLlama.PreserveThinking === true,
     SpeculativeEnabled: serverLlama.SpeculativeEnabled === true,
     SpeculativeType: getManagedSpeculativeType(serverLlama.SpeculativeType, String(defaults.SpeculativeType || 'ngram-map-k')),
+    SpeculativeMtpEnabled: serverLlama.SpeculativeMtpEnabled === true,
     SpeculativeNgramSizeN: getSpeculativeInteger(serverLlama.SpeculativeNgramSizeN, Number(defaults.SpeculativeNgramSizeN ?? 8), true),
     SpeculativeNgramSizeM: getSpeculativeInteger(serverLlama.SpeculativeNgramSizeM, Number(defaults.SpeculativeNgramSizeM ?? 16), true),
     SpeculativeNgramMinHits: getSpeculativeInteger(serverLlama.SpeculativeNgramMinHits, Number(defaults.SpeculativeNgramMinHits ?? 2), true),
+    SpeculativeNgramModNMatch: getSpeculativeInteger(serverLlama.SpeculativeNgramModNMatch, Number(defaults.SpeculativeNgramModNMatch ?? 24), true),
+    SpeculativeNgramModNMin: getSpeculativeInteger(serverLlama.SpeculativeNgramModNMin, Number(defaults.SpeculativeNgramModNMin ?? 4), true),
+    SpeculativeNgramModNMax: getSpeculativeInteger(serverLlama.SpeculativeNgramModNMax, Number(defaults.SpeculativeNgramModNMax ?? 16), true),
     SpeculativeDraftMax: getSpeculativeInteger(serverLlama.SpeculativeDraftMax, Number(defaults.SpeculativeDraftMax ?? 16), true),
     SpeculativeDraftMin: getSpeculativeInteger(serverLlama.SpeculativeDraftMin, Number(defaults.SpeculativeDraftMin ?? 4), false),
     ReasoningBudget: getFinitePositiveInteger(serverLlama.ReasoningBudget, Number(defaults.ReasoningBudget ?? DEFAULT_LLAMA_REASONING_BUDGET)),

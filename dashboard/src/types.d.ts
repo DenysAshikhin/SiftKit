@@ -307,9 +307,13 @@ export type DashboardConfig = {
             PreserveThinking: boolean;
             SpeculativeEnabled: boolean;
             SpeculativeType: DashboardManagedLlamaSpeculativeType;
+            SpeculativeMtpEnabled: boolean;
             SpeculativeNgramSizeN: number;
             SpeculativeNgramSizeM: number;
             SpeculativeNgramMinHits: number;
+            SpeculativeNgramModNMatch: number;
+            SpeculativeNgramModNMin: number;
+            SpeculativeNgramModNMax: number;
             SpeculativeDraftMax: number;
             SpeculativeDraftMin: number;
             ReasoningBudget: number;
@@ -355,9 +359,13 @@ export type DashboardManagedLlamaPreset = {
     PreserveThinking: boolean;
     SpeculativeEnabled: boolean;
     SpeculativeType: DashboardManagedLlamaSpeculativeType;
+    SpeculativeMtpEnabled: boolean;
     SpeculativeNgramSizeN: number;
     SpeculativeNgramSizeM: number;
     SpeculativeNgramMinHits: number;
+    SpeculativeNgramModNMatch: number;
+    SpeculativeNgramModNMin: number;
+    SpeculativeNgramModNMax: number;
     SpeculativeDraftMax: number;
     SpeculativeDraftMin: number;
     ReasoningBudget: number;

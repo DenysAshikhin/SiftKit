@@ -160,9 +160,13 @@ const MANAGED_PRESET = {
   PreserveThinking: false,
   SpeculativeEnabled: false,
   SpeculativeType: 'ngram-map-k',
+  SpeculativeMtpEnabled: false,
   SpeculativeNgramSizeN: 8,
   SpeculativeNgramSizeM: 16,
   SpeculativeNgramMinHits: 2,
+  SpeculativeNgramModNMatch: 24,
+  SpeculativeNgramModNMin: 4,
+  SpeculativeNgramModNMax: 16,
   SpeculativeDraftMax: 16,
   SpeculativeDraftMin: 4,
   ReasoningBudget: 128,
@@ -174,6 +178,7 @@ const MANAGED_PRESET = {
 } as DashboardManagedLlamaPreset & {
   SpeculativeEnabled: boolean;
   SpeculativeType: string;
+  SpeculativeMtpEnabled: boolean;
   SpeculativeNgramSizeN: number;
   SpeculativeNgramSizeM: number;
   SpeculativeNgramMinHits: number;
@@ -617,13 +622,12 @@ test('managed llama section hides speculative controls until n-gram speculation 
   assert.equal(capturedFields.includes('SpeculativeDraftMax'), false);
 });
 
-test('managed llama section shows speculative controls when n-gram speculation is enabled', () => {
+function captureManagedLlamaFields(preset: DashboardManagedLlamaPreset): string[] {
   const capturedFields: string[] = [];
-
   renderToStaticMarkup(
     <ManagedLlamaSection
       dashboardConfig={DASHBOARD_CONFIG}
-      selectedManagedLlamaPreset={{ ...MANAGED_PRESET, SpeculativeEnabled: true }}
+      selectedManagedLlamaPreset={preset}
       settingsActionBusy={false}
       settingsPathPickerBusyTarget={null}
       renderField={(_, label, children) => {
@@ -637,28 +641,87 @@ test('managed llama section shows speculative controls when n-gram speculation i
       onPickManagedLlamaPath={async () => {}}
     />,
   );
+  return capturedFields;
+}
 
-  assert.equal(capturedFields.includes('Speculative type'), true);
-  assert.equal(capturedFields.includes('SpeculativeDraftMax'), true);
+test('managed llama section shows ngram size controls for ngram-map-k speculation', () => {
+  const fields = captureManagedLlamaFields({ ...MANAGED_PRESET, SpeculativeEnabled: true });
+
+  assert.equal(fields.includes('Speculative type'), true);
+  assert.equal(fields.includes('Combine with MTP'), true);
+  assert.equal(fields.includes('SpeculativeNgramSizeN'), true);
+  assert.equal(fields.includes('SpeculativeNgramSizeM'), true);
+  assert.equal(fields.includes('SpeculativeNgramMinHits'), true);
+  assert.equal(fields.includes('SpeculativeNgramModNMatch'), false);
+  assert.equal(fields.includes('SpeculativeDraftMax'), false);
 });
 
-test('managed llama section shows only mtp speculative controls for mtp speculation', () => {
-  const capturedFields: string[] = [];
+test('managed llama section shows ngram-mod controls for ngram-mod speculation', () => {
+  const fields = captureManagedLlamaFields({
+    ...MANAGED_PRESET,
+    SpeculativeEnabled: true,
+    SpeculativeType: 'ngram-mod' as DashboardManagedLlamaPreset['SpeculativeType'],
+  });
 
-  renderToStaticMarkup(
+  assert.equal(fields.includes('SpeculativeNgramModNMatch'), true);
+  assert.equal(fields.includes('SpeculativeNgramModNMin'), true);
+  assert.equal(fields.includes('SpeculativeNgramModNMax'), true);
+  assert.equal(fields.includes('SpeculativeNgramSizeN'), false);
+  assert.equal(fields.includes('SpeculativeDraftMax'), false);
+});
+
+test('managed llama section shows draft-token controls when MTP combination is enabled on an ngram type', () => {
+  const fields = captureManagedLlamaFields({
+    ...MANAGED_PRESET,
+    SpeculativeEnabled: true,
+    SpeculativeType: 'ngram-mod' as DashboardManagedLlamaPreset['SpeculativeType'],
+    SpeculativeMtpEnabled: true,
+  });
+
+  assert.equal(fields.includes('Combine with MTP'), true);
+  assert.equal(fields.includes('SpeculativeNgramModNMatch'), true);
+  assert.equal(fields.includes('SpeculativeDraftMax'), true);
+  assert.equal(fields.includes('SpeculativeDraftMin'), true);
+});
+
+test('managed llama section hides the Combine with MTP toggle for draft speculation', () => {
+  const fields = captureManagedLlamaFields({
+    ...MANAGED_PRESET,
+    SpeculativeEnabled: true,
+    SpeculativeType: 'draft-mtp' as DashboardManagedLlamaPreset['SpeculativeType'],
+  });
+
+  assert.equal(fields.includes('Combine with MTP'), false);
+});
+
+test('managed llama section shows only draft-token controls for draft-mtp speculation', () => {
+  const fields = captureManagedLlamaFields({
+    ...MANAGED_PRESET,
+    SpeculativeEnabled: true,
+    SpeculativeType: 'draft-mtp' as DashboardManagedLlamaPreset['SpeculativeType'],
+  });
+
+  assert.equal(fields.includes('Speculative type'), true);
+  assert.equal(fields.includes('SpeculativeDraftMax'), true);
+  assert.equal(fields.includes('SpeculativeDraftMin'), true);
+  assert.equal(fields.includes('SpeculativeNgramSizeN'), false);
+  assert.equal(fields.includes('SpeculativeNgramModNMatch'), false);
+});
+
+test('managed llama section warns when an MTP combination uses parallel slots', () => {
+  const markup = renderToStaticMarkup(
     <ManagedLlamaSection
       dashboardConfig={DASHBOARD_CONFIG}
       selectedManagedLlamaPreset={{
         ...MANAGED_PRESET,
         SpeculativeEnabled: true,
-        SpeculativeType: 'draft-mtp' as DashboardManagedLlamaPreset['SpeculativeType'],
+        SpeculativeType: 'ngram-mod' as DashboardManagedLlamaPreset['SpeculativeType'],
+        SpeculativeMtpEnabled: true,
+        ParallelSlots: 2,
       }}
       settingsActionBusy={false}
       settingsPathPickerBusyTarget={null}
-      renderField={(_, label, children) => {
-        capturedFields.push(label);
-        return <div>{children}</div>;
-      }}
+      renderField={(_, __, children) => <div>{children}</div>}
       updateSettingsDraft={() => {}}
       updateManagedLlamaDraft={() => {}}
       onAddManagedLlamaPreset={() => {}}
@@ -667,12 +730,8 @@ test('managed llama section shows only mtp speculative controls for mtp speculat
     />,
   );
 
-  assert.equal(capturedFields.includes('Speculative type'), true);
-  assert.equal(capturedFields.includes('SpeculativeDraftMax'), true);
-  assert.equal(capturedFields.includes('SpeculativeNgramSizeN'), false);
-  assert.equal(capturedFields.includes('SpeculativeNgramSizeM'), false);
-  assert.equal(capturedFields.includes('SpeculativeNgramMinHits'), false);
-  assert.equal(capturedFields.includes('SpeculativeDraftMin'), false);
+  assert.match(markup, /role="alert"/);
+  assert.match(markup, /MTP/);
 });
 
 test('managed llama section warns when mtp speculation uses parallel slots', () => {

@@ -41,8 +41,18 @@ function isRemoteLlamaBaseUrl(baseUrl: string): boolean {
   }
 }
 
-function isMtpSpeculativeType(type: DashboardManagedLlamaSpeculativeType): boolean {
-  return type === 'draft-mtp';
+const NGRAM_SIZE_SPECULATIVE_TYPES = new Set<DashboardManagedLlamaSpeculativeType>([
+  'ngram-simple',
+  'ngram-map-k',
+  'ngram-map-k4v',
+]);
+
+function isDraftSpeculativeType(type: DashboardManagedLlamaSpeculativeType): boolean {
+  return type.startsWith('draft-');
+}
+
+function isNgramSpeculativeType(type: DashboardManagedLlamaSpeculativeType): boolean {
+  return type.startsWith('ngram-');
 }
 
 export function ManagedLlamaSection({
@@ -64,10 +74,16 @@ export function ManagedLlamaSection({
   const reasoningEnabled = selectedManagedLlamaPreset.Reasoning === 'on';
   const reasoningContentEnabled = reasoningEnabled && selectedManagedLlamaPreset.ReasoningContent;
   const remoteLlamaBaseUrl = isRemoteLlamaBaseUrl(selectedManagedLlamaPreset.BaseUrl);
-  const mtpSpeculativeType = isMtpSpeculativeType(selectedManagedLlamaPreset.SpeculativeType);
-  const ngramSpeculativeType = selectedManagedLlamaPreset.SpeculativeEnabled && !mtpSpeculativeType;
-  const mtpParallelSlotsWarning = selectedManagedLlamaPreset.SpeculativeEnabled
-    && mtpSpeculativeType
+  const speculativeType = selectedManagedLlamaPreset.SpeculativeType;
+  const speculativeEnabled = selectedManagedLlamaPreset.SpeculativeEnabled;
+  const draftSpeculativeType = speculativeEnabled && isDraftSpeculativeType(speculativeType);
+  const ngramModSpeculativeType = speculativeEnabled && speculativeType === 'ngram-mod';
+  const ngramSizeSpeculativeType = speculativeEnabled && NGRAM_SIZE_SPECULATIVE_TYPES.has(speculativeType);
+  const mtpCombineAvailable = speculativeEnabled && isNgramSpeculativeType(speculativeType);
+  const mtpCombineEnabled = mtpCombineAvailable && selectedManagedLlamaPreset.SpeculativeMtpEnabled;
+  const draftTokenFields = draftSpeculativeType || mtpCombineEnabled;
+  const mtpParallelSlotsWarning = speculativeEnabled
+    && (speculativeType === 'draft-mtp' || mtpCombineEnabled)
     && selectedManagedLlamaPreset.ParallelSlots > 1;
 
   return (
@@ -293,24 +309,43 @@ export function ManagedLlamaSection({
           ))}
         </select>
       )) : null}
+      {mtpCombineAvailable ? renderField('model-presets', 'Combine with MTP', (
+        <label className="settings-live-toggle-control">
+          <input
+            type="checkbox"
+            checked={selectedManagedLlamaPreset.SpeculativeMtpEnabled}
+            onChange={(event) => updateManagedLlamaDraft((preset) => { preset.SpeculativeMtpEnabled = event.target.checked; })}
+          />
+          <span>{selectedManagedLlamaPreset.SpeculativeMtpEnabled ? 'Enabled' : 'Disabled'}</span>
+        </label>
+      )) : null}
       {mtpParallelSlotsWarning ? (
         <div className="settings-live-warning" role="alert">
           MTP speculative decoding does not support parallel slots above 1 in the upstream llama.cpp implementation.
         </div>
       ) : null}
-      {ngramSpeculativeType ? renderField('model-presets', 'SpeculativeNgramSizeN', (
+      {ngramSizeSpeculativeType ? renderField('model-presets', 'SpeculativeNgramSizeN', (
         <input type="number" value={selectedManagedLlamaPreset.SpeculativeNgramSizeN} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.SpeculativeNgramSizeN = parseIntegerInput(event.target.value, preset.SpeculativeNgramSizeN); })} />
       )) : null}
-      {ngramSpeculativeType ? renderField('model-presets', 'SpeculativeNgramSizeM', (
+      {ngramSizeSpeculativeType ? renderField('model-presets', 'SpeculativeNgramSizeM', (
         <input type="number" value={selectedManagedLlamaPreset.SpeculativeNgramSizeM} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.SpeculativeNgramSizeM = parseIntegerInput(event.target.value, preset.SpeculativeNgramSizeM); })} />
       )) : null}
-      {ngramSpeculativeType ? renderField('model-presets', 'SpeculativeNgramMinHits', (
+      {ngramSizeSpeculativeType ? renderField('model-presets', 'SpeculativeNgramMinHits', (
         <input type="number" value={selectedManagedLlamaPreset.SpeculativeNgramMinHits} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.SpeculativeNgramMinHits = parseIntegerInput(event.target.value, preset.SpeculativeNgramMinHits); })} />
       )) : null}
-      {selectedManagedLlamaPreset.SpeculativeEnabled ? renderField('model-presets', 'SpeculativeDraftMax', (
+      {ngramModSpeculativeType ? renderField('model-presets', 'SpeculativeNgramModNMatch', (
+        <input type="number" value={selectedManagedLlamaPreset.SpeculativeNgramModNMatch} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.SpeculativeNgramModNMatch = parseIntegerInput(event.target.value, preset.SpeculativeNgramModNMatch); })} />
+      )) : null}
+      {ngramModSpeculativeType ? renderField('model-presets', 'SpeculativeNgramModNMin', (
+        <input type="number" value={selectedManagedLlamaPreset.SpeculativeNgramModNMin} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.SpeculativeNgramModNMin = parseIntegerInput(event.target.value, preset.SpeculativeNgramModNMin); })} />
+      )) : null}
+      {ngramModSpeculativeType ? renderField('model-presets', 'SpeculativeNgramModNMax', (
+        <input type="number" value={selectedManagedLlamaPreset.SpeculativeNgramModNMax} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.SpeculativeNgramModNMax = parseIntegerInput(event.target.value, preset.SpeculativeNgramModNMax); })} />
+      )) : null}
+      {draftTokenFields ? renderField('model-presets', 'SpeculativeDraftMax', (
         <input type="number" value={selectedManagedLlamaPreset.SpeculativeDraftMax} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.SpeculativeDraftMax = parseIntegerInput(event.target.value, preset.SpeculativeDraftMax); })} />
       )) : null}
-      {ngramSpeculativeType ? renderField('model-presets', 'SpeculativeDraftMin', (
+      {draftTokenFields ? renderField('model-presets', 'SpeculativeDraftMin', (
         <input type="number" value={selectedManagedLlamaPreset.SpeculativeDraftMin} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.SpeculativeDraftMin = parseIntegerInput(event.target.value, preset.SpeculativeDraftMin); })} />
       )) : null}
       {renderField('model-presets', 'ReasoningBudget', (

@@ -9,23 +9,26 @@ import {
 
 function createConfig(ncpuMoe: number): unknown {
   const config = getDefaultConfig() as {
-    Server: {
-      LlamaCpp: {
-        ModelPath: string | null;
-        NcpuMoe?: number;
-        SpeculativeEnabled?: boolean;
-        SpeculativeType?: string;
-        SpeculativeNgramSizeN?: number;
-        SpeculativeNgramSizeM?: number;
-        SpeculativeNgramMinHits?: number;
-        SpeculativeDraftMax?: number;
-        SpeculativeDraftMin?: number;
-      };
-    };
+    Server: { LlamaCpp: { ModelPath: string | null; NcpuMoe?: number } };
   };
   config.Server.LlamaCpp.ModelPath = 'D:\\models\\qwen-27b.gguf';
   config.Server.LlamaCpp.NcpuMoe = ncpuMoe;
   return config;
+}
+
+function createSpeculativeConfig(overrides: Record<string, unknown>): unknown {
+  const config = createConfig(0) as { Server: { LlamaCpp: Record<string, unknown> } };
+  Object.assign(config.Server.LlamaCpp, { SpeculativeEnabled: true }, overrides);
+  return config;
+}
+
+// Returns just the speculative-decoding flags: from `--spec-type` up to the
+// trailing `-fa` flag that buildManagedLlamaArgs always appends afterwards.
+function speculativeArgs(overrides: Record<string, unknown>): string[] {
+  const args = buildManagedLlamaArgs(getManagedLlamaConfig(createSpeculativeConfig(overrides)));
+  const start = args.indexOf('--spec-type');
+  const end = args.indexOf('-fa', start);
+  return args.slice(start, end === -1 ? undefined : end);
 }
 
 test('buildManagedLlamaArgs omits --n-cpu-moe when NcpuMoe is 0', () => {
@@ -36,13 +39,7 @@ test('buildManagedLlamaArgs omits --n-cpu-moe when NcpuMoe is 0', () => {
 
 test('getDefaultConfig disables NcpuMoe by default', () => {
   const config = getDefaultConfig() as {
-    Server: {
-      LlamaCpp: {
-        NcpuMoe?: number;
-        SpeculativeEnabled?: boolean;
-        SleepIdleSeconds?: number;
-      };
-    };
+    Server: { LlamaCpp: { NcpuMoe?: number; SpeculativeEnabled?: boolean; SleepIdleSeconds?: number } };
   };
 
   assert.equal(config.Server.LlamaCpp.NcpuMoe, 0);
@@ -59,13 +56,7 @@ test('buildManagedLlamaArgs enables llama-server sleep idle by default', () => {
 });
 
 test('buildManagedLlamaArgs uses the configured sleep idle seconds', () => {
-  const config = createConfig(0) as {
-    Server: {
-      LlamaCpp: {
-        SleepIdleSeconds?: number;
-      };
-    };
-  };
+  const config = createConfig(0) as { Server: { LlamaCpp: { SleepIdleSeconds?: number } } };
   config.Server.LlamaCpp.SleepIdleSeconds = 120;
 
   const args = buildManagedLlamaArgs(getManagedLlamaConfig(config));
@@ -81,14 +72,26 @@ test('buildManagedLlamaArgs includes --n-cpu-moe when NcpuMoe is non-zero', () =
   assert.deepEqual(args.slice(args.indexOf('--n-cpu-moe'), args.indexOf('--n-cpu-moe') + 2), ['--n-cpu-moe', '8']);
 });
 
-test('buildManagedLlamaArgs omits speculative flags when speculative decoding is disabled', () => {
-  const config = createConfig(0) as {
+test('getDefaultConfig disables MTP combination and seeds ngram-mod defaults', () => {
+  const config = getDefaultConfig() as {
     Server: {
       LlamaCpp: {
-        SpeculativeEnabled?: boolean;
+        SpeculativeMtpEnabled?: boolean;
+        SpeculativeNgramModNMatch?: number;
+        SpeculativeNgramModNMin?: number;
+        SpeculativeNgramModNMax?: number;
       };
     };
   };
+
+  assert.equal(config.Server.LlamaCpp.SpeculativeMtpEnabled, false);
+  assert.equal(config.Server.LlamaCpp.SpeculativeNgramModNMatch, 24);
+  assert.equal(config.Server.LlamaCpp.SpeculativeNgramModNMin, 4);
+  assert.equal(config.Server.LlamaCpp.SpeculativeNgramModNMax, 16);
+});
+
+test('buildManagedLlamaArgs omits speculative flags when speculative decoding is disabled', () => {
+  const config = createConfig(0) as { Server: { LlamaCpp: { SpeculativeEnabled?: boolean } } };
   config.Server.LlamaCpp.SpeculativeEnabled = false;
 
   const args = buildManagedLlamaArgs(getManagedLlamaConfig(config));
@@ -96,119 +99,104 @@ test('buildManagedLlamaArgs omits speculative flags when speculative decoding is
   assert.equal(args.includes('--spec-type'), false);
 });
 
-test('buildManagedLlamaArgs includes ngram speculative flags when enabled', () => {
-  const config = createConfig(0) as {
-    Server: {
-      LlamaCpp: {
-        SpeculativeEnabled?: boolean;
-        SpeculativeType?: string;
-        SpeculativeNgramSizeN?: number;
-        SpeculativeNgramSizeM?: number;
-        SpeculativeNgramMinHits?: number;
-        SpeculativeDraftMax?: number;
-        SpeculativeDraftMin?: number;
-      };
-    };
-  };
-  Object.assign(config.Server.LlamaCpp, {
-    SpeculativeEnabled: true,
+test('buildManagedLlamaArgs emits per-type size flags for ngram-map-k speculation', () => {
+  const args = speculativeArgs({
     SpeculativeType: 'ngram-map-k',
     SpeculativeNgramSizeN: 8,
     SpeculativeNgramSizeM: 16,
     SpeculativeNgramMinHits: 2,
-    SpeculativeDraftMax: 16,
-    SpeculativeDraftMin: 4,
   });
 
-  const args = buildManagedLlamaArgs(getManagedLlamaConfig(config));
-  const speculativeIndex = args.indexOf('--spec-type');
-
-  assert.notEqual(speculativeIndex, -1);
-  assert.deepEqual(args.slice(speculativeIndex, speculativeIndex + 12), [
+  assert.deepEqual(args, [
     '--spec-type', 'ngram-map-k',
-    '--spec-ngram-size-n', '8',
-    '--spec-ngram-size-m', '16',
-    '--spec-ngram-min-hits', '2',
-    '--draft-max', '16',
-    '--draft-min', '4',
+    '--spec-ngram-map-k-size-n', '8',
+    '--spec-ngram-map-k-size-m', '16',
+    '--spec-ngram-map-k-min-hits', '2',
   ]);
 });
 
-test('buildManagedLlamaArgs omits speculative numeric flags set to -1', () => {
-  const config = createConfig(0) as {
-    Server: {
-      LlamaCpp: {
-        SpeculativeEnabled?: boolean;
-        SpeculativeType?: string;
-        SpeculativeNgramSizeN?: number;
-        SpeculativeNgramSizeM?: number;
-        SpeculativeNgramMinHits?: number;
-        SpeculativeDraftMax?: number;
-        SpeculativeDraftMin?: number;
-      };
-    };
-  };
-  Object.assign(config.Server.LlamaCpp, {
-    SpeculativeEnabled: true,
+test('buildManagedLlamaArgs emits ngram-mod n-match/n-min/n-max flags for ngram-mod speculation', () => {
+  const args = speculativeArgs({
     SpeculativeType: 'ngram-mod',
-    SpeculativeNgramSizeN: 24,
-    SpeculativeNgramSizeM: -1,
-    SpeculativeNgramMinHits: -1,
-    SpeculativeDraftMax: 48,
-    SpeculativeDraftMin: 12,
+    SpeculativeNgramModNMatch: 24,
+    SpeculativeNgramModNMin: 12,
+    SpeculativeNgramModNMax: 48,
   });
 
-  const managed = getManagedLlamaConfig(config);
-  const args = buildManagedLlamaArgs(managed);
-
-  assert.equal(managed.SpeculativeNgramSizeM, -1);
-  assert.equal(managed.SpeculativeNgramMinHits, -1);
-  assert.deepEqual(args.slice(args.indexOf('--spec-type'), args.indexOf('--spec-type') + 8), [
+  assert.deepEqual(args, [
     '--spec-type', 'ngram-mod',
-    '--spec-ngram-size-n', '24',
-    '--draft-max', '48',
-    '--draft-min', '12',
+    '--spec-ngram-mod-n-match', '24',
+    '--spec-ngram-mod-n-min', '12',
+    '--spec-ngram-mod-n-max', '48',
   ]);
-  assert.equal(args.includes('--spec-ngram-size-m'), false);
-  assert.equal(args.includes('--spec-ngram-min-hits'), false);
 });
 
-test('buildManagedLlamaArgs includes only mtp speculative flags when draft-mtp is enabled', () => {
-  const config = createConfig(0) as {
-    Server: {
-      LlamaCpp: {
-        SpeculativeEnabled?: boolean;
-        SpeculativeType?: string;
-        SpeculativeNgramSizeN?: number;
-        SpeculativeNgramSizeM?: number;
-        SpeculativeNgramMinHits?: number;
-        SpeculativeDraftMax?: number;
-        SpeculativeDraftMin?: number;
-      };
-    };
-  };
-  Object.assign(config.Server.LlamaCpp, {
-    SpeculativeEnabled: true,
+test('buildManagedLlamaArgs omits ngram-mod numeric flags set to -1', () => {
+  const args = speculativeArgs({
+    SpeculativeType: 'ngram-mod',
+    SpeculativeNgramModNMatch: 24,
+    SpeculativeNgramModNMin: -1,
+    SpeculativeNgramModNMax: -1,
+  });
+
+  assert.deepEqual(args, ['--spec-type', 'ngram-mod', '--spec-ngram-mod-n-match', '24']);
+});
+
+test('buildManagedLlamaArgs emits draft-token flags for draft-mtp speculation', () => {
+  const args = speculativeArgs({
     SpeculativeType: 'draft-mtp',
-    SpeculativeNgramSizeN: 8,
-    SpeculativeNgramSizeM: 16,
-    SpeculativeNgramMinHits: 2,
     SpeculativeDraftMax: 3,
     SpeculativeDraftMin: 1,
   });
 
-  const args = buildManagedLlamaArgs(getManagedLlamaConfig(config));
-  const speculativeIndex = args.indexOf('--spec-type');
-
-  assert.notEqual(speculativeIndex, -1);
-  assert.deepEqual(args.slice(speculativeIndex, speculativeIndex + 4), [
+  assert.deepEqual(args, [
     '--spec-type', 'draft-mtp',
     '--spec-draft-n-max', '3',
+    '--spec-draft-n-min', '1',
   ]);
-  assert.equal(args.includes('--spec-ngram-size-n'), false);
-  assert.equal(args.includes('--spec-ngram-size-m'), false);
-  assert.equal(args.includes('--spec-ngram-min-hits'), false);
-  assert.equal(args.includes('--draft-min'), false);
+  assert.equal(args.includes('--spec-ngram-mod-n-match'), false);
+});
+
+test('buildManagedLlamaArgs chains draft-mtp into a comma-separated --spec-type when MTP combination is enabled', () => {
+  const args = speculativeArgs({
+    SpeculativeType: 'ngram-mod',
+    SpeculativeMtpEnabled: true,
+    SpeculativeDraftMax: 3,
+    SpeculativeDraftMin: -1,
+    SpeculativeNgramModNMatch: 24,
+    SpeculativeNgramModNMin: 12,
+    SpeculativeNgramModNMax: 48,
+  });
+
+  assert.deepEqual(args, [
+    '--spec-type', 'draft-mtp,ngram-mod',
+    '--spec-draft-n-max', '3',
+    '--spec-ngram-mod-n-match', '24',
+    '--spec-ngram-mod-n-min', '12',
+    '--spec-ngram-mod-n-max', '48',
+  ]);
+});
+
+test('buildManagedLlamaArgs omits the chained draft-mtp when MTP combination is disabled', () => {
+  const args = speculativeArgs({
+    SpeculativeType: 'ngram-mod',
+    SpeculativeMtpEnabled: false,
+    SpeculativeNgramModNMatch: 24,
+  });
+
+  assert.deepEqual(args.slice(0, 2), ['--spec-type', 'ngram-mod']);
+  assert.equal(args.includes('--spec-draft-n-max'), false);
+});
+
+test('buildManagedLlamaArgs does not duplicate draft-mtp when the primary type is draft-mtp', () => {
+  const args = speculativeArgs({
+    SpeculativeType: 'draft-mtp',
+    SpeculativeMtpEnabled: true,
+    SpeculativeDraftMax: 5,
+    SpeculativeDraftMin: -1,
+  });
+
+  assert.deepEqual(args, ['--spec-type', 'draft-mtp', '--spec-draft-n-max', '5']);
 });
 
 test('parseManagedLlamaSpeculativeMetricsText extracts accepted and generated token totals from ngram statistics', () => {
