@@ -197,21 +197,6 @@ type AppConfigRow = {
   include_repo_file_listing: number;
   prompt_prefix: string | null;
   runtime_model: string | null;
-  llama_base_url: string | null;
-  llama_num_ctx: number | null;
-  llama_model_path: string | null;
-  llama_temperature: number | null;
-  llama_top_p: number | null;
-  llama_top_k: number | null;
-  llama_min_p: number | null;
-  llama_presence_penalty: number | null;
-  llama_repetition_penalty: number | null;
-  llama_max_tokens: number | null;
-  llama_threads: number | null;
-  llama_ncpu_moe: number | null;
-  llama_flash_attention: number | null;
-  llama_parallel_slots: number | null;
-  llama_reasoning: string | null;
   thresholds_min_characters_for_summary: number;
   thresholds_min_lines_for_summary: number;
   interactive_enabled: number;
@@ -219,63 +204,12 @@ type AppConfigRow = {
   interactive_idle_timeout_ms: number;
   interactive_max_transcript_characters: number;
   interactive_transcript_retention: number;
-  server_executable_path: string | null;
-  server_base_url: string | null;
-  server_bind_host: string | null;
-  server_port: number | null;
-  server_model_path: string | null;
-  server_num_ctx: number | null;
-  server_gpu_layers: number | null;
-  server_threads: number | null;
-  server_ncpu_moe: number | null;
-  server_flash_attention: number | null;
-  server_parallel_slots: number | null;
-  server_batch_size: number | null;
-  server_ubatch_size: number | null;
-  server_cache_ram: number | null;
-  server_kv_cache_quant: string | null;
-  server_max_tokens: number | null;
-  server_temperature: number | null;
-  server_top_p: number | null;
-  server_top_k: number | null;
-  server_min_p: number | null;
-  server_presence_penalty: number | null;
-  server_repetition_penalty: number | null;
-  server_reasoning: string | null;
-  server_reasoning_budget: number | null;
-  server_reasoning_budget_message: string | null;
-  server_startup_timeout_ms: number | null;
-  server_healthcheck_timeout_ms: number | null;
-  server_healthcheck_interval_ms: number | null;
-  server_sleep_idle_seconds: number | null;
-  server_verbose_logging: number | null;
   server_llama_presets_json: string;
   server_llama_active_preset_id: string | null;
   server_external_server_enabled: number;
   operation_mode_allowed_tools_json: string;
   presets_json: string;
 };
-
-function toNullableInteger(value: unknown): number | null {
-  if (!Number.isFinite(Number(value))) {
-    return null;
-  }
-  return Math.trunc(Number(value));
-}
-
-function toNullableNumber(value: unknown): number | null {
-  if (!Number.isFinite(Number(value))) {
-    return null;
-  }
-  return Number(value);
-}
-
-function toNullableBooleanInteger(value: unknown): number | null {
-  if (value === null || value === undefined) {
-    return null;
-  }
-  return value ? 1 : 0;
-}
 
 function parseJsonArray(text: unknown): string[] {
   if (typeof text !== 'string' || !text.trim()) {
@@ -333,7 +267,6 @@ function parseManagedLlamaPresetArray(text: unknown): Dict[] {
 function normalizeConfigToRow(config: Dict): AppConfigRow {
   const normalized = normalizeConfig(config);
   const runtime = (normalized.Runtime as Dict | undefined) || {};
-  const runtimeLlama = getCompatRuntimeLlamaCpp(normalized);
   const thresholds = (normalized.Thresholds as Dict | undefined) || {};
   const interactive = (normalized.Interactive as Dict | undefined) || {};
   const server = (normalized.Server as Dict | undefined) || {};
@@ -347,21 +280,6 @@ function normalizeConfigToRow(config: Dict): AppConfigRow {
     include_repo_file_listing: normalized.IncludeRepoFileListing === false ? 0 : 1,
     prompt_prefix: typeof normalized.PromptPrefix === 'string' ? normalized.PromptPrefix : null,
     runtime_model: typeof runtime.Model === 'string' && runtime.Model.trim() ? runtime.Model.trim() : null,
-    llama_base_url: typeof runtimeLlama.BaseUrl === 'string' && runtimeLlama.BaseUrl.trim() ? runtimeLlama.BaseUrl.trim() : null,
-    llama_num_ctx: toNullableInteger(runtimeLlama.NumCtx),
-    llama_model_path: typeof runtimeLlama.ModelPath === 'string' && runtimeLlama.ModelPath.trim() ? runtimeLlama.ModelPath.trim() : null,
-    llama_temperature: toNullableNumber(runtimeLlama.Temperature),
-    llama_top_p: toNullableNumber(runtimeLlama.TopP),
-    llama_top_k: toNullableInteger(runtimeLlama.TopK),
-    llama_min_p: toNullableNumber(runtimeLlama.MinP),
-    llama_presence_penalty: toNullableNumber(runtimeLlama.PresencePenalty),
-    llama_repetition_penalty: toNullableNumber(runtimeLlama.RepetitionPenalty),
-    llama_max_tokens: toNullableInteger(runtimeLlama.MaxTokens),
-    llama_threads: toNullableInteger(runtimeLlama.Threads),
-    llama_ncpu_moe: toNullableInteger(runtimeLlama.NcpuMoe),
-    llama_flash_attention: toNullableBooleanInteger(runtimeLlama.FlashAttention),
-    llama_parallel_slots: toNullableInteger(runtimeLlama.ParallelSlots),
-    llama_reasoning: typeof runtimeLlama.Reasoning === 'string' && runtimeLlama.Reasoning.trim() ? runtimeLlama.Reasoning.trim() : null,
     thresholds_min_characters_for_summary: getFinitePositiveInteger(thresholds.MinCharactersForSummary, 500),
     thresholds_min_lines_for_summary: getFinitePositiveInteger(thresholds.MinLinesForSummary, 16),
     interactive_enabled: interactive.Enabled === false ? 0 : 1,
@@ -371,47 +289,7 @@ function normalizeConfigToRow(config: Dict): AppConfigRow {
     interactive_idle_timeout_ms: getFinitePositiveInteger(interactive.IdleTimeoutMs, 900000),
     interactive_max_transcript_characters: getFinitePositiveInteger(interactive.MaxTranscriptCharacters, 60000),
     interactive_transcript_retention: interactive.TranscriptRetention === false ? 0 : 1,
-    server_external_server_enabled: serverLlama.ExternalServerEnabled === true ? 1 : 0,
-    server_executable_path: typeof serverLlama.ExecutablePath === 'string' && serverLlama.ExecutablePath.trim()
-      ? serverLlama.ExecutablePath.trim()
-      : null,
-    server_base_url: typeof serverLlama.BaseUrl === 'string' && serverLlama.BaseUrl.trim()
-      ? serverLlama.BaseUrl.trim()
-      : null,
-    server_bind_host: typeof serverLlama.BindHost === 'string' && serverLlama.BindHost.trim()
-      ? serverLlama.BindHost.trim()
-      : null,
-    server_port: toNullableInteger(serverLlama.Port),
-    server_model_path: typeof serverLlama.ModelPath === 'string' && serverLlama.ModelPath.trim()
-      ? serverLlama.ModelPath.trim()
-      : null,
-    server_num_ctx: toNullableInteger(serverLlama.NumCtx),
-    server_gpu_layers: toNullableInteger(serverLlama.GpuLayers),
-    server_threads: toNullableInteger(serverLlama.Threads),
-    server_ncpu_moe: toNullableInteger(serverLlama.NcpuMoe),
-    server_flash_attention: toNullableBooleanInteger(serverLlama.FlashAttention),
-    server_parallel_slots: toNullableInteger(serverLlama.ParallelSlots),
-    server_batch_size: toNullableInteger(serverLlama.BatchSize),
-    server_ubatch_size: toNullableInteger(serverLlama.UBatchSize),
-    server_cache_ram: toNullableInteger(serverLlama.CacheRam),
-    server_kv_cache_quant: typeof serverLlama.KvCacheQuantization === 'string' && serverLlama.KvCacheQuantization.trim()
-      ? serverLlama.KvCacheQuantization.trim()
-      : null,
-    server_max_tokens: toNullableInteger(serverLlama.MaxTokens),
-    server_temperature: toNullableNumber(serverLlama.Temperature),
-    server_top_p: toNullableNumber(serverLlama.TopP),
-    server_top_k: toNullableInteger(serverLlama.TopK),
-    server_min_p: toNullableNumber(serverLlama.MinP),
-    server_presence_penalty: toNullableNumber(serverLlama.PresencePenalty),
-    server_repetition_penalty: toNullableNumber(serverLlama.RepetitionPenalty),
-    server_reasoning: typeof serverLlama.Reasoning === 'string' && serverLlama.Reasoning.trim() ? serverLlama.Reasoning.trim() : null,
-    server_reasoning_budget: toNullableInteger(serverLlama.ReasoningBudget),
-    server_reasoning_budget_message: getNullableTrimmedString(serverLlama.ReasoningBudgetMessage),
-    server_startup_timeout_ms: toNullableInteger(serverLlama.StartupTimeoutMs),
-    server_healthcheck_timeout_ms: toNullableInteger(serverLlama.HealthcheckTimeoutMs),
-    server_healthcheck_interval_ms: toNullableInteger(serverLlama.HealthcheckIntervalMs),
-    server_sleep_idle_seconds: toNullableInteger(serverLlama.SleepIdleSeconds),
-    server_verbose_logging: toNullableBooleanInteger(serverLlama.VerboseLogging),
+    server_external_server_enabled: getActiveManagedLlamaPreset(normalized).ExternalServerEnabled === true ? 1 : 0,
     server_llama_presets_json: JSON.stringify(
       Array.isArray(serverLlama.Presets) ? serverLlama.Presets : [],
     ),
@@ -424,24 +302,6 @@ function normalizeConfigToRow(config: Dict): AppConfigRow {
 }
 
 function rowToConfig(row: AppConfigRow): Dict {
-  const runtimeLlama: Dict = {
-    BaseUrl: row.llama_base_url,
-    NumCtx: row.llama_num_ctx,
-    ModelPath: row.llama_model_path,
-    Temperature: row.llama_temperature,
-    TopP: row.llama_top_p,
-    TopK: row.llama_top_k,
-    MinP: row.llama_min_p,
-    PresencePenalty: row.llama_presence_penalty,
-    RepetitionPenalty: row.llama_repetition_penalty,
-    MaxTokens: row.llama_max_tokens,
-    GpuLayers: row.server_gpu_layers,
-    Threads: row.llama_threads,
-    NcpuMoe: row.llama_ncpu_moe,
-    FlashAttention: row.llama_flash_attention === null ? null : row.llama_flash_attention === 1,
-    ParallelSlots: row.llama_parallel_slots,
-    Reasoning: row.llama_reasoning,
-  };
   return normalizeConfig({
     Version: row.version,
     Backend: row.backend,
@@ -449,10 +309,9 @@ function rowToConfig(row: AppConfigRow): Dict {
     RawLogRetention: row.raw_log_retention === 1,
     IncludeRepoFileListing: row.include_repo_file_listing !== 0,
     PromptPrefix: row.prompt_prefix,
-    LlamaCpp: { ...runtimeLlama },
     Runtime: {
       Model: row.runtime_model,
-      LlamaCpp: { ...runtimeLlama },
+      LlamaCpp: {},
     },
     Thresholds: {
       MinCharactersForSummary: row.thresholds_min_characters_for_summary,
@@ -467,38 +326,6 @@ function rowToConfig(row: AppConfigRow): Dict {
     },
     Server: {
       LlamaCpp: {
-        Model: row.runtime_model,
-        ExternalServerEnabled: row.server_external_server_enabled === 1,
-        ExecutablePath: row.server_executable_path,
-        BaseUrl: row.server_base_url,
-        BindHost: row.server_bind_host,
-        Port: row.server_port,
-        ModelPath: row.server_model_path,
-        NumCtx: row.server_num_ctx,
-        GpuLayers: row.server_gpu_layers,
-        Threads: row.server_threads,
-        NcpuMoe: row.server_ncpu_moe,
-        FlashAttention: row.server_flash_attention === null ? null : row.server_flash_attention === 1,
-        ParallelSlots: row.server_parallel_slots,
-        BatchSize: row.server_batch_size,
-        UBatchSize: row.server_ubatch_size,
-        CacheRam: row.server_cache_ram,
-        KvCacheQuantization: row.server_kv_cache_quant,
-        MaxTokens: row.server_max_tokens,
-        Temperature: row.server_temperature,
-        TopP: row.server_top_p,
-        TopK: row.server_top_k,
-        MinP: row.server_min_p,
-        PresencePenalty: row.server_presence_penalty,
-        RepetitionPenalty: row.server_repetition_penalty,
-        Reasoning: row.server_reasoning,
-        ReasoningBudget: row.server_reasoning_budget,
-        ReasoningBudgetMessage: row.server_reasoning_budget_message,
-        StartupTimeoutMs: row.server_startup_timeout_ms,
-        HealthcheckTimeoutMs: row.server_healthcheck_timeout_ms,
-        HealthcheckIntervalMs: row.server_healthcheck_interval_ms,
-        SleepIdleSeconds: row.server_sleep_idle_seconds,
-        VerboseLogging: row.server_verbose_logging === null ? false : row.server_verbose_logging === 1,
         Presets: parseManagedLlamaPresetArray(row.server_llama_presets_json),
         ActivePresetId: row.server_llama_active_preset_id,
       },
@@ -519,21 +346,6 @@ function readConfigRow(databasePath: string): AppConfigRow | null {
       include_repo_file_listing,
       prompt_prefix,
       runtime_model,
-      llama_base_url,
-      llama_num_ctx,
-      llama_model_path,
-      llama_temperature,
-      llama_top_p,
-      llama_top_k,
-      llama_min_p,
-      llama_presence_penalty,
-      llama_repetition_penalty,
-      llama_max_tokens,
-      llama_threads,
-      llama_ncpu_moe,
-      llama_flash_attention,
-      llama_parallel_slots,
-      llama_reasoning,
       thresholds_min_characters_for_summary,
       thresholds_min_lines_for_summary,
       interactive_enabled,
@@ -541,36 +353,6 @@ function readConfigRow(databasePath: string): AppConfigRow | null {
       interactive_idle_timeout_ms,
       interactive_max_transcript_characters,
       interactive_transcript_retention,
-      server_executable_path,
-      server_base_url,
-      server_bind_host,
-      server_port,
-      server_model_path,
-      server_num_ctx,
-      server_gpu_layers,
-      server_threads,
-      server_ncpu_moe,
-      server_flash_attention,
-      server_parallel_slots,
-      server_batch_size,
-      server_ubatch_size,
-      server_cache_ram,
-      server_kv_cache_quant,
-      server_max_tokens,
-      server_temperature,
-      server_top_p,
-      server_top_k,
-      server_min_p,
-      server_presence_penalty,
-      server_repetition_penalty,
-      server_reasoning,
-      server_reasoning_budget,
-      server_reasoning_budget_message,
-      server_startup_timeout_ms,
-      server_healthcheck_timeout_ms,
-      server_healthcheck_interval_ms,
-      server_sleep_idle_seconds,
-      server_verbose_logging,
       server_llama_presets_json,
       server_llama_active_preset_id,
       server_external_server_enabled,
@@ -593,21 +375,6 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
     'include_repo_file_listing',
     'prompt_prefix',
     'runtime_model',
-    'llama_base_url',
-    'llama_num_ctx',
-    'llama_model_path',
-    'llama_temperature',
-    'llama_top_p',
-    'llama_top_k',
-    'llama_min_p',
-    'llama_presence_penalty',
-    'llama_repetition_penalty',
-    'llama_max_tokens',
-    'llama_threads',
-    'llama_ncpu_moe',
-    'llama_flash_attention',
-    'llama_parallel_slots',
-    'llama_reasoning',
     'thresholds_min_characters_for_summary',
     'thresholds_min_lines_for_summary',
     'interactive_enabled',
@@ -615,36 +382,6 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
     'interactive_idle_timeout_ms',
     'interactive_max_transcript_characters',
     'interactive_transcript_retention',
-    'server_executable_path',
-    'server_base_url',
-    'server_bind_host',
-    'server_port',
-    'server_model_path',
-    'server_num_ctx',
-    'server_gpu_layers',
-    'server_threads',
-    'server_ncpu_moe',
-    'server_flash_attention',
-    'server_parallel_slots',
-    'server_batch_size',
-    'server_ubatch_size',
-    'server_cache_ram',
-    'server_kv_cache_quant',
-    'server_max_tokens',
-    'server_temperature',
-    'server_top_p',
-    'server_top_k',
-    'server_min_p',
-    'server_presence_penalty',
-    'server_repetition_penalty',
-    'server_reasoning',
-    'server_reasoning_budget',
-    'server_reasoning_budget_message',
-    'server_startup_timeout_ms',
-    'server_healthcheck_timeout_ms',
-    'server_healthcheck_interval_ms',
-    'server_sleep_idle_seconds',
-    'server_verbose_logging',
     'server_llama_presets_json',
     'server_llama_active_preset_id',
     'server_external_server_enabled',
