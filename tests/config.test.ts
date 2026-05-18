@@ -749,187 +749,36 @@ test('getInferenceStatusPath returns a path string', () => {
   }
 });
 
-test('loadConfig normalizes legacy previous-default model', async () => {
-  await withTestEnvAndServer(async ({ stub }) => {
-    const runtime = (stub.state.config.Runtime as Dict) || {};
-    stub.state.config.Runtime = runtime;
-    runtime.Model = SIFT_PREVIOUS_DEFAULT_MODEL;
-    const config = await loadConfig({ ensure: true });
-    assert.notEqual(config.Runtime?.Model, SIFT_PREVIOUS_DEFAULT_MODEL);
-  });
-});
-
-test('loadConfig normalizes legacy NumCtx settings', async () => {
-  await withTestEnvAndServer(async ({ stub }) => {
-    const runtime = (stub.state.config.Runtime as Dict) || {};
-    stub.state.config.Runtime = runtime;
-    const runtimeLlamaCpp = (runtime.LlamaCpp as Dict) || {};
-    runtime.LlamaCpp = runtimeLlamaCpp;
-    runtimeLlamaCpp.NumCtx = SIFT_LEGACY_DEFAULT_NUM_CTX;
-    const config = await loadConfig({ ensure: true });
-    assert.ok(getConfiguredLlamaNumCtx(config) > SIFT_LEGACY_DEFAULT_NUM_CTX);
-  });
-});
-
-test('loadConfig normalizes legacy Ollama backend', async () => {
-  await withTestEnvAndServer(async ({ stub }) => {
-    stub.state.config.Backend = 'ollama';
-    (stub.state.config as Dict).Ollama = {
-      BaseUrl: 'http://localhost:11434',
-      NumCtx: 8000,
-    };
-    const config = await loadConfig({ ensure: true });
-    assert.notEqual(config.Backend, 'ollama');
-    assert.equal(config.Backend, 'llama.cpp');
-  });
-});
-
-test('loadConfig handles missing Interactive fields', async () => {
-  await withTestEnvAndServer(async ({ stub }) => {
-    delete (stub.state.config as Dict).Interactive;
-    const config = await loadConfig({ ensure: true });
-    assert.equal(typeof config.Interactive.Enabled, 'boolean');
-    assert.ok(Array.isArray(config.Interactive.WrappedCommands));
-  });
-});
-
-test('loadConfig handles missing Server fields', async () => {
-  await withTestEnvAndServer(async ({ stub }) => {
-    delete (stub.state.config as Dict).Server;
-    const config = await loadConfig({ ensure: true });
-    assert.equal(typeof config.Server?.LlamaCpp, 'object');
-    assert.equal(config.Server?.LlamaCpp?.ExternalServerEnabled, false);
-    assert.equal(config.Server?.LlamaCpp?.ExecutablePath, null);
-    assert.equal(config.Server?.LlamaCpp?.ReasoningContent, false);
-    assert.equal(config.Server?.LlamaCpp?.PreserveThinking, false);
-  });
-});
-
-test('saveConfig preserves managed llama external server settings', async () => {
+test('saveConfig preserves managed llama external server settings on the active preset', async () => {
   await withTestEnvAndServer(async () => {
     const config = await loadConfig({ ensure: true });
-    config.Server ??= { LlamaCpp: {} };
-    config.Server.LlamaCpp ??= {};
-    config.Server.LlamaCpp.ExternalServerEnabled = true;
-    config.Server.LlamaCpp.BaseUrl = 'http://192.168.1.50:8097';
-    if (config.Server.LlamaCpp.Presets?.[0]) {
-      config.Server.LlamaCpp.Presets[0].ExternalServerEnabled = true;
-      config.Server.LlamaCpp.Presets[0].BaseUrl = config.Server.LlamaCpp.BaseUrl;
-    }
-    config.Runtime ??= { Model: null, LlamaCpp: {} };
-    config.Runtime.LlamaCpp ??= {};
-    config.Runtime.LlamaCpp.BaseUrl = config.Server.LlamaCpp.BaseUrl;
-    config.LlamaCpp ??= {};
-    config.LlamaCpp.BaseUrl = config.Server.LlamaCpp.BaseUrl;
+    const preset = config.Server.LlamaCpp.Presets[0];
+    preset.ExternalServerEnabled = true;
+    preset.BaseUrl = 'http://192.168.1.50:8097';
+    config.Server.LlamaCpp.ActivePresetId = preset.id;
 
     await saveConfig(config);
     const loaded = await loadConfig({ ensure: true });
 
-    assert.equal(loaded.Server?.LlamaCpp?.ExternalServerEnabled, true);
-    assert.equal(loaded.Server?.LlamaCpp?.BaseUrl, 'http://192.168.1.50:8097');
-    assert.equal(loaded.Runtime?.LlamaCpp?.BaseUrl, 'http://192.168.1.50:8097');
+    assert.equal(loaded.Server.LlamaCpp.Presets[0].ExternalServerEnabled, true);
+    assert.equal(loaded.Server.LlamaCpp.Presets[0].BaseUrl, 'http://192.168.1.50:8097');
   });
 });
 
 test('saveConfig persists managed llama ExecutablePath and ModelPath that the dashboard sends', async () => {
   await withTestEnvAndServer(async () => {
     const config = await loadConfig({ ensure: true });
-    config.Server ??= { LlamaCpp: {} };
-    config.Server.LlamaCpp ??= {};
     const dashboardExecutablePath = 'C:\\\\Users\\\\test\\\\llamacpp\\\\llama-server.exe';
     const dashboardModelPath = 'D:\\\\models\\\\some-model.gguf';
-    config.Server.LlamaCpp.ExecutablePath = dashboardExecutablePath;
-    config.Server.LlamaCpp.ModelPath = dashboardModelPath;
-    if (config.Server.LlamaCpp.Presets?.[0]) {
-      config.Server.LlamaCpp.Presets[0].ExecutablePath = dashboardExecutablePath;
-      config.Server.LlamaCpp.Presets[0].ModelPath = dashboardModelPath;
-    }
+    const preset = config.Server.LlamaCpp.Presets[0];
+    preset.ExecutablePath = dashboardExecutablePath;
+    preset.ModelPath = dashboardModelPath;
 
     await saveConfig(config);
     const loaded = await loadConfig({ ensure: true });
 
-    assert.equal(loaded.Server?.LlamaCpp?.ExecutablePath, dashboardExecutablePath);
-    assert.equal(loaded.Server?.LlamaCpp?.ModelPath, dashboardModelPath);
-    assert.equal(loaded.Server?.LlamaCpp?.Presets?.[0]?.ExecutablePath, dashboardExecutablePath);
-    assert.equal(loaded.Server?.LlamaCpp?.Presets?.[0]?.ModelPath, dashboardModelPath);
-  });
-});
-
-test('loadConfig handles missing Thresholds fields', async () => {
-  await withTestEnvAndServer(async ({ stub }) => {
-    delete (stub.state.config as Dict).Thresholds;
-    const config = await loadConfig({ ensure: true });
-    assert.ok(config.Thresholds.MinCharactersForSummary > 0);
-    assert.ok(config.Thresholds.MinLinesForSummary > 0);
-  });
-});
-
-test('loadConfig removes legacy MaxInputCharacters from Thresholds', async () => {
-  await withTestEnvAndServer(async ({ stub }) => {
-    const thresholds = (stub.state.config.Thresholds as Dict) || {};
-    stub.state.config.Thresholds = thresholds;
-    thresholds.MaxInputCharacters = 50000;
-    const config = await loadConfig({ ensure: true });
-    assert.equal((config.Thresholds as unknown as Dict).MaxInputCharacters, undefined);
-    assert.ok(config.Effective);
-    assert.equal(config.Effective.LegacyMaxInputCharactersRemoved, true);
-    assert.equal(config.Effective.LegacyMaxInputCharactersValue, 50000);
-  });
-});
-
-test('loadConfig removes legacy ChunkThresholdRatio from Thresholds', async () => {
-  await withTestEnvAndServer(async ({ stub }) => {
-    const thresholds = (stub.state.config.Thresholds as Dict) || {};
-    stub.state.config.Thresholds = thresholds;
-    thresholds.ChunkThresholdRatio = 0.8;
-    const config = await loadConfig({ ensure: true });
-    assert.equal((config.Thresholds as unknown as Dict).ChunkThresholdRatio, undefined);
-  });
-});
-
-test('loadConfig migrates legacy reasoning auto to off and backfills thinking preservation flags', async () => {
-  await withTestEnvAndServer(async ({ stub }) => {
-    const runtime = (stub.state.config.Runtime as Dict) || {};
-    stub.state.config.Runtime = runtime;
-    const runtimeLlamaCpp = (runtime.LlamaCpp as Dict) || {};
-    runtime.LlamaCpp = runtimeLlamaCpp;
-    runtimeLlamaCpp.Reasoning = 'auto';
-
-    const server = ((stub.state.config as Dict).Server as Dict) || {};
-    (stub.state.config as Dict).Server = server;
-    const serverLlamaCpp = (server.LlamaCpp as Dict) || {};
-    server.LlamaCpp = serverLlamaCpp;
-    serverLlamaCpp.Reasoning = 'auto';
-    delete serverLlamaCpp.ReasoningContent;
-    delete serverLlamaCpp.PreserveThinking;
-
-    const presets = Array.isArray(serverLlamaCpp.Presets) ? serverLlamaCpp.Presets as Dict[] : [];
-    if (presets[0]) {
-      presets[0].Reasoning = 'auto';
-      delete presets[0].ReasoningContent;
-      delete presets[0].PreserveThinking;
-    }
-
-    const config = await loadConfig({ ensure: true });
-
-    assert.equal(config.Runtime?.LlamaCpp?.Reasoning, 'off');
-    assert.equal(config.Server?.LlamaCpp?.Reasoning, 'off');
-    assert.equal(config.Server?.LlamaCpp?.ReasoningContent, false);
-    assert.equal(config.Server?.LlamaCpp?.PreserveThinking, false);
-    assert.equal(config.Server?.LlamaCpp?.Presets?.[0]?.Reasoning, 'off');
-    assert.equal(config.Server?.LlamaCpp?.Presets?.[0]?.ReasoningContent, false);
-    assert.equal(config.Server?.LlamaCpp?.Presets?.[0]?.PreserveThinking, false);
-  });
-});
-
-test('loadConfig migrates top-level Model to Runtime.Model', async () => {
-  await withTestEnvAndServer(async ({ stub }) => {
-    stub.state.config.Model = 'top-level-model';
-    const runtime = (stub.state.config.Runtime as Dict) || {};
-    stub.state.config.Runtime = runtime;
-    delete runtime.Model;
-    const config = await loadConfig({ ensure: true });
-    assert.equal(typeof config.Effective, 'object');
+    assert.equal(loaded.Server.LlamaCpp.Presets[0].ExecutablePath, dashboardExecutablePath);
+    assert.equal(loaded.Server.LlamaCpp.Presets[0].ModelPath, dashboardModelPath);
   });
 });
 

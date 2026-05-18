@@ -8,7 +8,8 @@ import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 
 import { startStatusServer } from '../dist/status-server/index.js';
-import { writeConfig } from '../dist/status-server/config-store.js';
+import { writeConfig, getDefaultConfig } from '../dist/status-server/config-store.js';
+import { getConfigPath } from '../dist/config/index.js';
 import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
 import {
   fireAndAbortJsonRequest,
@@ -1146,23 +1147,14 @@ test('chat completion receives hidden tool context while keeping it out of visib
     llamaServer.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
   });
   const llamaAddress = llamaServer.address() as AddressInfo;
-  writeJson(configPath, {
-    Runtime: {
-      Model: 'Qwen3.5-9B-Q8_0.gguf',
-      LlamaCpp: {
-        BaseUrl: `http://127.0.0.1:${llamaAddress.port}`,
-        NumCtx: 85000,
-      },
-    },
-    Server: {
-      LlamaCpp: {
-        BaseUrl: `http://127.0.0.1:${llamaAddress.port}`,
-        NumCtx: 85000,
-      },
-    },
-  });
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const chatConfig = getDefaultConfig() as Dict;
+  const chatPreset = ((chatConfig.Server as Dict).LlamaCpp as Dict).Presets as Dict[];
+  chatPreset[0].Model = 'Qwen3.5-9B-Q8_0.gguf';
+  chatPreset[0].BaseUrl = `http://127.0.0.1:${llamaAddress.port}`;
+  chatPreset[0].NumCtx = 85000;
+  writeConfig(getConfigPath(), chatConfig);
 
   const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
   await server.startupPromise;

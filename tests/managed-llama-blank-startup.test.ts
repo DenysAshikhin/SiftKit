@@ -15,10 +15,17 @@ const {
   withTempEnv,
 } = require('./_runtime-helpers.js');
 
+function activePreset(config) {
+  const serverLlama = config.Server.LlamaCpp;
+  return serverLlama.Presets.find((preset) => preset.id === serverLlama.ActivePresetId)
+    || serverLlama.Presets[0];
+}
+
 test('default managed llama config leaves executable and model unset', () => {
   const config = getDefaultConfig();
-  assert.equal(config.Server.LlamaCpp.ExecutablePath, null);
-  assert.equal(config.Server.LlamaCpp.ModelPath, null);
+  const preset = activePreset(config);
+  assert.equal(preset.ExecutablePath, null);
+  assert.equal(preset.ModelPath, null);
 });
 
 test('real status server boots with blank managed llama configuration and waits for manual restart', async () => {
@@ -28,18 +35,18 @@ test('real status server boots with blank managed llama configuration and waits 
     const unusedPort = await getFreePort();
     const config = getDefaultConfig();
     const unreachableBaseUrl = `http://127.0.0.1:${unusedPort}`;
-    config.LlamaCpp.BaseUrl = unreachableBaseUrl;
-    config.Runtime.LlamaCpp.BaseUrl = unreachableBaseUrl;
-    config.Server.LlamaCpp.BaseUrl = unreachableBaseUrl;
-    config.Server.LlamaCpp.BindHost = '127.0.0.1';
-    config.Server.LlamaCpp.Port = unusedPort;
+    const preset = activePreset(config);
+    preset.BaseUrl = unreachableBaseUrl;
+    preset.BindHost = '127.0.0.1';
+    preset.Port = unusedPort;
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
     fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 
     await withRealStatusServer(async ({ configUrl, statusUrl }) => {
       const loadedConfig = await requestJson(configUrl);
-      assert.equal(loadedConfig.Server.LlamaCpp.ExecutablePath, null);
-      assert.equal(loadedConfig.Server.LlamaCpp.ModelPath, null);
+      const loadedPreset = activePreset(loadedConfig);
+      assert.equal(loadedPreset.ExecutablePath, null);
+      assert.equal(loadedPreset.ModelPath, null);
 
       const status = await requestJson(statusUrl);
       assert.equal(status.running, false);
@@ -70,24 +77,20 @@ test('external llama server mode uses reachable base url without executable or m
       const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
       const configPath = getConfigPath();
       const config = getDefaultConfig();
-      config.Server.LlamaCpp.ExternalServerEnabled = true;
-      config.Server.LlamaCpp.BaseUrl = `http://127.0.0.1:${remotePort}`;
-      config.Server.LlamaCpp.ExecutablePath = null;
-      config.Server.LlamaCpp.ModelPath = null;
-      config.Server.LlamaCpp.Presets[0].ExternalServerEnabled = true;
-      config.Server.LlamaCpp.Presets[0].BaseUrl = config.Server.LlamaCpp.BaseUrl;
-      config.Server.LlamaCpp.Presets[0].ExecutablePath = null;
-      config.Server.LlamaCpp.Presets[0].ModelPath = null;
-      config.Runtime.LlamaCpp.BaseUrl = config.Server.LlamaCpp.BaseUrl;
-      config.LlamaCpp.BaseUrl = config.Server.LlamaCpp.BaseUrl;
+      const preset = activePreset(config);
+      preset.ExternalServerEnabled = true;
+      preset.BaseUrl = `http://127.0.0.1:${remotePort}`;
+      preset.ExecutablePath = null;
+      preset.ModelPath = null;
       fs.mkdirSync(path.dirname(configPath), { recursive: true });
       writeConfig(configPath, config);
 
       await withRealStatusServer(async ({ configUrl, statusUrl }) => {
         const loadedConfig = await requestJson(configUrl);
-        assert.equal(loadedConfig.Server.LlamaCpp.ExternalServerEnabled, true);
-        assert.equal(loadedConfig.Server.LlamaCpp.ExecutablePath, null);
-        assert.equal(loadedConfig.Server.LlamaCpp.ModelPath, null);
+        const loadedPreset = activePreset(loadedConfig);
+        assert.equal(loadedPreset.ExternalServerEnabled, true);
+        assert.equal(loadedPreset.ExecutablePath, null);
+        assert.equal(loadedPreset.ModelPath, null);
 
         const status = await requestJson(statusUrl);
         assert.equal(status.running, false);
@@ -107,16 +110,11 @@ test('external llama server mode fails loud when remote base url is unreachable'
     const configPath = getConfigPath();
     const unusedPort = await getFreePort();
     const config = getDefaultConfig();
-    config.Server.LlamaCpp.ExternalServerEnabled = true;
-    config.Server.LlamaCpp.BaseUrl = `http://127.0.0.1:${unusedPort}`;
-    config.Server.LlamaCpp.ExecutablePath = null;
-    config.Server.LlamaCpp.ModelPath = null;
-    config.Server.LlamaCpp.Presets[0].ExternalServerEnabled = true;
-    config.Server.LlamaCpp.Presets[0].BaseUrl = config.Server.LlamaCpp.BaseUrl;
-    config.Server.LlamaCpp.Presets[0].ExecutablePath = null;
-    config.Server.LlamaCpp.Presets[0].ModelPath = null;
-    config.Runtime.LlamaCpp.BaseUrl = config.Server.LlamaCpp.BaseUrl;
-    config.LlamaCpp.BaseUrl = config.Server.LlamaCpp.BaseUrl;
+    const preset = activePreset(config);
+    preset.ExternalServerEnabled = true;
+    preset.BaseUrl = `http://127.0.0.1:${unusedPort}`;
+    preset.ExecutablePath = null;
+    preset.ModelPath = null;
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
     writeConfig(configPath, config);
 
@@ -135,16 +133,11 @@ test('missing local llama files log degraded startup instead of crashing', async
     const configPath = getConfigPath();
     const unusedPort = await getFreePort();
     const config = getDefaultConfig();
-    config.Server.LlamaCpp.ExternalServerEnabled = false;
-    config.Server.LlamaCpp.BaseUrl = `http://127.0.0.1:${unusedPort}`;
-    config.Server.LlamaCpp.ExecutablePath = null;
-    config.Server.LlamaCpp.ModelPath = null;
-    config.Server.LlamaCpp.Presets[0].ExternalServerEnabled = false;
-    config.Server.LlamaCpp.Presets[0].BaseUrl = config.Server.LlamaCpp.BaseUrl;
-    config.Server.LlamaCpp.Presets[0].ExecutablePath = null;
-    config.Server.LlamaCpp.Presets[0].ModelPath = null;
-    config.Runtime.LlamaCpp.BaseUrl = config.Server.LlamaCpp.BaseUrl;
-    config.LlamaCpp.BaseUrl = config.Server.LlamaCpp.BaseUrl;
+    const preset = activePreset(config);
+    preset.ExternalServerEnabled = false;
+    preset.BaseUrl = `http://127.0.0.1:${unusedPort}`;
+    preset.ExecutablePath = null;
+    preset.ModelPath = null;
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
     writeConfig(configPath, config);
 
@@ -162,7 +155,7 @@ test('missing local llama files log degraded startup instead of crashing', async
     try {
       await withRealStatusServer(async ({ configUrl, statusUrl }) => {
         const loadedConfig = await requestJson(configUrl);
-        assert.equal(loadedConfig.Server.LlamaCpp.ExternalServerEnabled, false);
+        assert.equal(activePreset(loadedConfig).ExternalServerEnabled, false);
         const status = await requestJson(statusUrl);
         assert.equal(status.running, false);
       }, { statusPath, configPath });

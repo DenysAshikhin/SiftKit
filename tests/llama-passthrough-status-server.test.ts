@@ -9,6 +9,27 @@ import type { AddressInfo } from 'node:net';
 
 import { startStatusServer } from '../dist/status-server/index.js';
 import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
+import { getDefaultConfig, writeConfig } from '../dist/status-server/config-store.js';
+import { getConfigPath } from '../dist/config/index.js';
+
+function writeManagedConfig(
+  model: string,
+  managed: { baseUrl: string; modelPath: string; startupScriptPath: string },
+  timeouts: { StartupTimeoutMs: number; HealthcheckTimeoutMs: number; HealthcheckIntervalMs: number },
+): void {
+  const config = getDefaultConfig() as Record<string, unknown>;
+  const serverLlama = (config.Server as { LlamaCpp: { Presets: Record<string, unknown>[] } }).LlamaCpp;
+  const preset = serverLlama.Presets[0];
+  preset.Model = model;
+  preset.BaseUrl = managed.baseUrl;
+  preset.NumCtx = 32000;
+  preset.ModelPath = managed.modelPath;
+  preset.ExecutablePath = managed.startupScriptPath;
+  preset.StartupTimeoutMs = timeouts.StartupTimeoutMs;
+  preset.HealthcheckTimeoutMs = timeouts.HealthcheckTimeoutMs;
+  preset.HealthcheckIntervalMs = timeouts.HealthcheckIntervalMs;
+  writeConfig(getConfigPath(), config);
+}
 
 const requireFromHere = createRequire(__filename);
 const runtimeHelpers = requireFromHere('./_runtime-helpers.js') as {
@@ -122,28 +143,11 @@ test('llama passthrough wakes managed llama when the managed process is offline'
   const llamaPort = await runtimeHelpers.getFreePort();
   const managed = runtimeHelpers.writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-passthrough-model');
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  fs.writeFileSync(configPath, `${JSON.stringify({
-    Backend: 'llama.cpp',
-    Model: 'managed-passthrough-model',
-    Runtime: {
-      Model: 'managed-passthrough-model',
-      LlamaCpp: {
-        BaseUrl: managed.baseUrl,
-        NumCtx: 32000,
-        ModelPath: managed.modelPath,
-      },
-    },
-    Server: {
-      LlamaCpp: {
-        BaseUrl: managed.baseUrl,
-        ExecutablePath: managed.startupScriptPath,
-        ModelPath: managed.modelPath,
-        StartupTimeoutMs: 10000,
-        HealthcheckTimeoutMs: 50,
-        HealthcheckIntervalMs: 25,
-      },
-    },
-  }, null, 2)}\n`, 'utf8');
+  writeManagedConfig('managed-passthrough-model', managed, {
+    StartupTimeoutMs: 10000,
+    HealthcheckTimeoutMs: 50,
+    HealthcheckIntervalMs: 25,
+  });
 
   const server = startStatusServer();
   await server.startupPromise;
@@ -212,28 +216,11 @@ test('llama passthrough waits through 503 Loading model responses without timing
     initial503LoadingModelCount: 20,
   });
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  fs.writeFileSync(configPath, `${JSON.stringify({
-    Backend: 'llama.cpp',
-    Model: 'managed-passthrough-503-model',
-    Runtime: {
-      Model: 'managed-passthrough-503-model',
-      LlamaCpp: {
-        BaseUrl: managed.baseUrl,
-        NumCtx: 32000,
-        ModelPath: managed.modelPath,
-      },
-    },
-    Server: {
-      LlamaCpp: {
-        BaseUrl: managed.baseUrl,
-        ExecutablePath: managed.startupScriptPath,
-        ModelPath: managed.modelPath,
-        StartupTimeoutMs: 1500,
-        HealthcheckTimeoutMs: 100,
-        HealthcheckIntervalMs: 50,
-      },
-    },
-  }, null, 2)}\n`, 'utf8');
+  writeManagedConfig('managed-passthrough-503-model', managed, {
+    StartupTimeoutMs: 1500,
+    HealthcheckTimeoutMs: 100,
+    HealthcheckIntervalMs: 50,
+  });
 
   const server = startStatusServer();
   await server.startupPromise;
@@ -292,28 +279,11 @@ test('llama passthrough proxies POST /tokenize to managed llama', async () => {
     tokenizeCharsPerToken: 4,
   });
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  fs.writeFileSync(configPath, `${JSON.stringify({
-    Backend: 'llama.cpp',
-    Model: 'managed-tokenize-model',
-    Runtime: {
-      Model: 'managed-tokenize-model',
-      LlamaCpp: {
-        BaseUrl: managed.baseUrl,
-        NumCtx: 32000,
-        ModelPath: managed.modelPath,
-      },
-    },
-    Server: {
-      LlamaCpp: {
-        BaseUrl: managed.baseUrl,
-        ExecutablePath: managed.startupScriptPath,
-        ModelPath: managed.modelPath,
-        StartupTimeoutMs: 10000,
-        HealthcheckTimeoutMs: 50,
-        HealthcheckIntervalMs: 25,
-      },
-    },
-  }, null, 2)}\n`, 'utf8');
+  writeManagedConfig('managed-tokenize-model', managed, {
+    StartupTimeoutMs: 10000,
+    HealthcheckTimeoutMs: 50,
+    HealthcheckIntervalMs: 25,
+  });
 
   const server = startStatusServer();
   await server.startupPromise;

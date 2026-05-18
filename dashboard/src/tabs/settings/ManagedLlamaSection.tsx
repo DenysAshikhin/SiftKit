@@ -2,6 +2,7 @@ import React from 'react';
 import type { ReactNode } from 'react';
 
 import { applyManagedLlamaPresetSelection } from '../../managed-llama-presets';
+import { deriveRuntimeModelId } from '../../settings-runtime';
 import { parseFloatInput, parseIntegerInput } from '../../lib/format';
 import { SettingsInlineHelpLabel } from '../../settings/SettingsFields';
 import type { SettingsSectionId } from '../../settings-sections';
@@ -187,6 +188,7 @@ export function ManagedLlamaSection({
             onChange={(event) => updateManagedLlamaDraft((preset) => {
               const value = event.target.value.trim();
               preset.ModelPath = value || null;
+              preset.Model = deriveRuntimeModelId(preset.ModelPath) || preset.Model;
             })}
           />
           <button type="button" onClick={() => { void onPickManagedLlamaPath('ModelPath'); }} disabled={settingsActionBusy}>

@@ -7,18 +7,26 @@ import {
   parseManagedLlamaSpeculativeMetricsText,
 } from '../src/status-server/managed-llama';
 
+type ManagedPresetRecord = Record<string, unknown>;
+
+function activePreset(config: unknown): ManagedPresetRecord {
+  const llama = (config as {
+    Server: { LlamaCpp: { Presets: ManagedPresetRecord[]; ActivePresetId: string } };
+  }).Server.LlamaCpp;
+  return llama.Presets.find((preset) => preset.id === llama.ActivePresetId) ?? llama.Presets[0];
+}
+
 function createConfig(ncpuMoe: number): unknown {
-  const config = getDefaultConfig() as {
-    Server: { LlamaCpp: { ModelPath: string | null; NcpuMoe?: number } };
-  };
-  config.Server.LlamaCpp.ModelPath = 'D:\\models\\qwen-27b.gguf';
-  config.Server.LlamaCpp.NcpuMoe = ncpuMoe;
+  const config = getDefaultConfig();
+  const preset = activePreset(config);
+  preset.ModelPath = 'D:\\models\\qwen-27b.gguf';
+  preset.NcpuMoe = ncpuMoe;
   return config;
 }
 
 function createSpeculativeConfig(overrides: Record<string, unknown>): unknown {
-  const config = createConfig(0) as { Server: { LlamaCpp: Record<string, unknown> } };
-  Object.assign(config.Server.LlamaCpp, { SpeculativeEnabled: true }, overrides);
+  const config = createConfig(0);
+  Object.assign(activePreset(config), { SpeculativeEnabled: true }, overrides);
   return config;
 }
 
@@ -38,13 +46,11 @@ test('buildManagedLlamaArgs omits --n-cpu-moe when NcpuMoe is 0', () => {
 });
 
 test('getDefaultConfig disables NcpuMoe by default', () => {
-  const config = getDefaultConfig() as {
-    Server: { LlamaCpp: { NcpuMoe?: number; SpeculativeEnabled?: boolean; SleepIdleSeconds?: number } };
-  };
+  const preset = activePreset(getDefaultConfig());
 
-  assert.equal(config.Server.LlamaCpp.NcpuMoe, 0);
-  assert.equal(config.Server.LlamaCpp.SpeculativeEnabled, false);
-  assert.equal(config.Server.LlamaCpp.SleepIdleSeconds, 600);
+  assert.equal(preset.NcpuMoe, 0);
+  assert.equal(preset.SpeculativeEnabled, false);
+  assert.equal(preset.SleepIdleSeconds, 600);
 });
 
 test('buildManagedLlamaArgs enables llama-server sleep idle by default', () => {
@@ -56,8 +62,8 @@ test('buildManagedLlamaArgs enables llama-server sleep idle by default', () => {
 });
 
 test('buildManagedLlamaArgs uses the configured sleep idle seconds', () => {
-  const config = createConfig(0) as { Server: { LlamaCpp: { SleepIdleSeconds?: number } } };
-  config.Server.LlamaCpp.SleepIdleSeconds = 120;
+  const config = createConfig(0);
+  activePreset(config).SleepIdleSeconds = 120;
 
   const args = buildManagedLlamaArgs(getManagedLlamaConfig(config));
 
@@ -73,26 +79,17 @@ test('buildManagedLlamaArgs includes --n-cpu-moe when NcpuMoe is non-zero', () =
 });
 
 test('getDefaultConfig disables MTP combination and seeds ngram-mod defaults', () => {
-  const config = getDefaultConfig() as {
-    Server: {
-      LlamaCpp: {
-        SpeculativeMtpEnabled?: boolean;
-        SpeculativeNgramModNMatch?: number;
-        SpeculativeNgramModNMin?: number;
-        SpeculativeNgramModNMax?: number;
-      };
-    };
-  };
+  const preset = activePreset(getDefaultConfig());
 
-  assert.equal(config.Server.LlamaCpp.SpeculativeMtpEnabled, false);
-  assert.equal(config.Server.LlamaCpp.SpeculativeNgramModNMatch, 24);
-  assert.equal(config.Server.LlamaCpp.SpeculativeNgramModNMin, 4);
-  assert.equal(config.Server.LlamaCpp.SpeculativeNgramModNMax, 16);
+  assert.equal(preset.SpeculativeMtpEnabled, false);
+  assert.equal(preset.SpeculativeNgramModNMatch, 24);
+  assert.equal(preset.SpeculativeNgramModNMin, 4);
+  assert.equal(preset.SpeculativeNgramModNMax, 16);
 });
 
 test('buildManagedLlamaArgs omits speculative flags when speculative decoding is disabled', () => {
-  const config = createConfig(0) as { Server: { LlamaCpp: { SpeculativeEnabled?: boolean } } };
-  config.Server.LlamaCpp.SpeculativeEnabled = false;
+  const config = createConfig(0);
+  activePreset(config).SpeculativeEnabled = false;
 
   const args = buildManagedLlamaArgs(getManagedLlamaConfig(config));
 

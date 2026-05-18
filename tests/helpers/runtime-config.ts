@@ -33,24 +33,38 @@ export function getDefaultConfig(): JsonObject {
   return {
     Version: '0.1.0',
     Backend: 'llama.cpp',
-    Model: 'qwen3.5-9b-instruct-q4_k_m',
     PolicyMode: 'conservative',
     RawLogRetention: true,
-    LlamaCpp: {
-      BaseUrl: 'http://127.0.0.1:8080',
-      NumCtx: 128000,
-      ModelPath: null,
-      Temperature: 0.2,
-      TopP: 0.95,
-      TopK: 20,
-      MinP: 0.0,
-      PresencePenalty: 0.0,
-      RepetitionPenalty: 1.0,
-      MaxTokens: 4096,
-      Threads: -1,
-      FlashAttention: true,
-      ParallelSlots: 1,
-      Reasoning: 'off',
+    Runtime: {
+      Model: 'qwen3.5-9b-instruct-q4_k_m',
+      LlamaCpp: {
+        BaseUrl: 'http://127.0.0.1:8080',
+        NumCtx: 128000,
+        ModelPath: null,
+        Temperature: 0.2,
+        TopP: 0.95,
+        TopK: 20,
+        MinP: 0.0,
+        PresencePenalty: 0.0,
+        RepetitionPenalty: 1.0,
+        MaxTokens: 4096,
+        Threads: -1,
+        FlashAttention: true,
+        ParallelSlots: 1,
+        Reasoning: 'off',
+      },
+    },
+    Server: {
+      LlamaCpp: {
+        ActivePresetId: 'default',
+        Presets: [{
+          id: 'default',
+          label: 'Default',
+          Model: 'qwen3.5-9b-instruct-q4_k_m',
+          BaseUrl: 'http://127.0.0.1:8080',
+          NumCtx: 128000,
+        }],
+      },
     },
     Thresholds: {
       MinCharactersForSummary: 500,
@@ -112,16 +126,20 @@ export function getChatRequestText(request: ChatRequest | null | undefined): str
 }
 
 export function setManagedLlamaBaseUrl(config: JsonObject, baseUrl: string): void {
-  const llamaCpp = (config.LlamaCpp ?? {}) as JsonObject;
   const runtime = (config.Runtime ?? {}) as JsonObject;
   const runtimeLlamaCpp = (runtime.LlamaCpp ?? {}) as JsonObject;
-
-  llamaCpp.BaseUrl = baseUrl;
-  runtime.Model = config.Model;
   runtimeLlamaCpp.BaseUrl = baseUrl;
   runtime.LlamaCpp = runtimeLlamaCpp;
-  config.LlamaCpp = llamaCpp;
   config.Runtime = runtime;
+
+  const server = (config.Server ?? {}) as JsonObject;
+  const serverLlamaCpp = (server.LlamaCpp ?? {}) as JsonObject;
+  const presets = Array.isArray(serverLlamaCpp.Presets) ? serverLlamaCpp.Presets as JsonObject[] : [];
+  for (const preset of presets) {
+    preset.BaseUrl = baseUrl;
+  }
+  server.LlamaCpp = serverLlamaCpp;
+  config.Server = server;
 }
 
 export function mergeConfig(baseValue: unknown, patchValue: unknown): unknown {

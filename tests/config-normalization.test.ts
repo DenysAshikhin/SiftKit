@@ -1,73 +1,82 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getDefaultConfigObject } from '../src/config/defaults';
-import { normalizeConfig } from '../src/config/normalization';
-import type { SiftConfig } from '../src/config/types';
+import { getDefaultConfig, normalizeConfig } from '../src/status-server/config-store';
 
-function createSpeculativeTypeConfig(speculativeType: string): SiftConfig {
-  const config = getDefaultConfigObject();
-  config.Server ??= { LlamaCpp: {} };
-  config.Server.LlamaCpp ??= {};
-  config.Server.LlamaCpp.SpeculativeType = speculativeType as SiftConfig['Server']['LlamaCpp']['SpeculativeType'];
-  if (config.Server.LlamaCpp.Presets?.[0]) {
-    config.Server.LlamaCpp.Presets[0].SpeculativeType = speculativeType as SiftConfig['Server']['LlamaCpp']['SpeculativeType'];
-  }
+type Dict = Record<string, unknown>;
+
+function activePreset(config: unknown): Dict {
+  const llama = ((config as Dict).Server as Dict).LlamaCpp as Dict;
+  return (llama.Presets as Dict[])[0];
+}
+
+function configWithSpeculativeType(speculativeType: string): Dict {
+  const config = getDefaultConfig() as Dict;
+  activePreset(config).SpeculativeType = speculativeType;
   return config;
 }
 
-test('normalizeConfig accepts draft-mtp speculative decoding type', () => {
-  const { config } = normalizeConfig(createSpeculativeTypeConfig('draft-mtp'));
+test('normalizeConfig keeps Server.LlamaCpp as a presets-only shape', () => {
+  const normalized = normalizeConfig(getDefaultConfig());
+  const llama = (normalized.Server as Dict).LlamaCpp as Dict;
 
-  assert.equal(config.Server?.LlamaCpp?.SpeculativeType, 'draft-mtp');
-  assert.equal(config.Server?.LlamaCpp?.Presets?.[0]?.SpeculativeType, 'draft-mtp');
+  assert.deepEqual(Object.keys(llama).sort(), ['ActivePresetId', 'Presets']);
+  assert.ok(Array.isArray(llama.Presets));
+  assert.ok((llama.Presets as Dict[]).length >= 1);
+});
+
+test('normalizeConfig falls back an unknown ActivePresetId to the first preset', () => {
+  const config = getDefaultConfig() as Dict;
+  ((config.Server as Dict).LlamaCpp as Dict).ActivePresetId = 'does-not-exist';
+
+  const normalized = normalizeConfig(config);
+  const llama = (normalized.Server as Dict).LlamaCpp as Dict;
+
+  assert.equal(llama.ActivePresetId, (llama.Presets as Dict[])[0].id);
+});
+
+test('normalizeConfig accepts draft-mtp speculative decoding type', () => {
+  const normalized = normalizeConfig(configWithSpeculativeType('draft-mtp'));
+
+  assert.equal(activePreset(normalized).SpeculativeType, 'draft-mtp');
 });
 
 test('normalizeConfig falls back unknown speculative decoding type to ngram-map-k', () => {
-  const { config } = normalizeConfig(createSpeculativeTypeConfig('unknown-speculation'));
+  const normalized = normalizeConfig(configWithSpeculativeType('unknown-speculation'));
 
-  assert.equal(config.Server?.LlamaCpp?.SpeculativeType, 'ngram-map-k');
-  assert.equal(config.Server?.LlamaCpp?.Presets?.[0]?.SpeculativeType, 'ngram-map-k');
+  assert.equal(activePreset(normalized).SpeculativeType, 'ngram-map-k');
 });
 
 test('normalizeConfig defaults the MTP combination and ngram-mod fields when absent', () => {
-  const config = getDefaultConfigObject();
-  config.Server ??= { LlamaCpp: {} };
-  config.Server.LlamaCpp ??= {};
-  delete config.Server.LlamaCpp.SpeculativeMtpEnabled;
-  if (config.Server.LlamaCpp.Presets?.[0]) {
-    delete config.Server.LlamaCpp.Presets[0].SpeculativeMtpEnabled;
-    delete config.Server.LlamaCpp.Presets[0].SpeculativeNgramModNMatch;
-    delete config.Server.LlamaCpp.Presets[0].SpeculativeNgramModNMin;
-    delete config.Server.LlamaCpp.Presets[0].SpeculativeNgramModNMax;
-  }
+  const config = getDefaultConfig() as Dict;
+  const preset = activePreset(config);
+  delete preset.SpeculativeMtpEnabled;
+  delete preset.SpeculativeNgramModNMatch;
+  delete preset.SpeculativeNgramModNMin;
+  delete preset.SpeculativeNgramModNMax;
 
-  const { config: normalized } = normalizeConfig(config);
-  const preset = normalized.Server?.LlamaCpp?.Presets?.[0];
+  const preset2 = activePreset(normalizeConfig(config));
 
-  assert.equal(preset?.SpeculativeMtpEnabled, false);
-  assert.equal(preset?.SpeculativeNgramModNMatch, 24);
-  assert.equal(preset?.SpeculativeNgramModNMin, 4);
-  assert.equal(preset?.SpeculativeNgramModNMax, 16);
+  assert.equal(preset2.SpeculativeMtpEnabled, false);
+  assert.equal(preset2.SpeculativeNgramModNMatch, 24);
+  assert.equal(preset2.SpeculativeNgramModNMin, 4);
+  assert.equal(preset2.SpeculativeNgramModNMax, 16);
 });
 
 test('normalizeConfig preserves an enabled MTP combination with ngram-mod parameters', () => {
-  const config = getDefaultConfigObject();
-  config.Server ??= { LlamaCpp: {} };
-  config.Server.LlamaCpp ??= {};
-  if (config.Server.LlamaCpp.Presets?.[0]) {
-    config.Server.LlamaCpp.Presets[0].SpeculativeType = 'ngram-mod';
-    config.Server.LlamaCpp.Presets[0].SpeculativeMtpEnabled = true;
-    config.Server.LlamaCpp.Presets[0].SpeculativeNgramModNMatch = 24;
-    config.Server.LlamaCpp.Presets[0].SpeculativeNgramModNMin = 12;
-    config.Server.LlamaCpp.Presets[0].SpeculativeNgramModNMax = 48;
-  }
+  const config = getDefaultConfig() as Dict;
+  Object.assign(activePreset(config), {
+    SpeculativeType: 'ngram-mod',
+    SpeculativeMtpEnabled: true,
+    SpeculativeNgramModNMatch: 24,
+    SpeculativeNgramModNMin: 12,
+    SpeculativeNgramModNMax: 48,
+  });
 
-  const { config: normalized } = normalizeConfig(config);
-  const preset = normalized.Server?.LlamaCpp?.Presets?.[0];
+  const preset = activePreset(normalizeConfig(config));
 
-  assert.equal(preset?.SpeculativeMtpEnabled, true);
-  assert.equal(preset?.SpeculativeNgramModNMatch, 24);
-  assert.equal(preset?.SpeculativeNgramModNMin, 12);
-  assert.equal(preset?.SpeculativeNgramModNMax, 48);
+  assert.equal(preset.SpeculativeMtpEnabled, true);
+  assert.equal(preset.SpeculativeNgramModNMatch, 24);
+  assert.equal(preset.SpeculativeNgramModNMin, 12);
+  assert.equal(preset.SpeculativeNgramModNMax, 48);
 });

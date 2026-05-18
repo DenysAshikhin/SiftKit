@@ -1093,12 +1093,12 @@ test('planner keeps short read_lines output when reported token count is high', 
   await withTempEnv(async () => {
     const plannerConfig = {
       LlamaCpp: {
-        NumCtx: 19000,
+        NumCtx: 190000,
         Reasoning: 'off',
       },
       Runtime: {
         LlamaCpp: {
-          NumCtx: 19000,
+          NumCtx: 190000,
           Reasoning: 'off',
         },
       },
@@ -1157,12 +1157,12 @@ test('planner keeps tool results when they stay within 70 percent of remaining s
   await withTempEnv(async () => {
     const plannerConfig = {
       LlamaCpp: {
-        NumCtx: 19000,
+        NumCtx: 190000,
         Reasoning: 'off',
       },
       Runtime: {
         LlamaCpp: {
-          NumCtx: 19000,
+          NumCtx: 190000,
           Reasoning: 'off',
         },
       },
@@ -1222,12 +1222,12 @@ test('planner keeps read_lines output when tokenize is unavailable', async () =>
   await withTempEnv(async () => {
     const plannerConfig = {
       LlamaCpp: {
-        NumCtx: 19000,
+        NumCtx: 190000,
         Reasoning: 'off',
       },
       Runtime: {
         LlamaCpp: {
-          NumCtx: 19000,
+          NumCtx: 190000,
           Reasoning: 'off',
         },
       },
@@ -1290,12 +1290,12 @@ test('planner fits oversized read_lines output and reports omitted lines', async
   await withTempEnv(async () => {
     const plannerConfig = {
       LlamaCpp: {
-        NumCtx: 19000,
+        NumCtx: 190000,
         Reasoning: 'off',
       },
       Runtime: {
         LlamaCpp: {
-          NumCtx: 19000,
+          NumCtx: 190000,
           Reasoning: 'off',
         },
       },
@@ -1423,12 +1423,12 @@ test('planner advances repeated read_lines calls from fitted returned lines only
   await withTempEnv(async () => {
     const plannerConfig = {
       LlamaCpp: {
-        NumCtx: 19000,
+        NumCtx: 190000,
         Reasoning: 'off',
       },
       Runtime: {
         LlamaCpp: {
-          NumCtx: 19000,
+          NumCtx: 190000,
           Reasoning: 'off',
         },
       },
@@ -1547,12 +1547,12 @@ test('planner fits oversized find_text output and reports omitted results', asyn
   await withTempEnv(async () => {
     const plannerConfig = {
       LlamaCpp: {
-        NumCtx: 19000,
+        NumCtx: 190000,
         Reasoning: 'off',
       },
       Runtime: {
         LlamaCpp: {
-          NumCtx: 19000,
+          NumCtx: 190000,
           Reasoning: 'off',
         },
       },

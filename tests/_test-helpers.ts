@@ -42,11 +42,10 @@ export function readBody(req: http.IncomingMessage): Promise<string> {
 export type TestConfig = Dict & {
   Version: string;
   Backend: string;
-  Model: string;
   PolicyMode: string;
   RawLogRetention: boolean;
-  LlamaCpp: Dict;
   Runtime: Dict;
+  Server: Dict;
   Thresholds: Dict;
   Interactive: Dict;
 };
@@ -55,30 +54,37 @@ export function getDefaultConfig(): TestConfig {
   return {
     Version: '0.1.0',
     Backend: 'llama.cpp',
-    Model: 'mock-model',
     PolicyMode: 'conservative',
     RawLogRetention: true,
-    LlamaCpp: {
-      BaseUrl: 'http://127.0.0.1:8080',
-      NumCtx: 128000,
-      ModelPath: null,
-      Temperature: 0.2,
-      TopP: 0.95,
-      TopK: 20,
-      MinP: 0.0,
-      PresencePenalty: 0.0,
-      RepetitionPenalty: 1.0,
-      MaxTokens: 4096,
-      Threads: -1,
-      FlashAttention: true,
-      ParallelSlots: 1,
-      Reasoning: 'off',
-    },
     Runtime: {
       Model: 'mock-model',
       LlamaCpp: {
-        BaseUrl: null,
+        BaseUrl: 'http://127.0.0.1:8080',
         NumCtx: 128000,
+        ModelPath: null,
+        Temperature: 0.2,
+        TopP: 0.95,
+        TopK: 20,
+        MinP: 0.0,
+        PresencePenalty: 0.0,
+        RepetitionPenalty: 1.0,
+        MaxTokens: 4096,
+        Threads: -1,
+        FlashAttention: true,
+        ParallelSlots: 1,
+        Reasoning: 'off',
+      },
+    },
+    Server: {
+      LlamaCpp: {
+        ActivePresetId: 'default',
+        Presets: [{
+          id: 'default',
+          label: 'Default',
+          Model: 'mock-model',
+          BaseUrl: 'http://127.0.0.1:8080',
+          NumCtx: 128000,
+        }],
       },
     },
     Thresholds: {
@@ -226,16 +232,13 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
       const parsed = (bodyText ? JSON.parse(bodyText) : {}) as Dict;
       const runtime = state.config.Runtime as Dict | undefined;
       const runtimeLlamaCpp = runtime ? (runtime.LlamaCpp as Dict | undefined) : undefined;
-      const topLlamaCpp = state.config.LlamaCpp as Dict | undefined;
-      const savedBaseUrl = (runtimeLlamaCpp && typeof runtimeLlamaCpp.BaseUrl === 'string' ? runtimeLlamaCpp.BaseUrl : undefined)
-        || (topLlamaCpp && typeof topLlamaCpp.BaseUrl === 'string' ? topLlamaCpp.BaseUrl : undefined);
+      const savedBaseUrl = runtimeLlamaCpp && typeof runtimeLlamaCpp.BaseUrl === 'string'
+        ? runtimeLlamaCpp.BaseUrl : undefined;
       state.config = mergeConfig(getDefaultConfig(), parsed);
       if (savedBaseUrl) {
         state.config.Runtime = (state.config.Runtime as Dict) || {};
         (state.config.Runtime as Dict).LlamaCpp = ((state.config.Runtime as Dict).LlamaCpp as Dict) || {};
         ((state.config.Runtime as Dict).LlamaCpp as Dict).BaseUrl = savedBaseUrl;
-        state.config.LlamaCpp = (state.config.LlamaCpp as Dict) || {};
-        (state.config.LlamaCpp as Dict).BaseUrl = savedBaseUrl;
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(state.config));
@@ -432,10 +435,6 @@ export async function withTestEnvAndServer(
   runtimeLlamaCpp.BaseUrl = stub.baseUrl;
   runtime.Model = runtime.Model || 'mock-model';
   runtimeLlamaCpp.NumCtx = runtimeLlamaCpp.NumCtx || 128000;
-  const topLlamaCpp = (stub.state.config.LlamaCpp as Dict) || {};
-  stub.state.config.LlamaCpp = topLlamaCpp;
-  topLlamaCpp.BaseUrl = stub.baseUrl;
-  topLlamaCpp.NumCtx = 128000;
   const server = (stub.state.config.Server as Dict) || {};
   stub.state.config.Server = server;
   const serverLlamaCpp = (server.LlamaCpp as Dict) || {};

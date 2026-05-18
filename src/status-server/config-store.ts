@@ -7,7 +7,7 @@ import {
   type SiftPreset,
 } from '../presets.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
-import { readRuntimeLaunchSnapshot } from './runtime-launch-snapshot.js';
+import { readRuntimeLaunchSnapshot, type RuntimeLaunchSnapshot } from './runtime-launch-snapshot.js';
 
 export const DEFAULT_LLAMA_MODEL = 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
 export const DEFAULT_LLAMA_BASE_URL = 'http://127.0.0.1:8097';
@@ -417,14 +417,47 @@ export function readConfig(configPath: string): Dict {
       writeConfigRow(configPath, normalizeConfigToRow(fallback));
       return fallback;
     })();
-  const snapshot = readRuntimeLaunchSnapshot(configPath);
-  if (snapshot) {
-    const runtime = (config.Runtime as Dict | undefined) ?? {};
-    runtime.Model = snapshot.Model;
-    runtime.LlamaCpp = snapshot.LlamaCpp as unknown as Dict;
-    config.Runtime = runtime;
-  }
+  // The launch snapshot pins the values the managed server was actually
+  // started with (which can diverge from the active preset if the user edits
+  // the preset afterwards). Before any launch there is no snapshot, so the
+  // active preset is the best available source for the runtime config.
+  const snapshot = readRuntimeLaunchSnapshot(configPath) ?? buildRuntimeLaunchSnapshot(config);
+  const runtime = (config.Runtime as Dict | undefined) ?? {};
+  runtime.Model = snapshot.Model;
+  runtime.LlamaCpp = snapshot.LlamaCpp as unknown as Dict;
+  config.Runtime = runtime;
   return config;
+}
+
+/**
+ * Builds the runtime launch snapshot (resolved `Model` + `Runtime.LlamaCpp`)
+ * from the active managed-llama preset. Written verbatim to `runtime_metadata`
+ * when the managed server boots; also used as the runtime fallback before any
+ * launch has happened.
+ */
+export function buildRuntimeLaunchSnapshot(config: unknown): RuntimeLaunchSnapshot {
+  const managed = getManagedLlamaConfig(config);
+  return {
+    Model: managed.Model ?? null,
+    LlamaCpp: {
+      BaseUrl: getManagedLlamaInternalBaseUrl(config),
+      NumCtx: managed.NumCtx,
+      ModelPath: managed.ModelPath,
+      Temperature: managed.Temperature,
+      TopP: managed.TopP,
+      TopK: managed.TopK,
+      MinP: managed.MinP,
+      PresencePenalty: managed.PresencePenalty,
+      RepetitionPenalty: managed.RepetitionPenalty,
+      MaxTokens: managed.MaxTokens,
+      GpuLayers: managed.GpuLayers,
+      Threads: managed.Threads,
+      NcpuMoe: managed.NcpuMoe,
+      FlashAttention: managed.FlashAttention,
+      ParallelSlots: managed.ParallelSlots,
+      Reasoning: managed.Reasoning,
+    },
+  };
 }
 
 export function writeConfig(configPath: string, config: Dict): void {

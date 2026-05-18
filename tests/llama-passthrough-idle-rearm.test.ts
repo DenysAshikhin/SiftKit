@@ -48,7 +48,6 @@ function createPassthroughHarness(tempRoot: string): Promise<TestHarness> {
       fs.mkdirSync(path.dirname(configPath), { recursive: true });
       writeConfig(configPath, {
         Backend: 'llama.cpp',
-        Model: 'test-model',
         Runtime: {
           Model: 'test-model',
           LlamaCpp: {
@@ -59,10 +58,18 @@ function createPassthroughHarness(tempRoot: string): Promise<TestHarness> {
         },
         Server: {
           LlamaCpp: {
-            BaseUrl: upstreamBaseUrl,
-            ExternalServerEnabled: true,
-            HealthcheckTimeoutMs: 500,
-            HealthcheckIntervalMs: 50,
+            ActivePresetId: 'default',
+            Presets: [{
+              id: 'default',
+              label: 'Default',
+              Model: 'test-model',
+              BaseUrl: upstreamBaseUrl,
+              ModelPath: path.join(tempRoot, 'fake-model.gguf'),
+              NumCtx: 4096,
+              ExternalServerEnabled: true,
+              HealthcheckTimeoutMs: 500,
+              HealthcheckIntervalMs: 50,
+            }],
           },
         },
       });

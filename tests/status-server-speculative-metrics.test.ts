@@ -121,18 +121,15 @@ test('real status server uses managed llama cumulative speculative delta for rep
     });
     const config = getDefaultConfig();
     setManagedLlamaBaseUrl(config, managed.baseUrl);
-    config.Server = config.Server || {};
-    config.Server.LlamaCpp = {
-      ...(config.Server.LlamaCpp || {}),
-      BaseUrl: managed.baseUrl,
-      BindHost: '127.0.0.1',
-      Port: llamaPort,
-      ExecutablePath: managed.executablePath,
-      ModelPath: managed.modelPath,
-      StartupTimeoutMs: 5000,
-      HealthcheckTimeoutMs: 100,
-      HealthcheckIntervalMs: 10,
-    };
+    const speculativePreset = config.Server.LlamaCpp.Presets[0];
+    speculativePreset.BaseUrl = managed.baseUrl;
+    speculativePreset.BindHost = '127.0.0.1';
+    speculativePreset.Port = llamaPort;
+    speculativePreset.ExecutablePath = managed.executablePath;
+    speculativePreset.ModelPath = managed.modelPath;
+    speculativePreset.StartupTimeoutMs = 5000;
+    speculativePreset.HealthcheckTimeoutMs = 100;
+    speculativePreset.HealthcheckIntervalMs = 10;
     writeConfig(runtimeDbPath, config);
 
     await withRealStatusServer(async ({ statusUrl }) => {

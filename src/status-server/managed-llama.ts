@@ -30,11 +30,9 @@ import {
   getLlamaBaseUrl,
   getManagedLlamaConfig,
   getManagedLlamaInternalBaseUrl,
+  buildRuntimeLaunchSnapshot,
 } from './config-store.js';
-import {
-  writeRuntimeLaunchSnapshot,
-  type RuntimeLaunchSnapshot,
-} from './runtime-launch-snapshot.js';
+import { writeRuntimeLaunchSnapshot } from './runtime-launch-snapshot.js';
 import { getRuntimeDatabasePath } from '../config/paths.js';
 import type {
   Dict,
@@ -641,36 +639,6 @@ function getManagedLlamaStartupFailureFromLogRef(logRef: ManagedLlamaLogRef): Ma
 
 export function getManagedLlamaStartupFailure(error: unknown): ManagedLlamaStartupFailure | null {
   return error instanceof ManagedLlamaStartupError ? error.startupFailure : null;
-}
-
-/**
- * Snapshots the active managed-llama preset's runtime-relevant fields. Written
- * to `runtime_metadata` when the managed server boots so the config service
- * can populate `Runtime.LlamaCpp` / `Runtime.Model` with what was launched.
- */
-export function buildRuntimeLaunchSnapshot(config: unknown): RuntimeLaunchSnapshot {
-  const managed = getManagedLlamaConfig(config);
-  return {
-    Model: managed.Model ?? null,
-    LlamaCpp: {
-      BaseUrl: getManagedLlamaInternalBaseUrl(config),
-      NumCtx: managed.NumCtx,
-      ModelPath: managed.ModelPath,
-      Temperature: managed.Temperature,
-      TopP: managed.TopP,
-      TopK: managed.TopK,
-      MinP: managed.MinP,
-      PresencePenalty: managed.PresencePenalty,
-      RepetitionPenalty: managed.RepetitionPenalty,
-      MaxTokens: managed.MaxTokens,
-      GpuLayers: managed.GpuLayers,
-      Threads: managed.Threads,
-      NcpuMoe: managed.NcpuMoe,
-      FlashAttention: managed.FlashAttention,
-      ParallelSlots: managed.ParallelSlots,
-      Reasoning: managed.Reasoning,
-    },
-  };
 }
 
 export function buildManagedLlamaArgs(managed: ReturnType<typeof getManagedLlamaConfig>): string[] {

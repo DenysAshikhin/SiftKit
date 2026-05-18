@@ -426,7 +426,7 @@ async function startStubStatusServer(options = {}) {
     if (req.method === 'GET' && req.url === '/v1/models') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
-        data: [{ id: state.config.Model }],
+        data: [{ id: state.config.Runtime?.Model }],
       }));
       return;
     }
@@ -726,23 +726,30 @@ async function startStubStatusServer(options = {}) {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
-  if (state.config.LlamaCpp && typeof state.config.LlamaCpp === 'object') {
-    state.config.LlamaCpp.BaseUrl = `http://127.0.0.1:${port}`;
-  }
+  const stubBaseUrl = `http://127.0.0.1:${port}`;
   if (!state.config.Runtime || typeof state.config.Runtime !== 'object') {
     state.config.Runtime = {};
   }
   if (!state.config.Runtime.LlamaCpp || typeof state.config.Runtime.LlamaCpp !== 'object') {
     state.config.Runtime.LlamaCpp = {};
   }
-  state.config.Runtime.LlamaCpp.BaseUrl = `http://127.0.0.1:${port}`;
+  state.config.Runtime.LlamaCpp.BaseUrl = stubBaseUrl;
   if (!state.config.Server || typeof state.config.Server !== 'object') {
     state.config.Server = {};
   }
   if (!state.config.Server.LlamaCpp || typeof state.config.Server.LlamaCpp !== 'object') {
-    state.config.Server.LlamaCpp = {};
+    state.config.Server.LlamaCpp = { Presets: [], ActivePresetId: 'default' };
   }
-  state.config.Server.LlamaCpp.BaseUrl = `http://127.0.0.1:${port}`;
+  if (!Array.isArray(state.config.Server.LlamaCpp.Presets)) {
+    state.config.Server.LlamaCpp.Presets = [];
+  }
+  if (state.config.Server.LlamaCpp.Presets.length === 0) {
+    state.config.Server.LlamaCpp.Presets.push({ id: 'default', label: 'Default' });
+    state.config.Server.LlamaCpp.ActivePresetId = 'default';
+  }
+  for (const preset of state.config.Server.LlamaCpp.Presets) {
+    preset.BaseUrl = stubBaseUrl;
+  }
 
   return {
     port,
@@ -839,6 +846,15 @@ function seedRuntimeConfigFromJson(configPath) {
         fs.writeFileSync(modelPath, 'fake model', 'utf8');
       }
       serverLlama.ModelPath = modelPath;
+    }
+    // Managed-llama settings live on the active preset. Wrap any flat
+    // Server.LlamaCpp.* fields from legacy-shaped test fixtures into one preset.
+    if (!Array.isArray(serverLlama.Presets) || serverLlama.Presets.length === 0) {
+      const { Presets, ActivePresetId, ...managedFields } = serverLlama;
+      config.Server.LlamaCpp = {
+        ActivePresetId: 'default',
+        Presets: [{ id: 'default', label: 'Default', ...managedFields }],
+      };
     }
   }
   writeConfig(getConfigPath(), config);

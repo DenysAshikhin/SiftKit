@@ -28,13 +28,18 @@ function applyManagedScriptConfig(config, managed, overrides = {}) {
   setManagedLlamaBaseUrl(config, managed.baseUrl);
   config.Server = {
     LlamaCpp: {
-      BaseUrl: managed.baseUrl,
-      ModelPath: managed.modelPath,
-      ExecutablePath: managed.startupScriptPath,
-      StartupTimeoutMs: 5000,
-      HealthcheckTimeoutMs: 100,
-      HealthcheckIntervalMs: 10,
-      ...overrides,
+      ActivePresetId: 'default',
+      Presets: [{
+        id: 'default',
+        label: 'Default',
+        BaseUrl: managed.baseUrl,
+        ModelPath: managed.modelPath,
+        ExecutablePath: managed.startupScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 100,
+        HealthcheckIntervalMs: 10,
+        ...overrides,
+      }],
     },
   };
 }
@@ -160,7 +165,7 @@ test('real status server with disableManagedLlamaStartup does not trigger manage
 
     await withRealStatusServer(async ({ configUrl }) => {
       const loadedConfig = await requestJson(configUrl);
-      assert.equal(loadedConfig.Server.LlamaCpp.BaseUrl, managed.baseUrl);
+      assert.equal(loadedConfig.Server.LlamaCpp.Presets[0].BaseUrl, managed.baseUrl);
       await sleep(50);
       assert.equal(fs.existsSync(managed.readyFilePath), false);
     }, {

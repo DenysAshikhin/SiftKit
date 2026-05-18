@@ -33,7 +33,19 @@ function makeClientConfig(options: {
       MaxTranscriptCharacters: 1000,
       TranscriptRetention: true,
     },
-    Server: { LlamaCpp: { ExternalServerEnabled: options.externalServer, BaseUrl: options.baseUrl } },
+    Server: {
+      LlamaCpp: {
+        ActivePresetId: 'default',
+        Presets: [
+          {
+            id: 'default',
+            label: 'Default',
+            ExternalServerEnabled: options.externalServer,
+            BaseUrl: options.baseUrl,
+          },
+        ],
+      },
+    },
   } as unknown as SiftConfig;
 }
 

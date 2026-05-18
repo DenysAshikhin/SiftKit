@@ -434,11 +434,11 @@ test('summarizeRequest keeps oversized llama.cpp requests on the planner path wi
       },
       config: {
         LlamaCpp: {
-          NumCtx: 12_000,
+          NumCtx: 50_000,
         },
         Runtime: {
           LlamaCpp: {
-            NumCtx: 12_000,
+            NumCtx: 50_000,
           },
         },
       },

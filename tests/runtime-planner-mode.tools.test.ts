@@ -273,7 +273,7 @@ test('llama.cpp provider reconstructs planner tool actions from empty-content to
 
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Model,
+        model: config.Runtime.Model,
         prompt: 'test prompt body',
         timeoutSeconds: 5,
         structuredOutput: {
@@ -325,7 +325,7 @@ test('llama.cpp provider reconstructs planner tool batches from empty-content to
 
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Model,
+        model: config.Runtime.Model,
         prompt: 'test prompt body',
         timeoutSeconds: 5,
         structuredOutput: {

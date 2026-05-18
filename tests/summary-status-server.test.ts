@@ -8,7 +8,7 @@ import type { AddressInfo } from 'node:net';
 
 import type { SiftConfig } from '../dist/config/index.js';
 import { summarizeRequest } from '../dist/summary.js';
-import { getDefaultConfig } from '../dist/status-server/config-store.js';
+import { getDefaultConfig, buildRuntimeLaunchSnapshot } from '../dist/status-server/config-store.js';
 import { startStatusServer } from '../dist/status-server/index.js';
 import { ManagedLlamaFlushQueue } from '../dist/status-server/managed-llama-flush-queue.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../dist/state/runtime-db.js';
@@ -738,6 +738,8 @@ test('summarizeRequest uses explicit config without requiring config service', a
   try {
     const config = getDefaultConfig() as SiftConfig;
     config.Backend = 'mock';
+    const runtimeSnapshot = buildRuntimeLaunchSnapshot(config);
+    config.Runtime.LlamaCpp = runtimeSnapshot.LlamaCpp;
     config.Runtime.Model = 'mock-model';
     const result = await summarizeRequest({
       question: 'summarize this',

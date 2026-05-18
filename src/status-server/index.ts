@@ -36,6 +36,8 @@ import {
   buildDashboardRunDetail,
   buildDashboardDailyMetrics,
   normalizeIdleSummarySnapshotRow,
+  migrateExistingRunLogsToDbAndDeleteBounded,
+  getRunLogMigrationTimeoutMs,
 } from './dashboard-runs.js';
 import { closeRuntimeDatabase, pruneRuntimeHistory } from '../state/runtime-db.js';
 import { deleteManagedLlamaLogChunksOlderThan } from '../state/managed-llama-runs.js';
@@ -253,6 +255,16 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     shutdownManagedLlamaIfNeeded: (opts) => shutdownManagedLlamaIfNeeded(ctx, opts),
     ensureManagedLlamaReady: (opts) => ensureManagedLlamaReady(ctx, opts),
   };
+
+  // Migrate any file-based run logs left by older runtimes into the run_logs
+  // table so the dashboard surfaces them, then delete the migrated files.
+  try {
+    migrateExistingRunLogsToDbAndDeleteBounded(getIdleSummaryDatabase(ctx), {
+      timeoutMs: getRunLogMigrationTimeoutMs(),
+    });
+  } catch (error) {
+    process.stderr.write(`[siftKitStatus] Run-log migration failed: ${error instanceof Error ? error.message : String(error)}\n`);
+  }
 
   const handleRequest = createRequestHandler(ctx);
 

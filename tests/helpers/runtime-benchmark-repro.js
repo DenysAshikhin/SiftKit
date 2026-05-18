@@ -25,8 +25,6 @@ async function saveFixture60ChunkingConfig() {
   const config = await loadConfig({ ensure: true });
   const stubLlama = getStubLlamaBaseUrl();
   config.Backend = 'llama.cpp';
-  config.LlamaCpp.BaseUrl = stubLlama.baseUrl;
-  config.LlamaCpp.NumCtx = 12_000;
   config.Runtime ??= {};
   config.Runtime.LlamaCpp = {
     ...(config.Runtime.LlamaCpp || {}),

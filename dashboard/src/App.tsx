@@ -60,7 +60,7 @@ import { getDashboardView } from './dashboard-route';
 import { getDirtyActionRequirement, type DirtyContinuation } from './settings-flow';
 import { type SettingsSectionId } from './settings-sections';
 import { buildManagedLlamaRestartFailureModal } from './managed-llama-restart';
-import { syncDerivedSettingsFields } from './settings-runtime';
+import { deriveRuntimeModelId, syncDerivedSettingsFields } from './settings-runtime';
 import { SettingsMockupPage } from './settings-mockup';
 import { buildTaskRunsSeries, buildToolMetricRows } from './metrics-view';
 import type { InteractiveSeries } from './components/InteractiveGraph';
@@ -1138,6 +1138,7 @@ function DashboardApp() {
           return;
         }
         preset.ModelPath = response.path;
+        preset.Model = deriveRuntimeModelId(preset.ModelPath) || preset.Model;
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

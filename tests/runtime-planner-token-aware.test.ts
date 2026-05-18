@@ -523,14 +523,8 @@ test('live llama token-aware chunk planning preserves the 5m benchmark fixture w
 
 test('getPlannerPromptBudget leaves 27k headroom for a 190k non-thinking context', () => {
   const config = getDefaultConfig();
-  config.LlamaCpp.NumCtx = 190000;
-  config.LlamaCpp.Reasoning = 'off';
-  config.Runtime = {
-    Model: config.Model,
-    LlamaCpp: {
-      ...config.LlamaCpp,
-    },
-  };
+  config.Runtime.LlamaCpp.NumCtx = 190000;
+  config.Runtime.LlamaCpp.Reasoning = 'off';
 
   const budget = getPlannerPromptBudget(config);
   assert.deepEqual(budget, {
@@ -544,14 +538,8 @@ test('getPlannerPromptBudget leaves 27k headroom for a 190k non-thinking context
 
 test('getPlannerPromptBudget leaves 26,250 tokens of headroom for a 190k thinking context', () => {
   const config = getDefaultConfig();
-  config.LlamaCpp.NumCtx = 190000;
-  config.LlamaCpp.Reasoning = 'on';
-  config.Runtime = {
-    Model: config.Model,
-    LlamaCpp: {
-      ...config.LlamaCpp,
-    },
-  };
+  config.Runtime.LlamaCpp.NumCtx = 190000;
+  config.Runtime.LlamaCpp.Reasoning = 'on';
 
   const budget = getPlannerPromptBudget(config);
   assert.deepEqual(budget, {

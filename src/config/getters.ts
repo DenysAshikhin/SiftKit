@@ -6,13 +6,13 @@ export function getDefaultNumCtx(): number {
 }
 
 export function getRuntimeLlamaCpp(config: SiftConfig): RuntimeLlamaCppConfig {
-  return config.Runtime.LlamaCpp;
+  return config.Runtime?.LlamaCpp ?? ({} as RuntimeLlamaCppConfig);
 }
 
 export function getActiveManagedLlamaPreset(config: SiftConfig): ServerManagedLlamaPreset | undefined {
-  const serverLlama = config.Server.LlamaCpp;
-  const presets = Array.isArray(serverLlama.Presets) ? serverLlama.Presets : [];
-  return presets.find((preset) => preset.id === serverLlama.ActivePresetId) ?? presets[0];
+  const serverLlama = config.Server?.LlamaCpp;
+  const presets = Array.isArray(serverLlama?.Presets) ? serverLlama.Presets : [];
+  return presets.find((preset) => preset.id === serverLlama?.ActivePresetId) ?? presets[0];
 }
 
 export function getFinitePositiveNumber(value: unknown): number | null {
@@ -21,7 +21,7 @@ export function getFinitePositiveNumber(value: unknown): number | null {
 }
 
 export function getConfiguredModel(config: SiftConfig): string {
-  const model = config.Runtime.Model;
+  const model = config.Runtime?.Model;
   if (typeof model === 'string' && model.trim()) {
     return model.trim();
   }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRuntimeLaunchSnapshot } from '../src/status-server/managed-llama.js';
+import { buildRuntimeLaunchSnapshot } from '../src/status-server/config-store.js';
 
 test('buildRuntimeLaunchSnapshot copies runtime-relevant fields from the active preset', () => {
   const config = {

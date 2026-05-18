@@ -77,13 +77,18 @@ function applyManagedScriptConfig(config, managed, overrides = {}) {
   setManagedLlamaBaseUrl(config, managed.baseUrl);
   config.Server = {
     LlamaCpp: {
-      BaseUrl: managed.baseUrl,
-      ModelPath: managed.modelPath,
-      ExecutablePath: managed.startupScriptPath,
-      StartupTimeoutMs: 5000,
-      HealthcheckTimeoutMs: 100,
-      HealthcheckIntervalMs: 10,
-      ...overrides,
+      ActivePresetId: 'default',
+      Presets: [{
+        id: 'default',
+        label: 'Default',
+        BaseUrl: managed.baseUrl,
+        ModelPath: managed.modelPath,
+        ExecutablePath: managed.startupScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 100,
+        HealthcheckIntervalMs: 10,
+        ...overrides,
+      }],
     },
   };
 }
@@ -306,8 +311,11 @@ test('real status server starts managed llama.cpp during server startup before s
 
       try {
         const loadedConfig = await loadConfig({ ensure: true });
-        assert.equal(loadedConfig.LlamaCpp.BaseUrl, managed.baseUrl);
-        assert.equal(loadedConfig.Server.LlamaCpp.ExecutablePath, managed.startupScriptPath);
+        assert.equal(loadedConfig.Runtime.LlamaCpp.BaseUrl, managed.baseUrl);
+        assert.equal(
+          loadedConfig.Server.LlamaCpp.Presets[0].ExecutablePath,
+          managed.startupScriptPath,
+        );
       } finally {
         if (previousConfigUrl === undefined) {
           delete process.env.SIFTKIT_CONFIG_SERVICE_URL;
@@ -718,7 +726,7 @@ test('real status server clears a stale managed llama process during startup bef
         process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${port}/status`;
         try {
           const loadedConfig = await loadConfig({ ensure: true });
-          assert.equal(loadedConfig.LlamaCpp.BaseUrl, managed.baseUrl);
+          assert.equal(loadedConfig.Runtime.LlamaCpp.BaseUrl, managed.baseUrl);
           await waitForAsyncExpectation(async () => {
             const models = await requestJson(`${managed.baseUrl}/v1/models`);
             assert.equal(models.data[0].id, 'managed-test-model');

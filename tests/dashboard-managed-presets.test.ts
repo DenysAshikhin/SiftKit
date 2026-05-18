@@ -5,15 +5,17 @@ import {
   addManagedLlamaPreset,
   applyManagedLlamaPresetSelection,
   deleteManagedLlamaPreset,
+  getActiveManagedLlamaPreset,
   type DashboardManagedLlamaPreset,
 } from '../dashboard/src/managed-llama-presets.ts';
-import type { DashboardConfig } from '../dashboard/src/types.ts';
+import type { DashboardConfig, DashboardLlamaCppConfig } from '../dashboard/src/types.ts';
 
 function createPreset(overrides: Partial<DashboardManagedLlamaPreset> = {}): DashboardManagedLlamaPreset {
   return {
     id: 'default',
     label: 'Default',
     Model: 'default.gguf',
+    ExternalServerEnabled: false,
     ExecutablePath: null,
     BaseUrl: 'http://127.0.0.1:8097',
     BindHost: '127.0.0.1',
@@ -61,13 +63,46 @@ function createPreset(overrides: Partial<DashboardManagedLlamaPreset> = {}): Das
   };
 }
 
+function presetToLlamaCpp(preset: DashboardManagedLlamaPreset): DashboardLlamaCppConfig {
+  return {
+    BaseUrl: preset.BaseUrl,
+    NumCtx: preset.NumCtx,
+    ModelPath: preset.ModelPath,
+    Temperature: preset.Temperature,
+    TopP: preset.TopP,
+    TopK: preset.TopK,
+    MinP: preset.MinP,
+    PresencePenalty: preset.PresencePenalty,
+    RepetitionPenalty: preset.RepetitionPenalty,
+    MaxTokens: preset.MaxTokens,
+    GpuLayers: preset.GpuLayers,
+    Threads: preset.Threads,
+    NcpuMoe: preset.NcpuMoe,
+    FlashAttention: preset.FlashAttention,
+    ParallelSlots: preset.ParallelSlots,
+    Reasoning: preset.Reasoning,
+    ReasoningContent: preset.ReasoningContent,
+    PreserveThinking: preset.PreserveThinking,
+  };
+}
+
 function createConfig(): DashboardConfig {
-  const preset = createPreset();
+  const defaultPreset = createPreset();
+  const qwenPreset = createPreset({
+    id: 'qwen-27b',
+    label: 'Qwen 27B',
+    Model: 'qwen-27b.gguf',
+    ModelPath: 'D:\\models\\qwen-27b.gguf',
+    Threads: 0,
+    Port: 8098,
+    SleepIdleSeconds: 120,
+  });
   return {
     Version: '0.1.0',
     Backend: 'llama.cpp',
     PolicyMode: 'conservative',
     RawLogRetention: true,
+    IncludeRepoFileListing: true,
     PromptPrefix: 'prompt',
     OperationModeAllowedTools: {
       summary: ['find_text', 'read_lines', 'json_filter'],
@@ -76,48 +111,10 @@ function createConfig(): DashboardConfig {
     },
     Presets: [],
     Model: '',
-    LlamaCpp: {
-      BaseUrl: preset.BaseUrl,
-      NumCtx: preset.NumCtx,
-      ModelPath: preset.ModelPath,
-      Temperature: preset.Temperature,
-      TopP: preset.TopP,
-      TopK: preset.TopK,
-      MinP: preset.MinP,
-      PresencePenalty: preset.PresencePenalty,
-      RepetitionPenalty: preset.RepetitionPenalty,
-      MaxTokens: preset.MaxTokens,
-      GpuLayers: preset.GpuLayers,
-      Threads: preset.Threads,
-      NcpuMoe: preset.NcpuMoe,
-      FlashAttention: preset.FlashAttention,
-      ParallelSlots: preset.ParallelSlots,
-      Reasoning: preset.Reasoning,
-      ReasoningContent: preset.ReasoningContent,
-      PreserveThinking: preset.PreserveThinking,
-    },
+    LlamaCpp: presetToLlamaCpp(defaultPreset),
     Runtime: {
       Model: '',
-      LlamaCpp: {
-        BaseUrl: preset.BaseUrl,
-        NumCtx: preset.NumCtx,
-        ModelPath: preset.ModelPath,
-        Temperature: preset.Temperature,
-        TopP: preset.TopP,
-        TopK: preset.TopK,
-        MinP: preset.MinP,
-        PresencePenalty: preset.PresencePenalty,
-        RepetitionPenalty: preset.RepetitionPenalty,
-        MaxTokens: preset.MaxTokens,
-        GpuLayers: preset.GpuLayers,
-        Threads: preset.Threads,
-        NcpuMoe: preset.NcpuMoe,
-        FlashAttention: preset.FlashAttention,
-        ParallelSlots: preset.ParallelSlots,
-        Reasoning: preset.Reasoning,
-        ReasoningContent: preset.ReasoningContent,
-        PreserveThinking: preset.PreserveThinking,
-      },
+      LlamaCpp: presetToLlamaCpp(defaultPreset),
     },
     Thresholds: {
       MinCharactersForSummary: 500,
@@ -132,93 +129,58 @@ function createConfig(): DashboardConfig {
     },
     Server: {
       LlamaCpp: {
-        Model: preset.Model,
-        ...preset,
-        Presets: [
-          preset,
-          createPreset({
-            id: 'qwen-27b',
-            label: 'Qwen 27B',
-      ModelPath: 'D:\\models\\qwen-27b.gguf',
-      Threads: 0,
-      Port: 8098,
-      SleepIdleSeconds: 120,
-          }),
-        ],
+        Presets: [defaultPreset, qwenPreset],
         ActivePresetId: 'default',
       },
     },
   };
 }
 
-test('applyManagedLlamaPresetSelection mirrors the selected managed preset into the active server settings', () => {
+test('applyManagedLlamaPresetSelection switches the active managed preset', () => {
   const config = createConfig();
-  Object.assign(
-    config.Server.LlamaCpp.Presets[1] as {
-      Model?: string;
-      NcpuMoe?: number;
-      ReasoningContent?: boolean;
-      PreserveThinking?: boolean;
-      SpeculativeEnabled?: boolean;
-      SpeculativeType?: string;
-      SpeculativeDraftMax?: number;
-    },
-    {
-      Model: 'qwen-27b.gguf',
-      NcpuMoe: 8,
-      ReasoningContent: true,
-      PreserveThinking: true,
-      SpeculativeEnabled: true,
-      SpeculativeType: 'ngram-simple',
-      SpeculativeDraftMax: 32,
-    },
-  );
+  Object.assign(config.Server.LlamaCpp.Presets[1], {
+    NcpuMoe: 8,
+    ReasoningContent: true,
+    PreserveThinking: true,
+    SpeculativeEnabled: true,
+    SpeculativeType: 'ngram-simple',
+    SpeculativeDraftMax: 32,
+  });
 
   applyManagedLlamaPresetSelection(config, 'qwen-27b');
 
   assert.equal(config.Server.LlamaCpp.ActivePresetId, 'qwen-27b');
-  assert.equal(config.Server.LlamaCpp.ModelPath, 'D:\\models\\qwen-27b.gguf');
-  assert.equal(config.Server.LlamaCpp.Threads, 0);
-  assert.equal((config.Server.LlamaCpp as { NcpuMoe?: number }).NcpuMoe, 8);
-  assert.equal(config.Server.LlamaCpp.Port, 8098);
-  assert.equal(config.Server.LlamaCpp.ReasoningContent, true);
-  assert.equal(config.Server.LlamaCpp.PreserveThinking, true);
-  assert.equal(config.Server.LlamaCpp.SpeculativeEnabled, true);
-  assert.equal(config.Server.LlamaCpp.SpeculativeType, 'ngram-simple');
-  assert.equal(config.Server.LlamaCpp.SpeculativeDraftMax, 32);
-  assert.equal(config.Server.LlamaCpp.ReasoningBudgetMessage, 'Thinking budget exhausted. You have to provide the answer now.');
-  assert.equal(config.Server.LlamaCpp.SleepIdleSeconds, 120);
-  assert.equal(config.Runtime.Model, 'qwen-27b.gguf');
-  assert.equal(config.Model, 'qwen-27b.gguf');
+  const active = getActiveManagedLlamaPreset(config);
+  assert.equal(active.ModelPath, 'D:\\models\\qwen-27b.gguf');
+  assert.equal(active.Threads, 0);
+  assert.equal(active.NcpuMoe, 8);
+  assert.equal(active.Port, 8098);
+  assert.equal(active.ReasoningContent, true);
+  assert.equal(active.PreserveThinking, true);
+  assert.equal(active.SpeculativeEnabled, true);
+  assert.equal(active.SpeculativeType, 'ngram-simple');
+  assert.equal(active.SpeculativeDraftMax, 32);
+  assert.equal(active.SleepIdleSeconds, 120);
 });
 
-test('applyManagedLlamaPresetSelection mirrors the MTP combination and ngram-mod fields into the active server settings', () => {
+test('applyManagedLlamaPresetSelection exposes ngram-mod MTP fields of the selected preset', () => {
   const config = createConfig();
-  Object.assign(
-    config.Server.LlamaCpp.Presets[1] as {
-      SpeculativeEnabled?: boolean;
-      SpeculativeType?: string;
-      SpeculativeMtpEnabled?: boolean;
-      SpeculativeNgramModNMatch?: number;
-      SpeculativeNgramModNMin?: number;
-      SpeculativeNgramModNMax?: number;
-    },
-    {
-      SpeculativeEnabled: true,
-      SpeculativeType: 'ngram-mod',
-      SpeculativeMtpEnabled: true,
-      SpeculativeNgramModNMatch: 24,
-      SpeculativeNgramModNMin: 12,
-      SpeculativeNgramModNMax: 48,
-    },
-  );
+  Object.assign(config.Server.LlamaCpp.Presets[1], {
+    SpeculativeEnabled: true,
+    SpeculativeType: 'ngram-mod',
+    SpeculativeMtpEnabled: true,
+    SpeculativeNgramModNMatch: 24,
+    SpeculativeNgramModNMin: 12,
+    SpeculativeNgramModNMax: 48,
+  });
 
   applyManagedLlamaPresetSelection(config, 'qwen-27b');
 
-  assert.equal(config.Server.LlamaCpp.SpeculativeMtpEnabled, true);
-  assert.equal(config.Server.LlamaCpp.SpeculativeNgramModNMatch, 24);
-  assert.equal(config.Server.LlamaCpp.SpeculativeNgramModNMin, 12);
-  assert.equal(config.Server.LlamaCpp.SpeculativeNgramModNMax, 48);
+  const active = getActiveManagedLlamaPreset(config);
+  assert.equal(active.SpeculativeMtpEnabled, true);
+  assert.equal(active.SpeculativeNgramModNMatch, 24);
+  assert.equal(active.SpeculativeNgramModNMin, 12);
+  assert.equal(active.SpeculativeNgramModNMax, 48);
 });
 
 test('addManagedLlamaPreset clones the active preset and creates a unique id', () => {
@@ -228,7 +190,7 @@ test('addManagedLlamaPreset clones the active preset and creates a unique id', (
 
   assert.equal(addedPresetId, 'default-2');
   assert.equal(config.Server.LlamaCpp.ActivePresetId, 'default-2');
-  assert.equal(config.Server.LlamaCpp.Presets?.some((preset) => preset.id === 'default-2'), true);
+  assert.equal(config.Server.LlamaCpp.Presets.some((preset) => preset.id === 'default-2'), true);
 });
 
 test('deleteManagedLlamaPreset removes the preset and falls back to another preset', () => {
@@ -236,7 +198,7 @@ test('deleteManagedLlamaPreset removes the preset and falls back to another pres
 
   deleteManagedLlamaPreset(config, 'default');
 
-  assert.equal(config.Server.LlamaCpp.Presets?.some((preset) => preset.id === 'default'), false);
+  assert.equal(config.Server.LlamaCpp.Presets.some((preset) => preset.id === 'default'), false);
   assert.equal(config.Server.LlamaCpp.ActivePresetId, 'qwen-27b');
-  assert.equal(config.Server.LlamaCpp.ModelPath, 'D:\\models\\qwen-27b.gguf');
+  assert.equal(getActiveManagedLlamaPreset(config).ModelPath, 'D:\\models\\qwen-27b.gguf');
 });

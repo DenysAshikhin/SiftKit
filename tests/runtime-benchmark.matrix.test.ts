@@ -199,7 +199,7 @@ test('benchmark matrix marks interrupted runs failed, preserves benchmark logs, 
       const scriptsRoot = path.join(tempRoot, 'scripts');
       const startScriptPath = path.join(scriptsRoot, 'start.ps1');
       const stopScriptPath = path.join(scriptsRoot, 'stop.ps1');
-      const modelPath = path.join(scriptsRoot, `${server.state.config.Model}.gguf`);
+      const modelPath = path.join(scriptsRoot, `${server.state.config.Runtime.Model}.gguf`);
       const manifestPath = path.join(tempRoot, 'matrix.json');
       const benchmarkEntrypointPath = path.join(process.cwd(), 'dist', 'benchmark.js');
       const benchmarkIndexPath = path.join(process.cwd(), 'dist', 'benchmark', 'index.js');
@@ -231,7 +231,7 @@ test('benchmark matrix marks interrupted runs failed, preserves benchmark logs, 
         resultsRoot,
         requestTimeoutSeconds: 60,
         baseline: {
-          modelId: server.state.config.Model,
+          modelId: server.state.config.Runtime.Model,
           modelPath: path.basename(modelPath),
           contextSize: 128000,
           maxTokens: 4096,
@@ -244,7 +244,7 @@ test('benchmark matrix marks interrupted runs failed, preserves benchmark logs, 
             id: 'interrupt-run',
             label: 'interrupt run',
             enabled: true,
-            modelId: server.state.config.Model,
+            modelId: server.state.config.Runtime.Model,
             modelPath: path.basename(modelPath),
             reasoning: 'off',
             passReasoningArg: false,

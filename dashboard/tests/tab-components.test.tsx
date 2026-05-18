@@ -11,6 +11,7 @@ import { BenchmarkTab } from '../src/tabs/BenchmarkTab';
 import { PresetsSection } from '../src/tabs/settings/PresetsSection';
 import { ManagedLlamaSection } from '../src/tabs/settings/ManagedLlamaSection';
 import { updateActiveManagedLlamaPreset } from '../src/managed-llama-presets';
+import { syncDerivedSettingsFields } from '../src/settings-runtime';
 import type {
   ChatMessage,
   ChatSession,
@@ -174,6 +175,7 @@ const MANAGED_PRESET = {
   StartupTimeoutMs: 1000,
   HealthcheckTimeoutMs: 1000,
   HealthcheckIntervalMs: 500,
+  SleepIdleSeconds: 600,
   VerboseLogging: false,
 } as DashboardManagedLlamaPreset & {
   SpeculativeEnabled: boolean;
@@ -273,8 +275,6 @@ const DASHBOARD_CONFIG = {
   },
   Server: {
     LlamaCpp: {
-      Model: 'test-model',
-      ...MANAGED_PRESET,
       Presets: [MANAGED_PRESET],
       ActivePresetId: MANAGED_PRESET.id,
     },
@@ -777,7 +777,7 @@ test('managed llama model name is derived from model path and model field is hid
     updateManagedLlamaDraft: (updater) => {
       const nextConfig = structuredClone(DASHBOARD_CONFIG);
       updateActiveManagedLlamaPreset(nextConfig, updater);
-      updatedConfig = nextConfig;
+      updatedConfig = syncDerivedSettingsFields(nextConfig);
     },
     onAddManagedLlamaPreset: () => {},
     onDeleteManagedLlamaPreset: () => {},
@@ -794,7 +794,6 @@ test('managed llama model name is derived from model path and model field is hid
   modelPathInput.props.onChange({ target: { value: 'D:\\personal\\models\\Qwen3.5-27B-Q4_K_M.gguf' } });
   assert.ok(updatedConfig);
   assert.equal(updatedConfig.Server.LlamaCpp.Presets[0]?.Model, 'Qwen3.5-27B-Q4_K_M.gguf');
-  assert.equal(updatedConfig.Server.LlamaCpp.Model, 'Qwen3.5-27B-Q4_K_M.gguf');
   assert.equal(updatedConfig.Runtime.Model, 'Qwen3.5-27B-Q4_K_M.gguf');
   assert.equal(updatedConfig.Server.LlamaCpp.Presets[0]?.ModelPath, 'D:\\personal\\models\\Qwen3.5-27B-Q4_K_M.gguf');
 });
@@ -812,7 +811,7 @@ test('managed llama external server setting updates active preset and server con
     updateManagedLlamaDraft: (updater) => {
       const nextConfig = structuredClone(DASHBOARD_CONFIG);
       updateActiveManagedLlamaPreset(nextConfig, updater);
-      updatedConfig = nextConfig;
+      updatedConfig = syncDerivedSettingsFields(nextConfig);
     },
     onAddManagedLlamaPreset: () => {},
     onDeleteManagedLlamaPreset: () => {},
@@ -826,7 +825,6 @@ test('managed llama external server setting updates active preset and server con
   updatedConfig = nextConfig;
 
   assert.ok(updatedConfig);
-  assert.equal(updatedConfig.Server.LlamaCpp.ExternalServerEnabled, true);
   assert.equal(updatedConfig.Server.LlamaCpp.Presets[0]?.ExternalServerEnabled, true);
 });
 

@@ -224,66 +224,17 @@ test('loadConfig ignores legacy observed-budget rows without weighted totals and
   });
 });
 
-test('loadConfig normalizes legacy defaults and keeps bootstrap effective budgets until exact observations exist', async () => {
+test('loadConfig keeps bootstrap effective budgets until exact observations exist', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
 
-      assert.equal(config.LlamaCpp.NumCtx, 128000);
-      assert.equal(config.LlamaCpp.Threads, -1);
+      assert.equal(config.Runtime.LlamaCpp.NumCtx, 128000);
+      assert.equal(config.Runtime.LlamaCpp.Threads, -1);
       assert.equal(config.Effective.BudgetSource, 'ColdStartFixedCharsPerToken');
       assert.equal(config.Effective.InputCharactersPerContextToken, 2.5);
       assert.equal(config.Effective.MaxInputCharacters, 320000);
       assert.equal(config.Effective.ChunkThresholdCharacters, 320000);
-      assert.equal(config.Thresholds.MaxInputCharacters, undefined);
-      assert.equal(config.Server.LlamaCpp.ExecutablePath, null);
-      assert.equal(config.Server.LlamaCpp.BaseUrl, config.Runtime.LlamaCpp.BaseUrl);
-      assert.equal(config.Server.LlamaCpp.ModelPath, config.Runtime.LlamaCpp.ModelPath);
-      assert.equal(Object.prototype.hasOwnProperty.call(config.Server.LlamaCpp, 'StartupScript'), false);
-      assert.equal(Object.prototype.hasOwnProperty.call(config.Server.LlamaCpp, 'ShutdownScript'), false);
-      assert.equal(config.Server.LlamaCpp.VerboseLogging, false);
-    }, {
-      config: {
-        LlamaCpp: null,
-        Ollama: {
-          NumCtx: 16384,
-          NumPredict: 2048,
-        },
-        Thresholds: {
-          MaxInputCharacters: 32000,
-          ChunkThresholdRatio: 0.75,
-        },
-        Server: {
-          LlamaCpp: {
-            StartupScript: 'D:\\\\legacy\\\\start-something.ps1',
-            ShutdownScript: 'D:\\\\legacy\\\\stop-something.ps1',
-          },
-        },
-      },
-    });
-  });
-});
-
-test('loadConfig removes legacy chunk threshold ratio from loaded and persisted config', async () => {
-  await withTempEnv(async () => {
-    await withStubServer(async (server) => {
-      await loadConfig({ ensure: true });
-      const config = await loadConfig({ ensure: true });
-      const persisted = await requestJson(server.configUrl);
-
-      assert.ok(!Object.prototype.hasOwnProperty.call(config.Thresholds, 'ChunkThresholdRatio'));
-      assert.ok(!Object.prototype.hasOwnProperty.call(config.Effective, 'ChunkThresholdRatio'));
-      assert.ok(!Object.prototype.hasOwnProperty.call(persisted.Thresholds, 'ChunkThresholdRatio'));
-    }, {
-      config: {
-        Thresholds: {
-          ChunkThresholdRatio: 0.75,
-        },
-      },
-      metrics: {
-        inputCharactersTotal: 3461904,
-        inputTokensTotal: 1865267,
-      },
     });
   });
 });
@@ -387,14 +338,13 @@ test('saveConfig preserves explicit llama.cpp thread settings through the extern
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
-      config.LlamaCpp.Threads = 8;
       config.Runtime.LlamaCpp.Threads = 8;
 
       const saved = await saveConfig(config);
       const persisted = await requestJson(server.configUrl);
 
-      assert.equal(saved.LlamaCpp.Threads, 8);
-      assert.equal(persisted.LlamaCpp.Threads, 8);
+      assert.equal(saved.Runtime.LlamaCpp.Threads, 8);
+      assert.equal(persisted.Runtime.LlamaCpp.Threads, 8);
     });
   });
 });
@@ -475,7 +425,7 @@ test('real status server defaults new config to no managed ExecutablePath', asyn
     await withRealStatusServer(async ({ configUrl }) => {
       const loadedConfig = await requestJson(configUrl);
 
-      assert.equal(loadedConfig.Server.LlamaCpp.ExecutablePath, null);
+      assert.equal(loadedConfig.Server.LlamaCpp.Presets[0].ExecutablePath, null);
     }, {
       statusPath,
       configPath,
@@ -496,23 +446,17 @@ test('real status server PUT /config persists managed ExecutablePath/ModelPath a
     await withRealStatusServer(async ({ configUrl }) => {
       const initial = await requestJson(configUrl);
       const dashboardPayload = JSON.parse(JSON.stringify(initial));
-      dashboardPayload.Server.LlamaCpp.ExecutablePath = dashboardExecutablePath;
-      dashboardPayload.Server.LlamaCpp.ModelPath = dashboardModelPath;
-      if (Array.isArray(dashboardPayload.Server.LlamaCpp.Presets) && dashboardPayload.Server.LlamaCpp.Presets[0]) {
-        dashboardPayload.Server.LlamaCpp.Presets[0].ExecutablePath = dashboardExecutablePath;
-        dashboardPayload.Server.LlamaCpp.Presets[0].ModelPath = dashboardModelPath;
-      }
+      dashboardPayload.Server.LlamaCpp.Presets[0].ExecutablePath = dashboardExecutablePath;
+      dashboardPayload.Server.LlamaCpp.Presets[0].ModelPath = dashboardModelPath;
 
       const putResponse = await requestJson(configUrl, {
         method: 'PUT',
         body: JSON.stringify(dashboardPayload),
       });
-      assert.equal(putResponse.Server.LlamaCpp.ExecutablePath, dashboardExecutablePath);
-      assert.equal(putResponse.Server.LlamaCpp.ModelPath, dashboardModelPath);
+      assert.equal(putResponse.Server.LlamaCpp.Presets[0].ExecutablePath, dashboardExecutablePath);
+      assert.equal(putResponse.Server.LlamaCpp.Presets[0].ModelPath, dashboardModelPath);
 
       const reloaded = await requestJson(configUrl);
-      assert.equal(reloaded.Server.LlamaCpp.ExecutablePath, dashboardExecutablePath);
-      assert.equal(reloaded.Server.LlamaCpp.ModelPath, dashboardModelPath);
       assert.ok(Array.isArray(reloaded.Server.LlamaCpp.Presets));
       assert.equal(reloaded.Server.LlamaCpp.Presets[0].ExecutablePath, dashboardExecutablePath);
       assert.equal(reloaded.Server.LlamaCpp.Presets[0].ModelPath, dashboardModelPath);
@@ -520,9 +464,7 @@ test('real status server PUT /config persists managed ExecutablePath/ModelPath a
       const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
       const database = new Database(runtimeDbPath);
       try {
-        const row = database.prepare('SELECT server_executable_path, server_model_path, server_llama_presets_json FROM app_config WHERE id = 1').get();
-        assert.equal(row.server_executable_path, dashboardExecutablePath);
-        assert.equal(row.server_model_path, dashboardModelPath);
+        const row = database.prepare('SELECT server_llama_presets_json FROM app_config WHERE id = 1').get();
         const presets = JSON.parse(row.server_llama_presets_json || '[]');
         assert.ok(Array.isArray(presets) && presets.length > 0, 'expected non-empty presets in row');
         assert.equal(presets[0].ExecutablePath, dashboardExecutablePath);

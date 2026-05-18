@@ -221,14 +221,20 @@ test('applySpeculativeCaseToConfig updates only the approved speculative setting
   const config = {
     Server: {
       LlamaCpp: {
-        SpeculativeEnabled: false,
-        SpeculativeType: 'ngram-mod',
-        SpeculativeNgramSizeN: 12,
-        SpeculativeNgramSizeM: 34,
-        SpeculativeNgramMinHits: 1,
-        SpeculativeDraftMax: 5,
-        SpeculativeDraftMin: 2,
-        Temperature: 0.7,
+        ActivePresetId: 'active',
+        Presets: [
+          {
+            id: 'active',
+            SpeculativeEnabled: false,
+            SpeculativeType: 'ngram-mod',
+            SpeculativeNgramSizeN: 12,
+            SpeculativeNgramSizeM: 34,
+            SpeculativeNgramMinHits: 1,
+            SpeculativeDraftMax: 5,
+            SpeculativeDraftMin: 2,
+            Temperature: 0.7,
+          },
+        ],
       },
     },
   } as DashboardConfig;
@@ -241,14 +247,15 @@ test('applySpeculativeCaseToConfig updates only the approved speculative setting
     speculativeDraftMin: 4,
   });
 
-  assert.equal(updated.Server.LlamaCpp.SpeculativeEnabled, true);
-  assert.equal(updated.Server.LlamaCpp.SpeculativeType, 'ngram-mod');
-  assert.equal(updated.Server.LlamaCpp.SpeculativeNgramSizeN, 24);
-  assert.equal(updated.Server.LlamaCpp.SpeculativeNgramSizeM, 64);
-  assert.equal(updated.Server.LlamaCpp.SpeculativeNgramMinHits, 2);
-  assert.equal(updated.Server.LlamaCpp.SpeculativeDraftMax, 48);
-  assert.equal(updated.Server.LlamaCpp.SpeculativeDraftMin, 4);
-  assert.equal(updated.Server.LlamaCpp.Temperature, 0.7);
+  const preset = updated.Server.LlamaCpp.Presets[0];
+  assert.equal(preset.SpeculativeEnabled, true);
+  assert.equal(preset.SpeculativeType, 'ngram-mod');
+  assert.equal(preset.SpeculativeNgramSizeN, 24);
+  assert.equal(preset.SpeculativeNgramSizeM, 64);
+  assert.equal(preset.SpeculativeNgramMinHits, 2);
+  assert.equal(preset.SpeculativeDraftMax, 48);
+  assert.equal(preset.SpeculativeDraftMin, 4);
+  assert.equal(preset.Temperature, 0.7);
 });
 
 test('applySpeculativeCaseToConfig updates the active managed llama preset used on restart', () => {
@@ -298,12 +305,18 @@ test('applySpeculativeCaseToConfig can disable speculative decoding for the base
   const config = {
     Server: {
       LlamaCpp: {
-        SpeculativeEnabled: true,
-        SpeculativeNgramSizeN: 24,
-        SpeculativeNgramSizeM: 64,
-        SpeculativeNgramMinHits: 2,
-        SpeculativeDraftMax: 48,
-        SpeculativeDraftMin: 4,
+        ActivePresetId: 'active',
+        Presets: [
+          {
+            id: 'active',
+            SpeculativeEnabled: true,
+            SpeculativeNgramSizeN: 24,
+            SpeculativeNgramSizeM: 64,
+            SpeculativeNgramMinHits: 2,
+            SpeculativeDraftMax: 48,
+            SpeculativeDraftMin: 4,
+          },
+        ],
       },
     },
   } as DashboardConfig;
@@ -317,8 +330,8 @@ test('applySpeculativeCaseToConfig can disable speculative decoding for the base
     speculativeDraftMin: 4,
   });
 
-  assert.equal(updated.Server.LlamaCpp.SpeculativeEnabled, false);
-  assert.equal(updated.Server.LlamaCpp.SpeculativeNgramSizeN, 24);
+  assert.equal(updated.Server.LlamaCpp.Presets[0].SpeculativeEnabled, false);
+  assert.equal(updated.Server.LlamaCpp.Presets[0].SpeculativeNgramSizeN, 24);
 });
 
 test('sortBenchmarkResults orders by generation tokens per second descending', () => {
