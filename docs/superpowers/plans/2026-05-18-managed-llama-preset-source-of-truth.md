@@ -420,9 +420,23 @@ Expected: FAIL — `getActiveManagedLlamaPreset` is not exported.
 
 - [ ] **Step 3: Implement in `src/status-server/config-store.ts`**
 
-1. Add the exported resolver above `getManagedLlamaConfig`:
+**Recursion note:** `normalizeManagedLlamaPresetRecord` currently calls `getManagedLlamaConfig`. If `getManagedLlamaConfig` resolves via `getActiveManagedLlamaPreset` (which calls `normalizeManagedLlamaPresetArray` → `normalizeManagedLlamaPresetRecord`), that recurses infinitely. Break it by factoring the per-record defaulting into a pure `resolveManagedLlamaSettings(record)` that does **not** touch presets.
+
+1. Rename the body of today's `getManagedLlamaConfig` into a pure helper. The current function reads `const serverLlama = (srv.LlamaCpp ?? {}) as Dict;` then builds the `ManagedLlamaConfig` object. Replace with:
 
 ```typescript
+// Pure per-record defaulting: takes ONE flat managed-llama record (a preset
+// body) and applies defaults/validation. No preset lookup -> no recursion.
+function resolveManagedLlamaSettings(serverLlama: Dict): ManagedLlamaConfig {
+  const defaults = (getDefaultConfig().Server as Dict).LlamaCpp as Dict;
+  const reasoning = getNullableTrimmedString(serverLlama.Reasoning);
+  const reasoningEnabled = reasoning === 'on';
+  const reasoningContentEnabled = reasoningEnabled && serverLlama.ReasoningContent === true;
+  return {
+    // ... identical to the current getManagedLlamaConfig return body ...
+  };
+}
+
 export function getActiveManagedLlamaPreset(config: unknown): Dict {
   const cfg = (config ?? {}) as Dict;
   const serverLlama = ((cfg.Server as Dict | undefined)?.LlamaCpp ?? {}) as Dict;
@@ -430,26 +444,115 @@ export function getActiveManagedLlamaPreset(config: unknown): Dict {
   const activeId = getNullableTrimmedString(serverLlama.ActivePresetId);
   return presets.find((preset) => String(preset.id) === activeId) || presets[0];
 }
+
+export function getManagedLlamaConfig(config: unknown): ManagedLlamaConfig {
+  const preset = getActiveManagedLlamaPreset(config);
+  return {
+    Model: getNullableTrimmedString(preset.Model),
+    ...resolveManagedLlamaSettings(preset),
+  };
+}
 ```
 
-2. In `getManagedLlamaConfig`, replace the line
-   `const serverLlama = (srv.LlamaCpp ?? {}) as Dict;`
-   with
-   `const serverLlama = getActiveManagedLlamaPreset(config);`
-   (the `srv` variable is then only needed for nothing else — remove it if unused).
+Keep the existing `ManagedLlamaConfig` return-object body verbatim inside `resolveManagedLlamaSettings` (the `defaults`/`reasoning` lines move with it; drop the now-unused `cfg`/`srv` locals). `ManagedLlamaConfig` already declares `Model?: string | null`.
 
-3. Delete `applyActiveManagedLlamaPreset`, `copyManagedLlamaFields`, `managedLlamaFieldsDiffer`, and the `MANAGED_LLAMA_FIELD_KEYS` const. Fix any remaining references (`normalizeConfig` calls `applyActiveManagedLlamaPreset` — see Task 6).
+2. Update `normalizeManagedLlamaPresetRecord` to use the pure helper instead of `getManagedLlamaConfig`:
 
-- [ ] **Step 4: Run the test to verify it passes**
+```typescript
+function normalizeManagedLlamaPresetRecord(input: unknown, fallbackId: string, fallbackLabel: string): Dict {
+  const record = (input && typeof input === 'object' && !Array.isArray(input)) ? input as Dict : {};
+  return {
+    id: getNullableTrimmedString(record.id) || fallbackId,
+    label: getNullableTrimmedString(record.label) || fallbackLabel,
+    Model: getNullableTrimmedString(record.Model) || deriveModelIdFromPath(record.ModelPath) || DEFAULT_LLAMA_MODEL,
+    ...resolveManagedLlamaSettings(record),
+  };
+}
+```
 
-Run: `node --test tests/managed-llama-resolver.test.ts`
-Expected: PASS.
+3. Delete `applyActiveManagedLlamaPreset`, `copyManagedLlamaFields`, `managedLlamaFieldsDiffer`, and the `MANAGED_LLAMA_FIELD_KEYS` const. The `normalizeConfig` call to `applyActiveManagedLlamaPreset` is removed in Task 4B.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Defer test run**
+
+Deleting `applyActiveManagedLlamaPreset` (Step 3) breaks the same-file `normalizeConfig`, so `config-store.ts` will not transpile until Task 4B. Do **not** run the resolver test or commit yet — proceed directly to Task 4B and run/commit there.
+
+---
+
+## Task 4B: Collapse the config-store `normalizeConfig` server-llama block
+
+**Files:**
+- Modify: `src/status-server/config-store.ts`
+- Test: `tests/managed-llama-resolver.test.ts` (from Task 4)
+
+The `normalizeConfig` function (lines ~318–607) backfills a flat `Server.LlamaCpp.*` object field-by-field from `Runtime.LlamaCpp` + defaults, runs `applyActiveManagedLlamaPreset`, then copies fields back to `Runtime.LlamaCpp`. After the reshape `Server.LlamaCpp` is only `{ Presets, ActivePresetId }`, so the entire flat block is replaced by preset-array normalization.
+
+- [ ] **Step 1: Rewrite `normalizeConfig`**
+
+Replace the whole body of `normalizeConfig` (everything between the function signature and its `return merged;`) with:
+
+```typescript
+export function normalizeConfig(input: unknown): Dict {
+  const merged = mergeConfig(getDefaultConfig(), input || {}) as Dict;
+  if (merged.Backend === 'ollama') {
+    merged.Backend = 'llama.cpp';
+  }
+  delete merged.Paths;
+  delete merged.Ollama;
+  delete merged.Model;
+  delete merged.LlamaCpp;
+
+  merged.Runtime = (merged.Runtime && typeof merged.Runtime === 'object' && !Array.isArray(merged.Runtime))
+    ? merged.Runtime : {};
+  const runtime = merged.Runtime as Dict;
+  delete runtime.PromptPrefix;
+  runtime.Model = getNullableTrimmedString(runtime.Model);
+  runtime.LlamaCpp = (runtime.LlamaCpp && typeof runtime.LlamaCpp === 'object' && !Array.isArray(runtime.LlamaCpp))
+    ? runtime.LlamaCpp : {};
+
+  if (!merged.PromptPrefix || !String(merged.PromptPrefix).trim()) {
+    merged.PromptPrefix = (getDefaultConfig() as Dict).PromptPrefix;
+  }
+  if (merged.Thresholds && typeof merged.Thresholds === 'object') {
+    delete (merged.Thresholds as Dict).MaxInputCharacters;
+    delete (merged.Thresholds as Dict).ChunkThresholdRatio;
+  }
+
+  merged.Server = (merged.Server && typeof merged.Server === 'object' && !Array.isArray(merged.Server))
+    ? merged.Server : {};
+  const server = merged.Server as Dict;
+  const serverLlama = (server.LlamaCpp && typeof server.LlamaCpp === 'object' && !Array.isArray(server.LlamaCpp))
+    ? server.LlamaCpp as Dict : {};
+  const presets = normalizeManagedLlamaPresetArray(serverLlama.Presets, {});
+  const activeId = getNullableTrimmedString(serverLlama.ActivePresetId);
+  const activePreset = presets.find((preset) => String(preset.id) === activeId) || presets[0];
+  server.LlamaCpp = { Presets: presets, ActivePresetId: String(activePreset.id) };
+
+  merged.OperationModeAllowedTools = normalizeOperationModeAllowedTools(merged.OperationModeAllowedTools);
+  merged.Presets = normalizePresets(merged.Presets);
+  return merged;
+}
+```
+
+- [ ] **Step 2: Delete now-dead helpers and consts**
+
+In `config-store.ts`, delete (they have no remaining references):
+- `MANAGED_LLAMA_RUNTIME_KEYS`, `MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS` consts.
+- `isBlankManagedLlamaPlaceholder` if it is defined in this file and now unused.
+- The `RUNTIME_OWNED_LLAMA_CPP_KEYS` import if it is no longer referenced in this file.
+- `mergeConfig` stays (still used).
+
+Run `grep -n "MANAGED_LLAMA_RUNTIME_KEYS\|MANAGED_LLAMA_DEFAULT_BACKFILL_KEYS\|RUNTIME_OWNED_LLAMA_CPP_KEYS\|preferManagedPresetValues\|defaultServerLlama" src/status-server/config-store.ts` and confirm no dangling references.
+
+- [ ] **Step 3: Run the resolver test**
+
+Run: `npx tsx --test tests/managed-llama-resolver.test.ts`
+Expected: PASS — `config-store.ts` now transpiles and the resolver returns the active preset.
+
+- [ ] **Step 4: Commit**
 
 ```bash
 git add tests/managed-llama-resolver.test.ts src/status-server/config-store.ts
-git commit -m "feat: resolve managed-llama config from the active preset"
+git commit -m "refactor: resolve managed-llama config from the active preset; collapse normalizeConfig"
 ```
 
 ---
@@ -857,7 +960,7 @@ No commit — this step changes only the local filesystem.
 
 **Spec coverage:**
 - §1 Type changes → Task 2, Task 10.
-- §2 Resolver → Task 4; `getRuntimeLlamaCpp` rename → Task 7.
+- §2 Resolver → Task 4 + Task 4B (config-store `normalizeConfig` collapse); `getRuntimeLlamaCpp` rename → Task 7.
 - §3 Schema migration → Task 1.
 - §4 Launch snapshot → Task 3 (module), Task 8 (write), Task 7 (read/merge).
 - §5 Legacy deletions → Task 6 (normalization), Task 7 (getters/effective/host-sync/defaults), Task 9 (cutover), Task 12 (disk files).
