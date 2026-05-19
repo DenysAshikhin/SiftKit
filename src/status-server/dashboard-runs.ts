@@ -973,33 +973,114 @@ function listRunLogIdsForDeletion(database: DatabaseInstance, criteria: Dashboar
   `).all(...params, `${criteria.beforeDate}T00:00:00.000Z`).map((row) => String((row as Dict).run_id || ''));
 }
 
+function tableExists(database: DatabaseInstance, name: string): boolean {
+  return database
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(name) !== undefined;
+}
+
+/**
+ * Auxiliary run-history tables wiped alongside run_logs for a full date-bounded
+ * delete (`type: 'all'`, `mode: 'before_date'`). Each statement is scoped by the
+ * same cutoff timestamp. `managed_llama_log_chunks` is not listed: it cascade-deletes
+ * via its `ON DELETE CASCADE` foreign key on `managed_llama_runs`. `benchmark` data
+ * is intentionally excluded — benchmarks are a separate subsystem.
+ */
+const AUX_RUN_HISTORY_DELETE_STATEMENTS: { table: string; countSql: string; deleteSql: string }[] = [
+  {
+    table: 'runtime_artifacts',
+    countSql: "SELECT COUNT(*) AS count FROM runtime_artifacts WHERE created_at_utc < ? AND artifact_kind != 'benchmark_run'",
+    deleteSql: "DELETE FROM runtime_artifacts WHERE created_at_utc < ? AND artifact_kind != 'benchmark_run'",
+  },
+  {
+    table: 'managed_llama_runs',
+    countSql: "SELECT COUNT(*) AS count FROM managed_llama_runs WHERE status != 'running' AND COALESCE(finished_at_utc, started_at_utc) < ?",
+    deleteSql: "DELETE FROM managed_llama_runs WHERE status != 'running' AND COALESCE(finished_at_utc, started_at_utc) < ?",
+  },
+  {
+    table: 'idle_summary_snapshots',
+    countSql: 'SELECT COUNT(*) AS count FROM idle_summary_snapshots WHERE emitted_at_utc < ?',
+    deleteSql: 'DELETE FROM idle_summary_snapshots WHERE emitted_at_utc < ?',
+  },
+  {
+    table: 'runtime_error_events',
+    countSql: 'SELECT COUNT(*) AS count FROM runtime_error_events WHERE created_at_utc < ?',
+    deleteSql: 'DELETE FROM runtime_error_events WHERE created_at_utc < ?',
+  },
+];
+
+function isFullHistoryDateWipe(
+  criteria: DashboardRunLogDeleteCriteria,
+): criteria is { mode: 'before_date'; type: 'all'; beforeDate: string } {
+  return criteria.type === 'all' && criteria.mode === 'before_date';
+}
+
+function countLinkedRuntimeArtifacts(database: DatabaseInstance, runLogIds: string[]): number {
+  if (runLogIds.length === 0 || !tableExists(database, 'runtime_artifacts')) {
+    return 0;
+  }
+  const placeholders = runLogIds.map(() => '?').join(', ');
+  const row = database.prepare(`
+    SELECT COUNT(*) AS count FROM runtime_artifacts WHERE request_id IN (${placeholders})
+  `).get(...runLogIds) as Dict;
+  return Number(row.count || 0);
+}
+
 export function previewDashboardRunLogDeletion(
   database: DatabaseInstance,
   criteria: DashboardRunLogDeleteCriteria,
 ): { matchCount: number } {
-  return {
-    matchCount: listRunLogIdsForDeletion(database, criteria).length,
-  };
+  ensureRunLogsTable(database);
+  const runLogIds = listRunLogIdsForDeletion(database, criteria);
+  if (isFullHistoryDateWipe(criteria)) {
+    const cutoff = `${criteria.beforeDate}T00:00:00.000Z`;
+    let matchCount = runLogIds.length;
+    for (const { table, countSql } of AUX_RUN_HISTORY_DELETE_STATEMENTS) {
+      if (!tableExists(database, table)) {
+        continue;
+      }
+      const row = database.prepare(countSql).get(cutoff) as Dict;
+      matchCount += Number(row.count || 0);
+    }
+    return { matchCount };
+  }
+  return { matchCount: runLogIds.length + countLinkedRuntimeArtifacts(database, runLogIds) };
 }
 
 export function deleteDashboardRunLogs(
   database: DatabaseInstance,
   criteria: DashboardRunLogDeleteCriteria,
 ): { deletedCount: number; deletedRunIds: string[] } {
+  ensureRunLogsTable(database);
   const deletedRunIds = listRunLogIdsForDeletion(database, criteria);
-  if (deletedRunIds.length === 0) {
-    return {
-      deletedCount: 0,
-      deletedRunIds,
-    };
-  }
-  const placeholders = deletedRunIds.map(() => '?').join(', ');
-  database.prepare(`
-    DELETE FROM run_logs
-    WHERE run_id IN (${placeholders})
-  `).run(...deletedRunIds);
+  let deletedCount = 0;
+  database.transaction(() => {
+    if (deletedRunIds.length > 0) {
+      const placeholders = deletedRunIds.map(() => '?').join(', ');
+      const runLogResult = database
+        .prepare(`DELETE FROM run_logs WHERE run_id IN (${placeholders})`)
+        .run(...deletedRunIds);
+      deletedCount += Number(runLogResult.changes) || 0;
+    }
+    if (isFullHistoryDateWipe(criteria)) {
+      const cutoff = `${criteria.beforeDate}T00:00:00.000Z`;
+      for (const { table, deleteSql } of AUX_RUN_HISTORY_DELETE_STATEMENTS) {
+        if (!tableExists(database, table)) {
+          continue;
+        }
+        const result = database.prepare(deleteSql).run(cutoff);
+        deletedCount += Number(result.changes) || 0;
+      }
+    } else if (deletedRunIds.length > 0 && tableExists(database, 'runtime_artifacts')) {
+      const placeholders = deletedRunIds.map(() => '?').join(', ');
+      const artifactResult = database
+        .prepare(`DELETE FROM runtime_artifacts WHERE request_id IN (${placeholders})`)
+        .run(...deletedRunIds);
+      deletedCount += Number(artifactResult.changes) || 0;
+    }
+  })();
   return {
-    deletedCount: deletedRunIds.length,
+    deletedCount,
     deletedRunIds,
   };
 }

@@ -16,8 +16,13 @@ import {
 } from './helpers/dashboard-http.ts';
 
 const requireFromHere = createRequire(__filename);
+type SqliteStatement = {
+  get: (...args: unknown[]) => Dict | undefined;
+  all: (...args: unknown[]) => Dict[];
+  run: (...args: unknown[]) => { changes: number };
+};
 const Database = requireFromHere('better-sqlite3') as new (path: string, options?: { readonly?: boolean }) => {
-  prepare: (sql: string) => { get: (...args: unknown[]) => Dict };
+  prepare: (sql: string) => SqliteStatement;
   close: () => void;
 };
 
@@ -26,6 +31,64 @@ function readRunLogRowCount(dbPath: string): number {
   try {
     const row = database.prepare('SELECT COUNT(*) AS count FROM run_logs').get() as Dict;
     return Number(row.count || 0);
+  } finally {
+    database.close();
+  }
+}
+
+function countRows(dbPath: string, sql: string, ...params: unknown[]): number {
+  const database = new Database(dbPath, { readonly: true });
+  try {
+    const row = database.prepare(sql).get(...params) as Dict;
+    return Number(row.count || 0);
+  } finally {
+    database.close();
+  }
+}
+
+function seedRunHistoryFixtures(dbPath: string): void {
+  const database = new Database(dbPath);
+  try {
+    const insertArtifact = database.prepare(`
+      INSERT INTO runtime_artifacts (id, artifact_kind, request_id, title, content_text, content_json, created_at_utc, updated_at_utc)
+      VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+    `);
+    insertArtifact.run('art-old-transcript', 'repo_search_transcript', 'req-repo-01', 'old transcript', 'line', '2026-04-01T11:01:00.000Z', '2026-04-01T11:01:00.000Z');
+    insertArtifact.run('art-old-summary', 'status_summary_request', 'req-summary-02', 'old summary', 'text', '2026-04-02T10:00:00.000Z', '2026-04-02T10:00:00.000Z');
+    insertArtifact.run('art-benchmark', 'benchmark_run', 'bench-01', 'benchmark', 'text', '2026-04-03T10:00:00.000Z', '2026-04-03T10:00:00.000Z');
+    insertArtifact.run('art-new', 'repo_search_artifact', 'req-new-01', 'new artifact', 'text', '2026-04-20T10:00:00.000Z', '2026-04-20T10:00:00.000Z');
+
+    const insertManagedRun = database.prepare(`
+      INSERT INTO managed_llama_runs (id, purpose, base_url, status, started_at_utc, finished_at_utc, updated_at_utc)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertManagedRun.run('mlr-old', 'startup', 'http://127.0.0.1:9001', 'ready', '2026-04-05T10:00:00.000Z', '2026-04-05T10:05:00.000Z', '2026-04-05T10:05:00.000Z');
+    insertManagedRun.run('mlr-running', 'startup', 'http://127.0.0.1:9002', 'running', '2026-04-06T10:00:00.000Z', null, '2026-04-06T10:00:00.000Z');
+    insertManagedRun.run('mlr-new', 'startup', 'http://127.0.0.1:9003', 'ready', '2026-04-25T10:00:00.000Z', '2026-04-25T10:05:00.000Z', '2026-04-25T10:05:00.000Z');
+
+    const insertChunk = database.prepare(`
+      INSERT INTO managed_llama_log_chunks (run_id, stream_kind, sequence, chunk_text, created_at_utc)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    insertChunk.run('mlr-old', 'startup_script_stdout', 0, 'old chunk', '2026-04-05T10:00:00.000Z');
+    insertChunk.run('mlr-new', 'startup_script_stdout', 0, 'new chunk', '2026-04-25T10:00:00.000Z');
+
+    const insertSnapshot = database.prepare(`
+      INSERT INTO idle_summary_snapshots (
+        emitted_at_utc, completed_request_count, input_characters_total, output_characters_total,
+        input_tokens_total, output_tokens_total, thinking_tokens_total, saved_tokens, request_duration_ms_total
+      ) VALUES (?, 1, 0, 0, 0, 0, 0, 0, 0)
+    `);
+    insertSnapshot.run('2026-04-07T10:00:00.000Z');
+    insertSnapshot.run('2026-04-22T10:00:00.000Z');
+
+    const insertError = database.prepare(`
+      INSERT INTO runtime_error_events (
+        id, created_at_utc, source, route, method, status_code, error_name, error_message, diagnostic_json
+      ) VALUES (?, ?, 'status-server', '/x', 'GET', 500, 'Error', 'boom', '{}')
+    `);
+    insertError.run('err-old', '2026-04-08T10:00:00.000Z');
+    insertError.run('err-new', '2026-04-23T10:00:00.000Z');
   } finally {
     database.close();
   }
@@ -44,6 +107,7 @@ function configureDashboardTestEnv(
     SIFTKIT_IDLE_SUMMARY_DB_PATH: process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH,
     SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
     SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+    SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE: process.env.SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE,
   };
   process.env.sift_kit_status = statusPath;
   process.env.SIFTKIT_STATUS_PATH = statusPath;
@@ -52,6 +116,9 @@ function configureDashboardTestEnv(
   process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH = path.join(tempRoot, '.siftkit', 'status', 'idle-summary.sqlite');
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
+  // Isolate run-log delete tests from the background retention prune so seeded
+  // history fixtures are not removed before assertions run.
+  process.env.SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE = '1';
   return envBackup;
 }
 
@@ -353,6 +420,165 @@ test('dashboard deletes matching logs before a date and rejects invalid delete c
     assert.equal(deleteResponse.body.deletedCount, 6);
     assert.equal((deleteResponse.body.deletedRunIds as unknown[]).length, 6);
     assert.equal(readRunLogRowCount(idleSummaryDbPath), 6);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
+test('dashboard before_date all-type delete wipes run history across tables while preserving benchmarks, running llama, and post-cutoff rows', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-run-delete-all-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const runtimeRoot = path.join(tempRoot, '.siftkit');
+  const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
+  const configPath = path.join(runtimeRoot, 'config.json');
+  const idleSummaryDbPath = path.join(runtimeRoot, 'runtime.sqlite');
+  const requestsRoot = path.join(runtimeRoot, 'logs', 'requests');
+
+  for (let index = 0; index < 6; index += 1) {
+    const ordinal = String(index + 1).padStart(2, '0');
+    const requestId = `req-summary-${ordinal}`;
+    writeJson(path.join(requestsRoot, `request_${requestId}.json`), {
+      requestId,
+      question: `Summary run ${ordinal}`,
+      backend: 'llama.cpp',
+      model: 'Qwen3.5-9B-Q8_0.gguf',
+      summary: `Summary output ${ordinal}`,
+      createdAtUtc: `2026-04-01T10:${ordinal}:00.000Z`,
+      inputTokens: 100 + index,
+      outputTokens: 40 + index,
+      requestDurationMs: 1000 + index,
+    });
+  }
+
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    seedRunHistoryFixtures(idleSummaryDbPath);
+
+    const criteria = { mode: 'before_date', type: 'all', beforeDate: '2026-04-15' };
+
+    const previewResponse = await requestJson(`${baseUrl}/dashboard/admin/run-logs/preview`, {
+      method: 'POST',
+      body: JSON.stringify(criteria),
+    });
+    assert.equal(previewResponse.statusCode, 200);
+    assert.equal(previewResponse.body.matchCount, 11);
+
+    const deleteResponse = await requestJson(`${baseUrl}/dashboard/admin/run-logs`, {
+      method: 'DELETE',
+      body: JSON.stringify(criteria),
+    });
+    assert.equal(deleteResponse.statusCode, 200);
+    assert.equal(deleteResponse.body.deletedCount, 11);
+    assert.equal((deleteResponse.body.deletedRunIds as unknown[]).length, 6);
+
+    assert.equal(readRunLogRowCount(idleSummaryDbPath), 0);
+    assert.equal(countRows(idleSummaryDbPath, 'SELECT COUNT(*) AS count FROM runtime_artifacts'), 2);
+    assert.equal(countRows(idleSummaryDbPath, "SELECT COUNT(*) AS count FROM runtime_artifacts WHERE artifact_kind = 'benchmark_run'"), 1);
+    assert.equal(countRows(idleSummaryDbPath, 'SELECT COUNT(*) AS count FROM managed_llama_runs'), 2);
+    assert.equal(countRows(idleSummaryDbPath, "SELECT COUNT(*) AS count FROM managed_llama_runs WHERE id = 'mlr-running'"), 1);
+    assert.equal(countRows(idleSummaryDbPath, 'SELECT COUNT(*) AS count FROM managed_llama_log_chunks'), 1);
+    assert.equal(countRows(idleSummaryDbPath, "SELECT COUNT(*) AS count FROM managed_llama_log_chunks WHERE run_id = 'mlr-old'"), 0);
+    assert.equal(countRows(idleSummaryDbPath, 'SELECT COUNT(*) AS count FROM idle_summary_snapshots'), 1);
+    assert.equal(countRows(idleSummaryDbPath, 'SELECT COUNT(*) AS count FROM runtime_error_events'), 1);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
+test('dashboard run-log delete cascades linked runtime artifacts by request id', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-run-delete-linked-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const runtimeRoot = path.join(tempRoot, '.siftkit');
+  const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
+  const configPath = path.join(runtimeRoot, 'config.json');
+  const idleSummaryDbPath = path.join(runtimeRoot, 'runtime.sqlite');
+  const repoSearchFailedRoot = path.join(runtimeRoot, 'logs', 'repo_search', 'failed');
+
+  for (let index = 0; index < 5; index += 1) {
+    const ordinal = String(index + 1).padStart(2, '0');
+    const requestId = `req-repo-${ordinal}`;
+    const artifactPath = path.join(repoSearchFailedRoot, `request_${requestId}.json`);
+    writeJson(artifactPath, {
+      requestId,
+      prompt: `Repo search run ${ordinal}`,
+      repoRoot: tempRoot,
+      verdict: 'fail',
+      totals: { commandsExecuted: 1 },
+      createdAtUtc: `2026-04-01T11:${ordinal}:00.000Z`,
+    });
+    fs.writeFileSync(
+      artifactPath.replace(/\.json$/u, '.jsonl'),
+      `${JSON.stringify({ at: `2026-04-01T11:${ordinal}:03.000Z`, kind: 'run_done', scorecard: { verdict: 'fail' } })}\n`,
+      'utf8',
+    );
+  }
+
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const database = new Database(idleSummaryDbPath);
+    try {
+      const insertArtifact = database.prepare(`
+        INSERT INTO runtime_artifacts (id, artifact_kind, request_id, title, content_text, content_json, created_at_utc, updated_at_utc)
+        VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+      `);
+      insertArtifact.run('art-linked', 'repo_search_transcript', 'req-repo-01', 'linked', 'line', '2026-04-01T11:01:00.000Z', '2026-04-01T11:01:00.000Z');
+      insertArtifact.run('art-unrelated', 'repo_search_transcript', 'req-unrelated', 'unrelated', 'line', '2026-04-01T11:01:00.000Z', '2026-04-01T11:01:00.000Z');
+    } finally {
+      database.close();
+    }
+
+    const criteria = { mode: 'before_date', type: 'repo_search', beforeDate: '2026-04-02' };
+
+    const previewResponse = await requestJson(`${baseUrl}/dashboard/admin/run-logs/preview`, {
+      method: 'POST',
+      body: JSON.stringify(criteria),
+    });
+    assert.equal(previewResponse.statusCode, 200);
+    assert.equal(previewResponse.body.matchCount, 6);
+
+    const deleteResponse = await requestJson(`${baseUrl}/dashboard/admin/run-logs`, {
+      method: 'DELETE',
+      body: JSON.stringify(criteria),
+    });
+    assert.equal(deleteResponse.statusCode, 200);
+    assert.equal(deleteResponse.body.deletedCount, 6);
+    assert.equal((deleteResponse.body.deletedRunIds as unknown[]).length, 5);
+
+    assert.equal(readRunLogRowCount(idleSummaryDbPath), 0);
+    assert.equal(countRows(idleSummaryDbPath, "SELECT COUNT(*) AS count FROM runtime_artifacts WHERE id = 'art-linked'"), 0);
+    assert.equal(countRows(idleSummaryDbPath, "SELECT COUNT(*) AS count FROM runtime_artifacts WHERE id = 'art-unrelated'"), 1);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
