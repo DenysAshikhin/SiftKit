@@ -33,6 +33,8 @@ export type RepoSearchMockCommandResult = {
 };
 
 export type RepoSearchExecutionRequest = {
+  requestId?: string;
+  startedAtUtc?: string;
   prompt: string;
   repoRoot: string;
   taskKind?: 'plan' | 'repo-search';

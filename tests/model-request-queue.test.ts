@@ -6,6 +6,7 @@ import { ManagedLlamaFlushQueue } from '../dist/status-server/managed-llama-flus
 import {
   acquireModelRequestWithWait,
   clearCompletedStatusRequestIdForDifferentRequest,
+  getModelRequestQueueDiagnostics,
   isIdle,
   MAX_COMPLETED_STATUS_PATH_ENTRIES,
   rememberCompletedStatusRequestId,
@@ -159,6 +160,52 @@ test('queued model request logs its FIFO position without probing llama while wa
     assert.ok(lines.some((line) => /request incoming task=dashboard_chat queue_position=2/u.test(line)), lines.join('\n'));
     assert.ok(lines.some((line) => /request lock_acquired task=dashboard_chat wait_ms=/u.test(line)), lines.join('\n'));
     assert.ok(lines.some((line) => /request lock_released task=dashboard_chat held_ms=/u.test(line)), lines.join('\n'));
+  } finally {
+    await ctx.managedLlamaFlushQueue.close();
+  }
+});
+
+test('queued model request times out, cancels, and logs the dropped request', async () => {
+  const ctx = createQueueContext();
+  try {
+    const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(activeLock);
+
+    const lines = await captureStdoutLines(async () => {
+      const queuedLock = await acquireModelRequestWithWait(ctx, 'summary', undefined, undefined, { timeoutMs: 25 });
+      assert.equal(queuedLock, null);
+    });
+
+    assert.equal(ctx.modelRequestQueue.length, 0);
+    assert.equal(ctx.activeModelRequest?.token, activeLock.token);
+    assert.ok(lines.some((line) => /request dropped reason=model_queue_timeout task=summary/u.test(line)), lines.join('\n'));
+
+    assert.equal(releaseModelRequest(ctx, activeLock.token), true);
+  } finally {
+    await ctx.managedLlamaFlushQueue.close();
+  }
+});
+
+test('model request diagnostics expose the active lock and queued requests', async () => {
+  const ctx = createQueueContext();
+  try {
+    const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(activeLock);
+    const queuedLockPromise = acquireModelRequestWithWait(ctx, 'summary');
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+
+    const diagnostics = getModelRequestQueueDiagnostics(ctx);
+    assert.equal(diagnostics.active, true);
+    assert.equal(diagnostics.activeRequest?.kind, 'repo_search');
+    assert.equal(diagnostics.queueLength, 1);
+    assert.equal(diagnostics.queuedRequests[0]?.kind, 'summary');
+    assert.equal(typeof diagnostics.activeRequest?.heldMs, 'number');
+    assert.equal(typeof diagnostics.queuedRequests[0]?.waitMs, 'number');
+
+    assert.equal(releaseModelRequest(ctx, activeLock.token), true);
+    const queuedLock = await queuedLockPromise;
+    assert.ok(queuedLock);
+    assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
   } finally {
     await ctx.managedLlamaFlushQueue.close();
   }

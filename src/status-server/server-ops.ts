@@ -40,7 +40,9 @@ import type {
   DatabaseInstance,
   DeferredArtifact,
   ExecutionLease,
+  ModelRequestQueueDiagnostics,
   ModelRequestLock,
+  ModelRequestWaitOptions,
   ModelRequestWaiter,
   ServerContext,
 } from './server-types.js';
@@ -50,6 +52,12 @@ import {
 } from './managed-llama.js';
 
 export const MAX_COMPLETED_STATUS_PATH_ENTRIES = 1000;
+const DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS = 120_000;
+
+function readModelRequestQueueTimeoutMs(): number {
+  const parsed = Number.parseInt(String(process.env.SIFTKIT_MODEL_REQUEST_QUEUE_TIMEOUT_MS || ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS;
+}
 
 export function rememberCompletedStatusRequestId(ctx: ServerContext, statusPath: string, requestId: string): void {
   ctx.completedRequestIdByStatusPath.delete(statusPath);
@@ -402,6 +410,25 @@ function getElapsedMsSinceIso(isoTimestamp: string): number {
   return Number.isFinite(startedAtMs) ? Math.max(0, Date.now() - startedAtMs) : 0;
 }
 
+export function getModelRequestQueueDiagnostics(ctx: ServerContext): ModelRequestQueueDiagnostics {
+  return {
+    active: Boolean(ctx.activeModelRequest),
+    activeRequest: ctx.activeModelRequest
+      ? {
+        kind: ctx.activeModelRequest.kind,
+        startedAtUtc: ctx.activeModelRequest.startedAtUtc,
+        heldMs: getElapsedMsSinceIso(ctx.activeModelRequest.startedAtUtc),
+      }
+      : null,
+    queueLength: ctx.modelRequestQueue.length,
+    queuedRequests: ctx.modelRequestQueue.map((entry) => ({
+      kind: entry.kind,
+      enqueuedAtUtc: entry.enqueuedAtUtc,
+      waitMs: getElapsedMsSinceIso(entry.enqueuedAtUtc),
+    })),
+  };
+}
+
 function logModelRequestLockAcquired(lock: ModelRequestLock, waitMs: number): void {
   logLine(`request lock_acquired task=${lock.kind} wait_ms=${Math.max(0, Math.trunc(waitMs))} token=${lock.token}`);
 }
@@ -416,6 +443,13 @@ function logModelRequestLockReleased(lock: ModelRequestLock, queueLength: number
 function logModelRequestWaitCancelled(waiter: ModelRequestWaiter): void {
   logLine(
     `request lock_cancelled task=${waiter.kind} wait_ms=${getElapsedMsSinceIso(waiter.enqueuedAtUtc)} `
+    + `token=${waiter.queueToken}`,
+  );
+}
+
+function logModelRequestDropped(waiter: ModelRequestWaiter, reason: string): void {
+  logLine(
+    `request dropped reason=${reason} task=${waiter.kind} wait_ms=${getElapsedMsSinceIso(waiter.enqueuedAtUtc)} `
     + `token=${waiter.queueToken}`,
   );
 }
@@ -493,6 +527,7 @@ export async function acquireModelRequestWithWait(
   kind: string,
   request?: http.IncomingMessage,
   response?: http.ServerResponse,
+  options: ModelRequestWaitOptions = {},
 ): Promise<ModelRequestLock | null> {
   logIncomingModelRequest(ctx, kind);
   clearIdleSummaryTimer(ctx);
@@ -515,33 +550,44 @@ export async function acquireModelRequestWithWait(
   };
   ctx.modelRequestQueue.push(waiter);
   syncManagedLlamaFlushQueueModelState(ctx);
-  const cancelWaiter = (): void => {
-    if (waiter.grantedLock) {
+  const cancelWaiter = (reason: 'client_cancelled' | 'model_queue_timeout'): void => {
+    if (waiter.cancelled || waiter.grantedLock) {
       return;
     }
     waiter.cancelled = true;
     removeModelRequestWaiter(ctx, waiter.queueToken);
-    logModelRequestWaitCancelled(waiter);
+    if (reason === 'model_queue_timeout') {
+      logModelRequestDropped(waiter, reason);
+    } else {
+      logModelRequestWaitCancelled(waiter);
+    }
     waiter.resolveLock(null);
     grantNextModelRequest(ctx);
     syncManagedLlamaFlushQueueModelState(ctx);
     scheduleIdleSummaryIfNeeded(ctx);
   };
   const onAbortedRequest = (): void => {
-    cancelWaiter();
+    cancelWaiter('client_cancelled');
   };
   const onClosedRequest = (): void => {
     if (request?.complete) {
       return;
     }
-    cancelWaiter();
+    cancelWaiter('client_cancelled');
   };
   const onClosedResponse = (): void => {
     if (response?.writableEnded) {
       return;
     }
-    cancelWaiter();
+    cancelWaiter('client_cancelled');
   };
+  const timeoutMs = Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0
+    ? Math.trunc(Number(options.timeoutMs))
+    : readModelRequestQueueTimeoutMs();
+  const timeout = setTimeout(() => {
+    cancelWaiter('model_queue_timeout');
+  }, timeoutMs);
+  timeout.unref?.();
   if (request) {
     request.once('aborted', onAbortedRequest);
     request.once('close', onClosedRequest);
@@ -550,13 +596,14 @@ export async function acquireModelRequestWithWait(
     response.once('close', onClosedResponse);
   }
   if (response?.destroyed && !response.writableEnded) {
-    cancelWaiter();
+    cancelWaiter('client_cancelled');
   }
   try {
     return await waiterLockPromise;
   } finally {
+    clearTimeout(timeout);
     if (response?.destroyed && !response.writableEnded) {
-      cancelWaiter();
+      cancelWaiter('client_cancelled');
     }
     if (request) {
       request.off('aborted', onAbortedRequest);

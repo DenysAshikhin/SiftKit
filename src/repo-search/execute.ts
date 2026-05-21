@@ -164,9 +164,12 @@ export async function executeRepoSearchRequest(
     throw new Error('A --prompt is required for repo-search.');
   }
 
-  const startedAt = Date.now();
+  const requestedStartedAtMs = Date.parse(String(request.startedAtUtc || ''));
+  const startedAt = Number.isFinite(requestedStartedAtMs) ? requestedStartedAtMs : Date.now();
   const repoRoot = path.resolve(String(request.repoRoot || process.cwd()));
-  const requestId = randomUUID();
+  const requestId = typeof request.requestId === 'string' && request.requestId.trim()
+    ? request.requestId.trim()
+    : randomUUID();
   const taskKind = request.taskKind === 'plan' ? 'plan' : 'repo-search';
   const runtimeDatabasePath = getRuntimeDatabasePath();
   const timingRecorder = createTemporaryTimingRecorderFromEnv({

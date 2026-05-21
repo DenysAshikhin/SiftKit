@@ -28,6 +28,7 @@ export type ActiveRunState = {
 
 export type ExecutionLease = { token: string; heartbeatAt: number };
 export type ModelRequestLock = { token: string; kind: string; startedAtUtc: string };
+export type ModelRequestWaitOptions = { timeoutMs?: number };
 export type ModelRequestWaiter = {
   queueToken: string;
   kind: string;
@@ -35,6 +36,20 @@ export type ModelRequestWaiter = {
   cancelled: boolean;
   grantedLock: ModelRequestLock | null;
   resolveLock(lock: ModelRequestLock | null): void;
+};
+export type ModelRequestQueueDiagnostics = {
+  active: boolean;
+  activeRequest: {
+    kind: string;
+    startedAtUtc: string;
+    heldMs: number;
+  } | null;
+  queueLength: number;
+  queuedRequests: Array<{
+    kind: string;
+    enqueuedAtUtc: string;
+    waitMs: number;
+  }>;
 };
 
 export type ManagedLlamaLogRef = {

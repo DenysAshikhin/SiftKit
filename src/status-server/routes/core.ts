@@ -41,6 +41,7 @@ import {
   buildRepoSearchProgressLogMessage,
   getStatusArtifactPath,
   upsertRunArtifactPayload,
+  upsertRunLog,
   updateRunLogSpeculativeMetricsByRequestId,
 } from '../dashboard-runs.js';
 import { loadRepoSearchExecutor } from '../chat.js';
@@ -70,6 +71,7 @@ import {
   wakeManagedLlamaForIncomingModelRequest,
   clearCompletedStatusRequestIdForDifferentRequest,
   rememberCompletedStatusRequestId,
+  getModelRequestQueueDiagnostics,
 } from '../server-ops.js';
 import { getRuntimeDatabase } from '../../state/runtime-db.js';
 import type {
@@ -80,6 +82,15 @@ import type {
 
 const DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_SECONDS = 240;
 
+type RepoSearchAdmissionRecord = {
+  requestId: string;
+  startedAtUtc: string;
+  prompt: string;
+  repoRoot: string;
+  model: string | null;
+  maxTurns: number | null;
+};
+
 function normalizeTaskKind(value: unknown): TaskKind | null {
   return value === 'summary' || value === 'plan' || value === 'repo-search' || value === 'chat'
     ? value
@@ -88,6 +99,109 @@ function normalizeTaskKind(value: unknown): TaskKind | null {
 
 function normalizeSummaryFormat(value: unknown): 'text' | 'json' {
   return value === 'json' ? 'json' : 'text';
+}
+
+function createRepoSearchAdmissionRecord(parsedBody: Dict): RepoSearchAdmissionRecord {
+  return {
+    requestId: crypto.randomUUID(),
+    startedAtUtc: new Date().toISOString(),
+    prompt: String(parsedBody.prompt || '').trim(),
+    repoRoot: typeof parsedBody.repoRoot === 'string' && (parsedBody.repoRoot as string).trim()
+      ? (parsedBody.repoRoot as string).trim()
+      : process.cwd(),
+    model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim()
+      ? (parsedBody.model as string).trim()
+      : null,
+    maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : null,
+  };
+}
+
+function upsertRepoSearchAdmission(record: RepoSearchAdmissionRecord): void {
+  upsertRunLog(getRuntimeDatabase(), {
+    runId: record.requestId,
+    requestId: record.requestId,
+    runKind: 'repo_search',
+    runGroup: 'repo_search',
+    terminalState: 'unknown',
+    startedAtUtc: record.startedAtUtc,
+    finishedAtUtc: null,
+    title: record.prompt,
+    model: record.model,
+    backend: 'llama.cpp',
+    repoRoot: record.repoRoot,
+    inputTokens: null,
+    outputTokens: null,
+    thinkingTokens: null,
+    toolTokens: null,
+    promptCacheTokens: null,
+    promptEvalTokens: null,
+    promptEvalDurationMs: null,
+    generationDurationMs: null,
+    speculativeAcceptedTokens: null,
+    speculativeGeneratedTokens: null,
+    durationMs: null,
+    providerDurationMs: null,
+    wallDurationMs: null,
+    requestJson: JSON.stringify({
+      requestId: record.requestId,
+      prompt: record.prompt,
+      repoRoot: record.repoRoot,
+      model: record.model,
+      maxTurns: record.maxTurns,
+      queuedAtUtc: record.startedAtUtc,
+    }, null, 2),
+    plannerDebugJson: null,
+    failedRequestJson: null,
+    abandonedRequestJson: null,
+    repoSearchJson: null,
+    repoSearchTranscriptJsonl: null,
+    sourcePathsJson: '[]',
+    flushedAtUtc: record.startedAtUtc,
+  });
+}
+
+function markRepoSearchAdmissionFailed(record: RepoSearchAdmissionRecord, errorMessage: string): void {
+  const finishedAtUtc = new Date().toISOString();
+  upsertRunLog(getRuntimeDatabase(), {
+    runId: record.requestId,
+    requestId: record.requestId,
+    runKind: 'repo_search',
+    runGroup: 'repo_search',
+    terminalState: 'failed',
+    startedAtUtc: record.startedAtUtc,
+    finishedAtUtc,
+    title: record.prompt,
+    model: record.model,
+    backend: 'llama.cpp',
+    repoRoot: record.repoRoot,
+    inputTokens: null,
+    outputTokens: null,
+    thinkingTokens: null,
+    toolTokens: null,
+    promptCacheTokens: null,
+    promptEvalTokens: null,
+    promptEvalDurationMs: null,
+    generationDurationMs: null,
+    speculativeAcceptedTokens: null,
+    speculativeGeneratedTokens: null,
+    durationMs: Math.max(0, Date.parse(finishedAtUtc) - Date.parse(record.startedAtUtc)),
+    providerDurationMs: null,
+    wallDurationMs: null,
+    requestJson: null,
+    plannerDebugJson: null,
+    failedRequestJson: JSON.stringify({
+      requestId: record.requestId,
+      prompt: record.prompt,
+      repoRoot: record.repoRoot,
+      error: errorMessage,
+      failedAtUtc: finishedAtUtc,
+    }, null, 2),
+    abandonedRequestJson: null,
+    repoSearchJson: null,
+    repoSearchTranscriptJsonl: null,
+    sourcePathsJson: '[]',
+    flushedAtUtc: finishedAtUtc,
+  });
 }
 
 function normalizeSummaryPolicyProfile(value: unknown): SummaryPolicyProfile {
@@ -538,7 +652,15 @@ export async function handleCoreRoute(
 
   if (req.method === 'GET' && req.url === '/status') {
     const currentStatus = getPublishedStatusText(ctx);
-    sendJson(res, 200, { running: currentStatus === STATUS_TRUE, status: currentStatus, statusPath, configPath, metrics: ctx.metrics, idleSummarySnapshotsPath: ctx.idleSummarySnapshotsPath });
+    sendJson(res, 200, {
+      running: currentStatus === STATUS_TRUE,
+      status: currentStatus,
+      statusPath,
+      configPath,
+      metrics: ctx.metrics,
+      idleSummarySnapshotsPath: ctx.idleSummarySnapshotsPath,
+      modelRequests: getModelRequestQueueDiagnostics(ctx),
+    });
     return true;
   }
 
@@ -620,14 +742,22 @@ export async function handleCoreRoute(
       sendJson(res, 400, { error: 'Expected prompt.' });
       return true;
     }
+    const admission = createRepoSearchAdmissionRecord(parsedBody);
+    upsertRepoSearchAdmission(admission);
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'repo_search', req, res);
     if (!modelRequestLock) {
+      if (!res.destroyed && !res.writableEnded) {
+        const message = 'Timed out waiting for model request queue.';
+        markRepoSearchAdmissionFailed(admission, message);
+        sendJson(res, 503, { error: message, requestId: admission.requestId, modelRequests: getModelRequestQueueDiagnostics(ctx) });
+      }
       return true;
     }
     try {
       try {
         await ensureManagedLlamaReadyForModelRequest(ctx);
       } catch (error) {
+        markRepoSearchAdmissionFailed(admission, error instanceof Error ? error.message : String(error));
         sendServerErrorJson(req, res, 503, error, { taskKind: 'repo-search' });
         return true;
       }
@@ -639,8 +769,10 @@ export async function handleCoreRoute(
       const result = await executeRepoSearchRequest({
         taskKind: 'repo-search',
         prompt: parsedBody.prompt,
+        requestId: admission.requestId,
+        startedAtUtc: admission.startedAtUtc,
         promptPrefix: typeof parsedBody.promptPrefix === 'string' ? (parsedBody.promptPrefix as string) : undefined,
-        repoRoot: typeof parsedBody.repoRoot === 'string' && (parsedBody.repoRoot as string).trim() ? (parsedBody.repoRoot as string).trim() : process.cwd(),
+        repoRoot: admission.repoRoot,
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
         config,
         allowedTools: Array.isArray(parsedBody.allowedTools) ? (parsedBody.allowedTools as unknown[]).map((value) => String(value)) : undefined,
@@ -694,6 +826,9 @@ export async function handleCoreRoute(
     const serviceBaseUrl = ctx.getServiceBaseUrl();
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'summary', req, res);
     if (!modelRequestLock) {
+      if (!res.destroyed && !res.writableEnded) {
+        sendJson(res, 503, { error: 'Timed out waiting for model request queue.', modelRequests: getModelRequestQueueDiagnostics(ctx) });
+      }
       return true;
     }
     try {

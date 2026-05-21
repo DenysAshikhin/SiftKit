@@ -12,7 +12,10 @@ import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
 
 const requireFromHere = createRequire(__filename);
 const Database = requireFromHere('better-sqlite3') as new (path: string, options?: { readonly?: boolean }) => {
-  prepare: (sql: string) => { get: (...args: unknown[]) => Record<string, unknown> | undefined };
+  prepare: (sql: string) => {
+    get: (...args: unknown[]) => Record<string, unknown> | undefined;
+    all: (...args: unknown[]) => Array<Record<string, unknown>>;
+  };
   close: () => void;
 };
 const runtimeHelpers = requireFromHere('./_runtime-helpers.js') as {
@@ -275,6 +278,134 @@ test('repo-search abandons stale running status after acquiring the model lock',
 
     assert.equal(searchResponse.statusCode, 200);
     assert.ok(elapsedMs < 800, `expected stale status to be abandoned without busy retries, got ${elapsedMs}ms`);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    process.chdir(previousCwd);
+    closeRuntimeDatabase();
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('repo-search registers before queue wait, exposes queue diagnostics, and fails queued timeouts loudly', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-queue-timeout-'));
+  const previousCwd = process.cwd();
+  fs.writeFileSync(
+    path.join(tempRoot, 'package.json'),
+    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+    'utf8',
+  );
+  process.chdir(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup: Record<string, string | undefined> = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+    SIFTKIT_MODEL_REQUEST_QUEUE_TIMEOUT_MS: process.env.SIFTKIT_MODEL_REQUEST_QUEUE_TIMEOUT_MS,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+  process.env.SIFTKIT_MODEL_REQUEST_QUEUE_TIMEOUT_MS = '120';
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 50 });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const dbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
+
+  try {
+    const lines = await captureStdoutLines(async () => {
+      const activeRequest = requestJson(`${baseUrl}/repo-search`, {
+        method: 'POST',
+        timeoutMs: 5000,
+        body: JSON.stringify({
+          prompt: 'hold model queue',
+          repoRoot: process.cwd(),
+          model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+          maxTurns: 2,
+          availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+          mockResponses: [
+            "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"x\\\" src\"}",
+            '{"action":"finish","output":"done"}',
+          ],
+          mockCommandResults: {
+            'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 300 },
+          },
+        }),
+      });
+
+      await new Promise<void>((resolve) => setTimeout(resolve, 40));
+      const queuedRequest = requestJson(`${baseUrl}/repo-search`, {
+        method: 'POST',
+        timeoutMs: 5000,
+        body: JSON.stringify({
+          prompt: 'queued behind active',
+          repoRoot: process.cwd(),
+          model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+          maxTurns: 1,
+          availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+          mockResponses: ['{"action":"finish","output":"queued"}'],
+          mockCommandResults: {},
+        }),
+      });
+
+      await runtimeHelpers.waitForAsyncExpectation(async () => {
+        const statusResponse = await requestJson(`${baseUrl}/status`);
+        const modelRequests = statusResponse.body.modelRequests as Record<string, unknown>;
+        assert.equal(modelRequests.active, true);
+        assert.equal(modelRequests.queueLength, 1);
+        const queuedRequests = modelRequests.queuedRequests as Array<Record<string, unknown>>;
+        assert.equal(queuedRequests[0]?.kind, 'repo_search');
+
+        const database = new Database(dbPath, { readonly: true });
+        try {
+          const row = database.prepare(`
+            SELECT terminal_state, title
+            FROM run_logs
+            WHERE title = ?
+          `).get('queued behind active');
+          assert.equal(row?.terminal_state, 'unknown');
+        } finally {
+          database.close();
+        }
+      }, 1000);
+
+      const queuedResponse = await queuedRequest;
+      assert.equal(queuedResponse.statusCode, 503);
+      assert.match(String(queuedResponse.body.error || ''), /Timed out waiting for model request queue/u);
+
+      const activeResponse = await activeRequest;
+      assert.equal(activeResponse.statusCode, 200);
+    });
+
+    assert.ok(lines.some((line) => /request dropped reason=model_queue_timeout task=repo_search/u.test(line)), lines.join('\n'));
+
+    const database = new Database(dbPath, { readonly: true });
+    try {
+      const failedRow = database.prepare(`
+        SELECT terminal_state, failed_request_json
+        FROM run_logs
+        WHERE title = ?
+      `).get('queued behind active');
+      assert.equal(failedRow?.terminal_state, 'failed');
+      assert.match(String(failedRow?.failed_request_json || ''), /Timed out waiting for model request queue/u);
+    } finally {
+      database.close();
+    }
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
