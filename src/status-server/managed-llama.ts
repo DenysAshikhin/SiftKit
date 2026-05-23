@@ -688,6 +688,7 @@ export function buildManagedLlamaArgs(managed: ReturnType<typeof getManagedLlama
 }
 
 const MANAGED_LLAMA_NGRAM_SIZE_SPECULATIVE_TYPES = new Set(['ngram-simple', 'ngram-map-k', 'ngram-map-k4v']);
+const MANAGED_LLAMA_MTP_DRAFT_CACHE_QUANTIZATION = 'q8_0';
 
 function isManagedLlamaDraftSpeculativeType(type: string): boolean {
   return type.startsWith('draft-');
@@ -708,6 +709,13 @@ function appendManagedLlamaSpeculativeArgs(args: string[], managed: ReturnType<t
   }
   specTypes.push(primaryType);
   args.push('--spec-type', specTypes.join(','));
+
+  if (specTypes.includes('draft-mtp')) {
+    args.push(
+      '-ctkd', MANAGED_LLAMA_MTP_DRAFT_CACHE_QUANTIZATION,
+      '-ctvd', MANAGED_LLAMA_MTP_DRAFT_CACHE_QUANTIZATION,
+    );
+  }
 
   if (specTypes.some(isManagedLlamaDraftSpeculativeType)) {
     appendManagedLlamaSpeculativeIntegerArg(args, '--spec-draft-n-max', managed.SpeculativeDraftMax);

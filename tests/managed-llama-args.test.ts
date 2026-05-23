@@ -39,6 +39,12 @@ function speculativeArgs(overrides: Record<string, unknown>): string[] {
   return args.slice(start, end === -1 ? undefined : end);
 }
 
+function draftCacheArgs(overrides: Record<string, unknown>): string[] {
+  const args = buildManagedLlamaArgs(getManagedLlamaConfig(createSpeculativeConfig(overrides)));
+  const start = args.indexOf('-ctkd');
+  return start === -1 ? [] : args.slice(start, start + 4);
+}
+
 test('buildManagedLlamaArgs omits --n-cpu-moe when NcpuMoe is 0', () => {
   const args = buildManagedLlamaArgs(getManagedLlamaConfig(createConfig(0)));
 
@@ -148,10 +154,20 @@ test('buildManagedLlamaArgs emits draft-token flags for draft-mtp speculation', 
 
   assert.deepEqual(args, [
     '--spec-type', 'draft-mtp',
+    '-ctkd', 'q8_0',
+    '-ctvd', 'q8_0',
     '--spec-draft-n-max', '3',
     '--spec-draft-n-min', '1',
   ]);
   assert.equal(args.includes('--spec-ngram-mod-n-match'), false);
+});
+
+test('buildManagedLlamaArgs emits q8_0 draft cache flags for draft-mtp speculation', () => {
+  const args = draftCacheArgs({
+    SpeculativeType: 'draft-mtp',
+  });
+
+  assert.deepEqual(args, ['-ctkd', 'q8_0', '-ctvd', 'q8_0']);
 });
 
 test('buildManagedLlamaArgs chains draft-mtp into a comma-separated --spec-type when MTP combination is enabled', () => {
@@ -167,11 +183,22 @@ test('buildManagedLlamaArgs chains draft-mtp into a comma-separated --spec-type 
 
   assert.deepEqual(args, [
     '--spec-type', 'draft-mtp,ngram-mod',
+    '-ctkd', 'q8_0',
+    '-ctvd', 'q8_0',
     '--spec-draft-n-max', '3',
     '--spec-ngram-mod-n-match', '24',
     '--spec-ngram-mod-n-min', '12',
     '--spec-ngram-mod-n-max', '48',
   ]);
+});
+
+test('buildManagedLlamaArgs emits q8_0 draft cache flags for combined MTP speculation', () => {
+  const args = draftCacheArgs({
+    SpeculativeType: 'ngram-mod',
+    SpeculativeMtpEnabled: true,
+  });
+
+  assert.deepEqual(args, ['-ctkd', 'q8_0', '-ctvd', 'q8_0']);
 });
 
 test('buildManagedLlamaArgs omits the chained draft-mtp when MTP combination is disabled', () => {
@@ -193,7 +220,7 @@ test('buildManagedLlamaArgs does not duplicate draft-mtp when the primary type i
     SpeculativeDraftMin: -1,
   });
 
-  assert.deepEqual(args, ['--spec-type', 'draft-mtp', '--spec-draft-n-max', '5']);
+  assert.deepEqual(args, ['--spec-type', 'draft-mtp', '-ctkd', 'q8_0', '-ctvd', 'q8_0', '--spec-draft-n-max', '5']);
 });
 
 test('parseManagedLlamaSpeculativeMetricsText extracts accepted and generated token totals from ngram statistics', () => {
