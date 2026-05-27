@@ -1308,7 +1308,7 @@ test('runTaskLoop prompt examples use larger reads and anchor-first flow', async
   assert.match(prompt, /repo_list_files/u);
   assert.match(prompt, /rg -n \\"invokePlannerMode\\"/u);
   assert.match(prompt, /repo_read_file/u);
-  assert.match(prompt, /"path":"src\\\\summary\.ts","startLine":861,"endLine":1100/u);
+  assert.match(prompt, /"path":"dir\\\\foo\.ts","startLine":861,"endLine":1100/u);
   assert.match(prompt, /tiny-slice/u);
   assert.equal(result.reason, 'finish');
 });

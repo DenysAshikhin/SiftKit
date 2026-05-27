@@ -107,3 +107,43 @@ test('buildTaskSystemPrompt compression keeps prompt under 6000 chars (no agents
     );
   });
 });
+
+test('buildTaskSystemPrompt turn-1 directive does not hardcode a "src" path', () => {
+  withTempRepo((repoRoot) => {
+    const prompt = buildTaskSystemPrompt(repoRoot);
+
+    // The turn-1 rg recipe must not blind-guess a top-level "src" folder —
+    // many repos use apps/runner/src, packages/*/src, etc. The model should
+    // search from CWD with no path so the runtime ignore-policy filters noise.
+    assert.doesNotMatch(prompt, /rg -n "k1\|k2\|k3\|k4\|k5" src/u);
+
+    // Examples must not reinforce the same "src" bias.
+    assert.doesNotMatch(prompt, /rg -n \\"invokePlannerMode\\" src/u);
+    assert.doesNotMatch(prompt, /"path":"src","glob"/u);
+
+    // The 5-keyword turn-1 rule itself must survive.
+    assert.match(prompt, /Turn 1: pick 5 keywords/u);
+    assert.match(prompt, /k1\|k2\|k3\|k4\|k5/u);
+  });
+});
+
+test('buildTaskSystemPrompt illustrative examples do not bias toward "src/" path prefixes', () => {
+  withTempRepo((repoRoot) => {
+    const prompt = buildTaskSystemPrompt(repoRoot);
+
+    // Anchor-format example, JSON example for repo_read_file, and finish-output
+    // example all used to start with "src/" or "src\\". Strip that bias so repos
+    // with apps/, packages/, or arbitrary layouts are not implicitly disfavored.
+    assert.doesNotMatch(prompt, /src\/foo\.ts:45-60/u);
+    assert.doesNotMatch(prompt, /"path":"src\\\\summary\.ts"/u);
+    assert.doesNotMatch(prompt, /src\/config\.ts:42/u);
+    assert.doesNotMatch(prompt, /src\/summary\.ts:120-135/u);
+
+    // The illustrative shapes themselves must still be present (path:line range,
+    // Windows-backslash JSON path, finish-output anchor-bullet format).
+    assert.match(prompt, /\bdir\/foo\.ts:45-60\b/u);
+    assert.match(prompt, /"path":"[^"]+\\\\[^"]+\.ts"/u);
+    assert.match(prompt, /:42 — definition/u);
+    assert.match(prompt, /:120-135 — call site/u);
+  });
+});
