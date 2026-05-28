@@ -16,6 +16,11 @@ import {
 } from '../http-utils.js';
 import { readConfig } from '../config-store.js';
 import {
+  applyHostLlamaRuntimeSettings,
+  notifyStatusBackend,
+  type SiftConfig,
+} from '../../config/index.js';
+import {
   type RepoSearchProgressEvent,
   buildRepoSearchProgressLogMessage,
 } from '../dashboard-runs.js';
@@ -64,10 +69,18 @@ import {
   releaseModelRequest,
   ensureManagedLlamaReadyForModelRequest,
 } from '../server-ops.js';
-import { notifyStatusBackend } from '../../config/index.js';
 import type { ServerContext } from '../server-types.js';
 
 const DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_MS = 30_000;
+
+type ChatRouteConfig = SiftConfig & {
+  Presets?: unknown;
+};
+
+async function readEffectiveChatRouteConfig(configPath: string): Promise<ChatRouteConfig> {
+  const localConfig = readConfig(configPath) as ChatRouteConfig;
+  return await applyHostLlamaRuntimeSettings(localConfig) as ChatRouteConfig;
+}
 
 function getPositiveNumber(value: unknown, fallback: number): number {
   const numberValue = Number(value);
@@ -337,7 +350,7 @@ export async function handleChatRoute(
       return true;
     }
     const now = new Date().toISOString();
-    const currentConfig = readConfig(configPath);
+    const currentConfig = await readEffectiveChatRouteConfig(configPath);
     const presets = normalizePresets(currentConfig.Presets);
     const runtimeCfg = (currentConfig.Runtime as Dict | undefined) ?? {};
     const runtimeLlamaCfg = (runtimeCfg.LlamaCpp as Dict | undefined) ?? {};

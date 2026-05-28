@@ -58,6 +58,11 @@ const runtimeHelpers = requireFromHere('./_runtime-helpers.js') as {
   }>;
 };
 
+type HostConfigServer = {
+  baseUrl: string;
+  requestUrls: string[];
+  close: () => Promise<void>;
+};
 
 function d(value: unknown): Dict {
   return (value || {}) as Dict;
@@ -111,6 +116,27 @@ function enterDashboardTestRepo(tempRoot: string): string {
 function restoreDashboardTestRepo(previousCwd: string): void {
   process.chdir(previousCwd);
   closeRuntimeDatabase();
+}
+
+async function startHostConfigServer(hostConfigBody: Dict): Promise<HostConfigServer> {
+  const requestUrls: string[] = [];
+  const server = http.createServer((request, response) => {
+    requestUrls.push(request.url || '');
+    if ((request.url || '').startsWith('/config')) {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify(hostConfigBody));
+      return;
+    }
+    response.writeHead(404, { 'content-type': 'application/json' });
+    response.end('{}');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address() as AddressInfo;
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    requestUrls,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
 }
 
 test('config llama cpp test endpoint reports reachable external server', async () => {
@@ -198,6 +224,70 @@ test('config llama cpp test endpoint reports unreachable external server', async
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    restoreDashboardTestRepo(previousCwd);
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
+test('chat session creation uses pass-through host context window', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-host-context-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const runtimeRoot = path.join(tempRoot, '.siftkit');
+  const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
+  const configPath = getConfigPath();
+  fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+  fs.writeFileSync(statusPath, 'false', 'utf8');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const host = await startHostConfigServer({
+    Runtime: {
+      Model: 'host-loaded-model.gguf',
+      LlamaCpp: { NumCtx: 75_008, Reasoning: 'off' },
+    },
+  });
+  const config = getDefaultConfig();
+  const serverConfig = d(config.Server);
+  const llamaServerConfig = d(serverConfig.LlamaCpp);
+  const presets = llamaServerConfig.Presets as Dict[];
+  const activePreset = d(presets[0]);
+  activePreset.ExternalServerEnabled = true;
+  activePreset.BaseUrl = host.baseUrl;
+  activePreset.NumCtx = 150_000;
+  activePreset.Model = 'local-stale-model.gguf';
+  activePreset.Reasoning = 'on';
+  writeConfig(configPath, config);
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Pass-through session' }),
+    });
+
+    assert.equal(createSession.statusCode, 200);
+    const session = d(createSession.body.session);
+    const contextUsage = d(createSession.body.contextUsage);
+    assert.equal(session.model, 'host-loaded-model.gguf');
+    assert.equal(session.contextWindowTokens, 75_008);
+    assert.equal(session.thinkingEnabled, false);
+    assert.equal(contextUsage.contextWindowTokens, 75_008);
+    assert.equal(contextUsage.warnThresholdTokens, 7_501);
+    assert.equal(host.requestUrls.some((url) => url.includes('skip_ready=1')), true);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    await host.close();
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
