@@ -6,7 +6,7 @@ import type { ReactElement, ReactNode } from 'react';
 
 import { MetricsTab } from '../src/tabs/MetricsTab';
 import { SettingsTab } from '../src/tabs/SettingsTab';
-import { ChatTab } from '../src/tabs/ChatTab';
+import { ChatTab, buildLiveMessageScrollSignature } from '../src/tabs/ChatTab';
 import { BenchmarkTab } from '../src/tabs/BenchmarkTab';
 import { PresetsSection } from '../src/tabs/settings/PresetsSection';
 import { ManagedLlamaSection } from '../src/tabs/settings/ManagedLlamaSection';
@@ -1134,6 +1134,70 @@ test('chat tab renders typed thinking and tool bubbles with trash and expandable
   assert.match(markup, /aria-label="Show tool result"/);
   assert.match(markup, /dashboard\/src\/tabs\/ChatTab\.tsx:75:export function ChatTab/);
   assert.doesNotMatch(markup, /live-stream-boxes/);
+});
+
+test('chat tab renders only explicit model-visible tool commands', () => {
+  const session = {
+    ...CHAT_SESSION,
+    messages: [{
+      ...CHAT_TOOL_MESSAGE,
+      content: 'rg -n "tool.call|toolCall|ToolCall" --no-ignore --ignore-case --glob "!**/.git/**"',
+      toolCallCommand: 'rg -n "tool.call|toolCall|ToolCall"',
+    }],
+  } as ChatSession;
+  const markup = renderToStaticMarkup(
+    <ChatTab
+      sessions={[session]}
+      selectedSessionId={session.id}
+      selectedSession={session}
+      sessionPromptCacheStats={{ cacheHitRate: 0, promptCacheTokens: 0, promptEvalTokens: 0, acceptanceRate: null, speculativeAcceptedTokens: 0, speculativeGeneratedTokens: 0, promptTokensPerSecond: null, generationTokensPerSecond: null }}
+      webPresets={[PRESET]}
+      selectedChatPreset={PRESET}
+      chatMode="repo-search"
+      isDirectChatMode={false}
+      isRepoToolMode={true}
+      isThinkingEnabledForCurrentSession={true}
+      showSettings={false}
+      planRepoRootInput=""
+      planMaxTurnsInput="45"
+      contextUsage={CONTEXT_USAGE}
+      liveToolPromptTokenCount={null}
+      liveMessages={[]}
+      chatInput=""
+      chatBusy={false}
+      chatError={null}
+      onSelectSession={() => undefined}
+      onToggleSettings={() => undefined}
+      onChangePlanRepoRoot={() => undefined}
+      onChangePlanMaxTurns={() => undefined}
+      onChangeChatInput={() => undefined}
+      onCreateSession={async () => undefined}
+      onDeleteSession={async () => undefined}
+      onUpdateSessionPreset={async () => undefined}
+      onToggleThinking={async () => undefined}
+      onSavePlanRepoRoot={async () => undefined}
+      onClearToolContext={async () => undefined}
+      onDeleteMessage={async () => undefined}
+      onCondense={async () => undefined}
+      onSendPlan={async () => undefined}
+      onSendRepoSearch={async () => undefined}
+      onSendMessage={async () => undefined}
+    />,
+  );
+
+  assert.match(markup, /rg -n &quot;tool\.call\|toolCall\|ToolCall&quot;<\/code>/u);
+  assert.doesNotMatch(markup, /--no-ignore|--ignore-case|--glob/u);
+});
+
+test('chat tab live scroll signature changes when streamed content grows', () => {
+  const before = buildLiveMessageScrollSignature([
+    { ...CHAT_THINKING_MESSAGE, id: 'live-thinking', content: 'first chunk' },
+  ]);
+  const after = buildLiveMessageScrollSignature([
+    { ...CHAT_THINKING_MESSAGE, id: 'live-thinking', content: 'first chunk\nsecond chunk' },
+  ]);
+
+  assert.notEqual(before, after);
 });
 
 test('chat tab renders non-deletable collapsed system context bubble first', () => {

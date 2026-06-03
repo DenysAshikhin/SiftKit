@@ -6,6 +6,7 @@ import {
   buildChatSystemContent,
   buildContextUsage,
   buildRepoSearchMarkdown,
+  buildToolMessagesFromRepoSearchResult,
 } from '../src/status-server/chat.ts';
 import { buildChatPromptContext } from '../src/status-server/chat-prompt-context.ts';
 import { estimatePromptTokenCountFromCharacters, getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
@@ -132,6 +133,25 @@ test('buildChatCompletionRequest replays typed timeline bubbles as prompt messag
     { role: 'assistant', content: 'ChatTab renders the chat surface.' },
     { role: 'user', content: 'next question' },
   ]);
+});
+
+test('buildToolMessagesFromRepoSearchResult displays model-visible command', () => {
+  const messages = buildToolMessagesFromRepoSearchResult({
+    scorecard: {
+      tasks: [{
+        commands: [{
+          command: 'rg -n "name" package.json --no-ignore --ignore-case --glob "!**/.git/**"',
+          modelVisibleCommand: 'rg -n "name" package.json',
+          safe: true,
+          exitCode: 0,
+          output: 'package.json:2:  "name": "siftkit"',
+        }],
+      }],
+    },
+  });
+
+  assert.equal(messages[0]?.content, 'rg -n "name" package.json');
+  assert.equal(messages[0]?.toolCallCommand, 'rg -n "name" package.json');
 });
 
 test('buildChatPromptContext exposes direct system prompt and hidden tool context', () => {

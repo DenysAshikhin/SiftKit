@@ -42,7 +42,7 @@ export function buildRepoSearchChatSteps(events: RunDetailResponse['events']): R
         if (!isRecord(commandRecord)) {
           continue;
         }
-        const command = readStringField(commandRecord, 'command');
+        const command = readStringField(commandRecord, 'modelVisibleCommand') || readStringField(commandRecord, 'command');
         const output = readStringField(commandRecord, 'output');
         if (!command || !output) {
           continue;
@@ -68,7 +68,7 @@ export function buildRepoSearchChatSteps(events: RunDetailResponse['events']): R
     }
     const taskId = readStringField(event.payload, 'taskId');
     const turn = event.payload.turn;
-    const command = readStringField(event.payload, 'command');
+    const command = readStringField(event.payload, 'modelVisibleCommand') || readStringField(event.payload, 'command');
     const output = readStringField(event.payload, 'insertedResultText') || readStringField(event.payload, 'output');
     if (!taskId || !Number.isFinite(turn as number) || !command || !output) {
       continue;

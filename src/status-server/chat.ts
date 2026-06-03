@@ -866,6 +866,14 @@ function truncateToolContextOutput(value: unknown, maxLength: number = 1400): st
   return `${text.slice(0, maxLength)}\n... (truncated)`;
 }
 
+function getModelVisibleToolCommand(command: Dict): string {
+  const modelVisibleCommand = typeof command.modelVisibleCommand === 'string' ? command.modelVisibleCommand.trim() : '';
+  if (modelVisibleCommand) {
+    return modelVisibleCommand;
+  }
+  return typeof command.command === 'string' ? command.command.trim() : '';
+}
+
 export function buildToolContextFromRepoSearchResult(result: Dict | null | undefined): string[] {
   const scorecard = result && typeof result.scorecard === 'object' ? result.scorecard as Dict : {};
   const tasks = Array.isArray(scorecard.tasks) ? scorecard.tasks as Dict[] : [];
@@ -878,7 +886,7 @@ export function buildToolContextFromRepoSearchResult(result: Dict | null | undef
       if (!command || typeof command !== 'object') {
         continue;
       }
-      const commandText = typeof command.command === 'string' ? (command.command as string).trim() : '';
+      const commandText = getModelVisibleToolCommand(command);
       if (!commandText) {
         continue;
       }
@@ -909,7 +917,7 @@ export function buildToolMessagesFromRepoSearchResult(result: Dict | null | unde
       if (!command || typeof command !== 'object') {
         continue;
       }
-      const commandText = typeof command.command === 'string' ? command.command.trim() : '';
+      const commandText = getModelVisibleToolCommand(command);
       if (!commandText) {
         continue;
       }

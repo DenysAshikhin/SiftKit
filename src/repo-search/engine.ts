@@ -1546,6 +1546,9 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
 
     const promptTokenCount = preflight.promptTokenCount;
+    const progressCommand = isNativeTool || lineReadAdjustment || !normalized.rewritten
+      ? commandToRun
+      : requestedCommand;
 
     if (options.onProgress) {
       options.onProgress({ kind: 'tool_start', turn, maxTurns, command: requestedCommand, promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
@@ -1603,7 +1606,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
 
     if (options.onProgress) {
       const snippet = baseOutput.length > 200 ? baseOutput.slice(0, 200) + '...' : baseOutput;
-      options.onProgress({ kind: 'tool_result', turn, maxTurns, command: commandToRun, exitCode: executed.exitCode, outputSnippet: snippet, promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
+      options.onProgress({ kind: 'tool_result', turn, maxTurns, command: progressCommand, exitCode: executed.exitCode, outputSnippet: snippet, promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
     }
 
     const rewriteNotesForLogs: string[] = [];
@@ -1845,6 +1848,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       kind: 'turn_command_result', taskId: task.id, turn, command: commandToRun,
       requestedCommand,
       executedCommand: commandToRun,
+      modelVisibleCommand,
       lineReadAdjusted: Boolean(lineReadAdjustment),
       lineReadRequestedStart: parsedReadWindow?.requestedStart,
       lineReadRequestedEnd: parsedReadWindow?.requestedEnd,
@@ -1862,7 +1866,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       insertedResultText: resultText,
     });
 
-    commands.push({ command: commandToRun, safe: true, reason: null, exitCode: executed.exitCode, output: commandOutputText });
+    commands.push({ command: commandToRun, modelVisibleCommand, safe: true, reason: null, exitCode: executed.exitCode, output: commandOutputText });
     const commandSucceeded = Number(executed.exitCode) === 0 || searchExit.noMatch;
     if (commandSucceeded) {
       duplicateReplayFingerprint = null;

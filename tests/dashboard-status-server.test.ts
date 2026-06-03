@@ -750,7 +750,9 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
     assert.equal(Number.isFinite(Number(planToolStart?.payload?.promptTokenCount)), true);
     assert.equal(Number.isFinite(Number(planToolResult?.payload?.promptTokenCount)), true);
     assert.equal(planToolStart?.payload?.command, 'rg -n "test" .');
+    assert.equal(planToolResult?.payload?.command, 'rg -n "test" .');
     assert.equal(/--no-ignore|--ignore-case|--glob/u.test(String(planToolStart?.payload?.command || '')), false);
+    assert.equal(/--no-ignore|--ignore-case|--glob/u.test(String(planToolResult?.payload?.command || '')), false);
     assert.equal(
       planSse.events.some((event) => event.event === 'answer' && /Planning step/u.test(String(event.payload?.answer || ''))),
       false,

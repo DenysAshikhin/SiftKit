@@ -7,7 +7,6 @@ import {
   formatNumber,
   formatPercent,
   getMessageTokenCount,
-  isMessageTokenEstimateFallback,
 } from '../lib/format';
 import type { ChatPromptContext, ChatSession, ContextUsage, DashboardPreset, DashboardPresetExecutionFamily } from '../types';
 import type { ChatMessage } from '../types';
@@ -68,6 +67,19 @@ function compareMessageCreatedAt(left: ChatMessage, right: ChatMessage): number 
     return leftTime - rightTime;
   }
   return 0;
+}
+
+export function buildLiveMessageScrollSignature(messages: ChatMessage[]): string {
+  return messages.map((message) => [
+    message.id,
+    message.kind || '',
+    message.content.length,
+    message.toolCallCommand?.length || 0,
+    message.toolCallOutputSnippet?.length || 0,
+    message.toolCallOutput?.length || 0,
+    message.toolCallStatus || '',
+    message.toolCallExitCode ?? '',
+  ].join(':')).join('|');
 }
 
 function buildFallbackPromptContext(
@@ -152,12 +164,13 @@ export function ChatTab({
     : null;
   const chatLogRef = React.useRef<HTMLDivElement | null>(null);
   const visibleMessageIds = visibleMessages.map((message) => message.id).join('|');
+  const liveMessageScrollSignature = buildLiveMessageScrollSignature(liveMessages);
   React.useEffect(() => {
     if (!chatLogRef.current) {
       return;
     }
     chatLogRef.current.scrollTop = chatLogRef.current.scrollHeight;
-  }, [visibleMessageIds]);
+  }, [visibleMessageIds, liveMessageScrollSignature]);
   return (
     <section className="panel-grid chat-layout">
       <section className="panel">
@@ -331,7 +344,7 @@ export function ChatTab({
                     <span>system | first message</span>
                     <span className="msg-meta">
                       <span className="msg-tokens">
-                        {formatNumber(Math.max(1, Math.ceil(promptContext.content.length / 4)))} est.
+                        {formatNumber(Math.max(1, Math.ceil(promptContext.content.length / 4)))} tokens
                       </span>
                     </span>
                   </header>
@@ -349,20 +362,15 @@ export function ChatTab({
                   : messageKind === 'assistant_tool_call'
                     ? 'assistant tool'
                     : message.role;
+                const toolCommand = typeof message.toolCallCommand === 'string' ? message.toolCallCommand.trim() : '';
                 const toolOutput = message.toolCallOutput || message.toolCallOutputSnippet || '';
                 return (
                 <article key={message.id} className={`msg ${message.role} ${messageKind}${isLive ? ' live' : ''}`}>
                   <header className="msg-header">
                     <span>{messageLabel} | {isLive ? 'live' : formatDate(message.createdAtUtc)}</span>
                     <span className="msg-meta">
-                      <span
-                        className="msg-tokens"
-                        title="Format: tokens_for_message (associated hidden tool-call tokens)."
-                      >
-                        {formatNumber(getMessageTokenCount(message))}
-                        {isMessageTokenEstimateFallback(message) ? ' est.' : ''}
-                        {' '}
-                        ({formatNumber(Number(message.associatedToolTokens || 0))})
+                      <span className="msg-tokens">
+                        {formatNumber(getMessageTokenCount(message))} tokens
                       </span>
                       {!isLive ? (
                         <button
@@ -388,16 +396,8 @@ export function ChatTab({
                     <pre className="thinking-message">{message.content}</pre>
                   ) : messageKind === 'assistant_tool_call' ? (
                     <div className="tool-message">
-                      <code>{message.toolCallCommand || message.content}</code>
+                      <code>{toolCommand}</code>
                       {message.toolCallStatus === 'running' ? <span className="tool-spinner"> ...</span> : null}
-                      {typeof message.toolCallExitCode === 'number' ? (
-                        <span className={message.toolCallExitCode === 0 ? 'exit-ok' : 'exit-fail'}>
-                          {' '}exit {message.toolCallExitCode}
-                        </span>
-                      ) : null}
-                      {typeof message.toolCallPromptTokenCount === 'number' ? (
-                        <span className="hint"> prompt {formatNumber(message.toolCallPromptTokenCount)}</span>
-                      ) : null}
                       {toolOutput ? (
                         <details className="tool-result">
                           <summary aria-label="Show tool result" title="Show tool result">+ result</summary>

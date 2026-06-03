@@ -58,12 +58,6 @@ export function getMessageTokenCount(message: ChatSession['messages'][number]): 
     + Number(message.thinkingTokens || 0);
 }
 
-export function isMessageTokenEstimateFallback(message: ChatSession['messages'][number]): boolean {
-  return message.inputTokensEstimated === true
-    || message.outputTokensEstimated === true
-    || message.thinkingTokensEstimated === true;
-}
-
 export function getSessionTelemetryStats(session: ChatSession | null): {
   promptCacheTokens: number;
   promptEvalTokens: number;
