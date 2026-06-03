@@ -67,6 +67,7 @@ import { buildTaskRunsSeries, buildToolMetricRows } from './metrics-view';
 import type { InteractiveSeries } from './components/InteractiveGraph';
 import { buildRepoSearchChatSteps } from './lib/chat-steps';
 import { buildLiveToolMessageId } from './lib/live-tool-message';
+import { appendLiveThinkingMessage } from './lib/live-thinking-message';
 import { type ChatStreamToolEvent } from './lib/chat-stream-parser';
 import {
   buildRunsSignature,
@@ -839,10 +840,7 @@ function DashboardApp() {
         content: chatInput.trim(),
       }, (thinkingText) => {
         if (isThinkingEnabledForCurrentSession) {
-          upsertLiveMessage({
-            ...createLiveMessage('live-thinking', 'assistant_thinking', 'assistant', thinkingText),
-            thinkingTokens: Math.max(1, Math.ceil(String(thinkingText || '').length / 4)),
-          });
+          setLiveMessages((previous) => appendLiveThinkingMessage(previous, thinkingText));
         }
       }, (answerText) => {
         upsertLiveMessage({
@@ -879,10 +877,7 @@ function DashboardApp() {
           ...(Number.isFinite(parsedMaxTurns) && parsedMaxTurns > 0 ? { maxTurns: parsedMaxTurns } : {}),
         },
         (thinkingText) => {
-          upsertLiveMessage({
-            ...createLiveMessage('live-thinking', 'assistant_thinking', 'assistant', thinkingText),
-            thinkingTokens: Math.max(1, Math.ceil(String(thinkingText || '').length / 4)),
-          });
+          setLiveMessages((previous) => appendLiveThinkingMessage(previous, thinkingText));
         },
         (toolEvent) => {
           if (toolEvent.kind === 'tool_start') {
@@ -934,10 +929,7 @@ function DashboardApp() {
           ...(Number.isFinite(parsedMaxTurnsRS) && parsedMaxTurnsRS > 0 ? { maxTurns: parsedMaxTurnsRS } : {}),
         },
         (thinkingText) => {
-          upsertLiveMessage({
-            ...createLiveMessage('live-thinking', 'assistant_thinking', 'assistant', thinkingText),
-            thinkingTokens: Math.max(1, Math.ceil(String(thinkingText || '').length / 4)),
-          });
+          setLiveMessages((previous) => appendLiveThinkingMessage(previous, thinkingText));
         },
         (toolEvent) => {
           if (toolEvent.kind === 'tool_start') {
@@ -953,10 +945,7 @@ function DashboardApp() {
           }
         },
         (answerText) => {
-          upsertLiveMessage({
-            ...createLiveMessage('live-thinking', 'assistant_thinking', 'assistant', answerText),
-            thinkingTokens: Math.max(1, Math.ceil(String(answerText || '').length / 4)),
-          });
+          setLiveMessages((previous) => appendLiveThinkingMessage(previous, answerText));
         },
       );
       setSelectedSession(response.session);
