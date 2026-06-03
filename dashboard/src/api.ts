@@ -298,84 +298,15 @@ export async function streamChatMessage(
   sessionId: string,
   payload: { content: string },
   onThinking: (thinkingText: string) => void,
-  onAnswer: (answerText: string) => void
+  onAnswer: (answerText: string) => void,
 ): Promise<ChatSessionResponse> {
-  const response = await fetch(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/messages/stream`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Request failed (${response.status}): ${text}`);
-  }
-  if (!response.body) {
-    throw new Error('Streaming response body was empty.');
-  }
-
-  const decoder = new TextDecoder();
-  const reader = response.body.getReader();
-  let buffer = '';
-  let finalResponse: ChatSessionResponse | null = null;
-
-  const handlePacket = (packet: string): void => {
-    const lines = packet
-      .split(/\r?\n/u)
-      .map((line) => line.trim())
-      .filter(Boolean);
-    const eventLine = lines.find((line) => line.startsWith('event:'));
-    const dataLine = lines.find((line) => line.startsWith('data:'));
-    if (!dataLine) {
-      return;
-    }
-    const eventName = eventLine ? eventLine.slice(6).trim() : 'message';
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(dataLine.slice(5).trim());
-    } catch {
-      return;
-    }
-    if (eventName === 'thinking' && parsed && typeof parsed === 'object') {
-      onThinking(String((parsed as { thinking?: unknown }).thinking || ''));
-      return;
-    }
-    if (eventName === 'answer' && parsed && typeof parsed === 'object') {
-      onAnswer(String((parsed as { answer?: unknown }).answer || ''));
-      return;
-    }
-    if (eventName === 'answer' && parsed && typeof parsed === 'object') {
-      if (onAnswer) {
-        onAnswer(String((parsed as { answer?: unknown }).answer || ''));
-      }
-      return;
-    }
-    if (eventName === 'done') {
-      finalResponse = parsed as ChatSessionResponse;
-      return;
-    }
-    if (eventName === 'error' && parsed && typeof parsed === 'object') {
-      throw new Error(String((parsed as { error?: unknown }).error || 'stream error'));
-    }
-  };
-
-  for (;;) {
-    const next = await reader.read();
-    if (next.done) {
-      break;
-    }
-    buffer += decoder.decode(next.value, { stream: true });
-    let boundary = buffer.indexOf('\n\n');
-    while (boundary >= 0) {
-      const packet = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-      handlePacket(packet);
-      boundary = buffer.indexOf('\n\n');
-    }
-  }
-  if (!finalResponse) {
-    throw new Error('Missing final streaming payload.');
-  }
-  return finalResponse;
+  return consumeChatStream(
+    `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/messages/stream`,
+    payload,
+    onThinking,
+    () => {},
+    onAnswer,
+  );
 }
 
 export function condenseChatSession(sessionId: string): Promise<ChatSessionResponse> {
