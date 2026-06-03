@@ -1961,3 +1961,43 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
   }
 });
 
+test('runTaskLoop assigns a unique toolCallId pairing tool_start with tool_result', async () => {
+  const progressEvents: Array<Record<string, unknown> & { kind: string }> = [];
+  await runTaskLoop(
+    {
+      id: 'task-tool-call-id',
+      question: 'Find planner text.',
+      signals: ['planner'],
+    },
+    {
+      maxTurns: 3,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"prompt\\\" src\"}",
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'rg -n "planner" src': { exitCode: 0, stdout: 'planner hit', stderr: '' },
+        'rg -n "prompt" src': { exitCode: 0, stdout: 'prompt hit', stderr: '' },
+      },
+      onProgress(event: Record<string, unknown> & { kind: string }) {
+        progressEvents.push(event);
+      },
+    }
+  );
+
+  const starts = progressEvents.filter((event) => event.kind === 'tool_start');
+  const results = progressEvents.filter((event) => event.kind === 'tool_result');
+  assert.equal(starts.length, 2);
+  assert.equal(results.length, 2);
+  for (let index = 0; index < starts.length; index += 1) {
+    assert.equal(typeof starts[index].toolCallId, 'string');
+    assert.equal(String(starts[index].toolCallId).length > 0, true);
+    assert.equal(starts[index].toolCallId, results[index].toolCallId);
+  }
+  assert.notEqual(starts[0].toolCallId, starts[1].toolCallId);
+});
+

@@ -821,6 +821,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   let reason = 'max_turns';
   let turnsUsed = 0;
   let mockResponseIndex = 0;
+  let progressToolCallSeq = 0;
   let modelPromptTokens = 0;
   let modelOutputTokens = 0;
   let modelToolTokens = 0;
@@ -1550,8 +1551,10 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       ? commandToRun
       : requestedCommand;
 
+    const progressToolCallId = `tc_${progressToolCallSeq}`;
+    progressToolCallSeq += 1;
     if (options.onProgress) {
-      options.onProgress({ kind: 'tool_start', turn, maxTurns, command: requestedCommand, promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
+      options.onProgress({ kind: 'tool_start', toolCallId: progressToolCallId, turn, maxTurns, command: requestedCommand, promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
     }
 
     const toolExecutionSpan = options.timingRecorder?.start('repo.tool.execute', {
@@ -1606,7 +1609,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
 
     if (options.onProgress) {
       const snippet = baseOutput.length > 200 ? baseOutput.slice(0, 200) + '...' : baseOutput;
-      options.onProgress({ kind: 'tool_result', turn, maxTurns, command: progressCommand, exitCode: executed.exitCode, outputSnippet: snippet, promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
+      options.onProgress({ kind: 'tool_result', toolCallId: progressToolCallId, turn, maxTurns, command: progressCommand, exitCode: executed.exitCode, outputSnippet: snippet, promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
     }
 
     const rewriteNotesForLogs: string[] = [];

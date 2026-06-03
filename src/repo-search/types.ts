@@ -5,6 +5,7 @@ export type JsonLogger = {
 
 export type RepoSearchProgressEvent = {
   kind: string;
+  toolCallId?: string;
   turn?: number;
   maxTurns?: number;
   taskId?: string;
