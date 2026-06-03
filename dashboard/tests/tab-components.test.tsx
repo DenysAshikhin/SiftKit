@@ -370,6 +370,61 @@ const CONTEXT_USAGE = {
   estimatedTokenFallbackTokens: 0,
 } as ContextUsage;
 
+type ChatTabProps = React.ComponentProps<typeof ChatTab>;
+
+const DEFAULT_PROMPT_CACHE_STATS = {
+  cacheHitRate: null,
+  promptCacheTokens: 0,
+  promptEvalTokens: 0,
+  acceptanceRate: null,
+  speculativeAcceptedTokens: 0,
+  speculativeGeneratedTokens: 0,
+  promptTokensPerSecond: null,
+  generationTokensPerSecond: null,
+};
+
+function renderChatTab(overrides: Partial<ChatTabProps> = {}): string {
+  const baseSession = overrides.selectedSession ?? CHAT_SESSION;
+  const props: ChatTabProps = {
+    sessions: overrides.sessions ?? [baseSession],
+    selectedSessionId: overrides.selectedSessionId ?? baseSession.id,
+    selectedSession: baseSession,
+    sessionPromptCacheStats: overrides.sessionPromptCacheStats ?? DEFAULT_PROMPT_CACHE_STATS,
+    webPresets: overrides.webPresets ?? [],
+    selectedChatPreset: overrides.selectedChatPreset ?? null,
+    chatMode: overrides.chatMode ?? 'plan',
+    isDirectChatMode: overrides.isDirectChatMode ?? false,
+    isRepoToolMode: overrides.isRepoToolMode ?? false,
+    isThinkingEnabledForCurrentSession: overrides.isThinkingEnabledForCurrentSession ?? false,
+    showSettings: overrides.showSettings ?? false,
+    planRepoRootInput: overrides.planRepoRootInput ?? '',
+    planMaxTurnsInput: overrides.planMaxTurnsInput ?? '',
+    contextUsage: overrides.contextUsage ?? null,
+    liveToolPromptTokenCount: overrides.liveToolPromptTokenCount ?? null,
+    liveMessages: overrides.liveMessages ?? [],
+    chatInput: overrides.chatInput ?? '',
+    chatBusy: overrides.chatBusy ?? false,
+    chatError: overrides.chatError ?? null,
+    onSelectSession: overrides.onSelectSession ?? (() => {}),
+    onToggleSettings: overrides.onToggleSettings ?? (() => {}),
+    onChangePlanRepoRoot: overrides.onChangePlanRepoRoot ?? (() => {}),
+    onChangePlanMaxTurns: overrides.onChangePlanMaxTurns ?? (() => {}),
+    onChangeChatInput: overrides.onChangeChatInput ?? (() => {}),
+    onCreateSession: overrides.onCreateSession ?? (async () => {}),
+    onDeleteSession: overrides.onDeleteSession ?? (async () => {}),
+    onUpdateSessionPreset: overrides.onUpdateSessionPreset ?? (async () => {}),
+    onToggleThinking: overrides.onToggleThinking ?? (async () => {}),
+    onSavePlanRepoRoot: overrides.onSavePlanRepoRoot ?? (async () => {}),
+    onClearToolContext: overrides.onClearToolContext ?? (async () => {}),
+    onDeleteMessage: overrides.onDeleteMessage ?? (async () => {}),
+    onCondense: overrides.onCondense ?? (async () => {}),
+    onSendPlan: overrides.onSendPlan ?? (async () => {}),
+    onSendRepoSearch: overrides.onSendRepoSearch ?? (async () => {}),
+    onSendMessage: overrides.onSendMessage ?? (async () => {}),
+  };
+  return renderToStaticMarkup(React.createElement(ChatTab, props));
+}
+
 type CapturedField = {
   label: string;
   children: ReactNode;
@@ -955,54 +1010,25 @@ test('managed llama section does not warn for local llama base url', () => {
 });
 
 test('chat tab renders session list and composer', () => {
-  const markup = renderToStaticMarkup(
-    <ChatTab
-      sessions={[CHAT_SESSION]}
-      selectedSessionId={CHAT_SESSION.id}
-      selectedSession={CHAT_SESSION}
-      sessionPromptCacheStats={{
-        cacheHitRate: 0,
-        promptCacheTokens: 0,
-        promptEvalTokens: 0,
-        acceptanceRate: 0.75,
-        speculativeAcceptedTokens: 15,
-        speculativeGeneratedTokens: 20,
-        promptTokensPerSecond: 120,
-        generationTokensPerSecond: 80,
-      }}
-      webPresets={[PRESET]}
-      selectedChatPreset={PRESET}
-      chatMode="chat"
-      isDirectChatMode={true}
-      isRepoToolMode={false}
-      isThinkingEnabledForCurrentSession={true}
-      showSettings={false}
-      planRepoRootInput=""
-      planMaxTurnsInput="45"
-      contextUsage={CONTEXT_USAGE}
-      liveToolPromptTokenCount={null}
-      liveMessages={[]}
-      chatInput=""
-      chatBusy={false}
-      chatError={null}
-      onSelectSession={() => {}}
-      onToggleSettings={() => {}}
-      onChangePlanRepoRoot={() => {}}
-      onChangePlanMaxTurns={() => {}}
-      onChangeChatInput={() => {}}
-      onCreateSession={async () => {}}
-      onDeleteSession={async () => {}}
-      onUpdateSessionPreset={async () => {}}
-      onToggleThinking={async () => {}}
-      onSavePlanRepoRoot={async () => {}}
-      onClearToolContext={async () => {}}
-      onDeleteMessage={async () => {}}
-      onCondense={async () => {}}
-      onSendPlan={async () => {}}
-      onSendRepoSearch={async () => {}}
-      onSendMessage={async () => {}}
-    />,
-  );
+  const markup = renderChatTab({
+    sessionPromptCacheStats: {
+      cacheHitRate: 0,
+      promptCacheTokens: 0,
+      promptEvalTokens: 0,
+      acceptanceRate: 0.75,
+      speculativeAcceptedTokens: 15,
+      speculativeGeneratedTokens: 20,
+      promptTokensPerSecond: 120,
+      generationTokensPerSecond: 80,
+    },
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'chat',
+    isDirectChatMode: true,
+    isThinkingEnabledForCurrentSession: true,
+    planMaxTurnsInput: '45',
+    contextUsage: CONTEXT_USAGE,
+  });
 
   assert.match(markup, /Sessions/);
   assert.match(markup, /Send a local chat message/);
@@ -1013,61 +1039,23 @@ test('chat tab renders session list and composer', () => {
 });
 
 test('chat tab renders context usage thinking breakdown', () => {
-  const markup = renderToStaticMarkup(
-    <ChatTab
-      sessions={[CHAT_SESSION]}
-      selectedSessionId={CHAT_SESSION.id}
-      selectedSession={CHAT_SESSION}
-      sessionPromptCacheStats={{
-        cacheHitRate: 0,
-        promptCacheTokens: 0,
-        promptEvalTokens: 0,
-        acceptanceRate: null,
-        speculativeAcceptedTokens: 0,
-        speculativeGeneratedTokens: 0,
-        promptTokensPerSecond: null,
-        generationTokensPerSecond: null,
-      }}
-      webPresets={[PRESET]}
-      selectedChatPreset={PRESET}
-      chatMode="chat"
-      isDirectChatMode={true}
-      isRepoToolMode={false}
-      isThinkingEnabledForCurrentSession={true}
-      showSettings={true}
-      planRepoRootInput=""
-      planMaxTurnsInput="45"
-      contextUsage={{
-        ...CONTEXT_USAGE,
-        chatUsedTokens: 24,
-        thinkingUsedTokens: 7,
-        toolUsedTokens: 3,
-        totalUsedTokens: 27,
-        remainingTokens: 73,
-      }}
-      liveToolPromptTokenCount={null}
-      liveMessages={[]}
-      chatInput=""
-      chatBusy={false}
-      chatError={null}
-      onSelectSession={() => {}}
-      onToggleSettings={() => {}}
-      onChangePlanRepoRoot={() => {}}
-      onChangePlanMaxTurns={() => {}}
-      onChangeChatInput={() => {}}
-      onCreateSession={async () => {}}
-      onDeleteSession={async () => {}}
-      onUpdateSessionPreset={async () => {}}
-      onToggleThinking={async () => {}}
-      onSavePlanRepoRoot={async () => {}}
-      onClearToolContext={async () => {}}
-      onDeleteMessage={async () => {}}
-      onCondense={async () => {}}
-      onSendPlan={async () => {}}
-      onSendRepoSearch={async () => {}}
-      onSendMessage={async () => {}}
-    />,
-  );
+  const markup = renderChatTab({
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'chat',
+    isDirectChatMode: true,
+    isThinkingEnabledForCurrentSession: true,
+    showSettings: true,
+    planMaxTurnsInput: '45',
+    contextUsage: {
+      ...CONTEXT_USAGE,
+      chatUsedTokens: 24,
+      thinkingUsedTokens: 7,
+      toolUsedTokens: 3,
+      totalUsedTokens: 27,
+      remainingTokens: 73,
+    },
+  });
 
   assert.match(markup, /Thinking\/reasoning: 7/);
 });
@@ -1077,54 +1065,16 @@ test('chat tab renders typed thinking and tool bubbles with trash and expandable
     ...CHAT_SESSION,
     messages: [CHAT_THINKING_MESSAGE, CHAT_TOOL_MESSAGE, CHAT_MESSAGE],
   } as ChatSession;
-  const markup = renderToStaticMarkup(
-    <ChatTab
-      sessions={[session]}
-      selectedSessionId={session.id}
-      selectedSession={session}
-      sessionPromptCacheStats={{
-        cacheHitRate: 0,
-        promptCacheTokens: 0,
-        promptEvalTokens: 0,
-        acceptanceRate: null,
-        speculativeAcceptedTokens: 0,
-        speculativeGeneratedTokens: 0,
-        promptTokensPerSecond: null,
-        generationTokensPerSecond: null,
-      }}
-      webPresets={[PRESET]}
-      selectedChatPreset={PRESET}
-      chatMode="repo-search"
-      isDirectChatMode={false}
-      isRepoToolMode={true}
-      isThinkingEnabledForCurrentSession={true}
-      showSettings={false}
-      planRepoRootInput=""
-      planMaxTurnsInput="45"
-      contextUsage={CONTEXT_USAGE}
-      liveToolPromptTokenCount={null}
-      liveMessages={[]}
-      chatInput=""
-      chatBusy={false}
-      chatError={null}
-      onSelectSession={() => {}}
-      onToggleSettings={() => {}}
-      onChangePlanRepoRoot={() => {}}
-      onChangePlanMaxTurns={() => {}}
-      onChangeChatInput={() => {}}
-      onCreateSession={async () => {}}
-      onDeleteSession={async () => {}}
-      onUpdateSessionPreset={async () => {}}
-      onToggleThinking={async () => {}}
-      onSavePlanRepoRoot={async () => {}}
-      onClearToolContext={async () => {}}
-      onDeleteMessage={async () => {}}
-      onCondense={async () => {}}
-      onSendPlan={async () => {}}
-      onSendRepoSearch={async () => {}}
-      onSendMessage={async () => {}}
-    />,
-  );
+  const markup = renderChatTab({
+    selectedSession: session,
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'repo-search',
+    isRepoToolMode: true,
+    isThinkingEnabledForCurrentSession: true,
+    planMaxTurnsInput: '45',
+    contextUsage: CONTEXT_USAGE,
+  });
 
   assert.match(markup, /assistant thinking/);
   assert.match(markup, /Inspect the dashboard chat timeline/);
@@ -1145,45 +1095,16 @@ test('chat tab renders only explicit model-visible tool commands', () => {
       toolCallCommand: 'rg -n "tool.call|toolCall|ToolCall"',
     }],
   } as ChatSession;
-  const markup = renderToStaticMarkup(
-    <ChatTab
-      sessions={[session]}
-      selectedSessionId={session.id}
-      selectedSession={session}
-      sessionPromptCacheStats={{ cacheHitRate: 0, promptCacheTokens: 0, promptEvalTokens: 0, acceptanceRate: null, speculativeAcceptedTokens: 0, speculativeGeneratedTokens: 0, promptTokensPerSecond: null, generationTokensPerSecond: null }}
-      webPresets={[PRESET]}
-      selectedChatPreset={PRESET}
-      chatMode="repo-search"
-      isDirectChatMode={false}
-      isRepoToolMode={true}
-      isThinkingEnabledForCurrentSession={true}
-      showSettings={false}
-      planRepoRootInput=""
-      planMaxTurnsInput="45"
-      contextUsage={CONTEXT_USAGE}
-      liveToolPromptTokenCount={null}
-      liveMessages={[]}
-      chatInput=""
-      chatBusy={false}
-      chatError={null}
-      onSelectSession={() => undefined}
-      onToggleSettings={() => undefined}
-      onChangePlanRepoRoot={() => undefined}
-      onChangePlanMaxTurns={() => undefined}
-      onChangeChatInput={() => undefined}
-      onCreateSession={async () => undefined}
-      onDeleteSession={async () => undefined}
-      onUpdateSessionPreset={async () => undefined}
-      onToggleThinking={async () => undefined}
-      onSavePlanRepoRoot={async () => undefined}
-      onClearToolContext={async () => undefined}
-      onDeleteMessage={async () => undefined}
-      onCondense={async () => undefined}
-      onSendPlan={async () => undefined}
-      onSendRepoSearch={async () => undefined}
-      onSendMessage={async () => undefined}
-    />,
-  );
+  const markup = renderChatTab({
+    selectedSession: session,
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'repo-search',
+    isRepoToolMode: true,
+    isThinkingEnabledForCurrentSession: true,
+    planMaxTurnsInput: '45',
+    contextUsage: CONTEXT_USAGE,
+  });
 
   assert.match(markup, /rg -n &quot;tool\.call\|toolCall\|ToolCall&quot;<\/code>/u);
   assert.doesNotMatch(markup, /--no-ignore|--ignore-case|--glob/u);
@@ -1198,6 +1119,18 @@ test('chat tab live scroll signature changes when streamed content grows', () =>
   ]);
 
   assert.notEqual(before, after);
+});
+
+test('renderChatTab accepts overrides and produces stable markup', () => {
+  const session: ChatSession = { ...CHAT_SESSION, title: 'renderer-fixture-title' };
+  const markup = renderChatTab({
+    selectedSessionId: session.id,
+    selectedSession: session,
+    sessions: [session],
+    chatBusy: true,
+  });
+  assert.equal(typeof markup, 'string');
+  assert.equal(markup.includes('renderer-fixture-title'), true);
 });
 
 test('buildLiveMessageScrollSignature changes when content of identical length is replaced', () => {
@@ -1224,45 +1157,16 @@ test('buildLiveMessageScrollSignature changes when content of identical length i
 });
 
 test('chat tab renders non-deletable collapsed system context bubble first', () => {
-  const markup = renderToStaticMarkup(
-    <ChatTab
-      sessions={[CHAT_SESSION_WITH_PROMPT_CONTEXT]}
-      selectedSessionId={CHAT_SESSION_WITH_PROMPT_CONTEXT.id}
-      selectedSession={CHAT_SESSION_WITH_PROMPT_CONTEXT}
-      sessionPromptCacheStats={{ cacheHitRate: 0, promptCacheTokens: 0, promptEvalTokens: 0, acceptanceRate: null, speculativeAcceptedTokens: 0, speculativeGeneratedTokens: 0, promptTokensPerSecond: null, generationTokensPerSecond: null }}
-      webPresets={[PRESET]}
-      selectedChatPreset={PRESET}
-      chatMode="repo-search"
-      isDirectChatMode={false}
-      isRepoToolMode={true}
-      isThinkingEnabledForCurrentSession={true}
-      showSettings={false}
-      planRepoRootInput=""
-      planMaxTurnsInput="45"
-      contextUsage={CONTEXT_USAGE}
-      liveToolPromptTokenCount={null}
-      liveMessages={[]}
-      chatInput=""
-      chatBusy={false}
-      chatError={null}
-      onSelectSession={() => undefined}
-      onToggleSettings={() => undefined}
-      onChangePlanRepoRoot={() => undefined}
-      onChangePlanMaxTurns={() => undefined}
-      onChangeChatInput={() => undefined}
-      onCreateSession={async () => undefined}
-      onDeleteSession={async () => undefined}
-      onUpdateSessionPreset={async () => undefined}
-      onToggleThinking={async () => undefined}
-      onSavePlanRepoRoot={async () => undefined}
-      onClearToolContext={async () => undefined}
-      onDeleteMessage={async () => undefined}
-      onCondense={async () => undefined}
-      onSendPlan={async () => undefined}
-      onSendRepoSearch={async () => undefined}
-      onSendMessage={async () => undefined}
-    />,
-  );
+  const markup = renderChatTab({
+    selectedSession: CHAT_SESSION_WITH_PROMPT_CONTEXT,
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'repo-search',
+    isRepoToolMode: true,
+    isThinkingEnabledForCurrentSession: true,
+    planMaxTurnsInput: '45',
+    contextUsage: CONTEXT_USAGE,
+  });
 
   assert.match(markup, /system \| first message/u);
   assert.match(markup, /System prompt and tool schema/u);
@@ -1280,45 +1184,17 @@ test('chat tab renders fallback system context bubble when session metadata is m
     promptPrefix: 'Use strict repo evidence.',
     allowedTools: ['repo_rg', 'repo_read_file'],
   } as DashboardPreset;
-  const markup = renderToStaticMarkup(
-    <ChatTab
-      sessions={[session]}
-      selectedSessionId={session.id}
-      selectedSession={session}
-      sessionPromptCacheStats={{ cacheHitRate: 0, promptCacheTokens: 0, promptEvalTokens: 0, acceptanceRate: null, speculativeAcceptedTokens: 0, speculativeGeneratedTokens: 0, promptTokensPerSecond: null, generationTokensPerSecond: null }}
-      webPresets={[preset]}
-      selectedChatPreset={preset}
-      chatMode="repo-search"
-      isDirectChatMode={false}
-      isRepoToolMode={true}
-      isThinkingEnabledForCurrentSession={true}
-      showSettings={false}
-      planRepoRootInput="C:\\repo"
-      planMaxTurnsInput="45"
-      contextUsage={CONTEXT_USAGE}
-      liveToolPromptTokenCount={null}
-      liveMessages={[]}
-      chatInput=""
-      chatBusy={false}
-      chatError={null}
-      onSelectSession={() => undefined}
-      onToggleSettings={() => undefined}
-      onChangePlanRepoRoot={() => undefined}
-      onChangePlanMaxTurns={() => undefined}
-      onChangeChatInput={() => undefined}
-      onCreateSession={async () => undefined}
-      onDeleteSession={async () => undefined}
-      onUpdateSessionPreset={async () => undefined}
-      onToggleThinking={async () => undefined}
-      onSavePlanRepoRoot={async () => undefined}
-      onClearToolContext={async () => undefined}
-      onDeleteMessage={async () => undefined}
-      onCondense={async () => undefined}
-      onSendPlan={async () => undefined}
-      onSendRepoSearch={async () => undefined}
-      onSendMessage={async () => undefined}
-    />,
-  );
+  const markup = renderChatTab({
+    selectedSession: session,
+    webPresets: [preset],
+    selectedChatPreset: preset,
+    chatMode: 'repo-search',
+    isRepoToolMode: true,
+    isThinkingEnabledForCurrentSession: true,
+    planRepoRootInput: 'C:\\repo',
+    planMaxTurnsInput: '45',
+    contextUsage: CONTEXT_USAGE,
+  });
 
   assert.match(markup, /system \| first message/u);
   assert.match(markup, /Use strict repo evidence/u);
@@ -1331,45 +1207,18 @@ test('chat tab sorts persisted messages oldest first and keeps live messages las
   const newer = { ...CHAT_MESSAGE, id: 'newer', content: 'newer persisted message', createdAtUtc: '2026-04-16T12:01:00.000Z' } as ChatMessage;
   const live = { ...CHAT_MESSAGE, id: 'live-answer', content: 'currently streaming message', createdAtUtc: '2026-04-16T11:59:00.000Z' } as ChatMessage;
   const session = { ...CHAT_SESSION, messages: [newer, older] } as ChatSession;
-  const markup = renderToStaticMarkup(
-    <ChatTab
-      sessions={[session]}
-      selectedSessionId={session.id}
-      selectedSession={session}
-      sessionPromptCacheStats={{ cacheHitRate: 0, promptCacheTokens: 0, promptEvalTokens: 0, acceptanceRate: null, speculativeAcceptedTokens: 0, speculativeGeneratedTokens: 0, promptTokensPerSecond: null, generationTokensPerSecond: null }}
-      webPresets={[PRESET]}
-      selectedChatPreset={PRESET}
-      chatMode="chat"
-      isDirectChatMode={true}
-      isRepoToolMode={false}
-      isThinkingEnabledForCurrentSession={true}
-      showSettings={false}
-      planRepoRootInput=""
-      planMaxTurnsInput="45"
-      contextUsage={CONTEXT_USAGE}
-      liveToolPromptTokenCount={null}
-      liveMessages={[live]}
-      chatInput=""
-      chatBusy={true}
-      chatError={null}
-      onSelectSession={() => undefined}
-      onToggleSettings={() => undefined}
-      onChangePlanRepoRoot={() => undefined}
-      onChangePlanMaxTurns={() => undefined}
-      onChangeChatInput={() => undefined}
-      onCreateSession={async () => undefined}
-      onDeleteSession={async () => undefined}
-      onUpdateSessionPreset={async () => undefined}
-      onToggleThinking={async () => undefined}
-      onSavePlanRepoRoot={async () => undefined}
-      onClearToolContext={async () => undefined}
-      onDeleteMessage={async () => undefined}
-      onCondense={async () => undefined}
-      onSendPlan={async () => undefined}
-      onSendRepoSearch={async () => undefined}
-      onSendMessage={async () => undefined}
-    />,
-  );
+  const markup = renderChatTab({
+    selectedSession: session,
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'chat',
+    isDirectChatMode: true,
+    isThinkingEnabledForCurrentSession: true,
+    planMaxTurnsInput: '45',
+    contextUsage: CONTEXT_USAGE,
+    liveMessages: [live],
+    chatBusy: true,
+  });
 
   assert.equal(markup.indexOf('older message') < markup.indexOf('newer persisted message'), true);
   assert.equal(markup.indexOf('newer persisted message') < markup.indexOf('currently streaming message'), true);
