@@ -9,7 +9,7 @@ import {
   getMessageTokenCount,
   isMessageTokenEstimateFallback,
 } from '../lib/format';
-import type { ChatSession, ContextUsage, DashboardPreset, DashboardPresetExecutionFamily } from '../types';
+import type { ChatPromptContext, ChatSession, ContextUsage, DashboardPreset, DashboardPresetExecutionFamily } from '../types';
 import type { ChatMessage } from '../types';
 
 type SessionPromptCacheStats = {
@@ -61,6 +61,53 @@ type ChatTabProps = {
   onSendMessage(): Promise<void>;
 };
 
+function compareMessageCreatedAt(left: ChatMessage, right: ChatMessage): number {
+  const leftTime = Date.parse(left.createdAtUtc || '');
+  const rightTime = Date.parse(right.createdAtUtc || '');
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+    return leftTime - rightTime;
+  }
+  return 0;
+}
+
+function buildFallbackPromptContext(
+  selectedSession: ChatSession,
+  selectedChatPreset: DashboardPreset | null,
+  isRepoToolMode: boolean,
+  planRepoRootInput: string,
+): ChatPromptContext {
+  const promptPrefix = selectedChatPreset?.promptPrefix?.trim() || 'general, coder friendly assistant';
+  const toolNames = Array.isArray(selectedChatPreset?.allowedTools) ? selectedChatPreset.allowedTools : [];
+  const parts = [
+    '## System prompt',
+    '',
+    promptPrefix,
+  ];
+  if (isRepoToolMode) {
+    parts.push(
+      '',
+      '## Tool schema',
+      '',
+      JSON.stringify({
+        mode: selectedChatPreset?.presetKind || selectedSession.mode || 'repo-search',
+        repoRoot: planRepoRootInput || selectedSession.planRepoRoot || '',
+        allowedTools: toolNames,
+        includeAgentsMd: selectedChatPreset?.includeAgentsMd !== false,
+        includeRepoFileListing: selectedChatPreset?.includeRepoFileListing !== false,
+      }, null, 2),
+    );
+  }
+  return {
+    id: `${selectedSession.id}:system-context-fallback`,
+    role: 'system',
+    kind: 'system_context',
+    label: isRepoToolMode ? 'System prompt and tool schema' : 'System prompt',
+    content: parts.join('\n'),
+    createdAtUtc: selectedSession.createdAtUtc,
+    deletable: false,
+  };
+}
+
 export function ChatTab({
   sessions,
   selectedSessionId,
@@ -98,7 +145,19 @@ export function ChatTab({
   onSendRepoSearch,
   onSendMessage,
 }: ChatTabProps) {
-  const visibleMessages = selectedSession ? [...selectedSession.messages, ...liveMessages] : [];
+  const persistedMessages = selectedSession ? [...selectedSession.messages].sort(compareMessageCreatedAt) : [];
+  const visibleMessages = [...persistedMessages, ...liveMessages];
+  const promptContext = selectedSession
+    ? selectedSession.promptContext || buildFallbackPromptContext(selectedSession, selectedChatPreset, isRepoToolMode, planRepoRootInput)
+    : null;
+  const chatLogRef = React.useRef<HTMLDivElement | null>(null);
+  const visibleMessageIds = visibleMessages.map((message) => message.id).join('|');
+  React.useEffect(() => {
+    if (!chatLogRef.current) {
+      return;
+    }
+    chatLogRef.current.scrollTop = chatLogRef.current.scrollHeight;
+  }, [visibleMessageIds]);
   return (
     <section className="panel-grid chat-layout">
       <section className="panel">
@@ -265,20 +324,20 @@ export function ChatTab({
                 <pre>{selectedSession.condensedSummary}</pre>
               </details>
             )}
-            <div className="chat-log">
-              {selectedSession.promptContext && selectedSession.promptContext.content.trim() ? (
+            <div className="chat-log" ref={chatLogRef}>
+              {promptContext && promptContext.content.trim() ? (
                 <article className="msg system system_context">
                   <header className="msg-header">
                     <span>system | first message</span>
                     <span className="msg-meta">
                       <span className="msg-tokens">
-                        {formatNumber(Math.max(1, Math.ceil(selectedSession.promptContext.content.length / 4)))} est.
+                        {formatNumber(Math.max(1, Math.ceil(promptContext.content.length / 4)))} est.
                       </span>
                     </span>
                   </header>
                   <details className="system-context-bubble">
-                    <summary>{selectedSession.promptContext.label}</summary>
-                    <pre>{selectedSession.promptContext.content}</pre>
+                    <summary>{promptContext.label}</summary>
+                    <pre>{promptContext.content}</pre>
                   </details>
                 </article>
               ) : null}

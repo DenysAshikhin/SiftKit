@@ -1185,6 +1185,109 @@ test('chat tab renders non-deletable collapsed system context bubble first', () 
   assert.equal(markup.match(/aria-label="Delete message"/gu)?.length, 1);
 });
 
+test('chat tab renders fallback system context bubble when session metadata is missing', () => {
+  const session = { ...CHAT_SESSION, promptContext: undefined } as ChatSession;
+  const preset = {
+    ...PRESET,
+    presetKind: 'repo-search',
+    promptPrefix: 'Use strict repo evidence.',
+    allowedTools: ['repo_rg', 'repo_read_file'],
+  } as DashboardPreset;
+  const markup = renderToStaticMarkup(
+    <ChatTab
+      sessions={[session]}
+      selectedSessionId={session.id}
+      selectedSession={session}
+      sessionPromptCacheStats={{ cacheHitRate: 0, promptCacheTokens: 0, promptEvalTokens: 0, acceptanceRate: null, speculativeAcceptedTokens: 0, speculativeGeneratedTokens: 0, promptTokensPerSecond: null, generationTokensPerSecond: null }}
+      webPresets={[preset]}
+      selectedChatPreset={preset}
+      chatMode="repo-search"
+      isDirectChatMode={false}
+      isRepoToolMode={true}
+      isThinkingEnabledForCurrentSession={true}
+      showSettings={false}
+      planRepoRootInput="C:\\repo"
+      planMaxTurnsInput="45"
+      contextUsage={CONTEXT_USAGE}
+      liveToolPromptTokenCount={null}
+      liveMessages={[]}
+      chatInput=""
+      chatBusy={false}
+      chatError={null}
+      onSelectSession={() => undefined}
+      onToggleSettings={() => undefined}
+      onChangePlanRepoRoot={() => undefined}
+      onChangePlanMaxTurns={() => undefined}
+      onChangeChatInput={() => undefined}
+      onCreateSession={async () => undefined}
+      onDeleteSession={async () => undefined}
+      onUpdateSessionPreset={async () => undefined}
+      onToggleThinking={async () => undefined}
+      onSavePlanRepoRoot={async () => undefined}
+      onClearToolContext={async () => undefined}
+      onDeleteMessage={async () => undefined}
+      onCondense={async () => undefined}
+      onSendPlan={async () => undefined}
+      onSendRepoSearch={async () => undefined}
+      onSendMessage={async () => undefined}
+    />,
+  );
+
+  assert.match(markup, /system \| first message/u);
+  assert.match(markup, /Use strict repo evidence/u);
+  assert.match(markup, /repo_rg/u);
+  assert.match(markup, /repo_read_file/u);
+});
+
+test('chat tab sorts persisted messages oldest first and keeps live messages last', () => {
+  const older = { ...CHAT_MESSAGE, id: 'older', role: 'user', kind: 'user_text', content: 'older message', createdAtUtc: '2026-04-16T12:00:00.000Z' } as ChatMessage;
+  const newer = { ...CHAT_MESSAGE, id: 'newer', content: 'newer persisted message', createdAtUtc: '2026-04-16T12:01:00.000Z' } as ChatMessage;
+  const live = { ...CHAT_MESSAGE, id: 'live-answer', content: 'currently streaming message', createdAtUtc: '2026-04-16T11:59:00.000Z' } as ChatMessage;
+  const session = { ...CHAT_SESSION, messages: [newer, older] } as ChatSession;
+  const markup = renderToStaticMarkup(
+    <ChatTab
+      sessions={[session]}
+      selectedSessionId={session.id}
+      selectedSession={session}
+      sessionPromptCacheStats={{ cacheHitRate: 0, promptCacheTokens: 0, promptEvalTokens: 0, acceptanceRate: null, speculativeAcceptedTokens: 0, speculativeGeneratedTokens: 0, promptTokensPerSecond: null, generationTokensPerSecond: null }}
+      webPresets={[PRESET]}
+      selectedChatPreset={PRESET}
+      chatMode="chat"
+      isDirectChatMode={true}
+      isRepoToolMode={false}
+      isThinkingEnabledForCurrentSession={true}
+      showSettings={false}
+      planRepoRootInput=""
+      planMaxTurnsInput="45"
+      contextUsage={CONTEXT_USAGE}
+      liveToolPromptTokenCount={null}
+      liveMessages={[live]}
+      chatInput=""
+      chatBusy={true}
+      chatError={null}
+      onSelectSession={() => undefined}
+      onToggleSettings={() => undefined}
+      onChangePlanRepoRoot={() => undefined}
+      onChangePlanMaxTurns={() => undefined}
+      onChangeChatInput={() => undefined}
+      onCreateSession={async () => undefined}
+      onDeleteSession={async () => undefined}
+      onUpdateSessionPreset={async () => undefined}
+      onToggleThinking={async () => undefined}
+      onSavePlanRepoRoot={async () => undefined}
+      onClearToolContext={async () => undefined}
+      onDeleteMessage={async () => undefined}
+      onCondense={async () => undefined}
+      onSendPlan={async () => undefined}
+      onSendRepoSearch={async () => undefined}
+      onSendMessage={async () => undefined}
+    />,
+  );
+
+  assert.equal(markup.indexOf('older message') < markup.indexOf('newer persisted message'), true);
+  assert.equal(markup.indexOf('newer persisted message') < markup.indexOf('currently streaming message'), true);
+});
+
 test('metrics tab renders speculative acceptance graph', () => {
   const markup = renderToStaticMarkup(
     <MetricsTab

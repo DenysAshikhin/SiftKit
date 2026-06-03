@@ -600,6 +600,49 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
 // SSE streaming implementation (internal)
 // ---------------------------------------------------------------------------
 
+const STREAM_RUNAWAY_STRUCTURAL_REPEAT_LIMIT = 96;
+
+type RunawayStructuralTail = {
+  repeatedChar: string;
+  repeatedCount: number;
+  truncatedText: string;
+};
+
+function getRunawayStructuralTail(text: string): RunawayStructuralTail | null {
+  const normalized = String(text || '');
+  if (!/"action"\s*:/u.test(normalized)) {
+    return null;
+  }
+  const lastChar = normalized.at(-1) || '';
+  if (lastChar !== '}' && lastChar !== ']') {
+    return null;
+  }
+
+  let repeatedCount = 0;
+  for (let index = normalized.length - 1; index >= 0 && normalized[index] === lastChar; index -= 1) {
+    repeatedCount += 1;
+  }
+  if (repeatedCount < STREAM_RUNAWAY_STRUCTURAL_REPEAT_LIMIT) {
+    return null;
+  }
+
+  return {
+    repeatedChar: lastChar,
+    repeatedCount,
+    truncatedText: normalized.slice(
+      0,
+      normalized.length - repeatedCount + STREAM_RUNAWAY_STRUCTURAL_REPEAT_LIMIT,
+    ),
+  };
+}
+
+function buildEarlyStoppedPlannerText(reasonText: string, contentText: string): string {
+  return [
+    `SiftKit stopped the planner stream early: ${reasonText}.`,
+    contentText.trim(),
+  ].filter((part) => part.length > 0).join('\n');
+}
+
 function requestStreaming(
   options: PlannerRequestOptions,
   bodyJson: string,
@@ -708,6 +751,14 @@ function requestStreaming(
                 generationStartedAt = Date.now();
               }
               thinkingText += deltaThinking;
+              const runawayThinking = getRunawayStructuralTail(thinkingText);
+              if (runawayThinking) {
+                thinkingText = runawayThinking.truncatedText;
+                finishEarly(
+                  `runaway streamed planner reasoning repeated '${runawayThinking.repeatedChar}' ${runawayThinking.repeatedCount} times`
+                );
+                return;
+              }
               options.onThinkingDelta?.(thinkingText);
             }
             if (deltaContent) {
@@ -715,11 +766,49 @@ function requestStreaming(
                 generationStartedAt = Date.now();
               }
               contentText += deltaContent;
+              const runawayContent = getRunawayStructuralTail(contentText);
+              if (runawayContent) {
+                contentText = runawayContent.truncatedText;
+                finishEarly(
+                  `runaway streamed planner content repeated '${runawayContent.repeatedChar}' ${runawayContent.repeatedCount} times`
+                );
+                return;
+              }
               options.onContentDelta?.(contentText);
             }
           } catch { /* ignore malformed chunks */ }
         }
       });
+
+      const finishEarly = (reasonText: string): void => {
+        if (settled) return;
+        settled = true;
+        options.abortSignal?.removeEventListener('abort', abortRequest);
+        const finishedAt = Date.now();
+        options.logger?.write({
+          kind: 'provider_request_done',
+          stage,
+          method,
+          url: target.toString(),
+          path: urlPath,
+          statusCode: response.statusCode || 0,
+          elapsedMs: finishedAt - startedAt,
+          earlyTerminationReason: reasonText,
+        });
+        request.destroy(new Error(reasonText));
+        resolve({
+          text: buildEarlyStoppedPlannerText(reasonText, contentText),
+          thinkingText: thinkingText.trim(),
+          mockExhausted: false,
+          promptTokens,
+          completionTokens,
+          usageThinkingTokens,
+          promptCacheTokens,
+          promptEvalTokens,
+          promptEvalDurationMs: promptEvalDurationMs ?? (generationStartedAt === null ? null : Math.max(generationStartedAt - startedAt, 0)),
+          generationDurationMs: generationDurationMs ?? (generationStartedAt === null ? null : Math.max(finishedAt - generationStartedAt, 0)),
+        });
+      };
 
       response.on('end', () => {
         if (settled) return;

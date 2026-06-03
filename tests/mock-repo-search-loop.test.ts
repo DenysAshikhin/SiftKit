@@ -153,6 +153,111 @@ test('runTaskLoop replays unrecoverable invalid planner payloads through invalid
   assert.equal(userMessages.length, 0);
 });
 
+test('runTaskLoop cuts off runaway streamed tool JSON and reprompts once', { timeout: 5000 }, async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const progressEvents: Array<{ kind: string; thinkingText?: string }> = [];
+  const controller = new AbortController();
+  let requestCount = 0;
+  let firstStreamClosed = false;
+  const server = http.createServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+
+    requestCount += 1;
+    if (requestCount === 1) {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      });
+      res.on('close', () => {
+        firstStreamClosed = true;
+      });
+      res.write(
+        `data: ${JSON.stringify({
+          choices: [{
+            delta: {
+              content: '{"action":"tool_batch","calls":[{"action":"repo_rg","command":"rg -n \\"planner\\" src"}]}'
+                + '}'.repeat(220),
+            },
+          }],
+        })}\n\n`
+      );
+      return;
+    }
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+    res.write(
+      `data: ${JSON.stringify({
+        choices: [{ delta: { content: '{"action":"finish","output":"done"}' } }],
+      })}\n\n`
+    );
+    res.write('data: [DONE]\n\n');
+    res.end();
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address() as { port: number };
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const resultPromise = runTaskLoop(
+      {
+        id: 'task-runaway-streamed-tool-json',
+        question: 'Find planner text.',
+        signals: ['done'],
+      },
+      {
+        baseUrl,
+        model: 'mock-model',
+        maxTurns: 3,
+        maxInvalidResponses: 2,
+        minToolCallsBeforeFinish: 0,
+        abortSignal: controller.signal,
+        logger: {
+          write(event: Record<string, unknown> & { kind: string }) {
+            events.push(event);
+          },
+        },
+        onProgress(event) {
+          progressEvents.push({ kind: event.kind, thinkingText: event.thinkingText });
+        },
+      }
+    );
+
+    const timeout = new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 1200));
+    const result = await Promise.race([resultPromise, timeout]);
+    assert.notEqual(result, 'timeout');
+    if (result === 'timeout') {
+      return;
+    }
+
+    const invalidEvent = events.find((event) => event.kind === 'turn_action_invalid');
+    const turn2NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 2);
+    const turn2Messages = Array.isArray(turn2NewMessages?.messages) ? turn2NewMessages.messages : [];
+    const assistantMessage = turn2Messages.find((message: { role?: string }) => message.role === 'assistant');
+    const assistantToolCall = Array.isArray(assistantMessage?.tool_calls) ? assistantMessage.tool_calls[0] : null;
+
+    assert.equal(result.reason, 'finish');
+    assert.equal(result.invalidResponses, 1);
+    assert.equal(requestCount, 2);
+    assert.equal(firstStreamClosed, true);
+    assert.equal(String(assistantToolCall?.function?.name || ''), 'invalid_tool_call');
+    assert.match(String(invalidEvent?.error || ''), /invalid planner payload/u);
+    assert.equal(progressEvents.some((event) => String(event.thinkingText || '').includes('}'.repeat(220))), false);
+  } finally {
+    controller.abort(new Error('test cleanup'));
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test('runTaskLoop truncates oversized rg output to the largest fitting prefix', async () => {
   const events: Array<Record<string, unknown> & { kind: string }> = [];
   const totalContextTokens = 20000;
