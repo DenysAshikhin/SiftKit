@@ -11,28 +11,23 @@ if (!fs.existsSync(runtimePath)) {
 }
 
 const { runCli } = require(runtimePath);
+const { commandReadsStdin, readStdinToEnd } = require(join(__dirname, '..', 'dist', 'cli', 'stdin-input.js'));
 
-async function readStdin() {
-  if (process.stdin.isTTY) {
+// Read stdin only when the resolved command actually consumes it (e.g. piped
+// `summary` input). Commands like `repo-search` ignore stdin, so reading it
+// would block forever when a caller leaves an open, idle stdin pipe — the usual
+// shape when an agent spawns `siftkit` non-interactively.
+async function readStdin(argv) {
+  if (process.stdin.isTTY || !commandReadsStdin(argv)) {
     return { text: '', stdinWaitMs: 0 };
   }
-
-  const startedAt = Date.now();
-  return await new Promise((resolve, reject) => {
-    let collected = '';
-    process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (chunk) => {
-      collected += chunk;
-    });
-    process.stdin.on('end', () => resolve({ text: collected, stdinWaitMs: Date.now() - startedAt }));
-    process.stdin.on('error', reject);
-  });
+  return await readStdinToEnd(process.stdin);
 }
 
 void (async () => {
   try {
     const processStartedAtMs = Date.now();
-    const stdin = await readStdin();
+    const stdin = await readStdin(process.argv.slice(2));
     const exitCode = await runCli({
       argv: process.argv.slice(2),
       stdinText: stdin.text,
