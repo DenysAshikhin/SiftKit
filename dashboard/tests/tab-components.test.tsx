@@ -1200,6 +1200,29 @@ test('chat tab live scroll signature changes when streamed content grows', () =>
   assert.notEqual(before, after);
 });
 
+test('buildLiveMessageScrollSignature changes when content of identical length is replaced', () => {
+  const baseMessage: ChatMessage = {
+    id: 'm1',
+    role: 'assistant',
+    kind: 'assistant_tool_call',
+    content: 'abc',
+    inputTokensEstimate: 0,
+    outputTokensEstimate: 0,
+    thinkingTokens: 0,
+    associatedToolTokens: 0,
+    createdAtUtc: '2026-06-03T12:00:00.000Z',
+    sourceRunId: null,
+    toolCallCommand: 'rg foo',
+    toolCallOutputSnippet: 'hit',
+    toolCallOutput: '',
+    toolCallStatus: 'running',
+    toolCallExitCode: null,
+  };
+  const before = buildLiveMessageScrollSignature([baseMessage]);
+  const after = buildLiveMessageScrollSignature([{ ...baseMessage, toolCallOutputSnippet: 'hot' }]);
+  assert.notEqual(before, after, 'equal-length replacement must change scroll signature');
+});
+
 test('chat tab renders non-deletable collapsed system context bubble first', () => {
   const markup = renderToStaticMarkup(
     <ChatTab
