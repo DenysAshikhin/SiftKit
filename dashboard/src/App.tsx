@@ -66,6 +66,8 @@ import { SettingsMockupPage } from './settings-mockup';
 import { buildTaskRunsSeries, buildToolMetricRows } from './metrics-view';
 import type { InteractiveSeries } from './components/InteractiveGraph';
 import { buildRepoSearchChatSteps } from './lib/chat-steps';
+import { buildLiveToolMessageId } from './lib/live-tool-message';
+import { type ChatStreamToolEvent } from './lib/chat-stream-parser';
 import {
   buildRunsSignature,
   classifyRunGroup,
@@ -245,13 +247,8 @@ function DashboardApp() {
     });
   }
 
-  function appendLiveToolMessage(toolEvent: {
-    turn: number;
-    maxTurns: number;
-    command: string;
-    promptTokenCount?: number;
-  }): void {
-    const id = `live-tool-${toolEvent.turn}-${toolEvent.command}`;
+  function appendLiveToolMessage(toolEvent: ChatStreamToolEvent): void {
+    const id = buildLiveToolMessageId(toolEvent.toolCallId);
     upsertLiveMessage({
       ...createLiveMessage(id, 'assistant_tool_call', 'assistant', toolEvent.command),
       outputTokensEstimate: 0,
@@ -263,15 +260,8 @@ function DashboardApp() {
     });
   }
 
-  function completeLiveToolMessage(toolEvent: {
-    turn: number;
-    maxTurns: number;
-    command: string;
-    exitCode?: number;
-    outputSnippet?: string;
-    promptTokenCount?: number;
-  }): void {
-    const id = `live-tool-${toolEvent.turn}-${toolEvent.command}`;
+  function completeLiveToolMessage(toolEvent: ChatStreamToolEvent): void {
+    const id = buildLiveToolMessageId(toolEvent.toolCallId);
     const outputSnippet = typeof toolEvent.outputSnippet === 'string' ? toolEvent.outputSnippet : '';
     upsertLiveMessage({
       ...createLiveMessage(id, 'assistant_tool_call', 'assistant', toolEvent.command),

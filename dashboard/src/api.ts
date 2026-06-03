@@ -22,6 +22,7 @@ import type {
   DashboardBenchmarkSessionsResponse,
   DashboardBenchmarkStartRequest,
 } from './types';
+import { ChatStreamReader, type ChatStreamToolEvent } from './lib/chat-stream-parser';
 
 async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, init);
@@ -409,27 +410,14 @@ export function createPlanMessage(
   });
 }
 
-export async function streamPlanMessage(
-  sessionId: string,
-  payload: {
-    content: string;
-    repoRoot?: string;
-    model?: string;
-    maxTurns?: number;
-  },
+async function consumeChatStream(
+  url: string,
+  payload: unknown,
   onThinking: (thinkingText: string) => void,
-  onToolEvent: (event: {
-    kind: 'tool_start' | 'tool_result';
-    turn: number;
-    maxTurns: number;
-    command: string;
-    exitCode?: number;
-    outputSnippet?: string;
-    promptTokenCount?: number;
-  }) => void,
+  onToolEvent: (event: ChatStreamToolEvent) => void,
   onAnswer?: (answerText: string) => void,
 ): Promise<ChatSessionResponse> {
-  const response = await fetch(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/plan/stream`, {
+  const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -441,96 +429,46 @@ export async function streamPlanMessage(
   if (!response.body) {
     throw new Error('Streaming response body was empty.');
   }
-
-  const decoder = new TextDecoder();
-  const reader = response.body.getReader();
-  let buffer = '';
   let finalResponse: ChatSessionResponse | null = null;
-
-  const handlePacket = (packet: string): void => {
-    const lines = packet
-      .split(/\r?\n/u)
-      .map((line) => line.trim())
-      .filter(Boolean);
-    const eventLine = lines.find((line) => line.startsWith('event:'));
-    const dataLine = lines.find((line) => line.startsWith('data:'));
-    if (!dataLine) {
-      return;
-    }
-    const eventName = eventLine ? eventLine.slice(6).trim() : 'message';
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(dataLine.slice(5).trim());
-    } catch {
-      return;
-    }
-    if (eventName === 'thinking' && parsed && typeof parsed === 'object') {
-      onThinking(String((parsed as { thinking?: unknown }).thinking || ''));
-      return;
-    }
-    if ((eventName === 'tool_start' || eventName === 'tool_result') && parsed && typeof parsed === 'object') {
-      const p = parsed as {
-        kind?: string;
-        turn?: number;
-        maxTurns?: number;
-        command?: string;
-        exitCode?: number;
-        outputSnippet?: string;
-        promptTokenCount?: number;
-      };
-      const evt: {
-        kind: 'tool_start' | 'tool_result';
-        turn: number;
-        maxTurns: number;
-        command: string;
-        exitCode?: number;
-        outputSnippet?: string;
-        promptTokenCount?: number;
-      } = {
-        kind: eventName as 'tool_start' | 'tool_result',
-        turn: Number(p.turn ?? 0),
-        maxTurns: Number(p.maxTurns ?? 0),
-        command: String(p.command ?? ''),
-      };
-      if (typeof p.exitCode === 'number') { evt.exitCode = p.exitCode; }
-      if (typeof p.outputSnippet === 'string') { evt.outputSnippet = p.outputSnippet; }
-      if (typeof p.promptTokenCount === 'number') { evt.promptTokenCount = p.promptTokenCount; }
-      onToolEvent(evt);
-      return;
-    }
-    if (eventName === 'answer' && parsed && typeof parsed === 'object') {
-      if (onAnswer) {
-        onAnswer(String((parsed as { answer?: unknown }).answer || ''));
-      }
-      return;
-    }
-    if (eventName === 'done') {
-      finalResponse = parsed as ChatSessionResponse;
-      return;
-    }
-    if (eventName === 'error' && parsed && typeof parsed === 'object') {
-      throw new Error(String((parsed as { error?: unknown }).error || 'stream error'));
-    }
-  };
-
-  for (;;) {
-    const next = await reader.read();
-    if (next.done) {
-      break;
-    }
-    buffer += decoder.decode(next.value, { stream: true });
-    let boundary = buffer.indexOf('\n\n');
-    while (boundary >= 0) {
-      const packet = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-      handlePacket(packet);
-      boundary = buffer.indexOf('\n\n');
+  const reader = new ChatStreamReader(response.body.getReader());
+  for await (const event of reader.events()) {
+    if (event.kind === 'thinking') {
+      onThinking(event.text);
+    } else if (event.kind === 'tool') {
+      onToolEvent(event.tool);
+    } else if (event.kind === 'answer') {
+      if (onAnswer) onAnswer(event.text);
+    } else if (event.kind === 'done') {
+      finalResponse = event.payload;
+    } else if (event.kind === 'error') {
+      throw new Error(event.message);
     }
   }
   if (!finalResponse) {
     throw new Error('Missing final streaming payload.');
   }
   return finalResponse;
+}
+
+export async function streamPlanMessage(
+  sessionId: string,
+  payload: {
+    content: string;
+    repoRoot?: string;
+    model?: string;
+    maxTurns?: number;
+  },
+  onThinking: (thinkingText: string) => void,
+  onToolEvent: (event: ChatStreamToolEvent) => void,
+  onAnswer?: (answerText: string) => void,
+): Promise<ChatSessionResponse> {
+  return consumeChatStream(
+    `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/plan/stream`,
+    payload,
+    onThinking,
+    onToolEvent,
+    onAnswer,
+  );
 }
 
 export async function streamRepoSearchMessage(
@@ -542,117 +480,14 @@ export async function streamRepoSearchMessage(
     maxTurns?: number;
   },
   onThinking: (thinkingText: string) => void,
-  onToolEvent: (event: {
-    kind: 'tool_start' | 'tool_result';
-    turn: number;
-    maxTurns: number;
-    command: string;
-    exitCode?: number;
-    outputSnippet?: string;
-    promptTokenCount?: number;
-  }) => void,
+  onToolEvent: (event: ChatStreamToolEvent) => void,
   onAnswer?: (answerText: string) => void,
 ): Promise<ChatSessionResponse> {
-  const response = await fetch(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-search/stream`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Request failed (${response.status}): ${text}`);
-  }
-  if (!response.body) {
-    throw new Error('Streaming response body was empty.');
-  }
-
-  const decoder = new TextDecoder();
-  const reader = response.body.getReader();
-  let buffer = '';
-  let finalResponse: ChatSessionResponse | null = null;
-
-  const handlePacket = (packet: string): void => {
-    const lines = packet
-      .split(/\r?\n/u)
-      .map((line) => line.trim())
-      .filter(Boolean);
-    const eventLine = lines.find((line) => line.startsWith('event:'));
-    const dataLine = lines.find((line) => line.startsWith('data:'));
-    if (!dataLine) {
-      return;
-    }
-    const eventName = eventLine ? eventLine.slice(6).trim() : 'message';
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(dataLine.slice(5).trim());
-    } catch {
-      return;
-    }
-    if (eventName === 'thinking' && parsed && typeof parsed === 'object') {
-      onThinking(String((parsed as { thinking?: unknown }).thinking || ''));
-      return;
-    }
-    if ((eventName === 'tool_start' || eventName === 'tool_result') && parsed && typeof parsed === 'object') {
-      const p = parsed as {
-        kind?: string;
-        turn?: number;
-        maxTurns?: number;
-        command?: string;
-        exitCode?: number;
-        outputSnippet?: string;
-        promptTokenCount?: number;
-      };
-      const evt: {
-        kind: 'tool_start' | 'tool_result';
-        turn: number;
-        maxTurns: number;
-        command: string;
-        exitCode?: number;
-        outputSnippet?: string;
-        promptTokenCount?: number;
-      } = {
-        kind: eventName as 'tool_start' | 'tool_result',
-        turn: Number(p.turn ?? 0),
-        maxTurns: Number(p.maxTurns ?? 0),
-        command: String(p.command ?? ''),
-      };
-      if (typeof p.exitCode === 'number') { evt.exitCode = p.exitCode; }
-      if (typeof p.outputSnippet === 'string') { evt.outputSnippet = p.outputSnippet; }
-      if (typeof p.promptTokenCount === 'number') { evt.promptTokenCount = p.promptTokenCount; }
-      onToolEvent(evt);
-      return;
-    }
-    if (eventName === 'answer' && parsed && typeof parsed === 'object') {
-      if (onAnswer) {
-        onAnswer(String((parsed as { answer?: unknown }).answer || ''));
-      }
-      return;
-    }
-    if (eventName === 'done') {
-      finalResponse = parsed as ChatSessionResponse;
-      return;
-    }
-    if (eventName === 'error' && parsed && typeof parsed === 'object') {
-      throw new Error(String((parsed as { error?: unknown }).error || 'stream error'));
-    }
-  };
-
-  for (;;) {
-    const next = await reader.read();
-    if (next.done) {
-      break;
-    }
-    buffer += decoder.decode(next.value, { stream: true });
-    let boundary = buffer.indexOf('\n\n');
-    while (boundary >= 0) {
-      const packet = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-      handlePacket(packet);
-      boundary = buffer.indexOf('\n\n');
-    }
-  }
-  if (!finalResponse) {
-    throw new Error('Missing final streaming payload.');
-  }
-  return finalResponse;
+  return consumeChatStream(
+    `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-search/stream`,
+    payload,
+    onThinking,
+    onToolEvent,
+    onAnswer,
+  );
 }
