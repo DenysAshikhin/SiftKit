@@ -26,6 +26,7 @@ import {
   getGenerationTokensPerSecond,
   getPromptTokensPerSecond,
 } from '../lib/telemetry-metrics.js';
+import { getDisplayToolCommand } from './tool-command-display.js';
 
 const DEFAULT_CHAT_SYSTEM_PROMPT = 'general, coder friendly assistant';
 const HIDDEN_TOOL_CONTEXT_PROMPT =
@@ -866,14 +867,6 @@ function truncateToolContextOutput(value: unknown, maxLength: number = 1400): st
   return `${text.slice(0, maxLength)}\n... (truncated)`;
 }
 
-function getModelVisibleToolCommand(command: Dict): string {
-  const modelVisibleCommand = typeof command.modelVisibleCommand === 'string' ? command.modelVisibleCommand.trim() : '';
-  if (modelVisibleCommand) {
-    return modelVisibleCommand;
-  }
-  return typeof command.command === 'string' ? command.command.trim() : '';
-}
-
 export function buildToolContextFromRepoSearchResult(result: Dict | null | undefined): string[] {
   const scorecard = result && typeof result.scorecard === 'object' ? result.scorecard as Dict : {};
   const tasks = Array.isArray(scorecard.tasks) ? scorecard.tasks as Dict[] : [];
@@ -886,7 +879,7 @@ export function buildToolContextFromRepoSearchResult(result: Dict | null | undef
       if (!command || typeof command !== 'object') {
         continue;
       }
-      const commandText = getModelVisibleToolCommand(command);
+      const commandText = getDisplayToolCommand(command);
       if (!commandText) {
         continue;
       }
@@ -917,7 +910,7 @@ export function buildToolMessagesFromRepoSearchResult(result: Dict | null | unde
       if (!command || typeof command !== 'object') {
         continue;
       }
-      const commandText = getModelVisibleToolCommand(command);
+      const commandText = getDisplayToolCommand(command);
       if (!commandText) {
         continue;
       }

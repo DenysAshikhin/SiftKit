@@ -4,6 +4,7 @@ import {
   isRecord,
   readStringField,
 } from './format';
+import { getDisplayToolCommand } from './display-command';
 
 export type RepoSearchChatStep = {
   id: string;
@@ -42,7 +43,7 @@ export function buildRepoSearchChatSteps(events: RunDetailResponse['events']): R
         if (!isRecord(commandRecord)) {
           continue;
         }
-        const command = readStringField(commandRecord, 'modelVisibleCommand') || readStringField(commandRecord, 'command');
+        const command = getDisplayToolCommand(commandRecord);
         const output = readStringField(commandRecord, 'output');
         if (!command || !output) {
           continue;

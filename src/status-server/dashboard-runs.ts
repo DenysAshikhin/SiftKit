@@ -23,6 +23,7 @@ import {
   buildDashboardDailyMetrics as buildDashboardDailyMetricsFromRunsAndSnapshots,
   type DailyMetrics,
 } from './dashboard-runs/metrics.js';
+import { commandMatchesDisplayText } from './tool-command-display.js';
 
 type DatabaseInstance = InstanceType<typeof Database>;
 
@@ -487,11 +488,6 @@ function parseJsonObjectText(text: string | null): Dict | null {
   }
 }
 
-function commandMatchesText(command: Dict, commandText: string): boolean {
-  return String(command.modelVisibleCommand || '').trim() === commandText
-    || String(command.command || '').trim() === commandText;
-}
-
 function removeCommandFromScorecard(scorecard: unknown, commandText: string): boolean {
   if (!scorecard || typeof scorecard !== 'object') {
     return false;
@@ -503,7 +499,7 @@ function removeCommandFromScorecard(scorecard: unknown, commandText: string): bo
       continue;
     }
     const originalCommands = task.commands as Dict[];
-    const filteredCommands = originalCommands.filter((command) => !commandMatchesText(command, commandText));
+    const filteredCommands = originalCommands.filter((command) => !commandMatchesDisplayText(command, commandText));
     if (filteredCommands.length !== originalCommands.length) {
       task.commands = filteredCommands;
       changed = true;
@@ -531,7 +527,7 @@ function removeCommandFromTranscriptJsonl(text: string | null, commandText: stri
     }
     const payload = parsed.payload && typeof parsed.payload === 'object' ? parsed.payload as Dict : parsed;
     const kind = String(parsed.kind || payload.kind || '');
-    if (commandMatchesText(payload, commandText) && (kind === 'turn_command_result' || kind === 'tool_start' || kind === 'tool_result')) {
+    if (commandMatchesDisplayText(payload, commandText) && (kind === 'turn_command_result' || kind === 'tool_start' || kind === 'tool_result')) {
       changed = true;
       continue;
     }
