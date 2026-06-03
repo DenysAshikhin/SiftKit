@@ -102,6 +102,47 @@ function getEffectivePresetAllowedTools(config: Dict, preset: SiftPreset | null)
   );
 }
 
+type SseWriter = (eventName: string, payload: unknown) => void;
+
+function requireToolCallId(event: RepoSearchProgressEvent): string {
+  const value = typeof event.toolCallId === 'string' ? event.toolCallId.trim() : '';
+  if (!value) {
+    throw new Error(`repo-search ${event.kind} progress event missing toolCallId`);
+  }
+  return value;
+}
+
+function forwardRepoSearchToolEvent(
+  writeSse: SseWriter,
+  event: RepoSearchProgressEvent,
+  logTag: 'planner' | 'repo_search',
+  logLineFn: (message: string) => void,
+): void {
+  if (event.kind === 'tool_start') {
+    const logMessage = buildRepoSearchProgressLogMessage(event, logTag);
+    if (logMessage) logLineFn(logMessage);
+    writeSse('tool_start', {
+      toolCallId: requireToolCallId(event),
+      turn: event.turn,
+      maxTurns: event.maxTurns,
+      command: event.command,
+      promptTokenCount: Number.isFinite(event.promptTokenCount) ? Number(event.promptTokenCount) : null,
+    });
+    return;
+  }
+  if (event.kind === 'tool_result') {
+    writeSse('tool_result', {
+      toolCallId: requireToolCallId(event),
+      turn: event.turn,
+      maxTurns: event.maxTurns,
+      command: event.command,
+      exitCode: event.exitCode,
+      outputSnippet: event.outputSnippet,
+      promptTokenCount: Number.isFinite(event.promptTokenCount) ? Number(event.promptTokenCount) : null,
+    });
+  }
+}
+
 function withPromptContext(config: Dict, session: ChatSession): ChatSession {
   return {
     ...session,
@@ -920,25 +961,9 @@ export async function handleChatRoute(
           if (event.kind === 'thinking') {
             phaseTracker.observeThinking(event.thinkingText || '');
             writeSse('thinking', { thinking: event.thinkingText || '' });
-          } else if (event.kind === 'tool_start') {
-            const logMessage = buildRepoSearchProgressLogMessage(event, 'planner');
-            if (logMessage) logLine(logMessage);
-            writeSse('tool_start', {
-              turn: event.turn,
-              maxTurns: event.maxTurns,
-              command: event.command,
-              promptTokenCount: Number.isFinite(event.promptTokenCount) ? Number(event.promptTokenCount) : null,
-            });
-          } else if (event.kind === 'tool_result') {
-            writeSse('tool_result', {
-              turn: event.turn,
-              maxTurns: event.maxTurns,
-              command: event.command,
-              exitCode: event.exitCode,
-              outputSnippet: event.outputSnippet,
-              promptTokenCount: Number.isFinite(event.promptTokenCount) ? Number(event.promptTokenCount) : null,
-            });
+            return;
           }
+          forwardRepoSearchToolEvent(writeSse, event, 'planner', logLine);
         },
       });
       const assistantContent = buildPlanMarkdownFromRepoSearch(content, resolvedRepoRoot, result);
@@ -1093,25 +1118,9 @@ export async function handleChatRoute(
           if (event.kind === 'thinking') {
             phaseTracker.observeThinking(event.thinkingText || '');
             writeSse('answer', { answer: event.thinkingText || '' });
-          } else if (event.kind === 'tool_start') {
-            const logMessage = buildRepoSearchProgressLogMessage(event, 'repo_search');
-            if (logMessage) logLine(logMessage);
-            writeSse('tool_start', {
-              turn: event.turn,
-              maxTurns: event.maxTurns,
-              command: event.command,
-              promptTokenCount: Number.isFinite(event.promptTokenCount) ? Number(event.promptTokenCount) : null,
-            });
-          } else if (event.kind === 'tool_result') {
-            writeSse('tool_result', {
-              turn: event.turn,
-              maxTurns: event.maxTurns,
-              command: event.command,
-              exitCode: event.exitCode,
-              outputSnippet: event.outputSnippet,
-              promptTokenCount: Number.isFinite(event.promptTokenCount) ? Number(event.promptTokenCount) : null,
-            });
+            return;
           }
+          forwardRepoSearchToolEvent(writeSse, event, 'repo_search', logLine);
         },
       });
       const assistantContent = buildRepoSearchMarkdown(content, resolvedRepoRoot, result);

@@ -753,6 +753,9 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
     assert.equal(planToolResult?.payload?.command, 'rg -n "test" .');
     assert.equal(/--no-ignore|--ignore-case|--glob/u.test(String(planToolStart?.payload?.command || '')), false);
     assert.equal(/--no-ignore|--ignore-case|--glob/u.test(String(planToolResult?.payload?.command || '')), false);
+    assert.equal(typeof planToolStart?.payload?.toolCallId, 'string');
+    assert.equal(String(planToolStart?.payload?.toolCallId || '').length > 0, true);
+    assert.equal(planToolStart?.payload?.toolCallId, planToolResult?.payload?.toolCallId);
     assert.equal(
       planSse.events.some((event) => event.event === 'answer' && /Planning step/u.test(String(event.payload?.answer || ''))),
       false,
@@ -789,6 +792,20 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
     assert.equal(Number.isFinite(Number(repoToolResult?.payload?.promptTokenCount)), true);
     assert.equal(repoToolStart?.payload?.command, 'rg -n "test" .');
     assert.equal(/--no-ignore|--ignore-case|--glob/u.test(String(repoToolStart?.payload?.command || '')), false);
+    assert.equal(typeof repoToolStart?.payload?.toolCallId, 'string');
+    assert.equal(String(repoToolStart?.payload?.toolCallId || '').length > 0, true);
+    assert.equal(repoToolStart?.payload?.toolCallId, repoToolResult?.payload?.toolCallId);
+
+    assert.deepEqual(
+      Object.keys(planToolStart?.payload ?? {}).sort(),
+      Object.keys(repoToolStart?.payload ?? {}).sort(),
+      'plan and repo-search tool_start payloads must share identical key shape',
+    );
+    assert.deepEqual(
+      Object.keys(planToolResult?.payload ?? {}).sort(),
+      Object.keys(repoToolResult?.payload ?? {}).sort(),
+      'plan and repo-search tool_result payloads must share identical key shape',
+    );
     const repoDoneSession = d(repoSse.events.find((event) => event.event === 'done')?.payload).session as Dict;
     const repoDoneMessages = (repoDoneSession.messages || []) as Dict[];
     const latestRepoMessage = repoDoneMessages[repoDoneMessages.length - 1];

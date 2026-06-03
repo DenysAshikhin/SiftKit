@@ -150,6 +150,7 @@ export type RepoSearchProgressEvent = {
   thinkingText?: string;
   exitCode?: number | null;
   outputSnippet?: string;
+  toolCallId?: string;
 };
 
 function normalizeRepoSearchCommandForLog(command: unknown): string {
