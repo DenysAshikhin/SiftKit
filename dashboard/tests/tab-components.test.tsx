@@ -284,6 +284,7 @@ const DASHBOARD_CONFIG = {
 const CHAT_MESSAGE = {
   id: 'message-1',
   role: 'assistant',
+  kind: 'assistant_answer',
   content: 'Hello from the assistant.',
   inputTokensEstimate: 12,
   outputTokensEstimate: 4,
@@ -292,6 +293,41 @@ const CHAT_MESSAGE = {
   thinkingContent: '',
   createdAtUtc: '2026-04-16T12:00:00.000Z',
   sourceRunId: null,
+} as ChatMessage;
+
+const CHAT_THINKING_MESSAGE = {
+  id: 'thinking-1',
+  role: 'assistant',
+  kind: 'assistant_thinking',
+  content: 'Inspect the dashboard chat timeline.',
+  inputTokensEstimate: 0,
+  outputTokensEstimate: 0,
+  thinkingTokens: 8,
+  associatedToolTokens: 0,
+  thinkingContent: '',
+  createdAtUtc: '2026-04-16T12:00:01.000Z',
+  sourceRunId: null,
+} as ChatMessage;
+
+const CHAT_TOOL_MESSAGE = {
+  id: 'tool-1',
+  role: 'assistant',
+  kind: 'assistant_tool_call',
+  content: 'rg -n "ChatTab" dashboard/src',
+  inputTokensEstimate: 0,
+  outputTokensEstimate: 12,
+  thinkingTokens: 0,
+  associatedToolTokens: 12,
+  thinkingContent: '',
+  createdAtUtc: '2026-04-16T12:00:02.000Z',
+  sourceRunId: 'run-1',
+  toolCallCommand: 'rg -n "ChatTab" dashboard/src',
+  toolCallTurn: 1,
+  toolCallMaxTurns: 4,
+  toolCallExitCode: 0,
+  toolCallPromptTokenCount: 123,
+  toolCallOutputSnippet: 'dashboard/src/tabs/ChatTab.tsx:75:export function ChatTab',
+  toolCallOutput: 'dashboard/src/tabs/ChatTab.tsx:75:export function ChatTab\nfull output line',
 } as ChatMessage;
 
 const CHAT_SESSION = {
@@ -306,6 +342,19 @@ const CHAT_SESSION = {
   createdAtUtc: '2026-04-16T11:00:00.000Z',
   updatedAtUtc: '2026-04-16T12:00:00.000Z',
   messages: [CHAT_MESSAGE],
+} as ChatSession;
+
+const CHAT_SESSION_WITH_PROMPT_CONTEXT = {
+  ...CHAT_SESSION,
+  promptContext: {
+    id: 'session-1:system-context',
+    role: 'system',
+    kind: 'system_context',
+    label: 'System prompt and tool schema',
+    content: '## System prompt\n\nYou are SiftKit.\n\n## Tool schema\n\n{"name":"repo_rg"}',
+    createdAtUtc: '2026-04-16T11:00:00.000Z',
+    deletable: false,
+  },
 } as ChatSession;
 
 const CONTEXT_USAGE = {
@@ -932,9 +981,7 @@ test('chat tab renders session list and composer', () => {
       planMaxTurnsInput="45"
       contextUsage={CONTEXT_USAGE}
       liveToolPromptTokenCount={null}
-      thinkingDraft=""
-      answerDraft=""
-      planToolCalls={[]}
+      liveMessages={[]}
       chatInput=""
       chatBusy={false}
       chatError={null}
@@ -949,6 +996,7 @@ test('chat tab renders session list and composer', () => {
       onToggleThinking={async () => {}}
       onSavePlanRepoRoot={async () => {}}
       onClearToolContext={async () => {}}
+      onDeleteMessage={async () => {}}
       onCondense={async () => {}}
       onSendPlan={async () => {}}
       onSendRepoSearch={async () => {}}
@@ -998,9 +1046,7 @@ test('chat tab renders context usage thinking breakdown', () => {
         remainingTokens: 73,
       }}
       liveToolPromptTokenCount={null}
-      thinkingDraft=""
-      answerDraft=""
-      planToolCalls={[]}
+      liveMessages={[]}
       chatInput=""
       chatBusy={false}
       chatError={null}
@@ -1015,6 +1061,7 @@ test('chat tab renders context usage thinking breakdown', () => {
       onToggleThinking={async () => {}}
       onSavePlanRepoRoot={async () => {}}
       onClearToolContext={async () => {}}
+      onDeleteMessage={async () => {}}
       onCondense={async () => {}}
       onSendPlan={async () => {}}
       onSendRepoSearch={async () => {}}
@@ -1023,6 +1070,119 @@ test('chat tab renders context usage thinking breakdown', () => {
   );
 
   assert.match(markup, /Thinking\/reasoning: 7/);
+});
+
+test('chat tab renders typed thinking and tool bubbles with trash and expandable output', () => {
+  const session = {
+    ...CHAT_SESSION,
+    messages: [CHAT_THINKING_MESSAGE, CHAT_TOOL_MESSAGE, CHAT_MESSAGE],
+  } as ChatSession;
+  const markup = renderToStaticMarkup(
+    <ChatTab
+      sessions={[session]}
+      selectedSessionId={session.id}
+      selectedSession={session}
+      sessionPromptCacheStats={{
+        cacheHitRate: 0,
+        promptCacheTokens: 0,
+        promptEvalTokens: 0,
+        acceptanceRate: null,
+        speculativeAcceptedTokens: 0,
+        speculativeGeneratedTokens: 0,
+        promptTokensPerSecond: null,
+        generationTokensPerSecond: null,
+      }}
+      webPresets={[PRESET]}
+      selectedChatPreset={PRESET}
+      chatMode="repo-search"
+      isDirectChatMode={false}
+      isRepoToolMode={true}
+      isThinkingEnabledForCurrentSession={true}
+      showSettings={false}
+      planRepoRootInput=""
+      planMaxTurnsInput="45"
+      contextUsage={CONTEXT_USAGE}
+      liveToolPromptTokenCount={null}
+      liveMessages={[]}
+      chatInput=""
+      chatBusy={false}
+      chatError={null}
+      onSelectSession={() => {}}
+      onToggleSettings={() => {}}
+      onChangePlanRepoRoot={() => {}}
+      onChangePlanMaxTurns={() => {}}
+      onChangeChatInput={() => {}}
+      onCreateSession={async () => {}}
+      onDeleteSession={async () => {}}
+      onUpdateSessionPreset={async () => {}}
+      onToggleThinking={async () => {}}
+      onSavePlanRepoRoot={async () => {}}
+      onClearToolContext={async () => {}}
+      onDeleteMessage={async () => {}}
+      onCondense={async () => {}}
+      onSendPlan={async () => {}}
+      onSendRepoSearch={async () => {}}
+      onSendMessage={async () => {}}
+    />,
+  );
+
+  assert.match(markup, /assistant thinking/);
+  assert.match(markup, /Inspect the dashboard chat timeline/);
+  assert.match(markup, /assistant tool/);
+  assert.match(markup, /rg -n &quot;ChatTab&quot; dashboard\/src/);
+  assert.match(markup, /aria-label="Delete message"/);
+  assert.match(markup, /aria-label="Show tool result"/);
+  assert.match(markup, /dashboard\/src\/tabs\/ChatTab\.tsx:75:export function ChatTab/);
+  assert.doesNotMatch(markup, /live-stream-boxes/);
+});
+
+test('chat tab renders non-deletable collapsed system context bubble first', () => {
+  const markup = renderToStaticMarkup(
+    <ChatTab
+      sessions={[CHAT_SESSION_WITH_PROMPT_CONTEXT]}
+      selectedSessionId={CHAT_SESSION_WITH_PROMPT_CONTEXT.id}
+      selectedSession={CHAT_SESSION_WITH_PROMPT_CONTEXT}
+      sessionPromptCacheStats={{ cacheHitRate: 0, promptCacheTokens: 0, promptEvalTokens: 0, acceptanceRate: null, speculativeAcceptedTokens: 0, speculativeGeneratedTokens: 0, promptTokensPerSecond: null, generationTokensPerSecond: null }}
+      webPresets={[PRESET]}
+      selectedChatPreset={PRESET}
+      chatMode="repo-search"
+      isDirectChatMode={false}
+      isRepoToolMode={true}
+      isThinkingEnabledForCurrentSession={true}
+      showSettings={false}
+      planRepoRootInput=""
+      planMaxTurnsInput="45"
+      contextUsage={CONTEXT_USAGE}
+      liveToolPromptTokenCount={null}
+      liveMessages={[]}
+      chatInput=""
+      chatBusy={false}
+      chatError={null}
+      onSelectSession={() => undefined}
+      onToggleSettings={() => undefined}
+      onChangePlanRepoRoot={() => undefined}
+      onChangePlanMaxTurns={() => undefined}
+      onChangeChatInput={() => undefined}
+      onCreateSession={async () => undefined}
+      onDeleteSession={async () => undefined}
+      onUpdateSessionPreset={async () => undefined}
+      onToggleThinking={async () => undefined}
+      onSavePlanRepoRoot={async () => undefined}
+      onClearToolContext={async () => undefined}
+      onDeleteMessage={async () => undefined}
+      onCondense={async () => undefined}
+      onSendPlan={async () => undefined}
+      onSendRepoSearch={async () => undefined}
+      onSendMessage={async () => undefined}
+    />,
+  );
+
+  assert.match(markup, /system \| first message/u);
+  assert.match(markup, /System prompt and tool schema/u);
+  assert.match(markup, /You are SiftKit/u);
+  assert.match(markup, /repo_rg/u);
+  assert.equal(markup.indexOf('system | first message') < markup.indexOf('assistant |'), true);
+  assert.equal(markup.match(/aria-label="Delete message"/gu)?.length, 1);
 });
 
 test('metrics tab renders speculative acceptance graph', () => {

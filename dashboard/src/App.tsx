@@ -6,6 +6,7 @@ import {
   createPlanMessage,
   streamPlanMessage,
   createChatSession,
+  deleteChatMessage,
   deleteRunLogs,
   deleteChatSession,
   getDashboardConfig,
@@ -76,10 +77,10 @@ import {
 } from './lib/format';
 import { RunsTab } from './tabs/RunsTab';
 import { MetricsTab } from './tabs/MetricsTab';
-import { ChatTab, type ChatToolCall } from './tabs/ChatTab';
+import { ChatTab } from './tabs/ChatTab';
 import { SettingsTab } from './tabs/SettingsTab';
 import { BenchmarkTab } from './tabs/BenchmarkTab';
-import type { ChatSession, ContextUsage, DashboardBenchmarkAttempt, DashboardBenchmarkQuestionPreset, DashboardBenchmarkSession, DashboardBenchmarkSortKey, DashboardConfig, DashboardManagedLlamaPreset, DashboardPreset, IdleSummarySnapshot, MetricDay, RunGroupFilter, TaskMetricDay, ToolStatsByTask, RunDetailResponse, RunLogDeleteType, RunRecord } from './types';
+import type { ChatMessage, ChatSession, ContextUsage, DashboardBenchmarkAttempt, DashboardBenchmarkQuestionPreset, DashboardBenchmarkSession, DashboardBenchmarkSortKey, DashboardConfig, DashboardManagedLlamaPreset, DashboardPreset, IdleSummarySnapshot, MetricDay, RunGroupFilter, TaskMetricDay, ToolStatsByTask, RunDetailResponse, RunLogDeleteType, RunRecord } from './types';
 
 type TabKey = 'runs' | 'metrics' | 'benchmark' | 'chat' | 'settings';
 type RunGroupKey = Exclude<RunGroupFilter, ''>;
@@ -166,11 +167,9 @@ function DashboardApp() {
   const [showSettingsConfirm, setShowSettingsConfirm] = useState(false);
   const [settingsRestartFailureModal, setSettingsRestartFailureModal] = useState<{ title: string; message: string } | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const [thinkingDraft, setThinkingDraft] = useState('');
-  const [answerDraft, setAnswerDraft] = useState('');
+  const [liveMessages, setLiveMessages] = useState<ChatMessage[]>([]);
   const [planRepoRootInput, setPlanRepoRootInput] = useState('');
   const [planMaxTurnsInput, setPlanMaxTurnsInput] = useState('45');
-  const [planToolCalls, setPlanToolCalls] = useState<ChatToolCall[]>([]);
   const [liveToolPromptTokenCount, setLiveToolPromptTokenCount] = useState<number | null>(null);
 
   const groupedRuns = runs.reduce<Record<RunGroupKey, RunRecord[]>>((accumulator, run) => {
@@ -217,6 +216,75 @@ function DashboardApp() {
     runsSignatureRef.current = '';
     runsLoadedRef.current = false;
     setDashboardRefreshToken((previous) => previous + 1);
+  }
+
+  function createLiveMessage(id: string, kind: NonNullable<ChatMessage['kind']>, role: ChatMessage['role'], content: string): ChatMessage {
+    return {
+      id,
+      role,
+      kind,
+      content,
+      inputTokensEstimate: 0,
+      outputTokensEstimate: 0,
+      thinkingTokens: kind === 'assistant_thinking' ? Math.max(1, Math.ceil(String(content || '').length / 4)) : 0,
+      associatedToolTokens: 0,
+      createdAtUtc: new Date().toISOString(),
+      sourceRunId: null,
+    };
+  }
+
+  function upsertLiveMessage(message: ChatMessage): void {
+    setLiveMessages((previous) => {
+      const index = previous.findIndex((entry) => entry.id === message.id);
+      if (index < 0) {
+        return [...previous, message];
+      }
+      const next = previous.slice();
+      next[index] = { ...next[index], ...message };
+      return next;
+    });
+  }
+
+  function appendLiveToolMessage(toolEvent: {
+    turn: number;
+    maxTurns: number;
+    command: string;
+    promptTokenCount?: number;
+  }): void {
+    const id = `live-tool-${toolEvent.turn}-${toolEvent.command}`;
+    upsertLiveMessage({
+      ...createLiveMessage(id, 'assistant_tool_call', 'assistant', toolEvent.command),
+      outputTokensEstimate: 0,
+      toolCallCommand: toolEvent.command,
+      toolCallTurn: toolEvent.turn,
+      toolCallMaxTurns: toolEvent.maxTurns,
+      toolCallPromptTokenCount: typeof toolEvent.promptTokenCount === 'number' ? toolEvent.promptTokenCount : null,
+      toolCallStatus: 'running',
+    });
+  }
+
+  function completeLiveToolMessage(toolEvent: {
+    turn: number;
+    maxTurns: number;
+    command: string;
+    exitCode?: number;
+    outputSnippet?: string;
+    promptTokenCount?: number;
+  }): void {
+    const id = `live-tool-${toolEvent.turn}-${toolEvent.command}`;
+    const outputSnippet = typeof toolEvent.outputSnippet === 'string' ? toolEvent.outputSnippet : '';
+    upsertLiveMessage({
+      ...createLiveMessage(id, 'assistant_tool_call', 'assistant', toolEvent.command),
+      outputTokensEstimate: Math.max(0, Math.ceil(outputSnippet.length / 4)),
+      associatedToolTokens: Math.max(0, Math.ceil(outputSnippet.length / 4)),
+      toolCallCommand: toolEvent.command,
+      toolCallTurn: toolEvent.turn,
+      toolCallMaxTurns: toolEvent.maxTurns,
+      toolCallExitCode: typeof toolEvent.exitCode === 'number' ? toolEvent.exitCode : null,
+      toolCallPromptTokenCount: typeof toolEvent.promptTokenCount === 'number' ? toolEvent.promptTokenCount : null,
+      toolCallOutputSnippet: outputSnippet,
+      toolCallStatus: 'done',
+    });
   }
 
   function openRunDeleteModal(): void {
@@ -775,17 +843,22 @@ function DashboardApp() {
     }
     setChatBusy(true);
     setChatError(null);
-    setThinkingDraft('');
-    setAnswerDraft('');
+    setLiveMessages([]);
     try {
       const response = await streamChatMessage(selectedSessionId, {
         content: chatInput.trim(),
       }, (thinkingText) => {
         if (isThinkingEnabledForCurrentSession) {
-          setThinkingDraft(thinkingText);
+          upsertLiveMessage({
+            ...createLiveMessage('live-thinking', 'assistant_thinking', 'assistant', thinkingText),
+            thinkingTokens: Math.max(1, Math.ceil(String(thinkingText || '').length / 4)),
+          });
         }
       }, (answerText) => {
-        setAnswerDraft(answerText);
+        upsertLiveMessage({
+          ...createLiveMessage('live-answer', 'assistant_answer', 'assistant', answerText),
+          outputTokensEstimate: Math.max(1, Math.ceil(String(answerText || '').length / 4)),
+        });
       });
       setSelectedSession(response.session);
       setContextUsage(response.contextUsage);
@@ -793,8 +866,7 @@ function DashboardApp() {
     } catch (error) {
       setChatError(error instanceof Error ? error.message : String(error));
     } finally {
-      setThinkingDraft('');
-      setAnswerDraft('');
+      setLiveMessages([]);
       setChatBusy(false);
     }
   }
@@ -805,9 +877,7 @@ function DashboardApp() {
     }
     setChatBusy(true);
     setChatError(null);
-    setThinkingDraft('');
-    setAnswerDraft('');
-    setPlanToolCalls([]);
+    setLiveMessages([]);
     setLiveToolPromptTokenCount(null);
     try {
       const parsedMaxTurns = Number(planMaxTurnsInput);
@@ -819,43 +889,29 @@ function DashboardApp() {
           ...(Number.isFinite(parsedMaxTurns) && parsedMaxTurns > 0 ? { maxTurns: parsedMaxTurns } : {}),
         },
         (thinkingText) => {
-          setThinkingDraft(thinkingText);
+          upsertLiveMessage({
+            ...createLiveMessage('live-thinking', 'assistant_thinking', 'assistant', thinkingText),
+            thinkingTokens: Math.max(1, Math.ceil(String(thinkingText || '').length / 4)),
+          });
         },
         (toolEvent) => {
           if (toolEvent.kind === 'tool_start') {
             if (typeof toolEvent.promptTokenCount === 'number') {
               setLiveToolPromptTokenCount(toolEvent.promptTokenCount);
             }
-            setPlanToolCalls((prev) => [
-              ...prev,
-              {
-                turn: toolEvent.turn,
-                maxTurns: toolEvent.maxTurns,
-                command: toolEvent.command,
-                ...(typeof toolEvent.promptTokenCount === 'number' ? { promptTokenCount: toolEvent.promptTokenCount } : {}),
-                status: 'running',
-              },
-            ]);
+            appendLiveToolMessage(toolEvent);
           } else if (toolEvent.kind === 'tool_result') {
             if (typeof toolEvent.promptTokenCount === 'number') {
               setLiveToolPromptTokenCount(toolEvent.promptTokenCount);
             }
-            setPlanToolCalls((prev) => {
-              const updated = [...prev];
-              const last = updated.length > 0 ? updated[updated.length - 1] : null;
-              if (last && last.command === toolEvent.command && last.status === 'running') {
-                const entry: typeof last = { ...last, status: 'done' };
-                if (typeof toolEvent.exitCode === 'number') { entry.exitCode = toolEvent.exitCode; }
-                if (typeof toolEvent.outputSnippet === 'string') { entry.outputSnippet = toolEvent.outputSnippet; }
-                if (typeof toolEvent.promptTokenCount === 'number') { entry.promptTokenCount = toolEvent.promptTokenCount; }
-                updated[updated.length - 1] = entry;
-              }
-              return updated;
-            });
+            completeLiveToolMessage(toolEvent);
           }
         },
         (answerText) => {
-          setAnswerDraft(answerText);
+          upsertLiveMessage({
+            ...createLiveMessage('live-answer', 'assistant_answer', 'assistant', answerText),
+            outputTokensEstimate: Math.max(1, Math.ceil(String(answerText || '').length / 4)),
+          });
         },
       );
       setSelectedSession(response.session);
@@ -864,9 +920,7 @@ function DashboardApp() {
     } catch (error) {
       setChatError(error instanceof Error ? error.message : String(error));
     } finally {
-      setThinkingDraft('');
-      setAnswerDraft('');
-      setPlanToolCalls([]);
+      setLiveMessages([]);
       setLiveToolPromptTokenCount(null);
       setChatBusy(false);
     }
@@ -878,9 +932,7 @@ function DashboardApp() {
     }
     setChatBusy(true);
     setChatError(null);
-    setThinkingDraft('');
-    setAnswerDraft('');
-    setPlanToolCalls([]);
+    setLiveMessages([]);
     setLiveToolPromptTokenCount(null);
     try {
       const parsedMaxTurnsRS = Number(planMaxTurnsInput);
@@ -892,43 +944,29 @@ function DashboardApp() {
           ...(Number.isFinite(parsedMaxTurnsRS) && parsedMaxTurnsRS > 0 ? { maxTurns: parsedMaxTurnsRS } : {}),
         },
         (thinkingText) => {
-          setThinkingDraft(thinkingText);
+          upsertLiveMessage({
+            ...createLiveMessage('live-thinking', 'assistant_thinking', 'assistant', thinkingText),
+            thinkingTokens: Math.max(1, Math.ceil(String(thinkingText || '').length / 4)),
+          });
         },
         (toolEvent) => {
           if (toolEvent.kind === 'tool_start') {
             if (typeof toolEvent.promptTokenCount === 'number') {
               setLiveToolPromptTokenCount(toolEvent.promptTokenCount);
             }
-            setPlanToolCalls((prev) => [
-              ...prev,
-              {
-                turn: toolEvent.turn,
-                maxTurns: toolEvent.maxTurns,
-                command: toolEvent.command,
-                ...(typeof toolEvent.promptTokenCount === 'number' ? { promptTokenCount: toolEvent.promptTokenCount } : {}),
-                status: 'running',
-              },
-            ]);
+            appendLiveToolMessage(toolEvent);
           } else if (toolEvent.kind === 'tool_result') {
             if (typeof toolEvent.promptTokenCount === 'number') {
               setLiveToolPromptTokenCount(toolEvent.promptTokenCount);
             }
-            setPlanToolCalls((prev) => {
-              const updated = [...prev];
-              const last = updated.length > 0 ? updated[updated.length - 1] : null;
-              if (last && last.command === toolEvent.command && last.status === 'running') {
-                const entry: typeof last = { ...last, status: 'done' };
-                if (typeof toolEvent.exitCode === 'number') { entry.exitCode = toolEvent.exitCode; }
-                if (typeof toolEvent.outputSnippet === 'string') { entry.outputSnippet = toolEvent.outputSnippet; }
-                if (typeof toolEvent.promptTokenCount === 'number') { entry.promptTokenCount = toolEvent.promptTokenCount; }
-                updated[updated.length - 1] = entry;
-              }
-              return updated;
-            });
+            completeLiveToolMessage(toolEvent);
           }
         },
         (answerText) => {
-          setAnswerDraft(answerText);
+          upsertLiveMessage({
+            ...createLiveMessage('live-thinking', 'assistant_thinking', 'assistant', answerText),
+            thinkingTokens: Math.max(1, Math.ceil(String(answerText || '').length / 4)),
+          });
         },
       );
       setSelectedSession(response.session);
@@ -937,9 +975,7 @@ function DashboardApp() {
     } catch (error) {
       setChatError(error instanceof Error ? error.message : String(error));
     } finally {
-      setThinkingDraft('');
-      setAnswerDraft('');
-      setPlanToolCalls([]);
+      setLiveMessages([]);
       setLiveToolPromptTokenCount(null);
       setChatBusy(false);
     }
@@ -1036,6 +1072,28 @@ function DashboardApp() {
       const response = await clearToolContext(selectedSessionId);
       setSelectedSession(response.session);
       setContextUsage(response.contextUsage);
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
+  async function onDeleteChatMessage(messageId: string): Promise<void> {
+    if (!selectedSessionId || !messageId) {
+      return;
+    }
+    setChatBusy(true);
+    setChatError(null);
+    try {
+      const response = await deleteChatMessage(selectedSessionId, messageId);
+      setSelectedSession(response.session);
+      setContextUsage(response.contextUsage);
+      requestDashboardDataRefresh();
+      if (selectedRunId) {
+        const detail = await getRunDetail(selectedRunId);
+        setSelectedRunDetail(detail);
+      }
     } catch (error) {
       setChatError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -1678,9 +1736,7 @@ function DashboardApp() {
           planMaxTurnsInput={planMaxTurnsInput}
           contextUsage={contextUsage}
           liveToolPromptTokenCount={liveToolPromptTokenCount}
-          thinkingDraft={thinkingDraft}
-          answerDraft={answerDraft}
-          planToolCalls={planToolCalls}
+          liveMessages={liveMessages}
           chatInput={chatInput}
           chatBusy={chatBusy}
           chatError={chatError}
@@ -1695,6 +1751,7 @@ function DashboardApp() {
           onToggleThinking={onToggleThinking}
           onSavePlanRepoRoot={onSavePlanRepoRoot}
           onClearToolContext={onClearToolContext}
+          onDeleteMessage={onDeleteChatMessage}
           onCondense={onCondense}
           onSendPlan={onSendPlan}
           onSendRepoSearch={onSendRepoSearch}

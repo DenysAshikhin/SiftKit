@@ -252,6 +252,12 @@ export function deleteChatSession(id: string): Promise<{ ok: boolean; deleted: b
   });
 }
 
+export function deleteChatMessage(sessionId: string, messageId: string): Promise<ChatSessionResponse> {
+  return fetchJson<ChatSessionResponse>(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}`, {
+    method: 'DELETE',
+  });
+}
+
 export function createChatSession(payload: {
   title: string;
   model: string;

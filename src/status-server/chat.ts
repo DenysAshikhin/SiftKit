@@ -36,11 +36,16 @@ function getTrimmedString(value: unknown): string {
 }
 
 function getMessageContextTokenEstimate(message: Dict): number {
-  const contentTokens = estimateTokenCount(message.content);
-  return contentTokens + getMessageThinkingTokenEstimate(message);
+  if (message.kind === 'assistant_thinking') {
+    return estimateTokenCount(message.content);
+  }
+  return estimateTokenCount(formatChatMessageForPrompt(message)) + getMessageThinkingTokenEstimate(message);
 }
 
 function getMessageThinkingTokenEstimate(message: Dict): number {
+  if (message.kind === 'assistant_thinking') {
+    return estimateTokenCount(message.content);
+  }
   return estimateTokenCount(getTrimmedString(message.thinkingContent));
 }
 
@@ -50,6 +55,18 @@ function getHiddenToolContextTokenEstimate(entry: Dict): number {
     return Math.trunc(tokenEstimate);
   }
   return estimateTokenCount(entry?.content);
+}
+
+function formatChatMessageForPrompt(message: Dict): string {
+  if (message.kind === 'assistant_tool_call') {
+    const command = getTrimmedString(message.toolCallCommand) || getTrimmedString(message.content);
+    const output = getTrimmedString(message.toolCallOutput) || getTrimmedString(message.toolCallOutputSnippet);
+    if (command && output) {
+      return `Tool call: ${command}\n\nResult:\n${output}`;
+    }
+    return command || output || getTrimmedString(message.content);
+  }
+  return String(message.content || '');
 }
 
 export function buildContextUsage(session: ChatSession): Dict {
@@ -247,28 +264,18 @@ export function buildChatCompletionRequest(config: Dict, session: ChatSession, u
   }
   const runtimeLlama = getRuntimeLlamaCpp(config);
   const priorMessages = Array.isArray(session.messages) ? session.messages : [];
-  const hiddenToolContexts = Array.isArray(session.hiddenToolContexts)
-    ? (session.hiddenToolContexts as Dict[])
-      .map((entry: Dict) => (entry && typeof entry.content === 'string' ? (entry.content as string).trim() : ''))
-      .filter(Boolean)
-    : [];
-  const hiddenToolContextText = hiddenToolContexts.join('\n\n');
-  const systemPrompt = typeof options.promptPrefix === 'string' && options.promptPrefix.trim()
-    ? options.promptPrefix.trim()
-    : DEFAULT_CHAT_SYSTEM_PROMPT;
-  const systemContent = hiddenToolContextText
-    ? `${systemPrompt}\n\n${HIDDEN_TOOL_CONTEXT_PROMPT}\n\n${hiddenToolContextText}`
-    : systemPrompt;
+  const systemContent = buildChatSystemContent(config, session, options);
   const messages = [
     { role: 'system', content: systemContent },
     ...priorMessages.map((message: Dict) => {
       const replayedMessage: Dict = {
         role: message.role === 'assistant' ? 'assistant' : 'user',
-        content: String(message.content || ''),
+        content: formatChatMessageForPrompt(message),
       };
       if (
         replayedMessage.role === 'assistant'
         && shouldReplayReasoningContent(config)
+        && message.kind !== 'assistant_thinking'
         && typeof message.thinkingContent === 'string'
         && message.thinkingContent.trim()
       ) {
@@ -301,6 +308,21 @@ export function buildChatCompletionRequest(config: Dict, session: ChatSession, u
     model,
     body,
   };
+}
+
+export function buildChatSystemContent(_config: Dict, session: ChatSession, options: Pick<BuildChatOptions, 'promptPrefix'> = {}): string {
+  const hiddenToolContexts = Array.isArray(session.hiddenToolContexts)
+    ? (session.hiddenToolContexts as Dict[])
+      .map((entry: Dict) => (entry && typeof entry.content === 'string' ? (entry.content as string).trim() : ''))
+      .filter(Boolean)
+    : [];
+  const hiddenToolContextText = hiddenToolContexts.join('\n\n');
+  const systemPrompt = typeof options.promptPrefix === 'string' && options.promptPrefix.trim()
+    ? options.promptPrefix.trim()
+    : DEFAULT_CHAT_SYSTEM_PROMPT;
+  return hiddenToolContextText
+    ? `${systemPrompt}\n\n${HIDDEN_TOOL_CONTEXT_PROMPT}\n\n${hiddenToolContextText}`
+    : systemPrompt;
 }
 
 export type ChatUsage = {
@@ -384,6 +406,7 @@ type AppendChatOptions = {
   outputTokens?: number | null;
   thinkingTokens?: number | null;
   sourceRunId?: string | null;
+  toolMessages?: Dict[];
 };
 
 export function appendChatMessagesWithUsage(
@@ -418,9 +441,11 @@ export function appendChatMessagesWithUsage(
       .filter(Boolean)
     : [];
   const hiddenToolContexts = Array.isArray(session.hiddenToolContexts) ? (session.hiddenToolContexts as Dict[]).slice() : [];
+  const sourceRunId = typeof options.sourceRunId === 'string' && options.sourceRunId.trim() ? options.sourceRunId : null;
   messages.push({
     id: crypto.randomUUID(),
     role: 'user',
+    kind: 'user_text',
     content,
     inputTokensEstimate: userTokens,
     outputTokensEstimate: 0,
@@ -431,11 +456,61 @@ export function appendChatMessagesWithUsage(
     createdAtUtc: now,
     sourceRunId: null,
   });
+  const thinkingMessageId = crypto.randomUUID();
+  if (String(thinkingContent || '').trim()) {
+    messages.push({
+      id: thinkingMessageId,
+      role: 'assistant',
+      kind: 'assistant_thinking',
+      content: String(thinkingContent || ''),
+      inputTokensEstimate: 0,
+      outputTokensEstimate: 0,
+      thinkingTokens: estimateTokenCount(thinkingContent),
+      inputTokensEstimated: false,
+      outputTokensEstimated: false,
+      thinkingTokensEstimated: usageThinkingTokens === null,
+      createdAtUtc: now,
+      sourceRunId,
+    });
+  }
+  const toolMessages = Array.isArray(options.toolMessages) ? options.toolMessages : [];
+  for (const toolMessage of toolMessages) {
+    const toolMessageId = typeof toolMessage.id === 'string' && toolMessage.id.trim() ? toolMessage.id : crypto.randomUUID();
+    const toolOutput = typeof toolMessage.toolCallOutput === 'string'
+      ? toolMessage.toolCallOutput
+      : typeof toolMessage.toolCallOutputSnippet === 'string'
+        ? toolMessage.toolCallOutputSnippet
+        : '';
+    messages.push({
+      id: toolMessageId,
+      role: 'assistant',
+      kind: 'assistant_tool_call',
+      content: typeof toolMessage.content === 'string' ? toolMessage.content : String(toolMessage.toolCallCommand || ''),
+      inputTokensEstimate: 0,
+      outputTokensEstimate: estimateTokenCount(toolOutput),
+      thinkingTokens: 0,
+      inputTokensEstimated: false,
+      outputTokensEstimated: true,
+      thinkingTokensEstimated: false,
+      promptEvalTokens: Number.isFinite(Number(toolMessage.toolCallPromptTokenCount)) ? Number(toolMessage.toolCallPromptTokenCount) : null,
+      associatedToolTokens: estimateTokenCount(toolOutput),
+      toolCallCommand: typeof toolMessage.toolCallCommand === 'string' ? toolMessage.toolCallCommand : String(toolMessage.content || ''),
+      toolCallTurn: Number.isFinite(Number(toolMessage.toolCallTurn)) ? Number(toolMessage.toolCallTurn) : null,
+      toolCallMaxTurns: Number.isFinite(Number(toolMessage.toolCallMaxTurns)) ? Number(toolMessage.toolCallMaxTurns) : null,
+      toolCallExitCode: Number.isFinite(Number(toolMessage.toolCallExitCode)) ? Number(toolMessage.toolCallExitCode) : null,
+      toolCallPromptTokenCount: Number.isFinite(Number(toolMessage.toolCallPromptTokenCount)) ? Number(toolMessage.toolCallPromptTokenCount) : null,
+      toolCallOutputSnippet: typeof toolMessage.toolCallOutputSnippet === 'string' ? toolMessage.toolCallOutputSnippet : '',
+      toolCallOutput: toolOutput,
+      createdAtUtc: now,
+      sourceRunId,
+    });
+  }
   const assistantMessageId = crypto.randomUUID();
   const associatedToolTokens = toolContextContents.reduce((sum: number, value: string) => sum + estimateTokenCount(value), 0);
   messages.push({
     id: assistantMessageId,
     role: 'assistant',
+    kind: 'assistant_answer',
     content: assistantContent,
     inputTokensEstimate: 0,
     outputTokensEstimate: outputTokens,
@@ -466,16 +541,20 @@ export function appendChatMessagesWithUsage(
     speculativeAcceptedTokens: Number.isFinite(Number(options.speculativeAcceptedTokens)) ? Number(options.speculativeAcceptedTokens) : null,
     speculativeGeneratedTokens: Number.isFinite(Number(options.speculativeGeneratedTokens)) ? Number(options.speculativeGeneratedTokens) : null,
     associatedToolTokens,
-    thinkingContent: String(thinkingContent || ''),
+    thinkingContent: '',
     createdAtUtc: now,
-    sourceRunId: typeof options.sourceRunId === 'string' && options.sourceRunId.trim() ? options.sourceRunId : null,
+    sourceRunId,
   });
-  for (const value of toolContextContents) {
+  for (let index = 0; index < toolContextContents.length; index += 1) {
+    const toolMessage = toolMessages[index] as Dict | undefined;
+    const sourceMessageId = toolMessage && typeof toolMessage.id === 'string' && toolMessage.id.trim()
+      ? toolMessage.id
+      : assistantMessageId;
     hiddenToolContexts.push({
       id: crypto.randomUUID(),
-      content: value,
-      tokenEstimate: estimateTokenCount(value),
-      sourceMessageId: assistantMessageId,
+      content: toolContextContents[index],
+      tokenEstimate: estimateTokenCount(toolContextContents[index]),
+      sourceMessageId,
       createdAtUtc: now,
     });
   }
@@ -814,6 +893,40 @@ export function buildToolContextFromRepoSearchResult(result: Dict | null | undef
     }
   }
   return contexts;
+}
+
+export function buildToolMessagesFromRepoSearchResult(result: Dict | null | undefined): Dict[] {
+  const scorecard = result && typeof result.scorecard === 'object' ? result.scorecard as Dict : {};
+  const tasks = Array.isArray(scorecard.tasks) ? scorecard.tasks as Dict[] : [];
+  const messages: Dict[] = [];
+  for (const task of tasks) {
+    if (!task || typeof task !== 'object' || !Array.isArray(task.commands)) {
+      continue;
+    }
+    const commands = task.commands as Dict[];
+    for (let index = 0; index < commands.length; index += 1) {
+      const command = commands[index];
+      if (!command || typeof command !== 'object') {
+        continue;
+      }
+      const commandText = typeof command.command === 'string' ? command.command.trim() : '';
+      if (!commandText) {
+        continue;
+      }
+      const output = typeof command.output === 'string' ? command.output : '';
+      messages.push({
+        id: crypto.randomUUID(),
+        content: commandText,
+        toolCallCommand: commandText,
+        toolCallTurn: index + 1,
+        toolCallMaxTurns: commands.length,
+        toolCallExitCode: Number.isFinite(Number(command.exitCode)) ? Number(command.exitCode) : null,
+        toolCallOutputSnippet: output.length > 200 ? `${output.slice(0, 200)}...` : output,
+        toolCallOutput: output,
+      });
+    }
+  }
+  return messages;
 }
 
 export function buildRepoSearchMarkdown(userPrompt: string, repoRoot: string, result: Dict | null | undefined): string {

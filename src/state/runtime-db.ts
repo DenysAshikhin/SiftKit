@@ -7,7 +7,7 @@ import { normalizeOperationModeAllowedTools, normalizePresets } from '../presets
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-export const CURRENT_SCHEMA_VERSION = 26;
+export const CURRENT_SCHEMA_VERSION = 27;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["repo_rg","repo_read_file","repo_list_files","repo_git","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}';
 
@@ -180,6 +180,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
       id TEXT NOT NULL,
       role TEXT NOT NULL,
+      kind TEXT,
       content TEXT NOT NULL,
       input_tokens_estimate INTEGER NOT NULL,
       output_tokens_estimate INTEGER NOT NULL,
@@ -203,6 +204,13 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       speculative_generated_tokens INTEGER,
       associated_tool_tokens INTEGER,
       thinking_content TEXT,
+      tool_call_command TEXT,
+      tool_call_turn INTEGER,
+      tool_call_max_turns INTEGER,
+      tool_call_exit_code INTEGER,
+      tool_call_prompt_token_count INTEGER,
+      tool_call_output_snippet TEXT,
+      tool_call_output TEXT,
       created_at_utc TEXT NOT NULL,
       source_run_id TEXT,
       compressed_into_summary INTEGER NOT NULL CHECK (compressed_into_summary IN (0, 1)),
@@ -319,6 +327,31 @@ function ensureRuntimeArtifactsSchema(database: RuntimeDatabase): void {
     CREATE INDEX IF NOT EXISTS idx_runtime_artifacts_updated
       ON runtime_artifacts(updated_at_utc DESC, id DESC);
   `);
+}
+
+function ensureChatMessageTimelineSchema(database: RuntimeDatabase): void {
+  if (!tableExists(database, 'chat_messages')) {
+    return;
+  }
+  const alterStatements: string[] = [];
+  const columns: Array<{ name: string; sql: string }> = [
+    { name: 'kind', sql: 'ALTER TABLE chat_messages ADD COLUMN kind TEXT;' },
+    { name: 'tool_call_command', sql: 'ALTER TABLE chat_messages ADD COLUMN tool_call_command TEXT;' },
+    { name: 'tool_call_turn', sql: 'ALTER TABLE chat_messages ADD COLUMN tool_call_turn INTEGER;' },
+    { name: 'tool_call_max_turns', sql: 'ALTER TABLE chat_messages ADD COLUMN tool_call_max_turns INTEGER;' },
+    { name: 'tool_call_exit_code', sql: 'ALTER TABLE chat_messages ADD COLUMN tool_call_exit_code INTEGER;' },
+    { name: 'tool_call_prompt_token_count', sql: 'ALTER TABLE chat_messages ADD COLUMN tool_call_prompt_token_count INTEGER;' },
+    { name: 'tool_call_output_snippet', sql: 'ALTER TABLE chat_messages ADD COLUMN tool_call_output_snippet TEXT;' },
+    { name: 'tool_call_output', sql: 'ALTER TABLE chat_messages ADD COLUMN tool_call_output TEXT;' },
+  ];
+  for (const column of columns) {
+    if (!tableHasColumn(database, 'chat_messages', column.name)) {
+      alterStatements.push(column.sql);
+    }
+  }
+  if (alterStatements.length > 0) {
+    database.exec(alterStatements.join('\n'));
+  }
 }
 
 function ensureManagedLlamaAndBenchmarkMatrixSchema(database: RuntimeDatabase): void {
@@ -680,6 +713,7 @@ function ensureSchema(database: RuntimeDatabase): void {
   }
   if (currentVersion <= 0) {
     applyBaseSchema(database);
+    ensureChatMessageTimelineSchema(database);
     ensureManagedLlamaAndBenchmarkMatrixSchema(database);
     ensureDashboardBenchmarkSchema(database);
     ensureRuntimeErrorEventsSchema(database);
@@ -1048,6 +1082,12 @@ function ensureSchema(database: RuntimeDatabase): void {
     setSchemaVersion(database, 26);
     currentVersion = 26;
   }
+  if (currentVersion < 27) {
+    ensureChatMessageTimelineSchema(database);
+    setSchemaVersion(database, 27);
+    currentVersion = 27;
+  }
+  ensureChatMessageTimelineSchema(database);
   ensureRuntimeArtifactsSchema(database);
   ensureManagedLlamaAndBenchmarkMatrixSchema(database);
   ensureDashboardBenchmarkSchema(database);

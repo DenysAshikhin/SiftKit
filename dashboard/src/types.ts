@@ -153,6 +153,7 @@ export type IdleSummaryResponse = {
 export type ChatMessage = {
   id: string;
   role: 'user' | 'assistant';
+  kind?: 'user_text' | 'assistant_answer' | 'assistant_thinking' | 'assistant_tool_call';
   content: string;
   inputTokensEstimate: number;
   outputTokensEstimate: number;
@@ -176,9 +177,27 @@ export type ChatMessage = {
   speculativeGeneratedTokens?: number | null;
   associatedToolTokens?: number;
   thinkingContent?: string;
+  toolCallCommand?: string | null;
+  toolCallTurn?: number | null;
+  toolCallMaxTurns?: number | null;
+  toolCallExitCode?: number | null;
+  toolCallPromptTokenCount?: number | null;
+  toolCallOutputSnippet?: string | null;
+  toolCallOutput?: string | null;
+  toolCallStatus?: 'running' | 'done';
   createdAtUtc: string;
   sourceRunId: string | null;
   compressedIntoSummary?: boolean;
+};
+
+export type ChatPromptContext = {
+  id: string;
+  role: 'system';
+  kind: 'system_context';
+  label: string;
+  content: string;
+  createdAtUtc: string;
+  deletable: false;
 };
 
 export type HiddenToolContext = {
@@ -202,6 +221,7 @@ export type ChatSession = {
   createdAtUtc: string;
   updatedAtUtc: string;
   messages: ChatMessage[];
+  promptContext?: ChatPromptContext;
   hiddenToolContexts?: HiddenToolContext[];
 };
 

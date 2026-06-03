@@ -859,6 +859,11 @@ pre {
   background: #173a35;
 }
 
+.msg.system {
+  background: #202433;
+  border-color: #3d4863;
+}
+
 .msg header {
   color: var(--ink-dim);
   font-size: 0.85rem;
@@ -871,14 +876,64 @@ pre {
   gap: 8px;
 }
 
+.msg-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .msg-tokens {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
+.msg-icon-button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 6px;
+  line-height: 1;
+}
+
+.msg-icon-button.danger {
+  color: #ffd7d2;
+  border-color: #8d4b53;
+}
+
 .user-message {
   margin: 0;
   white-space: pre-wrap;
+}
+
+.thinking-message,
+.tool-result pre,
+.system-context-bubble pre {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+}
+
+.tool-message {
+  display: grid;
+  gap: 6px;
+}
+
+.tool-message code {
+  display: block;
+  border: 1px solid var(--stroke);
+  border-radius: 6px;
+  padding: 6px;
+  background: #0a1520;
+  white-space: pre-wrap;
+}
+
+.tool-result summary,
+.system-context-bubble summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+
+.system-context-bubble {
+  margin-top: 6px;
 }
 
 .thinking-box {

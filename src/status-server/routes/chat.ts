@@ -23,6 +23,7 @@ import {
 import {
   type RepoSearchProgressEvent,
   buildRepoSearchProgressLogMessage,
+  removeDashboardRunCommandFromLogs,
 } from '../dashboard-runs.js';
 import {
   buildContextUsage,
@@ -35,17 +36,21 @@ import {
   buildPlanMarkdownFromRepoSearch,
   getScorecardTotal,
   buildToolContextFromRepoSearchResult,
+  buildToolMessagesFromRepoSearchResult,
   buildRepoSearchMarkdown,
   loadRepoSearchExecutor,
 } from '../chat.js';
+import { buildChatPromptContext } from '../chat-prompt-context.js';
 import {
   type ChatSession,
   readChatSessionFromPath,
   readChatSessions,
   getChatSessionPath,
   deleteChatSession,
+  deleteChatMessage,
   saveChatSession,
 } from '../../state/chat-sessions.js';
+import { getRuntimeDatabase } from '../../state/runtime-db.js';
 import {
   findPresetById,
   mapLegacyModeToPresetId,
@@ -95,6 +100,20 @@ function getEffectivePresetAllowedTools(config: Dict, preset: SiftPreset | null)
     preset,
     normalizeOperationModeAllowedTools(config.OperationModeAllowedTools),
   );
+}
+
+function withPromptContext(config: Dict, session: ChatSession): ChatSession {
+  return {
+    ...session,
+    promptContext: buildChatPromptContext(config, session),
+  };
+}
+
+function buildChatSessionResponse(config: Dict, session: ChatSession): Dict {
+  return {
+    session: withPromptContext(config, session),
+    contextUsage: buildContextUsage(session),
+  };
 }
 
 function isRepoSearchCapablePreset(preset: SiftPreset | null): preset is SiftPreset {
@@ -258,7 +277,8 @@ export async function handleChatRoute(
   // -------------------------------------------------------------------------
 
   if (req.method === 'GET' && pathname === '/dashboard/chat/sessions') {
-    sendJson(res, 200, { sessions: readChatSessions(runtimeRoot) });
+    const config = readConfig(configPath);
+    sendJson(res, 200, { sessions: readChatSessions(runtimeRoot).map((session) => withPromptContext(config, session)) });
     return true;
   }
 
@@ -273,7 +293,7 @@ export async function handleChatRoute(
       sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
-    sendJson(res, 200, { session, contextUsage: buildContextUsage(session) });
+    sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), session));
     return true;
   }
 
@@ -318,7 +338,7 @@ export async function handleChatRoute(
       updated.planRepoRoot = path.resolve((parsedBody.planRepoRoot as string).trim());
     }
     saveChatSession(runtimeRoot, updated);
-    sendJson(res, 200, { session: updated, contextUsage: buildContextUsage(updated) });
+    sendJson(res, 200, buildChatSessionResponse(currentConfig, updated));
     return true;
   }
 
@@ -334,6 +354,28 @@ export async function handleChatRoute(
       return true;
     }
     sendJson(res, 200, { ok: true, deleted: true, id: sessionId });
+    return true;
+  }
+
+  if (req.method === 'DELETE' && /^\/dashboard\/chat\/sessions\/[^/]+\/messages\/[^/]+$/u.test(pathname)) {
+    const match = /^\/dashboard\/chat\/sessions\/([^/]+)\/messages\/([^/]+)$/u.exec(pathname);
+    const sessionId = decodeURIComponent(match?.[1] || '');
+    const messageId = decodeURIComponent(match?.[2] || '');
+    const result = deleteChatMessage(runtimeRoot, sessionId, messageId);
+    if (!result) {
+      sendJson(res, 404, { error: 'Message not found.' });
+      return true;
+    }
+    const deletedMessage = result.deletedMessage as Dict;
+    const runId = typeof deletedMessage.sourceRunId === 'string' ? deletedMessage.sourceRunId.trim() : '';
+    const commandText = typeof deletedMessage.toolCallCommand === 'string'
+      ? deletedMessage.toolCallCommand.trim()
+      : '';
+    if (runId && commandText) {
+      removeDashboardRunCommandFromLogs(getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite')), runId, commandText);
+    }
+    const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId)) || result.session;
+    sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), session));
     return true;
   }
 
@@ -376,7 +418,7 @@ export async function handleChatRoute(
       hiddenToolContexts: [],
     };
     saveChatSession(runtimeRoot, session);
-    sendJson(res, 200, { session, contextUsage: buildContextUsage(session) });
+    sendJson(res, 200, buildChatSessionResponse(currentConfig, session));
     return true;
   }
 
@@ -485,7 +527,7 @@ export async function handleChatRoute(
         speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
         speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
       });
-      sendJson(res, 200, { session: sessionWithTelemetry, contextUsage: buildContextUsage(sessionWithTelemetry) });
+      sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), sessionWithTelemetry));
     } catch (error) {
       try {
         await notifyChatStatus({
@@ -623,7 +665,7 @@ export async function handleChatRoute(
         speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
         speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
       });
-      writeSse('done', { session: updatedSession, contextUsage: buildContextUsage(updatedSession) });
+      writeSse('done', buildChatSessionResponse(config, updatedSession));
     } catch (error) {
       try {
         await notifyChatStatus({
@@ -731,6 +773,7 @@ export async function handleChatRoute(
       });
       const assistantContent = buildPlanMarkdownFromRepoSearch(content, resolvedRepoRoot, result);
       const toolContextContents = buildToolContextFromRepoSearchResult(result);
+      const toolMessages = buildToolMessagesFromRepoSearchResult(result);
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
@@ -761,11 +804,14 @@ export async function handleChatRoute(
           outputTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
           thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
           sourceRunId: String(result.requestId || ''),
+          toolMessages: toolMessages.map((message) => ({
+            ...message,
+            toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
+          })),
         }
       );
       sendJson(res, 200, {
-        session: updatedSession,
-        contextUsage: buildContextUsage(updatedSession),
+        ...buildChatSessionResponse(config, updatedSession),
         repoSearch: {
           requestId: result.requestId,
           transcriptPath: result.transcriptPath,
@@ -898,6 +944,7 @@ export async function handleChatRoute(
       const assistantContent = buildPlanMarkdownFromRepoSearch(content, resolvedRepoRoot, result);
       phaseTracker.observeAnswer(assistantContent);
       const toolContextContents = buildToolContextFromRepoSearchResult(result);
+      const toolMessages = buildToolMessagesFromRepoSearchResult(result);
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
@@ -929,11 +976,14 @@ export async function handleChatRoute(
           outputTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
           thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
           sourceRunId: String(result.requestId || ''),
+          toolMessages: toolMessages.map((message) => ({
+            ...message,
+            toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
+          })),
         }
       );
       writeSse('done', {
-        session: updatedSession,
-        contextUsage: buildContextUsage(updatedSession),
+        ...buildChatSessionResponse(config, updatedSession),
         repoSearch: {
           requestId: result.requestId,
           transcriptPath: result.transcriptPath,
@@ -1067,6 +1117,7 @@ export async function handleChatRoute(
       const assistantContent = buildRepoSearchMarkdown(content, resolvedRepoRoot, result);
       phaseTracker.observeAnswer(assistantContent);
       const toolContextContents = buildToolContextFromRepoSearchResult(result);
+      const toolMessages = buildToolMessagesFromRepoSearchResult(result);
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
@@ -1098,11 +1149,14 @@ export async function handleChatRoute(
           outputTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
           thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
           sourceRunId: String(result.requestId || ''),
+          toolMessages: toolMessages.map((message) => ({
+            ...message,
+            toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
+          })),
         }
       );
       writeSse('done', {
-        session: updatedSession,
-        contextUsage: buildContextUsage(updatedSession),
+        ...buildChatSessionResponse(config, updatedSession),
         repoSearch: {
           requestId: result.requestId,
           transcriptPath: result.transcriptPath,
@@ -1137,7 +1191,7 @@ export async function handleChatRoute(
       hiddenToolContexts: [],
     };
     saveChatSession(runtimeRoot, updatedSession);
-    sendJson(res, 200, { session: updatedSession, contextUsage: buildContextUsage(updatedSession) });
+    sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), updatedSession));
     return true;
   }
 
@@ -1153,7 +1207,7 @@ export async function handleChatRoute(
       return true;
     }
     const updatedSession = condenseChatSession(runtimeRoot, session);
-    sendJson(res, 200, { session: updatedSession, contextUsage: buildContextUsage(updatedSession) });
+    sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), updatedSession));
     return true;
   }
 

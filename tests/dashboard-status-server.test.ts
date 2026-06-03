@@ -23,6 +23,7 @@ import {
   type SseResponse,
   writeJson,
 } from './helpers/dashboard-http.ts';
+import { buildRepoSearchChatSteps } from '../dashboard/src/lib/chat-steps.ts';
 
 const requireFromHere = createRequire(__filename);
 const Database = requireFromHere('better-sqlite3') as new (path: string, options?: { readonly?: boolean }) => {
@@ -1314,6 +1315,143 @@ test('chat completion receives hidden tool context while keeping it out of visib
     const hiddenToolSystemMessage = systemMessages.find((message) => String(message.content || '').includes('Internal tool-call context from prior session steps.'));
     assert.equal(Boolean(hiddenToolSystemMessage), true, JSON.stringify(systemMessages));
     assert.match(String(hiddenToolSystemMessage?.content || ''), /Command: rg -n "name" package\.json/u);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    await new Promise<void>((resolve, reject) => {
+      llamaServer.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
+test('deleting a tool bubble removes chat context and rewrites run detail', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-delete-bubble-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  let capturedChatRequest: Dict | null = null;
+  const llamaServer = http.createServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    let raw = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk: string) => {
+      raw += chunk;
+    });
+    req.on('end', () => {
+      capturedChatRequest = JSON.parse(raw) as Dict;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{ message: { content: 'ack', reasoning_content: '' } }],
+        usage: { prompt_tokens: 30, completion_tokens: 4 },
+      }));
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    llamaServer.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
+  });
+  const llamaAddress = llamaServer.address() as AddressInfo;
+
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const chatConfig = getDefaultConfig() as Dict;
+  const chatPreset = ((chatConfig.Server as Dict).LlamaCpp as Dict).Presets as Dict[];
+  chatPreset[0].Model = 'Qwen3.5-9B-Q8_0.gguf';
+  chatPreset[0].BaseUrl = `http://127.0.0.1:${llamaAddress.port}`;
+  chatPreset[0].NumCtx = 85000;
+  writeConfig(getConfigPath(), chatConfig);
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Delete Bubble Session',
+        model: 'Qwen3.5-9B-Q8_0.gguf',
+      }),
+    });
+    const sessionId = String(d(createSession.body.session).id);
+
+    const repoMessage = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/repo-search/stream`, {
+      method: 'POST',
+      timeoutMs: 3000,
+      body: JSON.stringify({
+        content: 'Find package name',
+        repoRoot: tempRoot,
+        maxTurns: 1,
+        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        mockResponses: [
+          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"name\\\" package.json\"}",
+          '{"action":"finish","output":"done"}',
+        ],
+        mockCommandResults: {
+          'rg -n "name" package.json': { exitCode: 0, stdout: 'package.json:2:  "name": "siftkit"', stderr: '' },
+        },
+      }),
+    });
+    assert.equal(repoMessage.statusCode, 200);
+    const repoDonePayload = d(repoMessage.events.find((event) => event.event === 'done')?.payload);
+    const repoSession = d(repoDonePayload.session);
+    const toolMessage = ((repoSession.messages || []) as Dict[]).find((message) => message.kind === 'assistant_tool_call');
+    assert.equal(typeof toolMessage?.id, 'string');
+    assert.match(String(toolMessage?.toolCallCommand || ''), /^rg -n "name" package\.json/u);
+    assert.equal(String(toolMessage?.toolCallOutput || '').includes('"name": "siftkit"'), true);
+    assert.equal(((repoSession.hiddenToolContexts || []) as Dict[]).some((entry) => entry.sourceMessageId === toolMessage?.id), true);
+    const runId = String(toolMessage?.sourceRunId || '');
+    const storedCommandText = String(toolMessage?.toolCallCommand || '');
+
+    const detailBefore = await requestJson(`${baseUrl}/dashboard/runs/${encodeURIComponent(runId)}`);
+    assert.equal(detailBefore.statusCode, 200);
+    assert.equal(
+      buildRepoSearchChatSteps((d(detailBefore.body).events || []) as never).some((step) => step.command === storedCommandText),
+      true,
+    );
+
+    const deleteResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages/${toolMessage?.id}`, {
+      method: 'DELETE',
+      timeoutMs: 3000,
+    });
+    assert.equal(deleteResponse.statusCode, 200);
+    const deletedSession = d(deleteResponse.body.session);
+    assert.equal(((deletedSession.messages || []) as Dict[]).some((message) => message.id === toolMessage?.id), false);
+    assert.equal(((deletedSession.hiddenToolContexts || []) as Dict[]).some((entry) => entry.sourceMessageId === toolMessage?.id), false);
+
+    const detailAfter = await requestJson(`${baseUrl}/dashboard/runs/${encodeURIComponent(runId)}`);
+    assert.equal(detailAfter.statusCode, 200);
+    assert.equal(
+      buildRepoSearchChatSteps((d(detailAfter.body).events || []) as never).some((step) => step.command === storedCommandText),
+      false,
+    );
+
+    const chatReply = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
+      method: 'POST',
+      timeoutMs: 3000,
+      body: JSON.stringify({
+        content: 'use prior evidence',
+      }),
+    });
+    assert.equal(chatReply.statusCode, 200);
+    const captured = capturedChatRequest as Dict | null;
+    assert.equal(Array.isArray(captured?.messages), true);
+    const capturedText = ((captured?.messages || []) as Dict[]).map((message) => String(message.content || '')).join('\n');
+    assert.equal(capturedText.includes('rg -n "name" package.json'), false);
+    assert.equal(capturedText.includes('"name": "siftkit"'), false);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

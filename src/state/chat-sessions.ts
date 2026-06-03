@@ -24,6 +24,7 @@ type SessionRow = {
 type MessageRow = {
   id: string;
   role: string;
+  kind: string | null;
   content: string;
   input_tokens_estimate: number;
   output_tokens_estimate: number;
@@ -47,6 +48,13 @@ type MessageRow = {
   speculative_generated_tokens: number | null;
   associated_tool_tokens: number | null;
   thinking_content: string | null;
+  tool_call_command: string | null;
+  tool_call_turn: number | null;
+  tool_call_max_turns: number | null;
+  tool_call_exit_code: number | null;
+  tool_call_prompt_token_count: number | null;
+  tool_call_output_snippet: string | null;
+  tool_call_output: string | null;
   created_at_utc: string;
   source_run_id: string | null;
   compressed_into_summary: number;
@@ -89,6 +97,18 @@ function normalizeMode(value: unknown): 'chat' | 'plan' | 'repo-search' {
 function normalizePresetId(value: unknown, modeValue?: unknown): string {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
   return normalized || mapLegacyModeToPresetId(modeValue);
+}
+
+function normalizeMessageKind(value: unknown, roleValue: unknown): 'user_text' | 'assistant_answer' | 'assistant_thinking' | 'assistant_tool_call' {
+  if (
+    value === 'user_text'
+    || value === 'assistant_answer'
+    || value === 'assistant_thinking'
+    || value === 'assistant_tool_call'
+  ) {
+    return value;
+  }
+  return roleValue === 'user' ? 'user_text' : 'assistant_answer';
 }
 
 function toNonNegativeInteger(value: unknown, fallback: number = 0): number {
@@ -168,6 +188,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
     SELECT
       id,
       role,
+      kind,
       content,
       input_tokens_estimate,
       output_tokens_estimate,
@@ -191,6 +212,13 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       speculative_generated_tokens,
       associated_tool_tokens,
       thinking_content,
+      tool_call_command,
+      tool_call_turn,
+      tool_call_max_turns,
+      tool_call_exit_code,
+      tool_call_prompt_token_count,
+      tool_call_output_snippet,
+      tool_call_output,
       created_at_utc,
       source_run_id,
       compressed_into_summary,
@@ -228,6 +256,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
     messages: messageRows.map((message) => ({
       id: message.id,
       role: message.role,
+      kind: normalizeMessageKind(message.kind, message.role),
       content: message.content,
       inputTokensEstimate: message.input_tokens_estimate,
       outputTokensEstimate: message.output_tokens_estimate,
@@ -251,6 +280,13 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       speculativeGeneratedTokens: message.speculative_generated_tokens,
       associatedToolTokens: message.associated_tool_tokens,
       thinkingContent: message.thinking_content,
+      toolCallCommand: message.tool_call_command,
+      toolCallTurn: message.tool_call_turn,
+      toolCallMaxTurns: message.tool_call_max_turns,
+      toolCallExitCode: message.tool_call_exit_code,
+      toolCallPromptTokenCount: message.tool_call_prompt_token_count,
+      toolCallOutputSnippet: message.tool_call_output_snippet,
+      toolCallOutput: message.tool_call_output,
       createdAtUtc: message.created_at_utc,
       sourceRunId: message.source_run_id,
       compressedIntoSummary: message.compressed_into_summary === 1,
@@ -301,6 +337,32 @@ export function deleteChatSession(runtimeRoot: string, sessionId: string): boole
   database.prepare('DELETE FROM chat_hidden_tool_contexts WHERE session_id = ?').run(normalizedId);
   const result = database.prepare('DELETE FROM chat_sessions WHERE id = ?').run(normalizedId) as { changes?: number };
   return Number(result.changes || 0) > 0;
+}
+
+export function deleteChatMessage(runtimeRoot: string, sessionId: string, messageId: string): { session: ChatSession; deletedMessage: ChatMessage } | null {
+  const normalizedSessionId = String(sessionId || '').trim();
+  const normalizedMessageId = String(messageId || '').trim();
+  if (!normalizedSessionId || !normalizedMessageId) {
+    return null;
+  }
+  const current = readSessionById(runtimeRoot, normalizedSessionId);
+  if (!current || !Array.isArray(current.messages)) {
+    return null;
+  }
+  const deletedMessage = current.messages.find((message) => String(message.id || '') === normalizedMessageId);
+  if (!deletedMessage) {
+    return null;
+  }
+  const updatedSession: ChatSession = {
+    ...current,
+    updatedAtUtc: new Date().toISOString(),
+    messages: current.messages.filter((message) => String(message.id || '') !== normalizedMessageId),
+    hiddenToolContexts: Array.isArray(current.hiddenToolContexts)
+      ? current.hiddenToolContexts.filter((entry: Dict) => String(entry.sourceMessageId || '') !== normalizedMessageId)
+      : [],
+  };
+  saveChatSession(runtimeRoot, updatedSession);
+  return { session: updatedSession, deletedMessage };
 }
 
 export function saveChatSession(runtimeRoot: string, session: ChatSession): void {
@@ -366,6 +428,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         session_id,
         id,
         role,
+        kind,
         content,
         input_tokens_estimate,
         output_tokens_estimate,
@@ -389,11 +452,18 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         speculative_generated_tokens,
         associated_tool_tokens,
         thinking_content,
+        tool_call_command,
+        tool_call_turn,
+        tool_call_max_turns,
+        tool_call_exit_code,
+        tool_call_prompt_token_count,
+        tool_call_output_snippet,
+        tool_call_output,
         created_at_utc,
         source_run_id,
         compressed_into_summary,
         position
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     for (let index = 0; index < messages.length; index += 1) {
@@ -402,6 +472,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         sessionId,
         typeof message.id === 'string' && message.id.trim() ? message.id.trim() : crypto.randomUUID(),
         typeof message.role === 'string' && message.role.trim() ? message.role.trim() : 'assistant',
+        normalizeMessageKind(message.kind, message.role),
         typeof message.content === 'string' ? message.content : '',
         toNonNegativeInteger(message.inputTokensEstimate, estimateTokenCount(message.content)),
         toNonNegativeInteger(message.outputTokensEstimate, estimateTokenCount(message.content)),
@@ -425,6 +496,13 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         toNullableNonNegativeInteger(message.speculativeGeneratedTokens),
         toNullableNonNegativeInteger(message.associatedToolTokens),
         typeof message.thinkingContent === 'string' ? message.thinkingContent : null,
+        typeof message.toolCallCommand === 'string' ? message.toolCallCommand : null,
+        toNullableNonNegativeInteger(message.toolCallTurn),
+        toNullableNonNegativeInteger(message.toolCallMaxTurns),
+        toNullableNonNegativeInteger(message.toolCallExitCode),
+        toNullableNonNegativeInteger(message.toolCallPromptTokenCount),
+        typeof message.toolCallOutputSnippet === 'string' ? message.toolCallOutputSnippet : null,
+        typeof message.toolCallOutput === 'string' ? message.toolCallOutput : null,
         typeof message.createdAtUtc === 'string' && message.createdAtUtc.trim() ? message.createdAtUtc : now,
         typeof message.sourceRunId === 'string' && message.sourceRunId.trim() ? message.sourceRunId : null,
         message.compressedIntoSummary === true ? 1 : 0,

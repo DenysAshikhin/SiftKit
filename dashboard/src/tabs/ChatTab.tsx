@@ -3,7 +3,6 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import {
-  extractFinishOutput,
   formatDate,
   formatNumber,
   formatPercent,
@@ -11,16 +10,7 @@ import {
   isMessageTokenEstimateFallback,
 } from '../lib/format';
 import type { ChatSession, ContextUsage, DashboardPreset, DashboardPresetExecutionFamily } from '../types';
-
-export type ChatToolCall = {
-  turn: number;
-  maxTurns: number;
-  command: string;
-  exitCode?: number;
-  outputSnippet?: string;
-  promptTokenCount?: number;
-  status: 'running' | 'done';
-};
+import type { ChatMessage } from '../types';
 
 type SessionPromptCacheStats = {
   cacheHitRate: number | null;
@@ -49,9 +39,7 @@ type ChatTabProps = {
   planMaxTurnsInput: string;
   contextUsage: ContextUsage | null;
   liveToolPromptTokenCount: number | null;
-  thinkingDraft: string;
-  answerDraft: string;
-  planToolCalls: ChatToolCall[];
+  liveMessages: ChatMessage[];
   chatInput: string;
   chatBusy: boolean;
   chatError: string | null;
@@ -66,6 +54,7 @@ type ChatTabProps = {
   onToggleThinking(enabled: boolean): Promise<void>;
   onSavePlanRepoRoot(): Promise<void>;
   onClearToolContext(): Promise<void>;
+  onDeleteMessage(messageId: string): Promise<void>;
   onCondense(): Promise<void>;
   onSendPlan(): Promise<void>;
   onSendRepoSearch(): Promise<void>;
@@ -88,9 +77,7 @@ export function ChatTab({
   planMaxTurnsInput,
   contextUsage,
   liveToolPromptTokenCount,
-  thinkingDraft,
-  answerDraft,
-  planToolCalls,
+  liveMessages,
   chatInput,
   chatBusy,
   chatError,
@@ -105,11 +92,13 @@ export function ChatTab({
   onToggleThinking,
   onSavePlanRepoRoot,
   onClearToolContext,
+  onDeleteMessage,
   onCondense,
   onSendPlan,
   onSendRepoSearch,
   onSendMessage,
 }: ChatTabProps) {
+  const visibleMessages = selectedSession ? [...selectedSession.messages, ...liveMessages] : [];
   return (
     <section className="panel-grid chat-layout">
       <section className="panel">
@@ -277,18 +266,57 @@ export function ChatTab({
               </details>
             )}
             <div className="chat-log">
-              {selectedSession.messages.map((message) => (
-                <article key={message.id} className={`msg ${message.role}`}>
+              {selectedSession.promptContext && selectedSession.promptContext.content.trim() ? (
+                <article className="msg system system_context">
                   <header className="msg-header">
-                    <span>{message.role} | {formatDate(message.createdAtUtc)}</span>
-                    <span
-                      className="msg-tokens"
-                      title="Format: tokens_for_message (associated hidden tool-call tokens)."
-                    >
-                      {formatNumber(getMessageTokenCount(message))}
-                      {isMessageTokenEstimateFallback(message) ? ' est.' : ''}
-                      {' '}
-                      ({formatNumber(Number(message.associatedToolTokens || 0))})
+                    <span>system | first message</span>
+                    <span className="msg-meta">
+                      <span className="msg-tokens">
+                        {formatNumber(Math.max(1, Math.ceil(selectedSession.promptContext.content.length / 4)))} est.
+                      </span>
+                    </span>
+                  </header>
+                  <details className="system-context-bubble">
+                    <summary>{selectedSession.promptContext.label}</summary>
+                    <pre>{selectedSession.promptContext.content}</pre>
+                  </details>
+                </article>
+              ) : null}
+              {visibleMessages.map((message) => {
+                const isLive = liveMessages.some((liveMessage) => liveMessage.id === message.id);
+                const messageKind = message.kind || (message.role === 'user' ? 'user_text' : 'assistant_answer');
+                const messageLabel = messageKind === 'assistant_thinking'
+                  ? 'assistant thinking'
+                  : messageKind === 'assistant_tool_call'
+                    ? 'assistant tool'
+                    : message.role;
+                const toolOutput = message.toolCallOutput || message.toolCallOutputSnippet || '';
+                return (
+                <article key={message.id} className={`msg ${message.role} ${messageKind}${isLive ? ' live' : ''}`}>
+                  <header className="msg-header">
+                    <span>{messageLabel} | {isLive ? 'live' : formatDate(message.createdAtUtc)}</span>
+                    <span className="msg-meta">
+                      <span
+                        className="msg-tokens"
+                        title="Format: tokens_for_message (associated hidden tool-call tokens)."
+                      >
+                        {formatNumber(getMessageTokenCount(message))}
+                        {isMessageTokenEstimateFallback(message) ? ' est.' : ''}
+                        {' '}
+                        ({formatNumber(Number(message.associatedToolTokens || 0))})
+                      </span>
+                      {!isLive ? (
+                        <button
+                          type="button"
+                          className="msg-icon-button danger"
+                          onClick={() => { void onDeleteMessage(message.id); }}
+                          disabled={chatBusy}
+                          aria-label="Delete message"
+                          title="Delete message"
+                        >
+                          &#128465;
+                        </button>
+                      ) : null}
                     </span>
                   </header>
                   {isDirectChatMode && message.role === 'assistant' && message.thinkingContent ? (
@@ -297,7 +325,28 @@ export function ChatTab({
                       <pre>{message.thinkingContent}</pre>
                     </details>
                   ) : null}
-                  {message.role === 'assistant' ? (
+                  {messageKind === 'assistant_thinking' ? (
+                    <pre className="thinking-message">{message.content}</pre>
+                  ) : messageKind === 'assistant_tool_call' ? (
+                    <div className="tool-message">
+                      <code>{message.toolCallCommand || message.content}</code>
+                      {message.toolCallStatus === 'running' ? <span className="tool-spinner"> ...</span> : null}
+                      {typeof message.toolCallExitCode === 'number' ? (
+                        <span className={message.toolCallExitCode === 0 ? 'exit-ok' : 'exit-fail'}>
+                          {' '}exit {message.toolCallExitCode}
+                        </span>
+                      ) : null}
+                      {typeof message.toolCallPromptTokenCount === 'number' ? (
+                        <span className="hint"> prompt {formatNumber(message.toolCallPromptTokenCount)}</span>
+                      ) : null}
+                      {toolOutput ? (
+                        <details className="tool-result">
+                          <summary aria-label="Show tool result" title="Show tool result">+ result</summary>
+                          <pre>{toolOutput}</pre>
+                        </details>
+                      ) : null}
+                    </div>
+                  ) : message.role === 'assistant' ? (
                     <div className="markdown-body">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
                         {message.content}
@@ -307,49 +356,9 @@ export function ChatTab({
                     <p className="user-message">{message.content}</p>
                   )}
                 </article>
-              ))}
+                );
+              })}
             </div>
-            {chatBusy && (thinkingDraft || answerDraft || planToolCalls.length > 0) && (
-              <div className="live-stream-boxes">
-                {((isDirectChatMode && isThinkingEnabledForCurrentSession) || (isRepoToolMode && thinkingDraft)) && (
-                  <section className="live-box thinking">
-                    <h3>{chatMode === 'plan' ? 'Plan Thinking' : chatMode === 'repo-search' ? 'Search Thinking' : chatMode === 'summary' ? 'Summary Thinking' : 'Thinking'}</h3>
-                    <pre>{thinkingDraft || '...'}</pre>
-                  </section>
-                )}
-                {isRepoToolMode && planToolCalls.length > 0 && (
-                  <section className="live-box tool-calls">
-                    <h3>Queries ({planToolCalls.length})</h3>
-                    <ul className="tool-call-list">
-                      {[...planToolCalls].reverse().map((toolCall, index) => (
-                        <li key={index} className={toolCall.status === 'running' ? 'tool-running' : 'tool-done'}>
-                          <code>{toolCall.command}</code>
-                          {toolCall.status === 'running' && <span className="tool-spinner"> ...</span>}
-                          {toolCall.status === 'done' && toolCall.outputSnippet && (
-                            <pre className="tool-snippet">{toolCall.outputSnippet}</pre>
-                          )}
-                          {toolCall.status === 'done' && typeof toolCall.exitCode === 'number' && (
-                            <span className={toolCall.exitCode === 0 ? 'exit-ok' : 'exit-fail'}>
-                              {' '}exit {toolCall.exitCode}
-                            </span>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                )}
-                {(isDirectChatMode || chatMode === 'repo-search') && (
-                  <section className="live-box answer">
-                    <h3>{chatMode === 'repo-search' ? 'Search Thinking' : chatMode === 'summary' ? 'Summary' : 'Answer'}</h3>
-                    <div className="markdown-body">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {chatMode === 'repo-search' ? extractFinishOutput(answerDraft) || '...' : answerDraft || '...'}
-                      </ReactMarkdown>
-                    </div>
-                  </section>
-                )}
-              </div>
-            )}
             <div className="composer">
               <textarea
                 placeholder={chatMode === 'plan' ? 'Describe the feature to plan (plan mode runs repo-search)...' : chatMode === 'repo-search' ? 'Enter a repo search query...' : chatMode === 'summary' ? 'Enter a summary request...' : 'Send a local chat message...'}

@@ -102,6 +102,66 @@ test('chat sessions are persisted in runtime sqlite instead of JSON files', () =
   });
 });
 
+test('chat timeline bubbles persist typed tool payload fields', () => {
+  withTempRepo((repoRoot) => {
+    const runtimeRoot = path.join(repoRoot, '.siftkit');
+    const sessionId = 'session-timeline-bubbles';
+
+    saveChatSession(runtimeRoot, {
+      id: sessionId,
+      title: 'Timeline Session',
+      model: 'model-a',
+      contextWindowTokens: 4096,
+      thinkingEnabled: true,
+      presetId: 'repo-search',
+      mode: 'repo-search',
+      planRepoRoot: repoRoot,
+      condensedSummary: '',
+      createdAtUtc: new Date().toISOString(),
+      updatedAtUtc: new Date().toISOString(),
+      messages: [{
+        id: 'tool-1',
+        role: 'assistant',
+        kind: 'assistant_tool_call',
+        content: 'rg -n "timeline" .',
+        inputTokensEstimate: 0,
+        outputTokensEstimate: 9,
+        thinkingTokens: 0,
+        promptCacheTokens: null,
+        promptEvalTokens: 44,
+        toolCallCommand: 'rg -n "timeline" .',
+        toolCallTurn: 2,
+        toolCallMaxTurns: 5,
+        toolCallExitCode: 0,
+        toolCallPromptTokenCount: 44,
+        toolCallOutputSnippet: 'src/chat.ts:1:timeline',
+        toolCallOutput: 'src/chat.ts:1:timeline\nsrc/ui.tsx:2:bubble',
+        createdAtUtc: new Date().toISOString(),
+        sourceRunId: 'run-tool',
+      }],
+      hiddenToolContexts: [{
+        id: 'h-tool',
+        content: 'Command: rg -n "timeline" .',
+        tokenEstimate: 7,
+        sourceMessageId: 'tool-1',
+        createdAtUtc: new Date().toISOString(),
+      }],
+    });
+
+    const loaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+    const message = loaded?.messages?.[0];
+    assert.equal(message?.kind, 'assistant_tool_call');
+    assert.equal(message?.toolCallCommand, 'rg -n "timeline" .');
+    assert.equal(message?.toolCallTurn, 2);
+    assert.equal(message?.toolCallMaxTurns, 5);
+    assert.equal(message?.toolCallExitCode, 0);
+    assert.equal(message?.toolCallPromptTokenCount, 44);
+    assert.equal(message?.toolCallOutputSnippet, 'src/chat.ts:1:timeline');
+    assert.equal(message?.toolCallOutput, 'src/chat.ts:1:timeline\nsrc/ui.tsx:2:bubble');
+    assert.equal(loaded?.hiddenToolContexts?.[0]?.sourceMessageId, 'tool-1');
+  });
+});
+
 test('deleteChatSession removes DB rows and reports existence correctly', () => {
   withTempRepo((repoRoot) => {
     const runtimeRoot = path.join(repoRoot, '.siftkit');

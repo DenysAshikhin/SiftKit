@@ -486,6 +486,108 @@ function parseJsonObjectText(text: string | null): Dict | null {
   }
 }
 
+function removeCommandFromScorecard(scorecard: unknown, commandText: string): boolean {
+  if (!scorecard || typeof scorecard !== 'object') {
+    return false;
+  }
+  const tasks = Array.isArray((scorecard as Dict).tasks) ? (scorecard as Dict).tasks as Dict[] : [];
+  let changed = false;
+  for (const task of tasks) {
+    if (!task || typeof task !== 'object' || !Array.isArray(task.commands)) {
+      continue;
+    }
+    const originalCommands = task.commands as Dict[];
+    const filteredCommands = originalCommands.filter((command) => String(command?.command || '').trim() !== commandText);
+    if (filteredCommands.length !== originalCommands.length) {
+      task.commands = filteredCommands;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function removeCommandFromTranscriptJsonl(text: string | null, commandText: string): { text: string | null; changed: boolean } {
+  if (!text || !commandText) {
+    return { text, changed: false };
+  }
+  const keptLines: string[] = [];
+  let changed = false;
+  for (const line of text.split(/\r?\n/u)) {
+    if (!line.trim()) {
+      continue;
+    }
+    let parsed: Dict | null = null;
+    try {
+      parsed = JSON.parse(line) as Dict;
+    } catch {
+      keptLines.push(line);
+      continue;
+    }
+    const payload = parsed.payload && typeof parsed.payload === 'object' ? parsed.payload as Dict : parsed;
+    const kind = String(parsed.kind || payload.kind || '');
+    const eventCommand = String(payload.command || '').trim();
+    if (eventCommand === commandText && (kind === 'turn_command_result' || kind === 'tool_start' || kind === 'tool_result')) {
+      changed = true;
+      continue;
+    }
+    if (kind === 'run_done' && payload.scorecard && removeCommandFromScorecard(payload.scorecard, commandText)) {
+      changed = true;
+    }
+    keptLines.push(JSON.stringify(parsed));
+  }
+  return { text: keptLines.length > 0 ? keptLines.join('\n') : null, changed };
+}
+
+export function removeDashboardRunCommandFromLogs(database: DatabaseInstance, runId: string, commandText: string): void {
+  const normalizedRunId = String(runId || '').trim();
+  const normalizedCommand = String(commandText || '').trim();
+  if (!normalizedRunId || !normalizedCommand) {
+    return;
+  }
+  ensureRunLogsTable(database);
+  database.transaction(() => {
+    const row = database.prepare(`
+      SELECT repo_search_transcript_jsonl
+      FROM run_logs
+      WHERE run_id = ?
+      LIMIT 1
+    `).get(normalizedRunId) as { repo_search_transcript_jsonl?: string | null } | undefined;
+    if (row) {
+      const rewritten = removeCommandFromTranscriptJsonl(
+        typeof row.repo_search_transcript_jsonl === 'string' ? row.repo_search_transcript_jsonl : null,
+        normalizedCommand,
+      );
+      if (rewritten.changed) {
+        database.prepare('UPDATE run_logs SET repo_search_transcript_jsonl = ? WHERE run_id = ?')
+          .run(rewritten.text, normalizedRunId);
+      }
+    }
+    if (tableExists(database, 'runtime_artifacts')) {
+      const artifactRows = database.prepare(`
+        SELECT id, content_json
+        FROM runtime_artifacts
+        WHERE request_id = ? AND content_json IS NOT NULL
+      `).all(normalizedRunId) as Array<{ id: string; content_json: string | null }>;
+      for (const artifactRow of artifactRows) {
+        if (typeof artifactRow.content_json !== 'string' || !artifactRow.content_json.trim()) {
+          continue;
+        }
+        let parsed: Dict;
+        try {
+          parsed = JSON.parse(artifactRow.content_json) as Dict;
+        } catch {
+          continue;
+        }
+        const changed = removeCommandFromScorecard(parsed.scorecard ?? parsed, normalizedCommand);
+        if (changed) {
+          database.prepare('UPDATE runtime_artifacts SET content_json = ?, updated_at_utc = ? WHERE id = ?')
+            .run(JSON.stringify(parsed), new Date().toISOString(), artifactRow.id);
+        }
+      }
+    }
+  })();
+}
+
 function parseJsonlEventsFromText(text: string | null): JsonlEvent[] {
   if (typeof text !== 'string' || !text.trim()) {
     return [];

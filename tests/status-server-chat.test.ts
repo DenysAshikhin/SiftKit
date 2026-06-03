@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildChatCompletionRequest, buildContextUsage, buildRepoSearchMarkdown } from '../src/status-server/chat.ts';
+import {
+  buildChatCompletionRequest,
+  buildChatSystemContent,
+  buildContextUsage,
+  buildRepoSearchMarkdown,
+} from '../src/status-server/chat.ts';
+import { buildChatPromptContext } from '../src/status-server/chat-prompt-context.ts';
 import { estimatePromptTokenCountFromCharacters, getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
 import { estimateTokenCount, type ChatSession } from '../src/state/chat-sessions.ts';
 import type { Dict } from '../src/lib/types.ts';
@@ -80,6 +86,103 @@ test('buildChatCompletionRequest replays assistant reasoning_content only when e
     role: 'assistant',
     content: 'answer without thinking',
   });
+});
+
+test('buildChatCompletionRequest replays typed timeline bubbles as prompt messages', () => {
+  const session = createSession();
+  session.messages = [
+    {
+      id: 'user-typed',
+      role: 'user',
+      kind: 'user_text',
+      content: 'Find chat timeline code.',
+    },
+    {
+      id: 'thinking-typed',
+      role: 'assistant',
+      kind: 'assistant_thinking',
+      content: 'I should inspect the dashboard chat component.',
+    },
+    {
+      id: 'tool-typed',
+      role: 'assistant',
+      kind: 'assistant_tool_call',
+      content: 'rg -n "ChatTab" dashboard/src',
+      toolCallCommand: 'rg -n "ChatTab" dashboard/src',
+      toolCallOutput: 'dashboard/src/tabs/ChatTab.tsx:75:export function ChatTab',
+    },
+    {
+      id: 'answer-typed',
+      role: 'assistant',
+      kind: 'assistant_answer',
+      content: 'ChatTab renders the chat surface.',
+    },
+  ];
+
+  const request = buildChatCompletionRequest(createConfig(), session, 'next question');
+  const messages = request.body.messages as Array<Record<string, unknown>>;
+
+  assert.deepEqual(messages.slice(1), [
+    { role: 'user', content: 'Find chat timeline code.' },
+    { role: 'assistant', content: 'I should inspect the dashboard chat component.' },
+    {
+      role: 'assistant',
+      content: 'Tool call: rg -n "ChatTab" dashboard/src\n\nResult:\ndashboard/src/tabs/ChatTab.tsx:75:export function ChatTab',
+    },
+    { role: 'assistant', content: 'ChatTab renders the chat surface.' },
+    { role: 'user', content: 'next question' },
+  ]);
+});
+
+test('buildChatPromptContext exposes direct system prompt and hidden tool context', () => {
+  const session = createSession();
+  session.hiddenToolContexts = [{
+    id: 'hidden-1',
+    content: 'repo evidence that is still in prompt context',
+    tokenEstimate: 11,
+    sourceMessageId: 'tool-1',
+  }];
+
+  const context = buildChatPromptContext(createConfig(), session, {
+    promptPrefix: 'custom system prompt',
+  });
+
+  assert.equal(context.kind, 'system_context');
+  assert.equal(context.deletable, false);
+  assert.match(context.content, /System prompt/u);
+  assert.match(context.content, /custom system prompt/u);
+  assert.match(context.content, /repo evidence that is still in prompt context/u);
+  assert.equal(
+    buildChatSystemContent(createConfig(), session, { promptPrefix: 'custom system prompt' }).includes('repo evidence that is still in prompt context'),
+    true,
+  );
+});
+
+test('buildChatPromptContext exposes repo-search tool schema', () => {
+  const session = createSession();
+  session.mode = 'repo-search';
+  session.presetId = 'repo-search';
+  session.planRepoRoot = process.cwd();
+
+  const context = buildChatPromptContext(createConfig({
+    Presets: [{
+      id: 'repo-search',
+      label: 'Repo Search',
+      presetKind: 'repo-search',
+      operationMode: 'read-only',
+      allowedTools: ['repo_rg'],
+      promptPrefix: 'extra repo instruction',
+    }],
+  }), session);
+
+  assert.match(context.content, /System prompt/u);
+  assert.match(context.content, /You are a repo-search planner/u);
+  assert.match(context.content, /Preset prompt prefix/u);
+  assert.match(context.content, /extra repo instruction/u);
+  assert.match(context.content, /Tool schema/u);
+  const toolSchemaSection = context.content.split('## Tool schema')[1] || '';
+  assert.match(toolSchemaSection, /repo_rg/u);
+  assert.doesNotMatch(toolSchemaSection, /repo_read_file/u);
 });
 
 test('buildRepoSearchMarkdown collapses exact repeated final output blocks for display', () => {
@@ -183,4 +286,38 @@ test('buildContextUsage estimates continuation context from session content inst
   assert.equal(usage.toolUsedTokens, expectedToolTokens);
   assert.equal(usage.totalUsedTokens, expectedChatTokens + expectedToolTokens);
   assert.equal(usage.estimatedTokenFallbackTokens, 0);
+});
+
+test('buildContextUsage counts typed thinking and tool bubbles from visible timeline content', () => {
+  const session = {
+    id: 'session-usage-typed',
+    contextWindowTokens: 75000,
+    messages: [
+      {
+        id: 'thinking-1',
+        role: 'assistant',
+        kind: 'assistant_thinking',
+        content: 'Visible reasoning bubble.',
+      },
+      {
+        id: 'tool-1',
+        role: 'assistant',
+        kind: 'assistant_tool_call',
+        content: 'rg -n "x" src',
+        toolCallCommand: 'rg -n "x" src',
+        toolCallOutput: 'src/example.ts:1:x',
+      },
+    ],
+    hiddenToolContexts: [],
+  } as ChatSession;
+
+  const usage = buildContextUsage(session);
+
+  assert.equal(usage.thinkingUsedTokens, estimateTokenCount('Visible reasoning bubble.'));
+  assert.equal(
+    usage.chatUsedTokens,
+    estimateTokenCount('general, coder friendly assistant')
+      + estimateTokenCount('Visible reasoning bubble.')
+      + estimateTokenCount('Tool call: rg -n "x" src\n\nResult:\nsrc/example.ts:1:x'),
+  );
 });
