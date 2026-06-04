@@ -294,7 +294,9 @@ export type DashboardPresetToolName =
   | 'repo_convertto_json'
   | 'repo_convertfrom_json'
   | 'repo_get_unique'
-  | 'repo_join_string';
+  | 'repo_join_string'
+  | 'web_search'
+  | 'web_fetch';
 export type DashboardOperationModeAllowedTools = Record<DashboardPresetOperationMode, DashboardPresetToolName[]>;
 
 export type DashboardPreset = {

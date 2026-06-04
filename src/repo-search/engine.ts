@@ -108,6 +108,22 @@ import {
   detectRecentTokenRepetition,
   type TokenRepetitionDetection,
 } from './repetition-guard.js';
+import { WebResearchTools } from '../web-search/web-research-tools.js';
+import type { WebFetchToolArgs, WebSearchConfig, WebSearchToolArgs } from '../web-search/types.js';
+
+const DEFAULT_ENGINE_WEB_SEARCH_CONFIG: WebSearchConfig = {
+  EnabledDefault: false,
+  Provider: 'searxng',
+  SearxngBaseUrl: 'http://127.0.0.1:8080',
+  ResultCount: 5,
+  FetchMaxPages: 3,
+  TimeoutMs: 15000,
+  FetchMaxCharacters: 12000,
+};
+
+function buildWebToolsForTaskLoop(config?: SiftConfig): WebResearchTools {
+  return new WebResearchTools(config?.WebSearch ?? DEFAULT_ENGINE_WEB_SEARCH_CONFIG);
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -403,6 +419,12 @@ function buildNativeRepoToolRequestedCommand(toolName: string, args: Record<stri
     const endLineCandidate = Math.trunc(Number(args.endLine) || 0);
     return buildRepoReadFileCommand(String(args.path || ''), startLine, endLineCandidate > 0 ? endLineCandidate : undefined);
   }
+  if (toolName === 'web_search') {
+    return `web_search query=${JSON.stringify(String(args.query || '').trim())}`;
+  }
+  if (toolName === 'web_fetch') {
+    return `web_fetch url=${JSON.stringify(String(args.url || '').trim())}`;
+  }
   return buildRepoListFilesCommand(args);
 }
 
@@ -546,19 +568,37 @@ function listRepoFilesRecursive(
   }
 }
 
-function executeNativeRepoTool(
+async function executeNativeRepoTool(
   toolName: string,
   args: Record<string, unknown>,
   repoRoot: string,
   ignorePolicy: IgnorePolicy,
+  webTools: WebResearchTools,
   fileReadStateByPath?: Map<string, FileReadState>,
-): NativeRepoToolExecution {
+): Promise<NativeRepoToolExecution> {
   if (toolName === 'repo_read_file') {
     const plan = planRepoReadFile(args, repoRoot, ignorePolicy, fileReadStateByPath);
     if (isFailedRepoReadFilePlan(plan)) {
       return { ok: false, command: plan.command, reason: plan.reason, toolType: toolName };
     }
     return buildRepoReadFileExecution(toolName, plan, null);
+  }
+
+  if (toolName === 'web_search') {
+    try {
+      const result = await webTools.search(args as WebSearchToolArgs);
+      return { ok: true, command: result.command, exitCode: 0, output: result.output, toolType: 'web_search', outputUnit: 'results' };
+    } catch (error) {
+      return { ok: false, command: `web_search query=${JSON.stringify(String(args.query || '').trim())}`, reason: error instanceof Error ? error.message : String(error), toolType: 'web_search' };
+    }
+  }
+  if (toolName === 'web_fetch') {
+    try {
+      const result = await webTools.fetch(args as WebFetchToolArgs);
+      return { ok: true, command: result.command, exitCode: 0, output: result.output, toolType: 'web_fetch', outputUnit: 'characters' };
+    } catch (error) {
+      return { ok: false, command: `web_fetch url=${JSON.stringify(String(args.url || '').trim())}`, reason: error instanceof Error ? error.message : String(error), toolType: 'web_fetch' };
+    }
   }
 
   const pathText = typeof args.path === 'string' && args.path.trim() ? args.path.trim() : '.';
@@ -833,6 +873,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const taskStartedAt = Date.now();
   const maxTurns = Math.max(1, Number(options.maxTurns || DEFAULT_MAX_TURNS));
   const maxInvalidResponses = Math.max(1, Number(options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES));
+  const webTools = buildWebToolsForTaskLoop(options.config);
   const commands: TaskCommand[] = [];
   const turnThinking: Record<number, string> = {};
   let finalOutput = '';
@@ -1460,7 +1501,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
           ? { ok: false, command: nativeReadPlan.command, reason: nativeReadPlan.reason, toolType: normalizedToolName }
           : buildRepoReadFileExecution(normalizedToolName, nativeReadPlan, null);
       } else {
-        nativeExecution = executeNativeRepoTool(normalizedToolName, toolAction.args, options.repoRoot, ignorePolicy, fileReadStateByPath);
+        nativeExecution = await executeNativeRepoTool(normalizedToolName, toolAction.args, options.repoRoot, ignorePolicy, webTools, fileReadStateByPath);
       }
     }
     if (isNativeTool && nativeExecution && !nativeExecution.ok) {

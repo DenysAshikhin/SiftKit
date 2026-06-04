@@ -152,6 +152,35 @@ const NATIVE_REPO_SEARCH_TOOL_REGISTRY: Record<string, StructuredOutputToolDefin
       },
     },
   },
+  web_search: {
+    type: 'function',
+    function: {
+      name: 'web_search',
+      description: 'Search the public web and return concise result titles, URLs, and snippets. Use only when external/current information is needed.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string' },
+          timeFilter: { type: 'string', enum: ['day', 'week', 'month', 'year'] },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  web_fetch: {
+    type: 'function',
+    function: {
+      name: 'web_fetch',
+      description: 'Fetch one public HTTP(S) URL and return extracted text. Private, local, and internal URLs are blocked.',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string' },
+        },
+        required: ['url'],
+      },
+    },
+  },
 };
 
 const REPO_SEARCH_EXCLUDED_COMMAND_TOKENS = new Set<string>([
@@ -206,6 +235,8 @@ const REPO_SEARCH_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> 
   ...COMMAND_REPO_SEARCH_TOOL_REGISTRY,
 };
 
+const WEB_NATIVE_TOOL_NAMES = new Set<string>(['web_search', 'web_fetch']);
+
 const REPO_SEARCH_TOOL_NAME_BY_COMMAND_TOKEN = new Map<string, string>(
   ACCEPTED_REPO_SEARCH_COMMAND_TOKENS.map((commandToken) => [commandToken, commandTokenToToolName(commandToken)]),
 );
@@ -219,8 +250,11 @@ export function getRepoSearchToolNames(): string[] {
 }
 
 export function getRepoSearchToolNamesForParsing(): string[] {
+  // Web tools are excluded from the default parse set so a forged web action is
+  // rejected unless web_search/web_fetch are explicitly in the active planner
+  // tool definitions (appended only when the effective web gate is enabled).
   return Array.from(new Set<string>([
-    ...Object.keys(REPO_SEARCH_TOOL_REGISTRY),
+    ...Object.keys(REPO_SEARCH_TOOL_REGISTRY).filter((toolName) => !WEB_NATIVE_TOOL_NAMES.has(toolName)),
     ...Array.from(REPO_SEARCH_COMMAND_TOKEN_BY_TOOL_NAME.keys()),
   ]));
 }

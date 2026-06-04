@@ -323,6 +323,32 @@ export class ModelJson {
       };
     }
 
+    if (toolName === 'web_search') {
+      const query = typeof rawArgs.query === 'string' ? rawArgs.query.trim() : '';
+      if (!query) {
+        return null;
+      }
+      const timeFilter = rawArgs.timeFilter === 'day'
+        || rawArgs.timeFilter === 'week'
+        || rawArgs.timeFilter === 'month'
+        || rawArgs.timeFilter === 'year'
+        ? rawArgs.timeFilter
+        : undefined;
+      return {
+        action: 'tool',
+        tool_name: toolName,
+        args: {
+          query,
+          ...(timeFilter ? { timeFilter } : {}),
+        },
+      };
+    }
+
+    if (toolName === 'web_fetch') {
+      const url = typeof rawArgs.url === 'string' ? rawArgs.url.trim() : '';
+      return url ? { action: 'tool', tool_name: toolName, args: { url } } : null;
+    }
+
     return { action: 'tool', tool_name: toolName, args: rawArgs };
   }
 

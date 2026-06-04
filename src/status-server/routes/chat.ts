@@ -110,6 +110,16 @@ function getEffectivePresetAllowedTools(config: Dict, preset: SiftPreset | null)
   );
 }
 
+export function withEffectiveWebTools(
+  allowedTools: SiftPreset['allowedTools'] | undefined,
+  enabled: boolean,
+): SiftPreset['allowedTools'] | undefined {
+  if (!enabled || !allowedTools) {
+    return allowedTools;
+  }
+  return [...new Set([...allowedTools, 'web_search', 'web_fetch'])] as SiftPreset['allowedTools'];
+}
+
 type SseWriter = (eventName: string, payload: unknown) => void;
 
 function requireToolCallId(event: RepoSearchProgressEvent): string {
@@ -905,7 +915,10 @@ export async function handleChatRoute(
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
         config,
         promptPrefix: preset?.promptPrefix || '',
-        allowedTools: getEffectivePresetAllowedTools(config, preset),
+        allowedTools: withEffectiveWebTools(
+          getEffectivePresetAllowedTools(config, preset),
+          resolveEffectiveWebSearchEnabled(activeSession.webSearchEnabled === true, getWebSearchOverride(parsedBody.webSearchOverride)),
+        ),
         includeAgentsMd: autoAppend.includeAgentsMd,
         includeRepoFileListing: autoAppend.includeRepoFileListing,
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
@@ -1059,7 +1072,10 @@ export async function handleChatRoute(
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
         config,
         promptPrefix: preset?.promptPrefix || '',
-        allowedTools: getEffectivePresetAllowedTools(config, preset),
+        allowedTools: withEffectiveWebTools(
+          getEffectivePresetAllowedTools(config, preset),
+          resolveEffectiveWebSearchEnabled(activeSession.webSearchEnabled === true, getWebSearchOverride(parsedBody.webSearchOverride)),
+        ),
         includeAgentsMd: autoAppend.includeAgentsMd,
         includeRepoFileListing: autoAppend.includeRepoFileListing,
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
@@ -1274,7 +1290,10 @@ export async function handleChatRoute(
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
         config,
         promptPrefix: preset?.promptPrefix || '',
-        allowedTools: getEffectivePresetAllowedTools(config, preset),
+        allowedTools: withEffectiveWebTools(
+          getEffectivePresetAllowedTools(config, preset),
+          resolveEffectiveWebSearchEnabled(activeSession.webSearchEnabled === true, getWebSearchOverride(parsedBody.webSearchOverride)),
+        ),
         includeAgentsMd: autoAppend.includeAgentsMd,
         includeRepoFileListing: autoAppend.includeRepoFileListing,
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
