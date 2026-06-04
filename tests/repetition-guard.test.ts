@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
 
 import { detectRecentTokenRepetition } from '../src/repo-search/repetition-guard.js';
 
@@ -28,4 +29,11 @@ test('detectRecentTokenRepetition catches alternating structural loops', () => {
   assert.notEqual(result, null);
   assert.equal(result?.periodTokens, 2);
   assert.equal(result?.repeatedTokens.join(''), '}]');
+});
+
+test('repetition guard benchmark is exposed as a package script', () => {
+  const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { scripts?: Record<string, string> };
+
+  assert.equal(pkg.scripts?.['benchmark:repetition-guard'], 'tsx .\\scripts\\benchmark-repetition-guard.ts');
+  assert.equal(existsSync('scripts/benchmark-repetition-guard.ts'), true);
 });

@@ -846,13 +846,13 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "planner" src': { exitCode: 0, stdout: 'a '.repeat(500), stderr: '' },
-        'rg -n "planner" lib': { exitCode: 0, stdout: 'b '.repeat(500), stderr: '' },
-        'rg -n "planner" test': { exitCode: 0, stdout: 'c '.repeat(500), stderr: '' },
-        'rg -n "planner" docs': { exitCode: 0, stdout: 'd '.repeat(500), stderr: '' },
-        'rg -n "planner" scripts': { exitCode: 0, stdout: 'e '.repeat(500), stderr: '' },
-        'rg -n "planner" examples': { exitCode: 0, stdout: 'f '.repeat(320), stderr: '' },
-        'rg -n "planner" fixtures': { exitCode: 0, stdout: 'g '.repeat(320), stderr: '' },
+        'rg -n "planner" src': { exitCode: 0, stdout: Array.from({ length: 500 }, (_, index) => `a-${index}`).join(' '), stderr: '' },
+        'rg -n "planner" lib': { exitCode: 0, stdout: Array.from({ length: 500 }, (_, index) => `b-${index}`).join(' '), stderr: '' },
+        'rg -n "planner" test': { exitCode: 0, stdout: Array.from({ length: 500 }, (_, index) => `c-${index}`).join(' '), stderr: '' },
+        'rg -n "planner" docs': { exitCode: 0, stdout: Array.from({ length: 500 }, (_, index) => `d-${index}`).join(' '), stderr: '' },
+        'rg -n "planner" scripts': { exitCode: 0, stdout: Array.from({ length: 500 }, (_, index) => `e-${index}`).join(' '), stderr: '' },
+        'rg -n "planner" examples': { exitCode: 0, stdout: Array.from({ length: 320 }, (_, index) => `f-${index}`).join(' '), stderr: '' },
+        'rg -n "planner" fixtures': { exitCode: 0, stdout: Array.from({ length: 320 }, (_, index) => `g-${index}`).join(' '), stderr: '' },
       },
       logger: {
         write(event: Record<string, unknown> & { kind: string }) {

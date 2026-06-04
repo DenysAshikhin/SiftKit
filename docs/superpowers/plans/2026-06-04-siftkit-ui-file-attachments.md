@@ -48,7 +48,6 @@
 Add these exports near `ChatMessage` in `dashboard/src/types.ts`:
 
 ```ts
-export type ChatAttachmentKind = 'text';
 export type ChatAttachmentKind = 'text' | 'image';
 
 export type ChatAttachmentSource = 'file';
@@ -577,6 +576,7 @@ Import:
 
 ```ts
 import {
+  buildReadyImageAttachment,
   UnsupportedAttachmentError,
   extractTextAttachment,
 } from '../src/status-server/chat-attachments.js';
@@ -983,6 +983,26 @@ test('buildChatCompletionRequest replays persisted attachment text', () => {
   assert.match(String(request.body.messages[1].content), /Earlier text/u);
   assert.match(String(request.body.messages[1].content), /Persisted file body/u);
 });
+
+test('buildChatCompletionRequest includes image attachments as image_url content parts', () => {
+  const attachment = buildReadyImageAttachment({
+    filename: 'shot.png',
+    mediaType: 'image/png',
+    sizeBytes: 4,
+    dataUrl: 'data:image/png;base64,AAAA',
+  });
+  const request = buildChatCompletionRequest(createConfig(), createSession(), 'Describe this.', {
+    attachments: [attachment],
+  });
+  const userMessage = request.body.messages.at(-1);
+
+  assert.equal(userMessage.role, 'user');
+  assert.ok(Array.isArray(userMessage.content));
+  assert.deepEqual(userMessage.content, [
+    { type: 'text', text: 'Describe this.' },
+    { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+  ]);
+});
 ```
 
 - [ ] **Step 2: Run failing prompt tests**
@@ -1043,6 +1063,30 @@ export function appendAttachmentsToUserContent(content: string, attachments: Cha
   }
   return [base, ...attachmentBlocks].filter((value) => value.trim()).join('\n\n');
 }
+
+export type ChatCompletionContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+
+export function buildUserContentForChatCompletion(content: string, attachments: ChatAttachment[]): string | ChatCompletionContentPart[] {
+  const normalizedAttachments = normalizeChatAttachments(attachments);
+  const imageAttachments = normalizedAttachments.filter((attachment): attachment is ChatImageAttachment => attachment.kind === 'image');
+  if (imageAttachments.length === 0) {
+    return appendAttachmentsToUserContent(content, normalizedAttachments);
+  }
+  const textContent = appendAttachmentsToUserContent(
+    content,
+    normalizedAttachments.filter((attachment): attachment is ChatTextAttachment => attachment.kind === 'text'),
+  );
+  const parts: ChatCompletionContentPart[] = [];
+  if (textContent.trim()) {
+    parts.push({ type: 'text', text: textContent });
+  }
+  for (const image of imageAttachments) {
+    parts.push({ type: 'image_url', image_url: { url: image.dataUrl } });
+  }
+  return parts;
+}
 ```
 
 - [ ] **Step 4: Wire prompt construction**
@@ -1052,6 +1096,7 @@ In `src/status-server/chat.ts`, import:
 ```ts
 import {
   appendAttachmentsToUserContent,
+  buildUserContentForChatCompletion,
   normalizeChatAttachments,
   type ChatAttachment,
 } from './chat-attachments.js';
@@ -1077,8 +1122,19 @@ return appendAttachmentsToUserContent(String(message.content || ''), normalizeCh
 Update current user message in `buildChatCompletionRequest`:
 
 ```ts
-{ role: 'user', content: appendAttachmentsToUserContent(userContent, normalizeChatAttachments(options.attachments)) },
+{ role: 'user', content: buildUserContentForChatCompletion(userContent, normalizeChatAttachments(options.attachments)) },
 ```
+
+For prior replay, keep `formatChatMessageForPrompt()` string-based for token accounting and text replay. In `buildChatCompletionRequest()`, when replaying prior messages, use:
+
+```ts
+content: buildUserContentForChatCompletion(
+  String(message.content || ''),
+  normalizeChatAttachments(message.attachments),
+),
+```
+
+only for prior user messages with image attachments. Assistant/tool replay stays unchanged.
 
 Update `getMessageContextTokenEstimate` naturally through `formatChatMessageForPrompt`.
 
@@ -1323,6 +1379,16 @@ for:
 - `streamPlanMessage`
 - `streamRepoSearchMessage`
 
+Add a chat content-part type for image sends:
+
+```ts
+export type ChatMessageContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+```
+
+The dashboard API still sends `attachments?: ChatAttachment[]` to SiftKit routes. SiftKit server routes convert those persisted attachment objects into llama.cpp/OpenAI-compatible content parts before proxying to `/v1/chat/completions`.
+
 - [ ] **Step 4: Build after hook wiring**
 
 ```powershell
@@ -1388,6 +1454,38 @@ test('useChatComposer sends ready attachments and clears them after success', as
   });
   assert.equal(harness.result.attachments.length, 0);
 });
+
+test('useChatComposer prepares image attachments when image capability is enabled', async () => {
+  const file = new File(['image-bytes'], 'shot.png', { type: 'image/png' });
+  const harness = renderUseChatComposerHarness({
+    attachmentCapabilities: { text: { enabled: true }, image: { enabled: true, reason: null } },
+  });
+
+  await act(async () => {
+    await harness.result.addFiles([file]);
+  });
+
+  assert.equal(harness.result.attachments[0].kind, 'image');
+  assert.match(harness.result.attachments[0].dataUrl, /^data:image\/png;base64,/u);
+});
+
+test('useChatComposer rejects image attachments when mmproj is not configured', async () => {
+  const file = new File(['image-bytes'], 'shot.png', { type: 'image/png' });
+  const harness = renderUseChatComposerHarness({
+    attachmentCapabilities: {
+      text: { enabled: true },
+      image: { enabled: false, reason: 'Configure an mmproj path for the active managed llama preset.' },
+    },
+  });
+
+  await act(async () => {
+    await harness.result.addFiles([file]);
+  });
+
+  assert.equal(harness.result.attachments[0].kind, 'image');
+  assert.equal(harness.result.attachments[0].status, 'failed');
+  assert.match(String(harness.result.attachments[0].error), /mmproj/u);
+});
 ```
 
 Use the current testing style in this file; if there is no hook harness, add a minimal component that calls `useChatComposer` and exposes the result through a local variable.
@@ -1406,12 +1504,35 @@ In `useChatComposer.ts`:
 
 ```ts
 import { extractChatAttachment } from '../api';
-import type { ChatAttachment } from '../types';
+import type { ChatAttachment, ChatAttachmentCapabilities, ChatImageAttachment } from '../types';
 
 export type PendingChatAttachment = ChatAttachment & {
   included: boolean;
   processing: boolean;
 };
+```
+
+Extend `useChatComposer` deps:
+
+```ts
+attachmentCapabilities: ChatAttachmentCapabilities;
+```
+
+Add browser helpers:
+
+```ts
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Failed to read image file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function isImageFile(file: File): boolean {
+  return file.type.startsWith('image/') || /\.(png|jpe?g|gif|webp)$/iu.test(file.name);
+}
 ```
 
 Extend `UseChatComposerResult`:
@@ -1476,12 +1597,36 @@ async function addFiles(files: File[] | FileList): Promise<void> {
       },
     ]);
     try {
-      const response = await extractChatAttachment(file);
-      setAttachments((current) => current.map((attachment) => (
-        attachment.id === temporaryId
-          ? { ...response.attachment, included: true, processing: false }
-          : attachment
-      )));
+      if (isImageFile(file)) {
+        if (!deps.attachmentCapabilities.image.enabled) {
+          throw new Error(deps.attachmentCapabilities.image.reason || 'Image attachments require an active mmproj.');
+        }
+        const dataUrl = await readFileAsDataUrl(file);
+        const imageAttachment: ChatImageAttachment = {
+          id: temporaryId,
+          kind: 'image',
+          source: 'file',
+          filename: file.name,
+          mediaType: file.type || 'application/octet-stream',
+          extension: file.name.split('.').pop()?.toLowerCase() || '',
+          sizeBytes: file.size,
+          status: 'ready',
+          dataUrl,
+          error: null,
+        };
+        setAttachments((current) => current.map((attachment) => (
+          attachment.id === temporaryId
+            ? { ...imageAttachment, included: true, processing: false }
+            : attachment
+        )));
+      } else {
+        const response = await extractChatAttachment(file);
+        setAttachments((current) => current.map((attachment) => (
+          attachment.id === temporaryId
+            ? { ...response.attachment, included: true, processing: false }
+            : attachment
+        )));
+      }
     } catch (error) {
       setAttachments((current) => current.map((attachment) => (
         attachment.id === temporaryId
@@ -1567,6 +1712,7 @@ Add props:
 ```ts
 attachments: PendingChatAttachment[];
 canSendMessage: boolean;
+attachmentCapabilities: ChatAttachmentCapabilities;
 onAddFiles(files: File[] | FileList): Promise<void>;
 onRemoveAttachment(id: string): void;
 onToggleAttachment(id: string): void;
@@ -1586,6 +1732,35 @@ onRemoveAttachment={composer.removeAttachment}
 onToggleAttachment={composer.toggleAttachment}
 ```
 
+Add `attachmentCapabilities` in `App.tsx` before `useChatComposer`:
+
+```tsx
+const activeManagedLlamaPreset = dashboardConfig?.Server.LlamaCpp.Presets.find(
+  (preset) => preset.id === dashboardConfig.Server.LlamaCpp.ActivePresetId,
+) || null;
+const hasManagedMmProj = Boolean(
+  activeManagedLlamaPreset
+  && activeManagedLlamaPreset.ExternalServerEnabled !== true
+  && typeof activeManagedLlamaPreset.MmProjPath === 'string'
+  && activeManagedLlamaPreset.MmProjPath.trim(),
+);
+const attachmentCapabilities: ChatAttachmentCapabilities = {
+  text: { enabled: true },
+  image: {
+    enabled: hasManagedMmProj,
+    reason: hasManagedMmProj
+      ? null
+      : 'Configure an mmproj path for the active managed llama preset to enable image attachments.',
+  },
+};
+```
+
+Pass into the hook and `ChatTab`:
+
+```tsx
+attachmentCapabilities,
+```
+
 ---
 
 ## Task 12: Add Attachment UI
@@ -1600,14 +1775,30 @@ onToggleAttachment={composer.toggleAttachment}
 Add tests:
 
 ```tsx
-test('chat tab renders attachment plus menu with only text enabled', () => {
-  const html = renderChatTab({ showAttachmentMenuForTest: true });
+test('chat tab renders attachment plus menu with image disabled without mmproj', () => {
+  const html = renderChatTab({
+    showAttachmentMenuForTest: true,
+    attachmentCapabilities: {
+      text: { enabled: true },
+      image: { enabled: false, reason: 'Configure an mmproj path for the active managed llama preset.' },
+    },
+  });
 
   assert.match(html, /Attach text/u);
   assert.match(html, /Image/u);
   assert.match(html, /Audio/u);
   assert.match(html, /Video/u);
   assert.match(html, /disabled/u);
+});
+
+test('chat tab enables image attachment menu item when mmproj is configured', () => {
+  const html = renderChatTab({
+    showAttachmentMenuForTest: true,
+    attachmentCapabilities: { text: { enabled: true }, image: { enabled: true, reason: null } },
+  });
+
+  assert.match(html, /Attach image/u);
+  assert.doesNotMatch(html, /Attach image[^<]*disabled/u);
 });
 
 test('chat tab renders pending attachment tray', () => {
@@ -1695,7 +1886,17 @@ In `.composer-toolbar-left`, before settings:
       >
         Text
       </button>
-      <button type="button" disabled>Image</button>
+      <button
+        type="button"
+        disabled={!attachmentCapabilities.image.enabled}
+        title={attachmentCapabilities.image.reason || 'Attach image'}
+        onClick={() => {
+          setAttachmentMenuOpen(false);
+          fileInputRef.current?.click();
+        }}
+      >
+        Image
+      </button>
       <button type="button" disabled>Audio</button>
       <button type="button" disabled>Video</button>
     </div>
@@ -1704,6 +1905,7 @@ In `.composer-toolbar-left`, before settings:
     ref={fileInputRef}
     type="file"
     multiple
+    accept="text/*,.txt,.md,.markdown,.json,.jsonl,.csv,.tsv,.log,.pdf,.docx,.pptx,.xlsx,.odt,.odp,.ods,image/png,image/jpeg,image/gif,image/webp"
     className="hidden-file-input"
     onChange={(event) => {
       const files = event.target.files;
@@ -1754,7 +1956,13 @@ Above `<textarea>`:
           />
           <span>{attachment.filename}</span>
         </label>
-        <span>{attachment.processing ? 'processing' : `${formatNumber(attachment.tokenEstimate)} tokens`}</span>
+        <span>
+          {attachment.processing
+            ? 'processing'
+            : attachment.kind === 'image'
+              ? 'image'
+              : `${formatNumber(attachment.tokenEstimate)} tokens`}
+        </span>
         {attachment.error ? <span className="attachment-error">{attachment.error}</span> : null}
         <button
           type="button"
@@ -1785,9 +1993,13 @@ Below `<p className="user-message">{message.content}</p>` branch, replace with:
         <section key={attachment.id} className="message-attachment-block">
           <header>
             <strong>{attachment.filename}</strong>
-            <span>{formatNumber(attachment.tokenEstimate)} tokens</span>
+            <span>{attachment.kind === 'image' ? 'image' : `${formatNumber(attachment.tokenEstimate)} tokens`}</span>
           </header>
-          <pre>{attachment.extractedText}</pre>
+          {attachment.kind === 'image' ? (
+            <img src={attachment.dataUrl} alt={attachment.filename} className="message-attachment-image" />
+          ) : (
+            <pre>{attachment.extractedText}</pre>
+          )}
         </section>
       ))}
     </details>
@@ -1912,6 +2124,15 @@ Add to `dashboard/src/styles.css` near composer styles:
   overflow: auto;
   white-space: pre-wrap;
 }
+
+.message-attachment-image {
+  display: block;
+  max-width: min(420px, 100%);
+  max-height: 320px;
+  object-fit: contain;
+  border: 1px solid var(--stroke);
+  border-radius: 8px;
+}
 ```
 
 Use existing CSS variables. If `--danger` does not exist, use the existing error color variable in `styles.css`.
@@ -1974,119 +2195,35 @@ Smoke scenarios:
 - Send typed text plus an attachment.
 - Confirm committed user bubble shows collapsible attached file content.
 - Confirm a follow-up model turn receives prior attachment content through replay.
-- Try `.png`, `.mp3`, and `.doc`; confirm clear error chip and send excludes failed attachments.
+- With no `MmProjPath` configured on the active managed llama preset, confirm Image is disabled in the `+` menu and dragged image files produce a clear `mmproj` requirement error.
+- Configure `MmProjPath` on the active managed llama preset and confirm managed llama startup args include `--mmproj <path>`.
+- With `MmProjPath` configured, add a `.png` image and confirm the chat request sends an OpenAI-compatible `image_url` content part containing a `data:image/png;base64,...` string.
+- Try `.mp3`, `.mp4`, and legacy `.doc`; confirm clear error chip and send excludes failed attachments.
 - Confirm plan and repo-search modes can send attachments.
 
 Expected: all scenarios pass, no binary file copy appears under `.siftkit`.
 
 ---
 
-## Task 13: Document The Image Attachment Contract For The Next Phase
-
-**Files:**
-- Modify: `docs/superpowers/plans/2026-06-04-siftkit-ui-file-attachments.md`
-
-This task is documentation-only for this plan. Do not enable Image in the v1 UI while the original requirement says only Text is selectable.
-
-- [ ] **Step 1: Preserve v1 behavior**
-
-Keep the `+` menu behavior from Task 11:
-
-```tsx
-<button type="button">Text</button>
-<button type="button" disabled>Image</button>
-<button type="button" disabled>Audio</button>
-<button type="button" disabled>Video</button>
-```
-
-- [ ] **Step 2: Define the future image payload shape**
-
-When Image is enabled later, do not upload image files as raw binary or multipart to the model endpoint.
-
-The browser should read each image with:
-
-```ts
-const reader = new FileReader();
-reader.readAsDataURL(file);
-```
-
-The attachment should store the resulting data URL string:
-
-```ts
-export type ChatImageAttachment = {
-  id: string;
-  kind: 'image';
-  source: 'file';
-  filename: string;
-  mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | string;
-  sizeBytes: number;
-  status: 'ready' | 'failed';
-  dataUrl: string;
-  error: string | null;
-};
-```
-
-For llama.cpp/OpenAI-compatible chat completions, send image data as an `image_url` content part:
-
-```json
-{
-  "role": "user",
-  "content": [
-    { "type": "text", "text": "Describe this image." },
-    {
-      "type": "image_url",
-      "image_url": {
-        "url": "data:image/png;base64,<base64-encoded-bytes>"
-      }
-    }
-  ]
-}
-```
-
-This means the local binary file is converted to a base64 data URL string before send:
-
-```text
-image bytes -> base64 -> data:image/<format>;base64,<payload> -> JSON string
-```
-
-- [ ] **Step 3: Define image capability gating**
-
-Before enabling Image selection, add runtime capability checks:
-
-```ts
-export type ChatImageCapability = {
-  enabled: boolean;
-  reason: string | null;
-};
-```
-
-Image is enabled only when the active llama.cpp model/runtime reports image input support. If unsupported, the UI must keep Image disabled and explain that a multimodal model plus projector is required.
-
-- [ ] **Step 4: Define future tests for image support**
-
-When the Image menu item is implemented, add tests that prove:
-
-- image files are read as data URL strings, not posted as multipart data
-- the chat request includes `content[]` with `type: "image_url"`
-- the data URL begins with `data:image/png;base64,` or the actual file MIME type
-- image attachments are blocked when the active model does not support vision
-- image bytes are not written to `.siftkit`
-
----
-
 ## Acceptance Criteria
 
-- The composer has a `+` menu with Text enabled and Image/Audio/Video disabled.
-- Drag/drop and Text file picker both extract files before send.
+- The composer has a `+` menu with Text always enabled, Image conditionally enabled, and Audio/Video disabled.
+- The settings page exposes `MmProj Path` for each managed llama preset.
+- Managed llama startup emits `--mmproj <path>` when the active preset has `MmProjPath` configured.
+- Image attachment selection is enabled only when the active non-external managed llama preset has `MmProjPath` configured.
+- Image attachment selection is disabled with a clear reason when `MmProjPath` is missing or the active preset uses an external server.
+- Image attachments are read in the browser as base64 data URL strings and sent as OpenAI-compatible `image_url` content parts, not raw binary.
+- Drag/drop and Text file picker both extract text/document files before send.
 - Supported v1 file types:
   - text/code: `.txt`, `.md`, `.markdown`, `.json`, `.jsonl`, `.csv`, `.tsv`, `.log`, `.xml`, `.html`, `.css`, `.js`, `.ts`, `.tsx`, and other explicit code-like text extensions listed in `PLAIN_TEXT_EXTENSIONS`
   - document: `.pdf`, `.docx`, `.pptx`, `.xlsx`, `.odt`, `.odp`, `.ods`
+  - image, gated by `MmProjPath`: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`
 - Legacy `.doc`, `.ppt`, `.xls` fail with clear unsupported-parser messages.
 - Failed attachments remain visible, removable, and excluded from send.
-- Binary file bytes are never persisted.
-- User messages persist attachment metadata and extracted text.
+- Binary file bytes are never persisted; text persists extracted text, and image persists only the data URL string needed for replay.
+- User messages persist attachment metadata, extracted text, and gated image data URLs.
 - Prompt construction includes attachment text for current sends and replayed prior messages.
+- Chat completion construction preserves image attachments as `image_url` content parts for current sends and replayed prior user messages.
 - Context usage includes attachment text through the existing message token accounting path.
 - Chat, plan, and repo-search all support attachments.
-- The plan explicitly documents that future image support must send base64 data URL strings in OpenAI-compatible `image_url` content parts, not raw binary.
 - Existing tests and build pass.
