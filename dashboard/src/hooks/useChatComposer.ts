@@ -1,12 +1,10 @@
 import { useState } from 'react';
 import {
-  appendChatMessage,
   streamChatMessage,
   streamPlanMessage,
   streamRepoSearchMessage,
 } from '../api';
 import { buildRepoSearchAutoAppendPayload } from '../lib/repo-append-controls';
-import { resolveEffectiveWebSearchEnabled } from '../lib/web-search-controls';
 import type { ChatStreamToolEvent } from '../lib/chat-stream-parser';
 import type {
   ChatSession,
@@ -29,17 +27,15 @@ export type UseChatComposerResult = {
 };
 
 export type DirectChatSendPlan = {
-  useBuffered: boolean;
   payload: { content: string; webSearchOverride: WebSearchOverride };
 };
 
 export function resolveDirectChatSend(
-  session: ChatSession,
+  _session: ChatSession,
   override: WebSearchOverride,
   content: string,
 ): DirectChatSendPlan {
   return {
-    useBuffered: resolveEffectiveWebSearchEnabled(session.webSearchEnabled === true, override),
     payload: { content, webSearchOverride: override },
   };
 }
@@ -110,25 +106,31 @@ export function useChatComposer(deps: {
     setChatBusy(true);
     setChatError(null);
     deps.live.resetLive();
+    deps.context.setLiveToolPromptTokenCount(null);
     try {
       const sendPlan = resolveDirectChatSend(deps.selectedSession, webSearchOverride, chatInput.trim());
-      const response = sendPlan.useBuffered
-        ? await appendChatMessage(deps.selectedSession.id, sendPlan.payload)
-        : await streamChatMessage(
-          deps.selectedSession.id,
-          sendPlan.payload,
-          (thinkingText) => {
-            if (deps.isThinkingEnabledForCurrentSession) {
-              deps.live.appendLiveThinking(thinkingText);
-            }
-          },
-          (answerText) => {
-            deps.live.upsertLiveMessage({
-              ...deps.live.createLiveMessage('live-answer', 'assistant_answer', 'assistant', answerText),
-              outputTokensEstimate: Math.max(1, Math.ceil(String(answerText || '').length / 4)),
-            });
-          },
-        );
+      const response = await streamChatMessage(
+        deps.selectedSession.id,
+        sendPlan.payload,
+        (thinkingText) => {
+          if (deps.isThinkingEnabledForCurrentSession) {
+            deps.live.appendLiveThinking(thinkingText);
+          }
+        },
+        (toolEvent: ChatStreamToolEvent) => {
+          if (toolEvent.kind === 'tool_start') {
+            deps.live.appendLiveToolMessage(toolEvent);
+          } else if (toolEvent.kind === 'tool_result') {
+            deps.live.completeLiveToolMessage(toolEvent);
+          }
+        },
+        (answerText) => {
+          deps.live.upsertLiveMessage({
+            ...deps.live.createLiveMessage('live-answer', 'assistant_answer', 'assistant', answerText),
+            outputTokensEstimate: Math.max(1, Math.ceil(String(answerText || '').length / 4)),
+          });
+        },
+      );
       deps.applySessionResponse({ session: response.session, contextUsage: response.contextUsage });
       setChatInput('');
       setWebSearchOverride('default');
@@ -136,6 +138,7 @@ export function useChatComposer(deps: {
       setChatError(describeStreamError(error));
     } finally {
       deps.live.resetLive();
+      deps.context.setLiveToolPromptTokenCount(null);
       setChatBusy(false);
     }
   }

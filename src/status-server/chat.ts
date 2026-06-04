@@ -33,13 +33,22 @@ import type { WebFetchToolArgs, WebSearchToolArgs } from '../web-search/types.js
 
 const DEFAULT_CHAT_SYSTEM_PROMPT = 'general, coder friendly assistant';
 
-export const WEB_CHAT_JSON_ACTION_PROMPT = [
-  'When web access is enabled, respond with exactly one JSON object and no markdown.',
+// Decision-turn system instruction (web-on). Drives tool selection; the model
+// must emit exactly one tiny JSON action and must NOT write the answer here.
+export const WEB_CHAT_DECISION_PROMPT = [
+  'You have live web access via tools. Decide the single next step and respond with exactly one JSON object, no markdown, no prose:',
   'To search the web: {"action":"web_search","query":"...","timeFilter":"week"}',
   'To fetch a public URL: {"action":"web_fetch","url":"https://example.com/page"}',
-  'To answer the user: {"action":"finish","output":"final answer text"}',
-  'Use web tools only when current or external information is needed.',
+  'To answer the user now: {"action":"answer"}',
+  'Any value that can change over time MUST be verified with web_search before answering — for example: live or Grand Exchange / market item prices, currency and crypto exchange rates, stock quotes, breaking news and current events, weather, sports scores and standings, release dates, and the latest version of software or libraries.',
+  'Use stable, well-known static facts directly via {"action":"answer"} without searching.',
   'Private, local, and internal URLs are blocked.',
+].join('\n');
+
+// Final-answer-turn system instruction (web-on). Plain streamed prose answer.
+export const WEB_CHAT_ANSWER_PROMPT = [
+  'You have web access and may have already gathered web evidence (shown as prior tool results).',
+  'Answer the user directly in normal prose/markdown. Base any fluctuating data (prices, rates, versions, news) on the gathered web evidence and cite source URLs where relevant.',
 ].join('\n');
 
 const WEB_CHAT_MAX_TOOL_CALLS = 4;
@@ -417,75 +426,13 @@ export async function generateChatAssistantMessage(
   };
 }
 
-type ChatRawTurn = { text: string; thinkingContent: string; usage: ChatUsage };
-
-async function generateChatRawTurn(
-  config: Dict,
-  session: ChatSession,
-  userContent: string,
-  options: { promptPrefix?: string; webActionInstruction?: string; evidenceMessages?: ChatEvidenceMessage[] },
-): Promise<ChatRawTurn> {
-  const request = buildChatCompletionRequest(config, session, userContent, {
-    thinkingEnabled: session.thinkingEnabled !== false,
-    stream: false,
-    promptPrefix: options.promptPrefix,
-    webActionInstruction: options.webActionInstruction,
-    evidenceMessages: options.evidenceMessages,
-  });
-  const response = await requestJsonFull({
-    url: request.url,
-    method: 'POST',
-    timeoutMs: 600000,
-    body: JSON.stringify(request.body),
-  });
-  if (response.statusCode >= 400) {
-    const detail = String(response.rawText || '').trim();
-    throw new Error(`llama.cpp chat failed with HTTP ${response.statusCode}${detail ? `: ${detail}` : '.'}`);
-  }
-  const responseBody = response.body as Dict;
-  const choice = Array.isArray(responseBody?.choices) ? (responseBody.choices[0] as Dict) : null;
-  const text = getChoiceText(choice);
-  const thinkingContent = getChoiceReasoningText(choice);
-  if (!text) {
-    throw new Error('llama.cpp chat returned an empty assistant message.');
-  }
-  const promptUsage = getPromptUsageFromResponseBody(responseBody);
-  const completionUsage = getCompletionUsageFromResponseBody(responseBody);
-  const timingUsage = getTimingUsageFromResponseBody(responseBody);
-  return {
-    text,
-    thinkingContent,
-    usage: {
-      promptTokens: promptUsage.promptTokens,
-      completionTokens: completionUsage.completionTokens,
-      thinkingTokens: completionUsage.thinkingTokens,
-      promptCacheTokens: promptUsage.promptCacheTokens,
-      promptEvalTokens: promptUsage.promptEvalTokens,
-      promptEvalDurationMs: timingUsage.promptEvalDurationMs,
-      generationDurationMs: timingUsage.generationDurationMs,
-      promptTokensPerSecond: getPromptTokensPerSecond(promptUsage.promptEvalTokens, timingUsage.promptEvalDurationMs),
-      generationTokensPerSecond: getGenerationTokensPerSecond(
-        completionUsage.completionTokens,
-        completionUsage.thinkingTokens,
-        timingUsage.generationDurationMs,
-      ),
-    },
-  };
-}
-
-export type WebChatLoopResult = {
-  assistantContent: string;
-  thinkingContent: string;
-  usage: ChatUsage;
-  toolMessages: PersistToolMessage[];
-};
-
 function buildWebToolBubble(
   command: string,
   output: string,
   outputTokens: number | null,
   turn: number,
   maxTurns: number,
+  exitCode: number = 0,
 ): PersistToolMessage {
   return {
     id: crypto.randomUUID(),
@@ -493,7 +440,7 @@ function buildWebToolBubble(
     toolCallCommand: command,
     toolCallTurn: turn,
     toolCallMaxTurns: maxTurns,
-    toolCallExitCode: 0,
+    toolCallExitCode: exitCode,
     toolCallPromptTokenCount: null,
     toolCallOutputSnippet: output.length > 200 ? `${output.slice(0, 200)}...` : output,
     toolCallOutput: output,
@@ -508,100 +455,6 @@ const EMPTY_CHAT_USAGE: ChatUsage = {
   promptCacheTokens: null,
   promptEvalTokens: null,
 };
-
-/**
- * Bounded JSON-action web tool loop for the buffered direct-chat path. Runs only
- * when the effective web gate is enabled. Parses each model turn with the shared
- * repo-search planner parser restricted to web tools, executes through
- * WebResearchTools, and returns the final answer plus persistable tool bubbles.
- */
-export async function runDirectChatWebLoop(
-  config: Dict,
-  session: ChatSession,
-  userContent: string,
-  webTools: WebResearchTools,
-  options: { promptPrefix?: string; maxTurns?: number; mockResponses?: string[] } = {},
-): Promise<WebChatLoopResult> {
-  const maxTurns = Number.isFinite(Number(options.maxTurns)) && Number(options.maxTurns) > 0
-    ? Number(options.maxTurns)
-    : WEB_CHAT_MAX_TOOL_CALLS;
-  const mockResponses = Array.isArray(options.mockResponses) ? options.mockResponses.slice() : null;
-  const evidenceMessages: ChatEvidenceMessage[] = [];
-  const toolMessages: PersistToolMessage[] = [];
-  let lastUsage: ChatUsage = EMPTY_CHAT_USAGE;
-  let lastThinking = '';
-
-  for (let toolCalls = 0; toolCalls <= maxTurns; toolCalls += 1) {
-    let turnText: string;
-    if (mockResponses) {
-      const next = mockResponses.shift();
-      if (next === undefined) {
-        throw new Error('runDirectChatWebLoop: ran out of mock responses.');
-      }
-      turnText = next;
-    } else {
-      const rawTurn = await generateChatRawTurn(config, session, userContent, {
-        promptPrefix: options.promptPrefix,
-        webActionInstruction: WEB_CHAT_JSON_ACTION_PROMPT,
-        evidenceMessages,
-      });
-      turnText = rawTurn.text;
-      lastUsage = rawTurn.usage;
-      lastThinking = rawTurn.thinkingContent || '';
-    }
-
-    let action;
-    try {
-      action = ModelJson.parseRepoSearchPlannerAction(turnText, { allowedToolNames: ['web_search', 'web_fetch'] });
-    } catch (error) {
-      return {
-        assistantContent: `Web research could not be completed: ${error instanceof Error ? error.message : String(error)}`,
-        thinkingContent: lastThinking,
-        usage: lastUsage,
-        toolMessages,
-      };
-    }
-
-    if (action.action === 'finish') {
-      return { assistantContent: action.output, thinkingContent: lastThinking, usage: lastUsage, toolMessages };
-    }
-    if (action.action !== 'tool') {
-      return {
-        assistantContent: 'Web research could not be completed: unexpected tool batch action.',
-        thinkingContent: lastThinking,
-        usage: lastUsage,
-        toolMessages,
-      };
-    }
-    if (toolCalls >= maxTurns) {
-      return {
-        assistantContent: 'Web research stopped after reaching the tool call limit. Please refine the question.',
-        thinkingContent: lastThinking,
-        usage: lastUsage,
-        toolMessages,
-      };
-    }
-
-    let toolResult;
-    if (action.tool_name === 'web_search') {
-      toolResult = await webTools.search(action.args as WebSearchToolArgs);
-    } else if (action.tool_name === 'web_fetch') {
-      toolResult = await webTools.fetch(action.args as WebFetchToolArgs);
-    } else {
-      throw new Error(`Unsupported web tool: ${action.tool_name}`);
-    }
-    toolMessages.push(buildWebToolBubble(toolResult.command, toolResult.output, toolResult.outputTokens, toolCalls + 1, maxTurns));
-    evidenceMessages.push({ role: 'assistant', content: turnText });
-    evidenceMessages.push({ role: 'user', content: `Tool ${toolResult.command} output:\n${toolResult.output}` });
-  }
-
-  return {
-    assistantContent: 'Web research stopped after reaching the tool call limit. Please refine the question.',
-    thinkingContent: lastThinking,
-    usage: lastUsage,
-    toolMessages,
-  };
-}
 
 export type PersistToolMessage = {
   id: string;
@@ -807,12 +660,14 @@ export async function streamChatAssistantMessage(
   session: ChatSession,
   userContent: string,
   onProgress: ((progress: StreamProgress) => void) | null,
-  options: { promptPrefix?: string } = {},
+  options: { promptPrefix?: string; webActionInstruction?: string; evidenceMessages?: ChatEvidenceMessage[] } = {},
 ): Promise<StreamResult> {
   const requestConfig = buildChatCompletionRequest(config, session, userContent, {
     thinkingEnabled: session.thinkingEnabled !== false,
     stream: true,
     promptPrefix: options.promptPrefix,
+    webActionInstruction: options.webActionInstruction,
+    evidenceMessages: options.evidenceMessages,
   });
   const target = new URL(requestConfig.url);
   const transport = target.protocol === 'https:' ? https : http;
@@ -936,6 +791,182 @@ export async function streamChatAssistantMessage(
     request.write(JSON.stringify(requestConfig.body));
     request.end();
   });
+}
+
+// ---------------------------------------------------------------------------
+// Streamed web direct-chat orchestrator
+// ---------------------------------------------------------------------------
+
+export type WebStreamPhase = 'decision' | 'answer';
+
+export type WebStreamProgress =
+  | { kind: 'thinking'; phase: WebStreamPhase; thinking: string }
+  | { kind: 'answer'; answer: string }
+  | { kind: 'tool_start'; toolCallId: string; turn: number; maxTurns: number; command: string }
+  | { kind: 'tool_result'; toolCallId: string; turn: number; maxTurns: number; command: string; outputSnippet: string; outputTokens: number | null; exitCode: number };
+
+export type WebStreamResult = { assistantContent: string; turns: PersistTurn[]; usage: ChatUsage };
+
+type WebChatDecision =
+  | { kind: 'web_search'; args: WebSearchToolArgs }
+  | { kind: 'web_fetch'; args: WebFetchToolArgs }
+  | { kind: 'answer' };
+
+/**
+ * Parses a decision-turn output into the next step. Any non-tool, malformed, or
+ * unparseable output resolves to `answer` so a prose reply is never lost to a
+ * JSON parse failure.
+ */
+function parseWebChatDecision(text: string): WebChatDecision {
+  let action;
+  try {
+    action = ModelJson.parseRepoSearchPlannerAction(text, { allowedToolNames: ['web_search', 'web_fetch'] });
+  } catch {
+    return { kind: 'answer' };
+  }
+  if (action.action === 'tool' && action.tool_name === 'web_search') {
+    return { kind: 'web_search', args: action.args as WebSearchToolArgs };
+  }
+  if (action.action === 'tool' && action.tool_name === 'web_fetch') {
+    return { kind: 'web_fetch', args: action.args as WebFetchToolArgs };
+  }
+  return { kind: 'answer' };
+}
+
+function addNullableNumber(a: number | null | undefined, b: number | null | undefined): number | null {
+  if ((a === null || a === undefined) && (b === null || b === undefined)) {
+    return null;
+  }
+  return (a ?? 0) + (b ?? 0);
+}
+
+function mergeChatUsage(base: ChatUsage, next: ChatUsage): ChatUsage {
+  return {
+    promptTokens: next.promptTokens ?? base.promptTokens,
+    completionTokens: addNullableNumber(base.completionTokens, next.completionTokens),
+    thinkingTokens: addNullableNumber(base.thinkingTokens, next.thinkingTokens),
+    promptCacheTokens: next.promptCacheTokens ?? base.promptCacheTokens,
+    promptEvalTokens: addNullableNumber(base.promptEvalTokens, next.promptEvalTokens),
+    promptEvalDurationMs: addNullableNumber(base.promptEvalDurationMs, next.promptEvalDurationMs),
+    generationDurationMs: addNullableNumber(base.generationDurationMs, next.generationDurationMs),
+    promptTokensPerSecond: next.promptTokensPerSecond ?? base.promptTokensPerSecond,
+    generationTokensPerSecond: next.generationTokensPerSecond ?? base.generationTokensPerSecond,
+  };
+}
+
+function mergePromptPrefix(prefix: string | undefined, suffix: string): string {
+  return prefix && prefix.trim() ? `${prefix.trim()}\n\n${suffix}` : suffix;
+}
+
+function buildWebToolCommand(decision: { kind: 'web_search'; args: WebSearchToolArgs } | { kind: 'web_fetch'; args: WebFetchToolArgs }): string {
+  if (decision.kind === 'web_search') {
+    return `web_search query=${JSON.stringify(String(decision.args.query || '').trim())}`;
+  }
+  return `web_fetch url=${JSON.stringify(String(decision.args.url || '').trim())}`;
+}
+
+/**
+ * Fully-streamed web direct-chat turn. Splits orchestration from answering:
+ * each iteration runs a decision turn (streams thinking, buffers a tiny JSON
+ * action), executes web tools emitting tool bubbles, then a final answer turn
+ * streams plain prose. Web tools and the answer are never JSON-wrapped, so a
+ * prose answer can never be lost to a parse failure. Runs only when the
+ * effective web gate is enabled.
+ */
+export async function streamDirectChatWebTurn(
+  config: Dict,
+  session: ChatSession,
+  userContent: string,
+  webTools: WebResearchTools,
+  onProgress: (progress: WebStreamProgress) => void,
+  options: { promptPrefix?: string; maxTurns?: number; mockResponses?: string[] } = {},
+): Promise<WebStreamResult> {
+  const maxTurns = Number.isFinite(Number(options.maxTurns)) && Number(options.maxTurns) > 0
+    ? Number(options.maxTurns)
+    : WEB_CHAT_MAX_TOOL_CALLS;
+  const mockResponses = Array.isArray(options.mockResponses) ? options.mockResponses.slice() : null;
+  const evidenceMessages: ChatEvidenceMessage[] = [];
+  const turns: PersistTurn[] = [];
+  let aggregatedUsage: ChatUsage = EMPTY_CHAT_USAGE;
+  let toolCalls = 0;
+
+  const nextMock = (): string => {
+    const value = mockResponses?.shift();
+    if (value === undefined) {
+      throw new Error('streamDirectChatWebTurn: ran out of mock responses.');
+    }
+    return value;
+  };
+
+  for (;;) {
+    let decisionText: string;
+    let decisionThinking = '';
+    if (mockResponses) {
+      decisionText = nextMock();
+    } else {
+      const decision = await streamChatAssistantMessage(config, session, userContent, (progress) => {
+        onProgress({ kind: 'thinking', phase: 'decision', thinking: progress.thinkingContent });
+      }, {
+        promptPrefix: options.promptPrefix,
+        webActionInstruction: WEB_CHAT_DECISION_PROMPT,
+        evidenceMessages: evidenceMessages.slice(),
+      });
+      decisionText = decision.assistantContent;
+      decisionThinking = decision.thinkingContent || '';
+      aggregatedUsage = mergeChatUsage(aggregatedUsage, decision.usage);
+    }
+
+    const decision = parseWebChatDecision(decisionText);
+    if (decision.kind !== 'answer' && toolCalls < maxTurns) {
+      const toolCallId = crypto.randomUUID();
+      const turnIndex = toolCalls + 1;
+      const command = buildWebToolCommand(decision);
+      onProgress({ kind: 'tool_start', toolCallId, turn: turnIndex, maxTurns, command });
+      let bubble: PersistToolMessage;
+      try {
+        const toolResult = decision.kind === 'web_search'
+          ? await webTools.search(decision.args)
+          : await webTools.fetch(decision.args);
+        bubble = buildWebToolBubble(toolResult.command, toolResult.output, toolResult.outputTokens, turnIndex, maxTurns, 0);
+        onProgress({ kind: 'tool_result', toolCallId, turn: turnIndex, maxTurns, command: toolResult.command, outputSnippet: bubble.toolCallOutputSnippet, outputTokens: toolResult.outputTokens, exitCode: 0 });
+        evidenceMessages.push({ role: 'assistant', content: decisionText });
+        evidenceMessages.push({ role: 'user', content: `Tool ${toolResult.command} output:\n${toolResult.output}` });
+      } catch (error) {
+        const failOutput = `web tool failed: ${error instanceof Error ? error.message : String(error)}`;
+        const failTokens = estimateTokenCount(failOutput);
+        bubble = buildWebToolBubble(command, failOutput, failTokens, turnIndex, maxTurns, 1);
+        onProgress({ kind: 'tool_result', toolCallId, turn: turnIndex, maxTurns, command, outputSnippet: bubble.toolCallOutputSnippet, outputTokens: failTokens, exitCode: 1 });
+        evidenceMessages.push({ role: 'assistant', content: decisionText });
+        evidenceMessages.push({ role: 'user', content: `Tool ${command} ${failOutput}` });
+      }
+      turns.push({ thinkingText: decisionThinking, toolMessages: [bubble] });
+      toolCalls += 1;
+      continue;
+    }
+
+    if (decisionThinking.trim()) {
+      turns.push({ thinkingText: decisionThinking, toolMessages: [] });
+    }
+    let answerText: string;
+    let answerThinking = '';
+    if (mockResponses) {
+      answerText = nextMock();
+      onProgress({ kind: 'answer', answer: answerText });
+    } else {
+      const answer = await streamChatAssistantMessage(config, session, userContent, (progress) => {
+        onProgress({ kind: 'thinking', phase: 'answer', thinking: progress.thinkingContent });
+        onProgress({ kind: 'answer', answer: progress.assistantContent });
+      }, {
+        promptPrefix: mergePromptPrefix(options.promptPrefix, WEB_CHAT_ANSWER_PROMPT),
+        evidenceMessages: evidenceMessages.slice(),
+      });
+      answerText = answer.assistantContent;
+      answerThinking = answer.thinkingContent || '';
+      aggregatedUsage = mergeChatUsage(aggregatedUsage, answer.usage);
+    }
+    turns.push({ thinkingText: answerThinking, toolMessages: [] });
+    return { assistantContent: answerText, turns, usage: aggregatedUsage };
+  }
 }
 
 export function condenseChatSession(runtimeRoot: string, session: ChatSession): ChatSession {

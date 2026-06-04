@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
+import * as http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
@@ -11,9 +13,12 @@ import {
   buildContextUsage,
   buildRepoSearchMarkdown,
   buildPersistTurnsFromRepoSearchResult,
-  runDirectChatWebLoop,
-  WEB_CHAT_JSON_ACTION_PROMPT,
+  streamChatAssistantMessage,
+  streamDirectChatWebTurn,
+  WEB_CHAT_ANSWER_PROMPT,
+  WEB_CHAT_DECISION_PROMPT,
 } from '../src/status-server/chat.ts';
+import type { WebStreamProgress } from '../src/status-server/chat.ts';
 import { getWebSearchOverride, resolveEffectiveWebSearchEnabled } from '../src/status-server/routes/chat.ts';
 import { WebResearchTools } from '../src/web-search/web-research-tools.ts';
 import type { WebSearchConfig } from '../src/web-search/types.ts';
@@ -108,51 +113,134 @@ test('resolveEffectiveWebSearchEnabled applies the override gate', () => {
   assert.equal(resolveEffectiveWebSearchEnabled(true, 'off'), false);
 });
 
-test('WEB_CHAT_JSON_ACTION_PROMPT documents web_search, web_fetch, and finish', () => {
-  assert.match(WEB_CHAT_JSON_ACTION_PROMPT, /web_search/);
-  assert.match(WEB_CHAT_JSON_ACTION_PROMPT, /web_fetch/);
-  assert.match(WEB_CHAT_JSON_ACTION_PROMPT, /finish/);
+test('streamChatAssistantMessage forwards webActionInstruction and evidenceMessages into the request', async () => {
+  let capturedBody = '';
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      capturedBody = body;
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: 'thinking-live' } }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'streamed answer' } }] })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      res.end();
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const port = (server.address() as AddressInfo).port;
+  const config = createConfig();
+  (config.Server as Dict).LlamaCpp = {
+    ...((config.Server as Dict).LlamaCpp as Dict),
+    BaseUrl: `http://127.0.0.1:${port}`,
+  };
+  try {
+    const progress: Array<{ thinking: string; answer: string }> = [];
+    const result = await streamChatAssistantMessage(config, createSession(), 'q', (p) => {
+      progress.push({ thinking: p.thinkingContent, answer: p.assistantContent });
+    }, {
+      webActionInstruction: 'WEB-DECISION-MARKER web_search web_fetch',
+      evidenceMessages: [{ role: 'user', content: 'EVIDENCE-MARKER tool output' }],
+    });
+    assert.equal(result.assistantContent, 'streamed answer');
+    assert.equal(result.thinkingContent, 'thinking-live');
+    assert.ok(progress.length >= 1);
+    const parsed = JSON.parse(capturedBody) as Dict;
+    const messages = parsed.messages as Dict[];
+    const systemMessage = messages.find((message) => message.role === 'system');
+    assert.match(String(systemMessage?.content), /WEB-DECISION-MARKER/);
+    assert.ok(messages.some((message) => String(message.content).includes('EVIDENCE-MARKER')));
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });
 
-test('runDirectChatWebLoop executes a web_search tool then persists finish output', async () => {
-  const result = await runDirectChatWebLoop(createConfig(), createSession(), 'find latest', searxngWebTools(), {
+test('WEB_CHAT_DECISION_PROMPT documents the decision actions and fluctuating-data policy', () => {
+  assert.match(WEB_CHAT_DECISION_PROMPT, /web_search/);
+  assert.match(WEB_CHAT_DECISION_PROMPT, /web_fetch/);
+  assert.match(WEB_CHAT_DECISION_PROMPT, /"action":"answer"/);
+  assert.match(WEB_CHAT_DECISION_PROMPT, /price|fluctuat|exchange rate|version/i);
+});
+
+test('WEB_CHAT_ANSWER_PROMPT instructs prose answer grounded in evidence', () => {
+  assert.match(WEB_CHAT_ANSWER_PROMPT, /prose|markdown/i);
+  assert.match(WEB_CHAT_ANSWER_PROMPT, /evidence|source/i);
+});
+
+test('streamDirectChatWebTurn streams a web_search tool then a prose answer', async () => {
+  const events: WebStreamProgress[] = [];
+  const result = await streamDirectChatWebTurn(createConfig(), createSession(), 'find latest', searxngWebTools(), (event) => events.push(event), {
     mockResponses: [
-      '{"action":"web_search","query":"example"}',
-      '{"action":"finish","output":"final answer citing https://example.com"}',
+      '{"action":"web_search","query":"osrs iron bar"}',
+      '{"action":"answer"}',
+      'Iron bars are refined iron, made by smelting iron ore.',
     ],
   });
 
-  assert.equal(result.assistantContent, 'final answer citing https://example.com');
-  assert.equal(result.toolMessages.length, 1);
-  assert.equal(result.toolMessages[0].toolCallCommand, 'web_search query="example"');
-  assert.equal(result.toolMessages[0].toolCallExitCode, 0);
-  assert.match(result.toolMessages[0].toolCallOutput, /example\.com/);
+  assert.equal(result.assistantContent, 'Iron bars are refined iron, made by smelting iron ore.');
+  const toolTurns = result.turns.filter((turn) => turn.toolMessages.length > 0);
+  assert.equal(toolTurns.length, 1);
+  assert.equal(toolTurns[0].toolMessages[0].toolCallCommand, 'web_search query="osrs iron bar"');
+  assert.equal(toolTurns[0].toolMessages[0].toolCallExitCode, 0);
+  assert.match(toolTurns[0].toolMessages[0].toolCallOutput, /example\.com/);
+  assert.ok(events.some((event) => event.kind === 'tool_start' && event.command === 'web_search query="osrs iron bar"'));
+  assert.ok(events.some((event) => event.kind === 'tool_result' && event.exitCode === 0));
+  assert.ok(events.some((event) => event.kind === 'answer' && event.answer.includes('refined iron')));
 });
 
-test('runDirectChatWebLoop returns a clear error on malformed JSON action', async () => {
-  const result = await runDirectChatWebLoop(createConfig(), createSession(), 'q', searxngWebTools(), {
-    mockResponses: ['not a json action'],
+test('streamDirectChatWebTurn answers directly when no web tool is needed', async () => {
+  const events: WebStreamProgress[] = [];
+  const result = await streamDirectChatWebTurn(createConfig(), createSession(), 'static q', searxngWebTools(), (event) => events.push(event), {
+    mockResponses: ['{"action":"answer"}', 'Static answer.'],
   });
 
-  assert.match(result.assistantContent, /could not be completed/i);
-  assert.equal(result.toolMessages.length, 0);
+  assert.equal(result.assistantContent, 'Static answer.');
+  assert.equal(result.turns.filter((turn) => turn.toolMessages.length > 0).length, 0);
+  assert.ok(!events.some((event) => event.kind === 'tool_start'));
 });
 
-test('runDirectChatWebLoop stops after the tool call budget', async () => {
-  const result = await runDirectChatWebLoop(createConfig(), createSession(), 'q', searxngWebTools(), {
+test('streamDirectChatWebTurn falls back to a streamed answer on unparseable decision (no error string)', async () => {
+  const result = await streamDirectChatWebTurn(createConfig(), createSession(), 'q', searxngWebTools(), () => {}, {
+    mockResponses: ['this is not a json action at all', 'The real prose answer survives.'],
+  });
+
+  assert.equal(result.assistantContent, 'The real prose answer survives.');
+  assert.doesNotMatch(result.assistantContent, /could not be completed/i);
+});
+
+test('streamDirectChatWebTurn forces an answer turn when the tool budget is exhausted', async () => {
+  const result = await streamDirectChatWebTurn(createConfig(), createSession(), 'q', searxngWebTools(), () => {}, {
     maxTurns: 1,
     mockResponses: [
       '{"action":"web_search","query":"a"}',
       '{"action":"web_search","query":"b"}',
+      'Answer after hitting the limit.',
     ],
   });
 
-  assert.match(result.assistantContent, /tool call limit/i);
-  assert.equal(result.toolMessages.length, 1);
+  assert.equal(result.assistantContent, 'Answer after hitting the limit.');
+  assert.equal(result.turns.filter((turn) => turn.toolMessages.length > 0).length, 1);
+});
+
+test('streamDirectChatWebTurn records a failed tool bubble and continues to answer', async () => {
+  const events: WebStreamProgress[] = [];
+  const result = await streamDirectChatWebTurn(createConfig(), createSession(), 'q', searxngWebTools(), (event) => events.push(event), {
+    mockResponses: [
+      '{"action":"web_fetch","url":"http://127.0.0.1:9"}',
+      '{"action":"answer"}',
+      'Recovered answer.',
+    ],
+  });
+
+  assert.equal(result.assistantContent, 'Recovered answer.');
+  const toolTurns = result.turns.filter((turn) => turn.toolMessages.length > 0);
+  assert.equal(toolTurns.length, 1);
+  assert.notEqual(toolTurns[0].toolMessages[0].toolCallExitCode, 0);
+  assert.ok(events.some((event) => event.kind === 'tool_result' && event.exitCode !== 0));
 });
 
 test('buildChatSystemContent appends the web action instruction when provided', () => {
-  const content = buildChatSystemContent(createConfig(), createSession(), { webActionInstruction: WEB_CHAT_JSON_ACTION_PROMPT });
+  const content = buildChatSystemContent(createConfig(), createSession(), { webActionInstruction: WEB_CHAT_DECISION_PROMPT });
   assert.match(content, /web_search/);
 });
 

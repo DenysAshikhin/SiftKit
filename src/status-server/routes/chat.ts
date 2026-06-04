@@ -43,8 +43,9 @@ import {
   buildPersistTurnsFromRepoSearchResult,
   buildRepoSearchMarkdown,
   loadRepoSearchExecutor,
-  runDirectChatWebLoop,
+  streamDirectChatWebTurn,
 } from '../chat.js';
+import type { WebStreamProgress } from '../chat.js';
 import { WebResearchTools } from '../../web-search/web-research-tools.js';
 import { normalizeWebSearchConfig } from '../config-store.js';
 import type { WebSearchConfig } from '../../web-search/types.js';
@@ -624,7 +625,6 @@ export async function handleChatRoute(
       let assistantContent: string;
       let usage: Partial<ChatUsage>;
       let thinkingContent = '';
-      let webToolMessages: PersistToolMessage[] = [];
       if (usesProvidedAssistantContent) {
         assistantContent = (parsedBody.assistantContent as string).trim();
         usage = {};
@@ -632,28 +632,12 @@ export async function handleChatRoute(
         const config = readConfig(configPath);
         const presets = normalizePresets(config.Presets);
         const preset = findPresetById(presets, activeSession.presetId);
-        const webOverride = getWebSearchOverride(parsedBody.webSearchOverride);
-        const webEnabled = resolveEffectiveWebSearchEnabled(activeSession.webSearchEnabled === true, webOverride);
-        if (webEnabled) {
-          const mockResponses = Array.isArray(parsedBody.mockResponses)
-            ? (parsedBody.mockResponses as unknown[]).map((value) => String(value))
-            : undefined;
-          const loopResult = await runDirectChatWebLoop(config, activeSession, userContent, buildWebResearchTools(config), {
-            promptPrefix: preset?.promptPrefix || undefined,
-            ...(mockResponses ? { mockResponses } : {}),
-          });
-          assistantContent = loopResult.assistantContent;
-          usage = loopResult.usage;
-          thinkingContent = loopResult.thinkingContent || '';
-          webToolMessages = loopResult.toolMessages;
-        } else {
-          const generated = await generateChatAssistantMessage(config, activeSession, userContent, {
-            promptPrefix: preset?.promptPrefix || undefined,
-          });
-          assistantContent = generated.assistantContent;
-          usage = generated.usage;
-          thinkingContent = generated.thinkingContent || '';
-        }
+        const generated = await generateChatAssistantMessage(config, activeSession, userContent, {
+          promptPrefix: preset?.promptPrefix || undefined,
+        });
+        assistantContent = generated.assistantContent;
+        usage = generated.usage;
+        thinkingContent = generated.thinkingContent || '';
       }
       try {
         await notifyChatStatus({
@@ -679,7 +663,7 @@ export async function handleChatRoute(
       }
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
       const sessionWithTelemetry = appendChatMessagesWithUsage(runtimeRoot, activeSession, userContent, assistantContent, usage, {
-        turns: [{ thinkingText: thinkingContent, toolMessages: webToolMessages }],
+        turns: [{ thinkingText: thinkingContent, toolMessages: [] }],
         requestDurationMs: Date.now() - startedAt,
         requestStartedAtUtc,
         speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
@@ -779,14 +763,64 @@ export async function handleChatRoute(
       const config = readConfig(configPath);
       const presets = normalizePresets(config.Presets);
       const preset = findPresetById(presets, activeSession.presetId);
-      const generated = await streamChatAssistantMessage(config, activeSession, userContent, (progress) => {
-        phaseTracker.observeThinking(progress.thinkingContent);
-        phaseTracker.observeAnswer(progress.assistantContent);
-        writeSse('thinking', { thinking: progress.thinkingContent });
-        writeSse('answer', { answer: progress.assistantContent });
-      }, {
-        promptPrefix: preset?.promptPrefix || undefined,
-      });
+      const webEnabled = resolveEffectiveWebSearchEnabled(
+        activeSession.webSearchEnabled === true,
+        getWebSearchOverride(parsedBody.webSearchOverride),
+      );
+      let assistantContent: string;
+      let usage: ChatUsage;
+      let persistTurns: { thinkingText: string; toolMessages: PersistToolMessage[] }[];
+      if (webEnabled) {
+        const mockResponses = Array.isArray(parsedBody.mockResponses)
+          ? (parsedBody.mockResponses as unknown[]).map((value) => String(value))
+          : undefined;
+        const webResult = await streamDirectChatWebTurn(config, activeSession, userContent, buildWebResearchTools(config), (event: WebStreamProgress) => {
+          if (event.kind === 'thinking') {
+            phaseTracker.observeThinking(event.thinking);
+            writeSse('thinking', { thinking: event.thinking });
+          } else if (event.kind === 'answer') {
+            phaseTracker.observeAnswer(event.answer);
+            writeSse('answer', { answer: event.answer });
+          } else if (event.kind === 'tool_start') {
+            writeSse('tool_start', {
+              toolCallId: event.toolCallId,
+              turn: event.turn,
+              maxTurns: event.maxTurns,
+              command: event.command,
+              promptTokenCount: null,
+            });
+          } else if (event.kind === 'tool_result') {
+            writeSse('tool_result', {
+              toolCallId: event.toolCallId,
+              turn: event.turn,
+              maxTurns: event.maxTurns,
+              command: event.command,
+              exitCode: event.exitCode,
+              outputSnippet: event.outputSnippet,
+              outputTokens: event.outputTokens,
+              promptTokenCount: null,
+            });
+          }
+        }, {
+          promptPrefix: preset?.promptPrefix || undefined,
+          ...(mockResponses ? { mockResponses } : {}),
+        });
+        assistantContent = webResult.assistantContent;
+        usage = webResult.usage;
+        persistTurns = webResult.turns;
+      } else {
+        const generated = await streamChatAssistantMessage(config, activeSession, userContent, (progress) => {
+          phaseTracker.observeThinking(progress.thinkingContent);
+          phaseTracker.observeAnswer(progress.assistantContent);
+          writeSse('thinking', { thinking: progress.thinkingContent });
+          writeSse('answer', { answer: progress.assistantContent });
+        }, {
+          promptPrefix: preset?.promptPrefix || undefined,
+        });
+        assistantContent = generated.assistantContent;
+        usage = generated.usage;
+        persistTurns = [{ thinkingText: generated.thinkingContent, toolMessages: [] }];
+      }
       try {
         await notifyChatStatus({
           ctx,
@@ -795,26 +829,25 @@ export async function handleChatRoute(
           promptChars: userContent.length,
           terminalState: 'completed',
           inputTokens: getProcessedPromptTokens(
-            generated.usage.promptTokens,
-            generated.usage.promptCacheTokens,
-            generated.usage.promptEvalTokens,
+            usage.promptTokens,
+            usage.promptCacheTokens,
+            usage.promptEvalTokens,
           ),
-          outputChars: generated.assistantContent.length,
-          outputTokens: generated.usage.completionTokens,
-          thinkingTokens: generated.usage.thinkingTokens,
-          promptCacheTokens: generated.usage.promptCacheTokens,
-          promptEvalTokens: generated.usage.promptEvalTokens,
+          outputChars: assistantContent.length,
+          outputTokens: usage.completionTokens,
+          thinkingTokens: usage.thinkingTokens,
+          promptCacheTokens: usage.promptCacheTokens,
+          promptEvalTokens: usage.promptEvalTokens,
           requestDurationMs: Date.now() - startedAt,
         });
       } catch {
         // Best-effort metrics notification.
       }
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
-      phaseTracker.observeThinking(generated.thinkingContent);
-      phaseTracker.observeAnswer(generated.assistantContent);
+      phaseTracker.observeAnswer(assistantContent);
       const phaseTimestamps = phaseTracker.snapshot();
-      const updatedSession = appendChatMessagesWithUsage(runtimeRoot, activeSession, userContent, generated.assistantContent, generated.usage, {
-        turns: [{ thinkingText: generated.thinkingContent, toolMessages: [] }],
+      const updatedSession = appendChatMessagesWithUsage(runtimeRoot, activeSession, userContent, assistantContent, usage, {
+        turns: persistTurns,
         requestDurationMs: Date.now() - startedAt,
         requestStartedAtUtc: phaseTimestamps.requestStartedAtUtc,
         thinkingStartedAtUtc: phaseTimestamps.thinkingStartedAtUtc,

@@ -875,6 +875,71 @@ test('chat session web search defaults off and update persists webSearchEnabled'
   }
 });
 
+test('web-on direct chat streams a prose answer over /messages/stream and persists it', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-web-stream-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const created = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Web stream' }),
+    });
+    const sessionId = String(d(created.body.session).id);
+    const putResp = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ webSearchEnabled: true }),
+    });
+    assert.equal(putResp.statusCode, 200);
+    assert.equal(d(putResp.body.session).webSearchEnabled, true, `PUT body: ${JSON.stringify(putResp.body)}`);
+
+    const sse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
+      method: 'POST',
+      timeoutMs: 5000,
+      body: JSON.stringify({
+        content: 'What do you know about osrs iron bars?',
+        mockResponses: [
+          '{"action":"answer"}',
+          'Iron bars are refined iron, smelted from iron ore at level 15 Smithing.',
+        ],
+      }),
+    });
+
+    assert.equal(sse.statusCode, 200);
+    assert.equal(sse.events.some((event) => event.event === 'error'), false, JSON.stringify(sse.events));
+    const answerEvents = sse.events.filter((event) => event.event === 'answer');
+    assert.equal(answerEvents.length >= 1, true, JSON.stringify(sse.events));
+    assert.equal(answerEvents.some((event) => /refined iron/u.test(String(event.payload?.answer || ''))), true);
+    const doneSession = d(sse.events.find((event) => event.event === 'done')?.payload).session as Dict;
+    const messages = (doneSession.messages || []) as Dict[];
+    const lastMessage = messages[messages.length - 1];
+    assert.equal(lastMessage.role, 'assistant');
+    assert.match(String(lastMessage.content), /refined iron/u);
+    assert.doesNotMatch(String(lastMessage.content), /could not be completed/iu);
+    assert.equal(messages.some((message) => message.kind === 'assistant_tool_call'), false);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
 test('repo-search auto-append preview reports agents.md and file listing token counts', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-auto-append-preview-'));
   const previousCwd = enterDashboardTestRepo(tempRoot);

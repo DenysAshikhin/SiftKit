@@ -285,28 +285,18 @@ export function updateChatSession(
   });
 }
 
-export function appendChatMessage(
-  sessionId: string,
-  payload: { content: string; assistantContent?: string; webSearchOverride?: WebSearchOverride }
-): Promise<ChatSessionResponse> {
-  return fetchJson<ChatSessionResponse>(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/messages`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-}
-
 export async function streamChatMessage(
   sessionId: string,
   payload: { content: string; webSearchOverride?: WebSearchOverride },
   onThinking: (thinkingText: string) => void,
+  onToolEvent: (event: ChatStreamToolEvent) => void,
   onAnswer: (answerText: string) => void,
 ): Promise<ChatSessionResponse> {
   return consumeChatStream(
     `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/messages/stream`,
     payload,
     onThinking,
-    () => {},
+    onToolEvent,
     onAnswer,
   );
 }
