@@ -23,6 +23,24 @@ function normalizeResult(item: unknown, source: WebSearchResult['source']): WebS
   return { title, url, snippet, source };
 }
 
+function unwrapDuckDuckGoHref(href: string): string {
+  const trimmed = href.trim();
+  if (!trimmed) {
+    return '';
+  }
+  const absolute = trimmed.startsWith('//') ? `https:${trimmed}` : trimmed;
+  let parsed: URL;
+  try {
+    parsed = new URL(absolute, 'https://duckduckgo.com');
+  } catch {
+    return '';
+  }
+  if (parsed.hostname.endsWith('duckduckgo.com') && parsed.pathname === '/l/') {
+    return parsed.searchParams.get('uddg') || '';
+  }
+  return parsed.toString();
+}
+
 function stripHtml(value: string): string {
   return value
     .replace(/<script[\s\S]*?<\/script>/giu, ' ')
@@ -86,7 +104,7 @@ export class WebSearchService {
       return matches
         .map((match) => normalizeResult({
           title: stripHtml(match[2] || ''),
-          url: match[1] || '',
+          url: unwrapDuckDuckGoHref(match[1] || ''),
           snippet: stripHtml(match[3] || ''),
         }, 'duckduckgo'))
         .filter((item): item is WebSearchResult => Boolean(item))

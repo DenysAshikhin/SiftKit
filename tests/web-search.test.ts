@@ -63,6 +63,32 @@ test('WebSearchService returns capped SearXNG results', async () => {
   assert.match(calls[0], /format=json/);
 });
 
+test('WebSearchService unwraps DuckDuckGo redirect URLs in fallback', async () => {
+  const fetchImpl = async (url: string | URL): Promise<Response> => {
+    const target = String(url);
+    if (target.includes('search.example.test')) {
+      return new Response(JSON.stringify({ results: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    const html = [
+      '<a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Foldschool.runescape.wiki%2Fw%2FIron_bar&amp;rut=abc">Iron bar - OSRS Wiki</a>',
+      '<a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Foldschool.runescape.wiki%2Fw%2FIron_bar">Learn how to make <b>iron</b> <b>bars</b>.</a>',
+    ].join('\n');
+    return new Response(html, { status: 200, headers: { 'content-type': 'text/html' } });
+  };
+  const service = new WebSearchService(webConfig, fetchImpl);
+
+  const results = await service.search({ query: 'osrs iron bar' });
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0].url, 'https://oldschool.runescape.wiki/w/Iron_bar');
+  assert.equal(results[0].title, 'Iron bar - OSRS Wiki');
+  assert.equal(results[0].source, 'duckduckgo');
+  assert.match(results[0].snippet, /iron bars/i);
+});
+
 test('WebFetchService blocks private URLs before fetching', async () => {
   const service = new WebFetchService(webConfig, async () => {
     throw new Error('fetch should not run');
