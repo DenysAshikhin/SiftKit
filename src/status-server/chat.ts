@@ -390,6 +390,20 @@ export async function generateChatAssistantMessage(
   };
 }
 
+export type PersistToolMessage = {
+  id: string;
+  content: string;
+  toolCallCommand: string;
+  toolCallTurn: number;
+  toolCallMaxTurns: number;
+  toolCallExitCode: number | null;
+  toolCallPromptTokenCount?: number | null;
+  toolCallOutputSnippet: string;
+  toolCallOutput: string;
+  outputTokens: number | null;
+};
+export type PersistTurn = { thinkingText: string; toolMessages: PersistToolMessage[] };
+
 type AppendChatOptions = {
   toolContextContents?: string[];
   requestDurationMs?: number | null;
@@ -936,6 +950,90 @@ export function buildToolMessagesFromRepoSearchResult(result: Dict | null | unde
     }
   }
   return messages;
+}
+
+function buildToolMessageFromCommand(command: Dict, turnsUsed: number): PersistToolMessage | null {
+  if (!command || typeof command !== 'object') {
+    return null;
+  }
+  const commandText = getDisplayToolCommand(command);
+  if (!commandText) {
+    return null;
+  }
+  const turn = Number(command.turn);
+  if (!Number.isInteger(turn) || turn < 1) {
+    // No legacy fallback: a persisted command must carry its real planner turn.
+    throw new Error(`TaskCommand for "${commandText}" has an invalid turn: ${String(command.turn)}`);
+  }
+  const output = typeof command.promptOutput === 'string'
+    ? command.promptOutput
+    : typeof command.output === 'string'
+      ? command.output
+      : '';
+  return {
+    id: crypto.randomUUID(),
+    content: commandText,
+    toolCallCommand: commandText,
+    toolCallTurn: turn,
+    toolCallMaxTurns: turnsUsed,
+    toolCallExitCode: Number.isFinite(Number(command.exitCode)) ? Number(command.exitCode) : null,
+    toolCallPromptTokenCount: null,
+    toolCallOutputSnippet: output.length > 200 ? `${output.slice(0, 200)}...` : output,
+    toolCallOutput: output,
+    outputTokens: getChatUsageValue(command.outputTokens),
+  };
+}
+
+export function buildPersistTurnsFromRepoSearchResult(result: Dict | null | undefined): PersistTurn[] {
+  const scorecard = result && typeof result.scorecard === 'object' ? result.scorecard as Dict : {};
+  const tasks = Array.isArray(scorecard.tasks) ? scorecard.tasks as Dict[] : [];
+  const turns: PersistTurn[] = [];
+  for (const task of tasks) {
+    if (!task || typeof task !== 'object') {
+      continue;
+    }
+    const commands = Array.isArray(task.commands) ? task.commands as Dict[] : [];
+    // Resolve a sane "of Y" for tool bubbles. turnsUsed must be a positive integer
+    // no smaller than the largest command turn; otherwise fall back to that max
+    // (never the raw command count, and never a value that would render "3 of 2").
+    const commandTurns = commands
+      .map((command) => Number((command as Dict).turn))
+      .filter((turn) => Number.isInteger(turn) && turn >= 1);
+    const maxCommandTurn = commandTurns.length ? Math.max(...commandTurns) : 0;
+    const rawTurnsUsed = Number(task.turnsUsed);
+    const turnsUsed = Number.isInteger(rawTurnsUsed) && rawTurnsUsed >= maxCommandTurn
+      ? rawTurnsUsed
+      : maxCommandTurn;
+    const turnThinking = task.turnThinking && typeof task.turnThinking === 'object'
+      ? task.turnThinking as Dict
+      : {};
+    const toolsByTurn = new Map<number, PersistToolMessage[]>();
+    for (const command of commands) {
+      const message = buildToolMessageFromCommand(command, turnsUsed);
+      if (!message) {
+        continue;
+      }
+      const bucket = toolsByTurn.get(message.toolCallTurn);
+      if (bucket) {
+        bucket.push(message);
+      } else {
+        toolsByTurn.set(message.toolCallTurn, [message]);
+      }
+    }
+    const thinkingTurns = Object.keys(turnThinking)
+      .map((key) => Number(key))
+      .filter((turn) => Number.isFinite(turn));
+    const orderedTurns = [...new Set([...toolsByTurn.keys(), ...thinkingTurns])].sort((a, b) => a - b);
+    for (const turn of orderedTurns) {
+      const thinkingText = String(turnThinking[String(turn)] || '').trim();
+      const toolMessages = toolsByTurn.get(turn) || [];
+      if (!thinkingText && toolMessages.length === 0) {
+        continue;
+      }
+      turns.push({ thinkingText, toolMessages });
+    }
+  }
+  return turns;
 }
 
 export function buildRepoSearchMarkdown(userPrompt: string, repoRoot: string, result: Dict | null | undefined): string {

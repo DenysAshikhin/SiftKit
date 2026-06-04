@@ -11,6 +11,7 @@ import {
   buildContextUsage,
   buildRepoSearchMarkdown,
   buildToolMessagesFromRepoSearchResult,
+  buildPersistTurnsFromRepoSearchResult,
 } from '../src/status-server/chat.ts';
 import { buildChatPromptContext } from '../src/status-server/chat-prompt-context.ts';
 import { estimatePromptTokenCountFromCharacters, getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
@@ -362,6 +363,87 @@ test('buildContextUsage estimates continuation context from session content inst
   assert.equal(usage.toolUsedTokens, expectedToolTokens);
   assert.equal(usage.totalUsedTokens, expectedChatTokens + expectedToolTokens);
   assert.equal(usage.estimatedTokenFallbackTokens, 0);
+});
+
+test('buildPersistTurnsFromRepoSearchResult interleaves per-turn thinking before that turn\'s tools', () => {
+  const turns = buildPersistTurnsFromRepoSearchResult({
+    scorecard: {
+      tasks: [{
+        turnThinking: { 1: 'think one', 2: 'think two', 3: 'final think' },
+        commands: [
+          { command: 'rg -n "a" src --no-ignore', modelVisibleCommand: 'rg -n "a" src', turn: 1, exitCode: 0, output: 'a', promptOutput: 'a', outputTokens: 3 },
+          { command: 'rg -n "b" src --no-ignore', modelVisibleCommand: 'rg -n "b" src', turn: 2, exitCode: 0, output: 'b', promptOutput: 'b', outputTokens: 4 },
+        ],
+      }],
+    },
+  });
+
+  assert.equal(turns.length, 3);
+  assert.equal(turns[0].thinkingText, 'think one');
+  assert.equal(turns[0].toolMessages.length, 1);
+  assert.equal(turns[0].toolMessages[0].toolCallCommand, 'rg -n "a" src');
+  assert.equal(turns[0].toolMessages[0].toolCallTurn, 1);
+  assert.equal(turns[1].thinkingText, 'think two');
+  assert.equal(turns[1].toolMessages[0].toolCallCommand, 'rg -n "b" src');
+  assert.equal(turns[2].thinkingText, 'final think');
+  assert.equal(turns[2].toolMessages.length, 0);
+});
+
+test('buildPersistTurnsFromRepoSearchResult uses prompt output and tokens for tool bubbles', () => {
+  const turns = buildPersistTurnsFromRepoSearchResult({
+    scorecard: {
+      tasks: [{
+        turnThinking: {},
+        commands: [{
+          command: 'rg -n "tool_call" src --no-ignore',
+          modelVisibleCommand: 'rg -n "tool_call" src',
+          turn: 1, exitCode: 0,
+          output: 'x'.repeat(10_000),
+          promptOutput: 'src/repo-search/engine.ts:1613:tool_result',
+          outputTokens: 295,
+        }],
+      }],
+    },
+  });
+  const message = turns[0].toolMessages[0];
+  assert.equal(message.toolCallOutput, 'src/repo-search/engine.ts:1613:tool_result');
+  assert.equal(message.toolCallOutputSnippet, 'src/repo-search/engine.ts:1613:tool_result');
+  assert.equal(message.outputTokens, 295);
+});
+
+test('buildPersistTurnsFromRepoSearchResult emits no thinking bubble for a tools-only turn', () => {
+  const turns = buildPersistTurnsFromRepoSearchResult({
+    scorecard: { tasks: [{
+      turnsUsed: 1,
+      turnThinking: {},
+      commands: [{ command: 'rg -n "x" src', modelVisibleCommand: 'rg -n "x" src', turn: 1, exitCode: 0, output: 'x' }],
+    }] },
+  });
+  assert.equal(turns.length, 1);
+  assert.equal(turns[0].thinkingText, '');
+  assert.equal(turns[0].toolMessages.length, 1);
+});
+
+test('buildPersistTurnsFromRepoSearchResult sets tool maxTurns from task turnsUsed', () => {
+  const turns = buildPersistTurnsFromRepoSearchResult({
+    scorecard: { tasks: [{
+      turnsUsed: 4,
+      turnThinking: {},
+      commands: [{ command: 'rg -n "x" src', modelVisibleCommand: 'rg -n "x" src', turn: 2, exitCode: 0, output: 'x' }],
+    }] },
+  });
+  assert.equal(turns[0].toolMessages[0].toolCallTurn, 2);
+  assert.equal(turns[0].toolMessages[0].toolCallMaxTurns, 4);
+});
+
+test('buildPersistTurnsFromRepoSearchResult throws on a command with a missing turn', () => {
+  assert.throws(() => buildPersistTurnsFromRepoSearchResult({
+    scorecard: { tasks: [{
+      turnsUsed: 1,
+      turnThinking: {},
+      commands: [{ command: 'rg -n "x" src', modelVisibleCommand: 'rg -n "x" src', exitCode: 0, output: 'x' }],
+    }] },
+  }), /invalid turn/u);
 });
 
 test('buildContextUsage counts typed thinking and tool bubbles from visible timeline content', () => {
