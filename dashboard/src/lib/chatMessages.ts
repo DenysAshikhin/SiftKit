@@ -3,6 +3,7 @@ import type {
   ChatPromptContext,
   ChatSession,
   DashboardPreset,
+  RepoSearchAutoAppendSelection,
 } from '../types';
 
 export function compareMessageCreatedAt(left: ChatMessage, right: ChatMessage): number {
@@ -34,6 +35,46 @@ export function buildLiveMessageScrollSignature(messages: ChatMessage[]): string
     message.toolCallStatus || '',
     message.toolCallExitCode ?? '',
   ].join(':')).join('|');
+}
+
+export function estimatePromptTokens(content: string): number {
+  return Math.max(1, Math.ceil(content.length / 4));
+}
+
+export const AGENTS_MD_PROMPT_DELIMITER = '--- agents.md (project-specific instructions) ---';
+
+// Sections that buildRepoToolPromptContextContent appends after the system prompt,
+// i.e. immediately after the trailing agents.md block. Stripping must preserve them.
+const PROMPT_CONTEXT_TRAILING_SECTIONS = ['\n\n## Preset prompt prefix', '\n\n## Tool schema'];
+
+export function stripAgentsMdBlock(content: string): string {
+  const delimiterIndex = content.indexOf(AGENTS_MD_PROMPT_DELIMITER);
+  if (delimiterIndex === -1) {
+    return content;
+  }
+  const head = content.slice(0, delimiterIndex).trimEnd();
+  let trailingIndex = -1;
+  for (const marker of PROMPT_CONTEXT_TRAILING_SECTIONS) {
+    const markerIndex = content.indexOf(marker, delimiterIndex);
+    if (markerIndex !== -1 && (trailingIndex === -1 || markerIndex < trailingIndex)) {
+      trailingIndex = markerIndex;
+    }
+  }
+  if (trailingIndex === -1) {
+    return head;
+  }
+  return `${head}\n\n${content.slice(trailingIndex + 2)}`;
+}
+
+export function buildDisplayedSystemPromptContent(
+  content: string,
+  showAutoAppendControls: boolean,
+  selection: RepoSearchAutoAppendSelection,
+): string {
+  if (showAutoAppendControls && !selection.includeAgentsMd) {
+    return stripAgentsMdBlock(content);
+  }
+  return content;
 }
 
 export function buildFallbackPromptContext(

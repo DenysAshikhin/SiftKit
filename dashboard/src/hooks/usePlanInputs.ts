@@ -20,7 +20,6 @@ export type UsePlanInputsResult = {
   planRepoRootInput: string;
   planMaxTurnsInput: string;
   setPlanRepoRootInput(value: string): void;
-  setPlanMaxTurnsInput(value: string): void;
 };
 
 const DEFAULT_MAX_TURNS = '45';
@@ -51,6 +50,5 @@ export function usePlanInputs(deps: {
     planRepoRootInput,
     planMaxTurnsInput,
     setPlanRepoRootInput,
-    setPlanMaxTurnsInput,
   };
 }

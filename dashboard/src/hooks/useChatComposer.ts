@@ -4,7 +4,6 @@ import {
   streamPlanMessage,
   streamRepoSearchMessage,
 } from '../api';
-import { appendLiveThinkingMessage } from '../lib/live-thinking-message';
 import { buildRepoSearchAutoAppendPayload } from '../lib/repo-append-controls';
 import type { ChatStreamToolEvent } from '../lib/chat-stream-parser';
 import type {
@@ -95,7 +94,7 @@ export function useChatComposer(deps: {
         { content: chatInput.trim() },
         (thinkingText) => {
           if (deps.isThinkingEnabledForCurrentSession) {
-            deps.live.setLiveMessages(appendLiveThinkingMessage(deps.live.liveMessages, thinkingText));
+            deps.live.appendLiveThinking(thinkingText);
           }
         },
         (answerText) => {
@@ -134,7 +133,7 @@ export function useChatComposer(deps: {
           ...parsePlanMaxTurnsOverride(deps.planMaxTurnsInput),
         },
         (thinkingText) => {
-          deps.live.setLiveMessages(appendLiveThinkingMessage(deps.live.liveMessages, thinkingText));
+          deps.live.appendLiveThinking(thinkingText);
         },
         (toolEvent: ChatStreamToolEvent) => {
           if (toolEvent.kind === 'tool_start') {
@@ -187,7 +186,7 @@ export function useChatComposer(deps: {
           ...buildRepoSearchAutoAppendPayload(deps.repoSearchAutoAppendSelection),
         },
         (thinkingText) => {
-          deps.live.setLiveMessages(appendLiveThinkingMessage(deps.live.liveMessages, thinkingText));
+          deps.live.appendLiveThinking(thinkingText);
         },
         (toolEvent: ChatStreamToolEvent) => {
           if (toolEvent.kind === 'tool_start') {
@@ -203,7 +202,7 @@ export function useChatComposer(deps: {
           }
         },
         (answerText) => {
-          deps.live.setLiveMessages(appendLiveThinkingMessage(deps.live.liveMessages, answerText));
+          deps.live.appendLiveThinking(answerText);
         },
       );
       deps.applySessionResponse({ session: response.session, contextUsage: response.contextUsage });

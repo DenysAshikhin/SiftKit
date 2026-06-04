@@ -8,6 +8,7 @@ import { MetricsTab } from '../src/tabs/MetricsTab';
 import { SettingsTab } from '../src/tabs/SettingsTab';
 import { ChatTab } from '../src/tabs/ChatTab';
 import { buildRepoSearchAutoAppendPayload } from '../src/lib/repo-append-controls';
+import { AGENTS_MD_PROMPT_DELIMITER } from '../src/lib/chatMessages';
 import { BenchmarkTab } from '../src/tabs/BenchmarkTab';
 import { PresetsSection } from '../src/tabs/settings/PresetsSection';
 import { ManagedLlamaSection } from '../src/tabs/settings/ManagedLlamaSection';
@@ -401,7 +402,6 @@ function renderChatTab(overrides: Partial<ChatTabProps> = {}): string {
     isThinkingEnabledForCurrentSession: overrides.isThinkingEnabledForCurrentSession ?? false,
     showSettings: overrides.showSettings ?? false,
     planRepoRootInput: overrides.planRepoRootInput ?? '',
-    planMaxTurnsInput: overrides.planMaxTurnsInput ?? '',
     contextUsage: overrides.contextUsage ?? null,
     liveToolPromptTokenCount: overrides.liveToolPromptTokenCount ?? null,
     repoSearchAutoAppendPreview: overrides.repoSearchAutoAppendPreview ?? null,
@@ -414,7 +414,6 @@ function renderChatTab(overrides: Partial<ChatTabProps> = {}): string {
     onSelectSession: overrides.onSelectSession ?? (() => {}),
     onToggleSettings: overrides.onToggleSettings ?? (() => {}),
     onChangePlanRepoRoot: overrides.onChangePlanRepoRoot ?? (() => {}),
-    onChangePlanMaxTurns: overrides.onChangePlanMaxTurns ?? (() => {}),
     onChangeChatInput: overrides.onChangeChatInput ?? (() => {}),
     onSetRepoSearchAutoAppendSelection: overrides.onSetRepoSearchAutoAppendSelection ?? (() => {}),
     onCreateSession: overrides.onCreateSession ?? (async () => {}),
@@ -1038,7 +1037,6 @@ test('chat tab renders session list and composer', () => {
     chatMode: 'chat',
     isDirectChatMode: true,
     isThinkingEnabledForCurrentSession: true,
-    planMaxTurnsInput: '45',
     contextUsage: CONTEXT_USAGE,
   });
 
@@ -1058,7 +1056,6 @@ test('chat tab renders context usage thinking breakdown', () => {
     isDirectChatMode: true,
     isThinkingEnabledForCurrentSession: true,
     showSettings: true,
-    planMaxTurnsInput: '45',
     contextUsage: {
       ...CONTEXT_USAGE,
       chatUsedTokens: 24,
@@ -1147,6 +1144,52 @@ test('chat tab renders context bar with fill width matching usage ratio', () => 
   assert.match(markup, /class="context-bar"/u);
   assert.match(markup, /width:25%/u);
   assert.match(markup, /25\.0% used/u);
+});
+
+test('chat tab context bar fills from the live prompt token count while generating', () => {
+  const markup = renderChatTab({
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'repo-search',
+    isRepoToolMode: true,
+    contextUsage: { ...CONTEXT_USAGE, chatUsedTokens: 1000, contextWindowTokens: 10000 },
+    liveToolPromptTokenCount: 4000,
+    chatBusy: true,
+  });
+
+  assert.match(markup, /class="context-bar"/u);
+  assert.match(markup, /width:40%/u);
+});
+
+test('chat tab context bar draws from the session window on a fresh session stream before usage exists', () => {
+  const session = { ...CHAT_SESSION, contextWindowTokens: 1000 } as ChatSession;
+  const markup = renderChatTab({
+    selectedSession: session,
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'repo-search',
+    isRepoToolMode: true,
+    contextUsage: null,
+    liveToolPromptTokenCount: 250,
+    chatBusy: true,
+  });
+
+  assert.match(markup, /class="context-bar"/u);
+  assert.match(markup, /width:25%/u);
+});
+
+test('chat tab context bar ignores the live prompt token count when not generating', () => {
+  const markup = renderChatTab({
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'chat',
+    isDirectChatMode: true,
+    contextUsage: { ...CONTEXT_USAGE, chatUsedTokens: 2500, contextWindowTokens: 10000 },
+    liveToolPromptTokenCount: 9999,
+    chatBusy: false,
+  });
+
+  assert.match(markup, /width:25%/u);
 });
 
 test('chat tab context bar color shifts toward red as ratio grows', () => {
@@ -1249,7 +1292,6 @@ test('chat tab renders typed thinking and tool bubbles with trash and expandable
     chatMode: 'repo-search',
     isRepoToolMode: true,
     isThinkingEnabledForCurrentSession: true,
-    planMaxTurnsInput: '45',
     contextUsage: CONTEXT_USAGE,
   });
 
@@ -1279,7 +1321,6 @@ test('chat tab renders only explicit model-visible tool commands', () => {
     chatMode: 'repo-search',
     isRepoToolMode: true,
     isThinkingEnabledForCurrentSession: true,
-    planMaxTurnsInput: '45',
     contextUsage: CONTEXT_USAGE,
   });
 
@@ -1307,7 +1348,6 @@ test('chat tab renders non-deletable collapsed system context bubble first', () 
     chatMode: 'repo-search',
     isRepoToolMode: true,
     isThinkingEnabledForCurrentSession: true,
-    planMaxTurnsInput: '45',
     contextUsage: CONTEXT_USAGE,
   });
 
@@ -1335,7 +1375,6 @@ test('chat tab renders fallback system context bubble when session metadata is m
     isRepoToolMode: true,
     isThinkingEnabledForCurrentSession: true,
     planRepoRootInput: 'C:\\repo',
-    planMaxTurnsInput: '45',
     contextUsage: CONTEXT_USAGE,
   });
 
@@ -1343,6 +1382,57 @@ test('chat tab renders fallback system context bubble when session metadata is m
   assert.match(markup, /Use strict repo evidence/u);
   assert.match(markup, /repo_rg/u);
   assert.match(markup, /repo_read_file/u);
+  assert.match(markup, />Directory</u);
+  assert.doesNotMatch(markup, /max-turns-input/u);
+});
+
+test('chat tab system prompt bubble hides the agents.md block and drops its tokens when toggled off', () => {
+  const baseContent = ['## System prompt', '', 'Use strict repo evidence.'].join('\n');
+  const agentsBody = 'PROJECT_RULE_MARKER repeated content '.repeat(8).trim();
+  const toolSchema = ['## Tool schema', '', 'TOOL_SCHEMA_MARKER {"tools":[]}'].join('\n');
+  const promptContent = [baseContent, '', AGENTS_MD_PROMPT_DELIMITER, '', agentsBody, '', toolSchema].join('\n');
+  const expectedOffContent = [baseContent, '', toolSchema].join('\n');
+  const session = {
+    ...CHAT_SESSION,
+    messages: [],
+    promptContext: {
+      id: `${CHAT_SESSION.id}:ctx`,
+      role: 'system' as const,
+      kind: 'system_context' as const,
+      label: 'System prompt and tool schema',
+      content: promptContent,
+      createdAtUtc: CHAT_SESSION.createdAtUtc,
+      deletable: false as const,
+    },
+  } as ChatSession;
+  const renderWithSelection = (includeAgentsMd: boolean): string =>
+    renderChatTab({
+      selectedSession: session,
+      webPresets: [PRESET],
+      selectedChatPreset: PRESET,
+      chatMode: 'repo-search',
+      isRepoToolMode: true,
+      repoSearchAutoAppendSelection: { includeAgentsMd, includeRepoFileListing: false },
+      contextUsage: CONTEXT_USAGE,
+    });
+  const extractSystemPromptTokens = (markup: string): number => {
+    const matched = markup.match(/system \| first message<\/span>[\s\S]*?([\d,]+) tokens/u);
+    assert.notEqual(matched, null);
+    return Number((matched as RegExpMatchArray)[1].replace(/,/gu, ''));
+  };
+
+  const on = renderWithSelection(true);
+  const off = renderWithSelection(false);
+
+  assert.match(on, /PROJECT_RULE_MARKER/u);
+  assert.match(on, /agents\.md \(project-specific instructions\)/u);
+  assert.match(on, /TOOL_SCHEMA_MARKER/u);
+  assert.doesNotMatch(off, /PROJECT_RULE_MARKER/u);
+  assert.doesNotMatch(off, /agents\.md \(project-specific instructions\)/u);
+  // disabling agents.md must NOT drop the trailing tool schema section
+  assert.match(off, /TOOL_SCHEMA_MARKER/u);
+  assert.equal(extractSystemPromptTokens(on) > extractSystemPromptTokens(off), true);
+  assert.equal(extractSystemPromptTokens(off), Math.max(1, Math.ceil(expectedOffContent.length / 4)));
 });
 
 test('chat tab renders repo-search auto-append controls before first message', () => {
@@ -1377,7 +1467,6 @@ test('chat tab renders repo-search auto-append controls before first message', (
     repoSearchAutoAppendSelection: { includeAgentsMd: true, includeRepoFileListing: false },
     isRepoSearchAutoAppendPreviewLoading: false,
     onSetRepoSearchAutoAppendSelection: () => {},
-    planMaxTurnsInput: '45',
     contextUsage: CONTEXT_USAGE,
   });
 
@@ -1451,7 +1540,6 @@ test('chat tab sorts persisted messages oldest first and keeps live messages las
     chatMode: 'chat',
     isDirectChatMode: true,
     isThinkingEnabledForCurrentSession: true,
-    planMaxTurnsInput: '45',
     contextUsage: CONTEXT_USAGE,
     liveMessages: [live],
     chatBusy: true,

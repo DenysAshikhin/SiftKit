@@ -90,7 +90,6 @@ test('useChatComposer initialises chatInput empty', () => {
       selectedChatPreset: null,
       live: {
         liveMessages: [],
-        setLiveMessages: () => {},
         resetLive: () => {},
         createLiveMessage: (id, kind, role, content) => ({
           id,
@@ -105,6 +104,7 @@ test('useChatComposer initialises chatInput empty', () => {
           sourceRunId: null,
         }),
         upsertLiveMessage: () => {},
+        appendLiveThinking: () => {},
         appendLiveToolMessage: () => {},
         completeLiveToolMessage: () => {},
       },

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import { buildLiveToolMessageId } from '../lib/live-tool-message';
+import { appendLiveThinkingMessage } from '../lib/live-thinking-message';
 import { type ChatStreamToolEvent } from '../lib/chat-stream-parser';
 import type { ChatMessage } from '../types';
 
@@ -69,10 +70,10 @@ export function buildCompletedLiveToolMessage(toolEvent: ChatStreamToolEvent): C
 
 export type UseLiveMessagesResult = {
   liveMessages: ChatMessage[];
-  setLiveMessages(value: ChatMessage[]): void;
   resetLive(): void;
   createLiveMessage(id: string, kind: LiveMessageKind, role: ChatMessage['role'], content: string): ChatMessage;
   upsertLiveMessage(message: ChatMessage): void;
+  appendLiveThinking(text: string): void;
   appendLiveToolMessage(toolEvent: ChatStreamToolEvent): void;
   completeLiveToolMessage(toolEvent: ChatStreamToolEvent): void;
 };
@@ -81,13 +82,15 @@ export function useLiveMessages(): UseLiveMessagesResult {
   const [liveMessages, setLiveMessages] = useState<ChatMessage[]>([]);
   return {
     liveMessages,
-    setLiveMessages,
     resetLive(): void {
       setLiveMessages([]);
     },
     createLiveMessage,
     upsertLiveMessage(message: ChatMessage): void {
       setLiveMessages((previous) => upsertLiveMessageInto(previous, message));
+    },
+    appendLiveThinking(text: string): void {
+      setLiveMessages((previous) => appendLiveThinkingMessage(previous, text));
     },
     appendLiveToolMessage(toolEvent: ChatStreamToolEvent): void {
       const built = buildAppendedLiveToolMessage(toolEvent);

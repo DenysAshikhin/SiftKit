@@ -1339,7 +1339,6 @@ function DashboardApp() {
           isThinkingEnabledForCurrentSession={isThinkingEnabledForCurrentSession}
           showSettings={showSettings}
           planRepoRootInput={planInputs.planRepoRootInput}
-          planMaxTurnsInput={planInputs.planMaxTurnsInput}
           contextUsage={contextHook.contextUsage}
           liveToolPromptTokenCount={contextHook.liveToolPromptTokenCount}
           repoSearchAutoAppendPreview={autoAppend.preview}
@@ -1352,7 +1351,6 @@ function DashboardApp() {
           onSelectSession={chatSessionsHook.selectSession}
           onToggleSettings={() => setShowSettings((prev) => !prev)}
           onChangePlanRepoRoot={planInputs.setPlanRepoRootInput}
-          onChangePlanMaxTurns={planInputs.setPlanMaxTurnsInput}
           onChangeChatInput={composer.setChatInput}
           onSetRepoSearchAutoAppendSelection={autoAppend.setSelection}
           onCreateSession={chatSessionsHook.createSession}

@@ -8,11 +8,13 @@ import {
   getMessageTokenCount,
 } from '../lib/format';
 import {
+  buildDisplayedSystemPromptContent,
   buildFallbackPromptContext,
   buildLiveMessageScrollSignature,
   compareMessageCreatedAt,
+  estimatePromptTokens,
 } from '../lib/chatMessages';
-import { computeContextBarVisual } from '../lib/contextBar';
+import { resolveContextBarVisual } from '../lib/contextBar';
 import { useChatScroll } from '../hooks/useChatScroll';
 import type {
   ChatSession,
@@ -48,7 +50,6 @@ type ChatTabProps = {
   isThinkingEnabledForCurrentSession: boolean;
   showSettings: boolean;
   planRepoRootInput: string;
-  planMaxTurnsInput: string;
   contextUsage: ContextUsage | null;
   liveToolPromptTokenCount: number | null;
   repoSearchAutoAppendPreview?: RepoSearchAutoAppendPreview | null;
@@ -61,7 +62,6 @@ type ChatTabProps = {
   onSelectSession(sessionId: string): void;
   onToggleSettings(): void;
   onChangePlanRepoRoot(value: string): void;
-  onChangePlanMaxTurns(value: string): void;
   onChangeChatInput(value: string): void;
   onSetRepoSearchAutoAppendSelection?(selection: RepoSearchAutoAppendSelection): void;
   onCreateSession(): Promise<void>;
@@ -90,7 +90,6 @@ export function ChatTab({
   isThinkingEnabledForCurrentSession,
   showSettings,
   planRepoRootInput,
-  planMaxTurnsInput,
   contextUsage,
   liveToolPromptTokenCount,
   repoSearchAutoAppendPreview = null,
@@ -103,7 +102,6 @@ export function ChatTab({
   onSelectSession,
   onToggleSettings,
   onChangePlanRepoRoot,
-  onChangePlanMaxTurns,
   onChangeChatInput,
   onSetRepoSearchAutoAppendSelection = () => {},
   onCreateSession,
@@ -126,6 +124,9 @@ export function ChatTab({
   const promptContext = selectedSession
     ? selectedSession.promptContext || buildFallbackPromptContext(selectedSession, selectedChatPreset, isRepoToolMode, planRepoRootInput)
     : null;
+  const displayedSystemPromptContent = promptContext
+    ? buildDisplayedSystemPromptContent(promptContext.content, showRepoSearchAutoAppendControls, repoSearchAutoAppendSelection)
+    : '';
   const visibleMessageIds = visibleMessages.map((message) => message.id).join('|');
   const liveMessageScrollSignature = buildLiveMessageScrollSignature(liveMessages);
   const { chatLogRef } = useChatScroll(visibleMessageIds, liveMessageScrollSignature);
@@ -176,19 +177,19 @@ export function ChatTab({
               </details>
             )}
             <div className="chat-log" ref={chatLogRef}>
-              {promptContext && promptContext.content.trim() ? (
+              {promptContext && displayedSystemPromptContent.trim() ? (
                 <article className="msg system system_context">
                   <header className="msg-header">
                     <span>system | first message</span>
                     <span className="msg-meta">
                       <span className="msg-tokens">
-                        {formatNumber(Math.max(1, Math.ceil(promptContext.content.length / 4)))} tokens
+                        {formatNumber(estimatePromptTokens(displayedSystemPromptContent))} tokens
                       </span>
                     </span>
                   </header>
                   <details className="system-context-bubble">
                     <summary>{promptContext.label}</summary>
-                    <pre>{promptContext.content}</pre>
+                    <pre>{displayedSystemPromptContent}</pre>
                   </details>
                 </article>
               ) : null}
@@ -356,24 +357,18 @@ export function ChatTab({
                         onClick={() => { void onSavePlanRepoRoot(); }}
                         disabled={chatBusy || !planRepoRootInput.trim()}
                       >
-                        Save Folder
+                        Directory
                       </button>
-                      <input
-                        id="max-turns-input"
-                        type="number"
-                        min="1"
-                        max="200"
-                        className="composer-max-turns"
-                        title="Maximum number of tool calls before stopping"
-                        value={planMaxTurnsInput}
-                        onChange={(event) => onChangePlanMaxTurns(event.target.value)}
-                        disabled={chatBusy}
-                      />
                     </>
                   ) : null}
                 </div>
                 <div className="composer-toolbar-context">
-                  <ContextBar usage={contextUsage} />
+                  <ContextBar
+                    usage={contextUsage}
+                    sessionContextWindowTokens={selectedSession.contextWindowTokens}
+                    liveToolPromptTokenCount={liveToolPromptTokenCount}
+                    chatBusy={chatBusy}
+                  />
                 </div>
                 <div className="composer-toolbar-right">
                   <button
@@ -407,9 +402,14 @@ export function ChatTab({
   );
 }
 
-function ContextBar({ usage }: { usage: ContextUsage | null }) {
-  if (!usage) return null;
-  const visual = computeContextBarVisual(usage.chatUsedTokens, usage.contextWindowTokens);
+function ContextBar({ usage, sessionContextWindowTokens, liveToolPromptTokenCount, chatBusy }: {
+  usage: ContextUsage | null;
+  sessionContextWindowTokens: number;
+  liveToolPromptTokenCount: number | null;
+  chatBusy: boolean;
+}) {
+  const visual = resolveContextBarVisual(usage, sessionContextWindowTokens, liveToolPromptTokenCount, chatBusy);
+  if (!visual) return null;
   return (
     <div className="context-bar" title={visual.titleText}>
       <div

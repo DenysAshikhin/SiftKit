@@ -110,3 +110,20 @@ test('useLiveMessages exposes an empty live message list on initial render', () 
   const markup = renderToStaticMarkup(React.createElement(Probe));
   assert.match(markup, /<output>\[\]<\/output>/);
 });
+
+test('useLiveMessages exposes an explicit appendLiveThinking method and no raw setLiveMessages', () => {
+  function Probe(): React.JSX.Element {
+    const live = useLiveMessages();
+    return React.createElement('output', {
+      dangerouslySetInnerHTML: {
+        __html: JSON.stringify({
+          appendLiveThinking: typeof live.appendLiveThinking,
+          setLiveMessages: 'setLiveMessages' in live,
+        }),
+      },
+    });
+  }
+  const markup = renderToStaticMarkup(React.createElement(Probe));
+  assert.match(markup, /"appendLiveThinking":"function"/u);
+  assert.match(markup, /"setLiveMessages":false/u);
+});
