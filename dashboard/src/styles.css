@@ -1638,3 +1638,48 @@ button:hover {
     width: min(240px, calc(100vw - 64px));
   }
 }
+
+.msg.turn {
+  display: grid;
+  gap: 8px;
+}
+
+.msg.turn .internal-logic {
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.18);
+  padding: 4px 8px;
+}
+
+.msg.turn .internal-logic > summary {
+  cursor: pointer;
+  font-size: 12px;
+  opacity: 0.8;
+  list-style: none;
+}
+
+.msg.turn .internal-logic[open] > summary {
+  margin-bottom: 8px;
+}
+
+.msg.turn .internal-logic-steps {
+  display: grid;
+  gap: 8px;
+}
+
+/* Nested step/answer bubbles inside a turn: drop the speech-bubble tail,
+   span full width, soften the background so the turn reads as one unit. */
+.msg.turn .msg {
+  max-width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.msg.turn .msg::after {
+  display: none;
+}
+
+.msg.turn .msg.turn-main {
+  background: transparent;
+  border-color: transparent;
+  padding: 0;
+}
