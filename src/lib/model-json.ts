@@ -20,6 +20,17 @@ type RepoSearchParserOptions = {
   allowedToolNames: readonly string[];
 };
 
+const JSON_ESCAPE_CHARS: Record<string, string> = {
+  n: '\n',
+  t: '\t',
+  r: '\r',
+  b: '\b',
+  f: '\f',
+  '"': '"',
+  '\\': '\\',
+  '/': '/',
+};
+
 const SUMMARY_CLASSIFICATIONS = new Set<string>(['summary', 'command_failure', 'unsupported_input']);
 const SUMMARY_PLANNER_TOOL_NAMES = new Set<string>(['find_text', 'read_lines', 'json_filter', 'json_get']);
 
@@ -40,6 +51,49 @@ export class ModelJson {
   ): RepoSearchPlannerAction {
     const parsed = this.parseModelObject(text, 'planner');
     return this.validateRepoSearchPlannerAction(parsed, this.getAllowedToolNames(options));
+  }
+
+  static extractStreamingFinishOutput(text: string): string | null {
+    if (!/"action"\s*:\s*"finish"/.test(text)) {
+      return null;
+    }
+    const openMatch = /"output"\s*:\s*"/.exec(text);
+    if (!openMatch) {
+      return null;
+    }
+    return this.decodeJsonStringPrefix(text, openMatch.index + openMatch[0].length);
+  }
+
+  private static decodeJsonStringPrefix(text: string, start: number): string {
+    let result = '';
+    let index = start;
+    while (index < text.length) {
+      const char = text[index];
+      if (char === '"') {
+        break;
+      }
+      if (char === '\\') {
+        const escape = text[index + 1];
+        if (escape === undefined) {
+          break;
+        }
+        if (escape === 'u') {
+          const hex = text.slice(index + 2, index + 6);
+          if (hex.length < 4 || !/^[0-9a-fA-F]{4}$/.test(hex)) {
+            break;
+          }
+          result += String.fromCharCode(parseInt(hex, 16));
+          index += 6;
+          continue;
+        }
+        result += JSON_ESCAPE_CHARS[escape] ?? escape;
+        index += 2;
+        continue;
+      }
+      result += char;
+      index += 1;
+    }
+    return result;
   }
 
   static parseRepoSearchFinishValidation(text: string): FinishValidationResult {

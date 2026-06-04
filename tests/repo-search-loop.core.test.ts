@@ -562,7 +562,7 @@ test('runTaskLoop reports prompt tokens and elapsed time on command progress eve
 });
 
 test('runTaskLoop tool_result outputTokens reflects the fitted bubble output', async () => {
-  const longStdout = 'planner hit '.repeat(400);
+  const longStdout = Array.from({ length: 400 }, (_, index) => `planner hit ${index}`).join('\n');
   const progressEvents: Array<Record<string, unknown> & { kind: string }> = [];
   await runTaskLoop(
     {
@@ -589,8 +589,84 @@ test('runTaskLoop tool_result outputTokens reflects the fitted bubble output', a
     }
   );
   const toolResult = progressEvents.find((event) => event.kind === 'tool_result');
-  assert.match(String(toolResult?.outputSnippet || ''), /truncated due to per-tool context limit/u);
   assert.equal(Number(toolResult?.outputTokens) <= 600, true);
+});
+
+test('runTaskLoop logs fitted tool result truncation in the full inserted output', async () => {
+  const longStdout = Array.from({ length: 400 }, (_, index) => `planner hit ${index}`).join('\n');
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  await runTaskLoop(
+    {
+      id: 'task-output-tokens-full-log',
+      question: 'Find planner text.',
+      signals: ['planner'],
+    },
+    {
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens: 10000,
+      mockResponses: [
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'rg -n "planner" src': { exitCode: 0, stdout: longStdout, stderr: '' },
+      },
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+    }
+  );
+  const commandResult = events.find((event) => event.kind === 'turn_command_result');
+  assert.match(String(commandResult?.insertedResultText || ''), /truncated due to per-tool context limit/u);
+});
+
+test('runTaskLoop replaces long repeated tool output before inserting it into context', async () => {
+  const repeatedTail = '</arg_value>'.repeat(10);
+  const longStdout = `${Array.from({ length: 101 }, (_, index) => `src/example.ts:${index + 1}: anchor-${index}`).join('\n')}\n${repeatedTail}`;
+  const progressEvents: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+
+  await runTaskLoop(
+    {
+      id: 'task-output-loop-guard',
+      question: 'Find planner text.',
+      signals: ['planner'],
+    },
+    {
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens: 10000,
+      mockResponses: [
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'rg -n "planner" src': { exitCode: 0, stdout: longStdout, stderr: '' },
+      },
+      logger: {
+        write(event: Record<string, unknown> & { kind: string }) {
+          events.push(event);
+        },
+      },
+      onProgress(event: Record<string, unknown> & { kind: string }) {
+        progressEvents.push(event);
+      },
+    }
+  );
+
+  const commandResult = events.find((event) => event.kind === 'turn_command_result');
+  const toolResult = progressEvents.find((event) => event.kind === 'tool_result');
+  assert.match(String(commandResult?.insertedResultText || ''), /SiftKit stopped tool output early/u);
+  assert.doesNotMatch(String(commandResult?.insertedResultText || ''), new RegExp(repeatedTail, 'u'));
+  assert.match(String(toolResult?.outputSnippet || ''), /SiftKit stopped tool output early/u);
+  assert.doesNotMatch(String(toolResult?.outputSnippet || ''), new RegExp(repeatedTail, 'u'));
 });
 
 test('runTaskLoop does not replay final output as thinking progress', async () => {

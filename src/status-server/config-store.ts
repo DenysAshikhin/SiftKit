@@ -525,7 +525,8 @@ function getManagedKvCacheQuantization(value: unknown, fallback: string): string
     || normalized === 'iq4_nl'
     || normalized === 'q5_0'
     || normalized === 'q5_1'
-    || normalized === 'q8_0/q4_1'
+    || normalized === 'q8_0/q4_0'
+    || normalized === 'q8_0/q5_0'
   ) {
     return normalized;
   }

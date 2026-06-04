@@ -18,6 +18,7 @@ import {
   REPO_SEARCH_PRODUCER_COMMANDS,
   getFirstCommandToken,
 } from './command-safety.js';
+import { detectRecentTokenRepetition } from './repetition-guard.js';
 import {
   buildFinishValidationJsonSchema,
   buildLlamaJsonSchemaResponseFormat,
@@ -702,6 +703,13 @@ function buildEarlyStoppedPlannerText(reasonText: string, contentText: string): 
   ].filter((part) => part.length > 0).join('\n');
 }
 
+function buildRecentTokenRepetitionReason(kind: 'content' | 'reasoning', result: ReturnType<typeof detectRecentTokenRepetition>): string {
+  if (!result) {
+    return '';
+  }
+  return `recent planner ${kind} tokens repeated every ${result.periodTokens} tokens across the last ${result.windowTokens} tokens after ${result.totalTokens} tokens`;
+}
+
 function requestStreaming(
   options: PlannerRequestOptions,
   bodyJson: string,
@@ -824,6 +832,12 @@ function requestStreaming(
                 );
                 return;
               }
+              const repeatedThinking = detectRecentTokenRepetition(thinkingText);
+              if (repeatedThinking) {
+                thinkingText = repeatedThinking.truncatedText;
+                finishEarly(buildRecentTokenRepetitionReason('reasoning', repeatedThinking));
+                return;
+              }
               options.onThinkingDelta?.(thinkingText);
             }
             if (deltaContent) {
@@ -837,6 +851,12 @@ function requestStreaming(
                 finishEarly(
                   `runaway streamed planner content repeated '${runawayContent.repeatedChar}' ${runawayContent.repeatedCount} times`
                 );
+                return;
+              }
+              const repeatedContent = detectRecentTokenRepetition(contentText);
+              if (repeatedContent) {
+                contentText = repeatedContent.truncatedText;
+                finishEarly(buildRecentTokenRepetitionReason('content', repeatedContent));
                 return;
               }
               options.onContentDelta?.(contentText);

@@ -400,7 +400,7 @@ export type DashboardManagedLlamaPreset = {
   BatchSize: number;
   UBatchSize: number;
   CacheRam: number;
-  KvCacheQuantization: 'f32' | 'f16' | 'bf16' | 'q8_0' | 'q4_0' | 'q4_1' | 'iq4_nl' | 'q5_0' | 'q5_1' | 'q8_0/q4_1';
+  KvCacheQuantization: 'f32' | 'f16' | 'bf16' | 'q8_0' | 'q4_0' | 'q4_1' | 'iq4_nl' | 'q5_0' | 'q5_1' | 'q8_0/q4_0' | 'q8_0/q5_0';
   MaxTokens: number;
   Temperature: number;
   TopP: number;

@@ -52,7 +52,7 @@ import {
 } from './managed-llama.js';
 
 export const MAX_COMPLETED_STATUS_PATH_ENTRIES = 1000;
-export const DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS = 300_000;
+export const DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS = 900_000;
 
 function readModelRequestQueueTimeoutMs(): number {
   const parsed = Number.parseInt(String(process.env.SIFTKIT_MODEL_REQUEST_QUEUE_TIMEOUT_MS || ''), 10);

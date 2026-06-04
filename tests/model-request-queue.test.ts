@@ -86,8 +86,8 @@ test('completed status request ids are bounded and cleared when a status path is
   assert.equal(ctx.completedRequestIdByStatusPath.has('active-status.txt'), false);
 });
 
-test('model request queue timeout default is five minutes', () => {
-  assert.equal(DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS, 300_000);
+test('model request queue timeout default is fifteen minutes', () => {
+  assert.equal(DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS, 900_000);
 });
 
 async function captureStdoutLines(fn: (lines: StdoutLine[]) => Promise<void>): Promise<StdoutLine[]> {

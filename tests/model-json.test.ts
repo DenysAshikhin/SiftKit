@@ -47,6 +47,52 @@ test('ModelJson repairs missing commas in summary planner actions', () => {
   });
 });
 
+test('ModelJson extracts decoded output from a complete streaming finish action', () => {
+  const output = ModelJson.extractStreamingFinishOutput(
+    '{"action":"finish","output":"Line one\\nLine two"}',
+  );
+
+  assert.equal(output, 'Line one\nLine two');
+});
+
+test('ModelJson extracts the decoded prefix while a finish output is still streaming', () => {
+  const output = ModelJson.extractStreamingFinishOutput(
+    '{"action":"finish","output":"Tool calls are handled\\n- Backend',
+  );
+
+  assert.equal(output, 'Tool calls are handled\n- Backend');
+});
+
+test('ModelJson decodes escaped quotes inside a streaming finish output', () => {
+  const output = ModelJson.extractStreamingFinishOutput(
+    '{"action":"finish","output":"He said \\"hi\\" loudly"}',
+  );
+
+  assert.equal(output, 'He said "hi" loudly');
+});
+
+test('ModelJson ignores a trailing incomplete escape in a streaming finish output', () => {
+  const output = ModelJson.extractStreamingFinishOutput(
+    '{"action":"finish","output":"first line\\',
+  );
+
+  assert.equal(output, 'first line');
+});
+
+test('ModelJson returns null for a streaming tool action (no finish output)', () => {
+  const output = ModelJson.extractStreamingFinishOutput(
+    '{"action":"repo_read_file","args":{"path":"a.ts"}}',
+  );
+
+  assert.equal(output, null);
+});
+
+test('ModelJson returns null before the finish output key has streamed', () => {
+  const output = ModelJson.extractStreamingFinishOutput('{"action":"finish"');
+
+  assert.equal(output, null);
+});
+
 test('ModelJson repairs escaped JSON strings before validating tool arguments', () => {
   const args = ModelJson.parseToolArguments('"{\\"command\\":\\"rg -n plan src\\",}"');
 

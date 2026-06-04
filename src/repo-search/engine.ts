@@ -104,6 +104,10 @@ import {
   ToolOutputFitter,
   type ToolOutputTruncationUnit,
 } from '../tool-output-fit.js';
+import {
+  detectRecentTokenRepetition,
+  type TokenRepetitionDetection,
+} from './repetition-guard.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -131,6 +135,21 @@ function throwIfAborted(abortSignal?: AbortSignal): void {
   if (abortSignal?.aborted) {
     throw getAbortError(abortSignal);
   }
+}
+
+function buildToolOutputRepetitionWarning(detection: TokenRepetitionDetection): string {
+  return `SiftKit stopped tool output early: recent tokens repeated every ${detection.periodTokens} tokens across the last ${detection.windowTokens} tokens after ${detection.totalTokens} tokens.`;
+}
+
+function applyToolOutputRepetitionGuard(text: string): string {
+  const detection = detectRecentTokenRepetition(text);
+  if (!detection) {
+    return text;
+  }
+  return [
+    buildToolOutputRepetitionWarning(detection),
+    detection.truncatedText,
+  ].filter((part) => part.trim().length > 0).join('\n').trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -1126,7 +1145,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
           ? (accThinking) => { options.onProgress!({ kind: 'thinking', turn, maxTurns, thinkingText: accThinking }); }
           : undefined,
         onContentDelta: options.onProgress
-          ? (accContent) => { options.onProgress!({ kind: 'thinking', turn, maxTurns, thinkingText: accContent }); }
+          ? (accContent) => { options.onProgress!({ kind: 'thinking', turn, maxTurns, thinkingText: ModelJson.extractStreamingFinishOutput(accContent) ?? accContent }); }
           : undefined,
         mockResponses: options.mockResponses,
         mockResponseIndex,
@@ -1672,6 +1691,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     if (zeroOutputWarningText) {
       resultText = `${zeroOutputWarningText}\n\n${resultText}`.trim();
     }
+    resultText = applyToolOutputRepetitionGuard(resultText);
     const rawToolTokenSpan = options.timingRecorder?.start('repo.tool.tokenize_raw', {
       taskId: task.id,
       turn,
