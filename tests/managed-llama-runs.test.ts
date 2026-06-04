@@ -89,31 +89,24 @@ test('managed llama log chunks stay buffered until flushed', async () => {
   });
 });
 
-test('managed llama pending log chunks emit peak size logs', async () => {
+test('managed llama pending log chunks emit peak size logs only after one-kilobyte stream deltas', async () => {
   await withTestEnvAndServer(async () => {
     const run = createManagedLlamaRun({ purpose: 'startup' });
 
     const lines = await captureStdoutLines(() => {
-      bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'llama_stdout', chunkText: 'first' });
-      bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'llama_stderr', chunkText: ' plus' });
-      flushManagedLlamaLogChunks(run.id);
-      bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'llama_stdout', chunkText: 'x' });
+      bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'llama_stdout', chunkText: 'a'.repeat(1023) });
+      bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'llama_stdout', chunkText: 'b' });
+      bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'llama_stdout', chunkText: 'c'.repeat(1023) });
+      bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'llama_stdout', chunkText: 'd' });
     });
 
-    assert.equal(
-      lines.some((line) => new RegExp(`managed_llama pending_log_peak run_id=${run.id} pending_chars=5 stream=llama_stdout stream_chars=5`, 'u').test(line)),
-      true,
-      lines.join('\n'),
-    );
-    assert.equal(
-      lines.some((line) => new RegExp(`managed_llama pending_log_peak run_id=${run.id} pending_chars=10 stream=llama_stderr stream_chars=5`, 'u').test(line)),
-      true,
-      lines.join('\n'),
-    );
-    assert.equal(
-      lines.some((line) => new RegExp(`managed_llama pending_log_peak run_id=${run.id} pending_chars=1 stream=llama_stdout stream_chars=1`, 'u').test(line)),
-      true,
-      lines.join('\n'),
+    const peakLines = lines.filter((line) => line.includes(`managed_llama pending_log_peak run_id=${run.id}`));
+    assert.deepEqual(
+      peakLines.map((line) => line.replace(/^.*managed_llama/u, 'managed_llama')),
+      [
+        `managed_llama pending_log_peak run_id=${run.id} pending_chars=1024 stream=llama_stdout stream_chars=1024`,
+        `managed_llama pending_log_peak run_id=${run.id} pending_chars=2048 stream=llama_stdout stream_chars=2048`,
+      ],
     );
   });
 });

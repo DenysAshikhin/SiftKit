@@ -23,7 +23,7 @@
 - Create `src/web-search/web-search-service.ts`: SearXNG JSON search plus DuckDuckGo fallback.
 - Create `src/web-search/web-fetch-service.ts`: safe URL fetch, redirect handling, text extraction.
 - Create `src/web-search/web-research-tools.ts`: explicit dispatcher for `web_search` and `web_fetch`.
-- Modify `src/config/index.ts`, `src/state/chat-sessions.ts`, `dashboard/src/types.ts`: config/session typing.
+- Modify `src/config/index.ts`, `src/state/runtime-db.ts`, `src/state/chat-sessions.ts`, `dashboard/src/types.ts`: config/session typing and SQLite persistence.
 - Modify `dashboard/src/tabs/ChatTab.tsx`, `dashboard/src/hooks/useChatComposer.ts`, `dashboard/src/api.ts`: UI and payloads.
 - Modify `src/status-server/chat.ts`, `src/status-server/routes/chat.ts`: direct-chat web tool loop and gate.
 - Modify `src/presets.ts`, `dashboard/src/preset-editor.ts`, `src/repo-search/planner-protocol.ts`, `src/lib/model-json.ts`, `src/repo-search/engine.ts`: repo-search/plan web tools.
@@ -117,7 +117,7 @@ function isBlockedHostname(hostname: string): boolean {
   return PRIVATE_HOST_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
 }
 
-export function assertPublicHttpUrl(value: string): URL {
+export function assertHttpUrl(value: string): URL {
   let url: URL;
   try {
     url = new URL(String(value || '').trim());
@@ -127,6 +127,11 @@ export function assertPublicHttpUrl(value: string): URL {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new Error('Expected an http or https URL.');
   }
+  return url;
+}
+
+export function assertPublicHttpUrl(value: string): URL {
+  const url = assertHttpUrl(value);
   if (isBlockedHostname(url.hostname)) {
     throw new Error('Blocked private, internal, or local URL host.');
   }
@@ -247,7 +252,7 @@ Create `src/web-search/web-search-service.ts`.
 
 ```ts
 import type { WebSearchConfig, WebSearchResult, WebSearchToolArgs } from './types.js';
-import { assertPublicHttpUrl } from './url-safety.js';
+import { assertHttpUrl, assertPublicHttpUrl } from './url-safety.js';
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -300,7 +305,7 @@ export class WebSearchService {
 
   private async searchSearxng(query: string): Promise<WebSearchResult[]> {
     try {
-      const baseUrl = assertPublicHttpUrl(this.config.SearxngBaseUrl);
+      const baseUrl = assertHttpUrl(this.config.SearxngBaseUrl);
       const url = new URL('/search', baseUrl);
       url.searchParams.set('q', query);
       url.searchParams.set('format', 'json');
@@ -353,6 +358,8 @@ npm test -- web-search
 ```
 
 Expected: PASS for search service tests.
+
+The SearXNG endpoint is operator-configured infrastructure and may intentionally be `http://127.0.0.1:8080` or a LAN host. Use `assertHttpUrl()` for `SearxngBaseUrl`; use `assertPublicHttpUrl()` only for model-supplied URLs and result URLs returned to the model.
 
 - [ ] **Step 6: Write failing fetch service tests**
 
@@ -506,7 +513,7 @@ Expected: FAIL because `WebResearchTools` does not exist.
 Create `src/web-search/web-research-tools.ts`.
 
 ```ts
-import { estimateTokenCount } from '../lib/tokens.js';
+import { estimateTokenCount } from '../state/chat-sessions.js';
 import type {
   WebFetchToolArgs,
   WebSearchConfig,
@@ -555,7 +562,7 @@ export class WebResearchTools {
     return {
       command: `web_search query=${quoteValue(query)}`,
       output,
-      outputTokens: estimateTokenCount(this.config, output),
+      outputTokens: estimateTokenCount(output),
     };
   }
 
@@ -572,7 +579,7 @@ export class WebResearchTools {
     return {
       command: `web_fetch url=${quoteValue(url)}`,
       output,
-      outputTokens: estimateTokenCount(this.config, output),
+      outputTokens: estimateTokenCount(output),
     };
   }
 
@@ -609,6 +616,7 @@ git commit -m "feat: add web research tool services"
 
 **Files:**
 - Modify: `src/config/index.ts`
+- Modify: `src/state/runtime-db.ts`
 - Modify: `src/state/chat-sessions.ts`
 - Modify: `dashboard/src/types.ts`
 - Test: `tests/config.test.ts`
@@ -668,7 +676,58 @@ npm test -- config
 
 Expected: PASS for config tests.
 
-- [ ] **Step 3: Write failing session state tests**
+- [ ] **Step 3: Write failing SQLite schema tests**
+
+Add runtime database tests that assert the schema column exists after opening a fresh runtime DB and after migration from the prior schema.
+
+```ts
+const columns = database.prepare('PRAGMA table_info(chat_sessions)').all() as Array<{ name: string }>;
+assert(columns.some((column) => column.name === 'web_search_enabled'));
+```
+
+Run:
+
+```powershell
+npm test -- runtime-db chat-sessions
+```
+
+Expected: FAIL because `chat_sessions.web_search_enabled` does not exist.
+
+- [ ] **Step 4: Add SQLite schema column and migration**
+
+Modify `src/state/runtime-db.ts`.
+
+Required schema changes:
+- Increment `CURRENT_SCHEMA_VERSION` from `28` to `29`.
+- Add to base `chat_sessions` DDL:
+
+```sql
+web_search_enabled INTEGER NOT NULL DEFAULT 0 CHECK (web_search_enabled IN (0, 1)),
+```
+
+- Add an `ensureSchema()` migration block after the version 28 migration:
+
+```ts
+if (currentVersion < 29) {
+  if (!tableHasColumn(database, 'chat_sessions', 'web_search_enabled')) {
+    database.exec(`
+      ALTER TABLE chat_sessions
+      ADD COLUMN web_search_enabled INTEGER NOT NULL DEFAULT 0 CHECK (web_search_enabled IN (0, 1));
+    `);
+  }
+  setSchemaVersion(database, 29);
+}
+```
+
+Run:
+
+```powershell
+npm test -- runtime-db chat-sessions
+```
+
+Expected: PASS for schema tests.
+
+- [ ] **Step 5: Write failing session state tests**
 
 Add tests:
 
@@ -693,7 +752,7 @@ npm test -- chat-sessions status-server-chat
 
 Expected: FAIL because session state does not include `webSearchEnabled`.
 
-- [ ] **Step 4: Add session type and route persistence**
+- [ ] **Step 6: Add session type and route persistence**
 
 Modify session type to include:
 
@@ -715,9 +774,17 @@ if (typeof parsedBody.webSearchEnabled === 'boolean') {
 }
 ```
 
-When reading old sessions, normalize missing `webSearchEnabled` to `false`.
+Update `src/state/chat-sessions.ts` explicitly because sessions are SQLite column-based:
+- Add `web_search_enabled: number;` to `SessionRow`.
+- Add `web_search_enabled` to `readSessionById()` SELECT.
+- Hydrate `webSearchEnabled: row.web_search_enabled === 1`.
+- Add `web_search_enabled` to the `INSERT INTO chat_sessions` column list.
+- Add `web_search_enabled = excluded.web_search_enabled` to the `ON CONFLICT(id) DO UPDATE SET` clause.
+- Add `session.webSearchEnabled === true ? 1 : 0` to the `.run(...)` arguments immediately after `thinking_enabled` or in the same column order chosen in the INSERT.
 
-- [ ] **Step 5: Update dashboard types**
+Do not rely on adding a TypeScript field alone; unsaved columns are dropped on read.
+
+- [ ] **Step 7: Update dashboard types**
 
 Add to `dashboard/src/types.ts`:
 
@@ -747,7 +814,7 @@ npm test -- config chat-sessions status-server-chat
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit Task 2**
+- [ ] **Step 8: Commit Task 2**
 
 ```powershell
 git add src dashboard tests
@@ -895,7 +962,7 @@ function getWebSearchOverrideTitle(value: WebSearchOverride): string {
 Expected:
 
 ```ts
-assert.equal(streamPayload.webSearchOverride, 'on');
+assert.equal(requestPayload.webSearchOverride, 'on');
 ```
 
 Also assert reset:
@@ -916,7 +983,8 @@ Expected: FAIL because composer does not track override.
 
 In `useChatComposer`:
 - add `const [webSearchOverride, setWebSearchOverride] = useState<WebSearchOverride>('default');`
-- include `webSearchOverride` in all chat/plan/repo-search stream payloads
+- include `webSearchOverride` in chat message payloads and plan/repo-search stream payloads
+- for direct chat only, call the buffered message endpoint when the effective web gate is on; keep the existing streaming chat endpoint when web is off
 - reset to `default` after successful send
 - expose `webSearchOverride` and `setWebSearchOverride`
 
@@ -960,6 +1028,12 @@ git commit -m "feat: add dashboard web search controls"
 - Modify: `src/status-server/tool-command-display.ts`
 - Test: `tests/status-server-chat.test.ts`
 
+Current direct dashboard chat is plain completion: `generateChatAssistantMessage(...)` and `streamChatAssistantMessage(...)` each make one model request and do not execute tool calls. The llama.cpp-compatible transport body has no OpenAI-style `tools` array, and the streaming parser reads only `delta.reasoning_content` and `delta.content`. Do not add OpenAI tool schema framing for direct chat.
+
+V1 decision: web-enabled direct chat uses the buffered `POST /dashboard/chat/sessions/:id/messages` path only. Direct chat with web disabled keeps the existing streaming path. Do not implement a streaming web-tool loop in V1; it would require stream completion detection, JSON action parsing after stream end, tool execution, and a second stream.
+
+This task adds a bounded JSON-action tool loop modeled on repo-search's `ModelJson.parseRepoSearchPlannerAction(...)` protocol. The loop sits inside the buffered direct-chat route before `appendChatMessagesWithUsage(...)`.
+
 - [ ] **Step 1: Write failing gate resolver tests**
 
 Add server-side tests:
@@ -1002,57 +1076,34 @@ export function resolveEffectiveWebSearchEnabled(sessionEnabled: boolean, overri
 Mock model output attempts to call `web_search` while effective web is off.
 
 Expected:
-- no web tool definition sent
+- no web JSON-action instruction is added to the prompt
 - no web tool execution
-- response either ignores tool call as invalid or finalizes with a clear model error
+- forged JSON web action output from the model is treated as plain assistant content or rejected by the web-loop gate
 - no persisted web tool bubble
 
-- [ ] **Step 4: Add direct-chat web tool schemas**
+- [ ] **Step 4: Add direct-chat JSON action prompt**
 
-In `src/status-server/chat.ts`, define:
+Do not add an OpenAI `tools` array. Instead add a prompt suffix used only by the buffered web-enabled direct-chat path:
 
 ```ts
-const WEB_CHAT_TOOL_DEFINITIONS = [
-  {
-    type: 'function',
-    function: {
-      name: 'web_search',
-      description: 'Search the public web and return concise results with URLs. Use only for current or external information.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: { type: 'string' },
-          timeFilter: { type: 'string', enum: ['day', 'week', 'month', 'year'] },
-        },
-        required: ['query'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'web_fetch',
-      description: 'Fetch one public HTTP(S) URL and return extracted text. Private, local, and internal URLs are blocked.',
-      parameters: {
-        type: 'object',
-        properties: {
-          url: { type: 'string' },
-        },
-        required: ['url'],
-      },
-    },
-  },
-] as const;
+const WEB_CHAT_JSON_ACTION_PROMPT = [
+  'When web access is enabled, respond with exactly one JSON object and no markdown.',
+  'To search the web: {"action":"web_search","query":"...","timeFilter":"week"}',
+  'To fetch a public URL: {"action":"web_fetch","url":"https://example.com/page"}',
+  'To answer the user: {"action":"finish","output":"final answer text"}',
+  'Use web tools only when current or external information is needed.',
+  'Private, local, and internal URLs are blocked.',
+].join('\n');
 ```
 
-Only include `tools` in request body when effective web is true.
+Append this instruction to the system content only when effective web is true. Reuse or extend `ModelJson.parseRepoSearchPlannerAction(response.text, { allowedToolNames: ['web_search', 'web_fetch'] })` to parse each model response. Do not create a second JSON parser for direct chat.
 
 - [ ] **Step 5: Write failing enabled direct-chat tests**
 
 Mock sequence:
-1. model returns a `web_search` tool call
+1. model returns `{"action":"web_search","query":"example"}`
 2. mocked `WebResearchTools.search()` returns result
-3. model returns final answer citing the result URL
+3. model returns `{"action":"finish","output":"final answer citing https://example.com"}`
 
 Expected persisted messages:
 - user message
@@ -1064,9 +1115,10 @@ Expected persisted messages:
 Add explicit loop:
 - max 4 tool calls
 - tool names allowed only `web_search`, `web_fetch`
+- parse each assistant response with `ModelJson.parseRepoSearchPlannerAction`
 - execute through `WebResearchTools`
-- append tool result to messages
-- final assistant response persisted through existing `appendChatMessagesWithUsage`
+- append tool result text to the next request as conversation evidence
+- persist only the final `finish.output` as the assistant answer through existing `appendChatMessagesWithUsage`
 
 Do not pass functions dynamically. Use direct branches:
 
@@ -1079,6 +1131,8 @@ if (toolName === 'web_search') {
   throw new Error(`Unsupported web tool: ${toolName}`);
 }
 ```
+
+If parsing fails while the effective web gate is on, persist a clear assistant error instead of silently treating malformed JSON as a final answer. If the gate is off, do not parse JSON actions and do not execute web tools.
 
 - [ ] **Step 7: Persist tool bubbles**
 
@@ -1164,14 +1218,23 @@ Expected: FAIL because web tools are not known preset tools.
 
 - [ ] **Step 2: Add canonical tool names**
 
-Add to `src/presets.ts` `REPO_SEARCH_TOOLS`:
+Do not add web tools to `REPO_SEARCH_TOOLS`. In current `src/presets.ts`, `READ_ONLY_TOOLS = [...REPO_SEARCH_TOOLS]` and `DEFAULT_OPERATION_MODE_ALLOWED_TOOLS['read-only'] = [...READ_ONLY_TOOLS]`, so adding web tools to `REPO_SEARCH_TOOLS` would silently enable them by default.
+
+Instead add a separate constant:
 
 ```ts
-'web_search',
-'web_fetch',
+const WEB_RESEARCH_TOOLS = ['web_search', 'web_fetch'] as const;
+const PRESET_TOOL_NAMES = [...SUMMARY_TOOLS, ...REPO_SEARCH_TOOLS, ...WEB_RESEARCH_TOOLS] as const;
+const READ_ONLY_TOOLS = [...REPO_SEARCH_TOOLS] as const;
 ```
 
-Do not add them to `DEFAULT_OPERATION_MODE_ALLOWED_TOOLS['read-only']`. Route-level gating appends them only when effective web is enabled.
+Keep `DEFAULT_OPERATION_MODE_ALLOWED_TOOLS['read-only']` unchanged:
+
+```ts
+'read-only': [...READ_ONLY_TOOLS] as PresetToolName[],
+```
+
+Route-level gating appends `web_search` and `web_fetch` only when effective web is enabled.
 
 Add to dashboard type union:
 
@@ -1312,7 +1375,7 @@ Expected: FAIL because engine does not execute web native tools.
 
 - [ ] **Step 8: Execute native web tools in repo-search engine**
 
-Extend native execution type to permit web output with `outputUnit: 'results' | 'characters'`.
+Verify `NativeRepoToolExecution` before changing it. The current type already has an optional `outputUnit` field; only extend its union if `results` and `characters` are not already valid.
 
 Add explicit command builder:
 
@@ -1338,7 +1401,17 @@ if (toolName === 'web_fetch') {
 }
 ```
 
-The engine currently has synchronous native execution for repo file/list tools. Convert only the native execution call path to async where needed, keeping explicit methods.
+The engine currently has synchronous native execution:
+- `executeNativeRepoTool(...)` is a plain function in `src/repo-search/engine.ts`.
+- The non-`repo_read_file` native branch assigns `nativeExecution = executeNativeRepoTool(...)` directly inside `runTaskLoop(...)`.
+- `runTaskLoop(...)` and `runRepoSearch(...)` are already async, so the async boundary can stay inside the existing awaited loop.
+
+Make the smallest async change:
+- Rename or change `executeNativeRepoTool(...)` to `async function executeNativeRepoTool(...)`.
+- Add `webTools: WebResearchTools` to `RunTaskLoopOptions` or construct it once at the start of `runTaskLoop` from `options.config`; do not create it per tool call.
+- Change the call site to `nativeExecution = await executeNativeRepoTool(...)`.
+- Keep `repo_read_file`'s special preplanned branch synchronous unless its shared type requires wrapping.
+- Do not pass execution functions dynamically; dispatch explicit `if (toolName === 'web_search')` and `if (toolName === 'web_fetch')` branches.
 
 - [ ] **Step 9: Gate route allowed tools**
 
@@ -1428,6 +1501,7 @@ git commit -m "feat: add UI-gated web search"
 - Per-message override works in all UI modes.
 - Server-side gate enforces disabled state against forged requests.
 - Direct chat, plan, and repo-search can use `web_search` and `web_fetch` only when enabled.
+- Direct chat uses the buffered endpoint when web is enabled; streaming direct chat remains web-off only in V1.
 - Private/internal URLs are blocked.
 - Tool calls render and persist like existing SiftKit tool bubbles.
 - `npm test` and `npm run build` pass.
@@ -1437,6 +1511,7 @@ git commit -m "feat: add UI-gated web search"
 - Scope is all dashboard modes.
 - Override is a composer button, not an inline command.
 - V1 implements research as multi-step `web_search` plus `web_fetch`, not a separate long-running research job.
+- V1 does not implement a streaming direct-chat web loop; web-enabled direct chat is buffered.
 - No worktrees.
 - TDD is mandatory.
 

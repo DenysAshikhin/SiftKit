@@ -11,6 +11,37 @@ import {
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../dist/state/runtime-db.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
 
+function createStdoutCapture(): { lines: string[]; restore: () => void } {
+  const originalWrite = process.stdout.write.bind(process.stdout);
+  const lines: string[] = [];
+  let buffer = '';
+  process.stdout.write = (
+    chunk: string | Uint8Array,
+    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+    callback?: (error?: Error | null) => void,
+  ): boolean => {
+    const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+    buffer += text;
+    const parts = buffer.split(/\r?\n/u);
+    buffer = parts.pop() || '';
+    for (const line of parts) {
+      if (line.trim()) {
+        lines.push(line);
+      }
+    }
+    return originalWrite(chunk, encodingOrCallback as BufferEncoding, callback);
+  };
+  return {
+    lines,
+    restore: () => {
+      process.stdout.write = originalWrite;
+      if (buffer.trim()) {
+        lines.push(buffer.trim());
+      }
+    },
+  };
+}
+
 test('managed llama flush queue coalesces duplicate run flushes and drains asynchronously', async () => {
   await withTestEnvAndServer(async () => {
     const run = createManagedLlamaRun({ purpose: 'startup' });
@@ -106,5 +137,29 @@ test('managed llama flush queue pauses while a model request is active and drain
     } finally {
       await queue.close();
     }
+  });
+});
+
+test('managed llama flush queue does not log repeated active-request drain waits', async () => {
+  await withTestEnvAndServer(async () => {
+    const run = createManagedLlamaRun({ purpose: 'startup' });
+    bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'startup_script_stdout', chunkText: 'active-gated\n' });
+    const queue = new ManagedLlamaFlushQueue({ idleDelayMs: 20 });
+    const capture = createStdoutCapture();
+
+    try {
+      queue.setModelRequestState({ active: true, queueLength: 0 });
+      assert.equal(queue.enqueue(run.id), true);
+      await new Promise<void>((resolve) => setTimeout(resolve, 70));
+    } finally {
+      capture.restore();
+      await queue.close();
+    }
+
+    assert.equal(
+      capture.lines.some((line) => line.includes(`managed_llama flush drain_wait run_id=${run.id}`)),
+      false,
+      capture.lines.join('\n'),
+    );
   });
 });

@@ -168,11 +168,6 @@ export class ManagedLlamaFlushQueue {
         }
         const idleWaitMs = this.getIdleWaitMs(item.enqueuedAtMs);
         if (idleWaitMs > 0) {
-          logLine(
-            `managed_llama flush drain_wait run_id=${nextRunId} wait_ms=${Math.max(1, Math.trunc(idleWaitMs))} `
-            + `active=${this.activeModelRequest ? 'true' : 'false'} `
-            + `model_queue_length=${this.modelRequestQueueLength} pending=${this.pendingOrder.length}`,
-          );
           this.scheduleDrain(idleWaitMs);
           return;
         }

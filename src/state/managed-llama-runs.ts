@@ -26,8 +26,9 @@ const ALLOWED_STREAMS = new Set<ManagedLlamaStreamKind>([
   'startup_review',
   'startup_failure',
 ]);
+const PENDING_LOG_PEAK_MIN_STREAM_CHARACTER_DELTA = 1024;
 const pendingChunkTextByRunId = new Map<string, Map<ManagedLlamaStreamKind, string>>();
-const pendingChunkPeakCharactersByRunId = new Map<string, number>();
+const pendingLogPeakStreamCharactersByRunId = new Map<string, Map<ManagedLlamaStreamKind, number>>();
 
 export type ManagedLlamaLogTextStatsByStream = {
   textByStream: Record<ManagedLlamaStreamKind, string>;
@@ -274,6 +275,24 @@ function getPendingChunkCharacterCount(pending: Map<ManagedLlamaStreamKind, stri
   return totalCharacters;
 }
 
+function shouldLogPendingChunkPeak(options: {
+  runId: string;
+  streamKind: ManagedLlamaStreamKind;
+  streamCharacters: number;
+}): boolean {
+  let characterCountByStream = pendingLogPeakStreamCharactersByRunId.get(options.runId);
+  if (!characterCountByStream) {
+    characterCountByStream = new Map<ManagedLlamaStreamKind, number>();
+    pendingLogPeakStreamCharactersByRunId.set(options.runId, characterCountByStream);
+  }
+  const previousStreamCharacters = characterCountByStream.get(options.streamKind) || 0;
+  if (Math.abs(options.streamCharacters - previousStreamCharacters) < PENDING_LOG_PEAK_MIN_STREAM_CHARACTER_DELTA) {
+    return false;
+  }
+  characterCountByStream.set(options.streamKind, options.streamCharacters);
+  return true;
+}
+
 function logPendingChunkPeak(options: {
   runId: string;
   streamKind: ManagedLlamaStreamKind;
@@ -334,7 +353,7 @@ export function consumeManagedLlamaPendingLogChunks(runId: string): ManagedLlama
     return [];
   }
   pendingChunkTextByRunId.delete(normalizedRunId);
-  pendingChunkPeakCharactersByRunId.delete(normalizedRunId);
+  pendingLogPeakStreamCharactersByRunId.delete(normalizedRunId);
   return [...pending.entries()]
     .map(([streamKind, chunkText]) => ({ streamKind, chunkText }))
     .filter((entry) => entry.chunkText.length > 0);
@@ -372,9 +391,7 @@ export function bufferManagedLlamaLogChunk(options: {
   const nextStreamText = `${pending.get(streamKind) || ''}${chunkText}`;
   pending.set(streamKind, nextStreamText);
   const pendingCharacters = getPendingChunkCharacterCount(pending);
-  const previousPeakCharacters = pendingChunkPeakCharactersByRunId.get(runId) || 0;
-  if (pendingCharacters > previousPeakCharacters) {
-    pendingChunkPeakCharactersByRunId.set(runId, pendingCharacters);
+  if (shouldLogPendingChunkPeak({ runId, streamKind, streamCharacters: nextStreamText.length })) {
     logPendingChunkPeak({
       runId,
       streamKind,
@@ -433,7 +450,7 @@ export function flushManagedLlamaLogChunks(runId: string, databasePath?: string)
     .filter((entry) => entry.chunkText);
   if (entries.length === 0) {
     pendingChunkTextByRunId.delete(normalizedRunId);
-    pendingChunkPeakCharactersByRunId.delete(normalizedRunId);
+    pendingLogPeakStreamCharactersByRunId.delete(normalizedRunId);
     return;
   }
   const database = getDatabase(databasePath);
@@ -449,7 +466,7 @@ export function flushManagedLlamaLogChunks(runId: string, databasePath?: string)
     }
   })();
   pendingChunkTextByRunId.delete(normalizedRunId);
-  pendingChunkPeakCharactersByRunId.delete(normalizedRunId);
+  pendingLogPeakStreamCharactersByRunId.delete(normalizedRunId);
 }
 
 export function readManagedLlamaRun(id: string, databasePath?: string): ManagedLlamaRunRecord | null {
@@ -596,7 +613,7 @@ export function deleteManagedLlamaRun(id: string, databasePath?: string): boolea
     return false;
   }
   pendingChunkTextByRunId.delete(runId);
-  pendingChunkPeakCharactersByRunId.delete(runId);
+  pendingLogPeakStreamCharactersByRunId.delete(runId);
   const database = getDatabase(databasePath);
   const result = database.prepare('DELETE FROM managed_llama_runs WHERE id = ?').run(runId);
   return Number(result.changes) > 0;
