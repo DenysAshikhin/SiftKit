@@ -333,6 +333,7 @@ export function buildTerminalSynthesisPrompt(options: {
 
 export type TaskCommand = {
   command: string;
+  turn: number;
   modelVisibleCommand?: string;
   safe: boolean;
   reason: string | null;

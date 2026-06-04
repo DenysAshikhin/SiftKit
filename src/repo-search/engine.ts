@@ -709,6 +709,7 @@ export type TaskResult = {
   invalidResponses: number;
   commandFailures: number;
   commands: TaskCommand[];
+  turnThinking: Record<number, string>;
   finalOutput: string;
   passed: boolean;
   missingSignals: string[];
@@ -814,6 +815,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const maxTurns = Math.max(1, Number(options.maxTurns || DEFAULT_MAX_TURNS));
   const maxInvalidResponses = Math.max(1, Number(options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES));
   const commands: TaskCommand[] = [];
+  const turnThinking: Record<number, string> = {};
   let finalOutput = '';
   let invalidResponses = 0;
   let commandFailures = 0;
@@ -1154,6 +1156,11 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       promptEvalTokens: Number.isFinite(response.promptEvalTokens) ? Number(response.promptEvalTokens) : null,
     });
 
+    const turnThinkingText = String(response.thinkingText || '').trim();
+    if (turnThinkingText) {
+      turnThinking[turn] = turnThinkingText;
+    }
+
     if (Number.isFinite(response.promptTokens) && Number(response.promptTokens) >= 0) modelPromptTokens += Number(response.promptTokens);
     const resolvedCompletionTokens = Number.isFinite(response.completionTokens) && Number(response.completionTokens) >= 0
       ? Number(response.completionTokens)
@@ -1324,7 +1331,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         forcedFinishAttemptsRemaining = Math.max(forcedFinishAttemptsRemaining - 1, 0);
         const forcedReason = `Forced finish mode active. Return a finish action now. Attempts remaining: ${forcedFinishAttemptsRemaining}.`;
         commandFailures += 1;
-        commands.push({ command, safe: false, reason: forcedReason, exitCode: null, output: `Rejected command: ${forcedReason}` });
+        commands.push({ command, turn, safe: false, reason: forcedReason, exitCode: null, output: `Rejected command: ${forcedReason}` });
         batchOutcomes.push({
           action: buildEffectiveTranscriptAction({
             toolName: normalizedToolName,
@@ -1373,7 +1380,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       const duplicateMessage = buildRepeatedToolCallSummary(normalizedToolName, duplicateReplayCount);
       commandFailures += 1;
       const rejectionReason = isExactDuplicate ? 'duplicate command' : 'semantic duplicate command';
-      commands.push({ command, safe: false, reason: rejectionReason, exitCode: null, output: `Rejected: ${duplicateMessage}` });
+      commands.push({ command, turn, safe: false, reason: rejectionReason, exitCode: null, output: `Rejected: ${duplicateMessage}` });
       if (isActiveDuplicate) {
         const previousToolMessage = messages[duplicateReplayToolMessageIndex];
         messages[duplicateReplayToolMessageIndex] = {
@@ -1440,7 +1447,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     if (isNativeTool && nativeExecution && !nativeExecution.ok) {
       safetyRejects += 1;
       const rejection = `Rejected command: ${nativeExecution.reason}`;
-      commands.push({ command, safe: false, reason: nativeExecution.reason, exitCode: null, output: rejection });
+      commands.push({ command, turn, safe: false, reason: nativeExecution.reason, exitCode: null, output: rejection });
       batchOutcomes.push({
         action: buildEffectiveTranscriptAction({
           toolName: normalizedToolName,
@@ -1456,7 +1463,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     if (!isNativeTool && normalized.rejected) {
       safetyRejects += 1;
       const rejection = `Rejected command: ${normalized.rejectedReason}`;
-      commands.push({ command, safe: false, reason: normalized.rejectedReason || null, exitCode: null, output: rejection });
+      commands.push({ command, turn, safe: false, reason: normalized.rejectedReason || null, exitCode: null, output: rejection });
       batchOutcomes.push({
         action: buildEffectiveTranscriptAction({
           toolName: normalizedToolName,
@@ -1529,7 +1536,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     if (!safety.safe) {
       safetyRejects += 1;
       const rejection = `Rejected command: ${safety.reason}`;
-      commands.push({ command: commandToRun, safe: false, reason: safety.reason, exitCode: null, output: rejection });
+      commands.push({ command: commandToRun, turn, safe: false, reason: safety.reason, exitCode: null, output: rejection });
       const rejectedModelVisibleCommand = isNativeTool || lineReadAdjustment || !normalized.rewritten
         ? commandToRun
         : requestedCommand;
@@ -1877,6 +1884,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
 
     commands.push({
       command: commandToRun,
+      turn,
       modelVisibleCommand,
       safe: true,
       reason: null,
@@ -2026,7 +2034,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
 
   return {
     id: task.id, question: task.question, reason, turnsUsed, safetyRejects,
-    invalidResponses, commandFailures, commands, finalOutput, passed,
+    invalidResponses, commandFailures, commands, turnThinking, finalOutput, passed,
     missingSignals: signalCheck.missingSignals,
     promptTokens: modelPromptTokens,
     outputTokens: modelOutputTokens,

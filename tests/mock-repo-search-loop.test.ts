@@ -2120,3 +2120,72 @@ test('mock planner strips think block from response text', async () => {
   assert.equal(response?.thinkingText, 'hidden');
   assert.equal(response?.text, '{"action":"finish","output":"done"}');
 });
+
+test('runTaskLoop records real planner turn per command and per-turn thinking', async () => {
+  const result = await runTaskLoop(
+    { id: 'task-turns', question: 'Find planner text.', signals: ['done'] },
+    {
+      maxTurns: 6,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '<think>plan step a</think>{"action":"repo_rg","command":"rg -n \\"a\\" src"}',
+        '<think>plan step b</think>{"action":"repo_rg","command":"rg -n \\"b\\" src"}',
+        '<think>final reasoning</think>{"action":"finish","output":"done"}',
+      ],
+      mockCommandResults: {
+        'rg -n "a" src': { exitCode: 0, stdout: 'a', stderr: '' },
+        'rg -n "b" src': { exitCode: 0, stdout: 'b', stderr: '' },
+      },
+    }
+  );
+  assert.equal(result.commands.length, 2);
+  assert.equal(result.commands[0].turn, 1);
+  assert.equal(result.commands[1].turn, 2);
+  assert.equal(result.turnThinking[1], 'plan step a');
+  assert.equal(result.turnThinking[2], 'plan step b');
+  assert.equal(result.turnThinking[3], 'final reasoning');
+});
+
+test('runTaskLoop sets turn on a duplicate-rejected command push', async () => {
+  const result = await runTaskLoop(
+    { id: 'task-dup-turn', question: 'Find planner text.', signals: [] },
+    {
+      maxTurns: 5,
+      maxInvalidResponses: 3,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '{"action":"repo_rg","command":"rg -n \\"planner\\" src"}',
+        '{"action":"repo_rg","command":"rg -n \\"planner\\" src"}',
+        '{"action":"finish","output":"done"}',
+      ],
+      mockCommandResults: {
+        'rg -n "planner" src': { exitCode: 0, stdout: 'hit', stderr: '' },
+      },
+    }
+  );
+  assert.equal(result.commands.length, 2);
+  assert.equal(result.commands[0].turn, 1);
+  assert.equal(result.commands[1].safe, false);
+  assert.equal(String(result.commands[1].reason || ''), 'duplicate command');
+  assert.equal(result.commands[1].turn, 2);
+});
+
+test('runTaskLoop records turn thinking for an invalid-parse turn', async () => {
+  const result = await runTaskLoop(
+    { id: 'task-invalid-think', question: 'q', signals: ['done'] },
+    {
+      maxTurns: 5,
+      maxInvalidResponses: 3,
+      minToolCallsBeforeFinish: 0,
+      mockResponses: [
+        '<think>bad reasoning</think>not valid json',
+        '<think>final</think>{"action":"finish","output":"done"}',
+      ],
+      mockCommandResults: {},
+    }
+  );
+  // The invalid-parse turn (no command pushed) still records its thinking.
+  assert.equal(result.turnThinking[1], 'bad reasoning');
+  assert.equal(result.turnThinking[2], 'final');
+});
