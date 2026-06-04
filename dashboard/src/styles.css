@@ -811,7 +811,7 @@ pre {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-right: 6px;
+  padding: 0 10px;
 }
 
 .msg {
@@ -824,20 +824,20 @@ pre {
 
 .msg.user {
   background: #193349;
-  align-self: end;
+  justify-self: end;
   border-bottom-right-radius: 4px;
 }
 
 .msg.assistant {
   background: #173a35;
-  align-self: start;
+  justify-self: start;
   border-bottom-left-radius: 4px;
 }
 
 .msg.system {
   background: #202433;
   border-color: #3d4863;
-  align-self: start;
+  justify-self: start;
   border-bottom-left-radius: 4px;
 }
 
