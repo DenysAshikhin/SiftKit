@@ -512,7 +512,7 @@ test('dashboard before_date all-type delete wipes run history across tables whil
   }
 });
 
-test('dashboard run-log delete cascades linked runtime artifacts by request id', async () => {
+test('dashboard run-log delete cascades linked runtime artifacts and source files by request id', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-run-delete-linked-'));
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const runtimeRoot = path.join(tempRoot, '.siftkit');
@@ -547,8 +547,21 @@ test('dashboard run-log delete cascades linked runtime artifacts by request id',
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
+    const selectedSourcePath = path.join(runtimeRoot, 'logs', 'requests', 'request_req-repo-01.json');
+    const selectedTranscriptPath = path.join(runtimeRoot, 'logs', 'requests', 'request_req-repo-01.jsonl');
+    const retainedSourcePath = path.join(runtimeRoot, 'logs', 'requests', 'request_retained.json');
+    fs.mkdirSync(path.dirname(selectedSourcePath), { recursive: true });
+    fs.writeFileSync(selectedSourcePath, '{"requestId":"req-repo-01"}\n', 'utf8');
+    fs.writeFileSync(selectedTranscriptPath, '{"kind":"run_done"}\n', 'utf8');
+    fs.writeFileSync(retainedSourcePath, '{"requestId":"retained"}\n', 'utf8');
+
     const database = new Database(idleSummaryDbPath);
     try {
+      database.prepare(`
+        UPDATE run_logs
+        SET source_paths_json = ?
+        WHERE run_id = 'req-repo-01'
+      `).run(JSON.stringify([selectedSourcePath, selectedTranscriptPath]));
       const insertArtifact = database.prepare(`
         INSERT INTO runtime_artifacts (id, artifact_kind, request_id, title, content_text, content_json, created_at_utc, updated_at_utc)
         VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
@@ -579,6 +592,9 @@ test('dashboard run-log delete cascades linked runtime artifacts by request id',
     assert.equal(readRunLogRowCount(idleSummaryDbPath), 0);
     assert.equal(countRows(idleSummaryDbPath, "SELECT COUNT(*) AS count FROM runtime_artifacts WHERE id = 'art-linked'"), 0);
     assert.equal(countRows(idleSummaryDbPath, "SELECT COUNT(*) AS count FROM runtime_artifacts WHERE id = 'art-unrelated'"), 1);
+    assert.equal(fs.existsSync(selectedSourcePath), false);
+    assert.equal(fs.existsSync(selectedTranscriptPath), false);
+    assert.equal(fs.existsSync(retainedSourcePath), true);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

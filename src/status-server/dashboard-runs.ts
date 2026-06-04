@@ -1130,6 +1130,51 @@ function countLinkedRuntimeArtifacts(database: DatabaseInstance, runLogIds: stri
   return Number(row.count || 0);
 }
 
+function parseRunLogSourcePaths(sourcePathsJson: string | null): string[] {
+  if (!sourcePathsJson) {
+    return [];
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(sourcePathsJson) as unknown;
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+  return parsed
+    .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
+}
+
+function listRunLogSourcePaths(database: DatabaseInstance, runLogIds: string[]): string[] {
+  if (runLogIds.length === 0) {
+    return [];
+  }
+  const placeholders = runLogIds.map(() => '?').join(', ');
+  const rows = database.prepare(`
+    SELECT source_paths_json
+    FROM run_logs
+    WHERE run_id IN (${placeholders})
+  `).all(...runLogIds) as Array<{ source_paths_json: string | null }>;
+  const sourcePaths = new Set<string>();
+  for (const row of rows) {
+    for (const sourcePath of parseRunLogSourcePaths(row.source_paths_json)) {
+      sourcePaths.add(sourcePath);
+    }
+  }
+  return Array.from(sourcePaths);
+}
+
+function deleteRunLogSourceFiles(sourcePaths: string[]): void {
+  for (const sourcePath of sourcePaths) {
+    if (!fs.existsSync(sourcePath)) {
+      continue;
+    }
+    fs.unlinkSync(sourcePath);
+  }
+}
+
 export function previewDashboardRunLogDeletion(
   database: DatabaseInstance,
   criteria: DashboardRunLogDeleteCriteria,
@@ -1157,6 +1202,8 @@ export function deleteDashboardRunLogs(
 ): { deletedCount: number; deletedRunIds: string[] } {
   ensureRunLogsTable(database);
   const deletedRunIds = listRunLogIdsForDeletion(database, criteria);
+  const sourcePaths = listRunLogSourcePaths(database, deletedRunIds);
+  deleteRunLogSourceFiles(sourcePaths);
   let deletedCount = 0;
   database.transaction(() => {
     if (deletedRunIds.length > 0) {
