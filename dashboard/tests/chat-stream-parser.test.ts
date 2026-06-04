@@ -34,7 +34,7 @@ test('parseChatStreamPacket parses tool_start and tool_result with toolCallId', 
     },
   });
   const result = parseChatStreamPacket(
-    'event: tool_result\ndata: {"toolCallId":"tc_0","turn":1,"maxTurns":5,"command":"rg foo","exitCode":0,"outputSnippet":"hit","promptTokenCount":42}'
+    'event: tool_result\ndata: {"toolCallId":"tc_0","turn":1,"maxTurns":5,"command":"rg foo","exitCode":0,"outputSnippet":"hit","outputTokens":4915,"promptTokenCount":42}'
   );
   assert.deepEqual(result, {
     kind: 'tool',
@@ -46,6 +46,7 @@ test('parseChatStreamPacket parses tool_start and tool_result with toolCallId', 
       command: 'rg foo',
       exitCode: 0,
       outputSnippet: 'hit',
+      outputTokens: 4915,
       promptTokenCount: 42,
     },
   });

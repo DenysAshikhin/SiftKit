@@ -608,6 +608,61 @@ type RunawayStructuralTail = {
   truncatedText: string;
 };
 
+function findFirstCompleteJsonObjectText(text: string): string | null {
+  const source = String(text || '');
+  const startIndex = source.indexOf('{');
+  if (startIndex < 0) {
+    return null;
+  }
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = startIndex; index < source.length; index += 1) {
+    const char = source[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === '{') {
+      depth += 1;
+      continue;
+    }
+    if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(startIndex, index + 1).trim();
+      }
+      if (depth < 0) {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+function findPlannerActionText(text: string, allowedToolNames: Set<string>): string | null {
+  const jsonObjectText = findFirstCompleteJsonObjectText(text);
+  if (!jsonObjectText) {
+    return null;
+  }
+  try {
+    ModelJson.parseRepoSearchPlannerAction(jsonObjectText, { allowedToolNames: Array.from(allowedToolNames) });
+    return jsonObjectText;
+  } catch {
+    return null;
+  }
+}
+
 function getRunawayStructuralTail(text: string): RunawayStructuralTail | null {
   const normalized = String(text || '');
   if (!/"action"\s*:/u.test(normalized)) {
@@ -751,6 +806,12 @@ function requestStreaming(
                 generationStartedAt = Date.now();
               }
               thinkingText += deltaThinking;
+              const plannerActionText = findPlannerActionText(thinkingText, allowedToolNames);
+              if (plannerActionText) {
+                thinkingText = '';
+                finishEarly('planner action completed in streamed reasoning', plannerActionText);
+                return;
+              }
               const runawayThinking = getRunawayStructuralTail(thinkingText);
               if (runawayThinking) {
                 thinkingText = runawayThinking.truncatedText;
@@ -780,7 +841,7 @@ function requestStreaming(
         }
       });
 
-      const finishEarly = (reasonText: string): void => {
+      const finishEarly = (reasonText: string, resolvedText?: string): void => {
         if (settled) return;
         settled = true;
         options.abortSignal?.removeEventListener('abort', abortRequest);
@@ -797,7 +858,7 @@ function requestStreaming(
         });
         request.destroy(new Error(reasonText));
         resolve({
-          text: buildEarlyStoppedPlannerText(reasonText, contentText),
+          text: resolvedText ?? buildEarlyStoppedPlannerText(reasonText, contentText),
           thinkingText: thinkingText.trim(),
           mockExhausted: false,
           promptTokens,

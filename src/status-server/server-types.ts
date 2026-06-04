@@ -35,6 +35,9 @@ export type ModelRequestWaiter = {
   enqueuedAtUtc: string;
   cancelled: boolean;
   grantedLock: ModelRequestLock | null;
+  timeoutHandle: NodeJS.Timeout | null;
+  timeoutMs: number;
+  lastQueuePosition: number;
   resolveLock(lock: ModelRequestLock | null): void;
 };
 export type ModelRequestQueueDiagnostics = {

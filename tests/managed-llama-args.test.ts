@@ -45,6 +45,30 @@ function draftCacheArgs(overrides: Record<string, unknown>): string[] {
   return start === -1 ? [] : args.slice(start, start + 4);
 }
 
+test('buildManagedLlamaArgs uses the same KV quant for K and V when KvCacheQuantization is a single value', () => {
+  const config = createConfig(0);
+  activePreset(config).KvCacheQuantization = 'q8_0';
+
+  const args = buildManagedLlamaArgs(getManagedLlamaConfig(config));
+  const kIndex = args.indexOf('--cache-type-k');
+  const vIndex = args.indexOf('--cache-type-v');
+
+  assert.deepEqual(args.slice(kIndex, kIndex + 2), ['--cache-type-k', 'q8_0']);
+  assert.deepEqual(args.slice(vIndex, vIndex + 2), ['--cache-type-v', 'q8_0']);
+});
+
+test('buildManagedLlamaArgs splits K/V composite KvCacheQuantization into independent cache-type flags', () => {
+  const config = createConfig(0);
+  activePreset(config).KvCacheQuantization = 'q8_0/q4_1';
+
+  const args = buildManagedLlamaArgs(getManagedLlamaConfig(config));
+  const kIndex = args.indexOf('--cache-type-k');
+  const vIndex = args.indexOf('--cache-type-v');
+
+  assert.deepEqual(args.slice(kIndex, kIndex + 2), ['--cache-type-k', 'q8_0']);
+  assert.deepEqual(args.slice(vIndex, vIndex + 2), ['--cache-type-v', 'q4_1']);
+});
+
 test('buildManagedLlamaArgs omits --n-cpu-moe when NcpuMoe is 0', () => {
   const args = buildManagedLlamaArgs(getManagedLlamaConfig(createConfig(0)));
 

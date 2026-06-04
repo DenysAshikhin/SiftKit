@@ -577,6 +577,7 @@ test('benchmark tab renders prompt library, run builder, live logs, sortable met
   assert.match(markup, /starting attempt/);
   assert.match(markup, /Output Quality/);
   assert.match(markup, /Tool Use Quality/);
+  assert.match(markup, /<th>Notes<\/th>/);
   assert.match(markup, /Token Speed/);
   assert.match(markup, /Acceptance/);
   assert.match(markup, /Ungraded/);

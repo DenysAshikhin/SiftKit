@@ -641,13 +641,22 @@ export function getManagedLlamaStartupFailure(error: unknown): ManagedLlamaStart
   return error instanceof ManagedLlamaStartupError ? error.startupFailure : null;
 }
 
+function splitKvCacheQuantization(value: string): { k: string; v: string } {
+  const slashIndex = value.indexOf('/');
+  if (slashIndex < 0) {
+    return { k: value, v: value };
+  }
+  return { k: value.slice(0, slashIndex), v: value.slice(slashIndex + 1) };
+}
+
 export function buildManagedLlamaArgs(managed: ReturnType<typeof getManagedLlamaConfig>): string[] {
+  const kvQuant = splitKvCacheQuantization(managed.KvCacheQuantization);
   const args = [
     '-m', managed.ModelPath!,
     '-c', String(managed.NumCtx),
     '--cache-ram', String(managed.CacheRam),
-    '--cache-type-k', managed.KvCacheQuantization,
-    '--cache-type-v', managed.KvCacheQuantization,
+    '--cache-type-k', kvQuant.k,
+    '--cache-type-v', kvQuant.v,
     '-ngl', String(managed.GpuLayers),
   ];
   if (managed.Threads !== 0) {

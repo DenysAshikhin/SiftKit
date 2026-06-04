@@ -1547,10 +1547,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
 
     const promptTokenCount = preflight.promptTokenCount;
-    const progressCommand = isNativeTool || lineReadAdjustment || !normalized.rewritten
-      ? commandToRun
-      : requestedCommand;
-
     const progressToolCallId = `tc_${progressToolCallSeq}`;
     progressToolCallSeq += 1;
     if (options.onProgress) {
@@ -1605,11 +1601,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         adjusted: Boolean(lineReadAdjustment),
       });
       lineReadCumulativeUniqueLines = fileReadState.uniqueLinesRead;
-    }
-
-    if (options.onProgress) {
-      const snippet = baseOutput.length > 200 ? baseOutput.slice(0, 200) + '...' : baseOutput;
-      options.onProgress({ kind: 'tool_result', toolCallId: progressToolCallId, turn, maxTurns, command: progressCommand, exitCode: executed.exitCode, outputSnippet: snippet, promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
     }
 
     const rewriteNotesForLogs: string[] = [];
@@ -1845,6 +1836,21 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     const modelVisibleCommand = isNativeTool || lineReadAdjustment || !normalized.rewritten
       ? commandToRun
       : requestedCommand;
+    if (options.onProgress) {
+      const snippet = resultText.length > 200 ? `${resultText.slice(0, 200)}...` : resultText;
+      options.onProgress({
+        kind: 'tool_result',
+        toolCallId: progressToolCallId,
+        turn,
+        maxTurns,
+        command: modelVisibleCommand,
+        exitCode: executed.exitCode,
+        outputSnippet: snippet,
+        outputTokens: resultTokenCount,
+        promptTokenCount,
+        elapsedMs: Date.now() - taskStartedAt,
+      });
+    }
     const commandOutputText = isNativeTool && nativeExecution?.ok ? resultText : outputWithRewriteNote;
 
     options.logger?.write({
@@ -1869,7 +1875,16 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       insertedResultText: resultText,
     });
 
-    commands.push({ command: commandToRun, modelVisibleCommand, safe: true, reason: null, exitCode: executed.exitCode, output: commandOutputText });
+    commands.push({
+      command: commandToRun,
+      modelVisibleCommand,
+      safe: true,
+      reason: null,
+      exitCode: executed.exitCode,
+      output: commandOutputText,
+      promptOutput: resultText,
+      outputTokens: resultTokenCount,
+    });
     const commandSucceeded = Number(executed.exitCode) === 0 || searchExit.noMatch;
     if (commandSucceeded) {
       duplicateReplayFingerprint = null;

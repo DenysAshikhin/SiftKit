@@ -161,6 +161,45 @@ test('requestPlannerAction reconstructs a tool batch from streaming multi-tool r
   });
 });
 
+test('requestPlannerAction stops streamed reasoning after a complete planner action', async () => {
+  const actionText = '{"action":"tool_batch","calls":[{"action":"repo_rg","command":"rg -n \\"planner\\" src"}]}';
+  let writeCount = 0;
+
+  await withServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    req.resume();
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+    res.write(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: actionText } }] })}\n\n`);
+    writeCount += 1;
+    const interval = setInterval(() => {
+      writeCount += 1;
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: '}' } }] })}\n\n`);
+    }, 25);
+    res.on('close', () => clearInterval(interval));
+  }, async (baseUrl) => {
+    const result = await requestPlannerAction({
+      baseUrl,
+      model: 'mock-model',
+      messages: [{ role: 'user', content: 'find planner' }],
+      timeoutMs: 2000,
+      maxTokens: 512,
+      stream: true,
+    });
+
+    assert.equal(result.text, actionText);
+    assert.equal(result.thinkingText, '');
+    assert.equal(writeCount, 1);
+  });
+});
+
 test('requestPlannerAction uses llama timings from the final streaming chunk when usage is absent', async () => {
   await withServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {

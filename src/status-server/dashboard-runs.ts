@@ -151,6 +151,7 @@ export type RepoSearchProgressEvent = {
   thinkingText?: string;
   exitCode?: number | null;
   outputSnippet?: string;
+  outputTokens?: number;
   toolCallId?: string;
 };
 

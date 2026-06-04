@@ -264,10 +264,11 @@ function DashboardApp() {
   function completeLiveToolMessage(toolEvent: ChatStreamToolEvent): void {
     const id = buildLiveToolMessageId(toolEvent.toolCallId);
     const outputSnippet = typeof toolEvent.outputSnippet === 'string' ? toolEvent.outputSnippet : '';
+    const outputTokens = typeof toolEvent.outputTokens === 'number' ? Math.max(0, toolEvent.outputTokens) : 0;
     upsertLiveMessage({
       ...createLiveMessage(id, 'assistant_tool_call', 'assistant', toolEvent.command),
-      outputTokensEstimate: Math.max(0, Math.ceil(outputSnippet.length / 4)),
-      associatedToolTokens: Math.max(0, Math.ceil(outputSnippet.length / 4)),
+      outputTokensEstimate: outputTokens,
+      associatedToolTokens: outputTokens,
       toolCallCommand: toolEvent.command,
       toolCallTurn: toolEvent.turn,
       toolCallMaxTurns: toolEvent.maxTurns,

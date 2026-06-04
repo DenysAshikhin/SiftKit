@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import test from 'node:test';
 
 import {
+  appendChatMessagesWithUsage,
   buildChatCompletionRequest,
   buildChatSystemContent,
   buildContextUsage,
@@ -152,6 +156,58 @@ test('buildToolMessagesFromRepoSearchResult displays model-visible command', () 
 
   assert.equal(messages[0]?.content, 'rg -n "name" package.json');
   assert.equal(messages[0]?.toolCallCommand, 'rg -n "name" package.json');
+});
+
+test('buildToolMessagesFromRepoSearchResult uses prompt output and tokens for tool bubbles', () => {
+  const messages = buildToolMessagesFromRepoSearchResult({
+    scorecard: {
+      tasks: [{
+        commands: [{
+          command: 'rg -n "tool_call" src --no-ignore',
+          modelVisibleCommand: 'rg -n "tool_call" src',
+          safe: true,
+          exitCode: 0,
+          output: 'x'.repeat(10_000),
+          promptOutput: 'src/repo-search/engine.ts:1613:tool_result',
+          outputTokens: 295,
+        }],
+      }],
+    },
+  });
+
+  assert.equal(messages[0]?.toolCallOutput, 'src/repo-search/engine.ts:1613:tool_result');
+  assert.equal(messages[0]?.toolCallOutputSnippet, 'src/repo-search/engine.ts:1613:tool_result');
+  assert.equal(messages[0]?.outputTokens, 295);
+});
+
+test('appendChatMessagesWithUsage preserves explicit per-tool bubble token count', () => {
+  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-tool-tokens-'));
+  const session = appendChatMessagesWithUsage(
+    runtimeRoot,
+    createSession(),
+    'Find tool call handling.',
+    'Tool calls are handled in engine.ts.',
+    {
+      promptTokens: 30,
+      completionTokens: 9,
+      thinkingTokens: 0,
+      promptCacheTokens: null,
+      promptEvalTokens: 30,
+    },
+    '',
+    {
+      toolMessages: [{
+        content: 'rg -n "tool_call" src',
+        toolCallCommand: 'rg -n "tool_call" src',
+        toolCallOutput: 'x'.repeat(10_000),
+        outputTokens: 295,
+      }],
+    }
+  );
+
+  const toolMessage = session.messages.find((message) => message.kind === 'assistant_tool_call');
+  assert.equal(toolMessage?.outputTokensEstimate, 295);
+  assert.equal(toolMessage?.associatedToolTokens, 295);
 });
 
 test('buildChatPromptContext exposes direct system prompt and hidden tool context', () => {

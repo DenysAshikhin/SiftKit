@@ -26,7 +26,8 @@ export type ManagedLlamaKvCacheQuantization =
   | 'q4_1'
   | 'iq4_nl'
   | 'q5_0'
-  | 'q5_1';
+  | 'q5_1'
+  | 'q8_0/q4_1';
 
 export type ManagedLlamaSpeculativeType =
   | 'draft-simple'

@@ -8,6 +8,7 @@ export type ChatStreamToolEvent = {
   command: string;
   exitCode?: number;
   outputSnippet?: string;
+  outputTokens?: number;
   promptTokenCount?: number;
 };
 
@@ -47,6 +48,7 @@ function buildToolEvent(kind: 'tool_start' | 'tool_result', record: Record<strin
   };
   if (typeof record.exitCode === 'number') tool.exitCode = record.exitCode;
   if (typeof record.outputSnippet === 'string') tool.outputSnippet = record.outputSnippet;
+  if (typeof record.outputTokens === 'number') tool.outputTokens = record.outputTokens;
   if (typeof record.promptTokenCount === 'number') tool.promptTokenCount = record.promptTokenCount;
   return tool;
 }

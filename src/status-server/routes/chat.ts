@@ -138,6 +138,7 @@ function forwardRepoSearchToolEvent(
       command: event.command,
       exitCode: event.exitCode,
       outputSnippet: event.outputSnippet,
+      outputTokens: Number.isFinite(event.outputTokens) ? Number(event.outputTokens) : null,
       promptTokenCount: Number.isFinite(event.promptTokenCount) ? Number(event.promptTokenCount) : null,
     });
   }

@@ -557,6 +557,40 @@ test('runTaskLoop reports prompt tokens and elapsed time on command progress eve
   assert.equal(Number.isFinite(toolStart?.elapsedMs), true);
   assert.equal(Number(toolStart?.elapsedMs) >= 0, true);
   assert.equal(result.reason, 'finish');
+  assert.equal(Number.isFinite(toolResult?.outputTokens), true);
+  assert.equal(Number(toolResult?.outputTokens) > 0, true);
+});
+
+test('runTaskLoop tool_result outputTokens reflects the fitted bubble output', async () => {
+  const longStdout = 'planner hit '.repeat(400);
+  const progressEvents: Array<Record<string, unknown> & { kind: string }> = [];
+  await runTaskLoop(
+    {
+      id: 'task-output-tokens-full',
+      question: 'Find planner text.',
+      signals: ['planner'],
+    },
+    {
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens: 10000,
+      mockResponses: [
+        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'rg -n "planner" src': { exitCode: 0, stdout: longStdout, stderr: '' },
+      },
+      onProgress(event: Record<string, unknown> & { kind: string }) {
+        progressEvents.push(event);
+      },
+    }
+  );
+  const toolResult = progressEvents.find((event) => event.kind === 'tool_result');
+  assert.match(String(toolResult?.outputSnippet || ''), /truncated due to per-tool context limit/u);
+  assert.equal(Number(toolResult?.outputTokens) <= 600, true);
 });
 
 test('runTaskLoop does not replay final output as thinking progress', async () => {

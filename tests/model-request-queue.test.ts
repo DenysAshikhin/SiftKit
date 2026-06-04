@@ -4,6 +4,7 @@ import test from 'node:test';
 import { getDefaultMetrics } from '../dist/status-server/metrics.js';
 import { ManagedLlamaFlushQueue } from '../dist/status-server/managed-llama-flush-queue.js';
 import {
+  DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS,
   acquireModelRequestWithWait,
   clearCompletedStatusRequestIdForDifferentRequest,
   getModelRequestQueueDiagnostics,
@@ -83,6 +84,10 @@ test('completed status request ids are bounded and cleared when a status path is
 
   clearCompletedStatusRequestIdForDifferentRequest(ctx, 'active-status.txt', 'next-request');
   assert.equal(ctx.completedRequestIdByStatusPath.has('active-status.txt'), false);
+});
+
+test('model request queue timeout default is five minutes', () => {
+  assert.equal(DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS, 300_000);
 });
 
 async function captureStdoutLines(fn: (lines: StdoutLine[]) => Promise<void>): Promise<StdoutLine[]> {
@@ -179,6 +184,51 @@ test('queued model request times out, cancels, and logs the dropped request', as
     assert.equal(ctx.modelRequestQueue.length, 0);
     assert.equal(ctx.activeModelRequest?.token, activeLock.token);
     assert.ok(lines.some((line) => /request dropped reason=model_queue_timeout task=summary/u.test(line)), lines.join('\n'));
+
+    assert.equal(releaseModelRequest(ctx, activeLock.token), true);
+  } finally {
+    await ctx.managedLlamaFlushQueue.close();
+  }
+});
+
+test('queued model request timeout resets when an earlier queued request drops', async () => {
+  const ctx = createQueueContext();
+  try {
+    const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(activeLock);
+
+    const firstQueuedLockPromise = acquireModelRequestWithWait(ctx, 'summary', undefined, undefined, { timeoutMs: 30 });
+    const secondQueuedLockPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat', undefined, undefined, { timeoutMs: 60 });
+
+    assert.equal(await firstQueuedLockPromise, null);
+    await new Promise<void>((resolve) => setTimeout(resolve, 40));
+
+    assert.equal(ctx.modelRequestQueue.length, 1);
+    assert.equal(ctx.modelRequestQueue[0]?.kind, 'dashboard_chat');
+    assert.equal(releaseModelRequest(ctx, activeLock.token), true);
+
+    const secondQueuedLock = await secondQueuedLockPromise;
+    assert.ok(secondQueuedLock);
+    assert.equal(secondQueuedLock.kind, 'dashboard_chat');
+    assert.equal(releaseModelRequest(ctx, secondQueuedLock.token), true);
+  } finally {
+    await ctx.managedLlamaFlushQueue.close();
+  }
+});
+
+test('queued model request still times out after its reset window expires', async () => {
+  const ctx = createQueueContext();
+  try {
+    const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(activeLock);
+
+    const firstQueuedLockPromise = acquireModelRequestWithWait(ctx, 'summary', undefined, undefined, { timeoutMs: 25 });
+    const secondQueuedLockPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat', undefined, undefined, { timeoutMs: 35 });
+
+    assert.equal(await firstQueuedLockPromise, null);
+    assert.equal(await secondQueuedLockPromise, null);
+    assert.equal(ctx.modelRequestQueue.length, 0);
+    assert.equal(ctx.activeModelRequest?.token, activeLock.token);
 
     assert.equal(releaseModelRequest(ctx, activeLock.token), true);
   } finally {

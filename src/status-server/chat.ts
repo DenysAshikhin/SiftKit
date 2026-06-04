@@ -482,19 +482,21 @@ export function appendChatMessagesWithUsage(
       : typeof toolMessage.toolCallOutputSnippet === 'string'
         ? toolMessage.toolCallOutputSnippet
         : '';
+    const explicitToolOutputTokens = getChatUsageValue(toolMessage.outputTokens);
+    const toolOutputTokens = explicitToolOutputTokens ?? estimateTokenCount(toolOutput);
     messages.push({
       id: toolMessageId,
       role: 'assistant',
       kind: 'assistant_tool_call',
       content: typeof toolMessage.content === 'string' ? toolMessage.content : String(toolMessage.toolCallCommand || ''),
       inputTokensEstimate: 0,
-      outputTokensEstimate: estimateTokenCount(toolOutput),
+      outputTokensEstimate: toolOutputTokens,
       thinkingTokens: 0,
       inputTokensEstimated: false,
-      outputTokensEstimated: true,
+      outputTokensEstimated: explicitToolOutputTokens === null,
       thinkingTokensEstimated: false,
       promptEvalTokens: Number.isFinite(Number(toolMessage.toolCallPromptTokenCount)) ? Number(toolMessage.toolCallPromptTokenCount) : null,
-      associatedToolTokens: estimateTokenCount(toolOutput),
+      associatedToolTokens: toolOutputTokens,
       toolCallCommand: typeof toolMessage.toolCallCommand === 'string' ? toolMessage.toolCallCommand : String(toolMessage.content || ''),
       toolCallTurn: Number.isFinite(Number(toolMessage.toolCallTurn)) ? Number(toolMessage.toolCallTurn) : null,
       toolCallMaxTurns: Number.isFinite(Number(toolMessage.toolCallMaxTurns)) ? Number(toolMessage.toolCallMaxTurns) : null,
@@ -914,7 +916,12 @@ export function buildToolMessagesFromRepoSearchResult(result: Dict | null | unde
       if (!commandText) {
         continue;
       }
-      const output = typeof command.output === 'string' ? command.output : '';
+      const output = typeof command.promptOutput === 'string'
+        ? command.promptOutput
+        : typeof command.output === 'string'
+          ? command.output
+          : '';
+      const outputTokens = getChatUsageValue(command.outputTokens);
       messages.push({
         id: crypto.randomUUID(),
         content: commandText,
@@ -924,6 +931,7 @@ export function buildToolMessagesFromRepoSearchResult(result: Dict | null | unde
         toolCallExitCode: Number.isFinite(Number(command.exitCode)) ? Number(command.exitCode) : null,
         toolCallOutputSnippet: output.length > 200 ? `${output.slice(0, 200)}...` : output,
         toolCallOutput: output,
+        outputTokens,
       });
     }
   }

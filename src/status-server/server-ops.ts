@@ -52,7 +52,7 @@ import {
 } from './managed-llama.js';
 
 export const MAX_COMPLETED_STATUS_PATH_ENTRIES = 1000;
-const DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS = 120_000;
+export const DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS = 300_000;
 
 function readModelRequestQueueTimeoutMs(): number {
   const parsed = Number.parseInt(String(process.env.SIFTKIT_MODEL_REQUEST_QUEUE_TIMEOUT_MS || ''), 10);
@@ -400,6 +400,15 @@ function getIncomingModelRequestQueuePosition(ctx: ServerContext): number {
   return activePosition + ctx.modelRequestQueue.length + 1;
 }
 
+function getQueuedModelRequestQueuePosition(ctx: ServerContext, waiter: ModelRequestWaiter): number {
+  const queueIndex = ctx.modelRequestQueue.findIndex((entry) => entry.queueToken === waiter.queueToken);
+  if (queueIndex < 0) {
+    return 0;
+  }
+  const activePosition = ctx.activeModelRequest ? 1 : 0;
+  return activePosition + queueIndex + 1;
+}
+
 function logIncomingModelRequest(ctx: ServerContext, kind: string): void {
   const taskKind = String(kind).trim() || 'unknown';
   logLine(`request incoming task=${taskKind} queue_position=${getIncomingModelRequestQueuePosition(ctx)}`);
@@ -501,6 +510,73 @@ function removeModelRequestWaiter(ctx: ServerContext, queueToken: string): boole
   return true;
 }
 
+function clearModelRequestWaiterTimeout(waiter: ModelRequestWaiter): void {
+  if (!waiter.timeoutHandle) {
+    return;
+  }
+  clearTimeout(waiter.timeoutHandle);
+  waiter.timeoutHandle = null;
+}
+
+function startModelRequestWaiterTimeout(ctx: ServerContext, waiter: ModelRequestWaiter): void {
+  clearModelRequestWaiterTimeout(waiter);
+  const timeoutHandle = setTimeout(() => {
+    cancelModelRequestWaiter(ctx, waiter, 'model_queue_timeout');
+  }, waiter.timeoutMs);
+  timeoutHandle.unref?.();
+  waiter.timeoutHandle = timeoutHandle;
+}
+
+function restartModelRequestWaiterTimeout(ctx: ServerContext, waiter: ModelRequestWaiter): void {
+  if (waiter.cancelled || waiter.grantedLock) {
+    return;
+  }
+  startModelRequestWaiterTimeout(ctx, waiter);
+}
+
+function refreshQueuedModelRequestTimeouts(ctx: ServerContext): void {
+  for (const waiter of ctx.modelRequestQueue) {
+    if (waiter.cancelled || waiter.grantedLock) {
+      continue;
+    }
+    const currentPosition = getQueuedModelRequestQueuePosition(ctx, waiter);
+    if (currentPosition <= 0) {
+      continue;
+    }
+    if (currentPosition < waiter.lastQueuePosition) {
+      waiter.lastQueuePosition = currentPosition;
+      restartModelRequestWaiterTimeout(ctx, waiter);
+    } else if (currentPosition > waiter.lastQueuePosition) {
+      waiter.lastQueuePosition = currentPosition;
+    }
+  }
+}
+
+function cancelModelRequestWaiter(
+  ctx: ServerContext,
+  waiter: ModelRequestWaiter,
+  reason: 'client_cancelled' | 'model_queue_timeout',
+): void {
+  if (waiter.cancelled || waiter.grantedLock) {
+    return;
+  }
+  waiter.cancelled = true;
+  clearModelRequestWaiterTimeout(waiter);
+  removeModelRequestWaiter(ctx, waiter.queueToken);
+  if (reason === 'model_queue_timeout') {
+    logModelRequestDropped(waiter, reason);
+  } else {
+    logModelRequestWaitCancelled(waiter);
+  }
+  waiter.resolveLock(null);
+  const grantedNext = grantNextModelRequest(ctx);
+  if (!grantedNext) {
+    refreshQueuedModelRequestTimeouts(ctx);
+  }
+  syncManagedLlamaFlushQueueModelState(ctx);
+  scheduleIdleSummaryIfNeeded(ctx);
+}
+
 function grantNextModelRequest(ctx: ServerContext): boolean {
   if (ctx.activeModelRequest) {
     return false;
@@ -513,12 +589,15 @@ function grantNextModelRequest(ctx: ServerContext): boolean {
     const lock = createModelRequestLock(waiter.kind);
     waiter.grantedLock = lock;
     ctx.activeModelRequest = lock;
+    clearModelRequestWaiterTimeout(waiter);
     logModelRequestLockAcquired(lock, getElapsedMsSinceIso(waiter.enqueuedAtUtc));
     syncManagedLlamaFlushQueueModelState(ctx);
+    refreshQueuedModelRequestTimeouts(ctx);
     waiter.resolveLock(lock);
     return true;
   }
   syncManagedLlamaFlushQueueModelState(ctx);
+  refreshQueuedModelRequestTimeouts(ctx);
   return false;
 }
 
@@ -536,6 +615,10 @@ export async function acquireModelRequestWithWait(
     logModelRequestLockAcquired(lock, 0);
     return lock;
   }
+  const initialQueuePosition = getIncomingModelRequestQueuePosition(ctx);
+  const timeoutMs = Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0
+    ? Math.trunc(Number(options.timeoutMs))
+    : readModelRequestQueueTimeoutMs();
   let resolveWaiterLock: (resolvedLock: ModelRequestLock | null) => void = () => {};
   const waiterLockPromise = new Promise<ModelRequestLock | null>((resolve) => {
     resolveWaiterLock = resolve;
@@ -546,48 +629,29 @@ export async function acquireModelRequestWithWait(
     enqueuedAtUtc: new Date().toISOString(),
     cancelled: false,
     grantedLock: null,
+    timeoutHandle: null,
+    timeoutMs,
+    lastQueuePosition: initialQueuePosition,
     resolveLock: resolveWaiterLock,
   };
   ctx.modelRequestQueue.push(waiter);
   syncManagedLlamaFlushQueueModelState(ctx);
-  const cancelWaiter = (reason: 'client_cancelled' | 'model_queue_timeout'): void => {
-    if (waiter.cancelled || waiter.grantedLock) {
-      return;
-    }
-    waiter.cancelled = true;
-    removeModelRequestWaiter(ctx, waiter.queueToken);
-    if (reason === 'model_queue_timeout') {
-      logModelRequestDropped(waiter, reason);
-    } else {
-      logModelRequestWaitCancelled(waiter);
-    }
-    waiter.resolveLock(null);
-    grantNextModelRequest(ctx);
-    syncManagedLlamaFlushQueueModelState(ctx);
-    scheduleIdleSummaryIfNeeded(ctx);
-  };
   const onAbortedRequest = (): void => {
-    cancelWaiter('client_cancelled');
+    cancelModelRequestWaiter(ctx, waiter, 'client_cancelled');
   };
   const onClosedRequest = (): void => {
     if (request?.complete) {
       return;
     }
-    cancelWaiter('client_cancelled');
+    cancelModelRequestWaiter(ctx, waiter, 'client_cancelled');
   };
   const onClosedResponse = (): void => {
     if (response?.writableEnded) {
       return;
     }
-    cancelWaiter('client_cancelled');
+    cancelModelRequestWaiter(ctx, waiter, 'client_cancelled');
   };
-  const timeoutMs = Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0
-    ? Math.trunc(Number(options.timeoutMs))
-    : readModelRequestQueueTimeoutMs();
-  const timeout = setTimeout(() => {
-    cancelWaiter('model_queue_timeout');
-  }, timeoutMs);
-  timeout.unref?.();
+  startModelRequestWaiterTimeout(ctx, waiter);
   if (request) {
     request.once('aborted', onAbortedRequest);
     request.once('close', onClosedRequest);
@@ -596,14 +660,14 @@ export async function acquireModelRequestWithWait(
     response.once('close', onClosedResponse);
   }
   if (response?.destroyed && !response.writableEnded) {
-    cancelWaiter('client_cancelled');
+    cancelModelRequestWaiter(ctx, waiter, 'client_cancelled');
   }
   try {
     return await waiterLockPromise;
   } finally {
-    clearTimeout(timeout);
+    clearModelRequestWaiterTimeout(waiter);
     if (response?.destroyed && !response.writableEnded) {
-      cancelWaiter('client_cancelled');
+      cancelModelRequestWaiter(ctx, waiter, 'client_cancelled');
     }
     if (request) {
       request.off('aborted', onAbortedRequest);

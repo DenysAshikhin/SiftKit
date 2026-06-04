@@ -338,5 +338,7 @@ export type TaskCommand = {
   reason: string | null;
   exitCode: number | null;
   output: string;
+  promptOutput?: string;
+  outputTokens?: number;
 };
 

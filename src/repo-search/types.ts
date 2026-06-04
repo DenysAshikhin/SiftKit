@@ -12,6 +12,7 @@ export type RepoSearchProgressEvent = {
   thinkingText?: string;
   command?: string;
   outputSnippet?: string;
+  outputTokens?: number;
   exitCode?: number;
   promptTokenCount?: number;
   promptChars?: number;

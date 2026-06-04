@@ -196,6 +196,7 @@ export function BenchmarkTab(props: BenchmarkTabProps) {
                 <th>Acceptance</th>
                 <th>Output Quality</th>
                 <th>Tool Use Quality</th>
+                <th>Notes</th>
                 <th>Grade</th>
               </tr>
             </thead>
@@ -210,6 +211,7 @@ export function BenchmarkTab(props: BenchmarkTabProps) {
                   <td>{formatNumber(attempt.acceptanceRate)}</td>
                   <td>{attempt.outputQualityScore === null ? 'Ungraded' : attempt.outputQualityScore}</td>
                   <td>{attempt.toolUseQualityScore === null ? 'Ungraded' : attempt.toolUseQualityScore}</td>
+                  <td className="benchmark-notes-cell">{attempt.reviewNotes ?? ''}</td>
                   <td>
                     <button
                       type="button"
