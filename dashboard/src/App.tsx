@@ -715,11 +715,7 @@ function DashboardApp() {
     });
   }
 
-  async function onDeleteChatMessage(messageId: string): Promise<void> {
-    const response = await chatSessionsHook.deleteMessage(messageId);
-    if (!response) {
-      return;
-    }
+  async function refreshAfterChatMessageMutation(): Promise<void> {
     requestDashboardDataRefresh();
     if (selectedRunId) {
       try {
@@ -729,6 +725,22 @@ function DashboardApp() {
         setChatError(describeStreamError(error));
       }
     }
+  }
+
+  async function onDeleteChatMessage(messageId: string): Promise<void> {
+    const response = await chatSessionsHook.deleteMessage(messageId);
+    if (!response) {
+      return;
+    }
+    await refreshAfterChatMessageMutation();
+  }
+
+  async function onDeleteChatTurn(messageIds: string[]): Promise<void> {
+    const response = await chatSessionsHook.deleteMessages(messageIds);
+    if (!response) {
+      return;
+    }
+    await refreshAfterChatMessageMutation();
   }
 
   async function saveDashboardSettingsCore(): Promise<boolean> {
@@ -1364,6 +1376,7 @@ function DashboardApp() {
           onSavePlanRepoRoot={() => chatSessionsHook.savePlanRepoRoot(planInputs.planRepoRootInput, selectedChatPreset?.id)}
           onClearToolContext={chatSessionsHook.clearToolContext}
           onDeleteMessage={onDeleteChatMessage}
+          onDeleteTurn={onDeleteChatTurn}
           onCondense={chatSessionsHook.condense}
           onSendPlan={composer.sendPlan}
           onSendRepoSearch={composer.sendRepoSearch}

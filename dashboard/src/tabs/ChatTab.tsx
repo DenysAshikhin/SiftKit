@@ -609,7 +609,7 @@ function ChatTurnBubble({ turn, isDirectChatMode, chatBusy, onDeleteMessage, onD
   onDeleteTurn(messageIds: string[]): Promise<void>;
 }) {
   const aggregateTokens = turn.messages.reduce((sum, message) => sum + getMessageTokenCount(message), 0);
-  const headerTimestamp = turn.main ? turn.main.createdAtUtc : turn.messages[0].createdAtUtc;
+  const headerTimestamp = turn.main ? turn.main.createdAtUtc : turn.messages[0]?.createdAtUtc ?? null;
   return (
     <article className={`msg assistant turn${turn.isLive ? ' live' : ''}`}>
       <header className="msg-header">

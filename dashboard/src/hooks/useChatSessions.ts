@@ -33,6 +33,7 @@ export type UseChatSessionsResult = {
   condense(): Promise<void>;
   clearToolContext(): Promise<void>;
   deleteMessage(messageId: string): Promise<ChatSessionResponse | null>;
+  deleteMessages(messageIds: string[]): Promise<ChatSessionResponse | null>;
   applySessionResponse(response: ChatSessionResponse): void;
   setChatBusy(busy: boolean): void;
   chatBusy: boolean;
@@ -278,6 +279,33 @@ export function useChatSessions(deps: {
     }
   }
 
+  // Non-atomic, best-effort: the backend exposes only a single-message DELETE and
+  // must not change, so deletes run sequentially and each response is applied as it
+  // lands. A mid-loop failure leaves the turn partially deleted (already-removed
+  // messages stay removed), routes the error through deps.onError, and returns null.
+  async function deleteMessages(messageIds: string[]): Promise<ChatSessionResponse | null> {
+    if (!selectedSessionId || messageIds.length === 0) {
+      return null;
+    }
+    setChatBusy(true);
+    try {
+      let response: ChatSessionResponse | null = null;
+      for (const messageId of messageIds) {
+        if (!messageId) {
+          continue;
+        }
+        response = await deleteChatMessage(selectedSessionId, messageId);
+        applySessionResponse(response);
+      }
+      return response;
+    } catch (error) {
+      deps.onError(error);
+      return null;
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
   function selectSession(sessionId: string): void {
     if (sessions.length > 0) {
       findSessionByIdStrict(sessions, sessionId);
@@ -300,6 +328,7 @@ export function useChatSessions(deps: {
     condense,
     clearToolContext,
     deleteMessage,
+    deleteMessages,
     applySessionResponse,
     setChatBusy,
     chatBusy,
