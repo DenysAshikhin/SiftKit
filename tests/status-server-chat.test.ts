@@ -11,7 +11,12 @@ import {
   buildContextUsage,
   buildRepoSearchMarkdown,
   buildPersistTurnsFromRepoSearchResult,
+  runDirectChatWebLoop,
+  WEB_CHAT_JSON_ACTION_PROMPT,
 } from '../src/status-server/chat.ts';
+import { getWebSearchOverride, resolveEffectiveWebSearchEnabled } from '../src/status-server/routes/chat.ts';
+import { WebResearchTools } from '../src/web-search/web-research-tools.ts';
+import type { WebSearchConfig } from '../src/web-search/types.ts';
 import { buildChatPromptContext } from '../src/status-server/chat-prompt-context.ts';
 import { estimatePromptTokenCountFromCharacters, getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
 import { estimateTokenCount, type ChatSession } from '../src/state/chat-sessions.ts';
@@ -71,6 +76,85 @@ function createSession(): ChatSession {
     ],
   } as ChatSession;
 }
+
+const WEB_CONFIG: WebSearchConfig = {
+  EnabledDefault: false,
+  Provider: 'searxng',
+  SearxngBaseUrl: 'https://search.example.test',
+  ResultCount: 3,
+  FetchMaxPages: 3,
+  TimeoutMs: 15000,
+  FetchMaxCharacters: 12000,
+};
+
+function searxngWebTools(): WebResearchTools {
+  return new WebResearchTools(WEB_CONFIG, async () => new Response(JSON.stringify({
+    results: [{ title: 'Example', url: 'https://example.com', content: 'snippet' }],
+  }), { status: 200, headers: { 'content-type': 'application/json' } }));
+}
+
+test('getWebSearchOverride normalizes override values', () => {
+  assert.equal(getWebSearchOverride('on'), 'on');
+  assert.equal(getWebSearchOverride('off'), 'off');
+  assert.equal(getWebSearchOverride('default'), 'default');
+  assert.equal(getWebSearchOverride('garbage'), 'default');
+  assert.equal(getWebSearchOverride(undefined), 'default');
+});
+
+test('resolveEffectiveWebSearchEnabled applies the override gate', () => {
+  assert.equal(resolveEffectiveWebSearchEnabled(false, 'default'), false);
+  assert.equal(resolveEffectiveWebSearchEnabled(true, 'default'), true);
+  assert.equal(resolveEffectiveWebSearchEnabled(false, 'on'), true);
+  assert.equal(resolveEffectiveWebSearchEnabled(true, 'off'), false);
+});
+
+test('WEB_CHAT_JSON_ACTION_PROMPT documents web_search, web_fetch, and finish', () => {
+  assert.match(WEB_CHAT_JSON_ACTION_PROMPT, /web_search/);
+  assert.match(WEB_CHAT_JSON_ACTION_PROMPT, /web_fetch/);
+  assert.match(WEB_CHAT_JSON_ACTION_PROMPT, /finish/);
+});
+
+test('runDirectChatWebLoop executes a web_search tool then persists finish output', async () => {
+  const result = await runDirectChatWebLoop(createConfig(), createSession(), 'find latest', searxngWebTools(), {
+    mockResponses: [
+      '{"action":"web_search","query":"example"}',
+      '{"action":"finish","output":"final answer citing https://example.com"}',
+    ],
+  });
+
+  assert.equal(result.assistantContent, 'final answer citing https://example.com');
+  assert.equal(result.toolMessages.length, 1);
+  assert.equal(result.toolMessages[0].toolCallCommand, 'web_search query="example"');
+  assert.equal(result.toolMessages[0].toolCallExitCode, 0);
+  assert.match(result.toolMessages[0].toolCallOutput, /example\.com/);
+});
+
+test('runDirectChatWebLoop returns a clear error on malformed JSON action', async () => {
+  const result = await runDirectChatWebLoop(createConfig(), createSession(), 'q', searxngWebTools(), {
+    mockResponses: ['not a json action'],
+  });
+
+  assert.match(result.assistantContent, /could not be completed/i);
+  assert.equal(result.toolMessages.length, 0);
+});
+
+test('runDirectChatWebLoop stops after the tool call budget', async () => {
+  const result = await runDirectChatWebLoop(createConfig(), createSession(), 'q', searxngWebTools(), {
+    maxTurns: 1,
+    mockResponses: [
+      '{"action":"web_search","query":"a"}',
+      '{"action":"web_search","query":"b"}',
+    ],
+  });
+
+  assert.match(result.assistantContent, /tool call limit/i);
+  assert.equal(result.toolMessages.length, 1);
+});
+
+test('buildChatSystemContent appends the web action instruction when provided', () => {
+  const content = buildChatSystemContent(createConfig(), createSession(), { webActionInstruction: WEB_CHAT_JSON_ACTION_PROMPT });
+  assert.match(content, /web_search/);
+});
 
 test('buildChatCompletionRequest replays assistant reasoning_content only when enabled and present', () => {
   const request = buildChatCompletionRequest(createConfig(), createSession(), 'next question');

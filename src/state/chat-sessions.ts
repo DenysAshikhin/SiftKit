@@ -13,6 +13,7 @@ type SessionRow = {
   model: string | null;
   context_window_tokens: number;
   thinking_enabled: number;
+  web_search_enabled: number;
   preset_id: string | null;
   mode: string;
   plan_repo_root: string;
@@ -171,6 +172,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       model,
       context_window_tokens,
       thinking_enabled,
+      web_search_enabled,
       preset_id,
       mode,
       plan_repo_root,
@@ -247,6 +249,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
     model: row.model,
     contextWindowTokens: row.context_window_tokens,
     thinkingEnabled: row.thinking_enabled === 1,
+    webSearchEnabled: row.web_search_enabled === 1,
     presetId: normalizePresetId(row.preset_id, row.mode),
     mode: normalizeMode(row.mode),
     planRepoRoot: row.plan_repo_root,
@@ -387,18 +390,20 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         model,
         context_window_tokens,
         thinking_enabled,
+        web_search_enabled,
         preset_id,
         mode,
         plan_repo_root,
         condensed_summary,
         created_at_utc,
         updated_at_utc
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         model = excluded.model,
         context_window_tokens = excluded.context_window_tokens,
         thinking_enabled = excluded.thinking_enabled,
+        web_search_enabled = excluded.web_search_enabled,
         preset_id = excluded.preset_id,
         mode = excluded.mode,
         plan_repo_root = excluded.plan_repo_root,
@@ -410,6 +415,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
       typeof session.model === 'string' && session.model.trim() ? session.model.trim() : null,
       toNonNegativeInteger(session.contextWindowTokens, 150000),
       session.thinkingEnabled === false ? 0 : 1,
+      session.webSearchEnabled === true ? 1 : 0,
       presetId,
       mode,
       typeof session.planRepoRoot === 'string' && session.planRepoRoot.trim()

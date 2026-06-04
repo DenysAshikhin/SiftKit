@@ -828,6 +828,53 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
   }
 });
 
+test('chat session web search defaults off and update persists webSearchEnabled', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-web-search-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const created = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Web default off' }),
+    });
+    assert.equal(created.statusCode, 200);
+    const session = d(created.body.session);
+    assert.equal(session.webSearchEnabled, false);
+
+    const sessionId = String(session.id);
+    const updated = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ webSearchEnabled: true }),
+    });
+    assert.equal(updated.statusCode, 200);
+    assert.equal(d(updated.body.session).webSearchEnabled, true);
+
+    const reloaded = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
+    assert.equal(d(reloaded.body.session).webSearchEnabled, true);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
 test('repo-search auto-append preview reports agents.md and file listing token counts', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-auto-append-preview-'));
   const previousCwd = enterDashboardTestRepo(tempRoot);

@@ -47,6 +47,44 @@ test('ModelJson parses repo-search tool batches', () => {
   });
 });
 
+test('resolveRepoSearchPlannerToolDefinitions only emits web tool schemas when explicitly allowed', () => {
+  const withoutWeb = resolveRepoSearchPlannerToolDefinitions(['repo_rg']);
+  assert.equal(withoutWeb.some((tool) => tool.function.name === 'web_search'), false);
+  assert.equal(withoutWeb.some((tool) => tool.function.name === 'web_fetch'), false);
+
+  const withWeb = resolveRepoSearchPlannerToolDefinitions(['repo_rg', 'web_search', 'web_fetch']);
+  assert.equal(withWeb.some((tool) => tool.function.name === 'web_search'), true);
+  assert.equal(withWeb.some((tool) => tool.function.name === 'web_fetch'), true);
+  const webSearch = withWeb.find((tool) => tool.function.name === 'web_search');
+  assert.deepEqual(webSearch?.function?.parameters?.required, ['query']);
+});
+
+test('getRepoSearchToolNamesForParsing excludes web tools so forged web actions are rejected by default', () => {
+  const names = getRepoSearchToolNamesForParsing();
+  assert.equal(names.includes('web_search'), false);
+  assert.equal(names.includes('web_fetch'), false);
+});
+
+test('ModelJson rejects web tools unless allowed and normalizes their args when allowed', () => {
+  assert.throws(
+    () => ModelJson.parseRepoSearchPlannerAction('{"action":"web_search","query":"x"}', { allowedToolNames: ['repo_rg'] }),
+    /unknown|invalid/i,
+  );
+
+  assert.deepEqual(
+    ModelJson.parseRepoSearchPlannerAction('{"action":"web_search","query":"x"}', { allowedToolNames: ['web_search'] }),
+    { action: 'tool', tool_name: 'web_search', args: { query: 'x' } },
+  );
+  assert.deepEqual(
+    ModelJson.parseRepoSearchPlannerAction('{"action":"web_search","query":"x","timeFilter":"week"}', { allowedToolNames: ['web_search'] }),
+    { action: 'tool', tool_name: 'web_search', args: { query: 'x', timeFilter: 'week' } },
+  );
+  assert.deepEqual(
+    ModelJson.parseRepoSearchPlannerAction('{"action":"web_fetch","url":"https://example.com"}', { allowedToolNames: ['web_fetch'] }),
+    { action: 'tool', tool_name: 'web_fetch', args: { url: 'https://example.com' } },
+  );
+});
+
 test('repo-search tool registry exposes native read/list tools and drops redundant legacy ones', () => {
   const toolNames = getRepoSearchToolNames().sort();
   assert.equal(toolNames.includes('repo_read_file'), true);

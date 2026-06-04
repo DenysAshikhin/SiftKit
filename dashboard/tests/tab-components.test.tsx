@@ -400,6 +400,8 @@ function renderChatTab(overrides: Partial<ChatTabProps> = {}): string {
     isDirectChatMode: overrides.isDirectChatMode ?? false,
     isRepoToolMode: overrides.isRepoToolMode ?? false,
     isThinkingEnabledForCurrentSession: overrides.isThinkingEnabledForCurrentSession ?? false,
+    webSearchEnabled: overrides.webSearchEnabled ?? false,
+    webSearchOverride: overrides.webSearchOverride ?? 'default',
     showSettings: overrides.showSettings ?? false,
     planRepoRootInput: overrides.planRepoRootInput ?? '',
     contextUsage: overrides.contextUsage ?? null,
@@ -420,6 +422,8 @@ function renderChatTab(overrides: Partial<ChatTabProps> = {}): string {
     onDeleteSession: overrides.onDeleteSession ?? (async () => {}),
     onUpdateSessionPreset: overrides.onUpdateSessionPreset ?? (async () => {}),
     onToggleThinking: overrides.onToggleThinking ?? (async () => {}),
+    onToggleWebSearchEnabled: overrides.onToggleWebSearchEnabled ?? (async () => {}),
+    onChangeWebSearchOverride: overrides.onChangeWebSearchOverride ?? (() => {}),
     onSavePlanRepoRoot: overrides.onSavePlanRepoRoot ?? (async () => {}),
     onClearToolContext: overrides.onClearToolContext ?? (async () => {}),
     onDeleteMessage: overrides.onDeleteMessage ?? (async () => {}),
@@ -1118,6 +1122,36 @@ test('chat tab renders thinking pill in direct chat mode and marks active when e
   });
   assert.match(disabled, /thinking-toggle/u);
   assert.doesNotMatch(disabled, /thinking-toggle active/u);
+});
+
+test('chat tab composer always renders a Web override pill and cycles its title', () => {
+  const def = renderChatTab({ webPresets: [PRESET], selectedChatPreset: PRESET, chatMode: 'chat', isDirectChatMode: true, webSearchOverride: 'default' });
+  assert.match(def, /web-toggle/u);
+  assert.match(def, /Web follows session setting/u);
+  assert.doesNotMatch(def, /web-toggle active/u);
+
+  const on = renderChatTab({ webPresets: [PRESET], selectedChatPreset: PRESET, chatMode: 'chat', isDirectChatMode: true, webSearchOverride: 'on' });
+  assert.match(on, /web-toggle active/u);
+  assert.match(on, /Web forced on for next message/u);
+
+  const off = renderChatTab({ webPresets: [PRESET], selectedChatPreset: PRESET, chatMode: 'chat', isDirectChatMode: true, webSearchOverride: 'off' });
+  assert.match(off, /web-toggle active/u);
+  assert.match(off, /Web forced off for next message/u);
+});
+
+test('chat tab repo-search first message controls render AGENTS.md, File scan, and Web', () => {
+  const markup = renderChatTab({
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'repo-search',
+    isRepoToolMode: true,
+    selectedSession: { ...CHAT_SESSION, messages: [] },
+    liveMessages: [],
+    webSearchEnabled: true,
+  });
+  assert.match(markup, /AGENTS\.md/u);
+  assert.match(markup, /File scan/u);
+  assert.match(markup, /Disable web search for this session/u);
 });
 
 test('chat tab hides the thinking pill outside direct chat mode', () => {

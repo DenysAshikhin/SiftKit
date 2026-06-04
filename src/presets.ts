@@ -26,7 +26,8 @@ export const REPO_SEARCH_TOOLS = [
   'repo_join_string',
 ] as const;
 
-const PRESET_TOOL_NAMES = [...SUMMARY_TOOLS, ...REPO_SEARCH_TOOLS] as const;
+export const WEB_RESEARCH_TOOLS = ['web_search', 'web_fetch'] as const;
+const PRESET_TOOL_NAMES = [...SUMMARY_TOOLS, ...REPO_SEARCH_TOOLS, ...WEB_RESEARCH_TOOLS] as const;
 const PRESET_TOOL_NAME_SET = new Set<string>(PRESET_TOOL_NAMES as readonly string[]);
 const LEGACY_REPO_SEARCH_TOOL_ALIAS = 'run_repo_cmd';
 const READ_ONLY_TOOLS = [...REPO_SEARCH_TOOLS] as const;

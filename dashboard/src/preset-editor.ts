@@ -28,6 +28,8 @@ export const PRESET_TOOL_OPTIONS: DashboardPresetToolName[] = [
   'repo_convertfrom_json',
   'repo_get_unique',
   'repo_join_string',
+  'web_search',
+  'web_fetch',
 ];
 
 export const PRESET_TOOL_DESCRIPTIONS: Record<DashboardPresetToolName, string> = {
@@ -73,6 +75,10 @@ export const PRESET_TOOL_DESCRIPTIONS: Record<DashboardPresetToolName, string> =
     'PowerShell Get-Unique. Best for de-duplicating a sorted piped collection (typically after Sort-Object).',
   repo_join_string:
     'PowerShell Join-String. Best for concatenating piped values into a single delimited string for compact output or building an argument list.',
+  web_search:
+    'Search public web results. Best for finding current or external information by query; returns result titles, URLs, and snippets.',
+  web_fetch:
+    'Fetch public URL text. Best for reading the extracted text of one public HTTP(S) page. Private, local, and internal URLs are blocked.',
 };
 
 const SUMMARY_TOOLS: DashboardPresetToolName[] = ['find_text', 'read_lines', 'json_filter', 'json_get'];

@@ -1,16 +1,19 @@
 import { useState } from 'react';
 import {
+  appendChatMessage,
   streamChatMessage,
   streamPlanMessage,
   streamRepoSearchMessage,
 } from '../api';
 import { buildRepoSearchAutoAppendPayload } from '../lib/repo-append-controls';
+import { resolveEffectiveWebSearchEnabled } from '../lib/web-search-controls';
 import type { ChatStreamToolEvent } from '../lib/chat-stream-parser';
 import type {
   ChatSession,
   ContextUsage,
   DashboardPreset,
   RepoSearchAutoAppendSelection,
+  WebSearchOverride,
 } from '../types';
 import type { UseLiveMessagesResult } from './useLiveMessages';
 import type { UseContextUsageResult } from './useContextUsage';
@@ -18,10 +21,28 @@ import type { UseContextUsageResult } from './useContextUsage';
 export type UseChatComposerResult = {
   chatInput: string;
   setChatInput(value: string): void;
+  webSearchOverride: WebSearchOverride;
+  setWebSearchOverride(value: WebSearchOverride): void;
   sendMessage(): Promise<void>;
   sendPlan(): Promise<void>;
   sendRepoSearch(): Promise<void>;
 };
+
+export type DirectChatSendPlan = {
+  useBuffered: boolean;
+  payload: { content: string; webSearchOverride: WebSearchOverride };
+};
+
+export function resolveDirectChatSend(
+  session: ChatSession,
+  override: WebSearchOverride,
+  content: string,
+): DirectChatSendPlan {
+  return {
+    useBuffered: resolveEffectiveWebSearchEnabled(session.webSearchEnabled === true, override),
+    payload: { content, webSearchOverride: override },
+  };
+}
 
 export type ParsedMaxTurnsOverride = { maxTurns: number } | Record<string, never>;
 
@@ -68,6 +89,7 @@ export function useChatComposer(deps: {
   setChatBusy(busy: boolean): void;
 }): UseChatComposerResult {
   const [chatInput, setChatInput] = useState<string>('');
+  const [webSearchOverride, setWebSearchOverride] = useState<WebSearchOverride>('default');
 
   function setChatBusy(busy: boolean): void {
     deps.setChatBusy(busy);
@@ -89,23 +111,27 @@ export function useChatComposer(deps: {
     setChatError(null);
     deps.live.resetLive();
     try {
-      const response = await streamChatMessage(
-        deps.selectedSession.id,
-        { content: chatInput.trim() },
-        (thinkingText) => {
-          if (deps.isThinkingEnabledForCurrentSession) {
-            deps.live.appendLiveThinking(thinkingText);
-          }
-        },
-        (answerText) => {
-          deps.live.upsertLiveMessage({
-            ...deps.live.createLiveMessage('live-answer', 'assistant_answer', 'assistant', answerText),
-            outputTokensEstimate: Math.max(1, Math.ceil(String(answerText || '').length / 4)),
-          });
-        },
-      );
+      const sendPlan = resolveDirectChatSend(deps.selectedSession, webSearchOverride, chatInput.trim());
+      const response = sendPlan.useBuffered
+        ? await appendChatMessage(deps.selectedSession.id, sendPlan.payload)
+        : await streamChatMessage(
+          deps.selectedSession.id,
+          sendPlan.payload,
+          (thinkingText) => {
+            if (deps.isThinkingEnabledForCurrentSession) {
+              deps.live.appendLiveThinking(thinkingText);
+            }
+          },
+          (answerText) => {
+            deps.live.upsertLiveMessage({
+              ...deps.live.createLiveMessage('live-answer', 'assistant_answer', 'assistant', answerText),
+              outputTokensEstimate: Math.max(1, Math.ceil(String(answerText || '').length / 4)),
+            });
+          },
+        );
       deps.applySessionResponse({ session: response.session, contextUsage: response.contextUsage });
       setChatInput('');
+      setWebSearchOverride('default');
     } catch (error) {
       setChatError(describeStreamError(error));
     } finally {
@@ -131,6 +157,7 @@ export function useChatComposer(deps: {
           content: chatInput.trim(),
           repoRoot,
           ...parsePlanMaxTurnsOverride(deps.planMaxTurnsInput),
+          webSearchOverride,
         },
         (thinkingText) => {
           deps.live.appendLiveThinking(thinkingText);
@@ -157,6 +184,7 @@ export function useChatComposer(deps: {
       );
       deps.applySessionResponse({ session: response.session, contextUsage: response.contextUsage });
       setChatInput('');
+      setWebSearchOverride('default');
     } catch (error) {
       setChatError(describeStreamError(error));
     } finally {
@@ -184,6 +212,7 @@ export function useChatComposer(deps: {
           repoRoot,
           ...parsePlanMaxTurnsOverride(deps.planMaxTurnsInput),
           ...buildRepoSearchAutoAppendPayload(deps.repoSearchAutoAppendSelection),
+          webSearchOverride,
         },
         (thinkingText) => {
           deps.live.appendLiveThinking(thinkingText);
@@ -207,6 +236,7 @@ export function useChatComposer(deps: {
       );
       deps.applySessionResponse({ session: response.session, contextUsage: response.contextUsage });
       setChatInput('');
+      setWebSearchOverride('default');
     } catch (error) {
       setChatError(describeStreamError(error));
     } finally {
@@ -219,6 +249,8 @@ export function useChatComposer(deps: {
   return {
     chatInput,
     setChatInput,
+    webSearchOverride,
+    setWebSearchOverride,
     sendMessage,
     sendPlan,
     sendRepoSearch,

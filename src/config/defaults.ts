@@ -95,6 +95,15 @@ export function getDefaultConfigObject(): SiftConfig {
         ActivePresetId: defaultManagedLlamaPreset.id,
       },
     },
+    WebSearch: {
+      EnabledDefault: false,
+      Provider: 'searxng',
+      SearxngBaseUrl: 'http://127.0.0.1:8080',
+      ResultCount: 5,
+      FetchMaxPages: 3,
+      TimeoutMs: 15000,
+      FetchMaxCharacters: 12000,
+    },
     Paths: runtimePaths,
   };
 }

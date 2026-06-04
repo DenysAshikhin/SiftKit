@@ -97,6 +97,16 @@ export type ServerLlamaCppConfig = {
   ActivePresetId: string;
 };
 
+export type WebSearchConfig = {
+  EnabledDefault: boolean;
+  Provider: 'searxng';
+  SearxngBaseUrl: string;
+  ResultCount: number;
+  FetchMaxPages: number;
+  TimeoutMs: number;
+  FetchMaxCharacters: number;
+};
+
 export type SiftConfig = {
   Version: string;
   Backend: string;
@@ -121,6 +131,7 @@ export type SiftConfig = {
   Server: {
     LlamaCpp: ServerLlamaCppConfig;
   };
+  WebSearch?: WebSearchConfig;
   Paths?: {
     RuntimeRoot: string;
     Logs: string;

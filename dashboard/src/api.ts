@@ -22,6 +22,7 @@ import type {
   DashboardBenchmarkSessionsResponse,
   DashboardBenchmarkStartRequest,
   RepoSearchAutoAppendPreview,
+  WebSearchOverride,
 } from './types';
 import { ChatStreamReader, type ChatStreamToolEvent } from './lib/chat-stream-parser';
 
@@ -275,7 +276,7 @@ export function createChatSession(payload: {
 
 export function updateChatSession(
   sessionId: string,
-  payload: { title?: string; thinkingEnabled?: boolean; presetId?: string; mode?: 'chat' | 'plan' | 'repo-search'; planRepoRoot?: string }
+  payload: { title?: string; thinkingEnabled?: boolean; webSearchEnabled?: boolean; presetId?: string; mode?: 'chat' | 'plan' | 'repo-search'; planRepoRoot?: string }
 ): Promise<ChatSessionResponse> {
   return fetchJson<ChatSessionResponse>(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}`, {
     method: 'PUT',
@@ -286,7 +287,7 @@ export function updateChatSession(
 
 export function appendChatMessage(
   sessionId: string,
-  payload: { content: string; assistantContent?: string }
+  payload: { content: string; assistantContent?: string; webSearchOverride?: WebSearchOverride }
 ): Promise<ChatSessionResponse> {
   return fetchJson<ChatSessionResponse>(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/messages`, {
     method: 'POST',
@@ -297,7 +298,7 @@ export function appendChatMessage(
 
 export async function streamChatMessage(
   sessionId: string,
-  payload: { content: string },
+  payload: { content: string; webSearchOverride?: WebSearchOverride },
   onThinking: (thinkingText: string) => void,
   onAnswer: (answerText: string) => void,
 ): Promise<ChatSessionResponse> {
@@ -402,6 +403,7 @@ export async function streamPlanMessage(
     maxTurns?: number;
     includeAgentsMd?: boolean;
     includeRepoFileListing?: boolean;
+    webSearchOverride?: WebSearchOverride;
   },
   onThinking: (thinkingText: string) => void,
   onToolEvent: (event: ChatStreamToolEvent) => void,
@@ -425,6 +427,7 @@ export async function streamRepoSearchMessage(
     maxTurns?: number;
     includeAgentsMd?: boolean;
     includeRepoFileListing?: boolean;
+    webSearchOverride?: WebSearchOverride;
   },
   onThinking: (thinkingText: string) => void,
   onToolEvent: (event: ChatStreamToolEvent) => void,

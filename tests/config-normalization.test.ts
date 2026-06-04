@@ -16,6 +16,42 @@ function configWithSpeculativeType(speculativeType: string): Dict {
   return config;
 }
 
+test('normalizeConfig produces default WebSearch config', () => {
+  const normalized = normalizeConfig(getDefaultConfig());
+  assert.deepEqual(normalized.WebSearch, {
+    EnabledDefault: false,
+    Provider: 'searxng',
+    SearxngBaseUrl: 'http://127.0.0.1:8080',
+    ResultCount: 5,
+    FetchMaxPages: 3,
+    TimeoutMs: 15000,
+    FetchMaxCharacters: 12000,
+  });
+});
+
+test('normalizeConfig clamps WebSearch numeric bounds and forces provider', () => {
+  const config = getDefaultConfig() as Dict;
+  config.WebSearch = {
+    EnabledDefault: true,
+    Provider: 'other',
+    SearxngBaseUrl: '  http://lan:8080  ',
+    ResultCount: 99,
+    FetchMaxPages: 0,
+    TimeoutMs: 10,
+    FetchMaxCharacters: 999999,
+  };
+  const normalized = normalizeConfig(config);
+  assert.deepEqual(normalized.WebSearch, {
+    EnabledDefault: true,
+    Provider: 'searxng',
+    SearxngBaseUrl: 'http://lan:8080',
+    ResultCount: 10,
+    FetchMaxPages: 1,
+    TimeoutMs: 1000,
+    FetchMaxCharacters: 50000,
+  });
+});
+
 test('normalizeConfig keeps Server.LlamaCpp as a presets-only shape', () => {
   const normalized = normalizeConfig(getDefaultConfig());
   const llama = (normalized.Server as Dict).LlamaCpp as Dict;

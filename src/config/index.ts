@@ -33,6 +33,7 @@ export type {
   ServerManagedLlamaPreset,
   ServerLlamaCppConfig,
   SiftConfig,
+  WebSearchConfig,
 } from './types.js';
 
 export {

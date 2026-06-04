@@ -45,13 +45,20 @@ const SUMMARY_TOOL_OPTIONS: DashboardPresetToolName[] = ['find_text', 'read_line
 const REPO_TOOL_OPTIONS: DashboardPresetToolName[] = PRESET_TOOL_OPTIONS.filter(
   (tool): tool is DashboardPresetToolName => tool.startsWith('repo_'),
 );
+const WEB_TOOL_OPTIONS: DashboardPresetToolName[] = ['web_search', 'web_fetch'];
 
 test('PRESET_TOOL_OPTIONS exposes every supported tool exactly once', () => {
   assert.equal(new Set(PRESET_TOOL_OPTIONS).size, PRESET_TOOL_OPTIONS.length);
   assert.deepEqual(PRESET_TOOL_OPTIONS, [
     ...SUMMARY_TOOL_OPTIONS,
     ...REPO_TOOL_OPTIONS,
+    ...WEB_TOOL_OPTIONS,
   ] satisfies DashboardPresetToolName[]);
+});
+
+test('PRESET_TOOL_OPTIONS includes gated web tools exactly once', () => {
+  assert.equal(PRESET_TOOL_OPTIONS.filter((tool) => tool === 'web_search').length, 1);
+  assert.equal(PRESET_TOOL_OPTIONS.filter((tool) => tool === 'web_fetch').length, 1);
 });
 
 test('getFallbackPresetId keeps the selected preset when still present', () => {

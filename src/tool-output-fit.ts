@@ -1,4 +1,4 @@
-export type ToolOutputTruncationUnit = 'lines' | 'files' | 'results';
+export type ToolOutputTruncationUnit = 'lines' | 'files' | 'results' | 'characters';
 
 export type ToolOutputFitResult = {
   visibleText: string;

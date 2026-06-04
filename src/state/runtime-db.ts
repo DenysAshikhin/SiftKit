@@ -7,7 +7,7 @@ import { normalizeOperationModeAllowedTools, normalizePresets } from '../presets
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-export const CURRENT_SCHEMA_VERSION = 28;
+export const CURRENT_SCHEMA_VERSION = 29;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["repo_rg","repo_read_file","repo_list_files","repo_git","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}';
 
@@ -118,6 +118,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       server_external_server_enabled INTEGER NOT NULL DEFAULT 0 CHECK (server_external_server_enabled IN (0, 1)),
       operation_mode_allowed_tools_json TEXT NOT NULL DEFAULT '${DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON}',
       presets_json TEXT NOT NULL,
+      web_search_json TEXT NOT NULL DEFAULT '{}',
       updated_at_utc TEXT NOT NULL
     );
 
@@ -169,6 +170,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       model TEXT,
       context_window_tokens INTEGER NOT NULL,
       thinking_enabled INTEGER NOT NULL CHECK (thinking_enabled IN (0, 1)),
+      web_search_enabled INTEGER NOT NULL DEFAULT 0 CHECK (web_search_enabled IN (0, 1)),
       preset_id TEXT,
       mode TEXT NOT NULL CHECK (mode IN ('chat', 'plan', 'repo-search')),
       plan_repo_root TEXT NOT NULL,
@@ -1094,6 +1096,16 @@ function ensureSchema(database: RuntimeDatabase): void {
     }
     setSchemaVersion(database, 28);
     currentVersion = 28;
+  }
+  if (currentVersion < 29) {
+    if (!tableHasColumn(database, 'app_config', 'web_search_json')) {
+      database.exec("ALTER TABLE app_config ADD COLUMN web_search_json TEXT NOT NULL DEFAULT '{}';");
+    }
+    if (!tableHasColumn(database, 'chat_sessions', 'web_search_enabled')) {
+      database.exec('ALTER TABLE chat_sessions ADD COLUMN web_search_enabled INTEGER NOT NULL DEFAULT 0 CHECK (web_search_enabled IN (0, 1));');
+    }
+    setSchemaVersion(database, 29);
+    currentVersion = 29;
   }
   ensureChatMessageTimelineSchema(database);
   ensureRuntimeArtifactsSchema(database);

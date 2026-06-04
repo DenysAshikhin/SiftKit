@@ -28,6 +28,7 @@ export type UseChatSessionsResult = {
   deleteSession(): Promise<void>;
   updateSessionPreset(presetId: string): Promise<void>;
   toggleThinking(enabled: boolean): Promise<void>;
+  toggleWebSearch(enabled: boolean): Promise<void>;
   savePlanRepoRoot(planRepoRootInput: string, presetId: string | undefined): Promise<void>;
   condense(): Promise<void>;
   clearToolContext(): Promise<void>;
@@ -194,6 +195,21 @@ export function useChatSessions(deps: {
     }
   }
 
+  async function toggleWebSearch(enabled: boolean): Promise<void> {
+    if (!selectedSessionId) {
+      return;
+    }
+    setChatBusy(true);
+    try {
+      const response = await updateChatSession(selectedSessionId, { webSearchEnabled: enabled });
+      applySessionResponse(response);
+    } catch (error) {
+      deps.onError(error);
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
   async function savePlanRepoRoot(planRepoRootInput: string, presetId: string | undefined): Promise<void> {
     if (!selectedSessionId || !planRepoRootInput.trim()) {
       return;
@@ -279,6 +295,7 @@ export function useChatSessions(deps: {
     deleteSession,
     updateSessionPreset,
     toggleThinking,
+    toggleWebSearch,
     savePlanRepoRoot,
     condense,
     clearToolContext,
