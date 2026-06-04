@@ -697,6 +697,8 @@ export async function streamChatAssistantMessage(
       let rawBuffer = '';
       let assistantContent = '';
       let thinkingContent = '';
+      let sawDone = false;
+      let settled = false;
       let finalUsage: ChatUsage = {
         promptTokens: null,
         completionTokens: null,
@@ -707,6 +709,35 @@ export async function streamChatAssistantMessage(
         generationDurationMs: null,
         promptTokensPerSecond: null,
         generationTokensPerSecond: null,
+      };
+      const resolveCompletedStream = (): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (!assistantContent.trim()) {
+          reject(new Error('llama.cpp chat stream returned an empty assistant message.'));
+          return;
+        }
+        resolve({
+          assistantContent: assistantContent.trim(),
+          thinkingContent: thinkingContent.trim(),
+          usage: finalUsage,
+        });
+      };
+      const rejectIncompleteStream = (error: Error): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        reject(error);
+      };
+      const handleStreamCloseError = (error: Error): void => {
+        if (sawDone && assistantContent.trim()) {
+          resolveCompletedStream();
+          return;
+        }
+        rejectIncompleteStream(error);
       };
       response.setEncoding('utf8');
       response.on('data', (chunk: string) => {
@@ -726,6 +757,7 @@ export async function streamChatAssistantMessage(
           }
           const dataValue = dataLine.slice(5).trim();
           if (dataValue === '[DONE]') {
+            sawDone = true;
             continue;
           }
           try {
@@ -772,17 +804,13 @@ export async function streamChatAssistantMessage(
           }
         }
       });
-      response.on('end', () => {
-        if (!assistantContent.trim()) {
-          reject(new Error('llama.cpp chat stream returned an empty assistant message.'));
-          return;
-        }
-        resolve({
-          assistantContent: assistantContent.trim(),
-          thinkingContent: thinkingContent.trim(),
-          usage: finalUsage,
-        });
+      response.on('aborted', () => {
+        handleStreamCloseError(new Error('llama.cpp chat stream reset before completion.'));
       });
+      response.on('error', (error: Error) => {
+        handleStreamCloseError(error);
+      });
+      response.on('end', resolveCompletedStream);
     });
     request.setTimeout(600000, () => {
       request.destroy(new Error('llama.cpp chat stream timed out.'));

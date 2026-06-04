@@ -155,6 +155,32 @@ test('streamChatAssistantMessage forwards webActionInstruction and evidenceMessa
   }
 });
 
+test('streamChatAssistantMessage accepts upstream reset after DONE when answer completed', async () => {
+  const server = http.createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'complete answer' } }] })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      setImmediate(() => res.socket?.destroy(new Error('simulated post-DONE reset')));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const port = (server.address() as AddressInfo).port;
+  const config = createConfig();
+  (config.Server as Dict).LlamaCpp = {
+    ...((config.Server as Dict).LlamaCpp as Dict),
+    BaseUrl: `http://127.0.0.1:${port}`,
+  };
+  try {
+    const result = await streamChatAssistantMessage(config, createSession(), 'q', null);
+
+    assert.equal(result.assistantContent, 'complete answer');
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test('WEB_CHAT_DECISION_PROMPT documents the decision actions and fluctuating-data policy', () => {
   assert.match(WEB_CHAT_DECISION_PROMPT, /web_search/);
   assert.match(WEB_CHAT_DECISION_PROMPT, /web_fetch/);
