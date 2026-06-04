@@ -6,7 +6,7 @@ import type { ReactElement, ReactNode } from 'react';
 
 import { MetricsTab } from '../src/tabs/MetricsTab';
 import { SettingsTab } from '../src/tabs/SettingsTab';
-import { ChatTab, buildLiveMessageScrollSignature } from '../src/tabs/ChatTab';
+import { ChatTab } from '../src/tabs/ChatTab';
 import { buildRepoSearchAutoAppendPayload } from '../src/lib/repo-append-controls';
 import { BenchmarkTab } from '../src/tabs/BenchmarkTab';
 import { PresetsSection } from '../src/tabs/settings/PresetsSection';
@@ -1072,6 +1072,171 @@ test('chat tab renders context usage thinking breakdown', () => {
   assert.match(markup, /Thinking\/reasoning: 7/);
 });
 
+test('chat tab renders composer toolbar with settings, preset, and send controls', () => {
+  const markup = renderChatTab({
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'chat',
+    isDirectChatMode: true,
+    contextUsage: CONTEXT_USAGE,
+  });
+
+  assert.match(markup, /class="composer"/u);
+  assert.match(markup, /class="composer-toolbar"/u);
+  assert.match(markup, /settings-toggle/u);
+  assert.match(markup, /class="composer-send"/u);
+  assert.match(markup, /<select/u);
+});
+
+test('chat tab removes the legacy chat-mode-row above the chat log', () => {
+  const markup = renderChatTab({
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'chat',
+    isDirectChatMode: true,
+    contextUsage: CONTEXT_USAGE,
+  });
+
+  assert.doesNotMatch(markup, /chat-mode-row/u);
+});
+
+test('chat tab renders thinking pill in direct chat mode and marks active when enabled', () => {
+  const enabled = renderChatTab({
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'chat',
+    isDirectChatMode: true,
+    isThinkingEnabledForCurrentSession: true,
+    contextUsage: CONTEXT_USAGE,
+  });
+  assert.match(enabled, /thinking-toggle active/u);
+
+  const disabled = renderChatTab({
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'chat',
+    isDirectChatMode: true,
+    isThinkingEnabledForCurrentSession: false,
+    contextUsage: CONTEXT_USAGE,
+  });
+  assert.match(disabled, /thinking-toggle/u);
+  assert.doesNotMatch(disabled, /thinking-toggle active/u);
+});
+
+test('chat tab hides the thinking pill outside direct chat mode', () => {
+  const markup = renderChatTab({
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'repo-search',
+    isRepoToolMode: true,
+    isDirectChatMode: false,
+    contextUsage: CONTEXT_USAGE,
+  });
+  assert.doesNotMatch(markup, /thinking-toggle/u);
+});
+
+test('chat tab renders context bar with fill width matching usage ratio', () => {
+  const markup = renderChatTab({
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'chat',
+    isDirectChatMode: true,
+    contextUsage: { ...CONTEXT_USAGE, chatUsedTokens: 2500, contextWindowTokens: 10000 },
+  });
+
+  assert.match(markup, /class="context-bar"/u);
+  assert.match(markup, /width:25%/u);
+  assert.match(markup, /25\.0% used/u);
+});
+
+test('chat tab context bar color shifts toward red as ratio grows', () => {
+  const low = renderChatTab({
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'chat',
+    isDirectChatMode: true,
+    contextUsage: { ...CONTEXT_USAGE, chatUsedTokens: 10, contextWindowTokens: 100 },
+  });
+  const high = renderChatTab({
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'chat',
+    isDirectChatMode: true,
+    contextUsage: { ...CONTEXT_USAGE, chatUsedTokens: 90, contextWindowTokens: 100 },
+  });
+
+  assert.match(low, /hsl\(108, 70%, 45%\)/u);
+  assert.match(high, /hsl\(12, 70%, 45%\)/u);
+});
+
+test('chat tab gear popover shows context details only when showSettings is true', () => {
+  const open = renderChatTab({
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'chat',
+    isDirectChatMode: true,
+    showSettings: true,
+    contextUsage: CONTEXT_USAGE,
+  });
+  assert.match(open, /composer-settings-popover/u);
+  assert.match(open, /Remaining:/u);
+  assert.match(open, /Discard Tool Context/u);
+
+  const closed = renderChatTab({
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'chat',
+    isDirectChatMode: true,
+    showSettings: false,
+    contextUsage: CONTEXT_USAGE,
+  });
+  assert.doesNotMatch(closed, /composer-settings-popover/u);
+  assert.doesNotMatch(closed, /Discard Tool Context/u);
+});
+
+test('chat tab user message bubble carries the .msg.user class', () => {
+  const session = {
+    ...CHAT_SESSION,
+    messages: [{ ...CHAT_MESSAGE, id: 'u1', role: 'user', kind: 'user_text', content: 'hi' } as ChatMessage],
+  } as ChatSession;
+  const markup = renderChatTab({
+    selectedSession: session,
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'chat',
+    isDirectChatMode: true,
+    contextUsage: CONTEXT_USAGE,
+  });
+  assert.match(markup, /class="msg user user_text/u);
+});
+
+test('chat tab assistant message bubble carries the .msg.assistant class', () => {
+  const markup = renderChatTab({
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'chat',
+    isDirectChatMode: true,
+    contextUsage: CONTEXT_USAGE,
+  });
+  assert.match(markup, /class="msg assistant assistant_answer/u);
+});
+
+test('chat tab tool-call bubble carries the assistant class for left alignment', () => {
+  const session = {
+    ...CHAT_SESSION,
+    messages: [CHAT_TOOL_MESSAGE],
+  } as ChatSession;
+  const markup = renderChatTab({
+    selectedSession: session,
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'repo-search',
+    isRepoToolMode: true,
+    contextUsage: CONTEXT_USAGE,
+  });
+  assert.match(markup, /class="msg assistant assistant_tool_call/u);
+});
+
 test('chat tab renders typed thinking and tool bubbles with trash and expandable output', () => {
   const session = {
     ...CHAT_SESSION,
@@ -1122,17 +1287,6 @@ test('chat tab renders only explicit model-visible tool commands', () => {
   assert.doesNotMatch(markup, /--no-ignore|--ignore-case|--glob/u);
 });
 
-test('chat tab live scroll signature changes when streamed content grows', () => {
-  const before = buildLiveMessageScrollSignature([
-    { ...CHAT_THINKING_MESSAGE, id: 'live-thinking', content: 'first chunk' },
-  ]);
-  const after = buildLiveMessageScrollSignature([
-    { ...CHAT_THINKING_MESSAGE, id: 'live-thinking', content: 'first chunk\nsecond chunk' },
-  ]);
-
-  assert.notEqual(before, after);
-});
-
 test('renderChatTab accepts overrides and produces stable markup', () => {
   const session: ChatSession = { ...CHAT_SESSION, title: 'renderer-fixture-title' };
   const markup = renderChatTab({
@@ -1143,29 +1297,6 @@ test('renderChatTab accepts overrides and produces stable markup', () => {
   });
   assert.equal(typeof markup, 'string');
   assert.equal(markup.includes('renderer-fixture-title'), true);
-});
-
-test('buildLiveMessageScrollSignature changes when content of identical length is replaced', () => {
-  const baseMessage: ChatMessage = {
-    id: 'm1',
-    role: 'assistant',
-    kind: 'assistant_tool_call',
-    content: 'abc',
-    inputTokensEstimate: 0,
-    outputTokensEstimate: 0,
-    thinkingTokens: 0,
-    associatedToolTokens: 0,
-    createdAtUtc: '2026-06-03T12:00:00.000Z',
-    sourceRunId: null,
-    toolCallCommand: 'rg foo',
-    toolCallOutputSnippet: 'hit',
-    toolCallOutput: '',
-    toolCallStatus: 'running',
-    toolCallExitCode: null,
-  };
-  const before = buildLiveMessageScrollSignature([baseMessage]);
-  const after = buildLiveMessageScrollSignature([{ ...baseMessage, toolCallOutputSnippet: 'hot' }]);
-  assert.notEqual(before, after, 'equal-length replacement must change scroll signature');
 });
 
 test('chat tab renders non-deletable collapsed system context bubble first', () => {

@@ -1,0 +1,290 @@
+import { useEffect, useState } from 'react';
+
+import {
+  clearToolContext as clearToolContextRequest,
+  condenseChatSession,
+  createChatSession,
+  deleteChatMessage,
+  deleteChatSession,
+  getChatSession,
+  getChatSessions,
+  updateChatSession,
+} from '../api';
+import type { ChatSession, ChatSessionResponse, ContextUsage } from '../types';
+
+export type CreateChatSessionRequest = {
+  title: string;
+  model: string;
+  presetId?: string;
+};
+
+export type UseChatSessionsResult = {
+  sessions: ChatSession[];
+  selectedSessionId: string;
+  selectedSession: ChatSession | null;
+  selectSession(sessionId: string): void;
+  refreshSessions(): Promise<void>;
+  createSession(): Promise<void>;
+  deleteSession(): Promise<void>;
+  updateSessionPreset(presetId: string): Promise<void>;
+  toggleThinking(enabled: boolean): Promise<void>;
+  savePlanRepoRoot(planRepoRootInput: string, presetId: string | undefined): Promise<void>;
+  condense(): Promise<void>;
+  clearToolContext(): Promise<void>;
+  deleteMessage(messageId: string): Promise<ChatSessionResponse | null>;
+  applySessionResponse(response: ChatSessionResponse): void;
+  setChatBusy(busy: boolean): void;
+  chatBusy: boolean;
+};
+
+export function pickFirstSessionId(sessions: ChatSession[]): string {
+  return sessions[0]?.id ?? '';
+}
+
+export function findSessionByIdStrict(sessions: ChatSession[], sessionId: string): ChatSession {
+  const found = sessions.find((session) => session.id === sessionId);
+  if (!found) {
+    throw new Error(`useChatSessions: unknown session id "${sessionId}"`);
+  }
+  return found;
+}
+
+export function useChatSessions(deps: {
+  onError(error: unknown): void;
+  initialSelectedSessionId: string;
+  refreshToken: number;
+  buildCreateSessionRequest(): CreateChatSessionRequest;
+  confirmDeleteSession(): boolean;
+  confirmClearToolContext(): boolean;
+  applyContextUsage(value: ContextUsage | null): void;
+}): UseChatSessionsResult {
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<string>(deps.initialSelectedSessionId);
+  const [selectedSession, setSelectedSession] = useState<ChatSession | null>(null);
+  const [chatBusy, setChatBusy] = useState<boolean>(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await getChatSessions();
+        if (cancelled) {
+          return;
+        }
+        setSessions(response.sessions);
+        if (!selectedSessionId) {
+          const firstId = pickFirstSessionId(response.sessions);
+          if (firstId) {
+            setSelectedSessionId(firstId);
+          }
+        }
+      } catch (error) {
+        if (!cancelled) {
+          deps.onError(error);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSessionId, deps.refreshToken]);
+
+  useEffect(() => {
+    if (!selectedSessionId) {
+      setSelectedSession(null);
+      deps.applyContextUsage(null);
+      return;
+    }
+    let cancelled = false;
+    void getChatSession(selectedSessionId)
+      .then((response) => {
+        if (!cancelled) {
+          setSelectedSession(response.session);
+          deps.applyContextUsage(response.contextUsage);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          deps.onError(error);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSessionId]);
+
+  function applySessionResponse(response: ChatSessionResponse): void {
+    setSelectedSession(response.session);
+    deps.applyContextUsage(response.contextUsage);
+  }
+
+  async function refreshSessions(): Promise<void> {
+    try {
+      const response = await getChatSessions();
+      setSessions(response.sessions);
+    } catch (error) {
+      deps.onError(error);
+    }
+  }
+
+  async function createSession(): Promise<void> {
+    setChatBusy(true);
+    try {
+      const response = await createChatSession(deps.buildCreateSessionRequest());
+      setSessions((previous) => [response.session, ...previous]);
+      setSelectedSessionId(response.session.id);
+      applySessionResponse(response);
+    } catch (error) {
+      deps.onError(error);
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
+  async function deleteSession(): Promise<void> {
+    if (!selectedSessionId) {
+      return;
+    }
+    if (!deps.confirmDeleteSession()) {
+      return;
+    }
+    setChatBusy(true);
+    try {
+      await deleteChatSession(selectedSessionId);
+      const response = await getChatSessions();
+      setSessions(response.sessions);
+      const nextSession = response.sessions[0] ?? null;
+      setSelectedSessionId(nextSession ? nextSession.id : '');
+      setSelectedSession(nextSession);
+      deps.applyContextUsage(null);
+    } catch (error) {
+      deps.onError(error);
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
+  async function updateSessionPreset(presetId: string): Promise<void> {
+    if (!selectedSessionId) {
+      return;
+    }
+    setChatBusy(true);
+    try {
+      const response = await updateChatSession(selectedSessionId, { presetId });
+      applySessionResponse(response);
+    } catch (error) {
+      deps.onError(error);
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
+  async function toggleThinking(enabled: boolean): Promise<void> {
+    if (!selectedSessionId) {
+      return;
+    }
+    setChatBusy(true);
+    try {
+      const response = await updateChatSession(selectedSessionId, { thinkingEnabled: enabled });
+      applySessionResponse(response);
+    } catch (error) {
+      deps.onError(error);
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
+  async function savePlanRepoRoot(planRepoRootInput: string, presetId: string | undefined): Promise<void> {
+    if (!selectedSessionId || !planRepoRootInput.trim()) {
+      return;
+    }
+    setChatBusy(true);
+    try {
+      const response = await updateChatSession(selectedSessionId, {
+        ...(presetId ? { presetId } : {}),
+        planRepoRoot: planRepoRootInput.trim(),
+      });
+      applySessionResponse(response);
+    } catch (error) {
+      deps.onError(error);
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
+  async function condense(): Promise<void> {
+    if (!selectedSessionId) {
+      return;
+    }
+    setChatBusy(true);
+    try {
+      const response = await condenseChatSession(selectedSessionId);
+      applySessionResponse(response);
+    } catch (error) {
+      deps.onError(error);
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
+  async function clearToolContext(): Promise<void> {
+    if (!selectedSessionId) {
+      return;
+    }
+    if (!deps.confirmClearToolContext()) {
+      return;
+    }
+    setChatBusy(true);
+    try {
+      const response = await clearToolContextRequest(selectedSessionId);
+      applySessionResponse(response);
+    } catch (error) {
+      deps.onError(error);
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
+  async function deleteMessage(messageId: string): Promise<ChatSessionResponse | null> {
+    if (!selectedSessionId || !messageId) {
+      return null;
+    }
+    setChatBusy(true);
+    try {
+      const response = await deleteChatMessage(selectedSessionId, messageId);
+      applySessionResponse(response);
+      return response;
+    } catch (error) {
+      deps.onError(error);
+      return null;
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
+  function selectSession(sessionId: string): void {
+    if (sessions.length > 0) {
+      findSessionByIdStrict(sessions, sessionId);
+    }
+    setSelectedSessionId(sessionId);
+  }
+
+  return {
+    sessions,
+    selectedSessionId,
+    selectedSession,
+    selectSession,
+    refreshSessions,
+    createSession,
+    deleteSession,
+    updateSessionPreset,
+    toggleThinking,
+    savePlanRepoRoot,
+    condense,
+    clearToolContext,
+    deleteMessage,
+    applySessionResponse,
+    setChatBusy,
+    chatBusy,
+  };
+}

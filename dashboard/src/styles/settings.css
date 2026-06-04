@@ -1,20 +1,3 @@
-.settings-toggle {
-  font-size: 1.1rem;
-  padding: 4px 8px;
-}
-
-.settings-summary {
-  margin-left: auto;
-  white-space: nowrap;
-}
-
-.settings-inline-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
 .settings-live-layout {
   grid-template-columns: 280px minmax(0, 1fr);
 }

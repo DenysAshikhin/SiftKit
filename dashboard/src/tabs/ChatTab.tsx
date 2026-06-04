@@ -1,4 +1,3 @@
-import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -8,8 +7,14 @@ import {
   formatPercent,
   getMessageTokenCount,
 } from '../lib/format';
+import {
+  buildFallbackPromptContext,
+  buildLiveMessageScrollSignature,
+  compareMessageCreatedAt,
+} from '../lib/chatMessages';
+import { computeContextBarVisual } from '../lib/contextBar';
+import { useChatScroll } from '../hooks/useChatScroll';
 import type {
-  ChatPromptContext,
   ChatSession,
   ContextUsage,
   DashboardPreset,
@@ -72,75 +77,6 @@ type ChatTabProps = {
   onSendMessage(): Promise<void>;
 };
 
-function compareMessageCreatedAt(left: ChatMessage, right: ChatMessage): number {
-  const leftTime = Date.parse(left.createdAtUtc || '');
-  const rightTime = Date.parse(right.createdAtUtc || '');
-  if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
-    return leftTime - rightTime;
-  }
-  return 0;
-}
-
-function hashFnv1a32(value: string): string {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = (hash + ((hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24))) >>> 0;
-  }
-  return hash.toString(16);
-}
-
-export function buildLiveMessageScrollSignature(messages: ChatMessage[]): string {
-  return messages.map((message) => [
-    message.id,
-    message.kind || '',
-    hashFnv1a32(message.content || ''),
-    hashFnv1a32(message.toolCallCommand || ''),
-    hashFnv1a32(message.toolCallOutputSnippet || ''),
-    hashFnv1a32(message.toolCallOutput || ''),
-    message.toolCallStatus || '',
-    message.toolCallExitCode ?? '',
-  ].join(':')).join('|');
-}
-
-function buildFallbackPromptContext(
-  selectedSession: ChatSession,
-  selectedChatPreset: DashboardPreset | null,
-  isRepoToolMode: boolean,
-  planRepoRootInput: string,
-): ChatPromptContext {
-  const promptPrefix = selectedChatPreset?.promptPrefix?.trim() || 'general, coder friendly assistant';
-  const toolNames = Array.isArray(selectedChatPreset?.allowedTools) ? selectedChatPreset.allowedTools : [];
-  const parts = [
-    '## System prompt',
-    '',
-    promptPrefix,
-  ];
-  if (isRepoToolMode) {
-    parts.push(
-      '',
-      '## Tool schema',
-      '',
-      JSON.stringify({
-        mode: selectedChatPreset?.presetKind || selectedSession.mode || 'repo-search',
-        repoRoot: planRepoRootInput || selectedSession.planRepoRoot || '',
-        allowedTools: toolNames,
-        includeAgentsMd: selectedChatPreset?.includeAgentsMd !== false,
-        includeRepoFileListing: selectedChatPreset?.includeRepoFileListing !== false,
-      }, null, 2),
-    );
-  }
-  return {
-    id: `${selectedSession.id}:system-context-fallback`,
-    role: 'system',
-    kind: 'system_context',
-    label: isRepoToolMode ? 'System prompt and tool schema' : 'System prompt',
-    content: parts.join('\n'),
-    createdAtUtc: selectedSession.createdAtUtc,
-    deletable: false,
-  };
-}
-
 export function ChatTab({
   sessions,
   selectedSessionId,
@@ -190,15 +126,9 @@ export function ChatTab({
   const promptContext = selectedSession
     ? selectedSession.promptContext || buildFallbackPromptContext(selectedSession, selectedChatPreset, isRepoToolMode, planRepoRootInput)
     : null;
-  const chatLogRef = React.useRef<HTMLDivElement | null>(null);
   const visibleMessageIds = visibleMessages.map((message) => message.id).join('|');
   const liveMessageScrollSignature = buildLiveMessageScrollSignature(liveMessages);
-  React.useEffect(() => {
-    if (!chatLogRef.current) {
-      return;
-    }
-    chatLogRef.current.scrollTop = chatLogRef.current.scrollHeight;
-  }, [visibleMessageIds, liveMessageScrollSignature]);
+  const { chatLogRef } = useChatScroll(visibleMessageIds, liveMessageScrollSignature);
   return (
     <section className="panel-grid chat-layout">
       <section className="panel">
@@ -239,126 +169,6 @@ export function ChatTab({
                 {formatNumber(sessionPromptCacheStats.promptEvalTokens)} eval
               </span>
             </div>
-            <div className="chat-mode-row">
-              <button
-                type="button"
-                className={showSettings ? 'active settings-toggle' : 'settings-toggle'}
-                onClick={onToggleSettings}
-                title="Toggle settings"
-              >
-                &#9881;
-              </button>
-              <select
-                value={selectedChatPreset?.id || ''}
-                onChange={(event) => { void onUpdateSessionPreset(event.target.value); }}
-                disabled={chatBusy || webPresets.length === 0}
-              >
-                {webPresets.length === 0 ? <option value="">No presets</option> : null}
-                {webPresets.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.label}
-                  </option>
-                ))}
-              </select>
-              {selectedChatPreset ? (
-                <span className="hint settings-summary" title={selectedChatPreset.description}>
-                  {selectedChatPreset.presetKind} | {selectedChatPreset.operationMode}
-                </span>
-              ) : null}
-              {isRepoToolMode && !showSettings && (
-                <span className="hint settings-summary" title="Click the gear icon to adjust">
-                  {planMaxTurnsInput ? `${planMaxTurnsInput} turns` : ''}
-                </span>
-              )}
-            </div>
-            {showSettings && (
-              <>
-                {isDirectChatMode ? (
-                  <div className="thinking-toggle-row">
-                    <label htmlFor="thinking-toggle">Thinking</label>
-                    <input
-                      id="thinking-toggle"
-                      type="checkbox"
-                      checked={selectedSession.thinkingEnabled !== false}
-                      onChange={(event) => { void onToggleThinking(event.target.checked); }}
-                      disabled={chatBusy}
-                    />
-                  </div>
-                ) : null}
-                {isRepoToolMode ? (
-                  <div className="plan-root-row">
-                    <input
-                      placeholder="Repo folder path..."
-                      value={planRepoRootInput}
-                      onChange={(event) => onChangePlanRepoRoot(event.target.value)}
-                      disabled={chatBusy}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => { void onSavePlanRepoRoot(); }}
-                      disabled={chatBusy || !planRepoRootInput.trim()}
-                    >
-                      Save Folder
-                    </button>
-                  </div>
-                ) : null}
-                {isRepoToolMode ? (
-                  <div className="settings-inline-row">
-                    <label htmlFor="max-turns-input" title="Maximum number of tool calls before stopping">Max Turns</label>
-                    <input
-                      id="max-turns-input"
-                      type="number"
-                      min="1"
-                      max="200"
-                      style={{ width: '70px' }}
-                      value={planMaxTurnsInput}
-                      onChange={(event) => onChangePlanMaxTurns(event.target.value)}
-                      disabled={chatBusy}
-                    />
-                  </div>
-                ) : null}
-                {contextUsage && (
-                  <div className={contextUsage.shouldCondense ? 'usage warning' : 'usage'}>
-                    <strong>
-                      <span title="Replayable chat context tokens in this session, excluding hidden tool-call context.">
-                        Context: {formatNumber(contextUsage.chatUsedTokens)} / {formatNumber(contextUsage.contextWindowTokens)} tokens
-                      </span>
-                    </strong>
-                    <span title="Format: chat_tokens (total_tokens_including_hidden_tool_context).">
-                      Remaining: {formatNumber(contextUsage.remainingTokens)}
-                      {' | '}
-                      {formatNumber(contextUsage.chatUsedTokens)} ({formatNumber(contextUsage.totalUsedTokens)} with tools)
-                      {' | '}
-                      Warn at: {formatNumber(contextUsage.warnThresholdTokens)}
-                    </span>
-                    <span title="Tokens from preserved assistant thinking/reasoning text that can be replayed into the next request.">
-                      Thinking/reasoning: {formatNumber(contextUsage.thinkingUsedTokens || 0)}
-                    </span>
-                    {isRepoToolMode && Number.isFinite(liveToolPromptTokenCount) ? (
-                      <span title="Latest backend prompt_tokens for an active plan/repo-search tool step.">
-                        Live Step Prompt Tokens (backend): {formatNumber(liveToolPromptTokenCount)}
-                      </span>
-                    ) : null}
-                    {Number(contextUsage.estimatedTokenFallbackTokens || 0) > 0 ? (
-                      <span title="These session totals include local fallback estimates where backend usage was unavailable.">
-                        Estimated Fallback: {formatNumber(Number(contextUsage.estimatedTokenFallbackTokens || 0))} tokens
-                      </span>
-                    ) : null}
-                    <div className="usage-actions">
-                      <button
-                        onClick={() => { void onClearToolContext(); }}
-                        disabled={chatBusy || Number(contextUsage.toolUsedTokens || 0) <= 0}
-                      >
-                        Discard Tool Context
-                      </button>
-                    </div>
-                    {contextUsage.shouldCondense && (
-                      <button onClick={() => { void onCondense(); }} disabled={chatBusy}>Condense Now</button>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
             {selectedSession.condensedSummary && (
               <details className="detail-card">
                 <summary>Condensed Summary</summary>
@@ -447,6 +257,16 @@ export function ChatTab({
               })}
             </div>
             <div className="composer">
+              {showSettings ? (
+                <SettingsPopover
+                  contextUsage={contextUsage}
+                  liveToolPromptTokenCount={liveToolPromptTokenCount}
+                  isRepoToolMode={isRepoToolMode}
+                  chatBusy={chatBusy}
+                  onClearToolContext={onClearToolContext}
+                  onCondense={onCondense}
+                />
+              ) : null}
               {showRepoSearchAutoAppendControls ? (
                 <div className="repo-auto-append-row" aria-label="Repo-search auto-append controls">
                   <RepoAutoAppendButton
@@ -487,22 +307,95 @@ export function ChatTab({
                 onChange={(event) => onChangeChatInput(event.target.value)}
                 rows={4}
               />
-              <button
-                onClick={() => {
-                  if (chatMode === 'plan') {
-                    void onSendPlan();
-                    return;
-                  }
-                  if (chatMode === 'repo-search') {
-                    void onSendRepoSearch();
-                    return;
-                  }
-                  void onSendMessage();
-                }}
-                disabled={chatBusy || !chatInput.trim()}
-              >
-                {chatMode === 'plan' ? 'Generate Plan' : chatMode === 'repo-search' ? 'Search' : chatMode === 'summary' ? 'Summarize' : 'Send'}
-              </button>
+              <div className="composer-toolbar">
+                <div className="composer-toolbar-left">
+                  <button
+                    type="button"
+                    className={showSettings ? 'composer-pill settings-toggle active' : 'composer-pill settings-toggle'}
+                    onClick={onToggleSettings}
+                    title="Toggle settings"
+                    aria-label="Toggle settings"
+                  >
+                    &#9881;
+                  </button>
+                  {isDirectChatMode ? (
+                    <button
+                      type="button"
+                      className={isThinkingEnabledForCurrentSession ? 'composer-pill thinking-toggle active' : 'composer-pill thinking-toggle'}
+                      onClick={() => { void onToggleThinking(!isThinkingEnabledForCurrentSession); }}
+                      disabled={chatBusy}
+                      title={isThinkingEnabledForCurrentSession ? 'Disable thinking for this session' : 'Enable thinking for this session'}
+                    >
+                      <span aria-hidden="true">&#128173;</span>
+                      <span>Thinking</span>
+                    </button>
+                  ) : null}
+                  <select
+                    value={selectedChatPreset?.id || ''}
+                    onChange={(event) => { void onUpdateSessionPreset(event.target.value); }}
+                    disabled={chatBusy || webPresets.length === 0}
+                  >
+                    {webPresets.length === 0 ? <option value="">No presets</option> : null}
+                    {webPresets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.label}
+                      </option>
+                    ))}
+                  </select>
+                  {isRepoToolMode ? (
+                    <>
+                      <input
+                        className="composer-plan-root"
+                        placeholder="Repo folder path..."
+                        value={planRepoRootInput}
+                        onChange={(event) => onChangePlanRepoRoot(event.target.value)}
+                        disabled={chatBusy}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => { void onSavePlanRepoRoot(); }}
+                        disabled={chatBusy || !planRepoRootInput.trim()}
+                      >
+                        Save Folder
+                      </button>
+                      <input
+                        id="max-turns-input"
+                        type="number"
+                        min="1"
+                        max="200"
+                        className="composer-max-turns"
+                        title="Maximum number of tool calls before stopping"
+                        value={planMaxTurnsInput}
+                        onChange={(event) => onChangePlanMaxTurns(event.target.value)}
+                        disabled={chatBusy}
+                      />
+                    </>
+                  ) : null}
+                </div>
+                <div className="composer-toolbar-context">
+                  <ContextBar usage={contextUsage} />
+                </div>
+                <div className="composer-toolbar-right">
+                  <button
+                    type="button"
+                    className="composer-send"
+                    onClick={() => {
+                      if (chatMode === 'plan') {
+                        void onSendPlan();
+                        return;
+                      }
+                      if (chatMode === 'repo-search') {
+                        void onSendRepoSearch();
+                        return;
+                      }
+                      void onSendMessage();
+                    }}
+                    disabled={chatBusy || !chatInput.trim()}
+                  >
+                    {chatMode === 'plan' ? 'Generate Plan' : chatMode === 'repo-search' ? 'Search' : chatMode === 'summary' ? 'Summarize' : 'Send'}
+                  </button>
+                </div>
+              </div>
             </div>
             {chatError && <p className="error">{chatError}</p>}
           </>
@@ -511,6 +404,71 @@ export function ChatTab({
         )}
       </section>
     </section>
+  );
+}
+
+function ContextBar({ usage }: { usage: ContextUsage | null }) {
+  if (!usage) return null;
+  const visual = computeContextBarVisual(usage.chatUsedTokens, usage.contextWindowTokens);
+  return (
+    <div className="context-bar" title={visual.titleText}>
+      <div
+        className="context-bar-fill"
+        style={{ width: `${visual.percent}%`, background: visual.fillColor }}
+      />
+    </div>
+  );
+}
+
+function SettingsPopover(props: {
+  contextUsage: ContextUsage | null;
+  liveToolPromptTokenCount: number | null;
+  isRepoToolMode: boolean;
+  chatBusy: boolean;
+  onClearToolContext(): Promise<void>;
+  onCondense(): Promise<void>;
+}) {
+  const { contextUsage, liveToolPromptTokenCount, isRepoToolMode, chatBusy, onClearToolContext, onCondense } = props;
+  if (!contextUsage) return null;
+  return (
+    <div className={contextUsage.shouldCondense ? 'composer-settings-popover usage warning' : 'composer-settings-popover usage'}>
+      <strong>
+        <span title="Replayable chat context tokens in this session, excluding hidden tool-call context.">
+          Context: {formatNumber(contextUsage.chatUsedTokens)} / {formatNumber(contextUsage.contextWindowTokens)} tokens
+        </span>
+      </strong>
+      <span title="Format: chat_tokens (total_tokens_including_hidden_tool_context).">
+        Remaining: {formatNumber(contextUsage.remainingTokens)}
+        {' | '}
+        {formatNumber(contextUsage.chatUsedTokens)} ({formatNumber(contextUsage.totalUsedTokens)} with tools)
+        {' | '}
+        Warn at: {formatNumber(contextUsage.warnThresholdTokens)}
+      </span>
+      <span title="Tokens from preserved assistant thinking/reasoning text that can be replayed into the next request.">
+        Thinking/reasoning: {formatNumber(contextUsage.thinkingUsedTokens || 0)}
+      </span>
+      {isRepoToolMode && Number.isFinite(liveToolPromptTokenCount) ? (
+        <span title="Latest backend prompt_tokens for an active plan/repo-search tool step.">
+          Live Step Prompt Tokens (backend): {formatNumber(liveToolPromptTokenCount)}
+        </span>
+      ) : null}
+      {Number(contextUsage.estimatedTokenFallbackTokens || 0) > 0 ? (
+        <span title="These session totals include local fallback estimates where backend usage was unavailable.">
+          Estimated Fallback: {formatNumber(Number(contextUsage.estimatedTokenFallbackTokens || 0))} tokens
+        </span>
+      ) : null}
+      <div className="usage-actions">
+        <button
+          onClick={() => { void onClearToolContext(); }}
+          disabled={chatBusy || Number(contextUsage.toolUsedTokens || 0) <= 0}
+        >
+          Discard Tool Context
+        </button>
+      </div>
+      {contextUsage.shouldCondense && (
+        <button onClick={() => { void onCondense(); }} disabled={chatBusy}>Condense Now</button>
+      )}
+    </div>
   );
 }
 

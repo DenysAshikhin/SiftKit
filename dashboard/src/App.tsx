@@ -1,22 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  clearToolContext,
   cancelBenchmarkSession,
-  condenseChatSession,
-  createPlanMessage,
-  streamPlanMessage,
-  createChatSession,
-  deleteChatMessage,
   deleteRunLogs,
-  deleteChatSession,
   getDashboardConfig,
   getBenchmarkQuestionPresets,
   getBenchmarkSession,
   getBenchmarkSessions,
   getDashboardHealth,
-  getRepoSearchAutoAppendPreview,
-  getChatSession,
-  getChatSessions,
   getIdleSummary,
   getMetrics,
   pickManagedFile,
@@ -26,12 +16,9 @@ import {
   getRuns,
   previewRunLogDelete,
   restartBackend,
-  streamChatMessage,
-  streamRepoSearchMessage,
   startBenchmarkSession,
   updateDashboardConfig,
   updateBenchmarkAttemptGrade,
-  updateChatSession,
 } from './api';
 import {
   buildRunLogDeleteCriteria,
@@ -67,13 +54,12 @@ import { SettingsMockupPage } from './settings-mockup';
 import { buildTaskRunsSeries, buildToolMetricRows } from './metrics-view';
 import type { InteractiveSeries } from './components/InteractiveGraph';
 import { buildRepoSearchChatSteps } from './lib/chat-steps';
-import { buildLiveToolMessageId } from './lib/live-tool-message';
-import { appendLiveThinkingMessage } from './lib/live-thinking-message';
-import {
-  buildRepoSearchAutoAppendPayload,
-  buildRepoSearchAutoAppendSelection,
-} from './lib/repo-append-controls';
-import { type ChatStreamToolEvent } from './lib/chat-stream-parser';
+import { useChatSessions } from './hooks/useChatSessions';
+import { useLiveMessages } from './hooks/useLiveMessages';
+import { useContextUsage } from './hooks/useContextUsage';
+import { usePlanInputs } from './hooks/usePlanInputs';
+import { useRepoSearchAutoAppend } from './hooks/useRepoSearchAutoAppend';
+import { useChatComposer, describeStreamError } from './hooks/useChatComposer';
 import {
   buildRunsSignature,
   classifyRunGroup,
@@ -88,7 +74,7 @@ import { MetricsTab } from './tabs/MetricsTab';
 import { ChatTab } from './tabs/ChatTab';
 import { SettingsTab } from './tabs/SettingsTab';
 import { BenchmarkTab } from './tabs/BenchmarkTab';
-import type { ChatMessage, ChatSession, ContextUsage, DashboardBenchmarkAttempt, DashboardBenchmarkQuestionPreset, DashboardBenchmarkSession, DashboardBenchmarkSortKey, DashboardConfig, DashboardManagedLlamaPreset, DashboardPreset, IdleSummarySnapshot, MetricDay, RepoSearchAutoAppendPreview, RepoSearchAutoAppendSelection, RunGroupFilter, TaskMetricDay, ToolStatsByTask, RunDetailResponse, RunLogDeleteType, RunRecord } from './types';
+import type { DashboardBenchmarkAttempt, DashboardBenchmarkQuestionPreset, DashboardBenchmarkSession, DashboardBenchmarkSortKey, DashboardConfig, DashboardManagedLlamaPreset, DashboardPreset, IdleSummarySnapshot, MetricDay, RunGroupFilter, TaskMetricDay, ToolStatsByTask, RunDetailResponse, RunLogDeleteType, RunRecord } from './types';
 
 type TabKey = 'runs' | 'metrics' | 'benchmark' | 'chat' | 'settings';
 type RunGroupKey = Exclude<RunGroupFilter, ''>;
@@ -153,14 +139,8 @@ function DashboardApp() {
   const [benchmarkStarting, setBenchmarkStarting] = useState(false);
   const [benchmarkCancelling, setBenchmarkCancelling] = useState(false);
 
-  const [sessions, setSessions] = useState<ChatSession[]>([]);
-  const [selectedSessionId, setSelectedSessionId] = useState(params.get('session') || '');
-  const [selectedSession, setSelectedSession] = useState<ChatSession | null>(null);
-  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
-  const [chatInput, setChatInput] = useState('');
   const [chatError, setChatError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [chatBusy, setChatBusy] = useState(false);
   const [dashboardConfig, setDashboardConfig] = useState<DashboardConfig | null>(null);
   const [savedDashboardConfig, setSavedDashboardConfig] = useState<DashboardConfig | null>(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
@@ -175,16 +155,22 @@ function DashboardApp() {
   const [showSettingsConfirm, setShowSettingsConfirm] = useState(false);
   const [settingsRestartFailureModal, setSettingsRestartFailureModal] = useState<{ title: string; message: string } | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const [liveMessages, setLiveMessages] = useState<ChatMessage[]>([]);
-  const [planRepoRootInput, setPlanRepoRootInput] = useState('');
-  const [planMaxTurnsInput, setPlanMaxTurnsInput] = useState('45');
-  const [liveToolPromptTokenCount, setLiveToolPromptTokenCount] = useState<number | null>(null);
-  const [repoSearchAutoAppendPreview, setRepoSearchAutoAppendPreview] = useState<RepoSearchAutoAppendPreview | null>(null);
-  const [repoSearchAutoAppendSelection, setRepoSearchAutoAppendSelection] = useState<RepoSearchAutoAppendSelection>({
-    includeAgentsMd: true,
-    includeRepoFileListing: true,
+
+  const live = useLiveMessages();
+  const contextHook = useContextUsage();
+  const chatSessionsHook = useChatSessions({
+    onError: (error) => setChatError(describeStreamError(error)),
+    initialSelectedSessionId: params.get('session') || '',
+    refreshToken: dashboardRefreshToken,
+    buildCreateSessionRequest: () => ({
+      title: `Session ${new Date().toLocaleTimeString()}`,
+      model: dashboardConfig?.Runtime.Model || 'Qwen3.5-9B-Q8_0.gguf',
+      presetId: getDefaultWebPresetId(dashboardConfig),
+    }),
+    confirmDeleteSession: () => window.confirm('Delete this chat session permanently?'),
+    confirmClearToolContext: () => window.confirm('Discard all hidden tool-call context for this session?'),
+    applyContextUsage: contextHook.setContextUsage,
   });
-  const [repoSearchAutoAppendPreviewLoading, setRepoSearchAutoAppendPreviewLoading] = useState(false);
 
   const groupedRuns = runs.reduce<Record<RunGroupKey, RunRecord[]>>((accumulator, run) => {
     const key = classifyRunGroup(run.kind);
@@ -230,64 +216,6 @@ function DashboardApp() {
     runsSignatureRef.current = '';
     runsLoadedRef.current = false;
     setDashboardRefreshToken((previous) => previous + 1);
-  }
-
-  function createLiveMessage(id: string, kind: NonNullable<ChatMessage['kind']>, role: ChatMessage['role'], content: string): ChatMessage {
-    return {
-      id,
-      role,
-      kind,
-      content,
-      inputTokensEstimate: 0,
-      outputTokensEstimate: 0,
-      thinkingTokens: kind === 'assistant_thinking' ? Math.max(1, Math.ceil(String(content || '').length / 4)) : 0,
-      associatedToolTokens: 0,
-      createdAtUtc: new Date().toISOString(),
-      sourceRunId: null,
-    };
-  }
-
-  function upsertLiveMessage(message: ChatMessage): void {
-    setLiveMessages((previous) => {
-      const index = previous.findIndex((entry) => entry.id === message.id);
-      if (index < 0) {
-        return [...previous, message];
-      }
-      const next = previous.slice();
-      next[index] = { ...next[index], ...message };
-      return next;
-    });
-  }
-
-  function appendLiveToolMessage(toolEvent: ChatStreamToolEvent): void {
-    const id = buildLiveToolMessageId(toolEvent.toolCallId);
-    upsertLiveMessage({
-      ...createLiveMessage(id, 'assistant_tool_call', 'assistant', toolEvent.command),
-      outputTokensEstimate: 0,
-      toolCallCommand: toolEvent.command,
-      toolCallTurn: toolEvent.turn,
-      toolCallMaxTurns: toolEvent.maxTurns,
-      toolCallPromptTokenCount: typeof toolEvent.promptTokenCount === 'number' ? toolEvent.promptTokenCount : null,
-      toolCallStatus: 'running',
-    });
-  }
-
-  function completeLiveToolMessage(toolEvent: ChatStreamToolEvent): void {
-    const id = buildLiveToolMessageId(toolEvent.toolCallId);
-    const outputSnippet = typeof toolEvent.outputSnippet === 'string' ? toolEvent.outputSnippet : '';
-    const outputTokens = typeof toolEvent.outputTokens === 'number' ? Math.max(0, toolEvent.outputTokens) : 0;
-    upsertLiveMessage({
-      ...createLiveMessage(id, 'assistant_tool_call', 'assistant', toolEvent.command),
-      outputTokensEstimate: outputTokens,
-      associatedToolTokens: outputTokens,
-      toolCallCommand: toolEvent.command,
-      toolCallTurn: toolEvent.turn,
-      toolCallMaxTurns: toolEvent.maxTurns,
-      toolCallExitCode: typeof toolEvent.exitCode === 'number' ? toolEvent.exitCode : null,
-      toolCallPromptTokenCount: typeof toolEvent.promptTokenCount === 'number' ? toolEvent.promptTokenCount : null,
-      toolCallOutputSnippet: outputSnippet,
-      toolCallStatus: 'done',
-    });
   }
 
   function openRunDeleteModal(): void {
@@ -341,6 +269,7 @@ function DashboardApp() {
     ? classifyRunGroup(selectedRunDetail.run.kind) === 'repo_search'
     : false;
   const repoSearchChatSteps = selectedRunDetail ? buildRepoSearchChatSteps(selectedRunDetail.events) : [];
+  const selectedSession = chatSessionsHook.selectedSession;
   const isThinkingEnabledForCurrentSession = selectedSession?.thinkingEnabled !== false;
   const webPresets = getSurfacePresets(dashboardConfig, 'web');
   const selectedSettingsPreset = dashboardConfig
@@ -359,6 +288,35 @@ function DashboardApp() {
   const isDirectChatMode = chatMode === 'chat' || chatMode === 'summary';
   const isRepoToolMode = chatMode === 'plan' || chatMode === 'repo-search';
   const sessionPromptCacheStats = getSessionTelemetryStats(selectedSession);
+
+  const planInputs = usePlanInputs({
+    selectedSession,
+    selectedChatPreset,
+  });
+
+  const autoAppend = useRepoSearchAutoAppend({
+    selectedSession,
+    chatMode,
+    planRepoRootInput: planInputs.planRepoRootInput,
+    liveMessages: live.liveMessages,
+    onError: (error) => setChatError(describeStreamError(error)),
+  });
+
+  const composer = useChatComposer({
+    selectedSession,
+    selectedChatPreset,
+    live,
+    context: contextHook,
+    refreshSessions: chatSessionsHook.refreshSessions,
+    applySessionResponse: chatSessionsHook.applySessionResponse,
+    planRepoRootInput: planInputs.planRepoRootInput,
+    planMaxTurnsInput: planInputs.planMaxTurnsInput,
+    isThinkingEnabledForCurrentSession,
+    repoSearchAutoAppendSelection: autoAppend.selection,
+    onError: (message) => setChatError(message),
+    resetError: () => setChatError(null),
+    setChatBusy: chatSessionsHook.setChatBusy,
+  });
   const settingsDirty = dashboardConfig !== null
     && savedDashboardConfig !== null
     && getDashboardConfigSignature(dashboardConfig) !== getDashboardConfigSignature(savedDashboardConfig);
@@ -394,10 +352,10 @@ function DashboardApp() {
       kind: kindFilter || null,
       status: statusFilter || null,
       run: selectedRunId || null,
-      session: selectedSessionId || null,
+      session: chatSessionsHook.selectedSessionId || null,
       benchmarkSession: selectedBenchmarkSessionId || null,
     });
-  }, [tab, search, kindFilter, statusFilter, selectedRunId, selectedSessionId, selectedBenchmarkSessionId]);
+  }, [tab, search, kindFilter, statusFilter, selectedRunId, chatSessionsHook.selectedSessionId, selectedBenchmarkSessionId]);
 
   useEffect(() => {
     const onPointerDown = (event: MouseEvent): void => {
@@ -635,56 +593,6 @@ function DashboardApp() {
   }, [benchmarkManagedPresets]);
 
   useEffect(() => {
-    let cancelled = false;
-    async function refreshSessions() {
-      try {
-        const response = await getChatSessions();
-        if (!cancelled) {
-          setSessions(response.sessions);
-          if (!selectedSessionId) {
-            const firstSession = response.sessions[0];
-            if (firstSession) {
-              setSelectedSessionId(firstSession.id);
-            }
-          }
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setChatError(error instanceof Error ? error.message : String(error));
-        }
-      }
-    }
-    void refreshSessions();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedSessionId, dashboardRefreshToken]);
-
-  useEffect(() => {
-    if (!selectedSessionId) {
-      setSelectedSession(null);
-      setContextUsage(null);
-      return;
-    }
-    let cancelled = false;
-    void getChatSession(selectedSessionId)
-      .then((response) => {
-        if (!cancelled) {
-          setSelectedSession(response.session);
-          setContextUsage(response.contextUsage);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setChatError(error instanceof Error ? error.message : String(error));
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedSessionId]);
-
-  useEffect(() => {
     if (tab !== 'settings' && dashboardConfig !== null) {
       return;
     }
@@ -807,350 +715,19 @@ function DashboardApp() {
     });
   }
 
-  useEffect(() => {
-    setPlanRepoRootInput(selectedSession?.planRepoRoot || '');
-  }, [selectedSession?.id, selectedSession?.planRepoRoot]);
-
-  useEffect(() => {
-    if (!selectedChatPreset) {
-      return;
-    }
-    if (selectedChatPreset.maxTurns !== null) {
-      setPlanMaxTurnsInput(String(selectedChatPreset.maxTurns));
-    }
-  }, [selectedChatPreset?.id]);
-
-  useEffect(() => {
-    const isFirstRepoSearchTurn = chatMode === 'repo-search'
-      && selectedSession
-      && selectedSession.messages.length === 0
-      && liveMessages.length === 0;
-    if (!selectedSessionId || !isFirstRepoSearchTurn) {
-      setRepoSearchAutoAppendPreview(null);
-      return;
-    }
-    let cancelled = false;
-    setRepoSearchAutoAppendPreviewLoading(true);
-    getRepoSearchAutoAppendPreview(selectedSessionId, {
-      repoRoot: planRepoRootInput.trim() || selectedSession.planRepoRoot || '',
-    }).then((preview) => {
-      if (cancelled) {
-        return;
-      }
-      setRepoSearchAutoAppendPreview(preview);
-      setRepoSearchAutoAppendSelection(buildRepoSearchAutoAppendSelection({
-        includeAgentsMd: preview.agentsMd.enabledDefault,
-        includeRepoFileListing: preview.repoFileListing.enabledDefault,
-      }));
-    }).catch((error) => {
-      if (!cancelled) {
-        setChatError(error instanceof Error ? error.message : String(error));
-      }
-    }).finally(() => {
-      if (!cancelled) {
-        setRepoSearchAutoAppendPreviewLoading(false);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [chatMode, selectedSessionId, selectedSession?.messages.length, selectedSession?.planRepoRoot, planRepoRootInput, liveMessages.length]);
-
-  async function onCreateSession() {
-    setChatBusy(true);
-    setChatError(null);
-    try {
-      const response = await createChatSession({
-        title: `Session ${new Date().toLocaleTimeString()}`,
-        model: dashboardConfig?.Runtime.Model || 'Qwen3.5-9B-Q8_0.gguf',
-        presetId: getDefaultWebPresetId(dashboardConfig),
-      });
-      setSessions((previous) => [response.session, ...previous]);
-      setSelectedSessionId(response.session.id);
-      setSelectedSession(response.session);
-      setContextUsage(response.contextUsage);
-    } catch (error) {
-      setChatError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setChatBusy(false);
-    }
-  }
-
-  async function onSendMessage() {
-    if (!selectedSessionId || !chatInput.trim()) {
-      return;
-    }
-    setChatBusy(true);
-    setChatError(null);
-    setLiveMessages([]);
-    try {
-      const response = await streamChatMessage(selectedSessionId, {
-        content: chatInput.trim(),
-      }, (thinkingText) => {
-        if (isThinkingEnabledForCurrentSession) {
-          setLiveMessages((previous) => appendLiveThinkingMessage(previous, thinkingText));
-        }
-      }, (answerText) => {
-        upsertLiveMessage({
-          ...createLiveMessage('live-answer', 'assistant_answer', 'assistant', answerText),
-          outputTokensEstimate: Math.max(1, Math.ceil(String(answerText || '').length / 4)),
-        });
-      });
-      setSelectedSession(response.session);
-      setContextUsage(response.contextUsage);
-      setChatInput('');
-    } catch (error) {
-      setChatError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLiveMessages([]);
-      setChatBusy(false);
-    }
-  }
-
-  async function onSendPlan() {
-    if (!selectedSessionId || !chatInput.trim()) {
-      return;
-    }
-    setChatBusy(true);
-    setChatError(null);
-    setLiveMessages([]);
-    setLiveToolPromptTokenCount(null);
-    try {
-      const parsedMaxTurns = Number(planMaxTurnsInput);
-      const response = await streamPlanMessage(
-        selectedSessionId,
-        {
-          content: chatInput.trim(),
-          repoRoot: planRepoRootInput.trim() || selectedSession?.planRepoRoot || '',
-          ...(Number.isFinite(parsedMaxTurns) && parsedMaxTurns > 0 ? { maxTurns: parsedMaxTurns } : {}),
-        },
-        (thinkingText) => {
-          setLiveMessages((previous) => appendLiveThinkingMessage(previous, thinkingText));
-        },
-        (toolEvent) => {
-          if (toolEvent.kind === 'tool_start') {
-            if (typeof toolEvent.promptTokenCount === 'number') {
-              setLiveToolPromptTokenCount(toolEvent.promptTokenCount);
-            }
-            appendLiveToolMessage(toolEvent);
-          } else if (toolEvent.kind === 'tool_result') {
-            if (typeof toolEvent.promptTokenCount === 'number') {
-              setLiveToolPromptTokenCount(toolEvent.promptTokenCount);
-            }
-            completeLiveToolMessage(toolEvent);
-          }
-        },
-        (answerText) => {
-          upsertLiveMessage({
-            ...createLiveMessage('live-answer', 'assistant_answer', 'assistant', answerText),
-            outputTokensEstimate: Math.max(1, Math.ceil(String(answerText || '').length / 4)),
-          });
-        },
-      );
-      setSelectedSession(response.session);
-      setContextUsage(response.contextUsage);
-      setChatInput('');
-    } catch (error) {
-      setChatError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLiveMessages([]);
-      setLiveToolPromptTokenCount(null);
-      setChatBusy(false);
-    }
-  }
-
-  async function onSendRepoSearch() {
-    if (!selectedSessionId || !chatInput.trim()) {
-      return;
-    }
-    setChatBusy(true);
-    setChatError(null);
-    setLiveMessages([]);
-    setLiveToolPromptTokenCount(null);
-    try {
-      const parsedMaxTurnsRS = Number(planMaxTurnsInput);
-      const response = await streamRepoSearchMessage(
-        selectedSessionId,
-        {
-          content: chatInput.trim(),
-          repoRoot: planRepoRootInput.trim() || selectedSession?.planRepoRoot || '',
-          ...(Number.isFinite(parsedMaxTurnsRS) && parsedMaxTurnsRS > 0 ? { maxTurns: parsedMaxTurnsRS } : {}),
-          ...buildRepoSearchAutoAppendPayload(repoSearchAutoAppendSelection),
-        },
-        (thinkingText) => {
-          setLiveMessages((previous) => appendLiveThinkingMessage(previous, thinkingText));
-        },
-        (toolEvent) => {
-          if (toolEvent.kind === 'tool_start') {
-            if (typeof toolEvent.promptTokenCount === 'number') {
-              setLiveToolPromptTokenCount(toolEvent.promptTokenCount);
-            }
-            appendLiveToolMessage(toolEvent);
-          } else if (toolEvent.kind === 'tool_result') {
-            if (typeof toolEvent.promptTokenCount === 'number') {
-              setLiveToolPromptTokenCount(toolEvent.promptTokenCount);
-            }
-            completeLiveToolMessage(toolEvent);
-          }
-        },
-        (answerText) => {
-          setLiveMessages((previous) => appendLiveThinkingMessage(previous, answerText));
-        },
-      );
-      setSelectedSession(response.session);
-      setContextUsage(response.contextUsage);
-      setChatInput('');
-    } catch (error) {
-      setChatError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLiveMessages([]);
-      setLiveToolPromptTokenCount(null);
-      setChatBusy(false);
-    }
-  }
-
-  async function onToggleThinking(value: boolean) {
-    if (!selectedSessionId) {
-      return;
-    }
-    setChatBusy(true);
-    setChatError(null);
-    try {
-      const response = await updateChatSession(selectedSessionId, {
-        thinkingEnabled: value,
-      });
-      setSelectedSession(response.session);
-      setContextUsage(response.contextUsage);
-    } catch (error) {
-      setChatError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setChatBusy(false);
-    }
-  }
-
-  async function onUpdateSessionPreset(presetId: string) {
-    if (!selectedSessionId) {
-      return;
-    }
-    setChatBusy(true);
-    setChatError(null);
-    try {
-      const response = await updateChatSession(selectedSessionId, {
-        presetId,
-      });
-      setSelectedSession(response.session);
-      setContextUsage(response.contextUsage);
-      setPlanRepoRootInput(response.session.planRepoRoot || '');
-    } catch (error) {
-      setChatError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setChatBusy(false);
-    }
-  }
-
-  async function onSavePlanRepoRoot() {
-    if (!selectedSessionId || !planRepoRootInput.trim()) {
-      return;
-    }
-    setChatBusy(true);
-    setChatError(null);
-    try {
-      const response = await updateChatSession(selectedSessionId, {
-        ...(selectedChatPreset?.id ? { presetId: selectedChatPreset.id } : {}),
-        planRepoRoot: planRepoRootInput.trim(),
-      });
-      setSelectedSession(response.session);
-      setContextUsage(response.contextUsage);
-      setPlanRepoRootInput(response.session.planRepoRoot || '');
-    } catch (error) {
-      setChatError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setChatBusy(false);
-    }
-  }
-
-  async function onCondense() {
-    if (!selectedSessionId) {
-      return;
-    }
-    setChatBusy(true);
-    setChatError(null);
-    try {
-      const response = await condenseChatSession(selectedSessionId);
-      setSelectedSession(response.session);
-      setContextUsage(response.contextUsage);
-    } catch (error) {
-      setChatError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setChatBusy(false);
-    }
-  }
-
-  async function onClearToolContext() {
-    if (!selectedSessionId) {
-      return;
-    }
-    const confirmed = window.confirm('Discard all hidden tool-call context for this session?');
-    if (!confirmed) {
-      return;
-    }
-    setChatBusy(true);
-    setChatError(null);
-    try {
-      const response = await clearToolContext(selectedSessionId);
-      setSelectedSession(response.session);
-      setContextUsage(response.contextUsage);
-    } catch (error) {
-      setChatError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setChatBusy(false);
-    }
-  }
-
   async function onDeleteChatMessage(messageId: string): Promise<void> {
-    if (!selectedSessionId || !messageId) {
+    const response = await chatSessionsHook.deleteMessage(messageId);
+    if (!response) {
       return;
     }
-    setChatBusy(true);
-    setChatError(null);
-    try {
-      const response = await deleteChatMessage(selectedSessionId, messageId);
-      setSelectedSession(response.session);
-      setContextUsage(response.contextUsage);
-      requestDashboardDataRefresh();
-      if (selectedRunId) {
+    requestDashboardDataRefresh();
+    if (selectedRunId) {
+      try {
         const detail = await getRunDetail(selectedRunId);
         setSelectedRunDetail(detail);
+      } catch (error) {
+        setChatError(describeStreamError(error));
       }
-    } catch (error) {
-      setChatError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setChatBusy(false);
-    }
-  }
-
-  async function onDeleteSession() {
-    if (!selectedSessionId) {
-      return;
-    }
-    const confirmed = window.confirm('Delete this chat session permanently?');
-    if (!confirmed) {
-      return;
-    }
-    setChatBusy(true);
-    setChatError(null);
-    try {
-      await deleteChatSession(selectedSessionId);
-      const response = await getChatSessions();
-      setSessions(response.sessions);
-      const nextSession = response.sessions[0] ?? null;
-      setSelectedSessionId(nextSession ? nextSession.id : '');
-      setSelectedSession(nextSession);
-      setContextUsage(null);
-    } catch (error) {
-      setChatError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setChatBusy(false);
     }
   }
 
@@ -1750,8 +1327,8 @@ function DashboardApp() {
 
       {tab === 'chat' && (
         <ChatTab
-          sessions={sessions}
-          selectedSessionId={selectedSessionId}
+          sessions={chatSessionsHook.sessions}
+          selectedSessionId={chatSessionsHook.selectedSessionId}
           selectedSession={selectedSession}
           sessionPromptCacheStats={sessionPromptCacheStats}
           webPresets={webPresets}
@@ -1761,34 +1338,34 @@ function DashboardApp() {
           isRepoToolMode={isRepoToolMode}
           isThinkingEnabledForCurrentSession={isThinkingEnabledForCurrentSession}
           showSettings={showSettings}
-          planRepoRootInput={planRepoRootInput}
-          planMaxTurnsInput={planMaxTurnsInput}
-          contextUsage={contextUsage}
-          liveToolPromptTokenCount={liveToolPromptTokenCount}
-          repoSearchAutoAppendPreview={repoSearchAutoAppendPreview}
-          repoSearchAutoAppendSelection={repoSearchAutoAppendSelection}
-          isRepoSearchAutoAppendPreviewLoading={repoSearchAutoAppendPreviewLoading}
-          liveMessages={liveMessages}
-          chatInput={chatInput}
-          chatBusy={chatBusy}
+          planRepoRootInput={planInputs.planRepoRootInput}
+          planMaxTurnsInput={planInputs.planMaxTurnsInput}
+          contextUsage={contextHook.contextUsage}
+          liveToolPromptTokenCount={contextHook.liveToolPromptTokenCount}
+          repoSearchAutoAppendPreview={autoAppend.preview}
+          repoSearchAutoAppendSelection={autoAppend.selection}
+          isRepoSearchAutoAppendPreviewLoading={autoAppend.previewLoading}
+          liveMessages={live.liveMessages}
+          chatInput={composer.chatInput}
+          chatBusy={chatSessionsHook.chatBusy}
           chatError={chatError}
-          onSelectSession={setSelectedSessionId}
+          onSelectSession={chatSessionsHook.selectSession}
           onToggleSettings={() => setShowSettings((prev) => !prev)}
-          onChangePlanRepoRoot={setPlanRepoRootInput}
-          onChangePlanMaxTurns={setPlanMaxTurnsInput}
-          onChangeChatInput={setChatInput}
-          onSetRepoSearchAutoAppendSelection={setRepoSearchAutoAppendSelection}
-          onCreateSession={onCreateSession}
-          onDeleteSession={onDeleteSession}
-          onUpdateSessionPreset={onUpdateSessionPreset}
-          onToggleThinking={onToggleThinking}
-          onSavePlanRepoRoot={onSavePlanRepoRoot}
-          onClearToolContext={onClearToolContext}
+          onChangePlanRepoRoot={planInputs.setPlanRepoRootInput}
+          onChangePlanMaxTurns={planInputs.setPlanMaxTurnsInput}
+          onChangeChatInput={composer.setChatInput}
+          onSetRepoSearchAutoAppendSelection={autoAppend.setSelection}
+          onCreateSession={chatSessionsHook.createSession}
+          onDeleteSession={chatSessionsHook.deleteSession}
+          onUpdateSessionPreset={chatSessionsHook.updateSessionPreset}
+          onToggleThinking={chatSessionsHook.toggleThinking}
+          onSavePlanRepoRoot={() => chatSessionsHook.savePlanRepoRoot(planInputs.planRepoRootInput, selectedChatPreset?.id)}
+          onClearToolContext={chatSessionsHook.clearToolContext}
           onDeleteMessage={onDeleteChatMessage}
-          onCondense={onCondense}
-          onSendPlan={onSendPlan}
-          onSendRepoSearch={onSendRepoSearch}
-          onSendMessage={onSendMessage}
+          onCondense={chatSessionsHook.condense}
+          onSendPlan={composer.sendPlan}
+          onSendRepoSearch={composer.sendRepoSearch}
+          onSendMessage={composer.sendMessage}
         />
       )}
     </main>
