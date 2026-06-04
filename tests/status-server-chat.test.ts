@@ -10,7 +10,6 @@ import {
   buildChatSystemContent,
   buildContextUsage,
   buildRepoSearchMarkdown,
-  buildToolMessagesFromRepoSearchResult,
   buildPersistTurnsFromRepoSearchResult,
 } from '../src/status-server/chat.ts';
 import { buildChatPromptContext } from '../src/status-server/chat-prompt-context.ts';
@@ -140,75 +139,77 @@ test('buildChatCompletionRequest replays typed timeline bubbles as prompt messag
   ]);
 });
 
-test('buildToolMessagesFromRepoSearchResult displays model-visible command', () => {
-  const messages = buildToolMessagesFromRepoSearchResult({
-    scorecard: {
-      tasks: [{
-        commands: [{
-          command: 'rg -n "name" package.json --no-ignore --ignore-case --glob "!**/.git/**"',
-          modelVisibleCommand: 'rg -n "name" package.json',
-          safe: true,
-          exitCode: 0,
-          output: 'package.json:2:  "name": "siftkit"',
-        }],
-      }],
-    },
-  });
-
-  assert.equal(messages[0]?.content, 'rg -n "name" package.json');
-  assert.equal(messages[0]?.toolCallCommand, 'rg -n "name" package.json');
-});
-
-test('buildToolMessagesFromRepoSearchResult uses prompt output and tokens for tool bubbles', () => {
-  const messages = buildToolMessagesFromRepoSearchResult({
-    scorecard: {
-      tasks: [{
-        commands: [{
-          command: 'rg -n "tool_call" src --no-ignore',
-          modelVisibleCommand: 'rg -n "tool_call" src',
-          safe: true,
-          exitCode: 0,
-          output: 'x'.repeat(10_000),
-          promptOutput: 'src/repo-search/engine.ts:1613:tool_result',
-          outputTokens: 295,
-        }],
-      }],
-    },
-  });
-
-  assert.equal(messages[0]?.toolCallOutput, 'src/repo-search/engine.ts:1613:tool_result');
-  assert.equal(messages[0]?.toolCallOutputSnippet, 'src/repo-search/engine.ts:1613:tool_result');
-  assert.equal(messages[0]?.outputTokens, 295);
-});
-
-test('appendChatMessagesWithUsage preserves explicit per-tool bubble token count', () => {
-  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-tool-tokens-'));
+test('appendChatMessagesWithUsage persists interleaved per-turn thinking and tools', () => {
+  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-turns-'));
   const session = appendChatMessagesWithUsage(
     runtimeRoot,
     createSession(),
     'Find tool call handling.',
     'Tool calls are handled in engine.ts.',
+    { promptTokens: 30, completionTokens: 9, thinkingTokens: 0, promptCacheTokens: null, promptEvalTokens: 30 },
     {
-      promptTokens: 30,
-      completionTokens: 9,
-      thinkingTokens: 0,
-      promptCacheTokens: null,
-      promptEvalTokens: 30,
-    },
-    '',
-    {
-      toolMessages: [{
-        content: 'rg -n "tool_call" src',
-        toolCallCommand: 'rg -n "tool_call" src',
-        toolCallOutput: 'x'.repeat(10_000),
-        outputTokens: 295,
-      }],
+      turns: [
+        { thinkingText: 'think one', toolMessages: [{
+          id: 'tool-a', content: 'rg -n "a" src', toolCallCommand: 'rg -n "a" src',
+          toolCallTurn: 1, toolCallMaxTurns: 2, toolCallExitCode: 0,
+          toolCallOutputSnippet: 'snippet', toolCallOutput: 'x'.repeat(10_000), outputTokens: 295,
+        }] },
+        { thinkingText: 'final think', toolMessages: [] },
+      ],
     }
   );
 
-  const toolMessage = session.messages.find((message) => message.kind === 'assistant_tool_call');
+  const appended = session.messages.slice(2).map((m) => m.kind);
+  assert.deepEqual(appended, [
+    'user_text',
+    'assistant_thinking',
+    'assistant_tool_call',
+    'assistant_thinking',
+    'assistant_answer',
+  ]);
+  const toolMessage = session.messages.find((m) => m.kind === 'assistant_tool_call');
   assert.equal(toolMessage?.outputTokensEstimate, 295);
   assert.equal(toolMessage?.associatedToolTokens, 295);
+});
+
+test('appendChatMessagesWithUsage aligns hidden tool contexts with persisted tool message ids', () => {
+  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-hidden-'));
+  const session = appendChatMessagesWithUsage(
+    runtimeRoot, createSession(), 'q', 'answer',
+    { promptTokens: 10, completionTokens: 5, thinkingTokens: 0, promptCacheTokens: null, promptEvalTokens: 10 },
+    {
+      toolContextContents: ['context for a', 'context for b'],
+      turns: [
+        { thinkingText: '', toolMessages: [
+          { id: 'tool-a', content: 'rg a', toolCallCommand: 'rg a', toolCallTurn: 1, toolCallMaxTurns: 2, toolCallExitCode: 0, toolCallOutputSnippet: 'a', toolCallOutput: 'a', outputTokens: 1 },
+          { id: 'tool-b', content: 'rg b', toolCallCommand: 'rg b', toolCallTurn: 2, toolCallMaxTurns: 2, toolCallExitCode: 0, toolCallOutputSnippet: 'b', toolCallOutput: 'b', outputTokens: 1 },
+        ] },
+      ],
+    }
+  );
+  const toolIds = session.messages.filter((m) => m.kind === 'assistant_tool_call').map((m) => m.id);
+  const hidden = (session.hiddenToolContexts || []) as Array<{ content: string; sourceMessageId: string }>;
+  assert.equal(hidden.length, 2);
+  assert.equal(hidden[0].content, 'context for a');
+  assert.equal(hidden[0].sourceMessageId, toolIds[0]);
+  assert.equal(hidden[1].content, 'context for b');
+  assert.equal(hidden[1].sourceMessageId, toolIds[1]);
+});
+
+test('appendChatMessagesWithUsage omits empty-thinking turns and persists single-turn chat', () => {
+  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-single-'));
+  const session = appendChatMessagesWithUsage(
+    runtimeRoot, createSession(), 'hi', 'hello',
+    { promptTokens: 5, completionTokens: 2, thinkingTokens: 1, promptCacheTokens: null, promptEvalTokens: 5 },
+    { turns: [{ thinkingText: 'regular chat reasoning', toolMessages: [] }] }
+  );
+  assert.deepEqual(session.messages.slice(2).map((m) => m.kind), ['user_text', 'assistant_thinking', 'assistant_answer']);
+
+  const emptySession = appendChatMessagesWithUsage(
+    runtimeRoot, createSession(), 'hi', 'hello', {},
+    { turns: [{ thinkingText: '', toolMessages: [] }] }
+  );
+  assert.deepEqual(emptySession.messages.slice(2).map((m) => m.kind), ['user_text', 'assistant_answer']);
 });
 
 test('buildChatPromptContext exposes direct system prompt and hidden tool context', () => {

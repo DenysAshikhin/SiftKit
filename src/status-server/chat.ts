@@ -405,6 +405,7 @@ export type PersistToolMessage = {
 export type PersistTurn = { thinkingText: string; toolMessages: PersistToolMessage[] };
 
 type AppendChatOptions = {
+  turns: PersistTurn[];
   toolContextContents?: string[];
   requestDurationMs?: number | null;
   promptEvalDurationMs?: number | null;
@@ -421,7 +422,6 @@ type AppendChatOptions = {
   outputTokens?: number | null;
   thinkingTokens?: number | null;
   sourceRunId?: string | null;
-  toolMessages?: Dict[];
 };
 
 export function appendChatMessagesWithUsage(
@@ -430,8 +430,7 @@ export function appendChatMessagesWithUsage(
   content: string,
   assistantContent: string,
   usage: Partial<ChatUsage> = {},
-  thinkingContent: string = '',
-  options: AppendChatOptions = {}
+  options: AppendChatOptions = { turns: [] }
 ): ChatSession {
   const now = new Date().toISOString();
   const messages = Array.isArray(session.messages) ? session.messages.slice() : [];
@@ -471,56 +470,61 @@ export function appendChatMessagesWithUsage(
     createdAtUtc: now,
     sourceRunId: null,
   });
-  const thinkingMessageId = crypto.randomUUID();
-  if (String(thinkingContent || '').trim()) {
-    messages.push({
-      id: thinkingMessageId,
-      role: 'assistant',
-      kind: 'assistant_thinking',
-      content: String(thinkingContent || ''),
-      inputTokensEstimate: 0,
-      outputTokensEstimate: 0,
-      thinkingTokens: estimateTokenCount(thinkingContent),
-      inputTokensEstimated: false,
-      outputTokensEstimated: false,
-      thinkingTokensEstimated: usageThinkingTokens === null,
-      createdAtUtc: now,
-      sourceRunId,
-    });
-  }
-  const toolMessages = Array.isArray(options.toolMessages) ? options.toolMessages : [];
-  for (const toolMessage of toolMessages) {
-    const toolMessageId = typeof toolMessage.id === 'string' && toolMessage.id.trim() ? toolMessage.id : crypto.randomUUID();
-    const toolOutput = typeof toolMessage.toolCallOutput === 'string'
-      ? toolMessage.toolCallOutput
-      : typeof toolMessage.toolCallOutputSnippet === 'string'
-        ? toolMessage.toolCallOutputSnippet
-        : '';
-    const explicitToolOutputTokens = getChatUsageValue(toolMessage.outputTokens);
-    const toolOutputTokens = explicitToolOutputTokens ?? estimateTokenCount(toolOutput);
-    messages.push({
-      id: toolMessageId,
-      role: 'assistant',
-      kind: 'assistant_tool_call',
-      content: typeof toolMessage.content === 'string' ? toolMessage.content : String(toolMessage.toolCallCommand || ''),
-      inputTokensEstimate: 0,
-      outputTokensEstimate: toolOutputTokens,
-      thinkingTokens: 0,
-      inputTokensEstimated: false,
-      outputTokensEstimated: explicitToolOutputTokens === null,
-      thinkingTokensEstimated: false,
-      promptEvalTokens: Number.isFinite(Number(toolMessage.toolCallPromptTokenCount)) ? Number(toolMessage.toolCallPromptTokenCount) : null,
-      associatedToolTokens: toolOutputTokens,
-      toolCallCommand: typeof toolMessage.toolCallCommand === 'string' ? toolMessage.toolCallCommand : String(toolMessage.content || ''),
-      toolCallTurn: Number.isFinite(Number(toolMessage.toolCallTurn)) ? Number(toolMessage.toolCallTurn) : null,
-      toolCallMaxTurns: Number.isFinite(Number(toolMessage.toolCallMaxTurns)) ? Number(toolMessage.toolCallMaxTurns) : null,
-      toolCallExitCode: Number.isFinite(Number(toolMessage.toolCallExitCode)) ? Number(toolMessage.toolCallExitCode) : null,
-      toolCallPromptTokenCount: Number.isFinite(Number(toolMessage.toolCallPromptTokenCount)) ? Number(toolMessage.toolCallPromptTokenCount) : null,
-      toolCallOutputSnippet: typeof toolMessage.toolCallOutputSnippet === 'string' ? toolMessage.toolCallOutputSnippet : '',
-      toolCallOutput: toolOutput,
-      createdAtUtc: now,
-      sourceRunId,
-    });
+  const turns = Array.isArray(options.turns) ? options.turns : [];
+  const persistedToolMessageIds: string[] = [];
+  for (const turn of turns) {
+    const thinkingText = String(turn.thinkingText || '');
+    if (thinkingText.trim()) {
+      messages.push({
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        kind: 'assistant_thinking',
+        content: thinkingText,
+        inputTokensEstimate: 0,
+        outputTokensEstimate: 0,
+        thinkingTokens: estimateTokenCount(thinkingText),
+        inputTokensEstimated: false,
+        outputTokensEstimated: false,
+        thinkingTokensEstimated: usageThinkingTokens === null,
+        createdAtUtc: now,
+        sourceRunId,
+      });
+    }
+    const turnToolMessages = Array.isArray(turn.toolMessages) ? turn.toolMessages : [];
+    for (const toolMessage of turnToolMessages) {
+      const toolMessageId = typeof toolMessage.id === 'string' && toolMessage.id.trim() ? toolMessage.id : crypto.randomUUID();
+      const toolOutput = typeof toolMessage.toolCallOutput === 'string'
+        ? toolMessage.toolCallOutput
+        : typeof toolMessage.toolCallOutputSnippet === 'string'
+          ? toolMessage.toolCallOutputSnippet
+          : '';
+      const explicitToolOutputTokens = getChatUsageValue(toolMessage.outputTokens);
+      const toolOutputTokens = explicitToolOutputTokens ?? estimateTokenCount(toolOutput);
+      messages.push({
+        id: toolMessageId,
+        role: 'assistant',
+        kind: 'assistant_tool_call',
+        content: typeof toolMessage.content === 'string' ? toolMessage.content : String(toolMessage.toolCallCommand || ''),
+        inputTokensEstimate: 0,
+        outputTokensEstimate: toolOutputTokens,
+        thinkingTokens: 0,
+        inputTokensEstimated: false,
+        outputTokensEstimated: explicitToolOutputTokens === null,
+        thinkingTokensEstimated: false,
+        promptEvalTokens: Number.isFinite(Number(toolMessage.toolCallPromptTokenCount)) ? Number(toolMessage.toolCallPromptTokenCount) : null,
+        associatedToolTokens: toolOutputTokens,
+        toolCallCommand: typeof toolMessage.toolCallCommand === 'string' ? toolMessage.toolCallCommand : String(toolMessage.content || ''),
+        toolCallTurn: Number.isFinite(Number(toolMessage.toolCallTurn)) ? Number(toolMessage.toolCallTurn) : null,
+        toolCallMaxTurns: Number.isFinite(Number(toolMessage.toolCallMaxTurns)) ? Number(toolMessage.toolCallMaxTurns) : null,
+        toolCallExitCode: Number.isFinite(Number(toolMessage.toolCallExitCode)) ? Number(toolMessage.toolCallExitCode) : null,
+        toolCallPromptTokenCount: Number.isFinite(Number(toolMessage.toolCallPromptTokenCount)) ? Number(toolMessage.toolCallPromptTokenCount) : null,
+        toolCallOutputSnippet: typeof toolMessage.toolCallOutputSnippet === 'string' ? toolMessage.toolCallOutputSnippet : '',
+        toolCallOutput: toolOutput,
+        createdAtUtc: now,
+        sourceRunId,
+      });
+      persistedToolMessageIds.push(toolMessageId);
+    }
   }
   const assistantMessageId = crypto.randomUUID();
   const associatedToolTokens = toolContextContents.reduce((sum: number, value: string) => sum + estimateTokenCount(value), 0);
@@ -563,10 +567,7 @@ export function appendChatMessagesWithUsage(
     sourceRunId,
   });
   for (let index = 0; index < toolContextContents.length; index += 1) {
-    const toolMessage = toolMessages[index] as Dict | undefined;
-    const sourceMessageId = toolMessage && typeof toolMessage.id === 'string' && toolMessage.id.trim()
-      ? toolMessage.id
-      : assistantMessageId;
+    const sourceMessageId = persistedToolMessageIds[index] || assistantMessageId;
     hiddenToolContexts.push({
       id: crypto.randomUUID(),
       content: toolContextContents[index],
@@ -910,46 +911,6 @@ export function buildToolContextFromRepoSearchResult(result: Dict | null | undef
     }
   }
   return contexts;
-}
-
-export function buildToolMessagesFromRepoSearchResult(result: Dict | null | undefined): Dict[] {
-  const scorecard = result && typeof result.scorecard === 'object' ? result.scorecard as Dict : {};
-  const tasks = Array.isArray(scorecard.tasks) ? scorecard.tasks as Dict[] : [];
-  const messages: Dict[] = [];
-  for (const task of tasks) {
-    if (!task || typeof task !== 'object' || !Array.isArray(task.commands)) {
-      continue;
-    }
-    const commands = task.commands as Dict[];
-    for (let index = 0; index < commands.length; index += 1) {
-      const command = commands[index];
-      if (!command || typeof command !== 'object') {
-        continue;
-      }
-      const commandText = getDisplayToolCommand(command);
-      if (!commandText) {
-        continue;
-      }
-      const output = typeof command.promptOutput === 'string'
-        ? command.promptOutput
-        : typeof command.output === 'string'
-          ? command.output
-          : '';
-      const outputTokens = getChatUsageValue(command.outputTokens);
-      messages.push({
-        id: crypto.randomUUID(),
-        content: commandText,
-        toolCallCommand: commandText,
-        toolCallTurn: index + 1,
-        toolCallMaxTurns: commands.length,
-        toolCallExitCode: Number.isFinite(Number(command.exitCode)) ? Number(command.exitCode) : null,
-        toolCallOutputSnippet: output.length > 200 ? `${output.slice(0, 200)}...` : output,
-        toolCallOutput: output,
-        outputTokens,
-      });
-    }
-  }
-  return messages;
 }
 
 function buildToolMessageFromCommand(command: Dict, turnsUsed: number): PersistToolMessage | null {

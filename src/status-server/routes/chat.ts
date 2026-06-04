@@ -39,7 +39,7 @@ import {
   buildPlanMarkdownFromRepoSearch,
   getScorecardTotal,
   buildToolContextFromRepoSearchResult,
-  buildToolMessagesFromRepoSearchResult,
+  buildPersistTurnsFromRepoSearchResult,
   buildRepoSearchMarkdown,
   loadRepoSearchExecutor,
 } from '../chat.js';
@@ -626,7 +626,8 @@ export async function handleChatRoute(
         // Best-effort metrics notification.
       }
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
-      const sessionWithTelemetry = appendChatMessagesWithUsage(runtimeRoot, activeSession, userContent, assistantContent, usage, thinkingContent, {
+      const sessionWithTelemetry = appendChatMessagesWithUsage(runtimeRoot, activeSession, userContent, assistantContent, usage, {
+        turns: [{ thinkingText: thinkingContent, toolMessages: [] }],
         requestDurationMs: Date.now() - startedAt,
         requestStartedAtUtc,
         speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
@@ -760,7 +761,8 @@ export async function handleChatRoute(
       phaseTracker.observeThinking(generated.thinkingContent);
       phaseTracker.observeAnswer(generated.assistantContent);
       const phaseTimestamps = phaseTracker.snapshot();
-      const updatedSession = appendChatMessagesWithUsage(runtimeRoot, activeSession, userContent, generated.assistantContent, generated.usage, generated.thinkingContent, {
+      const updatedSession = appendChatMessagesWithUsage(runtimeRoot, activeSession, userContent, generated.assistantContent, generated.usage, {
+        turns: [{ thinkingText: generated.thinkingContent, toolMessages: [] }],
         requestDurationMs: Date.now() - startedAt,
         requestStartedAtUtc: phaseTimestamps.requestStartedAtUtc,
         thinkingStartedAtUtc: phaseTimestamps.thinkingStartedAtUtc,
@@ -879,7 +881,6 @@ export async function handleChatRoute(
       });
       const assistantContent = buildPlanMarkdownFromRepoSearch(content, resolvedRepoRoot, result);
       const toolContextContents = buildToolContextFromRepoSearchResult(result);
-      const toolMessages = buildToolMessagesFromRepoSearchResult(result);
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
@@ -891,8 +892,14 @@ export async function handleChatRoute(
           promptCacheTokens: getScorecardTotal(result?.scorecard, 'promptCacheTokens'),
           promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
         },
-        '',
         {
+          turns: buildPersistTurnsFromRepoSearchResult(result).map((turn) => ({
+            thinkingText: turn.thinkingText,
+            toolMessages: turn.toolMessages.map((message) => ({
+              ...message,
+              toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
+            })),
+          })),
           toolContextContents,
           requestDurationMs: Date.now() - startedAt,
           promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
@@ -910,10 +917,6 @@ export async function handleChatRoute(
           outputTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
           thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
           sourceRunId: String(result.requestId || ''),
-          toolMessages: toolMessages.map((message) => ({
-            ...message,
-            toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
-          })),
         }
       );
       sendJson(res, 200, {
@@ -1035,7 +1038,6 @@ export async function handleChatRoute(
       const assistantContent = buildPlanMarkdownFromRepoSearch(content, resolvedRepoRoot, result);
       phaseTracker.observeAnswer(assistantContent);
       const toolContextContents = buildToolContextFromRepoSearchResult(result);
-      const toolMessages = buildToolMessagesFromRepoSearchResult(result);
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
@@ -1047,8 +1049,14 @@ export async function handleChatRoute(
           promptCacheTokens: getScorecardTotal(result?.scorecard, 'promptCacheTokens'),
           promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
         },
-        '',
         {
+          turns: buildPersistTurnsFromRepoSearchResult(result).map((turn) => ({
+            thinkingText: turn.thinkingText,
+            toolMessages: turn.toolMessages.map((message) => ({
+              ...message,
+              toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
+            })),
+          })),
           toolContextContents,
           requestDurationMs: Date.now() - startedAt,
           promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
@@ -1067,10 +1075,6 @@ export async function handleChatRoute(
           outputTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
           thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
           sourceRunId: String(result.requestId || ''),
-          toolMessages: toolMessages.map((message) => ({
-            ...message,
-            toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
-          })),
         }
       );
       writeSse('done', {
@@ -1249,7 +1253,6 @@ export async function handleChatRoute(
       const assistantContent = buildRepoSearchMarkdown(content, resolvedRepoRoot, result);
       phaseTracker.observeAnswer(assistantContent);
       const toolContextContents = buildToolContextFromRepoSearchResult(result);
-      const toolMessages = buildToolMessagesFromRepoSearchResult(result);
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
@@ -1261,8 +1264,14 @@ export async function handleChatRoute(
           promptCacheTokens: getScorecardTotal(result?.scorecard, 'promptCacheTokens'),
           promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
         },
-        '',
         {
+          turns: buildPersistTurnsFromRepoSearchResult(result).map((turn) => ({
+            thinkingText: turn.thinkingText,
+            toolMessages: turn.toolMessages.map((message) => ({
+              ...message,
+              toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
+            })),
+          })),
           toolContextContents,
           requestDurationMs: Date.now() - startedAt,
           promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
@@ -1281,10 +1290,6 @@ export async function handleChatRoute(
           outputTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
           thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
           sourceRunId: String(result.requestId || ''),
-          toolMessages: toolMessages.map((message) => ({
-            ...message,
-            toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
-          })),
         }
       );
       writeSse('done', {
