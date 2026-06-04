@@ -1,3 +1,4 @@
+import { decodeHtmlEntities } from './html-text.js';
 import type { WebSearchConfig, WebSearchResult, WebSearchToolArgs } from './types.js';
 import { assertHttpUrl, assertPublicHttpUrl } from './url-safety.js';
 
@@ -9,9 +10,9 @@ function getText(value: unknown): string {
 
 function normalizeResult(item: unknown, source: WebSearchResult['source']): WebSearchResult | null {
   const record = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {};
-  const title = getText(record.title);
+  const title = stripHtml(getText(record.title));
   const url = getText(record.url);
-  const snippet = getText(record.content) || getText(record.snippet);
+  const snippet = stripHtml(getText(record.content) || getText(record.snippet));
   if (!title || !url) {
     return null;
   }
@@ -42,12 +43,11 @@ function unwrapDuckDuckGoHref(href: string): string {
 }
 
 function stripHtml(value: string): string {
-  return value
+  const withoutTags = value
     .replace(/<script[\s\S]*?<\/script>/giu, ' ')
     .replace(/<style[\s\S]*?<\/style>/giu, ' ')
-    .replace(/<[^>]+>/gu, ' ')
-    .replace(/\s+/gu, ' ')
-    .trim();
+    .replace(/<[^>]+>/gu, ' ');
+  return decodeHtmlEntities(withoutTags).replace(/\s+/gu, ' ').trim();
 }
 
 export class WebSearchService {
@@ -103,9 +103,9 @@ export class WebSearchService {
       const matches = Array.from(html.matchAll(/<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/giu));
       return matches
         .map((match) => normalizeResult({
-          title: stripHtml(match[2] || ''),
+          title: match[2] || '',
           url: unwrapDuckDuckGoHref(match[1] || ''),
-          snippet: stripHtml(match[3] || ''),
+          snippet: match[3] || '',
         }, 'duckduckgo'))
         .filter((item): item is WebSearchResult => Boolean(item))
         .slice(0, this.config.ResultCount);

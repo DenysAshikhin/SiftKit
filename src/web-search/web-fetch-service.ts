@@ -1,10 +1,11 @@
+import { decodeHtmlEntities } from './html-text.js';
 import type { WebFetchResult, WebFetchToolArgs, WebSearchConfig } from './types.js';
 import { assertPublicHttpUrl } from './url-safety.js';
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
 function normalizeWhitespace(value: string): string {
-  return value.replace(/\s+/gu, ' ').trim();
+  return decodeHtmlEntities(value).replace(/\s+/gu, ' ').trim();
 }
 
 function extractTitle(html: string): string {

@@ -89,6 +89,35 @@ test('WebSearchService unwraps DuckDuckGo redirect URLs in fallback', async () =
   assert.match(results[0].snippet, /iron bars/i);
 });
 
+test('WebSearchService decodes HTML entities in titles and snippets', async () => {
+  const fetchImpl = async (): Promise<Response> => new Response(JSON.stringify({
+    results: [{
+      title: 'GE Charts &amp; Margins',
+      url: 'https://example.com/x',
+      content: 'profit &#215; 2 &#091;live&#093; &#039;now&#039;',
+    }],
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  const service = new WebSearchService(webConfig, fetchImpl);
+
+  const results = await service.search({ query: 'x' });
+
+  assert.equal(results[0].title, 'GE Charts & Margins');
+  assert.equal(results[0].snippet, "profit × 2 [live] 'now'");
+});
+
+test('WebFetchService decodes HTML entities in title and text', async () => {
+  const fetchImpl = async (): Promise<Response> => new Response(
+    '<html><head><title>A &amp; B</title></head><body><main>x &#91;r 1&#93; y &#215; z &nbsp; &#039;q&#039;</main></body></html>',
+    { status: 200, headers: { 'content-type': 'text/html' } },
+  );
+  const service = new WebFetchService({ ...webConfig, FetchMaxCharacters: 1000 }, fetchImpl);
+
+  const result = await service.fetch({ url: 'https://example.com/page' });
+
+  assert.equal(result.title, 'A & B');
+  assert.equal(result.text, "x [r 1] y × z 'q'");
+});
+
 test('WebFetchService blocks private URLs before fetching', async () => {
   const service = new WebFetchService(webConfig, async () => {
     throw new Error('fetch should not run');
