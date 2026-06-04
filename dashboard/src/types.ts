@@ -235,6 +235,7 @@ export type ChatSession = {
   model: string | null;
   contextWindowTokens: number;
   thinkingEnabled?: boolean;
+  webSearchEnabled?: boolean;
   presetId?: string;
   mode?: 'chat' | 'plan' | 'repo-search';
   planRepoRoot?: string;
@@ -379,6 +380,19 @@ export type DashboardConfig = {
       ActivePresetId: string;
     };
   };
+  WebSearch: DashboardWebSearchConfig;
+};
+
+export type WebSearchOverride = 'default' | 'on' | 'off';
+
+export type DashboardWebSearchConfig = {
+  EnabledDefault: boolean;
+  Provider: 'searxng';
+  SearxngBaseUrl: string;
+  ResultCount: number;
+  FetchMaxPages: number;
+  TimeoutMs: number;
+  FetchMaxCharacters: number;
 };
 
 export type DashboardManagedLlamaPreset = {

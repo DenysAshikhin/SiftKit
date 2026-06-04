@@ -31,6 +31,16 @@ export const DEFAULT_LLAMA_SLEEP_IDLE_SECONDS = 600;
 
 const MANAGED_LLAMA_SPECULATIVE_TYPES = ['draft-simple', 'draft-eagle3', 'draft-mtp', 'ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod', 'ngram-cache'] as const;
 
+export const DEFAULT_WEB_SEARCH_CONFIG = {
+  EnabledDefault: false,
+  Provider: 'searxng',
+  SearxngBaseUrl: 'http://127.0.0.1:8080',
+  ResultCount: 5,
+  FetchMaxPages: 3,
+  TimeoutMs: 15000,
+  FetchMaxCharacters: 12000,
+} as const;
+
 const DEFAULT_MANAGED_LLAMA_PRESET: Dict = {
   id: 'default',
   label: 'Default',
@@ -113,6 +123,29 @@ export function getDefaultConfig(): Dict {
     },
     OperationModeAllowedTools: getDefaultOperationModeAllowedTools(),
     Presets: normalizePresets([]),
+    WebSearch: { ...DEFAULT_WEB_SEARCH_CONFIG },
+  };
+}
+
+function clampInteger(value: unknown, fallback: number, minValue: number, maxValue: number): number {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(Math.max(parsed, minValue), maxValue);
+}
+
+export function normalizeWebSearchConfig(value: unknown): Dict {
+  const record = (value && typeof value === 'object' && !Array.isArray(value)) ? value as Dict : {};
+  const searxngBaseUrl = getNullableTrimmedString(record.SearxngBaseUrl) || DEFAULT_WEB_SEARCH_CONFIG.SearxngBaseUrl;
+  return {
+    EnabledDefault: record.EnabledDefault === true,
+    Provider: 'searxng',
+    SearxngBaseUrl: searxngBaseUrl,
+    ResultCount: clampInteger(record.ResultCount, DEFAULT_WEB_SEARCH_CONFIG.ResultCount, 1, 10),
+    FetchMaxPages: clampInteger(record.FetchMaxPages, DEFAULT_WEB_SEARCH_CONFIG.FetchMaxPages, 1, 8),
+    TimeoutMs: clampInteger(record.TimeoutMs, DEFAULT_WEB_SEARCH_CONFIG.TimeoutMs, 1000, 60000),
+    FetchMaxCharacters: clampInteger(record.FetchMaxCharacters, DEFAULT_WEB_SEARCH_CONFIG.FetchMaxCharacters, 1000, 50000),
   };
 }
 
@@ -188,6 +221,7 @@ export function normalizeConfig(input: unknown): Dict {
 
   merged.OperationModeAllowedTools = normalizeOperationModeAllowedTools(merged.OperationModeAllowedTools);
   merged.Presets = normalizePresets(merged.Presets);
+  merged.WebSearch = normalizeWebSearchConfig(merged.WebSearch);
   return merged;
 }
 
@@ -212,6 +246,7 @@ type AppConfigRow = {
   server_external_server_enabled: number;
   operation_mode_allowed_tools_json: string;
   presets_json: string;
+  web_search_json: string;
 };
 
 function parseJsonArray(text: unknown): string[] {
@@ -302,6 +337,7 @@ function normalizeConfigToRow(config: Dict): AppConfigRow {
       normalizeOperationModeAllowedTools(normalized.OperationModeAllowedTools)
     ),
     presets_json: JSON.stringify(normalizePresets(normalized.Presets)),
+    web_search_json: JSON.stringify(normalizeWebSearchConfig(normalized.WebSearch)),
   };
 }
 
@@ -337,7 +373,19 @@ function rowToConfig(row: AppConfigRow): Dict {
     },
     OperationModeAllowedTools: parseOperationModeAllowedTools(row.operation_mode_allowed_tools_json),
     Presets: parsePresetArray(row.presets_json),
+    WebSearch: parseWebSearchConfig(row.web_search_json),
   });
+}
+
+function parseWebSearchConfig(text: unknown): Dict {
+  if (typeof text !== 'string' || !text.trim()) {
+    return normalizeWebSearchConfig({});
+  }
+  try {
+    return normalizeWebSearchConfig(JSON.parse(text) as unknown);
+  } catch {
+    return normalizeWebSearchConfig({});
+  }
 }
 
 function readConfigRow(databasePath: string): AppConfigRow | null {
@@ -363,7 +411,8 @@ function readConfigRow(databasePath: string): AppConfigRow | null {
       server_llama_active_preset_id,
       server_external_server_enabled,
       operation_mode_allowed_tools_json,
-      presets_json
+      presets_json,
+      web_search_json
     FROM app_config
     WHERE id = 1
   `).get() as AppConfigRow | undefined;
@@ -394,6 +443,7 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
     'server_external_server_enabled',
     'operation_mode_allowed_tools_json',
     'presets_json',
+    'web_search_json',
     'updated_at_utc',
   ];
   const values = columns.map((column) => (column === 'id' ? '1' : `@${column}`));

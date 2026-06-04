@@ -102,6 +102,37 @@ test('chat sessions are persisted in runtime sqlite instead of JSON files', () =
   });
 });
 
+test('chat sessions persist webSearchEnabled', () => {
+  withTempRepo((repoRoot) => {
+    const runtimeRoot = path.join(repoRoot, '.siftkit');
+    const sessionId = 'session-web-search';
+
+    saveChatSession(runtimeRoot, {
+      id: sessionId,
+      title: 'Web Session',
+      model: 'model-a',
+      contextWindowTokens: 4096,
+      thinkingEnabled: true,
+      webSearchEnabled: true,
+      presetId: 'chat',
+      mode: 'chat',
+      planRepoRoot: repoRoot,
+      condensedSummary: '',
+      createdAtUtc: new Date().toISOString(),
+      updatedAtUtc: new Date().toISOString(),
+      messages: [],
+      hiddenToolContexts: [],
+    });
+
+    const loaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+    assert.equal(loaded?.webSearchEnabled, true);
+
+    saveChatSession(runtimeRoot, { ...loaded, webSearchEnabled: false } as Parameters<typeof saveChatSession>[1]);
+    const reloaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+    assert.equal(reloaded?.webSearchEnabled, false);
+  });
+});
+
 test('chat timeline bubbles persist typed tool payload fields', () => {
   withTempRepo((repoRoot) => {
     const runtimeRoot = path.join(repoRoot, '.siftkit');

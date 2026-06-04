@@ -428,6 +428,9 @@ export async function handleChatRoute(
     if (typeof parsedBody.thinkingEnabled === 'boolean') {
       updated.thinkingEnabled = parsedBody.thinkingEnabled;
     }
+    if (typeof parsedBody.webSearchEnabled === 'boolean') {
+      updated.webSearchEnabled = parsedBody.webSearchEnabled;
+    }
     const currentConfig = readConfig(configPath);
     const presets = normalizePresets(currentConfig.Presets);
     if (typeof parsedBody.presetId === 'string' && (parsedBody.presetId as string).trim()) {
@@ -513,6 +516,7 @@ export async function handleChatRoute(
         : (runtimeCfg.Model as string) || null,
       contextWindowTokens: Number(runtimeLlamaCfg.NumCtx || 150000),
       thinkingEnabled: runtimeLlamaCfg.Reasoning !== 'off',
+      webSearchEnabled: (currentConfig.WebSearch as Dict | undefined)?.EnabledDefault === true,
       presetId,
       mode: mapPresetIdToLegacyMode(presetId, presets),
       planRepoRoot: process.cwd(),
