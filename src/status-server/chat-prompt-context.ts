@@ -53,7 +53,7 @@ function buildRepoToolPromptContextContent(config: Dict, session: ChatSession, p
     ? resolvePresetAllowedTools(preset, normalizeOperationModeAllowedTools(config.OperationModeAllowedTools))
     : undefined;
   const systemPrompt = buildTaskSystemPrompt(repoRoot, {
-    includeAgentsMd: preset?.includeAgentsMd !== false,
+    includeAgentsMd: config.IncludeAgentsMd !== false && preset?.includeAgentsMd !== false,
     includeRepoFileListing: config.IncludeRepoFileListing !== false && preset?.includeRepoFileListing !== false,
   });
   const toolDefinitions = resolveRepoSearchPlannerToolDefinitions(allowedTools);

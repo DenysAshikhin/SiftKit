@@ -130,7 +130,7 @@ export async function runPresetCli(options: {
     maxTurns: Number.isFinite(parsed.maxTurns) && Number(parsed.maxTurns) > 0 ? Number(parsed.maxTurns) : preset.maxTurns ?? undefined,
     logFile: parsed.logFile,
     allowedTools: effectiveAllowedTools,
-    includeAgentsMd: preset.includeAgentsMd,
+    includeAgentsMd: config.IncludeAgentsMd !== false && preset.includeAgentsMd !== false,
     includeRepoFileListing: resolveEffectiveRepoFileListing(config, preset),
   });
   const output = preset.presetKind === 'plan'

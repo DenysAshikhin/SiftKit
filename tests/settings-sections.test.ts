@@ -23,6 +23,7 @@ test('settings tooltip labels include the documented fields', () => {
       'Backend',
       'Policy Mode',
       'Raw log retention',
+      'AGENTS.md',
       'Initial repo file scan',
       'Prompt prefix',
       'Operation mode tool policy',

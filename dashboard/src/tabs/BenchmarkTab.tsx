@@ -30,8 +30,14 @@ export type BenchmarkTabProps = {
   onStartBenchmark(): Promise<void>;
   onCancelBenchmark(sessionId: string): Promise<void>;
   onSortChange(sortKey: DashboardBenchmarkSortKey): void;
+  onSelectSession(sessionId: string): void;
   onUpdateAttemptGrade(attemptId: string, outputQualityScore: number | null, toolUseQualityScore: number | null, reviewNotes: string | null): Promise<void>;
 };
+
+function formatSessionLabel(session: DashboardBenchmarkSession): string {
+  const started = session.startedAtUtc ? new Date(session.startedAtUtc).toLocaleString() : session.id.slice(0, 8);
+  return `${started} — ${session.status} (${session.caseCount} cases × ${session.repetitions})`;
+}
 
 function formatNumber(value: number | null | undefined, digits = 2): string {
   return Number.isFinite(value) ? Number(value).toFixed(digits) : 'Ungraded';
@@ -81,6 +87,7 @@ export function BenchmarkTab(props: BenchmarkTabProps) {
     onStartBenchmark,
     onCancelBenchmark,
     onSortChange,
+    onSelectSession,
     onUpdateAttemptGrade,
   } = props;
 
@@ -154,6 +161,25 @@ export function BenchmarkTab(props: BenchmarkTabProps) {
             </button>
           ) : null}
         </section>
+
+        {sessions.length > 0 ? (
+          <section className="detail-card">
+            <h3>Past Sessions</h3>
+            <label>
+              View session
+              <select
+                value={activeSession?.id ?? ''}
+                onChange={(event) => onSelectSession(event.currentTarget.value)}
+              >
+                {sessions.map((session) => (
+                  <option key={session.id} value={session.id}>
+                    {formatSessionLabel(session)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </section>
+        ) : null}
 
         {activeSession ? (
           <section className="detail-card">

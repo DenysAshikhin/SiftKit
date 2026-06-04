@@ -828,6 +828,207 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
   }
 });
 
+test('repo-search auto-append preview reports agents.md and file listing token counts', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-auto-append-preview-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  fs.writeFileSync(path.join(tempRoot, 'agents.md'), 'Use repo evidence.', 'utf8');
+  fs.writeFileSync(path.join(tempRoot, 'src.ts'), 'export const value = 1;\n', 'utf8');
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Preview Session',
+        model: 'Qwen3.5-9B-Q8_0.gguf',
+        presetId: 'repo-search',
+      }),
+    });
+    const sessionId = String(d(createSession.body.session).id);
+
+    const preview = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/repo-search/append-preview`, {
+      method: 'POST',
+      body: JSON.stringify({ repoRoot: tempRoot }),
+    });
+
+    assert.equal(preview.statusCode, 200);
+    const body = d(preview.body);
+    const agentsMd = d(body.agentsMd);
+    const repoFileListing = d(body.repoFileListing);
+    assert.equal(agentsMd.enabledDefault, true);
+    assert.equal(agentsMd.available, true);
+    assert.equal(Number(agentsMd.tokenCount) > 0, true);
+    assert.equal(['estimate', 'llama.cpp'].includes(String(agentsMd.tokenSource)), true);
+    assert.equal(repoFileListing.enabledDefault, true);
+    assert.equal(repoFileListing.available, true);
+    assert.equal(Number(repoFileListing.tokenCount) > 0, true);
+    assert.equal(['estimate', 'llama.cpp'].includes(String(repoFileListing.tokenSource)), true);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
+test('repo-search auto-append preview reports disabled defaults and missing agents.md', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-auto-append-preview-disabled-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  fs.writeFileSync(path.join(tempRoot, 'src.ts'), 'export const value = 1;\n', 'utf8');
+  writeConfig(getConfigPath(), {
+    ...getDefaultConfig(),
+    IncludeAgentsMd: false,
+    IncludeRepoFileListing: false,
+  });
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Preview Session',
+        model: 'Qwen3.5-9B-Q8_0.gguf',
+        presetId: 'repo-search',
+      }),
+    });
+    const sessionId = String(d(createSession.body.session).id);
+
+    const preview = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/repo-search/append-preview`, {
+      method: 'POST',
+      body: JSON.stringify({ repoRoot: tempRoot }),
+    });
+
+    assert.equal(preview.statusCode, 200);
+    const body = d(preview.body);
+    const agentsMd = d(body.agentsMd);
+    const repoFileListing = d(body.repoFileListing);
+    assert.equal(agentsMd.enabledDefault, false);
+    assert.equal(agentsMd.available, false);
+    assert.equal(agentsMd.tokenCount, 0);
+    assert.equal(repoFileListing.enabledDefault, false);
+    assert.equal(repoFileListing.available, true);
+    assert.equal(Number(repoFileListing.tokenCount) > 0, true);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
+test('repo-search auto-append preview prefers llama tokenizer when available', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-auto-append-preview-tokenize-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  fs.writeFileSync(path.join(tempRoot, 'agents.md'), 'Use repo evidence.', 'utf8');
+  fs.writeFileSync(path.join(tempRoot, 'src.ts'), 'export const value = 1;\n', 'utf8');
+
+  const tokenizerServer = http.createServer((request, response) => {
+    if ((request.url || '').startsWith('/tokenize')) {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ count: 7 }));
+      return;
+    }
+    response.writeHead(404, { 'content-type': 'application/json' });
+    response.end('{}');
+  });
+  await new Promise<void>((resolve) => tokenizerServer.listen(0, '127.0.0.1', resolve));
+  const tokenizerAddress = tokenizerServer.address() as AddressInfo;
+  const tokenizerBaseUrl = `http://127.0.0.1:${tokenizerAddress.port}`;
+  const config = getDefaultConfig() as Dict;
+  const serverConfig = d(config.Server);
+  const serverLlama = d(serverConfig.LlamaCpp);
+  serverLlama.Presets = [{
+    ...d((serverLlama.Presets as Dict[] | undefined)?.[0]),
+    id: 'default',
+    label: 'Default',
+    ExternalServerEnabled: true,
+    BaseUrl: tokenizerBaseUrl,
+  }];
+  serverLlama.ActivePresetId = 'default';
+  serverConfig.LlamaCpp = serverLlama;
+  config.Server = serverConfig;
+  writeConfig(getConfigPath(), config);
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Preview Session',
+        model: 'Qwen3.5-9B-Q8_0.gguf',
+        presetId: 'repo-search',
+      }),
+    });
+    const sessionId = String(d(createSession.body.session).id);
+
+    const preview = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/repo-search/append-preview`, {
+      method: 'POST',
+      body: JSON.stringify({ repoRoot: tempRoot }),
+    });
+
+    assert.equal(preview.statusCode, 200);
+    const agentsMd = d(d(preview.body).agentsMd);
+    const repoFileListing = d(d(preview.body).repoFileListing);
+    assert.equal(agentsMd.tokenSource, 'llama.cpp');
+    assert.equal(agentsMd.tokenCount, 7);
+    assert.equal(repoFileListing.tokenSource, 'llama.cpp');
+    assert.equal(repoFileListing.tokenCount, 7);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    await new Promise<void>((resolve, reject) => {
+      tokenizerServer.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
 test('package start script launches the dedicated dual-server start runner', () => {
   const packageJsonPath = path.resolve(__dirname, '..', 'package.json');
   const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as { scripts?: { start?: string } };

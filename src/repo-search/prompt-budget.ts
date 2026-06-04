@@ -6,6 +6,7 @@ import {
   DEFAULT_LLAMA_CPP_TOKENIZE_RETRY_MAX_WAIT_MS,
   DEFAULT_LLAMA_CPP_TOKENIZE_TIMEOUT_MS,
   countLlamaCppTokensDetailed,
+  type CountLlamaCppTokensOptions,
   type LlamaCppTokenCountResult,
 } from '../providers/llama-cpp.js';
 import type { ChatMessage } from './planner-protocol.js';
@@ -31,9 +32,10 @@ export type TokenCountWithFallbackResult = {
 export async function countTokensWithFallbackDetailed(
   config: SiftConfig | undefined,
   text: string,
+  options: CountLlamaCppTokensOptions = {},
 ): Promise<TokenCountWithFallbackResult> {
   if (config) {
-    const llamaTokenCount = await countLlamaCppTokensDetailed(config, text);
+    const llamaTokenCount = await countLlamaCppTokensDetailed(config, text, options);
     if (Number.isFinite(llamaTokenCount.tokenCount) && Number(llamaTokenCount.tokenCount) > 0) {
       return {
         tokenCount: Number(llamaTokenCount.tokenCount),

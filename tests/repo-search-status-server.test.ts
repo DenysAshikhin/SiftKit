@@ -9,6 +9,8 @@ import type { AddressInfo } from 'node:net';
 
 import { startStatusServer, buildRepoSearchProgressLogMessage } from '../dist/status-server/index.js';
 import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
+import { getConfigPath } from '../dist/config/index.js';
+import { getDefaultConfig, writeConfig } from '../dist/status-server/config-store.js';
 
 const requireFromHere = createRequire(__filename);
 const Database = requireFromHere('better-sqlite3') as new (path: string, options?: { readonly?: boolean }) => {
@@ -26,6 +28,7 @@ const runtimeHelpers = requireFromHere('./_runtime-helpers.js') as {
     modelPath: string;
     startupScriptPath: string;
     shutdownScriptPath: string;
+    pidFilePath: string;
     readyFilePath: string;
   };
   getFreePort: () => Promise<number>;
@@ -45,6 +48,54 @@ const runtimeHelpers = requireFromHere('./_runtime-helpers.js') as {
 
 type JsonResponse = { statusCode: number; body: Record<string, unknown> };
 type RequestOptions = { method?: string; body?: string; timeoutMs?: number };
+
+function writeManagedLlamaReadinessTestConfig(managed: {
+  baseUrl: string;
+  modelPath: string;
+  startupScriptPath: string;
+}, startupTimeoutMs: number): void {
+  const config = getDefaultConfig() as Record<string, unknown>;
+  const server = config.Server as { LlamaCpp: { Presets: Array<Record<string, unknown>>; ActivePresetId: string } };
+  server.LlamaCpp.Presets = [{
+    ...(server.LlamaCpp.Presets[0] || {}),
+    id: 'default',
+    label: 'Managed Test',
+    Model: 'managed-test-model',
+    ExternalServerEnabled: false,
+    BaseUrl: managed.baseUrl,
+    ExecutablePath: managed.startupScriptPath,
+    ModelPath: managed.modelPath,
+    StartupTimeoutMs: startupTimeoutMs,
+    HealthcheckTimeoutMs: 20,
+    HealthcheckIntervalMs: 20,
+  }];
+  server.LlamaCpp.ActivePresetId = 'default';
+  writeConfig(getConfigPath(), config);
+}
+
+async function stopManagedTestProcess(pidFilePath: string): Promise<void> {
+  try {
+    const pid = Number(fs.readFileSync(pidFilePath, 'utf8').trim());
+    if (Number.isFinite(pid) && pid > 0) {
+      try {
+        process.kill(pid);
+      } catch {
+        // Already exited.
+      }
+    }
+  } catch {
+    return;
+  }
+  const deadline = Date.now() + 2000;
+  while (fs.existsSync(pidFilePath) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  try {
+    fs.rmSync(pidFilePath, { force: true });
+  } catch {
+    // Best effort.
+  }
+}
 
 async function captureStdoutLines(fn: () => Promise<void>): Promise<string[]> {
   const originalWrite = process.stdout.write.bind(process.stdout);
@@ -451,29 +502,7 @@ test('managed llama readiness wait is serialized by the model request queue', as
   const managed = runtimeHelpers.writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
     launchHangingProcess: true,
   });
-  fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  fs.writeFileSync(configPath, `${JSON.stringify({
-    Backend: 'llama.cpp',
-    Model: 'managed-test-model',
-    Runtime: {
-      Model: 'managed-test-model',
-      LlamaCpp: {
-        BaseUrl: managed.baseUrl,
-        NumCtx: 32000,
-        ModelPath: managed.modelPath,
-      },
-    },
-    Server: {
-      LlamaCpp: {
-        BaseUrl: managed.baseUrl,
-        ExecutablePath: managed.startupScriptPath,
-        ModelPath: managed.modelPath,
-        StartupTimeoutMs: 250,
-        HealthcheckTimeoutMs: 20,
-        HealthcheckIntervalMs: 20,
-      },
-    },
-  }, null, 2)}\n`, 'utf8');
+  writeManagedLlamaReadinessTestConfig(managed, 250);
 
   const server = startStatusServer();
   await server.startupPromise;
@@ -523,6 +552,7 @@ test('managed llama readiness wait is serialized by the model request queue', as
         process.env[key] = value;
       }
     }
+    await stopManagedTestProcess(managed.pidFilePath);
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 });
@@ -555,29 +585,7 @@ test('health reports unavailable while managed llama bootstrap is still starting
   const managed = runtimeHelpers.writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
     launchHangingProcess: true,
   });
-  fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  fs.writeFileSync(configPath, `${JSON.stringify({
-    Backend: 'llama.cpp',
-    Model: 'managed-test-model',
-    Runtime: {
-      Model: 'managed-test-model',
-      LlamaCpp: {
-        BaseUrl: managed.baseUrl,
-        NumCtx: 32000,
-        ModelPath: managed.modelPath,
-      },
-    },
-    Server: {
-      LlamaCpp: {
-        BaseUrl: managed.baseUrl,
-        ExecutablePath: managed.startupScriptPath,
-        ModelPath: managed.modelPath,
-        StartupTimeoutMs: 900,
-        HealthcheckTimeoutMs: 20,
-        HealthcheckIntervalMs: 20,
-      },
-    },
-  }, null, 2)}\n`, 'utf8');
+  writeManagedLlamaReadinessTestConfig(managed, 900);
 
   const server = startStatusServer();
   await runtimeHelpers.waitForAsyncExpectation(async () => {
@@ -610,6 +618,7 @@ test('health reports unavailable while managed llama bootstrap is still starting
         process.env[key] = value;
       }
     }
+    await stopManagedTestProcess(managed.pidFilePath);
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 });

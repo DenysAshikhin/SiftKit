@@ -9,6 +9,9 @@ import * as crypto from 'node:crypto';
 import type { Dict } from '../../lib/types.js';
 import { getProcessedPromptTokens } from '../../lib/provider-helpers.js';
 import { getRuntimeRoot } from '../paths.js';
+import { buildIgnorePolicy } from '../../repo-search/command-safety.js';
+import { readAgentsMd, scanRepoFiles } from '../../repo-search/prompts.js';
+import { countTokensWithFallbackDetailed } from '../../repo-search/prompt-budget.js';
 import {
   readBody,
   parseJsonBody,
@@ -183,6 +186,66 @@ function resolveRepoSearchRoutePreset(
 
 export function resolveEffectiveRepoFileListing(config: Dict, preset: Pick<SiftPreset, 'includeRepoFileListing'> | null): boolean {
   return config.IncludeRepoFileListing !== false && preset?.includeRepoFileListing !== false;
+}
+
+export function resolveEffectiveAgentsMd(config: Dict, preset: Pick<SiftPreset, 'includeAgentsMd'> | null): boolean {
+  return config.IncludeAgentsMd !== false && preset?.includeAgentsMd !== false;
+}
+
+export function resolveRepoSearchAutoAppendOverrides(
+  config: Dict,
+  preset: Pick<SiftPreset, 'includeAgentsMd' | 'includeRepoFileListing'> | null,
+  overrides: { includeAgentsMd?: unknown; includeRepoFileListing?: unknown },
+): { includeAgentsMd: boolean; includeRepoFileListing: boolean } {
+  return {
+    includeAgentsMd: typeof overrides.includeAgentsMd === 'boolean'
+      ? overrides.includeAgentsMd
+      : resolveEffectiveAgentsMd(config, preset),
+    includeRepoFileListing: typeof overrides.includeRepoFileListing === 'boolean'
+      ? overrides.includeRepoFileListing
+      : resolveEffectiveRepoFileListing(config, preset),
+  };
+}
+
+type RepoSearchAutoAppendPreviewItem = {
+  key: 'agentsMd' | 'repoFileListing';
+  label: string;
+  enabledDefault: boolean;
+  available: boolean;
+  tokenCount: number;
+  tokenSource: 'llama.cpp' | 'estimate';
+};
+
+async function buildRepoSearchAutoAppendPreviewItem(options: {
+  key: RepoSearchAutoAppendPreviewItem['key'];
+  label: string;
+  enabledDefault: boolean;
+  content: string;
+  config: ChatRouteConfig;
+}): Promise<RepoSearchAutoAppendPreviewItem> {
+  const content = options.content.trim();
+  if (!content) {
+    return {
+      key: options.key,
+      label: options.label,
+      enabledDefault: options.enabledDefault,
+      available: false,
+      tokenCount: 0,
+      tokenSource: 'estimate',
+    };
+  }
+  const count = await countTokensWithFallbackDetailed(options.config, content, {
+    timeoutMs: 150,
+    retryMaxWaitMs: 150,
+  });
+  return {
+    key: options.key,
+    label: options.label,
+    enabledDefault: options.enabledDefault,
+    available: true,
+    tokenCount: count.tokenCount,
+    tokenSource: count.source,
+  };
 }
 
 export function getRepoSearchGenerationTokensPerSecond(scorecard: unknown): number | null {
@@ -790,6 +853,7 @@ export async function handleChatRoute(
         typeof activeSession.presetId === 'string' ? activeSession.presetId : undefined,
         'plan',
       );
+      const autoAppend = resolveRepoSearchAutoAppendOverrides(config, preset, parsedBody);
       const result = await executeRepoSearchRequest({
         taskKind: 'plan',
         prompt: buildPlanRequestPrompt(content),
@@ -798,8 +862,8 @@ export async function handleChatRoute(
         config,
         promptPrefix: preset?.promptPrefix || '',
         allowedTools: getEffectivePresetAllowedTools(config, preset),
-        includeAgentsMd: preset?.includeAgentsMd !== false,
-        includeRepoFileListing: resolveEffectiveRepoFileListing(config, preset),
+        includeAgentsMd: autoAppend.includeAgentsMd,
+        includeRepoFileListing: autoAppend.includeRepoFileListing,
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
         logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,
@@ -942,6 +1006,7 @@ export async function handleChatRoute(
         typeof activeSession.presetId === 'string' ? activeSession.presetId : undefined,
         'plan',
       );
+      const autoAppend = resolveRepoSearchAutoAppendOverrides(config, preset, parsedBody);
       const result = await executeRepoSearchRequest({
         taskKind: 'plan',
         prompt: buildPlanRequestPrompt(content),
@@ -950,8 +1015,8 @@ export async function handleChatRoute(
         config,
         promptPrefix: preset?.promptPrefix || '',
         allowedTools: getEffectivePresetAllowedTools(config, preset),
-        includeAgentsMd: preset?.includeAgentsMd !== false,
-        includeRepoFileListing: resolveEffectiveRepoFileListing(config, preset),
+        includeAgentsMd: autoAppend.includeAgentsMd,
+        includeRepoFileListing: autoAppend.includeRepoFileListing,
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
         logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,
@@ -1023,6 +1088,62 @@ export async function handleChatRoute(
       releaseModelRequest(ctx, modelRequestLock.token);
       res.end();
     }
+    return true;
+  }
+
+  // -------------------------------------------------------------------------
+  // Repo-search auto-append preview
+  // -------------------------------------------------------------------------
+
+  if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/repo-search\/append-preview$/u.test(pathname)) {
+    const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/repo-search\/append-preview$/u, ''));
+    const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
+    const session = readChatSessionFromPath(sessionPath);
+    if (!session) {
+      sendJson(res, 404, { error: 'Session not found.' });
+      return true;
+    }
+    let parsedBody: Dict;
+    try {
+      parsedBody = parseJsonBody(await readBody(req));
+    } catch {
+      sendJson(res, 400, { error: 'Expected valid JSON object.' });
+      return true;
+    }
+    const requestedRepoRoot = typeof parsedBody.repoRoot === 'string' && (parsedBody.repoRoot as string).trim()
+      ? (parsedBody.repoRoot as string).trim()
+      : (typeof session.planRepoRoot === 'string' && (session.planRepoRoot as string).trim() ? (session.planRepoRoot as string).trim() : process.cwd());
+    const resolvedRepoRoot = path.resolve(requestedRepoRoot);
+    if (!fs.existsSync(resolvedRepoRoot) || !fs.statSync(resolvedRepoRoot).isDirectory()) {
+      sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
+      return true;
+    }
+    const config = readConfig(configPath) as ChatRouteConfig;
+    const presets = normalizePresets(config.Presets);
+    const preset = resolveRepoSearchRoutePreset(
+      presets,
+      typeof session.presetId === 'string' ? session.presetId : undefined,
+      'repo-search',
+    );
+    const defaults = resolveRepoSearchAutoAppendOverrides(config, preset, {});
+    const agentsContent = readAgentsMd(resolvedRepoRoot);
+    const fileListing = scanRepoFiles(resolvedRepoRoot, buildIgnorePolicy(resolvedRepoRoot));
+    sendJson(res, 200, {
+      agentsMd: await buildRepoSearchAutoAppendPreviewItem({
+        key: 'agentsMd',
+        label: 'AGENTS.md',
+        enabledDefault: defaults.includeAgentsMd,
+        content: agentsContent,
+        config,
+      }),
+      repoFileListing: await buildRepoSearchAutoAppendPreviewItem({
+        key: 'repoFileListing',
+        label: 'Files',
+        enabledDefault: defaults.includeRepoFileListing,
+        content: fileListing,
+        config,
+      }),
+    });
     return true;
   }
 
@@ -1099,6 +1220,7 @@ export async function handleChatRoute(
         typeof activeSession.presetId === 'string' ? activeSession.presetId : undefined,
         'repo-search',
       );
+      const autoAppend = resolveRepoSearchAutoAppendOverrides(config, preset, parsedBody);
       const result = await executeRepoSearchRequest({
         taskKind: 'repo-search',
         prompt: content,
@@ -1107,8 +1229,8 @@ export async function handleChatRoute(
         config,
         promptPrefix: preset?.promptPrefix || '',
         allowedTools: getEffectivePresetAllowedTools(config, preset),
-        includeAgentsMd: preset?.includeAgentsMd !== false,
-        includeRepoFileListing: resolveEffectiveRepoFileListing(config, preset),
+        includeAgentsMd: autoAppend.includeAgentsMd,
+        includeRepoFileListing: autoAppend.includeRepoFileListing,
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
         logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,

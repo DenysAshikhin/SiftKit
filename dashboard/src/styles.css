@@ -1054,6 +1054,76 @@ pre {
   gap: 8px;
 }
 
+.repo-auto-append-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.repo-auto-append-button {
+  min-height: 42px;
+  display: inline-grid;
+  grid-template-columns: 24px minmax(0, auto) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.repo-auto-append-button.on {
+  border-color: var(--accent);
+  background: #12362f;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+
+.repo-auto-append-button.off {
+  border-color: #4d5f72;
+  background: #132131;
+  color: #aebdca;
+  opacity: 0.82;
+}
+
+.repo-auto-append-icon {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.repo-auto-append-copy {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.repo-auto-append-copy strong,
+.repo-auto-append-copy span,
+.repo-auto-append-state {
+  white-space: nowrap;
+}
+
+.repo-auto-append-copy strong {
+  font-size: 0.78rem;
+  line-height: 1.1;
+}
+
+.repo-auto-append-copy span,
+.repo-auto-append-state {
+  font-size: 0.72rem;
+  color: var(--ink-dim);
+}
+
+.repo-auto-append-button.on .repo-auto-append-state {
+  color: #86efd7;
+}
+
 button {
   border: 1px solid var(--stroke);
   border-radius: 10px;

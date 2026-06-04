@@ -7,7 +7,7 @@ import { normalizeOperationModeAllowedTools, normalizePresets } from '../presets
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-export const CURRENT_SCHEMA_VERSION = 27;
+export const CURRENT_SCHEMA_VERSION = 28;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["repo_rg","repo_read_file","repo_list_files","repo_git","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}';
 
@@ -102,6 +102,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       backend TEXT NOT NULL,
       policy_mode TEXT NOT NULL,
       raw_log_retention INTEGER NOT NULL CHECK (raw_log_retention IN (0, 1)),
+      include_agents_md INTEGER NOT NULL DEFAULT 1 CHECK (include_agents_md IN (0, 1)),
       include_repo_file_listing INTEGER NOT NULL DEFAULT 1 CHECK (include_repo_file_listing IN (0, 1)),
       prompt_prefix TEXT,
       runtime_model TEXT,
@@ -1086,6 +1087,13 @@ function ensureSchema(database: RuntimeDatabase): void {
     ensureChatMessageTimelineSchema(database);
     setSchemaVersion(database, 27);
     currentVersion = 27;
+  }
+  if (currentVersion < 28) {
+    if (!tableHasColumn(database, 'app_config', 'include_agents_md')) {
+      database.exec('ALTER TABLE app_config ADD COLUMN include_agents_md INTEGER NOT NULL DEFAULT 1 CHECK (include_agents_md IN (0, 1));');
+    }
+    setSchemaVersion(database, 28);
+    currentVersion = 28;
   }
   ensureChatMessageTimelineSchema(database);
   ensureRuntimeArtifactsSchema(database);

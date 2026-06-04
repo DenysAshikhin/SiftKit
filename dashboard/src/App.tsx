@@ -14,6 +14,7 @@ import {
   getBenchmarkSession,
   getBenchmarkSessions,
   getDashboardHealth,
+  getRepoSearchAutoAppendPreview,
   getChatSession,
   getChatSessions,
   getIdleSummary,
@@ -68,6 +69,10 @@ import type { InteractiveSeries } from './components/InteractiveGraph';
 import { buildRepoSearchChatSteps } from './lib/chat-steps';
 import { buildLiveToolMessageId } from './lib/live-tool-message';
 import { appendLiveThinkingMessage } from './lib/live-thinking-message';
+import {
+  buildRepoSearchAutoAppendPayload,
+  buildRepoSearchAutoAppendSelection,
+} from './lib/repo-append-controls';
 import { type ChatStreamToolEvent } from './lib/chat-stream-parser';
 import {
   buildRunsSignature,
@@ -83,7 +88,7 @@ import { MetricsTab } from './tabs/MetricsTab';
 import { ChatTab } from './tabs/ChatTab';
 import { SettingsTab } from './tabs/SettingsTab';
 import { BenchmarkTab } from './tabs/BenchmarkTab';
-import type { ChatMessage, ChatSession, ContextUsage, DashboardBenchmarkAttempt, DashboardBenchmarkQuestionPreset, DashboardBenchmarkSession, DashboardBenchmarkSortKey, DashboardConfig, DashboardManagedLlamaPreset, DashboardPreset, IdleSummarySnapshot, MetricDay, RunGroupFilter, TaskMetricDay, ToolStatsByTask, RunDetailResponse, RunLogDeleteType, RunRecord } from './types';
+import type { ChatMessage, ChatSession, ContextUsage, DashboardBenchmarkAttempt, DashboardBenchmarkQuestionPreset, DashboardBenchmarkSession, DashboardBenchmarkSortKey, DashboardConfig, DashboardManagedLlamaPreset, DashboardPreset, IdleSummarySnapshot, MetricDay, RepoSearchAutoAppendPreview, RepoSearchAutoAppendSelection, RunGroupFilter, TaskMetricDay, ToolStatsByTask, RunDetailResponse, RunLogDeleteType, RunRecord } from './types';
 
 type TabKey = 'runs' | 'metrics' | 'benchmark' | 'chat' | 'settings';
 type RunGroupKey = Exclude<RunGroupFilter, ''>;
@@ -174,6 +179,12 @@ function DashboardApp() {
   const [planRepoRootInput, setPlanRepoRootInput] = useState('');
   const [planMaxTurnsInput, setPlanMaxTurnsInput] = useState('45');
   const [liveToolPromptTokenCount, setLiveToolPromptTokenCount] = useState<number | null>(null);
+  const [repoSearchAutoAppendPreview, setRepoSearchAutoAppendPreview] = useState<RepoSearchAutoAppendPreview | null>(null);
+  const [repoSearchAutoAppendSelection, setRepoSearchAutoAppendSelection] = useState<RepoSearchAutoAppendSelection>({
+    includeAgentsMd: true,
+    includeRepoFileListing: true,
+  });
+  const [repoSearchAutoAppendPreviewLoading, setRepoSearchAutoAppendPreviewLoading] = useState(false);
 
   const groupedRuns = runs.reduce<Record<RunGroupKey, RunRecord[]>>((accumulator, run) => {
     const key = classifyRunGroup(run.kind);
@@ -809,6 +820,42 @@ function DashboardApp() {
     }
   }, [selectedChatPreset?.id]);
 
+  useEffect(() => {
+    const isFirstRepoSearchTurn = chatMode === 'repo-search'
+      && selectedSession
+      && selectedSession.messages.length === 0
+      && liveMessages.length === 0;
+    if (!selectedSessionId || !isFirstRepoSearchTurn) {
+      setRepoSearchAutoAppendPreview(null);
+      return;
+    }
+    let cancelled = false;
+    setRepoSearchAutoAppendPreviewLoading(true);
+    getRepoSearchAutoAppendPreview(selectedSessionId, {
+      repoRoot: planRepoRootInput.trim() || selectedSession.planRepoRoot || '',
+    }).then((preview) => {
+      if (cancelled) {
+        return;
+      }
+      setRepoSearchAutoAppendPreview(preview);
+      setRepoSearchAutoAppendSelection(buildRepoSearchAutoAppendSelection({
+        includeAgentsMd: preview.agentsMd.enabledDefault,
+        includeRepoFileListing: preview.repoFileListing.enabledDefault,
+      }));
+    }).catch((error) => {
+      if (!cancelled) {
+        setChatError(error instanceof Error ? error.message : String(error));
+      }
+    }).finally(() => {
+      if (!cancelled) {
+        setRepoSearchAutoAppendPreviewLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [chatMode, selectedSessionId, selectedSession?.messages.length, selectedSession?.planRepoRoot, planRepoRootInput, liveMessages.length]);
+
   async function onCreateSession() {
     setChatBusy(true);
     setChatError(null);
@@ -928,6 +975,7 @@ function DashboardApp() {
           content: chatInput.trim(),
           repoRoot: planRepoRootInput.trim() || selectedSession?.planRepoRoot || '',
           ...(Number.isFinite(parsedMaxTurnsRS) && parsedMaxTurnsRS > 0 ? { maxTurns: parsedMaxTurnsRS } : {}),
+          ...buildRepoSearchAutoAppendPayload(repoSearchAutoAppendSelection),
         },
         (thinkingText) => {
           setLiveMessages((previous) => appendLiveThinkingMessage(previous, thinkingText));
@@ -1663,6 +1711,7 @@ function DashboardApp() {
           onStartBenchmark={onStartBenchmark}
           onCancelBenchmark={onCancelBenchmark}
           onSortChange={setBenchmarkSortKey}
+          onSelectSession={setSelectedBenchmarkSessionId}
           onUpdateAttemptGrade={onUpdateBenchmarkAttemptGrade}
         />
       )}
@@ -1716,6 +1765,9 @@ function DashboardApp() {
           planMaxTurnsInput={planMaxTurnsInput}
           contextUsage={contextUsage}
           liveToolPromptTokenCount={liveToolPromptTokenCount}
+          repoSearchAutoAppendPreview={repoSearchAutoAppendPreview}
+          repoSearchAutoAppendSelection={repoSearchAutoAppendSelection}
+          isRepoSearchAutoAppendPreviewLoading={repoSearchAutoAppendPreviewLoading}
           liveMessages={liveMessages}
           chatInput={chatInput}
           chatBusy={chatBusy}
@@ -1725,6 +1777,7 @@ function DashboardApp() {
           onChangePlanRepoRoot={setPlanRepoRootInput}
           onChangePlanMaxTurns={setPlanMaxTurnsInput}
           onChangeChatInput={setChatInput}
+          onSetRepoSearchAutoAppendSelection={setRepoSearchAutoAppendSelection}
           onCreateSession={onCreateSession}
           onDeleteSession={onDeleteSession}
           onUpdateSessionPreset={onUpdateSessionPreset}

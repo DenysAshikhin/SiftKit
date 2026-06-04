@@ -162,6 +162,23 @@ test('config persistence stores normalized presets in sqlite', () => {
   });
 });
 
+test('config persistence stores global agents.md auto-append setting in sqlite', () => {
+  withTempRepo((repoRoot) => {
+    const configPath = path.join(repoRoot, '.siftkit', 'runtime.sqlite');
+    const defaultConfig = getDefaultConfig() as { IncludeAgentsMd?: boolean };
+
+    assert.equal(defaultConfig.IncludeAgentsMd, true);
+
+    writeConfig(configPath, {
+      ...defaultConfig,
+      IncludeAgentsMd: false,
+    });
+    const loaded = readConfig(configPath) as { IncludeAgentsMd?: boolean };
+
+    assert.equal(loaded.IncludeAgentsMd, false);
+  });
+});
+
 test('legacy executionFamily presets migrate to presetKind and operationMode', () => {
   const presets = normalizePresets([
     { id: 'legacy-plan', label: 'Legacy Plan', executionFamily: 'plan', surfaces: ['web'] },

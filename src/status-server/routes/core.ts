@@ -34,7 +34,7 @@ import {
   normalizeConfig,
   mergeConfig,
 } from '../config-store.js';
-import { resolveEffectiveRepoFileListing } from './chat.js';
+import { resolveEffectiveAgentsMd, resolveEffectiveRepoFileListing } from './chat.js';
 import {
   type RepoSearchProgressEvent,
   buildStatusRequestLogMessage,
@@ -776,6 +776,7 @@ export async function handleCoreRoute(
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
         config,
         allowedTools: Array.isArray(parsedBody.allowedTools) ? (parsedBody.allowedTools as unknown[]).map((value) => String(value)) : undefined,
+        includeAgentsMd: resolveEffectiveAgentsMd(config, null),
         includeRepoFileListing: resolveEffectiveRepoFileListing(config, null),
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,

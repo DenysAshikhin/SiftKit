@@ -7,6 +7,7 @@ import type { ReactElement, ReactNode } from 'react';
 import { MetricsTab } from '../src/tabs/MetricsTab';
 import { SettingsTab } from '../src/tabs/SettingsTab';
 import { ChatTab, buildLiveMessageScrollSignature } from '../src/tabs/ChatTab';
+import { buildRepoSearchAutoAppendPayload } from '../src/lib/repo-append-controls';
 import { BenchmarkTab } from '../src/tabs/BenchmarkTab';
 import { PresetsSection } from '../src/tabs/settings/PresetsSection';
 import { ManagedLlamaSection } from '../src/tabs/settings/ManagedLlamaSection';
@@ -212,6 +213,8 @@ const DASHBOARD_CONFIG = {
   Backend: 'llama.cpp',
   PolicyMode: 'conservative',
   RawLogRetention: true,
+  IncludeAgentsMd: true,
+  IncludeRepoFileListing: true,
   PromptPrefix: '',
   OperationModeAllowedTools: {
     summary: ['read_lines'],
@@ -401,6 +404,9 @@ function renderChatTab(overrides: Partial<ChatTabProps> = {}): string {
     planMaxTurnsInput: overrides.planMaxTurnsInput ?? '',
     contextUsage: overrides.contextUsage ?? null,
     liveToolPromptTokenCount: overrides.liveToolPromptTokenCount ?? null,
+    repoSearchAutoAppendPreview: overrides.repoSearchAutoAppendPreview ?? null,
+    repoSearchAutoAppendSelection: overrides.repoSearchAutoAppendSelection ?? { includeAgentsMd: true, includeRepoFileListing: true },
+    isRepoSearchAutoAppendPreviewLoading: overrides.isRepoSearchAutoAppendPreviewLoading ?? false,
     liveMessages: overrides.liveMessages ?? [],
     chatInput: overrides.chatInput ?? '',
     chatBusy: overrides.chatBusy ?? false,
@@ -410,6 +416,7 @@ function renderChatTab(overrides: Partial<ChatTabProps> = {}): string {
     onChangePlanRepoRoot: overrides.onChangePlanRepoRoot ?? (() => {}),
     onChangePlanMaxTurns: overrides.onChangePlanMaxTurns ?? (() => {}),
     onChangeChatInput: overrides.onChangeChatInput ?? (() => {}),
+    onSetRepoSearchAutoAppendSelection: overrides.onSetRepoSearchAutoAppendSelection ?? (() => {}),
     onCreateSession: overrides.onCreateSession ?? (async () => {}),
     onDeleteSession: overrides.onDeleteSession ?? (async () => {}),
     onUpdateSessionPreset: overrides.onUpdateSessionPreset ?? (async () => {}),
@@ -531,6 +538,8 @@ test('settings tab renders section chrome and fields', () => {
 
   assert.match(markup, /Settings/);
   assert.match(markup, /Prompt prefix/);
+  assert.match(markup, /AGENTS\.md/);
+  assert.match(markup, /Initial repo file scan/);
   assert.match(markup, /Model Presets/);
   assert.doesNotMatch(markup, /Managed llama\.cpp/);
 });
@@ -563,6 +572,7 @@ test('benchmark tab renders prompt library, run builder, live logs, sortable met
       onStartBenchmark={async () => { startCalled = true; }}
       onCancelBenchmark={async () => { cancelCalled = true; }}
       onSortChange={() => {}}
+      onSelectSession={() => {}}
       onUpdateAttemptGrade={async (attemptId) => { gradeAttemptId = attemptId; }}
     />,
   );
@@ -578,6 +588,7 @@ test('benchmark tab renders prompt library, run builder, live logs, sortable met
   assert.match(markup, /Output Quality/);
   assert.match(markup, /Tool Use Quality/);
   assert.match(markup, /<th>Notes<\/th>/);
+  assert.match(markup, /Past Sessions/);
   assert.match(markup, /Token Speed/);
   assert.match(markup, /Acceptance/);
   assert.match(markup, /Ungraded/);
@@ -1201,6 +1212,100 @@ test('chat tab renders fallback system context bubble when session metadata is m
   assert.match(markup, /Use strict repo evidence/u);
   assert.match(markup, /repo_rg/u);
   assert.match(markup, /repo_read_file/u);
+});
+
+test('chat tab renders repo-search auto-append controls before first message', () => {
+  const emptySession = {
+    ...CHAT_SESSION,
+    messages: [],
+  } as ChatSession;
+  const markup = renderChatTab({
+    selectedSession: emptySession,
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'repo-search',
+    isRepoToolMode: true,
+    repoSearchAutoAppendPreview: {
+      agentsMd: {
+        key: 'agentsMd',
+        label: 'AGENTS.md',
+        enabledDefault: true,
+        available: true,
+        tokenCount: 42,
+        tokenSource: 'estimate',
+      },
+      repoFileListing: {
+        key: 'repoFileListing',
+        label: 'Files',
+        enabledDefault: true,
+        available: true,
+        tokenCount: 314,
+        tokenSource: 'estimate',
+      },
+    },
+    repoSearchAutoAppendSelection: { includeAgentsMd: true, includeRepoFileListing: false },
+    isRepoSearchAutoAppendPreviewLoading: false,
+    onSetRepoSearchAutoAppendSelection: () => {},
+    planMaxTurnsInput: '45',
+    contextUsage: CONTEXT_USAGE,
+  });
+
+  assert.match(markup, /repo-auto-append-row/u);
+  assert.match(markup, /aria-label="Disable AGENTS\.md auto-append"/u);
+  assert.match(markup, /42 tokens/u);
+  assert.match(markup, /aria-label="Enable file scan auto-append"/u);
+  assert.match(markup, /314 tokens/u);
+  assert.equal(/repo-auto-append-button on/u.test(markup), true);
+  assert.equal(/repo-auto-append-button off/u.test(markup), true);
+});
+
+test('chat tab hides repo-search auto-append controls outside first empty repo-search turn', () => {
+  const emptySession = { ...CHAT_SESSION, messages: [] } as ChatSession;
+  const preview = {
+    agentsMd: {
+      key: 'agentsMd' as const,
+      label: 'AGENTS.md',
+      enabledDefault: true,
+      available: true,
+      tokenCount: 42,
+      tokenSource: 'estimate' as const,
+    },
+    repoFileListing: {
+      key: 'repoFileListing' as const,
+      label: 'Files',
+      enabledDefault: true,
+      available: true,
+      tokenCount: 314,
+      tokenSource: 'estimate' as const,
+    },
+  };
+
+  assert.doesNotMatch(renderChatTab({
+    selectedSession: emptySession,
+    chatMode: 'chat',
+    isDirectChatMode: true,
+    repoSearchAutoAppendPreview: preview,
+  }), /repo-auto-append-row/u);
+
+  assert.doesNotMatch(renderChatTab({
+    selectedSession: CHAT_SESSION,
+    chatMode: 'repo-search',
+    isRepoToolMode: true,
+    repoSearchAutoAppendPreview: preview,
+  }), /repo-auto-append-row/u);
+});
+
+test('repo-search auto-append helper maps toggled controls into request payload overrides', () => {
+  assert.deepEqual(
+    buildRepoSearchAutoAppendPayload({
+      includeAgentsMd: false,
+      includeRepoFileListing: true,
+    }),
+    {
+      includeAgentsMd: false,
+      includeRepoFileListing: true,
+    },
+  );
 });
 
 test('chat tab sorts persisted messages oldest first and keeps live messages last', () => {

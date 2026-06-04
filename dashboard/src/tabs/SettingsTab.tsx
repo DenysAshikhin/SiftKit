@@ -145,6 +145,16 @@ export function SettingsTab(props: SettingsTabProps) {
             <span>{dashboardConfig.RawLogRetention ? 'Enabled' : 'Disabled'}</span>
           </label>
         ))}
+        {renderField('general', 'AGENTS.md', (
+          <label className="settings-live-toggle-control">
+            <input
+              type="checkbox"
+              checked={dashboardConfig.IncludeAgentsMd}
+              onChange={(event) => updateSettingsDraft((next) => { next.IncludeAgentsMd = event.target.checked; })}
+            />
+            <span>{dashboardConfig.IncludeAgentsMd ? 'Enabled' : 'Disabled'}</span>
+          </label>
+        ))}
         {renderField('general', 'Initial repo file scan', (
           <label className="settings-live-toggle-control">
             <input

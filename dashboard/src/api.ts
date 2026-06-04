@@ -21,6 +21,7 @@ import type {
   DashboardBenchmarkSessionDetail,
   DashboardBenchmarkSessionsResponse,
   DashboardBenchmarkStartRequest,
+  RepoSearchAutoAppendPreview,
 } from './types';
 import { ChatStreamReader, type ChatStreamToolEvent } from './lib/chat-stream-parser';
 
@@ -325,6 +326,17 @@ export function clearToolContext(sessionId: string): Promise<ChatSessionResponse
   });
 }
 
+export function getRepoSearchAutoAppendPreview(
+  sessionId: string,
+  payload: { repoRoot?: string },
+): Promise<RepoSearchAutoAppendPreview> {
+  return fetchJson<RepoSearchAutoAppendPreview>(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-search/append-preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
 export function createPlanMessage(
   sessionId: string,
   payload: {
@@ -388,6 +400,8 @@ export async function streamPlanMessage(
     repoRoot?: string;
     model?: string;
     maxTurns?: number;
+    includeAgentsMd?: boolean;
+    includeRepoFileListing?: boolean;
   },
   onThinking: (thinkingText: string) => void,
   onToolEvent: (event: ChatStreamToolEvent) => void,
@@ -409,6 +423,8 @@ export async function streamRepoSearchMessage(
     repoRoot?: string;
     model?: string;
     maxTurns?: number;
+    includeAgentsMd?: boolean;
+    includeRepoFileListing?: boolean;
   },
   onThinking: (thinkingText: string) => void,
   onToolEvent: (event: ChatStreamToolEvent) => void,

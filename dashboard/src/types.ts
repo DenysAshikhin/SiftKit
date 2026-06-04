@@ -200,6 +200,27 @@ export type ChatPromptContext = {
   deletable: false;
 };
 
+export type RepoSearchAutoAppendTokenSource = 'llama.cpp' | 'estimate';
+
+export type RepoSearchAutoAppendPreviewItem = {
+  key: 'agentsMd' | 'repoFileListing';
+  label: string;
+  enabledDefault: boolean;
+  available: boolean;
+  tokenCount: number;
+  tokenSource: RepoSearchAutoAppendTokenSource;
+};
+
+export type RepoSearchAutoAppendPreview = {
+  agentsMd: RepoSearchAutoAppendPreviewItem;
+  repoFileListing: RepoSearchAutoAppendPreviewItem;
+};
+
+export type RepoSearchAutoAppendSelection = {
+  includeAgentsMd: boolean;
+  includeRepoFileListing: boolean;
+};
+
 export type HiddenToolContext = {
   id: string;
   content: string;
@@ -330,6 +351,7 @@ export type DashboardConfig = {
   Backend: string;
   PolicyMode: string;
   RawLogRetention: boolean;
+  IncludeAgentsMd: boolean;
   IncludeRepoFileListing: boolean;
   PromptPrefix: string;
   OperationModeAllowedTools: DashboardOperationModeAllowedTools;
