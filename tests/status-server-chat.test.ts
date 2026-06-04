@@ -447,6 +447,73 @@ test('buildPersistTurnsFromRepoSearchResult throws on a command with a missing t
   }), /invalid turn/u);
 });
 
+test('persisted planner turns replay 1:1 into the model request and are deterministic', () => {
+  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-replay-'));
+  const base = createSession();
+  base.messages = [];
+  const session = appendChatMessagesWithUsage(
+    runtimeRoot,
+    base,
+    'find the answer',
+    'final markdown answer',
+    { promptTokens: 10, completionTokens: 5, thinkingTokens: 2, promptCacheTokens: null, promptEvalTokens: 10 },
+    {
+      turns: [
+        { thinkingText: 'turn one reasoning', toolMessages: [{
+          id: 'tool-x', content: 'rg -n "x" src', toolCallCommand: 'rg -n "x" src',
+          toolCallTurn: 1, toolCallMaxTurns: 1, toolCallExitCode: 0,
+          toolCallOutputSnippet: 'hit', toolCallOutput: 'hit', outputTokens: 2,
+        }] },
+        { thinkingText: 'final reasoning', toolMessages: [] },
+      ],
+    }
+  );
+
+  const request = buildChatCompletionRequest(createConfig(), session, 'next question');
+  const messages = request.body.messages as Array<Record<string, unknown>>;
+  const assistantTexts = messages.filter((m) => m.role === 'assistant').map((m) => m.content);
+  assert.deepEqual(assistantTexts, [
+    'turn one reasoning',
+    'Tool call: rg -n "x" src\n\nResult:\nhit',
+    'final reasoning',
+    'final markdown answer',
+  ]);
+
+  // Determinism: identical session yields identical request (prompt-caching safe).
+  const again = buildChatCompletionRequest(createConfig(), session, 'next question');
+  assert.deepEqual(again.body.messages, request.body.messages);
+});
+
+test('repo-search result persists and replays 1:1 through the builder', () => {
+  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-e2e-'));
+  const base = createSession();
+  base.messages = [];
+  const result = {
+    requestId: 'run-1',
+    scorecard: { tasks: [{
+      turnsUsed: 2,
+      turnThinking: { 1: 'reason about a', 2: 'final reason' },
+      commands: [
+        { command: 'rg -n "a" src --no-ignore', modelVisibleCommand: 'rg -n "a" src', turn: 1, exitCode: 0, output: 'a', promptOutput: 'a', outputTokens: 2 },
+      ],
+    }] },
+  };
+  const session = appendChatMessagesWithUsage(
+    runtimeRoot, base, 'find a', 'final markdown',
+    { promptTokens: 10, completionTokens: 5, thinkingTokens: 2, promptCacheTokens: null, promptEvalTokens: 10 },
+    { turns: buildPersistTurnsFromRepoSearchResult(result), toolContextContents: [] }
+  );
+  const request = buildChatCompletionRequest(createConfig(), session, 'next');
+  const assistantTexts = (request.body.messages as Array<Record<string, unknown>>)
+    .filter((m) => m.role === 'assistant').map((m) => m.content);
+  assert.deepEqual(assistantTexts, [
+    'reason about a',
+    'Tool call: rg -n "a" src\n\nResult:\na',
+    'final reason',
+    'final markdown',
+  ]);
+});
+
 test('buildContextUsage counts typed thinking and tool bubbles from visible timeline content', () => {
   const session = {
     id: 'session-usage-typed',
