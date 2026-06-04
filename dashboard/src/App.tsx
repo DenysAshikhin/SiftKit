@@ -1337,6 +1337,8 @@ function DashboardApp() {
           isDirectChatMode={isDirectChatMode}
           isRepoToolMode={isRepoToolMode}
           isThinkingEnabledForCurrentSession={isThinkingEnabledForCurrentSession}
+          webSearchEnabled={selectedSession?.webSearchEnabled === true}
+          webSearchOverride={composer.webSearchOverride}
           showSettings={showSettings}
           planRepoRootInput={planInputs.planRepoRootInput}
           contextUsage={contextHook.contextUsage}
@@ -1357,6 +1359,8 @@ function DashboardApp() {
           onDeleteSession={chatSessionsHook.deleteSession}
           onUpdateSessionPreset={chatSessionsHook.updateSessionPreset}
           onToggleThinking={chatSessionsHook.toggleThinking}
+          onToggleWebSearchEnabled={chatSessionsHook.toggleWebSearch}
+          onChangeWebSearchOverride={composer.setWebSearchOverride}
           onSavePlanRepoRoot={() => chatSessionsHook.savePlanRepoRoot(planInputs.planRepoRootInput, selectedChatPreset?.id)}
           onClearToolContext={chatSessionsHook.clearToolContext}
           onDeleteMessage={onDeleteChatMessage}

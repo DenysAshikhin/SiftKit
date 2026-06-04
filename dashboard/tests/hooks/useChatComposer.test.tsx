@@ -7,6 +7,7 @@ import {
   describeStreamError,
   parsePlanMaxTurnsOverride,
   requireSelectedSession,
+  resolveDirectChatSend,
   resolveRepoRoot,
   useChatComposer,
 } from '../../src/hooks/useChatComposer';
@@ -61,6 +62,20 @@ test('describeStreamError extracts message from Error instances', () => {
 test('describeStreamError stringifies non-Error values', () => {
   assert.equal(describeStreamError('plain'), 'plain');
   assert.equal(describeStreamError({ kind: 'oops' }), '[object Object]');
+});
+
+test('resolveDirectChatSend buffers when override forces web on and carries override in payload', () => {
+  const plan = resolveDirectChatSend(SESSION, 'on', 'hello');
+  assert.equal(plan.useBuffered, true);
+  assert.equal(plan.payload.webSearchOverride, 'on');
+  assert.equal(plan.payload.content, 'hello');
+});
+
+test('resolveDirectChatSend streams when web is off', () => {
+  assert.equal(resolveDirectChatSend(SESSION, 'default', 'hi').useBuffered, false);
+  assert.equal(resolveDirectChatSend(SESSION, 'off', 'hi').useBuffered, false);
+  assert.equal(resolveDirectChatSend({ ...SESSION, webSearchEnabled: true }, 'default', 'hi').useBuffered, true);
+  assert.equal(resolveDirectChatSend({ ...SESSION, webSearchEnabled: true }, 'off', 'hi').useBuffered, false);
 });
 
 test('requireSelectedSession throws when session is null', () => {

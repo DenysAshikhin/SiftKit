@@ -15,6 +15,7 @@ import {
   estimatePromptTokens,
 } from '../lib/chatMessages';
 import { resolveContextBarVisual } from '../lib/contextBar';
+import { getNextWebSearchOverride } from '../lib/web-search-controls';
 import { useChatScroll } from '../hooks/useChatScroll';
 import type {
   ChatSession,
@@ -23,8 +24,15 @@ import type {
   DashboardPresetExecutionFamily,
   RepoSearchAutoAppendPreview,
   RepoSearchAutoAppendSelection,
+  WebSearchOverride,
 } from '../types';
 import type { ChatMessage } from '../types';
+
+function getWebSearchOverrideTitle(value: WebSearchOverride): string {
+  if (value === 'on') return 'Web forced on for next message';
+  if (value === 'off') return 'Web forced off for next message';
+  return 'Web follows session setting';
+}
 
 type SessionPromptCacheStats = {
   cacheHitRate: number | null;
@@ -48,6 +56,8 @@ type ChatTabProps = {
   isDirectChatMode: boolean;
   isRepoToolMode: boolean;
   isThinkingEnabledForCurrentSession: boolean;
+  webSearchEnabled: boolean;
+  webSearchOverride: WebSearchOverride;
   showSettings: boolean;
   planRepoRootInput: string;
   contextUsage: ContextUsage | null;
@@ -68,6 +78,8 @@ type ChatTabProps = {
   onDeleteSession(): Promise<void>;
   onUpdateSessionPreset(presetId: string): Promise<void>;
   onToggleThinking(enabled: boolean): Promise<void>;
+  onToggleWebSearchEnabled(enabled: boolean): Promise<void>;
+  onChangeWebSearchOverride(value: WebSearchOverride): void;
   onSavePlanRepoRoot(): Promise<void>;
   onClearToolContext(): Promise<void>;
   onDeleteMessage(messageId: string): Promise<void>;
@@ -88,6 +100,8 @@ export function ChatTab({
   isDirectChatMode,
   isRepoToolMode,
   isThinkingEnabledForCurrentSession,
+  webSearchEnabled,
+  webSearchOverride,
   showSettings,
   planRepoRootInput,
   contextUsage,
@@ -108,6 +122,8 @@ export function ChatTab({
   onDeleteSession,
   onUpdateSessionPreset,
   onToggleThinking,
+  onToggleWebSearchEnabled,
+  onChangeWebSearchOverride,
   onSavePlanRepoRoot,
   onClearToolContext,
   onDeleteMessage,
@@ -300,6 +316,18 @@ export function ChatTab({
                       includeRepoFileListing: !repoSearchAutoAppendSelection.includeRepoFileListing,
                     })}
                   />
+                  <RepoAutoAppendButton
+                    label="Web"
+                    icon="W"
+                    enabled={webSearchEnabled}
+                    loading={false}
+                    available
+                    tokenCount={null}
+                    tokenSource="estimate"
+                    enableTitle="Enable web search for this session"
+                    disableTitle="Disable web search for this session"
+                    onToggle={() => { void onToggleWebSearchEnabled(!webSearchEnabled); }}
+                  />
                 </div>
               ) : null}
               <textarea
@@ -331,6 +359,16 @@ export function ChatTab({
                       <span>Thinking</span>
                     </button>
                   ) : null}
+                  <button
+                    type="button"
+                    className={`composer-pill web-toggle ${webSearchOverride !== 'default' ? 'active' : ''}`}
+                    onClick={() => onChangeWebSearchOverride(getNextWebSearchOverride(webSearchOverride))}
+                    disabled={chatBusy}
+                    title={getWebSearchOverrideTitle(webSearchOverride)}
+                  >
+                    <span aria-hidden="true">W</span>
+                    <span>Web</span>
+                  </button>
                   <select
                     value={selectedChatPreset?.id || ''}
                     onChange={(event) => { void onUpdateSessionPreset(event.target.value); }}
