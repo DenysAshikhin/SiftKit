@@ -452,7 +452,11 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
     if (index >= options.mockResponses.length) {
       return { text: '', thinkingText: '', mockExhausted: true };
     }
-    return { text: options.mockResponses[index], thinkingText: '', mockExhausted: false, nextMockResponseIndex: index + 1 };
+    const rawMock = options.mockResponses[index];
+    const { thinkingText, text } = rawMock.includes('<think>')
+      ? extractInlineThinking(rawMock)
+      : { thinkingText: '', text: rawMock };
+    return { text, thinkingText, mockExhausted: false, nextMockResponseIndex: index + 1 };
   }
 
   const stage = options.stage || 'planner_action';

@@ -2104,3 +2104,19 @@ test('buildScorecard aggregates totals and verdict', () => {
   assert.equal(scorecard.verdict, 'fail');
   assert.equal(scorecard.failureReasons.length, 2);
 });
+
+test('mock planner strips think block from response text', async () => {
+  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  await runTaskLoop(
+    { id: 'task-strip', question: 'q', signals: ['done'] },
+    {
+      maxTurns: 1, maxInvalidResponses: 2, minToolCallsBeforeFinish: 0,
+      mockResponses: ['<think>hidden</think>{"action":"finish","output":"done"}'],
+      mockCommandResults: {},
+      logger: { write(event) { events.push(event); } },
+    }
+  );
+  const response = events.find((e) => e.kind === 'turn_model_response');
+  assert.equal(response?.thinkingText, 'hidden');
+  assert.equal(response?.text, '{"action":"finish","output":"done"}');
+});
