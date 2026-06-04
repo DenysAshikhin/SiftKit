@@ -4,7 +4,7 @@
 
 **Goal:** Wrap each assistant turn (thinking + tool calls + final answer) in one chat bubble whose internal steps live in a collapsed "Internal Logic" section above the final answer, reducing scroll/clutter while keeping every step and the answer individually deletable, plus a turn-level delete.
 
-**Architecture:** Pure grouping function `groupMessagesIntoTurns` (new `lib/chatTurns.ts`) folds the flat `visibleMessages` list into ordered `ChatTurn`s keyed by `sourceRunId` (plan/repo-search), a shared `"live"` key (the single in-progress streamed turn), or a per-message `solo`/`user` key. `ChatTab` renders each turn: turns with ≥1 step become a `ChatTurnBubble` (turn header + collapsed `Internal Logic` `<details>` holding the step sub-bubbles + a main slot showing the answer when settled or the latest live item while streaming); turns with 0 steps render the single message exactly as today. Per-message header/body JSX is extracted into shared `MessageHeader` + `renderMessageBody` helpers so the wrapped and unwrapped paths reuse identical markup. Turn-level delete loops the existing per-message DELETE API — **no backend changes**.
+**Architecture:** Pure grouping function `groupMessagesIntoTurns` (new `lib/chatTurns.ts`) folds the flat `visibleMessages` list into ordered `ChatTurn`s keyed by `sourceRunId` (plan/repo-search), a shared `"live"` key (the single in-progress streamed turn), or a per-message `solo`/`user` key. Each turn's `main` slot is the `assistant_answer` when present; for a **live** turn with no answer yet `main` is the latest streamed item ("show latest"); for a settled turn with no answer `main` is the last non-step message (e.g. a lone `user_text`) or `null` (a run reduced to thinking/tool steps after its answer was deleted). `steps` is every other message in the turn (never filtered by kind, so nothing in a run can silently disappear). `ChatTab` renders each turn: turns with ≥1 step become a `ChatTurnBubble` (turn header + collapsed `Internal Logic` `<details>` holding the step sub-bubbles + a main slot); turns with 0 steps render the single message exactly as today. Per-message header/body JSX is extracted into shared `MessageHeader` + `renderMessageBody` helpers so the wrapped and unwrapped paths reuse identical markup. Turn-level delete loops the existing per-message DELETE API (sequential, best-effort) — **no backend changes**.
 
 **Tech Stack:** React 19 + TypeScript, `react-markdown`/`remark-gfm`, Node built-in `node:test` + `react-dom/server` `renderToStaticMarkup` for tests (run via `tsx`).
 
@@ -95,6 +95,29 @@ test('a user message is its own turn keyed by id with no steps', () => {
   assert.equal(turns[0].main?.id, 'u');
 });
 
+test('settled run turn with the answer deleted keeps main null and all steps in Internal Logic', () => {
+  const messages = [
+    message({ id: 't', kind: 'assistant_thinking', sourceRunId: 'run-1' }),
+    message({ id: 'c', kind: 'assistant_tool_call', sourceRunId: 'run-1' }),
+  ];
+  const turns = groupMessagesIntoTurns(messages, new Set());
+  assert.equal(turns.length, 1);
+  assert.equal(turns[0].isLive, false);
+  assert.equal(turns[0].main, null);
+  assert.deepEqual(turns[0].steps.map((m) => m.id), ['t', 'c']);
+});
+
+test('no message in a run is dropped: a second answer renders as a step, not silently lost', () => {
+  const messages = [
+    message({ id: 't', kind: 'assistant_thinking', sourceRunId: 'run-1' }),
+    message({ id: 'a', kind: 'assistant_answer', sourceRunId: 'run-1' }),
+    message({ id: 'a2', kind: 'assistant_answer', sourceRunId: 'run-1' }),
+  ];
+  const turns = groupMessagesIntoTurns(messages, new Set());
+  assert.equal(turns[0].main?.id, 'a');
+  assert.deepEqual(turns[0].steps.map((m) => m.id), ['t', 'a2']);
+});
+
 test('all live messages collapse into one live turn; main is the latest, rest are steps', () => {
   const messages = [
     message({ id: 'lt', kind: 'assistant_thinking', sourceRunId: null }),
@@ -156,13 +179,13 @@ export function normalizeMessageKind(message: ChatMessage): NonNullable<ChatMess
   return message.kind ?? (message.role === 'user' ? 'user_text' : 'assistant_answer');
 }
 
+function isAnswerMessage(message: ChatMessage): boolean {
+  return normalizeMessageKind(message) === 'assistant_answer';
+}
+
 function isStepMessage(message: ChatMessage): boolean {
   const kind = normalizeMessageKind(message);
   return kind === 'assistant_thinking' || kind === 'assistant_tool_call';
-}
-
-function isAnswerMessage(message: ChatMessage): boolean {
-  return normalizeMessageKind(message) === 'assistant_answer';
 }
 
 function resolveTurnKey(message: ChatMessage, isLive: boolean): string {
@@ -172,11 +195,24 @@ function resolveTurnKey(message: ChatMessage, isLive: boolean): string {
   return runId ? `run:${runId}` : `solo:${message.id}`;
 }
 
+function pickMainMessage(turn: ChatTurn): ChatMessage | null {
+  const answer = turn.messages.find(isAnswerMessage);
+  if (answer) return answer;
+  // Live turn with no answer yet: surface the latest streamed item ("show latest").
+  if (turn.isLive) return turn.messages[turn.messages.length - 1] ?? null;
+  // Settled, no answer: surface the last non-step message (e.g. a lone user_text
+  // message). A settled run that is only thinking/tool steps (answer deleted) has
+  // no main slot, so everything stays in Internal Logic.
+  const nonStepMessages = turn.messages.filter((message) => !isStepMessage(message));
+  return nonStepMessages[nonStepMessages.length - 1] ?? null;
+}
+
 function finalizeTurn(turn: ChatTurn): void {
-  const answer = turn.messages.find(isAnswerMessage) ?? null;
-  const main = answer ?? turn.messages[turn.messages.length - 1] ?? null;
+  const main = pickMainMessage(turn);
   turn.main = main;
-  turn.steps = turn.messages.filter((message) => message !== main && isStepMessage(message));
+  // steps = everything that is not the main slot. No kind filter on steps, so a
+  // stray extra message in a run renders inside Internal Logic rather than dropped.
+  turn.steps = turn.messages.filter((message) => message !== main);
 }
 
 export function groupMessagesIntoTurns(messages: ChatMessage[], liveMessageIds: Set<string>): ChatTurn[] {
@@ -201,7 +237,7 @@ export function groupMessagesIntoTurns(messages: ChatMessage[], liveMessageIds: 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npx tsx --test dashboard/tests/lib/chatTurns.test.ts`
-Expected: PASS (8 tests).
+Expected: PASS (10 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -234,6 +270,18 @@ test('ChatTab wraps a run turn in a turn bubble with collapsed Internal Logic an
   assert.match(markup, /Final formatted answer\./u);
   // turn-level delete button present on a settled turn
   assert.match(markup, /aria-label="Delete turn"/u);
+});
+
+test('ChatTab settled run turn exposes a delete button per step, one for the answer, and one turn delete', () => {
+  const thinking = { ...CHAT_THINKING_MESSAGE, id: 'th', sourceRunId: 'run-7' } as ChatMessage;
+  const tool = { ...CHAT_TOOL_MESSAGE, id: 'to', sourceRunId: 'run-7' } as ChatMessage;
+  const answer = { ...CHAT_MESSAGE, id: 'an', sourceRunId: 'run-7' } as ChatMessage;
+  const session = { ...CHAT_SESSION, messages: [thinking, tool, answer] } as ChatSession;
+  const markup = renderChatTab({ selectedSession: session });
+  const deleteMessageButtons = (markup.match(/aria-label="Delete message"/gu) ?? []).length;
+  assert.equal(deleteMessageButtons, 3); // 2 steps in Internal Logic + 1 answer in the main slot
+  const deleteTurnButtons = (markup.match(/aria-label="Delete turn"/gu) ?? []).length;
+  assert.equal(deleteTurnButtons, 1);
 });
 
 test('ChatTab renders a lone assistant answer as a plain bubble with no Internal Logic', () => {
@@ -494,10 +542,9 @@ In `dashboard/tests/tab-components.test.tsx`, in the `renderChatTab` props objec
 Run: `npx tsx --test dashboard/tests/tab-components.test.tsx`
 Expected: PASS (existing cases + 4 new cases). If a pre-existing test asserted the old flat structure for run-grouped/thinking/tool fixtures, update its expectation to the turn-wrapped markup (`msg assistant turn` + `Internal Logic`).
 
-- [ ] **Step 8: Typecheck**
+- [ ] **Step 8: Note — full-project typecheck is deferred to Task 3**
 
-Run: `npm --prefix dashboard run build`
-Expected: PASS (tsc reports no errors). The build will fail at `<ChatTab ... />` in `App.tsx` because `onDeleteTurn` is now required — that is wired in Task 3.
+Do **not** run `npm --prefix dashboard run build` here. `onDeleteTurn` is now a required prop on `ChatTab`, but `App.tsx` does not pass it until Task 3, so a whole-program `tsc` would fail at `<ChatTab ... />`. The component tests (Step 7) run via `tsx` per-file transpile and pass independently. The full `tsc` + `vite build` typecheck runs in Task 3 Step 4, once `App.tsx` is wired.
 
 - [ ] **Step 9: Commit**
 
@@ -542,6 +589,8 @@ In `dashboard/src/hooks/useChatSessions.ts`, immediately after the `deleteMessag
     }
   }
 ```
+
+**Accepted semantics — non-atomic, best-effort deletion:** The backend exposes only a single-message DELETE and **must not change** (hard requirement). `deleteMessages` therefore deletes sequentially and applies each response as it lands, so a mid-loop failure leaves the turn **partially deleted**: the messages deleted before the failure are already removed server-side and reflected in the UI, the failing call routes through `deps.onError`, the function returns `null`, and `chatBusy` is reset in `finally`. This is the intended behavior; the user can re-issue the turn delete to remove the remainder. A dedicated unit test for the failure path is intentionally omitted: the repo's hook tests only exercise synchronous state and pure helpers (no api-mocking harness / `mock.module`), so testing the loop's error branch would require introducing module-mocking infrastructure — out of scope here.
 
 In the returned object (the block starting ~line 272), after `deleteMessage,` add:
 
@@ -691,7 +740,7 @@ git commit -m "style(chat): style turn bubbles and Internal Logic section"
 
 ## Self-Review Notes
 
-- **Spec coverage:** turn wrapping (Task 2 `ChatTurnBubble`); latest-item-while-live + live Internal Logic (Task 1 `finalizeTurn` main=last when no answer + Task 2 main slot; live steps = all but latest); collapsed Internal Logic by default (`<details>` without `open`); per-step delete (Task 2 `MessageHeader` in steps); answer deletable independently (Task 2 `turn-main` `MessageHeader`); plain answer for 0-step turns (Task 2 Step 5 branch); turn-level delete (Tasks 2–3); no backend change (Task 3 loops existing `deleteChatMessage`).
+- **Spec coverage:** turn wrapping (Task 2 `ChatTurnBubble`); latest-item-while-live + live Internal Logic (Task 1 `finalizeTurn`: main = answer, or last message **only when live**; live steps = all but latest — Task 2 main slot); settled turn with deleted answer keeps steps in Internal Logic and an empty main slot (Task 1 test); no message in a run is silently dropped — `steps` = all-but-main with no kind filter (Task 1 test); collapsed Internal Logic by default (`<details>` without `open`); per-step delete + answer deletable independently + count assertion (Task 2 `MessageHeader` in steps and `turn-main`, delete-button-count test); plain answer for 0-step turns (Task 2 Step 5 branch); turn-level delete, non-atomic/best-effort, documented (Tasks 2–3); no backend change (Task 3 loops existing `deleteChatMessage`).
 - **Type consistency:** `groupMessagesIntoTurns`, `normalizeMessageKind`, `ChatTurn`, `deleteMessages`, `onDeleteTurn(messageIds: string[])`, `MessageBubble`, `ChatTurnBubble` names match across all tasks.
 - **Live deletion suppressed:** `MessageHeader` and the turn-delete button both gate on `!isLive` / `!turn.isLive`, so streaming turns expose no delete controls (verified by Task 2 live test).
 - **No placeholders:** every code/test step shows full content; test commands include expected pass/fail.
