@@ -427,6 +427,7 @@ function renderChatTab(overrides: Partial<ChatTabProps> = {}): string {
     onSavePlanRepoRoot: overrides.onSavePlanRepoRoot ?? (async () => {}),
     onClearToolContext: overrides.onClearToolContext ?? (async () => {}),
     onDeleteMessage: overrides.onDeleteMessage ?? (async () => {}),
+    onDeleteTurn: overrides.onDeleteTurn ?? (async () => {}),
     onCondense: overrides.onCondense ?? (async () => {}),
     onSendPlan: overrides.onSendPlan ?? (async () => {}),
     onSendRepoSearch: overrides.onSendRepoSearch ?? (async () => {}),
@@ -1360,6 +1361,62 @@ test('chat tab renders only explicit model-visible tool commands', () => {
 
   assert.match(markup, /rg -n &quot;tool\.call\|toolCall\|ToolCall&quot;<\/code>/u);
   assert.doesNotMatch(markup, /--no-ignore|--ignore-case|--glob/u);
+});
+
+test('ChatTab wraps a run turn in a turn bubble with collapsed Internal Logic and the answer outside', () => {
+  const thinking = { ...CHAT_THINKING_MESSAGE, id: 'th', sourceRunId: 'run-7' } as ChatMessage;
+  const tool = { ...CHAT_TOOL_MESSAGE, id: 'to', sourceRunId: 'run-7' } as ChatMessage;
+  const answer = { ...CHAT_MESSAGE, id: 'an', sourceRunId: 'run-7', content: 'Final formatted answer.' } as ChatMessage;
+  const session = { ...CHAT_SESSION, messages: [thinking, tool, answer] } as ChatSession;
+  const markup = renderChatTab({ selectedSession: session });
+  assert.match(markup, /class="msg assistant turn/u);
+  assert.match(markup, /Internal Logic \(2\)/u);
+  assert.match(markup, /Final formatted answer\./u);
+  // turn-level delete button present on a settled turn
+  assert.match(markup, /aria-label="Delete turn"/u);
+});
+
+test('ChatTab settled run turn exposes a delete button per step, one for the answer, and one turn delete', () => {
+  const thinking = { ...CHAT_THINKING_MESSAGE, id: 'th', sourceRunId: 'run-7' } as ChatMessage;
+  const tool = { ...CHAT_TOOL_MESSAGE, id: 'to', sourceRunId: 'run-7' } as ChatMessage;
+  const answer = { ...CHAT_MESSAGE, id: 'an', sourceRunId: 'run-7' } as ChatMessage;
+  const session = { ...CHAT_SESSION, messages: [thinking, tool, answer] } as ChatSession;
+  const markup = renderChatTab({ selectedSession: session });
+  const deleteMessageButtons = (markup.match(/aria-label="Delete message"/gu) ?? []).length;
+  assert.equal(deleteMessageButtons, 3); // 2 steps in Internal Logic + 1 answer in the main slot
+  const deleteTurnButtons = (markup.match(/aria-label="Delete turn"/gu) ?? []).length;
+  assert.equal(deleteTurnButtons, 1);
+});
+
+test('ChatTab renders a lone assistant answer as a plain bubble with no Internal Logic', () => {
+  const session = { ...CHAT_SESSION, messages: [{ ...CHAT_MESSAGE, id: 'solo' } as ChatMessage] } as ChatSession;
+  const markup = renderChatTab({ selectedSession: session });
+  assert.match(markup, /class="msg assistant assistant_answer/u);
+  assert.doesNotMatch(markup, /Internal Logic/u);
+  assert.doesNotMatch(markup, /aria-label="Delete turn"/u);
+});
+
+test('ChatTab renders a user message as a plain bubble with no Internal Logic', () => {
+  const session = {
+    ...CHAT_SESSION,
+    messages: [{ ...CHAT_MESSAGE, id: 'u1', role: 'user', kind: 'user_text', content: 'hi' } as ChatMessage],
+  } as ChatSession;
+  const markup = renderChatTab({ selectedSession: session });
+  assert.match(markup, /class="msg user user_text/u);
+  assert.doesNotMatch(markup, /Internal Logic/u);
+});
+
+test('ChatTab live turn shows latest item in the main slot, earlier steps in Internal Logic, and no delete buttons', () => {
+  const liveThinking = { ...CHAT_THINKING_MESSAGE, id: 'live-thinking-0' } as ChatMessage;
+  const liveTool = {
+    ...CHAT_TOOL_MESSAGE, id: 'live-tool-x', toolCallStatus: 'running', toolCallOutput: '', toolCallOutputSnippet: '',
+  } as ChatMessage;
+  const session = { ...CHAT_SESSION, messages: [] } as ChatSession;
+  const markup = renderChatTab({ selectedSession: session, liveMessages: [liveThinking, liveTool] });
+  assert.match(markup, /Internal Logic \(1\)/u);
+  assert.match(markup, /class="tool-spinner"/u);
+  assert.doesNotMatch(markup, /aria-label="Delete message"/u);
+  assert.doesNotMatch(markup, /aria-label="Delete turn"/u);
 });
 
 test('renderChatTab accepts overrides and produces stable markup', () => {

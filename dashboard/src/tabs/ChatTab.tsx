@@ -17,6 +17,7 @@ import {
 import { resolveContextBarVisual } from '../lib/contextBar';
 import { getNextWebSearchOverride } from '../lib/web-search-controls';
 import { useChatScroll } from '../hooks/useChatScroll';
+import { groupMessagesIntoTurns, normalizeMessageKind, type ChatTurn } from '../lib/chatTurns';
 import type {
   ChatSession,
   ContextUsage,
@@ -83,6 +84,7 @@ type ChatTabProps = {
   onSavePlanRepoRoot(): Promise<void>;
   onClearToolContext(): Promise<void>;
   onDeleteMessage(messageId: string): Promise<void>;
+  onDeleteTurn(messageIds: string[]): Promise<void>;
   onCondense(): Promise<void>;
   onSendPlan(): Promise<void>;
   onSendRepoSearch(): Promise<void>;
@@ -127,6 +129,7 @@ export function ChatTab({
   onSavePlanRepoRoot,
   onClearToolContext,
   onDeleteMessage,
+  onDeleteTurn,
   onCondense,
   onSendPlan,
   onSendRepoSearch,
@@ -209,67 +212,30 @@ export function ChatTab({
                   </details>
                 </article>
               ) : null}
-              {visibleMessages.map((message) => {
-                const isLive = liveMessages.some((liveMessage) => liveMessage.id === message.id);
-                const messageKind = message.kind || (message.role === 'user' ? 'user_text' : 'assistant_answer');
-                const messageLabel = messageKind === 'assistant_thinking'
-                  ? 'assistant thinking'
-                  : messageKind === 'assistant_tool_call'
-                    ? 'assistant tool'
-                    : message.role;
-                const toolCommand = typeof message.toolCallCommand === 'string' ? message.toolCallCommand.trim() : '';
-                const toolOutput = message.toolCallOutput || message.toolCallOutputSnippet || '';
+              {groupMessagesIntoTurns(visibleMessages, new Set(liveMessages.map((message) => message.id))).map((turn) => {
+                if (turn.steps.length === 0) {
+                  const message = turn.main;
+                  if (!message) return null;
+                  return (
+                    <MessageBubble
+                      key={message.id}
+                      message={message}
+                      isLive={turn.isLive}
+                      isDirectChatMode={isDirectChatMode}
+                      chatBusy={chatBusy}
+                      onDeleteMessage={onDeleteMessage}
+                    />
+                  );
+                }
                 return (
-                <article key={message.id} className={`msg ${message.role} ${messageKind}${isLive ? ' live' : ''}`}>
-                  <header className="msg-header">
-                    <span>{messageLabel} | {isLive ? 'live' : formatDate(message.createdAtUtc)}</span>
-                    <span className="msg-meta">
-                      <span className="msg-tokens">
-                        {formatNumber(getMessageTokenCount(message))} tokens
-                      </span>
-                      {!isLive ? (
-                        <button
-                          type="button"
-                          className="msg-icon-button danger"
-                          onClick={() => { void onDeleteMessage(message.id); }}
-                          disabled={chatBusy}
-                          aria-label="Delete message"
-                          title="Delete message"
-                        >
-                          &#128465;
-                        </button>
-                      ) : null}
-                    </span>
-                  </header>
-                  {isDirectChatMode && message.role === 'assistant' && message.thinkingContent ? (
-                    <details className="thinking-box">
-                      <summary>Thinking</summary>
-                      <pre>{message.thinkingContent}</pre>
-                    </details>
-                  ) : null}
-                  {messageKind === 'assistant_thinking' ? (
-                    <pre className="thinking-message">{message.content}</pre>
-                  ) : messageKind === 'assistant_tool_call' ? (
-                    <div className="tool-message">
-                      <code>{toolCommand}</code>
-                      {message.toolCallStatus === 'running' ? <span className="tool-spinner"> ...</span> : null}
-                      {toolOutput ? (
-                        <details className="tool-result">
-                          <summary aria-label="Show tool result" title="Show tool result">+ result</summary>
-                          <pre>{toolOutput}</pre>
-                        </details>
-                      ) : null}
-                    </div>
-                  ) : message.role === 'assistant' ? (
-                    <div className="markdown-body">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {message.content}
-                      </ReactMarkdown>
-                    </div>
-                  ) : (
-                    <p className="user-message">{message.content}</p>
-                  )}
-                </article>
+                  <ChatTurnBubble
+                    key={turn.key}
+                    turn={turn}
+                    isDirectChatMode={isDirectChatMode}
+                    chatBusy={chatBusy}
+                    onDeleteMessage={onDeleteMessage}
+                    onDeleteTurn={onDeleteTurn}
+                  />
                 );
               })}
             </div>
@@ -543,5 +509,152 @@ function RepoAutoAppendButton(props: {
       </span>
       <span className="repo-auto-append-state" aria-hidden="true">{props.enabled ? 'On' : 'Off'}</span>
     </button>
+  );
+}
+
+function MessageHeader({ message, isLive, chatBusy, onDeleteMessage }: {
+  message: ChatMessage;
+  isLive: boolean;
+  chatBusy: boolean;
+  onDeleteMessage(messageId: string): Promise<void>;
+}) {
+  const messageKind = normalizeMessageKind(message);
+  const messageLabel = messageKind === 'assistant_thinking'
+    ? 'assistant thinking'
+    : messageKind === 'assistant_tool_call'
+      ? 'assistant tool'
+      : message.role;
+  return (
+    <header className="msg-header">
+      <span>{messageLabel} | {isLive ? 'live' : formatDate(message.createdAtUtc)}</span>
+      <span className="msg-meta">
+        <span className="msg-tokens">{formatNumber(getMessageTokenCount(message))} tokens</span>
+        {!isLive ? (
+          <button
+            type="button"
+            className="msg-icon-button danger"
+            onClick={() => { void onDeleteMessage(message.id); }}
+            disabled={chatBusy}
+            aria-label="Delete message"
+            title="Delete message"
+          >
+            &#128465;
+          </button>
+        ) : null}
+      </span>
+    </header>
+  );
+}
+
+function renderMessageBody(message: ChatMessage, isDirectChatMode: boolean) {
+  const messageKind = normalizeMessageKind(message);
+  const toolCommand = typeof message.toolCallCommand === 'string' ? message.toolCallCommand.trim() : '';
+  const toolOutput = message.toolCallOutput || message.toolCallOutputSnippet || '';
+  return (
+    <>
+      {isDirectChatMode && message.role === 'assistant' && message.thinkingContent ? (
+        <details className="thinking-box">
+          <summary>Thinking</summary>
+          <pre>{message.thinkingContent}</pre>
+        </details>
+      ) : null}
+      {messageKind === 'assistant_thinking' ? (
+        <pre className="thinking-message">{message.content}</pre>
+      ) : messageKind === 'assistant_tool_call' ? (
+        <div className="tool-message">
+          <code>{toolCommand}</code>
+          {message.toolCallStatus === 'running' ? <span className="tool-spinner"> ...</span> : null}
+          {toolOutput ? (
+            <details className="tool-result">
+              <summary aria-label="Show tool result" title="Show tool result">+ result</summary>
+              <pre>{toolOutput}</pre>
+            </details>
+          ) : null}
+        </div>
+      ) : message.role === 'assistant' ? (
+        <div className="markdown-body">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {message.content}
+          </ReactMarkdown>
+        </div>
+      ) : (
+        <p className="user-message">{message.content}</p>
+      )}
+    </>
+  );
+}
+
+function MessageBubble({ message, isLive, isDirectChatMode, chatBusy, onDeleteMessage, extraClass }: {
+  message: ChatMessage;
+  isLive: boolean;
+  isDirectChatMode: boolean;
+  chatBusy: boolean;
+  onDeleteMessage(messageId: string): Promise<void>;
+  extraClass?: string;
+}) {
+  const messageKind = normalizeMessageKind(message);
+  return (
+    <article className={`msg ${message.role} ${messageKind}${extraClass ? ` ${extraClass}` : ''}${isLive ? ' live' : ''}`}>
+      <MessageHeader message={message} isLive={isLive} chatBusy={chatBusy} onDeleteMessage={onDeleteMessage} />
+      {renderMessageBody(message, isDirectChatMode)}
+    </article>
+  );
+}
+
+function ChatTurnBubble({ turn, isDirectChatMode, chatBusy, onDeleteMessage, onDeleteTurn }: {
+  turn: ChatTurn;
+  isDirectChatMode: boolean;
+  chatBusy: boolean;
+  onDeleteMessage(messageId: string): Promise<void>;
+  onDeleteTurn(messageIds: string[]): Promise<void>;
+}) {
+  const aggregateTokens = turn.messages.reduce((sum, message) => sum + getMessageTokenCount(message), 0);
+  const headerTimestamp = turn.main ? turn.main.createdAtUtc : turn.messages[0].createdAtUtc;
+  return (
+    <article className={`msg assistant turn${turn.isLive ? ' live' : ''}`}>
+      <header className="msg-header">
+        <span>assistant turn | {turn.isLive ? 'live' : formatDate(headerTimestamp)}</span>
+        <span className="msg-meta">
+          <span className="msg-tokens">{formatNumber(aggregateTokens)} tokens</span>
+          {!turn.isLive ? (
+            <button
+              type="button"
+              className="msg-icon-button danger"
+              onClick={() => { void onDeleteTurn(turn.messages.map((message) => message.id)); }}
+              disabled={chatBusy}
+              aria-label="Delete turn"
+              title="Delete entire turn"
+            >
+              &#128465;
+            </button>
+          ) : null}
+        </span>
+      </header>
+      <details className="internal-logic">
+        <summary>Internal Logic ({turn.steps.length})</summary>
+        <div className="internal-logic-steps">
+          {turn.steps.map((step) => (
+            <MessageBubble
+              key={step.id}
+              message={step}
+              isLive={turn.isLive}
+              isDirectChatMode={isDirectChatMode}
+              chatBusy={chatBusy}
+              onDeleteMessage={onDeleteMessage}
+            />
+          ))}
+        </div>
+      </details>
+      {turn.main ? (
+        <MessageBubble
+          message={turn.main}
+          isLive={turn.isLive}
+          isDirectChatMode={isDirectChatMode}
+          chatBusy={chatBusy}
+          onDeleteMessage={onDeleteMessage}
+          extraClass="turn-main"
+        />
+      ) : null}
+    </article>
   );
 }
