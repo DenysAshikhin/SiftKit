@@ -27,8 +27,22 @@ import {
   getPromptTokensPerSecond,
 } from '../lib/telemetry-metrics.js';
 import { getDisplayToolCommand } from './tool-command-display.js';
+import { ModelJson } from '../lib/model-json.js';
+import { WebResearchTools } from '../web-search/web-research-tools.js';
+import type { WebFetchToolArgs, WebSearchToolArgs } from '../web-search/types.js';
 
 const DEFAULT_CHAT_SYSTEM_PROMPT = 'general, coder friendly assistant';
+
+export const WEB_CHAT_JSON_ACTION_PROMPT = [
+  'When web access is enabled, respond with exactly one JSON object and no markdown.',
+  'To search the web: {"action":"web_search","query":"...","timeFilter":"week"}',
+  'To fetch a public URL: {"action":"web_fetch","url":"https://example.com/page"}',
+  'To answer the user: {"action":"finish","output":"final answer text"}',
+  'Use web tools only when current or external information is needed.',
+  'Private, local, and internal URLs are blocked.',
+].join('\n');
+
+const WEB_CHAT_MAX_TOOL_CALLS = 4;
 const HIDDEN_TOOL_CONTEXT_PROMPT =
   'Internal tool-call context from prior session steps. Use this as additional evidence only when relevant.';
 
@@ -240,7 +254,14 @@ function getChoiceReasoningText(choice: Dict | null | undefined): string {
 }
 
 export type ChatCompletionRequest = { url: string; model: string; body: Dict };
-type BuildChatOptions = { thinkingEnabled?: boolean; stream?: boolean; promptPrefix?: string };
+type ChatEvidenceMessage = { role: 'user' | 'assistant'; content: string };
+type BuildChatOptions = {
+  thinkingEnabled?: boolean;
+  stream?: boolean;
+  promptPrefix?: string;
+  webActionInstruction?: string;
+  evidenceMessages?: ChatEvidenceMessage[];
+};
 
 function shouldReplayReasoningContent(config: Dict): boolean {
   const server = config?.Server && typeof config.Server === 'object' ? config.Server as Dict : null;
@@ -285,6 +306,9 @@ export function buildChatCompletionRequest(config: Dict, session: ChatSession, u
       return replayedMessage;
     }),
     { role: 'user', content: userContent },
+    ...(Array.isArray(options.evidenceMessages)
+      ? options.evidenceMessages.map((message) => ({ role: message.role, content: message.content }))
+      : []),
   ];
   const thinkingEnabled = options.thinkingEnabled !== false;
   const promptCharacterCount = messages.reduce((total, message) => total + String(message.content || '').length, 0);
@@ -311,7 +335,7 @@ export function buildChatCompletionRequest(config: Dict, session: ChatSession, u
   };
 }
 
-export function buildChatSystemContent(_config: Dict, session: ChatSession, options: Pick<BuildChatOptions, 'promptPrefix'> = {}): string {
+export function buildChatSystemContent(_config: Dict, session: ChatSession, options: Pick<BuildChatOptions, 'promptPrefix' | 'webActionInstruction'> = {}): string {
   const hiddenToolContexts = Array.isArray(session.hiddenToolContexts)
     ? (session.hiddenToolContexts as Dict[])
       .map((entry: Dict) => (entry && typeof entry.content === 'string' ? (entry.content as string).trim() : ''))
@@ -321,9 +345,12 @@ export function buildChatSystemContent(_config: Dict, session: ChatSession, opti
   const systemPrompt = typeof options.promptPrefix === 'string' && options.promptPrefix.trim()
     ? options.promptPrefix.trim()
     : DEFAULT_CHAT_SYSTEM_PROMPT;
-  return hiddenToolContextText
+  const baseContent = hiddenToolContextText
     ? `${systemPrompt}\n\n${HIDDEN_TOOL_CONTEXT_PROMPT}\n\n${hiddenToolContextText}`
     : systemPrompt;
+  return typeof options.webActionInstruction === 'string' && options.webActionInstruction.trim()
+    ? `${baseContent}\n\n${options.webActionInstruction.trim()}`
+    : baseContent;
 }
 
 export type ChatUsage = {
@@ -387,6 +414,192 @@ export async function generateChatAssistantMessage(
         timingUsage.generationDurationMs,
       ),
     },
+  };
+}
+
+type ChatRawTurn = { text: string; thinkingContent: string; usage: ChatUsage };
+
+async function generateChatRawTurn(
+  config: Dict,
+  session: ChatSession,
+  userContent: string,
+  options: { promptPrefix?: string; webActionInstruction?: string; evidenceMessages?: ChatEvidenceMessage[] },
+): Promise<ChatRawTurn> {
+  const request = buildChatCompletionRequest(config, session, userContent, {
+    thinkingEnabled: session.thinkingEnabled !== false,
+    stream: false,
+    promptPrefix: options.promptPrefix,
+    webActionInstruction: options.webActionInstruction,
+    evidenceMessages: options.evidenceMessages,
+  });
+  const response = await requestJsonFull({
+    url: request.url,
+    method: 'POST',
+    timeoutMs: 600000,
+    body: JSON.stringify(request.body),
+  });
+  if (response.statusCode >= 400) {
+    const detail = String(response.rawText || '').trim();
+    throw new Error(`llama.cpp chat failed with HTTP ${response.statusCode}${detail ? `: ${detail}` : '.'}`);
+  }
+  const responseBody = response.body as Dict;
+  const choice = Array.isArray(responseBody?.choices) ? (responseBody.choices[0] as Dict) : null;
+  const text = getChoiceText(choice);
+  const thinkingContent = getChoiceReasoningText(choice);
+  if (!text) {
+    throw new Error('llama.cpp chat returned an empty assistant message.');
+  }
+  const promptUsage = getPromptUsageFromResponseBody(responseBody);
+  const completionUsage = getCompletionUsageFromResponseBody(responseBody);
+  const timingUsage = getTimingUsageFromResponseBody(responseBody);
+  return {
+    text,
+    thinkingContent,
+    usage: {
+      promptTokens: promptUsage.promptTokens,
+      completionTokens: completionUsage.completionTokens,
+      thinkingTokens: completionUsage.thinkingTokens,
+      promptCacheTokens: promptUsage.promptCacheTokens,
+      promptEvalTokens: promptUsage.promptEvalTokens,
+      promptEvalDurationMs: timingUsage.promptEvalDurationMs,
+      generationDurationMs: timingUsage.generationDurationMs,
+      promptTokensPerSecond: getPromptTokensPerSecond(promptUsage.promptEvalTokens, timingUsage.promptEvalDurationMs),
+      generationTokensPerSecond: getGenerationTokensPerSecond(
+        completionUsage.completionTokens,
+        completionUsage.thinkingTokens,
+        timingUsage.generationDurationMs,
+      ),
+    },
+  };
+}
+
+export type WebChatLoopResult = {
+  assistantContent: string;
+  thinkingContent: string;
+  usage: ChatUsage;
+  toolMessages: PersistToolMessage[];
+};
+
+function buildWebToolBubble(
+  command: string,
+  output: string,
+  outputTokens: number | null,
+  turn: number,
+  maxTurns: number,
+): PersistToolMessage {
+  return {
+    id: crypto.randomUUID(),
+    content: command,
+    toolCallCommand: command,
+    toolCallTurn: turn,
+    toolCallMaxTurns: maxTurns,
+    toolCallExitCode: 0,
+    toolCallPromptTokenCount: null,
+    toolCallOutputSnippet: output.length > 200 ? `${output.slice(0, 200)}...` : output,
+    toolCallOutput: output,
+    outputTokens,
+  };
+}
+
+const EMPTY_CHAT_USAGE: ChatUsage = {
+  promptTokens: null,
+  completionTokens: null,
+  thinkingTokens: null,
+  promptCacheTokens: null,
+  promptEvalTokens: null,
+};
+
+/**
+ * Bounded JSON-action web tool loop for the buffered direct-chat path. Runs only
+ * when the effective web gate is enabled. Parses each model turn with the shared
+ * repo-search planner parser restricted to web tools, executes through
+ * WebResearchTools, and returns the final answer plus persistable tool bubbles.
+ */
+export async function runDirectChatWebLoop(
+  config: Dict,
+  session: ChatSession,
+  userContent: string,
+  webTools: WebResearchTools,
+  options: { promptPrefix?: string; maxTurns?: number; mockResponses?: string[] } = {},
+): Promise<WebChatLoopResult> {
+  const maxTurns = Number.isFinite(Number(options.maxTurns)) && Number(options.maxTurns) > 0
+    ? Number(options.maxTurns)
+    : WEB_CHAT_MAX_TOOL_CALLS;
+  const mockResponses = Array.isArray(options.mockResponses) ? options.mockResponses.slice() : null;
+  const evidenceMessages: ChatEvidenceMessage[] = [];
+  const toolMessages: PersistToolMessage[] = [];
+  let lastUsage: ChatUsage = EMPTY_CHAT_USAGE;
+  let lastThinking = '';
+
+  for (let toolCalls = 0; toolCalls <= maxTurns; toolCalls += 1) {
+    let turnText: string;
+    if (mockResponses) {
+      const next = mockResponses.shift();
+      if (next === undefined) {
+        throw new Error('runDirectChatWebLoop: ran out of mock responses.');
+      }
+      turnText = next;
+    } else {
+      const rawTurn = await generateChatRawTurn(config, session, userContent, {
+        promptPrefix: options.promptPrefix,
+        webActionInstruction: WEB_CHAT_JSON_ACTION_PROMPT,
+        evidenceMessages,
+      });
+      turnText = rawTurn.text;
+      lastUsage = rawTurn.usage;
+      lastThinking = rawTurn.thinkingContent || '';
+    }
+
+    let action;
+    try {
+      action = ModelJson.parseRepoSearchPlannerAction(turnText, { allowedToolNames: ['web_search', 'web_fetch'] });
+    } catch (error) {
+      return {
+        assistantContent: `Web research could not be completed: ${error instanceof Error ? error.message : String(error)}`,
+        thinkingContent: lastThinking,
+        usage: lastUsage,
+        toolMessages,
+      };
+    }
+
+    if (action.action === 'finish') {
+      return { assistantContent: action.output, thinkingContent: lastThinking, usage: lastUsage, toolMessages };
+    }
+    if (action.action !== 'tool') {
+      return {
+        assistantContent: 'Web research could not be completed: unexpected tool batch action.',
+        thinkingContent: lastThinking,
+        usage: lastUsage,
+        toolMessages,
+      };
+    }
+    if (toolCalls >= maxTurns) {
+      return {
+        assistantContent: 'Web research stopped after reaching the tool call limit. Please refine the question.',
+        thinkingContent: lastThinking,
+        usage: lastUsage,
+        toolMessages,
+      };
+    }
+
+    let toolResult;
+    if (action.tool_name === 'web_search') {
+      toolResult = await webTools.search(action.args as WebSearchToolArgs);
+    } else if (action.tool_name === 'web_fetch') {
+      toolResult = await webTools.fetch(action.args as WebFetchToolArgs);
+    } else {
+      throw new Error(`Unsupported web tool: ${action.tool_name}`);
+    }
+    toolMessages.push(buildWebToolBubble(toolResult.command, toolResult.output, toolResult.outputTokens, toolCalls + 1, maxTurns));
+    evidenceMessages.push({ role: 'assistant', content: turnText });
+    evidenceMessages.push({ role: 'user', content: `Tool ${toolResult.command} output:\n${toolResult.output}` });
+  }
+
+  return {
+    assistantContent: 'Web research stopped after reaching the tool call limit. Please refine the question.',
+    thinkingContent: lastThinking,
+    usage: lastUsage,
+    toolMessages,
   };
 }
 

@@ -31,6 +31,7 @@ import {
 import {
   buildContextUsage,
   type ChatUsage,
+  type PersistToolMessage,
   generateChatAssistantMessage,
   appendChatMessagesWithUsage,
   streamChatAssistantMessage,
@@ -42,7 +43,11 @@ import {
   buildPersistTurnsFromRepoSearchResult,
   buildRepoSearchMarkdown,
   loadRepoSearchExecutor,
+  runDirectChatWebLoop,
 } from '../chat.js';
+import { WebResearchTools } from '../../web-search/web-research-tools.js';
+import { normalizeWebSearchConfig } from '../config-store.js';
+import type { WebSearchConfig } from '../../web-search/types.js';
 import { buildChatPromptContext } from '../chat-prompt-context.js';
 import {
   type ChatSession,
@@ -145,6 +150,22 @@ function forwardRepoSearchToolEvent(
       promptTokenCount: Number.isFinite(event.promptTokenCount) ? Number(event.promptTokenCount) : null,
     });
   }
+}
+
+export type WebSearchOverride = 'default' | 'on' | 'off';
+
+export function getWebSearchOverride(value: unknown): WebSearchOverride {
+  return value === 'on' || value === 'off' ? value : 'default';
+}
+
+export function resolveEffectiveWebSearchEnabled(sessionEnabled: boolean, override: WebSearchOverride): boolean {
+  if (override === 'on') return true;
+  if (override === 'off') return false;
+  return sessionEnabled;
+}
+
+function buildWebResearchTools(config: Dict): WebResearchTools {
+  return new WebResearchTools(normalizeWebSearchConfig(config.WebSearch) as unknown as WebSearchConfig);
 }
 
 function withPromptContext(config: Dict, session: ChatSession): ChatSession {
@@ -593,6 +614,7 @@ export async function handleChatRoute(
       let assistantContent: string;
       let usage: Partial<ChatUsage>;
       let thinkingContent = '';
+      let webToolMessages: PersistToolMessage[] = [];
       if (usesProvidedAssistantContent) {
         assistantContent = (parsedBody.assistantContent as string).trim();
         usage = {};
@@ -600,12 +622,28 @@ export async function handleChatRoute(
         const config = readConfig(configPath);
         const presets = normalizePresets(config.Presets);
         const preset = findPresetById(presets, activeSession.presetId);
-        const generated = await generateChatAssistantMessage(config, activeSession, userContent, {
-          promptPrefix: preset?.promptPrefix || undefined,
-        });
-        assistantContent = generated.assistantContent;
-        usage = generated.usage;
-        thinkingContent = generated.thinkingContent || '';
+        const webOverride = getWebSearchOverride(parsedBody.webSearchOverride);
+        const webEnabled = resolveEffectiveWebSearchEnabled(activeSession.webSearchEnabled === true, webOverride);
+        if (webEnabled) {
+          const mockResponses = Array.isArray(parsedBody.mockResponses)
+            ? (parsedBody.mockResponses as unknown[]).map((value) => String(value))
+            : undefined;
+          const loopResult = await runDirectChatWebLoop(config, activeSession, userContent, buildWebResearchTools(config), {
+            promptPrefix: preset?.promptPrefix || undefined,
+            ...(mockResponses ? { mockResponses } : {}),
+          });
+          assistantContent = loopResult.assistantContent;
+          usage = loopResult.usage;
+          thinkingContent = loopResult.thinkingContent || '';
+          webToolMessages = loopResult.toolMessages;
+        } else {
+          const generated = await generateChatAssistantMessage(config, activeSession, userContent, {
+            promptPrefix: preset?.promptPrefix || undefined,
+          });
+          assistantContent = generated.assistantContent;
+          usage = generated.usage;
+          thinkingContent = generated.thinkingContent || '';
+        }
       }
       try {
         await notifyChatStatus({
@@ -631,7 +669,7 @@ export async function handleChatRoute(
       }
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
       const sessionWithTelemetry = appendChatMessagesWithUsage(runtimeRoot, activeSession, userContent, assistantContent, usage, {
-        turns: [{ thinkingText: thinkingContent, toolMessages: [] }],
+        turns: [{ thinkingText: thinkingContent, toolMessages: webToolMessages }],
         requestDurationMs: Date.now() - startedAt,
         requestStartedAtUtc,
         speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
