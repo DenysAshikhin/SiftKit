@@ -91,34 +91,99 @@ function formatChatMessageForPrompt(message: Dict): string {
   return String(message.content || '');
 }
 
-export function buildContextUsage(session: ChatSession): Dict {
-  const contextWindowTokens = Math.max(1, Number(session.contextWindowTokens || 150000));
-  const messages = Array.isArray(session.messages) ? session.messages : [];
-  const messageTokens = Array.isArray(session.messages)
-    ? messages.reduce((sum: number, message: Dict) => sum + getMessageContextTokenEstimate(message), 0)
-    : 0;
-  const thinkingUsedTokens = messages.reduce((sum: number, message: Dict) => sum + getMessageThinkingTokenEstimate(message), 0);
-  const chatUsedTokens = estimateTokenCount(DEFAULT_CHAT_SYSTEM_PROMPT) + messageTokens;
-  const hiddenToolContexts = Array.isArray(session.hiddenToolContexts) ? session.hiddenToolContexts : [];
-  const toolUsedTokens = hiddenToolContexts.length > 0
-    ? estimateTokenCount(HIDDEN_TOOL_CONTEXT_PROMPT)
-      + hiddenToolContexts.reduce((sum: number, entry: Dict) => sum + getHiddenToolContextTokenEstimate(entry), 0)
-    : 0;
-  const totalUsedTokens = chatUsedTokens + toolUsedTokens;
-  const remainingTokens = Math.max(contextWindowTokens - totalUsedTokens, 0);
-  const warnThresholdTokens = Math.max(5000, Math.ceil(contextWindowTokens * 0.1));
-  return {
-    contextWindowTokens,
-    usedTokens: chatUsedTokens,
-    chatUsedTokens,
-    thinkingUsedTokens,
-    toolUsedTokens,
-    totalUsedTokens,
-    remainingTokens,
-    warnThresholdTokens,
-    shouldCondense: remainingTokens <= warnThresholdTokens,
-    estimatedTokenFallbackTokens: 0,
-  };
+type ContextUsageTokenTotals = {
+  contextWindowTokens: number;
+  chatUsedTokens: number;
+  thinkingUsedTokens: number;
+  toolUsedTokens: number;
+  totalUsedTokens: number;
+  remainingTokens: number;
+};
+
+class ContextUsageBuilder {
+  constructor(
+    private readonly config: Dict | null | undefined,
+    private readonly session: ChatSession,
+  ) {}
+
+  build(): Dict {
+    const totals = this.buildTokenTotals();
+    const warnThresholdTokens = Math.max(5000, Math.ceil(totals.contextWindowTokens * 0.1));
+    return {
+      contextWindowTokens: totals.contextWindowTokens,
+      usedTokens: totals.chatUsedTokens,
+      chatUsedTokens: totals.chatUsedTokens,
+      thinkingUsedTokens: totals.thinkingUsedTokens,
+      toolUsedTokens: totals.toolUsedTokens,
+      totalUsedTokens: totals.totalUsedTokens,
+      remainingTokens: totals.remainingTokens,
+      warnThresholdTokens,
+      shouldCondense: totals.remainingTokens <= warnThresholdTokens,
+      estimatedTokenFallbackTokens: 0,
+      providerOverheadTokens: this.getProviderOverheadTokens(),
+      outputHeadroomTokens: this.getOutputHeadroomTokens(totals),
+    };
+  }
+
+  private buildTokenTotals(): ContextUsageTokenTotals {
+    const contextWindowTokens = Math.max(1, Number(this.session.contextWindowTokens || 150000));
+    const messages = Array.isArray(this.session.messages) ? this.session.messages : [];
+    const messageTokens = messages.reduce((sum: number, message: Dict) => sum + getMessageContextTokenEstimate(message), 0);
+    const thinkingUsedTokens = messages.reduce((sum: number, message: Dict) => sum + getMessageThinkingTokenEstimate(message), 0);
+    const chatUsedTokens = estimateTokenCount(DEFAULT_CHAT_SYSTEM_PROMPT) + messageTokens;
+    const hiddenToolContexts = Array.isArray(this.session.hiddenToolContexts) ? this.session.hiddenToolContexts : [];
+    const toolUsedTokens = hiddenToolContexts.length > 0
+      ? estimateTokenCount(HIDDEN_TOOL_CONTEXT_PROMPT)
+        + hiddenToolContexts.reduce((sum: number, entry: Dict) => sum + getHiddenToolContextTokenEstimate(entry), 0)
+      : 0;
+    const totalUsedTokens = chatUsedTokens + toolUsedTokens;
+    return {
+      contextWindowTokens,
+      chatUsedTokens,
+      thinkingUsedTokens,
+      toolUsedTokens,
+      totalUsedTokens,
+      remainingTokens: Math.max(contextWindowTokens - totalUsedTokens, 0),
+    };
+  }
+
+  private getProviderOverheadTokens(): number {
+    const thinkingEnabled = this.session.thinkingEnabled !== false;
+    const reserveShape: Dict = {
+      model: resolveActiveChatModel(this.config, this.session),
+      stream: false,
+      cache_prompt: true,
+      max_tokens: 0,
+      messages: [
+        { role: 'system', content: '' },
+        { role: 'user', content: '' },
+      ],
+      chat_template_kwargs: {
+        enable_thinking: thinkingEnabled,
+        ...(thinkingEnabled && shouldReplayReasoningContent(this.config || {}) ? { reasoning_content: true } : {}),
+        ...(shouldPreserveThinking(this.config || {}, thinkingEnabled) ? { preserve_thinking: true } : {}),
+      },
+    };
+    return estimateTokenCount(JSON.stringify(reserveShape));
+  }
+
+  private getOutputHeadroomTokens(totals: ContextUsageTokenTotals): number {
+    if (totals.remainingTokens <= 0) {
+      return 0;
+    }
+    // Dashboard reserve estimate for the persisted session state. This is not an
+    // exact pending-request token count because buildContextUsage has no next user
+    // message; the real request path computes max_tokens from the full pending prompt.
+    const dynamicMaxTokens = getDynamicMaxOutputTokens({
+      totalContextTokens: totals.contextWindowTokens,
+      promptTokenCount: totals.totalUsedTokens,
+    });
+    return Math.min(dynamicMaxTokens, totals.remainingTokens);
+  }
+}
+
+export function buildContextUsage(config: Dict | null | undefined, session: ChatSession): Dict {
+  return new ContextUsageBuilder(config, session).build();
 }
 
 export function resolveActiveChatModel(config: Dict | null | undefined, session: ChatSession): string {

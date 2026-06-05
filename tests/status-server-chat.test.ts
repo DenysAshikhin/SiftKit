@@ -637,7 +637,7 @@ test('buildContextUsage estimates continuation context from session content inst
   const expectedToolTokens = estimateTokenCount(
     'Internal tool-call context from prior session steps. Use this as additional evidence only when relevant.',
   ) + 5708;
-  const usage = buildContextUsage(session);
+  const usage = buildContextUsage(null, session);
 
   assert.equal(usage.chatUsedTokens, expectedChatTokens);
   assert.equal(usage.usedTokens, expectedChatTokens);
@@ -645,6 +645,13 @@ test('buildContextUsage estimates continuation context from session content inst
   assert.equal(usage.toolUsedTokens, expectedToolTokens);
   assert.equal(usage.totalUsedTokens, expectedChatTokens + expectedToolTokens);
   assert.equal(usage.estimatedTokenFallbackTokens, 0);
+  assert.equal(typeof usage.providerOverheadTokens, 'number');
+  assert.equal(typeof usage.outputHeadroomTokens, 'number');
+  assert.equal(Number.isInteger(usage.providerOverheadTokens), true);
+  assert.equal(Number.isInteger(usage.outputHeadroomTokens), true);
+  assert.equal(usage.providerOverheadTokens >= 0, true);
+  assert.equal(usage.outputHeadroomTokens >= 0, true);
+  assert.equal(usage.outputHeadroomTokens <= usage.remainingTokens, true);
 });
 
 test('buildPersistTurnsFromRepoSearchResult interleaves per-turn thinking before that turn\'s tools', () => {
@@ -818,7 +825,7 @@ test('buildContextUsage counts typed thinking and tool bubbles from visible time
     hiddenToolContexts: [],
   } as ChatSession;
 
-  const usage = buildContextUsage(session);
+  const usage = buildContextUsage(null, session);
 
   assert.equal(usage.thinkingUsedTokens, estimateTokenCount('Visible reasoning bubble.'));
   assert.equal(
@@ -827,4 +834,11 @@ test('buildContextUsage counts typed thinking and tool bubbles from visible time
       + estimateTokenCount('Visible reasoning bubble.')
       + estimateTokenCount('Tool call: rg -n "x" src\n\nResult:\nsrc/example.ts:1:x'),
   );
+  assert.equal(typeof usage.providerOverheadTokens, 'number');
+  assert.equal(typeof usage.outputHeadroomTokens, 'number');
+  assert.equal(Number.isInteger(usage.providerOverheadTokens), true);
+  assert.equal(Number.isInteger(usage.outputHeadroomTokens), true);
+  assert.equal(usage.providerOverheadTokens >= 0, true);
+  assert.equal(usage.outputHeadroomTokens >= 0, true);
+  assert.equal(usage.outputHeadroomTokens <= usage.remainingTokens, true);
 });

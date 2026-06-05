@@ -188,7 +188,7 @@ function withPromptContext(config: Dict, session: ChatSession): ChatSession {
 function buildChatSessionResponse(config: Dict, session: ChatSession): Dict {
   return {
     session: withPromptContext(config, session),
-    contextUsage: buildContextUsage(session),
+    contextUsage: buildContextUsage(config, session),
   };
 }
 
