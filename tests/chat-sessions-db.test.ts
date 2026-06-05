@@ -66,6 +66,7 @@ test('chat sessions are persisted in runtime sqlite instead of JSON files', () =
         speculativeGeneratedTokens: null,
         createdAtUtc: new Date().toISOString(),
         sourceRunId: 'run-1',
+        groundingStatus: 'fetched',
       }],
       hiddenToolContexts: [{
         id: 'h1',
@@ -92,11 +93,13 @@ test('chat sessions are persisted in runtime sqlite instead of JSON files', () =
     assert.equal(sessions[0]?.messages?.[0]?.speculativeAcceptedTokens, null);
     assert.equal(sessions[0]?.messages?.[0]?.speculativeGeneratedTokens, null);
     assert.equal(sessions[0]?.messages?.[0]?.sourceRunId, 'run-1');
+    assert.equal(sessions[0]?.messages?.[0]?.groundingStatus, 'fetched');
 
     const loadedFromPath = readChatSessionFromPath(sessionPath);
     assert.equal(loadedFromPath?.id, sessionId);
     assert.equal(loadedFromPath?.messages?.[0]?.promptEvalDurationMs, null);
     assert.equal(loadedFromPath?.messages?.[0]?.generationDurationMs, null);
+    assert.equal(loadedFromPath?.messages?.[0]?.groundingStatus, 'fetched');
     assert.equal(fs.existsSync(path.join(runtimeRoot, 'runtime.sqlite')), true);
     assert.equal(fs.existsSync(sessionPath), false);
   });

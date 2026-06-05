@@ -89,6 +89,7 @@ test('appendChatMessagesWithUsage persists interleaved per-turn thinking and too
         }] },
         { thinkingText: 'final think', toolMessages: [] },
       ],
+      groundingStatus: 'fetched',
     }
   );
 
@@ -101,8 +102,10 @@ test('appendChatMessagesWithUsage persists interleaved per-turn thinking and too
     'assistant_answer',
   ]);
   const toolMessage = session.messages.find((m) => m.kind === 'assistant_tool_call');
+  const answerMessage = session.messages.find((m) => m.kind === 'assistant_answer' && m.content === 'Tool calls are handled in engine.ts.');
   assert.equal(toolMessage?.outputTokensEstimate, 295);
   assert.equal(toolMessage?.associatedToolTokens, 295);
+  assert.equal(answerMessage?.groundingStatus, 'fetched');
 });
 
 test('appendChatMessagesWithUsage aligns hidden tool contexts with persisted tool message ids', () => {

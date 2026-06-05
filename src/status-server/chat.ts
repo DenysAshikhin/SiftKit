@@ -1,6 +1,7 @@
 import * as crypto from 'node:crypto';
 import type { Dict } from '../lib/types.js';
 import type { RepoSearchExecutionResult } from '../repo-search/types.js';
+import type { ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
 import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
 import {
   type ChatSession,
@@ -256,6 +257,7 @@ type AppendChatOptions = {
   outputTokens?: number | null;
   thinkingTokens?: number | null;
   sourceRunId?: string | null;
+  groundingStatus?: ChatGroundingStatus | null;
 };
 
 export function appendChatMessagesWithUsage(
@@ -290,6 +292,7 @@ export function appendChatMessagesWithUsage(
     : [];
   const hiddenToolContexts = Array.isArray(session.hiddenToolContexts) ? (session.hiddenToolContexts as Dict[]).slice() : [];
   const sourceRunId = typeof options.sourceRunId === 'string' && options.sourceRunId.trim() ? options.sourceRunId : null;
+  const groundingStatus = options.groundingStatus || null;
   messages.push({
     id: crypto.randomUUID(),
     role: 'user',
@@ -399,6 +402,7 @@ export function appendChatMessagesWithUsage(
     thinkingContent: '',
     createdAtUtc: now,
     sourceRunId,
+    groundingStatus,
   });
   for (let index = 0; index < toolContextContents.length; index += 1) {
     const sourceMessageId = persistedToolMessageIds[index] || assistantMessageId;

@@ -1014,6 +1014,7 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
     assert.equal(messages.some((message) => message.kind === 'assistant_tool_call'), true, 'persisted a tool-call step');
     const answer = messages.find((message) => message.kind === 'assistant_answer') as Dict;
     assert.equal(answer.content, 'About 150 gp per bar.');
+    assert.equal(answer.groundingStatus, 'fetched');
     assert.equal(Number(answer.outputTokensEstimate) >= 1, true); // answer bubble carries only its own output
     const toolStep = messages.find((message) => message.kind === 'assistant_tool_call') as Dict;
     assert.equal(Number(toolStep.outputTokensEstimate) >= 1, true, 'tool output tokens live on the tool step');

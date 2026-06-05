@@ -6,6 +6,7 @@ import { getRuntimeDatabase } from './runtime-db.js';
 
 export type ChatMessage = Dict;
 export type ChatSession = Dict & { id: string; messages?: ChatMessage[]; hiddenToolContexts?: Dict[] };
+type ChatGroundingStatus = 'ungrounded' | 'snippet_only' | 'fetched';
 
 type SessionRow = {
   id: string;
@@ -59,6 +60,7 @@ type MessageRow = {
   created_at_utc: string;
   source_run_id: string | null;
   compressed_into_summary: number;
+  grounding_status: string | null;
   position: number;
 };
 
@@ -110,6 +112,13 @@ function normalizeMessageKind(value: unknown, roleValue: unknown): 'user_text' |
     return value;
   }
   return roleValue === 'user' ? 'user_text' : 'assistant_answer';
+}
+
+function normalizeGroundingStatus(value: unknown): ChatGroundingStatus | null {
+  if (value === 'ungrounded' || value === 'snippet_only' || value === 'fetched') {
+    return value;
+  }
+  return null;
 }
 
 function toNonNegativeInteger(value: unknown, fallback: number = 0): number {
@@ -224,6 +233,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       created_at_utc,
       source_run_id,
       compressed_into_summary,
+      grounding_status,
       position
     FROM chat_messages
     WHERE session_id = ?
@@ -293,6 +303,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       createdAtUtc: message.created_at_utc,
       sourceRunId: message.source_run_id,
       compressedIntoSummary: message.compressed_into_summary === 1,
+      groundingStatus: normalizeGroundingStatus(message.grounding_status),
     })),
     hiddenToolContexts: hiddenContextRows.map((entry) => ({
       id: entry.id,
@@ -468,8 +479,9 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         created_at_utc,
         source_run_id,
         compressed_into_summary,
+        grounding_status,
         position
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     for (let index = 0; index < messages.length; index += 1) {
@@ -512,6 +524,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         typeof message.createdAtUtc === 'string' && message.createdAtUtc.trim() ? message.createdAtUtc : now,
         typeof message.sourceRunId === 'string' && message.sourceRunId.trim() ? message.sourceRunId : null,
         message.compressedIntoSummary === true ? 1 : 0,
+        normalizeGroundingStatus(message.groundingStatus),
         index,
       );
     }

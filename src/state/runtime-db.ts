@@ -7,7 +7,7 @@ import { normalizeOperationModeAllowedTools, normalizePresets } from '../presets
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
-export const CURRENT_SCHEMA_VERSION = 29;
+export const CURRENT_SCHEMA_VERSION = 30;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["repo_rg","repo_read_file","repo_list_files","repo_git","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}';
 
@@ -217,6 +217,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       created_at_utc TEXT NOT NULL,
       source_run_id TEXT,
       compressed_into_summary INTEGER NOT NULL CHECK (compressed_into_summary IN (0, 1)),
+      grounding_status TEXT,
       position INTEGER NOT NULL,
       PRIMARY KEY (session_id, id)
     );
@@ -346,6 +347,7 @@ function ensureChatMessageTimelineSchema(database: RuntimeDatabase): void {
     { name: 'tool_call_prompt_token_count', sql: 'ALTER TABLE chat_messages ADD COLUMN tool_call_prompt_token_count INTEGER;' },
     { name: 'tool_call_output_snippet', sql: 'ALTER TABLE chat_messages ADD COLUMN tool_call_output_snippet TEXT;' },
     { name: 'tool_call_output', sql: 'ALTER TABLE chat_messages ADD COLUMN tool_call_output TEXT;' },
+    { name: 'grounding_status', sql: 'ALTER TABLE chat_messages ADD COLUMN grounding_status TEXT;' },
   ];
   for (const column of columns) {
     if (!tableHasColumn(database, 'chat_messages', column.name)) {
@@ -1106,6 +1108,13 @@ function ensureSchema(database: RuntimeDatabase): void {
     }
     setSchemaVersion(database, 29);
     currentVersion = 29;
+  }
+  if (currentVersion < 30) {
+    if (!tableHasColumn(database, 'chat_messages', 'grounding_status')) {
+      database.exec('ALTER TABLE chat_messages ADD COLUMN grounding_status TEXT;');
+    }
+    setSchemaVersion(database, 30);
+    currentVersion = 30;
   }
   ensureChatMessageTimelineSchema(database);
   ensureRuntimeArtifactsSchema(database);

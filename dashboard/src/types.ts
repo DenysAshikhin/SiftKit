@@ -185,6 +185,7 @@ export type ChatMessage = {
   toolCallOutputSnippet?: string | null;
   toolCallOutput?: string | null;
   toolCallStatus?: 'running' | 'done';
+  groundingStatus?: 'ungrounded' | 'snippet_only' | 'fetched' | null;
   createdAtUtc: string;
   sourceRunId: string | null;
   compressedIntoSummary?: boolean;

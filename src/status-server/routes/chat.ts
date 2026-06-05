@@ -8,6 +8,7 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import type { Dict } from '../../lib/types.js';
 import { getProcessedPromptTokens } from '../../lib/provider-helpers.js';
+import type { ChatGroundingStatus } from '../../repo-search/chat-grounding-policy.js';
 import { getRuntimeRoot } from '../paths.js';
 import { buildIgnorePolicy } from '../../repo-search/command-safety.js';
 import { readAgentsMd, scanRepoFiles } from '../../repo-search/prompts.js';
@@ -94,6 +95,18 @@ async function readEffectiveChatRouteConfig(configPath: string): Promise<ChatRou
 function getPositiveNumber(value: unknown, fallback: number): number {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : fallback;
+}
+
+function normalizeChatGroundingStatus(value: unknown): ChatGroundingStatus | null {
+  if (value === 'ungrounded' || value === 'snippet_only' || value === 'fetched') {
+    return value;
+  }
+  return null;
+}
+
+function getChatGroundingStatus(scorecard: unknown): ChatGroundingStatus | null {
+  const scorecardTasks = ((scorecard as Dict)?.tasks as Dict[]) || [];
+  return normalizeChatGroundingStatus(scorecardTasks[0]?.groundingStatus);
 }
 
 function getEffectivePresetAllowedTools(config: Dict, preset: SiftPreset | null): SiftPreset['allowedTools'] | undefined {
@@ -604,6 +617,7 @@ export async function handleChatRoute(
       let assistantContent: string;
       let usage: Partial<ChatUsage>;
       let persistTurns: { thinkingText: string; toolMessages: PersistToolMessage[] }[] = [{ thinkingText: '', toolMessages: [] }];
+      let groundingStatus: ChatGroundingStatus | null = null;
       if (usesProvidedAssistantContent) {
         assistantContent = (parsedBody.assistantContent as string).trim();
         usage = {};
@@ -625,6 +639,7 @@ export async function handleChatRoute(
         });
         const scorecardTasks = ((result.scorecard as Dict)?.tasks as Dict[]) || [];
         assistantContent = String(scorecardTasks[0]?.finalOutput || '').trim();
+        groundingStatus = null;
         usage = {
           promptTokens: getScorecardTotal(result?.scorecard, 'promptTokens'),
           completionTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
@@ -663,6 +678,7 @@ export async function handleChatRoute(
         requestStartedAtUtc,
         speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
         speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
+        groundingStatus,
       });
       sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), sessionWithTelemetry));
     } catch (error) {
@@ -846,6 +862,7 @@ export async function handleChatRoute(
         answerEndedAtUtc: phaseTimestamps.answerEndedAtUtc,
         speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
         speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
+        groundingStatus: getChatGroundingStatus(result.scorecard),
       });
       writeSse('done', buildChatSessionResponse(config, updatedSession));
     } catch (error) {
