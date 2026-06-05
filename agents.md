@@ -2,7 +2,7 @@ Make sure to make code as succint and straightforward as possible.
 
 Do not pass functions around dynmically. Functions should be explicit.
 
-Re-use as much code/components as possible.
+Re-use as much code/components as possible. Follow DRY approach.
 
 Avoid overengineering of solutions where not 100% necessary.
 
