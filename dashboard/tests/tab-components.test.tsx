@@ -1447,6 +1447,22 @@ test('ChatTab live turn shows latest item in the main slot, earlier steps in Int
   assert.doesNotMatch(markup, /aria-label="Delete turn"/u);
 });
 
+test('ChatTab renders a friendly loading label for a running web search tool', () => {
+  const liveTool = {
+    ...CHAT_TOOL_MESSAGE,
+    id: 'live-tool-web',
+    toolCallStatus: 'running',
+    toolCallCommand: 'web_search query="osrs iron bar"',
+    content: 'web_search query="osrs iron bar"',
+    toolCallOutput: '',
+    toolCallOutputSnippet: '',
+  } as ChatMessage;
+  const session = { ...CHAT_SESSION, messages: [] } as ChatSession;
+  const markup = renderChatTab({ selectedSession: session, liveMessages: [liveTool] });
+  assert.match(markup, /class="tool-spinner"/u);
+  assert.match(markup, /Fetching search results/u);
+});
+
 test('renderChatTab accepts overrides and produces stable markup', () => {
   const session: ChatSession = { ...CHAT_SESSION, title: 'renderer-fixture-title' };
   const markup = renderChatTab({

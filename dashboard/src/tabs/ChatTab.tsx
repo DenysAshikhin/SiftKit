@@ -16,6 +16,7 @@ import {
 } from '../lib/chatMessages';
 import { resolveContextBarVisual } from '../lib/contextBar';
 import { getNextWebSearchOverride } from '../lib/web-search-controls';
+import { getToolRunningLabel } from '../lib/tool-status';
 import { useChatScroll } from '../hooks/useChatScroll';
 import { groupMessagesIntoTurns, normalizeMessageKind, type ChatTurn } from '../lib/chatTurns';
 import type {
@@ -572,7 +573,7 @@ function renderMessageBody(message: ChatMessage, isDirectChatMode: boolean) {
       ) : messageKind === 'assistant_tool_call' ? (
         <div className="tool-message">
           <code>{toolCommand}</code>
-          {message.toolCallStatus === 'running' ? <span className="tool-spinner"> ...</span> : null}
+          {message.toolCallStatus === 'running' ? <span className="tool-spinner"> {getToolRunningLabel(toolCommand)}</span> : null}
           {toolOutput ? (
             <details className="tool-result">
               <summary aria-label="Show tool result" title="Show tool result">+ result</summary>
