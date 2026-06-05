@@ -1270,8 +1270,8 @@ test('chat tab context bar renders dashed provider overhead and output headroom 
   assert.match(markup, /context-bar-section output-headroom/u);
   assert.match(markup, /Provider overhead reserve/u);
   assert.match(markup, /request framing, model options, and chat template metadata/u);
-  assert.match(markup, /Output headroom reserve/u);
-  assert.match(markup, /assistant response/u);
+  assert.match(markup, /Output headroom/u);
+  assert.match(markup, /response being cut off if the context window fills up/u);
   assert.match(markup, /width:5%/u);
   assert.match(markup, /width:20%/u);
 });

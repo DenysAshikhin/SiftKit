@@ -108,7 +108,7 @@ export function resolveContextBarVisual(
     'output-headroom',
     outputTokens,
     total,
-    `Output headroom reserve: ${formatNumber(outputTokens)} tokens kept available for the assistant response.`,
+    `Output headroom: ~${formatNumber(outputTokens)} tokens for the reply. This is not a hard reserve: chatting further risks the model's response being cut off if the context window fills up.`,
   );
   return { ...visual, sections };
 }
