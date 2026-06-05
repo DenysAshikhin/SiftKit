@@ -29,6 +29,7 @@ export const CHAT_GROUNDING_FINAL_ANSWER_INSTRUCTION = [
 export class ChatGroundingPolicy {
   private readonly enabled: boolean;
   private readonly maxFinishRejections: number;
+  private readonly candidateUrls: string[] = [];
   private searchSucceeded = false;
   private fetchSucceeded = false;
   private finishRejections = 0;
@@ -50,6 +51,7 @@ export class ChatGroundingPolicy {
     }
     if (toolName === 'web_search') {
       this.searchSucceeded = true;
+      this.rememberCandidateUrls(output);
       return;
     }
     if (toolName === 'web_fetch') {
@@ -76,6 +78,10 @@ export class ChatGroundingPolicy {
     ].join(' ');
   }
 
+  getFetchCandidateUrls(): string[] {
+    return [...this.candidateUrls].sort((left, right) => this.scoreUrl(right) - this.scoreUrl(left));
+  }
+
   getStatus(): ChatGroundingStatus {
     if (!this.enabled || !this.searchSucceeded) {
       return 'ungrounded';
@@ -87,11 +93,52 @@ export class ChatGroundingPolicy {
   }
 
   private buildFinishRejectionMessage(): string {
+    const bestUrl = this.getFetchCandidateUrls()[0] || '<one returned URL>';
     return [
       'Do not answer from search snippets.',
       'You ran web_search but have not successfully fetched a source page.',
-      'Use {"action":"tool","tool_name":"web_fetch","args":{"url":"<one returned URL>"}} before answering, or run a different web_search if the results were poor.',
+      `Use {"action":"tool","tool_name":"web_fetch","args":{"url":"${bestUrl}"}} before answering, or run a different web_search if the results were poor.`,
+      `Recommended fetch: web_fetch url="${bestUrl}".`,
       'If fetching is impossible after the retry budget, answer only with the limitation that fetched evidence was unavailable.',
     ].join(' ');
+  }
+
+  private rememberCandidateUrls(output: string): void {
+    const matches = output.matchAll(/^URL:\s*(https?:\/\/\S+)/gimu);
+    for (const match of matches) {
+      const url = String(match[1] || '').trim();
+      if (url && !this.candidateUrls.includes(url)) {
+        this.candidateUrls.push(url);
+      }
+    }
+  }
+
+  private scoreUrl(urlText: string): number {
+    let score = 0;
+    let hostname = '';
+    try {
+      hostname = new URL(urlText).hostname.toLowerCase();
+    } catch {
+      return score;
+    }
+    const hostnameTokens = hostname.split(/[.-]+/u).filter((token) => token.length > 0);
+    if (hostnameTokens.includes('wiki')) {
+      score += 20;
+    }
+    if (
+      hostnameTokens.includes('official')
+      || hostnameTokens.includes('docs')
+      || hostnameTokens.includes('documentation')
+      || hostnameTokens.includes('reference')
+    ) {
+      score += 10;
+    }
+    if (hostnameTokens.includes('forum') || hostnameTokens.includes('community') || hostnameTokens.includes('social')) {
+      score -= 5;
+    }
+    if (hostnameTokens.includes('guide') || hostnameTokens.includes('blog') || hostnameTokens.includes('money')) {
+      score -= 3;
+    }
+    return score;
   }
 }

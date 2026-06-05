@@ -101,3 +101,52 @@ test('ChatGroundingPolicy builds duplicate web search steering', () => {
   assert.match(policy.buildDuplicateSearchMessage(), /web_fetch/);
   assert.match(policy.buildDuplicateSearchMessage(), /different web_search/);
 });
+
+test('ChatGroundingPolicy extracts returned result URLs for fetch steering', () => {
+  const policy = new ChatGroundingPolicy({ enabled: true });
+
+  policy.recordToolResult({
+    toolName: 'web_search',
+    command: 'web_search query="osrs mining guild"',
+    exitCode: 0,
+    output: [
+      '1. SEO Guide',
+      'URL: https://example-guide.test/mining-guild',
+      'Snippet: Generated guide text.',
+      '',
+      '2. Mining Guild - OSRS Wiki',
+      'URL: https://oldschool.runescape.wiki/w/Mining_Guild',
+      'Snippet: The Mining Guild requires 60 Mining.',
+    ].join('\n'),
+  });
+
+  assert.deepEqual(policy.getFetchCandidateUrls(), [
+    'https://oldschool.runescape.wiki/w/Mining_Guild',
+    'https://example-guide.test/mining-guild',
+  ]);
+});
+
+test('ChatGroundingPolicy includes the best fetch URL in finish rejection steering', () => {
+  const policy = new ChatGroundingPolicy({ enabled: true });
+
+  policy.recordToolResult({
+    toolName: 'web_search',
+    command: 'web_search query="osrs mining guild"',
+    exitCode: 0,
+    output: [
+      '1. SEO Guide',
+      'URL: https://example-guide.test/mining-guild',
+      '',
+      '2. Mining Guild - OSRS Wiki',
+      'URL: https://oldschool.runescape.wiki/w/Mining_Guild',
+    ].join('\n'),
+  });
+
+  const decision = policy.evaluateFinish();
+
+  assert.equal(decision.kind, 'reject');
+  assert.match(
+    decision.kind === 'reject' ? decision.message : '',
+    /web_fetch url="https:\/\/oldschool\.runescape\.wiki\/w\/Mining_Guild"/,
+  );
+});
