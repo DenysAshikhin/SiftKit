@@ -11,6 +11,7 @@ export type RequestJsonOptions = {
   timeoutMs?: number;
   body?: string;
   abortSignal?: AbortSignal;
+  agent?: http.Agent | https.Agent;
 };
 
 type LoggedHttpClientTask = 'repo-search' | 'summary';
@@ -75,6 +76,7 @@ export function requestJson<T>(options: RequestJsonOptions): Promise<T> {
         port: target.port || (target.protocol === 'https:' ? 443 : 80),
         path: `${target.pathname}${target.search}`,
         method: options.method,
+        agent: options.agent,
         headers: options.body ? {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(options.body, 'utf8'),
@@ -150,6 +152,7 @@ export type TextResponse = { statusCode: number; body: string };
 export type RequestTextOptions = {
   url: string;
   timeoutMs: number;
+  agent?: http.Agent | https.Agent;
 };
 
 export function requestText(options: RequestTextOptions): Promise<TextResponse> {
@@ -162,6 +165,7 @@ export function requestText(options: RequestTextOptions): Promise<TextResponse> 
       port: target.port || (target.protocol === 'https:' ? 443 : 80),
       path: `${target.pathname}${target.search}`,
       method: 'GET',
+      agent: options.agent,
     }, (response) => {
       let body = '';
       response.setEncoding('utf8');
@@ -224,6 +228,7 @@ export function requestJsonFull<T>(options: RequestJsonOptions): Promise<FullJso
         port: target.port || (target.protocol === 'https:' ? 443 : 80),
         path: `${target.pathname}${target.search}`,
         method: options.method,
+        agent: options.agent,
         headers: options.body ? {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(options.body, 'utf8'),

@@ -1,6 +1,4 @@
-import * as http from 'node:http';
-import * as https from 'node:https';
-import { requestJsonFull } from '../lib/http.js';
+import { LlamaClient, LlamaHttpError, type LlamaStreamSignal } from '../lib/llama-client.js';
 import { ModelJson } from '../lib/model-json.js';
 import {
   buildTransientProviderHttpError,
@@ -567,7 +565,7 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
   try {
     response = await retryProviderRequest(
       async () => {
-        const nextResponse = await requestJsonFull<CompletionBody>({
+        const nextResponse = await LlamaClient.requestJsonFull<CompletionBody>({
           url: requestUrl,
           method: 'POST',
           timeoutMs: options.timeoutMs,
@@ -744,7 +742,7 @@ function buildRecentTokenRepetitionReason(kind: 'content' | 'reasoning', result:
   return `recent planner ${kind} tokens repeated every ${result.periodTokens} tokens across the last ${result.windowTokens} tokens after ${result.totalTokens} tokens`;
 }
 
-function requestStreaming(
+async function requestStreaming(
   options: PlannerRequestOptions,
   bodyJson: string,
   stage: string,
@@ -754,71 +752,28 @@ function requestStreaming(
     : TOOL_DEFINITIONS;
   const allowedToolNames = new Set<string>(toolDefinitions.map((toolDefinition) => toolDefinition.function.name));
   const target = new URL(`${options.baseUrl.replace(/\/$/u, '')}/v1/chat/completions`);
-  const transport = target.protocol === 'https:' ? https : http;
+  const startedAt = Date.now();
+  const method = 'POST';
+  const urlPath = `${target.pathname}${target.search}`;
 
-  return new Promise((resolve, reject) => {
-    const startedAt = Date.now();
-    const method = 'POST';
-    const urlPath = `${target.pathname}${target.search}`;
+  options.logger?.write({ kind: 'provider_request_start', stage, method, url: target.toString(), path: urlPath });
 
-    options.logger?.write({ kind: 'provider_request_start', stage, method, url: target.toString(), path: urlPath });
+  let contentText = '';
+  let thinkingText = '';
+  const toolCalls: Array<{ name: string; arguments: string }> = [];
+  let promptTokens: number | null = null;
+  let completionTokens: number | null = null;
+  let usageThinkingTokens: number | null = null;
+  let promptCacheTokens: number | null = null;
+  let promptEvalTokens: number | null = null;
+  let promptEvalDurationMs: number | null = null;
+  let generationDurationMs: number | null = null;
+  let generationStartedAt: number | null = null;
+  let earlyReason: string | null = null;
+  let earlyResolvedText: string | undefined;
 
-    let settled = false;
-    const request = transport.request({
-      protocol: target.protocol,
-      hostname: target.hostname,
-      port: target.port || (target.protocol === 'https:' ? 443 : 80),
-      path: urlPath,
-      method,
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(bodyJson, 'utf8') },
-    }, (response) => {
-      if ((response.statusCode || 0) >= 400) {
-        let body = '';
-        response.setEncoding('utf8');
-        response.on('data', (chunk: string) => { body += chunk; });
-        response.on('end', () => {
-          if (!settled) {
-            settled = true;
-            if (isTransientProviderHttpResponse(response.statusCode || 0, body)) {
-              reject(buildTransientProviderHttpError(response.statusCode || 0, body));
-              return;
-            }
-            const serialized = serializeNetworkError(new Error(`llama.cpp ${stage} stream failed with HTTP ${response.statusCode}${body.trim() ? `: ${body.trim().slice(0, 400)}` : '.'}`));
-            options.logger?.write({ kind: 'provider_request_error', stage, method, url: target.toString(), path: urlPath, elapsedMs: Date.now() - startedAt, error: serialized });
-            reject(new Error(buildProviderErrorMessage({ stage, method, url: target.toString() }, serialized)));
-          }
-        });
-        return;
-      }
-
-      let rawBuffer = '';
-      let contentText = '';
-      let thinkingText = '';
-      const toolCalls: Array<{ name: string; arguments: string }> = [];
-      let promptTokens: number | null = null;
-      let completionTokens: number | null = null;
-      let usageThinkingTokens: number | null = null;
-      let promptCacheTokens: number | null = null;
-      let promptEvalTokens: number | null = null;
-      let promptEvalDurationMs: number | null = null;
-      let generationDurationMs: number | null = null;
-      let generationStartedAt: number | null = null;
-
-      response.setEncoding('utf8');
-      response.on('data', (chunk: string) => {
-        rawBuffer += chunk;
-        let boundary = rawBuffer.indexOf('\n\n');
-        while (boundary >= 0) {
-          const packet = rawBuffer.slice(0, boundary);
-          rawBuffer = rawBuffer.slice(boundary + 2);
-          boundary = rawBuffer.indexOf('\n\n');
-          const lines = packet.split(/\r?\n/gu).map((l) => l.trim()).filter(Boolean);
-          const dataLine = lines.find((l) => l.startsWith('data:'));
-          if (!dataLine) continue;
-          const dataValue = dataLine.slice(5).trim();
-          if (dataValue === '[DONE]') continue;
+  const onData = (parsed: Record<string, unknown>): LlamaStreamSignal => {
           try {
-            const parsed = JSON.parse(dataValue) as Record<string, unknown>;
             const parsedUsage = getPromptUsageFromResponseBody(parsed);
             const parsedCompletionUsage = getCompletionUsageFromResponseBody(parsed);
             const parsedTimingUsage = getTimingUsageFromResponseBody(parsed);
@@ -855,22 +810,21 @@ function requestStreaming(
               const plannerActionText = findPlannerActionText(thinkingText, allowedToolNames);
               if (plannerActionText) {
                 thinkingText = '';
-                finishEarly('planner action completed in streamed reasoning', plannerActionText);
-                return;
+                earlyReason = 'planner action completed in streamed reasoning';
+                earlyResolvedText = plannerActionText;
+                return 'stop';
               }
               const runawayThinking = getRunawayStructuralTail(thinkingText);
               if (runawayThinking) {
                 thinkingText = runawayThinking.truncatedText;
-                finishEarly(
-                  `runaway streamed planner reasoning repeated '${runawayThinking.repeatedChar}' ${runawayThinking.repeatedCount} times`
-                );
-                return;
+                earlyReason = `runaway streamed planner reasoning repeated '${runawayThinking.repeatedChar}' ${runawayThinking.repeatedCount} times`;
+                return 'stop';
               }
               const repeatedThinking = detectRecentTokenRepetition(thinkingText);
               if (repeatedThinking) {
                 thinkingText = repeatedThinking.truncatedText;
-                finishEarly(buildRecentTokenRepetitionReason('reasoning', repeatedThinking));
-                return;
+                earlyReason = buildRecentTokenRepetitionReason('reasoning', repeatedThinking);
+                return 'stop';
               }
               options.onThinkingDelta?.(thinkingText);
             }
@@ -882,132 +836,102 @@ function requestStreaming(
               const runawayContent = getRunawayStructuralTail(contentText);
               if (runawayContent) {
                 contentText = runawayContent.truncatedText;
-                finishEarly(
-                  `runaway streamed planner content repeated '${runawayContent.repeatedChar}' ${runawayContent.repeatedCount} times`
-                );
-                return;
+                earlyReason = `runaway streamed planner content repeated '${runawayContent.repeatedChar}' ${runawayContent.repeatedCount} times`;
+                return 'stop';
               }
               const repeatedContent = detectRecentTokenRepetition(contentText);
               if (repeatedContent) {
                 contentText = repeatedContent.truncatedText;
-                finishEarly(buildRecentTokenRepetitionReason('content', repeatedContent));
-                return;
+                earlyReason = buildRecentTokenRepetitionReason('content', repeatedContent);
+                return 'stop';
               }
               options.onContentDelta?.(contentText);
             }
-          } catch { /* ignore malformed chunks */ }
-        }
-      });
+            return undefined;
+          } catch { /* ignore malformed chunks */ return undefined; }
+  };
 
-      const finishEarly = (reasonText: string, resolvedText?: string): void => {
-        if (settled) return;
-        settled = true;
-        options.abortSignal?.removeEventListener('abort', abortRequest);
-        const finishedAt = Date.now();
-        options.logger?.write({
-          kind: 'provider_request_done',
-          stage,
-          method,
-          url: target.toString(),
-          path: urlPath,
-          statusCode: response.statusCode || 0,
-          elapsedMs: finishedAt - startedAt,
-          earlyTerminationReason: reasonText,
-        });
-        request.destroy(new Error(reasonText));
-        resolve({
-          text: resolvedText ?? buildEarlyStoppedPlannerText(reasonText, contentText),
-          thinkingText: thinkingText.trim(),
-          mockExhausted: false,
-          promptTokens,
-          completionTokens,
-          usageThinkingTokens,
-          promptCacheTokens,
-          promptEvalTokens,
-          promptEvalDurationMs: promptEvalDurationMs ?? (generationStartedAt === null ? null : Math.max(generationStartedAt - startedAt, 0)),
-          generationDurationMs: generationDurationMs ?? (generationStartedAt === null ? null : Math.max(finishedAt - generationStartedAt, 0)),
-        });
-      };
-
-      response.on('end', () => {
-        if (settled) return;
-        settled = true;
-        options.abortSignal?.removeEventListener('abort', abortRequest);
-        options.logger?.write({ kind: 'provider_request_done', stage, method, url: target.toString(), path: urlPath, statusCode: response.statusCode || 0, elapsedMs: Date.now() - startedAt });
-        let synthesized: string | null = null;
-        const parsedToolCalls = toolCalls
-          .map((toolCall) => parseRepoToolCallCandidate({
-            function: {
-              name: toolCall?.name,
-              arguments: toolCall?.arguments,
-            },
-          }, allowedToolNames))
-          .filter(Boolean) as ToolAction[];
-        if (parsedToolCalls.length === 1) {
-          synthesized = JSON.stringify(parsedToolCalls[0]);
-        } else if (parsedToolCalls.length > 1) {
-          synthesized = JSON.stringify({
-            action: 'tool_batch',
-            calls: parsedToolCalls.map((toolCall) => ({
-              action: toolCall.tool_name,
-              ...toolCall.args,
-            })),
-          });
-        }
-        // If reasoning_content didn't give us thinking, try to extract <think>...</think> from content
-        let finalThinkingText = thinkingText.trim();
-        let finalContentText = contentText.trim();
-        if (!finalThinkingText && finalContentText.includes('<think>')) {
-          const extracted = extractInlineThinking(finalContentText);
-          finalThinkingText = extracted.thinkingText;
-          finalContentText = extracted.text;
-        }
-        const text = finalContentText || synthesized || '';
-        const finishedAt = Date.now();
-        resolve({
-          text: typeof text === 'string' ? text.trim() : text,
-          thinkingText: finalThinkingText,
-          mockExhausted: false,
-          promptTokens,
-          completionTokens,
-          usageThinkingTokens,
-          promptCacheTokens,
-          promptEvalTokens,
-          promptEvalDurationMs: promptEvalDurationMs ?? (generationStartedAt === null ? null : Math.max(generationStartedAt - startedAt, 0)),
-          generationDurationMs: generationDurationMs ?? (generationStartedAt === null ? null : Math.max(finishedAt - generationStartedAt, 0)),
-        });
-      });
-    });
-
-    request.on('error', (err) => {
-      if (!settled) {
-        settled = true;
-        options.abortSignal?.removeEventListener('abort', abortRequest);
-        const serialized = serializeNetworkError(err);
-        options.logger?.write({ kind: 'provider_request_error', stage, method, url: target.toString(), path: urlPath, elapsedMs: Date.now() - startedAt, error: serialized });
-        reject(new Error(buildProviderErrorMessage({ stage, method, url: target.toString() }, serialized)));
+  try {
+    await LlamaClient.streamChatCompletion(
+      { url: target.toString(), body: bodyJson, timeoutMs: options.timeoutMs, abortSignal: options.abortSignal },
+      onData,
+    );
+  } catch (err) {
+    if (err instanceof LlamaHttpError) {
+      if (isTransientProviderHttpResponse(err.statusCode, err.rawText)) {
+        throw buildTransientProviderHttpError(err.statusCode, err.rawText);
       }
-    });
-
-    const abortRequest = (): void => {
-      const error = options.abortSignal?.reason instanceof Error
-        ? options.abortSignal.reason
-        : new Error(String(options.abortSignal?.reason || 'Request aborted.'));
-      request.destroy(error);
-    };
-    if (options.abortSignal?.aborted) {
-      abortRequest();
-    } else {
-      options.abortSignal?.addEventListener('abort', abortRequest, { once: true });
+      const serialized = serializeNetworkError(new Error(`llama.cpp ${stage} stream failed with HTTP ${err.statusCode}${err.rawText.trim() ? `: ${err.rawText.trim().slice(0, 400)}` : '.'}`));
+      options.logger?.write({ kind: 'provider_request_error', stage, method, url: target.toString(), path: urlPath, elapsedMs: Date.now() - startedAt, error: serialized });
+      throw new Error(buildProviderErrorMessage({ stage, method, url: target.toString() }, serialized));
     }
+    const serialized = serializeNetworkError(err instanceof Error ? err : new Error(String(err)));
+    options.logger?.write({ kind: 'provider_request_error', stage, method, url: target.toString(), path: urlPath, elapsedMs: Date.now() - startedAt, error: serialized });
+    throw new Error(buildProviderErrorMessage({ stage, method, url: target.toString() }, serialized));
+  }
 
-    request.setTimeout(options.timeoutMs, () => {
-      request.destroy(new Error(`Request timed out after ${options.timeoutMs} ms.`));
+  const finishedAt = Date.now();
+  const promptEvalDurationMsResolved = promptEvalDurationMs ?? (generationStartedAt === null ? null : Math.max(generationStartedAt - startedAt, 0));
+  const generationDurationMsResolved = generationDurationMs ?? (generationStartedAt === null ? null : Math.max(finishedAt - generationStartedAt, 0));
+
+  if (earlyReason !== null) {
+    options.logger?.write({ kind: 'provider_request_done', stage, method, url: target.toString(), path: urlPath, statusCode: 200, elapsedMs: finishedAt - startedAt, earlyTerminationReason: earlyReason });
+    return {
+      text: earlyResolvedText ?? buildEarlyStoppedPlannerText(earlyReason, contentText),
+      thinkingText: thinkingText.trim(),
+      mockExhausted: false,
+      promptTokens,
+      completionTokens,
+      usageThinkingTokens,
+      promptCacheTokens,
+      promptEvalTokens,
+      promptEvalDurationMs: promptEvalDurationMsResolved,
+      generationDurationMs: generationDurationMsResolved,
+    };
+  }
+
+  options.logger?.write({ kind: 'provider_request_done', stage, method, url: target.toString(), path: urlPath, statusCode: 200, elapsedMs: finishedAt - startedAt });
+  let synthesized: string | null = null;
+  const parsedToolCalls = toolCalls
+    .map((toolCall) => parseRepoToolCallCandidate({
+      function: {
+        name: toolCall?.name,
+        arguments: toolCall?.arguments,
+      },
+    }, allowedToolNames))
+    .filter(Boolean) as ToolAction[];
+  if (parsedToolCalls.length === 1) {
+    synthesized = JSON.stringify(parsedToolCalls[0]);
+  } else if (parsedToolCalls.length > 1) {
+    synthesized = JSON.stringify({
+      action: 'tool_batch',
+      calls: parsedToolCalls.map((toolCall) => ({
+        action: toolCall.tool_name,
+        ...toolCall.args,
+      })),
     });
-
-    request.write(bodyJson);
-    request.end();
-  });
+  }
+  // If reasoning_content didn't give us thinking, try to extract <think>...</think> from content
+  let finalThinkingText = thinkingText.trim();
+  let finalContentText = contentText.trim();
+  if (!finalThinkingText && finalContentText.includes('<think>')) {
+    const extracted = extractInlineThinking(finalContentText);
+    finalThinkingText = extracted.thinkingText;
+    finalContentText = extracted.text;
+  }
+  const text = finalContentText || synthesized || '';
+  return {
+    text: typeof text === 'string' ? text.trim() : text,
+    thinkingText: finalThinkingText,
+    mockExhausted: false,
+    promptTokens,
+    completionTokens,
+    usageThinkingTokens,
+    promptCacheTokens,
+    promptEvalTokens,
+    promptEvalDurationMs: promptEvalDurationMsResolved,
+    generationDurationMs: generationDurationMsResolved,
+  };
 }
 
 // ---------------------------------------------------------------------------

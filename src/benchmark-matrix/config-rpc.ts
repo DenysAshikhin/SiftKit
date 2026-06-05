@@ -1,4 +1,5 @@
 import { requestJson } from '../lib/http.js';
+import { LlamaClient } from '../lib/llama-client.js';
 import { sleep } from '../lib/time.js';
 import type { ConfigRecord } from './types.js';
 
@@ -37,7 +38,7 @@ export function getRuntimeLlamaCppConfigValue(config: ConfigRecord, key: string)
 }
 
 export async function getLlamaModels(baseUrl: string): Promise<string[]> {
-  const response = await requestJson<{ data?: Array<{ id?: string | null }> }>({
+  const response = await LlamaClient.requestJson<{ data?: Array<{ id?: string | null }> }>({
     url: `${baseUrl.replace(/\/$/u, '')}/v1/models`,
     method: 'GET',
     timeoutMs: 10_000,

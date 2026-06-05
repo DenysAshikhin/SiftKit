@@ -4,7 +4,6 @@ import * as http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import {
-  generateChatAssistantMessage,
   streamChatAssistantMessage,
 } from '../src/status-server/chat.js';
 
@@ -62,44 +61,27 @@ function buildSession(): JsonObject {
   };
 }
 
-test('generateChatAssistantMessage uses llama timings for direct chat telemetry', async () => {
+test('streamChatAssistantMessage normalizes reasoning tokens and timings from the SSE usage chunk', async () => {
   await withServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
       res.statusCode = 404;
       res.end();
       return;
     }
-    res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({
-      choices: [
-        {
-          message: {
-            role: 'assistant',
-            content: 'ok',
-          },
-        },
-      ],
-      usage: {
-        completion_tokens: 9,
-        completion_tokens_details: {
-          reasoning_tokens: 4,
-        },
-      },
-      timings: {
-        cache_n: 7,
-        prompt_n: 14,
-        prompt_ms: 111.5,
-        prompt_per_second: 125.56,
-        predicted_n: 9,
-        predicted_ms: 22.25,
-        predicted_per_second: 404.49,
-      },
-    }));
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+    });
+    res.write('data: {"choices":[{"delta":{"content":"ok"}}]}\n\n');
+    res.write('data: {"choices":[{"finish_reason":"stop","delta":{}}],"usage":{"completion_tokens":9,"completion_tokens_details":{"reasoning_tokens":4}},"timings":{"cache_n":7,"prompt_n":14,"prompt_ms":111.5,"predicted_n":9,"predicted_ms":22.25}}\n\n');
+    res.write('data: [DONE]\n\n');
+    res.end();
   }, async (baseUrl) => {
-    const result = await generateChatAssistantMessage(
+    const result = await streamChatAssistantMessage(
       buildConfig(baseUrl) as never,
       buildSession() as never,
       'say ok',
+      null,
     );
 
     assert.equal(result.assistantContent, 'ok');

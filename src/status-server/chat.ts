@@ -1,7 +1,6 @@
-import * as http from 'node:http';
-import * as https from 'node:https';
 import * as crypto from 'node:crypto';
 import type { Dict } from '../lib/types.js';
+import { LlamaClient } from '../lib/llama-client.js';
 import type { RepoSearchExecutionResult } from '../repo-search/types.js';
 import { estimatePromptTokenCountFromCharacters, getDynamicMaxOutputTokens } from '../lib/dynamic-output-cap.js';
 import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
@@ -10,7 +9,6 @@ import {
   estimateTokenCount,
   saveChatSession,
 } from '../state/chat-sessions.js';
-import { requestJsonFull } from '../lib/http.js';
 import {
   DEFAULT_LLAMA_MODEL,
   getLlamaBaseUrl,
@@ -250,18 +248,6 @@ function getPromptEvalTokensFromUsage(usage: unknown): number | null {
   return null;
 }
 
-function getChoiceText(choice: Dict | null | undefined): string {
-  const message = (choice?.message as Dict | undefined);
-  const content = message?.content ?? choice?.text ?? '';
-  return getTextContent(content).trim();
-}
-
-function getChoiceReasoningText(choice: Dict | null | undefined): string {
-  const message = (choice?.message as Dict | undefined);
-  const content = message?.reasoning_content ?? '';
-  return getTextContent(content).trim();
-}
-
 export type ChatCompletionRequest = { url: string; model: string; body: Dict };
 type ChatEvidenceMessage = { role: 'user' | 'assistant'; content: string };
 type BuildChatOptions = {
@@ -381,58 +367,6 @@ export type ChatUsage = {
   promptTokensPerSecond?: number | null;
   generationTokensPerSecond?: number | null;
 };
-
-export async function generateChatAssistantMessage(
-  config: Dict,
-  session: ChatSession,
-  userContent: string,
-  options: { promptPrefix?: string } = {},
-): Promise<{ assistantContent: string; thinkingContent: string; usage: ChatUsage }> {
-  const request = buildChatCompletionRequest(config, session, userContent, {
-    thinkingEnabled: session.thinkingEnabled !== false,
-    stream: false,
-    promptPrefix: options.promptPrefix,
-  });
-  const response = await requestJsonFull({
-    url: request.url,
-    method: 'POST',
-    timeoutMs: 600000,
-    body: JSON.stringify(request.body),
-  });
-  if (response.statusCode >= 400) {
-    const detail = String(response.rawText || '').trim();
-    throw new Error(`llama.cpp chat failed with HTTP ${response.statusCode}${detail ? `: ${detail}` : '.'}`);
-  }
-  const responseBody = response.body as Dict;
-  const choice = Array.isArray(responseBody?.choices) ? (responseBody.choices[0] as Dict) : null;
-  const assistantContent = getChoiceText(choice);
-  const thinkingContent = getChoiceReasoningText(choice);
-  if (!assistantContent) {
-    throw new Error('llama.cpp chat returned an empty assistant message.');
-  }
-  const promptUsage = getPromptUsageFromResponseBody(responseBody);
-  const completionUsage = getCompletionUsageFromResponseBody(responseBody);
-  const timingUsage = getTimingUsageFromResponseBody(responseBody);
-  return {
-    assistantContent,
-    thinkingContent,
-    usage: {
-      promptTokens: promptUsage.promptTokens,
-      completionTokens: completionUsage.completionTokens,
-      thinkingTokens: completionUsage.thinkingTokens,
-      promptCacheTokens: promptUsage.promptCacheTokens,
-      promptEvalTokens: promptUsage.promptEvalTokens,
-      promptEvalDurationMs: timingUsage.promptEvalDurationMs,
-      generationDurationMs: timingUsage.generationDurationMs,
-      promptTokensPerSecond: getPromptTokensPerSecond(promptUsage.promptEvalTokens, timingUsage.promptEvalDurationMs),
-      generationTokensPerSecond: getGenerationTokensPerSecond(
-        completionUsage.completionTokens,
-        completionUsage.thinkingTokens,
-        timingUsage.generationDurationMs,
-      ),
-    },
-  };
-}
 
 function buildWebToolBubble(
   command: string,
@@ -686,156 +620,67 @@ export async function streamChatAssistantMessage(
     webActionInstruction: options.webActionInstruction,
     evidenceMessages: options.evidenceMessages,
   });
-  const target = new URL(requestConfig.url);
-  const transport = target.protocol === 'https:' ? https : http;
-  return new Promise((resolve, reject) => {
-    const request = transport.request({
-      protocol: target.protocol,
-      hostname: target.hostname,
-      port: target.port || (target.protocol === 'https:' ? 443 : 80),
-      path: `${target.pathname}${target.search}`,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(JSON.stringify(requestConfig.body), 'utf8'),
-      },
-    }, (response) => {
-      if ((response.statusCode || 0) >= 400) {
-        let body = '';
-        response.setEncoding('utf8');
-        response.on('data', (chunk: string) => {
-          body += chunk;
-        });
-        response.on('end', () => {
-          reject(new Error(`llama.cpp chat stream failed with HTTP ${response.statusCode || 0}${body.trim() ? `: ${body.trim()}` : '.'}`));
-        });
-        return;
-      }
-      let rawBuffer = '';
-      let assistantContent = '';
-      let thinkingContent = '';
-      let sawDone = false;
-      let settled = false;
-      let finalUsage: ChatUsage = {
-        promptTokens: null,
-        completionTokens: null,
-        thinkingTokens: null,
-        promptCacheTokens: null,
-        promptEvalTokens: null,
-        promptEvalDurationMs: null,
-        generationDurationMs: null,
-        promptTokensPerSecond: null,
-        generationTokensPerSecond: null,
-      };
-      const resolveCompletedStream = (): void => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        if (!assistantContent.trim()) {
-          reject(new Error('llama.cpp chat stream returned an empty assistant message.'));
-          return;
-        }
-        resolve({
-          assistantContent: assistantContent.trim(),
-          thinkingContent: thinkingContent.trim(),
-          usage: finalUsage,
-        });
-      };
-      const rejectIncompleteStream = (error: Error): void => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        reject(error);
-      };
-      const handleStreamCloseError = (error: Error): void => {
-        if (sawDone && assistantContent.trim()) {
-          resolveCompletedStream();
-          return;
-        }
-        rejectIncompleteStream(error);
-      };
-      response.setEncoding('utf8');
-      response.on('data', (chunk: string) => {
-        rawBuffer += chunk;
-        let boundary = rawBuffer.indexOf('\n\n');
-        while (boundary >= 0) {
-          const packet = rawBuffer.slice(0, boundary);
-          rawBuffer = rawBuffer.slice(boundary + 2);
-          boundary = rawBuffer.indexOf('\n\n');
-          const lines = packet
-            .split(/\r?\n/gu)
-            .map((line) => line.trim())
-            .filter(Boolean);
-          const dataLine = lines.find((line) => line.startsWith('data:'));
-          if (!dataLine) {
-            continue;
-          }
-          const dataValue = dataLine.slice(5).trim();
-          if (dataValue === '[DONE]') {
-            sawDone = true;
-            continue;
-          }
-          try {
-            const parsed = JSON.parse(dataValue) as Dict;
-            const choice = Array.isArray(parsed?.choices) ? (parsed.choices[0] as Dict) : null;
-            const delta = choice?.delta && typeof choice.delta === 'object' ? choice.delta as Dict : {};
-            const deltaThinking = getTextContent(delta.reasoning_content);
-            const deltaAnswer = getTextContent(delta.content);
-            if (deltaThinking) {
-              thinkingContent += deltaThinking;
-            }
-            if (deltaAnswer) {
-              assistantContent += deltaAnswer;
-            }
-            const promptUsage = getPromptUsageFromResponseBody(parsed);
-            const completionUsage = getCompletionUsageFromResponseBody(parsed);
-            const timingUsage = getTimingUsageFromResponseBody(parsed);
-            finalUsage = {
-              promptTokens: promptUsage.promptTokens ?? finalUsage.promptTokens ?? null,
-              completionTokens: completionUsage.completionTokens ?? finalUsage.completionTokens ?? null,
-              thinkingTokens: completionUsage.thinkingTokens ?? finalUsage.thinkingTokens ?? null,
-              promptCacheTokens: promptUsage.promptCacheTokens ?? finalUsage.promptCacheTokens ?? null,
-              promptEvalTokens: promptUsage.promptEvalTokens ?? finalUsage.promptEvalTokens ?? null,
-              promptEvalDurationMs: timingUsage.promptEvalDurationMs ?? finalUsage.promptEvalDurationMs ?? null,
-              generationDurationMs: timingUsage.generationDurationMs ?? finalUsage.generationDurationMs ?? null,
-              promptTokensPerSecond: getPromptTokensPerSecond(
-                promptUsage.promptEvalTokens ?? finalUsage.promptEvalTokens ?? null,
-                timingUsage.promptEvalDurationMs ?? finalUsage.promptEvalDurationMs ?? null,
-              ),
-              generationTokensPerSecond: getGenerationTokensPerSecond(
-                completionUsage.completionTokens ?? finalUsage.completionTokens ?? null,
-                completionUsage.thinkingTokens ?? finalUsage.thinkingTokens ?? null,
-                timingUsage.generationDurationMs ?? finalUsage.generationDurationMs ?? null,
-              ),
-            };
-            if (typeof onProgress === 'function') {
-              onProgress({
-                assistantContent,
-                thinkingContent,
-              });
-            }
-          } catch {
-            // Ignore malformed stream chunks.
-          }
-        }
-      });
-      response.on('aborted', () => {
-        handleStreamCloseError(new Error('llama.cpp chat stream reset before completion.'));
-      });
-      response.on('error', (error: Error) => {
-        handleStreamCloseError(error);
-      });
-      response.on('end', resolveCompletedStream);
-    });
-    request.setTimeout(600000, () => {
-      request.destroy(new Error('llama.cpp chat stream timed out.'));
-    });
-    request.on('error', reject);
-    request.write(JSON.stringify(requestConfig.body));
-    request.end();
+  let assistantContent = '';
+  let thinkingContent = '';
+  let finalUsage: ChatUsage = {
+    promptTokens: null,
+    completionTokens: null,
+    thinkingTokens: null,
+    promptCacheTokens: null,
+    promptEvalTokens: null,
+    promptEvalDurationMs: null,
+    generationDurationMs: null,
+    promptTokensPerSecond: null,
+    generationTokensPerSecond: null,
+  };
+  await LlamaClient.streamChatCompletion({
+    url: requestConfig.url,
+    body: JSON.stringify(requestConfig.body),
+    timeoutMs: 600000,
+  }, (parsed) => {
+    const choice = Array.isArray(parsed.choices) ? (parsed.choices[0] as Dict) : null;
+    const delta = choice?.delta && typeof choice.delta === 'object' ? choice.delta as Dict : {};
+    const deltaThinking = getTextContent(delta.reasoning_content);
+    const deltaAnswer = getTextContent(delta.content);
+    if (deltaThinking) {
+      thinkingContent += deltaThinking;
+    }
+    if (deltaAnswer) {
+      assistantContent += deltaAnswer;
+    }
+    const promptUsage = getPromptUsageFromResponseBody(parsed);
+    const completionUsage = getCompletionUsageFromResponseBody(parsed);
+    const timingUsage = getTimingUsageFromResponseBody(parsed);
+    finalUsage = {
+      promptTokens: promptUsage.promptTokens ?? finalUsage.promptTokens ?? null,
+      completionTokens: completionUsage.completionTokens ?? finalUsage.completionTokens ?? null,
+      thinkingTokens: completionUsage.thinkingTokens ?? finalUsage.thinkingTokens ?? null,
+      promptCacheTokens: promptUsage.promptCacheTokens ?? finalUsage.promptCacheTokens ?? null,
+      promptEvalTokens: promptUsage.promptEvalTokens ?? finalUsage.promptEvalTokens ?? null,
+      promptEvalDurationMs: timingUsage.promptEvalDurationMs ?? finalUsage.promptEvalDurationMs ?? null,
+      generationDurationMs: timingUsage.generationDurationMs ?? finalUsage.generationDurationMs ?? null,
+      promptTokensPerSecond: getPromptTokensPerSecond(
+        promptUsage.promptEvalTokens ?? finalUsage.promptEvalTokens ?? null,
+        timingUsage.promptEvalDurationMs ?? finalUsage.promptEvalDurationMs ?? null,
+      ),
+      generationTokensPerSecond: getGenerationTokensPerSecond(
+        completionUsage.completionTokens ?? finalUsage.completionTokens ?? null,
+        completionUsage.thinkingTokens ?? finalUsage.thinkingTokens ?? null,
+        timingUsage.generationDurationMs ?? finalUsage.generationDurationMs ?? null,
+      ),
+    };
+    if (typeof onProgress === 'function') {
+      onProgress({ assistantContent, thinkingContent });
+    }
   });
+  if (!assistantContent.trim()) {
+    throw new Error('llama.cpp chat stream returned an empty assistant message.');
+  }
+  return {
+    assistantContent: assistantContent.trim(),
+    thinkingContent: thinkingContent.trim(),
+    usage: finalUsage,
+  };
 }
 
 // ---------------------------------------------------------------------------

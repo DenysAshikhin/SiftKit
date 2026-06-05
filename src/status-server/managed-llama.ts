@@ -12,7 +12,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import type { ChildProcess, SpawnSyncReturns } from 'node:child_process';
 import { POWERSHELL_BASE_ARGS } from '../lib/powershell.js';
 import { formatTimestamp } from '../lib/text-format.js';
-import { requestText } from '../lib/http.js';
+import { LlamaClient } from '../lib/llama-client.js';
 import { sleep } from '../lib/time.js';
 import {
   bufferManagedLlamaLogChunk,
@@ -992,7 +992,7 @@ async function probeLlamaServerReachability(config: Dict): Promise<LlamaReachabi
     return 'offline';
   }
   try {
-    const response = await requestText({ url: `${baseUrl.replace(/\/$/u, '')}/v1/models`, timeoutMs: getManagedLlamaConfig(config).HealthcheckTimeoutMs });
+    const response = await LlamaClient.requestText({ url: `${baseUrl.replace(/\/$/u, '')}/v1/models`, timeoutMs: getManagedLlamaConfig(config).HealthcheckTimeoutMs });
     if (response.statusCode > 0 && response.statusCode < 400) {
       return 'ready';
     }

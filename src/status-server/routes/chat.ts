@@ -32,7 +32,6 @@ import {
   buildContextUsage,
   type ChatUsage,
   type PersistToolMessage,
-  generateChatAssistantMessage,
   appendChatMessagesWithUsage,
   streamChatAssistantMessage,
   condenseChatSession,
@@ -632,7 +631,7 @@ export async function handleChatRoute(
         const config = readConfig(configPath);
         const presets = normalizePresets(config.Presets);
         const preset = findPresetById(presets, activeSession.presetId);
-        const generated = await generateChatAssistantMessage(config, activeSession, userContent, {
+        const generated = await streamChatAssistantMessage(config, activeSession, userContent, null, {
           promptPrefix: preset?.promptPrefix || undefined,
         });
         assistantContent = generated.assistantContent;

@@ -4,7 +4,7 @@
 import * as http from 'node:http';
 import * as crypto from 'node:crypto';
 import type { Dict } from '../../lib/types.js';
-import { requestText } from '../../lib/http.js';
+import { LlamaClient } from '../../lib/llama-client.js';
 import { summarizeRequest } from '../../summary/core.js';
 import type { SiftConfig } from '../../config/index.js';
 import type {
@@ -1386,7 +1386,7 @@ export async function handleCoreRoute(
       ? Math.min(Math.trunc(Number(parsedBody.HealthcheckTimeoutMs)), 30_000)
       : 2_000;
     try {
-      const response = await requestText({ url: `${baseUrl}/v1/models`, timeoutMs });
+      const response = await LlamaClient.requestText({ url: `${baseUrl}/v1/models`, timeoutMs });
       sendJson(res, 200, {
         ok: response.statusCode > 0 && response.statusCode < 400,
         statusCode: response.statusCode,

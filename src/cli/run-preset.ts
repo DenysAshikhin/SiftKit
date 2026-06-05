@@ -15,7 +15,7 @@ import {
   buildPlanMarkdownFromRepoSearch,
   buildPlanRequestPrompt,
   buildRepoSearchMarkdown,
-  generateChatAssistantMessage,
+  streamChatAssistantMessage,
 } from '../status-server/chat.js';
 import { resolveEffectiveRepoFileListing } from '../status-server/routes/chat.js';
 
@@ -98,7 +98,7 @@ export async function runPresetCli(options: {
   if (preset.presetKind === 'chat') {
     const runtime = (config.Runtime && typeof config.Runtime === 'object' ? config.Runtime : {}) as Record<string, unknown>;
     const runtimeLlama = (runtime.LlamaCpp && typeof runtime.LlamaCpp === 'object' ? runtime.LlamaCpp : {}) as Record<string, unknown>;
-    const result = await generateChatAssistantMessage(config, {
+    const result = await streamChatAssistantMessage(config, {
       id: 'cli-ephemeral',
       title: preset.label,
       model: typeof runtime.Model === 'string' ? runtime.Model : null,
@@ -112,7 +112,7 @@ export async function runPresetCli(options: {
       updatedAtUtc: new Date().toISOString(),
       messages: [],
       hiddenToolContexts: [],
-    }, prompt, {
+    }, prompt, null, {
       promptPrefix: preset.promptPrefix.trim() || undefined,
     });
     options.stdout.write(`${result.assistantContent}\n`);
