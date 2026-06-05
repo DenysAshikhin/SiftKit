@@ -1,20 +1,51 @@
 import { formatNumber } from './format';
 import type { ContextUsage } from '../types';
 
+export type ContextBarSectionKind = 'provider-overhead' | 'used' | 'free' | 'output-headroom';
+
+export type ContextBarSection = {
+  kind: ContextBarSectionKind;
+  tokenCount: number;
+  percent: number;
+  titleText: string;
+};
+
 export type ContextBarVisual = {
   ratio: number;
   percent: number;
   fillColor: string;
   titleText: string;
+  sections: ContextBarSection[];
 };
 
-export function computeContextBarVisual(used: number, total: number): ContextBarVisual {
+export function computeContextBarVisual(used: number, total: number): Omit<ContextBarVisual, 'sections'> {
   const ratio = total > 0 ? Math.min(1, Math.max(0, used / total)) : 0;
   const percent = ratio * 100;
   const hue = 120 - 120 * ratio;
   const fillColor = `hsl(${hue}, 70%, 45%)`;
   const titleText = `${formatNumber(used)} / ${formatNumber(total)} (${(ratio * 100).toFixed(1)}% used)`;
   return { ratio, percent, fillColor, titleText };
+}
+
+function getNonNegativeInteger(value: unknown): number {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) && numberValue > 0 ? Math.trunc(numberValue) : 0;
+}
+
+function getSectionPercent(tokenCount: number, total: number): number {
+  return total > 0 ? Math.max(0, Math.min(100, (tokenCount / total) * 100)) : 0;
+}
+
+function appendSection(sections: ContextBarSection[], kind: ContextBarSectionKind, tokenCount: number, total: number, titleText: string): void {
+  if (tokenCount <= 0) {
+    return;
+  }
+  sections.push({
+    kind,
+    tokenCount,
+    percent: getSectionPercent(tokenCount, total),
+    titleText,
+  });
 }
 
 // Resolves the bar shown beneath the composer. While a turn is generating, the most
@@ -43,5 +74,41 @@ export function resolveContextBarVisual(
   }
   const baseUsed = usage ? usage.chatUsedTokens : 0;
   const used = liveUsed === null ? baseUsed : Math.max(baseUsed, liveUsed);
-  return computeContextBarVisual(used, total);
+  const visual = computeContextBarVisual(used, total);
+  const providerOverheadTokens = getNonNegativeInteger(usage?.providerOverheadTokens);
+  const outputHeadroomTokens = getNonNegativeInteger(usage?.outputHeadroomTokens);
+  const providerTokens = Math.min(providerOverheadTokens, total);
+  const usedTokens = Math.min(used, Math.max(total - providerTokens, 0));
+  const outputTokens = Math.min(outputHeadroomTokens, Math.max(total - providerTokens - usedTokens, 0));
+  const freeTokens = Math.max(total - providerTokens - usedTokens - outputTokens, 0);
+  const sections: ContextBarSection[] = [];
+  appendSection(
+    sections,
+    'provider-overhead',
+    providerTokens,
+    total,
+    `Provider overhead reserve: ${formatNumber(providerTokens)} tokens used by request framing, model options, and chat template metadata.`,
+  );
+  appendSection(
+    sections,
+    'used',
+    usedTokens,
+    total,
+    visual.titleText,
+  );
+  appendSection(
+    sections,
+    'free',
+    freeTokens,
+    total,
+    `${formatNumber(freeTokens)} tokens currently free.`,
+  );
+  appendSection(
+    sections,
+    'output-headroom',
+    outputTokens,
+    total,
+    `Output headroom reserve: ${formatNumber(outputTokens)} tokens kept available for the assistant response.`,
+  );
+  return { ...visual, sections };
 }

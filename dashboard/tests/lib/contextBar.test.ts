@@ -14,6 +14,8 @@ const USAGE: ContextUsage = {
   remainingTokens: 80,
   warnThresholdTokens: 80,
   shouldCondense: false,
+  providerOverheadTokens: 5,
+  outputHeadroomTokens: 10,
 };
 
 test('computeContextBarVisual clamps used > total to 100%', () => {
@@ -88,4 +90,61 @@ test('resolveContextBarVisual returns null when busy with no usable live prompt 
 test('resolveContextBarVisual returns null when the resolved window is non-positive', () => {
   assert.equal(resolveContextBarVisual({ ...USAGE, contextWindowTokens: 0 }, 0, 10, true), null);
   assert.equal(resolveContextBarVisual(null, 0, 10, true), null);
+});
+
+test('resolveContextBarVisual returns ordered reserve and usage sections', () => {
+  const result = resolveContextBarVisual({
+    ...USAGE,
+    contextWindowTokens: 100,
+    chatUsedTokens: 20,
+    totalUsedTokens: 20,
+    remainingTokens: 80,
+    providerOverheadTokens: 5,
+    outputHeadroomTokens: 10,
+  }, 999, null, false);
+
+  assert.deepEqual(result?.sections.map((section) => section.kind), [
+    'provider-overhead',
+    'used',
+    'free',
+    'output-headroom',
+  ]);
+  assert.equal(result?.sections[0]?.percent, 5);
+  assert.equal(result?.sections[1]?.percent, 20);
+  assert.equal(result?.sections[3]?.percent, 10);
+});
+
+test('resolveContextBarVisual lets used context take precedence over output headroom when crowded', () => {
+  const result = resolveContextBarVisual({
+    ...USAGE,
+    contextWindowTokens: 100,
+    chatUsedTokens: 90,
+    totalUsedTokens: 90,
+    remainingTokens: 10,
+    providerOverheadTokens: 20,
+    outputHeadroomTokens: 30,
+  }, 999, null, false);
+
+  const totalPercent = result?.sections.reduce((sum, section) => sum + section.percent, 0);
+  assert.equal(totalPercent, 100);
+  assert.equal(result?.sections.find((section) => section.kind === 'used')?.percent, 80);
+  assert.equal(result?.sections.find((section) => section.kind === 'output-headroom'), undefined);
+  assert.equal(result?.sections.find((section) => section.kind === 'free'), undefined);
+});
+
+test('resolveContextBarVisual omits zero-token reserve sections', () => {
+  const result = resolveContextBarVisual({
+    ...USAGE,
+    providerOverheadTokens: 0,
+    outputHeadroomTokens: 0,
+  }, 999, null, false);
+
+  assert.deepEqual(result?.sections.map((section) => section.kind), ['used', 'free']);
+});
+
+test('resolveContextBarVisual omits reserve sections during a fresh live stream before usage exists', () => {
+  const result = resolveContextBarVisual(null, 1000, 250, true);
+
+  assert.deepEqual(result?.sections.map((section) => section.kind), ['used', 'free']);
+  assert.equal(result?.sections.find((section) => section.kind === 'used')?.percent, 25);
 });

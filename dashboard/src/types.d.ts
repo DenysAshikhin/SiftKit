@@ -199,6 +199,8 @@ export type ContextUsage = {
     warnThresholdTokens: number;
     shouldCondense: boolean;
     estimatedTokenFallbackTokens?: number;
+    providerOverheadTokens: number;
+    outputHeadroomTokens: number;
 };
 export type ChatSessionResponse = {
     session: ChatSession;
