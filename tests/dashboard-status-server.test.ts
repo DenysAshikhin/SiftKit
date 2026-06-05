@@ -875,8 +875,8 @@ test('chat session web search defaults off and update persists webSearchEnabled'
   }
 });
 
-test('web-on direct chat streams a prose answer over /messages/stream and persists it', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-web-stream-'));
+test('no-web direct chat persists a single answer with scorecard output tokens', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-chat-noweb-'));
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
@@ -890,41 +890,121 @@ test('web-on direct chat streams a prose answer over /messages/stream and persis
   try {
     const created = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
       method: 'POST',
-      body: JSON.stringify({ title: 'Web stream' }),
+      body: JSON.stringify({ title: 'No-web chat' }),
     });
     const sessionId = String(d(created.body.session).id);
-    const putResp = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`, {
-      method: 'PUT',
-      body: JSON.stringify({ webSearchEnabled: true }),
-    });
-    assert.equal(putResp.statusCode, 200);
-    assert.equal(d(putResp.body.session).webSearchEnabled, true, `PUT body: ${JSON.stringify(putResp.body)}`);
 
     const sse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
       method: 'POST',
       timeoutMs: 5000,
       body: JSON.stringify({
-        content: 'What do you know about osrs iron bars?',
+        content: 'What is 2+2?',
+        webSearchOverride: 'off',
+        availableModels: ['mock'],
+        model: 'mock',
+        mockResponses: ['{"action":"finish","output":"4"}'],
+      }),
+    });
+
+    assert.equal(sse.statusCode, 200);
+    assert.equal(sse.events.some((event) => event.event === 'error'), false, JSON.stringify(sse.events));
+    assert.equal(sse.events.some((event) => event.event === 'answer'), true, JSON.stringify(sse.events));
+    const doneSession = d(sse.events.find((event) => event.event === 'done')?.payload).session as Dict;
+    const messages = (doneSession.messages || []) as Dict[];
+    const answer = messages.find((message) => message.kind === 'assistant_answer') as Dict;
+    assert.equal(answer.content, '4');
+    assert.equal(Number(answer.outputTokensEstimate) >= 1, true);
+    // No reasoning was emitted, so thinkingTokens must be 0 (not a lumped completion count).
+    assert.equal(Number(answer.thinkingTokens), 0);
+    assert.equal(messages.some((message) => message.kind === 'assistant_tool_call'), false);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
+test('web-on direct chat streams tool events, persists tool step + answer, splits tokens', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-web-stream-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+
+  // web_search/web_fetch are native tools that bypass mockCommandResults, so the
+  // search backend must be stubbed with a fake SearXNG HTTP server.
+  const searxng = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ results: [{ title: 'GE', url: 'https://prices.runescape.wiki/iron-bar', content: 'iron bar ~150 gp' }] }));
+  });
+  await new Promise<void>((resolve) => searxng.listen(0, '127.0.0.1', () => resolve()));
+  const searxngPort = (searxng.address() as AddressInfo).port;
+
+  const config = getDefaultConfig();
+  config.WebSearch = {
+    EnabledDefault: true,
+    Provider: 'searxng',
+    SearxngBaseUrl: `http://127.0.0.1:${searxngPort}`,
+    ResultCount: 5,
+    FetchMaxPages: 3,
+    TimeoutMs: 15000,
+    FetchMaxCharacters: 12000,
+  };
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  writeConfig(configPath, config);
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const created = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Web stream' }),
+    });
+    const sessionId = String(d(created.body.session).id);
+
+    const sse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
+      method: 'POST',
+      timeoutMs: 8000,
+      body: JSON.stringify({
+        content: 'Current GE price of an iron bar?',
+        webSearchOverride: 'on',
+        availableModels: ['mock'],
+        model: 'mock',
         mockResponses: [
-          '{"action":"answer"}',
-          'Iron bars are refined iron, smelted from iron ore at level 15 Smithing.',
+          '{"action":"web_search","query":"iron bar GE price"}',
+          '{"action":"finish","output":"About 150 gp per bar."}',
         ],
       }),
     });
 
     assert.equal(sse.statusCode, 200);
     assert.equal(sse.events.some((event) => event.event === 'error'), false, JSON.stringify(sse.events));
-    const answerEvents = sse.events.filter((event) => event.event === 'answer');
-    assert.equal(answerEvents.length >= 1, true, JSON.stringify(sse.events));
-    assert.equal(answerEvents.some((event) => /refined iron/u.test(String(event.payload?.answer || ''))), true);
+    const sseKinds = sse.events.map((event) => event.event);
+    assert.equal(sseKinds.includes('tool_start'), true, JSON.stringify(sse.events));
+    assert.equal(sseKinds.includes('tool_result'), true, JSON.stringify(sse.events));
+    assert.equal(sseKinds.includes('answer'), true, JSON.stringify(sse.events));
     const doneSession = d(sse.events.find((event) => event.event === 'done')?.payload).session as Dict;
     const messages = (doneSession.messages || []) as Dict[];
-    const lastMessage = messages[messages.length - 1];
-    assert.equal(lastMessage.role, 'assistant');
-    assert.match(String(lastMessage.content), /refined iron/u);
-    assert.doesNotMatch(String(lastMessage.content), /could not be completed/iu);
-    assert.equal(messages.some((message) => message.kind === 'assistant_tool_call'), false);
+    assert.equal(messages.some((message) => message.kind === 'assistant_tool_call'), true, 'persisted a tool-call step');
+    const answer = messages.find((message) => message.kind === 'assistant_answer') as Dict;
+    assert.equal(answer.content, 'About 150 gp per bar.');
+    assert.equal(Number(answer.outputTokensEstimate) >= 1, true); // answer bubble carries only its own output
+    const toolStep = messages.find((message) => message.kind === 'assistant_tool_call') as Dict;
+    assert.equal(Number(toolStep.outputTokensEstimate) >= 1, true, 'tool output tokens live on the tool step');
   } finally {
+    await new Promise<void>((resolve) => searxng.close(() => resolve()));
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });

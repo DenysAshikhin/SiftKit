@@ -33,6 +33,8 @@ import {
   type ChatUsage,
   type PersistToolMessage,
   appendChatMessagesWithUsage,
+  buildChatSystemContent,
+  buildChatHistoryMessages,
   streamChatAssistantMessage,
   condenseChatSession,
   buildPlanRequestPrompt,
@@ -749,62 +751,60 @@ export async function handleChatRoute(
     try {
       const config = readConfig(configPath);
       const presets = normalizePresets(config.Presets);
-      const preset = findPresetById(presets, activeSession.presetId);
-      const webEnabled = activeSession.webSearchEnabled === true;
-      let assistantContent: string;
-      let usage: ChatUsage;
-      let persistTurns: { thinkingText: string; toolMessages: PersistToolMessage[] }[];
-      if (webEnabled) {
-        const mockResponses = Array.isArray(parsedBody.mockResponses)
-          ? (parsedBody.mockResponses as unknown[]).map((value) => String(value))
-          : undefined;
-        const webResult = await streamDirectChatWebTurn(config, activeSession, userContent, buildWebResearchTools(config), (event: WebStreamProgress) => {
+      const chatPreset = findPresetById(presets, activeSession.presetId);
+      const webOverrideRaw = typeof parsedBody.webSearchOverride === 'string' ? (parsedBody.webSearchOverride as string) : undefined;
+      const webEnabled = webOverrideRaw === 'on'
+        ? true
+        : webOverrideRaw === 'off'
+          ? false
+          : activeSession.webSearchEnabled === true;
+      const executeRepoSearchRequest = loadRepoSearchExecutor();
+      const mockResponses = Array.isArray(parsedBody.mockResponses)
+        ? (parsedBody.mockResponses as unknown[]).map((value) => String(value))
+        : undefined;
+      const result = await executeRepoSearchRequest({
+        taskKind: 'chat',
+        prompt: userContent,
+        repoRoot: process.cwd(),
+        statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
+        config,
+        systemPrompt: buildChatSystemContent(config, activeSession, { promptPrefix: chatPreset?.promptPrefix || undefined }),
+        history: buildChatHistoryMessages(config, activeSession),
+        thinkingEnabled: activeSession.thinkingEnabled !== false,
+        allowedTools: webEnabled ? ['web_search', 'web_fetch'] : [],
+        model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
+        maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
+        availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,
+        mockCommandResults: (parsedBody.mockCommandResults && typeof parsedBody.mockCommandResults === 'object' && !Array.isArray(parsedBody.mockCommandResults)) ? parsedBody.mockCommandResults : undefined,
+        ...(mockResponses ? { mockResponses } : {}),
+        onProgress(event: RepoSearchProgressEvent) {
           if (event.kind === 'thinking') {
-            phaseTracker.observeThinking(event.thinking);
-            writeSse('thinking', { thinking: event.thinking });
-          } else if (event.kind === 'answer') {
-            phaseTracker.observeAnswer(event.answer);
-            writeSse('answer', { answer: event.answer });
-          } else if (event.kind === 'tool_start') {
-            writeSse('tool_start', {
-              toolCallId: event.toolCallId,
-              turn: event.turn,
-              maxTurns: event.maxTurns,
-              command: event.command,
-              promptTokenCount: null,
-            });
-          } else if (event.kind === 'tool_result') {
-            writeSse('tool_result', {
-              toolCallId: event.toolCallId,
-              turn: event.turn,
-              maxTurns: event.maxTurns,
-              command: event.command,
-              exitCode: event.exitCode,
-              outputSnippet: event.outputSnippet,
-              outputTokens: event.outputTokens,
-              promptTokenCount: null,
-            });
+            phaseTracker.observeThinking(event.thinkingText || '');
+            writeSse('thinking', { thinking: event.thinkingText || '' });
+            return;
           }
-        }, {
-          promptPrefix: preset?.promptPrefix || undefined,
-          ...(mockResponses ? { mockResponses } : {}),
-        });
-        assistantContent = webResult.assistantContent;
-        usage = webResult.usage;
-        persistTurns = webResult.turns;
-      } else {
-        const generated = await streamChatAssistantMessage(config, activeSession, userContent, (progress) => {
-          phaseTracker.observeThinking(progress.thinkingContent);
-          phaseTracker.observeAnswer(progress.assistantContent);
-          writeSse('thinking', { thinking: progress.thinkingContent });
-          writeSse('answer', { answer: progress.assistantContent });
-        }, {
-          promptPrefix: preset?.promptPrefix || undefined,
-        });
-        assistantContent = generated.assistantContent;
-        usage = generated.usage;
-        persistTurns = [{ thinkingText: generated.thinkingContent, toolMessages: [] }];
-      }
+          if (event.kind === 'answer') {
+            phaseTracker.observeAnswer(event.answerText || '');
+            writeSse('answer', { answer: event.answerText || '' });
+            return;
+          }
+          forwardRepoSearchToolEvent(writeSse, event, 'planner', logLine);
+        },
+      });
+      const scorecardTasks = ((result.scorecard as Dict)?.tasks as Dict[]) || [];
+      const assistantContent = String(scorecardTasks[0]?.finalOutput || '').trim();
+      const usage: ChatUsage = {
+        promptTokens: getScorecardTotal(result?.scorecard, 'promptTokens'),
+        completionTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
+        thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
+        promptCacheTokens: getScorecardTotal(result?.scorecard, 'promptCacheTokens'),
+        promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
+        promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
+        generationDurationMs: getScorecardTotal(result?.scorecard, 'generationDurationMs'),
+        promptTokensPerSecond: null,
+        generationTokensPerSecond: null,
+      };
+      const persistTurns = buildPersistTurnsFromRepoSearchResult(result);
       try {
         await notifyChatStatus({
           ctx,

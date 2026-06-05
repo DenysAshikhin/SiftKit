@@ -2,6 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as os from 'node:os';
+import * as http from 'node:http';
 import { executeRepoSearchRequest } from '../src/repo-search/execute.js';
 
 const MOCK_CONFIG = {
@@ -26,4 +27,40 @@ test('executeRepoSearchRequest chat kind returns finalOutput in scorecard, no to
   const tasks = (result.scorecard as { tasks: Array<{ finalOutput: string }> }).tasks;
   assert.equal(tasks[0].finalOutput, 'You like green.');
   assert.ok(events.some((event) => event.kind === 'answer' && event.answerText === 'You like green.'));
+});
+
+test('executeRepoSearchRequest chat with web tools runs native web_search', async () => {
+  const searxng = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ results: [{ title: 'GE', url: 'https://prices.runescape.wiki/iron-bar', content: 'iron bar ~150 gp' }] }));
+  });
+  await new Promise<void>((resolve) => searxng.listen(0, '127.0.0.1', () => resolve()));
+  const port = (searxng.address() as import('node:net').AddressInfo).port;
+  const events: Array<{ kind: string }> = [];
+  try {
+    const result = await executeRepoSearchRequest({
+      prompt: 'Current GE price of an iron bar?',
+      repoRoot: os.tmpdir(),
+      taskKind: 'chat',
+      systemPrompt: 'general, coder friendly assistant',
+      allowedTools: ['web_search', 'web_fetch'],
+      availableModels: ['mock'],
+      model: 'mock',
+      config: {
+        Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
+        WebSearch: { EnabledDefault: true, Provider: 'searxng', SearxngBaseUrl: `http://127.0.0.1:${port}`, ResultCount: 5, FetchMaxPages: 3, TimeoutMs: 15000, FetchMaxCharacters: 12000 },
+      },
+      mockResponses: [
+        '{"action":"web_search","query":"iron bar GE price"}',
+        '{"action":"finish","output":"About 150 gp per bar."}',
+      ],
+      onProgress: (event) => { events.push(event); },
+    });
+    const tasks = (result.scorecard as { tasks: Array<{ finalOutput: string }> }).tasks;
+    assert.equal(tasks[0].finalOutput, 'About 150 gp per bar.');
+    assert.ok(events.some((event) => event.kind === 'tool_start'), 'expected tool_start');
+    assert.ok(events.some((event) => event.kind === 'tool_result'), 'expected tool_result');
+  } finally {
+    await new Promise<void>((resolve) => searxng.close(() => resolve()));
+  }
 });

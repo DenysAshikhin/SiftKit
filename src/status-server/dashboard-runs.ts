@@ -914,7 +914,7 @@ export function upsertRunArtifactPayload(options: {
 export function upsertRepoSearchRun(options: {
   database: DatabaseInstance;
   requestId: string;
-  taskKind: 'plan' | 'repo-search';
+  taskKind: 'plan' | 'repo-search' | 'chat';
   prompt: string;
   repoRoot: string;
   model: string | null;
