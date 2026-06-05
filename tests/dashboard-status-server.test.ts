@@ -990,6 +990,7 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
         availableModels: ['mock'],
         model: 'mock',
         mockResponses: [
+          '{"action":"finish","output":"About 999 gp per bar without checking."}',
           '{"action":"web_search","query":"iron bar GE price"}',
           '{"action":"web_fetch","url":"https://prices.runescape.wiki/iron-bar"}',
           '{"action":"finish","output":"About 150 gp per bar."}',
@@ -1014,6 +1015,7 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
     assert.equal(messages.some((message) => message.kind === 'assistant_tool_call'), true, 'persisted a tool-call step');
     const answer = messages.find((message) => message.kind === 'assistant_answer') as Dict;
     assert.equal(answer.content, 'About 150 gp per bar.');
+    assert.doesNotMatch(String(answer.content), /999/);
     assert.equal(answer.groundingStatus, 'fetched');
     assert.equal(Number(answer.outputTokensEstimate) >= 1, true); // answer bubble carries only its own output
     const toolStep = messages.find((message) => message.kind === 'assistant_tool_call') as Dict;

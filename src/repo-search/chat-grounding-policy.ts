@@ -20,6 +20,7 @@ const DEFAULT_MAX_FINISH_REJECTIONS = 3;
 
 export const CHAT_GROUNDING_FINAL_ANSWER_INSTRUCTION = [
   'Grounding policy for web-enabled chat:',
+  '- Run web_search before answering. Web-enabled chat is not allowed to answer from memory alone.',
   '- Treat web_search results as leads only, not as claim-level evidence.',
   '- Use fetched page text as the source of truth for factual claims.',
   '- Do not include concrete factual claims that are not supported by fetched evidence.',
@@ -60,13 +61,16 @@ export class ChatGroundingPolicy {
   }
 
   evaluateFinish(): ChatGroundingFinishDecision {
-    if (!this.enabled || !this.searchSucceeded || this.fetchSucceeded) {
+    if (!this.enabled || this.fetchSucceeded) {
       return { kind: 'allow' };
     }
     if (this.finishRejections >= this.maxFinishRejections) {
       return { kind: 'allow' };
     }
     this.finishRejections += 1;
+    if (!this.searchSucceeded) {
+      return { kind: 'reject', message: this.buildSearchRequiredMessage() };
+    }
     return { kind: 'reject', message: this.buildFinishRejectionMessage() };
   }
 
@@ -100,6 +104,15 @@ export class ChatGroundingPolicy {
       `Use {"action":"tool","tool_name":"web_fetch","args":{"url":"${bestUrl}"}} before answering, or run a different web_search if the results were poor.`,
       `Recommended fetch: web_fetch url="${bestUrl}".`,
       'If fetching is impossible after the retry budget, answer only with the limitation that fetched evidence was unavailable.',
+    ].join(' ');
+  }
+
+  private buildSearchRequiredMessage(): string {
+    return [
+      'Do not answer from memory in web-enabled chat.',
+      'Run web_search for the user question before answering.',
+      'Then use web_fetch on the best returned URL before making factual claims.',
+      'If searching or fetching is impossible after the retry budget, answer only with the limitation that web evidence was unavailable.',
     ].join(' ');
   }
 

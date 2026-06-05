@@ -2,8 +2,18 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ChatGroundingPolicy } from '../src/repo-search/chat-grounding-policy.ts';
 
-test('ChatGroundingPolicy allows finish before any web search', () => {
+test('ChatGroundingPolicy rejects finish before any web search when enabled', () => {
   const policy = new ChatGroundingPolicy({ enabled: true });
+
+  const decision = policy.evaluateFinish();
+
+  assert.equal(decision.kind, 'reject');
+  assert.match(decision.kind === 'reject' ? decision.message : '', /web_search/);
+  assert.equal(policy.getStatus(), 'ungrounded');
+});
+
+test('ChatGroundingPolicy allows finish before any web search when disabled', () => {
+  const policy = new ChatGroundingPolicy({ enabled: false });
 
   assert.deepEqual(policy.evaluateFinish(), { kind: 'allow' });
   assert.equal(policy.getStatus(), 'ungrounded');

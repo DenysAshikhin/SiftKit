@@ -119,6 +119,46 @@ test('chat with web tools rejects snippet-only finish and requires web_fetch', a
   assert.equal((result.scorecard as { verdict: string }).verdict, 'pass');
 });
 
+test('chat with web tools rejects finish before web_search and requires fetched evidence', async () => {
+  const result = await executeRepoSearchRequest({
+    taskKind: 'chat',
+    prompt: 'What use are iron bars in OSRS?',
+    repoRoot: process.cwd(),
+    statusBackendUrl: 'http://127.0.0.1:1/status',
+    config: MOCK_CONFIG,
+    systemPrompt: 'general, coder friendly assistant',
+    history: [],
+    thinkingEnabled: false,
+    allowedTools: ['web_search', 'web_fetch'],
+    availableModels: ['mock'],
+    model: 'mock',
+    maxTurns: 5,
+    mockResponses: [
+      '{"action":"finish","output":"Iron bars make kiteshields and random quest rewards."}',
+      '{"action":"web_search","query":"OSRS iron bar uses"}',
+      '{"action":"web_fetch","url":"https://oldschool.runescape.wiki/w/Iron_bar"}',
+      '{"action":"finish","output":"Fetched evidence says iron bars are used as Smithing material and in Construction items."}',
+    ],
+    mockCommandResults: {
+      'web_search query="OSRS iron bar uses"': {
+        exitCode: 0,
+        stdout: '1. Iron bar - OSRS Wiki\nURL: https://oldschool.runescape.wiki/w/Iron_bar\nSnippet: Iron bars have Smithing and Construction uses.',
+      },
+      'web_fetch url="https://oldschool.runescape.wiki/w/Iron_bar"': {
+        exitCode: 0,
+        stdout: 'Title: Iron bar\nURL: https://oldschool.runescape.wiki/w/Iron_bar\n\nIron bars can be used for Smithing and Construction items.',
+      },
+    },
+  });
+
+  const tasks = (result.scorecard as { tasks: Array<{ finalOutput: string; groundingStatus?: string }> }).tasks;
+  const task = tasks[0];
+
+  assert.match(String(task.finalOutput), /Smithing material and in Construction/);
+  assert.doesNotMatch(String(task.finalOutput), /kiteshields/);
+  assert.equal(task.groundingStatus, 'fetched');
+});
+
 test('reported OSRS failure shape fetches before answering milestones', async () => {
   const result = await executeRepoSearchRequest({
     taskKind: 'chat',
