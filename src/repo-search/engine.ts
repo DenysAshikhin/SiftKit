@@ -799,6 +799,7 @@ type RunTaskLoopOptions = {
   maxInvalidResponses?: number;
   minToolCallsBeforeFinish?: number;
   loopKind?: 'repo-search' | 'chat';
+  streamFinishAsAnswer?: boolean;
   plannerToolDefinitions?: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;
   includeAgentsMd?: boolean;
   includeRepoFileListing?: boolean;
@@ -903,6 +904,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const plannerReasoningContentEnabled = isPlannerReasoningContentEnabled(options.config);
   const plannerPreserveThinkingEnabled = isPlannerPreserveThinkingEnabled(options.config);
   const loopKind = options.loopKind === 'chat' ? 'chat' : 'repo-search';
+  const streamFinishAsAnswer = options.streamFinishAsAnswer === true;
   const plannerToolDefinitions = Array.isArray(options.plannerToolDefinitions)
     ? options.plannerToolDefinitions
     : resolveRepoSearchPlannerToolDefinitions();
@@ -1188,7 +1190,14 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
           ? (accThinking) => { options.onProgress!({ kind: 'thinking', turn, maxTurns, thinkingText: accThinking }); }
           : undefined,
         onContentDelta: options.onProgress
-          ? (accContent) => { options.onProgress!({ kind: 'thinking', turn, maxTurns, thinkingText: ModelJson.extractStreamingFinishOutput(accContent) ?? accContent }); }
+          ? (accContent) => {
+              const finishOutput = ModelJson.extractStreamingFinishOutput(accContent) ?? accContent;
+              if (streamFinishAsAnswer) {
+                options.onProgress!({ kind: 'answer', turn, maxTurns, answerText: finishOutput });
+              } else {
+                options.onProgress!({ kind: 'thinking', turn, maxTurns, thinkingText: finishOutput });
+              }
+            }
           : undefined,
         mockResponses: options.mockResponses,
         mockResponseIndex,
@@ -1299,6 +1308,9 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         continue;
       }
       finalOutput = action.output;
+      if (streamFinishAsAnswer && options.onProgress) {
+        options.onProgress({ kind: 'answer', turn, maxTurns, answerText: finalOutput });
+      }
       reason = 'finish';
       break;
     }
@@ -2069,6 +2081,9 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         const text = String(synthesisResponse.text || '').trim();
         if (!synthesisResponse.mockExhausted && text) {
           finalOutput = text;
+          if (streamFinishAsAnswer && options.onProgress) {
+            options.onProgress({ kind: 'answer', turn: turnsUsed, maxTurns, answerText: finalOutput });
+          }
           successAttempt = attempt;
           break;
         }

@@ -28,6 +28,30 @@ test('runTaskLoop answers on turn 1 with zero tools in chat loopKind', async () 
   assert.equal(result.commands.length, 0);
 });
 
+test('chat mode streams finish output as answer events', async () => {
+  const events: Array<{ kind: string; answerText?: string; thinkingText?: string }> = [];
+  const result = await runTaskLoop(
+    { id: 'chat', question: 'Greet me.', signals: [] },
+    {
+      repoRoot: os.tmpdir(),
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      loopKind: 'chat',
+      plannerToolDefinitions: [],
+      includeRepoFileListing: false,
+      streamFinishAsAnswer: true,
+      mockResponses: ['{"action":"finish","output":"Hello there!"}'],
+      mockCommandResults: {},
+      onProgress: (event) => { events.push(event); },
+    },
+  );
+  assert.equal(result.finalOutput, 'Hello there!');
+  const answerEvents = events.filter((event) => event.kind === 'answer');
+  assert.ok(answerEvents.length >= 1, 'expected at least one answer event');
+  assert.equal(answerEvents[answerEvents.length - 1].answerText, 'Hello there!');
+});
+
 test('runRepoSearch allows zero tools when allowEmptyTools is set', async () => {
   const scorecard = await runRepoSearch({
     repoRoot: os.tmpdir(),
