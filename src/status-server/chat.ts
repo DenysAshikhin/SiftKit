@@ -49,7 +49,20 @@ export const WEB_CHAT_ANSWER_PROMPT = [
   'Answer the user directly in normal prose/markdown. Base any fluctuating data (prices, rates, versions, news) on the gathered web evidence and cite source URLs where relevant.',
 ].join('\n');
 
+// Steering nudge (web-on) injected transiently when the model tries to answer
+// after searching without opening any result. Delivered only on the re-decision
+// turn via a local evidence copy and never persisted, so it cannot pollute chat
+// history.
+export const WEB_CHAT_STEER_PROMPT = [
+  'You ran a web_search but have not opened any result page yet.',
+  'Do NOT answer from search-result snippets alone.',
+  'Either read an actual page with {"action":"web_fetch","url":"<one of the returned result URLs>"},',
+  'or run a different {"action":"web_search","query":"..."} if the results were poor.',
+  'Only answer once you have read a page.',
+].join('\n');
+
 const WEB_CHAT_MAX_TOOL_CALLS = 4;
+const WEB_CHAT_MAX_STEER_ATTEMPTS = 3;
 const HIDDEN_TOOL_CONTEXT_PROMPT =
   'Internal tool-call context from prior session steps. Use this as additional evidence only when relevant.';
 

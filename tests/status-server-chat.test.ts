@@ -17,6 +17,7 @@ import {
   streamDirectChatWebTurn,
   WEB_CHAT_ANSWER_PROMPT,
   WEB_CHAT_DECISION_PROMPT,
+  WEB_CHAT_STEER_PROMPT,
 } from '../src/status-server/chat.ts';
 import type { WebStreamProgress } from '../src/status-server/chat.ts';
 import { getWebSearchOverride, resolveEffectiveWebSearchEnabled } from '../src/status-server/routes/chat.ts';
@@ -191,6 +192,13 @@ test('WEB_CHAT_DECISION_PROMPT documents the decision actions and fluctuating-da
 test('WEB_CHAT_ANSWER_PROMPT instructs prose answer grounded in evidence', () => {
   assert.match(WEB_CHAT_ANSWER_PROMPT, /prose|markdown/i);
   assert.match(WEB_CHAT_ANSWER_PROMPT, /evidence|source/i);
+});
+
+test('WEB_CHAT_STEER_PROMPT steers toward fetching a page or re-searching', () => {
+  assert.match(WEB_CHAT_STEER_PROMPT, /web_fetch/);
+  assert.match(WEB_CHAT_STEER_PROMPT, /web_search/);
+  assert.match(WEB_CHAT_STEER_PROMPT, /snippet/i);
+  assert.match(WEB_CHAT_STEER_PROMPT, /Only answer once you have read a page\./);
 });
 
 test('streamDirectChatWebTurn streams a web_search tool then a prose answer', async () => {
