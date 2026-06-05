@@ -225,6 +225,91 @@ test('streamDirectChatWebTurn answers directly when no web tool is needed', asyn
   assert.ok(!events.some((event) => event.kind === 'tool_start'));
 });
 
+test('streamDirectChatWebTurn omits thinking params when user thinking is off', async () => {
+  const bodies: Dict[] = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      bodies.push(JSON.parse(body) as Dict);
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      if (bodies.length === 1) {
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: 'hidden decision thinking' } }] })}\n\n`);
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: '{"action":"answer"}' } }] })}\n\n`);
+      } else {
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'Final web answer.' } }] })}\n\n`);
+      }
+      res.write('data: [DONE]\n\n');
+      res.end();
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const port = (server.address() as AddressInfo).port;
+  const config = createConfig();
+  (config.Server as Dict).LlamaCpp = {
+    ...((config.Server as Dict).LlamaCpp as Dict),
+    BaseUrl: `http://127.0.0.1:${port}`,
+  };
+  const session = createSession();
+  session.thinkingEnabled = false;
+  const events: WebStreamProgress[] = [];
+  try {
+    const result = await streamDirectChatWebTurn(config, session, 'q', searxngWebTools(), (event) => events.push(event));
+
+    assert.equal(result.assistantContent, 'Final web answer.');
+    assert.equal(bodies.length, 2);
+    assert.equal(Object.prototype.hasOwnProperty.call(bodies[0], 'chat_template_kwargs'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(bodies[1], 'chat_template_kwargs'), false);
+    assert.equal(events.some((event) => event.kind === 'thinking'), false);
+    assert.equal(result.turns.some((turn) => turn.thinkingText.trim()), false);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test('streamDirectChatWebTurn uses preset thinking params when user thinking is on', async () => {
+  const bodies: Dict[] = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      bodies.push(JSON.parse(body) as Dict);
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      if (bodies.length === 1) {
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: 'decision thinking' } }] })}\n\n`);
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: '{"action":"answer"}' } }] })}\n\n`);
+      } else {
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: 'answer thinking' } }] })}\n\n`);
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'Final web answer.' } }] })}\n\n`);
+      }
+      res.write('data: [DONE]\n\n');
+      res.end();
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const port = (server.address() as AddressInfo).port;
+  const config = createConfig();
+  (config.Server as Dict).LlamaCpp = {
+    ...((config.Server as Dict).LlamaCpp as Dict),
+    BaseUrl: `http://127.0.0.1:${port}`,
+  };
+  const events: WebStreamProgress[] = [];
+  try {
+    const result = await streamDirectChatWebTurn(config, createSession(), 'q', searxngWebTools(), (event) => events.push(event));
+
+    assert.equal(result.assistantContent, 'Final web answer.');
+    assert.equal(bodies.length, 2);
+    assert.deepEqual(bodies.map((body) => body.chat_template_kwargs), [
+      { enable_thinking: true, reasoning_content: true, preserve_thinking: true },
+      { enable_thinking: true, reasoning_content: true, preserve_thinking: true },
+    ]);
+    assert.equal(events.some((event) => event.kind === 'thinking'), true);
+    assert.equal(result.turns.some((turn) => turn.thinkingText.trim()), true);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test('streamDirectChatWebTurn falls back to a streamed answer on unparseable decision (no error string)', async () => {
   const result = await streamDirectChatWebTurn(createConfig(), createSession(), 'q', searxngWebTools(), () => {}, {
     mockResponses: ['this is not a json action at all', 'The real prose answer survives.'],
@@ -487,7 +572,7 @@ test('buildRepoSearchMarkdown collapses exact repeated final output blocks for d
   assert.equal(markdown.match(/\| Category \| Concern \|/gu)?.length, 1);
 });
 
-test('buildChatCompletionRequest omits thinking preservation flags when direct chat thinking is toggled off', () => {
+test('buildChatCompletionRequest omits thinking params when direct chat thinking is toggled off', () => {
   const session = createSession();
   session.thinkingEnabled = false;
 
@@ -495,9 +580,7 @@ test('buildChatCompletionRequest omits thinking preservation flags when direct c
     thinkingEnabled: session.thinkingEnabled !== false,
   });
 
-  assert.deepEqual(request.body.chat_template_kwargs, {
-    enable_thinking: false,
-  });
+  assert.equal(Object.prototype.hasOwnProperty.call(request.body, 'chat_template_kwargs'), false);
   assert.equal('extra_body' in request.body, false);
 });
 

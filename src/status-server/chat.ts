@@ -266,6 +266,8 @@ export type ChatCompletionRequest = { url: string; model: string; body: Dict };
 type ChatEvidenceMessage = { role: 'user' | 'assistant'; content: string };
 type BuildChatOptions = {
   thinkingEnabled?: boolean;
+  reasoningContentEnabled?: boolean;
+  preserveThinkingEnabled?: boolean;
   stream?: boolean;
   promptPrefix?: string;
   webActionInstruction?: string;
@@ -320,6 +322,10 @@ export function buildChatCompletionRequest(config: Dict, session: ChatSession, u
       : []),
   ];
   const thinkingEnabled = options.thinkingEnabled !== false;
+  const reasoningContentEnabled = options.reasoningContentEnabled
+    ?? (thinkingEnabled && shouldReplayReasoningContent(config));
+  const preserveThinkingEnabled = options.preserveThinkingEnabled
+    ?? shouldPreserveThinking(config, thinkingEnabled);
   const promptCharacterCount = messages.reduce((total, message) => total + String(message.content || '').length, 0);
   const maxTokens = getDynamicMaxOutputTokens({
     totalContextTokens: Math.max(1, Number(session.contextWindowTokens || runtimeLlama?.NumCtx || 150000)),
@@ -331,12 +337,14 @@ export function buildChatCompletionRequest(config: Dict, session: ChatSession, u
     stream: Boolean(options.stream),
     cache_prompt: true,
     max_tokens: maxTokens,
-    chat_template_kwargs: {
-      enable_thinking: thinkingEnabled,
-      ...(thinkingEnabled && shouldReplayReasoningContent(config) ? { reasoning_content: true } : {}),
-      ...(shouldPreserveThinking(config, thinkingEnabled) ? { preserve_thinking: true } : {}),
-    },
   };
+  if (thinkingEnabled) {
+    body.chat_template_kwargs = {
+      enable_thinking: true,
+      ...(reasoningContentEnabled ? { reasoning_content: true } : {}),
+      ...(preserveThinkingEnabled ? { preserve_thinking: true } : {}),
+    };
+  }
   return {
     url: `${baseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
     model,
@@ -660,10 +668,19 @@ export async function streamChatAssistantMessage(
   session: ChatSession,
   userContent: string,
   onProgress: ((progress: StreamProgress) => void) | null,
-  options: { promptPrefix?: string; webActionInstruction?: string; evidenceMessages?: ChatEvidenceMessage[] } = {},
+  options: {
+    promptPrefix?: string;
+    webActionInstruction?: string;
+    evidenceMessages?: ChatEvidenceMessage[];
+    thinkingEnabled?: boolean;
+    reasoningContentEnabled?: boolean;
+    preserveThinkingEnabled?: boolean;
+  } = {},
 ): Promise<StreamResult> {
   const requestConfig = buildChatCompletionRequest(config, session, userContent, {
-    thinkingEnabled: session.thinkingEnabled !== false,
+    thinkingEnabled: options.thinkingEnabled ?? (session.thinkingEnabled !== false),
+    reasoningContentEnabled: options.reasoningContentEnabled,
+    preserveThinkingEnabled: options.preserveThinkingEnabled,
     stream: true,
     promptPrefix: options.promptPrefix,
     webActionInstruction: options.webActionInstruction,
@@ -917,6 +934,7 @@ export async function streamDirectChatWebTurn(
   const turns: PersistTurn[] = [];
   let aggregatedUsage: ChatUsage = EMPTY_CHAT_USAGE;
   let toolCalls = 0;
+  const exposeThinking = session.thinkingEnabled !== false;
 
   const nextMock = (): string => {
     const value = mockResponses?.shift();
@@ -933,7 +951,9 @@ export async function streamDirectChatWebTurn(
       decisionText = nextMock();
     } else {
       const decision = await streamChatAssistantMessage(config, session, userContent, (progress) => {
-        onProgress({ kind: 'thinking', phase: 'decision', thinking: progress.thinkingContent });
+        if (exposeThinking) {
+          onProgress({ kind: 'thinking', phase: 'decision', thinking: progress.thinkingContent });
+        }
       }, {
         promptPrefix: options.promptPrefix,
         webActionInstruction: WEB_CHAT_DECISION_PROMPT,
@@ -967,12 +987,12 @@ export async function streamDirectChatWebTurn(
         evidenceMessages.push({ role: 'assistant', content: decisionText });
         evidenceMessages.push({ role: 'user', content: `Tool ${command} ${failOutput}` });
       }
-      turns.push({ thinkingText: decisionThinking, toolMessages: [bubble] });
+      turns.push({ thinkingText: exposeThinking ? decisionThinking : '', toolMessages: [bubble] });
       toolCalls += 1;
       continue;
     }
 
-    if (decisionThinking.trim()) {
+    if (exposeThinking && decisionThinking.trim()) {
       turns.push({ thinkingText: decisionThinking, toolMessages: [] });
     }
     let answerText: string;
@@ -982,7 +1002,9 @@ export async function streamDirectChatWebTurn(
       onProgress({ kind: 'answer', answer: answerText });
     } else {
       const answer = await streamChatAssistantMessage(config, session, userContent, (progress) => {
-        onProgress({ kind: 'thinking', phase: 'answer', thinking: progress.thinkingContent });
+        if (exposeThinking) {
+          onProgress({ kind: 'thinking', phase: 'answer', thinking: progress.thinkingContent });
+        }
         onProgress({ kind: 'answer', answer: progress.assistantContent });
       }, {
         promptPrefix: mergePromptPrefix(options.promptPrefix, WEB_CHAT_ANSWER_PROMPT),
@@ -992,7 +1014,7 @@ export async function streamDirectChatWebTurn(
       answerThinking = answer.thinkingContent || '';
       aggregatedUsage = mergeChatUsage(aggregatedUsage, answer.usage);
     }
-    turns.push({ thinkingText: answerThinking, toolMessages: [] });
+    turns.push({ thinkingText: exposeThinking ? answerThinking : '', toolMessages: [] });
     return { assistantContent: answerText, turns, usage: aggregatedUsage };
   }
 }
