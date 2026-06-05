@@ -22,7 +22,6 @@ import type {
   DashboardBenchmarkSessionsResponse,
   DashboardBenchmarkStartRequest,
   RepoSearchAutoAppendPreview,
-  WebSearchOverride,
 } from './types';
 import { ChatStreamReader, type ChatStreamToolEvent } from './lib/chat-stream-parser';
 
@@ -287,7 +286,7 @@ export function updateChatSession(
 
 export async function streamChatMessage(
   sessionId: string,
-  payload: { content: string; webSearchOverride?: WebSearchOverride },
+  payload: { content: string },
   onThinking: (thinkingText: string) => void,
   onToolEvent: (event: ChatStreamToolEvent) => void,
   onAnswer: (answerText: string) => void,
@@ -393,7 +392,6 @@ export async function streamPlanMessage(
     maxTurns?: number;
     includeAgentsMd?: boolean;
     includeRepoFileListing?: boolean;
-    webSearchOverride?: WebSearchOverride;
   },
   onThinking: (thinkingText: string) => void,
   onToolEvent: (event: ChatStreamToolEvent) => void,
@@ -417,7 +415,6 @@ export async function streamRepoSearchMessage(
     maxTurns?: number;
     includeAgentsMd?: boolean;
     includeRepoFileListing?: boolean;
-    webSearchOverride?: WebSearchOverride;
   },
   onThinking: (thinkingText: string) => void,
   onToolEvent: (event: ChatStreamToolEvent) => void,

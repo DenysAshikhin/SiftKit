@@ -1,10 +1,11 @@
 function extractFetchHost(command: string): string | null {
   const match = /url="([^"]+)"/u.exec(command);
-  if (!match) {
+  const url = match?.[1];
+  if (!url) {
     return null;
   }
   try {
-    return new URL(match[1]).hostname;
+    return new URL(url).hostname;
   } catch {
     return null;
   }

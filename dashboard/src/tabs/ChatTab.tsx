@@ -15,7 +15,6 @@ import {
   estimatePromptTokens,
 } from '../lib/chatMessages';
 import { resolveContextBarVisual } from '../lib/contextBar';
-import { getNextWebSearchOverride } from '../lib/web-search-controls';
 import { getToolRunningLabel } from '../lib/tool-status';
 import { useChatScroll } from '../hooks/useChatScroll';
 import { groupMessagesIntoTurns, normalizeMessageKind, type ChatTurn } from '../lib/chatTurns';
@@ -26,15 +25,8 @@ import type {
   DashboardPresetExecutionFamily,
   RepoSearchAutoAppendPreview,
   RepoSearchAutoAppendSelection,
-  WebSearchOverride,
 } from '../types';
 import type { ChatMessage } from '../types';
-
-function getWebSearchOverrideTitle(value: WebSearchOverride): string {
-  if (value === 'on') return 'Web forced on for next message';
-  if (value === 'off') return 'Web forced off for next message';
-  return 'Web follows session setting';
-}
 
 type SessionPromptCacheStats = {
   cacheHitRate: number | null;
@@ -59,7 +51,6 @@ type ChatTabProps = {
   isRepoToolMode: boolean;
   isThinkingEnabledForCurrentSession: boolean;
   webSearchEnabled: boolean;
-  webSearchOverride: WebSearchOverride;
   showSettings: boolean;
   planRepoRootInput: string;
   contextUsage: ContextUsage | null;
@@ -81,7 +72,6 @@ type ChatTabProps = {
   onUpdateSessionPreset(presetId: string): Promise<void>;
   onToggleThinking(enabled: boolean): Promise<void>;
   onToggleWebSearchEnabled(enabled: boolean): Promise<void>;
-  onChangeWebSearchOverride(value: WebSearchOverride): void;
   onSavePlanRepoRoot(): Promise<void>;
   onClearToolContext(): Promise<void>;
   onDeleteMessage(messageId: string): Promise<void>;
@@ -104,7 +94,6 @@ export function ChatTab({
   isRepoToolMode,
   isThinkingEnabledForCurrentSession,
   webSearchEnabled,
-  webSearchOverride,
   showSettings,
   planRepoRootInput,
   contextUsage,
@@ -126,7 +115,6 @@ export function ChatTab({
   onUpdateSessionPreset,
   onToggleThinking,
   onToggleWebSearchEnabled,
-  onChangeWebSearchOverride,
   onSavePlanRepoRoot,
   onClearToolContext,
   onDeleteMessage,
@@ -328,10 +316,10 @@ export function ChatTab({
                   ) : null}
                   <button
                     type="button"
-                    className={`composer-pill web-toggle ${webSearchOverride !== 'default' ? 'active' : ''}`}
-                    onClick={() => onChangeWebSearchOverride(getNextWebSearchOverride(webSearchOverride))}
+                    className={`composer-pill web-toggle ${webSearchEnabled ? 'active' : ''}`}
+                    onClick={() => { void onToggleWebSearchEnabled(!webSearchEnabled); }}
                     disabled={chatBusy}
-                    title={getWebSearchOverrideTitle(webSearchOverride)}
+                    title={webSearchEnabled ? 'Disable web search for this chat' : 'Enable web search for this chat'}
                   >
                     <span aria-hidden="true">W</span>
                     <span>Web</span>

@@ -20,7 +20,6 @@ import {
   WEB_CHAT_STEER_PROMPT,
 } from '../src/status-server/chat.ts';
 import type { WebStreamProgress } from '../src/status-server/chat.ts';
-import { getWebSearchOverride, resolveEffectiveWebSearchEnabled } from '../src/status-server/routes/chat.ts';
 import { WebResearchTools } from '../src/web-search/web-research-tools.ts';
 import type { WebSearchConfig } from '../src/web-search/types.ts';
 import { buildChatPromptContext } from '../src/status-server/chat-prompt-context.ts';
@@ -98,21 +97,6 @@ function searxngWebTools(): WebResearchTools {
     results: [{ title: 'Example', url: 'https://example.com', content: 'snippet' }],
   }), { status: 200, headers: { 'content-type': 'application/json' } }));
 }
-
-test('getWebSearchOverride normalizes override values', () => {
-  assert.equal(getWebSearchOverride('on'), 'on');
-  assert.equal(getWebSearchOverride('off'), 'off');
-  assert.equal(getWebSearchOverride('default'), 'default');
-  assert.equal(getWebSearchOverride('garbage'), 'default');
-  assert.equal(getWebSearchOverride(undefined), 'default');
-});
-
-test('resolveEffectiveWebSearchEnabled applies the override gate', () => {
-  assert.equal(resolveEffectiveWebSearchEnabled(false, 'default'), false);
-  assert.equal(resolveEffectiveWebSearchEnabled(true, 'default'), true);
-  assert.equal(resolveEffectiveWebSearchEnabled(false, 'on'), true);
-  assert.equal(resolveEffectiveWebSearchEnabled(true, 'off'), false);
-});
 
 test('streamChatAssistantMessage forwards webActionInstruction and evidenceMessages into the request', async () => {
   let capturedBody = '';

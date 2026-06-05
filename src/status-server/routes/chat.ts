@@ -162,18 +162,6 @@ function forwardRepoSearchToolEvent(
   }
 }
 
-export type WebSearchOverride = 'default' | 'on' | 'off';
-
-export function getWebSearchOverride(value: unknown): WebSearchOverride {
-  return value === 'on' || value === 'off' ? value : 'default';
-}
-
-export function resolveEffectiveWebSearchEnabled(sessionEnabled: boolean, override: WebSearchOverride): boolean {
-  if (override === 'on') return true;
-  if (override === 'off') return false;
-  return sessionEnabled;
-}
-
 function buildWebResearchTools(config: Dict): WebResearchTools {
   return new WebResearchTools(normalizeWebSearchConfig(config.WebSearch) as unknown as WebSearchConfig);
 }
@@ -762,10 +750,7 @@ export async function handleChatRoute(
       const config = readConfig(configPath);
       const presets = normalizePresets(config.Presets);
       const preset = findPresetById(presets, activeSession.presetId);
-      const webEnabled = resolveEffectiveWebSearchEnabled(
-        activeSession.webSearchEnabled === true,
-        getWebSearchOverride(parsedBody.webSearchOverride),
-      );
+      const webEnabled = activeSession.webSearchEnabled === true;
       let assistantContent: string;
       let usage: ChatUsage;
       let persistTurns: { thinkingText: string; toolMessages: PersistToolMessage[] }[];
@@ -949,7 +934,7 @@ export async function handleChatRoute(
         promptPrefix: preset?.promptPrefix || '',
         allowedTools: withEffectiveWebTools(
           getEffectivePresetAllowedTools(config, preset),
-          resolveEffectiveWebSearchEnabled(activeSession.webSearchEnabled === true, getWebSearchOverride(parsedBody.webSearchOverride)),
+          activeSession.webSearchEnabled === true,
         ),
         includeAgentsMd: autoAppend.includeAgentsMd,
         includeRepoFileListing: autoAppend.includeRepoFileListing,
@@ -1106,7 +1091,7 @@ export async function handleChatRoute(
         promptPrefix: preset?.promptPrefix || '',
         allowedTools: withEffectiveWebTools(
           getEffectivePresetAllowedTools(config, preset),
-          resolveEffectiveWebSearchEnabled(activeSession.webSearchEnabled === true, getWebSearchOverride(parsedBody.webSearchOverride)),
+          activeSession.webSearchEnabled === true,
         ),
         includeAgentsMd: autoAppend.includeAgentsMd,
         includeRepoFileListing: autoAppend.includeRepoFileListing,
@@ -1324,7 +1309,7 @@ export async function handleChatRoute(
         promptPrefix: preset?.promptPrefix || '',
         allowedTools: withEffectiveWebTools(
           getEffectivePresetAllowedTools(config, preset),
-          resolveEffectiveWebSearchEnabled(activeSession.webSearchEnabled === true, getWebSearchOverride(parsedBody.webSearchOverride)),
+          activeSession.webSearchEnabled === true,
         ),
         includeAgentsMd: autoAppend.includeAgentsMd,
         includeRepoFileListing: autoAppend.includeRepoFileListing,

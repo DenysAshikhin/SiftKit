@@ -386,8 +386,6 @@ export type DashboardConfig = {
   WebSearch: DashboardWebSearchConfig;
 };
 
-export type WebSearchOverride = 'default' | 'on' | 'off';
-
 export type DashboardWebSearchConfig = {
   EnabledDefault: boolean;
   Provider: 'searxng';
