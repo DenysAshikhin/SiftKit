@@ -31,8 +31,14 @@ test('executeRepoSearchRequest chat kind returns finalOutput in scorecard, no to
 
 test('executeRepoSearchRequest chat with web tools runs native web_search', async () => {
   const searxng = http.createServer((req, res) => {
+    if (String(req.url || '').includes('/iron-bar')) {
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end('<html><body>Iron bar price evidence: about 150 gp per bar.</body></html>');
+      return;
+    }
+    const host = String(req.headers.host || '127.0.0.1');
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ results: [{ title: 'GE', url: 'https://prices.runescape.wiki/iron-bar', content: 'iron bar ~150 gp' }] }));
+    res.end(JSON.stringify({ results: [{ title: 'GE', url: `http://${host}/iron-bar`, content: 'iron bar ~150 gp' }] }));
   });
   await new Promise<void>((resolve) => searxng.listen(0, '127.0.0.1', () => resolve()));
   const port = (searxng.address() as import('node:net').AddressInfo).port;
@@ -52,8 +58,15 @@ test('executeRepoSearchRequest chat with web tools runs native web_search', asyn
       },
       mockResponses: [
         '{"action":"web_search","query":"iron bar GE price"}',
+        `{"action":"web_fetch","url":"http://127.0.0.1:${port}/iron-bar"}`,
         '{"action":"finish","output":"About 150 gp per bar."}',
       ],
+      mockCommandResults: {
+        [`web_fetch url="http://127.0.0.1:${port}/iron-bar"`]: {
+          exitCode: 0,
+          output: 'Fetched page says an iron bar is about 150 gp per bar.',
+        },
+      },
       onProgress: (event) => { events.push(event); },
     });
     const tasks = (result.scorecard as { tasks: Array<{ finalOutput: string }> }).tasks;
@@ -63,6 +76,86 @@ test('executeRepoSearchRequest chat with web tools runs native web_search', asyn
   } finally {
     await new Promise<void>((resolve) => searxng.close(() => resolve()));
   }
+});
+
+test('chat with web tools rejects snippet-only finish and requires web_fetch', async () => {
+  const result = await executeRepoSearchRequest({
+    taskKind: 'chat',
+    prompt: 'What are the major milestones for fastest F2P ironman iron ore?',
+    repoRoot: process.cwd(),
+    statusBackendUrl: 'http://127.0.0.1:1/status',
+    config: MOCK_CONFIG,
+    systemPrompt: 'general, coder friendly assistant',
+    history: [],
+    thinkingEnabled: false,
+    allowedTools: ['web_search', 'web_fetch'],
+    availableModels: ['mock'],
+    model: 'mock',
+    maxTurns: 4,
+    mockResponses: [
+      '{"action":"web_search","query":"OSRS F2P ironman fastest iron ore milestones"}',
+      '{"action":"finish","output":"Use the Mining Guild at level 30 after Doric\'s Quest."}',
+      '{"action":"web_fetch","url":"https://oldschool.runescape.wiki/w/Mining_Guild"}',
+      '{"action":"finish","output":"Fetched evidence says the Mining Guild requires 60 Mining, so level 60 is the relevant milestone."}',
+    ],
+    mockCommandResults: {
+      'web_search query="OSRS F2P ironman fastest iron ore milestones"': {
+        exitCode: 0,
+        output: '1. Mining Guild - OSRS Wiki\nURL: https://oldschool.runescape.wiki/w/Mining_Guild\nSnippet: The Mining Guild contains iron rocks.',
+      },
+      'web_fetch url="https://oldschool.runescape.wiki/w/Mining_Guild"': {
+        exitCode: 0,
+        output: 'Title: Mining Guild\nURL: https://oldschool.runescape.wiki/w/Mining_Guild\n\nThe Mining Guild requires 60 Mining to enter.',
+      },
+    },
+  });
+
+  const tasks = (result.scorecard as { tasks: Array<{ finalOutput: string; groundingStatus?: string }> }).tasks;
+  const task = tasks[0];
+
+  assert.match(String(task.finalOutput), /requires 60 Mining/);
+  assert.equal(task.groundingStatus, 'fetched');
+  assert.equal((result.scorecard as { verdict: string }).verdict, 'pass');
+});
+
+test('chat with web tools does not force finish after duplicate web_search', async () => {
+  const result = await executeRepoSearchRequest({
+    taskKind: 'chat',
+    prompt: 'What does OSRS iron bar require?',
+    repoRoot: process.cwd(),
+    statusBackendUrl: 'http://127.0.0.1:1/status',
+    config: MOCK_CONFIG,
+    systemPrompt: 'general, coder friendly assistant',
+    history: [],
+    thinkingEnabled: false,
+    allowedTools: ['web_search', 'web_fetch'],
+    availableModels: ['mock'],
+    model: 'mock',
+    maxTurns: 5,
+    mockResponses: [
+      '{"action":"web_search","query":"osrs iron bar"}',
+      '{"action":"web_search","query":"osrs iron bar"}',
+      '{"action":"web_fetch","url":"https://oldschool.runescape.wiki/w/Iron_bar"}',
+      '{"action":"finish","output":"Fetched evidence says iron bars require 15 Smithing and iron ore."}',
+    ],
+    mockCommandResults: {
+      'web_search query="osrs iron bar"': {
+        exitCode: 0,
+        output: '1. Iron bar - OSRS Wiki\nURL: https://oldschool.runescape.wiki/w/Iron_bar\nSnippet: An iron bar can be created with Smithing.',
+      },
+      'web_fetch url="https://oldschool.runescape.wiki/w/Iron_bar"': {
+        exitCode: 0,
+        output: 'Title: Iron bar\nURL: https://oldschool.runescape.wiki/w/Iron_bar\n\nIt can be created through Smithing at level 15 by using iron ore on a furnace.',
+      },
+    },
+  });
+
+  const tasks = (result.scorecard as { tasks: Array<{ commands: Array<{ output: string }>; finalOutput: string }> }).tasks;
+  const commands = tasks[0].commands.map((command) => command.output).join('\n');
+
+  assert.match(commands, /duplicate web_search/);
+  assert.doesNotMatch(commands, /Forced finish mode active/);
+  assert.match(String(tasks[0].finalOutput), /15 Smithing/);
 });
 
 test('chat executor with thinking off yields zero thinking tokens', async () => {

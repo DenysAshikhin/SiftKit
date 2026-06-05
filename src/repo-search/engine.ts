@@ -85,6 +85,11 @@ import {
   evaluateFinishAttempt,
   fingerprintToolCall,
 } from '../tool-loop-governor.js';
+import {
+  CHAT_GROUNDING_FINAL_ANSWER_INSTRUCTION,
+  ChatGroundingPolicy,
+  type ChatGroundingStatus,
+} from './chat-grounding-policy.js';
 import type {
   JsonLogger,
   RepoSearchMockCommandResult,
@@ -770,6 +775,7 @@ export type TaskResult = {
   commands: TaskCommand[];
   turnThinking: Record<number, string>;
   finalOutput: string;
+  groundingStatus?: ChatGroundingStatus;
   passed: boolean;
   missingSignals: string[];
   promptTokens: number;
@@ -920,6 +926,12 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       ...activePlannerToolNames,
       ...getRepoSearchToolNamesForParsing(),
     ]));
+  const chatWebGroundingEnabled = loopKind === 'chat'
+    && allowedPlannerToolNames.includes('web_search')
+    && allowedPlannerToolNames.includes('web_fetch');
+  const chatWebGroundingPolicy = new ChatGroundingPolicy({
+    enabled: chatWebGroundingEnabled,
+  });
   let zeroOutputStreak = 0;
   let forcedFinishAttemptsRemaining = 0;
   let lastLoggedMessageCount = 0;
@@ -947,15 +959,19 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const fileReadCountByPath = new Map<string, number>();
   const fileReadStateByPath = new Map<string, FileReadState>();
 
+  const baseSystemPrompt = typeof options.systemPromptOverride === 'string' && options.systemPromptOverride.trim()
+    ? options.systemPromptOverride.trim()
+    : buildTaskSystemPrompt(options.repoRoot, {
+      includeAgentsMd: options.includeAgentsMd,
+      includeRepoFileListing: options.includeRepoFileListing,
+    });
+  const systemPromptContent = chatWebGroundingEnabled
+    ? `${baseSystemPrompt}\n\n${CHAT_GROUNDING_FINAL_ANSWER_INSTRUCTION}`
+    : baseSystemPrompt;
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: typeof options.systemPromptOverride === 'string' && options.systemPromptOverride.trim()
-        ? options.systemPromptOverride.trim()
-        : buildTaskSystemPrompt(options.repoRoot, {
-          includeAgentsMd: options.includeAgentsMd,
-          includeRepoFileListing: options.includeRepoFileListing,
-        }),
+      content: systemPromptContent,
     },
     ...((options.historyMessages || []).map((message) => ({ role: message.role, content: message.content }))),
     {
@@ -1323,6 +1339,23 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         options.logger?.write({ kind: 'turn_finish_rejected', taskId: task.id, turn, toolCallTurns: commands.length, minToolCallsBeforeFinish, warning });
         continue;
       }
+      const groundingDecision = chatWebGroundingPolicy.evaluateFinish();
+      if (groundingDecision.kind === 'reject') {
+        const loopStats = toolStatsByType.loop || createEmptyToolTypeStats();
+        toolStatsByType.loop = {
+          ...loopStats,
+          finishRejections: loopStats.finishRejections + 1,
+        };
+        messages.push(buildAssistantReplayMessage(response.text, String(response.thinkingText || '').trim()));
+        messages.push({ role: 'user', content: groundingDecision.message });
+        options.logger?.write({
+          kind: 'chat_grounding_finish_rejected',
+          taskId: task.id,
+          turn,
+          status: chatWebGroundingPolicy.getStatus(),
+        });
+        continue;
+      }
       finalOutput = action.output;
       if (streamFinishAsAnswer && options.onProgress) {
         options.onProgress({ kind: 'answer', turn, maxTurns, answerText: finalOutput });
@@ -1467,7 +1500,9 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         && duplicateReplayToolMessageIndex < messages.length;
       duplicateReplayFingerprint = duplicateFingerprint;
       duplicateReplayCount = isActiveDuplicate ? (duplicateReplayCount + 1) : 2;
-      const duplicateMessage = buildRepeatedToolCallSummary(normalizedToolName, duplicateReplayCount);
+      const duplicateMessage = chatWebGroundingEnabled && normalizedToolName === 'web_search'
+        ? chatWebGroundingPolicy.buildDuplicateSearchMessage()
+        : buildRepeatedToolCallSummary(normalizedToolName, duplicateReplayCount);
       commandFailures += 1;
       const rejectionReason = isExactDuplicate ? 'duplicate command' : 'semantic duplicate command';
       commands.push({ command, turn, safe: false, reason: rejectionReason, exitCode: null, output: `Rejected: ${duplicateMessage}` });
@@ -1507,7 +1542,11 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
           repeats: duplicateReplayCount,
         });
       }
-      if (duplicateReplayCount >= DUPLICATE_FORCE_THRESHOLD && forcedFinishAttemptsRemaining === 0) {
+      if (
+        !(chatWebGroundingEnabled && normalizedToolName === 'web_search')
+        && duplicateReplayCount >= DUPLICATE_FORCE_THRESHOLD
+        && forcedFinishAttemptsRemaining === 0
+      ) {
         forcedFinishAttemptsRemaining = FORCED_FINISH_MAX_ATTEMPTS;
         pendingModeChangeUserMessages.push('Forced finish mode active. Return {"action":"finish",...} now. Tool calls are blocked.');
         toolStatsByType[prospectiveToolType] = {
@@ -1530,6 +1569,16 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         nativeExecution = isFailedRepoReadFilePlan(nativeReadPlan)
           ? { ok: false, command: nativeReadPlan.command, reason: nativeReadPlan.reason, toolType: normalizedToolName }
           : buildRepoReadFileExecution(normalizedToolName, nativeReadPlan, null);
+      } else if (options.mockCommandResults && options.mockCommandResults[command]) {
+        const mockResult = options.mockCommandResults[command];
+        nativeExecution = {
+          ok: true,
+          requestedCommand: command,
+          command,
+          exitCode: Number(mockResult.exitCode),
+          output: String(mockResult.output || ''),
+          toolType: normalizedToolName,
+        };
       } else {
         nativeExecution = await executeNativeRepoTool(normalizedToolName, toolAction.args, options.repoRoot, ignorePolicy, webTools, fileReadStateByPath);
       }
@@ -1665,6 +1714,14 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       outputChars: String(executed.output || '').length,
     });
     const baseOutput = String(executed.output || '').trim();
+    if (normalizedToolName === 'web_search' || normalizedToolName === 'web_fetch') {
+      chatWebGroundingPolicy.recordToolResult({
+        toolName: normalizedToolName,
+        command: commandToRun,
+        exitCode: Number(executed.exitCode),
+        output: baseOutput,
+      });
+    }
     const searchExit = classifySearchExit(commandToRun, Number(executed.exitCode), baseOutput);
     const promptedBaseOutput = searchExit.syntaxFailure && searchExit.message
       ? `${searchExit.message}\n${baseOutput}`.trim()
@@ -2129,6 +2186,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   return {
     id: task.id, question: task.question, reason, turnsUsed, safetyRejects,
     invalidResponses, commandFailures, commands, turnThinking, finalOutput, passed,
+    groundingStatus: chatWebGroundingPolicy.getStatus(),
     missingSignals: signalCheck.missingSignals,
     promptTokens: modelPromptTokens,
     outputTokens: modelOutputTokens,
