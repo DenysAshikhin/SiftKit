@@ -187,6 +187,9 @@ test('WEB_CHAT_DECISION_PROMPT documents the decision actions and fluctuating-da
   assert.match(WEB_CHAT_DECISION_PROMPT, /web_fetch/);
   assert.match(WEB_CHAT_DECISION_PROMPT, /"action":"answer"/);
   assert.match(WEB_CHAT_DECISION_PROMPT, /price|fluctuat|exchange rate|version/i);
+  assert.match(WEB_CHAT_DECISION_PROMPT, /real-world events/i);
+  assert.match(WEB_CHAT_DECISION_PROMPT, /movies?|songs?|games?|videos?/i);
+  assert.match(WEB_CHAT_DECISION_PROMPT, /training data|memory/i);
 });
 
 test('WEB_CHAT_ANSWER_PROMPT instructs prose answer grounded in evidence', () => {
