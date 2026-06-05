@@ -10,6 +10,7 @@ export type RepoSearchProgressEvent = {
   maxTurns?: number;
   taskId?: string;
   thinkingText?: string;
+  answerText?: string;
   command?: string;
   outputSnippet?: string;
   outputTokens?: number;
@@ -39,12 +40,15 @@ export type RepoSearchExecutionRequest = {
   startedAtUtc?: string;
   prompt: string;
   repoRoot: string;
-  taskKind?: 'plan' | 'repo-search';
+  taskKind?: 'plan' | 'repo-search' | 'chat';
   statusBackendUrl?: string;
   config?: Record<string, unknown>;
   model?: string;
   promptPrefix?: string;
   allowedTools?: string[];
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  systemPrompt?: string;
+  thinkingEnabled?: boolean;
   includeAgentsMd?: boolean;
   includeRepoFileListing?: boolean;
   maxTurns?: number;

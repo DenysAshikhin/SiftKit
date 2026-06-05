@@ -149,6 +149,7 @@ export type RepoSearchProgressEvent = {
   elapsedMs?: unknown;
   kind?: string;
   thinkingText?: string;
+  answerText?: string;
   exitCode?: number | null;
   outputSnippet?: string;
   outputTokens?: number;
