@@ -1612,6 +1612,11 @@ test('chat completion receives hidden tool context while keeping it out of visib
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   let capturedChatRequest: Dict | null = null;
   const llamaServer = http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/v1/models') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ data: [{ id: 'Qwen3.5-9B-Q8_0.gguf' }] }));
+      return;
+    }
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
       res.statusCode = 404;
       res.end();
@@ -1626,7 +1631,7 @@ test('chat completion receives hidden tool context while keeping it out of visib
       capturedChatRequest = JSON.parse(raw) as Dict;
       res.statusCode = 200;
       res.setHeader('Content-Type', 'text/event-stream');
-      res.write('data: {"choices":[{"delta":{"content":"ack"}}]}\n\n');
+      res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"finish\\",\\"output\\":\\"ack\\"}"}}]}\n\n');
       res.write('data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":20,"completion_tokens":4,"completion_tokens_details":{"reasoning_tokens":0}}}\n\n');
       res.write('data: [DONE]\n\n');
       res.end();
@@ -1739,6 +1744,11 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   let capturedChatRequest: Dict | null = null;
   const llamaServer = http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/v1/models') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ data: [{ id: 'Qwen3.5-9B-Q8_0.gguf' }] }));
+      return;
+    }
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
       res.statusCode = 404;
       res.end();
@@ -1752,7 +1762,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
     req.on('end', () => {
       capturedChatRequest = JSON.parse(raw) as Dict;
       res.writeHead(200, { 'content-type': 'text/event-stream' });
-      res.write('data: {"choices":[{"delta":{"content":"ack"}}]}\n\n');
+      res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"finish\\",\\"output\\":\\"ack\\"}"}}]}\n\n');
       res.write('data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":30,"completion_tokens":4}}\n\n');
       res.write('data: [DONE]\n\n');
       res.end();

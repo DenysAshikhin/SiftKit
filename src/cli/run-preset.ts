@@ -12,10 +12,10 @@ import { getCommandArgs, parseArguments } from './args.js';
 import { readSummaryInput, summarizeRequest } from '../summary/core.js';
 import { executeRepoSearchRequest } from '../repo-search/execute.js';
 import {
+  buildChatSystemContent,
   buildPlanMarkdownFromRepoSearch,
   buildPlanRequestPrompt,
   buildRepoSearchMarkdown,
-  streamChatAssistantMessage,
 } from '../status-server/chat.js';
 import { resolveEffectiveRepoFileListing } from '../status-server/routes/chat.js';
 
@@ -96,26 +96,36 @@ export async function runPresetCli(options: {
     throw new Error('A prompt is required.');
   }
   if (preset.presetKind === 'chat') {
-    const runtime = (config.Runtime && typeof config.Runtime === 'object' ? config.Runtime : {}) as Record<string, unknown>;
-    const runtimeLlama = (runtime.LlamaCpp && typeof runtime.LlamaCpp === 'object' ? runtime.LlamaCpp : {}) as Record<string, unknown>;
-    const result = await streamChatAssistantMessage(config, {
+    const ephemeralSession = {
       id: 'cli-ephemeral',
       title: preset.label,
-      model: typeof runtime.Model === 'string' ? runtime.Model : null,
-      contextWindowTokens: Number(runtimeLlama.NumCtx || 150000),
+      model,
+      contextWindowTokens: 150000,
       thinkingEnabled: true,
       presetId: preset.id,
-      mode: 'chat',
+      mode: 'chat' as const,
       planRepoRoot: process.cwd(),
       condensedSummary: '',
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       messages: [],
       hiddenToolContexts: [],
-    }, prompt, null, {
-      promptPrefix: preset.promptPrefix.trim() || undefined,
+    };
+    const result = await executeRepoSearchRequest({
+      taskKind: 'chat',
+      prompt,
+      repoRoot: process.cwd(),
+      config,
+      model,
+      systemPrompt: buildChatSystemContent(config, ephemeralSession, {
+        promptPrefix: preset.promptPrefix.trim() || undefined,
+      }),
+      history: [],
+      thinkingEnabled: true,
+      allowedTools: [],
     });
-    options.stdout.write(`${result.assistantContent}\n`);
+    const scorecardTasks = ((result.scorecard as { tasks?: Array<{ finalOutput?: string }> }).tasks) || [];
+    options.stdout.write(`${String(scorecardTasks[0]?.finalOutput || '').trim()}\n`);
     return 0;
   }
 

@@ -35,7 +35,6 @@ import {
   appendChatMessagesWithUsage,
   buildChatSystemContent,
   buildChatHistoryMessages,
-  streamChatAssistantMessage,
   condenseChatSession,
   buildPlanRequestPrompt,
   buildPlanMarkdownFromRepoSearch,
@@ -44,12 +43,7 @@ import {
   buildPersistTurnsFromRepoSearchResult,
   buildRepoSearchMarkdown,
   loadRepoSearchExecutor,
-  streamDirectChatWebTurn,
 } from '../chat.js';
-import type { WebStreamProgress } from '../chat.js';
-import { WebResearchTools } from '../../web-search/web-research-tools.js';
-import { normalizeWebSearchConfig } from '../config-store.js';
-import type { WebSearchConfig } from '../../web-search/types.js';
 import { buildChatPromptContext } from '../chat-prompt-context.js';
 import {
   type ChatSession,
@@ -162,10 +156,6 @@ function forwardRepoSearchToolEvent(
       promptTokenCount: Number.isFinite(event.promptTokenCount) ? Number(event.promptTokenCount) : null,
     });
   }
-}
-
-function buildWebResearchTools(config: Dict): WebResearchTools {
-  return new WebResearchTools(normalizeWebSearchConfig(config.WebSearch) as unknown as WebSearchConfig);
 }
 
 function withPromptContext(config: Dict, session: ChatSession): ChatSession {
@@ -613,20 +603,36 @@ export async function handleChatRoute(
       }
       let assistantContent: string;
       let usage: Partial<ChatUsage>;
-      let thinkingContent = '';
+      let persistTurns: { thinkingText: string; toolMessages: PersistToolMessage[] }[] = [{ thinkingText: '', toolMessages: [] }];
       if (usesProvidedAssistantContent) {
         assistantContent = (parsedBody.assistantContent as string).trim();
         usage = {};
       } else {
         const config = readConfig(configPath);
         const presets = normalizePresets(config.Presets);
-        const preset = findPresetById(presets, activeSession.presetId);
-        const generated = await streamChatAssistantMessage(config, activeSession, userContent, null, {
-          promptPrefix: preset?.promptPrefix || undefined,
+        const chatPreset = findPresetById(presets, activeSession.presetId);
+        const executeRepoSearchRequest = loadRepoSearchExecutor();
+        const result = await executeRepoSearchRequest({
+          taskKind: 'chat',
+          prompt: userContent,
+          repoRoot: process.cwd(),
+          statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
+          config,
+          systemPrompt: buildChatSystemContent(config, activeSession, { promptPrefix: chatPreset?.promptPrefix || undefined }),
+          history: buildChatHistoryMessages(config, activeSession),
+          thinkingEnabled: activeSession.thinkingEnabled !== false,
+          allowedTools: [],
         });
-        assistantContent = generated.assistantContent;
-        usage = generated.usage;
-        thinkingContent = generated.thinkingContent || '';
+        const scorecardTasks = ((result.scorecard as Dict)?.tasks as Dict[]) || [];
+        assistantContent = String(scorecardTasks[0]?.finalOutput || '').trim();
+        usage = {
+          promptTokens: getScorecardTotal(result?.scorecard, 'promptTokens'),
+          completionTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
+          thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
+          promptCacheTokens: getScorecardTotal(result?.scorecard, 'promptCacheTokens'),
+          promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
+        };
+        persistTurns = buildPersistTurnsFromRepoSearchResult(result);
       }
       try {
         await notifyChatStatus({
@@ -652,7 +658,7 @@ export async function handleChatRoute(
       }
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
       const sessionWithTelemetry = appendChatMessagesWithUsage(runtimeRoot, activeSession, userContent, assistantContent, usage, {
-        turns: [{ thinkingText: thinkingContent, toolMessages: [] }],
+        turns: persistTurns,
         requestDurationMs: Date.now() - startedAt,
         requestStartedAtUtc,
         speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
