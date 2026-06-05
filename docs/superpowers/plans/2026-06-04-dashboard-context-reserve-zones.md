@@ -4,7 +4,7 @@
 
 **Goal:** Render provider-overhead reserve on the left side of the dashboard context bar and output-headroom reserve on the right side, both as dashed sections with explanatory popups.
 
-**Architecture:** Compute reserve token counts on the status server and serialize them through `ContextUsage`. Keep React responsible only for rendering typed visual sections from server-provided counts. Preserve the existing used-context fill behavior, including live prompt-token growth while a repo-search/plan turn is generating.
+**Architecture:** Compute reserve token counts on the status server and serialize them through `ContextUsage`. Keep React responsible only for rendering typed visual sections from server-provided counts. Preserve the existing used-context fill behavior by letting real usage take visual precedence over output headroom; output headroom yields when the window is crowded.
 
 **Tech Stack:** TypeScript, Node test runner, React 19, server-rendered dashboard component tests, SiftKit status-server chat API.
 
@@ -15,9 +15,12 @@
 - Modify `src/status-server/chat.ts`
   - Replace the current direct `buildContextUsage(session)` calculation with a small explicit `ContextUsageBuilder` class in the same file.
   - Add server-side reserve fields to the returned `Dict`: `providerOverheadTokens`, `outputHeadroomTokens`.
-  - Change `buildContextUsage` to accept `(config: Dict | null | undefined, session: ChatSession)` so output headroom can use the same dynamic output-token cap inputs as chat generation.
+  - Change `buildContextUsage` to accept `(config: Dict | null | undefined, session: ChatSession)` so reserve fields can be computed server-side.
 - Modify `src/status-server/routes/chat.ts`
   - Update `buildChatSessionResponse(config, session)` to call `buildContextUsage(config, session)`.
+- Modify `tests/status-server-chat.test.ts`
+  - Update existing `buildContextUsage(session)` callers to `buildContextUsage(null, session)`.
+  - Add direct assertions for the new reserve fields.
 - Modify `dashboard/src/types.ts` and `dashboard/src/types.d.ts`
   - Add typed reserve fields to `ContextUsage`.
 - Modify `dashboard/src/lib/contextBar.ts`
@@ -32,8 +35,7 @@
   - Add unit coverage for reserve sections, clamping, and live prompt-token behavior.
 - Modify `dashboard/tests/tab-components.test.tsx`
   - Add server-rendered markup coverage for dashed reserve zones and popup copy.
-- Add or modify server test file discovered during implementation, preferably an existing chat/status-server unit test if one covers `buildContextUsage`.
-  - If no focused test exists, add `tests/status-server-chat-context-usage.test.ts`.
+- Do not add a new server test file for this feature; use `tests/status-server-chat.test.ts` because it already covers `buildContextUsage`.
 
 ---
 
@@ -42,126 +44,70 @@
 **Files:**
 - Modify: `src/status-server/chat.ts`
 - Modify: `src/status-server/routes/chat.ts`
-- Test: `tests/status-server-chat-context-usage.test.ts` or the existing focused chat/status-server test file if one already imports `buildContextUsage`
+- Test: `tests/status-server-chat.test.ts`
 
-- [ ] **Step 1: Search existing server tests before adding a new file**
+- [ ] **Step 1: Confirm existing server test callers**
 
 Run:
 
 ```powershell
-siftkit repo-search --prompt "Find existing tests that import buildContextUsage, buildChatSessionResponse, or status-server chat session responses. Return exact test file paths and test names."
+siftkit repo-search --prompt "Find every buildContextUsage caller in tests/status-server-chat.test.ts. Return exact line numbers, surrounding test names, and whether each call should pass null or a config fixture."
 ```
 
 Expected:
 
 ```text
-Use an existing focused test file if one exists. Otherwise create tests/status-server-chat-context-usage.test.ts.
+tests/status-server-chat.test.ts has buildContextUsage(session) calls in the existing context usage tests. Both must be updated directly.
 ```
 
-- [ ] **Step 2: Write failing server tests for reserve serialization**
+- [ ] **Step 2: Update existing failing server tests for the new signature**
 
-Add this test content to the selected server test file. If creating `tests/status-server-chat-context-usage.test.ts`, use this complete file:
+In `tests/status-server-chat.test.ts`, change both existing one-argument calls:
 
 ```ts
-import test from 'node:test';
-import assert from 'node:assert/strict';
+const usage = buildContextUsage(session);
+```
 
-import { buildContextUsage } from '../src/status-server/chat';
-import type { ChatSession } from '../src/state/chat-sessions';
-import type { Dict } from '../src/lib/types';
+to:
 
-const SESSION: ChatSession = {
-  id: 'session-1',
-  title: 'Session',
-  model: 'test-model',
-  contextWindowTokens: 10000,
-  thinkingEnabled: true,
-  presetId: 'chat',
-  mode: 'chat',
-  condensedSummary: '',
-  createdAtUtc: '2026-06-04T12:00:00.000Z',
-  updatedAtUtc: '2026-06-04T12:00:00.000Z',
-  messages: [{
-    id: 'message-1',
-    role: 'user',
-    kind: 'user_text',
-    content: 'Use the repository evidence.',
-    inputTokensEstimate: 0,
-    outputTokensEstimate: 0,
-    thinkingTokens: 0,
-    associatedToolTokens: 0,
-    thinkingContent: '',
-    createdAtUtc: '2026-06-04T12:00:00.000Z',
-    sourceRunId: null,
-  }],
-};
+```ts
+const usage = buildContextUsage(null, session);
+```
 
-const CONFIG: Dict = {
-  Runtime: {
-    Model: 'test-model',
-    LlamaCpp: {
-      NumCtx: 10000,
-      Reasoning: 'on',
-      ReasoningContent: true,
-      PreserveThinking: true,
-    },
-  },
-  Server: {
-    LlamaCpp: {
-      ReasoningContent: true,
-      PreserveThinking: true,
-    },
-  },
-};
+This preserves the existing token-accounting assertions while proving all old callers were updated directly. Passing `null` is valid because these tests do not assert config-sensitive reserve details.
 
-test('buildContextUsage serializes provider overhead and output headroom reserves', () => {
-  const usage = buildContextUsage(CONFIG, SESSION);
+- [ ] **Step 3: Add reserve assertions to the existing context usage tests**
 
-  assert.equal(usage.contextWindowTokens, 10000);
+In both existing `buildContextUsage` tests in `tests/status-server-chat.test.ts`, append:
+
+```ts
   assert.equal(typeof usage.providerOverheadTokens, 'number');
   assert.equal(typeof usage.outputHeadroomTokens, 'number');
   assert.equal(Number.isInteger(usage.providerOverheadTokens), true);
   assert.equal(Number.isInteger(usage.outputHeadroomTokens), true);
   assert.equal(usage.providerOverheadTokens >= 0, true);
-  assert.equal(usage.outputHeadroomTokens > 0, true);
-  assert.equal(usage.outputHeadroomTokens <= 25000, true);
-});
-
-test('buildContextUsage clamps output headroom to remaining context', () => {
-  const crowdedSession = {
-    ...SESSION,
-    contextWindowTokens: 100,
-    messages: [{
-      ...SESSION.messages[0],
-      content: 'x'.repeat(1000),
-    }],
-  };
-
-  const usage = buildContextUsage(CONFIG, crowdedSession);
-
-  assert.equal(usage.remainingTokens >= 0, true);
+  assert.equal(usage.outputHeadroomTokens >= 0, true);
   assert.equal(usage.outputHeadroomTokens <= usage.remainingTokens, true);
-});
 ```
 
-- [ ] **Step 3: Run the server test and verify it fails**
+- [ ] **Step 4: Run the server test and verify it fails**
 
 Run:
 
 ```powershell
-npm test -- status-server-chat-context-usage
+npm test -- status-server-chat
 ```
 
 Expected:
 
 ```text
 FAIL
-buildContextUsage expects 1 arguments, but got 2
+Expected values to be strictly equal:
+actual: 'undefined'
+expected: 'number'
 ```
 
-If the selected test file has a different name, run that exact test filter.
-
-- [ ] **Step 4: Implement `ContextUsageBuilder` in `src/status-server/chat.ts`**
+- [ ] **Step 5: Implement `ContextUsageBuilder` in `src/status-server/chat.ts`**
 
 Replace the current `export function buildContextUsage(session: ChatSession): Dict` with this structure. Preserve the existing helper functions above it.
 
@@ -246,6 +192,9 @@ class ContextUsageBuilder {
     if (totals.remainingTokens <= 0) {
       return 0;
     }
+    // Dashboard reserve estimate for the persisted session state. This is not an
+    // exact pending-request token count because buildContextUsage has no next user
+    // message; the real request path computes max_tokens from the full pending prompt.
     const dynamicMaxTokens = getDynamicMaxOutputTokens({
       totalContextTokens: totals.contextWindowTokens,
       promptTokenCount: totals.totalUsedTokens,
@@ -259,7 +208,7 @@ export function buildContextUsage(config: Dict | null | undefined, session: Chat
 }
 ```
 
-- [ ] **Step 5: Update the chat-session response call**
+- [ ] **Step 6: Update the chat-session response call**
 
 In `src/status-server/routes/chat.ts`, change:
 
@@ -273,12 +222,12 @@ to:
 contextUsage: buildContextUsage(config, session),
 ```
 
-- [ ] **Step 6: Run the server test and verify it passes**
+- [ ] **Step 7: Run the server test and verify it passes**
 
 Run:
 
 ```powershell
-npm test -- status-server-chat-context-usage
+npm test -- status-server-chat
 ```
 
 Expected:
@@ -287,16 +236,14 @@ Expected:
 PASS
 ```
 
-- [ ] **Step 7: Commit server reserve serialization**
+- [ ] **Step 8: Commit server reserve serialization**
 
 Run:
 
 ```powershell
-git add src/status-server/chat.ts src/status-server/routes/chat.ts tests/status-server-chat-context-usage.test.ts
+git add src/status-server/chat.ts src/status-server/routes/chat.ts tests/status-server-chat.test.ts
 git commit -m "feat: expose context reserve usage"
 ```
-
-If using an existing test file instead of `tests/status-server-chat-context-usage.test.ts`, add that file path instead.
 
 ---
 
@@ -342,7 +289,7 @@ test('resolveContextBarVisual returns ordered reserve and usage sections', () =>
   assert.equal(result?.sections[3]?.percent, 10);
 });
 
-test('resolveContextBarVisual clamps reserves and used sections to the context window', () => {
+test('resolveContextBarVisual lets used context take precedence over output headroom when crowded', () => {
   const result = resolveContextBarVisual({
     ...USAGE,
     contextWindowTokens: 100,
@@ -355,6 +302,8 @@ test('resolveContextBarVisual clamps reserves and used sections to the context w
 
   const totalPercent = result?.sections.reduce((sum, section) => sum + section.percent, 0);
   assert.equal(totalPercent, 100);
+  assert.equal(result?.sections.find((section) => section.kind === 'used')?.percent, 80);
+  assert.equal(result?.sections.find((section) => section.kind === 'output-headroom'), undefined);
   assert.equal(result?.sections.find((section) => section.kind === 'free'), undefined);
 });
 
@@ -366,6 +315,13 @@ test('resolveContextBarVisual omits zero-token reserve sections', () => {
   }, 999, null, false);
 
   assert.deepEqual(result?.sections.map((section) => section.kind), ['used', 'free']);
+});
+
+test('resolveContextBarVisual omits reserve sections during a fresh live stream before usage exists', () => {
+  const result = resolveContextBarVisual(null, 1000, 250, true);
+
+  assert.deepEqual(result?.sections.map((section) => section.kind), ['used', 'free']);
+  assert.equal(result?.sections.find((section) => section.kind === 'used')?.percent, 25);
 });
 ```
 
@@ -454,8 +410,8 @@ In `dashboard/src/lib/contextBar.ts`, keep existing live-used selection. After c
   const providerOverheadTokens = getNonNegativeInteger(usage?.providerOverheadTokens);
   const outputHeadroomTokens = getNonNegativeInteger(usage?.outputHeadroomTokens);
   const providerTokens = Math.min(providerOverheadTokens, total);
-  const outputTokens = Math.min(outputHeadroomTokens, Math.max(total - providerTokens, 0));
-  const usedTokens = Math.min(used, Math.max(total - providerTokens - outputTokens, 0));
+  const usedTokens = Math.min(used, Math.max(total - providerTokens, 0));
+  const outputTokens = Math.min(outputHeadroomTokens, Math.max(total - providerTokens - usedTokens, 0));
   const freeTokens = Math.max(total - providerTokens - usedTokens - outputTokens, 0);
   const sections: ContextBarSection[] = [];
   appendSection(
@@ -463,7 +419,7 @@ In `dashboard/src/lib/contextBar.ts`, keep existing live-used selection. After c
     'provider-overhead',
     providerTokens,
     total,
-    `Provider overhead reserve: ${formatNumber(providerOverheadTokens)} tokens used by request framing, model options, and chat template metadata.`,
+    `Provider overhead reserve: ${formatNumber(providerTokens)} tokens used by request framing, model options, and chat template metadata.`,
   );
   appendSection(
     sections,
@@ -484,7 +440,7 @@ In `dashboard/src/lib/contextBar.ts`, keep existing live-used selection. After c
     'output-headroom',
     outputTokens,
     total,
-    `Output headroom reserve: ${formatNumber(outputHeadroomTokens)} tokens kept available for the assistant response.`,
+    `Output headroom reserve: ${formatNumber(outputTokens)} tokens kept available for the assistant response.`,
   );
   return { ...visual, sections };
 ```
@@ -725,7 +681,7 @@ Run:
 ```powershell
 npm test -- contextBar
 npm test -- tab-components
-npm test -- status-server-chat-context-usage
+npm test -- status-server-chat
 ```
 
 Expected:
@@ -808,9 +764,11 @@ git commit -m "test: validate context reserve zones"
 - The context bar visibly contains a gray dashed provider-overhead segment at the far left when `providerOverheadTokens > 0`.
 - The context bar visibly contains a muted amber dashed output-headroom segment at the far right when `outputHeadroomTokens > 0`.
 - The used-context fill remains color-ramped green to red and still grows from live prompt tokens during active repo-search/plan generation.
+- Used context takes precedence over output headroom when the bar is crowded; output headroom shrinks or disappears before the used section is visually reduced.
 - Hovering or focusing either dashed reserve segment shows a popup explaining what the reserve means and displaying the formatted token count.
 - Reserve rendering is driven by server-provided `ContextUsage` fields, not ad hoc client estimates.
 - Zero-token reserves produce no dashed segment.
+- Fresh-session live streams with `contextUsage: null` show used/free only; reserve zones appear after the first persisted context-usage response.
 - Overfull or nearly full contexts clamp visual section widths to the bar instead of overflowing.
 - `npm test`, `npm run build`, and the focused context-bar/component/server tests pass.
 
@@ -819,7 +777,9 @@ git commit -m "test: validate context reserve zones"
 ## Assumptions and Defaults
 
 - Provider overhead means request/framing overhead: model/options, chat template flags, and empty message-role structure used to estimate non-content provider prompt cost.
-- Output headroom means response-generation room from `getDynamicMaxOutputTokens`, clamped to the remaining context window.
+- Output headroom means response-generation room from `getDynamicMaxOutputTokens`, clamped to the remaining context window. This can be most of the free space on non-crowded sessions because the current formula returns up to 90% of remaining context, capped at 25,000 tokens; the tooltip must call it output headroom, not unavailable context.
+- `buildContextUsage` output headroom is a persisted-session estimate. It is not exact parity with a pending chat request because `buildChatCompletionRequest` includes the next user message and estimates prompt tokens from the full pending prompt characters.
+- Reserve tooltips display the same clamped token count used for the rendered section width.
 - The dashboard does not need a browser verification pass for this request because the user explicitly said no browser.
 - No worktrees.
 - No legacy compatibility overload for old `buildContextUsage(session)` callers; update callers directly.
