@@ -842,6 +842,10 @@ export async function streamDirectChatWebTurn(
   const turns: PersistTurn[] = [];
   let aggregatedUsage: ChatUsage = EMPTY_CHAT_USAGE;
   let toolCalls = 0;
+  let searchCount = 0;
+  let fetchSucceeded = false;
+  let blockedAnswers = 0;
+  let steerMessage: string | null = null;
   const exposeThinking = session.thinkingEnabled !== false;
 
   const nextMock = (): string => {
@@ -858,6 +862,9 @@ export async function streamDirectChatWebTurn(
     if (mockResponses) {
       decisionText = nextMock();
     } else {
+      const decisionEvidence = steerMessage
+        ? [...evidenceMessages, { role: 'user' as const, content: steerMessage }]
+        : evidenceMessages.slice();
       const decision = await streamChatAssistantMessage(config, session, userContent, (progress) => {
         if (exposeThinking) {
           onProgress({ kind: 'thinking', phase: 'decision', thinking: progress.thinkingContent });
@@ -865,7 +872,7 @@ export async function streamDirectChatWebTurn(
       }, {
         promptPrefix: options.promptPrefix,
         webActionInstruction: WEB_CHAT_DECISION_PROMPT,
-        evidenceMessages: evidenceMessages.slice(),
+        evidenceMessages: decisionEvidence,
       });
       decisionText = decision.assistantContent;
       decisionThinking = decision.thinkingContent || '';
@@ -877,6 +884,10 @@ export async function streamDirectChatWebTurn(
       const toolCallId = crypto.randomUUID();
       const turnIndex = toolCalls + 1;
       const command = buildWebToolCommand(decision);
+      if (decision.kind === 'web_search') {
+        searchCount += 1;
+      }
+      steerMessage = null;
       onProgress({ kind: 'tool_start', toolCallId, turn: turnIndex, maxTurns, command });
       let bubble: PersistToolMessage;
       try {
@@ -887,6 +898,9 @@ export async function streamDirectChatWebTurn(
         onProgress({ kind: 'tool_result', toolCallId, turn: turnIndex, maxTurns, command: toolResult.command, outputSnippet: bubble.toolCallOutputSnippet, outputTokens: toolResult.outputTokens, exitCode: 0 });
         evidenceMessages.push({ role: 'assistant', content: decisionText });
         evidenceMessages.push({ role: 'user', content: `Tool ${toolResult.command} output:\n${toolResult.output}` });
+        if (decision.kind === 'web_fetch') {
+          fetchSucceeded = true;
+        }
       } catch (error) {
         const failOutput = `web tool failed: ${error instanceof Error ? error.message : String(error)}`;
         const failTokens = estimateTokenCount(failOutput);
@@ -899,6 +913,18 @@ export async function streamDirectChatWebTurn(
       toolCalls += 1;
       continue;
     }
+
+    const gateApplies = decision.kind === 'answer'
+      && searchCount > 0
+      && !fetchSucceeded
+      && blockedAnswers < WEB_CHAT_MAX_STEER_ATTEMPTS
+      && toolCalls < maxTurns;
+    if (gateApplies) {
+      blockedAnswers += 1;
+      steerMessage = WEB_CHAT_STEER_PROMPT;
+      continue;
+    }
+    steerMessage = null;
 
     if (exposeThinking && decisionThinking.trim()) {
       turns.push({ thinkingText: decisionThinking, toolMessages: [] });

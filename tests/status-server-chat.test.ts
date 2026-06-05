@@ -206,6 +206,7 @@ test('streamDirectChatWebTurn streams a web_search tool then a prose answer', as
   const result = await streamDirectChatWebTurn(createConfig(), createSession(), 'find latest', searxngWebTools(), (event) => events.push(event), {
     mockResponses: [
       '{"action":"web_search","query":"osrs iron bar"}',
+      '{"action":"web_fetch","url":"https://example.com"}',
       '{"action":"answer"}',
       'Iron bars are refined iron, made by smelting iron ore.',
     ],
@@ -213,8 +214,9 @@ test('streamDirectChatWebTurn streams a web_search tool then a prose answer', as
 
   assert.equal(result.assistantContent, 'Iron bars are refined iron, made by smelting iron ore.');
   const toolTurns = result.turns.filter((turn) => turn.toolMessages.length > 0);
-  assert.equal(toolTurns.length, 1);
+  assert.equal(toolTurns.length, 2);
   assert.equal(toolTurns[0].toolMessages[0].toolCallCommand, 'web_search query="osrs iron bar"');
+  assert.equal(toolTurns[1].toolMessages[0].toolCallCommand, 'web_fetch url="https://example.com"');
   assert.equal(toolTurns[0].toolMessages[0].toolCallExitCode, 0);
   assert.match(toolTurns[0].toolMessages[0].toolCallOutput, /example\.com/);
   assert.ok(events.some((event) => event.kind === 'tool_start' && event.command === 'web_search query="osrs iron bar"'));
@@ -231,6 +233,108 @@ test('streamDirectChatWebTurn answers directly when no web tool is needed', asyn
   assert.equal(result.assistantContent, 'Static answer.');
   assert.equal(result.turns.filter((turn) => turn.toolMessages.length > 0).length, 0);
   assert.ok(!events.some((event) => event.kind === 'tool_start'));
+});
+
+test('streamDirectChatWebTurn steers a snippet answer into a web_fetch', async () => {
+  const events: WebStreamProgress[] = [];
+  const result = await streamDirectChatWebTurn(createConfig(), createSession(), 'osrs iron bar price', searxngWebTools(), (event) => events.push(event), {
+    mockResponses: [
+      '{"action":"web_search","query":"osrs iron bar"}',
+      '{"action":"answer"}',
+      '{"action":"web_fetch","url":"https://example.com/iron"}',
+      '{"action":"answer"}',
+      'Iron bars trade around 150gp.',
+    ],
+  });
+
+  assert.equal(result.assistantContent, 'Iron bars trade around 150gp.');
+  const toolTurns = result.turns.filter((turn) => turn.toolMessages.length > 0);
+  assert.equal(toolTurns.length, 2);
+  assert.equal(toolTurns[0].toolMessages[0].toolCallCommand, 'web_search query="osrs iron bar"');
+  assert.equal(toolTurns[1].toolMessages[0].toolCallCommand, 'web_fetch url="https://example.com/iron"');
+  // The steering nudge must never appear in any persisted turn.
+  assert.ok(!result.turns.some((turn) => turn.toolMessages.some((message) => message.toolCallOutput.includes('have not opened any result page'))));
+});
+
+test('streamDirectChatWebTurn allows the answer after 3 blocked snippet answers', async () => {
+  const result = await streamDirectChatWebTurn(createConfig(), createSession(), 'osrs iron bar price', searxngWebTools(), () => {}, {
+    mockResponses: [
+      '{"action":"web_search","query":"osrs iron bar"}',
+      '{"action":"answer"}',
+      '{"action":"answer"}',
+      '{"action":"answer"}',
+      '{"action":"answer"}',
+      'Iron bars trade around 150gp.',
+    ],
+  });
+
+  assert.equal(result.assistantContent, 'Iron bars trade around 150gp.');
+  const toolTurns = result.turns.filter((turn) => turn.toolMessages.length > 0);
+  assert.equal(toolTurns.length, 1);
+});
+
+test('streamDirectChatWebTurn does not steer when no search has run', async () => {
+  const result = await streamDirectChatWebTurn(createConfig(), createSession(), 'what is 2+2', searxngWebTools(), () => {}, {
+    mockResponses: ['{"action":"answer"}', 'Four.'],
+  });
+
+  assert.equal(result.assistantContent, 'Four.');
+  assert.equal(result.turns.filter((turn) => turn.toolMessages.length > 0).length, 0);
+});
+
+test('streamDirectChatWebTurn stops steering after a successful fetch', async () => {
+  const result = await streamDirectChatWebTurn(createConfig(), createSession(), 'osrs iron bar price', searxngWebTools(), () => {}, {
+    mockResponses: [
+      '{"action":"web_search","query":"osrs iron bar"}',
+      '{"action":"web_fetch","url":"https://example.com/iron"}',
+      '{"action":"answer"}',
+      'Iron bars trade around 150gp.',
+    ],
+  });
+
+  assert.equal(result.assistantContent, 'Iron bars trade around 150gp.');
+  const toolTurns = result.turns.filter((turn) => turn.toolMessages.length > 0);
+  assert.equal(toolTurns.length, 2);
+});
+
+test('streamDirectChatWebTurn keeps steering when a web_fetch fails', async () => {
+  const webTools = new WebResearchTools(WEB_CONFIG, async (input) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    if (url.includes('search.example.test')) {
+      return new Response(JSON.stringify({ results: [{ title: 'Example', url: 'https://example.com', content: 'snippet' }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return new Response('upstream error', { status: 500 });
+  });
+  const result = await streamDirectChatWebTurn(createConfig(), createSession(), 'osrs iron bar price', webTools, () => {}, {
+    mockResponses: [
+      '{"action":"web_search","query":"osrs iron bar"}',
+      '{"action":"answer"}',
+      '{"action":"web_fetch","url":"https://example.com/iron"}',
+      '{"action":"answer"}',
+      '{"action":"answer"}',
+      '{"action":"answer"}',
+      'Iron bars trade around 150gp.',
+    ],
+  });
+
+  assert.equal(result.assistantContent, 'Iron bars trade around 150gp.');
+  const toolTurns = result.turns.filter((turn) => turn.toolMessages.length > 0);
+  assert.equal(toolTurns.length, 2);
+  assert.equal(toolTurns[1].toolMessages[0].toolCallExitCode, 1);
+});
+
+test('streamDirectChatWebTurn does not steer once maxTurns is reached', async () => {
+  const result = await streamDirectChatWebTurn(createConfig(), createSession(), 'osrs iron bar price', searxngWebTools(), () => {}, {
+    maxTurns: 1,
+    mockResponses: [
+      '{"action":"web_search","query":"osrs iron bar"}',
+      '{"action":"answer"}',
+      'Iron bars trade around 150gp.',
+    ],
+  });
+
+  assert.equal(result.assistantContent, 'Iron bars trade around 150gp.');
+  assert.equal(result.turns.filter((turn) => turn.toolMessages.length > 0).length, 1);
 });
 
 test('streamDirectChatWebTurn omits thinking params when user thinking is off', async () => {
