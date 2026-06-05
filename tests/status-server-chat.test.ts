@@ -337,6 +337,51 @@ test('streamDirectChatWebTurn does not steer once maxTurns is reached', async ()
   assert.equal(result.turns.filter((turn) => turn.toolMessages.length > 0).length, 1);
 });
 
+test('streamDirectChatWebTurn injects the steer prompt only into the re-decision request', async () => {
+  const bodies: Dict[] = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      bodies.push(JSON.parse(body) as Dict);
+      const action = bodies.length === 1 ? '{"action":"web_search","query":"osrs iron bar"}'
+        : bodies.length === 2 ? '{"action":"answer"}'
+        : bodies.length === 3 ? '{"action":"web_fetch","url":"https://example.com/iron"}'
+        : bodies.length === 4 ? '{"action":"answer"}'
+        : 'Iron bars trade around 150gp.';
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: action } }] })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      res.end();
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const port = (server.address() as AddressInfo).port;
+  const config = createConfig();
+  (config.Server as Dict).LlamaCpp = {
+    ...((config.Server as Dict).LlamaCpp as Dict),
+    BaseUrl: `http://127.0.0.1:${port}`,
+  };
+  try {
+    const result = await streamDirectChatWebTurn(config, createSession(), 'osrs iron bar price', searxngWebTools(), () => {});
+
+    assert.equal(result.assistantContent, 'Iron bars trade around 150gp.');
+    assert.equal(bodies.length, 5);
+    const steerInBody = (body: Dict): boolean =>
+      (body.messages as Dict[]).some((message) => String(message.content).includes('have not opened any result page'));
+    // Injected ONLY into the re-decision request (#3); absent from the first
+    // decision (#1), the first answer decision (#2), the post-fetch decision
+    // (#4), and the final answer request (#5).
+    assert.ok(!steerInBody(bodies[0]));
+    assert.ok(!steerInBody(bodies[1]));
+    assert.ok(steerInBody(bodies[2]));
+    assert.ok(!steerInBody(bodies[3]));
+    assert.ok(!steerInBody(bodies[4]));
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test('streamDirectChatWebTurn omits thinking params when user thinking is off', async () => {
   const bodies: Dict[] = [];
   const server = http.createServer((req, res) => {
