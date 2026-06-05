@@ -904,6 +904,18 @@ pre {
   white-space: nowrap;
 }
 
+.chat-grounding-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--stroke);
+  border-radius: 4px;
+  color: var(--ink-dim);
+  font-size: 0.72rem;
+  line-height: 1;
+  margin: 0 0 6px;
+  padding: 0.18rem 0.35rem;
+}
+
 .msg-icon-button {
   width: 28px;
   height: 28px;

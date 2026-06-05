@@ -1321,6 +1321,29 @@ test('chat tab assistant message bubble carries the .msg.assistant class', () =>
   assert.match(markup, /class="msg assistant assistant_answer/u);
 });
 
+test('chat tab assistant answer shows fetched grounding badge', () => {
+  const session = {
+    ...CHAT_SESSION,
+    messages: [{
+      ...CHAT_MESSAGE,
+      id: 'grounded-answer',
+      content: 'The Mining Guild requires 60 Mining.',
+      groundingStatus: 'fetched',
+    } as ChatMessage],
+  } as ChatSession;
+  const markup = renderChatTab({
+    selectedSession: session,
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'chat',
+    isDirectChatMode: true,
+    contextUsage: CONTEXT_USAGE,
+  });
+
+  assert.match(markup, /chat-grounding-badge/u);
+  assert.match(markup, /Fetched evidence<\/span>/u);
+});
+
 test('chat tab tool-call bubble carries the assistant class for left alignment', () => {
   const session = {
     ...CHAT_SESSION,

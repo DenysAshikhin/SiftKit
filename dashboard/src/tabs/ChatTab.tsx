@@ -1,3 +1,4 @@
+import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -27,6 +28,19 @@ import type {
   RepoSearchAutoAppendSelection,
 } from '../types';
 import type { ChatMessage } from '../types';
+
+const GROUNDING_STATUS_LABELS: Record<'ungrounded' | 'snippet_only' | 'fetched', string> = {
+  ungrounded: 'No web evidence',
+  snippet_only: 'Search snippet only',
+  fetched: 'Fetched evidence',
+};
+
+function getGroundingStatusLabel(status: ChatMessage['groundingStatus']): string | null {
+  if (status === 'ungrounded' || status === 'snippet_only' || status === 'fetched') {
+    return GROUNDING_STATUS_LABELS[status];
+  }
+  return null;
+}
 
 type SessionPromptCacheStats = {
   cacheHitRate: number | null;
@@ -548,6 +562,9 @@ function renderMessageBody(message: ChatMessage, isDirectChatMode: boolean) {
   const messageKind = normalizeMessageKind(message);
   const toolCommand = typeof message.toolCallCommand === 'string' ? message.toolCallCommand.trim() : '';
   const toolOutput = message.toolCallOutput || message.toolCallOutputSnippet || '';
+  const groundingStatusLabel = messageKind === 'assistant_answer'
+    ? getGroundingStatusLabel(message.groundingStatus)
+    : null;
   return (
     <>
       {isDirectChatMode && message.role === 'assistant' && message.thinkingContent ? (
@@ -571,6 +588,9 @@ function renderMessageBody(message: ChatMessage, isDirectChatMode: boolean) {
         </div>
       ) : message.role === 'assistant' ? (
         <div className="markdown-body">
+          {groundingStatusLabel ? (
+            <span className="chat-grounding-badge">{groundingStatusLabel}</span>
+          ) : null}
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
             {message.content}
           </ReactMarkdown>
