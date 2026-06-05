@@ -403,6 +403,25 @@ export function buildChatCompletionRequest(config: Dict, session: ChatSession, u
   };
 }
 
+export function buildChatHistoryMessages(
+  _config: Dict,
+  session: ChatSession,
+): Array<{ role: 'user' | 'assistant'; content: string }> {
+  const messages = Array.isArray(session.messages) ? session.messages as Dict[] : [];
+  const history: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  for (const message of messages) {
+    if (message.kind === 'assistant_thinking' || message.kind === 'assistant_tool_call') {
+      continue; // internal-logic steps are not replayed as conversation turns
+    }
+    const content = typeof message.content === 'string' ? message.content.trim() : '';
+    if (!content) {
+      continue;
+    }
+    history.push({ role: message.role === 'assistant' ? 'assistant' : 'user', content });
+  }
+  return history;
+}
+
 export function buildChatSystemContent(_config: Dict, session: ChatSession, options: Pick<BuildChatOptions, 'promptPrefix' | 'webActionInstruction'> = {}): string {
   const hiddenToolContexts = Array.isArray(session.hiddenToolContexts)
     ? (session.hiddenToolContexts as Dict[])

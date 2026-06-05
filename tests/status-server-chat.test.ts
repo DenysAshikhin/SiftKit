@@ -9,6 +9,7 @@ import test from 'node:test';
 import {
   appendChatMessagesWithUsage,
   buildChatCompletionRequest,
+  buildChatHistoryMessages,
   buildChatSystemContent,
   buildContextUsage,
   buildRepoSearchMarkdown,
@@ -981,4 +982,25 @@ test('buildContextUsage counts typed thinking and tool bubbles from visible time
   assert.equal(typeof usage.providerOverheadTokens, 'number');
   assert.equal(Number.isInteger(usage.providerOverheadTokens), true);
   assert.equal(usage.providerOverheadTokens >= 0, true);
+});
+
+test('buildChatHistoryMessages maps prior turns to user/assistant roles', () => {
+  const session = {
+    id: 's1',
+    messages: [
+      { id: 'a', role: 'user', kind: 'user_text', content: 'hi' },
+      { id: 'b', role: 'assistant', kind: 'assistant_answer', content: 'hello' },
+      { id: 'c', role: 'assistant', kind: 'assistant_thinking', content: 'pondering' },
+    ],
+  };
+  const history = buildChatHistoryMessages({}, session as never);
+  assert.deepEqual(history, [
+    { role: 'user', content: 'hi' },
+    { role: 'assistant', content: 'hello' },
+  ]);
+});
+
+test('buildChatSystemContent returns the default chat system prompt', () => {
+  const content = buildChatSystemContent({}, { id: 's', messages: [] } as never);
+  assert.match(content, /coder friendly assistant/);
 });
