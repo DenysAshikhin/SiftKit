@@ -1140,19 +1140,85 @@ pre {
 
 .context-bar {
   position: relative;
-  height: 8px;
+  display: flex;
   width: 100%;
+  height: 8px;
+  overflow: visible;
   border-radius: 999px;
-  background: #122436;
-  overflow: hidden;
+  background: rgba(148, 163, 184, 0.16);
   cursor: help;
 }
 
-.context-bar-fill {
+.context-bar-section {
+  position: relative;
+  height: 100%;
+  min-width: 0;
+}
+
+.context-bar-section:first-child {
+  border-radius: 999px 0 0 999px;
+}
+
+.context-bar-section:last-child {
+  border-radius: 0 999px 999px 0;
+}
+
+.context-bar-section.used {
+  transition: width 0.2s ease, background 0.2s ease;
+}
+
+.context-bar-section.free {
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.context-bar-section.provider-overhead {
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(148, 163, 184, 0.72) 0,
+      rgba(148, 163, 184, 0.72) 4px,
+      rgba(148, 163, 184, 0.2) 4px,
+      rgba(148, 163, 184, 0.2) 8px
+    );
+}
+
+.context-bar-section.output-headroom {
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(245, 158, 11, 0.78) 0,
+      rgba(245, 158, 11, 0.78) 4px,
+      rgba(245, 158, 11, 0.24) 4px,
+      rgba(245, 158, 11, 0.24) 8px
+    );
+}
+
+.context-bar-tooltip {
   position: absolute;
-  inset: 0 auto 0 0;
-  border-radius: 999px;
-  transition: width 160ms ease, background 160ms ease;
+  z-index: 20;
+  bottom: 14px;
+  left: 50%;
+  width: max-content;
+  max-width: min(320px, 80vw);
+  transform: translateX(-50%);
+  padding: 8px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 6px;
+  background: #0f172a;
+  color: #e2e8f0;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+  white-space: normal;
+  transition: opacity 0.12s ease;
+}
+
+.context-bar-section:hover .context-bar-tooltip,
+.context-bar-section:focus .context-bar-tooltip,
+.context-bar-section:focus-visible .context-bar-tooltip {
+  opacity: 1;
 }
 
 .composer-settings-popover {

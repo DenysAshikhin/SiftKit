@@ -372,6 +372,8 @@ const CONTEXT_USAGE = {
   contextWindowTokens: 100,
   usedTokens: 10,
   estimatedTokenFallbackTokens: 0,
+  providerOverheadTokens: 5,
+  outputHeadroomTokens: 10,
 } as ContextUsage;
 
 type ChatTabProps = React.ComponentProps<typeof ChatTab>;
@@ -1245,6 +1247,33 @@ test('chat tab context bar color shifts toward red as ratio grows', () => {
 
   assert.match(low, /hsl\(108, 70%, 45%\)/u);
   assert.match(high, /hsl\(12, 70%, 45%\)/u);
+});
+
+test('chat tab context bar renders dashed provider overhead and output headroom sections with popups', () => {
+  const markup = renderChatTab({
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'chat',
+    isDirectChatMode: true,
+    contextUsage: {
+      ...CONTEXT_USAGE,
+      contextWindowTokens: 10000,
+      chatUsedTokens: 2500,
+      totalUsedTokens: 2500,
+      remainingTokens: 7500,
+      providerOverheadTokens: 500,
+      outputHeadroomTokens: 2000,
+    },
+  });
+
+  assert.match(markup, /context-bar-section provider-overhead/u);
+  assert.match(markup, /context-bar-section output-headroom/u);
+  assert.match(markup, /Provider overhead reserve/u);
+  assert.match(markup, /request framing, model options, and chat template metadata/u);
+  assert.match(markup, /Output headroom reserve/u);
+  assert.match(markup, /assistant response/u);
+  assert.match(markup, /width:5%/u);
+  assert.match(markup, /width:20%/u);
 });
 
 test('chat tab gear popover shows context details only when showSettings is true', () => {

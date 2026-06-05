@@ -415,11 +415,20 @@ function ContextBar({ usage, sessionContextWindowTokens, liveToolPromptTokenCoun
   const visual = resolveContextBarVisual(usage, sessionContextWindowTokens, liveToolPromptTokenCount, chatBusy);
   if (!visual) return null;
   return (
-    <div className="context-bar" title={visual.titleText}>
-      <div
-        className="context-bar-fill"
-        style={{ width: `${visual.percent}%`, background: visual.fillColor }}
-      />
+    <div className="context-bar" title={visual.titleText} aria-label={visual.titleText}>
+      {visual.sections.map((section) => (
+        <div
+          key={section.kind}
+          className={`context-bar-section ${section.kind}`}
+          style={{ width: `${section.percent}%`, background: section.kind === 'used' ? visual.fillColor : undefined }}
+          tabIndex={section.kind === 'provider-overhead' || section.kind === 'output-headroom' ? 0 : -1}
+          aria-label={section.titleText}
+        >
+          {section.kind === 'provider-overhead' || section.kind === 'output-headroom' ? (
+            <span className="context-bar-tooltip" role="tooltip">{section.titleText}</span>
+          ) : null}
+        </div>
+      ))}
     </div>
   );
 }
