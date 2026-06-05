@@ -32,7 +32,7 @@ export const DEFAULT_LLAMA_SLEEP_IDLE_SECONDS = 600;
 const MANAGED_LLAMA_SPECULATIVE_TYPES = ['draft-simple', 'draft-eagle3', 'draft-mtp', 'ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod', 'ngram-cache'] as const;
 
 export const DEFAULT_WEB_SEARCH_CONFIG = {
-  EnabledDefault: false,
+  EnabledDefault: true,
   Provider: 'searxng',
   SearxngBaseUrl: 'http://127.0.0.1:8080',
   ResultCount: 5,
@@ -139,7 +139,9 @@ export function normalizeWebSearchConfig(value: unknown): Dict {
   const record = (value && typeof value === 'object' && !Array.isArray(value)) ? value as Dict : {};
   const searxngBaseUrl = getNullableTrimmedString(record.SearxngBaseUrl) || DEFAULT_WEB_SEARCH_CONFIG.SearxngBaseUrl;
   return {
-    EnabledDefault: record.EnabledDefault === true,
+    EnabledDefault: typeof record.EnabledDefault === 'boolean'
+      ? record.EnabledDefault
+      : DEFAULT_WEB_SEARCH_CONFIG.EnabledDefault,
     Provider: 'searxng',
     SearxngBaseUrl: searxngBaseUrl,
     ResultCount: clampInteger(record.ResultCount, DEFAULT_WEB_SEARCH_CONFIG.ResultCount, 1, 10),

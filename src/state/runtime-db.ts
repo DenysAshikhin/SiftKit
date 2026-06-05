@@ -170,7 +170,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       model TEXT,
       context_window_tokens INTEGER NOT NULL,
       thinking_enabled INTEGER NOT NULL CHECK (thinking_enabled IN (0, 1)),
-      web_search_enabled INTEGER NOT NULL DEFAULT 0 CHECK (web_search_enabled IN (0, 1)),
+      web_search_enabled INTEGER NOT NULL DEFAULT 1 CHECK (web_search_enabled IN (0, 1)),
       preset_id TEXT,
       mode TEXT NOT NULL CHECK (mode IN ('chat', 'plan', 'repo-search')),
       plan_repo_root TEXT NOT NULL,

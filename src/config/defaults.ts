@@ -96,7 +96,7 @@ export function getDefaultConfigObject(): SiftConfig {
       },
     },
     WebSearch: {
-      EnabledDefault: false,
+      EnabledDefault: true,
       Provider: 'searxng',
       SearxngBaseUrl: 'http://127.0.0.1:8080',
       ResultCount: 5,

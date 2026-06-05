@@ -828,7 +828,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
   }
 });
 
-test('chat session web search defaults off and update persists webSearchEnabled', async () => {
+test('chat session web search defaults on and update persists webSearchEnabled', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-web-search-'));
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
@@ -843,11 +843,11 @@ test('chat session web search defaults off and update persists webSearchEnabled'
   try {
     const created = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
       method: 'POST',
-      body: JSON.stringify({ title: 'Web default off' }),
+      body: JSON.stringify({ title: 'Web default on' }),
     });
     assert.equal(created.statusCode, 200);
     const session = d(created.body.session);
-    assert.equal(session.webSearchEnabled, false);
+    assert.equal(session.webSearchEnabled, true);
 
     const sessionId = String(session.id);
     const updated = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`, {
@@ -859,6 +859,13 @@ test('chat session web search defaults off and update persists webSearchEnabled'
 
     const reloaded = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
     assert.equal(d(reloaded.body.session).webSearchEnabled, true);
+
+    const disabled = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ webSearchEnabled: false }),
+    });
+    assert.equal(disabled.statusCode, 200);
+    assert.equal(d(disabled.body.session).webSearchEnabled, false);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
@@ -940,8 +947,8 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
 
-  // web_search/web_fetch are native tools that bypass mockCommandResults, so the
-  // search backend must be stubbed with a fake SearXNG HTTP server.
+  // web_search is native, so the search backend must be stubbed with a fake
+  // SearXNG HTTP server. web_fetch uses mockCommandResults for determinism.
   const searxng = http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ results: [{ title: 'GE', url: 'https://prices.runescape.wiki/iron-bar', content: 'iron bar ~150 gp' }] }));
@@ -984,8 +991,15 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
         model: 'mock',
         mockResponses: [
           '{"action":"web_search","query":"iron bar GE price"}',
+          '{"action":"web_fetch","url":"https://prices.runescape.wiki/iron-bar"}',
           '{"action":"finish","output":"About 150 gp per bar."}',
         ],
+        mockCommandResults: {
+          'web_fetch url="https://prices.runescape.wiki/iron-bar"': {
+            exitCode: 0,
+            stdout: 'Fetched source: iron bar current price is about 150 gp per bar.',
+          },
+        },
       }),
     });
 
