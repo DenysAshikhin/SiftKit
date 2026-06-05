@@ -31,6 +31,23 @@ test('detectRecentTokenRepetition catches alternating structural loops', () => {
   assert.equal(result?.repeatedTokens.join(''), '}]');
 });
 
+test('detectRecentTokenRepetition ignores short repeated suffixes when a repeated-run floor is required', () => {
+  const text = `${Array.from({ length: 140 }, (_, index) => `anchor-${index}`).join(' ')} ${'</arg_value>'.repeat(10)}`;
+
+  const result = detectRecentTokenRepetition(text, { minRepeatedRunTokens: 48 });
+
+  assert.equal(result, null);
+});
+
+test('detectRecentTokenRepetition still catches long repeated runs when a repeated-run floor is required', () => {
+  const text = `${Array.from({ length: 140 }, (_, index) => `anchor-${index}`).join(' ')} ${'</arg_value>'.repeat(64)}`;
+
+  const result = detectRecentTokenRepetition(text, { minRepeatedRunTokens: 48 });
+
+  assert.notEqual(result, null);
+  assert.equal(result?.periodTokens, 1);
+});
+
 test('repetition guard benchmark is exposed as a package script', () => {
   const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { scripts?: Record<string, string> };
 

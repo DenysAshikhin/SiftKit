@@ -16,7 +16,10 @@ import {
   REPO_SEARCH_PRODUCER_COMMANDS,
   getFirstCommandToken,
 } from './command-safety.js';
-import { detectRecentTokenRepetition } from './repetition-guard.js';
+import {
+  detectRecentTokenRepetition,
+  type TokenRepetitionDetectionOptions,
+} from './repetition-guard.js';
 import {
   buildFinishValidationJsonSchema,
   buildLlamaJsonSchemaResponseFormat,
@@ -638,6 +641,12 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
 // ---------------------------------------------------------------------------
 
 const STREAM_RUNAWAY_STRUCTURAL_REPEAT_LIMIT = 96;
+const PLANNER_STREAM_REPETITION_GUARD_OPTIONS: TokenRepetitionDetectionOptions = {
+  minTotalTokens: 200,
+  windowTokens: 32,
+  minRepeats: 3,
+  minRepeatedRunTokens: 48,
+};
 
 type RunawayStructuralTail = {
   repeatedChar: string;
@@ -820,7 +829,7 @@ async function requestStreaming(
                 earlyReason = `runaway streamed planner reasoning repeated '${runawayThinking.repeatedChar}' ${runawayThinking.repeatedCount} times`;
                 return 'stop';
               }
-              const repeatedThinking = detectRecentTokenRepetition(thinkingText);
+              const repeatedThinking = detectRecentTokenRepetition(thinkingText, PLANNER_STREAM_REPETITION_GUARD_OPTIONS);
               if (repeatedThinking) {
                 thinkingText = repeatedThinking.truncatedText;
                 earlyReason = buildRecentTokenRepetitionReason('reasoning', repeatedThinking);
@@ -839,7 +848,7 @@ async function requestStreaming(
                 earlyReason = `runaway streamed planner content repeated '${runawayContent.repeatedChar}' ${runawayContent.repeatedCount} times`;
                 return 'stop';
               }
-              const repeatedContent = detectRecentTokenRepetition(contentText);
+              const repeatedContent = detectRecentTokenRepetition(contentText, PLANNER_STREAM_REPETITION_GUARD_OPTIONS);
               if (repeatedContent) {
                 contentText = repeatedContent.truncatedText;
                 earlyReason = buildRecentTokenRepetitionReason('content', repeatedContent);

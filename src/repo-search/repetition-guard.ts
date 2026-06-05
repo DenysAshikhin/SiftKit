@@ -6,6 +6,7 @@ export type TokenRepetitionDetection = {
   totalTokens: number;
   windowTokens: number;
   periodTokens: number;
+  repeatedRunTokens: number;
   repeatedTokens: string[];
   truncatedText: string;
 };
@@ -14,6 +15,7 @@ export type TokenRepetitionDetectionOptions = {
   minTotalTokens?: number;
   windowTokens?: number;
   minRepeats?: number;
+  minRepeatedRunTokens?: number;
 };
 
 type TokenSpan = {
@@ -55,6 +57,7 @@ export function detectRecentTokenRepetition(
   const minTotalTokens = Math.max(1, Math.trunc(options.minTotalTokens ?? DEFAULT_MIN_TOTAL_TOKENS));
   const windowTokens = Math.max(1, Math.trunc(options.windowTokens ?? DEFAULT_WINDOW_TOKENS));
   const minRepeats = Math.max(2, Math.trunc(options.minRepeats ?? DEFAULT_MIN_REPEATS));
+  const minRepeatedRunTokens = Math.max(0, Math.trunc(options.minRepeatedRunTokens ?? 0));
   const tokens = tokenizeForRepetitionDetection(text);
   if (tokens.length < minTotalTokens || tokens.length < windowTokens) {
     return null;
@@ -83,11 +86,16 @@ export function detectRecentTokenRepetition(
     }
     repeatedRunStartIndex -= periodTokens;
   }
+  const repeatedRunTokens = tokens.length - repeatedRunStartIndex;
+  if (repeatedRunTokens < minRepeatedRunTokens) {
+    return null;
+  }
 
   return {
     totalTokens: tokens.length,
     windowTokens,
     periodTokens,
+    repeatedRunTokens,
     repeatedTokens,
     truncatedText: String(text || '').slice(0, tokens[repeatedRunStartIndex]?.startIndex || 0).trimEnd(),
   };
