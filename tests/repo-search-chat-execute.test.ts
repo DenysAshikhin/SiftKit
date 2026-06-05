@@ -64,3 +64,21 @@ test('executeRepoSearchRequest chat with web tools runs native web_search', asyn
     await new Promise<void>((resolve) => searxng.close(() => resolve()));
   }
 });
+
+test('chat executor with thinking off yields zero thinking tokens', async () => {
+  const result = await executeRepoSearchRequest({
+    prompt: 'Hi',
+    repoRoot: os.tmpdir(),
+    taskKind: 'chat',
+    systemPrompt: 'general, coder friendly assistant',
+    thinkingEnabled: false,
+    allowedTools: [],
+    availableModels: ['mock'],
+    model: 'mock',
+    config: { Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000, Reasoning: 'on' } } },
+    mockResponses: ['{"action":"finish","output":"Hello"}'],
+  });
+  const tasks = (result.scorecard as { tasks: Array<{ thinkingTokens: number; finalOutput: string }> }).tasks;
+  assert.equal(tasks[0].finalOutput, 'Hello');
+  assert.equal(tasks[0].thinkingTokens, 0);
+});
