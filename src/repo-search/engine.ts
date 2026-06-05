@@ -1576,7 +1576,9 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
           requestedCommand: command,
           command,
           exitCode: Number(mockResult.exitCode),
-          output: String(mockResult.output || ''),
+          output: [mockResult.stdout, mockResult.stderr]
+            .filter((part) => typeof part === 'string' && part.length > 0)
+            .join('\n'),
           toolType: normalizedToolName,
         };
       } else {

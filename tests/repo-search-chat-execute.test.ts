@@ -64,7 +64,7 @@ test('executeRepoSearchRequest chat with web tools runs native web_search', asyn
       mockCommandResults: {
         [`web_fetch url="http://127.0.0.1:${port}/iron-bar"`]: {
           exitCode: 0,
-          output: 'Fetched page says an iron bar is about 150 gp per bar.',
+          stdout: 'Fetched page says an iron bar is about 150 gp per bar.',
         },
       },
       onProgress: (event) => { events.push(event); },
@@ -101,11 +101,11 @@ test('chat with web tools rejects snippet-only finish and requires web_fetch', a
     mockCommandResults: {
       'web_search query="OSRS F2P ironman fastest iron ore milestones"': {
         exitCode: 0,
-        output: '1. Mining Guild - OSRS Wiki\nURL: https://oldschool.runescape.wiki/w/Mining_Guild\nSnippet: The Mining Guild contains iron rocks.',
+        stdout: '1. Mining Guild - OSRS Wiki\nURL: https://oldschool.runescape.wiki/w/Mining_Guild\nSnippet: The Mining Guild contains iron rocks.',
       },
       'web_fetch url="https://oldschool.runescape.wiki/w/Mining_Guild"': {
         exitCode: 0,
-        output: 'Title: Mining Guild\nURL: https://oldschool.runescape.wiki/w/Mining_Guild\n\nThe Mining Guild requires 60 Mining to enter.',
+        stdout: 'Title: Mining Guild\nURL: https://oldschool.runescape.wiki/w/Mining_Guild\n\nThe Mining Guild requires 60 Mining to enter.',
       },
     },
   });
@@ -141,11 +141,11 @@ test('chat with web tools does not force finish after duplicate web_search', asy
     mockCommandResults: {
       'web_search query="osrs iron bar"': {
         exitCode: 0,
-        output: '1. Iron bar - OSRS Wiki\nURL: https://oldschool.runescape.wiki/w/Iron_bar\nSnippet: An iron bar can be created with Smithing.',
+        stdout: '1. Iron bar - OSRS Wiki\nURL: https://oldschool.runescape.wiki/w/Iron_bar\nSnippet: An iron bar can be created with Smithing.',
       },
       'web_fetch url="https://oldschool.runescape.wiki/w/Iron_bar"': {
         exitCode: 0,
-        output: 'Title: Iron bar\nURL: https://oldschool.runescape.wiki/w/Iron_bar\n\nIt can be created through Smithing at level 15 by using iron ore on a furnace.',
+        stdout: 'Title: Iron bar\nURL: https://oldschool.runescape.wiki/w/Iron_bar\n\nIt can be created through Smithing at level 15 by using iron ore on a furnace.',
       },
     },
   });
