@@ -19,7 +19,7 @@ function configWithSpeculativeType(speculativeType: string): Dict {
 test('normalizeConfig produces default WebSearch config', () => {
   const normalized = normalizeConfig(getDefaultConfig());
   assert.deepEqual(normalized.WebSearch, {
-    EnabledDefault: false,
+    EnabledDefault: true,
     Provider: 'searxng',
     SearxngBaseUrl: 'http://127.0.0.1:8080',
     ResultCount: 5,
