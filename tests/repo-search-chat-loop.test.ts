@@ -88,6 +88,33 @@ test('chat mode seeds system prompt override and history before the question', a
   assert.ok(logged.some((m) => m.role === 'user' && m.content === 'And now?'), 'question seeded last');
 });
 
+test('thinkingEnabledOverride=false forces enable_thinking:false in the planner request', async () => {
+  const requests: Array<{ enable_thinking?: boolean }> = [];
+  await runTaskLoop(
+    { id: 'chat', question: 'Hi', signals: [] },
+    {
+      repoRoot: os.tmpdir(),
+      maxTurns: 1,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      loopKind: 'chat',
+      plannerToolDefinitions: [],
+      includeRepoFileListing: false,
+      streamFinishAsAnswer: true,
+      thinkingEnabledOverride: false,
+      // Force config reasoning ON so the override is what matters:
+      config: { Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000, Reasoning: 'on' } } },
+      mockResponses: ['{"action":"finish","output":"hi"}'],
+      mockCommandResults: {},
+      logger: { path: '', write: (event) => {
+        if (event.kind === 'turn_model_request') { requests.push({ enable_thinking: event.thinkingEnabled }); }
+      } },
+    },
+  );
+  assert.ok(requests.length >= 1);
+  assert.equal(requests[0].enable_thinking, false);
+});
+
 test('runRepoSearch allows zero tools when allowEmptyTools is set', async () => {
   const scorecard = await runRepoSearch({
     repoRoot: os.tmpdir(),

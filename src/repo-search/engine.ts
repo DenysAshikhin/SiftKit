@@ -800,6 +800,7 @@ type RunTaskLoopOptions = {
   minToolCallsBeforeFinish?: number;
   loopKind?: 'repo-search' | 'chat';
   streamFinishAsAnswer?: boolean;
+  thinkingEnabledOverride?: boolean;
   systemPromptOverride?: string;
   historyMessages?: Array<{ role: 'user' | 'assistant'; content: string }>;
   plannerToolDefinitions?: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;
@@ -902,9 +903,11 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const thinkingBufferTokens = Math.max(Math.ceil(totalContextTokens * THINKING_BUFFER_RATIO), THINKING_BUFFER_MIN_TOKENS);
   const usablePromptTokens = Math.max(totalContextTokens - thinkingBufferTokens, 0);
   const useEstimatedTokensOnly = Array.isArray(options.mockResponses);
-  const plannerThinkingEnabled = isPlannerReasoningEnabled(options.config);
-  const plannerReasoningContentEnabled = isPlannerReasoningContentEnabled(options.config);
-  const plannerPreserveThinkingEnabled = isPlannerPreserveThinkingEnabled(options.config);
+  const plannerThinkingEnabled = typeof options.thinkingEnabledOverride === 'boolean'
+    ? options.thinkingEnabledOverride
+    : isPlannerReasoningEnabled(options.config);
+  const plannerReasoningContentEnabled = plannerThinkingEnabled && isPlannerReasoningContentEnabled(options.config);
+  const plannerPreserveThinkingEnabled = plannerReasoningContentEnabled && isPlannerPreserveThinkingEnabled(options.config);
   const loopKind = options.loopKind === 'chat' ? 'chat' : 'repo-search';
   const streamFinishAsAnswer = options.streamFinishAsAnswer === true;
   const plannerToolDefinitions = Array.isArray(options.plannerToolDefinitions)
