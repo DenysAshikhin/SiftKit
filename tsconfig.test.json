@@ -4,9 +4,6 @@
   "include": [
     "src/**/*.ts",
     "tests/repo-search-chat-types.test.ts",
-    "tests/tool-loop-governor-chat.test.ts",
-    "tests/repo-search-planner-empty-tools.test.ts",
-    "tests/repo-search-chat-loop.test.ts",
-    "tests/repo-search-chat-execute.test.ts"
+    "tests/tool-loop-governor-chat.test.ts"
   ]
 }

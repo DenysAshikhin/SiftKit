@@ -1,4 +1,4 @@
-type ToolLoopKind = 'repo-search' | 'planner';
+type ToolLoopKind = 'repo-search' | 'planner' | 'chat';
 
 type SuccessfulToolCall = {
   toolName: string;

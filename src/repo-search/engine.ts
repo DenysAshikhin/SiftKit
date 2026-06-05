@@ -798,6 +798,7 @@ type RunTaskLoopOptions = {
   maxTurns?: number;
   maxInvalidResponses?: number;
   minToolCallsBeforeFinish?: number;
+  loopKind?: 'repo-search' | 'chat';
   plannerToolDefinitions?: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;
   includeAgentsMd?: boolean;
   includeRepoFileListing?: boolean;
@@ -901,7 +902,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const plannerThinkingEnabled = isPlannerReasoningEnabled(options.config);
   const plannerReasoningContentEnabled = isPlannerReasoningContentEnabled(options.config);
   const plannerPreserveThinkingEnabled = isPlannerPreserveThinkingEnabled(options.config);
-  const plannerToolDefinitions = Array.isArray(options.plannerToolDefinitions) && options.plannerToolDefinitions.length > 0
+  const loopKind = options.loopKind === 'chat' ? 'chat' : 'repo-search';
+  const plannerToolDefinitions = Array.isArray(options.plannerToolDefinitions)
     ? options.plannerToolDefinitions
     : resolveRepoSearchPlannerToolDefinitions();
   const allowedPlannerToolNames = Array.from(new Set<string>([
@@ -1280,7 +1282,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     if (action.action === 'finish') {
       modelOutputTokens += resolvedCompletionTokens;
       const finishEvaluation = evaluateFinishAttempt({
-        loopKind: 'repo-search',
+        loopKind,
         finalOutput: action.output,
         successfulToolCalls,
       });
@@ -2195,6 +2197,8 @@ export async function runRepoSearch(options: {
   timeoutMs?: number;
   maxInvalidResponses?: number;
   minToolCallsBeforeFinish?: number;
+  loopKind?: 'repo-search' | 'chat';
+  allowEmptyTools?: boolean;
   taskPrompt?: string;
   availableModels?: string[];
   mockResponses?: string[];
@@ -2206,7 +2210,7 @@ export async function runRepoSearch(options: {
 } = {}): Promise<Scorecard> {
   throwIfAborted(options.abortSignal);
   const plannerToolDefinitions = resolveRepoSearchPlannerToolDefinitions(options.allowedTools);
-  if (plannerToolDefinitions.length === 0) {
+  if (plannerToolDefinitions.length === 0 && !options.allowEmptyTools) {
     throw new Error('No repo-search planner tools are enabled for the active preset.');
   }
   const path = await import('node:path');
@@ -2253,6 +2257,7 @@ export async function runRepoSearch(options: {
       maxTurns: options.maxTurns || DEFAULT_MAX_TURNS,
       maxInvalidResponses: options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES,
       minToolCallsBeforeFinish: options.minToolCallsBeforeFinish,
+      loopKind: options.loopKind,
       plannerToolDefinitions,
       includeAgentsMd: options.includeAgentsMd,
       includeRepoFileListing: options.includeRepoFileListing,

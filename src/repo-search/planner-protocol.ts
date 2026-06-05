@@ -306,7 +306,7 @@ export function buildPlannerRequestPromptReserveText(options: {
   stream?: boolean;
 }): string {
   const stage = options.stage || 'planner_action';
-  const toolDefinitions = Array.isArray(options.toolDefinitions) && options.toolDefinitions.length > 0
+  const toolDefinitions = Array.isArray(options.toolDefinitions)
     ? options.toolDefinitions
     : TOOL_DEFINITIONS;
   const defaultResponseSchema = stage === 'planner_action'
@@ -493,7 +493,7 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
   }
 
   const stage = options.stage || 'planner_action';
-  const toolDefinitions = Array.isArray(options.toolDefinitions) && options.toolDefinitions.length > 0
+  const toolDefinitions = Array.isArray(options.toolDefinitions)
     ? options.toolDefinitions
     : TOOL_DEFINITIONS;
   const allowedToolNames = new Set<string>(toolDefinitions.map((toolDefinition) => toolDefinition.function.name));
@@ -747,7 +747,7 @@ async function requestStreaming(
   bodyJson: string,
   stage: string,
 ): Promise<PlannerActionResponse> {
-  const toolDefinitions = Array.isArray(options.toolDefinitions) && options.toolDefinitions.length > 0
+  const toolDefinitions = Array.isArray(options.toolDefinitions)
     ? options.toolDefinitions
     : TOOL_DEFINITIONS;
   const allowedToolNames = new Set<string>(toolDefinitions.map((toolDefinition) => toolDefinition.function.name));
