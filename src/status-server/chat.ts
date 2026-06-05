@@ -40,7 +40,7 @@ export const WEB_CHAT_DECISION_PROMPT = [
   'To answer the user now: {"action":"answer"}',
   'Any value that can change over time MUST be verified with web_search before answering — for example: live or Grand Exchange / market item prices, currency and crypto exchange rates, stock quotes, breaking news and current events, weather, sports scores and standings, release dates, and the latest version of software or libraries.',
   'Anything about real-world events or any form of media — songs, videos, movies, TV shows, games, books, albums, and similar — MUST be verified with web_search rather than answered from training data or memory, because such details change over time and your memory may be outdated or wrong.',
-  'Any absolute or superlative claim — e.g. best, most efficient, safest, most dangerous, fastest, largest, latest, and similar — MUST be verified with web_search and answered with cited source URLs, unless the fact is 100% immutable (for example the number of continents in the world).',
+  'Any absolute or superlative claim — e.g. best, most efficient, safest, most dangerous, fastest, largest, latest, and similar — MUST be verified by running web_search AND opening a result page with web_fetch to read the actual source, then answered with cited source URLs, unless the fact is 100% immutable (for example the number of continents in the world).',
   'Use stable, well-known static facts directly via {"action":"answer"} without searching.',
   'Private, local, and internal URLs are blocked.',
 ].join('\n');
