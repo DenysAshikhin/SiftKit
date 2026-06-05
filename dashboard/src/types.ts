@@ -259,7 +259,6 @@ export type ContextUsage = {
   shouldCondense: boolean;
   estimatedTokenFallbackTokens?: number;
   providerOverheadTokens: number;
-  outputHeadroomTokens: number;
 };
 
 export type ChatSessionResponse = {

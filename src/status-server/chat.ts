@@ -121,7 +121,6 @@ class ContextUsageBuilder {
       shouldCondense: totals.remainingTokens <= warnThresholdTokens,
       estimatedTokenFallbackTokens: 0,
       providerOverheadTokens: this.getProviderOverheadTokens(),
-      outputHeadroomTokens: this.getOutputHeadroomTokens(totals),
     };
   }
 
@@ -165,20 +164,6 @@ class ContextUsageBuilder {
       },
     };
     return estimateTokenCount(JSON.stringify(reserveShape));
-  }
-
-  private getOutputHeadroomTokens(totals: ContextUsageTokenTotals): number {
-    if (totals.remainingTokens <= 0) {
-      return 0;
-    }
-    // Dashboard reserve estimate for the persisted session state. This is not an
-    // exact pending-request token count because buildContextUsage has no next user
-    // message; the real request path computes max_tokens from the full pending prompt.
-    const dynamicMaxTokens = getDynamicMaxOutputTokens({
-      totalContextTokens: totals.contextWindowTokens,
-      promptTokenCount: totals.totalUsedTokens,
-    });
-    return Math.min(dynamicMaxTokens, totals.remainingTokens);
   }
 }
 

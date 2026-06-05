@@ -373,7 +373,6 @@ const CONTEXT_USAGE = {
   usedTokens: 10,
   estimatedTokenFallbackTokens: 0,
   providerOverheadTokens: 5,
-  outputHeadroomTokens: 10,
 } as ContextUsage;
 
 type ChatTabProps = React.ComponentProps<typeof ChatTab>;
@@ -1249,7 +1248,7 @@ test('chat tab context bar color shifts toward red as ratio grows', () => {
   assert.match(high, /hsl\(12, 70%, 45%\)/u);
 });
 
-test('chat tab context bar renders dashed provider overhead and output headroom sections with popups', () => {
+test('chat tab context bar renders dashed provider overhead and warn-band sections with popups', () => {
   const markup = renderChatTab({
     webPresets: [PRESET],
     selectedChatPreset: PRESET,
@@ -1262,15 +1261,15 @@ test('chat tab context bar renders dashed provider overhead and output headroom 
       totalUsedTokens: 2500,
       remainingTokens: 7500,
       providerOverheadTokens: 500,
-      outputHeadroomTokens: 2000,
+      warnThresholdTokens: 2000,
     },
   });
 
   assert.match(markup, /context-bar-section provider-overhead/u);
-  assert.match(markup, /context-bar-section output-headroom/u);
+  assert.match(markup, /context-bar-section warn/u);
   assert.match(markup, /Provider overhead reserve/u);
   assert.match(markup, /request framing, model options, and chat template metadata/u);
-  assert.match(markup, /Output headroom/u);
+  assert.match(markup, /Warning zone/u);
   assert.match(markup, /response being cut off if the context window fills up/u);
   assert.match(markup, /width:5%/u);
   assert.match(markup, /width:20%/u);

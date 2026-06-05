@@ -646,12 +646,8 @@ test('buildContextUsage estimates continuation context from session content inst
   assert.equal(usage.totalUsedTokens, expectedChatTokens + expectedToolTokens);
   assert.equal(usage.estimatedTokenFallbackTokens, 0);
   assert.equal(typeof usage.providerOverheadTokens, 'number');
-  assert.equal(typeof usage.outputHeadroomTokens, 'number');
   assert.equal(Number.isInteger(usage.providerOverheadTokens), true);
-  assert.equal(Number.isInteger(usage.outputHeadroomTokens), true);
   assert.equal(usage.providerOverheadTokens >= 0, true);
-  assert.equal(usage.outputHeadroomTokens >= 0, true);
-  assert.equal(usage.outputHeadroomTokens <= usage.remainingTokens, true);
 });
 
 test('buildPersistTurnsFromRepoSearchResult interleaves per-turn thinking before that turn\'s tools', () => {
@@ -835,10 +831,6 @@ test('buildContextUsage counts typed thinking and tool bubbles from visible time
       + estimateTokenCount('Tool call: rg -n "x" src\n\nResult:\nsrc/example.ts:1:x'),
   );
   assert.equal(typeof usage.providerOverheadTokens, 'number');
-  assert.equal(typeof usage.outputHeadroomTokens, 'number');
   assert.equal(Number.isInteger(usage.providerOverheadTokens), true);
-  assert.equal(Number.isInteger(usage.outputHeadroomTokens), true);
   assert.equal(usage.providerOverheadTokens >= 0, true);
-  assert.equal(usage.outputHeadroomTokens >= 0, true);
-  assert.equal(usage.outputHeadroomTokens <= usage.remainingTokens, true);
 });

@@ -421,10 +421,10 @@ function ContextBar({ usage, sessionContextWindowTokens, liveToolPromptTokenCoun
           key={section.kind}
           className={`context-bar-section ${section.kind}`}
           style={{ width: `${section.percent}%`, background: section.kind === 'used' ? visual.fillColor : undefined }}
-          tabIndex={section.kind === 'provider-overhead' || section.kind === 'output-headroom' ? 0 : -1}
+          tabIndex={section.kind === 'provider-overhead' || section.kind === 'warn' ? 0 : -1}
           aria-label={section.titleText}
         >
-          {section.kind === 'provider-overhead' || section.kind === 'output-headroom' ? (
+          {section.kind === 'provider-overhead' || section.kind === 'warn' ? (
             <span className="context-bar-tooltip" role="tooltip">{section.titleText}</span>
           ) : null}
         </div>

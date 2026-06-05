@@ -1,7 +1,7 @@
 import { formatNumber } from './format';
 import type { ContextUsage } from '../types';
 
-export type ContextBarSectionKind = 'provider-overhead' | 'used' | 'free' | 'output-headroom';
+export type ContextBarSectionKind = 'provider-overhead' | 'used' | 'free' | 'warn';
 
 export type ContextBarSection = {
   kind: ContextBarSectionKind;
@@ -76,11 +76,11 @@ export function resolveContextBarVisual(
   const used = liveUsed === null ? baseUsed : Math.max(baseUsed, liveUsed);
   const visual = computeContextBarVisual(used, total);
   const providerOverheadTokens = getNonNegativeInteger(usage?.providerOverheadTokens);
-  const outputHeadroomTokens = getNonNegativeInteger(usage?.outputHeadroomTokens);
+  const warnThresholdTokens = getNonNegativeInteger(usage?.warnThresholdTokens);
   const providerTokens = Math.min(providerOverheadTokens, total);
   const usedTokens = Math.min(used, Math.max(total - providerTokens, 0));
-  const outputTokens = Math.min(outputHeadroomTokens, Math.max(total - providerTokens - usedTokens, 0));
-  const freeTokens = Math.max(total - providerTokens - usedTokens - outputTokens, 0);
+  const warnTokens = Math.min(warnThresholdTokens, Math.max(total - providerTokens - usedTokens, 0));
+  const freeTokens = Math.max(total - providerTokens - usedTokens - warnTokens, 0);
   const sections: ContextBarSection[] = [];
   appendSection(
     sections,
@@ -105,10 +105,10 @@ export function resolveContextBarVisual(
   );
   appendSection(
     sections,
-    'output-headroom',
-    outputTokens,
+    'warn',
+    warnTokens,
     total,
-    `Output headroom: ~${formatNumber(outputTokens)} tokens for the reply. This is not a hard reserve: chatting further risks the model's response being cut off if the context window fills up.`,
+    `Warning zone: the last ${formatNumber(warnThresholdTokens)} tokens. When used context reaches here the session should be condensed. Chatting further risks the model's response being cut off if the context window fills up.`,
   );
   return { ...visual, sections };
 }

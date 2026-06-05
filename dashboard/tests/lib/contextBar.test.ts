@@ -15,7 +15,6 @@ const USAGE: ContextUsage = {
   warnThresholdTokens: 80,
   shouldCondense: false,
   providerOverheadTokens: 5,
-  outputHeadroomTokens: 10,
 };
 
 test('computeContextBarVisual clamps used > total to 100%', () => {
@@ -100,21 +99,21 @@ test('resolveContextBarVisual returns ordered reserve and usage sections', () =>
     totalUsedTokens: 20,
     remainingTokens: 80,
     providerOverheadTokens: 5,
-    outputHeadroomTokens: 10,
+    warnThresholdTokens: 10,
   }, 999, null, false);
 
   assert.deepEqual(result?.sections.map((section) => section.kind), [
     'provider-overhead',
     'used',
     'free',
-    'output-headroom',
+    'warn',
   ]);
   assert.equal(result?.sections[0]?.percent, 5);
   assert.equal(result?.sections[1]?.percent, 20);
   assert.equal(result?.sections[3]?.percent, 10);
 });
 
-test('resolveContextBarVisual lets used context take precedence over output headroom when crowded', () => {
+test('resolveContextBarVisual lets used context take precedence over the warn band when crowded', () => {
   const result = resolveContextBarVisual({
     ...USAGE,
     contextWindowTokens: 100,
@@ -122,13 +121,13 @@ test('resolveContextBarVisual lets used context take precedence over output head
     totalUsedTokens: 90,
     remainingTokens: 10,
     providerOverheadTokens: 20,
-    outputHeadroomTokens: 30,
+    warnThresholdTokens: 30,
   }, 999, null, false);
 
   const totalPercent = result?.sections.reduce((sum, section) => sum + section.percent, 0);
   assert.equal(totalPercent, 100);
   assert.equal(result?.sections.find((section) => section.kind === 'used')?.percent, 80);
-  assert.equal(result?.sections.find((section) => section.kind === 'output-headroom'), undefined);
+  assert.equal(result?.sections.find((section) => section.kind === 'warn'), undefined);
   assert.equal(result?.sections.find((section) => section.kind === 'free'), undefined);
 });
 
@@ -136,7 +135,7 @@ test('resolveContextBarVisual omits zero-token reserve sections', () => {
   const result = resolveContextBarVisual({
     ...USAGE,
     providerOverheadTokens: 0,
-    outputHeadroomTokens: 0,
+    warnThresholdTokens: 0,
   }, 999, null, false);
 
   assert.deepEqual(result?.sections.map((section) => section.kind), ['used', 'free']);

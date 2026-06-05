@@ -1182,7 +1182,7 @@ pre {
     );
 }
 
-.context-bar-section.output-headroom {
+.context-bar-section.warn {
   background:
     repeating-linear-gradient(
       90deg,
