@@ -157,9 +157,14 @@ async function notifyRepoSearchTerminalStatus(options: RepoSearchTerminalStatusN
 export async function executeRepoSearchRequest(
   request: RepoSearchExecutionRequest,
 ): Promise<RepoSearchExecutionResult> {
+  const taskKind = request.taskKind === 'plan'
+    ? 'plan'
+    : request.taskKind === 'chat'
+      ? 'chat'
+      : 'repo-search';
   const basePrompt = String(request.prompt || '').trim();
   const promptPrefix = typeof request.promptPrefix === 'string' ? request.promptPrefix.trim() : '';
-  const prompt = promptPrefix ? `${promptPrefix}\n\n${basePrompt}`.trim() : basePrompt;
+  const prompt = (taskKind !== 'chat' && promptPrefix) ? `${promptPrefix}\n\n${basePrompt}`.trim() : basePrompt;
   if (!prompt) {
     throw new Error('A --prompt is required for repo-search.');
   }
@@ -170,7 +175,6 @@ export async function executeRepoSearchRequest(
   const requestId = typeof request.requestId === 'string' && request.requestId.trim()
     ? request.requestId.trim()
     : randomUUID();
-  const taskKind = request.taskKind === 'plan' ? 'plan' : 'repo-search';
   const runtimeDatabasePath = getRuntimeDatabasePath();
   const timingRecorder = createTemporaryTimingRecorderFromEnv({
     kind: 'repo-search',
@@ -217,6 +221,13 @@ export async function executeRepoSearchRequest(
       allowedTools: Array.isArray(request.allowedTools) ? request.allowedTools : undefined,
       includeAgentsMd: request.includeAgentsMd,
       includeRepoFileListing: request.includeRepoFileListing,
+      allowEmptyTools: taskKind === 'chat',
+      loopKind: taskKind === 'chat' ? 'chat' : 'repo-search',
+      streamFinishAsAnswer: taskKind === 'chat',
+      minToolCallsBeforeFinish: taskKind === 'chat' ? 0 : undefined,
+      systemPromptOverride: taskKind === 'chat' ? (request.systemPrompt || '') : undefined,
+      historyMessages: taskKind === 'chat' ? (request.history || []) : undefined,
+      thinkingEnabledOverride: taskKind === 'chat' ? (request.thinkingEnabled !== false) : undefined,
       taskPrompt: prompt,
       logger,
       availableModels: request.availableModels,

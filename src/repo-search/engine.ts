@@ -2224,6 +2224,10 @@ export async function runRepoSearch(options: {
   minToolCallsBeforeFinish?: number;
   loopKind?: 'repo-search' | 'chat';
   allowEmptyTools?: boolean;
+  streamFinishAsAnswer?: boolean;
+  systemPromptOverride?: string;
+  historyMessages?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  thinkingEnabledOverride?: boolean;
   taskPrompt?: string;
   availableModels?: string[];
   mockResponses?: string[];
@@ -2283,6 +2287,10 @@ export async function runRepoSearch(options: {
       maxInvalidResponses: options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES,
       minToolCallsBeforeFinish: options.minToolCallsBeforeFinish,
       loopKind: options.loopKind,
+      streamFinishAsAnswer: options.streamFinishAsAnswer,
+      systemPromptOverride: options.systemPromptOverride,
+      historyMessages: options.historyMessages,
+      thinkingEnabledOverride: options.thinkingEnabledOverride,
       plannerToolDefinitions,
       includeAgentsMd: options.includeAgentsMd,
       includeRepoFileListing: options.includeRepoFileListing,
