@@ -17,7 +17,7 @@
   - Add const `WEB_CHAT_MAX_STEER_ATTEMPTS = 3` (near `WEB_CHAT_MAX_TOOL_CALLS`, line 52).
   - Add governor state + gate logic inside `streamDirectChatWebTurn` (lines 778–842).
 - Modify (tests): `tests/status-server-chat.test.ts`
-  - Add 4 behavior tests + 1 prompt-content test for the new governor.
+  - Add 1 prompt-content test, 6 mock-mode behavior tests (steer-to-fetch, budget-exhaustion, static-not-gated, fetch-satisfies, fetch-failure-keeps-steering, maxTurns-bypass), and 1 HTTP-captured injection/non-pollution test. Update the existing `streams a web_search tool then a prose answer` test for the new gate behavior.
 
 No other files change. No public API changes beyond the new exported const.
 
@@ -225,7 +225,39 @@ The tool branch ends with `continue;` and `}` at line 838. Immediately after tha
 Run: `npx tsx --test --test-name-pattern "steers a snippet answer into a web_fetch" .\tests\status-server-chat.test.ts`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Update the existing line-196 test for the new gate behavior**
+
+The governor changes the behavior of the pre-existing test `streamDirectChatWebTurn streams a web_search tool then a prose answer` (tests/status-server-chat.test.ts:196). Its mocks are `[web_search, answer, prose]`; under the gate the `answer` after a search is now blocked, so it must walk through a fetch. Replace the whole test body (lines 196-215) with:
+
+```ts
+test('streamDirectChatWebTurn streams a web_search tool then a prose answer', async () => {
+  const events: WebStreamProgress[] = [];
+  const result = await streamDirectChatWebTurn(createConfig(), createSession(), 'find latest', searxngWebTools(), (event) => events.push(event), {
+    mockResponses: [
+      '{"action":"web_search","query":"osrs iron bar"}',
+      '{"action":"web_fetch","url":"https://example.com"}',
+      '{"action":"answer"}',
+      'Iron bars are refined iron, made by smelting iron ore.',
+    ],
+  });
+
+  assert.equal(result.assistantContent, 'Iron bars are refined iron, made by smelting iron ore.');
+  const toolTurns = result.turns.filter((turn) => turn.toolMessages.length > 0);
+  assert.equal(toolTurns.length, 2);
+  assert.equal(toolTurns[0].toolMessages[0].toolCallCommand, 'web_search query="osrs iron bar"');
+  assert.equal(toolTurns[1].toolMessages[0].toolCallCommand, 'web_fetch url="https://example.com"');
+  assert.equal(toolTurns[0].toolMessages[0].toolCallExitCode, 0);
+  assert.match(toolTurns[0].toolMessages[0].toolCallOutput, /example\.com/);
+  assert.ok(events.some((event) => event.kind === 'tool_start' && event.command === 'web_search query="osrs iron bar"'));
+  assert.ok(events.some((event) => event.kind === 'tool_result' && event.exitCode === 0));
+  assert.ok(events.some((event) => event.kind === 'answer' && event.answer.includes('refined iron')));
+});
+```
+
+Run: `npx tsx --test --test-name-pattern "streams a web_search tool then a prose answer" .\tests\status-server-chat.test.ts`
+Expected: PASS.
+
+- [ ] **Step 8: Commit**
 
 ```bash
 git add src/status-server/chat.ts tests/status-server-chat.test.ts
@@ -239,7 +271,7 @@ git commit -m "feat(chat): steer web turn toward page visit after search"
 **Files:**
 - Test: `tests/status-server-chat.test.ts` (add after the existing `streamDirectChatWebTurn answers directly when no web tool is needed` test, line ~226)
 
-Test A is written during Task 3 Step 1. Add Tests B–D here. After each, run and confirm PASS.
+Test A is written during Task 3 Step 1. Add Tests B–F here. After each, run and confirm PASS.
 
 - [ ] **Step 1: Test A — steer to fetch (written in Task 3 Step 1)**
 
@@ -333,7 +365,69 @@ test('streamDirectChatWebTurn stops steering after a successful fetch', async ()
 Run: `npx tsx --test --test-name-pattern "stops steering after a successful fetch" .\tests\status-server-chat.test.ts`
 Expected: PASS. (After the fetch sets `fetchSucceeded`, the `answer` is allowed with no block; if the gate still fired it would block and run out of mocks.)
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Test E — a failed web_fetch does NOT satisfy the gate**
+
+This proves the `fetchSucceeded`-only-on-success branch: a `web_fetch` that throws (HTTP non-ok) keeps the gate active. `WebFetchService.fetch` throws on non-ok status, landing the call in the loop's catch branch. Use a tools instance whose handler returns search results for the searxng base URL but a 500 for any fetch target:
+
+```ts
+test('streamDirectChatWebTurn keeps steering when a web_fetch fails', async () => {
+  const webTools = new WebResearchTools(WEB_CONFIG, async (input) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    if (url.includes('search.example.test')) {
+      return new Response(JSON.stringify({ results: [{ title: 'Example', url: 'https://example.com', content: 'snippet' }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return new Response('upstream error', { status: 500 });
+  });
+  const result = await streamDirectChatWebTurn(createConfig(), createSession(), 'osrs iron bar price', webTools, () => {}, {
+    mockResponses: [
+      '{"action":"web_search","query":"osrs iron bar"}',
+      '{"action":"answer"}',
+      '{"action":"web_fetch","url":"https://example.com/iron"}',
+      '{"action":"answer"}',
+      '{"action":"answer"}',
+      '{"action":"answer"}',
+      'Iron bars trade around 150gp.',
+    ],
+  });
+
+  assert.equal(result.assistantContent, 'Iron bars trade around 150gp.');
+  const toolTurns = result.turns.filter((turn) => turn.toolMessages.length > 0);
+  assert.equal(toolTurns.length, 2);
+  assert.equal(toolTurns[1].toolMessages[0].toolCallExitCode, 1);
+});
+```
+
+Trace: search → answer(block1) → fetch FAILS (exitCode 1, `fetchSucceeded` stays false) → answer(block2) → answer(block3) → answer(allowed, budget spent) → prose. 6 decisions + prose = 7 mocks; if a failed fetch had wrongly satisfied the gate, the second `answer` would be allowed and the loop would run out of mocks early / return the wrong content.
+
+Run: `npx tsx --test --test-name-pattern "keeps steering when a web_fetch fails" .\tests\status-server-chat.test.ts`
+Expected: PASS.
+
+- [ ] **Step 7: Test F — `toolCalls >= maxTurns` bypasses steering**
+
+This proves the `toolCalls < maxTurns` clause of the gate: once the tool budget is spent, an `answer` after a search is allowed without steering. Drive it with `maxTurns: 1`:
+
+```ts
+test('streamDirectChatWebTurn does not steer once maxTurns is reached', async () => {
+  const result = await streamDirectChatWebTurn(createConfig(), createSession(), 'osrs iron bar price', searxngWebTools(), () => {}, {
+    maxTurns: 1,
+    mockResponses: [
+      '{"action":"web_search","query":"osrs iron bar"}',
+      '{"action":"answer"}',
+      'Iron bars trade around 150gp.',
+    ],
+  });
+
+  assert.equal(result.assistantContent, 'Iron bars trade around 150gp.');
+  assert.equal(result.turns.filter((turn) => turn.toolMessages.length > 0).length, 1);
+});
+```
+
+Trace: search (toolCalls→1, the cap) → answer → gate sees `toolCalls (1) < maxTurns (1)` is false → not gated → answer turn → prose. 3 mocks consumed; if the gate had fired, it would block and run out of mocks.
+
+Run: `npx tsx --test --test-name-pattern "does not steer once maxTurns is reached" .\tests\status-server-chat.test.ts`
+Expected: PASS.
+
+- [ ] **Step 8: Commit**
 
 ```bash
 git add tests/status-server-chat.test.ts
@@ -342,34 +436,101 @@ git commit -m "test(chat): cover web-turn page-visit steering governor"
 
 ---
 
-## Task 5: Full regression run
+## Task 5: Transient-injection / non-pollution HTTP test
+
+**Files:**
+- Test: `tests/status-server-chat.test.ts` (add after the Task 4 tests)
+
+The mock-mode tests in Task 4 prove control flow but never construct `decisionEvidence`, so they cannot prove `WEB_CHAT_STEER_PROMPT` is actually injected into the re-decision request or absent from the final answer request. This test drives the real `streamChatAssistantMessage` path against a captured HTTP server (mirroring the existing `streamChatAssistantMessage forwards webActionInstruction...` test at line 116) and inspects every request body.
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+test('streamDirectChatWebTurn injects the steer prompt only into the re-decision request', async () => {
+  const bodies: Dict[] = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      bodies.push(JSON.parse(body) as Dict);
+      const action = bodies.length === 1 ? '{"action":"web_search","query":"osrs iron bar"}'
+        : bodies.length === 2 ? '{"action":"answer"}'
+        : bodies.length === 3 ? '{"action":"web_fetch","url":"https://example.com/iron"}'
+        : bodies.length === 4 ? '{"action":"answer"}'
+        : 'Iron bars trade around 150gp.';
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: action } }] })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      res.end();
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const port = (server.address() as AddressInfo).port;
+  const config = createConfig();
+  (config.Server as Dict).LlamaCpp = {
+    ...((config.Server as Dict).LlamaCpp as Dict),
+    BaseUrl: `http://127.0.0.1:${port}`,
+  };
+  try {
+    const result = await streamDirectChatWebTurn(config, createSession(), 'osrs iron bar price', searxngWebTools(), () => {});
+
+    assert.equal(result.assistantContent, 'Iron bars trade around 150gp.');
+    assert.equal(bodies.length, 5);
+    const steerInBody = (body: Dict): boolean =>
+      (body.messages as Dict[]).some((message) => String(message.content).includes('have not opened any result page'));
+    // Injected ONLY into the re-decision request (#3); absent from the first
+    // decision (#1), the first answer decision (#2), the post-fetch decision
+    // (#4), and the final answer request (#5).
+    assert.ok(!steerInBody(bodies[0]));
+    assert.ok(!steerInBody(bodies[1]));
+    assert.ok(steerInBody(bodies[2]));
+    assert.ok(!steerInBody(bodies[3]));
+    assert.ok(!steerInBody(bodies[4]));
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+```
+
+Request sequence: (1) decision→web_search, executed via `searxngWebTools()`; (2) decision→answer, blocked, `steerMessage` set; (3) re-decision carries the steer in `decisionEvidence`→web_fetch (succeeds, clears steer, sets `fetchSucceeded`); (4) decision→answer, allowed; (5) answer turn→prose.
+
+- [ ] **Step 2: Run to verify**
+
+Run: `npx tsx --test --test-name-pattern "injects the steer prompt only into the re-decision request" .\tests\status-server-chat.test.ts`
+Expected (before governor lands): FAIL — without the gate there is no re-decision, `bodies.length` is not 5 and the steer text appears in no body. After the governor (Tasks 2-3): PASS.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add tests/status-server-chat.test.ts
+git commit -m "test(chat): assert steer prompt injection and answer-turn non-pollution"
+```
+
+---
+
+## Task 6: Full regression run
 
 **Files:** none (verification only)
 
 - [ ] **Step 1: Run the full chat test file**
 
 Run: `npx tsx --test .\tests\status-server-chat.test.ts`
-Expected: all tests PASS, including the 4 pre-existing `streamDirectChatWebTurn` tests (the gate must not change their behavior — they either do no search, or do one search then answer; Test at line 196 does `search → answer` with no prior search-then-answer-block because... see note).
-
-> **Note on the existing line-196 test** (`streams a web_search tool then a prose answer`): it uses mocks `[web_search, answer, prose]`. After the search, `searchCount = 1`, so the `answer` WILL now be gated (one block), and the loop will re-decide — consuming the `prose` mock as a decision, which parses as `answer` (non-JSON → `answer` via `parseWebChatDecision`), blocking again, then running out of mocks. **This test must be updated** as part of Task 4 Step 6: change its mocks to `['{"action":"web_search","query":"osrs iron bar"}', '{"action":"web_fetch","url":"https://example.com"}', '{"action":"answer"}', 'Iron bars are refined iron, made by smelting iron ore.']` and update its assertions to expect 2 tool turns (search + fetch), keeping the existing search-command and answer-content assertions. Add this edit to Task 4 before committing.
+Expected: all tests PASS. The pre-existing `streamDirectChatWebTurn answers directly when no web tool is needed` test (no search → not gated) is unaffected; the `streams a web_search tool then a prose answer` test was already updated to walk search→fetch→answer in Task 3 Step 7, so it passes here with no further change.
 
 - [ ] **Step 2: Run the broader build+test suite**
 
 Run: `npm test`
 Expected: build succeeds and the suite passes. If unrelated pre-existing failures appear, note them but do not fix in this plan.
 
-- [ ] **Step 3: Final commit (if the line-196 test edit was not already committed)**
+- [ ] **Step 3: No commit needed**
 
-```bash
-git add tests/status-server-chat.test.ts
-git commit -m "test(chat): update existing web-search test for steering gate"
-```
+This task is verification only; all code is already committed by Tasks 1-5. If `npm test` surfaced a needed fix, commit it with a descriptive message.
 
 ---
 
 ## Self-Review Notes
 
-- **Spec coverage:** Trigger (intercept answer) → Task 3 Step 5 gate; fetch-satisfies → Task 3 Step 4 `fetchSucceeded`; 3-block budget → Task 2 const + gate; transient nudge non-pollution → Task 3 Step 3 local copy + Test A assertion; nudge text → Task 1.
+- **Spec coverage:** Trigger (intercept answer) → Task 3 Step 5 gate; fetch-satisfies → Task 3 Step 4 `fetchSucceeded` + Task 4 Test D; failed-fetch does-not-satisfy → Task 4 Test E; 3-block budget → Task 2 const + gate + Task 4 Test B; `maxTurns` bypass → Task 4 Test F; static-not-gated → Task 4 Test C; transient nudge injection + answer-turn non-pollution → Task 3 Step 3 local copy + **Task 5 HTTP-captured test** (asserts the steer text is present only in the re-decision request body and absent from the answer request); nudge text → Task 1.
 - **Type consistency:** `searchCount`/`fetchSucceeded`/`blockedAnswers`/`steerMessage` declared once (Task 3 Step 2) and referenced consistently; `WEB_CHAT_MAX_STEER_ATTEMPTS` (Task 2) used in the gate (Task 3 Step 5); `WEB_CHAT_STEER_PROMPT` exported (Task 1) and asserted in tests.
-- **Existing-test interaction:** the line-196 test changes behavior under the gate — explicitly handled in Task 5 Note / Task 4. This is the one non-obvious regression; it is called out rather than left to discovery.
+- **Existing-test interaction:** the `streams a web_search tool then a prose answer` test (line 196) changes behavior under the gate — updated in Task 3 Step 7, in the same commit as the governor, so no commit ever leaves it red.
 - **No placeholders:** every code/test step shows complete code and an exact run command with expected result.

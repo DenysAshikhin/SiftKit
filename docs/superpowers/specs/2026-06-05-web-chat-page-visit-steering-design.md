@@ -73,8 +73,9 @@ repo-search duplicate pattern, more simply.
 2. Parse decision.
 3. If `decision.kind !== 'answer'` and `toolCalls < maxTurns` (existing branch):
    - `steerMessage = null` (compliance clears the nudge).
-   - Execute tool as today. On `web_search` success bump `searchCount`; on
-     `web_fetch` success set `fetchSucceeded = true`.
+   - Execute tool as today. On **dispatch** of a `web_search` bump `searchCount`
+     (regardless of exit code — the search happened); on `web_fetch` **success**
+     (`exitCode 0`) set `fetchSucceeded = true`.
    - `continue`.
 4. If `decision.kind === 'answer'`:
    - `gateApplies = searchCount > 0 && !fetchSucceeded && blockedAnswers < 3 && toolCalls < maxTurns`.
