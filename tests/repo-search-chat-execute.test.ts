@@ -24,8 +24,9 @@ test('executeRepoSearchRequest chat kind returns finalOutput in scorecard, no to
     mockResponses: ['{"action":"finish","output":"You like green."}'],
     onProgress: (event) => { events.push(event); },
   });
-  const tasks = (result.scorecard as { tasks: Array<{ finalOutput: string }> }).tasks;
+  const tasks = (result.scorecard as { tasks: Array<{ finalOutput: string; groundingStatus?: string }> }).tasks;
   assert.equal(tasks[0].finalOutput, 'You like green.');
+  assert.equal(tasks[0].groundingStatus, undefined);
   assert.ok(events.some((event) => event.kind === 'answer' && event.answerText === 'You like green.'));
 });
 

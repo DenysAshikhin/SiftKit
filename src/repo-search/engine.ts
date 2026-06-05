@@ -2188,7 +2188,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   return {
     id: task.id, question: task.question, reason, turnsUsed, safetyRejects,
     invalidResponses, commandFailures, commands, turnThinking, finalOutput, passed,
-    groundingStatus: chatWebGroundingPolicy.getStatus(),
+    ...(chatWebGroundingEnabled ? { groundingStatus: chatWebGroundingPolicy.getStatus() } : {}),
     missingSignals: signalCheck.missingSignals,
     promptTokens: modelPromptTokens,
     outputTokens: modelOutputTokens,
