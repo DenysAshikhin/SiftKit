@@ -118,6 +118,47 @@ test('chat with web tools rejects snippet-only finish and requires web_fetch', a
   assert.equal((result.scorecard as { verdict: string }).verdict, 'pass');
 });
 
+test('reported OSRS failure shape fetches before answering milestones', async () => {
+  const result = await executeRepoSearchRequest({
+    taskKind: 'chat',
+    prompt: 'What are the major milestones at which I can get the iron ore fastest as f2p ironman?',
+    repoRoot: process.cwd(),
+    statusBackendUrl: 'http://127.0.0.1:1/status',
+    config: MOCK_CONFIG,
+    systemPrompt: 'general, coder friendly assistant',
+    history: [],
+    thinkingEnabled: false,
+    allowedTools: ['web_search', 'web_fetch'],
+    availableModels: ['mock'],
+    model: 'mock',
+    maxTurns: 6,
+    mockResponses: [
+      '{"action":"web_search","query":"OSRS F2P ironman fastest iron ore mining methods milestones"}',
+      '{"action":"finish","output":"Move to the Mining Guild at level 30 after Doric\'s Quest."}',
+      '{"action":"web_fetch","url":"https://oldschool.runescape.wiki/w/Mining_Guild"}',
+      '{"action":"finish","output":"For F2P ironman iron ore milestones, the fetched source says Mining Guild access requires 60 Mining, so the iron ore milestone is 60 Mining rather than 30."}',
+    ],
+    mockCommandResults: {
+      'web_search query="OSRS F2P ironman fastest iron ore mining methods milestones"': {
+        exitCode: 0,
+        stdout: '1. Mining Guild - OSRS Wiki\nURL: https://oldschool.runescape.wiki/w/Mining_Guild\nSnippet: The guild has iron rocks near a bank.',
+      },
+      'web_fetch url="https://oldschool.runescape.wiki/w/Mining_Guild"': {
+        exitCode: 0,
+        stdout: 'Title: Mining Guild\nURL: https://oldschool.runescape.wiki/w/Mining_Guild\n\nPlayers need level 60 Mining to enter the Mining Guild.',
+      },
+    },
+  });
+
+  const tasks = (result.scorecard as { tasks: Array<{ finalOutput: string; groundingStatus?: string }> }).tasks;
+  const output = String(tasks[0]?.finalOutput || '');
+
+  assert.match(output, /60 Mining/);
+  assert.doesNotMatch(output, /level 30/);
+  assert.equal(tasks[0]?.groundingStatus, 'fetched');
+  assert.equal((result.scorecard as { verdict: string }).verdict, 'pass');
+});
+
 test('chat with web tools does not force finish after duplicate web_search', async () => {
   const result = await executeRepoSearchRequest({
     taskKind: 'chat',
