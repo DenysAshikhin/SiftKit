@@ -1,18 +1,34 @@
-// @ts-nocheck — behavioral test run via tsx (types stripped); mock path bypasses network.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as http from 'node:http';
 import * as os from 'node:os';
+import type { SiftConfig } from '../src/config/index.js';
 import { runTaskLoop, runRepoSearch } from '../src/repo-search/engine.js';
+import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 
 const MOCK_CONFIG = {
   Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
-};
+} as SiftConfig;
+
+async function closeServer(server: http.Server): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
 
 test('runTaskLoop answers on turn 1 with zero tools in chat loopKind', async () => {
   const result = await runTaskLoop(
     { id: 'chat', question: 'What is 2+2?', signals: [] },
     {
       repoRoot: os.tmpdir(),
+      model: 'mock',
+      baseUrl: 'http://127.0.0.1:1',
       maxTurns: 4,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -28,12 +44,42 @@ test('runTaskLoop answers on turn 1 with zero tools in chat loopKind', async () 
   assert.equal(result.commands.length, 0);
 });
 
+test('chat loopKind with zero planner tools rejects repo-search tool actions', async () => {
+  const result = await runTaskLoop(
+    { id: 'chat', question: 'What is this repo?', signals: [] },
+    {
+      repoRoot: os.tmpdir(),
+      model: 'mock',
+      baseUrl: 'http://127.0.0.1:1',
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      loopKind: 'chat',
+      plannerToolDefinitions: [],
+      includeRepoFileListing: false,
+      mockResponses: [
+        '{"action":"repo_rg","command":"rg -n \\"needle\\" ."}',
+        '{"action":"finish","output":"done"}',
+      ],
+      mockCommandResults: {
+        'rg -n "needle" .': { exitCode: 0, stdout: 'should not execute', stderr: '' },
+      },
+    },
+  );
+
+  assert.equal(result.reason, 'finish');
+  assert.equal(result.finalOutput, 'done');
+  assert.equal(result.commands.length, 0);
+});
+
 test('chat mode streams finish output as answer events', async () => {
-  const events: Array<{ kind: string; answerText?: string; thinkingText?: string }> = [];
+  const events: RepoSearchProgressEvent[] = [];
   const result = await runTaskLoop(
     { id: 'chat', question: 'Greet me.', signals: [] },
     {
       repoRoot: os.tmpdir(),
+      model: 'mock',
+      baseUrl: 'http://127.0.0.1:1',
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -52,12 +98,69 @@ test('chat mode streams finish output as answer events', async () => {
   assert.equal(answerEvents[answerEvents.length - 1].answerText, 'Hello there!');
 });
 
+test('chat answer streaming waits for extractable finish output instead of emitting raw planner json', async () => {
+  const events: RepoSearchProgressEvent[] = [];
+  const server = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/tokenize') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ count: 10 }));
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/v1/chat/completions') {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: '{"action":"finish"' } }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: ',"output":"Hello' } }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: ' there!"}' } }] })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      res.end();
+      return;
+    }
+    res.writeHead(404, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${Number(typeof address === 'object' && address ? address.port : 0)}`;
+
+  try {
+    const result = await runTaskLoop(
+      { id: 'chat', question: 'Greet me.', signals: [] },
+      {
+        repoRoot: os.tmpdir(),
+        config: { Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } } } as SiftConfig,
+        baseUrl: baseUrl,
+        model: 'mock',
+        maxTurns: 1,
+        maxInvalidResponses: 2,
+        minToolCallsBeforeFinish: 0,
+        loopKind: 'chat',
+        plannerToolDefinitions: [],
+        includeRepoFileListing: false,
+        streamFinishAsAnswer: true,
+        onProgress: (event) => { events.push(event); },
+      },
+    );
+
+    const answerTexts = events
+      .filter((event) => event.kind === 'answer')
+      .map((event) => String(event.answerText || ''));
+    assert.equal(result.finalOutput, 'Hello there!');
+    assert.deepEqual(answerTexts, ['Hello', 'Hello there!', 'Hello there!']);
+    assert.equal(answerTexts.some((text) => text.includes('"action"') || text.includes('"output"')), false);
+  } finally {
+    await closeServer(server);
+  }
+});
+
 test('chat mode seeds system prompt override and history before the question', async () => {
   const logged: Array<{ role: string; content: string }> = [];
   await runTaskLoop(
     { id: 'chat', question: 'And now?', signals: [] },
     {
       repoRoot: os.tmpdir(),
+      model: 'mock',
+      baseUrl: 'http://127.0.0.1:1',
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -94,6 +197,8 @@ test('thinkingEnabledOverride=false forces enable_thinking:false in the planner 
     { id: 'chat', question: 'Hi', signals: [] },
     {
       repoRoot: os.tmpdir(),
+      model: 'mock',
+      baseUrl: 'http://127.0.0.1:1',
       maxTurns: 1,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -103,11 +208,15 @@ test('thinkingEnabledOverride=false forces enable_thinking:false in the planner 
       streamFinishAsAnswer: true,
       thinkingEnabledOverride: false,
       // Force config reasoning ON so the override is what matters:
-      config: { Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000, Reasoning: 'on' } } },
+      config: { Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000, Reasoning: 'on' } } } as SiftConfig,
       mockResponses: ['{"action":"finish","output":"hi"}'],
       mockCommandResults: {},
       logger: { path: '', write: (event) => {
-        if (event.kind === 'turn_model_request') { requests.push({ enable_thinking: event.thinkingEnabled }); }
+          if (event.kind === 'turn_model_request') {
+            requests.push({
+              enable_thinking: typeof event.thinkingEnabled === 'boolean' ? event.thinkingEnabled : undefined,
+            });
+          }
       } },
     },
   );

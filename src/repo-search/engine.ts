@@ -913,10 +913,13 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const plannerToolDefinitions = Array.isArray(options.plannerToolDefinitions)
     ? options.plannerToolDefinitions
     : resolveRepoSearchPlannerToolDefinitions();
-  const allowedPlannerToolNames = Array.from(new Set<string>([
-    ...plannerToolDefinitions.map((toolDefinition) => toolDefinition.function.name),
-    ...getRepoSearchToolNamesForParsing(),
-  ]));
+  const activePlannerToolNames = plannerToolDefinitions.map((toolDefinition) => toolDefinition.function.name);
+  const allowedPlannerToolNames = loopKind === 'chat'
+    ? activePlannerToolNames
+    : Array.from(new Set<string>([
+      ...activePlannerToolNames,
+      ...getRepoSearchToolNamesForParsing(),
+    ]));
   let zeroOutputStreak = 0;
   let forcedFinishAttemptsRemaining = 0;
   let lastLoggedMessageCount = 0;
@@ -1201,10 +1204,13 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
           : undefined,
         onContentDelta: options.onProgress
           ? (accContent) => {
-              const finishOutput = ModelJson.extractStreamingFinishOutput(accContent) ?? accContent;
               if (streamFinishAsAnswer) {
-                options.onProgress!({ kind: 'answer', turn, maxTurns, answerText: finishOutput });
+                const finishOutput = ModelJson.extractStreamingFinishOutput(accContent);
+                if (finishOutput !== null) {
+                  options.onProgress!({ kind: 'answer', turn, maxTurns, answerText: finishOutput });
+                }
               } else {
+                const finishOutput = ModelJson.extractStreamingFinishOutput(accContent) ?? accContent;
                 options.onProgress!({ kind: 'thinking', turn, maxTurns, thinkingText: finishOutput });
               }
             }

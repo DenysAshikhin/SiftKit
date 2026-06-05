@@ -1,16 +1,16 @@
-// @ts-nocheck — behavioral test run via tsx (types stripped); mock path bypasses network.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as os from 'node:os';
 import * as http from 'node:http';
 import { executeRepoSearchRequest } from '../src/repo-search/execute.js';
+import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 
 const MOCK_CONFIG = {
   Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
 };
 
 test('executeRepoSearchRequest chat kind returns finalOutput in scorecard, no tools', async () => {
-  const events: Array<{ kind: string; answerText?: string }> = [];
+  const events: RepoSearchProgressEvent[] = [];
   const result = await executeRepoSearchRequest({
     prompt: 'What did I just say?',
     repoRoot: os.tmpdir(),
@@ -36,7 +36,7 @@ test('executeRepoSearchRequest chat with web tools runs native web_search', asyn
   });
   await new Promise<void>((resolve) => searxng.listen(0, '127.0.0.1', () => resolve()));
   const port = (searxng.address() as import('node:net').AddressInfo).port;
-  const events: Array<{ kind: string }> = [];
+  const events: RepoSearchProgressEvent[] = [];
   try {
     const result = await executeRepoSearchRequest({
       prompt: 'Current GE price of an iron bar?',

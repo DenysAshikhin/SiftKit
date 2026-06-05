@@ -555,6 +555,13 @@ test('package build command syncs dist runtime output after compiling TypeScript
   assert.match(String(pkg.scripts?.build || ''), /node\s+\.\\scripts\\sync-dist-runtime\.js/u);
 });
 
+test('package test command runs the test TypeScript typecheck', () => {
+  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { scripts?: Record<string, string> };
+
+  assert.equal(String(pkg.scripts?.['typecheck:test']), 'tsc -p .\\tsconfig.test.json --noEmit');
+  assert.match(String(pkg.scripts?.test || ''), /npm run typecheck:test/u);
+});
+
 test('syncDistRuntime copies fresh compiled files from dist/src into runtime dist paths', () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-dist-runtime-'));
   const sourceRoot = path.join(tempRoot, 'dist', 'src');
