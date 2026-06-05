@@ -800,6 +800,8 @@ type RunTaskLoopOptions = {
   minToolCallsBeforeFinish?: number;
   loopKind?: 'repo-search' | 'chat';
   streamFinishAsAnswer?: boolean;
+  systemPromptOverride?: string;
+  historyMessages?: Array<{ role: 'user' | 'assistant'; content: string }>;
   plannerToolDefinitions?: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;
   includeAgentsMd?: boolean;
   includeRepoFileListing?: boolean;
@@ -942,16 +944,21 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: buildTaskSystemPrompt(options.repoRoot, {
-        includeAgentsMd: options.includeAgentsMd,
-        includeRepoFileListing: options.includeRepoFileListing,
-      }),
+      content: typeof options.systemPromptOverride === 'string' && options.systemPromptOverride.trim()
+        ? options.systemPromptOverride.trim()
+        : buildTaskSystemPrompt(options.repoRoot, {
+          includeAgentsMd: options.includeAgentsMd,
+          includeRepoFileListing: options.includeRepoFileListing,
+        }),
     },
+    ...((options.historyMessages || []).map((message) => ({ role: message.role, content: message.content }))),
     {
       role: 'user',
-      content: buildTaskInitialUserPrompt(task.question, bootstrapFileList, {
-        includeRepoFileListing: options.includeRepoFileListing,
-      }),
+      content: loopKind === 'chat'
+        ? task.question
+        : buildTaskInitialUserPrompt(task.question, bootstrapFileList, {
+          includeRepoFileListing: options.includeRepoFileListing,
+        }),
     },
   ];
 

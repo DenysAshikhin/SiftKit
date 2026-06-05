@@ -52,6 +52,42 @@ test('chat mode streams finish output as answer events', async () => {
   assert.equal(answerEvents[answerEvents.length - 1].answerText, 'Hello there!');
 });
 
+test('chat mode seeds system prompt override and history before the question', async () => {
+  const logged: Array<{ role: string; content: string }> = [];
+  await runTaskLoop(
+    { id: 'chat', question: 'And now?', signals: [] },
+    {
+      repoRoot: os.tmpdir(),
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      loopKind: 'chat',
+      plannerToolDefinitions: [],
+      includeRepoFileListing: false,
+      streamFinishAsAnswer: true,
+      systemPromptOverride: 'general, coder friendly assistant',
+      historyMessages: [
+        { role: 'user', content: 'My name is Sam.' },
+        { role: 'assistant', content: 'Hi Sam.' },
+      ],
+      mockResponses: ['{"action":"finish","output":"You are Sam."}'],
+      mockCommandResults: {},
+      logger: { path: '', write: (event) => {
+        if (event.kind === 'turn_new_messages' && Array.isArray(event.messages)) {
+          for (const m of event.messages) {
+            logged.push({ role: String(m.role || ''), content: String(m.content || '') });
+          }
+        }
+      } },
+    },
+  );
+  const system = logged.find((m) => m.role === 'system');
+  assert.ok(system && system.content.includes('coder friendly assistant'), 'system prompt overridden');
+  assert.ok(logged.some((m) => m.role === 'assistant' && m.content === 'Hi Sam.'), 'assistant history seeded');
+  assert.ok(logged.some((m) => m.role === 'user' && m.content === 'My name is Sam.'), 'user history seeded');
+  assert.ok(logged.some((m) => m.role === 'user' && m.content === 'And now?'), 'question seeded last');
+});
+
 test('runRepoSearch allows zero tools when allowEmptyTools is set', async () => {
   const scorecard = await runRepoSearch({
     repoRoot: os.tmpdir(),
