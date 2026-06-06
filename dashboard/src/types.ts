@@ -222,14 +222,6 @@ export type RepoSearchAutoAppendSelection = {
   includeRepoFileListing: boolean;
 };
 
-export type HiddenToolContext = {
-  id: string;
-  content: string;
-  tokenEstimate: number;
-  sourceMessageId: string | null;
-  createdAtUtc: string;
-};
-
 export type ChatSession = {
   id: string;
   title: string;
@@ -245,7 +237,6 @@ export type ChatSession = {
   updatedAtUtc: string;
   messages: ChatMessage[];
   promptContext?: ChatPromptContext;
-  hiddenToolContexts?: HiddenToolContext[];
 };
 
 export type ContextUsage = {

@@ -506,10 +506,13 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     const planSession = d(planMessage.body.session);
     const planMessages = planSession.messages as Dict[];
     assert.equal(planMessages.length >= 4, true);
-    assert.equal(Array.isArray(planSession.hiddenToolContexts), true);
-    assert.equal((planSession.hiddenToolContexts as Dict[]).length >= 1, true);
+    assert.equal(planMessages.some((message) =>
+      message.kind === 'assistant_tool_call'
+      && String(message.toolCallOutput || '').includes('/dashboard/chat/sessions')
+    ), true);
     const planUsage = d(planMessage.body.contextUsage);
-    assert.equal(Number(planUsage.totalUsedTokens) > Number(planUsage.chatUsedTokens), true);
+    assert.equal(Number(planUsage.toolUsedTokens), 0);
+    assert.equal(Number(planUsage.totalUsedTokens), Number(planUsage.chatUsedTokens));
     const latestMessage = planMessages[planMessages.length - 1];
     assert.equal(latestMessage.role, 'assistant');
     assert.equal(Number(latestMessage.associatedToolTokens || 0) > 0, true);
@@ -551,13 +554,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
       method: 'POST',
       body: JSON.stringify({}),
     });
-    assert.equal(clearToolContextResponse.statusCode, 200);
-    const clearedSession = d(clearToolContextResponse.body.session);
-    assert.equal(Array.isArray(clearedSession.hiddenToolContexts), true);
-    assert.equal((clearedSession.hiddenToolContexts as Dict[]).length, 0);
-    const clearedUsage = d(clearToolContextResponse.body.contextUsage);
-    assert.equal(clearedUsage.toolUsedTokens, 0);
-    assert.equal(clearedUsage.totalUsedTokens, clearedUsage.chatUsedTokens);
+    assert.equal(clearToolContextResponse.statusCode, 404);
 
     const condenseResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/condense`, {
       method: 'POST',
@@ -1790,7 +1787,7 @@ test('plan endpoint rejects missing or invalid repo root', async () => {
   }
 });
 
-test('chat completion receives hidden tool context while keeping it out of visible chat history', async () => {
+test('chat completion replays prior tool evidence without hidden system context', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-toolctx-'));
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
@@ -1868,14 +1865,13 @@ test('chat completion receives hidden tool context while keeping it out of visib
     });
     assert.equal(planMessage.statusCode, 200);
     const planSession = d(planMessage.body.session);
-    assert.equal((planSession.hiddenToolContexts as Dict[]).length >= 1, true);
-    const planToolContextText = String((planSession.hiddenToolContexts as Dict[])[0]?.content || '');
-    assert.match(planToolContextText, /Command: rg -n "name" package\.json/u);
+    const planToolMessage = ((planSession.messages || []) as Dict[]).find((message) => message.kind === 'assistant_tool_call');
+    assert.match(String(planToolMessage?.toolCallCommand || ''), /rg -n "name" package\.json/u);
+    assert.match(String(planToolMessage?.toolCallOutput || ''), /"name": "siftkit"/u);
     const persistedPlanSession = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
-    const persistedHiddenToolContexts = d(persistedPlanSession.body.session).hiddenToolContexts as Dict[];
-    assert.equal(Array.isArray(persistedHiddenToolContexts), true);
-    assert.equal(persistedHiddenToolContexts.length >= 1, true);
-    assert.match(String(persistedHiddenToolContexts[0]?.content || ''), /Command: rg -n "name" package\.json/u);
+    const persistedToolMessage = ((d(persistedPlanSession.body.session).messages || []) as Dict[]).find((message) => message.kind === 'assistant_tool_call');
+    assert.match(String(persistedToolMessage?.toolCallCommand || ''), /rg -n "name" package\.json/u);
+    assert.match(String(persistedToolMessage?.toolCallOutput || ''), /"name": "siftkit"/u);
 
     const chatReply = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
       method: 'POST',
@@ -1907,9 +1903,16 @@ test('chat completion receives hidden tool context while keeping it out of visib
     const captured = capturedChatRequest as Dict | null;
     assert.equal(Array.isArray(captured?.messages), true);
     const systemMessages = (captured?.messages as Dict[]).filter((message) => message && message.role === 'system');
-    const hiddenToolSystemMessage = systemMessages.find((message) => String(message.content || '').includes('Internal tool-call context from prior session steps.'));
-    assert.equal(Boolean(hiddenToolSystemMessage), true, JSON.stringify(systemMessages));
-    assert.match(String(hiddenToolSystemMessage?.content || ''), /Command: rg -n "name" package\.json/u);
+    assert.equal(systemMessages.some((message) => String(message.content || '').includes('Internal tool-call context from prior session steps.')), false);
+    assert.equal((captured?.messages as Dict[]).some((message) =>
+      message.role === 'assistant'
+      && Array.isArray(message.tool_calls)
+      && String(message.tool_calls[0]?.function?.arguments || '').includes('rg -n \\"name\\" package.json')
+    ), true);
+    assert.equal((captured?.messages as Dict[]).some((message) =>
+      message.role === 'tool'
+      && String(message.content || '').includes('"name": "siftkit"')
+    ), true);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
@@ -2012,7 +2015,6 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
     assert.equal(typeof toolMessage?.id, 'string');
     assert.match(String(toolMessage?.toolCallCommand || ''), /^rg -n "name" package\.json/u);
     assert.equal(String(toolMessage?.toolCallOutput || '').includes('"name": "siftkit"'), true);
-    assert.equal(((repoSession.hiddenToolContexts || []) as Dict[]).some((entry) => entry.sourceMessageId === toolMessage?.id), true);
     const runId = String(toolMessage?.sourceRunId || '');
     const storedCommandText = String(toolMessage?.toolCallCommand || '');
 
@@ -2030,7 +2032,6 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
     assert.equal(deleteResponse.statusCode, 200);
     const deletedSession = d(deleteResponse.body.session);
     assert.equal(((deletedSession.messages || []) as Dict[]).some((message) => message.id === toolMessage?.id), false);
-    assert.equal(((deletedSession.hiddenToolContexts || []) as Dict[]).some((entry) => entry.sourceMessageId === toolMessage?.id), false);
 
     const detailAfter = await requestJson(`${baseUrl}/dashboard/runs/${encodeURIComponent(runId)}`);
     assert.equal(detailAfter.statusCode, 200);

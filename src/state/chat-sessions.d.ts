@@ -3,7 +3,6 @@ export type ChatMessage = Dict;
 export type ChatSession = Dict & {
     id: string;
     messages?: ChatMessage[];
-    hiddenToolContexts?: Dict[];
 };
 export declare function estimateTokenCount(value: unknown): number;
 export declare function getChatSessionsRoot(runtimeRoot: string): string;

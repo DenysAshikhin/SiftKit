@@ -68,13 +68,6 @@ test('chat sessions are persisted in runtime sqlite instead of JSON files', () =
         sourceRunId: 'run-1',
         groundingStatus: 'fetched',
       }],
-      hiddenToolContexts: [{
-        id: 'h1',
-        content: 'context',
-        tokenEstimate: 1,
-        sourceMessageId: 'm1',
-        createdAtUtc: new Date().toISOString(),
-      }],
     });
 
     const sessions = readChatSessions(runtimeRoot);
@@ -82,7 +75,6 @@ test('chat sessions are persisted in runtime sqlite instead of JSON files', () =
     assert.equal(sessions[0]?.id, sessionId);
     assert.equal(sessions[0]?.presetId, 'chat');
     assert.equal(sessions[0]?.messages?.length, 1);
-    assert.equal(sessions[0]?.hiddenToolContexts?.length, 1);
     assert.equal(sessions[0]?.messages?.[0]?.promptCacheTokens, null);
     assert.equal(sessions[0]?.messages?.[0]?.promptEvalTokens, null);
     assert.equal(sessions[0]?.messages?.[0]?.promptTokensPerSecond, null);
@@ -124,7 +116,6 @@ test('chat sessions persist webSearchEnabled', () => {
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       messages: [],
-      hiddenToolContexts: [],
     });
 
     const loaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
@@ -173,13 +164,6 @@ test('chat timeline bubbles persist typed tool payload fields', () => {
         createdAtUtc: new Date().toISOString(),
         sourceRunId: 'run-tool',
       }],
-      hiddenToolContexts: [{
-        id: 'h-tool',
-        content: 'Command: rg -n "timeline" .',
-        tokenEstimate: 7,
-        sourceMessageId: 'tool-1',
-        createdAtUtc: new Date().toISOString(),
-      }],
     });
 
     const loaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
@@ -192,7 +176,6 @@ test('chat timeline bubbles persist typed tool payload fields', () => {
     assert.equal(message?.toolCallPromptTokenCount, 44);
     assert.equal(message?.toolCallOutputSnippet, 'src/chat.ts:1:timeline');
     assert.equal(message?.toolCallOutput, 'src/chat.ts:1:timeline\nsrc/ui.tsx:2:bubble');
-    assert.equal(loaded?.hiddenToolContexts?.[0]?.sourceMessageId, 'tool-1');
   });
 });
 
@@ -211,7 +194,6 @@ test('deleteChatSession removes DB rows and reports existence correctly', () => 
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       messages: [],
-      hiddenToolContexts: [],
     });
 
     assert.equal(deleteChatSession(runtimeRoot, sessionId), true);

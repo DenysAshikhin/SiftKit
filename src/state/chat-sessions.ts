@@ -5,7 +5,7 @@ import { mapLegacyModeToPresetId } from '../presets.js';
 import { getRuntimeDatabase } from './runtime-db.js';
 
 export type ChatMessage = Dict;
-export type ChatSession = Dict & { id: string; messages?: ChatMessage[]; hiddenToolContexts?: Dict[] };
+export type ChatSession = Dict & { id: string; messages?: ChatMessage[] };
 type ChatGroundingStatus = 'ungrounded' | 'snippet_only' | 'fetched';
 
 type SessionRow = {
@@ -61,15 +61,6 @@ type MessageRow = {
   source_run_id: string | null;
   compressed_into_summary: number;
   grounding_status: string | null;
-  position: number;
-};
-
-type HiddenContextRow = {
-  id: string;
-  content: string;
-  token_estimate: number;
-  source_message_id: string | null;
-  created_at_utc: string;
   position: number;
 };
 
@@ -240,19 +231,6 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
     ORDER BY position ASC
   `).all(sessionId) as MessageRow[];
 
-  const hiddenContextRows = database.prepare(`
-    SELECT
-      id,
-      content,
-      token_estimate,
-      source_message_id,
-      created_at_utc,
-      position
-    FROM chat_hidden_tool_contexts
-    WHERE session_id = ?
-    ORDER BY position ASC
-  `).all(sessionId) as HiddenContextRow[];
-
   return {
     id: row.id,
     title: row.title,
@@ -305,13 +283,6 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       compressedIntoSummary: message.compressed_into_summary === 1,
       groundingStatus: normalizeGroundingStatus(message.grounding_status),
     })),
-    hiddenToolContexts: hiddenContextRows.map((entry) => ({
-      id: entry.id,
-      content: entry.content,
-      tokenEstimate: entry.token_estimate,
-      sourceMessageId: entry.source_message_id,
-      createdAtUtc: entry.created_at_utc,
-    })),
   };
 }
 
@@ -348,7 +319,6 @@ export function deleteChatSession(runtimeRoot: string, sessionId: string): boole
   }
   const database = getSessionDatabase(runtimeRoot);
   database.prepare('DELETE FROM chat_messages WHERE session_id = ?').run(normalizedId);
-  database.prepare('DELETE FROM chat_hidden_tool_contexts WHERE session_id = ?').run(normalizedId);
   const result = database.prepare('DELETE FROM chat_sessions WHERE id = ?').run(normalizedId) as { changes?: number };
   return Number(result.changes || 0) > 0;
 }
@@ -371,9 +341,6 @@ export function deleteChatMessage(runtimeRoot: string, sessionId: string, messag
     ...current,
     updatedAtUtc: new Date().toISOString(),
     messages: current.messages.filter((message) => String(message.id || '') !== normalizedMessageId),
-    hiddenToolContexts: Array.isArray(current.hiddenToolContexts)
-      ? current.hiddenToolContexts.filter((entry: Dict) => String(entry.sourceMessageId || '') !== normalizedMessageId)
-      : [],
   };
   saveChatSession(runtimeRoot, updatedSession);
   return { session: updatedSession, deletedMessage };
@@ -388,9 +355,6 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
   const mode = normalizeMode(session.mode);
   const presetId = normalizePresetId(session.presetId, mode);
   const messages = Array.isArray(session.messages) ? session.messages : [];
-  const hiddenToolContexts = Array.isArray(session.hiddenToolContexts)
-    ? session.hiddenToolContexts
-    : [];
 
   const database = getSessionDatabase(runtimeRoot);
   database.transaction(() => {
@@ -438,7 +402,6 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
     );
 
     database.prepare('DELETE FROM chat_messages WHERE session_id = ?').run(sessionId);
-    database.prepare('DELETE FROM chat_hidden_tool_contexts WHERE session_id = ?').run(sessionId);
 
     const insertMessage = database.prepare(`
       INSERT INTO chat_messages (
@@ -529,37 +492,5 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
       );
     }
 
-    const insertHiddenToolContext = database.prepare(`
-      INSERT INTO chat_hidden_tool_contexts (
-        session_id,
-        id,
-        content,
-        token_estimate,
-        source_message_id,
-        created_at_utc,
-        position
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    for (let index = 0; index < hiddenToolContexts.length; index += 1) {
-      const entry = hiddenToolContexts[index] as Dict;
-      const content = typeof entry.content === 'string' ? entry.content.trim() : '';
-      if (!content) {
-        continue;
-      }
-      insertHiddenToolContext.run(
-        sessionId,
-        typeof entry.id === 'string' && entry.id.trim() ? entry.id : crypto.randomUUID(),
-        content,
-        toNonNegativeInteger(entry.tokenEstimate, estimateTokenCount(content)),
-        typeof entry.sourceMessageId === 'string' && entry.sourceMessageId.trim()
-          ? entry.sourceMessageId
-          : null,
-        typeof entry.createdAtUtc === 'string' && entry.createdAtUtc.trim()
-          ? entry.createdAtUtc
-          : now,
-        index,
-      );
-    }
   })();
 }

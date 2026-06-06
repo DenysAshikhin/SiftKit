@@ -40,7 +40,6 @@ import {
   buildPlanRequestPrompt,
   buildPlanMarkdownFromRepoSearch,
   getScorecardTotal,
-  buildToolContextFromRepoSearchResult,
   buildPersistTurnsFromRepoSearchResult,
   buildRepoSearchMarkdown,
   buildRetainedWebToolCalls,
@@ -549,7 +548,6 @@ export async function handleChatRoute(
       createdAtUtc: now,
       updatedAtUtc: now,
       messages: [],
-      hiddenToolContexts: [],
     };
     saveChatSession(runtimeRoot, session);
     sendJson(res, 200, buildChatSessionResponse(currentConfig, session));
@@ -979,7 +977,6 @@ export async function handleChatRoute(
         },
       });
       const assistantContent = buildPlanMarkdownFromRepoSearch(content, resolvedRepoRoot, result);
-      const toolContextContents = buildToolContextFromRepoSearchResult(result);
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
@@ -999,7 +996,6 @@ export async function handleChatRoute(
               toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
             })),
           })),
-          toolContextContents,
           requestDurationMs: Date.now() - startedAt,
           promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
           generationDurationMs: getScorecardTotal(result?.scorecard, 'generationDurationMs'),
@@ -1139,7 +1135,6 @@ export async function handleChatRoute(
       });
       const assistantContent = buildPlanMarkdownFromRepoSearch(content, resolvedRepoRoot, result);
       phaseTracker.observeAnswer(assistantContent);
-      const toolContextContents = buildToolContextFromRepoSearchResult(result);
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
@@ -1159,7 +1154,6 @@ export async function handleChatRoute(
               toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
             })),
           })),
-          toolContextContents,
           requestDurationMs: Date.now() - startedAt,
           promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
           generationDurationMs: getScorecardTotal(result?.scorecard, 'generationDurationMs'),
@@ -1357,7 +1351,6 @@ export async function handleChatRoute(
       });
       const assistantContent = buildRepoSearchMarkdown(content, resolvedRepoRoot, result);
       phaseTracker.observeAnswer(assistantContent);
-      const toolContextContents = buildToolContextFromRepoSearchResult(result);
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
@@ -1377,7 +1370,6 @@ export async function handleChatRoute(
               toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
             })),
           })),
-          toolContextContents,
           requestDurationMs: Date.now() - startedAt,
           promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
           generationDurationMs: getScorecardTotal(result?.scorecard, 'generationDurationMs'),
@@ -1412,28 +1404,6 @@ export async function handleChatRoute(
       releaseModelRequest(ctx, modelRequestLock.token);
       res.end();
     }
-    return true;
-  }
-
-  // -------------------------------------------------------------------------
-  // Clear tool context
-  // -------------------------------------------------------------------------
-
-  if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/tool-context\/clear$/u.test(pathname)) {
-    const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/tool-context\/clear$/u, ''));
-    const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
-    const session = readChatSessionFromPath(sessionPath);
-    if (!session) {
-      sendJson(res, 404, { error: 'Session not found.' });
-      return true;
-    }
-    const updatedSession: ChatSession = {
-      ...session,
-      updatedAtUtc: new Date().toISOString(),
-      hiddenToolContexts: [],
-    };
-    saveChatSession(runtimeRoot, updatedSession);
-    sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), updatedSession));
     return true;
   }
 

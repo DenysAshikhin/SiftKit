@@ -10,6 +10,7 @@ export type RuntimeDatabase = InstanceType<typeof Database>;
 export const CURRENT_SCHEMA_VERSION = 30;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["repo_rg","repo_read_file","repo_list_files","repo_git","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}';
+const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
 
 let cachedDatabasePath: string | null = null;
 let cachedDatabase: RuntimeDatabase | null = null;
@@ -222,17 +223,6 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       PRIMARY KEY (session_id, id)
     );
 
-    CREATE TABLE IF NOT EXISTS chat_hidden_tool_contexts (
-      session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
-      id TEXT NOT NULL,
-      content TEXT NOT NULL,
-      token_estimate INTEGER NOT NULL,
-      source_message_id TEXT,
-      created_at_utc TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      PRIMARY KEY (session_id, id)
-    );
-
     CREATE TABLE IF NOT EXISTS benchmark_runs (
       id TEXT PRIMARY KEY,
       payload_json TEXT NOT NULL,
@@ -284,6 +274,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
     CREATE INDEX IF NOT EXISTS idx_runtime_error_events_route_created
       ON runtime_error_events(route, created_at_utc DESC);
   `);
+  database.exec(`DROP TABLE IF EXISTS ${OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE}`);
 }
 
 function ensureRuntimeErrorEventsSchema(database: RuntimeDatabase): void {

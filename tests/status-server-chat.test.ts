@@ -109,30 +109,6 @@ test('appendChatMessagesWithUsage persists interleaved per-turn thinking and too
   assert.equal(answerMessage?.groundingStatus, 'fetched');
 });
 
-test('appendChatMessagesWithUsage aligns hidden tool contexts with persisted tool message ids', () => {
-  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-hidden-'));
-  const session = appendChatMessagesWithUsage(
-    runtimeRoot, createSession(), 'q', 'answer',
-    { promptTokens: 10, completionTokens: 5, thinkingTokens: 0, promptCacheTokens: null, promptEvalTokens: 10 },
-    {
-      toolContextContents: ['context for a', 'context for b'],
-      turns: [
-        { thinkingText: '', toolMessages: [
-          { id: 'tool-a', content: 'rg a', toolCallCommand: 'rg a', toolCallTurn: 1, toolCallMaxTurns: 2, toolCallExitCode: 0, toolCallOutputSnippet: 'a', toolCallOutput: 'a', outputTokens: 1 },
-          { id: 'tool-b', content: 'rg b', toolCallCommand: 'rg b', toolCallTurn: 2, toolCallMaxTurns: 2, toolCallExitCode: 0, toolCallOutputSnippet: 'b', toolCallOutput: 'b', outputTokens: 1 },
-        ] },
-      ],
-    }
-  );
-  const toolIds = session.messages.filter((m) => m.kind === 'assistant_tool_call').map((m) => m.id);
-  const hidden = (session.hiddenToolContexts || []) as Array<{ content: string; sourceMessageId: string }>;
-  assert.equal(hidden.length, 2);
-  assert.equal(hidden[0].content, 'context for a');
-  assert.equal(hidden[0].sourceMessageId, toolIds[0]);
-  assert.equal(hidden[1].content, 'context for b');
-  assert.equal(hidden[1].sourceMessageId, toolIds[1]);
-});
-
 test('appendChatMessagesWithUsage omits empty-thinking turns and persists single-turn chat', () => {
   const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-single-'));
   const session = appendChatMessagesWithUsage(
@@ -149,28 +125,20 @@ test('appendChatMessagesWithUsage omits empty-thinking turns and persists single
   assert.deepEqual(emptySession.messages.slice(2).map((m) => m.kind), ['user_text', 'assistant_answer']);
 });
 
-test('buildChatPromptContext exposes direct system prompt and hidden tool context', () => {
+test('buildChatSystemContent contains only system prompt and explicit web instruction', () => {
   const session = createSession();
-  session.hiddenToolContexts = [{
-    id: 'hidden-1',
-    content: 'repo evidence that is still in prompt context',
-    tokenEstimate: 11,
-    sourceMessageId: 'tool-1',
-  }];
 
-  const context = buildChatPromptContext(createConfig(), session, {
+  const systemContent = buildChatSystemContent(createConfig(), session, { promptPrefix: 'custom system prompt' });
+  const promptContext = buildChatPromptContext(createConfig(), session, {
     promptPrefix: 'custom system prompt',
+    isRepoToolMode: false,
+    planRepoRoot: '',
+    allowedTools: [],
   });
 
-  assert.equal(context.kind, 'system_context');
-  assert.equal(context.deletable, false);
-  assert.match(context.content, /System prompt/u);
-  assert.match(context.content, /custom system prompt/u);
-  assert.match(context.content, /repo evidence that is still in prompt context/u);
-  assert.equal(
-    buildChatSystemContent(createConfig(), session, { promptPrefix: 'custom system prompt' }).includes('repo evidence that is still in prompt context'),
-    true,
-  );
+  assert.equal(systemContent, 'custom system prompt');
+  assert.match(promptContext.content, /custom system prompt/u);
+  assert.doesNotMatch(promptContext.content, /Internal tool-call context/u);
 });
 
 test('buildChatPromptContext exposes repo-search tool schema', () => {
@@ -250,12 +218,6 @@ test('buildContextUsage estimates continuation context from session content inst
         thinkingContent: 'Prior reasoning that can be replayed.',
       },
     ],
-    hiddenToolContexts: [
-      {
-        content: 'tool transcript content',
-        tokenEstimate: 5708,
-      },
-    ],
   } as ChatSession;
 
   const expectedThinkingTokens = estimateTokenCount('Prior reasoning that can be replayed.');
@@ -263,16 +225,13 @@ test('buildContextUsage estimates continuation context from session content inst
     + estimateTokenCount('How are tool calls handled?')
     + estimateTokenCount('# Repo Search Results\n\nTool calls are parsed and executed through the loop.')
     + expectedThinkingTokens;
-  const expectedToolTokens = estimateTokenCount(
-    'Internal tool-call context from prior session steps. Use this as additional evidence only when relevant.',
-  ) + 5708;
   const usage = buildContextUsage(null, session);
 
   assert.equal(usage.chatUsedTokens, expectedChatTokens);
   assert.equal(usage.usedTokens, expectedChatTokens);
   assert.equal(usage.thinkingUsedTokens, expectedThinkingTokens);
-  assert.equal(usage.toolUsedTokens, expectedToolTokens);
-  assert.equal(usage.totalUsedTokens, expectedChatTokens + expectedToolTokens);
+  assert.equal(usage.toolUsedTokens, 0);
+  assert.equal(usage.totalUsedTokens, expectedChatTokens);
   assert.equal(usage.estimatedTokenFallbackTokens, 0);
   assert.equal(typeof usage.providerOverheadTokens, 'number');
   assert.equal(Number.isInteger(usage.providerOverheadTokens), true);
@@ -381,7 +340,6 @@ test('buildContextUsage counts typed thinking and tool bubbles from visible time
         toolCallOutput: 'src/example.ts:1:x',
       },
     ],
-    hiddenToolContexts: [],
   } as ChatSession;
 
   const usage = buildContextUsage(null, session);
@@ -483,7 +441,6 @@ test('buildContextUsage counts replay-visible context, not internal tool telemet
       { id: 't1', role: 'assistant', kind: 'assistant_tool_call', content: 'web_fetch url="https://example.test"', outputTokensEstimate: 42073 },
       { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'short answer', outputTokensEstimate: 2048 },
     ],
-    hiddenToolContexts: [],
   } as ChatSession;
 
   const usage = buildContextUsage(createConfig(), session);

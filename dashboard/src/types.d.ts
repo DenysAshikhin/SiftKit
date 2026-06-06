@@ -166,13 +166,6 @@ export type ChatMessage = {
     sourceRunId: string | null;
     compressedIntoSummary?: boolean;
 };
-export type HiddenToolContext = {
-    id: string;
-    content: string;
-    tokenEstimate: number;
-    sourceMessageId: string | null;
-    createdAtUtc: string;
-};
 export type ChatSession = {
     id: string;
     title: string;
@@ -186,7 +179,6 @@ export type ChatSession = {
     createdAtUtc: string;
     updatedAtUtc: string;
     messages: ChatMessage[];
-    hiddenToolContexts?: HiddenToolContext[];
 };
 export type ContextUsage = {
     contextWindowTokens: number;

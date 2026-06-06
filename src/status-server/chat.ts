@@ -18,9 +18,6 @@ import {
 
 const DEFAULT_CHAT_SYSTEM_PROMPT = 'general, coder friendly assistant';
 
-const HIDDEN_TOOL_CONTEXT_PROMPT =
-  'Internal tool-call context from prior session steps. Use this as additional evidence only when relevant.';
-
 function getTrimmedString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -37,14 +34,6 @@ function getMessageThinkingTokenEstimate(message: Dict): number {
     return estimateTokenCount(message.content);
   }
   return estimateTokenCount(getTrimmedString(message.thinkingContent));
-}
-
-function getHiddenToolContextTokenEstimate(entry: Dict): number {
-  const tokenEstimate = Number(entry?.tokenEstimate);
-  if (Number.isFinite(tokenEstimate) && tokenEstimate >= 0) {
-    return Math.trunc(tokenEstimate);
-  }
-  return estimateTokenCount(entry?.content);
 }
 
 function formatChatMessageForPrompt(message: Dict): string {
@@ -98,19 +87,13 @@ class ContextUsageBuilder {
     const messageTokens = messages.reduce((sum: number, message: Dict) => sum + getMessageContextTokenEstimate(message), 0);
     const thinkingUsedTokens = messages.reduce((sum: number, message: Dict) => sum + getMessageThinkingTokenEstimate(message), 0);
     const chatUsedTokens = estimateTokenCount(DEFAULT_CHAT_SYSTEM_PROMPT) + messageTokens;
-    const hiddenToolContexts = Array.isArray(this.session.hiddenToolContexts) ? this.session.hiddenToolContexts : [];
-    const toolUsedTokens = hiddenToolContexts.length > 0
-      ? estimateTokenCount(HIDDEN_TOOL_CONTEXT_PROMPT)
-        + hiddenToolContexts.reduce((sum: number, entry: Dict) => sum + getHiddenToolContextTokenEstimate(entry), 0)
-      : 0;
-    const totalUsedTokens = chatUsedTokens + toolUsedTokens;
     return {
       contextWindowTokens,
       chatUsedTokens,
       thinkingUsedTokens,
-      toolUsedTokens,
-      totalUsedTokens,
-      remainingTokens: Math.max(contextWindowTokens - totalUsedTokens, 0),
+      toolUsedTokens: 0,
+      totalUsedTokens: chatUsedTokens,
+      remainingTokens: Math.max(contextWindowTokens - chatUsedTokens, 0),
     };
   }
 
@@ -284,22 +267,13 @@ export function buildRetainedWebToolCalls(session: ChatSession): RetainedWebTool
   return retained;
 }
 
-export function buildChatSystemContent(_config: Dict, session: ChatSession, options: Pick<BuildChatOptions, 'promptPrefix' | 'webActionInstruction'> = {}): string {
-  const hiddenToolContexts = Array.isArray(session.hiddenToolContexts)
-    ? (session.hiddenToolContexts as Dict[])
-      .map((entry: Dict) => (entry && typeof entry.content === 'string' ? (entry.content as string).trim() : ''))
-      .filter(Boolean)
-    : [];
-  const hiddenToolContextText = hiddenToolContexts.join('\n\n');
+export function buildChatSystemContent(_config: Dict, _session: ChatSession, options: Pick<BuildChatOptions, 'promptPrefix' | 'webActionInstruction'> = {}): string {
   const systemPrompt = typeof options.promptPrefix === 'string' && options.promptPrefix.trim()
     ? options.promptPrefix.trim()
     : DEFAULT_CHAT_SYSTEM_PROMPT;
-  const baseContent = hiddenToolContextText
-    ? `${systemPrompt}\n\n${HIDDEN_TOOL_CONTEXT_PROMPT}\n\n${hiddenToolContextText}`
-    : systemPrompt;
   return typeof options.webActionInstruction === 'string' && options.webActionInstruction.trim()
-    ? `${baseContent}\n\n${options.webActionInstruction.trim()}`
-    : baseContent;
+    ? `${systemPrompt}\n\n${options.webActionInstruction.trim()}`
+    : systemPrompt;
 }
 
 export type ChatUsage = {
@@ -331,7 +305,6 @@ export type PersistTurn = { thinkingText: string; toolMessages: PersistToolMessa
 
 type AppendChatOptions = {
   turns: PersistTurn[];
-  toolContextContents?: string[];
   requestDurationMs?: number | null;
   promptEvalDurationMs?: number | null;
   generationDurationMs?: number | null;
@@ -373,12 +346,6 @@ export function appendChatMessagesWithUsage(
   const explicitThinkingTokens = getChatUsageValue(options.thinkingTokens);
   const outputTokens = explicitOutputTokens ?? completionTokens ?? estimateTokenCount(assistantContent);
   const thinkingTokens = explicitThinkingTokens ?? usageThinkingTokens ?? 0;
-  const toolContextContents = Array.isArray(options.toolContextContents)
-    ? options.toolContextContents
-      .map((value) => String(value || '').trim())
-      .filter(Boolean)
-    : [];
-  const hiddenToolContexts = Array.isArray(session.hiddenToolContexts) ? (session.hiddenToolContexts as Dict[]).slice() : [];
   const sourceRunId = typeof options.sourceRunId === 'string' && options.sourceRunId.trim() ? options.sourceRunId : null;
   const groundingStatus = options.groundingStatus || null;
   messages.push({
@@ -396,7 +363,7 @@ export function appendChatMessagesWithUsage(
     sourceRunId: null,
   });
   const turns = Array.isArray(options.turns) ? options.turns : [];
-  const persistedToolMessageIds: string[] = [];
+  let associatedToolTokens = 0;
   for (const turn of turns) {
     const thinkingText = String(turn.thinkingText || '');
     if (thinkingText.trim()) {
@@ -448,11 +415,10 @@ export function appendChatMessagesWithUsage(
         createdAtUtc: now,
         sourceRunId,
       });
-      persistedToolMessageIds.push(toolMessageId);
+      associatedToolTokens += toolOutputTokens;
     }
   }
   const assistantMessageId = crypto.randomUUID();
-  const associatedToolTokens = toolContextContents.reduce((sum: number, value: string) => sum + estimateTokenCount(value), 0);
   messages.push({
     id: assistantMessageId,
     role: 'assistant',
@@ -492,21 +458,10 @@ export function appendChatMessagesWithUsage(
     sourceRunId,
     groundingStatus,
   });
-  for (let index = 0; index < toolContextContents.length; index += 1) {
-    const sourceMessageId = persistedToolMessageIds[index] || assistantMessageId;
-    hiddenToolContexts.push({
-      id: crypto.randomUUID(),
-      content: toolContextContents[index],
-      tokenEstimate: estimateTokenCount(toolContextContents[index]),
-      sourceMessageId,
-      createdAtUtc: now,
-    });
-  }
   const updated: ChatSession = {
     ...session,
     updatedAtUtc: now,
     messages,
-    hiddenToolContexts,
   };
   saveChatSession(runtimeRoot, updated);
   return updated;
@@ -659,46 +614,6 @@ export function getScorecardTotal(scorecard: unknown, key: string): number | nul
   }
   const value = (totals as Dict)[key];
   return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : null;
-}
-
-function truncateToolContextOutput(value: unknown, maxLength: number = 1400): string {
-  const text = String(value || '').trim();
-  if (!text) {
-    return '';
-  }
-  if (text.length <= maxLength) {
-    return text;
-  }
-  return `${text.slice(0, maxLength)}\n... (truncated)`;
-}
-
-export function buildToolContextFromRepoSearchResult(result: Dict | null | undefined): string[] {
-  const scorecard = result && typeof result.scorecard === 'object' ? result.scorecard as Dict : {};
-  const tasks = Array.isArray(scorecard.tasks) ? scorecard.tasks as Dict[] : [];
-  const contexts: string[] = [];
-  for (const task of tasks) {
-    if (!task || typeof task !== 'object' || !Array.isArray(task.commands)) {
-      continue;
-    }
-    for (const command of task.commands as Dict[]) {
-      if (!command || typeof command !== 'object') {
-        continue;
-      }
-      const commandText = getDisplayToolCommand(command);
-      if (!commandText) {
-        continue;
-      }
-      const outputText = truncateToolContextOutput(command.output);
-      const exitCode = Number.isFinite(command.exitCode) ? Number(command.exitCode) : null;
-      contexts.push([
-        `Command: ${commandText}`,
-        `Exit Code: ${exitCode === null ? 'n/a' : String(exitCode)}`,
-        'Result:',
-        outputText || '(empty output)',
-      ].join('\n'));
-    }
-  }
-  return contexts;
 }
 
 function buildToolMessageFromCommand(command: Dict, turnsUsed: number): PersistToolMessage | null {

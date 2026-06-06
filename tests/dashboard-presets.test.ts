@@ -144,7 +144,6 @@ function createSession(presetId: string, mode: ChatSession['mode'] = 'chat'): Ch
     createdAtUtc: new Date().toISOString(),
     updatedAtUtc: new Date().toISOString(),
     messages: [],
-    hiddenToolContexts: [],
   };
 }
 

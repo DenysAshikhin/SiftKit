@@ -190,18 +190,6 @@ function readSessionById(runtimeRoot, sessionId) {
     WHERE session_id = ?
     ORDER BY position ASC
   `).all(sessionId);
-    const hiddenContextRows = database.prepare(`
-    SELECT
-      id,
-      content,
-      token_estimate,
-      source_message_id,
-      created_at_utc,
-      position
-    FROM chat_hidden_tool_contexts
-    WHERE session_id = ?
-    ORDER BY position ASC
-  `).all(sessionId);
     return {
         id: row.id,
         title: row.title,
@@ -253,13 +241,6 @@ function readSessionById(runtimeRoot, sessionId) {
             sourceRunId: message.source_run_id,
             compressedIntoSummary: message.compressed_into_summary === 1,
         })),
-        hiddenToolContexts: hiddenContextRows.map((entry) => ({
-            id: entry.id,
-            content: entry.content,
-            tokenEstimate: entry.token_estimate,
-            sourceMessageId: entry.source_message_id,
-            createdAtUtc: entry.created_at_utc,
-        })),
     };
 }
 function readChatSessionFromPath(targetPath) {
@@ -292,7 +273,6 @@ function deleteChatSession(runtimeRoot, sessionId) {
     }
     const database = getSessionDatabase(runtimeRoot);
     database.prepare('DELETE FROM chat_messages WHERE session_id = ?').run(normalizedId);
-    database.prepare('DELETE FROM chat_hidden_tool_contexts WHERE session_id = ?').run(normalizedId);
     const result = database.prepare('DELETE FROM chat_sessions WHERE id = ?').run(normalizedId);
     return Number(result.changes || 0) > 0;
 }
@@ -314,9 +294,6 @@ function deleteChatMessage(runtimeRoot, sessionId, messageId) {
         ...current,
         updatedAtUtc: new Date().toISOString(),
         messages: current.messages.filter((message) => String(message.id || '') !== normalizedMessageId),
-        hiddenToolContexts: Array.isArray(current.hiddenToolContexts)
-            ? current.hiddenToolContexts.filter((entry) => String(entry.sourceMessageId || '') !== normalizedMessageId)
-            : [],
     };
     saveChatSession(runtimeRoot, updatedSession);
     return { session: updatedSession, deletedMessage };
@@ -330,9 +307,6 @@ function saveChatSession(runtimeRoot, session) {
     const mode = normalizeMode(session.mode);
     const presetId = normalizePresetId(session.presetId, mode);
     const messages = Array.isArray(session.messages) ? session.messages : [];
-    const hiddenToolContexts = Array.isArray(session.hiddenToolContexts)
-        ? session.hiddenToolContexts
-        : [];
     const database = getSessionDatabase(runtimeRoot);
     database.transaction(() => {
         database.prepare(`
@@ -365,7 +339,6 @@ function saveChatSession(runtimeRoot, session) {
             ? path.resolve(session.planRepoRoot)
             : process.cwd(), typeof session.condensedSummary === 'string' ? session.condensedSummary : '', typeof session.createdAtUtc === 'string' && session.createdAtUtc.trim() ? session.createdAtUtc : now, typeof session.updatedAtUtc === 'string' && session.updatedAtUtc.trim() ? session.updatedAtUtc : now);
         database.prepare('DELETE FROM chat_messages WHERE session_id = ?').run(sessionId);
-        database.prepare('DELETE FROM chat_hidden_tool_contexts WHERE session_id = ?').run(sessionId);
         const insertMessage = database.prepare(`
       INSERT INTO chat_messages (
         session_id,
@@ -411,29 +384,6 @@ function saveChatSession(runtimeRoot, session) {
         for (let index = 0; index < messages.length; index += 1) {
             const message = messages[index];
             insertMessage.run(sessionId, typeof message.id === 'string' && message.id.trim() ? message.id.trim() : crypto.randomUUID(), typeof message.role === 'string' && message.role.trim() ? message.role.trim() : 'assistant', normalizeMessageKind(message.kind, message.role), typeof message.content === 'string' ? message.content : '', toNonNegativeInteger(message.inputTokensEstimate, estimateTokenCount(message.content)), toNonNegativeInteger(message.outputTokensEstimate, estimateTokenCount(message.content)), toNonNegativeInteger(message.thinkingTokens, 0), message.inputTokensEstimated === false ? 0 : 1, message.outputTokensEstimated === false ? 0 : 1, message.thinkingTokensEstimated === false ? 0 : 1, toNullableNonNegativeInteger(message.promptCacheTokens), toNullableNonNegativeInteger(message.promptEvalTokens), toNullableNonNegativeNumber(message.promptTokensPerSecond), toNullableNonNegativeNumber(message.generationTokensPerSecond), toNullableNonNegativeInteger(message.requestDurationMs), toNullableNonNegativeInteger(message.promptEvalDurationMs), toNullableNonNegativeInteger(message.generationDurationMs), typeof message.requestStartedAtUtc === 'string' && message.requestStartedAtUtc.trim() ? message.requestStartedAtUtc : null, typeof message.thinkingStartedAtUtc === 'string' && message.thinkingStartedAtUtc.trim() ? message.thinkingStartedAtUtc : null, typeof message.thinkingEndedAtUtc === 'string' && message.thinkingEndedAtUtc.trim() ? message.thinkingEndedAtUtc : null, typeof message.answerStartedAtUtc === 'string' && message.answerStartedAtUtc.trim() ? message.answerStartedAtUtc : null, typeof message.answerEndedAtUtc === 'string' && message.answerEndedAtUtc.trim() ? message.answerEndedAtUtc : null, toNullableNonNegativeInteger(message.speculativeAcceptedTokens), toNullableNonNegativeInteger(message.speculativeGeneratedTokens), toNullableNonNegativeInteger(message.associatedToolTokens), typeof message.thinkingContent === 'string' ? message.thinkingContent : null, typeof message.toolCallCommand === 'string' ? message.toolCallCommand : null, toNullableNonNegativeInteger(message.toolCallTurn), toNullableNonNegativeInteger(message.toolCallMaxTurns), toNullableNonNegativeInteger(message.toolCallExitCode), toNullableNonNegativeInteger(message.toolCallPromptTokenCount), typeof message.toolCallOutputSnippet === 'string' ? message.toolCallOutputSnippet : null, typeof message.toolCallOutput === 'string' ? message.toolCallOutput : null, typeof message.createdAtUtc === 'string' && message.createdAtUtc.trim() ? message.createdAtUtc : now, typeof message.sourceRunId === 'string' && message.sourceRunId.trim() ? message.sourceRunId : null, message.compressedIntoSummary === true ? 1 : 0, index);
-        }
-        const insertHiddenToolContext = database.prepare(`
-      INSERT INTO chat_hidden_tool_contexts (
-        session_id,
-        id,
-        content,
-        token_estimate,
-        source_message_id,
-        created_at_utc,
-        position
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    `);
-        for (let index = 0; index < hiddenToolContexts.length; index += 1) {
-            const entry = hiddenToolContexts[index];
-            const content = typeof entry.content === 'string' ? entry.content.trim() : '';
-            if (!content) {
-                continue;
-            }
-            insertHiddenToolContext.run(sessionId, typeof entry.id === 'string' && entry.id.trim() ? entry.id : crypto.randomUUID(), content, toNonNegativeInteger(entry.tokenEstimate, estimateTokenCount(content)), typeof entry.sourceMessageId === 'string' && entry.sourceMessageId.trim()
-                ? entry.sourceMessageId
-                : null, typeof entry.createdAtUtc === 'string' && entry.createdAtUtc.trim()
-                ? entry.createdAtUtc
-                : now, index);
         }
     })();
 }

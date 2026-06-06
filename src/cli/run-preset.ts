@@ -109,7 +109,6 @@ export async function runPresetCli(options: {
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       messages: [],
-      hiddenToolContexts: [],
     };
     const result = await executeRepoSearchRequest({
       taskKind: 'chat',
