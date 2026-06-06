@@ -398,36 +398,79 @@ test('buildContextUsage counts typed thinking and tool bubbles from visible time
   assert.equal(usage.providerOverheadTokens >= 0, true);
 });
 
-test('buildChatHistoryMessages maps prior turns to user/assistant roles', () => {
+test('buildChatHistoryMessages replays user answers and tool calls in persisted order', () => {
   const session = {
     id: 's1',
     messages: [
-      { id: 'a', role: 'user', kind: 'user_text', content: 'hi' },
-      { id: 'b', role: 'assistant', kind: 'assistant_answer', content: 'hello' },
-      { id: 'c', role: 'assistant', kind: 'assistant_thinking', content: 'pondering' },
+      { id: 'u1', role: 'user', kind: 'user_text', content: 'What did the page say?' },
+      {
+        id: 'tool-1',
+        role: 'assistant',
+        kind: 'assistant_tool_call',
+        content: 'web_fetch url="https://example.test/page"',
+        toolCallCommand: 'web_fetch url="https://example.test/page"',
+        toolCallOutput: 'Title: Example Page\nThe page says iron bars are used in quests.',
+      },
+      { id: 'think-1', role: 'assistant', kind: 'assistant_thinking', content: 'private reasoning' },
+      { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'It says iron bars are used in quests.' },
     ],
   };
-  const history = buildChatHistoryMessages({}, session as never);
-  assert.deepEqual(history, [
-    { role: 'user', content: 'hi' },
-    { role: 'assistant', content: 'hello' },
+  assert.deepEqual(buildChatHistoryMessages({}, session as never), [
+    { role: 'user', content: 'What did the page say?' },
+    {
+      role: 'assistant',
+      content: '',
+      tool_calls: [{
+        id: 'chat_tool_tool-1',
+        type: 'function',
+        function: {
+          name: 'web_fetch',
+          arguments: JSON.stringify({ url: 'https://example.test/page' }),
+        },
+      }],
+    },
+    {
+      role: 'tool',
+      tool_call_id: 'chat_tool_tool-1',
+      content: 'Title: Example Page\nThe page says iron bars are used in quests.',
+    },
+    { role: 'assistant', content: 'It says iron bars are used in quests.' },
   ]);
 });
 
-test('chat replay context excludes internal logic and includes only follow-up-visible turns', () => {
+test('buildChatHistoryMessages replays non-web tool calls through persisted_tool_call', () => {
   const session = {
     id: 's1',
     messages: [
-      { id: 'u1', role: 'user', kind: 'user_text', content: 'visible question', inputTokensEstimate: 99999 },
-      { id: 't1', role: 'assistant', kind: 'assistant_tool_call', content: 'web_search query="x"', outputTokensEstimate: 1234 },
-      { id: 'h1', role: 'assistant', kind: 'assistant_thinking', content: 'hidden reasoning', thinkingTokens: 5678 },
-      { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'visible answer', outputTokensEstimate: 88888 },
+      {
+        id: 'tool-2',
+        role: 'assistant',
+        kind: 'assistant_tool_call',
+        content: 'rg -n "buildChatHistoryMessages" src',
+        toolCallCommand: 'rg -n "buildChatHistoryMessages" src',
+        toolCallOutput: 'src/status-server/chat.ts:181:export function buildChatHistoryMessages',
+      },
     ],
   };
 
   assert.deepEqual(buildChatHistoryMessages({}, session as never), [
-    { role: 'user', content: 'visible question' },
-    { role: 'assistant', content: 'visible answer' },
+    {
+      role: 'assistant',
+      content: '',
+      tool_calls: [{
+        id: 'chat_tool_tool-2',
+        type: 'function',
+        function: {
+          name: 'persisted_tool_call',
+          arguments: JSON.stringify({ command: 'rg -n "buildChatHistoryMessages" src' }),
+        },
+      }],
+    },
+    {
+      role: 'tool',
+      tool_call_id: 'chat_tool_tool-2',
+      content: 'src/status-server/chat.ts:181:export function buildChatHistoryMessages',
+    },
   ]);
 });
 

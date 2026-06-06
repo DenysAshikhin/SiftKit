@@ -1,5 +1,6 @@
 import * as crypto from 'node:crypto';
 import type { Dict } from '../lib/types.js';
+import type { ChatMessage } from '../repo-search/planner-protocol.js';
 import type { RepoSearchExecutionResult } from '../repo-search/types.js';
 import type { ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
 import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
@@ -181,11 +182,20 @@ function shouldPreserveThinking(config: Dict, thinkingEnabled: boolean): boolean
 export function buildChatHistoryMessages(
   _config: Dict,
   session: ChatSession,
-): Array<{ role: 'user' | 'assistant'; content: string }> {
+): ChatMessage[] {
   const messages = Array.isArray(session.messages) ? session.messages as Dict[] : [];
-  const history: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  const history: ChatMessage[] = [];
   for (const message of messages) {
-    if (!isChatReplayMessage(message)) {
+    const kind = typeof message.kind === 'string'
+      ? message.kind
+      : message.role === 'user'
+        ? 'user_text'
+        : 'assistant_answer';
+    if (kind === 'assistant_thinking') {
+      continue;
+    }
+    if (kind === 'assistant_tool_call') {
+      appendReplayToolMessages(history, message);
       continue;
     }
     const content = typeof message.content === 'string' ? message.content.trim() : '';
@@ -197,13 +207,61 @@ export function buildChatHistoryMessages(
   return history;
 }
 
-export function isChatReplayMessage(message: Dict): boolean {
-  const kind = typeof message.kind === 'string'
-    ? message.kind
-    : message.role === 'user'
-      ? 'user_text'
-      : 'assistant_answer';
-  return kind === 'user_text' || kind === 'assistant_answer';
+function buildReplayToolCallId(messageId: unknown): string {
+  const raw = typeof messageId === 'string' ? messageId : crypto.randomUUID();
+  const safe = raw.replace(/[^A-Za-z0-9_-]/gu, '_');
+  return `chat_tool_${safe}`;
+}
+
+function buildReplayToolCall(command: string, toolCallId: string): NonNullable<ChatMessage['tool_calls']>[number] {
+  const webTool = parseWebToolCommand(command);
+  if (webTool?.toolName === 'web_search') {
+    return {
+      id: toolCallId,
+      type: 'function',
+      function: {
+        name: 'web_search',
+        arguments: JSON.stringify({ query: webTool.value }),
+      },
+    };
+  }
+  if (webTool?.toolName === 'web_fetch') {
+    return {
+      id: toolCallId,
+      type: 'function',
+      function: {
+        name: 'web_fetch',
+        arguments: JSON.stringify({ url: webTool.value }),
+      },
+    };
+  }
+  return {
+    id: toolCallId,
+    type: 'function',
+    function: {
+      name: 'persisted_tool_call',
+      arguments: JSON.stringify({ command }),
+    },
+  };
+}
+
+function appendReplayToolMessages(history: ChatMessage[], message: Dict): void {
+  const command = getTrimmedString(message.toolCallCommand) || getTrimmedString(message.content);
+  const output = getTrimmedString(message.toolCallOutput) || getTrimmedString(message.toolCallOutputSnippet);
+  if (!command && !output) {
+    return;
+  }
+  const toolCallId = buildReplayToolCallId(message.id);
+  history.push({
+    role: 'assistant',
+    content: '',
+    tool_calls: [buildReplayToolCall(command, toolCallId)],
+  });
+  history.push({
+    role: 'tool',
+    tool_call_id: toolCallId,
+    content: output || '(empty output)',
+  });
 }
 
 export function buildRetainedWebToolCalls(session: ChatSession): RetainedWebToolCall[] {
