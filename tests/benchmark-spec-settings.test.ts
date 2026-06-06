@@ -562,6 +562,15 @@ test('package test command runs the test TypeScript typecheck', () => {
   assert.match(String(pkg.scripts?.test || ''), /npm run typecheck:test/u);
 });
 
+test('package typecheck command is available for repo, scripts, dashboard, and tests', () => {
+  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { scripts?: Record<string, string> };
+
+  assert.equal(
+    String(pkg.scripts?.typecheck),
+    'tsc -p .\\tsconfig.json --noEmit && tsc -p .\\tsconfig.scripts.json --noEmit && tsc -p .\\dashboard\\tsconfig.json --noEmit && npm run typecheck:test',
+  );
+});
+
 test('syncDistRuntime copies fresh compiled files from dist/src into runtime dist paths', () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-dist-runtime-'));
   const sourceRoot = path.join(tempRoot, 'dist', 'src');

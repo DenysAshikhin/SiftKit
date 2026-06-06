@@ -13,6 +13,7 @@
     "start:dashboard": "npm --prefix .\\dashboard run dev",
     "build": "tsc -p .\\tsconfig.json && tsc -p .\\tsconfig.scripts.json && npm --prefix .\\dashboard run build && node .\\scripts\\sync-dist-runtime.js",
     "build:test": "node .\\scripts\\build-test.js",
+    "typecheck": "tsc -p .\\tsconfig.json --noEmit && tsc -p .\\tsconfig.scripts.json --noEmit && tsc -p .\\dashboard\\tsconfig.json --noEmit && npm run typecheck:test",
     "typecheck:test": "tsc -p .\\tsconfig.test.json --noEmit",
     "benchmark": "tsx .\\src\\benchmark\\index.ts",
     "benchmark:matrix": "tsx .\\src\\benchmark-matrix\\index.ts",
