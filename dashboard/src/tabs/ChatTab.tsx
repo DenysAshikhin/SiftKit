@@ -13,7 +13,6 @@ import {
   buildDisplayedSystemPromptContent,
   buildFallbackPromptContext,
   buildLiveMessageScrollSignature,
-  compareMessageCreatedAt,
   estimatePromptTokens,
 } from '../lib/chatMessages';
 import { resolveContextBarVisual } from '../lib/contextBar';
@@ -139,7 +138,7 @@ export function ChatTab({
   onSendRepoSearch,
   onSendMessage,
 }: ChatTabProps) {
-  const persistedMessages = selectedSession ? [...selectedSession.messages].sort(compareMessageCreatedAt) : [];
+  const persistedMessages = selectedSession ? selectedSession.messages : [];
   const visibleMessages = [...persistedMessages, ...liveMessages];
   const showRepoSearchAutoAppendControls = chatMode === 'repo-search'
     && persistedMessages.length === 0

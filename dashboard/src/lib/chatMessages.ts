@@ -6,15 +6,6 @@ import type {
   RepoSearchAutoAppendSelection,
 } from '../types';
 
-export function compareMessageCreatedAt(left: ChatMessage, right: ChatMessage): number {
-  const leftTime = Date.parse(left.createdAtUtc || '');
-  const rightTime = Date.parse(right.createdAtUtc || '');
-  if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
-    return leftTime - rightTime;
-  }
-  return 0;
-}
-
 export function hashFnv1a32(value: string): string {
   let hash = 0x811c9dc5;
   for (let index = 0; index < value.length; index += 1) {

@@ -6,7 +6,6 @@ import {
   buildDisplayedSystemPromptContent,
   buildFallbackPromptContext,
   buildLiveMessageScrollSignature,
-  compareMessageCreatedAt,
   estimatePromptTokens,
   hashFnv1a32,
   stripAgentsMdBlock,
@@ -30,26 +29,6 @@ const BASE_MESSAGE: ChatMessage = {
   toolCallStatus: 'running',
   toolCallExitCode: null,
 };
-
-test('compareMessageCreatedAt returns 0 for equal-instant messages', () => {
-  const left = { ...BASE_MESSAGE, createdAtUtc: '2026-06-03T12:00:00.000Z' };
-  const right = { ...BASE_MESSAGE, createdAtUtc: '2026-06-03T12:00:00.000Z' };
-  assert.equal(compareMessageCreatedAt(left, right), 0);
-});
-
-test('compareMessageCreatedAt returns 0 when either side has unparseable date', () => {
-  const left = { ...BASE_MESSAGE, createdAtUtc: 'not-a-date' };
-  const right = { ...BASE_MESSAGE, createdAtUtc: '2026-06-03T12:00:00.000Z' };
-  assert.equal(compareMessageCreatedAt(left, right), 0);
-  assert.equal(compareMessageCreatedAt(right, left), 0);
-});
-
-test('compareMessageCreatedAt returns the millisecond delta when both parse', () => {
-  const left = { ...BASE_MESSAGE, createdAtUtc: '2026-06-03T12:00:00.000Z' };
-  const right = { ...BASE_MESSAGE, createdAtUtc: '2026-06-03T12:00:01.000Z' };
-  assert.equal(compareMessageCreatedAt(left, right), -1000);
-  assert.equal(compareMessageCreatedAt(right, left), 1000);
-});
 
 test('hashFnv1a32 returns the documented constant for the empty string', () => {
   assert.equal(hashFnv1a32(''), '811c9dc5');

@@ -1757,7 +1757,7 @@ test('repo-search auto-append helper maps toggled controls into request payload 
   );
 });
 
-test('chat tab sorts persisted messages oldest first and keeps live messages last', () => {
+test('chat tab preserves persisted server order and keeps live messages last', () => {
   const older = { ...CHAT_MESSAGE, id: 'older', role: 'user', kind: 'user_text', content: 'older message', createdAtUtc: '2026-04-16T12:00:00.000Z' } as ChatMessage;
   const newer = { ...CHAT_MESSAGE, id: 'newer', content: 'newer persisted message', createdAtUtc: '2026-04-16T12:01:00.000Z' } as ChatMessage;
   const live = { ...CHAT_MESSAGE, id: 'live-answer', content: 'currently streaming message', createdAtUtc: '2026-04-16T11:59:00.000Z' } as ChatMessage;
@@ -1774,8 +1774,25 @@ test('chat tab sorts persisted messages oldest first and keeps live messages las
     chatBusy: true,
   });
 
-  assert.equal(markup.indexOf('older message') < markup.indexOf('newer persisted message'), true);
-  assert.equal(markup.indexOf('newer persisted message') < markup.indexOf('currently streaming message'), true);
+  assert.equal(markup.indexOf('newer persisted message') < markup.indexOf('older message'), true);
+  assert.equal(markup.indexOf('older message') < markup.indexOf('currently streaming message'), true);
+});
+
+test('ChatTab preserves server message order when timestamps are equal', () => {
+  const session = {
+    ...CHAT_SESSION,
+    messages: [
+      { ...CHAT_MESSAGE, id: 'u1', role: 'user', kind: 'user_text', content: 'first', createdAtUtc: '2026-06-06T10:00:00.000Z' } as ChatMessage,
+      { ...CHAT_TOOL_MESSAGE, id: 't1', content: 'web_search query="x"', createdAtUtc: '2026-06-06T10:00:00.000Z', sourceRunId: 'run-1' } as ChatMessage,
+      { ...CHAT_MESSAGE, id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'answer', createdAtUtc: '2026-06-06T10:00:00.000Z', sourceRunId: 'run-1' } as ChatMessage,
+      { ...CHAT_MESSAGE, id: 'u2', role: 'user', kind: 'user_text', content: 'second', createdAtUtc: '2026-06-06T09:00:00.000Z' } as ChatMessage,
+    ],
+  } as ChatSession;
+
+  const markup = renderChatTab({ selectedSession: session });
+
+  assert.ok(markup.indexOf('first') < markup.indexOf('answer'));
+  assert.ok(markup.indexOf('answer') < markup.indexOf('second'));
 });
 
 test('metrics tab renders speculative acceptance graph', () => {
