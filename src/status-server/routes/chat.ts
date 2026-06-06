@@ -679,6 +679,7 @@ export async function handleChatRoute(
         speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
         speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
         groundingStatus,
+        sourceRunId: requestId,
       });
       sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), sessionWithTelemetry));
     } catch (error) {
@@ -863,6 +864,7 @@ export async function handleChatRoute(
         speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
         speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
         groundingStatus: getChatGroundingStatus(result.scorecard),
+        sourceRunId: String(result.requestId || ''),
       });
       writeSse('done', buildChatSessionResponse(config, updatedSession));
     } catch (error) {

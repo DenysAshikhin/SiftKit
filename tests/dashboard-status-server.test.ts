@@ -1020,6 +1020,12 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
     assert.equal(Number(answer.outputTokensEstimate) >= 1, true); // answer bubble carries only its own output
     const toolStep = messages.find((message) => message.kind === 'assistant_tool_call') as Dict;
     assert.equal(Number(toolStep.outputTokensEstimate) >= 1, true, 'tool output tokens live on the tool step');
+    const sourceRunIds = messages
+      .filter((message) => message.role === 'assistant')
+      .map((message) => String(message.sourceRunId || '').trim());
+    assert.ok(sourceRunIds.length >= 2);
+    assert.ok(sourceRunIds.every((runId) => runId.length > 0));
+    assert.equal(new Set(sourceRunIds).size, 1);
   } finally {
     await new Promise<void>((resolve) => searxng.close(() => resolve()));
     await new Promise<void>((resolve, reject) => {
@@ -1717,6 +1723,13 @@ test('chat completion receives hidden tool context while keeping it out of visib
       }),
     });
     assert.equal(chatReply.statusCode, 200);
+    const chatSession = d(chatReply.body.session);
+    const sourceRunIds = ((chatSession.messages || []) as Dict[])
+      .filter((message) => message.role === 'assistant' && message.content === 'ack')
+      .map((message) => String(message.sourceRunId || '').trim());
+    assert.equal(sourceRunIds.length, 1);
+    assert.ok(sourceRunIds.every((runId) => runId.length > 0));
+    assert.equal(new Set(sourceRunIds).size, 1);
     let statusMetrics: Dict = {};
     await runtimeHelpers.waitForAsyncExpectation(async () => {
       const statusAfterChat = await requestJson(`${baseUrl}/status`);
