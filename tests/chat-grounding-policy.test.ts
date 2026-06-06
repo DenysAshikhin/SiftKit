@@ -130,13 +130,58 @@ test('ChatGroundingPolicy seeds duplicate checks from retained tool calls', () =
   const policy = new ChatGroundingPolicy({
     enabled: true,
     retainedWebToolCalls: [
-      { toolName: 'web_search', value: 'OSRS iron bars' },
-      { toolName: 'web_fetch', value: 'https://oldschool.runescape.wiki/w/Iron_bar' },
+      { toolName: 'web_search', value: 'OSRS iron bars', command: 'web_search query="OSRS iron bars"', exitCode: 0, output: 'URL: https://oldschool.runescape.wiki/w/Iron_bar' },
+      { toolName: 'web_fetch', value: 'https://oldschool.runescape.wiki/w/Iron_bar', command: 'web_fetch url="https://oldschool.runescape.wiki/w/Iron_bar"', exitCode: 0, output: 'Iron bar page text' },
     ],
   });
 
   assert.equal(policy.evaluateToolCall('web_search', { query: 'osrs iron bars' }).kind, 'reject');
   assert.equal(policy.evaluateToolCall('web_fetch', { url: 'https://oldschool.runescape.wiki/w/Iron_bar' }).kind, 'reject');
+});
+
+test('ChatGroundingPolicy treats retained successful fetch as fetched evidence', () => {
+  const policy = new ChatGroundingPolicy({
+    enabled: true,
+    retainedWebToolCalls: [
+      {
+        toolName: 'web_search',
+        value: 'OSRS iron bars',
+        command: 'web_search query="OSRS iron bars"',
+        exitCode: 0,
+        output: 'URL: https://oldschool.runescape.wiki/w/Iron_bar',
+      },
+      {
+        toolName: 'web_fetch',
+        value: 'https://oldschool.runescape.wiki/w/Iron_bar',
+        command: 'web_fetch url="https://oldschool.runescape.wiki/w/Iron_bar"',
+        exitCode: 0,
+        output: 'Iron bar page text',
+      },
+    ],
+  });
+
+  assert.deepEqual(policy.evaluateFinish(), { kind: 'allow' });
+  assert.equal(policy.getStatus(), 'fetched');
+  assert.equal(policy.evaluateToolCall('web_fetch', { url: 'https://oldschool.runescape.wiki/w/Iron_bar' }).kind, 'reject');
+});
+
+test('ChatGroundingPolicy does not treat retained failed fetch as fetched evidence', () => {
+  const policy = new ChatGroundingPolicy({
+    enabled: true,
+    retainedWebToolCalls: [
+      {
+        toolName: 'web_fetch',
+        value: 'https://oldschool.runescape.wiki/w/Iron_bar',
+        command: 'web_fetch url="https://oldschool.runescape.wiki/w/Iron_bar"',
+        exitCode: 1,
+        output: '',
+      },
+    ],
+  });
+
+  assert.equal(policy.evaluateFinish().kind, 'reject');
+  assert.equal(policy.getStatus(), 'ungrounded');
+  assert.equal(policy.evaluateToolCall('web_fetch', { url: 'https://oldschool.runescape.wiki/w/Iron_bar' }).kind, 'allow');
 });
 
 test('ChatGroundingPolicy allows retry after failed web search or fetch', () => {

@@ -261,7 +261,12 @@ export function buildRetainedWebToolCalls(session: ChatSession): RetainedWebTool
         : '';
     const parsed = parseWebToolCommand(command);
     if (parsed) {
-      retained.push(parsed);
+      retained.push({
+        ...parsed,
+        command,
+        exitCode: Number.isFinite(Number(message.toolCallExitCode)) ? Number(message.toolCallExitCode) : null,
+        output: getTrimmedString(message.toolCallOutput) || getTrimmedString(message.toolCallOutputSnippet),
+      });
     }
   }
   return retained;

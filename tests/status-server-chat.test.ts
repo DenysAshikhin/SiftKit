@@ -476,21 +476,44 @@ test('appendChatMessagesWithUsage stores user text token estimate from content, 
   assert.equal(userMessage.inputTokensEstimated, true);
 });
 
-test('buildRetainedWebToolCalls extracts undeleted web calls from internal tool messages', () => {
+test('buildRetainedWebToolCalls extracts command result state from undeleted web calls', () => {
   const session = {
     id: 'session-retained-web',
     messages: [
-      { id: 's1', role: 'assistant', kind: 'assistant_tool_call', toolCallCommand: 'web_search query="OSRS iron bars uses other than smithing"' },
-      { id: 's2', role: 'assistant', kind: 'assistant_tool_call', toolCallCommand: 'web_search query="foo \\"bar\\" OSRS"' },
-      { id: 'f1', role: 'assistant', kind: 'assistant_tool_call', toolCallCommand: 'web_fetch url="https://oldschool.runescape.wiki/w/Iron_bar"' },
-      { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'answer' },
+      {
+        id: 's1',
+        role: 'assistant',
+        kind: 'assistant_tool_call',
+        toolCallCommand: 'web_search query="OSRS iron bars"',
+        toolCallExitCode: 0,
+        toolCallOutput: 'URL: https://oldschool.runescape.wiki/w/Iron_bar',
+      },
+      {
+        id: 'f1',
+        role: 'assistant',
+        kind: 'assistant_tool_call',
+        toolCallCommand: 'web_fetch url="https://oldschool.runescape.wiki/w/Iron_bar"',
+        toolCallExitCode: 0,
+        toolCallOutput: 'Iron bar page text',
+      },
     ],
   } as ChatSession;
 
   assert.deepEqual(buildRetainedWebToolCalls(session), [
-    { toolName: 'web_search', value: 'OSRS iron bars uses other than smithing' },
-    { toolName: 'web_search', value: 'foo "bar" OSRS' },
-    { toolName: 'web_fetch', value: 'https://oldschool.runescape.wiki/w/Iron_bar' },
+    {
+      toolName: 'web_search',
+      value: 'OSRS iron bars',
+      command: 'web_search query="OSRS iron bars"',
+      exitCode: 0,
+      output: 'URL: https://oldschool.runescape.wiki/w/Iron_bar',
+    },
+    {
+      toolName: 'web_fetch',
+      value: 'https://oldschool.runescape.wiki/w/Iron_bar',
+      command: 'web_fetch url="https://oldschool.runescape.wiki/w/Iron_bar"',
+      exitCode: 0,
+      output: 'Iron bar page text',
+    },
   ]);
 });
 

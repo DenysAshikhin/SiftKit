@@ -1,6 +1,9 @@
 export type RetainedWebToolCall = {
   toolName: 'web_search' | 'web_fetch';
   value: string;
+  command: string;
+  exitCode: number | null;
+  output: string;
 };
 
 function quoteWebToolValue(value: string): string {
@@ -29,11 +32,11 @@ export function parseWebToolCommand(command: string): RetainedWebToolCall | null
   const text = String(command || '').trim();
   if (text.startsWith('web_search query=')) {
     const value = parseJsonStringValue(text.slice('web_search query='.length));
-    return value ? { toolName: 'web_search', value } : null;
+    return value ? { toolName: 'web_search', value, command: text, exitCode: null, output: '' } : null;
   }
   if (text.startsWith('web_fetch url=')) {
     const value = parseJsonStringValue(text.slice('web_fetch url='.length));
-    return value ? { toolName: 'web_fetch', value } : null;
+    return value ? { toolName: 'web_fetch', value, command: text, exitCode: null, output: '' } : null;
   }
   return null;
 }

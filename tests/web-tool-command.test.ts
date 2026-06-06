@@ -15,10 +15,16 @@ test('web tool command parser round-trips JSON-escaped values', () => {
   assert.deepEqual(parseWebToolCommand(searchCommand), {
     toolName: 'web_search',
     value: 'foo "bar" OSRS',
+    command: 'web_search query="foo \\"bar\\" OSRS"',
+    exitCode: null,
+    output: '',
   });
   assert.deepEqual(parseWebToolCommand(fetchCommand), {
     toolName: 'web_fetch',
     value: 'https://example.test/a?quote=%22#section',
+    command: 'web_fetch url="https://example.test/a?quote=%22#section"',
+    exitCode: null,
+    output: '',
   });
 });
 

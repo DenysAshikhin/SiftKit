@@ -51,11 +51,20 @@ export class ChatGroundingPolicy {
     this.enabled = options.enabled === true;
     this.maxFinishRejections = Math.max(0, Math.trunc(Number(options.maxFinishRejections ?? DEFAULT_MAX_FINISH_REJECTIONS)));
     for (const call of options.retainedWebToolCalls || []) {
-      if (call.toolName === 'web_search') {
-        this.searchedQueries.add(this.normalizeSearchQuery(call.value));
-      }
-      if (call.toolName === 'web_fetch') {
-        this.fetchedUrls.add(this.normalizeFetchUrl(call.value));
+      const command = call.command || (
+        call.toolName === 'web_search'
+          ? `web_search query=${JSON.stringify(call.value)}`
+          : `web_fetch url=${JSON.stringify(call.value)}`
+      );
+      const exitCode = Number.isFinite(Number(call.exitCode)) ? Number(call.exitCode) : null;
+      const output = typeof call.output === 'string' ? call.output : '';
+      if (exitCode === 0 && output.trim()) {
+        this.recordToolResult({
+          toolName: call.toolName,
+          command,
+          exitCode,
+          output,
+        });
       }
     }
   }
