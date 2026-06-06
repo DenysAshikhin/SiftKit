@@ -4,6 +4,7 @@ export type JsonLogger = {
 };
 
 import type { RetainedWebToolCall } from '../web-search/web-tool-command.js';
+import type { ChatMessage } from './planner-protocol.js';
 
 export type { RetainedWebToolCall } from '../web-search/web-tool-command.js';
 
@@ -50,7 +51,7 @@ export type RepoSearchExecutionRequest = {
   model?: string;
   promptPrefix?: string;
   allowedTools?: string[];
-  history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  history?: ChatMessage[];
   systemPrompt?: string;
   thinkingEnabled?: boolean;
   includeAgentsMd?: boolean;

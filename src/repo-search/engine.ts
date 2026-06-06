@@ -809,7 +809,7 @@ type RunTaskLoopOptions = {
   streamFinishAsAnswer?: boolean;
   thinkingEnabledOverride?: boolean;
   systemPromptOverride?: string;
-  historyMessages?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  historyMessages?: ChatMessage[];
   plannerToolDefinitions?: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;
   includeAgentsMd?: boolean;
   includeRepoFileListing?: boolean;
@@ -976,7 +976,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       role: 'system',
       content: systemPromptContent,
     },
-    ...((options.historyMessages || []).map((message) => ({ role: message.role, content: message.content }))),
+    ...(options.historyMessages || []),
     {
       role: 'user',
       content: loopKind === 'chat'
@@ -2314,7 +2314,7 @@ export async function runRepoSearch(options: {
   allowEmptyTools?: boolean;
   streamFinishAsAnswer?: boolean;
   systemPromptOverride?: string;
-  historyMessages?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  historyMessages?: ChatMessage[];
   thinkingEnabledOverride?: boolean;
   taskPrompt?: string;
   availableModels?: string[];

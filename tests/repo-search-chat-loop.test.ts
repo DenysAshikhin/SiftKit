@@ -191,6 +191,68 @@ test('chat mode seeds system prompt override and history before the question', a
   assert.ok(logged.some((m) => m.role === 'user' && m.content === 'And now?'), 'question seeded last');
 });
 
+test('chat loop sends replayed tool-call history before the new user message', async () => {
+  type CapturedReplayMessage = {
+    role: string;
+    content?: string;
+    tool_calls?: unknown[];
+    tool_call_id?: string;
+  };
+  const capturedMessages: CapturedReplayMessage[] = [];
+  const result = await runTaskLoop(
+    { id: 'chat', question: 'next question', signals: [] },
+    {
+      repoRoot: os.tmpdir(),
+      model: 'mock',
+      baseUrl: 'http://127.0.0.1:1',
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      loopKind: 'chat',
+      plannerToolDefinitions: [],
+      includeRepoFileListing: false,
+      historyMessages: [
+        { role: 'user', content: 'previous question' },
+        {
+          role: 'assistant',
+          content: '',
+          tool_calls: [{
+            id: 'chat_tool_t1',
+            type: 'function',
+            function: { name: 'web_fetch', arguments: JSON.stringify({ url: 'https://example.test' }) },
+          }],
+        },
+        { role: 'tool', tool_call_id: 'chat_tool_t1', content: 'previous fetched page text' },
+        { role: 'assistant', content: 'previous answer' },
+      ],
+      mockResponses: ['{"action":"finish","output":"next answer"}'],
+      mockCommandResults: {},
+      logger: { path: '', write: (event) => {
+        if (event.kind === 'turn_new_messages' && Array.isArray(event.messages)) {
+          capturedMessages.push(...event.messages as CapturedReplayMessage[]);
+        }
+      } },
+    },
+  );
+
+  assert.equal(result.finalOutput, 'next answer');
+  assert.deepEqual(capturedMessages.slice(1, 6), [
+    { role: 'user', content: 'previous question' },
+    {
+      role: 'assistant',
+      content: '',
+      tool_calls: [{
+        id: 'chat_tool_t1',
+        type: 'function',
+        function: { name: 'web_fetch', arguments: JSON.stringify({ url: 'https://example.test' }) },
+      }],
+    },
+    { role: 'tool', tool_call_id: 'chat_tool_t1', content: 'previous fetched page text' },
+    { role: 'assistant', content: 'previous answer' },
+    { role: 'user', content: 'next question' },
+  ]);
+});
+
 test('thinkingEnabledOverride=false forces enable_thinking:false in the planner request', async () => {
   const requests: Array<{ enable_thinking?: boolean }> = [];
   await runTaskLoop(
