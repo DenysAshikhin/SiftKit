@@ -7,6 +7,7 @@ import {
   formatNumber,
   formatPercent,
   getMessageTokenCount,
+  getReplayDisplayTokenCount,
 } from '../lib/format';
 import {
   buildDisplayedSystemPromptContent,
@@ -540,7 +541,7 @@ function MessageHeader({ message, isLive, chatBusy, onDeleteMessage }: {
     <header className="msg-header">
       <span>{messageLabel} | {isLive ? 'live' : formatDate(message.createdAtUtc)}</span>
       <span className="msg-meta">
-        <span className="msg-tokens">{formatNumber(getMessageTokenCount(message))} tokens</span>
+        <span className="msg-tokens">{formatNumber(getReplayDisplayTokenCount(message))} tokens</span>
         {!isLive ? (
           <button
             type="button"
@@ -626,6 +627,7 @@ function ChatTurnBubble({ turn, isDirectChatMode, chatBusy, onDeleteMessage, onD
   onDeleteMessage(messageId: string): Promise<void>;
   onDeleteTurn(messageIds: string[]): Promise<void>;
 }) {
+  const visibleTokens = turn.main ? getReplayDisplayTokenCount(turn.main) : 0;
   const aggregateTokens = turn.messages.reduce((sum, message) => sum + getMessageTokenCount(message), 0);
   const headerTimestamp = turn.main ? turn.main.createdAtUtc : turn.messages[0]?.createdAtUtc ?? null;
   return (
@@ -633,7 +635,9 @@ function ChatTurnBubble({ turn, isDirectChatMode, chatBusy, onDeleteMessage, onD
       <header className="msg-header">
         <span>assistant turn | {turn.isLive ? 'live' : formatDate(headerTimestamp)}</span>
         <span className="msg-meta">
-          <span className="msg-tokens">{formatNumber(aggregateTokens)} tokens</span>
+          <span className="msg-tokens" title={`${formatNumber(aggregateTokens)} internal run tokens`}>
+            {formatNumber(visibleTokens)} context tokens
+          </span>
           {!turn.isLive ? (
             <button
               type="button"

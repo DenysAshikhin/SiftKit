@@ -58,6 +58,18 @@ export function getMessageTokenCount(message: ChatSession['messages'][number]): 
     + Number(message.thinkingTokens || 0);
 }
 
+function estimateDisplayTokensFromContent(content: string): number {
+  return Math.max(1, Math.ceil(String(content || '').length / 4));
+}
+
+export function getReplayDisplayTokenCount(message: ChatSession['messages'][number]): number {
+  const kind = message.kind ?? (message.role === 'user' ? 'user_text' : 'assistant_answer');
+  if (kind === 'user_text' || kind === 'assistant_answer') {
+    return estimateDisplayTokensFromContent(message.content);
+  }
+  return getMessageTokenCount(message);
+}
+
 export function getSessionTelemetryStats(session: ChatSession | null): {
   promptCacheTokens: number;
   promptEvalTokens: number;

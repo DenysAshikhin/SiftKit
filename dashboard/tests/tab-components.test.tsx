@@ -1476,6 +1476,58 @@ test('ChatTab renders a user message as a plain bubble with no Internal Logic', 
   assert.doesNotMatch(markup, /Internal Logic/u);
 });
 
+test('ChatTab main transcript token labels do not use cumulative prompt eval telemetry', () => {
+  const session = {
+    ...CHAT_SESSION,
+    messages: [
+      {
+        ...CHAT_MESSAGE,
+        id: 'u1',
+        role: 'user',
+        kind: 'user_text',
+        content: 'tiny',
+        inputTokensEstimate: 161239,
+      } as ChatMessage,
+      {
+        ...CHAT_MESSAGE,
+        id: 'a1',
+        role: 'assistant',
+        kind: 'assistant_answer',
+        content: 'short answer',
+        outputTokensEstimate: 554,
+        promptEvalTokens: 161239,
+        promptCacheTokens: 1204807,
+      } as ChatMessage,
+    ],
+  } as ChatSession;
+
+  const markup = renderChatTab({ selectedSession: session });
+
+  assert.doesNotMatch(markup, /161,239 tokens/u);
+});
+
+test('ChatTab grouped turn header shows visible answer context tokens instead of aggregate internal tokens', () => {
+  const tool = {
+    ...CHAT_TOOL_MESSAGE,
+    id: 'to',
+    sourceRunId: 'run-token-display',
+    outputTokensEstimate: 161239,
+  } as ChatMessage;
+  const answer = {
+    ...CHAT_MESSAGE,
+    id: 'an',
+    sourceRunId: 'run-token-display',
+    content: 'short answer',
+    outputTokensEstimate: 0,
+  } as ChatMessage;
+  const session = { ...CHAT_SESSION, messages: [tool, answer] } as ChatSession;
+
+  const markup = renderChatTab({ selectedSession: session });
+
+  assert.doesNotMatch(markup, />161,251 tokens</u);
+  assert.match(markup, />3 context tokens</u);
+});
+
 test('ChatTab live turn shows latest item in the main slot, earlier steps in Internal Logic, and no delete buttons', () => {
   const liveThinking = { ...CHAT_THINKING_MESSAGE, id: 'live-thinking-0' } as ChatMessage;
   const liveTool = {
