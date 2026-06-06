@@ -92,6 +92,7 @@ import {
 } from './chat-grounding-policy.js';
 import type {
   JsonLogger,
+  RetainedWebToolCall,
   RepoSearchMockCommandResult,
   RepoSearchProgressEvent,
 } from './types.js';
@@ -814,6 +815,7 @@ type RunTaskLoopOptions = {
   includeRepoFileListing?: boolean;
   mockResponses?: string[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
+  retainedWebToolCalls?: RetainedWebToolCall[];
   abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
   onProgress?: ((event: RepoSearchProgressEvent) => void) | null;
@@ -931,6 +933,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     && allowedPlannerToolNames.includes('web_fetch');
   const chatWebGroundingPolicy = new ChatGroundingPolicy({
     enabled: chatWebGroundingEnabled,
+    retainedWebToolCalls: options.retainedWebToolCalls,
   });
   let zeroOutputStreak = 0;
   let forcedFinishAttemptsRemaining = 0;
@@ -1494,15 +1497,38 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     const isExactDuplicate = Boolean(lastSuccessfulNormalizedKey && normalizedKey === lastSuccessfulNormalizedKey);
     const isSemanticDuplicate = Boolean(!isExactDuplicate && !normalized.rejected && fingerprint && lastSuccessfulFingerprint && fingerprint === lastSuccessfulFingerprint);
     const canAdvanceRepeatedRead = normalizedToolName === 'repo_read_file' || Boolean(!isNativeTool && parseGetContentReadWindowCommand(normalizedKey));
+    if (chatWebGroundingEnabled && (normalizedToolName === 'web_search' || normalizedToolName === 'web_fetch')) {
+      const duplicateDecision = chatWebGroundingPolicy.evaluateToolCall(normalizedToolName, toolAction.args);
+      if (duplicateDecision.kind === 'reject') {
+        commandFailures += 1;
+        commands.push({
+          command,
+          turn,
+          safe: false,
+          reason: 'duplicate web tool',
+          exitCode: null,
+          output: duplicateDecision.message,
+        });
+        batchOutcomes.push({
+          action: buildEffectiveTranscriptAction({
+            toolName: normalizedToolName,
+            rawArgs: toolAction.args,
+            isNativeTool,
+            commandToRun: command,
+          }),
+          toolCallId: `duplicate_web_call_${commands.length}`,
+          toolContent: duplicateDecision.message,
+        });
+        continue;
+      }
+    }
     if (!canAdvanceRepeatedRead && (isExactDuplicate || isSemanticDuplicate)) {
       const isActiveDuplicate = duplicateReplayFingerprint === duplicateFingerprint
         && duplicateReplayToolMessageIndex >= 0
         && duplicateReplayToolMessageIndex < messages.length;
       duplicateReplayFingerprint = duplicateFingerprint;
       duplicateReplayCount = isActiveDuplicate ? (duplicateReplayCount + 1) : 2;
-      const duplicateMessage = chatWebGroundingEnabled && normalizedToolName === 'web_search'
-        ? chatWebGroundingPolicy.buildDuplicateSearchMessage()
-        : buildRepeatedToolCallSummary(normalizedToolName, duplicateReplayCount);
+      const duplicateMessage = buildRepeatedToolCallSummary(normalizedToolName, duplicateReplayCount);
       commandFailures += 1;
       const rejectionReason = isExactDuplicate ? 'duplicate command' : 'semantic duplicate command';
       commands.push({ command, turn, safe: false, reason: rejectionReason, exitCode: null, output: `Rejected: ${duplicateMessage}` });
@@ -1542,11 +1568,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
           repeats: duplicateReplayCount,
         });
       }
-      if (
-        !(chatWebGroundingEnabled && normalizedToolName === 'web_search')
-        && duplicateReplayCount >= DUPLICATE_FORCE_THRESHOLD
-        && forcedFinishAttemptsRemaining === 0
-      ) {
+      if (duplicateReplayCount >= DUPLICATE_FORCE_THRESHOLD && forcedFinishAttemptsRemaining === 0) {
         forcedFinishAttemptsRemaining = FORCED_FINISH_MAX_ATTEMPTS;
         pendingModeChangeUserMessages.push('Forced finish mode active. Return {"action":"finish",...} now. Tool calls are blocked.');
         toolStatsByType[prospectiveToolType] = {
@@ -2298,6 +2320,7 @@ export async function runRepoSearch(options: {
   availableModels?: string[];
   mockResponses?: string[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
+  retainedWebToolCalls?: RetainedWebToolCall[];
   abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
   onProgress?: ((event: RepoSearchProgressEvent) => void) | null;
@@ -2362,6 +2385,7 @@ export async function runRepoSearch(options: {
       includeRepoFileListing: options.includeRepoFileListing,
       mockResponses: options.mockResponses,
       mockCommandResults: options.mockCommandResults,
+      retainedWebToolCalls: options.retainedWebToolCalls,
       abortSignal: options.abortSignal,
       logger: options.logger || null,
       onProgress: options.onProgress || null,

@@ -98,18 +98,57 @@ test('ChatGroundingPolicy caps steering rejections and then allows an insufficie
   assert.equal(policy.getStatus(), 'snippet_only');
 });
 
-test('ChatGroundingPolicy builds duplicate web search steering', () => {
+test('ChatGroundingPolicy rejects repeated search queries and fetch URLs', () => {
   const policy = new ChatGroundingPolicy({ enabled: true });
 
+  assert.equal(policy.evaluateToolCall('web_search', { query: 'foo "bar" OSRS' }).kind, 'allow');
   policy.recordToolResult({
     toolName: 'web_search',
-    command: 'web_search query="osrs iron bar"',
+    command: 'web_search query="foo \\"bar\\" OSRS"',
     exitCode: 0,
-    output: '1. Iron bar - OSRS Wiki\nURL: https://oldschool.runescape.wiki/w/Iron_bar',
+    output: 'URL: https://oldschool.runescape.wiki/w/Iron_bar',
   });
 
-  assert.match(policy.buildDuplicateSearchMessage(), /web_fetch/);
-  assert.match(policy.buildDuplicateSearchMessage(), /different web_search/);
+  const repeatedSearch = policy.evaluateToolCall('web_search', { query: '  FOO   "bar" osrs ' });
+  assert.equal(repeatedSearch.kind, 'reject');
+  assert.match(repeatedSearch.kind === 'reject' ? repeatedSearch.message : '', /already searched/u);
+
+  assert.equal(policy.evaluateToolCall('web_fetch', { url: 'https://oldschool.runescape.wiki/w/Iron_bar' }).kind, 'allow');
+  policy.recordToolResult({
+    toolName: 'web_fetch',
+    command: 'web_fetch url="https://oldschool.runescape.wiki/w/Iron_bar"',
+    exitCode: 0,
+    output: 'Iron bar page text',
+  });
+
+  const repeatedFetch = policy.evaluateToolCall('web_fetch', { url: 'https://oldschool.runescape.wiki/w/Iron_bar#Uses' });
+  assert.equal(repeatedFetch.kind, 'reject');
+  assert.match(repeatedFetch.kind === 'reject' ? repeatedFetch.message : '', /already fetched/u);
+});
+
+test('ChatGroundingPolicy seeds duplicate checks from retained tool calls', () => {
+  const policy = new ChatGroundingPolicy({
+    enabled: true,
+    retainedWebToolCalls: [
+      { toolName: 'web_search', value: 'OSRS iron bars' },
+      { toolName: 'web_fetch', value: 'https://oldschool.runescape.wiki/w/Iron_bar' },
+    ],
+  });
+
+  assert.equal(policy.evaluateToolCall('web_search', { query: 'osrs iron bars' }).kind, 'reject');
+  assert.equal(policy.evaluateToolCall('web_fetch', { url: 'https://oldschool.runescape.wiki/w/Iron_bar' }).kind, 'reject');
+});
+
+test('ChatGroundingPolicy allows retry after failed web search or fetch', () => {
+  const policy = new ChatGroundingPolicy({ enabled: true });
+
+  assert.equal(policy.evaluateToolCall('web_search', { query: 'OSRS iron bars' }).kind, 'allow');
+  policy.recordToolResult({ toolName: 'web_search', command: 'web_search query="OSRS iron bars"', exitCode: 1, output: '' });
+  assert.equal(policy.evaluateToolCall('web_search', { query: 'OSRS iron bars' }).kind, 'allow');
+
+  assert.equal(policy.evaluateToolCall('web_fetch', { url: 'https://oldschool.runescape.wiki/w/Iron_bar' }).kind, 'allow');
+  policy.recordToolResult({ toolName: 'web_fetch', command: 'web_fetch url="https://oldschool.runescape.wiki/w/Iron_bar"', exitCode: 1, output: '' });
+  assert.equal(policy.evaluateToolCall('web_fetch', { url: 'https://oldschool.runescape.wiki/w/Iron_bar' }).kind, 'allow');
 });
 
 test('ChatGroundingPolicy extracts returned result URLs for fetch steering', () => {

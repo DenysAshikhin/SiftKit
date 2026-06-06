@@ -43,6 +43,7 @@ import {
   buildToolContextFromRepoSearchResult,
   buildPersistTurnsFromRepoSearchResult,
   buildRepoSearchMarkdown,
+  buildRetainedWebToolCalls,
   loadRepoSearchExecutor,
 } from '../chat.js';
 import { buildChatPromptContext } from '../chat-prompt-context.js';
@@ -795,6 +796,7 @@ export async function handleChatRoute(
         history: buildChatHistoryMessages(config, activeSession),
         thinkingEnabled: activeSession.thinkingEnabled !== false,
         allowedTools: webEnabled ? ['web_search', 'web_fetch'] : [],
+        retainedWebToolCalls: webEnabled ? buildRetainedWebToolCalls(activeSession) : [],
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
         availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,

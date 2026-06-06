@@ -1026,6 +1026,47 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
     assert.ok(sourceRunIds.length >= 2);
     assert.ok(sourceRunIds.every((runId) => runId.length > 0));
     assert.equal(new Set(sourceRunIds).size, 1);
+
+    const repeated = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
+      method: 'POST',
+      timeoutMs: 8000,
+      body: JSON.stringify({
+        content: 'Check that price again.',
+        webSearchOverride: 'on',
+        availableModels: ['mock'],
+        model: 'mock',
+        mockResponses: [
+          '{"action":"web_search","query":"iron bar GE price"}',
+          '{"action":"web_fetch","url":"https://prices.runescape.wiki/iron-bar"}',
+          '{"action":"web_search","query":"iron bar live price"}',
+          '{"action":"web_fetch","url":"https://prices.runescape.wiki/iron-bar-live"}',
+          '{"action":"finish","output":"About 151 gp per bar."}',
+        ],
+        mockCommandResults: {
+          'web_fetch url="https://prices.runescape.wiki/iron-bar-live"': {
+            exitCode: 0,
+            stdout: 'Fetched source: iron bar current price is about 151 gp per bar.',
+          },
+        },
+      }),
+    });
+
+    assert.equal(repeated.statusCode, 200);
+    assert.equal(repeated.events.some((event) => event.event === 'error'), false, JSON.stringify(repeated.events));
+    const repeatedSession = d(repeated.events.find((event) => event.event === 'done')?.payload).session as Dict;
+    const repeatedMessages = (repeatedSession.messages || []) as Dict[];
+    const duplicateSearchStep = repeatedMessages.find((message) =>
+      message.kind === 'assistant_tool_call'
+      && String(message.toolCallCommand || '') === 'web_search query="iron bar GE price"'
+      && /already searched/u.test(String(message.toolCallOutput || ''))
+    ) as Dict | undefined;
+    assert.ok(duplicateSearchStep, JSON.stringify(repeatedMessages));
+    const duplicateFetchStep = repeatedMessages.find((message) =>
+      message.kind === 'assistant_tool_call'
+      && String(message.toolCallCommand || '') === 'web_fetch url="https://prices.runescape.wiki/iron-bar"'
+      && /already fetched/u.test(String(message.toolCallOutput || ''))
+    ) as Dict | undefined;
+    assert.ok(duplicateFetchStep, JSON.stringify(repeatedMessages));
   } finally {
     await new Promise<void>((resolve) => searxng.close(() => resolve()));
     await new Promise<void>((resolve, reject) => {

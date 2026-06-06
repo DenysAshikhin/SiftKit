@@ -233,6 +233,7 @@ export async function executeRepoSearchRequest(
       availableModels: request.availableModels,
       mockResponses: request.mockResponses,
       mockCommandResults: request.mockCommandResults,
+      retainedWebToolCalls: request.retainedWebToolCalls,
       timingRecorder,
       onProgress: progressCallback
         ? (event: RepoSearchProgressEvent) => {

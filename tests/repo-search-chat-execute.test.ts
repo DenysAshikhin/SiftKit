@@ -235,9 +235,48 @@ test('chat with web tools does not force finish after duplicate web_search', asy
   const tasks = (result.scorecard as { tasks: Array<{ commands: Array<{ output: string }>; finalOutput: string }> }).tasks;
   const commands = tasks[0].commands.map((command) => command.output).join('\n');
 
-  assert.match(commands, /duplicate web_search/);
+  assert.match(commands, /already searched/);
   assert.doesNotMatch(commands, /Forced finish mode active/);
   assert.match(String(tasks[0].finalOutput), /15 Smithing/);
+});
+
+test('chat with web tools rejects repeated search and fetch calls across the retained loop', async () => {
+  const result = await executeRepoSearchRequest({
+    taskKind: 'chat',
+    prompt: 'What use are iron bars in OSRS?',
+    repoRoot: process.cwd(),
+    config: MOCK_CONFIG,
+    systemPrompt: 'general, coder friendly assistant',
+    history: [],
+    thinkingEnabled: false,
+    allowedTools: ['web_search', 'web_fetch'],
+    availableModels: ['mock'],
+    model: 'mock',
+    maxTurns: 5,
+    mockResponses: [
+      '{"action":"web_search","query":"OSRS iron bars"}',
+      '{"action":"web_search","query":"osrs   IRON bars"}',
+      '{"action":"web_fetch","url":"https://oldschool.runescape.wiki/w/Iron_bar"}',
+      '{"action":"web_fetch","url":"https://oldschool.runescape.wiki/w/Iron_bar#Uses"}',
+      '{"action":"finish","output":"Iron bars are used for Smithing."}',
+    ],
+    mockCommandResults: {
+      'web_search query="OSRS iron bars"': {
+        exitCode: 0,
+        stdout: 'URL: https://oldschool.runescape.wiki/w/Iron_bar',
+      },
+      'web_fetch url="https://oldschool.runescape.wiki/w/Iron_bar"': {
+        exitCode: 0,
+        stdout: 'Iron bar page text',
+      },
+    },
+  });
+
+  const transcript = JSON.stringify(result.scorecard);
+  assert.match(transcript, /already searched/u);
+  assert.match(transcript, /already fetched/u);
+  assert.doesNotMatch(transcript, /Forced finish mode active/u);
+  assert.match(transcript, /Iron bars are used for Smithing/u);
 });
 
 test('chat executor with thinking off yields zero thinking tokens', async () => {

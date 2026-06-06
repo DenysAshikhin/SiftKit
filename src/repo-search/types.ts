@@ -3,6 +3,8 @@ export type JsonLogger = {
   write: (event: Record<string, unknown>) => void;
 };
 
+import type { RetainedWebToolCall } from '../web-search/web-tool-command.js';
+
 export type { RetainedWebToolCall } from '../web-search/web-tool-command.js';
 
 export type RepoSearchProgressEvent = {
@@ -58,6 +60,7 @@ export type RepoSearchExecutionRequest = {
   availableModels?: string[];
   mockResponses?: string[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
+  retainedWebToolCalls?: RetainedWebToolCall[];
   onProgress?: (event: RepoSearchProgressEvent) => void;
 };
 

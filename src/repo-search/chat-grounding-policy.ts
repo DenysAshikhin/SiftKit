@@ -1,3 +1,8 @@
+import {
+  parseWebToolCommand,
+  type RetainedWebToolCall,
+} from '../web-search/web-tool-command.js';
+
 export type ChatGroundingStatus = 'ungrounded' | 'snippet_only' | 'fetched';
 
 export type ChatGroundingToolResult = {
@@ -11,9 +16,14 @@ export type ChatGroundingFinishDecision =
   | { kind: 'allow' }
   | { kind: 'reject'; message: string };
 
+export type ChatGroundingToolDecision =
+  | { kind: 'allow' }
+  | { kind: 'reject'; message: string };
+
 type ChatGroundingPolicyOptions = {
   enabled: boolean;
   maxFinishRejections?: number;
+  retainedWebToolCalls?: RetainedWebToolCall[];
 };
 
 const DEFAULT_MAX_FINISH_REJECTIONS = 3;
@@ -31,6 +41,8 @@ export class ChatGroundingPolicy {
   private readonly enabled: boolean;
   private readonly maxFinishRejections: number;
   private readonly candidateUrls: string[] = [];
+  private readonly searchedQueries = new Set<string>();
+  private readonly fetchedUrls = new Set<string>();
   private searchSucceeded = false;
   private fetchSucceeded = false;
   private finishRejections = 0;
@@ -38,6 +50,43 @@ export class ChatGroundingPolicy {
   constructor(options: ChatGroundingPolicyOptions) {
     this.enabled = options.enabled === true;
     this.maxFinishRejections = Math.max(0, Math.trunc(Number(options.maxFinishRejections ?? DEFAULT_MAX_FINISH_REJECTIONS)));
+    for (const call of options.retainedWebToolCalls || []) {
+      if (call.toolName === 'web_search') {
+        this.searchedQueries.add(this.normalizeSearchQuery(call.value));
+      }
+      if (call.toolName === 'web_fetch') {
+        this.fetchedUrls.add(this.normalizeFetchUrl(call.value));
+      }
+    }
+  }
+
+  evaluateToolCall(toolName: string, args: Record<string, unknown>): ChatGroundingToolDecision {
+    if (!this.enabled) {
+      return { kind: 'allow' };
+    }
+    if (toolName === 'web_search') {
+      const query = this.normalizeSearchQuery(String(args.query || ''));
+      if (!query) {
+        return { kind: 'allow' };
+      }
+      if (this.searchedQueries.has(query)) {
+        return {
+          kind: 'reject',
+          message: `Rejected: already searched "${query}". Use web_fetch on a retained result URL or search a materially different query.`,
+        };
+      }
+      return { kind: 'allow' };
+    }
+    if (toolName === 'web_fetch') {
+      const url = this.normalizeFetchUrl(String(args.url || ''));
+      if (!url) {
+        return { kind: 'allow' };
+      }
+      if (this.fetchedUrls.has(url)) {
+        return { kind: 'reject', message: `Rejected: already fetched ${url}. Use the retained page evidence or fetch a different URL.` };
+      }
+    }
+    return { kind: 'allow' };
   }
 
   recordToolResult(result: ChatGroundingToolResult): void {
@@ -52,11 +101,19 @@ export class ChatGroundingPolicy {
     }
     if (toolName === 'web_search') {
       this.searchSucceeded = true;
+      const parsed = parseWebToolCommand(result.command);
+      if (parsed?.toolName === 'web_search') {
+        this.searchedQueries.add(this.normalizeSearchQuery(parsed.value));
+      }
       this.rememberCandidateUrls(output);
       return;
     }
     if (toolName === 'web_fetch') {
       this.fetchSucceeded = true;
+      const parsed = parseWebToolCommand(result.command);
+      if (parsed?.toolName === 'web_fetch') {
+        this.fetchedUrls.add(this.normalizeFetchUrl(parsed.value));
+      }
     }
   }
 
@@ -72,14 +129,6 @@ export class ChatGroundingPolicy {
       return { kind: 'reject', message: this.buildSearchRequiredMessage() };
     }
     return { kind: 'reject', message: this.buildFinishRejectionMessage() };
-  }
-
-  buildDuplicateSearchMessage(): string {
-    return [
-      'Rejected: duplicate web_search after prior web results.',
-      'Do not repeat the same search.',
-      'Use web_fetch on the best returned URL, or issue a materially different web_search query if the results are poor.',
-    ].join(' ');
   }
 
   getFetchCandidateUrls(): string[] {
@@ -123,6 +172,21 @@ export class ChatGroundingPolicy {
       if (url && !this.candidateUrls.includes(url)) {
         this.candidateUrls.push(url);
       }
+    }
+  }
+
+  private normalizeSearchQuery(value: string): string {
+    return String(value || '').trim().toLowerCase().replace(/\s+/gu, ' ');
+  }
+
+  private normalizeFetchUrl(value: string): string {
+    try {
+      const url = new URL(String(value || '').trim());
+      url.hash = '';
+      url.pathname = url.pathname.replace(/\/+$/u, '') || '/';
+      return url.toString();
+    } catch {
+      return String(value || '').trim().replace(/#.*$/u, '').replace(/\/+$/u, '').toLowerCase();
     }
   }
 
