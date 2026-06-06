@@ -424,7 +424,6 @@ function renderChatTab(overrides: Partial<ChatTabProps> = {}): string {
     onToggleThinking: overrides.onToggleThinking ?? (async () => {}),
     onToggleWebSearchEnabled: overrides.onToggleWebSearchEnabled ?? (async () => {}),
     onSavePlanRepoRoot: overrides.onSavePlanRepoRoot ?? (async () => {}),
-    onClearToolContext: overrides.onClearToolContext ?? (async () => {}),
     onDeleteMessage: overrides.onDeleteMessage ?? (async () => {}),
     onDeleteTurn: overrides.onDeleteTurn ?? (async () => {}),
     onCondense: overrides.onCondense ?? (async () => {}),
@@ -1280,7 +1279,8 @@ test('chat tab gear popover shows context details only when showSettings is true
   });
   assert.match(open, /composer-settings-popover/u);
   assert.match(open, /Remaining:/u);
-  assert.match(open, /Discard Tool Context/u);
+  assert.doesNotMatch(open, /Discard Tool Context/u);
+  assert.doesNotMatch(open, /hidden tool-call context/u);
 
   const closed = renderChatTab({
     webPresets: [PRESET],

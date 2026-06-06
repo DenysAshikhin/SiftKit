@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 
 import {
-  clearToolContext as clearToolContextRequest,
   condenseChatSession,
   createChatSession,
   deleteChatMessage,
@@ -31,7 +30,6 @@ export type UseChatSessionsResult = {
   toggleWebSearch(enabled: boolean): Promise<void>;
   savePlanRepoRoot(planRepoRootInput: string, presetId: string | undefined): Promise<void>;
   condense(): Promise<void>;
-  clearToolContext(): Promise<void>;
   deleteMessage(messageId: string): Promise<ChatSessionResponse | null>;
   deleteMessages(messageIds: string[]): Promise<ChatSessionResponse | null>;
   applySessionResponse(response: ChatSessionResponse): void;
@@ -57,7 +55,6 @@ export function useChatSessions(deps: {
   refreshToken: number;
   buildCreateSessionRequest(): CreateChatSessionRequest;
   confirmDeleteSession(): boolean;
-  confirmClearToolContext(): boolean;
   applyContextUsage(value: ContextUsage | null): void;
 }): UseChatSessionsResult {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -244,24 +241,6 @@ export function useChatSessions(deps: {
     }
   }
 
-  async function clearToolContext(): Promise<void> {
-    if (!selectedSessionId) {
-      return;
-    }
-    if (!deps.confirmClearToolContext()) {
-      return;
-    }
-    setChatBusy(true);
-    try {
-      const response = await clearToolContextRequest(selectedSessionId);
-      applySessionResponse(response);
-    } catch (error) {
-      deps.onError(error);
-    } finally {
-      setChatBusy(false);
-    }
-  }
-
   async function deleteMessage(messageId: string): Promise<ChatSessionResponse | null> {
     if (!selectedSessionId || !messageId) {
       return null;
@@ -326,7 +305,6 @@ export function useChatSessions(deps: {
     toggleWebSearch,
     savePlanRepoRoot,
     condense,
-    clearToolContext,
     deleteMessage,
     deleteMessages,
     applySessionResponse,

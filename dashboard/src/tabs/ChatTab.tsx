@@ -87,7 +87,6 @@ type ChatTabProps = {
   onToggleThinking(enabled: boolean): Promise<void>;
   onToggleWebSearchEnabled(enabled: boolean): Promise<void>;
   onSavePlanRepoRoot(): Promise<void>;
-  onClearToolContext(): Promise<void>;
   onDeleteMessage(messageId: string): Promise<void>;
   onDeleteTurn(messageIds: string[]): Promise<void>;
   onCondense(): Promise<void>;
@@ -130,7 +129,6 @@ export function ChatTab({
   onToggleThinking,
   onToggleWebSearchEnabled,
   onSavePlanRepoRoot,
-  onClearToolContext,
   onDeleteMessage,
   onDeleteTurn,
   onCondense,
@@ -249,7 +247,6 @@ export function ChatTab({
                   liveToolPromptTokenCount={liveToolPromptTokenCount}
                   isRepoToolMode={isRepoToolMode}
                   chatBusy={chatBusy}
-                  onClearToolContext={onClearToolContext}
                   onCondense={onCondense}
                 />
               ) : null}
@@ -441,19 +438,18 @@ function SettingsPopover(props: {
   liveToolPromptTokenCount: number | null;
   isRepoToolMode: boolean;
   chatBusy: boolean;
-  onClearToolContext(): Promise<void>;
   onCondense(): Promise<void>;
 }) {
-  const { contextUsage, liveToolPromptTokenCount, isRepoToolMode, chatBusy, onClearToolContext, onCondense } = props;
+  const { contextUsage, liveToolPromptTokenCount, isRepoToolMode, chatBusy, onCondense } = props;
   if (!contextUsage) return null;
   return (
     <div className={contextUsage.shouldCondense ? 'composer-settings-popover usage warning' : 'composer-settings-popover usage'}>
       <strong>
-        <span title="Replayable chat context tokens in this session, excluding hidden tool-call context.">
+        <span title="Replayable chat context tokens in this session.">
           Context: {formatNumber(contextUsage.chatUsedTokens)} / {formatNumber(contextUsage.contextWindowTokens)} tokens
         </span>
       </strong>
-      <span title="Format: chat_tokens (total_tokens_including_hidden_tool_context).">
+      <span title="Format: chat_tokens (total_tokens_including_tool_outputs).">
         Remaining: {formatNumber(contextUsage.remainingTokens)}
         {' | '}
         {formatNumber(contextUsage.chatUsedTokens)} ({formatNumber(contextUsage.totalUsedTokens)} with tools)
@@ -473,14 +469,6 @@ function SettingsPopover(props: {
           Estimated Fallback: {formatNumber(Number(contextUsage.estimatedTokenFallbackTokens || 0))} tokens
         </span>
       ) : null}
-      <div className="usage-actions">
-        <button
-          onClick={() => { void onClearToolContext(); }}
-          disabled={chatBusy || Number(contextUsage.toolUsedTokens || 0) <= 0}
-        >
-          Discard Tool Context
-        </button>
-      </div>
       {contextUsage.shouldCondense && (
         <button onClick={() => { void onCondense(); }} disabled={chatBusy}>Condense Now</button>
       )}

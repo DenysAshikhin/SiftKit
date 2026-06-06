@@ -46,7 +46,6 @@ test('useChatSessions surfaces the initial selected session id without an immedi
       refreshToken: 0,
       buildCreateSessionRequest: () => ({ title: 'x', model: 'm' }),
       confirmDeleteSession: () => true,
-      confirmClearToolContext: () => true,
       applyContextUsage: () => {},
     });
     return React.createElement('output', {

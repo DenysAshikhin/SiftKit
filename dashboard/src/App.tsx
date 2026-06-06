@@ -168,7 +168,6 @@ function DashboardApp() {
       presetId: getDefaultWebPresetId(dashboardConfig),
     }),
     confirmDeleteSession: () => window.confirm('Delete this chat session permanently?'),
-    confirmClearToolContext: () => window.confirm('Discard all hidden tool-call context for this session?'),
     applyContextUsage: contextHook.setContextUsage,
   });
 
@@ -1372,7 +1371,6 @@ function DashboardApp() {
           onToggleThinking={chatSessionsHook.toggleThinking}
           onToggleWebSearchEnabled={chatSessionsHook.toggleWebSearch}
           onSavePlanRepoRoot={() => chatSessionsHook.savePlanRepoRoot(planInputs.planRepoRootInput, selectedChatPreset?.id)}
-          onClearToolContext={chatSessionsHook.clearToolContext}
           onDeleteMessage={onDeleteChatMessage}
           onDeleteTurn={onDeleteChatTurn}
           onCondense={chatSessionsHook.condense}
