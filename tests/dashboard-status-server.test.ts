@@ -1081,6 +1081,118 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
   }
 });
 
+test('web-on direct chat can answer later turn from retained successful fetch evidence', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-web-replay-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+
+  const searxng = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ results: [{ title: 'Iron bar', url: 'https://oldschool.runescape.wiki/w/Iron_bar', content: 'Iron bars are used in Smithing and quests.' }] }));
+  });
+  await new Promise<void>((resolve) => searxng.listen(0, '127.0.0.1', () => resolve()));
+  const searxngPort = (searxng.address() as AddressInfo).port;
+
+  const config = getDefaultConfig();
+  config.WebSearch = {
+    EnabledDefault: true,
+    Provider: 'searxng',
+    SearxngBaseUrl: `http://127.0.0.1:${searxngPort}`,
+    ResultCount: 5,
+    FetchMaxPages: 3,
+    TimeoutMs: 15000,
+    FetchMaxCharacters: 12000,
+  };
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  writeConfig(configPath, config);
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const created = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Web replay' }),
+    });
+    const sessionId = String(d(created.body.session).id);
+
+    const first = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
+      method: 'POST',
+      timeoutMs: 8000,
+      body: JSON.stringify({
+        content: 'What does the iron bar page say?',
+        webSearchOverride: 'on',
+        availableModels: ['mock'],
+        model: 'mock',
+        mockResponses: [
+          '{"action":"web_search","query":"OSRS iron bar"}',
+          '{"action":"web_fetch","url":"https://oldschool.runescape.wiki/w/Iron_bar"}',
+          '{"action":"finish","output":"Iron bars are used in Smithing and quests."}',
+        ],
+        mockCommandResults: {
+          'web_fetch url="https://oldschool.runescape.wiki/w/Iron_bar"': {
+            exitCode: 0,
+            stdout: 'Fetched page text: Iron bars are used in Smithing and quests.',
+          },
+        },
+      }),
+    });
+
+    assert.equal(first.statusCode, 200);
+    assert.equal(first.events.some((event) => event.event === 'error'), false, JSON.stringify(first.events));
+    const firstSession = d(first.events.find((event) => event.event === 'done')?.payload).session as Dict;
+    const firstMessages = (firstSession.messages || []) as Dict[];
+    const fetchStep = firstMessages.find((message) =>
+      message.kind === 'assistant_tool_call'
+      && String(message.toolCallCommand || '') === 'web_fetch url="https://oldschool.runescape.wiki/w/Iron_bar"'
+    ) as Dict | undefined;
+    assert.ok(fetchStep, JSON.stringify(firstMessages));
+    assert.match(String(fetchStep.toolCallOutput || ''), /Iron bars are used in Smithing and quests/u);
+    assert.equal(fetchStep.toolCallExitCode, 0);
+
+    const second = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
+      method: 'POST',
+      timeoutMs: 8000,
+      body: JSON.stringify({
+        content: 'Repeat the exact fetched evidence from the page.',
+        webSearchOverride: 'on',
+        availableModels: ['mock'],
+        model: 'mock',
+        mockResponses: [
+          '{"action":"finish","output":"The fetched page text said: Iron bars are used in Smithing and quests."}',
+        ],
+      }),
+    });
+
+    assert.equal(second.statusCode, 200);
+    assert.equal(second.events.some((event) => event.event === 'error'), false, JSON.stringify(second.events));
+    assert.equal(second.events.some((event) => event.event === 'tool_start'), false, JSON.stringify(second.events));
+    const secondSession = d(second.events.find((event) => event.event === 'done')?.payload).session as Dict;
+    const secondMessages = (secondSession.messages || []) as Dict[];
+    const answers = secondMessages.filter((message) => message.kind === 'assistant_answer') as Dict[];
+    const answer = answers.at(-1);
+    assert.match(String(answer?.content || ''), /Iron bars are used in Smithing and quests/u);
+  } finally {
+    await new Promise<void>((resolve) => searxng.close(() => resolve()));
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
 test('deleting retained web tool step allows the same web call in a later chat turn', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-web-delete-dedupe-'));
   const previousCwd = enterDashboardTestRepo(tempRoot);
