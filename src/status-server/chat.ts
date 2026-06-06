@@ -9,7 +9,6 @@ import {
   saveChatSession,
 } from '../state/chat-sessions.js';
 import { DEFAULT_LLAMA_MODEL } from './config-store.js';
-import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
 import { getDisplayToolCommand } from './tool-command-display.js';
 
 const DEFAULT_CHAT_SYSTEM_PROMPT = 'general, coder friendly assistant';
@@ -182,8 +181,8 @@ export function buildChatHistoryMessages(
   const messages = Array.isArray(session.messages) ? session.messages as Dict[] : [];
   const history: Array<{ role: 'user' | 'assistant'; content: string }> = [];
   for (const message of messages) {
-    if (message.kind === 'assistant_thinking' || message.kind === 'assistant_tool_call') {
-      continue; // internal-logic steps are not replayed as conversation turns
+    if (!isChatReplayMessage(message)) {
+      continue;
     }
     const content = typeof message.content === 'string' ? message.content.trim() : '';
     if (!content) {
@@ -192,6 +191,15 @@ export function buildChatHistoryMessages(
     history.push({ role: message.role === 'assistant' ? 'assistant' : 'user', content });
   }
   return history;
+}
+
+export function isChatReplayMessage(message: Dict): boolean {
+  const kind = typeof message.kind === 'string'
+    ? message.kind
+    : message.role === 'user'
+      ? 'user_text'
+      : 'assistant_answer';
+  return kind === 'user_text' || kind === 'assistant_answer';
 }
 
 export function buildChatSystemContent(_config: Dict, session: ChatSession, options: Pick<BuildChatOptions, 'promptPrefix' | 'webActionInstruction'> = {}): string {
@@ -270,7 +278,6 @@ export function appendChatMessagesWithUsage(
 ): ChatSession {
   const now = new Date().toISOString();
   const messages = Array.isArray(session.messages) ? session.messages.slice() : [];
-  const promptTokens = getChatUsageValue(usage.promptTokens);
   const promptCacheTokens = getChatUsageValue(usage.promptCacheTokens);
   const promptEvalTokens = getChatUsageValue(usage.promptEvalTokens);
   const completionTokens = getChatUsageValue(usage.completionTokens);
@@ -279,8 +286,7 @@ export function appendChatMessagesWithUsage(
   const usageGenerationDurationMs = getChatUsageValue(usage.generationDurationMs);
   const usagePromptTokensPerSecond = getChatUsageValue(usage.promptTokensPerSecond);
   const usageGenerationTokensPerSecond = getChatUsageValue(usage.generationTokensPerSecond);
-  const processedPromptTokens = getProcessedPromptTokens(promptTokens, promptCacheTokens, promptEvalTokens);
-  const userTokens = processedPromptTokens ?? estimateTokenCount(content);
+  const userTokens = estimateTokenCount(content);
   const explicitOutputTokens = getChatUsageValue(options.outputTokens);
   const explicitThinkingTokens = getChatUsageValue(options.thinkingTokens);
   const outputTokens = explicitOutputTokens ?? completionTokens ?? estimateTokenCount(assistantContent);
@@ -301,7 +307,7 @@ export function appendChatMessagesWithUsage(
     inputTokensEstimate: userTokens,
     outputTokensEstimate: 0,
     thinkingTokens: 0,
-    inputTokensEstimated: processedPromptTokens === null,
+    inputTokensEstimated: true,
     outputTokensEstimated: false,
     thinkingTokensEstimated: false,
     createdAtUtc: now,

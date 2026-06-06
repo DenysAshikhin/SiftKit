@@ -413,6 +413,68 @@ test('buildChatHistoryMessages maps prior turns to user/assistant roles', () => 
   ]);
 });
 
+test('chat replay context excludes internal logic and includes only follow-up-visible turns', () => {
+  const session = {
+    id: 's1',
+    messages: [
+      { id: 'u1', role: 'user', kind: 'user_text', content: 'visible question', inputTokensEstimate: 99999 },
+      { id: 't1', role: 'assistant', kind: 'assistant_tool_call', content: 'web_search query="x"', outputTokensEstimate: 1234 },
+      { id: 'h1', role: 'assistant', kind: 'assistant_thinking', content: 'hidden reasoning', thinkingTokens: 5678 },
+      { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'visible answer', outputTokensEstimate: 88888 },
+    ],
+  };
+
+  assert.deepEqual(buildChatHistoryMessages({}, session as never), [
+    { role: 'user', content: 'visible question' },
+    { role: 'assistant', content: 'visible answer' },
+  ]);
+});
+
+test('buildContextUsage counts replay-visible context, not internal tool telemetry', () => {
+  const session = {
+    id: 'session-replay-usage',
+    contextWindowTokens: 62000,
+    messages: [
+      { id: 'u1', role: 'user', kind: 'user_text', content: 'tiny', inputTokensEstimate: 161239 },
+      { id: 't1', role: 'assistant', kind: 'assistant_tool_call', content: 'web_fetch url="https://example.test"', outputTokensEstimate: 42073 },
+      { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'short answer', outputTokensEstimate: 2048 },
+    ],
+    hiddenToolContexts: [],
+  } as ChatSession;
+
+  const usage = buildContextUsage(createConfig(), session);
+
+  assert.ok(usage.chatUsedTokens < 1000);
+  assert.equal(usage.toolUsedTokens, 0);
+  assert.equal(usage.contextWindowTokens, 62000);
+});
+
+test('appendChatMessagesWithUsage stores user text token estimate from content, not cumulative prompt eval telemetry', () => {
+  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-user-tokens-'));
+  const session = {
+    id: 'session-user-tokens',
+    title: 'Session',
+    model: 'managed.gguf',
+    contextWindowTokens: 8192,
+    createdAtUtc: '2026-04-17T00:00:00.000Z',
+    updatedAtUtc: '2026-04-17T00:00:00.000Z',
+    messages: [],
+  } as ChatSession;
+
+  const updated = appendChatMessagesWithUsage(runtimeRoot, session, 'tiny', 'answer', {
+    promptTokens: null,
+    completionTokens: 4,
+    thinkingTokens: 0,
+    promptCacheTokens: 1204807,
+    promptEvalTokens: 161239,
+  }, { turns: [] });
+
+  const userMessage = updated.messages.find((message) => message.kind === 'user_text');
+  assert.ok(userMessage);
+  assert.equal(userMessage.inputTokensEstimate, estimateTokenCount('tiny'));
+  assert.equal(userMessage.inputTokensEstimated, true);
+});
+
 test('buildChatSystemContent returns the default chat system prompt', () => {
   const content = buildChatSystemContent({}, { id: 's', messages: [] } as never);
   assert.match(content, /coder friendly assistant/);
