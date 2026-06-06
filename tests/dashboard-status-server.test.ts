@@ -1084,6 +1084,127 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
   }
 });
 
+test('deleting retained web tool step allows the same web call in a later chat turn', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-web-delete-dedupe-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const searxng = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ results: [{ title: 'GE', url: 'https://prices.runescape.wiki/iron-bar', content: 'iron bar price' }] }));
+  });
+  await new Promise<void>((resolve) => searxng.listen(0, '127.0.0.1', () => resolve()));
+  const searxngPort = (searxng.address() as AddressInfo).port;
+
+  const config = getDefaultConfig();
+  config.WebSearch = {
+    EnabledDefault: true,
+    Provider: 'searxng',
+    SearxngBaseUrl: `http://127.0.0.1:${searxngPort}`,
+    ResultCount: 5,
+    FetchMaxPages: 3,
+    TimeoutMs: 15000,
+    FetchMaxCharacters: 12000,
+  };
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  writeConfig(configPath, config);
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const created = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Web delete dedupe' }),
+    });
+    const sessionId = String(d(created.body.session).id);
+
+    const first = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
+      method: 'POST',
+      timeoutMs: 8000,
+      body: JSON.stringify({
+        content: 'Current GE price of an iron bar?',
+        webSearchOverride: 'on',
+        availableModels: ['mock'],
+        model: 'mock',
+        mockResponses: [
+          '{"action":"web_search","query":"iron bar GE price"}',
+          '{"action":"web_fetch","url":"https://prices.runescape.wiki/iron-bar"}',
+          '{"action":"finish","output":"About 150 gp per bar."}',
+        ],
+        mockCommandResults: {
+          'web_fetch url="https://prices.runescape.wiki/iron-bar"': {
+            exitCode: 0,
+            stdout: 'Fetched source: iron bar current price is about 150 gp per bar.',
+          },
+        },
+      }),
+    });
+    assert.equal(first.statusCode, 200);
+    const firstSession = d(first.events.find((event) => event.event === 'done')?.payload).session as Dict;
+    const searchStep = ((firstSession.messages || []) as Dict[]).find((message) =>
+      message.kind === 'assistant_tool_call'
+      && String(message.toolCallCommand || '') === 'web_search query="iron bar GE price"'
+    );
+    assert.equal(typeof searchStep?.id, 'string');
+
+    const deleteResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages/${searchStep?.id}`, {
+      method: 'DELETE',
+      timeoutMs: 3000,
+    });
+    assert.equal(deleteResponse.statusCode, 200);
+
+    const second = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
+      method: 'POST',
+      timeoutMs: 8000,
+      body: JSON.stringify({
+        content: 'Check that price again.',
+        webSearchOverride: 'on',
+        availableModels: ['mock'],
+        model: 'mock',
+        mockResponses: [
+          '{"action":"web_search","query":"iron bar GE price"}',
+          '{"action":"web_fetch","url":"https://prices.runescape.wiki/iron-bar-live"}',
+          '{"action":"finish","output":"About 151 gp per bar."}',
+        ],
+        mockCommandResults: {
+          'web_fetch url="https://prices.runescape.wiki/iron-bar-live"': {
+            exitCode: 0,
+            stdout: 'Fetched source: iron bar current price is about 151 gp per bar.',
+          },
+        },
+      }),
+    });
+    assert.equal(second.statusCode, 200);
+    assert.equal(second.events.some((event) => event.event === 'error'), false, JSON.stringify(second.events));
+    const secondSession = d(second.events.find((event) => event.event === 'done')?.payload).session as Dict;
+    const secondMessages = (secondSession.messages || []) as Dict[];
+    assert.equal(secondMessages.some((message) => /already searched/u.test(String(message.toolCallOutput || ''))), false);
+    const repeatedSearchStep = secondMessages.find((message) =>
+      message.kind === 'assistant_tool_call'
+      && String(message.toolCallCommand || '') === 'web_search query="iron bar GE price"'
+    ) as Dict | undefined;
+    assert.equal(Number(repeatedSearchStep?.toolCallExitCode), 0);
+  } finally {
+    await new Promise<void>((resolve) => searxng.close(() => resolve()));
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
 test('repo-search auto-append preview reports agents.md and file listing token counts', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-auto-append-preview-'));
   const previousCwd = enterDashboardTestRepo(tempRoot);
