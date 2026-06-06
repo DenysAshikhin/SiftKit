@@ -40,6 +40,22 @@ test('groups a settled run turn: steps are thinking+tool, main is the answer', (
   assert.equal(turns[0].main?.id, 'a');
 });
 
+test('streamed chat run groups all internal steps and answer by sourceRunId', () => {
+  const messages = [
+    message({ id: 'u1', role: 'user', kind: 'user_text', content: 'question' }),
+    message({ id: 't1', role: 'assistant', kind: 'assistant_tool_call', content: 'web_search query="x"', sourceRunId: 'run-chat-1' }),
+    message({ id: 't2', role: 'assistant', kind: 'assistant_tool_call', content: 'web_fetch url="https://example.test"', sourceRunId: 'run-chat-1' }),
+    message({ id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'answer', sourceRunId: 'run-chat-1' }),
+  ];
+
+  const turns = groupMessagesIntoTurns(messages, new Set());
+
+  assert.equal(turns.length, 2);
+  assert.equal(turns[1]?.key, 'run:run-chat-1');
+  assert.equal(turns[1]?.main?.id, 'a1');
+  assert.deepEqual(turns[1]?.steps.map((step) => step.id), ['t1', 't2']);
+});
+
 test('a solo answer (null run) is its own turn with no steps', () => {
   const turns = groupMessagesIntoTurns([message({ id: 'a', kind: 'assistant_answer', sourceRunId: null })], new Set());
   assert.equal(turns.length, 1);

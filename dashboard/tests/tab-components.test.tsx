@@ -1421,6 +1421,31 @@ test('ChatTab wraps a run turn in a turn bubble with collapsed Internal Logic an
   assert.match(markup, /aria-label="Delete turn"/u);
 });
 
+test('ChatTab does not render retained internal steps as standalone transcript bubbles', () => {
+  const toolSearch = {
+    ...CHAT_TOOL_MESSAGE,
+    id: 't1',
+    content: 'web_search query="x"',
+    toolCallCommand: 'web_search query="x"',
+    sourceRunId: 'run-chat-1',
+  } as ChatMessage;
+  const toolFetch = {
+    ...CHAT_TOOL_MESSAGE,
+    id: 't2',
+    content: 'web_fetch url="https://example.test"',
+    toolCallCommand: 'web_fetch url="https://example.test"',
+    sourceRunId: 'run-chat-1',
+  } as ChatMessage;
+  const answer = { ...CHAT_MESSAGE, id: 'a1', content: 'answer', sourceRunId: 'run-chat-1' } as ChatMessage;
+  const user = { ...CHAT_MESSAGE, id: 'u1', role: 'user', kind: 'user_text', content: 'question' } as ChatMessage;
+  const session = { ...CHAT_SESSION, messages: [user, toolSearch, toolFetch, answer] } as ChatSession;
+  const markup = renderChatTab({ selectedSession: session });
+
+  assert.equal((markup.match(/Internal Logic \(2\)/gu) ?? []).length, 1);
+  assert.equal((markup.match(/aria-label="Delete message"/gu) ?? []).length, 4);
+  assert.equal((markup.match(/aria-label="Delete turn"/gu) ?? []).length, 1);
+});
+
 test('ChatTab settled run turn exposes a delete button per step, one for the answer, and one turn delete', () => {
   const thinking = { ...CHAT_THINKING_MESSAGE, id: 'th', sourceRunId: 'run-7' } as ChatMessage;
   const tool = { ...CHAT_TOOL_MESSAGE, id: 'to', sourceRunId: 'run-7' } as ChatMessage;
