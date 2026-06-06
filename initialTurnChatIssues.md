@@ -40,11 +40,21 @@ Critical: `toolContextContents` is passed only on the **plan/repo-search** paths
 - Repo-search avoids this only because it is single-run (no cross-user-turn persistence layer).
 - Severity: real correctness/structure gap.
 
-### Issue #3 — A new turn does not receive prior web search/fetch results
-- On the regular web-chat path, prior `web_search`/`web_fetch` outputs are neither in replay history nor in `hiddenToolContexts` (since `toolContextContents` is not passed).
-- The only thing extracted is `retainedWebToolCalls` for dedup ([routes/chat.ts:799](src/status-server/routes/chat.ts#L799)) — and that is not even wired into the grounding policy yet ([engine.ts:932](src/repo-search/engine.ts#L932) constructs the policy without it).
-- Consequence: the model in turn N+1 sees none of turn N's fetched page text. This is the root reason the grounding finish-gate forces a redundant re-fetch each turn — there is genuinely no prior evidence in context to reuse.
+### Issue #3 — A new turn does not receive prior web search/fetch results (cross-turn dedup is live, evidence is not)
+- On the regular web-chat path, prior `web_search`/`web_fetch` outputs are neither in replay history nor in `hiddenToolContexts` (since `toolContextContents` is not passed). So the model in turn N+1 sees none of turn N's fetched page text.
+- `retainedWebToolCalls` IS now wired into the grounding policy ([engine.ts:936](src/repo-search/engine.ts#L936) passes `retainedWebToolCalls: options.retainedWebToolCalls`; extracted at [routes/chat.ts:799](src/status-server/routes/chat.ts#L799)). But the constructor seeds **only** the dedup sets `searchedQueries`/`fetchedUrls` — it never sets `searchSucceeded`/`fetchSucceeded` ([chat-grounding-policy.ts:53-60](src/repo-search/chat-grounding-policy.ts#L53-L60)).
+- Net effect — the worst combination, and it is live today:
+  1. The prior URL/query is **dedup-blocked** in turn N+1 (seeded from retained calls), so the model cannot re-fetch/re-search it.
+  2. The prior evidence is **absent from context** (point above), so it cannot read it back either.
+  3. `fetchSucceeded` is false at run start (retained calls do not set it), so the **finish gate still forces a fresh fetch**.
+  - Result: the model is pushed to fetch a *different* source every turn, even when the exact page it already read holds the answer. This is the concrete "stranding" scenario.
 - Severity: real correctness gap; directly degrades web grounding.
+
+### Issue #4 — UI order is timestamp-sorted, not position-contracted (fragility, not a confirmed reorder)
+- The DB loads messages `ORDER BY position ASC` ([chat-sessions.ts:240](src/state/chat-sessions.ts#L240)), but the UI re-sorts persisted messages by `createdAtUtc` ([ChatTab.tsx:142](dashboard/src/tabs/ChatTab.tsx#L142) → [chatMessages.ts:9-15](dashboard/src/lib/chatMessages.ts#L9-L15)).
+- `compareMessageCreatedAt` returns `0` on equal/unparseable timestamps with **no position tiebreak**. All messages in one turn share a single `now` timestamp ([chat.ts:303](src/status-server/chat.ts#L303)), so stable `Array.sort` preserves position order *in practice*.
+- So order is correct today, but it rests on two implicit assumptions — stable sort + equal same-turn timestamps — rather than an explicit position-based contract. The "UI order == send order" premise holds in practice but is fragile.
+- Severity: low / latent fragility.
 
 ## UI vs send (next turn)
 | Item | In dashboard UI | In actual send (next turn) |
