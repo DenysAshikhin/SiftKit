@@ -9,6 +9,7 @@ import {
   buildChatHistoryMessages,
   buildChatSystemContent,
   buildContextUsage,
+  buildRetainedWebToolCalls,
   buildRepoSearchMarkdown,
   buildPersistTurnsFromRepoSearchResult,
 } from '../src/status-server/chat.ts';
@@ -473,6 +474,35 @@ test('appendChatMessagesWithUsage stores user text token estimate from content, 
   assert.ok(userMessage);
   assert.equal(userMessage.inputTokensEstimate, estimateTokenCount('tiny'));
   assert.equal(userMessage.inputTokensEstimated, true);
+});
+
+test('buildRetainedWebToolCalls extracts undeleted web calls from internal tool messages', () => {
+  const session = {
+    id: 'session-retained-web',
+    messages: [
+      { id: 's1', role: 'assistant', kind: 'assistant_tool_call', toolCallCommand: 'web_search query="OSRS iron bars uses other than smithing"' },
+      { id: 's2', role: 'assistant', kind: 'assistant_tool_call', toolCallCommand: 'web_search query="foo \\"bar\\" OSRS"' },
+      { id: 'f1', role: 'assistant', kind: 'assistant_tool_call', toolCallCommand: 'web_fetch url="https://oldschool.runescape.wiki/w/Iron_bar"' },
+      { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'answer' },
+    ],
+  } as ChatSession;
+
+  assert.deepEqual(buildRetainedWebToolCalls(session), [
+    { toolName: 'web_search', value: 'OSRS iron bars uses other than smithing' },
+    { toolName: 'web_search', value: 'foo "bar" OSRS' },
+    { toolName: 'web_fetch', value: 'https://oldschool.runescape.wiki/w/Iron_bar' },
+  ]);
+});
+
+test('buildRetainedWebToolCalls ignores deleted tool messages because they are absent from the session', () => {
+  const session = {
+    id: 'session-retained-web-deleted',
+    messages: [
+      { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'answer' },
+    ],
+  } as ChatSession;
+
+  assert.deepEqual(buildRetainedWebToolCalls(session), []);
 });
 
 test('buildChatSystemContent returns the default chat system prompt', () => {

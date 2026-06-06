@@ -3,6 +3,8 @@ export type JsonLogger = {
   write: (event: Record<string, unknown>) => void;
 };
 
+export type { RetainedWebToolCall } from '../web-search/web-tool-command.js';
+
 export type RepoSearchProgressEvent = {
   kind: string;
   toolCallId?: string;

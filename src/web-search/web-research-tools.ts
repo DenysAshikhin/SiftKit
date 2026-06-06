@@ -9,12 +9,9 @@ import type {
 } from './types.js';
 import { WebFetchService } from './web-fetch-service.js';
 import { WebSearchService } from './web-search-service.js';
+import { formatWebFetchCommand, formatWebSearchCommand } from './web-tool-command.js';
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
-
-function quoteValue(value: string): string {
-  return JSON.stringify(value);
-}
 
 function formatSearchResults(results: WebSearchResult[]): string {
   if (results.length === 0) {
@@ -45,7 +42,7 @@ export class WebResearchTools {
     const results = await this.searchService.search({ query, timeFilter: args.timeFilter });
     const output = formatSearchResults(results);
     return {
-      command: `web_search query=${quoteValue(query)}`,
+      command: formatWebSearchCommand(query),
       output,
       outputTokens: estimateTokenCount(output),
     };
@@ -62,7 +59,7 @@ export class WebResearchTools {
       result.text,
     ].filter((part) => part !== '').join('\n');
     return {
-      command: `web_fetch url=${quoteValue(url)}`,
+      command: formatWebFetchCommand(url),
       output,
       outputTokens: estimateTokenCount(output),
     };

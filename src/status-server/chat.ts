@@ -10,6 +10,10 @@ import {
 } from '../state/chat-sessions.js';
 import { DEFAULT_LLAMA_MODEL } from './config-store.js';
 import { getDisplayToolCommand } from './tool-command-display.js';
+import {
+  parseWebToolCommand,
+  type RetainedWebToolCall,
+} from '../web-search/web-tool-command.js';
 
 const DEFAULT_CHAT_SYSTEM_PROMPT = 'general, coder friendly assistant';
 
@@ -200,6 +204,26 @@ export function isChatReplayMessage(message: Dict): boolean {
       ? 'user_text'
       : 'assistant_answer';
   return kind === 'user_text' || kind === 'assistant_answer';
+}
+
+export function buildRetainedWebToolCalls(session: ChatSession): RetainedWebToolCall[] {
+  const messages = Array.isArray(session.messages) ? session.messages as Dict[] : [];
+  const retained: RetainedWebToolCall[] = [];
+  for (const message of messages) {
+    if (message.kind !== 'assistant_tool_call') {
+      continue;
+    }
+    const command = typeof message.toolCallCommand === 'string'
+      ? message.toolCallCommand
+      : typeof message.content === 'string'
+        ? message.content
+        : '';
+    const parsed = parseWebToolCommand(command);
+    if (parsed) {
+      retained.push(parsed);
+    }
+  }
+  return retained;
 }
 
 export function buildChatSystemContent(_config: Dict, session: ChatSession, options: Pick<BuildChatOptions, 'promptPrefix' | 'webActionInstruction'> = {}): string {
