@@ -43,6 +43,15 @@ then answered from memory with a confused uncertainty note. Forensics
 - Rewriting the llama.cpp streaming hot path onto a new transport.
 - Changing browser-side (`dashboard/src/api.ts`) fetch — it cannot use undici.
 
+## Dependencies
+
+Add `undici` as an explicit runtime dependency (pin a version supporting the
+project's Node baseline; current Node 24 → undici `^7`) and update the lockfile.
+Node bundles undici for global `fetch`, but does not expose it as an importable
+module (`require('undici')` → `MODULE_NOT_FOUND`; `node:undici` is not a
+builtin), so the package is required to construct an `Agent`. The client imports
+`fetch` and `Agent` from this package directly.
+
 ## Architecture: one client API, two backends
 
 New `src/lib/http-client.ts` exports class `HttpClient` and a shared singleton
@@ -55,12 +64,20 @@ backends have genuinely different requirements:
 - Method: `fetch(url: string | URL, init?: HttpClientFetchInit): Promise<Response>`
 - Injects a shared undici `Agent({ connect: { timeout: CONNECT_TIMEOUT_MS } })`
   so the cold handshake is no longer killed at undici's 10s default.
-- Injects a default `User-Agent` header (per-call `headers` may override).
-- Injects `AbortSignal.timeout(init.timeoutMs ?? DEFAULT_TIMEOUT_MS)`; if the
-  caller passes its own `signal`, both are honored.
+- Injects a default `User-Agent` header. Caller override: headers are merged via
+  a `Headers` instance built from `init.headers` (handling all `HeadersInit`
+  forms — `Headers`, `string[][]`, `Record`), and the default UA is set only when
+  the caller did not already provide a `user-agent` (case-insensitive). The
+  caller's value always wins.
+- Timeout + abort: builds `AbortSignal.timeout(init.timeoutMs ?? DEFAULT_TIMEOUT_MS)`
+  and, when the caller also passed `init.signal`, combines them with
+  `AbortSignal.any([callerSignal, timeoutSignal])` so either can abort. When no
+  caller signal is given, the timeout signal is used directly.
 - Returns a real `Response` (callers use `.ok`, `.status`, `.json()`, `.text()`,
   `.headers`, `redirect: 'manual'`).
-- `undici` (`fetch`, `Agent`) is imported ONLY in this file — centralized.
+- Uses the npm `undici` package's `fetch` + `Agent` (NOT global `fetch`), so the
+  request and its dispatcher come from the same undici instance. `undici` is
+  imported ONLY in this file — centralized.
 
 ### Local / llama.cpp — node:http, `keepAlive:false`
 - Methods: `requestJson<T>`, `requestJsonFull<T>`, `requestText`, `streamSse`.
@@ -106,23 +123,37 @@ dynamically-passed function (project rule) and gives tests a single stub seam.
 
 node:http backend (local), rewired to `httpClient`:
 - Delete `src/lib/llama-client.ts`; `streamChatCompletion` → `HttpClient.streamSse`.
-- `src/lib/http.ts` free functions (`requestJson`/`requestJsonFull`/`requestText`)
-  become internal helpers consumed by `HttpClient`; their direct importers
-  migrate to `httpClient`:
-  - `src/providers/llama-cpp.ts` (tokenize, `/v1/models`, chat stream)
+  `LlamaClient` importers to rewire:
+  - `src/providers/llama-cpp.ts`
   - `src/repo-search/planner-protocol.ts`
   - `src/status-server/managed-llama.ts`
+  - `src/status-server/routes/core.ts`
+  - `src/status-server/routes/llama-passthrough.ts`
+  - `src/benchmark-matrix/config-rpc.ts`
+- `src/lib/http.ts` free functions (`requestJson`/`requestJsonFull`/`requestText`)
+  become internal helpers consumed by `HttpClient`; the old exports are removed,
+  so every direct importer migrates to `httpClient` (verified via repo-wide
+  search — complete list):
+  - `src/providers/llama-cpp.ts` (tokenize, `/v1/models`, chat stream)
+  - `src/repo-search/planner-protocol.ts`
   - `src/status-server/routes/core.ts` (healthcheck config test)
   - `src/config/status-backend.ts`
+  - `src/config/config-service.ts`
+  - `src/config/execution-lease.ts`
+  - `src/config/host-sync.ts`
+  - `src/cli/run-summary.ts`
+  - `src/cli/run-repo-search.ts`
   - `src/benchmark-matrix/config-rpc.ts`
-  - `src/status-server/dashboard-benchmark-runner.ts` (currently native fetch to
-    local service → `httpClient.requestJson`)
-- Dev/CLI scripts migrate too (decision: include):
-  - `scripts/start-dev.ts`
-  - `scripts/profile-tool-loop-overhead.ts`
+- `src/status-server/dashboard-benchmark-runner.ts` (currently native fetch to
+  the local service → `httpClient.requestJson`).
+- Dev script: `scripts/start-dev.ts` (raw `http.request` localhost healthcheck →
+  `httpClient`).
 
-Excluded:
+Excluded (with rationale):
 - `dashboard/src/api.ts` — browser fetch, same-origin; cannot use undici.
+- `scripts/profile-tool-loop-overhead.ts` — deliberately uses no project imports
+  to run standalone (documented at its HTTP-helpers section). Migrating would
+  break that property for no runtime benefit, so it keeps its local helper.
 
 ## Constants (hard-coded in http-client.ts — decision: not config)
 
@@ -183,6 +214,12 @@ Grounding (`chat-grounding-policy`):
 - search output with ≥1 `URL:` line → grounded; query registered (regression).
 - zero-result search output → ungrounded; query NOT registered; finish path is
   the bounded "search required" path, not the impossible-fetch demand.
+- retained-call seeding: a `retainedWebToolCalls` entry whose output is
+  `"No web search results found."` (exit 0, non-empty — so it passes the
+  constructor's `exitCode === 0 && output.trim()` guard at
+  `chat-grounding-policy.ts:53-69`) must leave the policy ungrounded and must NOT
+  register the query, so a fresh search of the same query is not duplicate-locked
+  across turns.
 
 Web services:
 - exercised through an injected stub `HttpClient` (replacing the old `fetchImpl`
