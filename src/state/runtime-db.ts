@@ -123,6 +123,11 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       updated_at_utc TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS web_search_usage (
+      month TEXT PRIMARY KEY,
+      count INTEGER NOT NULL DEFAULT 0
+    );
+
     CREATE TABLE IF NOT EXISTS runtime_status (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       status_text TEXT NOT NULL
