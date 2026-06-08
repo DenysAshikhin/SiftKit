@@ -1,9 +1,9 @@
-export type WebSearchProvider = 'searxng';
+export type WebSearchProviderId = 'brave';
 
 export type WebSearchConfig = {
   EnabledDefault: boolean;
-  Provider: WebSearchProvider;
-  SearxngBaseUrl: string;
+  Provider: WebSearchProviderId;
+  BraveApiKey: string;
   ResultCount: number;
   FetchMaxPages: number;
   TimeoutMs: number;
@@ -25,7 +25,7 @@ export type WebSearchResult = {
   title: string;
   url: string;
   snippet: string;
-  source: 'searxng' | 'duckduckgo';
+  source: WebSearchProviderId;
 };
 
 export type WebFetchResult = {

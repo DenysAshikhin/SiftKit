@@ -33,8 +33,8 @@ const MANAGED_LLAMA_SPECULATIVE_TYPES = ['draft-simple', 'draft-eagle3', 'draft-
 
 export const DEFAULT_WEB_SEARCH_CONFIG = {
   EnabledDefault: true,
-  Provider: 'searxng',
-  SearxngBaseUrl: 'http://127.0.0.1:8080',
+  Provider: 'brave',
+  BraveApiKey: '',
   ResultCount: 5,
   FetchMaxPages: 3,
   TimeoutMs: 15000,
@@ -137,14 +137,13 @@ function clampInteger(value: unknown, fallback: number, minValue: number, maxVal
 
 export function normalizeWebSearchConfig(value: unknown): Dict {
   const record = (value && typeof value === 'object' && !Array.isArray(value)) ? value as Dict : {};
-  const searxngBaseUrl = getNullableTrimmedString(record.SearxngBaseUrl) || DEFAULT_WEB_SEARCH_CONFIG.SearxngBaseUrl;
   return {
     EnabledDefault: typeof record.EnabledDefault === 'boolean'
       ? record.EnabledDefault
       : DEFAULT_WEB_SEARCH_CONFIG.EnabledDefault,
-    Provider: 'searxng',
-    SearxngBaseUrl: searxngBaseUrl,
-    ResultCount: clampInteger(record.ResultCount, DEFAULT_WEB_SEARCH_CONFIG.ResultCount, 1, 10),
+    Provider: 'brave',
+    BraveApiKey: (getNullableTrimmedString(record.BraveApiKey) || ''),
+    ResultCount: clampInteger(record.ResultCount, DEFAULT_WEB_SEARCH_CONFIG.ResultCount, 1, 20),
     FetchMaxPages: clampInteger(record.FetchMaxPages, DEFAULT_WEB_SEARCH_CONFIG.FetchMaxPages, 1, 8),
     TimeoutMs: clampInteger(record.TimeoutMs, DEFAULT_WEB_SEARCH_CONFIG.TimeoutMs, 1000, 60000),
     FetchMaxCharacters: clampInteger(record.FetchMaxCharacters, DEFAULT_WEB_SEARCH_CONFIG.FetchMaxCharacters, 1000, 50000),

@@ -119,8 +119,8 @@ import type { WebFetchToolArgs, WebSearchConfig, WebSearchToolArgs } from '../we
 
 const DEFAULT_ENGINE_WEB_SEARCH_CONFIG: WebSearchConfig = {
   EnabledDefault: false,
-  Provider: 'searxng',
-  SearxngBaseUrl: 'http://127.0.0.1:8080',
+  Provider: 'brave',
+  BraveApiKey: '',
   ResultCount: 5,
   FetchMaxPages: 3,
   TimeoutMs: 15000,
@@ -1375,8 +1375,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         args: toolCall.args,
       }))
       : [action];
-    modelToolTokens += resolvedCompletionTokens;
-
     const batchOutcomes: ToolBatchOutcome[] = [];
     const pendingModeChangeUserMessages: string[] = [];
     let pendingForcedFinishCountdownText: string | null = null;
@@ -2053,6 +2051,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       promptTokenCount, resultTokenCount, perToolCapTokens, remainingTokenAllowance,
       insertedResultText: resultText,
     });
+    modelToolTokens += Math.max(0, Math.ceil(resultTokenCount));
 
     commands.push({
       command: commandToRun,
@@ -2157,6 +2156,12 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
           reasoningContentEnabled: plannerReasoningContentEnabled,
           preserveThinking: plannerPreserveThinkingEnabled,
           logger: options.logger || null,
+          stream: streamFinishAsAnswer && Boolean(options.onProgress),
+          onContentDelta: streamFinishAsAnswer && options.onProgress
+            ? (answerText: string) => {
+                options.onProgress!({ kind: 'answer', turn: turnsUsed, maxTurns, answerText });
+              }
+            : undefined,
         });
         if (typeof synthesisResponse.nextMockResponseIndex === 'number') {
           mockResponseIndex = synthesisResponse.nextMockResponseIndex;

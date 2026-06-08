@@ -99,8 +99,8 @@ export type ServerLlamaCppConfig = {
 
 export type WebSearchConfig = {
   EnabledDefault: boolean;
-  Provider: 'searxng';
-  SearxngBaseUrl: string;
+  Provider: 'brave';
+  BraveApiKey: string;
   ResultCount: number;
   FetchMaxPages: number;
   TimeoutMs: number;

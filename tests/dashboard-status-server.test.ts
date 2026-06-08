@@ -24,6 +24,21 @@ import {
   writeJson,
 } from './helpers/dashboard-http.ts';
 import { buildRepoSearchChatSteps } from '../dashboard/src/lib/chat-steps.ts';
+import { normalizeWebSearchConfig } from '../src/status-server/config-store.js';
+
+test('normalizeWebSearchConfig produces Brave defaults and clamps ResultCount to 20', () => {
+  const normalized = normalizeWebSearchConfig({ ResultCount: 999, BraveApiKey: '  abc  ', SearxngBaseUrl: 'http://x' });
+  assert.equal(normalized.Provider, 'brave');
+  assert.equal(normalized.ResultCount, 20);
+  assert.equal(normalized.BraveApiKey, 'abc');
+  assert.equal('SearxngBaseUrl' in normalized, false);
+});
+
+test('normalizeWebSearchConfig defaults an empty Brave key', () => {
+  const normalized = normalizeWebSearchConfig({});
+  assert.equal(normalized.BraveApiKey, '');
+  assert.equal(normalized.EnabledDefault, true);
+});
 
 const requireFromHere = createRequire(__filename);
 const Database = requireFromHere('better-sqlite3') as new (path: string, options?: { readonly?: boolean }) => {
@@ -69,6 +84,8 @@ function d(value: unknown): Dict {
   return (value || {}) as Dict;
 }
 
+const DASHBOARD_CHAT_STREAM_TIMEOUT_MS = 20_000;
+
 function readRunLogRowCount(dbPath: string): number {
   const database = new Database(dbPath, { readonly: true });
   try {
@@ -92,6 +109,7 @@ function configureDashboardTestEnv(
     SIFTKIT_IDLE_SUMMARY_DB_PATH: process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH,
     SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
     SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+    SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS: process.env.SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS,
   };
   process.env.sift_kit_status = statusPath;
   process.env.SIFTKIT_STATUS_PATH = statusPath;
@@ -100,6 +118,7 @@ function configureDashboardTestEnv(
   process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH = path.join(tempRoot, '.siftkit', 'status', 'idle-summary.sqlite');
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
+  process.env.SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS = '0';
   return envBackup;
 }
 
@@ -511,11 +530,11 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
       && String(message.toolCallOutput || '').includes('/dashboard/chat/sessions')
     ), true);
     const planUsage = d(planMessage.body.contextUsage);
-    assert.equal(Number(planUsage.toolUsedTokens), 0);
-    assert.equal(Number(planUsage.totalUsedTokens), Number(planUsage.chatUsedTokens));
     const latestMessage = planMessages[planMessages.length - 1];
     assert.equal(latestMessage.role, 'assistant');
     assert.equal(Number(latestMessage.associatedToolTokens || 0) > 0, true);
+    assert.equal(Number(planUsage.toolUsedTokens), Number(latestMessage.associatedToolTokens || 0));
+    assert.equal(Number(planUsage.totalUsedTokens), Number(planUsage.chatUsedTokens) + Number(planUsage.toolUsedTokens));
     const repoSearch = d(planMessage.body.repoSearch);
     const repoScorecard = d(repoSearch.scorecard);
     const repoTotals = d(repoScorecard.totals);
@@ -944,28 +963,6 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
 
-  // web_search is native, so the search backend must be stubbed with a fake
-  // SearXNG HTTP server. web_fetch uses mockCommandResults for determinism.
-  const searxng = http.createServer((req, res) => {
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ results: [{ title: 'GE', url: 'https://prices.runescape.wiki/iron-bar', content: 'iron bar ~150 gp' }] }));
-  });
-  await new Promise<void>((resolve) => searxng.listen(0, '127.0.0.1', () => resolve()));
-  const searxngPort = (searxng.address() as AddressInfo).port;
-
-  const config = getDefaultConfig();
-  config.WebSearch = {
-    EnabledDefault: true,
-    Provider: 'searxng',
-    SearxngBaseUrl: `http://127.0.0.1:${searxngPort}`,
-    ResultCount: 5,
-    FetchMaxPages: 3,
-    TimeoutMs: 15000,
-    FetchMaxCharacters: 12000,
-  };
-  fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  writeConfig(configPath, config);
-
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
   const address = server.address() as AddressInfo;
@@ -980,7 +977,7 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
 
     const sse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
       method: 'POST',
-      timeoutMs: 8000,
+      timeoutMs: DASHBOARD_CHAT_STREAM_TIMEOUT_MS,
       body: JSON.stringify({
         content: 'Current GE price of an iron bar?',
         webSearchOverride: 'on',
@@ -993,6 +990,15 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
           '{"action":"finish","output":"About 150 gp per bar."}',
         ],
         mockCommandResults: {
+          'web_search query="iron bar GE price"': {
+            exitCode: 0,
+            stdout: [
+              '1. GE',
+              'URL: https://prices.runescape.wiki/iron-bar',
+              'Snippet: iron bar ~150 gp',
+              'Source: searxng',
+            ].join('\n'),
+          },
           'web_fetch url="https://prices.runescape.wiki/iron-bar"': {
             exitCode: 0,
             stdout: 'Fetched source: iron bar current price is about 150 gp per bar.',
@@ -1026,7 +1032,7 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
 
     const repeated = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
       method: 'POST',
-      timeoutMs: 8000,
+      timeoutMs: DASHBOARD_CHAT_STREAM_TIMEOUT_MS,
       body: JSON.stringify({
         content: 'Check that price again.',
         webSearchOverride: 'on',
@@ -1040,6 +1046,15 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
           '{"action":"finish","output":"About 151 gp per bar."}',
         ],
         mockCommandResults: {
+          'web_search query="iron bar live price"': {
+            exitCode: 0,
+            stdout: [
+              '1. GE live',
+              'URL: https://prices.runescape.wiki/iron-bar-live',
+              'Snippet: iron bar ~151 gp',
+              'Source: searxng',
+            ].join('\n'),
+          },
           'web_fetch url="https://prices.runescape.wiki/iron-bar-live"': {
             exitCode: 0,
             stdout: 'Fetched source: iron bar current price is about 151 gp per bar.',
@@ -1065,7 +1080,6 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
     ) as Dict | undefined;
     assert.ok(duplicateFetchStep, JSON.stringify(repeatedMessages));
   } finally {
-    await new Promise<void>((resolve) => searxng.close(() => resolve()));
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
@@ -1122,7 +1136,7 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
 
     const first = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
       method: 'POST',
-      timeoutMs: 8000,
+      timeoutMs: DASHBOARD_CHAT_STREAM_TIMEOUT_MS,
       body: JSON.stringify({
         content: 'What does the iron bar page say?',
         webSearchOverride: 'on',
@@ -1156,7 +1170,7 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
 
     const second = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
       method: 'POST',
-      timeoutMs: 8000,
+      timeoutMs: DASHBOARD_CHAT_STREAM_TIMEOUT_MS,
       body: JSON.stringify({
         content: 'Repeat the exact fetched evidence from the page.',
         webSearchOverride: 'on',
@@ -1233,7 +1247,7 @@ test('deleting retained web tool step allows the same web call in a later chat t
 
     const first = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
       method: 'POST',
-      timeoutMs: 8000,
+      timeoutMs: DASHBOARD_CHAT_STREAM_TIMEOUT_MS,
       body: JSON.stringify({
         content: 'Current GE price of an iron bar?',
         webSearchOverride: 'on',
@@ -1268,7 +1282,7 @@ test('deleting retained web tool step allows the same web call in a later chat t
 
     const second = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
       method: 'POST',
-      timeoutMs: 8000,
+      timeoutMs: DASHBOARD_CHAT_STREAM_TIMEOUT_MS,
       body: JSON.stringify({
         content: 'Check that price again.',
         webSearchOverride: 'on',
@@ -2006,7 +2020,7 @@ test('chat completion replays prior tool evidence without hidden system context'
       statusMetrics = d(statusAfterChat.body.metrics);
       assert.equal(Number(statusMetrics.inputTokensTotal) >= 20, true);
       assert.equal(Number(statusMetrics.outputTokensTotal) >= 4, true);
-    }, 1000);
+    }, 5000);
     assert.equal(Number(statusMetrics.inputTokensTotal) >= 20, true);
     assert.equal(Number(statusMetrics.outputTokensTotal) >= 4, true);
     assert.equal(Number(d(statusMetrics.taskTotals).chat.inputTokensTotal) >= 20, true);

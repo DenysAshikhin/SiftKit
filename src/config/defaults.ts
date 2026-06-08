@@ -97,8 +97,8 @@ export function getDefaultConfigObject(): SiftConfig {
     },
     WebSearch: {
       EnabledDefault: true,
-      Provider: 'searxng',
-      SearxngBaseUrl: 'http://127.0.0.1:8080',
+      Provider: 'brave',
+      BraveApiKey: '',
       ResultCount: 5,
       FetchMaxPages: 3,
       TimeoutMs: 15000,
