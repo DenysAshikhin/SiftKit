@@ -1,6 +1,6 @@
 import type { Dict } from '../lib/types.js';
 import { stripHtml } from './html-text.js';
-import { WebSearchProvider, type WebSearchProviderOptions } from './web-search-provider.js';
+import { WebSearchProvider, type WebSearchProviderOptions } from './web-search-provider-base.js';
 import type { WebSearchResult, WebSearchToolArgs } from './types.js';
 import { assertPublicHttpUrl } from './url-safety.js';
 

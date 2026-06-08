@@ -1,3 +1,4 @@
+import { httpClient, type HttpClient } from '../lib/http-client.js';
 import { estimateTokenCount } from '../state/chat-sessions.js';
 import type {
   WebFetchToolArgs,
@@ -9,9 +10,8 @@ import type {
 } from './types.js';
 import { WebFetchService } from './web-fetch-service.js';
 import { WebSearchService } from './web-search-service.js';
+import type { WebSearchProvider } from './web-search-provider.js';
 import { formatWebFetchCommand, formatWebSearchCommand } from './web-tool-command.js';
-
-type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
 function formatSearchResults(results: WebSearchResult[]): string {
   if (results.length === 0) {
@@ -31,10 +31,11 @@ export class WebResearchTools {
 
   constructor(
     private readonly config: WebSearchConfig,
-    fetchImpl: FetchLike = fetch,
+    client: HttpClient = httpClient,
+    provider?: WebSearchProvider,
   ) {
-    this.searchService = new WebSearchService(config, fetchImpl);
-    this.fetchService = new WebFetchService(config, fetchImpl);
+    this.searchService = new WebSearchService(config, client, provider);
+    this.fetchService = new WebFetchService(config, client);
   }
 
   async search(args: WebSearchToolArgs): Promise<WebToolExecutionResult> {
