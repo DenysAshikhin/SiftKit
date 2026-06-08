@@ -721,6 +721,57 @@ test('dashboard metrics expose line-read stats and prompt-baseline recommendatio
   }
 });
 
+test('web_search tool calls increment web search usage', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-web-search-usage-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+  fs.writeFileSync(statusPath, 'false', 'utf8');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    await requestJson(`${baseUrl}/status/terminal-metadata`, {
+      method: 'POST',
+      body: JSON.stringify({
+        running: false,
+        requestId: 'req-websearch-1',
+        taskKind: 'chat',
+        terminalState: 'completed',
+        requestDurationMs: 50,
+        toolStats: { web_search: { calls: 3 } },
+      }),
+    });
+
+    let usage: Dict = {};
+    await runtimeHelpers.waitForAsyncExpectation(async () => {
+      const metricsResponse = await requestJson(`${baseUrl}/dashboard/metrics/timeseries`);
+      assert.equal(metricsResponse.statusCode, 200);
+      usage = d(d(metricsResponse.body).webSearchUsage);
+      assert.equal(usage.allTimeCount, 3);
+    }, 1000);
+    assert.equal(usage.allTimeCount, 3);
+    assert.equal(usage.currentMonthCount, 3);
+    assert.match(String(usage.currentMonth), /^\d{4}-\d{2}$/);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    restoreDashboardTestRepo(previousCwd);
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
 test('plan/repo-search stream events include backend promptTokenCount', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-stream-tokens-'));
   const previousCwd = enterDashboardTestRepo(tempRoot);

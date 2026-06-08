@@ -20,8 +20,9 @@ import {
 } from '../dashboard-runs.js';
 import { queryRecentSnapshots } from '../idle-summary.js';
 import { getIdleSummaryDatabase } from '../server-ops.js';
-import { getRuntimeRoot } from '../paths.js';
+import { getRuntimeRoot, getMetricsPath } from '../paths.js';
 import { readConfig } from '../config-store.js';
+import { readWebSearchUsage } from '../web-search-usage.js';
 import {
   deleteManagedLlamaRun,
   listManagedLlamaRuns,
@@ -211,7 +212,8 @@ export async function handleDashboardRoute(
     );
     const taskDays = buildDashboardTaskDailyMetrics(idleSummaryDatabase, ctx.metrics);
     const toolStats = buildDashboardToolStats(idleSummaryDatabase, ctx.metrics, config);
-    sendJson(res, 200, { days, taskDays, toolStats });
+    const webSearchUsage = readWebSearchUsage(getMetricsPath(), new Date());
+    sendJson(res, 200, { days, taskDays, toolStats, webSearchUsage });
     return true;
   }
 

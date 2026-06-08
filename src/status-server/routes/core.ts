@@ -4,7 +4,7 @@
 import * as http from 'node:http';
 import * as crypto from 'node:crypto';
 import type { Dict } from '../../lib/types.js';
-import { LlamaClient } from '../../lib/llama-client.js';
+import { httpClient } from '../../lib/http-client.js';
 import { summarizeRequest } from '../../summary/core.js';
 import type { SiftConfig } from '../../config/index.js';
 import type {
@@ -28,6 +28,7 @@ import {
   parseStatusMetadataRecord,
 } from '../status-file.js';
 import { normalizeMetrics, writeMetrics, type TaskKind, type ToolTypeStats } from '../metrics.js';
+import { recordWebSearchUsage } from '../web-search-usage.js';
 import {
   readConfig,
   writeConfig,
@@ -413,6 +414,7 @@ function applyDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTerminal
     updatedAtUtc: new Date().toISOString(),
   });
   writeMetrics(ctx.metricsPath, ctx.metrics);
+  recordWebSearchUsage(ctx.metricsPath, Number(metadata.toolStats?.web_search?.calls) || 0, new Date());
   if (job.requestCompleted) {
     ctx.idleSummaryPending = true;
     scheduleIdleSummaryIfNeeded(ctx);
@@ -1307,6 +1309,7 @@ export async function handleCoreRoute(
         updatedAtUtc: new Date().toISOString(),
       });
       writeMetrics(metricsPath, ctx.metrics);
+      recordWebSearchUsage(metricsPath, Number(metadata.toolStats?.web_search?.calls) || 0, new Date());
       if (requestCompleted) {
         ctx.idleSummaryPending = true;
         scheduleIdleSummaryIfNeeded(ctx);
@@ -1386,7 +1389,7 @@ export async function handleCoreRoute(
       ? Math.min(Math.trunc(Number(parsedBody.HealthcheckTimeoutMs)), 30_000)
       : 2_000;
     try {
-      const response = await LlamaClient.requestText({ url: `${baseUrl}/v1/models`, timeoutMs });
+      const response = await httpClient.requestText({ url: `${baseUrl}/v1/models`, timeoutMs });
       sendJson(res, 200, {
         ok: response.statusCode > 0 && response.statusCode < 400,
         statusCode: response.statusCode,
