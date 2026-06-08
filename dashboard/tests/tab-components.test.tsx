@@ -495,6 +495,7 @@ test('metrics tab renders tool metrics and idle summary', () => {
         lineReadAllowanceTokens: 20,
       }]}
       taskRunsGraphSeries={[]}
+      webSearchUsage={null}
     />,
   );
 
@@ -503,6 +504,24 @@ test('metrics tab renders tool metrics and idle summary', () => {
   assert.match(markup, /Input \/ Output Ratio/);
   assert.match(markup, /read_lines/);
   assert.doesNotMatch(markup, /task-kind-summary/);
+});
+
+test('metrics tab renders the web search usage card', () => {
+  const markup = renderToStaticMarkup(
+    <MetricsTab
+      metrics={[]}
+      idleSummarySnapshots={[]}
+      recentIdlePoints={[]}
+      latestIdleSnapshot={null}
+      sortedToolMetricRows={[]}
+      taskRunsGraphSeries={[]}
+      webSearchUsage={{ currentMonth: '2026-06', currentMonthCount: 7, allTimeCount: 42 }}
+    />,
+  );
+
+  assert.match(markup, /Web Search/);
+  assert.match(markup, /7/);
+  assert.match(markup, /42/);
 });
 
 test('settings tab renders section chrome and fields', () => {
@@ -1889,6 +1908,7 @@ test('metrics tab renders speculative acceptance graph', () => {
       latestIdleSnapshot={IDLE_SNAPSHOT}
       sortedToolMetricRows={[]}
       taskRunsGraphSeries={[]}
+      webSearchUsage={null}
     />,
   );
 

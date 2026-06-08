@@ -7,7 +7,7 @@ import {
   formatShortTime,
 } from '../lib/format';
 import { describeToolType, type ToolMetricRow } from '../metrics-view';
-import type { IdleSummarySnapshot, MetricDay } from '../types';
+import type { IdleSummarySnapshot, MetricDay, WebSearchUsage } from '../types';
 
 type MetricsTabProps = {
   metrics: MetricDay[];
@@ -16,6 +16,7 @@ type MetricsTabProps = {
   latestIdleSnapshot: IdleSummarySnapshot | null;
   sortedToolMetricRows: ToolMetricRow[];
   taskRunsGraphSeries: InteractiveSeries[];
+  webSearchUsage: WebSearchUsage | null;
 };
 
 export function MetricsTab({
@@ -25,6 +26,7 @@ export function MetricsTab({
   latestIdleSnapshot,
   sortedToolMetricRows,
   taskRunsGraphSeries,
+  webSearchUsage,
 }: MetricsTabProps) {
   return (
     <section className="panel">
@@ -279,6 +281,20 @@ export function MetricsTab({
               </div>
             ) : (
               <p className="hint">No tool metrics available yet.</p>
+            )}
+          </section>
+          <section className="idle-summary-panel idle-summary-compact">
+            <h3>Web Search</h3>
+            {webSearchUsage ? (
+              <div className="idle-summary-cards">
+                <article className="idle-card throughput">
+                  <span>This month ({webSearchUsage.currentMonth})</span>
+                  <strong>{formatNumber(webSearchUsage.currentMonthCount)}</strong>
+                  <span>All-time: {formatNumber(webSearchUsage.allTimeCount)}</span>
+                </article>
+              </div>
+            ) : (
+              <p className="hint">No searches recorded yet.</p>
             )}
           </section>
         </div>
