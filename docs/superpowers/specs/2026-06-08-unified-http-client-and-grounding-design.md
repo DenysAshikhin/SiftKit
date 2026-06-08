@@ -87,6 +87,20 @@ backends have genuinely different requirements:
 - `streamSse` is `LlamaClient.streamChatCompletion` moved verbatim (SSE `data:`
   parsing, early-stop, abort, post-`[DONE]` reset tolerance) — re-homed, not
   rewritten.
+- `localAgent(url): http.Agent | https.Agent` — exposes the shared
+  `keepAlive:false` agent selector (replacing `LlamaClient.agentFor`). This is
+  the explicit local-agent API for the one site that needs raw transport: the
+  llama passthrough proxy. That route keeps its bespoke streaming logic (raw
+  `transport.request`, upstream/downstream header filtering, hop-by-hop stripping,
+  `upstreamResponse.pipe(res)`, model-request-queue integration) — none of which
+  belongs in a generic client — but sources its agent from `httpClient.localAgent`
+  so agent ownership stays centralized.
+
+HTTP client boundary logging (`logHttpClientBoundary` and its internal
+`getLoggedHttpClientTask`/`logHttpClientLifecycle` helpers) moves from `http.ts`
+into `http-client.ts` and is re-exported from there. The CLI call sites
+(`cli/run-repo-search.ts`, `cli/run-summary.ts`) that bracket their request with
+task-level boundary logs update their import path accordingly.
 
 ### Why two backends
 - llama/healthcheck traffic is local (`127.0.0.1`): no cold TLS, no UA need, and
@@ -128,15 +142,18 @@ node:http backend (local), rewired to `httpClient`:
   - `src/repo-search/planner-protocol.ts`
   - `src/status-server/managed-llama.ts`
   - `src/status-server/routes/core.ts`
-  - `src/status-server/routes/llama-passthrough.ts`
   - `src/benchmark-matrix/config-rpc.ts`
+  - `src/status-server/routes/llama-passthrough.ts` — special case: it uses only
+    `LlamaClient.agentFor` for a raw streaming proxy, not a request method. It
+    migrates to `httpClient.localAgent(upstreamUrl)` and keeps its bespoke
+    `transport.request` + `pipe` proxy. `LlamaClient.agentFor` must NOT be deleted
+    until `localAgent` is in place.
 - `src/lib/http.ts` free functions (`requestJson`/`requestJsonFull`/`requestText`)
   become internal helpers consumed by `HttpClient`; the old exports are removed,
-  so every direct importer migrates to `httpClient` (verified via repo-wide
-  search — complete list):
-  - `src/providers/llama-cpp.ts` (tokenize, `/v1/models`, chat stream)
-  - `src/repo-search/planner-protocol.ts`
-  - `src/status-server/routes/core.ts` (healthcheck config test)
+  so every **direct** importer migrates to `httpClient` (verified via repo-wide
+  search — exact list; LlamaClient importers above are excluded here even though
+  they reach `http.ts` transitively):
+  - `src/providers/llama-cpp.ts` (also a LlamaClient importer; tokenize/models/chat)
   - `src/config/status-backend.ts`
   - `src/config/config-service.ts`
   - `src/config/execution-lease.ts`
@@ -144,6 +161,10 @@ node:http backend (local), rewired to `httpClient`:
   - `src/cli/run-summary.ts`
   - `src/cli/run-repo-search.ts`
   - `src/benchmark-matrix/config-rpc.ts`
+- `logHttpClientBoundary` (currently exported by `http.ts`, imported by
+  `src/cli/run-repo-search.ts` and `src/cli/run-summary.ts`) moves to
+  `http-client.ts` with the rest of the boundary-logging helpers; those two CLI
+  importers update their import path.
 - `src/status-server/dashboard-benchmark-runner.ts` (currently native fetch to
   the local service → `httpClient.requestJson`).
 - Dev script: `scripts/start-dev.ts` (raw `http.request` localhost healthcheck →
@@ -181,8 +202,12 @@ export class HttpClient {
     options: SseStreamOptions,
     onData: (packet: SseStreamPacket) => SseStreamSignal,
   ): Promise<SseStreamResult>;
+  localAgent(url: string | URL): http.Agent | https.Agent;
 }
 export const httpClient: HttpClient;
+export function logHttpClientBoundary(
+  task: LoggedHttpClientTask, event: string, fields?: string,
+): void;
 ```
 
 (`LlamaHttpError`, `FullJsonResponse`, `TextResponse`, and the stream
@@ -209,6 +234,9 @@ option/result types move with the methods; `LlamaStream*` names generalize to
   (port existing `http.ts` / `LlamaClient` tests).
 - `streamSse` preserves early-stop, abort, and post-`[DONE]` reset behavior
   (port existing streaming tests).
+- `localAgent` returns the shared `keepAlive:false` agent, selected by protocol;
+  the existing llama-passthrough route tests still pass (raw streaming proxy
+  unchanged apart from the agent source).
 
 Grounding (`chat-grounding-policy`):
 - search output with ≥1 `URL:` line → grounded; query registered (regression).
