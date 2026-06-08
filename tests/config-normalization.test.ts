@@ -20,8 +20,8 @@ test('normalizeConfig produces default WebSearch config', () => {
   const normalized = normalizeConfig(getDefaultConfig());
   assert.deepEqual(normalized.WebSearch, {
     EnabledDefault: true,
-    Provider: 'searxng',
-    SearxngBaseUrl: 'http://127.0.0.1:8080',
+    Provider: 'brave',
+    BraveApiKey: '',
     ResultCount: 5,
     FetchMaxPages: 3,
     TimeoutMs: 15000,
@@ -34,7 +34,7 @@ test('normalizeConfig clamps WebSearch numeric bounds and forces provider', () =
   config.WebSearch = {
     EnabledDefault: true,
     Provider: 'other',
-    SearxngBaseUrl: '  http://lan:8080  ',
+    BraveApiKey: '  lan-key  ',
     ResultCount: 99,
     FetchMaxPages: 0,
     TimeoutMs: 10,
@@ -43,9 +43,9 @@ test('normalizeConfig clamps WebSearch numeric bounds and forces provider', () =
   const normalized = normalizeConfig(config);
   assert.deepEqual(normalized.WebSearch, {
     EnabledDefault: true,
-    Provider: 'searxng',
-    SearxngBaseUrl: 'http://lan:8080',
-    ResultCount: 10,
+    Provider: 'brave',
+    BraveApiKey: 'lan-key',
+    ResultCount: 20,
     FetchMaxPages: 1,
     TimeoutMs: 1000,
     FetchMaxCharacters: 50000,

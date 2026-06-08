@@ -1047,7 +1047,7 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
               '1. GE',
               'URL: https://prices.runescape.wiki/iron-bar',
               'Snippet: iron bar ~150 gp',
-              'Source: searxng',
+              'Source: brave',
             ].join('\n'),
           },
           'web_fetch url="https://prices.runescape.wiki/iron-bar"': {
@@ -1103,7 +1103,7 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
               '1. GE live',
               'URL: https://prices.runescape.wiki/iron-bar-live',
               'Snippet: iron bar ~151 gp',
-              'Source: searxng',
+              'Source: brave',
             ].join('\n'),
           },
           'web_fetch url="https://prices.runescape.wiki/iron-bar-live"': {
@@ -1153,18 +1153,11 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
 
-  const searxng = http.createServer((req, res) => {
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ results: [{ title: 'Iron bar', url: 'https://oldschool.runescape.wiki/w/Iron_bar', content: 'Iron bars are used in Smithing and quests.' }] }));
-  });
-  await new Promise<void>((resolve) => searxng.listen(0, '127.0.0.1', () => resolve()));
-  const searxngPort = (searxng.address() as AddressInfo).port;
-
   const config = getDefaultConfig();
   config.WebSearch = {
     EnabledDefault: true,
-    Provider: 'searxng',
-    SearxngBaseUrl: `http://127.0.0.1:${searxngPort}`,
+    Provider: 'brave',
+    BraveApiKey: 'test-key',
     ResultCount: 5,
     FetchMaxPages: 3,
     TimeoutMs: 15000,
@@ -1199,6 +1192,10 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
           '{"action":"finish","output":"Iron bars are used in Smithing and quests."}',
         ],
         mockCommandResults: {
+          'web_search query="OSRS iron bar"': {
+            exitCode: 0,
+            stdout: '1. Iron bar\nURL: https://oldschool.runescape.wiki/w/Iron_bar\nSnippet: Iron bars are used in Smithing and quests.\nSource: brave',
+          },
           'web_fetch url="https://oldschool.runescape.wiki/w/Iron_bar"': {
             exitCode: 0,
             stdout: 'Fetched page text: Iron bars are used in Smithing and quests.',
@@ -1242,7 +1239,6 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
     const answer = answers.at(-1);
     assert.match(String(answer?.content || ''), /Iron bars are used in Smithing and quests/u);
   } finally {
-    await new Promise<void>((resolve) => searxng.close(() => resolve()));
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
@@ -1264,18 +1260,11 @@ test('deleting retained web tool step allows the same web call in a later chat t
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const searxng = http.createServer((req, res) => {
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ results: [{ title: 'GE', url: 'https://prices.runescape.wiki/iron-bar', content: 'iron bar price' }] }));
-  });
-  await new Promise<void>((resolve) => searxng.listen(0, '127.0.0.1', () => resolve()));
-  const searxngPort = (searxng.address() as AddressInfo).port;
-
   const config = getDefaultConfig();
   config.WebSearch = {
     EnabledDefault: true,
-    Provider: 'searxng',
-    SearxngBaseUrl: `http://127.0.0.1:${searxngPort}`,
+    Provider: 'brave',
+    BraveApiKey: 'test-key',
     ResultCount: 5,
     FetchMaxPages: 3,
     TimeoutMs: 15000,
@@ -1310,6 +1299,10 @@ test('deleting retained web tool step allows the same web call in a later chat t
           '{"action":"finish","output":"About 150 gp per bar."}',
         ],
         mockCommandResults: {
+          'web_search query="iron bar GE price"': {
+            exitCode: 0,
+            stdout: '1. GE\nURL: https://prices.runescape.wiki/iron-bar\nSnippet: iron bar price\nSource: brave',
+          },
           'web_fetch url="https://prices.runescape.wiki/iron-bar"': {
             exitCode: 0,
             stdout: 'Fetched source: iron bar current price is about 150 gp per bar.',
@@ -1363,7 +1356,6 @@ test('deleting retained web tool step allows the same web call in a later chat t
     ) as Dict | undefined;
     assert.equal(Number(repeatedSearchStep?.toolCallExitCode), 0);
   } finally {
-    await new Promise<void>((resolve) => searxng.close(() => resolve()));
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });

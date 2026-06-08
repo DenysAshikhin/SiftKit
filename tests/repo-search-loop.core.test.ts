@@ -85,52 +85,45 @@ test('runRepoSearch does not fail on model inventory mismatch', async () => {
 });
 
 test('repo-search executes a native web_search tool when allowed', async () => {
-  const searxng = http.createServer((req, res) => {
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({
-      results: [{ title: 'SiftKit', url: 'https://example.com/siftkit', content: 'web result snippet' }],
-    }));
-  });
-  await new Promise((resolve) => searxng.listen(0, '127.0.0.1', resolve));
-  const port = searxng.address().port;
   const events = [];
-  try {
-    const scorecard = await runRepoSearch({
-      config: {
-        Runtime: { Model: 'Qwen3.5-9B-Q8_0.gguf', LlamaCpp: { BaseUrl: 'http://127.0.0.1:8097', NumCtx: 70000 } },
-        WebSearch: {
-          EnabledDefault: true,
-          Provider: 'searxng',
-          SearxngBaseUrl: `http://127.0.0.1:${port}`,
-          ResultCount: 5,
-          FetchMaxPages: 3,
-          TimeoutMs: 15000,
-          FetchMaxCharacters: 12000,
-        },
+  const scorecard = await runRepoSearch({
+    config: {
+      Runtime: { Model: 'Qwen3.5-9B-Q8_0.gguf', LlamaCpp: { BaseUrl: 'http://127.0.0.1:8097', NumCtx: 70000 } },
+      WebSearch: {
+        EnabledDefault: true,
+        Provider: 'brave',
+        BraveApiKey: 'test-key',
+        ResultCount: 5,
+        FetchMaxPages: 3,
+        TimeoutMs: 15000,
+        FetchMaxCharacters: 12000,
       },
-      model: 'Qwen3.5-9B-Q8_0.gguf',
-      baseUrl: 'http://127.0.0.1:8097',
-      availableModels: ['Qwen3.5-9B-Q8_0.gguf'],
-      allowedTools: ['web_search'],
-      maxTurns: 2,
-      taskPrompt: 'find latest siftkit info',
-      mockResponses: [
-        '{"action":"web_search","query":"siftkit"}',
-        '{"action":"finish","output":"done"}',
-      ],
-      mockCommandResults: {},
-      onProgress: (event) => events.push(event),
-    });
+    },
+    model: 'Qwen3.5-9B-Q8_0.gguf',
+    baseUrl: 'http://127.0.0.1:8097',
+    availableModels: ['Qwen3.5-9B-Q8_0.gguf'],
+    allowedTools: ['web_search'],
+    maxTurns: 2,
+    taskPrompt: 'find latest siftkit info',
+    mockResponses: [
+      '{"action":"web_search","query":"siftkit"}',
+      '{"action":"finish","output":"done"}',
+    ],
+    mockCommandResults: {
+      'web_search query="siftkit"': {
+        exitCode: 0,
+        stdout: '1. SiftKit\nURL: https://example.com/siftkit\nSnippet: web result snippet\nSource: brave',
+      },
+    },
+    onProgress: (event) => events.push(event),
+  });
 
-    assert.equal(scorecard.verdict, 'pass');
-    const toolStart = events.find((event) => event.kind === 'tool_start');
-    const toolResult = events.find((event) => event.kind === 'tool_result');
-    assert.equal(toolStart.command, 'web_search query="siftkit"');
-    assert.match(String(toolResult.outputSnippet || ''), /web result snippet|example\.com/);
-    assert.equal(Object.keys(scorecard.toolStats).includes('web_search'), true);
-  } finally {
-    await new Promise((resolve) => searxng.close(resolve));
-  }
+  assert.equal(scorecard.verdict, 'pass');
+  const toolStart = events.find((event) => event.kind === 'tool_start');
+  const toolResult = events.find((event) => event.kind === 'tool_result');
+  assert.equal(toolStart.command, 'web_search query="siftkit"');
+  assert.match(String(toolResult.outputSnippet || ''), /web result snippet|example\.com/);
+  assert.equal(Object.keys(scorecard.toolStats).includes('web_search'), true);
 });
 
 test('getDynamicMaxOutputTokens uses the smaller of 25k tokens or 90% of remaining context', () => {

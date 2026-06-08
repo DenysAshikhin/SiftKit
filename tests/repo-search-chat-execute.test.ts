@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as os from 'node:os';
-import * as http from 'node:http';
 import { executeRepoSearchRequest } from '../src/repo-search/execute.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 
@@ -31,52 +30,40 @@ test('executeRepoSearchRequest chat kind returns finalOutput in scorecard, no to
 });
 
 test('executeRepoSearchRequest chat with web tools runs native web_search', async () => {
-  const searxng = http.createServer((req, res) => {
-    if (String(req.url || '').includes('/iron-bar')) {
-      res.writeHead(200, { 'content-type': 'text/html' });
-      res.end('<html><body>Iron bar price evidence: about 150 gp per bar.</body></html>');
-      return;
-    }
-    const host = String(req.headers.host || '127.0.0.1');
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ results: [{ title: 'GE', url: `http://${host}/iron-bar`, content: 'iron bar ~150 gp' }] }));
-  });
-  await new Promise<void>((resolve) => searxng.listen(0, '127.0.0.1', () => resolve()));
-  const port = (searxng.address() as import('node:net').AddressInfo).port;
   const events: RepoSearchProgressEvent[] = [];
-  try {
-    const result = await executeRepoSearchRequest({
-      prompt: 'Current GE price of an iron bar?',
-      repoRoot: os.tmpdir(),
-      taskKind: 'chat',
-      systemPrompt: 'general, coder friendly assistant',
-      allowedTools: ['web_search', 'web_fetch'],
-      availableModels: ['mock'],
-      model: 'mock',
-      config: {
-        Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
-        WebSearch: { EnabledDefault: true, Provider: 'searxng', SearxngBaseUrl: `http://127.0.0.1:${port}`, ResultCount: 5, FetchMaxPages: 3, TimeoutMs: 15000, FetchMaxCharacters: 12000 },
+  const result = await executeRepoSearchRequest({
+    prompt: 'Current GE price of an iron bar?',
+    repoRoot: os.tmpdir(),
+    taskKind: 'chat',
+    systemPrompt: 'general, coder friendly assistant',
+    allowedTools: ['web_search', 'web_fetch'],
+    availableModels: ['mock'],
+    model: 'mock',
+    config: {
+      Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
+      WebSearch: { EnabledDefault: true, Provider: 'brave', BraveApiKey: 'test-key', ResultCount: 5, FetchMaxPages: 3, TimeoutMs: 15000, FetchMaxCharacters: 12000 },
+    },
+    mockResponses: [
+      '{"action":"web_search","query":"iron bar GE price"}',
+      '{"action":"web_fetch","url":"https://prices.runescape.wiki/iron-bar"}',
+      '{"action":"finish","output":"About 150 gp per bar."}',
+    ],
+    mockCommandResults: {
+      'web_search query="iron bar GE price"': {
+        exitCode: 0,
+        stdout: '1. GE\nURL: https://prices.runescape.wiki/iron-bar\nSnippet: iron bar ~150 gp\nSource: brave',
       },
-      mockResponses: [
-        '{"action":"web_search","query":"iron bar GE price"}',
-        `{"action":"web_fetch","url":"http://127.0.0.1:${port}/iron-bar"}`,
-        '{"action":"finish","output":"About 150 gp per bar."}',
-      ],
-      mockCommandResults: {
-        [`web_fetch url="http://127.0.0.1:${port}/iron-bar"`]: {
-          exitCode: 0,
-          stdout: 'Fetched page says an iron bar is about 150 gp per bar.',
-        },
+      'web_fetch url="https://prices.runescape.wiki/iron-bar"': {
+        exitCode: 0,
+        stdout: 'Fetched page says an iron bar is about 150 gp per bar.',
       },
-      onProgress: (event) => { events.push(event); },
-    });
-    const tasks = (result.scorecard as { tasks: Array<{ finalOutput: string }> }).tasks;
-    assert.equal(tasks[0].finalOutput, 'About 150 gp per bar.');
-    assert.ok(events.some((event) => event.kind === 'tool_start'), 'expected tool_start');
-    assert.ok(events.some((event) => event.kind === 'tool_result'), 'expected tool_result');
-  } finally {
-    await new Promise<void>((resolve) => searxng.close(() => resolve()));
-  }
+    },
+    onProgress: (event) => { events.push(event); },
+  });
+  const tasks = (result.scorecard as { tasks: Array<{ finalOutput: string }> }).tasks;
+  assert.equal(tasks[0].finalOutput, 'About 150 gp per bar.');
+  assert.ok(events.some((event) => event.kind === 'tool_start'), 'expected tool_start');
+  assert.ok(events.some((event) => event.kind === 'tool_result'), 'expected tool_result');
 });
 
 test('chat with web tools rejects snippet-only finish and requires web_fetch', async () => {
