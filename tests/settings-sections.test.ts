@@ -11,7 +11,7 @@ import {
 test('settings section order matches the integrated layout', () => {
   assert.deepEqual(
     SETTINGS_SECTION_ORDER,
-    ['general', 'tool-policy', 'presets', 'interactive', 'model-presets'],
+    ['general', 'tool-policy', 'presets', 'interactive', 'web-search', 'model-presets'],
   );
 });
 
@@ -35,6 +35,14 @@ test('settings tooltip labels include the documented fields', () => {
       'Wrapped commands',
       'Interactive enabled',
       'Interactive transcript retention',
+      'Provider',
+      'Web search enabled by default',
+      'Brave API key',
+      'Result count',
+      'Timeout ms',
+      'Fetch max pages',
+      'Fetch max characters',
+      'Usage',
       'Model preset',
       'Preset name',
       'Model',
