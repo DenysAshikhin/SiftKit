@@ -13,8 +13,15 @@
 ## Conventions
 
 - **Tests:** run a single file with `npx tsx --test .\tests\<file>.ts` (or `.\dashboard\tests\<file>.tsx`). Full suite: `npm test`. Typecheck: `npm run typecheck`.
-- **Compiled artifacts:** `*.js` / `*.d.ts` next to sources are build output. Do **not** hand-edit them — `npm run build` regenerates them. Only edit `*.ts`/`*.tsx`.
-- **No legacy:** SearXNG/DuckDuckGo code, types, and tests are deleted outright. Anything missed must fail loud (type errors / throwing factory), never silently fall back.
+- **Build output goes to `dist/`, which is gitignored** (`tsconfig.json` `outDir: "dist"`; `.gitignore` `/dist`). The runtime and `bin` run from `dist/`; tests run from `src/**/*.ts` via `tsx`. Therefore the handful of tracked `src/**/*.js` / `*.d.ts` files are **dead committed artifacts**, NOT build output — `npm run build` never rewrites them. The `src/web-search/*.js` / `*.d.ts` copies are stale (CommonJS, `fetchImpl = fetch`, predating the `HttpClient` migration) and are removed in Task 0. Only edit `*.ts`/`*.tsx`; never hand-edit or re-add compiled siblings.
+- **No legacy:** SearXNG/DuckDuckGo code, types, tests, and stale compiled artifacts are deleted outright. Anything missed must fail loud (type errors / throwing factory), never silently fall back.
+
+## Explicitly Out of Scope
+
+These belong to the branch's separate unified-`HttpClient` migration, **not** to this Brave plan, and this plan neither introduces nor must fix them:
+
+- **`src/lib/http.ts` deletion and `eval/llama-spec-prompt.txt` (`import { requestText } from '../lib/http.js'`):** this plan does not delete `http.ts` (the `D src/lib/http.ts` change is the in-flight HttpClient migration). `eval/` is gitignored, so it is not a merge gate. The eval-prompt update is owned by the HttpClient migration plan; it is intentionally left untouched here.
+- **`HttpClient.fetch` undici `dispatcher: externalAgent` wiring and its test seam:** owned by `tests/http-client.test.ts` / the HttpClient migration. This plan consumes `HttpClient` and asserts the Brave provider forwards `count`/`freshness`/`X-Subscription-Token`/`timeoutMs` through an injected `client.fetch` (Task 2), but does not test undici internals.
 
 ## File Structure
 
@@ -23,6 +30,14 @@
 - `src/web-search/brave-search-provider.ts` — `BraveSearchProvider` + Brave result normalization.
 - `src/status-server/web-search-usage.ts` — `recordWebSearchUsage`, `readWebSearchUsage`, `getUsageMonthKey`, `WebSearchUsage` type.
 - `tests/web-search-usage.test.ts` — usage store tests.
+
+**Delete (stale dead artifacts — Task 0):**
+- `src/web-search/types.js`, `src/web-search/types.d.ts`
+- `src/web-search/url-safety.js`, `src/web-search/url-safety.d.ts`
+- `src/web-search/web-fetch-service.js`, `src/web-search/web-fetch-service.d.ts`
+- `src/web-search/web-research-tools.js`, `src/web-search/web-research-tools.d.ts`
+- `src/web-search/web-search-service.js`, `src/web-search/web-search-service.d.ts`
+- `.gitignore` — add `src/web-search/*.js` and `src/web-search/*.d.ts` so they cannot be re-tracked.
 
 **Modify:**
 - `src/web-search/types.ts` — `WebSearchProviderId`, new `WebSearchConfig`, `WebSearchResult.source`.
@@ -43,6 +58,53 @@
 - `tests/web-search.test.ts` — rewrite for Brave.
 - `tests/dashboard-status-server.test.ts` — usage increment + timeseries field.
 - `dashboard/tests/tab-components.test.tsx` — section + card.
+
+---
+
+## Task 0: Remove stale tracked web-search compiled artifacts
+
+The `src/web-search/*.js` and `*.d.ts` files are tracked but dead: `outDir` is `dist` (gitignored), the runtime/`bin` load from `dist/`, and tests run the `.ts` via `tsx`. The tracked copies are stale (CommonJS, `fetchImpl = fetch`) and would otherwise survive every `.ts` rewrite in this plan, continuing to expose the deleted `fetchImpl` API. Remove them once, up front, and prevent re-tracking.
+
+**Files:**
+- Delete: the 10 artifacts listed in the "Delete" group above.
+- Modify: `.gitignore`
+
+- [ ] **Step 1: Confirm they are unused at runtime**
+
+Run: `git grep -n "web-search/web-search-service\|web-search/web-research-tools\|web-search/web-fetch-service" -- "*.js" ":!src/web-search/*"`
+Expected: matches appear only under `dist/` (runtime uses the compiled `dist` tree), never importing `src/web-search/*.js`. This confirms the `src` copies are dead.
+
+- [ ] **Step 2: Remove the tracked artifacts**
+
+```bash
+git rm src/web-search/types.js src/web-search/types.d.ts \
+       src/web-search/url-safety.js src/web-search/url-safety.d.ts \
+       src/web-search/web-fetch-service.js src/web-search/web-fetch-service.d.ts \
+       src/web-search/web-research-tools.js src/web-search/web-research-tools.d.ts \
+       src/web-search/web-search-service.js src/web-search/web-search-service.d.ts
+```
+
+- [ ] **Step 3: Prevent re-tracking**
+
+Append to `.gitignore`:
+
+```gitignore
+# Web-search build output lives in dist/; never track compiled siblings in src.
+src/web-search/*.js
+src/web-search/*.d.ts
+```
+
+- [ ] **Step 4: Verify the working tree still typechecks and tests still run from source**
+
+Run: `npx tsx --test .\tests\web-search.test.ts`
+Expected: the existing (pre-rewrite) web-search tests still PASS — proving the `.ts` sources, not the deleted `.js`, are what execute.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add .gitignore
+git commit -m "chore: remove stale tracked web-search compiled artifacts"
+```
 
 ---
 
@@ -1229,22 +1291,20 @@ git commit -m "feat: show web search usage card on the metrics tab"
 Run: `npm run typecheck`
 Expected: no errors. Fix any residual `searxng`/`SearxngBaseUrl`/`duckduckgo` references the compiler surfaces (e.g. lingering `WebSearchResult.source` comparisons). Search the repo for `searxng`, `duckduckgo`, `SearxngBaseUrl` (case-insensitive) and remove dead references in `.ts`/`.tsx` only.
 
-- [ ] **Step 2: Run the full test suite**
+- [ ] **Step 2: Confirm no stale web-search compiled artifacts remain tracked**
+
+Run: `git ls-files "src/web-search/*.js" "src/web-search/*.d.ts"`
+Expected: **empty output** (Task 0 removed them and `.gitignore` blocks re-tracking). If anything prints, `git rm` it.
+
+- [ ] **Step 3: Run the full test suite**
 
 Run: `npm test`
-Expected: PASS. (`npm test` runs `typecheck:test`, `build:test`, then the compiled runner — this also regenerates `.js`/`.d.ts` artifacts.)
+Expected: PASS. (`npm test` runs `typecheck:test`, `build:test`, then the compiled runner. `build:test` emits to gitignored output, not into `src/`.)
 
-- [ ] **Step 3: Build (regenerates dashboard + dist artifacts)**
+- [ ] **Step 4: Build to confirm the dashboard + dist compile**
 
 Run: `npm run build`
-Expected: completes without errors.
-
-- [ ] **Step 4: Commit any regenerated artifacts**
-
-```bash
-git add -A
-git commit -m "chore: rebuild artifacts for Brave web search"
-```
+Expected: completes without errors. **No commit step:** `dist/` and `dashboard/dist/` are gitignored (`.gitignore` `/dist`, `dashboard/dist`), so the build produces nothing to stage. The only artifacts under version control are the `.ts`/`.tsx` sources already committed in Tasks 0–8.
 
 ---
 
