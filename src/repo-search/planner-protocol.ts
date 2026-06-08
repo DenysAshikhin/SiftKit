@@ -530,7 +530,7 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
     },
     ...(responseFormat ? { response_format: responseFormat } : {}),
     ...options.extraBody,
-    ...(options.stream ? { stream: true } : {}),
+    ...(options.stream ? { stream: true, timings_per_token: true } : {}),
   };
   const bodyJson = JSON.stringify(bodyObj);
 
@@ -995,6 +995,8 @@ export async function requestTerminalSynthesis(options: {
   mockResponses?: string[];
   mockResponseIndex?: number;
   logger?: JsonLogger | null;
+  stream?: boolean;
+  onContentDelta?: (accumulatedContent: string) => void;
 }): Promise<PlannerActionResponse> {
   return requestPlannerAction({
     baseUrl: options.baseUrl,
@@ -1011,6 +1013,8 @@ export async function requestTerminalSynthesis(options: {
     stage: 'terminal_synthesis',
     responseSchema: null,
     toolDefinitions: [],
+    stream: options.stream,
+    onContentDelta: options.onContentDelta,
   });
 }
 
