@@ -12,6 +12,10 @@ dashboard/dist
 dashboard/node_modules
 *.tgz
 
+# Web-search build output lives in dist/; never track compiled siblings in src.
+src/web-search/*.js
+src/web-search/*.d.ts
+
 # Test artifacts
 /tests/.test-modules
 /tests/.test-home
