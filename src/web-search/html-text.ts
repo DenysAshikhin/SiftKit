@@ -45,3 +45,17 @@ export function decodeHtmlEntities(value: string): string {
     return named !== undefined ? named : match;
   });
 }
+
+/**
+ * Removes `<script>`/`<style>` blocks and all remaining inline tags, decodes
+ * entities, and collapses whitespace. Inline tags are dropped without inserting
+ * a separator so wrapped words and trailing punctuation stay intact
+ * (e.g. `First <strong>result</strong>.` → `First result.`).
+ */
+export function stripHtml(value: string): string {
+  const withoutTags = value
+    .replace(/<script[\s\S]*?<\/script>/giu, ' ')
+    .replace(/<style[\s\S]*?<\/style>/giu, ' ')
+    .replace(/<[^>]+>/gu, '');
+  return decodeHtmlEntities(withoutTags).replace(/\s+/gu, ' ').trim();
+}
