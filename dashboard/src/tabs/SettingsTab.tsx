@@ -10,7 +10,7 @@ import {
   getPresetToolsSummary,
   togglePresetTool,
 } from '../preset-editor';
-import { formatDate, parseFloatInput, parseIntegerInput } from '../lib/format';
+import { formatDate, formatNumber, parseFloatInput, parseIntegerInput } from '../lib/format';
 import { applyManagedLlamaPresetSelection } from '../managed-llama-presets';
 import type { DirtyContinuation } from '../settings-flow';
 import {
@@ -21,7 +21,7 @@ import {
   type SettingsSectionId,
 } from '../settings-sections';
 import { SettingsField, SettingsInlineHelpLabel } from '../settings/SettingsFields';
-import type { DashboardConfig, DashboardManagedLlamaPreset, DashboardPreset } from '../types';
+import type { DashboardConfig, DashboardManagedLlamaPreset, DashboardPreset, WebSearchUsage } from '../types';
 import { PresetsSection } from './settings/PresetsSection';
 import { ManagedLlamaSection } from './settings/ManagedLlamaSection';
 
@@ -31,6 +31,7 @@ type SettingsTabProps = {
   selectedSettingsPreset: DashboardPreset | null;
   selectedManagedLlamaPreset: DashboardManagedLlamaPreset | null;
   selectedSettingsPresetId: string | null;
+  webSearchUsage: WebSearchUsage | null;
   settingsLoading: boolean;
   settingsError: string | null;
   settingsDirty: boolean;
@@ -63,6 +64,7 @@ export function SettingsTab(props: SettingsTabProps) {
     selectedSettingsPreset,
     selectedManagedLlamaPreset,
     selectedSettingsPresetId,
+    webSearchUsage,
     settingsLoading,
     settingsError,
     settingsDirty,
@@ -87,6 +89,8 @@ export function SettingsTab(props: SettingsTabProps) {
     restartDashboardBackendCore,
     onSaveDashboardSettings,
   } = props;
+
+  const [showBraveKey, setShowBraveKey] = React.useState(false);
 
   const renderField = (
     sectionId: SettingsSectionId,
@@ -299,6 +303,82 @@ export function SettingsTab(props: SettingsTabProps) {
     );
   };
 
+  const renderWebSearchSection = (): ReactNode => {
+    if (!dashboardConfig) {
+      return null;
+    }
+    const web = dashboardConfig.WebSearch;
+    return (
+      <div className="settings-live-grid">
+        {renderField('web-search', 'Provider', (
+          <select
+            value={web.Provider}
+            onChange={(event) => updateSettingsDraft((next) => { next.WebSearch.Provider = event.target.value as 'brave'; })}
+          >
+            <option value="brave">brave</option>
+          </select>
+        ))}
+        {renderField('web-search', 'Web search enabled by default', (
+          <label className="settings-live-toggle-control">
+            <input
+              type="checkbox"
+              checked={web.EnabledDefault}
+              onChange={(event) => updateSettingsDraft((next) => { next.WebSearch.EnabledDefault = event.target.checked; })}
+            />
+            <span>{web.EnabledDefault ? 'Enabled' : 'Disabled'}</span>
+          </label>
+        ))}
+        {renderField('web-search', 'Brave API key', (
+          <div className="settings-live-nav-control">
+            <input
+              type={showBraveKey ? 'text' : 'password'}
+              value={web.BraveApiKey}
+              onChange={(event) => updateSettingsDraft((next) => { next.WebSearch.BraveApiKey = event.target.value; })}
+            />
+            <button type="button" onClick={() => setShowBraveKey((value) => !value)}>
+              {showBraveKey ? 'Hide' : 'Show'}
+            </button>
+          </div>
+        ))}
+        {renderField('web-search', 'Result count', (
+          <input
+            type="number"
+            value={web.ResultCount}
+            onChange={(event) => updateSettingsDraft((next) => { next.WebSearch.ResultCount = parseIntegerInput(event.target.value, next.WebSearch.ResultCount); })}
+          />
+        ))}
+        {renderField('web-search', 'Timeout ms', (
+          <input
+            type="number"
+            value={web.TimeoutMs}
+            onChange={(event) => updateSettingsDraft((next) => { next.WebSearch.TimeoutMs = parseIntegerInput(event.target.value, next.WebSearch.TimeoutMs); })}
+          />
+        ))}
+        {renderField('web-search', 'Fetch max pages', (
+          <input
+            type="number"
+            value={web.FetchMaxPages}
+            onChange={(event) => updateSettingsDraft((next) => { next.WebSearch.FetchMaxPages = parseIntegerInput(event.target.value, next.WebSearch.FetchMaxPages); })}
+          />
+        ))}
+        {renderField('web-search', 'Fetch max characters', (
+          <input
+            type="number"
+            value={web.FetchMaxCharacters}
+            onChange={(event) => updateSettingsDraft((next) => { next.WebSearch.FetchMaxCharacters = parseIntegerInput(event.target.value, next.WebSearch.FetchMaxCharacters); })}
+          />
+        ))}
+        {renderField('web-search', 'Usage', (
+          <span>
+            {webSearchUsage
+              ? `${formatNumber(webSearchUsage.currentMonthCount)} this month (${webSearchUsage.currentMonth}) / ${formatNumber(webSearchUsage.allTimeCount)} all-time`
+              : 'No usage recorded yet.'}
+          </span>
+        ))}
+      </div>
+    );
+  };
+
   const renderSettingsSection = (): ReactNode => {
     if (activeSettingsSection === 'general') return renderGeneralSection();
     if (activeSettingsSection === 'tool-policy') return renderToolPolicySection();
@@ -318,6 +398,7 @@ export function SettingsTab(props: SettingsTabProps) {
       );
     }
     if (activeSettingsSection === 'interactive') return renderInteractiveSection();
+    if (activeSettingsSection === 'web-search') return renderWebSearchSection();
     return (
       <ManagedLlamaSection
         dashboardConfig={dashboardConfig}

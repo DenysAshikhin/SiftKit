@@ -118,6 +118,13 @@ export type MetricsResponse = {
   days: MetricDay[];
   taskDays: TaskMetricDay[];
   toolStats: ToolStatsByTask;
+  webSearchUsage: WebSearchUsage;
+};
+
+export type WebSearchUsage = {
+  currentMonth: string;
+  currentMonthCount: number;
+  allTimeCount: number;
 };
 
 export type IdleSummarySnapshot = {
@@ -380,8 +387,8 @@ export type DashboardConfig = {
 
 export type DashboardWebSearchConfig = {
   EnabledDefault: boolean;
-  Provider: 'searxng';
-  SearxngBaseUrl: string;
+  Provider: 'brave';
+  BraveApiKey: string;
   ResultCount: number;
   FetchMaxPages: number;
   TimeoutMs: number;

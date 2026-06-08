@@ -3,6 +3,7 @@ export type SettingsSectionId =
   | 'tool-policy'
   | 'presets'
   | 'interactive'
+  | 'web-search'
   | 'model-presets';
 
 export type SettingsFieldLayout = 'full' | 'half' | 'quarter';
@@ -28,6 +29,7 @@ export const SETTINGS_SECTION_ORDER: SettingsSectionId[] = [
   'tool-policy',
   'presets',
   'interactive',
+  'web-search',
   'model-presets',
 ];
 
@@ -78,6 +80,22 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'Wrapped commands', layout: 'full', helpText: 'Commands that should run inside the interactive wrapper instead of raw shell passthrough.' },
       { label: 'Interactive enabled', layout: 'half', helpText: 'Turns the interactive command/session capture features on or off.' },
       { label: 'Interactive transcript retention', layout: 'half', helpText: 'Keeps stored interactive transcripts after sessions complete.' },
+    ],
+  },
+  'web-search': {
+    id: 'web-search',
+    icon: 'W',
+    title: 'Web Search',
+    summary: 'Brave Search provider, API key, result limits, and usage.',
+    fields: [
+      { label: 'Provider', layout: 'half', helpText: 'Web search backend. Brave is the only provider today.' },
+      { label: 'Web search enabled by default', layout: 'half', helpText: 'Whether new chat/research sessions start with web search turned on.' },
+      { label: 'Brave API key', layout: 'full', helpText: 'Subscription token from the Brave Search API dashboard. Sent as the X-Subscription-Token header; never written to logs.' },
+      { label: 'Result count', layout: 'quarter', helpText: 'Number of results requested per search (Brave allows 1-20).' },
+      { label: 'Timeout ms', layout: 'quarter', helpText: 'Per-request timeout for Brave search and page fetches.' },
+      { label: 'Fetch max pages', layout: 'quarter', helpText: 'Maximum pages a single research step will fetch.' },
+      { label: 'Fetch max characters', layout: 'quarter', helpText: 'Maximum characters retained from a fetched page.' },
+      { label: 'Usage', layout: 'full', helpText: 'Searches executed this calendar month and all-time.' },
     ],
   },
   'model-presets': {

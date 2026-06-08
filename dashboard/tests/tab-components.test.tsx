@@ -513,6 +513,7 @@ test('settings tab renders section chrome and fields', () => {
       selectedSettingsPreset={PRESET}
       selectedManagedLlamaPreset={MANAGED_PRESET}
       selectedSettingsPresetId={PRESET.id}
+      webSearchUsage={null}
       settingsLoading={false}
       settingsError={null}
       settingsDirty={false}
@@ -544,6 +545,59 @@ test('settings tab renders section chrome and fields', () => {
   assert.match(markup, /Initial repo file scan/);
   assert.match(markup, /Model Presets/);
   assert.doesNotMatch(markup, /Managed llama\.cpp/);
+});
+
+test('settings tab web-search section renders Brave key (masked) and usage', () => {
+  const config = {
+    ...DASHBOARD_CONFIG,
+    WebSearch: {
+      EnabledDefault: true,
+      Provider: 'brave',
+      BraveApiKey: 'secret-key',
+      ResultCount: 5,
+      FetchMaxPages: 3,
+      TimeoutMs: 15000,
+      FetchMaxCharacters: 12000,
+    },
+  } as DashboardConfig;
+  const markup = renderToStaticMarkup(
+    <SettingsTab
+      activeSettingsSection="web-search"
+      dashboardConfig={config}
+      selectedSettingsPreset={PRESET}
+      selectedManagedLlamaPreset={MANAGED_PRESET}
+      selectedSettingsPresetId={PRESET.id}
+      webSearchUsage={{ currentMonth: '2026-06', currentMonthCount: 12, allTimeCount: 99 }}
+      settingsLoading={false}
+      settingsError={null}
+      settingsDirty={false}
+      settingsSavedAtUtc="2026-04-16T12:00:00.000Z"
+      settingsActionBusy={false}
+      settingsRestartSupported={true}
+      settingsSaving={false}
+      settingsRestarting={false}
+      settingsPathPickerBusyTarget={null}
+      setSelectedSettingsPresetId={() => {}}
+      requestSettingsAction={() => {}}
+      updateSettingsDraft={() => {}}
+      updatePresetDraft={() => {}}
+      updateManagedLlamaDraft={() => {}}
+      onAddPreset={() => {}}
+      onDeletePreset={() => {}}
+      onAddManagedLlamaPreset={() => {}}
+      onDeleteManagedLlamaPreset={() => {}}
+      onPickManagedLlamaPath={async () => {}}
+      onTestLlamaCppBaseUrl={async () => {}}
+      onReloadDashboardSettings={async () => {}}
+      restartDashboardBackendCore={async () => true}
+      onSaveDashboardSettings={async () => {}}
+    />,
+  );
+
+  assert.match(markup, /Brave API key/);
+  assert.match(markup, /type="password"/);
+  assert.match(markup, /12/);
+  assert.match(markup, /99/);
 });
 
 test('benchmark tab renders prompt library, run builder, live logs, sortable metrics, and grades', () => {
@@ -608,6 +662,7 @@ test('settings tab renders ncpu moe field in model presets section', () => {
       selectedSettingsPreset={PRESET}
       selectedManagedLlamaPreset={MANAGED_PRESET}
       selectedSettingsPresetId={PRESET.id}
+      webSearchUsage={null}
       settingsLoading={false}
       settingsError={null}
       settingsDirty={false}
@@ -1506,7 +1561,7 @@ test('ChatTab main transcript token labels do not use cumulative prompt eval tel
   assert.doesNotMatch(markup, /161,239 tokens/u);
 });
 
-test('ChatTab grouped turn header shows visible answer context tokens instead of aggregate internal tokens', () => {
+test('ChatTab grouped turn header shows aggregate answer and internal tokens', () => {
   const tool = {
     ...CHAT_TOOL_MESSAGE,
     id: 'to',
@@ -1524,8 +1579,7 @@ test('ChatTab grouped turn header shows visible answer context tokens instead of
 
   const markup = renderChatTab({ selectedSession: session });
 
-  assert.doesNotMatch(markup, />161,251 tokens</u);
-  assert.match(markup, />3 context tokens</u);
+  assert.match(markup, />161,251 context tokens</u);
 });
 
 test('ChatTab live turn shows latest item in the main slot, earlier steps in Internal Logic, and no delete buttons', () => {
@@ -1793,6 +1847,37 @@ test('ChatTab preserves server message order when timestamps are equal', () => {
 
   assert.ok(markup.indexOf('first') < markup.indexOf('answer'));
   assert.ok(markup.indexOf('answer') < markup.indexOf('second'));
+});
+
+test('ChatTab assistant turn token chip sums answer and internal tool tokens', () => {
+  const session = {
+    ...CHAT_SESSION,
+    messages: [
+      { ...CHAT_TOOL_MESSAGE, id: 'tool-agg', outputTokensEstimate: 12, associatedToolTokens: 12, sourceRunId: 'run-agg' } as ChatMessage,
+      {
+        ...CHAT_MESSAGE,
+        id: 'answer-agg',
+        role: 'assistant',
+        kind: 'assistant_answer',
+        content: 'final',
+        inputTokensEstimate: 0,
+        outputTokensEstimate: 3,
+        thinkingTokens: 0,
+        associatedToolTokens: 0,
+        sourceRunId: 'run-agg',
+      } as ChatMessage,
+    ],
+  } as ChatSession;
+
+  const markup = renderChatTab({
+    selectedSession: session,
+    chatMode: 'chat',
+    isDirectChatMode: true,
+    contextUsage: CONTEXT_USAGE,
+  });
+
+  assert.match(markup, /15 context tokens/u);
+  assert.doesNotMatch(markup, /3 context tokens/u);
 });
 
 test('metrics tab renders speculative acceptance graph', () => {

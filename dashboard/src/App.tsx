@@ -74,7 +74,7 @@ import { MetricsTab } from './tabs/MetricsTab';
 import { ChatTab } from './tabs/ChatTab';
 import { SettingsTab } from './tabs/SettingsTab';
 import { BenchmarkTab } from './tabs/BenchmarkTab';
-import type { DashboardBenchmarkAttempt, DashboardBenchmarkQuestionPreset, DashboardBenchmarkSession, DashboardBenchmarkSortKey, DashboardConfig, DashboardManagedLlamaPreset, DashboardPreset, IdleSummarySnapshot, MetricDay, RunGroupFilter, TaskMetricDay, ToolStatsByTask, RunDetailResponse, RunLogDeleteType, RunRecord } from './types';
+import type { DashboardBenchmarkAttempt, DashboardBenchmarkQuestionPreset, DashboardBenchmarkSession, DashboardBenchmarkSortKey, DashboardConfig, DashboardManagedLlamaPreset, DashboardPreset, IdleSummarySnapshot, MetricDay, RunGroupFilter, TaskMetricDay, ToolStatsByTask, WebSearchUsage, RunDetailResponse, RunLogDeleteType, RunRecord } from './types';
 
 type TabKey = 'runs' | 'metrics' | 'benchmark' | 'chat' | 'settings';
 type RunGroupKey = Exclude<RunGroupFilter, ''>;
@@ -120,6 +120,7 @@ function DashboardApp() {
   const [metrics, setMetrics] = useState<MetricDay[]>([]);
   const [taskMetrics, setTaskMetrics] = useState<TaskMetricDay[]>([]);
   const [toolMetrics, setToolMetrics] = useState<ToolStatsByTask | null>(null);
+  const [webSearchUsage, setWebSearchUsage] = useState<WebSearchUsage | null>(null);
   const [metricsError, setMetricsError] = useState<string | null>(null);
   const [idleSummarySnapshots, setIdleSummarySnapshots] = useState<IdleSummarySnapshot[]>([]);
 
@@ -483,6 +484,7 @@ function DashboardApp() {
           setMetrics(response.days);
           setTaskMetrics(Array.isArray(response.taskDays) ? response.taskDays : []);
           setToolMetrics(response.toolStats || null);
+          setWebSearchUsage(response.webSearchUsage || null);
           setIdleSummarySnapshots(idleSummaryResponse.snapshots);
           setMetricsError(null);
         }
@@ -1272,6 +1274,7 @@ function DashboardApp() {
             latestIdleSnapshot={latestIdleSnapshot}
             sortedToolMetricRows={sortedToolMetricRows}
             taskRunsGraphSeries={taskRunsGraphSeries}
+            webSearchUsage={webSearchUsage}
           />
         </>
       )}
@@ -1310,6 +1313,7 @@ function DashboardApp() {
           selectedSettingsPreset={selectedSettingsPreset}
           selectedManagedLlamaPreset={selectedManagedLlamaPreset}
           selectedSettingsPresetId={selectedSettingsPresetId}
+          webSearchUsage={webSearchUsage}
           settingsLoading={settingsLoading}
           settingsError={settingsError}
           settingsDirty={settingsDirty}
