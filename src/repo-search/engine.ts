@@ -43,6 +43,8 @@ import {
   planRepoReadFile,
   type NativeRepoToolExecution,
 } from './engine/native-tools.js';
+import { TokenUsageTracker } from './engine/token-usage.js';
+import { TurnBudget } from './engine/turn-budget.js';
 import {
   getRepoSearchCommandTokenForToolName,
   isRepoSearchCommandToolName,
@@ -151,9 +153,6 @@ const DEFAULT_MAX_TURNS = 45;
 const DEFAULT_MAX_INVALID_RESPONSES = 3;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MIN_TOOL_CALLS_BEFORE_FINISH = 5;
-const THINKING_BUFFER_RATIO = 0.15;
-const THINKING_BUFFER_MIN_TOKENS = 4000;
-const PER_TOOL_RESULT_RATIO = 0.10;
 const ZERO_OUTPUT_FORCE_THRESHOLD = 10;
 const FORCED_FINISH_MAX_ATTEMPTS = 3;
 const DUPLICATE_FORCE_THRESHOLD = 5;
@@ -389,19 +388,13 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   let turnsUsed = 0;
   let mockResponseIndex = 0;
   let progressToolCallSeq = 0;
-  let modelPromptTokens = 0;
-  let modelOutputTokens = 0;
-  let modelToolTokens = 0;
-  let modelThinkingTokens = 0;
-  let modelPromptCacheTokens = 0;
-  let modelPromptEvalTokens = 0;
-  let modelPromptEvalDurationMs = 0;
-  let modelGenerationDurationMs = 0;
+  const tokenUsage = new TokenUsageTracker(options.config);
   const toolStatsByType: Record<string, ToolTypeStats> = {};
   const minToolCallsBeforeFinish = Math.max(0, Number(options.minToolCallsBeforeFinish ?? MIN_TOOL_CALLS_BEFORE_FINISH));
-  const totalContextTokens = Math.max(1, Number(options.totalContextTokens || (options.config ? getConfiguredLlamaNumCtx(options.config) : 32000)));
-  const thinkingBufferTokens = Math.max(Math.ceil(totalContextTokens * THINKING_BUFFER_RATIO), THINKING_BUFFER_MIN_TOKENS);
-  const usablePromptTokens = Math.max(totalContextTokens - thinkingBufferTokens, 0);
+  const budget = new TurnBudget({
+    totalContextTokens: Math.max(1, Number(options.totalContextTokens || (options.config ? getConfiguredLlamaNumCtx(options.config) : 32000))),
+    maxTurns,
+  });
   const useEstimatedTokensOnly = Array.isArray(options.mockResponses);
   const plannerThinkingEnabled = typeof options.thinkingEnabledOverride === 'boolean'
     ? options.thinkingEnabledOverride
@@ -494,7 +487,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       model: String(options.model || ''),
       messageRoles: messages.map((message) => String(message.role || 'unknown')),
       toolDefinitions: plannerToolDefinitions,
-      maxTokens: totalContextTokens,
+      maxTokens: budget.totalContextTokens,
       thinkingEnabled: plannerThinkingEnabled,
       reasoningContentEnabled: plannerReasoningContentEnabled,
       preserveThinking: plannerPreserveThinkingEnabled,
@@ -531,8 +524,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       config: preflightConfig,
       prompt,
       providerPromptReserveText,
-      totalContextTokens,
-      thinkingBufferTokens,
+      totalContextTokens: budget.totalContextTokens,
+      thinkingBufferTokens: budget.thinkingBufferTokens,
     });
     preflightSpan?.end({
       promptTokenCount: preflight.promptTokenCount,
@@ -567,7 +560,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       });
     }
     let maxOutputTokens = getDynamicMaxOutputTokens({
-      totalContextTokens,
+      totalContextTokens: budget.totalContextTokens,
       promptTokenCount: preflight.promptTokenCount,
     });
 
@@ -600,7 +593,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         model: String(options.model || ''),
         messageRoles: messages.map((message) => String(message.role || 'unknown')),
         toolDefinitions: plannerToolDefinitions,
-        maxTokens: totalContextTokens,
+        maxTokens: budget.totalContextTokens,
         thinkingEnabled: plannerThinkingEnabled,
         reasoningContentEnabled: plannerReasoningContentEnabled,
         preserveThinking: plannerPreserveThinkingEnabled,
@@ -620,7 +613,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         });
       }
       const afterCompaction = await preflightPlannerPromptBudget({
-        config: preflightConfig, prompt, providerPromptReserveText, totalContextTokens, thinkingBufferTokens,
+        config: preflightConfig, prompt, providerPromptReserveText,
+        totalContextTokens: budget.totalContextTokens, thinkingBufferTokens: budget.thinkingBufferTokens,
       });
       if (afterCompaction.tokenizationAttempted) {
         options.onProgress?.({
@@ -645,7 +639,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         droppedMessageCount: compacted.droppedMessageCount,
       });
       maxOutputTokens = getDynamicMaxOutputTokens({
-        totalContextTokens,
+        totalContextTokens: budget.totalContextTokens,
         promptTokenCount: afterCompaction.promptTokenCount,
       });
       options.logger?.write({
@@ -667,8 +661,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       const overflowError = new Error(
         `planner_preflight_overflow prompt_tokens=${preflight.promptTokenCount} `
         + `max_prompt_tokens=${preflight.maxPromptBudget} overflow_tokens=${preflight.overflowTokens} `
-        + `max_output_tokens=${maxOutputTokens} total_context_tokens=${totalContextTokens} `
-        + `thinking_buffer_tokens=${thinkingBufferTokens}`,
+        + `max_output_tokens=${maxOutputTokens} total_context_tokens=${budget.totalContextTokens} `
+        + `thinking_buffer_tokens=${budget.thinkingBufferTokens}`,
       );
       options.logger?.write({
         kind: 'turn_preflight_overflow_fail', taskId: task.id, turn,
@@ -676,7 +670,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         transcriptPromptTokenCount: preflight.transcriptPromptTokenCount,
         providerPromptReserveTokenCount: preflight.providerPromptReserveTokenCount,
         maxPromptBudget: preflight.maxPromptBudget,
-        overflowTokens: preflight.overflowTokens, maxOutputTokens, totalContextTokens, thinkingBufferTokens,
+        overflowTokens: preflight.overflowTokens, maxOutputTokens,
+        totalContextTokens: budget.totalContextTokens, thinkingBufferTokens: budget.thinkingBufferTokens,
         error: overflowError.message,
       });
       throw overflowError;
@@ -759,18 +754,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       turnThinking[turn] = turnThinkingText;
     }
 
-    if (Number.isFinite(response.promptTokens) && Number(response.promptTokens) >= 0) modelPromptTokens += Number(response.promptTokens);
-    const resolvedCompletionTokens = Number.isFinite(response.completionTokens) && Number(response.completionTokens) >= 0
-      ? Number(response.completionTokens)
-      : (String(response.text || '').trim() ? estimateTokenCount(options.config, String(response.text || '')) : 0);
-    const resolvedThinkingTokens = Number.isFinite(response.usageThinkingTokens) && Number(response.usageThinkingTokens) >= 0
-      ? Number(response.usageThinkingTokens)
-      : (String(response.thinkingText || '').trim() ? estimateTokenCount(options.config, String(response.thinkingText || '')) : 0);
-    modelThinkingTokens += resolvedThinkingTokens;
-    if (Number.isFinite(response.promptCacheTokens) && Number(response.promptCacheTokens) >= 0) modelPromptCacheTokens += Number(response.promptCacheTokens);
-    if (Number.isFinite(response.promptEvalTokens) && Number(response.promptEvalTokens) >= 0) modelPromptEvalTokens += Number(response.promptEvalTokens);
-    if (Number.isFinite(response.promptEvalDurationMs) && Number(response.promptEvalDurationMs) >= 0) modelPromptEvalDurationMs += Number(response.promptEvalDurationMs);
-    if (Number.isFinite(response.generationDurationMs) && Number(response.generationDurationMs) >= 0) modelGenerationDurationMs += Number(response.generationDurationMs);
+    const resolvedCompletionTokens = tokenUsage.recordModelResponse(response).completionTokens;
 
     if (response.mockExhausted) { reason = 'mock_responses_exhausted'; break; }
 
@@ -786,7 +770,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       options.logger?.write({ kind: 'turn_action_parsed', taskId: task.id, turn, action });
     } catch (error) {
       parseSpan?.end({ ok: false });
-      modelOutputTokens += resolvedCompletionTokens;
+      tokenUsage.addOutputTokens(resolvedCompletionTokens);
       invalidResponses += 1;
       const invalidActionMessage = `Invalid action: ${error instanceof Error ? error.message : String(error)}. Return a valid JSON finish action or tool action payload.`;
       const invalidToolAction = buildInvalidToolCallActionFromResponseText(String(response.text || ''), allowedPlannerToolNames);
@@ -816,7 +800,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
 
     if (action.action === 'finish') {
-      modelOutputTokens += resolvedCompletionTokens;
+      tokenUsage.addOutputTokens(resolvedCompletionTokens);
       const finishEvaluation = evaluateFinishAttempt({
         loopKind,
         finalOutput: action.output,
@@ -1134,8 +1118,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       ? nativeExecution.requestedCommand || command
       : command;
     const normalizedCommand = isNativeTool && nativeExecution?.ok ? nativeExecution.command : isNativeTool ? command : normalized.command;
-    const preExecutionDynamicPerToolRatio = Math.max(PER_TOOL_RESULT_RATIO, Number(commands.length) / Number(maxTurns));
-    const preExecutionPerToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * preExecutionDynamicPerToolRatio));
+    const preExecutionPerToolCapTokens = budget.perToolCapTokens(commands.length);
     const parsedReadWindow = isNativeTool ? null : parseGetContentReadWindowCommand(normalizedCommand);
     let commandToRun = normalizedCommand;
     let lineReadAdjustment: LineReadAdjustment | null = null;
@@ -1347,12 +1330,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     let lineReadStats = isNativeTool && nativeExecution && nativeExecution.ok && nativeExecution.lineReadStats
       ? nativeExecution.lineReadStats
       : getRepoSearchLineReadStats(commandToRun, baseOutput, rawResultTokenCount);
-    const dynamicPerToolRatio = Math.max(PER_TOOL_RESULT_RATIO, Number(commands.length) / Number(maxTurns));
-    const perToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * dynamicPerToolRatio));
-    const remainingTokenAllowance = Math.max(
-      usablePromptTokens - promptTokenCount - acceptedToolPromptTokensThisTurn,
-      0
-    );
+    const perToolCapTokens = budget.perToolCapTokens(commands.length);
+    const remainingTokenAllowance = budget.remainingToolAllowance(promptTokenCount, acceptedToolPromptTokensThisTurn);
     const promptToolTokenSpan = options.timingRecorder?.start('repo.tool.tokenize_prompt', {
       taskId: task.id,
       turn,
@@ -1543,7 +1522,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       promptTokenCount, resultTokenCount, perToolCapTokens, remainingTokenAllowance,
       insertedResultText: resultText,
     });
-    modelToolTokens += Math.max(0, Math.ceil(resultTokenCount));
+    tokenUsage.addToolTokens(resultTokenCount);
 
     commands.push({
       command: commandToRun,
@@ -1621,7 +1600,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       synthesisPrompt,
     );
     const synthesisMaxTokens = getDynamicMaxOutputTokens({
-      totalContextTokens,
+      totalContextTokens: budget.totalContextTokens,
       promptTokenCount: synthesisPromptTokenCount,
     });
     options.logger?.write({
@@ -1658,19 +1637,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         if (typeof synthesisResponse.nextMockResponseIndex === 'number') {
           mockResponseIndex = synthesisResponse.nextMockResponseIndex;
         }
-        if (Number.isFinite(synthesisResponse.promptTokens) && Number(synthesisResponse.promptTokens) >= 0) modelPromptTokens += Number(synthesisResponse.promptTokens);
-        const resolvedSynthesisCompletionTokens = Number.isFinite(synthesisResponse.completionTokens) && Number(synthesisResponse.completionTokens) >= 0
-          ? Number(synthesisResponse.completionTokens)
-          : (String(synthesisResponse.text || '').trim() ? estimateTokenCount(options.config, String(synthesisResponse.text || '')) : 0);
-        const resolvedSynthesisThinkingTokens = Number.isFinite(synthesisResponse.usageThinkingTokens) && Number(synthesisResponse.usageThinkingTokens) >= 0
-          ? Number(synthesisResponse.usageThinkingTokens)
-          : (String(synthesisResponse.thinkingText || '').trim() ? estimateTokenCount(options.config, String(synthesisResponse.thinkingText || '')) : 0);
-        modelOutputTokens += resolvedSynthesisCompletionTokens;
-        modelThinkingTokens += resolvedSynthesisThinkingTokens;
-        if (Number.isFinite(synthesisResponse.promptCacheTokens) && Number(synthesisResponse.promptCacheTokens) >= 0) modelPromptCacheTokens += Number(synthesisResponse.promptCacheTokens);
-        if (Number.isFinite(synthesisResponse.promptEvalTokens) && Number(synthesisResponse.promptEvalTokens) >= 0) modelPromptEvalTokens += Number(synthesisResponse.promptEvalTokens);
-        if (Number.isFinite(synthesisResponse.promptEvalDurationMs) && Number(synthesisResponse.promptEvalDurationMs) >= 0) modelPromptEvalDurationMs += Number(synthesisResponse.promptEvalDurationMs);
-        if (Number.isFinite(synthesisResponse.generationDurationMs) && Number(synthesisResponse.generationDurationMs) >= 0) modelGenerationDurationMs += Number(synthesisResponse.generationDurationMs);
+        const resolved = tokenUsage.recordModelResponse(synthesisResponse);
+        tokenUsage.addOutputTokens(resolved.completionTokens);
 
         const text = String(synthesisResponse.text || '').trim();
         if (!synthesisResponse.mockExhausted && text) {
@@ -1709,14 +1677,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     invalidResponses, commandFailures, commands, turnThinking, finalOutput, passed,
     ...(chatWebGroundingEnabled ? { groundingStatus: chatWebGroundingPolicy.getStatus() } : {}),
     missingSignals: signalCheck.missingSignals,
-    promptTokens: modelPromptTokens,
-    outputTokens: modelOutputTokens,
-    toolTokens: modelToolTokens,
-    thinkingTokens: modelThinkingTokens,
-    promptCacheTokens: modelPromptCacheTokens,
-    promptEvalTokens: modelPromptEvalTokens,
-    promptEvalDurationMs: modelPromptEvalDurationMs,
-    generationDurationMs: modelGenerationDurationMs,
+    ...tokenUsage.snapshot(),
     toolStats: { ...toolStatsByType },
     readOverlapSummary: buildReadOverlapSummary(fileReadStateByPath),
   };
