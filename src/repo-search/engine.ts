@@ -44,6 +44,8 @@ import {
 } from './engine/native-tools.js';
 import { DuplicateTracker } from './engine/duplicate-tracker.js';
 import { FORCED_FINISH_MAX_ATTEMPTS, FORCED_FINISH_MODE_MESSAGE, ForcedFinishController } from './engine/forced-finish.js';
+import { ProgressReporter } from './engine/progress-reporter.js';
+import { TranscriptManager } from './engine/transcript-manager.js';
 import { TokenUsageTracker } from './engine/token-usage.js';
 import { ToolStatsRecorder } from './engine/tool-stats.js';
 import { TurnBudget } from './engine/turn-budget.js';
@@ -54,7 +56,6 @@ import {
   getRepoSearchToolNamesForParsing,
   resolveRepoSearchPlannerToolDefinitions,
   buildPlannerRequestPromptReserveText,
-  renderTaskTranscript,
   requestPlannerAction,
   requestTerminalSynthesis,
   type ChatMessage,
@@ -110,13 +111,9 @@ import type {
   RepoSearchProgressEvent,
 } from './types.js';
 import {
-  appendToolCallExchange,
-  appendToolBatchExchange,
   buildAssistantToolCallMessage as buildSharedAssistantToolCallMessage,
   type ToolBatchOutcome,
-  upsertTrailingUserMessage,
   type ToolTranscriptAction,
-  type ToolTranscriptMessage,
 } from '../tool-call-messages.js';
 import {
   findContiguousUnreadRange,
@@ -419,7 +416,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     enabled: chatWebGroundingEnabled,
     retainedWebToolCalls: options.retainedWebToolCalls,
   });
-  let lastLoggedMessageCount = 0;
   const slotId = options.config ? allocateLlamaCppSlotId(options.config) : 0;
   const ignorePolicy = buildIgnorePolicy(options.repoRoot);
   const bootstrapFileListSpan = options.timingRecorder?.start('repo.bootstrap.file_listing', {
@@ -450,21 +446,21 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const systemPromptContent = chatWebGroundingEnabled
     ? `${baseSystemPrompt}\n\n${CHAT_GROUNDING_FINAL_ANSWER_INSTRUCTION}`
     : baseSystemPrompt;
-  const messages: ChatMessage[] = [
-    {
-      role: 'system',
-      content: systemPromptContent,
-    },
-    ...(options.historyMessages || []),
-    {
-      role: 'user',
-      content: loopKind === 'chat'
-        ? task.question
-        : buildTaskInitialUserPrompt(task.question, bootstrapFileList, {
-          includeRepoFileListing: options.includeRepoFileListing,
-        }),
-    },
-  ];
+  const progress = new ProgressReporter({
+    onProgress: options.onProgress || null,
+    taskId: task.id,
+    maxTurns,
+    taskStartedAt,
+  });
+  const transcript = new TranscriptManager({
+    systemPromptContent,
+    historyMessages: options.historyMessages || [],
+    initialUserContent: loopKind === 'chat'
+      ? task.question
+      : buildTaskInitialUserPrompt(task.question, bootstrapFileList, {
+        includeRepoFileListing: options.includeRepoFileListing,
+      }),
+  });
 
   for (let turn = 1; turn <= maxTurns; turn += 1) {
     throwIfAborted(options.abortSignal);
@@ -474,45 +470,29 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     const promptRenderSpan = options.timingRecorder?.start('repo.prompt.render', {
       taskId: task.id,
       turn,
-      messageCount: messages.length,
+      messageCount: transcript.length,
     });
     let providerPromptReserveText = buildPlannerRequestPromptReserveText({
       stage: 'planner_action',
       model: String(options.model || ''),
-      messageRoles: messages.map((message) => String(message.role || 'unknown')),
+      messageRoles: transcript.messageRoles(),
       toolDefinitions: plannerToolDefinitions,
       maxTokens: budget.totalContextTokens,
       thinkingEnabled: plannerThinkingEnabled,
       reasoningContentEnabled: plannerReasoningContentEnabled,
       preserveThinking: plannerPreserveThinkingEnabled,
-      stream: Boolean(options.onProgress),
+      stream: progress.enabled,
     });
-    let prompt = renderTaskTranscript(messages);
+    let prompt = transcript.render();
     promptRenderSpan?.end({ promptChars: prompt.length, providerPromptReserveChars: providerPromptReserveText.length });
     const preflightSpan = options.timingRecorder?.start('repo.prompt.preflight', {
       taskId: task.id,
       turn,
     });
-    options.onProgress?.({
-      kind: 'preflight_start',
-      taskId: task.id,
-      turn,
-      maxTurns,
-      promptChars: prompt.length,
-      elapsedMs: Date.now() - taskStartedAt,
-    });
+    progress.preflightStart(turn, prompt.length);
     const preflightConfig = useEstimatedTokensOnly ? undefined : options.config;
     if (preflightConfig) {
-      options.onProgress?.({
-        kind: 'preflight_tokenize_start',
-        taskId: task.id,
-        turn,
-        maxTurns,
-        promptChars: prompt.length,
-        tokenizeTimeoutMs: 10_000,
-        tokenizeRetryMaxWaitMs: 30_000,
-        elapsedMs: Date.now() - taskStartedAt,
-      });
+      progress.tokenizeStart(turn, prompt.length);
     }
     let preflight = await preflightPlannerPromptBudget({
       config: preflightConfig,
@@ -526,32 +506,9 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       overflowTokens: preflight.overflowTokens,
       ok: preflight.ok,
     });
-    options.onProgress?.({
-      kind: 'preflight_done',
-      taskId: task.id,
-      turn,
-      maxTurns,
-      promptChars: prompt.length,
-      promptTokenCount: preflight.promptTokenCount,
-      elapsedMs: Date.now() - taskStartedAt,
-    });
+    progress.preflightDone(turn, prompt.length, preflight.promptTokenCount);
     if (preflight.tokenizationAttempted) {
-      options.onProgress?.({
-        kind: 'preflight_tokenize_done',
-        taskId: task.id,
-        turn,
-        maxTurns,
-        promptChars: prompt.length,
-        promptTokenCount: preflight.promptTokenCount,
-        tokenCountSource: preflight.tokenCountSource,
-        tokenizeElapsedMs: preflight.tokenizeElapsedMs ?? undefined,
-        tokenizeRetryCount: preflight.tokenizeRetryCount ?? undefined,
-        tokenizeTimeoutMs: preflight.tokenizeTimeoutMs,
-        tokenizeRetryMaxWaitMs: preflight.tokenizeRetryMaxWaitMs,
-        tokenizeStatus: preflight.tokenizeStatus ?? undefined,
-        errorMessage: preflight.tokenizeErrorMessage ?? undefined,
-        elapsedMs: Date.now() - taskStartedAt,
-      });
+      progress.tokenizeDone(turn, prompt.length, preflight);
     }
     let maxOutputTokens = getDynamicMaxOutputTokens({
       totalContextTokens: budget.totalContextTokens,
@@ -574,59 +531,34 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         beforePromptTokenCount: preflight.promptTokenCount,
       });
       const compacted = await compactPlannerMessagesOnce({
-        messages,
+        messages: transcript.getMessages(),
         config: useEstimatedTokensOnly ? undefined : options.config,
         maxPromptBudget: preflight.maxPromptBudget,
         providerPromptReserveText,
       });
-      messages.splice(0, messages.length, ...compacted.messages);
-      lastLoggedMessageCount = 0;
+      transcript.replaceWith(compacted.messages);
       const beforeProviderPromptReserveTokenCount = preflight.providerPromptReserveTokenCount;
       providerPromptReserveText = buildPlannerRequestPromptReserveText({
         stage: 'planner_action',
         model: String(options.model || ''),
-        messageRoles: messages.map((message) => String(message.role || 'unknown')),
+        messageRoles: transcript.messageRoles(),
         toolDefinitions: plannerToolDefinitions,
         maxTokens: budget.totalContextTokens,
         thinkingEnabled: plannerThinkingEnabled,
         reasoningContentEnabled: plannerReasoningContentEnabled,
         preserveThinking: plannerPreserveThinkingEnabled,
-        stream: Boolean(options.onProgress),
+        stream: progress.enabled,
       });
-      prompt = renderTaskTranscript(messages);
+      prompt = transcript.render();
       if (preflightConfig) {
-        options.onProgress?.({
-          kind: 'preflight_tokenize_start',
-          taskId: task.id,
-          turn,
-          maxTurns,
-          promptChars: prompt.length,
-          tokenizeTimeoutMs: 10_000,
-          tokenizeRetryMaxWaitMs: 30_000,
-          elapsedMs: Date.now() - taskStartedAt,
-        });
+        progress.tokenizeStart(turn, prompt.length);
       }
       const afterCompaction = await preflightPlannerPromptBudget({
         config: preflightConfig, prompt, providerPromptReserveText,
         totalContextTokens: budget.totalContextTokens, thinkingBufferTokens: budget.thinkingBufferTokens,
       });
       if (afterCompaction.tokenizationAttempted) {
-        options.onProgress?.({
-          kind: 'preflight_tokenize_done',
-          taskId: task.id,
-          turn,
-          maxTurns,
-          promptChars: prompt.length,
-          promptTokenCount: afterCompaction.promptTokenCount,
-          tokenCountSource: afterCompaction.tokenCountSource,
-          tokenizeElapsedMs: afterCompaction.tokenizeElapsedMs ?? undefined,
-          tokenizeRetryCount: afterCompaction.tokenizeRetryCount ?? undefined,
-          tokenizeTimeoutMs: afterCompaction.tokenizeTimeoutMs,
-          tokenizeRetryMaxWaitMs: afterCompaction.tokenizeRetryMaxWaitMs,
-          tokenizeStatus: afterCompaction.tokenizeStatus ?? undefined,
-          errorMessage: afterCompaction.tokenizeErrorMessage ?? undefined,
-          elapsedMs: Date.now() - taskStartedAt,
-        });
+        progress.tokenizeDone(turn, prompt.length, afterCompaction);
       }
       compactionSpan?.end({
         afterPromptTokenCount: afterCompaction.promptTokenCount,
@@ -672,11 +604,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
 
     options.logger?.write({ kind: 'turn_model_request', taskId: task.id, turn, thinkingEnabled: plannerThinkingEnabled });
-    if (options.onProgress) {
-      options.onProgress({ kind: 'llm_start', turn, maxTurns, promptTokenCount: preflight.promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
-    }
-    const newMessages = messages.slice(lastLoggedMessageCount);
-    lastLoggedMessageCount = messages.length;
+    progress.llmStart(turn, preflight.promptTokenCount);
+    const newMessages = transcript.takeNewMessagesForLogging();
     options.logger?.write({ kind: 'turn_new_messages', taskId: task.id, turn, messages: newMessages, promptTokenCount: preflight.promptTokenCount });
 
     const providerSpan = options.timingRecorder?.start('repo.llama.request', {
@@ -691,27 +620,27 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       response = await requestPlannerAction({
         baseUrl: options.baseUrl,
         model: options.model,
-        messages,
+        messages: transcript.getMessages(),
         slotId,
         timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
         maxTokens: maxOutputTokens,
         thinkingEnabled: plannerThinkingEnabled,
         reasoningContentEnabled: plannerReasoningContentEnabled,
         preserveThinking: plannerPreserveThinkingEnabled,
-        stream: Boolean(options.onProgress),
-        onThinkingDelta: options.onProgress
-          ? (accThinking) => { options.onProgress!({ kind: 'thinking', turn, maxTurns, thinkingText: accThinking }); }
+        stream: progress.enabled,
+        onThinkingDelta: progress.enabled
+          ? (accThinking) => { progress.thinking(turn, accThinking); }
           : undefined,
-        onContentDelta: options.onProgress
+        onContentDelta: progress.enabled
           ? (accContent) => {
               if (streamFinishAsAnswer) {
                 const finishOutput = ModelJson.extractStreamingFinishOutput(accContent);
                 if (finishOutput !== null) {
-                  options.onProgress!({ kind: 'answer', turn, maxTurns, answerText: finishOutput });
+                  progress.answer(turn, finishOutput);
                 }
               } else {
                 const finishOutput = ModelJson.extractStreamingFinishOutput(accContent) ?? accContent;
-                options.onProgress!({ kind: 'thinking', turn, maxTurns, thinkingText: finishOutput });
+                progress.thinking(turn, finishOutput);
               }
             }
           : undefined,
@@ -725,9 +654,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       providerSpan?.end();
     }
 
-    if (options.onProgress) {
-      options.onProgress({ kind: 'llm_end', turn, maxTurns, promptTokenCount: preflight.promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
-    }
+    progress.llmEnd(turn, preflight.promptTokenCount);
     if (typeof response.nextMockResponseIndex === 'number') {
       mockResponseIndex = response.nextMockResponseIndex;
     }
@@ -768,8 +695,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       invalidResponses += 1;
       const invalidActionMessage = `Invalid action: ${error instanceof Error ? error.message : String(error)}. Return a valid JSON finish action or tool action payload.`;
       const invalidToolAction = buildInvalidToolCallActionFromResponseText(String(response.text || ''), allowedPlannerToolNames);
-      appendToolCallExchange(
-        messages as unknown as ToolTranscriptMessage[],
+      transcript.appendToolExchange(
         invalidToolAction,
         `invalid_call_${invalidResponses}`,
         invalidActionMessage,
@@ -789,8 +715,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
 
     // Emit native thinking text (from reasoning_content) to UI
-    if (response.thinkingText && options.onProgress) {
-      options.onProgress({ kind: 'thinking', turn, maxTurns, thinkingText: response.thinkingText });
+    if (response.thinkingText) {
+      progress.thinking(turn, response.thinkingText);
     }
 
     if (action.action === 'finish') {
@@ -803,16 +729,16 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       if (!finishEvaluation.allowed) {
         const warning = finishEvaluation.warning || 'Need stronger repository evidence before finishing.';
         toolStats.recordFinishRejection();
-        messages.push(buildAssistantReplayMessage(response.text, String(response.thinkingText || '').trim()));
-        messages.push({ role: 'user', content: warning });
+        transcript.pushAssistant(buildAssistantReplayMessage(response.text, String(response.thinkingText || '').trim()));
+        transcript.pushUser(warning);
         options.logger?.write({ kind: 'turn_finish_rejected', taskId: task.id, turn, toolCallTurns: commands.length, minToolCallsBeforeFinish, warning });
         continue;
       }
       const groundingDecision = chatWebGroundingPolicy.evaluateFinish();
       if (groundingDecision.kind === 'reject') {
         toolStats.recordFinishRejection();
-        messages.push(buildAssistantReplayMessage(response.text, String(response.thinkingText || '').trim()));
-        messages.push({ role: 'user', content: groundingDecision.message });
+        transcript.pushAssistant(buildAssistantReplayMessage(response.text, String(response.thinkingText || '').trim()));
+        transcript.pushUser(groundingDecision.message);
         options.logger?.write({
           kind: 'chat_grounding_finish_rejected',
           taskId: task.id,
@@ -822,8 +748,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         continue;
       }
       finalOutput = action.output;
-      if (streamFinishAsAnswer && options.onProgress) {
-        options.onProgress({ kind: 'answer', turn, maxTurns, answerText: finalOutput });
+      if (streamFinishAsAnswer) {
+        progress.answer(turn, finalOutput);
       }
       reason = 'finish';
       break;
@@ -985,18 +911,13 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       }
     }
     if (!canAdvanceRepeatedRead && (isExactDuplicate || isSemanticDuplicate)) {
-      const registration = duplicates.registerDuplicate(duplicateFingerprint, messages.length);
+      const registration = duplicates.registerDuplicate(duplicateFingerprint, transcript.length);
       const duplicateMessage = buildRepeatedToolCallSummary(normalizedToolName, registration.count);
       commandFailures += 1;
       const rejectionReason = isExactDuplicate ? 'duplicate command' : 'semantic duplicate command';
       commands.push({ command, turn, safe: false, reason: rejectionReason, exitCode: null, output: `Rejected: ${duplicateMessage}` });
       if (registration.activeReplayMessageIndex !== null) {
-        const previousToolMessage = messages[registration.activeReplayMessageIndex];
-        messages[registration.activeReplayMessageIndex] = {
-          role: 'tool',
-          tool_call_id: previousToolMessage?.tool_call_id,
-          content: duplicateMessage,
-        };
+        transcript.replaceToolMessage(registration.activeReplayMessageIndex, duplicateMessage);
       } else {
         const duplicateToolCallId = `duplicate_call_${commands.length}`;
         batchOutcomes.push({
@@ -1168,9 +1089,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     const promptTokenCount = preflight.promptTokenCount;
     const progressToolCallId = `tc_${progressToolCallSeq}`;
     progressToolCallSeq += 1;
-    if (options.onProgress) {
-      options.onProgress({ kind: 'tool_start', toolCallId: progressToolCallId, turn, maxTurns, command: requestedCommand, promptTokenCount, elapsedMs: Date.now() - taskStartedAt });
-    }
+    progress.toolStart(progressToolCallId, turn, requestedCommand, promptTokenCount);
 
     const toolExecutionSpan = options.timingRecorder?.start('repo.tool.execute', {
       taskId: task.id,
@@ -1447,19 +1366,16 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     const modelVisibleCommand = isNativeTool || lineReadAdjustment || !normalized.rewritten
       ? commandToRun
       : requestedCommand;
-    if (options.onProgress) {
+    if (progress.enabled) {
       const snippet = resultText.length > 200 ? `${resultText.slice(0, 200)}...` : resultText;
-      options.onProgress({
-        kind: 'tool_result',
+      progress.toolResult({
         toolCallId: progressToolCallId,
         turn,
-        maxTurns,
         command: modelVisibleCommand,
         exitCode: executed.exitCode,
         outputSnippet: snippet,
         outputTokens: resultTokenCount,
         promptTokenCount,
-        elapsedMs: Date.now() - taskStartedAt,
       });
     }
     const commandOutputText = isNativeTool && nativeExecution?.ok ? resultText : outputWithRewriteNote;
@@ -1516,28 +1432,25 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     acceptedToolPromptTokensThisTurn += Math.max(0, Math.ceil(resultTokenCount));
     }
 
-    const preAppendMessagesLength = messages.length;
     const appendSpan = options.timingRecorder?.start('repo.tool.append', {
       taskId: task.id,
       turn,
       outcomeCount: batchOutcomes.length,
-      beforeMessageCount: messages.length,
+      beforeMessageCount: transcript.length,
     });
-    appendToolBatchExchange(
-      messages as unknown as ToolTranscriptMessage[],
+    const preAppendMessagesLength = transcript.appendBatchExchange(
       batchOutcomes,
       String(response.thinkingText || '').trim(),
     );
-    appendSpan?.end({ afterMessageCount: messages.length });
+    appendSpan?.end({ afterMessageCount: transcript.length });
     if (batchDuplicateAnchorIndex !== null && batchOutcomes.length > 0) {
       duplicates.setReplayToolMessageIndex(preAppendMessagesLength + 1 + batchDuplicateAnchorIndex);
     }
     for (const userMessage of pendingModeChangeUserMessages) {
-      messages.push({ role: 'user', content: userMessage });
+      transcript.pushUser(userMessage);
     }
     if (pendingForcedFinishCountdownText !== null) {
-      forcedFinishCountdownUserMessageIndex = upsertTrailingUserMessage(
-        messages as unknown as ToolTranscriptMessage[],
+      forcedFinishCountdownUserMessageIndex = transcript.upsertTrailingUser(
         forcedFinishCountdownUserMessageIndex,
         pendingForcedFinishCountdownText,
       );
@@ -1552,7 +1465,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     const synthesisPrompt = buildTerminalSynthesisPrompt({
       question: task.question,
       reason,
-      transcript: renderTaskTranscript(messages.slice(2)),
+      transcript: transcript.renderTail(2),
     });
     const synthesisPromptTokenCount = await countTokensWithFallback(
       useEstimatedTokensOnly ? undefined : options.config,
