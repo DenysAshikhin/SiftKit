@@ -11,6 +11,7 @@
     "tests/engine-native-tools.test.ts",
     "tests/engine-turn-budget.test.ts",
     "tests/engine-token-usage.test.ts",
-    "tests/engine-tool-stats.test.ts"
+    "tests/engine-tool-stats.test.ts",
+    "tests/engine-duplicate-tracker.test.ts"
   ]
 }
