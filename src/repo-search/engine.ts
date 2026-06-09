@@ -17,8 +17,6 @@ import {
   mergeToolTypeStats,
   readLatestIdleSummaryToolStats,
 } from '../line-read-guidance.js';
-import { spawnDirectCommand } from '../lib/command-spawn.js';
-import { spawnPowerShellAsync } from '../lib/powershell.js';
 import { getDynamicMaxOutputTokens } from '../lib/dynamic-output-cap.js';
 import { ModelJson } from '../lib/model-json.js';
 import { colorize } from '../lib/text-format.js';
@@ -32,8 +30,9 @@ import {
   getFirstCommandToken,
   type IgnorePolicy,
   normalizePlannerCommand,
-  parseDirectRgCommand,
 } from './command-safety.js';
+import { getAbortError, throwIfAborted } from './engine/abort.js';
+import { executeRepoCommand, findMockResult, normalizeToolTypeFromCommand } from './engine/command-execution.js';
 import {
   getRepoSearchCommandTokenForToolName,
   isRepoSearchCommandToolName,
@@ -149,18 +148,6 @@ const ZERO_OUTPUT_FORCE_THRESHOLD = 10;
 const FORCED_FINISH_MAX_ATTEMPTS = 3;
 const DUPLICATE_FORCE_THRESHOLD = 5;
 const ANSI_RED_CODE = 31;
-
-function getAbortError(abortSignal?: AbortSignal): Error {
-  return abortSignal?.reason instanceof Error
-    ? abortSignal.reason
-    : new Error(String(abortSignal?.reason || 'Repo search aborted.'));
-}
-
-function throwIfAborted(abortSignal?: AbortSignal): void {
-  if (abortSignal?.aborted) {
-    throw getAbortError(abortSignal);
-  }
-}
 
 function buildToolOutputRepetitionWarning(detection: TokenRepetitionDetection): string {
   return `SiftKit stopped tool output early: recent tokens repeated every ${detection.periodTokens} tokens across the last ${detection.windowTokens} tokens after ${detection.totalTokens} tokens.`;
@@ -644,97 +631,6 @@ async function executeNativeRepoTool(
     toolType: toolName,
     outputUnit: 'files',
   };
-}
-
-function findMockResult(
-  command: string,
-  mockCommandResults: Record<string, RepoSearchMockCommandResult>,
-): RepoSearchMockCommandResult | null {
-  if (Object.prototype.hasOwnProperty.call(mockCommandResults, command)) {
-    return mockCommandResults[command];
-  }
-  // Prefix match: find the longest mock key that the command starts with.
-  // This allows mock keys to omit auto-appended flags (--no-ignore, --glob, etc.)
-  let bestKey: string | null = null;
-  for (const key of Object.keys(mockCommandResults)) {
-    if (command.startsWith(key) && (!bestKey || key.length > bestKey.length)) {
-      bestKey = key;
-    }
-  }
-  return bestKey ? mockCommandResults[bestKey] : null;
-}
-
-function executeRepoCommand(
-  command: string,
-  repoRoot: string,
-  mockCommandResults: Record<string, RepoSearchMockCommandResult> | null,
-  abortSignal?: AbortSignal,
-): Promise<{ exitCode: number; output: string }> {
-  throwIfAborted(abortSignal);
-  const mockResult = mockCommandResults ? findMockResult(command, mockCommandResults) : null;
-  if (mockResult) {
-    const delayMs = Number(mockResult.delayMs ?? 0);
-    return new Promise((resolve, reject) => {
-      let timeoutHandle: NodeJS.Timeout | null = null;
-      const cleanup = (): void => {
-        if (timeoutHandle) {
-          clearTimeout(timeoutHandle);
-          timeoutHandle = null;
-        }
-        abortSignal?.removeEventListener('abort', abort);
-      };
-      const abort = (): void => {
-        cleanup();
-        reject(getAbortError(abortSignal));
-      };
-      const complete = (): void => {
-        cleanup();
-        resolve({
-          exitCode: Number(mockResult.exitCode ?? 1),
-          output: `${String(mockResult.stdout || '')}${String(mockResult.stderr || '')}`.trim(),
-        });
-      };
-      if (abortSignal?.aborted) {
-        abort();
-        return;
-      }
-      abortSignal?.addEventListener('abort', abort, { once: true });
-      if (Number.isFinite(delayMs) && delayMs > 0) {
-        timeoutHandle = setTimeout(complete, delayMs);
-      } else {
-        complete();
-      }
-    });
-  }
-
-  const directRg = parseDirectRgCommand(command);
-  if (directRg) {
-    return spawnDirectCommand('rg', directRg.args, { cwd: repoRoot, abortSignal }).then((result) => ({
-      exitCode: result.exitCode,
-      output: result.output,
-    }));
-  }
-
-  return spawnPowerShellAsync(command, { cwd: repoRoot }).then((result) => ({
-    exitCode: result.exitCode,
-    output: result.output,
-  }));
-}
-
-function normalizeToolTypeFromCommand(command: string): string {
-  const trimmed = String(command || '').trim();
-  if (!trimmed) {
-    return 'unknown';
-  }
-  const match = /^"([^"]+)"|^'([^']+)'|^([^\s]+)/u.exec(trimmed);
-  const firstToken = (match?.[1] || match?.[2] || match?.[3] || '').trim();
-  if (!firstToken) {
-    return 'unknown';
-  }
-  const normalized = firstToken.replace(/^[\\/]+/u, '').replace(/[\\/]+$/u, '');
-  const parts = normalized.split(/[\\/]/u).filter(Boolean);
-  const family = (parts[parts.length - 1] || normalized || 'unknown').trim().toLowerCase();
-  return family || 'unknown';
 }
 
 // ---------------------------------------------------------------------------

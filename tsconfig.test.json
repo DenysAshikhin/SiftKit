@@ -6,6 +6,7 @@
     "tests/repo-search-chat-execute.test.ts",
     "tests/repo-search-chat-loop.test.ts",
     "tests/repo-search-chat-types.test.ts",
-    "tests/tool-loop-governor-chat.test.ts"
+    "tests/tool-loop-governor-chat.test.ts",
+    "tests/engine-command-execution.test.ts"
   ]
 }
