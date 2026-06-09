@@ -4,13 +4,13 @@ import { estimateTokenCount } from '../prompt-budget.js';
 export type ModelUsageResponse = {
   text?: string;
   thinkingText?: string;
-  promptTokens?: number;
-  completionTokens?: number;
-  usageThinkingTokens?: number;
-  promptCacheTokens?: number;
-  promptEvalTokens?: number;
-  promptEvalDurationMs?: number;
-  generationDurationMs?: number;
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  usageThinkingTokens?: number | null;
+  promptCacheTokens?: number | null;
+  promptEvalTokens?: number | null;
+  promptEvalDurationMs?: number | null;
+  generationDurationMs?: number | null;
 };
 
 export type ResolvedResponseTokens = {

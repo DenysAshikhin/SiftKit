@@ -17,6 +17,7 @@
     "tests/engine-progress-reporter.test.ts",
     "tests/engine-transcript-manager.test.ts",
     "tests/engine-tool-result-budgeter.test.ts",
-    "tests/engine-read-window-governor.test.ts"
+    "tests/engine-read-window-governor.test.ts",
+    "tests/engine-terminal-synthesizer.test.ts"
   ]
 }
