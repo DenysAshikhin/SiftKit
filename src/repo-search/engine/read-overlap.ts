@@ -4,7 +4,7 @@ export const REPEATED_LINE_READ_MIN_RATIO = 0.10;
 export const DEFAULT_LINE_READ_AVG_TOKENS_PER_LINE = 8.0;
 export const LINE_READ_ROUNDING_STEP = 10;
 
-type ParsedGetContentReadWindow = {
+export type ParsedGetContentReadWindow = {
   pathKey: string;
   pathExpression: string;
   requestedSkip: number;
