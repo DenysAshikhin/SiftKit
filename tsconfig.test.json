@@ -15,6 +15,7 @@
     "tests/engine-duplicate-tracker.test.ts",
     "tests/engine-forced-finish.test.ts",
     "tests/engine-progress-reporter.test.ts",
-    "tests/engine-transcript-manager.test.ts"
+    "tests/engine-transcript-manager.test.ts",
+    "tests/engine-tool-result-budgeter.test.ts"
   ]
 }
