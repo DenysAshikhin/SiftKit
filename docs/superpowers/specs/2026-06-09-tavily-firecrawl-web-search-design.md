@@ -27,8 +27,13 @@ All Brave code is deleted outright — no legacy compatibility, no shims.
 
 ## Config shape
 
+`src/web-search/types.ts` is the single backend source of truth.
+`src/config/types.ts` **type-only re-exports** these (no second copy).
+`dashboard/src/types.ts` is a separate build with no `src/` imports (verified), so it
+keeps a structural mirror.
+
 ```ts
-// src/web-search/types.ts  and mirrored in src/config/types.ts + dashboard/src/types.ts
+// src/web-search/types.ts  (backend source of truth; re-exported by src/config/types.ts)
 export type WebSearchProviderId = 'tavily' | 'firecrawl';
 export type WebSearchProviderSettings = { Enabled: boolean; ApiKey: string };
 
@@ -100,21 +105,35 @@ provider stores its own API key (constructor arg).
   filtered through `assertPublicHttpUrl`; drop entries missing title/url.
 - Errors: missing key → `Tavily API key not configured.`; non-2xx →
   `Tavily search failed with HTTP <status>.`
-- `getQuota`: `GET https://api.tavily.com/usage` (Bearer). Parse account plan
-  usage/limit → `{ used, limit, remaining: limit - used }` best-effort; null when absent.
+- `getQuota`: `GET https://api.tavily.com/usage` (Bearer). Parse `account.plan_usage`
+  (used) + `account.plan_limit` (limit; null when unlimited) → `{ used, limit, remaining }`
+  via the shared clamp helper (see Quota math below); null when absent.
 
 ### FirecrawlSearchProvider (`firecrawl-search-provider.ts`)
 
-- `POST https://api.firecrawl.dev/v1/search`, headers `Authorization: Bearer <key>`,
+> API verified 2026-06-09 against Firecrawl **v2** docs
+> (https://docs.firecrawl.dev/api-reference/endpoint/search and `/credit-usage`).
+
+- `POST https://api.firecrawl.dev/v2/search`, headers `Authorization: Bearer <key>`,
   `Content-Type: application/json`.
 - Body: `{ query, limit: resultCount, tbs? }`. `timeFilter` → `tbs`:
   `day→qdr:d, week→qdr:w, month→qdr:m, year→qdr:y`.
-- Response `data[]` → `{ title, url, snippet: description, source: 'firecrawl' }`,
-  filtered through `assertPublicHttpUrl`.
+- Response: results are nested under **`data.web[]`** → `{ title, url, snippet: description,
+  source: 'firecrawl' }`, filtered through `assertPublicHttpUrl`.
 - Errors: missing key → `Firecrawl API key not configured.`; `success:false` or
   non-2xx → `Firecrawl search failed with HTTP <status>.`
-- `getQuota`: `GET https://api.firecrawl.dev/v1/team/credit-usage` (Bearer) →
-  `{ remaining: data.remaining_credits, limit: data.plan_credits ?? null, used: limit-remaining (when both) }`.
+- `getQuota`: `GET https://api.firecrawl.dev/v2/team/credit-usage` (Bearer) →
+  camelCase `data.remainingCredits` (remaining) + `data.planCredits` (limit) →
+  `{ used, limit, remaining }` via the shared clamp helper.
+
+### Quota math (shared)
+
+`clampQuota(used, limit, remaining)` produces a consistent `ProviderQuota`:
+derive the missing third value from the other two, then clamp every numeric field
+to `>= 0`; if the data is internally inconsistent (`used > limit`, or
+`remaining > limit`), set the derived/contradictory fields to `null` rather than
+emit a negative. Lives beside the parse helpers in `web-search-provider-base.ts`
+so both providers reuse it (DRY).
 
 ### Factory + chain
 
@@ -151,11 +170,16 @@ New deps: `jsdom`, `@mozilla/readability`, `turndown`; dev: `@types/jsdom`, `@ty
 
 ## Quota route + dashboard
 
-- `WebSearchQuotaService` (status-server): builds providers via `createWebSearchProviders`,
-  calls each `getQuota`, returns `ProviderQuota[]`; short in-memory TTL cache
-  (e.g. 60s) keyed on provider+key to avoid burning credits.
-- New route `GET /dashboard/web-search-quota` → `{ quotas: ProviderQuota[] }`.
-  Called on Settings/Metrics tab mount — NOT in the main dashboard poll.
+- `readWebSearchQuotas(config, client?)`: builds providers via `createWebSearchProviders`,
+  calls each `getQuota`, returns `ProviderQuota[]` (per-provider try/catch → null-filled
+  quota on failure). The injected `client` is the tested seam that proves real-quota
+  serialization + clamping network-free.
+- `WebSearchQuotaCache` (class, default TTL 60s): caches `readWebSearchQuotas` output
+  keyed on the serialized provider id/enabled/key/order, so repeated tab mounts within
+  the TTL do not re-hit the provider APIs. `Date.now()` is read internally (no injected
+  clock / no function-passing). A module-level singleton backs the route.
+- New route `GET /dashboard/web-search-quota` → `{ quotas: ProviderQuota[] }`, served
+  through the cache. Called on Settings/Metrics tab mount — NOT in the main dashboard poll.
 - `MetricsTab` + Settings usage field render per-provider used/limit/remaining cards
   next to the existing local executed-count (`webSearchUsage`, unchanged).
 

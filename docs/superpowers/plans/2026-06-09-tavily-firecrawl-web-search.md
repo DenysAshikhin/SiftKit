@@ -4,14 +4,21 @@
 
 **Goal:** Delete the Brave web-search provider and replace it with two failover search providers (Tavily primary, Firecrawl fallback), a fully-local Readability+Turndown page loader, and a dashboard that reports remote provider quota (used/limit/remaining).
 
-**Architecture:** `WebSearchConfig` becomes a per-provider record (`Providers: Record<id, {Enabled, ApiKey}>` + `ProviderOrder`). `WebSearchService` walks `createWebSearchProviders(config)` and fails over to the next provider on any error. `WebFetchService` fetches HTML through the existing `HttpClient` (manual redirect loop + per-hop SSRF guard) and converts it to markdown locally via `jsdom` → `@mozilla/readability` → `turndown`. A new `readWebSearchQuotas` + `/dashboard/web-search-quota` route exposes provider credit usage, fetched by the dashboard on Metrics/Settings tab mount only.
+**Architecture:** `WebSearchConfig` becomes a per-provider record (`Providers: Record<id, {Enabled, ApiKey}>` + `ProviderOrder`). `WebSearchService` walks `createWebSearchProviders(config)` and fails over to the next provider on any error. `WebFetchService` fetches HTML through the existing `HttpClient` (manual redirect loop + per-hop SSRF guard) and converts it to markdown locally via `jsdom` → `@mozilla/readability` → `turndown`. A cached `readWebSearchQuotas` + `/dashboard/web-search-quota` route exposes provider credit usage, fetched by the dashboard on Metrics/Settings tab mount only.
 
 **Tech Stack:** TypeScript (ESM, `.js` import specifiers), Node `node:test`, `undici` HttpClient, React dashboard, `jsdom`/`@mozilla/readability`/`turndown`, better-sqlite3 (local usage, unchanged).
 
 **Reference spec:** `docs/superpowers/specs/2026-06-09-tavily-firecrawl-web-search-design.md`
 
+**Provider API contracts (verified 2026-06-09):**
+- Tavily search: `POST https://api.tavily.com/search`, body `{query, max_results, search_depth:'basic', time_range?}`, response `results[].{title,url,content}`.
+- Tavily usage: `GET https://api.tavily.com/usage`, `account.plan_usage` / `account.plan_limit` (snake_case; `plan_limit` null when unlimited).
+- Firecrawl search: `POST https://api.firecrawl.dev/v2/search`, body `{query, limit, tbs?}`, response `data.web[].{title,url,description}`.
+- Firecrawl usage: `GET https://api.firecrawl.dev/v2/team/credit-usage`, `data.remainingCredits` / `data.planCredits` (**camelCase**).
+
 **Commands:**
 - Fast single-test iteration: `npx tsx --test .\tests\web-search.test.ts`
+- Single test by name: `npx tsx --test --test-name-pattern "<name>" .\tests\web-search.test.ts`
 - Typecheck: `npm run typecheck`
 - Full suite: `npm test`
 
@@ -22,19 +29,21 @@
 **Create:**
 - `src/web-search/tavily-search-provider.ts` — Tavily search + quota
 - `src/web-search/firecrawl-search-provider.ts` — Firecrawl search + quota
-- `src/status-server/web-search-quota.ts` — aggregates `getQuota` across active providers
+- `src/status-server/web-search-quota.ts` — `readWebSearchQuotas` + `WebSearchQuotaCache`
 
 **Modify:**
-- `src/web-search/types.ts`, `src/config/types.ts`, `dashboard/src/types.ts` — config shape + `ProviderQuota`
-- `src/web-search/web-search-provider-base.ts` — add `getQuota` + shared parse helpers
+- `src/web-search/types.ts` — config shape + `ProviderQuota` (backend source of truth)
+- `src/config/types.ts` — type-only re-export (no copy)
+- `dashboard/src/types.ts` — structural mirror (separate build)
+- `src/web-search/web-search-provider-base.ts` — `getQuota` + shared parse + `clampQuota`
 - `src/web-search/web-search-provider.ts` — `createWebSearchProviders`
 - `src/web-search/web-search-service.ts` — failover loop
 - `src/web-search/web-research-tools.ts` — `providers?` param
 - `src/web-search/web-fetch-service.ts` — Readability/Turndown loader
-- `src/config/defaults.ts`, `src/status-server/config-store.ts`, `src/repo-search/engine.ts` — defaults + normalizer
-- `src/status-server/routes/dashboard.ts` — quota route
+- `src/config/defaults.ts`, `src/status-server/config-store.ts`, `src/repo-search/engine.ts`
+- `src/status-server/routes/dashboard.ts` — cached quota route
 - `dashboard/src/api.ts`, `dashboard/src/App.tsx`, `dashboard/src/settings-sections.ts`, `dashboard/src/tabs/SettingsTab.tsx`, `dashboard/src/tabs/MetricsTab.tsx`
-- Tests: `tests/web-search.test.ts`, `tests/config-normalization.test.ts`, `tests/dashboard-status-server.test.ts`, `tests/repo-search-chat-execute.test.ts`, `tests/repo-search-loop.core.test.ts`, `tests/settings-sections.test.ts`, `dashboard/tests/tab-components.test.tsx`
+- Tests: `tests/web-search.test.ts`, `tests/web-search-quota.test.ts`, `tests/config-normalization.test.ts`, `tests/dashboard-status-server.test.ts`, `tests/repo-search-chat-execute.test.ts`, `tests/repo-search-loop.core.test.ts`, `tests/settings-sections.test.ts`, `dashboard/tests/tab-components.test.tsx`
 
 **Delete:**
 - `src/web-search/brave-search-provider.ts`
@@ -102,7 +111,7 @@ Leave the existing `WebFetchResult` and `WebToolExecutionResult` types (currentl
 - [ ] **Step 2: Typecheck (expect failures elsewhere)**
 
 Run: `npm run typecheck`
-Expected: FAILS in `brave-search-provider.ts`, `config/types.ts`, `defaults.ts`, `config-store.ts`, `engine.ts`, `web-search-provider*.ts` — these are fixed in later tasks. Confirm `types.ts` itself reports no error.
+Expected: FAILS in `brave-search-provider.ts`, `config/types.ts`, `defaults.ts`, `config-store.ts`, `engine.ts`, `web-search-provider*.ts` — fixed in later tasks. Confirm `types.ts` itself reports no error.
 
 - [ ] **Step 3: Commit**
 
@@ -111,37 +120,35 @@ git add src/web-search/types.ts
 git commit -m "feat: model web search config as per-provider record with quota type"
 ```
 
-### Task 2: Mirror config type in `src/config/types.ts`
+### Task 2: Re-export config types from the backend source of truth (DRY)
 
 **Files:**
 - Modify: `src/config/types.ts:100-108`
 
-- [ ] **Step 1: Replace the `WebSearchConfig` block**
+`src/web-search/types.ts` (Task 1) is the single backend source. `config/types.ts` must not keep a second copy. (Safe: `src/web-search/types.ts` imports nothing, so no import cycle.)
+
+- [ ] **Step 1: Replace the `WebSearchConfig` block (lines 100-108) with a re-export**
 
 ```ts
-export type WebSearchProviderId = 'tavily' | 'firecrawl';
-
-export type WebSearchProviderSettings = {
-  Enabled: boolean;
-  ApiKey: string;
-};
-
-export type WebSearchConfig = {
-  EnabledDefault: boolean;
-  Providers: Record<WebSearchProviderId, WebSearchProviderSettings>;
-  ProviderOrder: WebSearchProviderId[];
-  ResultCount: number;
-  FetchMaxPages: number;
-  TimeoutMs: number;
-  FetchMaxCharacters: number;
-};
+export type {
+  WebSearchProviderId,
+  WebSearchProviderSettings,
+  WebSearchConfig,
+} from '../web-search/types.js';
 ```
 
-- [ ] **Step 2: Commit**
+The existing `WebSearch?: WebSearchConfig;` reference (line 134) keeps resolving via the re-exported name.
+
+- [ ] **Step 2: Typecheck `config/types.ts` compiles**
+
+Run: `npm run typecheck`
+Expected: no new errors in `src/config/types.ts` (downstream still fixed later).
+
+- [ ] **Step 3: Commit**
 
 ```bash
 git add src/config/types.ts
-git commit -m "feat: mirror web search config shape in config types"
+git commit -m "refactor: re-export web search config types from single source"
 ```
 
 ### Task 3: Defaults + normalizer (config-store) — TDD
@@ -226,7 +233,7 @@ test('normalizeWebSearchConfig defaults empty provider records', () => {
 - [ ] **Step 2: Run tests, verify they fail**
 
 Run: `npx tsx --test .\tests\config-normalization.test.ts`
-Expected: FAIL (assertion mismatch — current normalizer still emits `Provider`/`BraveApiKey`).
+Expected: FAIL (current normalizer still emits `Provider`/`BraveApiKey`).
 
 - [ ] **Step 3: Update `src/config/defaults.ts`**
 
@@ -356,14 +363,21 @@ git commit -m "feat: update repo-search engine web search default to provider re
 
 ---
 
-## Phase 2 — Search providers
+## Phase 2 — Search providers (test-first)
 
-### Task 5: Provider base — add `getQuota` + shared parse helpers
+> **TDD order:** Task 5 adds the base contract + pure helpers (with their own unit
+> test). Task 6 writes the complete `tests/web-search.test.ts` and confirms it is RED.
+> Tasks 7–9 then implement Tavily, Firecrawl, and the factory/service to turn each
+> named subset GREEN. The full file goes green only after Phase 3 adds the local loader
+> (the three `WebFetchService` tests stay red until Task 12 — verify subsets by name).
+
+### Task 5: Provider base — `getQuota`, parse helpers, `clampQuota` — TDD
 
 **Files:**
 - Modify: `src/web-search/web-search-provider-base.ts`
+- Test: `tests/web-search.test.ts` (the `clampQuota` tests in Task 6)
 
-- [ ] **Step 1: Replace the whole file**
+- [ ] **Step 1: Replace the whole base file**
 
 ```ts
 import type { Dict } from '../lib/types.js';
@@ -411,258 +425,46 @@ export function toWebSearchResult(
   }
   return { title, url, snippet, source };
 }
+
+// Builds a consistent quota from any two of (used, limit, remaining):
+// derives the missing value, clamps every field to >= 0, and nulls out
+// internally-inconsistent data (used > limit, or remaining > limit) instead
+// of emitting a negative number.
+export function clampQuota(
+  provider: WebSearchProviderId,
+  usedInput: number | null,
+  limitInput: number | null,
+  remainingInput: number | null,
+): ProviderQuota {
+  let used = usedInput;
+  let limit = limitInput;
+  let remaining = remainingInput;
+  if (used === null && limit !== null && remaining !== null) {
+    used = limit - remaining;
+  }
+  if (remaining === null && limit !== null && used !== null) {
+    remaining = limit - used;
+  }
+  const inconsistent = limit !== null
+    && ((used !== null && used > limit) || (remaining !== null && remaining > limit));
+  if (inconsistent) {
+    return { provider, used, limit, remaining: null };
+  }
+  const nonNeg = (value: number | null): number | null => (value === null ? null : Math.max(0, value));
+  return { provider, used: nonNeg(used), limit: nonNeg(limit), remaining: nonNeg(remaining) };
+}
 ```
 
 - [ ] **Step 2: Commit**
 
 ```bash
 git add src/web-search/web-search-provider-base.ts
-git commit -m "feat: add getQuota contract and shared provider parse helpers"
+git commit -m "feat: add getQuota contract, parse helpers, and quota clamp"
 ```
 
-### Task 6: Tavily provider — TDD
+### Task 6: Write the consolidated web-search test suite (RED) — TDD
 
 **Files:**
-- Create: `src/web-search/tavily-search-provider.ts`
-- Test: `tests/web-search.test.ts`
-
-> Tasks 6–9 collectively rewrite `tests/web-search.test.ts`. Replace the entire file in Task 9 Step 1 with the consolidated version shown there. For Task 6 work against the consolidated file's Tavily tests; if iterating before Task 9, you may temporarily add just the Tavily tests. The canonical full test file lives in Task 9.
-
-- [ ] **Step 1: Write `src/web-search/tavily-search-provider.ts`**
-
-```ts
-import type { Dict } from '../lib/types.js';
-import {
-  WebSearchProvider,
-  asRecord,
-  getNumber,
-  getText,
-  toWebSearchResult,
-  type WebSearchProviderOptions,
-} from './web-search-provider-base.js';
-import type { ProviderQuota, WebSearchResult, WebSearchToolArgs } from './types.js';
-
-const TAVILY_SEARCH_ENDPOINT = 'https://api.tavily.com/search';
-const TAVILY_USAGE_ENDPOINT = 'https://api.tavily.com/usage';
-
-export class TavilySearchProvider extends WebSearchProvider {
-  readonly id = 'tavily' as const;
-
-  constructor(private readonly apiKey: string) {
-    super();
-  }
-
-  private authHeaders(): Record<string, string> {
-    const apiKey = this.apiKey.trim();
-    if (!apiKey) {
-      throw new Error('Tavily API key not configured.');
-    }
-    return {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    };
-  }
-
-  async search(args: WebSearchToolArgs, opts: WebSearchProviderOptions): Promise<WebSearchResult[]> {
-    const headers = this.authHeaders();
-    const body: Dict = { query: args.query, max_results: opts.resultCount, search_depth: 'basic' };
-    if (args.timeFilter) {
-      body.time_range = args.timeFilter;
-    }
-    const response = await opts.client.fetch(TAVILY_SEARCH_ENDPOINT, {
-      method: 'POST',
-      timeoutMs: opts.timeoutMs,
-      headers,
-      body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-      throw new Error(`Tavily search failed with HTTP ${response.status}.`);
-    }
-    const payload = await response.json() as Dict;
-    const results = Array.isArray(payload.results) ? payload.results : [];
-    return results
-      .map((entry) => {
-        const record = asRecord(entry);
-        return toWebSearchResult(getText(record.title), getText(record.url), getText(record.content), 'tavily');
-      })
-      .filter((entry): entry is WebSearchResult => entry !== null);
-  }
-
-  async getQuota(opts: WebSearchProviderOptions): Promise<ProviderQuota> {
-    const headers = this.authHeaders();
-    const response = await opts.client.fetch(TAVILY_USAGE_ENDPOINT, {
-      method: 'GET',
-      timeoutMs: opts.timeoutMs,
-      headers,
-    });
-    if (!response.ok) {
-      throw new Error(`Tavily usage failed with HTTP ${response.status}.`);
-    }
-    const payload = await response.json() as Dict;
-    const account = asRecord(payload.account);
-    const used = getNumber(account.plan_usage);
-    const limit = getNumber(account.plan_limit);
-    const remaining = used !== null && limit !== null ? limit - used : null;
-    return { provider: 'tavily', used, limit, remaining };
-  }
-}
-```
-
-- [ ] **Step 2: Run Tavily tests, verify pass (after Task 9 file is in place)**
-
-Run: `npx tsx --test .\tests\web-search.test.ts`
-Expected: Tavily-named tests PASS.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add src/web-search/tavily-search-provider.ts
-git commit -m "feat: add Tavily search provider with quota lookup"
-```
-
-### Task 7: Firecrawl provider — TDD
-
-**Files:**
-- Create: `src/web-search/firecrawl-search-provider.ts`
-
-- [ ] **Step 1: Write `src/web-search/firecrawl-search-provider.ts`**
-
-```ts
-import type { Dict } from '../lib/types.js';
-import {
-  WebSearchProvider,
-  asRecord,
-  getNumber,
-  getText,
-  toWebSearchResult,
-  type WebSearchProviderOptions,
-} from './web-search-provider-base.js';
-import type { ProviderQuota, WebSearchResult, WebSearchToolArgs } from './types.js';
-
-const FIRECRAWL_SEARCH_ENDPOINT = 'https://api.firecrawl.dev/v1/search';
-const FIRECRAWL_CREDIT_ENDPOINT = 'https://api.firecrawl.dev/v1/team/credit-usage';
-
-const TBS_BY_TIME_FILTER: Record<NonNullable<WebSearchToolArgs['timeFilter']>, string> = {
-  day: 'qdr:d',
-  week: 'qdr:w',
-  month: 'qdr:m',
-  year: 'qdr:y',
-};
-
-export class FirecrawlSearchProvider extends WebSearchProvider {
-  readonly id = 'firecrawl' as const;
-
-  constructor(private readonly apiKey: string) {
-    super();
-  }
-
-  private authHeaders(): Record<string, string> {
-    const apiKey = this.apiKey.trim();
-    if (!apiKey) {
-      throw new Error('Firecrawl API key not configured.');
-    }
-    return { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
-  }
-
-  async search(args: WebSearchToolArgs, opts: WebSearchProviderOptions): Promise<WebSearchResult[]> {
-    const headers = this.authHeaders();
-    const body: Dict = { query: args.query, limit: opts.resultCount };
-    if (args.timeFilter) {
-      body.tbs = TBS_BY_TIME_FILTER[args.timeFilter];
-    }
-    const response = await opts.client.fetch(FIRECRAWL_SEARCH_ENDPOINT, {
-      method: 'POST',
-      timeoutMs: opts.timeoutMs,
-      headers,
-      body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-      throw new Error(`Firecrawl search failed with HTTP ${response.status}.`);
-    }
-    const payload = await response.json() as Dict;
-    if (payload.success === false) {
-      throw new Error(`Firecrawl search failed with HTTP ${response.status}.`);
-    }
-    const data = Array.isArray(payload.data) ? payload.data : [];
-    return data
-      .map((entry) => {
-        const record = asRecord(entry);
-        return toWebSearchResult(getText(record.title), getText(record.url), getText(record.description), 'firecrawl');
-      })
-      .filter((entry): entry is WebSearchResult => entry !== null);
-  }
-
-  async getQuota(opts: WebSearchProviderOptions): Promise<ProviderQuota> {
-    const headers = this.authHeaders();
-    const response = await opts.client.fetch(FIRECRAWL_CREDIT_ENDPOINT, {
-      method: 'GET',
-      timeoutMs: opts.timeoutMs,
-      headers,
-    });
-    if (!response.ok) {
-      throw new Error(`Firecrawl usage failed with HTTP ${response.status}.`);
-    }
-    const payload = await response.json() as Dict;
-    const data = asRecord(payload.data);
-    const remaining = getNumber(data.remaining_credits);
-    const limit = getNumber(data.plan_credits);
-    const used = remaining !== null && limit !== null ? limit - remaining : null;
-    return { provider: 'firecrawl', used, limit, remaining };
-  }
-}
-```
-
-- [ ] **Step 2: Commit**
-
-```bash
-git add src/web-search/firecrawl-search-provider.ts
-git commit -m "feat: add Firecrawl search provider with credit-usage lookup"
-```
-
-### Task 8: Factory `createWebSearchProviders`
-
-**Files:**
-- Modify: `src/web-search/web-search-provider.ts`
-
-- [ ] **Step 1: Replace the whole file**
-
-```ts
-import { TavilySearchProvider } from './tavily-search-provider.js';
-import { FirecrawlSearchProvider } from './firecrawl-search-provider.js';
-import type { WebSearchConfig, WebSearchProviderId } from './types.js';
-import { WebSearchProvider, type WebSearchProviderOptions } from './web-search-provider-base.js';
-
-export { WebSearchProvider, type WebSearchProviderOptions };
-
-function buildProvider(id: WebSearchProviderId, apiKey: string): WebSearchProvider {
-  if (id === 'tavily') {
-    return new TavilySearchProvider(apiKey);
-  }
-  if (id === 'firecrawl') {
-    return new FirecrawlSearchProvider(apiKey);
-  }
-  throw new Error(`Unsupported web search provider: ${String(id)}`);
-}
-
-export function createWebSearchProviders(config: WebSearchConfig): WebSearchProvider[] {
-  return config.ProviderOrder
-    .filter((id) => config.Providers[id]?.Enabled && config.Providers[id].ApiKey.trim())
-    .map((id) => buildProvider(id, config.Providers[id].ApiKey));
-}
-```
-
-- [ ] **Step 2: Commit**
-
-```bash
-git add src/web-search/web-search-provider.ts
-git commit -m "feat: build ordered web search provider chain from config"
-```
-
-### Task 9: Failover service + tools + consolidated test rewrite — TDD
-
-**Files:**
-- Modify: `src/web-search/web-search-service.ts`, `src/web-search/web-research-tools.ts`
 - Test: `tests/web-search.test.ts` (full rewrite)
 
 - [ ] **Step 1: Replace `tests/web-search.test.ts` entirely**
@@ -672,6 +474,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { assertPublicHttpUrl } from '../src/web-search/url-safety.js';
+import { clampQuota } from '../src/web-search/web-search-provider-base.js';
 import { WebSearchService } from '../src/web-search/web-search-service.js';
 import { WebFetchService } from '../src/web-search/web-fetch-service.js';
 import { WebResearchTools } from '../src/web-search/web-research-tools.js';
@@ -721,6 +524,22 @@ test('assertPublicHttpUrl rejects loopback and private hosts', () => {
   assert.throws(() => assertPublicHttpUrl('http://127.0.0.1:8080'), /private|internal|local/i);
   assert.throws(() => assertPublicHttpUrl('http://10.0.0.5'), /private|internal|local/i);
   assert.throws(() => assertPublicHttpUrl('http://192.168.1.1'), /private|internal|local/i);
+});
+
+test('clampQuota derives remaining and clamps negatives to zero', () => {
+  assert.deepEqual(clampQuota('tavily', 120, 1000, null), { provider: 'tavily', used: 120, limit: 1000, remaining: 880 });
+  assert.deepEqual(clampQuota('firecrawl', null, 500, 300), { provider: 'firecrawl', used: 200, limit: 500, remaining: 300 });
+});
+
+test('clampQuota nulls inconsistent over-limit data instead of going negative', () => {
+  // used greater than limit -> remaining must not be negative
+  assert.deepEqual(clampQuota('tavily', 1200, 1000, null), { provider: 'tavily', used: 1200, limit: 1000, remaining: null });
+  // remaining greater than limit -> derived used must not be negative
+  assert.deepEqual(clampQuota('firecrawl', null, 500, 600), { provider: 'firecrawl', used: null, limit: 500, remaining: null });
+});
+
+test('clampQuota passes through nulls when data absent', () => {
+  assert.deepEqual(clampQuota('tavily', null, null, null), { provider: 'tavily', used: null, limit: null, remaining: null });
 });
 
 test('createWebSearchProviders returns enabled providers in order', () => {
@@ -777,24 +596,26 @@ test('TavilySearchProvider throws when key missing and on non-2xx', async () => 
 test('TavilySearchProvider getQuota parses plan usage and limit', async () => {
   const client = new StubHttpClient(async () => jsonResponse({ account: { plan_usage: 120, plan_limit: 1000 } }));
   const quota = await new TavilySearchProvider('k').getQuota(opts(client));
+  assert.match(client.calls[0].url, /api\.tavily\.com\/usage/);
   assert.deepEqual(quota, { provider: 'tavily', used: 120, limit: 1000, remaining: 880 });
 });
 
-test('TavilySearchProvider getQuota returns nulls when fields absent', async () => {
-  const client = new StubHttpClient(async () => jsonResponse({ account: {} }));
+test('TavilySearchProvider getQuota returns nulls when plan_limit is null (unlimited)', async () => {
+  const client = new StubHttpClient(async () => jsonResponse({ account: { plan_usage: 5, plan_limit: null } }));
   const quota = await new TavilySearchProvider('k').getQuota(opts(client));
-  assert.deepEqual(quota, { provider: 'tavily', used: null, limit: null, remaining: null });
+  assert.deepEqual(quota, { provider: 'tavily', used: 5, limit: null, remaining: null });
 });
 
-test('FirecrawlSearchProvider posts limit + tbs and normalizes description', async () => {
+test('FirecrawlSearchProvider posts v2 search, limit + tbs, reads data.web[]', async () => {
   const client = new StubHttpClient(async () => jsonResponse({
     success: true,
-    data: [{ title: 'Doc', url: 'https://example.com/d', description: 'Desc.' }],
+    data: { web: [{ title: 'Doc', url: 'https://example.com/d', description: 'Desc.' }] },
   }));
   const provider = new FirecrawlSearchProvider('fc-key');
 
   const results = await provider.search({ query: 'q', timeFilter: 'day' }, opts(client));
 
+  assert.match(client.calls[0].url, /api\.firecrawl\.dev\/v2\/search/);
   const sent = JSON.parse(String(client.calls[0].init?.body));
   assert.equal(sent.query, 'q');
   assert.equal(sent.limit, 2);
@@ -803,13 +624,14 @@ test('FirecrawlSearchProvider posts limit + tbs and normalizes description', asy
   assert.deepEqual(results[0], { title: 'Doc', url: 'https://example.com/d', snippet: 'Desc.', source: 'firecrawl' });
 });
 
-test('FirecrawlSearchProvider throws on success:false and getQuota parses credits', async () => {
+test('FirecrawlSearchProvider throws on success:false; getQuota reads camelCase credits', async () => {
   await assert.rejects(
     () => new FirecrawlSearchProvider('k').search({ query: 'x' }, opts(new StubHttpClient(async () => jsonResponse({ success: false })))),
     /Firecrawl search failed/,
   );
-  const client = new StubHttpClient(async () => jsonResponse({ data: { remaining_credits: 300, plan_credits: 500 } }));
+  const client = new StubHttpClient(async () => jsonResponse({ success: true, data: { remainingCredits: 300, planCredits: 500 } }));
   const quota = await new FirecrawlSearchProvider('k').getQuota(opts(client));
+  assert.match(client.calls[0].url, /api\.firecrawl\.dev\/v2\/team\/credit-usage/);
   assert.deepEqual(quota, { provider: 'firecrawl', used: 200, limit: 500, remaining: 300 });
 });
 
@@ -903,6 +725,249 @@ test('WebResearchTools formats web_search output', async () => {
 });
 ```
 
+- [ ] **Step 2: Run, verify RED**
+
+Run: `npx tsx --test .\tests\web-search.test.ts`
+Expected: FAIL — `tavily-search-provider.js` / `firecrawl-search-provider.js` modules do not exist, and `WebSearchService` still takes a single provider. The `assertPublicHttpUrl` and `clampQuota` tests PASS.
+
+- [ ] **Step 3: Commit (red test checkpoint)**
+
+```bash
+git add tests/web-search.test.ts
+git commit -m "test: consolidated Tavily + Firecrawl + loader web-search suite"
+```
+
+### Task 7: Implement Tavily provider — GREEN
+
+**Files:**
+- Create: `src/web-search/tavily-search-provider.ts`
+
+- [ ] **Step 1: Write `src/web-search/tavily-search-provider.ts`**
+
+```ts
+import type { Dict } from '../lib/types.js';
+import {
+  WebSearchProvider,
+  asRecord,
+  clampQuota,
+  getNumber,
+  getText,
+  toWebSearchResult,
+  type WebSearchProviderOptions,
+} from './web-search-provider-base.js';
+import type { ProviderQuota, WebSearchResult, WebSearchToolArgs } from './types.js';
+
+const TAVILY_SEARCH_ENDPOINT = 'https://api.tavily.com/search';
+const TAVILY_USAGE_ENDPOINT = 'https://api.tavily.com/usage';
+
+export class TavilySearchProvider extends WebSearchProvider {
+  readonly id = 'tavily' as const;
+
+  constructor(private readonly apiKey: string) {
+    super();
+  }
+
+  private authHeaders(): Record<string, string> {
+    const apiKey = this.apiKey.trim();
+    if (!apiKey) {
+      throw new Error('Tavily API key not configured.');
+    }
+    return {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    };
+  }
+
+  async search(args: WebSearchToolArgs, opts: WebSearchProviderOptions): Promise<WebSearchResult[]> {
+    const headers = this.authHeaders();
+    const body: Dict = { query: args.query, max_results: opts.resultCount, search_depth: 'basic' };
+    if (args.timeFilter) {
+      body.time_range = args.timeFilter;
+    }
+    const response = await opts.client.fetch(TAVILY_SEARCH_ENDPOINT, {
+      method: 'POST',
+      timeoutMs: opts.timeoutMs,
+      headers,
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      throw new Error(`Tavily search failed with HTTP ${response.status}.`);
+    }
+    const payload = await response.json() as Dict;
+    const results = Array.isArray(payload.results) ? payload.results : [];
+    return results
+      .map((entry) => {
+        const record = asRecord(entry);
+        return toWebSearchResult(getText(record.title), getText(record.url), getText(record.content), 'tavily');
+      })
+      .filter((entry): entry is WebSearchResult => entry !== null);
+  }
+
+  async getQuota(opts: WebSearchProviderOptions): Promise<ProviderQuota> {
+    const headers = this.authHeaders();
+    const response = await opts.client.fetch(TAVILY_USAGE_ENDPOINT, {
+      method: 'GET',
+      timeoutMs: opts.timeoutMs,
+      headers,
+    });
+    if (!response.ok) {
+      throw new Error(`Tavily usage failed with HTTP ${response.status}.`);
+    }
+    const payload = await response.json() as Dict;
+    const account = asRecord(payload.account);
+    return clampQuota('tavily', getNumber(account.plan_usage), getNumber(account.plan_limit), null);
+  }
+}
+```
+
+- [ ] **Step 2: Run Tavily-named tests, verify GREEN**
+
+Run: `npx tsx --test --test-name-pattern "TavilySearchProvider" .\tests\web-search.test.ts`
+Expected: PASS (3 Tavily tests).
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/web-search/tavily-search-provider.ts
+git commit -m "feat: add Tavily search provider with quota lookup"
+```
+
+### Task 8: Implement Firecrawl provider (v2) — GREEN
+
+**Files:**
+- Create: `src/web-search/firecrawl-search-provider.ts`
+
+- [ ] **Step 1: Write `src/web-search/firecrawl-search-provider.ts`**
+
+```ts
+import type { Dict } from '../lib/types.js';
+import {
+  WebSearchProvider,
+  asRecord,
+  clampQuota,
+  getNumber,
+  getText,
+  toWebSearchResult,
+  type WebSearchProviderOptions,
+} from './web-search-provider-base.js';
+import type { ProviderQuota, WebSearchResult, WebSearchToolArgs } from './types.js';
+
+const FIRECRAWL_SEARCH_ENDPOINT = 'https://api.firecrawl.dev/v2/search';
+const FIRECRAWL_CREDIT_ENDPOINT = 'https://api.firecrawl.dev/v2/team/credit-usage';
+
+const TBS_BY_TIME_FILTER: Record<NonNullable<WebSearchToolArgs['timeFilter']>, string> = {
+  day: 'qdr:d',
+  week: 'qdr:w',
+  month: 'qdr:m',
+  year: 'qdr:y',
+};
+
+export class FirecrawlSearchProvider extends WebSearchProvider {
+  readonly id = 'firecrawl' as const;
+
+  constructor(private readonly apiKey: string) {
+    super();
+  }
+
+  private authHeaders(): Record<string, string> {
+    const apiKey = this.apiKey.trim();
+    if (!apiKey) {
+      throw new Error('Firecrawl API key not configured.');
+    }
+    return { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
+  }
+
+  async search(args: WebSearchToolArgs, opts: WebSearchProviderOptions): Promise<WebSearchResult[]> {
+    const headers = this.authHeaders();
+    const body: Dict = { query: args.query, limit: opts.resultCount };
+    if (args.timeFilter) {
+      body.tbs = TBS_BY_TIME_FILTER[args.timeFilter];
+    }
+    const response = await opts.client.fetch(FIRECRAWL_SEARCH_ENDPOINT, {
+      method: 'POST',
+      timeoutMs: opts.timeoutMs,
+      headers,
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      throw new Error(`Firecrawl search failed with HTTP ${response.status}.`);
+    }
+    const payload = await response.json() as Dict;
+    if (payload.success === false) {
+      throw new Error(`Firecrawl search failed with HTTP ${response.status}.`);
+    }
+    const data = asRecord(payload.data);
+    const web = Array.isArray(data.web) ? data.web : [];
+    return web
+      .map((entry) => {
+        const record = asRecord(entry);
+        return toWebSearchResult(getText(record.title), getText(record.url), getText(record.description), 'firecrawl');
+      })
+      .filter((entry): entry is WebSearchResult => entry !== null);
+  }
+
+  async getQuota(opts: WebSearchProviderOptions): Promise<ProviderQuota> {
+    const headers = this.authHeaders();
+    const response = await opts.client.fetch(FIRECRAWL_CREDIT_ENDPOINT, {
+      method: 'GET',
+      timeoutMs: opts.timeoutMs,
+      headers,
+    });
+    if (!response.ok) {
+      throw new Error(`Firecrawl usage failed with HTTP ${response.status}.`);
+    }
+    const payload = await response.json() as Dict;
+    const data = asRecord(payload.data);
+    return clampQuota('firecrawl', null, getNumber(data.planCredits), getNumber(data.remainingCredits));
+  }
+}
+```
+
+- [ ] **Step 2: Run Firecrawl-named tests, verify GREEN**
+
+Run: `npx tsx --test --test-name-pattern "FirecrawlSearchProvider" .\tests\web-search.test.ts`
+Expected: PASS (2 Firecrawl tests).
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/web-search/firecrawl-search-provider.ts
+git commit -m "feat: add Firecrawl v2 search provider with credit-usage lookup"
+```
+
+### Task 9: Factory + failover service + tools — GREEN
+
+**Files:**
+- Modify: `src/web-search/web-search-provider.ts`, `src/web-search/web-search-service.ts`, `src/web-search/web-research-tools.ts`
+
+- [ ] **Step 1: Replace `src/web-search/web-search-provider.ts`**
+
+```ts
+import { TavilySearchProvider } from './tavily-search-provider.js';
+import { FirecrawlSearchProvider } from './firecrawl-search-provider.js';
+import type { WebSearchConfig, WebSearchProviderId } from './types.js';
+import { WebSearchProvider, type WebSearchProviderOptions } from './web-search-provider-base.js';
+
+export { WebSearchProvider, type WebSearchProviderOptions };
+
+function buildProvider(id: WebSearchProviderId, apiKey: string): WebSearchProvider {
+  if (id === 'tavily') {
+    return new TavilySearchProvider(apiKey);
+  }
+  if (id === 'firecrawl') {
+    return new FirecrawlSearchProvider(apiKey);
+  }
+  throw new Error(`Unsupported web search provider: ${String(id)}`);
+}
+
+export function createWebSearchProviders(config: WebSearchConfig): WebSearchProvider[] {
+  return config.ProviderOrder
+    .filter((id) => config.Providers[id]?.Enabled && config.Providers[id].ApiKey.trim())
+    .map((id) => buildProvider(id, config.Providers[id].ApiKey));
+}
+```
+
 - [ ] **Step 2: Replace `src/web-search/web-search-service.ts`**
 
 ```ts
@@ -944,15 +1009,7 @@ export class WebSearchService {
 }
 ```
 
-- [ ] **Step 3: Update `src/web-research-tools.ts` constructor**
-
-In `src/web-search/web-research-tools.ts`, change the import and constructor to pass a providers array:
-
-Replace line 13 import:
-```ts
-import type { WebSearchProvider } from './web-search-provider.js';
-```
-(unchanged) and replace the constructor (lines 32–39):
+- [ ] **Step 3: Update `src/web-search/web-research-tools.ts` constructor (lines 32–39)**
 
 ```ts
   constructor(
@@ -965,16 +1022,18 @@ import type { WebSearchProvider } from './web-search-provider.js';
   }
 ```
 
-- [ ] **Step 4: Run web-search tests**
+(The existing `import type { WebSearchProvider } from './web-search-provider.js';` at line 13 stays.)
 
-Run: `npx tsx --test .\tests\web-search.test.ts`
-Expected: all PASS except the three `WebFetchService` tests if Task 11/12 (deps + loader) are not yet done — run those next. If executing in order, the loader tests will still fail until Task 12; that is expected.
+- [ ] **Step 4: Run all non-loader web-search tests, verify GREEN**
+
+Run: `npx tsx --test --test-name-pattern "createWebSearchProviders|WebSearchService|WebResearchTools" .\tests\web-search.test.ts`
+Expected: PASS. (The three `WebFetchService` tests remain red until Task 12 — expected.)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/web-search/web-search-service.ts src/web-search/web-research-tools.ts tests/web-search.test.ts
-git commit -m "feat: fail over across web search providers; rewrite web-search tests"
+git add src/web-search/web-search-provider.ts src/web-search/web-search-service.ts src/web-search/web-research-tools.ts
+git commit -m "feat: fail over across web search providers"
 ```
 
 ### Task 10: Delete Brave provider
@@ -988,8 +1047,7 @@ git commit -m "feat: fail over across web search providers; rewrite web-search t
 git rm src/web-search/brave-search-provider.ts
 ```
 
-Run: `npx tsx -e "0"` then search:
-Run (Grep tool): pattern `brave-search-provider|BraveSearchProvider` across `src` and `tests` — expect **zero** matches.
+Grep tool: pattern `brave-search-provider|BraveSearchProvider` across `src` and `tests` — expect **zero** matches.
 
 - [ ] **Step 2: Commit**
 
@@ -1022,11 +1080,11 @@ git add package.json package-lock.json
 git commit -m "build: add jsdom, readability, turndown for local page loading"
 ```
 
-### Task 12: Rewrite `WebFetchService` with Readability + Turndown — TDD
+### Task 12: Rewrite `WebFetchService` with Readability + Turndown — GREEN
 
 **Files:**
 - Modify: `src/web-search/web-fetch-service.ts`
-- Test: covered by the three `WebFetchService` tests in `tests/web-search.test.ts` (Task 9 Step 1)
+- Test: the three `WebFetchService` tests in `tests/web-search.test.ts` (Task 6)
 
 - [ ] **Step 1: Replace the whole file**
 
@@ -1100,10 +1158,10 @@ export class WebFetchService {
 }
 ```
 
-- [ ] **Step 2: Run the loader tests**
+- [ ] **Step 2: Run the full web-search file, verify all GREEN**
 
 Run: `npx tsx --test .\tests\web-search.test.ts`
-Expected: all tests PASS, including the three `WebFetchService` tests.
+Expected: ALL tests PASS, including the three `WebFetchService` tests.
 
 - [ ] **Step 3: Commit**
 
@@ -1128,9 +1186,9 @@ git commit -m "refactor: drop unused html-text helpers"
 
 ---
 
-## Phase 4 — Quota service + route
+## Phase 4 — Quota aggregator, cache, route
 
-### Task 14: `readWebSearchQuotas` aggregator — TDD
+### Task 14: `readWebSearchQuotas` + `WebSearchQuotaCache` — TDD
 
 **Files:**
 - Create: `src/status-server/web-search-quota.ts`
@@ -1142,7 +1200,7 @@ git commit -m "refactor: drop unused html-text helpers"
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { readWebSearchQuotas } from '../src/status-server/web-search-quota.js';
+import { readWebSearchQuotas, WebSearchQuotaCache } from '../src/status-server/web-search-quota.js';
 import type { WebSearchConfig } from '../src/web-search/types.js';
 import type { HttpClient } from '../src/lib/http-client.js';
 
@@ -1165,13 +1223,19 @@ function jsonResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 }
 
+class CountingClient implements Pick<HttpClient, 'fetch'> {
+  calls = 0;
+  fetch(url: string | URL): Promise<Response> {
+    this.calls += 1;
+    return String(url).includes('tavily')
+      ? Promise.resolve(jsonResponse({ account: { plan_usage: 10, plan_limit: 100 } }))
+      : Promise.resolve(jsonResponse({ success: true, data: { remainingCredits: 40, planCredits: 50 } }));
+  }
+}
+
 test('readWebSearchQuotas returns one quota per active provider', async () => {
-  const client: Pick<HttpClient, 'fetch'> = {
-    fetch: async (url) => String(url).includes('tavily')
-      ? jsonResponse({ account: { plan_usage: 10, plan_limit: 100 } })
-      : jsonResponse({ data: { remaining_credits: 40, plan_credits: 50 } }),
-  };
-  const quotas = await readWebSearchQuotas(makeConfig(), client as HttpClient);
+  const client = new CountingClient();
+  const quotas = await readWebSearchQuotas(makeConfig(), client as unknown as HttpClient);
   assert.deepEqual(quotas, [
     { provider: 'tavily', used: 10, limit: 100, remaining: 90 },
     { provider: 'firecrawl', used: 10, limit: 50, remaining: 40 },
@@ -1182,7 +1246,7 @@ test('readWebSearchQuotas degrades to nulls when a provider errors', async () =>
   const client: Pick<HttpClient, 'fetch'> = {
     fetch: async (url) => String(url).includes('tavily')
       ? jsonResponse({}, 500)
-      : jsonResponse({ data: { remaining_credits: 40, plan_credits: 50 } }),
+      : jsonResponse({ success: true, data: { remainingCredits: 40, planCredits: 50 } }),
   };
   const quotas = await readWebSearchQuotas(makeConfig(), client as HttpClient);
   assert.deepEqual(quotas[0], { provider: 'tavily', used: null, limit: null, remaining: null });
@@ -1195,6 +1259,33 @@ test('readWebSearchQuotas returns empty array when no provider active', async ()
   config.Providers.firecrawl.Enabled = false;
   const quotas = await readWebSearchQuotas(config, { fetch: async () => jsonResponse({}) } as unknown as HttpClient);
   assert.deepEqual(quotas, []);
+});
+
+test('WebSearchQuotaCache reuses results within the TTL (no refetch)', async () => {
+  const cache = new WebSearchQuotaCache(60_000);
+  const client = new CountingClient();
+  const first = await cache.read(makeConfig(), client as unknown as HttpClient);
+  const second = await cache.read(makeConfig(), client as unknown as HttpClient);
+  assert.deepEqual(first, second);
+  assert.equal(client.calls, 2, 'two providers fetched once total, not on the second read');
+});
+
+test('WebSearchQuotaCache refetches once the entry has expired (ttl 0)', async () => {
+  const cache = new WebSearchQuotaCache(0);
+  const client = new CountingClient();
+  await cache.read(makeConfig(), client as unknown as HttpClient);
+  await cache.read(makeConfig(), client as unknown as HttpClient);
+  assert.equal(client.calls, 4, 'expired entry triggers a second round of provider fetches');
+});
+
+test('WebSearchQuotaCache keys on provider config so key changes bypass the cache', async () => {
+  const cache = new WebSearchQuotaCache(60_000);
+  const client = new CountingClient();
+  await cache.read(makeConfig(), client as unknown as HttpClient);
+  const changed = makeConfig();
+  changed.Providers.tavily.ApiKey = 'rotated';
+  await cache.read(changed, client as unknown as HttpClient);
+  assert.equal(client.calls, 4, 'rotated key invalidates the cached entry');
 });
 ```
 
@@ -1226,18 +1317,45 @@ export async function readWebSearchQuotas(
   }
   return quotas;
 }
+
+function quotaCacheKey(config: WebSearchConfig): string {
+  return JSON.stringify(config.ProviderOrder.map((id) => ({
+    id,
+    enabled: config.Providers[id]?.Enabled ?? false,
+    key: config.Providers[id]?.ApiKey ?? '',
+  })));
+}
+
+export const WEB_SEARCH_QUOTA_TTL_MS = 60_000;
+
+export class WebSearchQuotaCache {
+  private entry: { key: string; expiresAt: number; value: ProviderQuota[] } | null = null;
+
+  constructor(private readonly ttlMs: number = WEB_SEARCH_QUOTA_TTL_MS) {}
+
+  async read(config: WebSearchConfig, client: HttpClient = httpClient): Promise<ProviderQuota[]> {
+    const key = quotaCacheKey(config);
+    const now = Date.now();
+    if (this.entry && this.entry.key === key && this.entry.expiresAt > now) {
+      return this.entry.value;
+    }
+    const value = await readWebSearchQuotas(config, client);
+    this.entry = { key, expiresAt: now + this.ttlMs, value };
+    return value;
+  }
+}
 ```
 
 - [ ] **Step 4: Run, verify pass**
 
 Run: `npx tsx --test .\tests\web-search-quota.test.ts`
-Expected: PASS.
+Expected: PASS (all six tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/status-server/web-search-quota.ts tests/web-search-quota.test.ts
-git commit -m "feat: aggregate provider quota with per-provider error fallback"
+git commit -m "feat: aggregate provider quota with error fallback and TTL cache"
 ```
 
 ### Task 15: `/dashboard/web-search-quota` route — TDD
@@ -1246,12 +1364,17 @@ git commit -m "feat: aggregate provider quota with per-provider error fallback"
 - Modify: `src/status-server/routes/dashboard.ts`
 - Test: `tests/dashboard-status-server.test.ts`
 
+> Active-provider serialization + clamp is fully proven network-free in
+> `tests/web-search-quota.test.ts` (the injected-client seam). This route test proves
+> the wiring (config → cache → JSON), and the disabled-config assertion guards against
+> a hardcoded non-empty response.
+
 - [ ] **Step 1: Add a route test**
 
-Append to `tests/dashboard-status-server.test.ts` (after the existing web-search replay test near line 1170, follow that test's setup pattern for `startStatusServer` and base URL). Add:
+Append to `tests/dashboard-status-server.test.ts` (mirror the existing web-search replay test near line 1170 for setup/teardown helper names):
 
 ```ts
-test('GET /dashboard/web-search-quota returns provider quotas array', async () => {
+test('GET /dashboard/web-search-quota returns a quotas array', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-quota-'));
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
@@ -1275,6 +1398,7 @@ test('GET /dashboard/web-search-quota returns provider quotas array', async () =
     const response = await fetch(`${base}/dashboard/web-search-quota`);
     assert.equal(response.status, 200);
     const body = await response.json() as { quotas: unknown[] };
+    assert.ok(Array.isArray(body.quotas));
     assert.deepEqual(body.quotas, []);
   } finally {
     await stopStatusServer(server);
@@ -1284,27 +1408,33 @@ test('GET /dashboard/web-search-quota returns provider quotas array', async () =
 });
 ```
 
-> Use the exact helper names already imported at the top of `tests/dashboard-status-server.test.ts` (`enterDashboardTestRepo`, `configureDashboardTestEnv`, `waitForStatusServer`, `stopStatusServer`, `restoreDashboardTestEnv`, `restoreCwd`). If a helper name differs, mirror the neighboring replay test exactly.
+> Use the exact helper names already imported at the top of `tests/dashboard-status-server.test.ts` (`enterDashboardTestRepo`, `configureDashboardTestEnv`, `waitForStatusServer`, `stopStatusServer`, `restoreDashboardTestEnv`, `restoreCwd`). If a name differs, mirror the neighboring replay test exactly.
 
 - [ ] **Step 2: Run, verify fail (404)**
 
 Run: `npx tsx --test --test-name-pattern "web-search-quota returns" .\tests\dashboard-status-server.test.ts`
 Expected: FAIL — route returns 404.
 
-- [ ] **Step 3: Add the route to `handleDashboardRoute`**
+- [ ] **Step 3: Add the cached route to `handleDashboardRoute`**
 
 In `src/status-server/routes/dashboard.ts`, add this import alongside the other `../` imports (near line 25 where `readWebSearchUsage` is imported):
 
 ```ts
-import { readWebSearchQuotas } from '../web-search-quota.js';
+import { WebSearchQuotaCache } from '../web-search-quota.js';
 ```
 
-Then add this branch right after the `'/dashboard/metrics/timeseries'` branch (after line 218):
+Add a module-level cache singleton near the top-level consts of the file (after the imports, before `handleDashboardRoute`):
+
+```ts
+const webSearchQuotaCache = new WebSearchQuotaCache();
+```
+
+Add this branch right after the `'/dashboard/metrics/timeseries'` branch (after line 218):
 
 ```ts
   if (req.method === 'GET' && pathname === '/dashboard/web-search-quota') {
     const config = readConfig(ctx.configPath) as SiftConfig;
-    const quotas = await readWebSearchQuotas(config.WebSearch);
+    const quotas = await webSearchQuotaCache.read(config.WebSearch);
     sendJson(res, 200, { quotas });
     return true;
   }
@@ -1321,17 +1451,20 @@ Expected: PASS.
 
 ```bash
 git add src/status-server/routes/dashboard.ts tests/dashboard-status-server.test.ts
-git commit -m "feat: expose web search provider quota over dashboard route"
+git commit -m "feat: expose cached web search provider quota over dashboard route"
 ```
 
 ---
 
 ## Phase 5 — Dashboard UI
 
-### Task 16: Dashboard types
+### Task 16: Dashboard types (structural mirror)
 
 **Files:**
-- Modify: `dashboard/src/types.ts:388-396` (and add response/quota types)
+- Modify: `dashboard/src/types.ts:388-396`
+
+> The dashboard is a separate Vite/tsconfig build with no `src/` imports (verified), so
+> it mirrors the backend shape rather than importing it.
 
 - [ ] **Step 1: Replace `DashboardWebSearchConfig` and add quota types**
 
@@ -1477,7 +1610,7 @@ with:
 
 - [ ] **Step 2: Replace the Provider, key, and toggle fields (lines 313–342)**
 
-Replace the `renderField('web-search', 'Provider', ...)` block and the `renderField('web-search', 'Brave API key', ...)` block with the following (keep the existing `Web search enabled by default` toggle as-is):
+Replace the `renderField('web-search', 'Provider', ...)` block and the `renderField('web-search', 'Brave API key', ...)` block (keep nothing of the old Brave markup) with:
 
 ```tsx
         {renderField('web-search', 'Primary provider', (
@@ -1551,7 +1684,7 @@ Replace the `renderField('web-search', 'Provider', ...)` block and the `renderFi
 
 - [ ] **Step 3: Extend the Usage field to show remote quota (lines 371–377)**
 
-Replace the `renderField('web-search', 'Usage', ...)` block with one that appends quota lines. This expects a `webSearchQuota` prop wired in Task 20 (`ProviderQuota[] | null`):
+Replace the `renderField('web-search', 'Usage', ...)` block with:
 
 ```tsx
         {renderField('web-search', 'Usage', (
@@ -1568,14 +1701,14 @@ Replace the `renderField('web-search', 'Usage', ...)` block with one that append
         ))}
 ```
 
-- [ ] **Step 4: Add the prop to the component signature**
+- [ ] **Step 4: Add the prop to the component**
 
-Add `webSearchQuota` to `SettingsTab`'s props type and destructured params (alongside the existing `webSearchUsage` prop). Type: `ProviderQuota[] | null`. Import `ProviderQuota` from `../types`.
+Add `webSearchQuota` to `SettingsTab`'s props type and destructured params (alongside `webSearchUsage`). Type: `ProviderQuota[] | null`. Import `ProviderQuota` from `../types`.
 
 - [ ] **Step 5: Typecheck dashboard**
 
 Run: `npm run typecheck`
-Expected: dashboard project errors only where `webSearchQuota` is not yet passed from `App.tsx` — fixed in Task 20.
+Expected: dashboard errors only where `webSearchQuota` is not yet passed from `App.tsx` — fixed in Task 20.
 
 - [ ] **Step 6: Commit**
 
@@ -1597,7 +1730,7 @@ Import `getWebSearchQuota` from `./api` and `ProviderQuota` from `./types`. Add 
   const [webSearchQuota, setWebSearchQuota] = useState<ProviderQuota[] | null>(null);
 ```
 
-Add an effect (gated on tab, so it does not run in the metrics poll loop):
+Add an effect gated on `tab` (so it does NOT run in the metrics poll loop):
 
 ```ts
   useEffect(() => {
@@ -1641,7 +1774,7 @@ Add `webSearchQuota: ProviderQuota[] | null;` to the props type (near line 19), 
             )}
 ```
 
-- [ ] **Step 3: Fix `tab-components.test.tsx` config fixture + prop**
+- [ ] **Step 3: Fix `tab-components.test.tsx` config fixture + props**
 
 In `dashboard/tests/tab-components.test.tsx` replace the `WebSearch` fixture (lines 572–575 region) with:
 
@@ -1660,7 +1793,7 @@ In `dashboard/tests/tab-components.test.tsx` replace the `WebSearch` fixture (li
     },
 ```
 
-Add `webSearchQuota: null` to the prop overrides wherever `MetricsTab`/`SettingsTab` are rendered in this test (mirror the existing `webSearchUsage` default pattern; search the file for `webSearchUsage` and add the matching `webSearchQuota` default).
+Add `webSearchQuota: null` to the prop overrides wherever `MetricsTab`/`SettingsTab` are rendered (search the file for `webSearchUsage` and add the matching `webSearchQuota` default beside each).
 
 - [ ] **Step 4: Typecheck + run dashboard tests**
 
@@ -1752,7 +1885,10 @@ git commit -m "test: full suite green for Tavily + Firecrawl web search"
 
 ## Self-Review Notes
 
-- **Spec coverage:** config record (Tasks 1–4), Tavily provider (6), Firecrawl provider (7), failover chain (8–9), local Readability loader (11–13), quota service+route (14–15), dashboard config/api/settings/metrics + quota display (16–20), Brave + html-text deletion (10, 13), test migration (3, 9, 18, 20, 21). All spec sections mapped.
-- **Type consistency:** `WebSearchConfig` (`Providers`, `ProviderOrder`), `WebSearchProviderId` (`'tavily'|'firecrawl'`), `ProviderQuota` ({provider,used,limit,remaining}), `createWebSearchProviders`, `WebSearchService(config, client, providers?)`, `WebResearchTools(config, client, providers?)`, `readWebSearchQuotas(config, client?)` are used identically across source and tests.
-- **Failover error format:** `All web search providers failed. tavily: <msg>; firecrawl: <msg>` — the aggregate test regex matches both ids in order.
-- **Note:** `WEB_SEARCH_PROVIDER_IDS` is exported from `config-store.ts` and reused by the normalizer; if another module already defines a provider-id constant, import rather than duplicate.
+- **Spec coverage:** config record + DRY re-export (Tasks 1–4), provider base + clamp (5), test-first suite (6), Tavily (7), Firecrawl v2 (8), failover chain (9), Brave deletion (10), local loader + html-text deletion (11–13), quota aggregator + TTL cache (14), cached route (15), dashboard types/api/settings/metrics + quota display (16–20), fixture migration (21), full verify (22). All spec sections mapped.
+- **TDD ordering:** Task 5 helper has unit tests in Task 6's suite (written before any provider impl); Task 6 commits a RED suite; Tasks 7–9/12 turn named subsets green. No implementation precedes its test.
+- **Verified API contracts:** Tavily `POST /search` + `GET /usage` (`account.plan_usage`/`plan_limit`); Firecrawl `POST /v2/search` (`data.web[]`) + `GET /v2/team/credit-usage` (`data.remainingCredits`/`data.planCredits`). Confirmed against live docs 2026-06-09.
+- **Quota math:** `clampQuota` derives the missing field, clamps to ≥0, and nulls inconsistent over-limit data — covered by dedicated tests in Task 6.
+- **Cache:** `WebSearchQuotaCache` keyed on provider id/enabled/key/order; within-TTL reuse, expiry, and key-rotation invalidation tested in Task 14. `Date.now()` internal (no function-passing).
+- **Type consistency:** `WebSearchConfig`/`Providers`/`ProviderOrder`, `WebSearchProviderId`, `ProviderQuota`, `clampQuota`, `createWebSearchProviders`, `WebSearchService(config, client, providers?)`, `WebResearchTools(config, client, providers?)`, `readWebSearchQuotas(config, client?)`, `WebSearchQuotaCache.read(config, client?)` are used identically across source and tests.
+- **DRY:** backend types single-sourced in `src/web-search/types.ts` (config re-exports); dashboard mirror is a separate-build necessity (no `src/` imports), documented in Task 16.
