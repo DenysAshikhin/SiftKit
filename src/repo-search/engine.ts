@@ -12,7 +12,6 @@ import {
   type SiftConfig,
 } from '../config/index.js';
 import {
-  createEmptyToolTypeStats,
   getRepoSearchLineReadStats,
   mergeToolTypeStats,
   readLatestIdleSummaryToolStats,
@@ -44,6 +43,7 @@ import {
   type NativeRepoToolExecution,
 } from './engine/native-tools.js';
 import { TokenUsageTracker } from './engine/token-usage.js';
+import { ToolStatsRecorder } from './engine/tool-stats.js';
 import { TurnBudget } from './engine/turn-budget.js';
 import {
   getRepoSearchCommandTokenForToolName,
@@ -389,7 +389,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   let mockResponseIndex = 0;
   let progressToolCallSeq = 0;
   const tokenUsage = new TokenUsageTracker(options.config);
-  const toolStatsByType: Record<string, ToolTypeStats> = {};
+  const toolStats = new ToolStatsRecorder();
   const minToolCallsBeforeFinish = Math.max(0, Number(options.minToolCallsBeforeFinish ?? MIN_TOOL_CALLS_BEFORE_FINISH));
   const budget = new TurnBudget({
     totalContextTokens: Math.max(1, Number(options.totalContextTokens || (options.config ? getConfiguredLlamaNumCtx(options.config) : 32000))),
@@ -808,11 +808,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       });
       if (!finishEvaluation.allowed) {
         const warning = finishEvaluation.warning || 'Need stronger repository evidence before finishing.';
-        const loopStats = toolStatsByType.loop || createEmptyToolTypeStats();
-        toolStatsByType.loop = {
-          ...loopStats,
-          finishRejections: loopStats.finishRejections + 1,
-        };
+        toolStats.recordFinishRejection();
         messages.push(buildAssistantReplayMessage(response.text, String(response.thinkingText || '').trim()));
         messages.push({ role: 'user', content: warning });
         options.logger?.write({ kind: 'turn_finish_rejected', taskId: task.id, turn, toolCallTurns: commands.length, minToolCallsBeforeFinish, warning });
@@ -820,11 +816,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       }
       const groundingDecision = chatWebGroundingPolicy.evaluateFinish();
       if (groundingDecision.kind === 'reject') {
-        const loopStats = toolStatsByType.loop || createEmptyToolTypeStats();
-        toolStatsByType.loop = {
-          ...loopStats,
-          finishRejections: loopStats.finishRejections + 1,
-        };
+        toolStats.recordFinishRejection();
         messages.push(buildAssistantReplayMessage(response.text, String(response.thinkingText || '').trim()));
         messages.push({ role: 'user', content: groundingDecision.message });
         options.logger?.write({
@@ -1028,11 +1020,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         batchDuplicateAnchorIndex = batchOutcomes.length - 1;
       }
       if (isSemanticDuplicate) {
-        const currentToolStats = toolStatsByType[prospectiveToolType] || createEmptyToolTypeStats();
-        toolStatsByType[prospectiveToolType] = {
-          ...currentToolStats,
-          semanticRepeatRejects: currentToolStats.semanticRepeatRejects + 1,
-        };
+        toolStats.recordSemanticRepeatReject(prospectiveToolType);
         options.logger?.write({
           kind: 'turn_semantic_repeat_rejected',
           taskId: task.id,
@@ -1045,10 +1033,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       if (duplicateReplayCount >= DUPLICATE_FORCE_THRESHOLD && forcedFinishAttemptsRemaining === 0) {
         forcedFinishAttemptsRemaining = FORCED_FINISH_MAX_ATTEMPTS;
         pendingModeChangeUserMessages.push('Forced finish mode active. Return {"action":"finish",...} now. Tool calls are blocked.');
-        toolStatsByType[prospectiveToolType] = {
-          ...toolStatsByType[prospectiveToolType],
-          forcedFinishFromStagnation: Number(toolStatsByType[prospectiveToolType]?.forcedFinishFromStagnation || 0) + 1,
-        };
+        toolStats.recordForcedFinishFromStagnation(prospectiveToolType);
         options.logger?.write({
           kind: 'turn_forced_finish_mode_started',
           taskId: task.id,
@@ -1127,7 +1112,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       const previousReadCount = Number(fileReadCountByPath.get(parsedReadWindow.pathKey) || 0);
       if (previousReadCount >= 1) {
         const minTokensFromCap = Math.max(1, Math.ceil(preExecutionPerToolCapTokens * REPEATED_LINE_READ_MIN_RATIO));
-        const currentGetContentStats = toolStatsByType['get-content'] || null;
+        const currentGetContentStats = toolStats.get('get-content');
         const historicalGetContentStats = historicalToolStats['get-content'] || null;
         const avgTokensPerLine = resolveAvgTokensPerLine(currentGetContentStats, historicalGetContentStats);
         const minLinesFromCap = Math.max(1, Math.ceil(minTokensFromCap / avgTokensPerLine));
@@ -1450,30 +1435,21 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     const toolType = isNativeTool
       ? normalizedToolName
       : normalizeToolTypeFromCommand(commandToRun);
-    const currentToolStats = toolStatsByType[toolType] || createEmptyToolTypeStats();
-    toolStatsByType[toolType] = {
-      ...currentToolStats,
-      calls: currentToolStats.calls + 1,
-      outputCharsTotal: currentToolStats.outputCharsTotal + resultText.length,
-      outputTokensTotal: currentToolStats.outputTokensTotal + Math.max(0, Math.ceil(resultTokenCount)),
-      outputTokensEstimatedCount: currentToolStats.outputTokensEstimatedCount + (resultTokenCountEstimated ? 1 : 0),
-      lineReadCalls: currentToolStats.lineReadCalls + Number(lineReadStats?.lineReadCalls || 0),
-      lineReadLinesTotal: currentToolStats.lineReadLinesTotal + Number(lineReadStats?.lineReadLinesTotal || 0),
-      lineReadTokensTotal: currentToolStats.lineReadTokensTotal + Number(lineReadStats?.lineReadTokensTotal || 0),
-      promptInsertedTokens: currentToolStats.promptInsertedTokens + Math.max(0, Math.ceil(resultTokenCount)),
-      rawToolResultTokens: currentToolStats.rawToolResultTokens + Math.max(0, Math.ceil(rawResultTokenCount)),
-    };
+    toolStats.recordToolCall({
+      toolType,
+      resultTextLength: resultText.length,
+      resultTokenCount,
+      resultTokenCountEstimated,
+      rawResultTokenCount,
+      lineReadStats: lineReadStats || null,
+    });
     const novelty = baseOutput.length === 0
       ? { evidenceKeys: [], hasNewEvidence: true }
       : classifyToolResultNovelty({
         promptResultText: resultText,
         recentEvidenceKeys,
       });
-    toolStatsByType[toolType] = {
-      ...toolStatsByType[toolType],
-      newEvidenceCalls: toolStatsByType[toolType].newEvidenceCalls + (novelty.hasNewEvidence ? 1 : 0),
-      noNewEvidenceCalls: toolStatsByType[toolType].noNewEvidenceCalls + (novelty.hasNewEvidence ? 0 : 1),
-    };
+    toolStats.recordNovelty(toolType, novelty.hasNewEvidence);
     for (const evidenceKey of novelty.evidenceKeys) {
       recentEvidenceKeys.add(evidenceKey);
     }
@@ -1678,7 +1654,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     ...(chatWebGroundingEnabled ? { groundingStatus: chatWebGroundingPolicy.getStatus() } : {}),
     missingSignals: signalCheck.missingSignals,
     ...tokenUsage.snapshot(),
-    toolStats: { ...toolStatsByType },
+    toolStats: toolStats.snapshot(),
     readOverlapSummary: buildReadOverlapSummary(fileReadStateByPath),
   };
 }

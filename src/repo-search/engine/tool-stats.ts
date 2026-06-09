@@ -8,9 +8,9 @@ export type ToolCallStatsInput = {
   resultTokenCountEstimated: boolean;
   rawResultTokenCount: number;
   lineReadStats: {
-    lineReadCalls: number;
-    lineReadLinesTotal: number;
-    lineReadTokensTotal: number;
+    lineReadCalls?: number;
+    lineReadLinesTotal?: number;
+    lineReadTokensTotal?: number;
   } | null;
 };
 
