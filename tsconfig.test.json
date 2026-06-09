@@ -13,6 +13,7 @@
     "tests/engine-token-usage.test.ts",
     "tests/engine-tool-stats.test.ts",
     "tests/engine-duplicate-tracker.test.ts",
-    "tests/engine-forced-finish.test.ts"
+    "tests/engine-forced-finish.test.ts",
+    "tests/engine-progress-reporter.test.ts"
   ]
 }
