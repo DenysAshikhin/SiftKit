@@ -1,4 +1,4 @@
-import { requestJson, requestJsonFull } from '../lib/http.js';
+import { httpClient } from '../lib/http-client.js';
 import {
   deriveServiceUrl,
   getStatusBackendUrl,
@@ -12,7 +12,7 @@ export function getExecutionServiceUrl(): string {
 export async function getExecutionServerState(): Promise<{ busy: boolean }> {
   const serviceUrl = getExecutionServiceUrl();
   try {
-    const response = await requestJson<{ busy?: boolean }>({
+    const response = await httpClient.requestJson<{ busy?: boolean }>({
       url: serviceUrl,
       method: 'GET',
       timeoutMs: 2000,
@@ -36,7 +36,7 @@ export async function getExecutionServerState(): Promise<{ busy: boolean }> {
 export async function tryAcquireExecutionLease(): Promise<{ acquired: boolean; token: string | null }> {
   const serviceUrl = `${getExecutionServiceUrl().replace(/\/$/u, '')}/acquire`;
   try {
-    const response = await requestJson<{ acquired?: boolean; token?: string | null }>({
+    const response = await httpClient.requestJson<{ acquired?: boolean; token?: string | null }>({
       url: serviceUrl,
       method: 'POST',
       timeoutMs: 2000,
@@ -65,7 +65,7 @@ export async function tryAcquireExecutionLease(): Promise<{ acquired: boolean; t
 export async function refreshExecutionLease(token: string): Promise<void> {
   const serviceUrl = `${getExecutionServiceUrl().replace(/\/$/u, '')}/heartbeat`;
   try {
-    await requestJson({
+    await httpClient.requestJson({
       url: serviceUrl,
       method: 'POST',
       timeoutMs: 2000,
@@ -83,7 +83,7 @@ export async function refreshExecutionLease(token: string): Promise<void> {
 export async function releaseExecutionLease(token: string): Promise<void> {
   const serviceUrl = `${getExecutionServiceUrl().replace(/\/$/u, '')}/release`;
   try {
-    const response = await requestJsonFull<{ ok?: boolean; released?: boolean; busy?: boolean }>({
+    const response = await httpClient.requestJsonFull<{ ok?: boolean; released?: boolean; busy?: boolean }>({
       url: serviceUrl,
       method: 'POST',
       timeoutMs: 2000,

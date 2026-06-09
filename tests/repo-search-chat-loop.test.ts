@@ -98,6 +98,30 @@ test('chat mode streams finish output as answer events', async () => {
   assert.equal(answerEvents[answerEvents.length - 1].answerText, 'Hello there!');
 });
 
+test('tool token totals sum command output tokens', async () => {
+  const result = await runTaskLoop(
+    { id: 'repo-search', question: 'Find x.', signals: [] },
+    {
+      repoRoot: os.tmpdir(),
+      model: 'mock',
+      baseUrl: 'http://127.0.0.1:1',
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      includeRepoFileListing: false,
+      mockResponses: [
+        '{"action":"repo_rg","command":"rg -n \\"x\\" src"}',
+        '{"action":"finish","output":"done"}',
+      ],
+      mockCommandResults: {
+        'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x\n'.repeat(4), stderr: '' },
+      },
+    },
+  );
+
+  const commandOutputTokens = result.commands.reduce((sum, command) => sum + Number(command.outputTokens || 0), 0);
+  assert.equal(result.toolTokens, commandOutputTokens);
+});
+
 test('chat answer streaming waits for extractable finish output instead of emitting raw planner json', async () => {
   const events: RepoSearchProgressEvent[] = [];
   const server = http.createServer((req, res) => {
@@ -148,6 +172,79 @@ test('chat answer streaming waits for extractable finish output instead of emitt
     assert.equal(result.finalOutput, 'Hello there!');
     assert.deepEqual(answerTexts, ['Hello', 'Hello there!', 'Hello there!']);
     assert.equal(answerTexts.some((text) => text.includes('"action"') || text.includes('"output"')), false);
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test('chat terminal synthesis streams answer deltas before the final answer event', async () => {
+  const events: RepoSearchProgressEvent[] = [];
+  let requestCount = 0;
+  const server = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/tokenize') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ count: 10 }));
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/v1/chat/completions') {
+      requestCount += 1;
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', () => {
+        const parsed = JSON.parse(body || '{}') as { stream?: boolean };
+        if (requestCount === 1) {
+          res.writeHead(200, { 'content-type': 'text/event-stream' });
+          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'not a valid action' } }] })}\n\n`);
+          res.write('data: [DONE]\n\n');
+          res.end();
+          return;
+        }
+        if (parsed.stream === true) {
+          res.writeHead(200, { 'content-type': 'text/event-stream' });
+          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'Terminal ' } }] })}\n\n`);
+          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'answer done' } }] })}\n\n`);
+          res.write('data: [DONE]\n\n');
+          res.end();
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ choices: [{ message: { content: 'Terminal answer done' } }] }));
+      });
+      return;
+    }
+    res.writeHead(404, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${Number(typeof address === 'object' && address ? address.port : 0)}`;
+
+  try {
+    const result = await runTaskLoop(
+      { id: 'chat', question: 'Answer from terminal synthesis.', signals: [] },
+      {
+        repoRoot: os.tmpdir(),
+        config: { Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } } } as SiftConfig,
+        baseUrl,
+        model: 'mock',
+        maxTurns: 1,
+        maxInvalidResponses: 2,
+        minToolCallsBeforeFinish: 0,
+        loopKind: 'chat',
+        plannerToolDefinitions: [],
+        includeRepoFileListing: false,
+        streamFinishAsAnswer: true,
+        onProgress: (event) => { events.push(event); },
+      },
+    );
+
+    const answerTexts = events
+      .filter((event) => event.kind === 'answer')
+      .map((event) => String(event.answerText || ''));
+    assert.equal(result.finalOutput, 'Terminal answer done');
+    assert.deepEqual(answerTexts, ['Terminal ', 'Terminal answer done', 'Terminal answer done']);
   } finally {
     await closeServer(server);
   }

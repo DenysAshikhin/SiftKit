@@ -21,8 +21,9 @@ import {
 import { queryRecentSnapshots } from '../idle-summary.js';
 import { getIdleSummaryDatabase } from '../server-ops.js';
 import { getRuntimeRoot, getMetricsPath } from '../paths.js';
-import { readConfig } from '../config-store.js';
+import { DEFAULT_WEB_SEARCH_CONFIG, readConfig } from '../config-store.js';
 import { readWebSearchUsage } from '../web-search-usage.js';
+import { WebSearchQuotaCache } from '../web-search-quota.js';
 import {
   deleteManagedLlamaRun,
   listManagedLlamaRuns,
@@ -77,6 +78,9 @@ import {
 import type { ServerContext } from '../server-types.js';
 import type { SiftConfig } from '../../config/index.js';
 import type { Dict } from '../../lib/types.js';
+import type { WebSearchConfig } from '../../web-search/types.js';
+
+const webSearchQuotaCache = new WebSearchQuotaCache();
 
 function writeDashboardSse(res: http.ServerResponse, eventName: string, payload: unknown): void {
   res.write(`event: ${eventName}\n`);
@@ -214,6 +218,17 @@ export async function handleDashboardRoute(
     const toolStats = buildDashboardToolStats(idleSummaryDatabase, ctx.metrics, config);
     const webSearchUsage = readWebSearchUsage(getMetricsPath(), new Date());
     sendJson(res, 200, { days, taskDays, toolStats, webSearchUsage });
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/dashboard/web-search-quota') {
+    const config = readConfig(ctx.configPath) as SiftConfig;
+    const webSearchConfig = config.WebSearch ?? {
+      ...DEFAULT_WEB_SEARCH_CONFIG,
+      ProviderOrder: [...DEFAULT_WEB_SEARCH_CONFIG.ProviderOrder],
+    } as WebSearchConfig;
+    const quotas = await webSearchQuotaCache.read(webSearchConfig);
+    sendJson(res, 200, { quotas });
     return true;
   }
 

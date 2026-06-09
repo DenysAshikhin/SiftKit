@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import { requestJson } from '../dist/lib/http.js';
+import { httpClient } from '../src/lib/http-client.js';
 
 async function captureStderrLines(action: () => Promise<void>): Promise<string[]> {
   const originalWrite = process.stderr.write;
@@ -42,7 +42,7 @@ test('requestJson does not write repo-search client logs to stderr by default', 
   try {
     const port = (server.address() as AddressInfo).port;
     const lines = await captureStderrLines(async () => {
-      await requestJson({
+      await httpClient.requestJson({
         url: `http://127.0.0.1:${port}/repo-search`,
         method: 'POST',
         body: '{}',
@@ -76,7 +76,7 @@ test('requestJson logs summary client request lifecycle when explicitly enabled'
     let lines: string[] = [];
     try {
       lines = await captureStderrLines(async () => {
-        await requestJson({
+        await httpClient.requestJson({
           url: `http://127.0.0.1:${port}/summary`,
           method: 'POST',
           body: '{}',

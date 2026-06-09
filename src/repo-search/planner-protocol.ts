@@ -1,4 +1,4 @@
-import { LlamaClient, LlamaHttpError, type LlamaStreamSignal } from '../lib/llama-client.js';
+import { httpClient, LlamaHttpError, type SseStreamSignal } from '../lib/http-client.js';
 import { ModelJson } from '../lib/model-json.js';
 import {
   buildTransientProviderHttpError,
@@ -568,7 +568,7 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
   try {
     response = await retryProviderRequest(
       async () => {
-        const nextResponse = await LlamaClient.requestJsonFull<CompletionBody>({
+        const nextResponse = await httpClient.requestJsonFull<CompletionBody>({
           url: requestUrl,
           method: 'POST',
           timeoutMs: options.timeoutMs,
@@ -781,7 +781,7 @@ async function requestStreaming(
   let earlyReason: string | null = null;
   let earlyResolvedText: string | undefined;
 
-  const onData = (parsed: Record<string, unknown>): LlamaStreamSignal => {
+  const onData = (parsed: Record<string, unknown>): SseStreamSignal => {
           try {
             const parsedUsage = getPromptUsageFromResponseBody(parsed);
             const parsedCompletionUsage = getCompletionUsageFromResponseBody(parsed);
@@ -861,7 +861,7 @@ async function requestStreaming(
   };
 
   try {
-    await LlamaClient.streamChatCompletion(
+    await httpClient.streamSse(
       { url: target.toString(), body: bodyJson, timeoutMs: options.timeoutMs, abortSignal: options.abortSignal },
       onData,
     );

@@ -1,5 +1,5 @@
 import { getStatusBackendUrl } from '../config/index.js';
-import { logHttpClientBoundary, requestJson } from '../lib/http.js';
+import { httpClient, logHttpClientBoundary } from '../lib/http-client.js';
 import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
 import { getCommandArgs, parseArguments } from './args.js';
 
@@ -31,7 +31,7 @@ export async function runRepoSearchCli(options: {
   }
 
   const requestStartedAt = Date.now();
-  const response = await requestJson<{
+  const response = await httpClient.requestJson<{
     requestId: string;
     transcriptPath: string;
     artifactPath: string;

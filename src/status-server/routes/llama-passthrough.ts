@@ -9,7 +9,7 @@ import {
 } from '../server-ops.js';
 import type { ServerContext } from '../server-types.js';
 import type { Dict } from '../../lib/types.js';
-import { LlamaClient } from '../../lib/llama-client.js';
+import { httpClient } from '../../lib/http-client.js';
 
 const CHAT_COMPLETIONS_PATH = '/v1/chat/completions';
 const MODELS_PATH = '/v1/models';
@@ -135,7 +135,7 @@ async function proxyLlamaRequest(
         port: upstreamUrl.port || (upstreamUrl.protocol === 'https:' ? 443 : 80),
         path: `${upstreamUrl.pathname}${upstreamUrl.search}`,
         method: req.method || 'GET',
-        agent: LlamaClient.agentFor(upstreamUrl),
+        agent: httpClient.localAgent(upstreamUrl),
         headers: buildUpstreamRequestHeaders(req, bodyText),
       },
       (upstreamResponse) => {

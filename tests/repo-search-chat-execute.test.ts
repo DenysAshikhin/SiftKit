@@ -41,7 +41,7 @@ test('executeRepoSearchRequest chat with web tools runs native web_search', asyn
     model: 'mock',
     config: {
       Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
-      WebSearch: { EnabledDefault: true, Provider: 'brave', BraveApiKey: 'test-key', ResultCount: 5, FetchMaxPages: 3, TimeoutMs: 15000, FetchMaxCharacters: 12000 },
+      WebSearch: { EnabledDefault: true, Providers: { tavily: { Enabled: true, ApiKey: 'test-key' }, firecrawl: { Enabled: false, ApiKey: '' } }, ProviderOrder: ['tavily', 'firecrawl'], ResultCount: 5, FetchMaxPages: 3, TimeoutMs: 15000, FetchMaxCharacters: 12000 },
     },
     mockResponses: [
       '{"action":"web_search","query":"iron bar GE price"}',
@@ -51,7 +51,7 @@ test('executeRepoSearchRequest chat with web tools runs native web_search', asyn
     mockCommandResults: {
       'web_search query="iron bar GE price"': {
         exitCode: 0,
-        stdout: '1. GE\nURL: https://prices.runescape.wiki/iron-bar\nSnippet: iron bar ~150 gp\nSource: brave',
+        stdout: '1. GE\nURL: https://prices.runescape.wiki/iron-bar\nSnippet: iron bar ~150 gp\nSource: tavily',
       },
       'web_fetch url="https://prices.runescape.wiki/iron-bar"': {
         exitCode: 0,

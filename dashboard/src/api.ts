@@ -22,6 +22,7 @@ import type {
   DashboardBenchmarkSessionsResponse,
   DashboardBenchmarkStartRequest,
   RepoSearchAutoAppendPreview,
+  WebSearchQuotaResponse,
 } from './types';
 import { ChatStreamReader, type ChatStreamToolEvent } from './lib/chat-stream-parser';
 
@@ -82,6 +83,10 @@ export function deleteRunLogs(criteria: RunLogDeleteCriteria): Promise<RunLogDel
 
 export function getMetrics(): Promise<MetricsResponse> {
   return fetchJson<MetricsResponse>('/dashboard/metrics/timeseries');
+}
+
+export function getWebSearchQuota(): Promise<WebSearchQuotaResponse> {
+  return fetchJson<WebSearchQuotaResponse>('/dashboard/web-search-quota');
 }
 
 export function getIdleSummary(limit = 30): Promise<IdleSummaryResponse> {

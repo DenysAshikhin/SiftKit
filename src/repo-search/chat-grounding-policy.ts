@@ -109,12 +109,16 @@ export class ChatGroundingPolicy {
       return;
     }
     if (toolName === 'web_search') {
+      const candidateUrls = this.extractCandidateUrls(output);
+      if (candidateUrls.length === 0) {
+        return;
+      }
       this.searchSucceeded = true;
       const parsed = parseWebToolCommand(result.command);
       if (parsed?.toolName === 'web_search') {
         this.searchedQueries.add(this.normalizeSearchQuery(parsed.value));
       }
-      this.rememberCandidateUrls(output);
+      this.rememberCandidateUrls(candidateUrls);
       return;
     }
     if (toolName === 'web_fetch') {
@@ -174,11 +178,21 @@ export class ChatGroundingPolicy {
     ].join(' ');
   }
 
-  private rememberCandidateUrls(output: string): void {
+  private extractCandidateUrls(output: string): string[] {
+    const urls: string[] = [];
     const matches = output.matchAll(/^URL:\s*(https?:\/\/\S+)/gimu);
     for (const match of matches) {
       const url = String(match[1] || '').trim();
-      if (url && !this.candidateUrls.includes(url)) {
+      if (url) {
+        urls.push(url);
+      }
+    }
+    return urls;
+  }
+
+  private rememberCandidateUrls(urls: string[]): void {
+    for (const url of urls) {
+      if (!this.candidateUrls.includes(url)) {
         this.candidateUrls.push(url);
       }
     }

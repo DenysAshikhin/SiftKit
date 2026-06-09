@@ -37,6 +37,28 @@ test('ChatGroundingPolicy rejects finish after search without fetch', () => {
   assert.equal(policy.getStatus(), 'snippet_only');
 });
 
+test('ChatGroundingPolicy treats zero-result search output as ungrounded and retryable', () => {
+  const policy = new ChatGroundingPolicy({ enabled: true, maxFinishRejections: 2 });
+
+  policy.recordToolResult({
+    toolName: 'web_search',
+    command: 'web_search query="Runescape"',
+    exitCode: 0,
+    output: 'No web search results found.',
+  });
+
+  assert.equal(policy.getStatus(), 'ungrounded');
+  assert.equal(policy.evaluateToolCall('web_search', { query: 'runescape' }).kind, 'allow');
+
+  const firstFinish = policy.evaluateFinish();
+  assert.equal(firstFinish.kind, 'reject');
+  assert.match(firstFinish.kind === 'reject' ? firstFinish.message : '', /Run web_search/u);
+  assert.doesNotMatch(firstFinish.kind === 'reject' ? firstFinish.message : '', /<one returned URL>/u);
+
+  assert.equal(policy.evaluateFinish().kind, 'reject');
+  assert.equal(policy.evaluateFinish().kind, 'allow');
+});
+
 test('ChatGroundingPolicy allows finish after successful fetch', () => {
   const policy = new ChatGroundingPolicy({ enabled: true });
 
@@ -137,6 +159,28 @@ test('ChatGroundingPolicy seeds duplicate checks from retained tool calls', () =
 
   assert.equal(policy.evaluateToolCall('web_search', { query: 'osrs iron bars' }).kind, 'reject');
   assert.equal(policy.evaluateToolCall('web_fetch', { url: 'https://oldschool.runescape.wiki/w/Iron_bar' }).kind, 'reject');
+});
+
+test('ChatGroundingPolicy does not seed duplicate checks from retained zero-result search output', () => {
+  const policy = new ChatGroundingPolicy({
+    enabled: true,
+    retainedWebToolCalls: [
+      {
+        toolName: 'web_search',
+        value: 'Runescape',
+        command: 'web_search query="Runescape"',
+        exitCode: 0,
+        output: 'No web search results found.',
+      },
+    ],
+  });
+
+  assert.equal(policy.getStatus(), 'ungrounded');
+  assert.equal(policy.evaluateToolCall('web_search', { query: 'runescape' }).kind, 'allow');
+
+  const decision = policy.evaluateFinish();
+  assert.equal(decision.kind, 'reject');
+  assert.match(decision.kind === 'reject' ? decision.message : '', /Run web_search/u);
 });
 
 test('ChatGroundingPolicy treats retained successful fetch as fetched evidence', () => {

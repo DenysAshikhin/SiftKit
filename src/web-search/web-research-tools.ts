@@ -32,9 +32,9 @@ export class WebResearchTools {
   constructor(
     private readonly config: WebSearchConfig,
     client: HttpClient = httpClient,
-    provider?: WebSearchProvider,
+    providers?: WebSearchProvider[],
   ) {
-    this.searchService = new WebSearchService(config, client, provider);
+    this.searchService = new WebSearchService(config, client, providers);
     this.fetchService = new WebFetchService(config, client);
   }
 

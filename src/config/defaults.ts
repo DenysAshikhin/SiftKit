@@ -97,8 +97,11 @@ export function getDefaultConfigObject(): SiftConfig {
     },
     WebSearch: {
       EnabledDefault: true,
-      Provider: 'brave',
-      BraveApiKey: '',
+      Providers: {
+        tavily: { Enabled: false, ApiKey: '' },
+        firecrawl: { Enabled: false, ApiKey: '' },
+      },
+      ProviderOrder: ['tavily', 'firecrawl'],
       ResultCount: 5,
       FetchMaxPages: 3,
       TimeoutMs: 15000,

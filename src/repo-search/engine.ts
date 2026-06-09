@@ -119,8 +119,11 @@ import type { WebFetchToolArgs, WebSearchConfig, WebSearchToolArgs } from '../we
 
 const DEFAULT_ENGINE_WEB_SEARCH_CONFIG: WebSearchConfig = {
   EnabledDefault: false,
-  Provider: 'brave',
-  BraveApiKey: '',
+  Providers: {
+    tavily: { Enabled: false, ApiKey: '' },
+    firecrawl: { Enabled: false, ApiKey: '' },
+  },
+  ProviderOrder: ['tavily', 'firecrawl'],
   ResultCount: 5,
   FetchMaxPages: 3,
   TimeoutMs: 15000,

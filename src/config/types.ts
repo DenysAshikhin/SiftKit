@@ -97,15 +97,13 @@ export type ServerLlamaCppConfig = {
   ActivePresetId: string;
 };
 
-export type WebSearchConfig = {
-  EnabledDefault: boolean;
-  Provider: 'brave';
-  BraveApiKey: string;
-  ResultCount: number;
-  FetchMaxPages: number;
-  TimeoutMs: number;
-  FetchMaxCharacters: number;
-};
+import type { WebSearchConfig } from '../web-search/types.js';
+
+export type {
+  WebSearchProviderId,
+  WebSearchProviderSettings,
+  WebSearchConfig,
+} from '../web-search/types.js';
 
 export type SiftConfig = {
   Version: string;

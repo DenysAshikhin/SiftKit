@@ -31,10 +31,15 @@ export const DEFAULT_LLAMA_SLEEP_IDLE_SECONDS = 600;
 
 const MANAGED_LLAMA_SPECULATIVE_TYPES = ['draft-simple', 'draft-eagle3', 'draft-mtp', 'ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod', 'ngram-cache'] as const;
 
+export const WEB_SEARCH_PROVIDER_IDS = ['tavily', 'firecrawl'] as const;
+
 export const DEFAULT_WEB_SEARCH_CONFIG = {
   EnabledDefault: true,
-  Provider: 'brave',
-  BraveApiKey: '',
+  Providers: {
+    tavily: { Enabled: false, ApiKey: '' },
+    firecrawl: { Enabled: false, ApiKey: '' },
+  },
+  ProviderOrder: ['tavily', 'firecrawl'],
   ResultCount: 5,
   FetchMaxPages: 3,
   TimeoutMs: 15000,
@@ -137,17 +142,43 @@ function clampInteger(value: unknown, fallback: number, minValue: number, maxVal
 
 export function normalizeWebSearchConfig(value: unknown): Dict {
   const record = (value && typeof value === 'object' && !Array.isArray(value)) ? value as Dict : {};
+  const providersInput = (record.Providers && typeof record.Providers === 'object' && !Array.isArray(record.Providers))
+    ? record.Providers as Dict
+    : {};
   return {
     EnabledDefault: typeof record.EnabledDefault === 'boolean'
       ? record.EnabledDefault
       : DEFAULT_WEB_SEARCH_CONFIG.EnabledDefault,
-    Provider: 'brave',
-    BraveApiKey: (getNullableTrimmedString(record.BraveApiKey) || ''),
+    Providers: {
+      tavily: normalizeProviderSettings(providersInput.tavily),
+      firecrawl: normalizeProviderSettings(providersInput.firecrawl),
+    },
+    ProviderOrder: normalizeProviderOrder(record.ProviderOrder),
     ResultCount: clampInteger(record.ResultCount, DEFAULT_WEB_SEARCH_CONFIG.ResultCount, 1, 20),
     FetchMaxPages: clampInteger(record.FetchMaxPages, DEFAULT_WEB_SEARCH_CONFIG.FetchMaxPages, 1, 8),
     TimeoutMs: clampInteger(record.TimeoutMs, DEFAULT_WEB_SEARCH_CONFIG.TimeoutMs, 1000, 60000),
     FetchMaxCharacters: clampInteger(record.FetchMaxCharacters, DEFAULT_WEB_SEARCH_CONFIG.FetchMaxCharacters, 1000, 50000),
   };
+}
+
+function normalizeProviderSettings(value: unknown): Dict {
+  const record = (value && typeof value === 'object' && !Array.isArray(value)) ? value as Dict : {};
+  return {
+    Enabled: record.Enabled === true,
+    ApiKey: getNullableTrimmedString(record.ApiKey) || '',
+  };
+}
+
+function normalizeProviderOrder(value: unknown): string[] {
+  const known = WEB_SEARCH_PROVIDER_IDS as readonly string[];
+  const requested = Array.isArray(value) ? value.map((entry) => String(entry || '').trim()) : [];
+  const ordered = requested.filter((id, index) => known.includes(id) && requested.indexOf(id) === index);
+  for (const id of known) {
+    if (!ordered.includes(id)) {
+      ordered.push(id);
+    }
+  }
+  return ordered;
 }
 
 export function normalizeWindowsPath(value: unknown): string {

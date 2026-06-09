@@ -20,8 +20,11 @@ test('normalizeConfig produces default WebSearch config', () => {
   const normalized = normalizeConfig(getDefaultConfig());
   assert.deepEqual(normalized.WebSearch, {
     EnabledDefault: true,
-    Provider: 'brave',
-    BraveApiKey: '',
+    Providers: {
+      tavily: { Enabled: false, ApiKey: '' },
+      firecrawl: { Enabled: false, ApiKey: '' },
+    },
+    ProviderOrder: ['tavily', 'firecrawl'],
     ResultCount: 5,
     FetchMaxPages: 3,
     TimeoutMs: 15000,
@@ -29,12 +32,15 @@ test('normalizeConfig produces default WebSearch config', () => {
   });
 });
 
-test('normalizeConfig clamps WebSearch numeric bounds and forces provider', () => {
+test('normalizeConfig clamps WebSearch bounds, trims keys, and repairs ProviderOrder', () => {
   const config = getDefaultConfig() as Dict;
   config.WebSearch = {
     EnabledDefault: true,
-    Provider: 'other',
-    BraveApiKey: '  lan-key  ',
+    Providers: {
+      tavily: { Enabled: true, ApiKey: '  t-key  ' },
+      firecrawl: { Enabled: 'yes', ApiKey: 42 },
+    },
+    ProviderOrder: ['firecrawl', 'bing', 'firecrawl'],
     ResultCount: 99,
     FetchMaxPages: 0,
     TimeoutMs: 10,
@@ -43,8 +49,11 @@ test('normalizeConfig clamps WebSearch numeric bounds and forces provider', () =
   const normalized = normalizeConfig(config);
   assert.deepEqual(normalized.WebSearch, {
     EnabledDefault: true,
-    Provider: 'brave',
-    BraveApiKey: 'lan-key',
+    Providers: {
+      tavily: { Enabled: true, ApiKey: 't-key' },
+      firecrawl: { Enabled: false, ApiKey: '' },
+    },
+    ProviderOrder: ['firecrawl', 'tavily'],
     ResultCount: 20,
     FetchMaxPages: 1,
     TimeoutMs: 1000,

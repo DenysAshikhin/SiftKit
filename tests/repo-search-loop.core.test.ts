@@ -91,8 +91,8 @@ test('repo-search executes a native web_search tool when allowed', async () => {
       Runtime: { Model: 'Qwen3.5-9B-Q8_0.gguf', LlamaCpp: { BaseUrl: 'http://127.0.0.1:8097', NumCtx: 70000 } },
       WebSearch: {
         EnabledDefault: true,
-        Provider: 'brave',
-        BraveApiKey: 'test-key',
+        Providers: { tavily: { Enabled: true, ApiKey: 'test-key' }, firecrawl: { Enabled: false, ApiKey: '' } },
+        ProviderOrder: ['tavily', 'firecrawl'],
         ResultCount: 5,
         FetchMaxPages: 3,
         TimeoutMs: 15000,
@@ -112,7 +112,7 @@ test('repo-search executes a native web_search tool when allowed', async () => {
     mockCommandResults: {
       'web_search query="siftkit"': {
         exitCode: 0,
-        stdout: '1. SiftKit\nURL: https://example.com/siftkit\nSnippet: web result snippet\nSource: brave',
+        stdout: '1. SiftKit\nURL: https://example.com/siftkit\nSnippet: web result snippet\nSource: tavily',
       },
     },
     onProgress: (event) => events.push(event),

@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import * as http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import { LlamaClient, LlamaHttpError } from '../src/lib/llama-client.js';
+import {
+  HttpClient,
+  LlamaHttpError,
+  DEFAULT_USER_AGENT,
+  CONNECT_TIMEOUT_MS,
+} from '../src/lib/http-client.js';
 
 type ServerHandle = {
   baseUrl: string;
@@ -39,15 +44,16 @@ function writeSse(res: http.ServerResponse, packets: string[]): void {
   res.end();
 }
 
-test('LlamaClient.requestJsonFull opens a fresh socket per sequential call (no keep-alive pooling)', async () => {
+test('HttpClient.requestJsonFull opens a fresh socket per sequential call (no keep-alive pooling)', async () => {
+  const client = new HttpClient();
   const server = await startServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
   });
   try {
-    await LlamaClient.requestJsonFull({ url: `${server.baseUrl}/v1/models`, method: 'GET', timeoutMs: 5000 });
-    await LlamaClient.requestJsonFull({ url: `${server.baseUrl}/v1/models`, method: 'GET', timeoutMs: 5000 });
-    await LlamaClient.requestJsonFull({ url: `${server.baseUrl}/v1/models`, method: 'GET', timeoutMs: 5000 });
+    await client.requestJsonFull({ url: `${server.baseUrl}/v1/models`, method: 'GET', timeoutMs: 5000 });
+    await client.requestJsonFull({ url: `${server.baseUrl}/v1/models`, method: 'GET', timeoutMs: 5000 });
+    await client.requestJsonFull({ url: `${server.baseUrl}/v1/models`, method: 'GET', timeoutMs: 5000 });
     // With keep-alive enabled these three sequential requests would reuse one
     // socket (connectionCount === 1). Pooling-disabled => one socket each.
     assert.equal(server.connectionCount(), 3);
@@ -56,20 +62,22 @@ test('LlamaClient.requestJsonFull opens a fresh socket per sequential call (no k
   }
 });
 
-test('LlamaClient.streamChatCompletion opens a fresh socket per sequential call', async () => {
+test('HttpClient.streamSse opens a fresh socket per sequential call', async () => {
+  const client = new HttpClient();
   const server = await startServer((req, res) => {
     writeSse(res, [JSON.stringify({ choices: [{ delta: { content: 'hi' } }] })]);
   });
   try {
-    await LlamaClient.streamChatCompletion({ url: `${server.baseUrl}/v1/chat/completions`, body: '{}', timeoutMs: 5000 }, () => {});
-    await LlamaClient.streamChatCompletion({ url: `${server.baseUrl}/v1/chat/completions`, body: '{}', timeoutMs: 5000 }, () => {});
+    await client.streamSse({ url: `${server.baseUrl}/v1/chat/completions`, body: '{}', timeoutMs: 5000 }, () => {});
+    await client.streamSse({ url: `${server.baseUrl}/v1/chat/completions`, body: '{}', timeoutMs: 5000 }, () => {});
     assert.equal(server.connectionCount(), 2);
   } finally {
     await server.close();
   }
 });
 
-test('LlamaClient.streamChatCompletion parses SSE data packets and resolves sawDone after [DONE]', async () => {
+test('HttpClient.streamSse parses SSE data packets and resolves sawDone after [DONE]', async () => {
+  const client = new HttpClient();
   const server = await startServer((req, res) => {
     writeSse(res, [
       JSON.stringify({ choices: [{ delta: { reasoning_content: 'think' } }] }),
@@ -78,7 +86,7 @@ test('LlamaClient.streamChatCompletion parses SSE data packets and resolves sawD
   });
   try {
     const received: Record<string, unknown>[] = [];
-    const result = await LlamaClient.streamChatCompletion(
+    const result = await client.streamSse(
       { url: `${server.baseUrl}/v1/chat/completions`, body: '{}', timeoutMs: 5000 },
       (parsed) => { received.push(parsed); },
     );
@@ -90,14 +98,15 @@ test('LlamaClient.streamChatCompletion parses SSE data packets and resolves sawD
   }
 });
 
-test('LlamaClient.streamChatCompletion rejects with LlamaHttpError carrying status and body on >= 400', async () => {
+test('HttpClient.streamSse rejects with LlamaHttpError carrying status and body on >= 400', async () => {
+  const client = new HttpClient();
   const server = await startServer((req, res) => {
     res.writeHead(503, { 'Content-Type': 'text/plain' });
     res.end('model loading');
   });
   try {
     await assert.rejects(
-      LlamaClient.streamChatCompletion({ url: `${server.baseUrl}/v1/chat/completions`, body: '{}', timeoutMs: 5000 }, () => {}),
+      client.streamSse({ url: `${server.baseUrl}/v1/chat/completions`, body: '{}', timeoutMs: 5000 }, () => {}),
       (error: unknown) => {
         assert.ok(error instanceof LlamaHttpError);
         assert.equal(error.statusCode, 503);
@@ -110,7 +119,8 @@ test('LlamaClient.streamChatCompletion rejects with LlamaHttpError carrying stat
   }
 });
 
-test('LlamaClient.streamChatCompletion rejects with the abort reason when the signal aborts mid-stream', async () => {
+test('HttpClient.streamSse rejects with the abort reason when the signal aborts mid-stream', async () => {
+  const client = new HttpClient();
   const server = await startServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/event-stream' });
     res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'partial' } }] })}\n\n`);
@@ -119,7 +129,7 @@ test('LlamaClient.streamChatCompletion rejects with the abort reason when the si
   try {
     const controller = new AbortController();
     await assert.rejects(
-      LlamaClient.streamChatCompletion(
+      client.streamSse(
         { url: `${server.baseUrl}/v1/chat/completions`, body: '{}', timeoutMs: 5000, abortSignal: controller.signal },
         () => { controller.abort(new Error('caller cancelled the stream')); },
       ),
@@ -130,7 +140,8 @@ test('LlamaClient.streamChatCompletion rejects with the abort reason when the si
   }
 });
 
-test('LlamaClient.streamChatCompletion stops and resolves when onData returns "stop"', async () => {
+test('HttpClient.streamSse stops and resolves when onData returns "stop"', async () => {
+  const client = new HttpClient();
   const server = await startServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/event-stream' });
     res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'first' } }] })}\n\n`);
@@ -139,7 +150,7 @@ test('LlamaClient.streamChatCompletion stops and resolves when onData returns "s
   });
   try {
     const received: Record<string, unknown>[] = [];
-    const result = await LlamaClient.streamChatCompletion(
+    const result = await client.streamSse(
       { url: `${server.baseUrl}/v1/chat/completions`, body: '{}', timeoutMs: 5000 },
       (parsed) => {
         received.push(parsed);
@@ -153,14 +164,15 @@ test('LlamaClient.streamChatCompletion stops and resolves when onData returns "s
   }
 });
 
-test('LlamaClient.requestJson throws on >= 400', async () => {
+test('HttpClient.requestJson throws on >= 400', async () => {
+  const client = new HttpClient();
   const server = await startServer((req, res) => {
     res.writeHead(500, { 'Content-Type': 'text/plain' });
     res.end('boom');
   });
   try {
     await assert.rejects(
-      LlamaClient.requestJson({ url: `${server.baseUrl}/tokenize`, method: 'POST', timeoutMs: 5000, body: '{}' }),
+      client.requestJson({ url: `${server.baseUrl}/tokenize`, method: 'POST', timeoutMs: 5000, body: '{}' }),
       /HTTP 500/u,
     );
   } finally {
@@ -168,16 +180,79 @@ test('LlamaClient.requestJson throws on >= 400', async () => {
   }
 });
 
-test('LlamaClient.requestText returns status and body without throwing on >= 400', async () => {
+test('HttpClient.requestText returns status and body without throwing on >= 400', async () => {
+  const client = new HttpClient();
   const server = await startServer((req, res) => {
     res.writeHead(503, { 'Content-Type': 'text/plain' });
     res.end('loading model');
   });
   try {
-    const response = await LlamaClient.requestText({ url: `${server.baseUrl}/v1/models`, timeoutMs: 5000 });
+    const response = await client.requestText({ url: `${server.baseUrl}/v1/models`, timeoutMs: 5000 });
     assert.equal(response.statusCode, 503);
     assert.match(response.body, /loading model/u);
   } finally {
     await server.close();
   }
+});
+
+test('HttpClient.localAgent returns shared keepAlive false agents selected by protocol', () => {
+  const client = new HttpClient();
+  const httpAgent = client.localAgent('http://127.0.0.1:8080');
+  const secondHttpAgent = client.localAgent(new URL('http://127.0.0.1:8081'));
+  const httpsAgent = client.localAgent('https://127.0.0.1:8443');
+
+  assert.equal(httpAgent, secondHttpAgent);
+  assert.equal(httpAgent.options.keepAlive, false);
+  assert.equal(httpsAgent.options.keepAlive, false);
+  assert.notEqual(httpAgent, httpsAgent);
+});
+
+test('HttpClient.fetch injects default User-Agent and allows per-call override', async () => {
+  const seenUserAgents: string[] = [];
+  const client = new HttpClient();
+  const server = await startServer((req, res) => {
+    seenUserAgents.push(String(req.headers['user-agent'] || ''));
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('ok');
+  });
+  try {
+    await client.fetch(`${server.baseUrl}/first`);
+    await client.fetch(`${server.baseUrl}/second`, { headers: { 'User-Agent': 'CustomAgent/1.0' } });
+
+    assert.equal(seenUserAgents[0], DEFAULT_USER_AGENT);
+    assert.equal(seenUserAgents[1], 'CustomAgent/1.0');
+  } finally {
+    await server.close();
+  }
+});
+
+test('HttpClient.fetch aborts at timeoutMs while preserving caller aborts', async () => {
+  const client = new HttpClient();
+  const server = await startServer((req, res) => {
+    if (req.url === '/hang') {
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('ok');
+  });
+  try {
+    await assert.rejects(
+      client.fetch(`${server.baseUrl}/hang`, { timeoutMs: 10 }),
+      /aborted|AbortError|timeout/i,
+    );
+
+    const controller = new AbortController();
+    controller.abort(new Error('caller aborted fetch'));
+    await assert.rejects(
+      client.fetch(`${server.baseUrl}/ok`, { signal: controller.signal, timeoutMs: 5000 }),
+      /caller aborted fetch|aborted|AbortError/i,
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+test('HttpClient exposes fetch transport constants for centralized undici policy', () => {
+  assert.equal(CONNECT_TIMEOUT_MS, 20_000);
+  assert.match(DEFAULT_USER_AGENT, /Chrome\//u);
 });

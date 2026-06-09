@@ -15,6 +15,7 @@ import {
   type BenchmarkAttemptRecord,
   type BenchmarkSessionDetail,
 } from '../state/dashboard-benchmark.js';
+import { httpClient } from '../lib/http-client.js';
 
 export type BenchmarkSseEvent = {
   event: 'log' | 'attempt' | 'session' | 'done' | 'error';
@@ -112,14 +113,14 @@ async function invokeAttempt(ctx: ServerContext, attempt: BenchmarkAttemptRecord
   const baseUrl = ctx.getServiceBaseUrl();
   const started = Date.now();
   const response = attempt.taskKind === 'repo-search'
-    ? await fetch(`${baseUrl}/repo-search`, {
+    ? await httpClient.requestJsonFull<Dict>({
+      url: `${baseUrl}/repo-search`,
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt: attempt.prompt }),
     })
-    : await fetch(`${baseUrl}/summary`, {
+    : await httpClient.requestJsonFull<Dict>({
+      url: `${baseUrl}/summary`,
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         question: attempt.prompt,
         inputText: attempt.prompt,
@@ -128,18 +129,12 @@ async function invokeAttempt(ctx: ServerContext, attempt: BenchmarkAttemptRecord
         sourceKind: 'standalone',
       }),
     });
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(`Benchmark ${attempt.taskKind} request failed (${response.status}): ${text}`);
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    throw new Error(`Benchmark ${attempt.taskKind} request failed (${response.statusCode}): ${response.rawText}`);
   }
-  let parsed: Dict = {};
-  try {
-    parsed = text ? JSON.parse(text) as Dict : {};
-  } catch {
-    parsed = { output: text };
-  }
+  const parsed = response.body;
   const outputText = attempt.taskKind === 'summary'
-    ? String(parsed.Summary || parsed.summary || text)
+    ? String(parsed.Summary || parsed.summary || response.rawText)
     : JSON.stringify(parsed);
   const runId = typeof parsed.requestId === 'string'
     ? parsed.requestId

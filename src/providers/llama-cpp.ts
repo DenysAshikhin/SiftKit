@@ -1,6 +1,5 @@
 import { getActiveManagedLlamaPreset, getConfiguredLlamaBaseUrl, getConfiguredLlamaNumCtx, getConfiguredLlamaSetting, type RuntimeLlamaCppConfig, type SiftConfig } from '../config/index.js';
-import { type FullJsonResponse } from '../lib/http.js';
-import { LlamaClient } from '../lib/llama-client.js';
+import { httpClient, type FullJsonResponse } from '../lib/http-client.js';
 import {
   buildTransientProviderHttpError,
   isTransientProviderHttpResponse,
@@ -230,7 +229,7 @@ function getStructuredOutputResponseFormat(
   return null;
 }
 
-// All llama.cpp HTTP goes through the pooling-disabled LlamaClient transport.
+// All llama.cpp HTTP goes through the pooling-disabled HttpClient transport.
 type JsonResponse<T> = FullJsonResponse<T>;
 
 function getTextContent(content: string | Array<{ type?: string; text?: string }> | undefined): string {
@@ -345,7 +344,7 @@ export async function countLlamaCppTokensDetailed(
   try {
     const baseUrl = getConfiguredLlamaBaseUrl(config);
     const response = await retryProviderRequest(async () => {
-      const nextResponse = await LlamaClient.requestJsonFull<LlamaCppTokenizeResponse>({
+      const nextResponse = await httpClient.requestJsonFull<LlamaCppTokenizeResponse>({
         url: `${baseUrl.replace(/\/$/u, '')}/tokenize`,
         method: 'POST',
         timeoutMs,
@@ -456,7 +455,7 @@ export async function listLlamaCppModels(config: SiftConfig): Promise<string[]> 
   let response: JsonResponse<LlamaCppModelListResponse>;
   try {
     response = await retryProviderRequest(async () => {
-      const nextResponse = await LlamaClient.requestJsonFull<LlamaCppModelListResponse>({
+      const nextResponse = await httpClient.requestJsonFull<LlamaCppModelListResponse>({
         url: `${baseUrl.replace(/\/$/u, '')}/v1/models`,
         method: 'GET',
         timeoutMs: 5000,
@@ -507,7 +506,7 @@ export async function getLlamaCppProviderStatus(config: SiftConfig): Promise<Lla
 
   try {
     status.BaseUrl = getConfiguredLlamaBaseUrl(config);
-    const response = await LlamaClient.requestJsonFull<LlamaCppModelListResponse>({
+    const response = await httpClient.requestJsonFull<LlamaCppModelListResponse>({
       url: `${status.BaseUrl.replace(/\/$/u, '')}/v1/models`,
       method: 'GET',
       timeoutMs: 500,
@@ -622,7 +621,7 @@ export async function generateLlamaCppChatResponse(options: {
   );
   try {
     response = await retryProviderRequest(async () => {
-      const nextResponse = await LlamaClient.requestJsonFull<LlamaCppChatResponse>({
+      const nextResponse = await httpClient.requestJsonFull<LlamaCppChatResponse>({
         url: `${baseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
         method: 'POST',
         timeoutMs: options.timeoutSeconds * 1000,

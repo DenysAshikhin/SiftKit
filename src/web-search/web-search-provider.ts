@@ -1,12 +1,22 @@
-import { BraveSearchProvider } from './brave-search-provider.js';
-import type { WebSearchConfig } from './types.js';
+import { TavilySearchProvider } from './tavily-search-provider.js';
+import { FirecrawlSearchProvider } from './firecrawl-search-provider.js';
+import type { WebSearchConfig, WebSearchProviderId } from './types.js';
 import { WebSearchProvider, type WebSearchProviderOptions } from './web-search-provider-base.js';
 
 export { WebSearchProvider, type WebSearchProviderOptions };
 
-export function createWebSearchProvider(config: WebSearchConfig): WebSearchProvider {
-  if (config.Provider === 'brave') {
-    return new BraveSearchProvider(config.BraveApiKey);
+function buildProvider(id: WebSearchProviderId, apiKey: string): WebSearchProvider {
+  if (id === 'tavily') {
+    return new TavilySearchProvider(apiKey);
   }
-  throw new Error(`Unsupported web search provider: ${String(config.Provider)}`);
+  if (id === 'firecrawl') {
+    return new FirecrawlSearchProvider(apiKey);
+  }
+  throw new Error(`Unsupported web search provider: ${String(id)}`);
+}
+
+export function createWebSearchProviders(config: WebSearchConfig): WebSearchProvider[] {
+  return config.ProviderOrder
+    .filter((id) => config.Providers[id]?.Enabled && config.Providers[id].ApiKey.trim())
+    .map((id) => buildProvider(id, config.Providers[id].ApiKey));
 }

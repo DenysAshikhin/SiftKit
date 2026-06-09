@@ -349,8 +349,10 @@ test('buildContextUsage counts typed thinking and tool bubbles from visible time
     usage.chatUsedTokens,
     estimateTokenCount('general, coder friendly assistant')
       + estimateTokenCount('Visible reasoning bubble.')
-      + estimateTokenCount('Tool call: rg -n "x" src\n\nResult:\nsrc/example.ts:1:x'),
+      + estimateTokenCount('rg -n "x" src'),
   );
+  assert.equal(usage.toolUsedTokens, estimateTokenCount('src/example.ts:1:x'));
+  assert.equal(usage.totalUsedTokens, usage.chatUsedTokens + usage.toolUsedTokens);
   assert.equal(typeof usage.providerOverheadTokens, 'number');
   assert.equal(Number.isInteger(usage.providerOverheadTokens), true);
   assert.equal(usage.providerOverheadTokens >= 0, true);
@@ -439,14 +441,16 @@ test('buildContextUsage counts replay-visible context, not internal tool telemet
     messages: [
       { id: 'u1', role: 'user', kind: 'user_text', content: 'tiny', inputTokensEstimate: 161239 },
       { id: 't1', role: 'assistant', kind: 'assistant_tool_call', content: 'web_fetch url="https://example.test"', outputTokensEstimate: 42073 },
-      { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'short answer', outputTokensEstimate: 2048 },
+      { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'short answer', outputTokensEstimate: 2048, associatedToolTokens: 42073 },
     ],
   } as ChatSession;
 
   const usage = buildContextUsage(createConfig(), session);
 
   assert.ok(usage.chatUsedTokens < 1000);
-  assert.equal(usage.toolUsedTokens, 0);
+  assert.equal(usage.toolUsedTokens, 42073);
+  assert.equal(usage.totalUsedTokens, usage.chatUsedTokens + 42073);
+  assert.equal(usage.remainingTokens, 62000 - usage.totalUsedTokens);
   assert.equal(usage.contextWindowTokens, 62000);
 });
 

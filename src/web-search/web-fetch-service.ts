@@ -1,45 +1,44 @@
-import { decodeHtmlEntities } from './html-text.js';
+import { JSDOM } from 'jsdom';
+import { Readability } from '@mozilla/readability';
+import TurndownService from 'turndown';
+import { httpClient, type HttpClient } from '../lib/http-client.js';
 import type { WebFetchResult, WebFetchToolArgs, WebSearchConfig } from './types.js';
 import { assertPublicHttpUrl } from './url-safety.js';
 
-type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
-
-function normalizeWhitespace(value: string): string {
-  return decodeHtmlEntities(value).replace(/\s+/gu, ' ').trim();
+function htmlToMarkdown(html: string, finalUrl: string): { title: string; markdown: string } {
+  const dom = new JSDOM(html, { url: finalUrl });
+  const article = new Readability(dom.window.document).parse();
+  const title = (article?.title || dom.window.document.title || finalUrl).trim();
+  const turndown = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
+  const markdown = turndown.turndown(article?.content || dom.window.document.body.innerHTML).trim();
+  return { title, markdown };
 }
 
-function extractTitle(html: string): string {
-  const match = /<title[^>]*>([\s\S]*?)<\/title>/iu.exec(html);
-  return normalizeWhitespace(match?.[1]?.replace(/<[^>]+>/gu, ' ') || '');
-}
-
-function extractText(content: string, contentType: string): { title: string; text: string } {
-  if (!contentType.toLowerCase().includes('html')) {
-    return { title: '', text: normalizeWhitespace(content) };
+function extractContent(rawText: string, contentType: string, finalUrl: string): { title: string; text: string } {
+  const type = contentType.toLowerCase();
+  if (type.includes('text/plain') || type.includes('text/markdown')) {
+    return { title: finalUrl, text: rawText.trim() };
   }
-  const title = extractTitle(content);
-  const text = normalizeWhitespace(content
-    .replace(/<script[\s\S]*?<\/script>/giu, ' ')
-    .replace(/<style[\s\S]*?<\/style>/giu, ' ')
-    .replace(/<noscript[\s\S]*?<\/noscript>/giu, ' ')
-    .replace(/<title[\s\S]*?<\/title>/giu, ' ')
-    .replace(/<[^>]+>/gu, ' '));
-  return { title, text };
+  if (type.includes('text/html') || type.includes('application/xhtml+xml')) {
+    const { title, markdown } = htmlToMarkdown(rawText, finalUrl);
+    return { title, text: markdown };
+  }
+  throw new Error(`web_fetch unsupported content type: ${contentType || 'unknown'}.`);
 }
 
 export class WebFetchService {
   constructor(
     private readonly config: WebSearchConfig,
-    private readonly fetchImpl: FetchLike = fetch,
+    private readonly client: HttpClient = httpClient,
   ) {}
 
   async fetch(args: WebFetchToolArgs): Promise<WebFetchResult> {
     const originalUrl = assertPublicHttpUrl(String(args.url || '').trim());
     let currentUrl = originalUrl;
     for (let redirect = 0; redirect <= 3; redirect += 1) {
-      const response = await this.fetchImpl(currentUrl, {
+      const response = await this.client.fetch(currentUrl, {
         redirect: 'manual',
-        signal: AbortSignal.timeout(this.config.TimeoutMs),
+        timeoutMs: this.config.TimeoutMs,
       });
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers.get('location');
@@ -53,7 +52,7 @@ export class WebFetchService {
         throw new Error(`web_fetch failed with HTTP ${response.status}.`);
       }
       const rawText = await response.text();
-      const extracted = extractText(rawText, response.headers.get('content-type') || '');
+      const extracted = extractContent(rawText, response.headers.get('content-type') || '', currentUrl.toString());
       const truncated = extracted.text.length > this.config.FetchMaxCharacters;
       return {
         url: originalUrl.toString(),

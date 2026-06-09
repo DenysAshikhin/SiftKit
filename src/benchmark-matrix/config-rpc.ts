@@ -1,10 +1,9 @@
-import { requestJson } from '../lib/http.js';
-import { LlamaClient } from '../lib/llama-client.js';
+import { httpClient } from '../lib/http-client.js';
 import { sleep } from '../lib/time.js';
 import type { ConfigRecord } from './types.js';
 
 export async function invokeConfigGet(configUrl: string): Promise<ConfigRecord> {
-  return requestJson<ConfigRecord>({
+  return httpClient.requestJson<ConfigRecord>({
     url: configUrl,
     method: 'GET',
     timeoutMs: 10_000,
@@ -12,7 +11,7 @@ export async function invokeConfigGet(configUrl: string): Promise<ConfigRecord> 
 }
 
 export async function invokeConfigSet(configUrl: string, config: ConfigRecord): Promise<ConfigRecord> {
-  return requestJson<ConfigRecord>({
+  return httpClient.requestJson<ConfigRecord>({
     url: configUrl,
     method: 'PUT',
     timeoutMs: 10_000,
@@ -38,7 +37,7 @@ export function getRuntimeLlamaCppConfigValue(config: ConfigRecord, key: string)
 }
 
 export async function getLlamaModels(baseUrl: string): Promise<string[]> {
-  const response = await LlamaClient.requestJson<{ data?: Array<{ id?: string | null }> }>({
+  const response = await httpClient.requestJson<{ data?: Array<{ id?: string | null }> }>({
     url: `${baseUrl.replace(/\/$/u, '')}/v1/models`,
     method: 'GET',
     timeoutMs: 10_000,

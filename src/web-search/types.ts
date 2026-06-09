@@ -1,9 +1,14 @@
-export type WebSearchProviderId = 'brave';
+export type WebSearchProviderId = 'tavily' | 'firecrawl';
+
+export type WebSearchProviderSettings = {
+  Enabled: boolean;
+  ApiKey: string;
+};
 
 export type WebSearchConfig = {
   EnabledDefault: boolean;
-  Provider: WebSearchProviderId;
-  BraveApiKey: string;
+  Providers: Record<WebSearchProviderId, WebSearchProviderSettings>;
+  ProviderOrder: WebSearchProviderId[];
   ResultCount: number;
   FetchMaxPages: number;
   TimeoutMs: number;
@@ -26,6 +31,13 @@ export type WebSearchResult = {
   url: string;
   snippet: string;
   source: WebSearchProviderId;
+};
+
+export type ProviderQuota = {
+  provider: WebSearchProviderId;
+  used: number | null;
+  limit: number | null;
+  remaining: number | null;
 };
 
 export type WebFetchResult = {

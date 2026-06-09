@@ -1,4 +1,4 @@
-import { requestJson } from '../lib/http.js';
+import { httpClient } from '../lib/http-client.js';
 import { addEffectiveConfigProperties } from './effective.js';
 import {
   normalizeConfig,
@@ -24,7 +24,7 @@ export function getConfigServiceUrl(): string {
 async function getConfigFromService(): Promise<SiftConfig> {
   const serviceUrl = getConfigServiceUrl();
   try {
-    return await requestJson<SiftConfig>({
+    return await httpClient.requestJson<SiftConfig>({
       url: serviceUrl,
       method: 'GET',
       timeoutMs: 130_000,
@@ -41,7 +41,7 @@ async function getConfigFromService(): Promise<SiftConfig> {
 async function setConfigInService(config: SiftConfig): Promise<SiftConfig> {
   const serviceUrl = getConfigServiceUrl();
   try {
-    return await requestJson<SiftConfig>({
+    return await httpClient.requestJson<SiftConfig>({
       url: serviceUrl,
       method: 'PUT',
       timeoutMs: 2000,

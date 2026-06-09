@@ -26,18 +26,66 @@ import {
 import { buildRepoSearchChatSteps } from '../dashboard/src/lib/chat-steps.ts';
 import { normalizeWebSearchConfig } from '../src/status-server/config-store.js';
 
-test('normalizeWebSearchConfig produces Brave defaults and clamps ResultCount to 20', () => {
-  const normalized = normalizeWebSearchConfig({ ResultCount: 999, BraveApiKey: '  abc  ', SearxngBaseUrl: 'http://x' });
-  assert.equal(normalized.Provider, 'brave');
+test('normalizeWebSearchConfig produces provider defaults and clamps ResultCount to 20', () => {
+  const normalized = normalizeWebSearchConfig({ ResultCount: 999, Providers: { tavily: { Enabled: true, ApiKey: '  abc  ' } } });
+  assert.deepEqual(normalized.ProviderOrder, ['tavily', 'firecrawl']);
   assert.equal(normalized.ResultCount, 20);
-  assert.equal(normalized.BraveApiKey, 'abc');
-  assert.equal('SearxngBaseUrl' in normalized, false);
+  assert.deepEqual(normalized.Providers, {
+    tavily: { Enabled: true, ApiKey: 'abc' },
+    firecrawl: { Enabled: false, ApiKey: '' },
+  });
 });
 
-test('normalizeWebSearchConfig defaults an empty Brave key', () => {
+test('normalizeWebSearchConfig defaults empty provider records', () => {
   const normalized = normalizeWebSearchConfig({});
-  assert.equal(normalized.BraveApiKey, '');
-  assert.equal(normalized.EnabledDefault, true);
+  assert.deepEqual(normalized.Providers, {
+    tavily: { Enabled: false, ApiKey: '' },
+    firecrawl: { Enabled: false, ApiKey: '' },
+  });
+});
+
+test('GET /dashboard/web-search-quota returns a quotas array', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-quota-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const config = getDefaultConfig();
+  config.WebSearch = {
+    EnabledDefault: true,
+    Providers: { tavily: { Enabled: false, ApiKey: '' }, firecrawl: { Enabled: false, ApiKey: '' } },
+    ProviderOrder: ['tavily', 'firecrawl'],
+    ResultCount: 5,
+    FetchMaxPages: 3,
+    TimeoutMs: 15000,
+    FetchMaxCharacters: 12000,
+  };
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  writeConfig(configPath, config);
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  try {
+    const response = await requestJson(`${baseUrl}/dashboard/web-search-quota`);
+    assert.equal(response.statusCode, 200);
+    const body = response.body as { quotas: unknown[] };
+    assert.ok(Array.isArray(body.quotas));
+    assert.deepEqual(body.quotas, []);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    restoreDashboardTestRepo(previousCwd);
+    await removeDirectoryWithRetries(tempRoot);
+  }
 });
 
 const requireFromHere = createRequire(__filename);
@@ -1047,7 +1095,7 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
               '1. GE',
               'URL: https://prices.runescape.wiki/iron-bar',
               'Snippet: iron bar ~150 gp',
-              'Source: brave',
+              'Source: tavily',
             ].join('\n'),
           },
           'web_fetch url="https://prices.runescape.wiki/iron-bar"': {
@@ -1103,7 +1151,7 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
               '1. GE live',
               'URL: https://prices.runescape.wiki/iron-bar-live',
               'Snippet: iron bar ~151 gp',
-              'Source: brave',
+              'Source: tavily',
             ].join('\n'),
           },
           'web_fetch url="https://prices.runescape.wiki/iron-bar-live"': {
@@ -1156,8 +1204,8 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
   const config = getDefaultConfig();
   config.WebSearch = {
     EnabledDefault: true,
-    Provider: 'brave',
-    BraveApiKey: 'test-key',
+    Providers: { tavily: { Enabled: true, ApiKey: 'test-key' }, firecrawl: { Enabled: false, ApiKey: '' } },
+    ProviderOrder: ['tavily', 'firecrawl'],
     ResultCount: 5,
     FetchMaxPages: 3,
     TimeoutMs: 15000,
@@ -1194,7 +1242,7 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
         mockCommandResults: {
           'web_search query="OSRS iron bar"': {
             exitCode: 0,
-            stdout: '1. Iron bar\nURL: https://oldschool.runescape.wiki/w/Iron_bar\nSnippet: Iron bars are used in Smithing and quests.\nSource: brave',
+            stdout: '1. Iron bar\nURL: https://oldschool.runescape.wiki/w/Iron_bar\nSnippet: Iron bars are used in Smithing and quests.\nSource: tavily',
           },
           'web_fetch url="https://oldschool.runescape.wiki/w/Iron_bar"': {
             exitCode: 0,
@@ -1263,8 +1311,8 @@ test('deleting retained web tool step allows the same web call in a later chat t
   const config = getDefaultConfig();
   config.WebSearch = {
     EnabledDefault: true,
-    Provider: 'brave',
-    BraveApiKey: 'test-key',
+    Providers: { tavily: { Enabled: true, ApiKey: 'test-key' }, firecrawl: { Enabled: false, ApiKey: '' } },
+    ProviderOrder: ['tavily', 'firecrawl'],
     ResultCount: 5,
     FetchMaxPages: 3,
     TimeoutMs: 15000,
@@ -1301,7 +1349,7 @@ test('deleting retained web tool step allows the same web call in a later chat t
         mockCommandResults: {
           'web_search query="iron bar GE price"': {
             exitCode: 0,
-            stdout: '1. GE\nURL: https://prices.runescape.wiki/iron-bar\nSnippet: iron bar price\nSource: brave',
+            stdout: '1. GE\nURL: https://prices.runescape.wiki/iron-bar\nSnippet: iron bar price\nSource: tavily',
           },
           'web_fetch url="https://prices.runescape.wiki/iron-bar"': {
             exitCode: 0,

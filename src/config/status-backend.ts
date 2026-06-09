@@ -1,4 +1,4 @@
-import { requestJson } from '../lib/http.js';
+import { httpClient } from '../lib/http-client.js';
 import { sleep } from '../lib/time.js';
 import { getStatusServerConnectHost } from '../lib/status-host.js';
 import { getInferenceStatusPath } from './paths.js';
@@ -75,7 +75,7 @@ export function toStatusServerUnavailableError(options: {
 
 export async function getStatusSnapshot(): Promise<StatusSnapshotResponse> {
   try {
-    return await requestJson<StatusSnapshotResponse>({
+    return await httpClient.requestJson<StatusSnapshotResponse>({
       url: getStatusBackendUrl(),
       method: 'GET',
       timeoutMs: 2000,
@@ -104,7 +104,7 @@ export async function ensureStatusServerReachable(): Promise<void> {
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      const response = await requestJson<{ ok?: boolean }>({
+      const response = await httpClient.requestJson<{ ok?: boolean }>({
         url: healthUrl,
         method: 'GET',
         timeoutMs,
@@ -361,7 +361,7 @@ async function postStatusJson(options: {
   operation: string;
 }): Promise<void> {
   try {
-    await requestJson<{ ok?: boolean; busy?: boolean }>({
+    await httpClient.requestJson<{ ok?: boolean; busy?: boolean }>({
       url: options.url,
       method: 'POST',
       timeoutMs: options.timeoutMs,

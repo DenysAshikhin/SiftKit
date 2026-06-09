@@ -283,6 +283,18 @@ const DASHBOARD_CONFIG = {
       ActivePresetId: MANAGED_PRESET.id,
     },
   },
+  WebSearch: {
+    EnabledDefault: true,
+    Providers: {
+      tavily: { Enabled: true, ApiKey: 'secret-key' },
+      firecrawl: { Enabled: false, ApiKey: '' },
+    },
+    ProviderOrder: ['tavily', 'firecrawl'],
+    ResultCount: 5,
+    FetchMaxPages: 3,
+    TimeoutMs: 15000,
+    FetchMaxCharacters: 12000,
+  },
 } as DashboardConfig;
 
 const CHAT_MESSAGE = {
@@ -496,6 +508,7 @@ test('metrics tab renders tool metrics and idle summary', () => {
       }]}
       taskRunsGraphSeries={[]}
       webSearchUsage={null}
+      webSearchQuota={null}
     />,
   );
 
@@ -516,6 +529,7 @@ test('metrics tab renders the web search usage card', () => {
       sortedToolMetricRows={[]}
       taskRunsGraphSeries={[]}
       webSearchUsage={{ currentMonth: '2026-06', currentMonthCount: 7, allTimeCount: 42 }}
+      webSearchQuota={[{ provider: 'tavily', used: 8, limit: 100, remaining: 92 }]}
     />,
   );
 
@@ -533,6 +547,7 @@ test('settings tab renders section chrome and fields', () => {
       selectedManagedLlamaPreset={MANAGED_PRESET}
       selectedSettingsPresetId={PRESET.id}
       webSearchUsage={null}
+      webSearchQuota={null}
       settingsLoading={false}
       settingsError={null}
       settingsDirty={false}
@@ -566,13 +581,16 @@ test('settings tab renders section chrome and fields', () => {
   assert.doesNotMatch(markup, /Managed llama\.cpp/);
 });
 
-test('settings tab web-search section renders Brave key (masked) and usage', () => {
+test('settings tab web-search section renders provider keys (masked), usage, and quota', () => {
   const config = {
     ...DASHBOARD_CONFIG,
     WebSearch: {
       EnabledDefault: true,
-      Provider: 'brave',
-      BraveApiKey: 'secret-key',
+      Providers: {
+        tavily: { Enabled: true, ApiKey: 'secret-key' },
+        firecrawl: { Enabled: false, ApiKey: '' },
+      },
+      ProviderOrder: ['tavily', 'firecrawl'],
       ResultCount: 5,
       FetchMaxPages: 3,
       TimeoutMs: 15000,
@@ -587,6 +605,7 @@ test('settings tab web-search section renders Brave key (masked) and usage', () 
       selectedManagedLlamaPreset={MANAGED_PRESET}
       selectedSettingsPresetId={PRESET.id}
       webSearchUsage={{ currentMonth: '2026-06', currentMonthCount: 12, allTimeCount: 99 }}
+      webSearchQuota={[{ provider: 'tavily', used: 8, limit: 100, remaining: 92 }]}
       settingsLoading={false}
       settingsError={null}
       settingsDirty={false}
@@ -613,10 +632,12 @@ test('settings tab web-search section renders Brave key (masked) and usage', () 
     />,
   );
 
-  assert.match(markup, /Brave API key/);
+  assert.match(markup, /Tavily API key/);
+  assert.match(markup, /Firecrawl API key/);
   assert.match(markup, /type="password"/);
   assert.match(markup, /12/);
   assert.match(markup, /99/);
+  assert.match(markup, /tavily: 92 left of 100/);
 });
 
 test('benchmark tab renders prompt library, run builder, live logs, sortable metrics, and grades', () => {
@@ -682,6 +703,7 @@ test('settings tab renders ncpu moe field in model presets section', () => {
       selectedManagedLlamaPreset={MANAGED_PRESET}
       selectedSettingsPresetId={PRESET.id}
       webSearchUsage={null}
+      webSearchQuota={null}
       settingsLoading={false}
       settingsError={null}
       settingsDirty={false}
@@ -1909,6 +1931,7 @@ test('metrics tab renders speculative acceptance graph', () => {
       sortedToolMetricRows={[]}
       taskRunsGraphSeries={[]}
       webSearchUsage={null}
+      webSearchQuota={null}
     />,
   );
 

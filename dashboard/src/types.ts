@@ -385,14 +385,32 @@ export type DashboardConfig = {
   WebSearch: DashboardWebSearchConfig;
 };
 
+export type WebSearchProviderId = 'tavily' | 'firecrawl';
+
+export type DashboardWebSearchProviderSettings = {
+  Enabled: boolean;
+  ApiKey: string;
+};
+
 export type DashboardWebSearchConfig = {
   EnabledDefault: boolean;
-  Provider: 'brave';
-  BraveApiKey: string;
+  Providers: Record<WebSearchProviderId, DashboardWebSearchProviderSettings>;
+  ProviderOrder: WebSearchProviderId[];
   ResultCount: number;
   FetchMaxPages: number;
   TimeoutMs: number;
   FetchMaxCharacters: number;
+};
+
+export type ProviderQuota = {
+  provider: WebSearchProviderId;
+  used: number | null;
+  limit: number | null;
+  remaining: number | null;
+};
+
+export type WebSearchQuotaResponse = {
+  quotas: ProviderQuota[];
 };
 
 export type DashboardManagedLlamaPreset = {

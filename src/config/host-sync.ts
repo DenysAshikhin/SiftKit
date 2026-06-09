@@ -1,4 +1,4 @@
-import { requestJson } from '../lib/http.js';
+import { httpClient } from '../lib/http-client.js';
 import { getActiveManagedLlamaPreset, getFinitePositiveNumber } from './getters.js';
 import type { RuntimeLlamaCppConfig, SiftConfig } from './types.js';
 
@@ -43,7 +43,7 @@ async function fetchHostLlamaSettings(baseUrl: string): Promise<HostLlamaSetting
     return cached;
   }
   // `skip_ready=1` lets the host return its config without booting managed llama.
-  const hostConfig = await requestJson<SiftConfig>({
+  const hostConfig = await httpClient.requestJson<SiftConfig>({
     url: `${baseUrl}/config?skip_ready=1`,
     method: 'GET',
     timeoutMs: HOST_CONFIG_TIMEOUT_MS,

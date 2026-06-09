@@ -614,8 +614,8 @@ function ChatTurnBubble({ turn, isDirectChatMode, chatBusy, onDeleteMessage, onD
   onDeleteMessage(messageId: string): Promise<void>;
   onDeleteTurn(messageIds: string[]): Promise<void>;
 }) {
-  const visibleTokens = turn.main ? getReplayDisplayTokenCount(turn.main) : 0;
   const aggregateTokens = turn.messages.reduce((sum, message) => sum + getMessageTokenCount(message), 0);
+  const visibleTokens = aggregateTokens;
   const headerTimestamp = turn.main ? turn.main.createdAtUtc : turn.messages[0]?.createdAtUtc ?? null;
   return (
     <article className={`msg assistant turn${turn.isLive ? ' live' : ''}`}>

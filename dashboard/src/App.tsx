@@ -9,6 +9,7 @@ import {
   getDashboardHealth,
   getIdleSummary,
   getMetrics,
+  getWebSearchQuota,
   pickManagedFile,
   openBenchmarkSessionEvents,
   testLlamaCppBaseUrl as testLlamaCppBaseUrlRequest,
@@ -74,7 +75,7 @@ import { MetricsTab } from './tabs/MetricsTab';
 import { ChatTab } from './tabs/ChatTab';
 import { SettingsTab } from './tabs/SettingsTab';
 import { BenchmarkTab } from './tabs/BenchmarkTab';
-import type { DashboardBenchmarkAttempt, DashboardBenchmarkQuestionPreset, DashboardBenchmarkSession, DashboardBenchmarkSortKey, DashboardConfig, DashboardManagedLlamaPreset, DashboardPreset, IdleSummarySnapshot, MetricDay, RunGroupFilter, TaskMetricDay, ToolStatsByTask, WebSearchUsage, RunDetailResponse, RunLogDeleteType, RunRecord } from './types';
+import type { DashboardBenchmarkAttempt, DashboardBenchmarkQuestionPreset, DashboardBenchmarkSession, DashboardBenchmarkSortKey, DashboardConfig, DashboardManagedLlamaPreset, DashboardPreset, IdleSummarySnapshot, MetricDay, ProviderQuota, RunGroupFilter, TaskMetricDay, ToolStatsByTask, WebSearchUsage, RunDetailResponse, RunLogDeleteType, RunRecord } from './types';
 
 type TabKey = 'runs' | 'metrics' | 'benchmark' | 'chat' | 'settings';
 type RunGroupKey = Exclude<RunGroupFilter, ''>;
@@ -121,6 +122,7 @@ function DashboardApp() {
   const [taskMetrics, setTaskMetrics] = useState<TaskMetricDay[]>([]);
   const [toolMetrics, setToolMetrics] = useState<ToolStatsByTask | null>(null);
   const [webSearchUsage, setWebSearchUsage] = useState<WebSearchUsage | null>(null);
+  const [webSearchQuota, setWebSearchQuota] = useState<ProviderQuota[] | null>(null);
   const [metricsError, setMetricsError] = useState<string | null>(null);
   const [idleSummarySnapshots, setIdleSummarySnapshots] = useState<IdleSummarySnapshot[]>([]);
 
@@ -499,6 +501,28 @@ function DashboardApp() {
       cancelled = true;
     };
   }, [dashboardRefreshToken]);
+
+  useEffect(() => {
+    if (tab !== 'metrics' && tab !== 'settings') {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await getWebSearchQuota();
+        if (!cancelled) {
+          setWebSearchQuota(response.quotas);
+        }
+      } catch {
+        if (!cancelled) {
+          setWebSearchQuota(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1275,6 +1299,7 @@ function DashboardApp() {
             sortedToolMetricRows={sortedToolMetricRows}
             taskRunsGraphSeries={taskRunsGraphSeries}
             webSearchUsage={webSearchUsage}
+            webSearchQuota={webSearchQuota}
           />
         </>
       )}
@@ -1314,6 +1339,7 @@ function DashboardApp() {
           selectedManagedLlamaPreset={selectedManagedLlamaPreset}
           selectedSettingsPresetId={selectedSettingsPresetId}
           webSearchUsage={webSearchUsage}
+          webSearchQuota={webSearchQuota}
           settingsLoading={settingsLoading}
           settingsError={settingsError}
           settingsDirty={settingsDirty}

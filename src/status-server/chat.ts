@@ -22,6 +22,11 @@ function getTrimmedString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function getNonNegativeNumber(value: unknown): number | null {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) && numberValue >= 0 ? numberValue : null;
+}
+
 function getMessageContextTokenEstimate(message: Dict): number {
   if (message.kind === 'assistant_thinking') {
     return estimateTokenCount(message.content);
@@ -39,13 +44,23 @@ function getMessageThinkingTokenEstimate(message: Dict): number {
 function formatChatMessageForPrompt(message: Dict): string {
   if (message.kind === 'assistant_tool_call') {
     const command = getTrimmedString(message.toolCallCommand) || getTrimmedString(message.content);
-    const output = getTrimmedString(message.toolCallOutput) || getTrimmedString(message.toolCallOutputSnippet);
-    if (command && output) {
-      return `Tool call: ${command}\n\nResult:\n${output}`;
-    }
-    return command || output || getTrimmedString(message.content);
+    return command || getTrimmedString(message.content);
   }
   return String(message.content || '');
+}
+
+function getMessageToolTokenEstimate(message: Dict): number {
+  if (message.kind !== 'assistant_tool_call') {
+    return 0;
+  }
+  const outputTokens = getNonNegativeNumber(message.outputTokensEstimate);
+  const associatedToolTokens = getNonNegativeNumber(message.associatedToolTokens);
+  const explicitTokens = Math.max(outputTokens ?? 0, associatedToolTokens ?? 0);
+  if (explicitTokens > 0 || outputTokens !== null || associatedToolTokens !== null) {
+    return explicitTokens;
+  }
+  const output = getTrimmedString(message.toolCallOutput) || getTrimmedString(message.toolCallOutputSnippet);
+  return output ? estimateTokenCount(output) : 0;
 }
 
 type ContextUsageTokenTotals = {
@@ -68,7 +83,7 @@ class ContextUsageBuilder {
     const warnThresholdTokens = Math.max(5000, Math.ceil(totals.contextWindowTokens * 0.1));
     return {
       contextWindowTokens: totals.contextWindowTokens,
-      usedTokens: totals.chatUsedTokens,
+      usedTokens: totals.totalUsedTokens,
       chatUsedTokens: totals.chatUsedTokens,
       thinkingUsedTokens: totals.thinkingUsedTokens,
       toolUsedTokens: totals.toolUsedTokens,
@@ -86,14 +101,16 @@ class ContextUsageBuilder {
     const messages = Array.isArray(this.session.messages) ? this.session.messages : [];
     const messageTokens = messages.reduce((sum: number, message: Dict) => sum + getMessageContextTokenEstimate(message), 0);
     const thinkingUsedTokens = messages.reduce((sum: number, message: Dict) => sum + getMessageThinkingTokenEstimate(message), 0);
+    const toolUsedTokens = messages.reduce((sum: number, message: Dict) => sum + getMessageToolTokenEstimate(message), 0);
     const chatUsedTokens = estimateTokenCount(DEFAULT_CHAT_SYSTEM_PROMPT) + messageTokens;
+    const totalUsedTokens = chatUsedTokens + toolUsedTokens;
     return {
       contextWindowTokens,
       chatUsedTokens,
       thinkingUsedTokens,
-      toolUsedTokens: 0,
-      totalUsedTokens: chatUsedTokens,
-      remainingTokens: Math.max(contextWindowTokens - chatUsedTokens, 0),
+      toolUsedTokens,
+      totalUsedTokens,
+      remainingTokens: Math.max(contextWindowTokens - totalUsedTokens, 0),
     };
   }
 

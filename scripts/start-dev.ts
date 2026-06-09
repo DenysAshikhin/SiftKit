@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import * as http from 'node:http';
 
+import { httpClient } from '../src/lib/http-client.js';
 import { isBackendReadyStatusCode } from './start-dev-health.js';
 import { buildStartupPortChecks, getStatusServerConnectHost, isPortInUse } from './start-dev-ports.js';
 import { stopChildProcessTree } from './start-dev-process.js';
@@ -52,47 +52,31 @@ function waitForBackendReady(options: { timeoutMs?: number; pollMs?: number } = 
   const timeoutMs = Number.isFinite(Number(options.timeoutMs)) ? Number(options.timeoutMs) : 30000;
   const pollMs = Number.isFinite(Number(options.pollMs)) ? Number(options.pollMs) : 400;
   const deadline = Date.now() + timeoutMs;
+  const healthUrl = `http://${host}:${port}/health`;
   return new Promise<boolean>((resolve) => {
-    const poll = (): void => {
+    const poll = async (): Promise<void> => {
       if (shuttingDown) {
         resolve(false);
         return;
       }
-      const request = http.request(
-        {
-          protocol: 'http:',
-          hostname: host,
-          port,
-          path: '/health',
-          method: 'GET',
-          timeout: 1200,
-        },
-        (response) => {
-          response.resume();
-          if (isBackendReadyStatusCode(response.statusCode)) {
-            resolve(true);
-            return;
-          }
-          if (Date.now() >= deadline) {
-            resolve(false);
-            return;
-          }
-          setTimeout(poll, pollMs);
-        }
-      );
-      request.on('error', () => {
-        if (Date.now() >= deadline) {
-          resolve(false);
+      try {
+        const response = await httpClient.requestText({ url: healthUrl, timeoutMs: 1200 });
+        if (isBackendReadyStatusCode(response.statusCode)) {
+          resolve(true);
           return;
         }
-        setTimeout(poll, pollMs);
-      });
-      request.on('timeout', () => {
-        request.destroy(new Error('health timeout'));
-      });
-      request.end();
+      } catch {
+        // Keep polling until the startup deadline.
+      }
+      if (Date.now() >= deadline) {
+        resolve(false);
+        return;
+      }
+      setTimeout(() => {
+        void poll();
+      }, pollMs);
     };
-    poll();
+    void poll();
   });
 }
 

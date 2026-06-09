@@ -1,5 +1,5 @@
 import { getStatusBackendUrl, getStatusServerUnavailableMessage } from '../config/index.js';
-import { logHttpClientBoundary, requestJson } from '../lib/http.js';
+import { httpClient, logHttpClientBoundary } from '../lib/http-client.js';
 import { readSummaryInput, summarizeRequest } from '../summary/core.js';
 import { isPassFailQuestion } from '../summary/measure.js';
 import { parseDeterministicTestOutput } from '../summary/test-output.js';
@@ -70,7 +70,7 @@ export async function runSummary(options: {
 async function requestSummaryThroughStatusServer(request: SummaryRequest): Promise<SummaryResult> {
   try {
     const requestStartedAt = Date.now();
-    const result = await requestJson<SummaryResult>({
+    const result = await httpClient.requestJson<SummaryResult>({
       url: getSummaryServiceUrl(),
       method: 'POST',
       timeoutMs: 10 * 60 * 1000,

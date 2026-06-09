@@ -21,7 +21,7 @@ import {
   type SettingsSectionId,
 } from '../settings-sections';
 import { SettingsField, SettingsInlineHelpLabel } from '../settings/SettingsFields';
-import type { DashboardConfig, DashboardManagedLlamaPreset, DashboardPreset, WebSearchUsage } from '../types';
+import type { DashboardConfig, DashboardManagedLlamaPreset, DashboardPreset, ProviderQuota, WebSearchUsage } from '../types';
 import { PresetsSection } from './settings/PresetsSection';
 import { ManagedLlamaSection } from './settings/ManagedLlamaSection';
 
@@ -32,6 +32,7 @@ type SettingsTabProps = {
   selectedManagedLlamaPreset: DashboardManagedLlamaPreset | null;
   selectedSettingsPresetId: string | null;
   webSearchUsage: WebSearchUsage | null;
+  webSearchQuota: ProviderQuota[] | null;
   settingsLoading: boolean;
   settingsError: string | null;
   settingsDirty: boolean;
@@ -65,6 +66,7 @@ export function SettingsTab(props: SettingsTabProps) {
     selectedManagedLlamaPreset,
     selectedSettingsPresetId,
     webSearchUsage,
+    webSearchQuota,
     settingsLoading,
     settingsError,
     settingsDirty,
@@ -90,7 +92,8 @@ export function SettingsTab(props: SettingsTabProps) {
     onSaveDashboardSettings,
   } = props;
 
-  const [showBraveKey, setShowBraveKey] = React.useState(false);
+  const [showTavilyKey, setShowTavilyKey] = React.useState(false);
+  const [showFirecrawlKey, setShowFirecrawlKey] = React.useState(false);
 
   const renderField = (
     sectionId: SettingsSectionId,
@@ -310,12 +313,17 @@ export function SettingsTab(props: SettingsTabProps) {
     const web = dashboardConfig.WebSearch;
     return (
       <div className="settings-live-grid">
-        {renderField('web-search', 'Provider', (
+        {renderField('web-search', 'Primary provider', (
           <select
-            value={web.Provider}
-            onChange={(event) => updateSettingsDraft((next) => { next.WebSearch.Provider = event.target.value as 'brave'; })}
+            value={web.ProviderOrder[0]}
+            onChange={(event) => updateSettingsDraft((next) => {
+              const primary = event.target.value as 'tavily' | 'firecrawl';
+              const fallback = primary === 'tavily' ? 'firecrawl' : 'tavily';
+              next.WebSearch.ProviderOrder = [primary, fallback];
+            })}
           >
-            <option value="brave">brave</option>
+            <option value="tavily">tavily</option>
+            <option value="firecrawl">firecrawl</option>
           </select>
         ))}
         {renderField('web-search', 'Web search enabled by default', (
@@ -328,15 +336,47 @@ export function SettingsTab(props: SettingsTabProps) {
             <span>{web.EnabledDefault ? 'Enabled' : 'Disabled'}</span>
           </label>
         ))}
-        {renderField('web-search', 'Brave API key', (
+        {renderField('web-search', 'Tavily enabled', (
+          <label className="settings-live-toggle-control">
+            <input
+              type="checkbox"
+              checked={web.Providers.tavily.Enabled}
+              onChange={(event) => updateSettingsDraft((next) => { next.WebSearch.Providers.tavily.Enabled = event.target.checked; })}
+            />
+            <span>{web.Providers.tavily.Enabled ? 'Enabled' : 'Disabled'}</span>
+          </label>
+        ))}
+        {renderField('web-search', 'Tavily API key', (
           <div className="settings-live-nav-control">
             <input
-              type={showBraveKey ? 'text' : 'password'}
-              value={web.BraveApiKey}
-              onChange={(event) => updateSettingsDraft((next) => { next.WebSearch.BraveApiKey = event.target.value; })}
+              type={showTavilyKey ? 'text' : 'password'}
+              value={web.Providers.tavily.ApiKey}
+              onChange={(event) => updateSettingsDraft((next) => { next.WebSearch.Providers.tavily.ApiKey = event.target.value; })}
             />
-            <button type="button" onClick={() => setShowBraveKey((value) => !value)}>
-              {showBraveKey ? 'Hide' : 'Show'}
+            <button type="button" onClick={() => setShowTavilyKey((value) => !value)}>
+              {showTavilyKey ? 'Hide' : 'Show'}
+            </button>
+          </div>
+        ))}
+        {renderField('web-search', 'Firecrawl enabled', (
+          <label className="settings-live-toggle-control">
+            <input
+              type="checkbox"
+              checked={web.Providers.firecrawl.Enabled}
+              onChange={(event) => updateSettingsDraft((next) => { next.WebSearch.Providers.firecrawl.Enabled = event.target.checked; })}
+            />
+            <span>{web.Providers.firecrawl.Enabled ? 'Enabled' : 'Disabled'}</span>
+          </label>
+        ))}
+        {renderField('web-search', 'Firecrawl API key', (
+          <div className="settings-live-nav-control">
+            <input
+              type={showFirecrawlKey ? 'text' : 'password'}
+              value={web.Providers.firecrawl.ApiKey}
+              onChange={(event) => updateSettingsDraft((next) => { next.WebSearch.Providers.firecrawl.ApiKey = event.target.value; })}
+            />
+            <button type="button" onClick={() => setShowFirecrawlKey((value) => !value)}>
+              {showFirecrawlKey ? 'Hide' : 'Show'}
             </button>
           </div>
         ))}
@@ -373,6 +413,11 @@ export function SettingsTab(props: SettingsTabProps) {
             {webSearchUsage
               ? `${formatNumber(webSearchUsage.currentMonthCount)} this month (${webSearchUsage.currentMonth}) / ${formatNumber(webSearchUsage.allTimeCount)} all-time`
               : 'No usage recorded yet.'}
+            {(webSearchQuota ?? []).map((quota) => (
+              <span key={quota.provider} style={{ display: 'block' }}>
+                {`${quota.provider}: ${quota.remaining ?? '?'} left of ${quota.limit ?? '?'} (used ${quota.used ?? '?'})`}
+              </span>
+            ))}
           </span>
         ))}
       </div>

@@ -7,7 +7,7 @@ import {
   formatShortTime,
 } from '../lib/format';
 import { describeToolType, type ToolMetricRow } from '../metrics-view';
-import type { IdleSummarySnapshot, MetricDay, WebSearchUsage } from '../types';
+import type { IdleSummarySnapshot, MetricDay, ProviderQuota, WebSearchUsage } from '../types';
 
 type MetricsTabProps = {
   metrics: MetricDay[];
@@ -17,6 +17,7 @@ type MetricsTabProps = {
   sortedToolMetricRows: ToolMetricRow[];
   taskRunsGraphSeries: InteractiveSeries[];
   webSearchUsage: WebSearchUsage | null;
+  webSearchQuota: ProviderQuota[] | null;
 };
 
 export function MetricsTab({
@@ -27,6 +28,7 @@ export function MetricsTab({
   sortedToolMetricRows,
   taskRunsGraphSeries,
   webSearchUsage,
+  webSearchQuota,
 }: MetricsTabProps) {
   return (
     <section className="panel">
@@ -295,6 +297,17 @@ export function MetricsTab({
               </div>
             ) : (
               <p className="hint">No searches recorded yet.</p>
+            )}
+            {(webSearchQuota ?? []).length > 0 && (
+              <div className="idle-summary-cards">
+                {(webSearchQuota ?? []).map((quota) => (
+                  <article key={quota.provider} className="idle-card throughput">
+                    <span>{quota.provider} credits left</span>
+                    <strong>{quota.remaining !== null ? formatNumber(quota.remaining) : '-'}</strong>
+                    <span>{quota.limit !== null ? `of ${formatNumber(quota.limit)}` : 'limit unknown'}</span>
+                  </article>
+                ))}
+              </div>
             )}
           </section>
         </div>
