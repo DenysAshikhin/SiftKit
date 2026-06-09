@@ -42,6 +42,8 @@ import {
   planRepoReadFile,
   type NativeRepoToolExecution,
 } from './engine/native-tools.js';
+import { DuplicateTracker } from './engine/duplicate-tracker.js';
+import { FORCED_FINISH_MAX_ATTEMPTS, FORCED_FINISH_MODE_MESSAGE, ForcedFinishController } from './engine/forced-finish.js';
 import { TokenUsageTracker } from './engine/token-usage.js';
 import { ToolStatsRecorder } from './engine/tool-stats.js';
 import { TurnBudget } from './engine/turn-budget.js';
@@ -153,9 +155,6 @@ const DEFAULT_MAX_TURNS = 45;
 const DEFAULT_MAX_INVALID_RESPONSES = 3;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MIN_TOOL_CALLS_BEFORE_FINISH = 5;
-const ZERO_OUTPUT_FORCE_THRESHOLD = 10;
-const FORCED_FINISH_MAX_ATTEMPTS = 3;
-const DUPLICATE_FORCE_THRESHOLD = 5;
 const ANSI_RED_CODE = 31;
 
 function buildToolOutputRepetitionWarning(detection: TokenRepetitionDetection): string {
@@ -420,8 +419,6 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     enabled: chatWebGroundingEnabled,
     retainedWebToolCalls: options.retainedWebToolCalls,
   });
-  let zeroOutputStreak = 0;
-  let forcedFinishAttemptsRemaining = 0;
   let lastLoggedMessageCount = 0;
   const slotId = options.config ? allocateLlamaCppSlotId(options.config) : 0;
   const ignorePolicy = buildIgnorePolicy(options.repoRoot);
@@ -438,11 +435,8 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const historicalToolStats = readLatestIdleSummaryToolStats();
   const recentEvidenceKeys = new Set<string>();
   const successfulToolCalls: Array<{ toolName: string; promptResultText: string }> = [];
-  let lastSuccessfulNormalizedKey: string | null = null;
-  let lastSuccessfulFingerprint: string | null = null;
-  let duplicateReplayFingerprint: string | null = null;
-  let duplicateReplayCount = 0;
-  let duplicateReplayToolMessageIndex = -1;
+  const duplicates = new DuplicateTracker();
+  const forcedFinish = new ForcedFinishController();
   let forcedFinishCountdownUserMessageIndex = -1;
   const fileReadCountByPath = new Map<string, number>();
   const fileReadStateByPath = new Map<string, FileReadState>();
@@ -475,7 +469,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   for (let turn = 1; turn <= maxTurns; turn += 1) {
     throwIfAborted(options.abortSignal);
     turnsUsed = turn;
-    const inForcedFinishMode = forcedFinishAttemptsRemaining > 0;
+    const inForcedFinishMode = forcedFinish.isActive();
 
     const promptRenderSpan = options.timingRecorder?.start('repo.prompt.render', {
       taskId: task.id,
@@ -920,10 +914,9 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         continue;
       }
       if (inForcedFinishMode) {
-        forcedFinishAttemptsRemaining = Math.max(forcedFinishAttemptsRemaining - 1, 0);
-        const forcedReason = `Forced finish mode active. Return a finish action now. Attempts remaining: ${forcedFinishAttemptsRemaining}.`;
+        const attempt = forcedFinish.consumeAttempt();
         commandFailures += 1;
-        commands.push({ command, turn, safe: false, reason: forcedReason, exitCode: null, output: `Rejected command: ${forcedReason}` });
+        commands.push({ command, turn, safe: false, reason: attempt.rejectionReason, exitCode: null, output: `Rejected command: ${attempt.rejectionReason}` });
         batchOutcomes.push({
           action: buildEffectiveTranscriptAction({
             toolName: normalizedToolName,
@@ -932,10 +925,10 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
             commandToRun: command,
           }),
           toolCallId: `forced_finish_call_${commands.length}`,
-          toolContent: `Rejected command: ${forcedReason}`,
+          toolContent: `Rejected command: ${attempt.rejectionReason}`,
         });
-        pendingForcedFinishCountdownText = `Forced finish attempts remaining: ${forcedFinishAttemptsRemaining}. Return a finish action now.`;
-        if (forcedFinishAttemptsRemaining === 0) { reason = 'forced_finish_attempt_limit'; break; }
+        pendingForcedFinishCountdownText = attempt.countdownText;
+        if (attempt.exhausted) { reason = 'forced_finish_attempt_limit'; break; }
         continue;
       }
 
@@ -959,9 +952,12 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         : normalized.rejected
           ? command
           : normalized.command;
-    const duplicateFingerprint = fingerprint || `${normalizedToolName}|${normalizedKey}`;
-    const isExactDuplicate = Boolean(lastSuccessfulNormalizedKey && normalizedKey === lastSuccessfulNormalizedKey);
-    const isSemanticDuplicate = Boolean(!isExactDuplicate && !normalized.rejected && fingerprint && lastSuccessfulFingerprint && fingerprint === lastSuccessfulFingerprint);
+    const { isExactDuplicate, isSemanticDuplicate, duplicateFingerprint } = duplicates.classify({
+      toolName: normalizedToolName,
+      normalizedKey,
+      fingerprint,
+      rejected: Boolean(normalized.rejected),
+    });
     const canAdvanceRepeatedRead = normalizedToolName === 'repo_read_file' || Boolean(!isNativeTool && parseGetContentReadWindowCommand(normalizedKey));
     if (chatWebGroundingEnabled && (normalizedToolName === 'web_search' || normalizedToolName === 'web_fetch')) {
       const duplicateDecision = chatWebGroundingPolicy.evaluateToolCall(normalizedToolName, toolAction.args);
@@ -989,18 +985,14 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       }
     }
     if (!canAdvanceRepeatedRead && (isExactDuplicate || isSemanticDuplicate)) {
-      const isActiveDuplicate = duplicateReplayFingerprint === duplicateFingerprint
-        && duplicateReplayToolMessageIndex >= 0
-        && duplicateReplayToolMessageIndex < messages.length;
-      duplicateReplayFingerprint = duplicateFingerprint;
-      duplicateReplayCount = isActiveDuplicate ? (duplicateReplayCount + 1) : 2;
-      const duplicateMessage = buildRepeatedToolCallSummary(normalizedToolName, duplicateReplayCount);
+      const registration = duplicates.registerDuplicate(duplicateFingerprint, messages.length);
+      const duplicateMessage = buildRepeatedToolCallSummary(normalizedToolName, registration.count);
       commandFailures += 1;
       const rejectionReason = isExactDuplicate ? 'duplicate command' : 'semantic duplicate command';
       commands.push({ command, turn, safe: false, reason: rejectionReason, exitCode: null, output: `Rejected: ${duplicateMessage}` });
-      if (isActiveDuplicate) {
-        const previousToolMessage = messages[duplicateReplayToolMessageIndex];
-        messages[duplicateReplayToolMessageIndex] = {
+      if (registration.activeReplayMessageIndex !== null) {
+        const previousToolMessage = messages[registration.activeReplayMessageIndex];
+        messages[registration.activeReplayMessageIndex] = {
           role: 'tool',
           tool_call_id: previousToolMessage?.tool_call_id,
           content: duplicateMessage,
@@ -1027,18 +1019,17 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
           turn,
           command,
           fingerprint,
-          repeats: duplicateReplayCount,
+          repeats: registration.count,
         });
       }
-      if (duplicateReplayCount >= DUPLICATE_FORCE_THRESHOLD && forcedFinishAttemptsRemaining === 0) {
-        forcedFinishAttemptsRemaining = FORCED_FINISH_MAX_ATTEMPTS;
-        pendingModeChangeUserMessages.push('Forced finish mode active. Return {"action":"finish",...} now. Tool calls are blocked.');
+      if (duplicates.shouldForceFinish() && !forcedFinish.isActive()) {
+        pendingModeChangeUserMessages.push(forcedFinish.activateFromStagnation());
         toolStats.recordForcedFinishFromStagnation(prospectiveToolType);
         options.logger?.write({
           kind: 'turn_forced_finish_mode_started',
           taskId: task.id,
           turn,
-          attemptsRemaining: forcedFinishAttemptsRemaining,
+          attemptsRemaining: FORCED_FINISH_MAX_ATTEMPTS,
           trigger: isSemanticDuplicate ? 'semantic_repetition' : 'consecutive_duplicates',
         });
       }
@@ -1261,24 +1252,20 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
 
     let zeroOutputWarningText = '';
+    const zeroOutputObservation = forcedFinish.recordToolOutput(baseOutput.length);
     if (baseOutput.length === 0) {
-      zeroOutputStreak += 1;
-      const remainingBeforeForce = Math.max(ZERO_OUTPUT_FORCE_THRESHOLD - zeroOutputStreak, 0);
-      zeroOutputWarningText = remainingBeforeForce > 0
-        ? `Zero-output warning: ${remainingBeforeForce} more zero-output command(s) and you will be forced to answer.`
-        : `Zero-output limit reached: you are now forced to answer within ${FORCED_FINISH_MAX_ATTEMPTS} attempt(s).`;
+      zeroOutputWarningText = zeroOutputObservation.warningText;
       options.logger?.write({
-        kind: 'turn_zero_output_countdown', taskId: task.id, turn, zeroOutputStreak, remainingBeforeForce,
+        kind: 'turn_zero_output_countdown', taskId: task.id, turn,
+        zeroOutputStreak: zeroOutputObservation.zeroOutputStreak,
+        remainingBeforeForce: zeroOutputObservation.remainingBeforeForce,
       });
-      if (remainingBeforeForce === 0 && forcedFinishAttemptsRemaining === 0) {
-        forcedFinishAttemptsRemaining = FORCED_FINISH_MAX_ATTEMPTS;
-        pendingModeChangeUserMessages.push('Forced finish mode active. Return {"action":"finish",...} now. Tool calls are blocked.');
+      if (zeroOutputObservation.activated) {
+        pendingModeChangeUserMessages.push(FORCED_FINISH_MODE_MESSAGE);
         options.logger?.write({
-          kind: 'turn_forced_finish_mode_started', taskId: task.id, turn, attemptsRemaining: forcedFinishAttemptsRemaining,
+          kind: 'turn_forced_finish_mode_started', taskId: task.id, turn, attemptsRemaining: FORCED_FINISH_MAX_ATTEMPTS,
         });
       }
-    } else {
-      zeroOutputStreak = 0;
     }
 
     // For search commands (rg/grep), exit_code=1 means "no match" — but when there IS output it
@@ -1513,11 +1500,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     });
     const commandSucceeded = Number(executed.exitCode) === 0 || searchExit.noMatch;
     if (commandSucceeded) {
-      duplicateReplayFingerprint = null;
-      duplicateReplayCount = 0;
-      duplicateReplayToolMessageIndex = -1;
-      lastSuccessfulNormalizedKey = normalizedKey;
-      lastSuccessfulFingerprint = fingerprint || null;
+      duplicates.recordSuccess(normalizedKey, fingerprint || null);
     }
     const toolCallId = `call_${commands.length}`;
     batchOutcomes.push({
@@ -1547,7 +1530,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     );
     appendSpan?.end({ afterMessageCount: messages.length });
     if (batchDuplicateAnchorIndex !== null && batchOutcomes.length > 0) {
-      duplicateReplayToolMessageIndex = preAppendMessagesLength + 1 + batchDuplicateAnchorIndex;
+      duplicates.setReplayToolMessageIndex(preAppendMessagesLength + 1 + batchDuplicateAnchorIndex);
     }
     for (const userMessage of pendingModeChangeUserMessages) {
       messages.push({ role: 'user', content: userMessage });
