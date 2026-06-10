@@ -18,7 +18,6 @@ import {
 } from '../line-read-guidance.js';
 import { getDynamicMaxOutputTokens } from '../lib/dynamic-output-cap.js';
 import { ModelJson } from '../lib/model-json.js';
-import { colorize } from '../lib/text-format.js';
 import type { TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
 import { listLlamaCppModels } from '../providers/llama-cpp.js';
 import type { ToolTypeStats } from '../status-server/metrics.js';
@@ -45,6 +44,8 @@ import {
 import { DuplicateTracker } from './engine/duplicate-tracker.js';
 import { FORCED_FINISH_MAX_ATTEMPTS, FORCED_FINISH_MODE_MESSAGE, ForcedFinishController } from './engine/forced-finish.js';
 import { ProgressReporter } from './engine/progress-reporter.js';
+import { ReadWindowGovernor } from './engine/read-window-governor.js';
+import { ToolResultBudgeter } from './engine/tool-result-budgeter.js';
 import { TranscriptManager } from './engine/transcript-manager.js';
 import { TokenUsageTracker } from './engine/token-usage.js';
 import { ToolStatsRecorder } from './engine/tool-stats.js';
@@ -68,22 +69,10 @@ import {
   preflightPlannerPromptBudget,
 } from './prompt-budget.js';
 import {
-  buildGetContentReadWindowCommand,
-  buildReadOverlapSummary,
-  computeAdjustedReadWindow,
-  getOrCreateFileReadState,
-  getPreviousExecutedMaxEnd,
   type LineReadAdjustment,
-  LINE_READ_ROUNDING_STEP,
   mergeReadOverlapSummaries,
-  mergeRange,
-  overlapWithRanges,
   parseGetContentReadWindowCommand,
-  REPEATED_LINE_READ_MIN_RATIO,
-  type ReadRange,
   type ReadOverlapSummary,
-  resolveAvgTokensPerLine,
-  type FileReadState,
 } from './engine/read-overlap.js';
 import {
   buildTaskInitialUserPrompt,
@@ -116,11 +105,6 @@ import {
   type ToolTranscriptAction,
 } from '../tool-call-messages.js';
 import {
-  findContiguousUnreadRange,
-  ToolOutputFitter,
-  type ToolOutputTruncationUnit,
-} from '../tool-output-fit.js';
-import {
   detectRecentTokenRepetition,
   type TokenRepetitionDetection,
 } from './repetition-guard.js';
@@ -152,7 +136,6 @@ const DEFAULT_MAX_TURNS = 45;
 const DEFAULT_MAX_INVALID_RESPONSES = 3;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MIN_TOOL_CALLS_BEFORE_FINISH = 5;
-const ANSI_RED_CODE = 31;
 
 function buildToolOutputRepetitionWarning(detection: TokenRepetitionDetection): string {
   return `SiftKit stopped tool output early: recent tokens repeated every ${detection.periodTokens} tokens across the last ${detection.windowTokens} tokens after ${detection.totalTokens} tokens.`;
@@ -243,10 +226,6 @@ function evaluateTaskSignals(task: TaskDefinition, evidenceText: string): {
 // Console helper
 // ---------------------------------------------------------------------------
 
-function writeRedConsoleLine(message: string): void {
-  if (!message) return;
-  process.stderr.write(`${colorize(String(message), ANSI_RED_CODE, { isTTY: true })}\n`);
-}
 
 // ---------------------------------------------------------------------------
 // Task result type
@@ -433,9 +412,13 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
   const successfulToolCalls: Array<{ toolName: string; promptResultText: string }> = [];
   const duplicates = new DuplicateTracker();
   const forcedFinish = new ForcedFinishController();
+  const resultBudgeter = new ToolResultBudgeter({
+    config: options.config,
+    useEstimatedTokensOnly,
+    timingRecorder: options.timingRecorder || null,
+  });
+  const readWindows = new ReadWindowGovernor();
   let forcedFinishCountdownUserMessageIndex = -1;
-  const fileReadCountByPath = new Map<string, number>();
-  const fileReadStateByPath = new Map<string, FileReadState>();
 
   const baseSystemPrompt = typeof options.systemPromptOverride === 'string' && options.systemPromptOverride.trim()
     ? options.systemPromptOverride.trim()
@@ -958,7 +941,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     }
     if (isNativeTool) {
       if (normalizedToolName === 'repo_read_file') {
-        const nativeReadPlan = planRepoReadFile(toolAction.args, options.repoRoot, ignorePolicy, fileReadStateByPath);
+        const nativeReadPlan = planRepoReadFile(toolAction.args, options.repoRoot, ignorePolicy, readWindows.stateMap);
         nativeExecution = isFailedRepoReadFilePlan(nativeReadPlan)
           ? { ok: false, command: nativeReadPlan.command, reason: nativeReadPlan.reason, toolType: normalizedToolName }
           : buildRepoReadFileExecution(normalizedToolName, nativeReadPlan, null);
@@ -975,7 +958,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
           toolType: normalizedToolName,
         };
       } else {
-        nativeExecution = await executeNativeRepoTool(normalizedToolName, toolAction.args, options.repoRoot, ignorePolicy, webTools, fileReadStateByPath);
+        nativeExecution = await executeNativeRepoTool(normalizedToolName, toolAction.args, options.repoRoot, ignorePolicy, webTools, readWindows.stateMap);
       }
     }
     if (isNativeTool && nativeExecution && !nativeExecution.ok) {
@@ -1021,43 +1004,15 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     let lineReadAdjustment: LineReadAdjustment | null = null;
 
     if (parsedReadWindow) {
-      const previousReadCount = Number(fileReadCountByPath.get(parsedReadWindow.pathKey) || 0);
-      if (previousReadCount >= 1) {
-        const minTokensFromCap = Math.max(1, Math.ceil(preExecutionPerToolCapTokens * REPEATED_LINE_READ_MIN_RATIO));
-        const currentGetContentStats = toolStats.get('get-content');
-        const historicalGetContentStats = historicalToolStats['get-content'] || null;
-        const avgTokensPerLine = resolveAvgTokensPerLine(currentGetContentStats, historicalGetContentStats);
-        const minLinesFromCap = Math.max(1, Math.ceil(minTokensFromCap / avgTokensPerLine));
-        const existingReadState = getOrCreateFileReadState(fileReadStateByPath, parsedReadWindow.pathKey);
-        const previousReturnedMaxEnd = existingReadState.mergedReturnedRanges.length > 0
-          ? Math.max(...existingReadState.mergedReturnedRanges.map((range) => range.end))
-          : getPreviousExecutedMaxEnd(existingReadState);
-        const adjustedWindow = computeAdjustedReadWindow({
-          requestedStart: parsedReadWindow.requestedStart,
-          requestedEnd: parsedReadWindow.requestedEnd,
-          minLinesFromCap,
-          roundingStep: LINE_READ_ROUNDING_STEP,
-          previousExecutedMaxEnd: previousReturnedMaxEnd,
-        });
-        if (adjustedWindow.adjusted) {
-          const adjustedFirst = Math.max(1, adjustedWindow.end - adjustedWindow.start);
-          commandToRun = buildGetContentReadWindowCommand(
-            parsedReadWindow.pathExpression,
-            adjustedWindow.start,
-            adjustedFirst,
-            parsedReadWindow.hasExplicitSkip,
-          );
-          lineReadAdjustment = {
-            executedCommand: commandToRun,
-            requestedStart: parsedReadWindow.requestedStart,
-            requestedEnd: parsedReadWindow.requestedEnd,
-            adjustedStart: adjustedWindow.start,
-            adjustedEnd: adjustedWindow.end,
-            minLinesFromCap,
-            perToolCapTokens: preExecutionPerToolCapTokens,
-            reason: adjustedWindow.reason,
-          };
-        }
+      const planned = readWindows.planAdjustment({
+        parsedReadWindow,
+        perToolCapTokens: preExecutionPerToolCapTokens,
+        currentGetContentStats: toolStats.get('get-content'),
+        historicalGetContentStats: historicalToolStats['get-content'] || null,
+      });
+      if (planned) {
+        commandToRun = planned.commandToRun;
+        lineReadAdjustment = planned.adjustment;
       }
     }
 
@@ -1119,34 +1074,14 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       ? `${searchExit.message}\n${baseOutput}`.trim()
       : baseOutput;
     const executedReadWindow = isNativeTool ? null : parseGetContentReadWindowCommand(commandToRun);
-    let lineReadOverlapLines = 0;
-    let lineReadNewLinesCovered = 0;
-    let lineReadCumulativeUniqueLines = 0;
+    let readMetrics = { overlapLines: 0, newLinesCovered: 0, cumulativeUniqueLines: 0 };
     if (parsedReadWindow) {
-      fileReadCountByPath.set(parsedReadWindow.pathKey, Number(fileReadCountByPath.get(parsedReadWindow.pathKey) || 0) + 1);
-    }
-    if (parsedReadWindow && executedReadWindow && executedReadWindow.pathKey === parsedReadWindow.pathKey) {
-      const fileReadState = getOrCreateFileReadState(fileReadStateByPath, parsedReadWindow.pathKey);
-      const executedRange: ReadRange = {
-        start: executedReadWindow.requestedStart,
-        end: executedReadWindow.requestedEnd,
-      };
-      const linesRead = Math.max(0, executedRange.end - executedRange.start);
-      lineReadOverlapLines = overlapWithRanges(fileReadState.mergedExecutedRanges, executedRange);
-      lineReadNewLinesCovered = Math.max(0, linesRead - lineReadOverlapLines);
-      fileReadState.totalLinesRead += linesRead;
-      fileReadState.overlapLines += lineReadOverlapLines;
-      fileReadState.uniqueLinesRead += lineReadNewLinesCovered;
-      fileReadState.mergedExecutedRanges = mergeRange(fileReadState.mergedExecutedRanges, executedRange);
-      fileReadState.windows.push({
+      readMetrics = readWindows.recordExecution({
+        parsedReadWindow,
+        executedReadWindow,
         turn,
-        requestedStart: parsedReadWindow.requestedStart,
-        requestedEnd: parsedReadWindow.requestedEnd,
-        executedStart: executedRange.start,
-        executedEnd: executedRange.end,
         adjusted: Boolean(lineReadAdjustment),
       });
-      lineReadCumulativeUniqueLines = fileReadState.uniqueLinesRead;
     }
 
     const rewriteNotesForLogs: string[] = [];
@@ -1208,93 +1143,28 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       resultText = `${zeroOutputWarningText}\n\n${resultText}`.trim();
     }
     resultText = applyToolOutputRepetitionGuard(resultText);
-    const rawToolTokenSpan = options.timingRecorder?.start('repo.tool.tokenize_raw', {
+    const perToolCapTokens = budget.perToolCapTokens(commands.length);
+    const remainingTokenAllowance = budget.remainingToolAllowance(promptTokenCount, acceptedToolPromptTokensThisTurn);
+    const fitted = await resultBudgeter.fit({
       taskId: task.id,
       turn,
       toolName: normalizedToolName,
-      inputChars: rawResultText.length,
+      resultText,
+      rawResultText,
+      perToolCapTokens,
+      remainingTokenAllowance,
+      commandSucceededForFitting: Number(executed.exitCode) === 0 || searchExit.noMatch,
+      outputUnit: nativeExecution && nativeExecution.ok && nativeExecution.outputUnit ? nativeExecution.outputUnit : 'lines',
     });
-    const rawResultTokenCount = useEstimatedTokensOnly
-      ? estimateTokenCount(options.config, rawResultText)
-      : await countTokensWithFallback(options.config, rawResultText);
-    rawToolTokenSpan?.end({ tokenCount: rawResultTokenCount });
+    resultText = fitted.resultText;
+    const resultTokenCount = fitted.resultTokenCount;
+    const resultTokenCountEstimated = fitted.resultTokenCountEstimated;
+    const fittedReturnedSegmentCount = fitted.fittedReturnedSegmentCount;
+    const rawResultTokenCount = fitted.rawResultTokenCount;
     let lineReadStats = isNativeTool && nativeExecution && nativeExecution.ok && nativeExecution.lineReadStats
       ? nativeExecution.lineReadStats
       : getRepoSearchLineReadStats(commandToRun, baseOutput, rawResultTokenCount);
-    const perToolCapTokens = budget.perToolCapTokens(commands.length);
-    const remainingTokenAllowance = budget.remainingToolAllowance(promptTokenCount, acceptedToolPromptTokensThisTurn);
-    const promptToolTokenSpan = options.timingRecorder?.start('repo.tool.tokenize_prompt', {
-      taskId: task.id,
-      turn,
-      toolName: normalizedToolName,
-      inputChars: resultText.length,
-    });
-    const candidateResultTokenCount = useEstimatedTokensOnly
-      ? estimateTokenCount(options.config, resultText)
-      : await countTokensWithFallback(options.config, resultText);
-    promptToolTokenSpan?.end({ tokenCount: candidateResultTokenCount });
-
-    let resultTokenCount = candidateResultTokenCount;
-    let resultTokenCountEstimated = useEstimatedTokensOnly;
-    let fittedReturnedSegmentCount: number | null = null;
-
-    if (candidateResultTokenCount > perToolCapTokens || candidateResultTokenCount > remainingTokenAllowance) {
-      const commandSucceededForFitting = Number(executed.exitCode) === 0 || searchExit.noMatch;
-      if (commandSucceededForFitting) {
-        const resultLinesForFitting = resultText.split(/\r?\n/u).filter((line) => line.length > 0);
-        const fitHeaderText = undefined;
-        const fitSegments = resultLinesForFitting;
-        const fitter = new ToolOutputFitter({
-          async countToolOutputTokens(text: string): Promise<number> {
-            return useEstimatedTokensOnly
-              ? estimateTokenCount(options.config, text)
-              : await countTokensWithFallback(options.config, text);
-          },
-        });
-        const fitResult = await fitter.fitSegments({
-          headerText: fitHeaderText,
-          segments: fitSegments,
-          separator: '\n',
-          maxTokens: Math.min(perToolCapTokens, Math.max(1, remainingTokenAllowance)),
-          unit: nativeExecution && nativeExecution.ok && nativeExecution.outputUnit
-            ? nativeExecution.outputUnit
-            : 'lines',
-        });
-        fittedReturnedSegmentCount = fitResult.returnedLineCount;
-        resultText = fitResult.visibleText;
-        const fitTokenSpan = options.timingRecorder?.start('repo.tool.tokenize_fit', {
-          taskId: task.id,
-          turn,
-          toolName: normalizedToolName,
-          inputChars: resultText.length,
-        });
-        resultTokenCount = useEstimatedTokensOnly
-          ? estimateTokenCount(options.config, resultText)
-          : await countTokensWithFallback(options.config, resultText);
-        fitTokenSpan?.end({ tokenCount: resultTokenCount });
-        resultTokenCountEstimated = useEstimatedTokensOnly;
-      } else {
-        resultText = `Error: requested output would consume ${candidateResultTokenCount} tokens, remaining token allowance: ${remainingTokenAllowance}, per tool call allowance: ${perToolCapTokens}`;
-        writeRedConsoleLine(`repo_search warning: ${resultText}`);
-
-        if (useEstimatedTokensOnly) {
-          resultTokenCount = estimateTokenCount(options.config, resultText);
-          resultTokenCountEstimated = true;
-        } else {
-          const rejectionToolTokenSpan = options.timingRecorder?.start('repo.tool.tokenize_rejection', {
-            taskId: task.id,
-            turn,
-            toolName: normalizedToolName,
-            inputChars: resultText.length,
-          });
-          resultTokenCount = await countTokensWithFallback(options.config, resultText);
-          rejectionToolTokenSpan?.end({ tokenCount: resultTokenCount });
-          resultTokenCountEstimated = false;
-        }
-      }
-    }
     if (nativeExecution && nativeExecution.ok && nativeExecution.readFile && nativeExecution.lineReadStats && nativeExecution.lineReadStats.lineReadLinesTotal > 0) {
-      const fileReadState = getOrCreateFileReadState(fileReadStateByPath, nativeExecution.readFile.pathKey);
       const returnedLineCount = Math.min(
         nativeExecution.lineReadStats.lineReadLinesTotal,
         fittedReturnedSegmentCount ?? resultText.split(/\r?\n/u).filter((line) => /^\d+:/u.test(line)).length,
@@ -1311,32 +1181,14 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
           lineReadLinesTotal: returnedLineCount,
           lineReadTokensTotal: Math.max(1, estimateTokenCount(options.config, resultText)),
         };
-        fileReadState.mergedReturnedRanges = mergeRange(fileReadState.mergedReturnedRanges, {
+        readWindows.recordNativeReturnedRange(nativeExecution.readFile.pathKey, {
           start: nativeExecution.readFile.startLine,
           end: returnedEndLineExclusive,
         });
       }
     }
-    if (!isNativeTool && parsedReadWindow && executedReadWindow && executedReadWindow.pathKey === parsedReadWindow.pathKey) {
-      const fileReadState = getOrCreateFileReadState(fileReadStateByPath, parsedReadWindow.pathKey);
-      const returnedLineCount = Math.min(
-        Math.max(0, executedReadWindow.requestedEnd - executedReadWindow.requestedStart),
-        fittedReturnedSegmentCount ?? Math.max(0, executedReadWindow.requestedEnd - executedReadWindow.requestedStart),
-      );
-      const executedLineCount = Math.max(0, executedReadWindow.requestedEnd - executedReadWindow.requestedStart);
-      if (fittedReturnedSegmentCount !== null && returnedLineCount < executedLineCount) {
-        const adjustedNewLinesCovered = Math.min(lineReadNewLinesCovered, returnedLineCount);
-        fileReadState.totalLinesRead += returnedLineCount - executedLineCount;
-        fileReadState.uniqueLinesRead += adjustedNewLinesCovered - lineReadNewLinesCovered;
-        lineReadNewLinesCovered = adjustedNewLinesCovered;
-        lineReadCumulativeUniqueLines = fileReadState.uniqueLinesRead;
-      }
-      if (returnedLineCount > 0) {
-        fileReadState.mergedReturnedRanges = mergeRange(fileReadState.mergedReturnedRanges, {
-          start: executedReadWindow.requestedStart,
-          end: executedReadWindow.requestedStart + returnedLineCount,
-        });
-      }
+    if (!isNativeTool && parsedReadWindow && executedReadWindow) {
+      readWindows.applyFitTruncation({ parsedReadWindow, executedReadWindow, fittedReturnedSegmentCount, metrics: readMetrics });
     }
     const toolType = isNativeTool
       ? normalizedToolName
@@ -1394,9 +1246,9 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       lineReadPerToolCapTokens: lineReadAdjustment?.perToolCapTokens,
       lineReadExecutedStart: executedReadWindow?.requestedStart,
       lineReadExecutedEnd: executedReadWindow?.requestedEnd,
-      lineReadOverlapLines: executedReadWindow ? lineReadOverlapLines : undefined,
-      lineReadNewLinesCovered: executedReadWindow ? lineReadNewLinesCovered : undefined,
-      lineReadCumulativeUniqueLines: executedReadWindow ? lineReadCumulativeUniqueLines : undefined,
+      lineReadOverlapLines: executedReadWindow ? readMetrics.overlapLines : undefined,
+      lineReadNewLinesCovered: executedReadWindow ? readMetrics.newLinesCovered : undefined,
+      lineReadCumulativeUniqueLines: executedReadWindow ? readMetrics.cumulativeUniqueLines : undefined,
       exitCode: executed.exitCode, output: commandOutputText,
       promptTokenCount, resultTokenCount, perToolCapTokens, remainingTokenAllowance,
       insertedResultText: resultText,
@@ -1551,7 +1403,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
     missingSignals: signalCheck.missingSignals,
     ...tokenUsage.snapshot(),
     toolStats: toolStats.snapshot(),
-    readOverlapSummary: buildReadOverlapSummary(fileReadStateByPath),
+    readOverlapSummary: readWindows.summary(),
   };
 }
 
