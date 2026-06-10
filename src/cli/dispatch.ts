@@ -69,7 +69,7 @@ export async function runCli(options: CliRunOptions): Promise<number> {
         });
       case 'preset':
         if (commandArgs[0] === 'list') {
-          return runPresetList({ stdout });
+          return await runPresetList({ stdout });
         }
         throw new Error('Supported preset command: siftkit preset list');
       case 'install':

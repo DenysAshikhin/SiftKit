@@ -1,24 +1,14 @@
-import { getStatusBackendUrl, getStatusServerUnavailableMessage } from '../config/index.js';
-import { httpClient, logHttpClientBoundary } from '../lib/http-client.js';
-import { readSummaryInput, summarizeRequest } from '../summary/core.js';
-import { isPassFailQuestion } from '../summary/measure.js';
-import { parseDeterministicTestOutput } from '../summary/test-output.js';
-import type { SummaryRequest, SummaryResult } from '../summary/types.js';
+import type { SummaryRequest, SummaryTimingInput } from '../summary/types.js';
 import { getCommandArgs, parseArguments } from './args.js';
-
-export function getSummaryServiceUrl(): string {
-  const target = new URL(getStatusBackendUrl());
-  target.pathname = '/summary';
-  target.search = '';
-  target.hash = '';
-  return target.toString();
-}
+import { readCliTextInput } from './input.js';
+import { normalizeCliFormat, normalizeCliPolicyProfileOrDefault } from './request-normalizers.js';
+import { StatusServerApiClient } from './status-server-api-client.js';
 
 export async function runSummary(options: {
   argv: string[];
   stdinText?: string | Buffer;
   stdout: NodeJS.WritableStream;
-  timing?: Parameters<typeof summarizeRequest>[0]['timing'];
+  timing?: SummaryTimingInput;
 }): Promise<number> {
   const parsed = parseArguments(getCommandArgs(options.argv));
   const question = parsed.question || parsed.positionals[0];
@@ -26,7 +16,7 @@ export async function runSummary(options: {
     throw new Error('A question is required.');
   }
 
-  const inputText = readSummaryInput({
+  const inputText = readCliTextInput({
     text: parsed.text,
     file: parsed.file,
     stdinText: options.stdinText,
@@ -49,47 +39,15 @@ export async function runSummary(options: {
   const request: SummaryRequest = {
     question,
     inputText: inputText ?? '',
-    format: parsed.format === 'json' ? 'json' : 'text',
-    policyProfile: (parsed.profile as SummaryRequest['policyProfile']) || 'general',
+    format: normalizeCliFormat(parsed.format),
+    policyProfile: normalizeCliPolicyProfileOrDefault(parsed.profile),
     backend: parsed.backend,
     model: parsed.model,
     sourceKind,
     commandExitCode,
     timing: options.timing,
   };
-  const deterministicTestSummary = sourceKind === 'command-output' && isPassFailQuestion(question)
-    ? parseDeterministicTestOutput({ inputText: request.inputText, commandExitCode })
-    : null;
-  const result = deterministicTestSummary
-    ? await summarizeRequest(request)
-    : await requestSummaryThroughStatusServer(request);
+  const result = await new StatusServerApiClient().requestSummary(request);
   options.stdout.write(`${result.Summary}\n`);
   return 0;
-}
-
-async function requestSummaryThroughStatusServer(request: SummaryRequest): Promise<SummaryResult> {
-  try {
-    const requestStartedAt = Date.now();
-    const result = await httpClient.requestJson<SummaryResult>({
-      url: getSummaryServiceUrl(),
-      method: 'POST',
-      timeoutMs: 10 * 60 * 1000,
-      body: JSON.stringify(request),
-    });
-    logHttpClientBoundary(
-      'summary',
-      'caller_response_received',
-      `elapsed_ms=${Math.max(0, Date.now() - requestStartedAt)} no_awaited_flush_before_next=true`,
-    );
-    return result;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (/^HTTP \d+:/u.test(message)) {
-      throw error;
-    }
-    if (/ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|timed out|socket hang up/iu.test(message)) {
-      throw new Error(getStatusServerUnavailableMessage());
-    }
-    throw error;
-  }
 }

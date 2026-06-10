@@ -68,6 +68,8 @@ export const BLOCKED_PUBLIC_COMMANDS = new Set([
 ]);
 
 export const SERVER_DEPENDENT_COMMANDS = new Set([
+  'summary',
+  'preset',
   'install',
   'test',
   'eval',

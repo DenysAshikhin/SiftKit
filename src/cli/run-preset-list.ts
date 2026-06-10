@@ -1,13 +1,10 @@
-import { getConfigPath } from '../config/index.js';
-import { readConfig } from '../status-server/config-store.js';
-import { getPresetsForSurface, normalizePresets } from '../presets.js';
+import { StatusServerApiClient } from './status-server-api-client.js';
 
-export function runPresetList(options: {
+export async function runPresetList(options: {
   stdout: NodeJS.WritableStream;
-}): number {
-  const config = readConfig(getConfigPath());
-  const presets = getPresetsForSurface(normalizePresets(config.Presets), 'cli');
-  for (const preset of presets) {
+}): Promise<number> {
+  const result = await new StatusServerApiClient().listPresets();
+  for (const preset of result.presets) {
     options.stdout.write(
       `${preset.id}\t${preset.presetKind}\t${preset.operationMode}\t${preset.deletable ? 'custom' : 'builtin'}\t${preset.label}\n`,
     );

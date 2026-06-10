@@ -13,6 +13,20 @@ function syncDistRuntime(sourceRoot, targetRoot) {
     const targetPath = path.join(targetRoot, entry.name);
     fs.cpSync(sourcePath, targetPath, { recursive: true, force: true });
   }
+  removeDeletedRuntimeEntrypoints(sourceRoot, targetRoot);
+}
+
+function removeDeletedRuntimeEntrypoints(sourceRoot, targetRoot) {
+  for (const moduleName of ['command', 'interactive']) {
+    if (fs.existsSync(path.join(sourceRoot, `${moduleName}.js`))) {
+      continue;
+    }
+    for (const root of [sourceRoot, targetRoot]) {
+      for (const extension of ['.js', '.d.ts', '.js.map', '.d.ts.map']) {
+        fs.rmSync(path.join(root, `${moduleName}${extension}`), { force: true });
+      }
+    }
+  }
 }
 
 if (require.main === module) {

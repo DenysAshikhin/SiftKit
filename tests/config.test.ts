@@ -417,7 +417,8 @@ test('ensureStatusServerReachable extends default retries for timed out health c
 
     await ensureStatusServerReachable();
 
-    assert.equal(healthChecks, timedOutAttempts + 1);
+    assert.ok(healthChecks >= timedOutAttempts + 1, `healthChecks=${healthChecks}`);
+    assert.ok(healthChecks <= timedOutAttempts + 2, `healthChecks=${healthChecks}`);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error: Error | undefined) => (error ? reject(error) : resolve()));

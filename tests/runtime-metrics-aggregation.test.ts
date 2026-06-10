@@ -11,7 +11,7 @@ const Database = require('better-sqlite3');
 const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage } = require('../dist/config/index.js');
 const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../dist/summary.js');
 const { executeRepoSearchRequest } = require('../dist/repo-search/index.js');
-const { runCommand } = require('../dist/command.js');
+const { runCommand } = require('./helpers/run-command-for-test.cjs');
 const { runBenchmarkSuite } = require('../dist/benchmark/index.js');
 const { readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs, pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt } = require('../dist/benchmark-matrix/index.js');
 const { countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse } = require('../dist/providers/llama-cpp.js');
@@ -528,4 +528,3 @@ test('request status log groups large running counts and uses colon elapsed dura
     'request false raw_chars=3,322,607 prompt=342,395 (147,694) chunk 1/10 failed elapsed=1:31 error=Provider returned an invalid SiftKit decision payload: Unexpected token',
   );
 });
-

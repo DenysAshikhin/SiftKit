@@ -6,6 +6,7 @@ import type { Dict } from '../lib/types.js';
 import type { ManagedLlamaSpeculativeMetricsSnapshot } from './managed-llama.js';
 import type { ManagedLlamaStreamKind } from '../state/managed-llama-runs.js';
 import type { ManagedLlamaFlushQueue } from './managed-llama-flush-queue.js';
+import type { StatusEngineService } from './engine-service.js';
 
 export type { Dict };
 export type DatabaseInstance = InstanceType<typeof Database>;
@@ -103,6 +104,7 @@ export type ServerContext = {
   readonly metricsPath: string;
   readonly idleSummarySnapshotsPath: string;
   readonly disableManagedLlamaStartup: boolean;
+  readonly engineService: StatusEngineService;
 
   server: ExtendedServer | null;
   getServiceBaseUrl(): string;

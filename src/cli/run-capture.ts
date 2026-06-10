@@ -1,6 +1,8 @@
-import { runInteractiveCapture } from '../interactive.js';
-import { summarizeRequest } from '../summary/core.js';
+import { resolveExternalCommand } from '../capture/command-path.js';
+import { captureWithTranscript } from '../capture/process.js';
 import { getCommandArgs, parseArguments } from './args.js';
+import { normalizeCliFormat, normalizeCliPolicyProfile } from './request-normalizers.js';
+import { StatusServerApiClient } from './status-server-api-client.js';
 
 export async function runCaptureInternalCli(options: {
   argv: string[];
@@ -15,15 +17,19 @@ export async function runCaptureInternalCli(options: {
   const argList = (parsed.argList && parsed.argList.length > 0)
     ? parsed.argList
     : parsed.positionals.slice(1);
-  const result = await runInteractiveCapture({
-    Command: command,
-    ArgumentList: argList,
-    Question: parsed.question,
-    Format: parsed.format === 'json' ? 'json' : 'text',
-    PolicyProfile: (parsed.profile as Parameters<typeof summarizeRequest>[0]['policyProfile']) || 'general',
-    Backend: parsed.backend,
-    Model: parsed.model,
+  const captured = captureWithTranscript(resolveExternalCommand(command), argList);
+  const fallbackTranscript = `Interactive command completed without a captured transcript.\nCommand: ${command} ${argList.join(' ')}\nExitCode: ${captured.ExitCode}`;
+  const result = await new StatusServerApiClient().analyzeCommandOutput({
+    outputKind: 'interactive',
+    exitCode: captured.ExitCode,
+    combinedText: captured.Transcript.trim() ? captured.Transcript : fallbackTranscript,
+    commandText: [command, ...argList].join(' '),
+    question: parsed.question,
+    format: normalizeCliFormat(parsed.format),
+    policyProfile: normalizeCliPolicyProfile(parsed.profile),
+    backend: parsed.backend,
+    model: parsed.model,
   });
-  options.stdout.write(`${String(result.OutputText)}\n`);
+  options.stdout.write(`${String(result.Summary || 'No summary generated.').trim()}\nRaw transcript: ${result.RawLogPath}\n`);
   return 0;
 }

@@ -1,16 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { analyzeCommandOutput, runCommand } from '../dist/command.js';
+import { CommandOutputAnalyzer } from '../dist/command-output/analyzer.js';
+import { invokeProcess, invokeShellProcess } from '../dist/capture/process.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
+
+function createAnalyzer(): CommandOutputAnalyzer {
+  return new CommandOutputAnalyzer();
+}
 
 test('analyzeCommandOutput with NoSummarize returns no-summarize result', async () => {
   await withTestEnvAndServer(async () => {
-    const result = await analyzeCommandOutput({
-      ExitCode: 0,
-      CombinedText: 'Build completed successfully.\nAll 42 tests passed.',
-      Question: 'Did the build pass?',
-      NoSummarize: true,
+    const result = await createAnalyzer().analyze({
+      outputKind: 'command',
+      exitCode: 0,
+      combinedText: 'Build completed successfully.\nAll 42 tests passed.',
+      question: 'Did the build pass?',
+      noSummarize: true,
     });
     assert.equal(result.WasSummarized, false);
     assert.equal(result.PolicyDecision, 'no-summarize');
@@ -22,10 +28,11 @@ test('analyzeCommandOutput with NoSummarize returns no-summarize result', async 
 
 test('analyzeCommandOutput with short input returns a result with a policy decision', async () => {
   await withTestEnvAndServer(async () => {
-    const result = await analyzeCommandOutput({
-      ExitCode: 0,
-      CombinedText: 'ok',
-      Question: 'Did it work?',
+    const result = await createAnalyzer().analyze({
+      outputKind: 'command',
+      exitCode: 0,
+      combinedText: 'ok',
+      question: 'Did it work?',
     });
     assert.equal(typeof result.PolicyDecision, 'string');
     assert.equal(typeof result.RawLogPath, 'string');
@@ -36,10 +43,11 @@ test('analyzeCommandOutput with short input returns a result with a policy decis
 test('analyzeCommandOutput with large input summarizes via model', async () => {
   await withTestEnvAndServer(async () => {
     const longOutput = 'Line of output from build\n'.repeat(100);
-    const result = await analyzeCommandOutput({
-      ExitCode: 0,
-      CombinedText: longOutput,
-      Question: 'Summarize the build output',
+    const result = await createAnalyzer().analyze({
+      outputKind: 'command',
+      exitCode: 0,
+      combinedText: longOutput,
+      question: 'Summarize the build output',
     });
     assert.equal(result.WasSummarized, true);
     assert.equal(result.Classification, 'summary');
@@ -51,11 +59,12 @@ test('analyzeCommandOutput with large input summarizes via model', async () => {
 test('analyzeCommandOutput with risky risk level summarizes command output', async () => {
   await withTestEnvAndServer(async () => {
     const longOutput = 'Deleting row from production database\n'.repeat(100);
-    const result = await analyzeCommandOutput({
-      ExitCode: 0,
-      CombinedText: longOutput,
-      Question: 'What happened?',
-      RiskLevel: 'risky',
+    const result = await createAnalyzer().analyze({
+      outputKind: 'command',
+      exitCode: 0,
+      combinedText: longOutput,
+      question: 'What happened?',
+      riskLevel: 'risky',
     });
     assert.equal(result.WasSummarized, true);
   });
@@ -64,11 +73,12 @@ test('analyzeCommandOutput with risky risk level summarizes command output', asy
 test('analyzeCommandOutput reducer "none" preserves full text', async () => {
   await withTestEnvAndServer(async () => {
     const lines = Array.from({ length: 250 }, (_, i) => `line ${i}`).join('\n');
-    const result = await analyzeCommandOutput({
-      ExitCode: 0,
-      CombinedText: lines,
-      Question: 'Summarize',
-      ReducerProfile: 'none',
+    const result = await createAnalyzer().analyze({
+      outputKind: 'command',
+      exitCode: 0,
+      combinedText: lines,
+      question: 'Summarize',
+      reducerProfile: 'none',
     });
     assert.equal(result.WasSummarized, true);
     assert.equal(result.ReducedLogPath, null);
@@ -78,11 +88,12 @@ test('analyzeCommandOutput reducer "none" preserves full text', async () => {
 test('analyzeCommandOutput reducer "tail" creates reduced log', async () => {
   await withTestEnvAndServer(async () => {
     const lines = Array.from({ length: 250 }, (_, i) => `line ${i}`).join('\n');
-    const result = await analyzeCommandOutput({
-      ExitCode: 0,
-      CombinedText: lines,
-      Question: 'Summarize',
-      ReducerProfile: 'tail',
+    const result = await createAnalyzer().analyze({
+      outputKind: 'command',
+      exitCode: 0,
+      combinedText: lines,
+      question: 'Summarize',
+      reducerProfile: 'tail',
     });
     assert.equal(result.WasSummarized, true);
     assert.equal(typeof result.ReducedLogPath, 'string');
@@ -97,11 +108,12 @@ test('analyzeCommandOutput reducer "errors" extracts error context', async () =>
       'at Module._compile (node:internal/modules/cjs/loader:1356:14)',
       ...Array.from({ length: 120 }, (_, i) => `info line ${120 + i}`),
     ].join('\n');
-    const result = await analyzeCommandOutput({
-      ExitCode: 1,
-      CombinedText: lines,
-      Question: 'What failed?',
-      ReducerProfile: 'errors',
+    const result = await createAnalyzer().analyze({
+      outputKind: 'command',
+      exitCode: 1,
+      combinedText: lines,
+      question: 'What failed?',
+      reducerProfile: 'errors',
     });
     assert.equal(result.WasSummarized, true);
     assert.equal(typeof result.ReducedLogPath, 'string');
@@ -121,11 +133,12 @@ test('analyzeCommandOutput reducer "diff" filters diff lines', async () => {
       ' const c = 3;',
       ...Array.from({ length: 250 }, (_, i) => `unchanged line ${i}`),
     ].join('\n');
-    const result = await analyzeCommandOutput({
-      ExitCode: 0,
-      CombinedText: lines,
-      Question: 'What changed?',
-      ReducerProfile: 'diff',
+    const result = await createAnalyzer().analyze({
+      outputKind: 'command',
+      exitCode: 0,
+      combinedText: lines,
+      question: 'What changed?',
+      reducerProfile: 'diff',
     });
     assert.equal(result.WasSummarized, true);
   });
@@ -133,11 +146,14 @@ test('analyzeCommandOutput reducer "diff" filters diff lines', async () => {
 
 test('runCommand invokes a real command and produces a result', async () => {
   await withTestEnvAndServer(async () => {
-    const result = await runCommand({
-      Command: 'node',
-      ArgumentList: ['-e', 'console.log("hello from test")'],
-      Question: 'What was printed?',
-      NoSummarize: true,
+    const processResult = invokeProcess('node', ['-e', 'console.log("hello from test")']);
+    const result = await createAnalyzer().analyze({
+      outputKind: 'command',
+      exitCode: processResult.ExitCode,
+      combinedText: processResult.Combined,
+      commandText: 'node -e console.log("hello from test")',
+      question: 'What was printed?',
+      noSummarize: true,
     });
     assert.equal(result.ExitCode, 0);
     assert.equal(result.WasSummarized, false);
@@ -148,11 +164,12 @@ test('runCommand invokes a real command and produces a result', async () => {
 test('analyzeCommandOutput default/smart reducer combines head and tail for large output without errors', async () => {
   await withTestEnvAndServer(async () => {
     const lines = Array.from({ length: 250 }, (_, i) => `info line ${i}`).join('\n');
-    const result = await analyzeCommandOutput({
-      ExitCode: 0,
-      CombinedText: lines,
-      Question: 'Summarize',
-      ReducerProfile: 'smart',
+    const result = await createAnalyzer().analyze({
+      outputKind: 'command',
+      exitCode: 0,
+      combinedText: lines,
+      question: 'Summarize',
+      reducerProfile: 'smart',
     });
     assert.equal(result.WasSummarized, true);
     assert.equal(typeof result.ReducedLogPath, 'string');
@@ -168,11 +185,12 @@ test('analyzeCommandOutput with repeated lines compresses them', async () => {
       'unique line 2',
       ...Array.from({ length: 250 }, (_, i) => `filler ${i}`),
     ].join('\n');
-    const result = await analyzeCommandOutput({
-      ExitCode: 0,
-      CombinedText: lines,
-      Question: 'Summarize',
-      ReducerProfile: 'tail',
+    const result = await createAnalyzer().analyze({
+      outputKind: 'command',
+      exitCode: 0,
+      combinedText: lines,
+      question: 'Summarize',
+      reducerProfile: 'tail',
     });
     assert.equal(result.WasSummarized, true);
   });
@@ -181,11 +199,12 @@ test('analyzeCommandOutput with repeated lines compresses them', async () => {
 test('analyzeCommandOutput with debug risk level uses risky-operation profile', async () => {
   await withTestEnvAndServer(async () => {
     const longOutput = 'Debug output line\n'.repeat(100);
-    const result = await analyzeCommandOutput({
-      ExitCode: 0,
-      CombinedText: longOutput,
-      Question: 'What happened?',
-      RiskLevel: 'debug',
+    const result = await createAnalyzer().analyze({
+      outputKind: 'command',
+      exitCode: 0,
+      combinedText: longOutput,
+      question: 'What happened?',
+      riskLevel: 'debug',
     });
     assert.equal(result.WasSummarized, true);
   });
@@ -198,11 +217,12 @@ test('analyzeCommandOutput with nonzero exit code and errors reducer', async () 
       'fatal: could not connect to host',
       ...Array.from({ length: 120 }, (_, i) => `more info ${i}`),
     ].join('\n');
-    const result = await analyzeCommandOutput({
-      ExitCode: 1,
-      CombinedText: lines,
-      Question: 'What failed?',
-      ReducerProfile: 'errors',
+    const result = await createAnalyzer().analyze({
+      outputKind: 'command',
+      exitCode: 1,
+      combinedText: lines,
+      question: 'What failed?',
+      reducerProfile: 'errors',
     });
     assert.equal(result.WasSummarized, true);
   });
@@ -210,10 +230,14 @@ test('analyzeCommandOutput with nonzero exit code and errors reducer', async () 
 
 test('runCommand handles nonexistent command gracefully', async () => {
   await withTestEnvAndServer(async () => {
-    const result = await runCommand({
-      Command: 'definitely_not_a_real_command_xyz123',
-      Question: 'Did it work?',
-      NoSummarize: true,
+    const processResult = invokeProcess('definitely_not_a_real_command_xyz123');
+    const result = await createAnalyzer().analyze({
+      outputKind: 'command',
+      exitCode: processResult.ExitCode,
+      combinedText: processResult.Combined,
+      commandText: 'definitely_not_a_real_command_xyz123',
+      question: 'Did it work?',
+      noSummarize: true,
     });
     assert.ok(result.ExitCode !== 0 || typeof result.Summary === 'string');
   });
@@ -224,11 +248,15 @@ test('runCommand with Shell mode runs a script through the platform shell', asyn
     const script = process.platform === 'win32'
       ? '$x = ""; if ($x) { Write-Output "non-empty" } else { Write-Output "shell-mode-clean" }'
       : 'x=""; if [ -z "$x" ]; then echo shell-mode-clean; else echo non-empty; fi';
-    const result = await runCommand({
-      Command: script,
-      Shell: 'auto',
-      Question: 'What was printed?',
-      NoSummarize: true,
+    const processResult = invokeShellProcess(script, 'auto');
+    const result = await createAnalyzer().analyze({
+      outputKind: 'command',
+      exitCode: processResult.ExitCode,
+      combinedText: processResult.Combined,
+      commandText: `[auto] ${script}`,
+      question: 'What was printed?',
+      noSummarize: true,
+      shell: 'auto',
     });
     assert.equal(result.ExitCode, 0);
     assert.equal(result.WasSummarized, false);

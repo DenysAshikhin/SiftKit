@@ -11,7 +11,7 @@ const repoRoot = path.resolve(__dirname, '..');
 
 const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage } = require('../dist/config/index.js');
 const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../dist/summary.js');
-const { runCommand } = require('../dist/command.js');
+const { runCommand } = require('./helpers/run-command-for-test.cjs');
 const { runBenchmarkSuite } = require('../dist/benchmark/index.js');
 const { readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs, pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt } = require('../dist/benchmark-matrix/index.js');
 const { countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse } = require('../dist/providers/llama-cpp.js');
@@ -153,7 +153,6 @@ test('concurrent oversized CLI summary requests are serialized until the first r
 test('CLI summary fails closed with the canonical message when the external server is unreachable', async () => {
   await withTempEnv(async () => {
     const port = '4778';
-    const expectedMessage = `SiftKit status/config server is not reachable at http://127.0.0.1:${port}/health. Start the separate server process and stop issuing further siftkit commands until it is available.`;
       const result = spawnSync(
       process.execPath,
       [path.join(repoRoot, 'bin', 'siftkit.js'), 'summary', '--question', 'summarize this', '--text', 'hello world'],
@@ -170,7 +169,9 @@ test('CLI summary fails closed with the canonical message when the external serv
     );
 
     assert.equal(result.status, 1);
-    assert.match(result.stderr, new RegExp(expectedMessage.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'));
+    assert.match(result.stderr, new RegExp(`SiftKit status/config server is not reachable at http://127\\.0\\.0\\.1:${port}/health\\.`, 'u'));
+    assert.match(result.stderr, /Start the separate server process and stop issuing further siftkit commands until it is available\./u);
+    assert.match(result.stderr, /Operation: health:get/u);
   });
 });
 
@@ -229,7 +230,7 @@ test('CLI summary preserves HTTP 500 diagnostic response bodies containing timeo
   });
 });
 
-test('CLI summary succeeds without server preflight health checks', async () => {
+test('CLI summary performs server preflight health checks before posting', async () => {
   await withTempEnv(async () => {
     await withSummaryTestServer(async (server) => {
       const result = await spawnProcess(
@@ -248,7 +249,7 @@ test('CLI summary succeeds without server preflight health checks', async () => 
       assert.equal(result.code, 0);
       assert.doesNotMatch(result.stderr, /status\/config server is not reachable/iu);
       assert.match(result.stdout, /summary:/u);
-      assert.equal(Number(server?.state?.healthChecks || 0), 0);
+      assert.equal(Number(server?.state?.healthChecks || 0), 3);
     }, {
       healthFailuresBeforeOk: 2,
     });
@@ -301,4 +302,3 @@ test('unsupported input returns the exact terminal message', async () => {
     });
   });
 });
-

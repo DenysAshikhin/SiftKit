@@ -1,14 +1,20 @@
 import { ensureStatusServerReachable, loadConfig, setTopLevelConfigKey } from '../config/index.js';
-import { analyzeCommandOutput, runCommand } from '../command.js';
-import { runEvaluation } from '../eval.js';
+import { resolveExternalCommand } from '../capture/command-path.js';
+import { captureWithTranscript, invokeProcess, invokeShellProcess } from '../capture/process.js';
 import { findFiles } from '../find-files.js';
 import { installCodexPolicy, installShellIntegration, installSiftKit } from '../install.js';
-import { runInteractiveCapture } from '../interactive.js';
-import { executeRepoSearchRequest } from '../repo-search/index.js';
-import { summarizeRequest } from '../summary/core.js';
 import { readTextFileWithEncoding } from '../lib/text-encoding.js';
 import { getCommandArgs, parseArguments, SERVER_DEPENDENT_INTERNAL_OPS } from './args.js';
+import {
+  normalizeCliFormat,
+  normalizeCliPolicyProfile,
+  normalizeCliPolicyProfileOrDefault,
+  normalizeCliReducerProfile,
+  normalizeCliRiskLevel,
+  normalizeCliShell,
+} from './request-normalizers.js';
 import { buildTestResult } from './run-test.js';
+import { StatusServerApiClient } from './status-server-api-client.js';
 
 function readRequestFile(filePath: string): Record<string, unknown> {
   return JSON.parse(readTextFileWithEncoding(filePath)) as Record<string, unknown>;
@@ -31,6 +37,7 @@ export async function runInternal(options: {
   }
 
   const request = readRequestFile(parsed.requestFile);
+  const apiClient = new StatusServerApiClient();
   let result: unknown;
   switch (parsed.op) {
     case 'install':
@@ -47,48 +54,63 @@ export async function runInternal(options: {
       break;
     case 'summary': {
       const text = request.TextFile ? readTextFileWithEncoding(String(request.TextFile)) : String(request.Text || '');
-      result = await summarizeRequest({
+      result = await apiClient.requestSummary({
         question: String(request.Question),
         inputText: text,
         format: (request.Format === 'json' ? 'json' : 'text'),
-        policyProfile: ((request.PolicyProfile as Parameters<typeof summarizeRequest>[0]['policyProfile']) || 'general'),
+        policyProfile: normalizeCliPolicyProfileOrDefault(request.PolicyProfile),
         backend: request.Backend ? String(request.Backend) : undefined,
         model: request.Model ? String(request.Model) : undefined,
       });
       break;
     }
-    case 'command':
-      result = await runCommand({
-        Command: String(request.Command),
-        ArgumentList: Array.isArray(request.ArgumentList) ? request.ArgumentList.map(String) : [],
-        Question: request.Question ? String(request.Question) : undefined,
-        RiskLevel: request.RiskLevel as 'informational' | 'debug' | 'risky' | undefined,
-        ReducerProfile: request.ReducerProfile as 'smart' | 'errors' | 'tail' | 'diff' | 'none' | undefined,
-        Format: request.Format === 'json' ? 'json' : 'text',
-        PolicyProfile: request.PolicyProfile as Parameters<typeof summarizeRequest>[0]['policyProfile'] | undefined,
-        Backend: request.Backend ? String(request.Backend) : undefined,
-        Model: request.Model ? String(request.Model) : undefined,
-        NoSummarize: Boolean(request.NoSummarize),
+    case 'command': {
+      const command = String(request.Command);
+      const argumentList = Array.isArray(request.ArgumentList) ? request.ArgumentList.map(String) : [];
+      const shell = normalizeCliShell(request.Shell);
+      if (request.Shell && !shell) {
+        throw new Error(`Unsupported shell: ${request.Shell}`);
+      }
+      const processResult = shell
+        ? invokeShellProcess(command, shell)
+        : invokeProcess(command, argumentList);
+      result = await apiClient.analyzeCommandOutput({
+        outputKind: 'command',
+        exitCode: processResult.ExitCode,
+        combinedText: processResult.Combined,
+        commandText: shell ? `[${shell}] ${command}` : [command, ...argumentList].join(' '),
+        question: request.Question ? String(request.Question) : undefined,
+        riskLevel: normalizeCliRiskLevel(request.RiskLevel),
+        reducerProfile: normalizeCliReducerProfile(request.ReducerProfile),
+        format: normalizeCliFormat(request.Format),
+        policyProfile: normalizeCliPolicyProfile(request.PolicyProfile),
+        backend: request.Backend ? String(request.Backend) : undefined,
+        model: request.Model ? String(request.Model) : undefined,
+        noSummarize: Boolean(request.NoSummarize),
+        shell,
       });
       break;
+    }
     case 'command-analyze': {
       const text = request.RawTextFile ? readTextFileWithEncoding(String(request.RawTextFile)) : String(request.RawText || '');
-      result = await analyzeCommandOutput({
-        ExitCode: Number(request.ExitCode || 0),
-        CombinedText: text,
-        Question: request.Question ? String(request.Question) : undefined,
-        RiskLevel: request.RiskLevel as 'informational' | 'debug' | 'risky' | undefined,
-        ReducerProfile: request.ReducerProfile as 'smart' | 'errors' | 'tail' | 'diff' | 'none' | undefined,
-        Format: request.Format === 'json' ? 'json' : 'text',
-        PolicyProfile: request.PolicyProfile as Parameters<typeof summarizeRequest>[0]['policyProfile'] | undefined,
-        Backend: request.Backend ? String(request.Backend) : undefined,
-        Model: request.Model ? String(request.Model) : undefined,
-        NoSummarize: Boolean(request.NoSummarize),
+      result = await apiClient.analyzeCommandOutput({
+        outputKind: 'command',
+        exitCode: Number(request.ExitCode || 0),
+        combinedText: text,
+        commandText: request.CommandText ? String(request.CommandText) : undefined,
+        question: request.Question ? String(request.Question) : undefined,
+        riskLevel: normalizeCliRiskLevel(request.RiskLevel),
+        reducerProfile: normalizeCliReducerProfile(request.ReducerProfile),
+        format: normalizeCliFormat(request.Format),
+        policyProfile: normalizeCliPolicyProfile(request.PolicyProfile),
+        backend: request.Backend ? String(request.Backend) : undefined,
+        model: request.Model ? String(request.Model) : undefined,
+        noSummarize: Boolean(request.NoSummarize),
       });
       break;
     }
     case 'eval':
-      result = await runEvaluation({
+      result = await apiClient.runEvaluation({
         FixtureRoot: request.FixtureRoot ? String(request.FixtureRoot) : undefined,
         RealLogPath: Array.isArray(request.RealLogPath) ? request.RealLogPath.map(String) : [],
         Backend: request.Backend ? String(request.Backend) : undefined,
@@ -108,19 +130,26 @@ export async function runInternal(options: {
         Force: Boolean(request.Force),
       });
       break;
-    case 'interactive-capture':
-      result = await runInteractiveCapture({
-        Command: String(request.Command),
-        ArgumentList: Array.isArray(request.ArgumentList) ? request.ArgumentList.map(String) : [],
-        Question: request.Question ? String(request.Question) : undefined,
-        Format: request.Format === 'json' ? 'json' : 'text',
-        Backend: request.Backend ? String(request.Backend) : undefined,
-        Model: request.Model ? String(request.Model) : undefined,
-        PolicyProfile: request.PolicyProfile as Parameters<typeof summarizeRequest>[0]['policyProfile'] | undefined,
+    case 'interactive-capture': {
+      const command = String(request.Command);
+      const argumentList = Array.isArray(request.ArgumentList) ? request.ArgumentList.map(String) : [];
+      const captured = captureWithTranscript(resolveExternalCommand(command), argumentList);
+      const fallbackTranscript = `Interactive command completed without a captured transcript.\nCommand: ${command} ${argumentList.join(' ')}\nExitCode: ${captured.ExitCode}`;
+      result = await apiClient.analyzeCommandOutput({
+        outputKind: 'interactive',
+        exitCode: captured.ExitCode,
+        combinedText: captured.Transcript.trim() ? captured.Transcript : fallbackTranscript,
+        commandText: [command, ...argumentList].join(' '),
+        question: request.Question ? String(request.Question) : undefined,
+        format: normalizeCliFormat(request.Format),
+        policyProfile: normalizeCliPolicyProfile(request.PolicyProfile),
+        backend: request.Backend ? String(request.Backend) : undefined,
+        model: request.Model ? String(request.Model) : undefined,
       });
       break;
+    }
     case 'repo-search':
-      result = await executeRepoSearchRequest({
+      result = await apiClient.requestRepoSearch({
         prompt: String(request.Prompt || ''),
         repoRoot: String(request.RepoRoot || process.cwd()),
         model: request.Model ? String(request.Model) : undefined,

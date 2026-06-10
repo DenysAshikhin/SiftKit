@@ -1,6 +1,14 @@
-import { runCommand } from '../command.js';
-import { summarizeRequest } from '../summary/core.js';
+import { ensureStatusServerReachable } from '../config/index.js';
+import { invokeProcess, invokeShellProcess } from '../capture/process.js';
 import { getCommandArgs, parseArguments } from './args.js';
+import {
+  normalizeCliFormat,
+  normalizeCliPolicyProfile,
+  normalizeCliReducerProfile,
+  normalizeCliRiskLevel,
+  normalizeCliShell,
+} from './request-normalizers.js';
+import { StatusServerApiClient } from './status-server-api-client.js';
 
 export async function runCommandCli(options: {
   argv: string[];
@@ -15,17 +23,28 @@ export async function runCommandCli(options: {
   const argList = (parsed.argList && parsed.argList.length > 0)
     ? parsed.argList
     : parsed.positionals.slice(1);
-  const result = await runCommand({
-    Command: command,
-    ArgumentList: argList,
-    Question: parsed.question,
-    RiskLevel: parsed.risk,
-    ReducerProfile: parsed.reducer,
-    Format: parsed.format === 'json' ? 'json' : 'text',
-    PolicyProfile: (parsed.profile as Parameters<typeof summarizeRequest>[0]['policyProfile']) || 'general',
-    Backend: parsed.backend,
-    Model: parsed.model,
-    Shell: parsed.shell,
+  const shell = normalizeCliShell(parsed.shell);
+  if (parsed.shell && !shell) {
+    throw new Error(`Unsupported shell: ${parsed.shell}`);
+  }
+
+  await ensureStatusServerReachable();
+  const processResult = shell
+    ? invokeShellProcess(command, shell)
+    : invokeProcess(command, argList);
+  const result = await new StatusServerApiClient().analyzeCommandOutput({
+    outputKind: 'command',
+    exitCode: processResult.ExitCode,
+    combinedText: processResult.Combined,
+    commandText: shell ? `[${shell}] ${command}` : [command, ...argList].join(' '),
+    question: parsed.question,
+    riskLevel: normalizeCliRiskLevel(parsed.risk),
+    reducerProfile: normalizeCliReducerProfile(parsed.reducer),
+    format: normalizeCliFormat(parsed.format),
+    policyProfile: normalizeCliPolicyProfile(parsed.profile),
+    backend: parsed.backend,
+    model: parsed.model,
+    shell,
   });
 
   if (result.Summary) {

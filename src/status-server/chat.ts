@@ -1,7 +1,6 @@
 import * as crypto from 'node:crypto';
 import type { Dict } from '../lib/types.js';
 import type { ChatMessage } from '../repo-search/planner-protocol.js';
-import type { RepoSearchExecutionResult } from '../repo-search/types.js';
 import type { ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
 import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
 import {
@@ -748,14 +747,3 @@ export function buildRepoSearchMarkdown(userPrompt: string, repoRoot: string, re
   return lines.join('\n');
 }
 
-export type RepoSearchExecuteFn = (request: Dict) => Promise<RepoSearchExecutionResult>;
-
-export function loadRepoSearchExecutor(): RepoSearchExecuteFn {
-  const modulePath = require.resolve('../repo-search/index.js');
-  delete require.cache[modulePath];
-  const loadedModule = require(modulePath) as { executeRepoSearchRequest?: unknown };
-  if (!loadedModule || typeof loadedModule.executeRepoSearchRequest !== 'function') {
-    throw new Error('repo-search module does not export executeRepoSearchRequest.');
-  }
-  return loadedModule.executeRepoSearchRequest as RepoSearchExecuteFn;
-}

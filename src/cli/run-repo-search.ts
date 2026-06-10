@@ -1,15 +1,6 @@
-import { getStatusBackendUrl } from '../config/index.js';
-import { httpClient, logHttpClientBoundary } from '../lib/http-client.js';
 import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
 import { getCommandArgs, parseArguments } from './args.js';
-
-export function getRepoSearchServiceUrl(): string {
-  const target = new URL(getStatusBackendUrl());
-  target.pathname = '/repo-search';
-  target.search = '';
-  target.hash = '';
-  return target.toString();
-}
+import { StatusServerApiClient } from './status-server-api-client.js';
 
 export async function runRepoSearchCli(options: {
   argv: string[];
@@ -30,27 +21,12 @@ export async function runRepoSearchCli(options: {
     throw new Error('A --prompt is required for repo-search.');
   }
 
-  const requestStartedAt = Date.now();
-  const response = await httpClient.requestJson<{
-    requestId: string;
-    transcriptPath: string;
-    artifactPath: string;
-    scorecard: Record<string, unknown>;
-  }>({
-    url: getRepoSearchServiceUrl(),
-    method: 'POST',
-    body: JSON.stringify({
-      prompt,
-      repoRoot: process.cwd(),
-      model: parsed.model,
-      logFile: parsed.logFile,
-    }),
+  const response = await new StatusServerApiClient().requestRepoSearch({
+    prompt,
+    repoRoot: process.cwd(),
+    model: parsed.model,
+    logFile: parsed.logFile,
   });
-  logHttpClientBoundary(
-    'repo-search',
-    'caller_response_received',
-    `elapsed_ms=${Math.max(0, Date.now() - requestStartedAt)} no_awaited_flush_before_next=true`,
-  );
 
   const scorecard = response.scorecard && typeof response.scorecard === 'object'
     ? response.scorecard as { tasks?: Array<{ finalOutput?: unknown }> }

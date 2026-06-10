@@ -5,12 +5,11 @@ import * as http from 'node:http';
 import * as crypto from 'node:crypto';
 import type { Dict } from '../../lib/types.js';
 import { httpClient } from '../../lib/http-client.js';
-import { summarizeRequest } from '../../summary/core.js';
-import type { SiftConfig } from '../../config/index.js';
 import type {
   SummaryPolicyProfile,
   SummarySourceKind,
 } from '../../summary/types.js';
+import type { SiftConfig } from '../../config/index.js';
 import { mergeToolTypeStats } from '../../line-read-guidance.js';
 import { getRuntimeRoot } from '../paths.js';
 import { sleep } from '../../lib/time.js';
@@ -45,8 +44,9 @@ import {
   upsertRunLog,
   updateRunLogSpeculativeMetricsByRequestId,
 } from '../dashboard-runs.js';
-import { loadRepoSearchExecutor } from '../chat.js';
 import { RepoSearchResponseSanityChecker } from '../../repo-search/response-sanity.js';
+import { StatusPresetRunner } from '../preset-runner.js';
+import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.js';
 import {
   captureManagedLlamaSpeculativeMetricsSnapshot,
   getManagedLlamaSpeculativeMetricsDelta,
@@ -218,6 +218,18 @@ function normalizeSummaryPolicyProfile(value: unknown): SummaryPolicyProfile {
 
 function normalizeSummarySourceKind(value: unknown): SummarySourceKind {
   return value === 'command-output' ? 'command-output' : 'standalone';
+}
+
+function normalizeCommandOutputKind(value: unknown): 'command' | 'interactive' {
+  return value === 'interactive' ? 'interactive' : 'command';
+}
+
+function normalizeCommandOutputRiskLevel(value: unknown): 'informational' | 'debug' | 'risky' | undefined {
+  return value === 'informational' || value === 'debug' || value === 'risky' ? value : undefined;
+}
+
+function normalizeCommandOutputReducerProfile(value: unknown): 'smart' | 'errors' | 'tail' | 'diff' | 'none' | undefined {
+  return value === 'smart' || value === 'errors' || value === 'tail' || value === 'diff' || value === 'none' ? value : undefined;
 }
 
 function getOptionalString(value: unknown): string | undefined {
@@ -729,6 +741,161 @@ export async function handleCoreRoute(
   }
 
   // -------------------------------------------------------------------------
+  // Command output analysis
+  // -------------------------------------------------------------------------
+
+  if (req.method === 'POST' && req.url === '/command-output/analyze') {
+    let parsedBody: Dict;
+    try {
+      parsedBody = parseJsonBody(await readBody(req));
+    } catch {
+      sendJson(res, 400, { error: 'Expected valid JSON object.' });
+      return true;
+    }
+    const combinedText = typeof parsedBody.combinedText === 'string' ? parsedBody.combinedText : '';
+    const exitCode = Number.isFinite(Number(parsedBody.exitCode)) ? Number(parsedBody.exitCode) : 1;
+    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'summary', req, res);
+    if (!modelRequestLock) {
+      if (!res.destroyed && !res.writableEnded) {
+        sendJson(res, 503, { error: 'Timed out waiting for model request queue.', modelRequests: getModelRequestQueueDiagnostics(ctx) });
+      }
+      return true;
+    }
+    try {
+      try {
+        await ensureManagedLlamaReadyForModelRequest(ctx);
+      } catch (error) {
+        sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
+        return true;
+      }
+      const result = await ctx.engineService.analyzeCommandOutput({
+        outputKind: normalizeCommandOutputKind(parsedBody.outputKind),
+        exitCode,
+        combinedText,
+        commandText: getOptionalString(parsedBody.commandText),
+        question: getOptionalString(parsedBody.question),
+        riskLevel: normalizeCommandOutputRiskLevel(parsedBody.riskLevel),
+        reducerProfile: normalizeCommandOutputReducerProfile(parsedBody.reducerProfile),
+        format: normalizeSummaryFormat(parsedBody.format),
+        policyProfile: normalizeSummaryPolicyProfile(parsedBody.policyProfile),
+        backend: getOptionalString(parsedBody.backend),
+        model: getOptionalString(parsedBody.model),
+        noSummarize: parsedBody.noSummarize === true,
+        config: readConfig(configPath) as SiftConfig,
+      });
+      sendJson(res, 200, result);
+    } catch (error) {
+      sendServerErrorJson(req, res, 500, error, { taskKind: 'summary' });
+    } finally {
+      releaseModelRequest(ctx, modelRequestLock.token);
+    }
+    return true;
+  }
+
+  // -------------------------------------------------------------------------
+  // Presets
+  // -------------------------------------------------------------------------
+
+  if (req.method === 'GET' && req.url === '/preset/list') {
+    try {
+      const result = new StatusPresetRunner(ctx.engineService).listPresets();
+      sendJson(res, 200, result);
+    } catch (error) {
+      sendServerErrorJson(req, res, 500, error, { taskKind: 'summary' });
+    }
+    return true;
+  }
+
+  if (req.method === 'POST' && req.url === '/preset/run') {
+    let parsedBody: Dict;
+    try {
+      parsedBody = parseJsonBody(await readBody(req));
+    } catch {
+      sendJson(res, 400, { error: 'Expected valid JSON object.' });
+      return true;
+    }
+    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'summary', req, res);
+    if (!modelRequestLock) {
+      if (!res.destroyed && !res.writableEnded) {
+        sendJson(res, 503, { error: 'Timed out waiting for model request queue.', modelRequests: getModelRequestQueueDiagnostics(ctx) });
+      }
+      return true;
+    }
+    try {
+      try {
+        await ensureManagedLlamaReadyForModelRequest(ctx);
+      } catch (error) {
+        sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
+        return true;
+      }
+      const result = await new StatusPresetRunner(ctx.engineService).run({
+        presetId: String(parsedBody.presetId || ''),
+        prompt: getOptionalString(parsedBody.prompt),
+        question: getOptionalString(parsedBody.question),
+        inputText: typeof parsedBody.inputText === 'string' ? parsedBody.inputText : undefined,
+        format: normalizeSummaryFormat(parsedBody.format),
+        backend: getOptionalString(parsedBody.backend),
+        model: getOptionalString(parsedBody.model),
+        profile: getOptionalString(parsedBody.profile),
+        sourceKind: normalizeSummarySourceKind(parsedBody.sourceKind),
+        commandExitCode: getOptionalNumber(parsedBody.commandExitCode),
+        repoRoot: getOptionalString(parsedBody.repoRoot),
+        maxTurns: getOptionalNumber(parsedBody.maxTurns),
+        logFile: getOptionalString(parsedBody.logFile),
+      }, {
+        statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
+      });
+      sendJson(res, 200, result);
+    } catch (error) {
+      sendServerErrorJson(req, res, 500, error, { taskKind: 'summary' });
+    } finally {
+      releaseModelRequest(ctx, modelRequestLock.token);
+    }
+    return true;
+  }
+
+  // -------------------------------------------------------------------------
+  // Eval
+  // -------------------------------------------------------------------------
+
+  if (req.method === 'POST' && req.url === '/eval/run') {
+    let parsedBody: Dict;
+    try {
+      parsedBody = parseJsonBody(await readBody(req));
+    } catch {
+      sendJson(res, 400, { error: 'Expected valid JSON object.' });
+      return true;
+    }
+    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'summary', req, res);
+    if (!modelRequestLock) {
+      if (!res.destroyed && !res.writableEnded) {
+        sendJson(res, 503, { error: 'Timed out waiting for model request queue.', modelRequests: getModelRequestQueueDiagnostics(ctx) });
+      }
+      return true;
+    }
+    try {
+      try {
+        await ensureManagedLlamaReadyForModelRequest(ctx);
+      } catch (error) {
+        sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
+        return true;
+      }
+      const result = await ctx.engineService.runEvaluation({
+        FixtureRoot: getOptionalString(parsedBody.FixtureRoot),
+        RealLogPath: Array.isArray(parsedBody.RealLogPath) ? (parsedBody.RealLogPath as unknown[]).map((value) => String(value)) : [],
+        Backend: getOptionalString(parsedBody.Backend),
+        Model: getOptionalString(parsedBody.Model),
+      });
+      sendJson(res, 200, result);
+    } catch (error) {
+      sendServerErrorJson(req, res, 500, error, { taskKind: 'summary' });
+    } finally {
+      releaseModelRequest(ctx, modelRequestLock.token);
+    }
+    return true;
+  }
+
+  // -------------------------------------------------------------------------
   // Repo search (top-level, non-session)
   // -------------------------------------------------------------------------
 
@@ -766,9 +933,8 @@ export async function handleCoreRoute(
       if (Number.isFinite(Number(parsedBody.simulateWorkMs)) && Number(parsedBody.simulateWorkMs) > 0) {
         await sleep(Math.max(1, Math.trunc(Number(parsedBody.simulateWorkMs))));
       }
-      const executeRepoSearchRequest = loadRepoSearchExecutor();
       const config = readConfig(configPath);
-      const result = await executeRepoSearchRequest({
+      const result = await ctx.engineService.executeRepoSearch({
         taskKind: 'repo-search',
         prompt: parsedBody.prompt,
         requestId: admission.requestId,
@@ -785,7 +951,7 @@ export async function handleCoreRoute(
         logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,
         availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,
         mockResponses: Array.isArray(parsedBody.mockResponses) ? (parsedBody.mockResponses as unknown[]).map((v) => String(v)) : undefined,
-        mockCommandResults: (parsedBody.mockCommandResults && typeof parsedBody.mockCommandResults === 'object' && !Array.isArray(parsedBody.mockCommandResults)) ? parsedBody.mockCommandResults : undefined,
+        mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
         onProgress(event: RepoSearchProgressEvent) {
           if (event.kind === 'tool_start') {
             const logMessage = buildRepoSearchProgressLogMessage(event, 'repo_search');
@@ -841,7 +1007,7 @@ export async function handleCoreRoute(
         sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
         return true;
       }
-      const result = await summarizeRequest({
+      const result = await ctx.engineService.summarize({
         question,
         inputText,
         format: normalizeSummaryFormat(parsedBody.format),

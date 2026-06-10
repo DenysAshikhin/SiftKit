@@ -10,7 +10,7 @@ const Database = require('better-sqlite3');
 
 const { loadConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage } = require('../dist/config/index.js');
 const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../dist/summary.js');
-const { runCommand } = require('../dist/command.js');
+const { runCommand } = require('./helpers/run-command-for-test.cjs');
 const { runBenchmarkSuite } = require('../dist/benchmark/index.js');
 const { withExecutionLock } = require('../dist/execution-lock.js');
 const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../dist/status-server/index.js');

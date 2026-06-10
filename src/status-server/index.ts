@@ -47,6 +47,7 @@ import {
   clearIdleSummaryTimer,
   getIdleSummaryDatabase,
 } from './server-ops.js';
+import { StatusEngineService } from './engine-service.js';
 import {
   terminateProcessTree,
   ensureManagedLlamaReady,
@@ -210,6 +211,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     metricsPath,
     idleSummarySnapshotsPath,
     disableManagedLlamaStartup,
+    engineService: new StatusEngineService(),
     server: null,
     getServiceBaseUrl() {
       const address = ctx.server?.address?.();

@@ -10,7 +10,7 @@ const Database = require('better-sqlite3');
 
 const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime } = require('../dist/config/index.js');
 const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../dist/summary.js');
-const { runCommand } = require('../dist/command.js');
+const { runCommand } = require('./helpers/run-command-for-test.cjs');
 const { runBenchmarkSuite } = require('../dist/benchmark/index.js');
 const { readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs, pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt } = require('../dist/benchmark-matrix/index.js');
 const { countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse } = require('../dist/providers/llama-cpp.js');
@@ -1066,4 +1066,3 @@ test('empty structured output retries once then fails, and subsequent requests s
     });
   });
 });
-

@@ -57,6 +57,8 @@ The server is raw `node:http` with four sequential mega-handlers (`routes.ts` tr
 
 ### F8. Server→engine dynamic loading hack
 
+Addressed 2026-06-10: status-server routes now call `StatusEngineService`, which statically imports the repo-search engine. The cache-busting `loadRepoSearchExecutor()` path was deleted.
+
 `src/status-server/chat.ts:753 loadRepoSearchExecutor()` resolves `../repo-search/index.js` via `require.resolve`, **deletes it from `require.cache`**, re-`require`s it, and duck-type-checks the export. This is dynamic function passing of exactly the kind the project rules forbid, presumably to pick up rebuilt code under nodemon. The cost: no compile-time link between server and engine, cache-busting on every chat call, and a runtime-only failure mode.
 
 ### F9. CRITICAL: stale compiled `.js` files committed inside `src/` — proven drift
@@ -86,6 +88,8 @@ Proven drift between (1) and (2): client default preset has `ModelPath: null, Ex
 - `tsconfig.json` includes `test-full.ts`, which does not exist.
 
 ### F12. Split-brain execution: the same engines run in two different processes
+
+Addressed 2026-06-10: CLI execution paths are thin HTTP clients. Summary, repo-search, preset, eval, command-output analysis, and internal engine operations execute on the status server. The CLI only parses arguments, reads input files, runs local external commands when requested, captures command output, and formats server responses.
 
 The architecture docs say "the server is the single source of truth" and summary is server-centralized. In code:
 

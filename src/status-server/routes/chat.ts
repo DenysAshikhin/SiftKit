@@ -43,9 +43,9 @@ import {
   buildPersistTurnsFromRepoSearchResult,
   buildRepoSearchMarkdown,
   buildRetainedWebToolCalls,
-  loadRepoSearchExecutor,
 } from '../chat.js';
 import { buildChatPromptContext } from '../chat-prompt-context.js';
+import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.js';
 import {
   type ChatSession,
   readChatSessionFromPath,
@@ -624,8 +624,7 @@ export async function handleChatRoute(
         const config = readConfig(configPath);
         const presets = normalizePresets(config.Presets);
         const chatPreset = findPresetById(presets, activeSession.presetId);
-        const executeRepoSearchRequest = loadRepoSearchExecutor();
-        const result = await executeRepoSearchRequest({
+        const result = await ctx.engineService.executeRepoSearch({
           taskKind: 'chat',
           prompt: userContent,
           repoRoot: process.cwd(),
@@ -780,11 +779,10 @@ export async function handleChatRoute(
         : webOverrideRaw === 'off'
           ? false
           : activeSession.webSearchEnabled === true;
-      const executeRepoSearchRequest = loadRepoSearchExecutor();
       const mockResponses = Array.isArray(parsedBody.mockResponses)
         ? (parsedBody.mockResponses as unknown[]).map((value) => String(value))
         : undefined;
-      const result = await executeRepoSearchRequest({
+      const result = await ctx.engineService.executeRepoSearch({
         taskKind: 'chat',
         prompt: userContent,
         repoRoot: process.cwd(),
@@ -798,7 +796,7 @@ export async function handleChatRoute(
         model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
         maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
         availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,
-        mockCommandResults: (parsedBody.mockCommandResults && typeof parsedBody.mockCommandResults === 'object' && !Array.isArray(parsedBody.mockCommandResults)) ? parsedBody.mockCommandResults : undefined,
+        mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
         ...(mockResponses ? { mockResponses } : {}),
         onProgress(event: RepoSearchProgressEvent) {
           if (event.kind === 'thinking') {
@@ -940,7 +938,6 @@ export async function handleChatRoute(
       }
       const startedAt = Date.now();
       const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
-      const executeRepoSearchRequest = loadRepoSearchExecutor();
       const content = (parsedBody.content as string).trim();
       const config = readConfig(configPath);
       const presets = normalizePresets(config.Presets);
@@ -950,7 +947,7 @@ export async function handleChatRoute(
         'plan',
       );
       const autoAppend = resolveRepoSearchAutoAppendOverrides(config, preset, parsedBody);
-      const result = await executeRepoSearchRequest({
+      const result = await ctx.engineService.executeRepoSearch({
         taskKind: 'plan',
         prompt: buildPlanRequestPrompt(content),
         repoRoot: resolvedRepoRoot,
@@ -968,7 +965,7 @@ export async function handleChatRoute(
         logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,
         availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,
         mockResponses: Array.isArray(parsedBody.mockResponses) ? (parsedBody.mockResponses as unknown[]).map((v) => String(v)) : undefined,
-        mockCommandResults: (parsedBody.mockCommandResults && typeof parsedBody.mockCommandResults === 'object' && !Array.isArray(parsedBody.mockCommandResults)) ? parsedBody.mockCommandResults : undefined,
+        mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
         onProgress(event: RepoSearchProgressEvent) {
           if (event.kind === 'tool_start') {
             const logMessage = buildRepoSearchProgressLogMessage(event, 'planner');
@@ -1095,7 +1092,6 @@ export async function handleChatRoute(
       const requestStartedAtUtc = new Date(startedAt).toISOString();
       const phaseTracker = createChatTurnPhaseTracker(requestStartedAtUtc);
       const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
-      const executeRepoSearchRequest = loadRepoSearchExecutor();
       const content = (parsedBody.content as string).trim();
       const config = readConfig(configPath);
       const presets = normalizePresets(config.Presets);
@@ -1105,7 +1101,7 @@ export async function handleChatRoute(
         'plan',
       );
       const autoAppend = resolveRepoSearchAutoAppendOverrides(config, preset, parsedBody);
-      const result = await executeRepoSearchRequest({
+      const result = await ctx.engineService.executeRepoSearch({
         taskKind: 'plan',
         prompt: buildPlanRequestPrompt(content),
         repoRoot: resolvedRepoRoot,
@@ -1123,7 +1119,7 @@ export async function handleChatRoute(
         logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,
         availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,
         mockResponses: Array.isArray(parsedBody.mockResponses) ? (parsedBody.mockResponses as unknown[]).map((v) => String(v)) : undefined,
-        mockCommandResults: (parsedBody.mockCommandResults && typeof parsedBody.mockCommandResults === 'object' && !Array.isArray(parsedBody.mockCommandResults)) ? parsedBody.mockCommandResults : undefined,
+        mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
         onProgress(event: RepoSearchProgressEvent) {
           if (event.kind === 'thinking') {
             phaseTracker.observeThinking(event.thinkingText || '');
@@ -1311,7 +1307,6 @@ export async function handleChatRoute(
       const requestStartedAtUtc = new Date(startedAt).toISOString();
       const phaseTracker = createChatTurnPhaseTracker(requestStartedAtUtc);
       const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
-      const executeRepoSearchRequest = loadRepoSearchExecutor();
       const content = (parsedBody.content as string).trim();
       const config = readConfig(configPath);
       const presets = normalizePresets(config.Presets);
@@ -1321,7 +1316,7 @@ export async function handleChatRoute(
         'repo-search',
       );
       const autoAppend = resolveRepoSearchAutoAppendOverrides(config, preset, parsedBody);
-      const result = await executeRepoSearchRequest({
+      const result = await ctx.engineService.executeRepoSearch({
         taskKind: 'repo-search',
         prompt: content,
         repoRoot: resolvedRepoRoot,
@@ -1339,7 +1334,7 @@ export async function handleChatRoute(
         logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,
         availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,
         mockResponses: Array.isArray(parsedBody.mockResponses) ? (parsedBody.mockResponses as unknown[]).map((v) => String(v)) : undefined,
-        mockCommandResults: (parsedBody.mockCommandResults && typeof parsedBody.mockCommandResults === 'object' && !Array.isArray(parsedBody.mockCommandResults)) ? parsedBody.mockCommandResults : undefined,
+        mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
         onProgress(event: RepoSearchProgressEvent) {
           if (event.kind === 'thinking') {
             phaseTracker.observeThinking(event.thinkingText || '');

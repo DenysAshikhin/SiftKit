@@ -57,7 +57,7 @@ export class LlamaHttpError extends Error {
   }
 }
 
-export type LoggedHttpClientTask = 'repo-search' | 'summary';
+export type LoggedHttpClientTask = 'repo-search' | 'summary' | 'command-output' | 'preset' | 'eval';
 
 const httpAgent = new http.Agent({ keepAlive: false, maxSockets: Infinity });
 const httpsAgent = new https.Agent({ keepAlive: false, maxSockets: Infinity });
@@ -69,6 +69,15 @@ function getLoggedHttpClientTask(target: URL): LoggedHttpClientTask | null {
   }
   if (target.pathname === '/summary') {
     return 'summary';
+  }
+  if (target.pathname === '/command-output/analyze') {
+    return 'command-output';
+  }
+  if (target.pathname === '/preset/run') {
+    return 'preset';
+  }
+  if (target.pathname === '/eval/run') {
+    return 'eval';
   }
   return null;
 }

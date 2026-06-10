@@ -6,13 +6,7 @@ import { summarizeRequest } from './summary/core.js';
 import { withExecutionLock } from './execution-lock.js';
 import { upsertRuntimeJsonArtifact } from './state/runtime-artifacts.js';
 import { persistEvalResult } from './state/runtime-results.js';
-
-export type EvalRequest = {
-  FixtureRoot?: string;
-  RealLogPath?: string[];
-  Backend?: string;
-  Model?: string;
-};
+import type { EvalCaseResult, EvalRequest, EvaluationResult } from './eval-types.js';
 
 type Fixture = {
   Name: string;
@@ -73,31 +67,6 @@ function getFixtureScore(summary: string, fixture: Fixture, sourceLength: number
     Notes: `required matched: ${matchedRequired}/${required.length}; forbidden matched: ${matchedForbidden}/${forbidden.length}`,
   };
 }
-
-export type EvalCaseResult = {
-  Name: string;
-  SourcePath: string;
-  WasSummarized: boolean;
-  PolicyDecision: string;
-  Classification: import('./summary/types.js').SummaryClassification;
-  RawReviewRequired: boolean;
-  ModelCallSucceeded: boolean;
-  Summary: string;
-  Recall: number | null;
-  Precision: number | null;
-  Faithfulness: number | null;
-  Format: number | null;
-  Compression: number | null;
-  Total: number | null;
-  Notes: string;
-};
-
-export type EvaluationResult = {
-  Backend: string;
-  Model: string;
-  ResultPath: string;
-  Results: EvalCaseResult[];
-};
 
 export async function runEvaluation(request: EvalRequest): Promise<EvaluationResult> {
   return withExecutionLock(async () => {

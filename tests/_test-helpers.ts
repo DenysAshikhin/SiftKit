@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { Writable } from 'node:stream';
 import type { AddressInfo } from 'node:net';
+import { getPresetsForSurface, normalizePresets } from '../dist/presets.js';
 import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
 
 export type Dict = Record<string, unknown>;
@@ -228,11 +229,16 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
       return;
     }
     if (req.method === 'GET' && req.url === '/preset/list') {
+      const presets = getPresetsForSurface(normalizePresets(state.config.Presets), 'cli');
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
-        presets: [
-          { id: 'summary', presetKind: 'summary', operationMode: 'summary', deletable: false, label: 'Summary' },
-        ],
+        presets: presets.map((preset) => ({
+          id: preset.id,
+          presetKind: preset.presetKind,
+          operationMode: preset.operationMode,
+          deletable: preset.deletable,
+          label: preset.label,
+        })),
       }));
       return;
     }
