@@ -96,12 +96,10 @@ function readPositiveInteger(value: unknown, fallback: number): number {
   return Number.isInteger(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
 }
 
-function getManagedPresetInputs(config: Dict, selectedIds: string[]): BenchmarkManagedPresetInput[] {
-  const server = config.Server && typeof config.Server === 'object' && !Array.isArray(config.Server) ? config.Server as Dict : {};
-  const llama = server.LlamaCpp && typeof server.LlamaCpp === 'object' && !Array.isArray(server.LlamaCpp) ? server.LlamaCpp as Dict : {};
-  const presets = Array.isArray(llama.Presets) ? llama.Presets as Dict[] : [];
+function getManagedPresetInputs(config: SiftConfig, selectedIds: string[]): BenchmarkManagedPresetInput[] {
+  const presets = config.Server.LlamaCpp.Presets;
   return selectedIds.map((id) => {
-    const preset = presets.find((entry) => String(entry.id || '') === id);
+    const preset = presets.find((entry) => entry.id === id);
     if (!preset) {
       throw new Error(`Managed llama preset not found: ${id}`);
     }
@@ -208,7 +206,7 @@ export async function handleDashboardRoute(
   }
 
   if (req.method === 'GET' && pathname === '/dashboard/metrics/timeseries') {
-    const config = readConfig(ctx.configPath) as SiftConfig;
+    const config = readConfig(ctx.configPath);
     const days = buildDashboardDailyMetrics(
       runtimeRoot,
       idleSummaryDatabase,
@@ -222,7 +220,7 @@ export async function handleDashboardRoute(
   }
 
   if (req.method === 'GET' && pathname === '/dashboard/web-search-quota') {
-    const config = readConfig(ctx.configPath) as SiftConfig;
+    const config = readConfig(ctx.configPath);
     const webSearchConfig = config.WebSearch ?? {
       ...DEFAULT_WEB_SEARCH_CONFIG,
       ProviderOrder: [...DEFAULT_WEB_SEARCH_CONFIG.ProviderOrder],

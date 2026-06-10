@@ -1,4 +1,4 @@
-import type { Dict } from '../lib/types.js';
+import type { SiftConfig } from '../config/types.js';
 import {
   findPresetById,
   mapLegacyModeToPresetId,
@@ -47,7 +47,7 @@ function formatSection(title: string, content: string): string {
   return [`## ${title}`, '', content.trim()].join('\n');
 }
 
-function buildRepoToolPromptContextContent(config: Dict, session: ChatSession, preset: SiftPreset | null, promptPrefix: string): string {
+function buildRepoToolPromptContextContent(config: SiftConfig, session: ChatSession, preset: SiftPreset | null, promptPrefix: string): string {
   const repoRoot = readRepoRoot(session);
   const allowedTools = preset
     ? resolvePresetAllowedTools(preset, normalizeOperationModeAllowedTools(config.OperationModeAllowedTools))
@@ -64,11 +64,11 @@ function buildRepoToolPromptContextContent(config: Dict, session: ChatSession, p
   ].join('\n\n');
 }
 
-function buildDirectPromptContextContent(config: Dict, session: ChatSession, promptPrefix: string): string {
+function buildDirectPromptContextContent(config: SiftConfig, session: ChatSession, promptPrefix: string): string {
   return formatSection('System prompt', buildChatSystemContent(config, session, { promptPrefix }));
 }
 
-export function buildChatPromptContext(config: Dict, session: ChatSession, options: PromptContextOptions = {}): ChatPromptContext {
+export function buildChatPromptContext(config: SiftConfig, session: ChatSession, options: PromptContextOptions = {}): ChatPromptContext {
   const presets = normalizePresets(config.Presets);
   const presetId = typeof session.presetId === 'string' && session.presetId.trim()
     ? session.presetId.trim()

@@ -14,11 +14,12 @@ import {
   buildPersistTurnsFromRepoSearchResult,
 } from '../src/status-server/chat.ts';
 import { buildChatPromptContext } from '../src/status-server/chat-prompt-context.ts';
+import { normalizeConfig } from '../src/status-server/config-store.ts';
 import { estimateTokenCount, type ChatSession } from '../src/state/chat-sessions.ts';
-import type { Dict } from '../src/lib/types.ts';
+import type { SiftConfig } from '../src/config/types.ts';
 
-function createConfig(overrides: Partial<Dict> = {}): Dict {
-  return {
+function createConfig(overrides: Record<string, unknown> = {}): SiftConfig {
+  return normalizeConfig({
     Runtime: {
       Model: 'managed.gguf',
       LlamaCpp: {
@@ -63,7 +64,23 @@ function createConfig(overrides: Partial<Dict> = {}): Dict {
       },
     },
     ...overrides,
-  } as Dict;
+  });
+}
+
+function createNoThinkingReplayConfig(): SiftConfig {
+  return createConfig({
+    Server: {
+      LlamaCpp: {
+        ActivePresetId: 'default',
+        Presets: [{
+          id: 'default',
+          Reasoning: 'off',
+          ReasoningContent: false,
+          PreserveThinking: false,
+        }],
+      },
+    },
+  });
 }
 
 function createSession(): ChatSession {
@@ -450,7 +467,7 @@ test('buildChatHistoryMessages replays user answers and tool calls in persisted 
       { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'It says iron bars are used in quests.' },
     ],
   };
-  assert.deepEqual(buildChatHistoryMessages({}, session as never), [
+  assert.deepEqual(buildChatHistoryMessages(createNoThinkingReplayConfig(), session as never), [
     { role: 'user', content: 'What did the page say?' },
     {
       role: 'assistant',
@@ -488,7 +505,7 @@ test('buildChatHistoryMessages replays non-web tool calls through persisted_tool
     ],
   };
 
-  assert.deepEqual(buildChatHistoryMessages({}, session as never), [
+  assert.deepEqual(buildChatHistoryMessages(createNoThinkingReplayConfig(), session as never), [
     {
       role: 'assistant',
       content: '',
@@ -731,6 +748,6 @@ test('buildRetainedWebToolCalls ignores deleted tool messages because they are a
 });
 
 test('buildChatSystemContent returns the default chat system prompt', () => {
-  const content = buildChatSystemContent({}, { id: 's', messages: [] } as never);
+  const content = buildChatSystemContent(createConfig(), { id: 's', messages: [] } as never);
   assert.match(content, /coder friendly assistant/);
 });

@@ -1,5 +1,6 @@
 import * as crypto from 'node:crypto';
 import type { Dict } from '../lib/types.js';
+import type { ServerManagedLlamaPreset, SiftConfig } from '../config/types.js';
 import type { ChatMessage as PlannerChatMessage } from '../repo-search/planner-protocol.js';
 import type { ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
 import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
@@ -80,13 +81,27 @@ type ContextUsageTokenTotals = {
   estimatedTokenFallbackTokens: number;
 };
 
+export type ContextUsage = {
+  contextWindowTokens: number;
+  usedTokens: number;
+  chatUsedTokens: number;
+  thinkingUsedTokens: number;
+  toolUsedTokens: number;
+  totalUsedTokens: number;
+  remainingTokens: number;
+  warnThresholdTokens: number;
+  shouldCondense: boolean;
+  estimatedTokenFallbackTokens: number;
+  providerOverheadTokens: number;
+};
+
 class ContextUsageBuilder {
   constructor(
-    private readonly config: Dict | null | undefined,
+    private readonly config: SiftConfig | null | undefined,
     private readonly session: ChatSession,
   ) {}
 
-  build(): Dict {
+  build(): ContextUsage {
     const totals = this.buildTokenTotals();
     const warnThresholdTokens = Math.max(5000, Math.ceil(totals.contextWindowTokens * 0.1));
     return {
@@ -126,6 +141,7 @@ class ContextUsageBuilder {
 
   private getProviderOverheadTokens(): number {
     const thinkingEnabled = this.session.thinkingEnabled !== false;
+    const config = this.config;
     const reserveShape: Dict = {
       model: resolveActiveChatModel(this.config, this.session),
       stream: false,
@@ -137,28 +153,24 @@ class ContextUsageBuilder {
       ],
       chat_template_kwargs: {
         enable_thinking: thinkingEnabled,
-        ...(thinkingEnabled && shouldReplayReasoningContent(this.config || {}) ? { reasoning_content: true } : {}),
-        ...(shouldPreserveThinking(this.config || {}, thinkingEnabled) ? { preserve_thinking: true } : {}),
+        ...(config && thinkingEnabled && shouldReplayReasoningContent(config) ? { reasoning_content: true } : {}),
+        ...(config && shouldPreserveThinking(config, thinkingEnabled) ? { preserve_thinking: true } : {}),
       },
     };
     return estimateTokenCount(JSON.stringify(reserveShape));
   }
 }
 
-export function buildContextUsage(config: Dict | null | undefined, session: ChatSession): Dict {
+export function buildContextUsage(config: SiftConfig | null | undefined, session: ChatSession): ContextUsage {
   return new ContextUsageBuilder(config, session).build();
 }
 
-export function resolveActiveChatModel(config: Dict | null | undefined, session: ChatSession): string {
+export function resolveActiveChatModel(config: SiftConfig | null | undefined, session: ChatSession): string {
   if (typeof session?.model === 'string' && session.model.trim()) {
     return session.model.trim();
   }
-  const runtime = (config?.Runtime as Dict | undefined);
-  if (typeof runtime?.Model === 'string' && (runtime.Model as string).trim()) {
-    return (runtime.Model as string).trim();
-  }
-  if (typeof config?.Model === 'string' && (config.Model as string).trim()) {
-    return (config.Model as string).trim();
+  if (typeof config?.Runtime.Model === 'string' && config.Runtime.Model.trim()) {
+    return config.Runtime.Model.trim();
   }
   return DEFAULT_LLAMA_MODEL;
 }
@@ -173,23 +185,22 @@ type BuildChatOptions = {
   webActionInstruction?: string;
 };
 
-function getActiveServerLlamaPreset(config: Dict): Dict | null {
-  const server = config?.Server && typeof config.Server === 'object' ? config.Server as Dict : null;
-  const serverLlama = server?.LlamaCpp && typeof server.LlamaCpp === 'object' ? server.LlamaCpp as Dict : null;
-  const presets = Array.isArray(serverLlama?.Presets) ? serverLlama.Presets as Dict[] : [];
+function getActiveServerLlamaPreset(config: SiftConfig): ServerManagedLlamaPreset | null {
+  const serverLlama = config.Server.LlamaCpp;
+  const presets = serverLlama.Presets;
   if (presets.length === 0) {
     return null;
   }
-  const activePresetId = typeof serverLlama?.ActivePresetId === 'string' ? serverLlama.ActivePresetId : '';
+  const activePresetId = serverLlama.ActivePresetId;
   return presets.find((preset) => preset.id === activePresetId) || presets[0] || null;
 }
 
-function shouldReplayReasoningContent(config: Dict): boolean {
+function shouldReplayReasoningContent(config: SiftConfig): boolean {
   const activePreset = getActiveServerLlamaPreset(config);
   return activePreset?.Reasoning === 'on' && activePreset.ReasoningContent === true;
 }
 
-function shouldPreserveThinking(config: Dict, thinkingEnabled: boolean): boolean {
+function shouldPreserveThinking(config: SiftConfig, thinkingEnabled: boolean): boolean {
   if (!thinkingEnabled || !shouldReplayReasoningContent(config)) {
     return false;
   }
@@ -198,7 +209,7 @@ function shouldPreserveThinking(config: Dict, thinkingEnabled: boolean): boolean
 
 
 export function buildChatHistoryMessages(
-  config: Dict,
+  config: SiftConfig,
   session: ChatSession,
 ): PlannerChatMessage[] {
   const messages = Array.isArray(session.messages) ? session.messages as Dict[] : [];
@@ -322,7 +333,7 @@ export function buildRetainedWebToolCalls(session: ChatSession): RetainedWebTool
   return retained;
 }
 
-export function buildChatSystemContent(_config: Dict, _session: ChatSession, options: Pick<BuildChatOptions, 'promptPrefix' | 'webActionInstruction'> = {}): string {
+export function buildChatSystemContent(_config: SiftConfig, _session: ChatSession, options: Pick<BuildChatOptions, 'promptPrefix' | 'webActionInstruction'> = {}): string {
   const systemPrompt = typeof options.promptPrefix === 'string' && options.promptPrefix.trim()
     ? options.promptPrefix.trim()
     : DEFAULT_CHAT_SYSTEM_PROMPT;

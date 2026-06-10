@@ -9,7 +9,6 @@ import type {
   SummaryPolicyProfile,
   SummarySourceKind,
 } from '../../summary/types.js';
-import type { SiftConfig } from '../../config/index.js';
 import { mergeToolTypeStats } from '../../line-read-guidance.js';
 import { getRuntimeRoot } from '../paths.js';
 import { sleep } from '../../lib/time.js';
@@ -246,23 +245,25 @@ function getPositiveNumber(value: unknown, fallback: number): number {
   return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : fallback;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
 function getSummaryTiming(value: unknown): { processStartedAtMs?: number | null; stdinWaitMs?: number | null; serverPreflightMs?: number | null } | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isRecord(value)) {
     return undefined;
   }
-  const record = value as Dict;
   return {
-    processStartedAtMs: getOptionalNumber(record.processStartedAtMs) ?? null,
-    stdinWaitMs: getOptionalNumber(record.stdinWaitMs) ?? null,
-    serverPreflightMs: getOptionalNumber(record.serverPreflightMs) ?? null,
+    processStartedAtMs: getOptionalNumber(value.processStartedAtMs) ?? null,
+    stdinWaitMs: getOptionalNumber(value.stdinWaitMs) ?? null,
+    serverPreflightMs: getOptionalNumber(value.serverPreflightMs) ?? null,
   };
 }
 
 function isStrictConfigPayload(value: unknown): boolean {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isRecord(value)) {
     return false;
   }
-  const payload = value as Dict;
   const topLevelRequired = [
     'Version',
     'Backend',
@@ -277,24 +278,15 @@ function isStrictConfigPayload(value: unknown): boolean {
     'Server',
   ];
   for (const key of topLevelRequired) {
-    if (!Object.prototype.hasOwnProperty.call(payload, key)) {
+    if (!Object.prototype.hasOwnProperty.call(value, key)) {
       return false;
     }
   }
-  const runtime = payload.Runtime as Dict;
-  const thresholds = payload.Thresholds as Dict;
-  const interactive = payload.Interactive as Dict;
-  const server = payload.Server as Dict;
-  if (!runtime || typeof runtime !== 'object' || Array.isArray(runtime)) {
-    return false;
-  }
-  if (!thresholds || typeof thresholds !== 'object' || Array.isArray(thresholds)) {
-    return false;
-  }
-  if (!interactive || typeof interactive !== 'object' || Array.isArray(interactive)) {
-    return false;
-  }
-  if (!server || typeof server !== 'object' || Array.isArray(server)) {
+  const runtime = value.Runtime;
+  const thresholds = value.Thresholds;
+  const interactive = value.Interactive;
+  const server = value.Server;
+  if (!isRecord(runtime) || !isRecord(thresholds) || !isRecord(interactive) || !isRecord(server)) {
     return false;
   }
   return Object.prototype.hasOwnProperty.call(runtime, 'Model')
@@ -781,7 +773,7 @@ export async function handleCoreRoute(
         backend: getOptionalString(parsedBody.backend),
         model: getOptionalString(parsedBody.model),
         noSummarize: parsedBody.noSummarize === true,
-        config: readConfig(configPath) as SiftConfig,
+        config: readConfig(configPath),
       });
       sendJson(res, 200, result);
     } catch (error) {
@@ -1020,7 +1012,7 @@ export async function handleCoreRoute(
         timing: getSummaryTiming(parsedBody.timing),
         statusBackendUrl: `${serviceBaseUrl}/status`,
         skipExecutionLock: true,
-        config: readConfig(configPath) as SiftConfig,
+        config: readConfig(configPath),
       });
       sendJson(res, 200, result);
     } catch (error) {
@@ -1591,9 +1583,9 @@ export async function handleCoreRoute(
   }
 
   if (req.method === 'PUT' && requestUrl.pathname === '/config') {
-    let parsedBody: Dict;
+    let parsedBody: unknown;
     try {
-      parsedBody = JSON.parse(await readBody(req) || '{}') as Dict;
+      parsedBody = JSON.parse(await readBody(req) || '{}') as unknown;
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
@@ -1601,7 +1593,7 @@ export async function handleCoreRoute(
     const baseConfig = readConfig(configPath);
     const nextConfig = isStrictConfigPayload(parsedBody)
       ? normalizeConfig(parsedBody)
-      : normalizeConfig(mergeConfig(baseConfig, parsedBody) as Dict);
+      : normalizeConfig(mergeConfig(baseConfig, parsedBody));
     writeConfig(configPath, nextConfig);
     sendJson(res, 200, nextConfig);
     return true;

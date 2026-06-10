@@ -1,10 +1,10 @@
 import type {
-  DashboardConfig,
   DashboardLlamaCppConfig,
   DashboardManagedLlamaPreset,
   DashboardOperationModeAllowedTools,
   DashboardPreset,
   ManagedLlamaSpeculativeType,
+  SiftConfig,
   WebSearchConfig,
   WebSearchProviderId,
   WebSearchProviderSettings,
@@ -19,7 +19,6 @@ import type {
 import type { ProviderQuota } from '../../src/web-search/types.js';
 
 export type {
-  DashboardConfig,
   DashboardLlamaCppConfig,
   DashboardManagedLlamaPreset,
   DashboardOperationModeAllowedTools,
@@ -30,6 +29,7 @@ export type {
   WebSearchProviderSettings,
 };
 
+export type DashboardConfig = SiftConfig;
 export type DashboardPresetKind = PresetKind;
 export type DashboardPresetExecutionFamily = PresetExecutionFamily;
 export type DashboardPresetOperationMode = PresetOperationMode;

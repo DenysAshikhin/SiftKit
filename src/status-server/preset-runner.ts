@@ -31,7 +31,7 @@ type PresetRunOptions = {
   statusBackendUrl: string;
 };
 
-type ServerPresetConfig = SiftConfig & Dict;
+type ServerPresetConfig = SiftConfig;
 
 const SUMMARY_PLANNER_TOOL_NAMES: ReadonlySet<string> = new Set(['find_text', 'read_lines', 'json_filter', 'json_get']);
 
@@ -40,7 +40,7 @@ function isSummaryPlannerTool(toolName: PresetToolName): toolName is PlannerTool
 }
 
 function readPresetConfig(): ServerPresetConfig {
-  return readConfig(getConfigPath()) as ServerPresetConfig;
+  return readConfig(getConfigPath());
 }
 
 function getCliPresets(): SiftPreset[] {
@@ -48,7 +48,7 @@ function getCliPresets(): SiftPreset[] {
   return getPresetsForSurface(normalizePresets(config.Presets), 'cli');
 }
 
-function getPromptPrefix(config: Dict, preset: SiftPreset): string {
+function getPromptPrefix(config: SiftConfig, preset: SiftPreset): string {
   return preset.promptPrefix.trim() || String(config.PromptPrefix || '').trim();
 }
 
@@ -80,11 +80,11 @@ function getRepoRoot(request: PresetRunRequest): string {
   return String(request.repoRoot || process.cwd()).trim() || process.cwd();
 }
 
-function resolveEffectiveAgentsMd(config: Dict, preset: Pick<SiftPreset, 'includeAgentsMd'>): boolean {
+function resolveEffectiveAgentsMd(config: Pick<SiftConfig, 'IncludeAgentsMd'>, preset: Pick<SiftPreset, 'includeAgentsMd'>): boolean {
   return config.IncludeAgentsMd !== false && preset.includeAgentsMd !== false;
 }
 
-function resolveEffectiveRepoFileListing(config: Dict, preset: Pick<SiftPreset, 'includeRepoFileListing'>): boolean {
+function resolveEffectiveRepoFileListing(config: Pick<SiftConfig, 'IncludeRepoFileListing'>, preset: Pick<SiftPreset, 'includeRepoFileListing'>): boolean {
   return config.IncludeRepoFileListing !== false && preset.includeRepoFileListing !== false;
 }
 

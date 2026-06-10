@@ -32,6 +32,7 @@ import {
 } from '../dashboard-runs.js';
 import {
   buildContextUsage,
+  type ContextUsage,
   type ChatUsage,
   type PersistToolMessage,
   type PersistTurn,
@@ -85,13 +86,9 @@ import type { ServerContext } from '../server-types.js';
 
 const DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_MS = 30_000;
 
-type ChatRouteConfig = SiftConfig & {
-  Presets?: unknown;
-};
-
-async function readEffectiveChatRouteConfig(configPath: string): Promise<ChatRouteConfig> {
-  const localConfig = readConfig(configPath) as ChatRouteConfig;
-  return await applyHostLlamaRuntimeSettings(localConfig) as ChatRouteConfig;
+async function readEffectiveChatRouteConfig(configPath: string): Promise<SiftConfig> {
+  const localConfig = readConfig(configPath);
+  return await applyHostLlamaRuntimeSettings(localConfig);
 }
 
 function getPositiveNumber(value: unknown, fallback: number): number {
@@ -111,7 +108,7 @@ function getChatGroundingStatus(scorecard: unknown): ChatGroundingStatus | null 
   return normalizeChatGroundingStatus(scorecardTasks[0]?.groundingStatus);
 }
 
-function getEffectivePresetAllowedTools(config: Dict, preset: SiftPreset | null): SiftPreset['allowedTools'] | undefined {
+function getEffectivePresetAllowedTools(config: SiftConfig, preset: SiftPreset | null): SiftPreset['allowedTools'] | undefined {
   if (!preset) {
     return undefined;
   }
@@ -181,14 +178,19 @@ function shouldMaintainPerStepThinking(config: SiftConfig, session: ChatSession)
     && activePreset.MaintainPerStepThinking !== false;
 }
 
-function withPromptContext(config: Dict, session: ChatSession): ChatSession {
+function withPromptContext(config: SiftConfig, session: ChatSession): ChatSession {
   return {
     ...session,
     promptContext: buildChatPromptContext(config, session),
   };
 }
 
-function buildChatSessionResponse(config: Dict, session: ChatSession): Dict {
+type ChatSessionResponse = {
+  session: ChatSession;
+  contextUsage: ContextUsage;
+};
+
+function buildChatSessionResponse(config: SiftConfig, session: ChatSession): ChatSessionResponse {
   return {
     session: withPromptContext(config, session),
     contextUsage: buildContextUsage(config, session),
@@ -218,16 +220,16 @@ function resolveRepoSearchRoutePreset(
   return presets.find((preset) => preset.presetKind === 'plan' || preset.presetKind === 'repo-search') || null;
 }
 
-export function resolveEffectiveRepoFileListing(config: Dict, preset: Pick<SiftPreset, 'includeRepoFileListing'> | null): boolean {
+export function resolveEffectiveRepoFileListing(config: Pick<SiftConfig, 'IncludeRepoFileListing'>, preset: Pick<SiftPreset, 'includeRepoFileListing'> | null): boolean {
   return config.IncludeRepoFileListing !== false && preset?.includeRepoFileListing !== false;
 }
 
-export function resolveEffectiveAgentsMd(config: Dict, preset: Pick<SiftPreset, 'includeAgentsMd'> | null): boolean {
+export function resolveEffectiveAgentsMd(config: Pick<SiftConfig, 'IncludeAgentsMd'>, preset: Pick<SiftPreset, 'includeAgentsMd'> | null): boolean {
   return config.IncludeAgentsMd !== false && preset?.includeAgentsMd !== false;
 }
 
 export function resolveRepoSearchAutoAppendOverrides(
-  config: Dict,
+  config: Pick<SiftConfig, 'IncludeAgentsMd' | 'IncludeRepoFileListing'>,
   preset: Pick<SiftPreset, 'includeAgentsMd' | 'includeRepoFileListing'> | null,
   overrides: { includeAgentsMd?: unknown; includeRepoFileListing?: unknown },
 ): { includeAgentsMd: boolean; includeRepoFileListing: boolean } {
@@ -255,7 +257,7 @@ async function buildRepoSearchAutoAppendPreviewItem(options: {
   label: string;
   enabledDefault: boolean;
   content: string;
-  config: ChatRouteConfig;
+  config: SiftConfig;
 }): Promise<RepoSearchAutoAppendPreviewItem> {
   const content = options.content.trim();
   if (!content) {
@@ -295,7 +297,7 @@ function hasEstimatedScorecardTokens(scorecard: unknown, key: string): boolean {
   return count !== null && count > 0;
 }
 
-async function countPersistTurnThinkingTokens(config: Dict, turns: PersistTurn[]): Promise<PersistTurn[]> {
+async function countPersistTurnThinkingTokens(config: SiftConfig, turns: PersistTurn[]): Promise<PersistTurn[]> {
   const countedTurns: PersistTurn[] = [];
   for (const turn of turns) {
     const thinkingText = String(turn.thinkingText || '').trim();
@@ -303,7 +305,7 @@ async function countPersistTurnThinkingTokens(config: Dict, turns: PersistTurn[]
       countedTurns.push(turn);
       continue;
     }
-    const count = await countTokensWithFallbackDetailed(config as SiftConfig, thinkingText, {
+    const count = await countTokensWithFallbackDetailed(config, thinkingText, {
       timeoutMs: 1000,
       retryMaxWaitMs: 1000,
     });
@@ -316,8 +318,8 @@ async function countPersistTurnThinkingTokens(config: Dict, turns: PersistTurn[]
   return countedTurns;
 }
 
-async function countPersistedInputTokens(config: Dict, content: string): Promise<{ tokenCount: number; estimated: boolean }> {
-  const count = await countTokensWithFallbackDetailed(config as SiftConfig, content, {
+async function countPersistedInputTokens(config: SiftConfig, content: string): Promise<{ tokenCount: number; estimated: boolean }> {
+  const count = await countTokensWithFallbackDetailed(config, content, {
     timeoutMs: 1000,
     retryMaxWaitMs: 1000,
   });
@@ -573,8 +575,7 @@ export async function handleChatRoute(
     const now = new Date().toISOString();
     const currentConfig = await readEffectiveChatRouteConfig(configPath);
     const presets = normalizePresets(currentConfig.Presets);
-    const runtimeCfg = (currentConfig.Runtime as Dict | undefined) ?? {};
-    const runtimeLlamaCfg = (runtimeCfg.LlamaCpp as Dict | undefined) ?? {};
+    const runtimeLlamaCfg = currentConfig.Runtime.LlamaCpp;
     const requestedPresetId = typeof parsedBody.presetId === 'string' && (parsedBody.presetId as string).trim()
       ? (parsedBody.presetId as string).trim()
       : 'chat';
@@ -584,10 +585,10 @@ export async function handleChatRoute(
       title: typeof parsedBody.title === 'string' && parsedBody.title.trim() ? parsedBody.title.trim() : 'New Session',
       model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim()
         ? (parsedBody.model as string).trim()
-        : (runtimeCfg.Model as string) || null,
+        : currentConfig.Runtime.Model || null,
       contextWindowTokens: Number(runtimeLlamaCfg.NumCtx || 150000),
       thinkingEnabled: runtimeLlamaCfg.Reasoning !== 'off',
-      webSearchEnabled: (currentConfig.WebSearch as Dict | undefined)?.EnabledDefault === true,
+      webSearchEnabled: currentConfig.WebSearch.EnabledDefault === true,
       presetId,
       mode: mapPresetIdToLegacyMode(presetId, presets),
       planRepoRoot: process.cwd(),
@@ -1285,7 +1286,7 @@ export async function handleChatRoute(
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
       return true;
     }
-    const config = readConfig(configPath) as ChatRouteConfig;
+    const config = readConfig(configPath);
     const presets = normalizePresets(config.Presets);
     const preset = resolveRepoSearchRoutePreset(
       presets,
