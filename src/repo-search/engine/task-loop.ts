@@ -50,7 +50,7 @@ import {
 import { TerminalSynthesizer } from './terminal-synthesizer.js';
 import { ToolActionProcessor } from './tool-action-processor.js';
 import { ToolResultBudgeter } from './tool-result-budgeter.js';
-import { TokenUsageTracker } from './token-usage.js';
+import { TokenUsageTracker, type ResolvedResponseTokens } from './token-usage.js';
 import { ToolStatsRecorder } from './tool-stats.js';
 import { TranscriptManager } from './transcript-manager.js';
 import { TurnBudget } from './turn-budget.js';
@@ -120,14 +120,14 @@ export class TaskLoop {
     this.maxTurns = Math.max(1, Number(options.maxTurns || DEFAULT_MAX_TURNS));
     this.maxInvalidResponses = Math.max(1, Number(options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES));
     this.webTools = buildWebToolsForTaskLoop(options.config);
-    this.tokenUsage = new TokenUsageTracker(options.config);
+    this.useEstimatedTokensOnly = Array.isArray(options.mockResponses);
+    this.tokenUsage = new TokenUsageTracker(options.config, this.useEstimatedTokensOnly);
     this.toolStats = new ToolStatsRecorder();
     this.minToolCallsBeforeFinish = Math.max(0, Number(options.minToolCallsBeforeFinish ?? MIN_TOOL_CALLS_BEFORE_FINISH));
     this.budget = new TurnBudget({
       totalContextTokens: Math.max(1, Number(options.totalContextTokens || (options.config ? getConfiguredLlamaNumCtx(options.config) : 32000))),
       maxTurns: this.maxTurns,
     });
-    this.useEstimatedTokensOnly = Array.isArray(options.mockResponses);
     this.plannerThinkingEnabled = typeof options.thinkingEnabledOverride === 'boolean'
       ? options.thinkingEnabledOverride
       : isPlannerReasoningEnabled(options.config);
@@ -288,7 +288,7 @@ export class TaskLoop {
       this.turnThinking[turn] = turnThinkingText;
     }
 
-    const resolvedCompletionTokens = this.tokenUsage.recordModelResponse(response).completionTokens;
+    const resolvedTokens = await this.tokenUsage.recordModelResponse(response);
 
     if (response.mockExhausted) {
       this.counters.reason = 'mock_responses_exhausted';
@@ -307,7 +307,7 @@ export class TaskLoop {
       this.options.logger?.write({ kind: 'turn_action_parsed', taskId: this.task.id, turn, action });
     } catch (error) {
       parseSpan?.end({ ok: false });
-      return this.handleInvalidParse(turn, response, error, resolvedCompletionTokens);
+      return this.handleInvalidParse(turn, response, error, resolvedTokens);
     }
 
     // Emit native thinking text (from reasoning_content) to UI
@@ -316,7 +316,7 @@ export class TaskLoop {
     }
 
     if (action.action === 'finish') {
-      return this.handleFinishAction(turn, action, response, resolvedCompletionTokens);
+      return this.handleFinishAction(turn, action, response, resolvedTokens);
     }
 
     const toolActions: ToolAction[] = action.action === 'tool_batch'
@@ -382,8 +382,8 @@ export class TaskLoop {
     }
   }
 
-  private handleInvalidParse(turn: number, response: PlannerActionResponse, error: unknown, resolvedCompletionTokens: number): TurnOutcome {
-    this.tokenUsage.addOutputTokens(resolvedCompletionTokens);
+  private handleInvalidParse(turn: number, response: PlannerActionResponse, error: unknown, resolvedTokens: ResolvedResponseTokens): TurnOutcome {
+    this.tokenUsage.addOutputTokens(resolvedTokens.completionTokens, resolvedTokens.completionTokensEstimated);
     this.counters.invalidResponses += 1;
     const invalidActionMessage = `Invalid action: ${error instanceof Error ? error.message : String(error)}. Return a valid JSON finish action or tool action payload.`;
     const invalidToolAction = buildInvalidToolCallActionFromResponseText(String(response.text || ''), this.allowedPlannerToolNames);
@@ -409,8 +409,8 @@ export class TaskLoop {
     return 'continue';
   }
 
-  private handleFinishAction(turn: number, action: FinishAction, response: PlannerActionResponse, resolvedCompletionTokens: number): TurnOutcome {
-    this.tokenUsage.addOutputTokens(resolvedCompletionTokens);
+  private handleFinishAction(turn: number, action: FinishAction, response: PlannerActionResponse, resolvedTokens: ResolvedResponseTokens): TurnOutcome {
+    this.tokenUsage.addOutputTokens(resolvedTokens.completionTokens, resolvedTokens.completionTokensEstimated);
     const finishEvaluation = evaluateFinishAttempt({
       loopKind: this.loopKind,
       finalOutput: action.output,

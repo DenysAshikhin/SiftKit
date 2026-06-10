@@ -128,6 +128,8 @@ export type TaskResult = {
   outputTokens: number;
   toolTokens: number;
   thinkingTokens: number;
+  outputTokensEstimatedCount: number;
+  thinkingTokensEstimatedCount: number;
   promptCacheTokens: number;
   promptEvalTokens: number;
   promptEvalDurationMs: number;

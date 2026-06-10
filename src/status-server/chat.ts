@@ -311,6 +311,8 @@ export type ChatUsage = {
   promptTokens: number | null;
   completionTokens: number | null;
   thinkingTokens: number | null;
+  outputTokensEstimated?: boolean;
+  thinkingTokensEstimated?: boolean;
   promptCacheTokens: number | null;
   promptEvalTokens: number | null;
   promptEvalDurationMs?: number | null;
@@ -333,7 +335,12 @@ export type PersistToolMessage = {
   outputTokens: number | null;
   outputTokensEstimated?: boolean;
 };
-export type PersistTurn = { thinkingText: string; toolMessages: PersistToolMessage[] };
+export type PersistTurn = {
+  thinkingText: string;
+  thinkingTokens?: number | null;
+  thinkingTokensEstimated?: boolean;
+  toolMessages: PersistToolMessage[];
+};
 
 type AppendChatOptions = {
   turns: PersistTurn[];
@@ -350,7 +357,9 @@ type AppendChatOptions = {
   speculativeAcceptedTokens?: number | null;
   speculativeGeneratedTokens?: number | null;
   outputTokens?: number | null;
+  outputTokensEstimated?: boolean;
   thinkingTokens?: number | null;
+  thinkingTokensEstimated?: boolean;
   sourceRunId?: string | null;
   groundingStatus?: ChatGroundingStatus | null;
 };
@@ -377,9 +386,17 @@ export function appendChatMessagesWithUsage(
   const explicitOutputTokens = getChatUsageValue(options.outputTokens);
   const explicitThinkingTokens = getChatUsageValue(options.thinkingTokens);
   const outputTokens = explicitOutputTokens ?? completionTokens ?? estimateTokenCount(assistantContent);
-  const outputTokensEstimated = explicitOutputTokens === null && completionTokens === null;
+  const outputTokensEstimated = explicitOutputTokens !== null
+    ? options.outputTokensEstimated === true
+    : completionTokens !== null
+      ? usage.outputTokensEstimated === true
+      : true;
   const thinkingTokens = explicitThinkingTokens ?? usageThinkingTokens ?? 0;
-  const thinkingTokensEstimated = explicitThinkingTokens === null && usageThinkingTokens === null;
+  const thinkingTokensEstimated = explicitThinkingTokens !== null
+    ? options.thinkingTokensEstimated === true
+    : usageThinkingTokens !== null
+      ? usage.thinkingTokensEstimated === true
+      : true;
   const sourceRunId = typeof options.sourceRunId === 'string' && options.sourceRunId.trim() ? options.sourceRunId : null;
   const groundingStatus = options.groundingStatus || null;
   messages.push({
@@ -401,6 +418,8 @@ export function appendChatMessagesWithUsage(
   for (const turn of turns) {
     const thinkingText = String(turn.thinkingText || '');
     if (thinkingText.trim()) {
+      const explicitThinkingTokenCount = getChatUsageValue(turn.thinkingTokens);
+      const turnThinkingTokens = explicitThinkingTokenCount ?? estimateTokenCount(thinkingText);
       messages.push({
         id: crypto.randomUUID(),
         role: 'assistant',
@@ -408,10 +427,10 @@ export function appendChatMessagesWithUsage(
         content: thinkingText,
         inputTokensEstimate: 0,
         outputTokensEstimate: 0,
-        thinkingTokens: estimateTokenCount(thinkingText),
+        thinkingTokens: turnThinkingTokens,
         inputTokensEstimated: false,
         outputTokensEstimated: false,
-        thinkingTokensEstimated: true,
+        thinkingTokensEstimated: explicitThinkingTokenCount !== null ? turn.thinkingTokensEstimated !== false : true,
         createdAtUtc: now,
         sourceRunId,
       });

@@ -106,6 +106,8 @@ export function buildScorecard(options: { runId: string; model: string; tasks: T
     outputTokens: options.tasks.reduce((s, t) => s + Number(t.outputTokens || 0), 0),
     toolTokens: options.tasks.reduce((s, t) => s + Number(t.toolTokens || 0), 0),
     thinkingTokens: options.tasks.reduce((s, t) => s + Number(t.thinkingTokens || 0), 0),
+    outputTokensEstimatedCount: options.tasks.reduce((s, t) => s + Number(t.outputTokensEstimatedCount || 0), 0),
+    thinkingTokensEstimatedCount: options.tasks.reduce((s, t) => s + Number(t.thinkingTokensEstimatedCount || 0), 0),
     promptCacheTokens: options.tasks.reduce((s, t) => s + Number(t.promptCacheTokens || 0), 0),
     promptEvalTokens: options.tasks.reduce((s, t) => s + Number(t.promptEvalTokens || 0), 0),
     promptEvalDurationMs: options.tasks.reduce((s, t) => s + Number(t.promptEvalDurationMs || 0), 0),

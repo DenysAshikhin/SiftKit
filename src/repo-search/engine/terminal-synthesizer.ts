@@ -81,8 +81,8 @@ export class TerminalSynthesizer {
         if (typeof synthesisResponse.nextMockResponseIndex === 'number') {
           mockResponseIndex = synthesisResponse.nextMockResponseIndex;
         }
-        const resolved = this.options.tokenUsage.recordModelResponse(synthesisResponse);
-        this.options.tokenUsage.addOutputTokens(resolved.completionTokens);
+        const resolved = await this.options.tokenUsage.recordModelResponse(synthesisResponse);
+        this.options.tokenUsage.addOutputTokens(resolved.completionTokens, resolved.completionTokensEstimated);
 
         const text = String(synthesisResponse.text || '').trim();
         if (!synthesisResponse.mockExhausted && text) {

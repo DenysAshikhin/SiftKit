@@ -507,6 +507,30 @@ test('appendChatMessagesWithUsage stores user text token estimate from content, 
   assert.equal(userMessage.inputTokensEstimated, true);
 });
 
+test('appendChatMessagesWithUsage preserves estimated usage flags on answer tokens', () => {
+  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-answer-estimated-flags-'));
+  const session = appendChatMessagesWithUsage(
+    runtimeRoot,
+    createSession(),
+    'Find token accounting.',
+    'Token labels must not claim estimates are known.',
+    {
+      completionTokens: 11,
+      thinkingTokens: 13,
+      outputTokensEstimated: true,
+      thinkingTokensEstimated: true,
+    },
+    { turns: [] },
+  );
+
+  const answerMessage = session.messages.find((message) => message.kind === 'assistant_answer'
+    && message.content === 'Token labels must not claim estimates are known.');
+  assert.equal(answerMessage?.outputTokensEstimate, 11);
+  assert.equal(answerMessage?.outputTokensEstimated, true);
+  assert.equal(answerMessage?.thinkingTokens, 13);
+  assert.equal(answerMessage?.thinkingTokensEstimated, true);
+});
+
 test('buildRetainedWebToolCalls extracts command result state from undeleted web calls', () => {
   const session = {
     id: 'session-retained-web',

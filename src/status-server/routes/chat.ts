@@ -33,6 +33,7 @@ import {
   buildContextUsage,
   type ChatUsage,
   type PersistToolMessage,
+  type PersistTurn,
   appendChatMessagesWithUsage,
   buildChatSystemContent,
   buildChatHistoryMessages,
@@ -279,6 +280,32 @@ export function getRepoSearchGenerationTokensPerSecond(scorecard: unknown): numb
     getScorecardTotal(scorecard, 'thinkingTokens'),
     getScorecardTotal(scorecard, 'generationDurationMs'),
   );
+}
+
+function hasEstimatedScorecardTokens(scorecard: unknown, key: string): boolean {
+  const count = getScorecardTotal(scorecard, key);
+  return count !== null && count > 0;
+}
+
+async function countPersistTurnThinkingTokens(config: Dict, turns: PersistTurn[]): Promise<PersistTurn[]> {
+  const countedTurns: PersistTurn[] = [];
+  for (const turn of turns) {
+    const thinkingText = String(turn.thinkingText || '').trim();
+    if (!thinkingText) {
+      countedTurns.push(turn);
+      continue;
+    }
+    const count = await countTokensWithFallbackDetailed(config as SiftConfig, thinkingText, {
+      timeoutMs: 1000,
+      retryMaxWaitMs: 1000,
+    });
+    countedTurns.push({
+      ...turn,
+      thinkingTokens: count.tokenCount,
+      thinkingTokensEstimated: count.source !== 'llama.cpp',
+    });
+  }
+  return countedTurns;
 }
 
 async function notifyChatStatus(options: {
@@ -643,10 +670,12 @@ export async function handleChatRoute(
           promptTokens: getScorecardTotal(result?.scorecard, 'promptTokens'),
           completionTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
           thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
+          outputTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'outputTokensEstimatedCount'),
+          thinkingTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'thinkingTokensEstimatedCount'),
           promptCacheTokens: getScorecardTotal(result?.scorecard, 'promptCacheTokens'),
           promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
         };
-        persistTurns = buildPersistTurnsFromRepoSearchResult(result);
+        persistTurns = await countPersistTurnThinkingTokens(config, buildPersistTurnsFromRepoSearchResult(result));
       }
       try {
         await notifyChatStatus({
@@ -819,6 +848,8 @@ export async function handleChatRoute(
         promptTokens: getScorecardTotal(result?.scorecard, 'promptTokens'),
         completionTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
         thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
+        outputTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'outputTokensEstimatedCount'),
+        thinkingTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'thinkingTokensEstimatedCount'),
         promptCacheTokens: getScorecardTotal(result?.scorecard, 'promptCacheTokens'),
         promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
         promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
@@ -826,7 +857,7 @@ export async function handleChatRoute(
         promptTokensPerSecond: null,
         generationTokensPerSecond: null,
       };
-      const persistTurns = buildPersistTurnsFromRepoSearchResult(result);
+      const persistTurns = await countPersistTurnThinkingTokens(config, buildPersistTurnsFromRepoSearchResult(result));
       try {
         await notifyChatStatus({
           ctx,
@@ -987,13 +1018,13 @@ export async function handleChatRoute(
           promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
         },
         {
-          turns: buildPersistTurnsFromRepoSearchResult(result).map((turn) => ({
+          turns: await countPersistTurnThinkingTokens(config, buildPersistTurnsFromRepoSearchResult(result).map((turn) => ({
             thinkingText: turn.thinkingText,
             toolMessages: turn.toolMessages.map((message) => ({
               ...message,
               toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
             })),
-          })),
+          }))),
           requestDurationMs: Date.now() - startedAt,
           promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
           generationDurationMs: getScorecardTotal(result?.scorecard, 'generationDurationMs'),
@@ -1008,7 +1039,9 @@ export async function handleChatRoute(
           speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
           speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
           outputTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
+          outputTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'outputTokensEstimatedCount'),
           thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
+          thinkingTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'thinkingTokensEstimatedCount'),
           sourceRunId: String(result.requestId || ''),
         }
       );
@@ -1144,13 +1177,13 @@ export async function handleChatRoute(
           promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
         },
         {
-          turns: buildPersistTurnsFromRepoSearchResult(result).map((turn) => ({
+          turns: await countPersistTurnThinkingTokens(config, buildPersistTurnsFromRepoSearchResult(result).map((turn) => ({
             thinkingText: turn.thinkingText,
             toolMessages: turn.toolMessages.map((message) => ({
               ...message,
               toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
             })),
-          })),
+          }))),
           requestDurationMs: Date.now() - startedAt,
           promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
           generationDurationMs: getScorecardTotal(result?.scorecard, 'generationDurationMs'),
@@ -1166,7 +1199,9 @@ export async function handleChatRoute(
           speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
           speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
           outputTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
+          outputTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'outputTokensEstimatedCount'),
           thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
+          thinkingTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'thinkingTokensEstimatedCount'),
           sourceRunId: String(result.requestId || ''),
         }
       );
@@ -1359,13 +1394,13 @@ export async function handleChatRoute(
           promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
         },
         {
-          turns: buildPersistTurnsFromRepoSearchResult(result).map((turn) => ({
+          turns: await countPersistTurnThinkingTokens(config, buildPersistTurnsFromRepoSearchResult(result).map((turn) => ({
             thinkingText: turn.thinkingText,
             toolMessages: turn.toolMessages.map((message) => ({
               ...message,
               toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
             })),
-          })),
+          }))),
           requestDurationMs: Date.now() - startedAt,
           promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
           generationDurationMs: getScorecardTotal(result?.scorecard, 'generationDurationMs'),
@@ -1381,7 +1416,9 @@ export async function handleChatRoute(
           speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
           speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
           outputTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
+          outputTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'outputTokensEstimatedCount'),
           thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
+          thinkingTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'thinkingTokensEstimatedCount'),
           sourceRunId: String(result.requestId || ''),
         }
       );
