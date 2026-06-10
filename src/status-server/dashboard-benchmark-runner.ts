@@ -1,7 +1,8 @@
 import type { ServerContext } from './server-types.js';
-import { readConfig, writeConfig } from './config-store.js';
+import { normalizeConfig, readConfig, writeConfig } from './config-store.js';
 import { buildDashboardRunDetail, type RunRecord } from './dashboard-runs.js';
 import type { Dict } from '../lib/types.js';
+import type { SiftConfig } from '../config/types.js';
 import {
   getAcceptanceRate,
   getGenerationTokensPerSecond,
@@ -65,7 +66,7 @@ function cloneDict(value: unknown): Dict {
   return JSON.parse(JSON.stringify(value || {})) as Dict;
 }
 
-function applyCaseConfig(originalConfig: Dict, attempt: BenchmarkAttemptRecord, detail: BenchmarkSessionDetail): Dict {
+function applyCaseConfig(originalConfig: SiftConfig, attempt: BenchmarkAttemptRecord, detail: BenchmarkSessionDetail): SiftConfig {
   const benchmarkCase = detail.cases.find((entry) => entry.id === attempt.caseId);
   if (!benchmarkCase) {
     throw new Error(`Benchmark case not found for attempt ${attempt.id}.`);
@@ -84,7 +85,7 @@ function applyCaseConfig(originalConfig: Dict, attempt: BenchmarkAttemptRecord, 
   merged.ActivePresetId = benchmarkCase.managedPresetId;
   server.LlamaCpp = merged;
   config.Server = server;
-  return config;
+  return normalizeConfig(config);
 }
 
 async function restartManagedLlama(ctx: ServerContext): Promise<void> {
@@ -172,7 +173,7 @@ async function runBenchmarkJob(ctx: ServerContext, sessionId: string): Promise<v
     activeJobs.delete(sessionId);
     return;
   }
-  const originalConfig = JSON.parse(detail.session.originalConfigJson || '{}') as Dict;
+  const originalConfig = normalizeConfig(JSON.parse(detail.session.originalConfigJson || '{}') as unknown);
   let currentCaseIndex: number | null = null;
   try {
     log(job, sessionId, null, `Benchmark session ${sessionId} started.\n`);

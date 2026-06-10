@@ -1,3 +1,42 @@
+import type {
+    DashboardLlamaCppConfig,
+    DashboardManagedLlamaPreset,
+    DashboardOperationModeAllowedTools,
+    DashboardPreset,
+    ManagedLlamaSpeculativeType,
+    SiftConfig,
+    WebSearchConfig,
+    WebSearchProviderId,
+    WebSearchProviderSettings,
+} from '../../src/config/types.js';
+import type {
+    PresetExecutionFamily,
+    PresetKind,
+    PresetOperationMode,
+    PresetSurface,
+    PresetToolName,
+} from '../../src/presets.js';
+import type { ProviderQuota } from '../../src/web-search/types.js';
+
+export type {
+    DashboardLlamaCppConfig,
+    DashboardManagedLlamaPreset,
+    DashboardOperationModeAllowedTools,
+    DashboardPreset,
+    ProviderQuota,
+    WebSearchConfig,
+    WebSearchProviderId,
+    WebSearchProviderSettings,
+};
+
+export type DashboardConfig = SiftConfig;
+export type DashboardPresetKind = PresetKind;
+export type DashboardPresetExecutionFamily = PresetExecutionFamily;
+export type DashboardPresetOperationMode = PresetOperationMode;
+export type DashboardPresetSurface = PresetSurface;
+export type DashboardPresetToolName = PresetToolName;
+export type DashboardManagedLlamaSpeculativeType = ManagedLlamaSpeculativeType;
+
 export type RunStatus = 'completed' | 'failed' | 'running' | string;
 export type RunGroupFilter = '' | 'summary' | 'repo_search' | 'planner' | 'chat' | 'other';
 export type RunLogDeleteType = 'all' | Exclude<RunGroupFilter, ''>;
@@ -199,131 +238,6 @@ export type ChatSessionResponse = {
 };
 export type ChatSessionsResponse = {
     sessions: ChatSession[];
-};
-export type DashboardPresetKind = 'summary' | 'chat' | 'plan' | 'repo-search';
-export type DashboardPresetExecutionFamily = DashboardPresetKind;
-export type DashboardPresetOperationMode = 'summary' | 'read-only' | 'full';
-export type DashboardPresetSurface = 'cli' | 'web';
-export type DashboardPresetToolName = 'find_text' | 'read_lines' | 'json_filter' | 'json_get' | 'repo_rg' | 'repo_read_file' | 'repo_list_files' | 'repo_git' | 'repo_select_object' | 'repo_where_object' | 'repo_sort_object' | 'repo_group_object' | 'repo_measure_object' | 'repo_foreach_object' | 'repo_format_table' | 'repo_format_list' | 'repo_out_string' | 'repo_convertto_json' | 'repo_convertfrom_json' | 'repo_get_unique' | 'repo_join_string';
-export type DashboardOperationModeAllowedTools = Record<DashboardPresetOperationMode, DashboardPresetToolName[]>;
-export type DashboardPreset = {
-    id: string;
-    label: string;
-    description: string;
-    presetKind: DashboardPresetKind;
-    operationMode: DashboardPresetOperationMode;
-    executionFamily: DashboardPresetExecutionFamily;
-    promptPrefix: string;
-    allowedTools: DashboardPresetToolName[];
-    surfaces: DashboardPresetSurface[];
-    useForSummary: boolean;
-    builtin: boolean;
-    deletable: boolean;
-    includeAgentsMd: boolean;
-    includeRepoFileListing: boolean;
-    repoRootRequired: boolean;
-    maxTurns: number | null;
-};
-export type DashboardManagedLlamaSpeculativeType = 'draft-simple' | 'draft-eagle3' | 'draft-mtp' | 'ngram-simple' | 'ngram-map-k' | 'ngram-map-k4v' | 'ngram-mod' | 'ngram-cache';
-export type DashboardLlamaCppConfig = {
-    BaseUrl: string;
-    NumCtx: number;
-    ModelPath: string | null;
-    Temperature: number;
-    TopP: number;
-    TopK: number;
-    MinP: number;
-    PresencePenalty: number;
-    RepetitionPenalty: number;
-    MaxTokens: number;
-    GpuLayers: number;
-    Threads: number;
-    NcpuMoe: number;
-    FlashAttention: boolean;
-    ParallelSlots: number;
-    Reasoning: 'on' | 'off';
-    ReasoningContent: boolean;
-    PreserveThinking: boolean;
-};
-export type DashboardConfig = {
-    Version: string;
-    Backend: string;
-    PolicyMode: string;
-    RawLogRetention: boolean;
-    PromptPrefix: string;
-    OperationModeAllowedTools: DashboardOperationModeAllowedTools;
-    Presets: DashboardPreset[];
-    Model?: string;
-    LlamaCpp: DashboardLlamaCppConfig;
-    Runtime: {
-        Model: string;
-        LlamaCpp: DashboardLlamaCppConfig;
-    };
-    Thresholds: {
-        MinCharactersForSummary: number;
-        MinLinesForSummary: number;
-    };
-    Interactive: {
-        Enabled: boolean;
-        WrappedCommands: string[];
-        IdleTimeoutMs: number;
-        MaxTranscriptCharacters: number;
-        TranscriptRetention: boolean;
-    };
-    Server: {
-        LlamaCpp: {
-            Presets: DashboardManagedLlamaPreset[];
-            ActivePresetId: string;
-        };
-    };
-};
-export type DashboardManagedLlamaPreset = {
-    id: string;
-    label: string;
-    Model: string;
-    ExecutablePath: string | null;
-    BaseUrl: string;
-    BindHost: string;
-    Port: number;
-    ModelPath: string | null;
-    NumCtx: number;
-    GpuLayers: number;
-    Threads: number;
-    NcpuMoe: number;
-    FlashAttention: boolean;
-    ParallelSlots: number;
-    BatchSize: number;
-    UBatchSize: number;
-    CacheRam: number;
-    KvCacheQuantization: 'f32' | 'f16' | 'bf16' | 'q8_0' | 'q4_0' | 'q4_1' | 'iq4_nl' | 'q5_0' | 'q5_1' | 'q8_0/q4_0' | 'q8_0/q5_0';
-    MaxTokens: number;
-    Temperature: number;
-    TopP: number;
-    TopK: number;
-    MinP: number;
-    PresencePenalty: number;
-    RepetitionPenalty: number;
-    Reasoning: 'on' | 'off';
-    ReasoningContent: boolean;
-    PreserveThinking: boolean;
-    SpeculativeEnabled: boolean;
-    SpeculativeType: DashboardManagedLlamaSpeculativeType;
-    SpeculativeMtpEnabled: boolean;
-    SpeculativeNgramSizeN: number;
-    SpeculativeNgramSizeM: number;
-    SpeculativeNgramMinHits: number;
-    SpeculativeNgramModNMatch: number;
-    SpeculativeNgramModNMin: number;
-    SpeculativeNgramModNMax: number;
-    SpeculativeDraftMax: number;
-    SpeculativeDraftMin: number;
-    ReasoningBudget: number;
-    ReasoningBudgetMessage: string;
-    StartupTimeoutMs: number;
-    HealthcheckTimeoutMs: number;
-    HealthcheckIntervalMs: number;
-    SleepIdleSeconds: number;
-    VerboseLogging: boolean;
 };
 export type DashboardHealth = {
     ok: boolean;

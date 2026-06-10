@@ -125,3 +125,37 @@ test('normalizeConfig preserves an enabled MTP combination with ngram-mod parame
   assert.equal(preset.SpeculativeNgramModNMin, 12);
   assert.equal(preset.SpeculativeNgramModNMax, 48);
 });
+
+test('normalizeConfig returns the typed live config fields used by server and dashboard', () => {
+  const normalized = normalizeConfig({
+    IncludeAgentsMd: false,
+    IncludeRepoFileListing: false,
+    OperationModeAllowedTools: {
+      summary: ['find_text'],
+      'read-only': ['repo_rg'],
+      full: [],
+    },
+    Presets: [{
+      id: 'custom',
+      label: 'Custom',
+      description: 'Custom preset',
+      presetKind: 'chat',
+      operationMode: 'summary',
+      promptPrefix: 'prefix',
+      allowedTools: ['find_text'],
+      surfaces: ['web'],
+      useForSummary: false,
+      builtin: false,
+      deletable: true,
+      includeAgentsMd: false,
+      includeRepoFileListing: false,
+      repoRootRequired: false,
+      maxTurns: 4,
+    }],
+  });
+
+  assert.equal(normalized.IncludeAgentsMd, false);
+  assert.equal(normalized.IncludeRepoFileListing, false);
+  assert.deepEqual(normalized.OperationModeAllowedTools.summary, ['find_text']);
+  assert.ok(normalized.Presets.some((preset) => preset.id === 'custom'));
+});

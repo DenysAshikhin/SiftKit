@@ -518,7 +518,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     assert.equal(createSession.statusCode, 200);
     const session = d(createSession.body.session);
     assert.equal(typeof session.id, 'string');
-    assert.equal(session.contextWindowTokens, 150000);
+    assert.equal(session.contextWindowTokens, 128000);
     assert.equal(session.mode, 'chat');
     assert.equal(session.planRepoRoot, process.cwd());
     const sessionId = String(session.id);
@@ -535,7 +535,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     assert.equal(Array.isArray(appendSession.messages), true);
     assert.equal((appendSession.messages as Dict[]).length, 2);
     const contextUsage = d(appendMessage.body.contextUsage);
-    assert.equal(contextUsage.warnThresholdTokens, 15000);
+    assert.equal(contextUsage.warnThresholdTokens, 12800);
     assert.equal(contextUsage.shouldCondense, false);
 
     const updateSession = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`, {

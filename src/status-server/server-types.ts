@@ -7,6 +7,7 @@ import type { ManagedLlamaSpeculativeMetricsSnapshot } from './managed-llama.js'
 import type { ManagedLlamaStreamKind } from '../state/managed-llama-runs.js';
 import type { ManagedLlamaFlushQueue } from './managed-llama-flush-queue.js';
 import type { StatusEngineService } from './engine-service.js';
+import type { SiftConfig } from '../config/types.js';
 
 export type { Dict };
 export type DatabaseInstance = InstanceType<typeof Database>;
@@ -152,5 +153,5 @@ export type ServerContext = {
 
   // Late-bound function references (set by index.ts to break circular deps)
   shutdownManagedLlamaIfNeeded(options?: ShutdownManagedLlamaOptions): Promise<void>;
-  ensureManagedLlamaReady(options?: EnsureManagedLlamaOptions): Promise<Dict>;
+  ensureManagedLlamaReady(options?: EnsureManagedLlamaOptions): Promise<SiftConfig>;
 };

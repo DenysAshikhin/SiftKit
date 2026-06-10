@@ -74,7 +74,8 @@ export function ManagedLlamaSection({
   }
   const reasoningEnabled = selectedManagedLlamaPreset.Reasoning === 'on';
   const reasoningContentEnabled = reasoningEnabled && selectedManagedLlamaPreset.ReasoningContent;
-  const remoteLlamaBaseUrl = isRemoteLlamaBaseUrl(selectedManagedLlamaPreset.BaseUrl);
+  const baseUrl = selectedManagedLlamaPreset.BaseUrl || '';
+  const remoteLlamaBaseUrl = isRemoteLlamaBaseUrl(baseUrl);
   const speculativeType = selectedManagedLlamaPreset.SpeculativeType;
   const speculativeEnabled = selectedManagedLlamaPreset.SpeculativeEnabled;
   const draftSpeculativeType = speculativeEnabled && isDraftSpeculativeType(speculativeType);
@@ -154,13 +155,13 @@ export function ManagedLlamaSection({
       {renderField('model-presets', 'Base URL', (
         <div className="settings-live-stack">
           <div className="settings-live-nav-control">
-            <input value={selectedManagedLlamaPreset.BaseUrl} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.BaseUrl = event.target.value; })} />
+            <input value={baseUrl} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.BaseUrl = event.target.value || null; })} />
             <button
               type="button"
               disabled={settingsActionBusy}
               onClick={() => {
                 void onTestLlamaCppBaseUrl(
-                  selectedManagedLlamaPreset.BaseUrl,
+                  baseUrl,
                   selectedManagedLlamaPreset.HealthcheckTimeoutMs,
                 );
               }}
@@ -354,7 +355,7 @@ export function ManagedLlamaSection({
         <input type="number" value={selectedManagedLlamaPreset.ReasoningBudget} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.ReasoningBudget = parseIntegerInput(event.target.value, preset.ReasoningBudget); })} />
       ))}
       {renderField('model-presets', 'ReasoningBudgetMessage', (
-        <textarea rows={3} value={selectedManagedLlamaPreset.ReasoningBudgetMessage} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.ReasoningBudgetMessage = event.target.value; })} />
+        <textarea rows={3} value={selectedManagedLlamaPreset.ReasoningBudgetMessage || ''} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.ReasoningBudgetMessage = event.target.value || null; })} />
       ))}
       {renderField('model-presets', 'StartupTimeoutMs', (
         <input type="number" value={selectedManagedLlamaPreset.StartupTimeoutMs} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.StartupTimeoutMs = parseIntegerInput(event.target.value, preset.StartupTimeoutMs); })} />

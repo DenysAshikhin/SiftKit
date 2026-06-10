@@ -9,6 +9,7 @@ import {
 } from '../server-ops.js';
 import type { ServerContext } from '../server-types.js';
 import type { Dict } from '../../lib/types.js';
+import type { SiftConfig } from '../../config/types.js';
 import { httpClient } from '../../lib/http-client.js';
 
 const CHAT_COMPLETIONS_PATH = '/v1/chat/completions';
@@ -91,7 +92,7 @@ function buildDownstreamResponseHeaders(headers: http.IncomingHttpHeaders): http
   return downstreamHeaders;
 }
 
-function getPassthroughTimeoutMs(pathname: string, config: Dict): number {
+function getPassthroughTimeoutMs(pathname: string, config: SiftConfig): number {
   if (pathname === MODELS_PATH) {
     return getManagedLlamaConfig(config).HealthcheckTimeoutMs;
   }
@@ -106,7 +107,7 @@ async function proxyLlamaRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   pathname: string,
-  config: Dict,
+  config: SiftConfig,
 ): Promise<void> {
   const configuredBaseUrl = getLlamaBaseUrl(config);
   if (!configuredBaseUrl) {

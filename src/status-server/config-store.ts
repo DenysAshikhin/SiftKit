@@ -1,4 +1,3 @@
-import type { Dict } from '../lib/types.js';
 import { normalizeWindowsPath as normalizeWindowsPathShared } from '../lib/paths.js';
 import {
   getDefaultOperationModeAllowedTools,
@@ -6,255 +5,45 @@ import {
   normalizePresets,
   type SiftPreset,
 } from '../presets.js';
+import { getDefaultConfigObject } from '../config/defaults.js';
+import {
+  getActiveManagedLlamaPreset,
+  getFinitePositiveInteger,
+  getLlamaBaseUrl,
+  getManagedLlamaConfig,
+  getManagedLlamaInternalBaseUrl,
+  getManagedStartupTimeoutMs,
+  getNullableTrimmedString,
+  getRuntimeLlamaCpp,
+  mergeConfig,
+  normalizeConfigObject,
+  normalizeManagedLlamaPresetArray,
+  normalizeWebSearchConfig,
+  type ManagedLlamaConfig,
+} from '../config/normalization.js';
+import { SIFT_DEFAULT_LLAMA_MODEL } from '../config/constants.js';
+import type {
+  RuntimeLlamaCppConfig,
+  ServerManagedLlamaPreset,
+  SiftConfig,
+  WebSearchConfig,
+} from '../config/types.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
 import { readRuntimeLaunchSnapshot, type RuntimeLaunchSnapshot } from './runtime-launch-snapshot.js';
 
-export const DEFAULT_LLAMA_MODEL = 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
-export const DEFAULT_LLAMA_BASE_URL = 'http://127.0.0.1:8097';
-export const DEFAULT_LLAMA_MODEL_PATH = 'D:\\personal\\models\\Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
-export const DEFAULT_LLAMA_EXECUTABLE_PATH = 'C:\\Users\\denys\\Documents\\GitHub\\llamacpp\\llama-server.exe';
-export const DEFAULT_LLAMA_BIND_HOST = '127.0.0.1';
-export const DEFAULT_LLAMA_PORT = 8097;
-export const DEFAULT_LLAMA_GPU_LAYERS = 999;
-export const DEFAULT_LLAMA_BATCH_SIZE = 512;
-export const DEFAULT_LLAMA_UBATCH_SIZE = 512;
-export const DEFAULT_LLAMA_CACHE_RAM = 8192;
-export const DEFAULT_LLAMA_KV_CACHE_QUANTIZATION = 'f16';
-export const DEFAULT_LLAMA_REASONING_BUDGET = 10_000;
-export const DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE = 'Thinking budget exhausted. You have to provide the answer now.';
+export const DEFAULT_LLAMA_MODEL = SIFT_DEFAULT_LLAMA_MODEL;
+export const DEFAULT_WEB_SEARCH_CONFIG: WebSearchConfig = getDefaultConfigObject().WebSearch;
 
-export const MAX_LLAMA_STARTUP_TIMEOUT_MS = 600_000;
-export const DEFAULT_LLAMA_STARTUP_TIMEOUT_MS = 600_000;
-export const DEFAULT_LLAMA_HEALTHCHECK_TIMEOUT_MS = 2_000;
-export const DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS = 1_000;
-export const DEFAULT_LLAMA_SLEEP_IDLE_SECONDS = 600;
-
-const MANAGED_LLAMA_SPECULATIVE_TYPES = ['draft-simple', 'draft-eagle3', 'draft-mtp', 'ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod', 'ngram-cache'] as const;
-
-export const WEB_SEARCH_PROVIDER_IDS = ['tavily', 'firecrawl'] as const;
-
-export const DEFAULT_WEB_SEARCH_CONFIG = {
-  EnabledDefault: true,
-  Providers: {
-    tavily: { Enabled: false, ApiKey: '' },
-    firecrawl: { Enabled: false, ApiKey: '' },
-  },
-  ProviderOrder: ['tavily', 'firecrawl'],
-  ResultCount: 5,
-  FetchMaxPages: 3,
-  TimeoutMs: 15000,
-  FetchMaxCharacters: 12000,
-} as const;
-
-const DEFAULT_MANAGED_LLAMA_PRESET: Dict = {
-  id: 'default',
-  label: 'Default',
-  Model: DEFAULT_LLAMA_MODEL,
-  ExternalServerEnabled: false,
-  ExecutablePath: null,
-  BaseUrl: DEFAULT_LLAMA_BASE_URL,
-  BindHost: DEFAULT_LLAMA_BIND_HOST,
-  Port: DEFAULT_LLAMA_PORT,
-  ModelPath: null,
-  NumCtx: 150000,
-  GpuLayers: DEFAULT_LLAMA_GPU_LAYERS,
-  Threads: -1,
-  NcpuMoe: 0,
-  FlashAttention: true,
-  ParallelSlots: 1,
-  BatchSize: DEFAULT_LLAMA_BATCH_SIZE,
-  UBatchSize: DEFAULT_LLAMA_UBATCH_SIZE,
-  CacheRam: DEFAULT_LLAMA_CACHE_RAM,
-  KvCacheQuantization: DEFAULT_LLAMA_KV_CACHE_QUANTIZATION,
-  MaxTokens: 15000,
-  Temperature: 0.7,
-  TopP: 0.8,
-  TopK: 20,
-  MinP: 0.0,
-  PresencePenalty: 1.5,
-  RepetitionPenalty: 1.0,
-  Reasoning: 'off',
-  ReasoningContent: false,
-  PreserveThinking: false,
-  SpeculativeEnabled: false,
-  SpeculativeType: 'ngram-map-k',
-  SpeculativeMtpEnabled: false,
-  SpeculativeNgramSizeN: 8,
-  SpeculativeNgramSizeM: 16,
-  SpeculativeNgramMinHits: 2,
-  SpeculativeNgramModNMatch: 24,
-  SpeculativeNgramModNMin: 4,
-  SpeculativeNgramModNMax: 16,
-  SpeculativeDraftMax: 16,
-  SpeculativeDraftMin: 4,
-  ReasoningBudget: DEFAULT_LLAMA_REASONING_BUDGET,
-  ReasoningBudgetMessage: DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
-  StartupTimeoutMs: DEFAULT_LLAMA_STARTUP_TIMEOUT_MS,
-  HealthcheckTimeoutMs: DEFAULT_LLAMA_HEALTHCHECK_TIMEOUT_MS,
-  HealthcheckIntervalMs: DEFAULT_LLAMA_HEALTHCHECK_INTERVAL_MS,
-  SleepIdleSeconds: DEFAULT_LLAMA_SLEEP_IDLE_SECONDS,
-  VerboseLogging: false,
-};
-
-export function getDefaultConfig(): Dict {
-  return {
-    Version: '0.1.0',
-    Backend: 'llama.cpp',
-    PolicyMode: 'conservative',
-    RawLogRetention: true,
-    IncludeAgentsMd: true,
-    IncludeRepoFileListing: true,
-    PromptPrefix: 'Preserve exact technical anchors from the input when they matter: file paths, function names, symbols, commands, error text, and any line numbers or code references that are already present. Quote short code fragments exactly when that precision changes the meaning. Do not invent locations or line numbers that are not in the input.',
-    Runtime: {
-      Model: DEFAULT_LLAMA_MODEL,
-      LlamaCpp: {},
-    },
-    Thresholds: {
-      MinCharactersForSummary: 500,
-      MinLinesForSummary: 16,
-    },
-    Interactive: {
-      Enabled: true,
-      WrappedCommands: ['git', 'less', 'vim', 'sqlite3'],
-      IdleTimeoutMs: 900000,
-      MaxTranscriptCharacters: 60000,
-      TranscriptRetention: true,
-    },
-    Server: {
-      LlamaCpp: {
-        Presets: [{ ...DEFAULT_MANAGED_LLAMA_PRESET }],
-        ActivePresetId: String(DEFAULT_MANAGED_LLAMA_PRESET.id),
-      },
-    },
-    OperationModeAllowedTools: getDefaultOperationModeAllowedTools(),
-    Presets: normalizePresets([]),
-    WebSearch: { ...DEFAULT_WEB_SEARCH_CONFIG },
-  };
-}
-
-function clampInteger(value: unknown, fallback: number, minValue: number, maxValue: number): number {
-  const parsed = Number.parseInt(String(value ?? ''), 10);
-  if (!Number.isFinite(parsed)) {
-    return fallback;
-  }
-  return Math.min(Math.max(parsed, minValue), maxValue);
-}
-
-export function normalizeWebSearchConfig(value: unknown): Dict {
-  const record = (value && typeof value === 'object' && !Array.isArray(value)) ? value as Dict : {};
-  const providersInput = (record.Providers && typeof record.Providers === 'object' && !Array.isArray(record.Providers))
-    ? record.Providers as Dict
-    : {};
-  return {
-    EnabledDefault: typeof record.EnabledDefault === 'boolean'
-      ? record.EnabledDefault
-      : DEFAULT_WEB_SEARCH_CONFIG.EnabledDefault,
-    Providers: {
-      tavily: normalizeProviderSettings(providersInput.tavily),
-      firecrawl: normalizeProviderSettings(providersInput.firecrawl),
-    },
-    ProviderOrder: normalizeProviderOrder(record.ProviderOrder),
-    ResultCount: clampInteger(record.ResultCount, DEFAULT_WEB_SEARCH_CONFIG.ResultCount, 1, 20),
-    FetchMaxPages: clampInteger(record.FetchMaxPages, DEFAULT_WEB_SEARCH_CONFIG.FetchMaxPages, 1, 8),
-    TimeoutMs: clampInteger(record.TimeoutMs, DEFAULT_WEB_SEARCH_CONFIG.TimeoutMs, 1000, 60000),
-    FetchMaxCharacters: clampInteger(record.FetchMaxCharacters, DEFAULT_WEB_SEARCH_CONFIG.FetchMaxCharacters, 1000, 50000),
-  };
-}
-
-function normalizeProviderSettings(value: unknown): Dict {
-  const record = (value && typeof value === 'object' && !Array.isArray(value)) ? value as Dict : {};
-  return {
-    Enabled: record.Enabled === true,
-    ApiKey: getNullableTrimmedString(record.ApiKey) || '',
-  };
-}
-
-function normalizeProviderOrder(value: unknown): string[] {
-  const known = WEB_SEARCH_PROVIDER_IDS as readonly string[];
-  const requested = Array.isArray(value) ? value.map((entry) => String(entry || '').trim()) : [];
-  const ordered = requested.filter((id, index) => known.includes(id) && requested.indexOf(id) === index);
-  for (const id of known) {
-    if (!ordered.includes(id)) {
-      ordered.push(id);
-    }
-  }
-  return ordered;
+export function getDefaultConfig(): SiftConfig {
+  return getDefaultConfigObject();
 }
 
 export function normalizeWindowsPath(value: unknown): string {
   return normalizeWindowsPathShared(String(value || ''));
 }
 
-function getManagedSpeculativeType(value: unknown, fallback: string): string {
-  return MANAGED_LLAMA_SPECULATIVE_TYPES.includes(String(value || '') as typeof MANAGED_LLAMA_SPECULATIVE_TYPES[number])
-    ? String(value)
-    : fallback;
-}
-
-export function mergeConfig(baseValue: unknown, patchValue: unknown): unknown {
-  if (Array.isArray(baseValue) && Array.isArray(patchValue)) {
-    return patchValue.slice();
-  }
-  if (
-    baseValue &&
-    patchValue &&
-    typeof baseValue === 'object' &&
-    typeof patchValue === 'object' &&
-    !Array.isArray(baseValue) &&
-    !Array.isArray(patchValue)
-  ) {
-    const merged: Dict = { ...(baseValue as Dict) };
-    for (const [key, value] of Object.entries(patchValue as Dict)) {
-      if (key === 'Paths') {
-        continue;
-      }
-      merged[key] = key in merged ? mergeConfig(merged[key], value) : value;
-    }
-    return merged;
-  }
-  return patchValue;
-}
-
-export function normalizeConfig(input: unknown): Dict {
-  const merged = mergeConfig(getDefaultConfig(), input || {}) as Dict;
-  if (merged.Backend === 'ollama') {
-    merged.Backend = 'llama.cpp';
-  }
-  delete merged.Paths;
-  delete merged.Ollama;
-  delete merged.Model;
-  delete merged.LlamaCpp;
-
-  merged.Runtime = (merged.Runtime && typeof merged.Runtime === 'object' && !Array.isArray(merged.Runtime))
-    ? merged.Runtime : {};
-  const runtime = merged.Runtime as Dict;
-  delete runtime.PromptPrefix;
-  runtime.Model = getNullableTrimmedString(runtime.Model);
-  runtime.LlamaCpp = (runtime.LlamaCpp && typeof runtime.LlamaCpp === 'object' && !Array.isArray(runtime.LlamaCpp))
-    ? runtime.LlamaCpp : {};
-
-  if (!merged.PromptPrefix || !String(merged.PromptPrefix).trim()) {
-    merged.PromptPrefix = (getDefaultConfig() as Dict).PromptPrefix;
-  }
-  if (merged.Thresholds && typeof merged.Thresholds === 'object') {
-    delete (merged.Thresholds as Dict).MaxInputCharacters;
-    delete (merged.Thresholds as Dict).ChunkThresholdRatio;
-  }
-
-  merged.Server = (merged.Server && typeof merged.Server === 'object' && !Array.isArray(merged.Server))
-    ? merged.Server : {};
-  const server = merged.Server as Dict;
-  const serverLlama = (server.LlamaCpp && typeof server.LlamaCpp === 'object' && !Array.isArray(server.LlamaCpp))
-    ? server.LlamaCpp as Dict : {};
-  const presets = normalizeManagedLlamaPresetArray(serverLlama.Presets, {});
-  const activeId = getNullableTrimmedString(serverLlama.ActivePresetId);
-  const activePreset = presets.find((preset) => String(preset.id) === activeId) || presets[0];
-  server.LlamaCpp = { Presets: presets, ActivePresetId: String(activePreset.id) };
-
-  merged.OperationModeAllowedTools = normalizeOperationModeAllowedTools(merged.OperationModeAllowedTools);
-  merged.Presets = normalizePresets(merged.Presets);
-  merged.WebSearch = normalizeWebSearchConfig(merged.WebSearch);
-  return merged;
+export function normalizeConfig(input: unknown): SiftConfig {
+  return normalizeConfigObject(input);
 }
 
 type AppConfigRow = {
@@ -320,27 +109,24 @@ function parseOperationModeAllowedTools(text: unknown): ReturnType<typeof normal
   }
 }
 
-function parseManagedLlamaPresetArray(text: unknown): Dict[] {
+function parseManagedLlamaPresetArray(text: unknown): ServerManagedLlamaPreset[] {
   if (typeof text !== 'string' || !text.trim()) {
     return [];
   }
   try {
     const parsed = JSON.parse(text) as unknown;
-    return Array.isArray(parsed)
-      ? parsed.filter((entry): entry is Dict => Boolean(entry && typeof entry === 'object' && !Array.isArray(entry)))
-      : [];
+    return normalizeManagedLlamaPresetArray(parsed, {});
   } catch {
     return [];
   }
 }
 
-function normalizeConfigToRow(config: Dict): AppConfigRow {
+function normalizeConfigToRow(config: SiftConfig): AppConfigRow {
   const normalized = normalizeConfig(config);
-  const runtime = (normalized.Runtime as Dict | undefined) || {};
-  const thresholds = (normalized.Thresholds as Dict | undefined) || {};
-  const interactive = (normalized.Interactive as Dict | undefined) || {};
-  const server = (normalized.Server as Dict | undefined) || {};
-  const serverLlama = (server.LlamaCpp as Dict | undefined) || {};
+  const runtime = normalized.Runtime;
+  const thresholds = normalized.Thresholds;
+  const interactive = normalized.Interactive;
+  const serverLlama = normalized.Server.LlamaCpp;
 
   return {
     version: String(normalized.Version || '0.1.0'),
@@ -373,7 +159,7 @@ function normalizeConfigToRow(config: Dict): AppConfigRow {
   };
 }
 
-function rowToConfig(row: AppConfigRow): Dict {
+function rowToConfig(row: AppConfigRow): SiftConfig {
   return normalizeConfig({
     Version: row.version,
     Backend: row.backend,
@@ -409,7 +195,7 @@ function rowToConfig(row: AppConfigRow): Dict {
   });
 }
 
-function parseWebSearchConfig(text: unknown): Dict {
+function parseWebSearchConfig(text: unknown): WebSearchConfig {
   if (typeof text !== 'string' || !text.trim()) {
     return normalizeWebSearchConfig({});
   }
@@ -496,7 +282,7 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
   });
 }
 
-export function readConfig(configPath: string): Dict {
+export function readConfig(configPath: string): SiftConfig {
   const existingRow = readConfigRow(configPath);
   const config = existingRow
     ? rowToConfig(existingRow)
@@ -510,10 +296,9 @@ export function readConfig(configPath: string): Dict {
   // the preset afterwards). Before any launch there is no snapshot, so the
   // active preset is the best available source for the runtime config.
   const snapshot = readRuntimeLaunchSnapshot(configPath) ?? buildRuntimeLaunchSnapshot(config);
-  const runtime = (config.Runtime as Dict | undefined) ?? {};
+  const runtime = config.Runtime;
   runtime.Model = snapshot.Model;
-  runtime.LlamaCpp = snapshot.LlamaCpp as unknown as Dict;
-  config.Runtime = runtime;
+  runtime.LlamaCpp = snapshot.LlamaCpp;
   return config;
 }
 
@@ -523,7 +308,7 @@ export function readConfig(configPath: string): Dict {
  * when the managed server boots; also used as the runtime fallback before any
  * launch has happened.
  */
-export function buildRuntimeLaunchSnapshot(config: unknown): RuntimeLaunchSnapshot {
+export function buildRuntimeLaunchSnapshot(config: SiftConfig): RuntimeLaunchSnapshot {
   const managed = getManagedLlamaConfig(config);
   return {
     Model: managed.Model ?? null,
@@ -548,285 +333,20 @@ export function buildRuntimeLaunchSnapshot(config: unknown): RuntimeLaunchSnapsh
   };
 }
 
-export function writeConfig(configPath: string, config: Dict): void {
+export function writeConfig(configPath: string, config: SiftConfig): void {
   writeConfigRow(configPath, normalizeConfigToRow(config));
 }
 
-export function getFinitePositiveInteger(value: unknown, fallback: number): number {
-  const parsed = Number.parseInt(String(value ?? ''), 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-export function getManagedStartupTimeoutMs(value: unknown, fallback: number): number {
-  return Math.min(getFinitePositiveInteger(value, fallback), MAX_LLAMA_STARTUP_TIMEOUT_MS);
-}
-
-function getFiniteInteger(value: unknown, fallback: number): number {
-  const parsed = Number.parseInt(String(value ?? ''), 10);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function getSpeculativeInteger(value: unknown, fallback: number, requirePositive: boolean): number {
-  const parsed = Number.parseInt(String(value ?? ''), 10);
-  if (!Number.isFinite(parsed)) {
-    return fallback;
-  }
-  if (parsed === -1) {
-    return -1;
-  }
-  return !requirePositive || parsed > 0 ? parsed : fallback;
-}
-
-function getFiniteNumber(value: unknown, fallback: number): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function getNullableTrimmedString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
-
-function deriveModelIdFromPath(value: unknown): string | null {
-  const normalized = getNullableTrimmedString(value);
-  if (!normalized) {
-    return null;
-  }
-  const lastSeparatorIndex = Math.max(normalized.lastIndexOf('\\'), normalized.lastIndexOf('/'));
-  return lastSeparatorIndex >= 0 ? normalized.slice(lastSeparatorIndex + 1) : normalized;
-}
-
-function getManagedKvCacheQuantization(value: unknown, fallback: string): string {
-  const normalized = getNullableTrimmedString(value);
-  if (
-    normalized === 'f32'
-    || normalized === 'f16'
-    || normalized === 'bf16'
-    || normalized === 'q8_0'
-    || normalized === 'q4_0'
-    || normalized === 'q4_1'
-    || normalized === 'iq4_nl'
-    || normalized === 'q5_0'
-    || normalized === 'q5_1'
-    || normalized === 'q8_0/q4_0'
-    || normalized === 'q8_0/q5_0'
-  ) {
-    return normalized;
-  }
-  return fallback;
-}
-
-function normalizeManagedLlamaPresetRecord(input: unknown, fallbackId: string, fallbackLabel: string): Dict {
-  const record = (input && typeof input === 'object' && !Array.isArray(input)) ? input as Dict : {};
-  return {
-    id: getNullableTrimmedString(record.id) || fallbackId,
-    label: getNullableTrimmedString(record.label) || fallbackLabel,
-    Model: getNullableTrimmedString(record.Model) || deriveModelIdFromPath(record.ModelPath) || DEFAULT_LLAMA_MODEL,
-    ...resolveManagedLlamaSettings(record),
-  };
-}
-
-function normalizeManagedLlamaPresetArray(value: unknown, fallbackSource: Dict): Dict[] {
-  const records = Array.isArray(value) ? value : [];
-  const normalized: Dict[] = [];
-  const seen = new Set<string>();
-  for (let index = 0; index < records.length; index += 1) {
-    const record = records[index];
-    const candidate = normalizeManagedLlamaPresetRecord(record, `preset-${index + 1}`, `Preset ${index + 1}`);
-    if (seen.has(String(candidate.id))) {
-      continue;
-    }
-    seen.add(String(candidate.id));
-    normalized.push(candidate);
-  }
-  if (normalized.length > 0) {
-    return normalized;
-  }
-  return [normalizeManagedLlamaPresetRecord({
-    id: 'default',
-    label: 'Default',
-    ...fallbackSource,
-  }, 'default', 'Default')];
-}
-
-type ManagedLlamaConfig = {
-  Model?: string | null;
-  ExternalServerEnabled: boolean;
-  ExecutablePath: string | null;
-  BaseUrl: string | null;
-  BindHost: string;
-  Port: number;
-  ModelPath: string | null;
-  NumCtx: number;
-  GpuLayers: number;
-  Threads: number;
-  NcpuMoe: number;
-  FlashAttention: boolean;
-  ParallelSlots: number;
-  BatchSize: number;
-  UBatchSize: number;
-  CacheRam: number;
-  KvCacheQuantization: string;
-  MaxTokens: number;
-  Temperature: number;
-  TopP: number;
-  TopK: number;
-  MinP: number;
-  PresencePenalty: number;
-  RepetitionPenalty: number;
-  Reasoning: 'on' | 'off';
-  ReasoningContent: boolean;
-  PreserveThinking: boolean;
-  SpeculativeEnabled: boolean;
-  SpeculativeType: string;
-  SpeculativeMtpEnabled: boolean;
-  SpeculativeNgramSizeN: number;
-  SpeculativeNgramSizeM: number;
-  SpeculativeNgramMinHits: number;
-  SpeculativeNgramModNMatch: number;
-  SpeculativeNgramModNMin: number;
-  SpeculativeNgramModNMax: number;
-  SpeculativeDraftMax: number;
-  SpeculativeDraftMin: number;
-  ReasoningBudget: number;
-  ReasoningBudgetMessage: string | null;
-  StartupTimeoutMs: number;
-  HealthcheckTimeoutMs: number;
-  HealthcheckIntervalMs: number;
-  SleepIdleSeconds: number;
-  VerboseLogging: boolean;
+export {
+  getActiveManagedLlamaPreset,
+  getFinitePositiveInteger,
+  getLlamaBaseUrl,
+  getManagedLlamaConfig,
+  getManagedLlamaInternalBaseUrl,
+  getManagedStartupTimeoutMs,
+  getRuntimeLlamaCpp,
+  mergeConfig,
+  normalizeWebSearchConfig,
 };
-
-export function getRuntimeLlamaCpp(config: unknown): Dict {
-  const cfg = (config ?? {}) as Dict;
-  const runtime = (cfg.Runtime ?? {}) as Dict;
-  const runtimeLlama = runtime.LlamaCpp;
-  return (runtimeLlama && typeof runtimeLlama === 'object') ? runtimeLlama as Dict : {};
-}
-
-export function getLlamaBaseUrl(config: unknown): string | null {
-  return getManagedLlamaConfig(config).BaseUrl;
-}
-
-/**
- * Returns the URL the host's own SiftKit should use to talk to its managed
- * llama. The configured BaseUrl is what *external* clients (VM SiftKits,
- * other hosts on the LAN) use to reach this llama via the passthrough route.
- * For host-internal calls we want loopback — otherwise we depend on the
- * user-supplied BaseUrl being routable from the host back to itself, which
- * fails when BaseUrl is a stale/wrong LAN IP, when Hyper-V hairpinning is
- * misconfigured, when Windows Firewall blocks the host's own LAN IP, etc.
- *
- * Rules:
- *   - External llama: always BaseUrl (we have no other handle on it).
- *   - Managed llama, BaseUrl is loopback (127.0.0.1 / localhost / ::1): use
- *     BaseUrl as-is so the user's explicit port choice in BaseUrl is honored
- *     even if it doesn't match Server.LlamaCpp.Port (e.g. test scaffolds).
- *   - Managed llama, BaseUrl is non-loopback (or missing): use
- *     http://127.0.0.1:${Port} where Port is the port llama-server was
- *     launched on. This is the fix for stale LAN-IP BaseUrl.
- */
-export function getManagedLlamaInternalBaseUrl(config: unknown): string | null {
-  const managed = getManagedLlamaConfig(config);
-  if (managed.ExternalServerEnabled) {
-    return managed.BaseUrl;
-  }
-  const baseUrl = managed.BaseUrl;
-  if (baseUrl) {
-    try {
-      const hostname = new URL(baseUrl).hostname.toLowerCase();
-      if (hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '::1' || hostname === '[::1]') {
-        return baseUrl;
-      }
-    } catch {
-      // Fall through to the loopback-by-port path below.
-    }
-  }
-  if (!managed.Port || managed.Port <= 0) {
-    return baseUrl;
-  }
-  return `http://127.0.0.1:${managed.Port}`;
-}
-
-export function getActiveManagedLlamaPreset(config: unknown): Dict {
-  const cfg = (config ?? {}) as Dict;
-  const serverLlama = ((cfg.Server as Dict | undefined)?.LlamaCpp ?? {}) as Dict;
-  const presets = normalizeManagedLlamaPresetArray(serverLlama.Presets, serverLlama);
-  const activeId = getNullableTrimmedString(serverLlama.ActivePresetId);
-  return presets.find((preset) => String(preset.id) === activeId) || presets[0];
-}
-
-export function getManagedLlamaConfig(config: unknown): ManagedLlamaConfig {
-  const preset = getActiveManagedLlamaPreset(config);
-  return {
-    Model: getNullableTrimmedString(preset.Model),
-    ...resolveManagedLlamaSettings(preset),
-  };
-}
-
-// Pure per-record defaulting: takes ONE flat managed-llama record (a preset
-// body) and applies defaults/validation. No preset lookup, so it is safe to
-// call from normalizeManagedLlamaPresetRecord without recursion.
-function resolveManagedLlamaSettings(serverLlama: Dict): ManagedLlamaConfig {
-  const defaults = DEFAULT_MANAGED_LLAMA_PRESET;
-  const reasoning = getNullableTrimmedString(serverLlama.Reasoning);
-  const reasoningEnabled = reasoning === 'on';
-  const reasoningContentEnabled = reasoningEnabled && serverLlama.ReasoningContent === true;
-  return {
-    ExternalServerEnabled: serverLlama.ExternalServerEnabled === true,
-    ExecutablePath: getNullableTrimmedString(serverLlama.ExecutablePath)
-      || getNullableTrimmedString(defaults.ExecutablePath),
-    BaseUrl: getNullableTrimmedString(serverLlama.BaseUrl) || getNullableTrimmedString(defaults.BaseUrl),
-    BindHost: getNullableTrimmedString(serverLlama.BindHost) || String(defaults.BindHost || DEFAULT_LLAMA_BIND_HOST),
-    Port: getFinitePositiveInteger(serverLlama.Port, Number(defaults.Port ?? DEFAULT_LLAMA_PORT)),
-    ModelPath: getNullableTrimmedString(serverLlama.ModelPath) || getNullableTrimmedString(defaults.ModelPath),
-    NumCtx: getFinitePositiveInteger(serverLlama.NumCtx, Number(defaults.NumCtx ?? 150000)),
-    GpuLayers: getFiniteInteger(serverLlama.GpuLayers, Number(defaults.GpuLayers ?? DEFAULT_LLAMA_GPU_LAYERS)),
-    Threads: getFiniteInteger(serverLlama.Threads, Number(defaults.Threads ?? -1)),
-    NcpuMoe: getFiniteInteger(serverLlama.NcpuMoe, Number(defaults.NcpuMoe ?? 0)),
-    FlashAttention: serverLlama.FlashAttention === null || serverLlama.FlashAttention === undefined
-      ? Boolean(defaults.FlashAttention)
-      : Boolean(serverLlama.FlashAttention),
-    ParallelSlots: getFinitePositiveInteger(serverLlama.ParallelSlots, Number(defaults.ParallelSlots ?? 1)),
-    BatchSize: getFinitePositiveInteger(serverLlama.BatchSize, Number(defaults.BatchSize ?? DEFAULT_LLAMA_BATCH_SIZE)),
-    UBatchSize: getFinitePositiveInteger(serverLlama.UBatchSize, Number(defaults.UBatchSize ?? DEFAULT_LLAMA_UBATCH_SIZE)),
-    CacheRam: getFinitePositiveInteger(serverLlama.CacheRam, Number(defaults.CacheRam ?? DEFAULT_LLAMA_CACHE_RAM)),
-    KvCacheQuantization: getManagedKvCacheQuantization(
-      serverLlama.KvCacheQuantization,
-      String(defaults.KvCacheQuantization ?? DEFAULT_LLAMA_KV_CACHE_QUANTIZATION),
-    ),
-    MaxTokens: getFinitePositiveInteger(serverLlama.MaxTokens, Number(defaults.MaxTokens ?? 15000)),
-    Temperature: getFiniteNumber(serverLlama.Temperature, Number(defaults.Temperature ?? 0.7)),
-    TopP: getFiniteNumber(serverLlama.TopP, Number(defaults.TopP ?? 0.8)),
-    TopK: getFiniteInteger(serverLlama.TopK, Number(defaults.TopK ?? 20)),
-    MinP: getFiniteNumber(serverLlama.MinP, Number(defaults.MinP ?? 0.0)),
-    PresencePenalty: getFiniteNumber(serverLlama.PresencePenalty, Number(defaults.PresencePenalty ?? 1.5)),
-    RepetitionPenalty: getFiniteNumber(serverLlama.RepetitionPenalty, Number(defaults.RepetitionPenalty ?? 1.0)),
-    Reasoning: reasoning === 'on' || reasoning === 'off'
-      ? reasoning
-      : String(defaults.Reasoning || 'off') as 'on' | 'off',
-    ReasoningContent: reasoningContentEnabled,
-    PreserveThinking: reasoningContentEnabled && serverLlama.PreserveThinking === true,
-    SpeculativeEnabled: serverLlama.SpeculativeEnabled === true,
-    SpeculativeType: getManagedSpeculativeType(serverLlama.SpeculativeType, String(defaults.SpeculativeType || 'ngram-map-k')),
-    SpeculativeMtpEnabled: serverLlama.SpeculativeMtpEnabled === true,
-    SpeculativeNgramSizeN: getSpeculativeInteger(serverLlama.SpeculativeNgramSizeN, Number(defaults.SpeculativeNgramSizeN ?? 8), true),
-    SpeculativeNgramSizeM: getSpeculativeInteger(serverLlama.SpeculativeNgramSizeM, Number(defaults.SpeculativeNgramSizeM ?? 16), true),
-    SpeculativeNgramMinHits: getSpeculativeInteger(serverLlama.SpeculativeNgramMinHits, Number(defaults.SpeculativeNgramMinHits ?? 2), true),
-    SpeculativeNgramModNMatch: getSpeculativeInteger(serverLlama.SpeculativeNgramModNMatch, Number(defaults.SpeculativeNgramModNMatch ?? 24), true),
-    SpeculativeNgramModNMin: getSpeculativeInteger(serverLlama.SpeculativeNgramModNMin, Number(defaults.SpeculativeNgramModNMin ?? 4), true),
-    SpeculativeNgramModNMax: getSpeculativeInteger(serverLlama.SpeculativeNgramModNMax, Number(defaults.SpeculativeNgramModNMax ?? 16), true),
-    SpeculativeDraftMax: getSpeculativeInteger(serverLlama.SpeculativeDraftMax, Number(defaults.SpeculativeDraftMax ?? 16), true),
-    SpeculativeDraftMin: getSpeculativeInteger(serverLlama.SpeculativeDraftMin, Number(defaults.SpeculativeDraftMin ?? 4), false),
-    ReasoningBudget: getFinitePositiveInteger(serverLlama.ReasoningBudget, Number(defaults.ReasoningBudget ?? DEFAULT_LLAMA_REASONING_BUDGET)),
-    ReasoningBudgetMessage: getNullableTrimmedString(serverLlama.ReasoningBudgetMessage)
-      || getNullableTrimmedString(defaults.ReasoningBudgetMessage)
-      || DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
-    StartupTimeoutMs: getManagedStartupTimeoutMs(serverLlama.StartupTimeoutMs, Number(defaults.StartupTimeoutMs)),
-    HealthcheckTimeoutMs: getFinitePositiveInteger(serverLlama.HealthcheckTimeoutMs, Number(defaults.HealthcheckTimeoutMs)),
-    HealthcheckIntervalMs: getFinitePositiveInteger(serverLlama.HealthcheckIntervalMs, Number(defaults.HealthcheckIntervalMs)),
-    SleepIdleSeconds: getFinitePositiveInteger(serverLlama.SleepIdleSeconds, Number(defaults.SleepIdleSeconds ?? DEFAULT_LLAMA_SLEEP_IDLE_SECONDS)),
-    VerboseLogging: Boolean(serverLlama.VerboseLogging),
-  };
-}
 
 export type { ManagedLlamaConfig };

@@ -16,6 +16,7 @@ import {
   SIFT_DEFAULT_PROMPT_PREFIX,
 } from './constants.js';
 import { initializeRuntime } from './paths.js';
+import { getDefaultOperationModeAllowedTools, normalizePresets } from '../presets.js';
 import type { ServerManagedLlamaPreset, SiftConfig } from './types.js';
 
 export function getDefaultConfigObject(): SiftConfig {
@@ -23,6 +24,7 @@ export function getDefaultConfigObject(): SiftConfig {
   const defaultManagedLlamaPreset: ServerManagedLlamaPreset = {
     id: 'default',
     label: 'Default',
+    Model: SIFT_DEFAULT_LLAMA_MODEL,
     ExternalServerEnabled: false,
     ExecutablePath: null,
     BaseUrl: SIFT_DEFAULT_LLAMA_BASE_URL,
@@ -73,6 +75,8 @@ export function getDefaultConfigObject(): SiftConfig {
     Backend: 'llama.cpp',
     PolicyMode: 'conservative',
     RawLogRetention: true,
+    IncludeAgentsMd: true,
+    IncludeRepoFileListing: true,
     PromptPrefix: SIFT_DEFAULT_PROMPT_PREFIX,
     Runtime: {
       Model: SIFT_DEFAULT_LLAMA_MODEL,
@@ -95,6 +99,8 @@ export function getDefaultConfigObject(): SiftConfig {
         ActivePresetId: defaultManagedLlamaPreset.id,
       },
     },
+    OperationModeAllowedTools: getDefaultOperationModeAllowedTools(),
+    Presets: normalizePresets([]),
     WebSearch: {
       EnabledDefault: true,
       Providers: {

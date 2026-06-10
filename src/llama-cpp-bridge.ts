@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import { getDefaultConfigObject } from './config/defaults.js';
 import { getConfiguredModel, type SiftConfig } from './config/index.js';
 import { generateLlamaCppResponse } from './providers/llama-cpp.js';
 
@@ -55,10 +56,7 @@ async function main(): Promise<void> {
   const maxTokens = getOptionalNumber(args, 'max-tokens');
 
   const config: SiftConfig = {
-    Version: '0.1.0',
-    Backend: 'llama.cpp',
-    PolicyMode: 'conservative',
-    RawLogRetention: true,
+    ...getDefaultConfigObject(),
     Runtime: {
       Model: getRequiredArg(args, 'model'),
       LlamaCpp: {
@@ -73,19 +71,10 @@ async function main(): Promise<void> {
         ...(maxTokens === null ? {} : { MaxTokens: maxTokens }),
       },
     },
-    Thresholds: {
-      MinCharactersForSummary: 500,
-      MinLinesForSummary: 16,
-    },
     Interactive: {
+      ...getDefaultConfigObject().Interactive,
       Enabled: true,
       WrappedCommands: [],
-      IdleTimeoutMs: 900000,
-      MaxTranscriptCharacters: 60000,
-      TranscriptRetention: true,
-    },
-    Server: {
-      LlamaCpp: { Presets: [], ActivePresetId: '' },
     },
   };
 

@@ -26,7 +26,6 @@ test('deriveRuntimeModelId trims whitespace and returns empty text for empty inp
 
 test('syncDerivedSettingsFields uses the active managed preset model when present', () => {
   const config = {
-    Model: '',
     Runtime: {
       Model: '',
       LlamaCpp: {
@@ -46,23 +45,6 @@ test('syncDerivedSettingsFields uses the active managed preset model when presen
         ParallelSlots: 1,
         Reasoning: 'off',
       },
-    },
-    LlamaCpp: {
-      BaseUrl: 'http://127.0.0.1:8080',
-      ModelPath: null,
-      NumCtx: 4096,
-      Temperature: 0.7,
-      TopP: 0.9,
-      TopK: 40,
-      MinP: 0.05,
-      PresencePenalty: 0,
-      RepetitionPenalty: 1.1,
-      MaxTokens: 512,
-      GpuLayers: 0,
-      Threads: 4,
-      FlashAttention: false,
-      ParallelSlots: 1,
-      Reasoning: 'off',
     },
     Server: {
       LlamaCpp: {
@@ -142,5 +124,4 @@ test('syncDerivedSettingsFields uses the active managed preset model when presen
   syncDerivedSettingsFields(config);
 
   assert.equal(config.Runtime.Model, 'Managed Model');
-  assert.equal(config.Model, 'Managed Model');
 });

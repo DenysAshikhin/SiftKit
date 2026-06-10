@@ -1,3 +1,6 @@
+import type { OperationModeAllowedTools, SiftPreset } from '../presets.js';
+import type { WebSearchConfig } from '../web-search/types.js';
+
 export type RuntimeLlamaCppConfig = {
   BaseUrl?: string | null;
   NumCtx?: number | null;
@@ -41,63 +44,62 @@ export type ManagedLlamaSpeculativeType =
   | 'ngram-cache';
 
 export type ManagedLlamaSettings = {
-  ExternalServerEnabled?: boolean | null;
-  ExecutablePath?: string | null;
-  BaseUrl?: string | null;
-  BindHost?: string | null;
-  Port?: number | null;
-  ModelPath?: string | null;
-  NumCtx?: number | null;
-  GpuLayers?: number | null;
-  Threads?: number | null;
-  NcpuMoe?: number | null;
-  FlashAttention?: boolean | null;
-  ParallelSlots?: number | null;
-  BatchSize?: number | null;
-  UBatchSize?: number | null;
-  CacheRam?: number | null;
-  KvCacheQuantization?: ManagedLlamaKvCacheQuantization | null;
-  MaxTokens?: number | null;
-  Temperature?: number | null;
-  TopP?: number | null;
-  TopK?: number | null;
-  MinP?: number | null;
-  PresencePenalty?: number | null;
-  RepetitionPenalty?: number | null;
-  Reasoning?: 'on' | 'off' | null;
-  ReasoningContent?: boolean | null;
-  PreserveThinking?: boolean | null;
-  SpeculativeEnabled?: boolean | null;
-  SpeculativeType?: ManagedLlamaSpeculativeType | null;
-  SpeculativeMtpEnabled?: boolean | null;
-  SpeculativeNgramSizeN?: number | null;
-  SpeculativeNgramSizeM?: number | null;
-  SpeculativeNgramMinHits?: number | null;
-  SpeculativeNgramModNMatch?: number | null;
-  SpeculativeNgramModNMin?: number | null;
-  SpeculativeNgramModNMax?: number | null;
-  SpeculativeDraftMax?: number | null;
-  SpeculativeDraftMin?: number | null;
-  ReasoningBudget?: number | null;
-  ReasoningBudgetMessage?: string | null;
-  StartupTimeoutMs?: number | null;
-  HealthcheckTimeoutMs?: number | null;
-  HealthcheckIntervalMs?: number | null;
-  SleepIdleSeconds?: number | null;
-  VerboseLogging?: boolean | null;
+  ExternalServerEnabled: boolean;
+  ExecutablePath: string | null;
+  BaseUrl: string | null;
+  BindHost: string;
+  Port: number;
+  ModelPath: string | null;
+  NumCtx: number;
+  GpuLayers: number;
+  Threads: number;
+  NcpuMoe: number;
+  FlashAttention: boolean;
+  ParallelSlots: number;
+  BatchSize: number;
+  UBatchSize: number;
+  CacheRam: number;
+  KvCacheQuantization: ManagedLlamaKvCacheQuantization;
+  MaxTokens: number;
+  Temperature: number;
+  TopP: number;
+  TopK: number;
+  MinP: number;
+  PresencePenalty: number;
+  RepetitionPenalty: number;
+  Reasoning: 'on' | 'off';
+  ReasoningContent: boolean;
+  PreserveThinking: boolean;
+  SpeculativeEnabled: boolean;
+  SpeculativeType: ManagedLlamaSpeculativeType;
+  SpeculativeMtpEnabled: boolean;
+  SpeculativeNgramSizeN: number;
+  SpeculativeNgramSizeM: number;
+  SpeculativeNgramMinHits: number;
+  SpeculativeNgramModNMatch: number;
+  SpeculativeNgramModNMin: number;
+  SpeculativeNgramModNMax: number;
+  SpeculativeDraftMax: number;
+  SpeculativeDraftMin: number;
+  ReasoningBudget: number;
+  ReasoningBudgetMessage: string | null;
+  StartupTimeoutMs: number;
+  HealthcheckTimeoutMs: number;
+  HealthcheckIntervalMs: number;
+  SleepIdleSeconds: number;
+  VerboseLogging: boolean;
 };
 
 export type ServerManagedLlamaPreset = {
   id: string;
   label: string;
+  Model: string | null;
 } & ManagedLlamaSettings;
 
 export type ServerLlamaCppConfig = {
   Presets: ServerManagedLlamaPreset[];
   ActivePresetId: string;
 };
-
-import type { WebSearchConfig } from '../web-search/types.js';
 
 export type {
   WebSearchProviderId,
@@ -110,6 +112,8 @@ export type SiftConfig = {
   Backend: string;
   PolicyMode: string;
   RawLogRetention: boolean;
+  IncludeAgentsMd: boolean;
+  IncludeRepoFileListing: boolean;
   PromptPrefix?: string | null;
   Runtime: {
     Model: string | null;
@@ -129,7 +133,9 @@ export type SiftConfig = {
   Server: {
     LlamaCpp: ServerLlamaCppConfig;
   };
-  WebSearch?: WebSearchConfig;
+  OperationModeAllowedTools: OperationModeAllowedTools;
+  Presets: SiftPreset[];
+  WebSearch: WebSearchConfig;
   Paths?: {
     RuntimeRoot: string;
     Logs: string;
@@ -149,6 +155,12 @@ export type SiftConfig = {
     ChunkThresholdCharacters: number | null;
   };
 };
+
+export type DashboardConfig = SiftConfig;
+export type DashboardManagedLlamaPreset = ServerManagedLlamaPreset;
+export type DashboardLlamaCppConfig = ServerLlamaCppConfig;
+export type DashboardOperationModeAllowedTools = OperationModeAllowedTools;
+export type DashboardPreset = SiftPreset;
 
 export type NormalizationInfo = {
   changed: boolean;

@@ -34,6 +34,7 @@ import {
 } from './config-store.js';
 import { writeRuntimeLaunchSnapshot } from './runtime-launch-snapshot.js';
 import { getRuntimeDatabasePath } from '../config/paths.js';
+import type { SiftConfig } from '../config/types.js';
 import type {
   Dict,
   ManagedLlamaLogRef,
@@ -500,7 +501,7 @@ function findListeningProcessIdByPort(port: number): number | null {
   return null;
 }
 
-function getManagedLlamaListeningPort(config: Dict, managed: ReturnType<typeof getManagedLlamaConfig>): number {
+function getManagedLlamaListeningPort(config: SiftConfig, managed: ReturnType<typeof getManagedLlamaConfig>): number {
   const baseUrl = getManagedLlamaInternalBaseUrl(config) || getLlamaBaseUrl(config);
   if (baseUrl) {
     try {
@@ -986,7 +987,7 @@ async function scanManagedLlamaStartupLogsOrFail(logRef: ManagedLlamaLogRef): Pr
 
 type LlamaReachability = 'ready' | 'loading' | 'offline';
 
-async function probeLlamaServerReachability(config: Dict): Promise<LlamaReachability> {
+async function probeLlamaServerReachability(config: SiftConfig): Promise<LlamaReachability> {
   const baseUrl = getManagedLlamaInternalBaseUrl(config);
   if (!baseUrl) {
     return 'offline';
@@ -1005,11 +1006,11 @@ async function probeLlamaServerReachability(config: Dict): Promise<LlamaReachabi
   }
 }
 
-async function isLlamaServerReachable(config: Dict): Promise<boolean> {
+async function isLlamaServerReachable(config: SiftConfig): Promise<boolean> {
   return (await probeLlamaServerReachability(config)) === 'ready';
 }
 
-async function waitForLlamaServerReachability(config: Dict, shouldBeReachable: boolean, deadline: number | null = null): Promise<void> {
+async function waitForLlamaServerReachability(config: SiftConfig, shouldBeReachable: boolean, deadline: number | null = null): Promise<void> {
   const managed = getManagedLlamaConfig(config);
   const timeoutDeadline = Number.isFinite(deadline) ? Number(deadline) : Date.now() + managed.StartupTimeoutMs;
   while (Date.now() < timeoutDeadline) {
@@ -1024,7 +1025,7 @@ async function waitForLlamaServerReachability(config: Dict, shouldBeReachable: b
 }
 
 async function waitForManagedLlamaStartup(
-  config: Dict,
+  config: SiftConfig,
   launchedChild: ChildProcess,
   logRef: ManagedLlamaLogRef,
   initialDeadline: number,
@@ -1082,7 +1083,7 @@ async function waitForManagedLlamaStartup(
   throw new ManagedLlamaStartupError(`Timed out waiting for llama.cpp server at ${probeUrl} to become ready.`);
 }
 
-async function abortManagedLlamaStartup(ctx: ServerContext, config: Dict, launchedChild: ChildProcess | null = null): Promise<void> {
+async function abortManagedLlamaStartup(ctx: ServerContext, config: SiftConfig, launchedChild: ChildProcess | null = null): Promise<void> {
   const managed = getManagedLlamaConfig(config);
   const listeningPort = getManagedLlamaListeningPort(config, managed);
   if (launchedChild && launchedChild.pid && launchedChild.exitCode === null && launchedChild.signalCode === null) {
@@ -1117,7 +1118,7 @@ function dumpManagedLlamaStartupReviewToConsole(logRef: ManagedLlamaLogRef | nul
 // High-level lifecycle: ensure ready / shutdown
 // ---------------------------------------------------------------------------
 
-export async function ensureManagedLlamaReady(ctx: ServerContext, options: EnsureManagedLlamaOptions = {}): Promise<Dict> {
+export async function ensureManagedLlamaReady(ctx: ServerContext, options: EnsureManagedLlamaOptions = {}): Promise<SiftConfig> {
   const config = readConfig(ctx.configPath);
   if (config.Backend !== 'llama.cpp') {
     ctx.managedLlamaStartupWarning = null;
