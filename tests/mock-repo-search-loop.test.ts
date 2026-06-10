@@ -2147,6 +2147,43 @@ test('runTaskLoop records real planner turn per command and per-turn thinking', 
   assert.equal(result.turnThinking[3], 'final reasoning');
 });
 
+test('runTaskLoop keeps only latest planner thinking when per-step thinking is disabled', async () => {
+  const result = await runTaskLoop(
+    { id: 'task-turns-pruned', question: 'Find planner text.', signals: ['done'] },
+    {
+      maxTurns: 6,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      config: {
+        Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000, Reasoning: 'on' } },
+        Server: {
+          LlamaCpp: {
+            ActivePresetId: 'thinking-off',
+            Presets: [{
+              id: 'thinking-off',
+              Reasoning: 'on',
+              ReasoningContent: true,
+              PreserveThinking: true,
+              MaintainPerStepThinking: false,
+            }],
+          },
+        },
+      },
+      mockResponses: [
+        '<think>plan step a</think>{"action":"repo_rg","command":"rg -n \\"a\\" src"}',
+        '<think>plan step b</think>{"action":"repo_rg","command":"rg -n \\"b\\" src"}',
+        '<think>final reasoning</think>{"action":"finish","output":"done"}',
+      ],
+      mockCommandResults: {
+        'rg -n "a" src': { exitCode: 0, stdout: 'a', stderr: '' },
+        'rg -n "b" src': { exitCode: 0, stdout: 'b', stderr: '' },
+      },
+    }
+  );
+  assert.deepEqual(Object.keys(result.turnThinking), ['3']);
+  assert.equal(result.turnThinking[3], 'final reasoning');
+});
+
 test('runTaskLoop sets turn on a duplicate-rejected command push', async () => {
   const result = await runTaskLoop(
     { id: 'task-dup-turn', question: 'Find planner text.', signals: [] },

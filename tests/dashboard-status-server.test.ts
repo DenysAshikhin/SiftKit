@@ -664,6 +664,98 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
   }
 });
 
+test('dashboard chat message route stores exact user tokens from llama tokenizer', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-chat-tokenize-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = getConfigPath();
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const tokenizedContents: string[] = [];
+  const tokenizerServer = http.createServer(async (request, response) => {
+    if (request.method !== 'POST' || request.url !== '/tokenize') {
+      response.writeHead(404, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ error: 'not found' }));
+      return;
+    }
+    const bodyText = await new Promise<string>((resolve) => {
+      let data = '';
+      request.setEncoding('utf8');
+      request.on('data', (chunk) => { data += chunk; });
+      request.on('end', () => resolve(data));
+    });
+    const parsed = JSON.parse(bodyText) as { content?: unknown };
+    const content = String(parsed.content || '');
+    tokenizedContents.push(content);
+    response.writeHead(200, { 'Content-Type': 'application/json' });
+    response.end(JSON.stringify({ count: content === 'exact route user prompt' ? 23 : Math.max(1, Math.ceil(content.length / 4)) }));
+  });
+  await new Promise<void>((resolve) => tokenizerServer.listen(0, '127.0.0.1', resolve));
+  const tokenizerAddress = tokenizerServer.address() as AddressInfo;
+  const tokenizerBaseUrl = `http://127.0.0.1:${tokenizerAddress.port}`;
+  const config = getDefaultConfig() as Dict;
+  const serverConfig = d(config.Server);
+  const serverLlama = d(serverConfig.LlamaCpp);
+  serverLlama.Presets = [{
+    ...d((serverLlama.Presets as Dict[] | undefined)?.[0]),
+    id: 'default',
+    label: 'Default',
+    ExternalServerEnabled: true,
+    BaseUrl: tokenizerBaseUrl,
+  }];
+  serverLlama.ActivePresetId = 'default';
+  serverConfig.LlamaCpp = serverLlama;
+  config.Server = serverConfig;
+  writeConfig(configPath, config);
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Tokenized chat session',
+        model: 'Qwen3.5-9B-Q8_0.gguf',
+      }),
+    });
+    assert.equal(createSession.statusCode, 200);
+    const sessionId = String(d(createSession.body.session).id);
+
+    const appendMessage = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
+      method: 'POST',
+      timeoutMs: 3000,
+      body: JSON.stringify({
+        content: 'exact route user prompt',
+        assistantContent: 'stored assistant response',
+      }),
+    });
+    assert.equal(appendMessage.statusCode, 200);
+    const messages = d(appendMessage.body.session).messages as Dict[];
+    const userMessage = messages.find((message) => message.kind === 'user_text');
+    assert.ok(userMessage);
+    assert.equal(userMessage.inputTokensEstimate, 23);
+    assert.equal(userMessage.inputTokensEstimated, false);
+    assert.equal(tokenizedContents.includes('exact route user prompt'), true);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    await new Promise<void>((resolve, reject) => {
+      tokenizerServer.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
 test('dashboard metrics expose line-read stats and prompt-baseline recommendations', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-line-read-'));
   const previousCwd = enterDashboardTestRepo(tempRoot);

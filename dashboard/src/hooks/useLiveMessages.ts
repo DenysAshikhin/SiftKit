@@ -79,7 +79,7 @@ export type UseLiveMessagesResult = {
   resetLive(): void;
   createLiveMessage(id: string, kind: LiveMessageKind, role: ChatMessage['role'], content: string): ChatMessage;
   upsertLiveMessage(message: ChatMessage): void;
-  appendLiveThinking(text: string): void;
+  appendLiveThinking(text: string, maintainPerStepThinking: boolean): void;
   appendLiveToolMessage(toolEvent: ChatStreamToolEvent): void;
   completeLiveToolMessage(toolEvent: ChatStreamToolEvent): void;
 };
@@ -95,8 +95,8 @@ export function useLiveMessages(): UseLiveMessagesResult {
     upsertLiveMessage(message: ChatMessage): void {
       setLiveMessages((previous) => upsertLiveMessageInto(previous, message));
     },
-    appendLiveThinking(text: string): void {
-      setLiveMessages((previous) => appendLiveThinkingMessage(previous, text));
+    appendLiveThinking(text: string, maintainPerStepThinking: boolean): void {
+      setLiveMessages((previous) => appendLiveThinkingMessage(previous, text, maintainPerStepThinking));
     },
     appendLiveToolMessage(toolEvent: ChatStreamToolEvent): void {
       const built = buildAppendedLiveToolMessage(toolEvent);

@@ -172,6 +172,16 @@ export function SettingsTab(props: SettingsTabProps) {
             <span>{dashboardConfig.IncludeRepoFileListing ? 'Enabled' : 'Disabled'}</span>
           </label>
         ))}
+        {renderField('general', 'Expand reads', (
+          <label className="settings-live-toggle-control">
+            <input
+              type="checkbox"
+              checked={dashboardConfig.ExpandReads}
+              onChange={(event) => updateSettingsDraft((next) => { next.ExpandReads = event.target.checked; })}
+            />
+            <span>{dashboardConfig.ExpandReads ? 'Enabled' : 'Disabled'}</span>
+          </label>
+        ))}
         {renderField('general', 'Prompt prefix', (
           <textarea
             rows={5}

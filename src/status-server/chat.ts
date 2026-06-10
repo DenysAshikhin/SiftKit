@@ -1,8 +1,9 @@
 import * as crypto from 'node:crypto';
 import type { Dict } from '../lib/types.js';
-import type { ChatMessage } from '../repo-search/planner-protocol.js';
+import type { ChatMessage as PlannerChatMessage } from '../repo-search/planner-protocol.js';
 import type { ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
 import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
+import { ThinkingRetentionPolicy } from '../thinking-retention-policy.js';
 import {
   type ChatSession,
   estimateTokenCount,
@@ -172,28 +173,38 @@ type BuildChatOptions = {
   webActionInstruction?: string;
 };
 
-function shouldReplayReasoningContent(config: Dict): boolean {
+function getActiveServerLlamaPreset(config: Dict): Dict | null {
   const server = config?.Server && typeof config.Server === 'object' ? config.Server as Dict : null;
   const serverLlama = server?.LlamaCpp && typeof server.LlamaCpp === 'object' ? server.LlamaCpp as Dict : null;
-  return serverLlama?.ReasoningContent === true;
+  const presets = Array.isArray(serverLlama?.Presets) ? serverLlama.Presets as Dict[] : [];
+  if (presets.length === 0) {
+    return null;
+  }
+  const activePresetId = typeof serverLlama?.ActivePresetId === 'string' ? serverLlama.ActivePresetId : '';
+  return presets.find((preset) => preset.id === activePresetId) || presets[0] || null;
+}
+
+function shouldReplayReasoningContent(config: Dict): boolean {
+  const activePreset = getActiveServerLlamaPreset(config);
+  return activePreset?.Reasoning === 'on' && activePreset.ReasoningContent === true;
 }
 
 function shouldPreserveThinking(config: Dict, thinkingEnabled: boolean): boolean {
   if (!thinkingEnabled || !shouldReplayReasoningContent(config)) {
     return false;
   }
-  const server = config?.Server && typeof config.Server === 'object' ? config.Server as Dict : null;
-  const serverLlama = server?.LlamaCpp && typeof server.LlamaCpp === 'object' ? server.LlamaCpp as Dict : null;
-  return serverLlama?.PreserveThinking === true;
+  return getActiveServerLlamaPreset(config)?.PreserveThinking === true;
 }
 
 
 export function buildChatHistoryMessages(
-  _config: Dict,
+  config: Dict,
   session: ChatSession,
-): ChatMessage[] {
+): PlannerChatMessage[] {
   const messages = Array.isArray(session.messages) ? session.messages as Dict[] : [];
-  const history: ChatMessage[] = [];
+  const history: PlannerChatMessage[] = [];
+  const replayThinking = shouldPreserveThinking(config, session.thinkingEnabled !== false);
+  let pendingThinking = '';
   for (const message of messages) {
     const kind = typeof message.kind === 'string'
       ? message.kind
@@ -201,17 +212,29 @@ export function buildChatHistoryMessages(
         ? 'user_text'
         : 'assistant_answer';
     if (kind === 'assistant_thinking') {
+      if (replayThinking) {
+        pendingThinking = getTrimmedString(message.content);
+      }
       continue;
     }
     if (kind === 'assistant_tool_call') {
-      appendReplayToolMessages(history, message);
+      appendReplayToolMessages(history, message, pendingThinking);
+      pendingThinking = '';
       continue;
     }
     const content = typeof message.content === 'string' ? message.content.trim() : '';
     if (!content) {
       continue;
     }
-    history.push({ role: message.role === 'assistant' ? 'assistant' : 'user', content });
+    history.push({
+      role: message.role === 'assistant' ? 'assistant' : 'user',
+      content,
+      ...(message.role === 'assistant' && pendingThinking ? { reasoning_content: pendingThinking } : {}),
+    });
+    pendingThinking = '';
+  }
+  if (pendingThinking) {
+    history.push({ role: 'assistant', content: '', reasoning_content: pendingThinking });
   }
   return history;
 }
@@ -222,7 +245,7 @@ function buildReplayToolCallId(messageId: unknown): string {
   return `chat_tool_${safe}`;
 }
 
-function buildReplayToolCall(command: string, toolCallId: string): NonNullable<ChatMessage['tool_calls']>[number] {
+function buildReplayToolCall(command: string, toolCallId: string): NonNullable<PlannerChatMessage['tool_calls']>[number] {
   const webTool = parseWebToolCommand(command);
   if (webTool?.toolName === 'web_search') {
     return {
@@ -254,7 +277,7 @@ function buildReplayToolCall(command: string, toolCallId: string): NonNullable<C
   };
 }
 
-function appendReplayToolMessages(history: ChatMessage[], message: Dict): void {
+function appendReplayToolMessages(history: PlannerChatMessage[], message: Dict, reasoningContent: string): void {
   const command = getTrimmedString(message.toolCallCommand) || getTrimmedString(message.content);
   const output = getTrimmedString(message.toolCallOutput) || getTrimmedString(message.toolCallOutputSnippet);
   if (!command && !output) {
@@ -264,6 +287,7 @@ function appendReplayToolMessages(history: ChatMessage[], message: Dict): void {
   history.push({
     role: 'assistant',
     content: '',
+    ...(reasoningContent ? { reasoning_content: reasoningContent } : {}),
     tool_calls: [buildReplayToolCall(command, toolCallId)],
   });
   history.push({
@@ -344,6 +368,9 @@ export type PersistTurn = {
 
 type AppendChatOptions = {
   turns: PersistTurn[];
+  maintainPerStepThinking?: boolean;
+  inputTokens?: number | null;
+  inputTokensEstimated?: boolean;
   requestDurationMs?: number | null;
   promptEvalDurationMs?: number | null;
   generationDurationMs?: number | null;
@@ -382,7 +409,9 @@ export function appendChatMessagesWithUsage(
   const usageGenerationDurationMs = getChatUsageValue(usage.generationDurationMs);
   const usagePromptTokensPerSecond = getChatUsageValue(usage.promptTokensPerSecond);
   const usageGenerationTokensPerSecond = getChatUsageValue(usage.generationTokensPerSecond);
-  const userTokens = estimateTokenCount(content);
+  const explicitInputTokens = getChatUsageValue(options.inputTokens);
+  const userTokens = explicitInputTokens ?? estimateTokenCount(content);
+  const inputTokensEstimated = explicitInputTokens !== null ? options.inputTokensEstimated === true : true;
   const explicitOutputTokens = getChatUsageValue(options.outputTokens);
   const explicitThinkingTokens = getChatUsageValue(options.thinkingTokens);
   const outputTokens = explicitOutputTokens ?? completionTokens ?? estimateTokenCount(assistantContent);
@@ -407,7 +436,7 @@ export function appendChatMessagesWithUsage(
     inputTokensEstimate: userTokens,
     outputTokensEstimate: 0,
     thinkingTokens: 0,
-    inputTokensEstimated: true,
+    inputTokensEstimated,
     outputTokensEstimated: false,
     thinkingTokensEstimated: false,
     createdAtUtc: now,
@@ -512,10 +541,12 @@ export function appendChatMessagesWithUsage(
     sourceRunId,
     groundingStatus,
   });
+  const retainedMessages = new ThinkingRetentionPolicy(options.maintainPerStepThinking !== false)
+    .prunePersistedMessages(messages as Dict[]);
   const updated: ChatSession = {
     ...session,
     updatedAtUtc: now,
-    messages,
+    messages: retainedMessages,
   };
   saveChatSession(runtimeRoot, updated);
   return updated;

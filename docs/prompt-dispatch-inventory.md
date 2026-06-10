@@ -100,6 +100,8 @@ All send to `/v1/chat/completions`.
 - Summary one-shot can force non-thinking (`reasoningOverride='off'`) for small top-level inputs.
 - Summary/chat/repo-search use top-level `chat_template_kwargs.enable_thinking` as the per-request thinking switch.
 - `chat_template_kwargs.reasoning_content` and `chat_template_kwargs.preserve_thinking` are attached when the matching server capabilities are enabled.
+- Managed llama presets also expose `MaintainPerStepThinking`. When reasoning is on, this defaults on. When off, SiftKit deletes older persisted thinking blocks from the visible transcript and only replays the latest retained thinking block.
+- `enable_thinking` controls whether llama.cpp should generate hidden thinking. `reasoning_content` asks llama.cpp to expose reasoning in the API response. `preserve_thinking` asks llama.cpp's chat template to preserve reasoning fields during template rendering. `MaintainPerStepThinking` is SiftKit-side transcript retention/replay policy, not a llama.cpp request flag.
 
 ### 4.4 Sampling and generation knobs
 - Sampling (`temperature`, `top_p`, `top_k`, `min_p`, `presence_penalty`, `repeat_penalty`, `reasoning_budget`) is configured at `llama-server` startup only — passed as CLI flags by the managed startup scripts. Chat request bodies contain no sampling knobs.
@@ -141,6 +143,7 @@ All send to `/v1/chat/completions`.
 ## 5.5 Tool-result token guard
 - Summary planner: replaces tool result with stub if result tokens exceed 70% of remaining stop-line budget.
 - Repo-search planner: per-tool cap and remaining allowance guards can replace inserted tool result with a token-budget error line.
+- The General `Expand reads` setting gates repeated narrow read expansion for repo-search `Get-Content` style reads. When disabled, SiftKit still tracks overlap and already-read ranges, but it does not widen a narrow repeated read to chase more context.
 
 ## 5.6 Retry/fallback branches
 - If llama returns HTTP 400 in summary pass, retry with smaller chunks.

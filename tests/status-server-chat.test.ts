@@ -34,12 +34,32 @@ function createConfig(overrides: Partial<Dict> = {}): Dict {
         Reasoning: 'on',
       },
     },
+    Presets: [],
     Server: {
       LlamaCpp: {
+        ActivePresetId: 'default',
         BaseUrl: 'http://127.0.0.1:8080',
-        Reasoning: 'on',
-        ReasoningContent: true,
-        PreserveThinking: true,
+        Presets: [{
+          id: 'default',
+          label: 'Default',
+          LlamaCppPath: '',
+          ModelPath: 'managed.gguf',
+          Host: '127.0.0.1',
+          Port: 8080,
+          NumCtx: 8192,
+          Temperature: 0.7,
+          TopP: 0.9,
+          TopK: 40,
+          MinP: 0.05,
+          PresencePenalty: 0,
+          RepetitionPenalty: 1.1,
+          ParallelSlots: 1,
+          MaxTokens: 512,
+          Reasoning: 'on',
+          ReasoningContent: true,
+          PreserveThinking: true,
+          MaintainPerStepThinking: true,
+        }],
       },
     },
     ...overrides,
@@ -108,6 +128,34 @@ test('appendChatMessagesWithUsage persists interleaved per-turn thinking and too
   assert.equal(toolMessage?.outputTokensEstimated, false);
   assert.equal(toolMessage?.associatedToolTokens, 295);
   assert.equal(answerMessage?.groundingStatus, 'fetched');
+});
+
+test('appendChatMessagesWithUsage deletes older thinking transcript entries when per-step thinking is disabled', () => {
+  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-prune-thinking-'));
+  const session = appendChatMessagesWithUsage(
+    runtimeRoot,
+    createSession(),
+    'Find tool call handling.',
+    'Tool calls are handled in engine.ts.',
+    { promptTokens: 30, completionTokens: 9, thinkingTokens: 0, promptCacheTokens: null, promptEvalTokens: 30 },
+    {
+      turns: [
+        { thinkingText: 'think one', toolMessages: [] },
+        { thinkingText: 'think two', toolMessages: [] },
+        { thinkingText: 'final think', toolMessages: [] },
+      ],
+      maintainPerStepThinking: false,
+    },
+  );
+
+  const thinkingMessages = session.messages.filter((message) => message.kind === 'assistant_thinking');
+  assert.equal(thinkingMessages.length, 1);
+  assert.equal(thinkingMessages[0].content, 'final think');
+  assert.deepEqual(session.messages.slice(2).map((message) => message.kind), [
+    'user_text',
+    'assistant_thinking',
+    'assistant_answer',
+  ]);
 });
 
 test('appendChatMessagesWithUsage marks explicit estimated tool tokens as estimated', () => {
@@ -505,6 +553,105 @@ test('appendChatMessagesWithUsage stores user text token estimate from content, 
   assert.ok(userMessage);
   assert.equal(userMessage.inputTokensEstimate, estimateTokenCount('tiny'));
   assert.equal(userMessage.inputTokensEstimated, true);
+});
+
+test('buildChatHistoryMessages replays retained thinking when preserve thinking is enabled', () => {
+  const session = {
+    id: 's1',
+    thinkingEnabled: true,
+    messages: [
+      { id: 'u1', role: 'user', kind: 'user_text', content: 'What did the page say?' },
+      { id: 'think-1', role: 'assistant', kind: 'assistant_thinking', content: 'private reasoning' },
+      { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'It says iron bars are used in quests.' },
+      { id: 'think-2', role: 'assistant', kind: 'assistant_thinking', content: 'tool reasoning' },
+      {
+        id: 'tool-1',
+        role: 'assistant',
+        kind: 'assistant_tool_call',
+        content: 'web_fetch url="https://example.test/page"',
+        toolCallCommand: 'web_fetch url="https://example.test/page"',
+        toolCallOutput: 'Title: Example Page',
+      },
+    ],
+  };
+
+  assert.deepEqual(buildChatHistoryMessages(createConfig(), session as never), [
+    { role: 'user', content: 'What did the page say?' },
+    { role: 'assistant', content: 'It says iron bars are used in quests.', reasoning_content: 'private reasoning' },
+    {
+      role: 'assistant',
+      content: '',
+      reasoning_content: 'tool reasoning',
+      tool_calls: [{
+        id: 'chat_tool_tool-1',
+        type: 'function',
+        function: {
+          name: 'web_fetch',
+          arguments: JSON.stringify({ url: 'https://example.test/page' }),
+        },
+      }],
+    },
+    {
+      role: 'tool',
+      tool_call_id: 'chat_tool_tool-1',
+      content: 'Title: Example Page',
+    },
+  ]);
+});
+
+test('buildChatHistoryMessages omits retained thinking when preserve thinking is disabled', () => {
+  const session = {
+    id: 's1',
+    thinkingEnabled: true,
+    messages: [
+      { id: 'think-1', role: 'assistant', kind: 'assistant_thinking', content: 'private reasoning' },
+      { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'It says iron bars are used in quests.' },
+    ],
+  };
+  const config = createConfig({
+    Server: {
+      LlamaCpp: {
+        ActivePresetId: 'default',
+        Presets: [{
+          id: 'default',
+          Reasoning: 'on',
+          ReasoningContent: true,
+          PreserveThinking: false,
+          MaintainPerStepThinking: true,
+        }],
+      },
+    },
+  });
+
+  assert.deepEqual(buildChatHistoryMessages(config, session as never), [
+    { role: 'assistant', content: 'It says iron bars are used in quests.' },
+  ]);
+});
+
+test('appendChatMessagesWithUsage stores exact user text tokens when caller supplies tokenizer count', () => {
+  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-user-exact-tokens-'));
+  const session = {
+    id: 'session-user-exact-tokens',
+    title: 'Session',
+    model: 'managed.gguf',
+    contextWindowTokens: 8192,
+    createdAtUtc: '2026-04-17T00:00:00.000Z',
+    updatedAtUtc: '2026-04-17T00:00:00.000Z',
+    messages: [],
+  } as ChatSession;
+
+  const updated = appendChatMessagesWithUsage(runtimeRoot, session, 'full user message', 'answer', {
+    promptTokens: null,
+    completionTokens: 4,
+    thinkingTokens: 0,
+    promptCacheTokens: null,
+    promptEvalTokens: null,
+  }, { turns: [], inputTokens: 17, inputTokensEstimated: false });
+
+  const userMessage = updated.messages.find((message) => message.kind === 'user_text');
+  assert.ok(userMessage);
+  assert.equal(userMessage.inputTokensEstimate, 17);
+  assert.equal(userMessage.inputTokensEstimated, false);
 });
 
 test('appendChatMessagesWithUsage preserves estimated usage flags on answer tokens', () => {

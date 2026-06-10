@@ -132,6 +132,8 @@ export type ToolActionProcessorDeps = {
   forcedFinish: ForcedFinishController;
   resultBudgeter: ToolResultBudgeter;
   readWindows: ReadWindowGovernor;
+  expandReads: boolean;
+  maintainPerStepThinking: boolean;
   progress: ProgressReporter;
   transcript: TranscriptManager;
   recentEvidenceKeys: Set<string>;
@@ -179,6 +181,7 @@ export class ToolActionProcessor {
       state.batchOutcomes,
       responseThinkingText,
     );
+    transcript.pruneThinking(this.deps.maintainPerStepThinking);
     appendSpan?.end({ afterMessageCount: transcript.length });
     if (state.batchDuplicateAnchorIndex !== null && state.batchOutcomes.length > 0) {
       duplicates.setReplayToolMessageIndex(preAppendMessagesLength + 1 + state.batchDuplicateAnchorIndex);
@@ -511,6 +514,7 @@ export class ToolActionProcessor {
         perToolCapTokens: preExecutionPerToolCapTokens,
         currentGetContentStats: this.deps.toolStats.get('get-content'),
         historicalGetContentStats: this.deps.historicalToolStats['get-content'] || null,
+        expandReads: this.deps.expandReads,
       });
       if (planned) {
         commandToRun = planned.commandToRun;

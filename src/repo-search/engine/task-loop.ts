@@ -38,6 +38,7 @@ import {
   DEFAULT_TIMEOUT_MS,
   evaluateTaskSignals,
   isPlannerPreserveThinkingEnabled,
+  isPlannerMaintainPerStepThinkingEnabled,
   isPlannerReasoningContentEnabled,
   isPlannerReasoningEnabled,
   type LoopCounters,
@@ -54,6 +55,7 @@ import { TokenUsageTracker, type ResolvedResponseTokens } from './token-usage.js
 import { ToolStatsRecorder } from './tool-stats.js';
 import { TranscriptManager } from './transcript-manager.js';
 import { TurnBudget } from './turn-budget.js';
+import { ThinkingRetentionPolicy } from '../../thinking-retention-policy.js';
 
 export {
   DEFAULT_MAX_INVALID_RESPONSES,
@@ -81,9 +83,11 @@ export class TaskLoop {
   private readonly minToolCallsBeforeFinish: number;
   private readonly budget: TurnBudget;
   private readonly useEstimatedTokensOnly: boolean;
+  private readonly expandReads: boolean;
   private readonly plannerThinkingEnabled: boolean;
   private readonly plannerReasoningContentEnabled: boolean;
   private readonly plannerPreserveThinkingEnabled: boolean;
+  private readonly plannerMaintainPerStepThinking: boolean;
   private readonly loopKind: 'repo-search' | 'chat';
   private readonly streamFinishAsAnswer: boolean;
   private readonly plannerToolDefinitions: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;
@@ -121,6 +125,7 @@ export class TaskLoop {
     this.maxInvalidResponses = Math.max(1, Number(options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES));
     this.webTools = buildWebToolsForTaskLoop(options.config);
     this.useEstimatedTokensOnly = Array.isArray(options.mockResponses);
+    this.expandReads = options.config?.ExpandReads !== false;
     this.tokenUsage = new TokenUsageTracker(options.config, this.useEstimatedTokensOnly);
     this.toolStats = new ToolStatsRecorder();
     this.minToolCallsBeforeFinish = Math.max(0, Number(options.minToolCallsBeforeFinish ?? MIN_TOOL_CALLS_BEFORE_FINISH));
@@ -133,6 +138,9 @@ export class TaskLoop {
       : isPlannerReasoningEnabled(options.config);
     this.plannerReasoningContentEnabled = this.plannerThinkingEnabled && isPlannerReasoningContentEnabled(options.config);
     this.plannerPreserveThinkingEnabled = this.plannerReasoningContentEnabled && isPlannerPreserveThinkingEnabled(options.config);
+    this.plannerMaintainPerStepThinking = this.plannerThinkingEnabled
+      ? isPlannerMaintainPerStepThinkingEnabled(options.config)
+      : true;
     this.loopKind = options.loopKind === 'chat' ? 'chat' : 'repo-search';
     this.streamFinishAsAnswer = options.streamFinishAsAnswer === true;
     this.plannerToolDefinitions = Array.isArray(options.plannerToolDefinitions)
@@ -234,6 +242,8 @@ export class TaskLoop {
         timingRecorder: options.timingRecorder || null,
       }),
       readWindows: this.readWindows,
+      expandReads: this.expandReads,
+      maintainPerStepThinking: this.plannerMaintainPerStepThinking,
       progress: this.progress,
       transcript: this.transcript,
       recentEvidenceKeys: new Set<string>(),
@@ -285,7 +295,8 @@ export class TaskLoop {
 
     const turnThinkingText = String(response.thinkingText || '').trim();
     if (turnThinkingText) {
-      this.turnThinking[turn] = turnThinkingText;
+      new ThinkingRetentionPolicy(this.plannerMaintainPerStepThinking)
+        .recordTurnThinking(this.turnThinking, turn, turnThinkingText);
     }
 
     const resolvedTokens = await this.tokenUsage.recordModelResponse(response);
@@ -393,6 +404,7 @@ export class TaskLoop {
       invalidActionMessage,
       String(response.thinkingText || '').trim(),
     );
+    this.transcript.pruneThinking(this.plannerMaintainPerStepThinking);
     this.options.logger?.write({
       kind: 'turn_action_invalid',
       taskId: this.task.id,
@@ -420,6 +432,7 @@ export class TaskLoop {
       const warning = finishEvaluation.warning || 'Need stronger repository evidence before finishing.';
       this.toolStats.recordFinishRejection();
       this.transcript.pushAssistant(buildAssistantReplayMessage(response.text, String(response.thinkingText || '').trim()));
+      this.transcript.pruneThinking(this.plannerMaintainPerStepThinking);
       this.transcript.pushUser(warning);
       this.options.logger?.write({ kind: 'turn_finish_rejected', taskId: this.task.id, turn, toolCallTurns: this.commands.length, minToolCallsBeforeFinish: this.minToolCallsBeforeFinish, warning });
       return 'continue';
@@ -428,6 +441,7 @@ export class TaskLoop {
     if (groundingDecision.kind === 'reject') {
       this.toolStats.recordFinishRejection();
       this.transcript.pushAssistant(buildAssistantReplayMessage(response.text, String(response.thinkingText || '').trim()));
+      this.transcript.pruneThinking(this.plannerMaintainPerStepThinking);
       this.transcript.pushUser(groundingDecision.message);
       this.options.logger?.write({
         kind: 'chat_grounding_finish_rejected',

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { getPresetById, getPresetFamily } from '../dashboard/src/dashboard-presets.ts';
 import type { ChatSession, DashboardConfig, DashboardPreset } from '../dashboard/src/types.ts';
+import { normalizeConfigObject } from '../src/config/normalization.ts';
 
 function createPreset(id: string, overrides: Partial<DashboardPreset> = {}): DashboardPreset {
   return {
@@ -32,6 +33,9 @@ function createConfig(presets: DashboardPreset[]): DashboardConfig {
     Backend: 'llama.cpp',
     PolicyMode: 'conservative',
     RawLogRetention: true,
+    IncludeAgentsMd: true,
+    IncludeRepoFileListing: true,
+    ExpandReads: true,
     PromptPrefix: '',
     OperationModeAllowedTools: {
       summary: ['find_text', 'read_lines', 'json_filter'],
@@ -58,6 +62,7 @@ function createConfig(presets: DashboardPreset[]): DashboardConfig {
         Reasoning: 'off',
         ReasoningContent: false,
         PreserveThinking: false,
+        MaintainPerStepThinking: false,
       },
     },
     LlamaCpp: {
@@ -77,6 +82,7 @@ function createConfig(presets: DashboardPreset[]): DashboardConfig {
       Reasoning: 'off',
       ReasoningContent: false,
       PreserveThinking: false,
+      MaintainPerStepThinking: false,
     },
     Thresholds: {
       MinCharactersForSummary: 500,
@@ -150,6 +156,28 @@ function createSession(presetId: string, mode: ChatSession['mode'] = 'chat'): Ch
 test('getPresetById resolves presets by normalized id', () => {
   const config = createConfig([createPreset('repo-search', { presetKind: 'repo-search', operationMode: 'read-only', executionFamily: 'repo-search' })]);
   assert.equal(getPresetById(config, 'Repo Search')?.id, 'repo-search');
+});
+
+test('config defaults ExpandReads to true', () => {
+  const config = normalizeConfigObject({});
+
+  assert.equal(config.ExpandReads, true);
+});
+
+test('config honors explicit ExpandReads false', () => {
+  const config = normalizeConfigObject({
+    ExpandReads: false,
+  });
+
+  assert.equal(config.ExpandReads, false);
+});
+
+test('config normalizes non-false ExpandReads values to true', () => {
+  const config = normalizeConfigObject({
+    ExpandReads: 'no',
+  });
+
+  assert.equal(config.ExpandReads, true);
 });
 
 test('getPresetFamily routes from preset kind instead of legacy session mode', () => {

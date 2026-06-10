@@ -17,13 +17,38 @@ function buildThinkingMessage(id: string, thinkingText: string): ChatMessage {
   };
 }
 
-export function appendLiveThinkingMessage(previous: ChatMessage[], thinkingText: string): ChatMessage[] {
-  const last = previous[previous.length - 1];
-  if (last && last.kind === 'assistant_thinking') {
-    const next = previous.slice();
-    next[next.length - 1] = buildThinkingMessage(last.id, thinkingText);
-    return next;
+function findLatestThinkingIndex(messages: ChatMessage[]): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.kind === 'assistant_thinking') {
+      return index;
+    }
   }
-  const id = `${LIVE_THINKING_ID_PREFIX}${previous.length}`;
-  return [...previous, buildThinkingMessage(id, thinkingText)];
+  return -1;
+}
+
+function pruneOlderThinkingMessages(messages: ChatMessage[]): ChatMessage[] {
+  const latestThinkingIndex = findLatestThinkingIndex(messages);
+  if (latestThinkingIndex < 0) {
+    return messages;
+  }
+  return messages.filter((message, index) => {
+    return message.kind !== 'assistant_thinking' || index === latestThinkingIndex;
+  });
+}
+
+export function appendLiveThinkingMessage(
+  previous: ChatMessage[],
+  thinkingText: string,
+  maintainPerStepThinking: boolean,
+): ChatMessage[] {
+  const last = previous[previous.length - 1];
+  let next: ChatMessage[];
+  if (last && last.kind === 'assistant_thinking') {
+    next = previous.slice();
+    next[next.length - 1] = buildThinkingMessage(last.id, thinkingText);
+  } else {
+    const id = `${LIVE_THINKING_ID_PREFIX}${previous.length}`;
+    next = [...previous, buildThinkingMessage(id, thinkingText)];
+  }
+  return maintainPerStepThinking ? next : pruneOlderThinkingMessages(next);
 }

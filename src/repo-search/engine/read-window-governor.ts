@@ -45,9 +45,13 @@ export class ReadWindowGovernor {
     perToolCapTokens: number;
     currentGetContentStats: ToolTypeStats | null;
     historicalGetContentStats: ToolTypeStats | null;
+    expandReads: boolean;
   }): PlannedReadAdjustment | null {
     const previousReadCount = this.readCount(options.parsedReadWindow.pathKey);
     if (previousReadCount < 1) {
+      return null;
+    }
+    if (!options.expandReads) {
       return null;
     }
     const minTokensFromCap = Math.max(1, Math.ceil(options.perToolCapTokens * REPEATED_LINE_READ_MIN_RATIO));

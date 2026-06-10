@@ -161,6 +161,7 @@ const MANAGED_PRESET = {
   Reasoning: 'off',
   ReasoningContent: false,
   PreserveThinking: false,
+  MaintainPerStepThinking: false,
   SpeculativeEnabled: false,
   SpeculativeType: 'ngram-map-k',
   SpeculativeMtpEnabled: false,
@@ -216,6 +217,7 @@ const DASHBOARD_CONFIG = {
   RawLogRetention: true,
   IncludeAgentsMd: true,
   IncludeRepoFileListing: true,
+  ExpandReads: true,
   PromptPrefix: '',
   OperationModeAllowedTools: {
     summary: ['read_lines'],
@@ -242,6 +244,7 @@ const DASHBOARD_CONFIG = {
     Reasoning: 'off',
     ReasoningContent: false,
     PreserveThinking: false,
+    MaintainPerStepThinking: false,
   },
   Runtime: {
     Model: 'test-model',
@@ -264,6 +267,7 @@ const DASHBOARD_CONFIG = {
       Reasoning: 'off',
       ReasoningContent: false,
       PreserveThinking: false,
+      MaintainPerStepThinking: false,
     },
   },
   Thresholds: {
@@ -465,6 +469,32 @@ type InputElementProps = {
   onChange?: (event: { target: { value: string } }) => void;
 };
 
+function findElementByType<TProps extends { children?: ReactNode }>(
+  node: ReactNode,
+  type: string,
+): ReactElement<TProps> | null {
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const match = findElementByType<TProps>(child, type);
+      if (match) {
+        return match;
+      }
+    }
+
+    return null;
+  }
+
+  if (!React.isValidElement<TProps>(node)) {
+    return null;
+  }
+
+  if (node.type === type) {
+    return node;
+  }
+
+  return findElementByType<TProps>(node.props.children ?? null, type);
+}
+
 function findInputElement(node: ReactNode): ReactElement<InputElementProps> | null {
   if (Array.isArray(node)) {
     for (const child of node) {
@@ -586,8 +616,52 @@ test('settings tab renders section chrome and fields', () => {
   assert.match(markup, /Prompt prefix/);
   assert.match(markup, /AGENTS\.md/);
   assert.match(markup, /Initial repo file scan/);
+  assert.match(markup, /Expand reads/);
   assert.match(markup, /Model Presets/);
   assert.doesNotMatch(markup, /Managed llama\.cpp/);
+});
+
+test('settings tab general section renders Expand reads toggle', () => {
+  const markup = renderToStaticMarkup(
+    <SettingsTab
+      activeSettingsSection="general"
+      dashboardConfig={{
+        ...DASHBOARD_CONFIG,
+        ExpandReads: false,
+      }}
+      selectedSettingsPreset={PRESET}
+      selectedManagedLlamaPreset={MANAGED_PRESET}
+      selectedSettingsPresetId={PRESET.id}
+      webSearchUsage={null}
+      webSearchQuota={null}
+      settingsLoading={false}
+      settingsError={null}
+      settingsDirty={false}
+      settingsSavedAtUtc={null}
+      settingsActionBusy={false}
+      settingsRestartSupported={true}
+      settingsSaving={false}
+      settingsRestarting={false}
+      settingsPathPickerBusyTarget={null}
+      setSelectedSettingsPresetId={() => {}}
+      requestSettingsAction={() => {}}
+      updateSettingsDraft={() => {}}
+      updatePresetDraft={() => {}}
+      updateManagedLlamaDraft={() => {}}
+      onAddPreset={() => {}}
+      onDeletePreset={() => {}}
+      onAddManagedLlamaPreset={() => {}}
+      onDeleteManagedLlamaPreset={() => {}}
+      onPickManagedLlamaPath={async () => {}}
+      onTestLlamaCppBaseUrl={async () => {}}
+      onReloadDashboardSettings={async () => {}}
+      restartDashboardBackendCore={async () => true}
+      onSaveDashboardSettings={async () => {}}
+    />,
+  );
+
+  assert.match(markup, /Expand reads/);
+  assert.match(markup, /Disabled/);
 });
 
 test('settings tab web-search section renders provider keys (masked), usage, and quota', () => {
@@ -799,6 +873,7 @@ test('managed llama section shows thinking preservation controls only when reaso
         Reasoning: 'on',
         ReasoningContent: true,
         PreserveThinking: true,
+        MaintainPerStepThinking: true,
       }}
       settingsActionBusy={false}
       settingsPathPickerBusyTarget={null}
@@ -816,7 +891,50 @@ test('managed llama section shows thinking preservation controls only when reaso
 
   assert.equal(capturedFields.includes('Reasoning content'), true);
   assert.equal(capturedFields.includes('Preserve thinking'), true);
+  assert.equal(capturedFields.includes('Maintain per step thinking'), true);
   assert.doesNotMatch(markup, /<option value="auto"/);
+});
+
+test('managed llama section turns maintain per step thinking on when reasoning is enabled', () => {
+  let updatedConfig: DashboardConfig | null = null;
+  let reasoningField: ReactNode = null;
+
+  ManagedLlamaSection({
+    dashboardConfig: DASHBOARD_CONFIG,
+    selectedManagedLlamaPreset: {
+      ...MANAGED_PRESET,
+      Reasoning: 'off',
+      ReasoningContent: false,
+      PreserveThinking: false,
+      MaintainPerStepThinking: false,
+    },
+    settingsActionBusy: false,
+    settingsPathPickerBusyTarget: null,
+    renderField: (_, label, children) => {
+      if (label === 'Reasoning') {
+        reasoningField = children;
+      }
+      return <div>{children}</div>;
+    },
+    updateSettingsDraft: () => {},
+    updateManagedLlamaDraft: (updater) => {
+      const nextConfig = structuredClone(DASHBOARD_CONFIG);
+      const preset = nextConfig.Server.LlamaCpp.Presets[0];
+      updater(preset);
+      updatedConfig = nextConfig;
+    },
+    onAddManagedLlamaPreset: () => {},
+    onDeleteManagedLlamaPreset: () => {},
+    onPickManagedLlamaPath: async () => {},
+  });
+
+  const select = findElementByType<InputElementProps>(reasoningField, 'select');
+  assert.ok(select);
+  select.props.onChange?.({ target: { value: 'on' } });
+
+  assert.ok(updatedConfig);
+  assert.equal(updatedConfig.Server.LlamaCpp.Presets[0]?.Reasoning, 'on');
+  assert.equal(updatedConfig.Server.LlamaCpp.Presets[0]?.MaintainPerStepThinking, true);
 });
 
 test('managed llama section hides speculative controls until n-gram speculation is enabled', () => {

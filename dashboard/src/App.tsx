@@ -282,6 +282,9 @@ function DashboardApp() {
       ?? dashboardConfig.Server.LlamaCpp.Presets[0]
       ?? null
     : null;
+  const maintainPerStepThinkingForCurrentPreset = selectedManagedLlamaPreset?.Reasoning === 'on'
+    ? selectedManagedLlamaPreset.MaintainPerStepThinking !== false
+    : false;
   const selectedChatPreset = getPresetById(dashboardConfig, selectedSession?.presetId)
     || getPresetById(dashboardConfig, selectedSession?.mode)
     || webPresets[0]
@@ -314,6 +317,7 @@ function DashboardApp() {
     planRepoRootInput: planInputs.planRepoRootInput,
     planMaxTurnsInput: planInputs.planMaxTurnsInput,
     isThinkingEnabledForCurrentSession,
+    maintainPerStepThinkingForCurrentPreset,
     repoSearchAutoAppendSelection: autoAppend.selection,
     onError: (message) => setChatError(message),
     resetError: () => setChatError(null),

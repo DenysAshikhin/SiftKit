@@ -21,6 +21,7 @@ import {
 import { readConfig } from '../config-store.js';
 import {
   applyHostLlamaRuntimeSettings,
+  getActiveManagedLlamaPreset,
   notifyStatusBackend,
   type SiftConfig,
 } from '../../config/index.js';
@@ -173,6 +174,13 @@ function forwardRepoSearchToolEvent(
   }
 }
 
+function shouldMaintainPerStepThinking(config: SiftConfig, session: ChatSession): boolean {
+  const activePreset = getActiveManagedLlamaPreset(config);
+  return session.thinkingEnabled !== false
+    && activePreset?.Reasoning === 'on'
+    && activePreset.MaintainPerStepThinking !== false;
+}
+
 function withPromptContext(config: Dict, session: ChatSession): ChatSession {
   return {
     ...session,
@@ -306,6 +314,17 @@ async function countPersistTurnThinkingTokens(config: Dict, turns: PersistTurn[]
     });
   }
   return countedTurns;
+}
+
+async function countPersistedInputTokens(config: Dict, content: string): Promise<{ tokenCount: number; estimated: boolean }> {
+  const count = await countTokensWithFallbackDetailed(config as SiftConfig, content, {
+    timeoutMs: 1000,
+    retryMaxWaitMs: 1000,
+  });
+  return {
+    tokenCount: count.tokenCount,
+    estimated: count.source !== 'llama.cpp',
+  };
 }
 
 async function notifyChatStatus(options: {
@@ -645,11 +664,11 @@ export async function handleChatRoute(
       let usage: Partial<ChatUsage>;
       let persistTurns: { thinkingText: string; toolMessages: PersistToolMessage[] }[] = [{ thinkingText: '', toolMessages: [] }];
       let groundingStatus: ChatGroundingStatus | null = null;
+      const config = readConfig(configPath);
       if (usesProvidedAssistantContent) {
         assistantContent = (parsedBody.assistantContent as string).trim();
         usage = {};
       } else {
-        const config = readConfig(configPath);
         const presets = normalizePresets(config.Presets);
         const chatPreset = findPresetById(presets, activeSession.presetId);
         const result = await ctx.engineService.executeRepoSearch({
@@ -700,8 +719,12 @@ export async function handleChatRoute(
         // Best-effort metrics notification.
       }
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
+      const inputTokenCount = await countPersistedInputTokens(config, userContent);
       const sessionWithTelemetry = appendChatMessagesWithUsage(runtimeRoot, activeSession, userContent, assistantContent, usage, {
         turns: persistTurns,
+        maintainPerStepThinking: shouldMaintainPerStepThinking(config, activeSession),
+        inputTokens: inputTokenCount.tokenCount,
+        inputTokensEstimated: inputTokenCount.estimated,
         requestDurationMs: Date.now() - startedAt,
         requestStartedAtUtc,
         speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
@@ -883,8 +906,12 @@ export async function handleChatRoute(
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
       phaseTracker.observeAnswer(assistantContent);
       const phaseTimestamps = phaseTracker.snapshot();
+      const inputTokenCount = await countPersistedInputTokens(config, userContent);
       const updatedSession = appendChatMessagesWithUsage(runtimeRoot, activeSession, userContent, assistantContent, usage, {
         turns: persistTurns,
+        maintainPerStepThinking: shouldMaintainPerStepThinking(config, activeSession),
+        inputTokens: inputTokenCount.tokenCount,
+        inputTokensEstimated: inputTokenCount.estimated,
         requestDurationMs: Date.now() - startedAt,
         requestStartedAtUtc: phaseTimestamps.requestStartedAtUtc,
         thinkingStartedAtUtc: phaseTimestamps.thinkingStartedAtUtc,
@@ -1007,6 +1034,7 @@ export async function handleChatRoute(
       });
       const assistantContent = buildPlanMarkdownFromRepoSearch(content, resolvedRepoRoot, result);
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
+      const inputTokenCount = await countPersistedInputTokens(config, content);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
         { ...activeSession, presetId: preset?.id || activeSession.presetId || 'plan', mode: 'plan', planRepoRoot: resolvedRepoRoot },
@@ -1025,6 +1053,9 @@ export async function handleChatRoute(
               toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
             })),
           }))),
+          maintainPerStepThinking: shouldMaintainPerStepThinking(config, activeSession),
+          inputTokens: inputTokenCount.tokenCount,
+          inputTokensEstimated: inputTokenCount.estimated,
           requestDurationMs: Date.now() - startedAt,
           promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
           generationDurationMs: getScorecardTotal(result?.scorecard, 'generationDurationMs'),
@@ -1166,6 +1197,7 @@ export async function handleChatRoute(
       const assistantContent = buildPlanMarkdownFromRepoSearch(content, resolvedRepoRoot, result);
       phaseTracker.observeAnswer(assistantContent);
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
+      const inputTokenCount = await countPersistedInputTokens(config, content);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
         { ...activeSession, presetId: preset?.id || activeSession.presetId || 'plan', mode: 'plan', planRepoRoot: resolvedRepoRoot },
@@ -1184,6 +1216,9 @@ export async function handleChatRoute(
               toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
             })),
           }))),
+          maintainPerStepThinking: shouldMaintainPerStepThinking(config, activeSession),
+          inputTokens: inputTokenCount.tokenCount,
+          inputTokensEstimated: inputTokenCount.estimated,
           requestDurationMs: Date.now() - startedAt,
           promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
           generationDurationMs: getScorecardTotal(result?.scorecard, 'generationDurationMs'),
@@ -1383,6 +1418,7 @@ export async function handleChatRoute(
       const assistantContent = buildRepoSearchMarkdown(content, resolvedRepoRoot, result);
       phaseTracker.observeAnswer(assistantContent);
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
+      const inputTokenCount = await countPersistedInputTokens(config, content);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
         { ...activeSession, presetId: preset?.id || activeSession.presetId || 'repo-search', mode: 'repo-search', planRepoRoot: resolvedRepoRoot },
@@ -1401,6 +1437,9 @@ export async function handleChatRoute(
               toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
             })),
           }))),
+          maintainPerStepThinking: shouldMaintainPerStepThinking(config, activeSession),
+          inputTokens: inputTokenCount.tokenCount,
+          inputTokensEstimated: inputTokenCount.estimated,
           requestDurationMs: Date.now() - startedAt,
           promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
           generationDurationMs: getScorecardTotal(result?.scorecard, 'generationDurationMs'),

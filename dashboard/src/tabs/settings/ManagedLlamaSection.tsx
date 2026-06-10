@@ -263,6 +263,9 @@ export function ManagedLlamaSection({
             if (preset.Reasoning !== 'on') {
               preset.ReasoningContent = false;
               preset.PreserveThinking = false;
+              preset.MaintainPerStepThinking = false;
+            } else {
+              preset.MaintainPerStepThinking = true;
             }
           })}
         >
@@ -293,6 +296,16 @@ export function ManagedLlamaSection({
             onChange={(event) => updateManagedLlamaDraft((preset) => { preset.PreserveThinking = event.target.checked; })}
           />
           <span>{selectedManagedLlamaPreset.PreserveThinking ? 'Enabled' : 'Disabled'}</span>
+        </label>
+      )) : null}
+      {reasoningEnabled ? renderField('model-presets', 'Maintain per step thinking', (
+        <label className="settings-live-toggle-control">
+          <input
+            type="checkbox"
+            checked={selectedManagedLlamaPreset.MaintainPerStepThinking}
+            onChange={(event) => updateManagedLlamaDraft((preset) => { preset.MaintainPerStepThinking = event.target.checked; })}
+          />
+          <span>{selectedManagedLlamaPreset.MaintainPerStepThinking ? 'Enabled' : 'Disabled'}</span>
         </label>
       )) : null}
       {renderField('model-presets', 'Enable speculative decoding', (

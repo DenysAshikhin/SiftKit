@@ -70,6 +70,7 @@ export type ManagedLlamaSettings = {
   Reasoning: 'on' | 'off';
   ReasoningContent: boolean;
   PreserveThinking: boolean;
+  MaintainPerStepThinking: boolean;
   SpeculativeEnabled: boolean;
   SpeculativeType: ManagedLlamaSpeculativeType;
   SpeculativeMtpEnabled: boolean;
@@ -114,6 +115,7 @@ export type SiftConfig = {
   RawLogRetention: boolean;
   IncludeAgentsMd: boolean;
   IncludeRepoFileListing: boolean;
+  ExpandReads: boolean;
   PromptPrefix?: string | null;
   Runtime: {
     Model: string | null;

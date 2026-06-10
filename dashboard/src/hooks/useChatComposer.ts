@@ -62,6 +62,7 @@ export function useChatComposer(deps: {
   planRepoRootInput: string;
   planMaxTurnsInput: string;
   isThinkingEnabledForCurrentSession: boolean;
+  maintainPerStepThinkingForCurrentPreset: boolean;
   repoSearchAutoAppendSelection: RepoSearchAutoAppendSelection;
   onError(message: string): void;
   resetError(): void;
@@ -95,7 +96,7 @@ export function useChatComposer(deps: {
         { content: chatInput.trim() },
         (thinkingText) => {
           if (deps.isThinkingEnabledForCurrentSession) {
-            deps.live.appendLiveThinking(thinkingText);
+            deps.live.appendLiveThinking(thinkingText, deps.maintainPerStepThinkingForCurrentPreset);
           }
         },
         (toolEvent: ChatStreamToolEvent) => {
@@ -142,7 +143,7 @@ export function useChatComposer(deps: {
           ...parsePlanMaxTurnsOverride(deps.planMaxTurnsInput),
         },
         (thinkingText) => {
-          deps.live.appendLiveThinking(thinkingText);
+          deps.live.appendLiveThinking(thinkingText, deps.maintainPerStepThinkingForCurrentPreset);
         },
         (toolEvent: ChatStreamToolEvent) => {
           if (toolEvent.kind === 'tool_start') {
@@ -195,7 +196,7 @@ export function useChatComposer(deps: {
           ...buildRepoSearchAutoAppendPayload(deps.repoSearchAutoAppendSelection),
         },
         (thinkingText) => {
-          deps.live.appendLiveThinking(thinkingText);
+          deps.live.appendLiveThinking(thinkingText, deps.maintainPerStepThinkingForCurrentPreset);
         },
         (toolEvent: ChatStreamToolEvent) => {
           if (toolEvent.kind === 'tool_start') {
@@ -211,7 +212,7 @@ export function useChatComposer(deps: {
           }
         },
         (answerText) => {
-          deps.live.appendLiveThinking(answerText);
+          deps.live.appendLiveThinking(answerText, deps.maintainPerStepThinkingForCurrentPreset);
         },
       );
       deps.applySessionResponse({ session: response.session, contextUsage: response.contextUsage });

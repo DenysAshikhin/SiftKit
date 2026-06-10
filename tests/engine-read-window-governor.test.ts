@@ -24,6 +24,7 @@ test('planAdjustment returns null before any read of the file', () => {
       perToolCapTokens: 1000,
       currentGetContentStats: null,
       historicalGetContentStats: null,
+      expandReads: true,
     }),
     null,
   );
@@ -85,6 +86,7 @@ test('planAdjustment shifts a repeated overlapping read past the already-returne
     perToolCapTokens: 1000,
     currentGetContentStats: null,
     historicalGetContentStats: null,
+    expandReads: true,
   });
   assert.ok(planned !== null);
   assert.ok(planned.adjustment.adjustedStart >= 100);
@@ -105,6 +107,7 @@ test('planAdjustment returns null when the requested window needs no adjustment'
       perToolCapTokens: 8, // minLinesFromCap = 1 -> requested length wins
       currentGetContentStats: null,
       historicalGetContentStats: null,
+      expandReads: true,
     }),
     null,
   );
@@ -143,4 +146,37 @@ test('recordNativeReturnedRange merges returned ranges in the shared state map',
   governor.recordNativeReturnedRange('src/a.ts', { start: 15, end: 30 });
   const state = governor.stateMap.get('src/a.ts');
   assert.deepEqual(state?.mergedReturnedRanges, [{ start: 1, end: 30 }]);
+});
+
+test('planAdjustment does not expand narrow reads when expandReads is disabled', () => {
+  const governor = new ReadWindowGovernor();
+  const firstMetrics = governor.recordExecution({
+    parsedReadWindow: window(1, 100),
+    executedReadWindow: window(1, 100),
+    turn: 1,
+    adjusted: false,
+  });
+  governor.applyFitTruncation({
+    parsedReadWindow: window(1, 100),
+    executedReadWindow: window(1, 100),
+    fittedReturnedSegmentCount: null,
+    metrics: firstMetrics,
+  });
+
+  const planned = governor.planAdjustment({
+    parsedReadWindow: window(1, 50),
+    perToolCapTokens: 1000,
+    currentGetContentStats: null,
+    historicalGetContentStats: null,
+    expandReads: false,
+  });
+
+  assert.equal(planned, null);
+  const secondMetrics = governor.recordExecution({
+    parsedReadWindow: window(1, 50),
+    executedReadWindow: window(1, 50),
+    turn: 2,
+    adjusted: false,
+  });
+  assert.equal(secondMetrics.overlapLines > 0, true);
 });

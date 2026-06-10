@@ -76,6 +76,7 @@ export type ManagedLlamaConfig = {
   Reasoning: 'on' | 'off';
   ReasoningContent: boolean;
   PreserveThinking: boolean;
+  MaintainPerStepThinking: boolean;
   SpeculativeEnabled: boolean;
   SpeculativeType: ManagedLlamaSpeculativeType;
   SpeculativeMtpEnabled: boolean;
@@ -335,6 +336,7 @@ function resolveManagedLlamaSettings(input: JsonRecord): ManagedLlamaConfig {
       : defaults.Reasoning || 'off',
     ReasoningContent: reasoningContentEnabled,
     PreserveThinking: reasoningContentEnabled && input.PreserveThinking === true,
+    MaintainPerStepThinking: reasoningEnabled && input.MaintainPerStepThinking !== false,
     SpeculativeEnabled: input.SpeculativeEnabled === true,
     SpeculativeType: getManagedSpeculativeType(input.SpeculativeType, defaults.SpeculativeType || 'ngram-map-k'),
     SpeculativeMtpEnabled: input.SpeculativeMtpEnabled === true,
@@ -377,6 +379,7 @@ export function normalizeConfigObject(input: unknown): SiftConfig {
   if (!merged.PromptPrefix || !String(merged.PromptPrefix).trim()) {
     merged.PromptPrefix = getDefaultConfigObject().PromptPrefix;
   }
+  merged.ExpandReads = merged.ExpandReads !== false;
 
   const thresholds = getRecord(merged.Thresholds);
   delete thresholds.MaxInputCharacters;

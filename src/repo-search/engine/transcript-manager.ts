@@ -7,6 +7,7 @@ import {
   type ToolTranscriptAction,
   type ToolTranscriptMessage,
 } from '../../tool-call-messages.js';
+import { ThinkingRetentionPolicy } from '../../thinking-retention-policy.js';
 
 export class TranscriptManager {
   private readonly messages: ChatMessage[];
@@ -67,6 +68,10 @@ export class TranscriptManager {
 
   pushAssistant(message: ChatMessage): void {
     this.messages.push(message);
+  }
+
+  pruneThinking(maintainPerStepThinking: boolean): void {
+    new ThinkingRetentionPolicy(maintainPerStepThinking).prunePlannerMessages(this.messages);
   }
 
   pushUser(content: string): void {

@@ -21,7 +21,7 @@ function makeToolMessage(id: string): ChatMessage {
 }
 
 test('appendLiveThinkingMessage appends a thinking bubble when liveMessages is empty', () => {
-  const result = appendLiveThinkingMessage([], 'hello');
+  const result = appendLiveThinkingMessage([], 'hello', true);
   assert.equal(result.length, 1);
   assert.equal(result[0].kind, 'assistant_thinking');
   assert.equal(result[0].role, 'assistant');
@@ -30,18 +30,18 @@ test('appendLiveThinkingMessage appends a thinking bubble when liveMessages is e
 });
 
 test('appendLiveThinkingMessage extends the latest thinking bubble in place while it is the last entry', () => {
-  const first = appendLiveThinkingMessage([], 'a');
-  const grown = appendLiveThinkingMessage(first, 'a more');
+  const first = appendLiveThinkingMessage([], 'a', true);
+  const grown = appendLiveThinkingMessage(first, 'a more', true);
   assert.equal(grown.length, 1);
   assert.equal(grown[0].id, first[0].id);
   assert.equal(grown[0].content, 'a more');
 });
 
 test('appendLiveThinkingMessage appends a fresh thinking bubble below tool messages when thinking resumes', () => {
-  const first = appendLiveThinkingMessage([], 'planning');
+  const first = appendLiveThinkingMessage([], 'planning', true);
   const tool = makeToolMessage('live-tool-tc1');
   const withTool = [...first, tool];
-  const second = appendLiveThinkingMessage(withTool, 'next thought');
+  const second = appendLiveThinkingMessage(withTool, 'next thought', true);
   assert.equal(second.length, 3);
   assert.equal(second[0].id, first[0].id);
   assert.equal(second[1].id, tool.id);
@@ -51,10 +51,10 @@ test('appendLiveThinkingMessage appends a fresh thinking bubble below tool messa
 });
 
 test('appendLiveThinkingMessage extends the most recent thinking segment when more thinking text streams in', () => {
-  const first = appendLiveThinkingMessage([], 'a');
+  const first = appendLiveThinkingMessage([], 'a', true);
   const withTool = [...first, makeToolMessage('live-tool-tc1')];
-  const second = appendLiveThinkingMessage(withTool, 'b1');
-  const grown = appendLiveThinkingMessage(second, 'b1 + b2');
+  const second = appendLiveThinkingMessage(withTool, 'b1', true);
+  const grown = appendLiveThinkingMessage(second, 'b1 + b2', true);
   assert.equal(grown.length, 3);
   assert.equal(grown[2].id, second[2].id);
   assert.equal(grown[2].content, 'b1 + b2');
@@ -63,20 +63,34 @@ test('appendLiveThinkingMessage extends the most recent thinking segment when mo
 });
 
 test('appendLiveThinkingMessage produces a unique id for each thinking segment across multiple bursts', () => {
-  const first = appendLiveThinkingMessage([], 'a');
-  const second = appendLiveThinkingMessage([...first, makeToolMessage('live-tool-1')], 'b');
-  const third = appendLiveThinkingMessage([...second, makeToolMessage('live-tool-2')], 'c');
+  const first = appendLiveThinkingMessage([], 'a', true);
+  const second = appendLiveThinkingMessage([...first, makeToolMessage('live-tool-1')], 'b', true);
+  const third = appendLiveThinkingMessage([...second, makeToolMessage('live-tool-2')], 'c', true);
   const thinkingIds = third.filter((entry) => entry.kind === 'assistant_thinking').map((entry) => entry.id);
   assert.equal(thinkingIds.length, 3);
   assert.equal(new Set(thinkingIds).size, 3);
 });
 
 test('appendLiveThinkingMessage estimates thinkingTokens from content length', () => {
-  const result = appendLiveThinkingMessage([], 'abcdefgh');
+  const result = appendLiveThinkingMessage([], 'abcdefgh', true);
   assert.equal(result[0].thinkingTokens, Math.max(1, Math.ceil('abcdefgh'.length / 4)));
 });
 
 test('appendLiveThinkingMessage clamps thinkingTokens to at least 1 even for empty content', () => {
-  const result = appendLiveThinkingMessage([], '');
+  const result = appendLiveThinkingMessage([], '', true);
   assert.equal(result[0].thinkingTokens, 1);
+});
+
+test('appendLiveThinkingMessage keeps only latest thinking segment when per-step thinking is disabled', () => {
+  const first = appendLiveThinkingMessage([], 'a', false);
+  const withTool = [...first, makeToolMessage('live-tool-1')];
+  const second = appendLiveThinkingMessage(withTool, 'b', false);
+  const withSecondTool = [...second, makeToolMessage('live-tool-2')];
+  const third = appendLiveThinkingMessage(withSecondTool, 'c', false);
+
+  const thinkingMessages = third.filter((entry) => entry.kind === 'assistant_thinking');
+  assert.equal(thinkingMessages.length, 1);
+  assert.equal(thinkingMessages[0]?.content, 'c');
+  assert.equal(third.some((entry) => entry.id === 'live-tool-1'), true);
+  assert.equal(third.some((entry) => entry.id === 'live-tool-2'), true);
 });

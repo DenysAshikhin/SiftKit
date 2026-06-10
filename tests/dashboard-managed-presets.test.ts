@@ -9,6 +9,7 @@ import {
   type DashboardManagedLlamaPreset,
 } from '../dashboard/src/managed-llama-presets.ts';
 import type { DashboardConfig, DashboardLlamaCppConfig } from '../dashboard/src/types.ts';
+import { normalizeConfigObject } from '../src/config/normalization.ts';
 
 function createPreset(overrides: Partial<DashboardManagedLlamaPreset> = {}): DashboardManagedLlamaPreset {
   return {
@@ -41,6 +42,7 @@ function createPreset(overrides: Partial<DashboardManagedLlamaPreset> = {}): Das
     Reasoning: 'off',
     ReasoningContent: false,
     PreserveThinking: false,
+    MaintainPerStepThinking: false,
     SpeculativeEnabled: false,
     SpeculativeType: 'ngram-map-k',
     SpeculativeMtpEnabled: false,
@@ -102,7 +104,9 @@ function createConfig(): DashboardConfig {
     Backend: 'llama.cpp',
     PolicyMode: 'conservative',
     RawLogRetention: true,
+    IncludeAgentsMd: true,
     IncludeRepoFileListing: true,
+    ExpandReads: true,
     PromptPrefix: 'prompt',
     OperationModeAllowedTools: {
       summary: ['find_text', 'read_lines', 'json_filter'],
@@ -157,10 +161,70 @@ test('applyManagedLlamaPresetSelection switches the active managed preset', () =
   assert.equal(active.Port, 8098);
   assert.equal(active.ReasoningContent, true);
   assert.equal(active.PreserveThinking, true);
+  assert.equal(active.MaintainPerStepThinking, false);
   assert.equal(active.SpeculativeEnabled, true);
   assert.equal(active.SpeculativeType, 'ngram-simple');
   assert.equal(active.SpeculativeDraftMax, 32);
   assert.equal(active.SleepIdleSeconds, 120);
+});
+
+test('managed llama preset defaults MaintainPerStepThinking on when reasoning is enabled', () => {
+  const config = normalizeConfigObject({
+    Server: {
+      LlamaCpp: {
+        Presets: [{
+          id: 'thinking-on',
+          label: 'Thinking On',
+          Reasoning: 'on',
+          ReasoningContent: true,
+          PreserveThinking: true,
+        }],
+        ActivePresetId: 'thinking-on',
+      },
+    },
+  });
+
+  const preset = config.Server.LlamaCpp.Presets[0];
+  assert.equal(preset.Reasoning, 'on');
+  assert.equal(preset.MaintainPerStepThinking, true);
+});
+
+test('managed llama preset honors explicit MaintainPerStepThinking false when reasoning is enabled', () => {
+  const config = normalizeConfigObject({
+    Server: {
+      LlamaCpp: {
+        Presets: [{
+          id: 'thinking-on-last-only',
+          label: 'Thinking On Last Only',
+          Reasoning: 'on',
+          ReasoningContent: true,
+          PreserveThinking: true,
+          MaintainPerStepThinking: false,
+        }],
+        ActivePresetId: 'thinking-on-last-only',
+      },
+    },
+  });
+
+  assert.equal(config.Server.LlamaCpp.Presets[0].MaintainPerStepThinking, false);
+});
+
+test('managed llama preset disables MaintainPerStepThinking when reasoning is disabled', () => {
+  const config = normalizeConfigObject({
+    Server: {
+      LlamaCpp: {
+        Presets: [{
+          id: 'thinking-off',
+          label: 'Thinking Off',
+          Reasoning: 'off',
+          MaintainPerStepThinking: true,
+        }],
+        ActivePresetId: 'thinking-off',
+      },
+    },
+  });
+
+  assert.equal(config.Server.LlamaCpp.Presets[0].MaintainPerStepThinking, false);
 });
 
 test('applyManagedLlamaPresetSelection exposes ngram-mod MTP fields of the selected preset', () => {

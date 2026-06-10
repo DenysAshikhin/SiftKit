@@ -53,6 +53,22 @@ test('appendBatchExchange appends assistant tool_calls + tool results and return
   assert.equal(messages[5].tool_call_id, 'call_1');
 });
 
+test('pruneThinking keeps only the latest assistant reasoning_content when per-step thinking is disabled', () => {
+  const transcript = makeTranscript();
+  transcript.pushAssistant({ role: 'assistant', content: 'first', reasoning_content: 'think one' });
+  transcript.appendBatchExchange(
+    [{ action: { tool_name: 'run_repo_cmd', args: { command: 'rg -n foo' } }, toolCallId: 'call_1', toolContent: 'result-text' }],
+    'think two',
+  );
+  transcript.pushAssistant({ role: 'assistant', content: 'final', reasoning_content: 'final think' });
+
+  transcript.pruneThinking(false);
+
+  const reasoningMessages = transcript.getMessages().filter((message) => typeof message.reasoning_content === 'string');
+  assert.equal(reasoningMessages.length, 1);
+  assert.equal(reasoningMessages[0].reasoning_content, 'final think');
+});
+
 test('appendToolExchange and explicit push helpers append transcript messages', () => {
   const transcript = makeTranscript();
   transcript.appendToolExchange(

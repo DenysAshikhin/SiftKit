@@ -183,6 +183,11 @@ export function isPlannerPreserveThinkingEnabled(config: SiftConfig | undefined)
     && (config ? getActiveManagedLlamaPreset(config)?.PreserveThinking === true : false);
 }
 
+export function isPlannerMaintainPerStepThinkingEnabled(config: SiftConfig | undefined): boolean {
+  return isPlannerReasoningEnabled(config)
+    && (config ? getActiveManagedLlamaPreset(config)?.MaintainPerStepThinking !== false : true);
+}
+
 export function buildAssistantReplayMessage(content: string, thinkingText: string): ChatMessage {
   return {
     role: 'assistant',

@@ -51,6 +51,7 @@ export function getDefaultConfigObject(): SiftConfig {
     Reasoning: 'off' as const,
     ReasoningContent: false,
     PreserveThinking: false,
+    MaintainPerStepThinking: false,
     SpeculativeEnabled: false,
     SpeculativeType: 'ngram-map-k',
     SpeculativeMtpEnabled: false,
@@ -77,6 +78,7 @@ export function getDefaultConfigObject(): SiftConfig {
     RawLogRetention: true,
     IncludeAgentsMd: true,
     IncludeRepoFileListing: true,
+    ExpandReads: true,
     PromptPrefix: SIFT_DEFAULT_PROMPT_PREFIX,
     Runtime: {
       Model: SIFT_DEFAULT_LLAMA_MODEL,
