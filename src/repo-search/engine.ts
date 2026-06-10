@@ -45,6 +45,7 @@ import { DuplicateTracker } from './engine/duplicate-tracker.js';
 import { FORCED_FINISH_MAX_ATTEMPTS, FORCED_FINISH_MODE_MESSAGE, ForcedFinishController } from './engine/forced-finish.js';
 import { ProgressReporter } from './engine/progress-reporter.js';
 import { ReadWindowGovernor } from './engine/read-window-governor.js';
+import { TerminalSynthesizer } from './engine/terminal-synthesizer.js';
 import { ToolResultBudgeter } from './engine/tool-result-budgeter.js';
 import { TranscriptManager } from './engine/transcript-manager.js';
 import { TokenUsageTracker } from './engine/token-usage.js';
@@ -58,13 +59,11 @@ import {
   resolveRepoSearchPlannerToolDefinitions,
   buildPlannerRequestPromptReserveText,
   requestPlannerAction,
-  requestTerminalSynthesis,
   type ChatMessage,
   type PlannerActionResponse,
 } from './planner-protocol.js';
 import {
   compactPlannerMessagesOnce,
-  countTokensWithFallback,
   estimateTokenCount,
   preflightPlannerPromptBudget,
 } from './prompt-budget.js';
@@ -77,7 +76,6 @@ import {
 import {
   buildTaskInitialUserPrompt,
   buildTaskSystemPrompt,
-  buildTerminalSynthesisPrompt,
   scanRepoFiles,
   type TaskCommand,
 } from './prompts.js';
@@ -1314,77 +1312,32 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
 
   // Terminal synthesis if no final output — retry up to 3 times then hard-fail.
   if (!String(finalOutput || '').trim()) {
-    const synthesisPrompt = buildTerminalSynthesisPrompt({
+    const synthesizer = new TerminalSynthesizer({
+      baseUrl: options.baseUrl,
+      model: options.model,
+      timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
+      config: options.config,
+      useEstimatedTokensOnly,
+      totalContextTokens: budget.totalContextTokens,
+      thinkingEnabled: plannerThinkingEnabled,
+      reasoningContentEnabled: plannerReasoningContentEnabled,
+      preserveThinking: plannerPreserveThinkingEnabled,
+      streamFinishAsAnswer,
+      logger: options.logger || null,
+      progress,
+      tokenUsage,
+    });
+    const synthesis = await synthesizer.synthesize({
+      taskId: task.id,
       question: task.question,
       reason,
       transcript: transcript.renderTail(2),
+      turnsUsed,
+      mockResponses: options.mockResponses,
+      mockResponseIndex,
     });
-    const synthesisPromptTokenCount = await countTokensWithFallback(
-      useEstimatedTokensOnly ? undefined : options.config,
-      synthesisPrompt,
-    );
-    const synthesisMaxTokens = getDynamicMaxOutputTokens({
-      totalContextTokens: budget.totalContextTokens,
-      promptTokenCount: synthesisPromptTokenCount,
-    });
-    options.logger?.write({
-      kind: 'task_terminal_synthesis_requested',
-      taskId: task.id,
-      reason,
-      promptTokenCount: synthesisPromptTokenCount,
-      maxOutputTokens: synthesisMaxTokens,
-    });
-    const maxSynthesisAttempts = 3;
-    let lastErrorMessage = '';
-    let successAttempt = 0;
-    for (let attempt = 1; attempt <= maxSynthesisAttempts; attempt += 1) {
-      try {
-        const synthesisResponse = await requestTerminalSynthesis({
-          baseUrl: options.baseUrl,
-          model: options.model,
-          prompt: synthesisPrompt,
-          timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
-          mockResponses: options.mockResponses,
-          mockResponseIndex,
-          maxTokens: synthesisMaxTokens,
-          thinkingEnabled: plannerThinkingEnabled,
-          reasoningContentEnabled: plannerReasoningContentEnabled,
-          preserveThinking: plannerPreserveThinkingEnabled,
-          logger: options.logger || null,
-          stream: streamFinishAsAnswer && Boolean(options.onProgress),
-          onContentDelta: streamFinishAsAnswer && options.onProgress
-            ? (answerText: string) => {
-                options.onProgress!({ kind: 'answer', turn: turnsUsed, maxTurns, answerText });
-              }
-            : undefined,
-        });
-        if (typeof synthesisResponse.nextMockResponseIndex === 'number') {
-          mockResponseIndex = synthesisResponse.nextMockResponseIndex;
-        }
-        const resolved = tokenUsage.recordModelResponse(synthesisResponse);
-        tokenUsage.addOutputTokens(resolved.completionTokens);
-
-        const text = String(synthesisResponse.text || '').trim();
-        if (!synthesisResponse.mockExhausted && text) {
-          finalOutput = text;
-          if (streamFinishAsAnswer && options.onProgress) {
-            options.onProgress({ kind: 'answer', turn: turnsUsed, maxTurns, answerText: finalOutput });
-          }
-          successAttempt = attempt;
-          break;
-        }
-        lastErrorMessage = synthesisResponse.mockExhausted ? 'mock_exhausted' : 'empty_output';
-        options.logger?.write({ kind: 'task_terminal_synthesis_retry', taskId: task.id, attempt, error: lastErrorMessage });
-      } catch (error) {
-        lastErrorMessage = error instanceof Error ? error.message : String(error);
-        options.logger?.write({ kind: 'task_terminal_synthesis_retry', taskId: task.id, attempt, error: lastErrorMessage });
-      }
-    }
-    if (!String(finalOutput || '').trim()) {
-      options.logger?.write({ kind: 'task_terminal_synthesis_failed', taskId: task.id, reason, lastError: lastErrorMessage });
-      throw new Error(`Terminal synthesis produced no usable output after ${maxSynthesisAttempts} attempts (reason=${reason}, last=${lastErrorMessage || 'unknown'}).`);
-    }
-    options.logger?.write({ kind: 'task_terminal_synthesis_result', taskId: task.id, attempt: successAttempt, finalOutput });
+    finalOutput = synthesis.finalOutput;
+    mockResponseIndex = synthesis.nextMockResponseIndex;
   }
 
   const evidenceParts = [finalOutput, ...commands.map((item) => item.output)];
