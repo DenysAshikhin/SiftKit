@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -45,6 +46,66 @@ const { buildFocused3PowerShellArgs } = require('../scripts/run-benchmark-spec-f
 const { syncDistRuntime } = require('../scripts/sync-dist-runtime.js') as {
   syncDistRuntime: (sourceRoot: string, targetRoot: string) => void;
 };
+
+const INTENTIONAL_SRC_DECLARATION_FILES = new Set<string>(['src/types/better-sqlite3.d.ts']);
+
+function getTrackedSrcFiles(): string[] {
+  const output = execFileSync('git', ['-C', process.cwd(), 'ls-files', '--', 'src'], {
+    encoding: 'utf8',
+  });
+
+  return output.split(/\r?\n/u).filter((filePath) => filePath.length > 0);
+}
+
+function isForbiddenTrackedSrcArtifact(filePath: string): boolean {
+  if (filePath.endsWith('.js')) {
+    return true;
+  }
+
+  if (filePath.endsWith('.d.ts')) {
+    return !INTENTIONAL_SRC_DECLARATION_FILES.has(filePath);
+  }
+
+  return false;
+}
+
+function getForbiddenTrackedSrcArtifacts(): string[] {
+  const forbiddenArtifacts: string[] = [];
+
+  for (const filePath of getTrackedSrcFiles()) {
+    if (isForbiddenTrackedSrcArtifact(filePath)) {
+      forbiddenArtifacts.push(filePath);
+    }
+  }
+
+  return forbiddenArtifacts;
+}
+
+function readGitignoreLines(): string[] {
+  return fs
+    .readFileSync('.gitignore', 'utf8')
+    .split(/\r?\n/u)
+    .map((line) => line.trim());
+}
+
+test('src artifact guard allows only intentional ambient declaration files', () => {
+  assert.equal(isForbiddenTrackedSrcArtifact('src/lib/time.js'), true);
+  assert.equal(isForbiddenTrackedSrcArtifact('src/lib/time.d.ts'), true);
+  assert.equal(isForbiddenTrackedSrcArtifact('src/types/better-sqlite3.d.ts'), false);
+  assert.equal(isForbiddenTrackedSrcArtifact('src/lib/time.ts'), false);
+});
+
+test('src contains no tracked generated JavaScript or declaration siblings', () => {
+  assert.deepEqual(getForbiddenTrackedSrcArtifacts(), []);
+});
+
+test('gitignore blocks generated src JavaScript and declaration siblings', () => {
+  const gitignoreLines = readGitignoreLines();
+
+  assert.equal(gitignoreLines.includes('src/**/*.js'), true);
+  assert.equal(gitignoreLines.includes('src/**/*.d.ts'), true);
+  assert.equal(gitignoreLines.includes('!src/types/better-sqlite3.d.ts'), true);
+});
 
 test('buildBenchmarkCaseId is stable and descriptive', () => {
   assert.equal(
