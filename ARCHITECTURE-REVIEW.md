@@ -4,12 +4,14 @@
 
 This document is a point-in-time audit of the SiftKit repository, intended as a working reference for prioritizing refactors and fixes. It records:
 
-1. **Part 1 (F1–F18)** — architectural issues, code smells, and repo semantics that make the codebase harder to scale, extend, or maintain (duplication, dead code, god-functions, untyped boundaries, build/test hazards, packaging problems), plus a purpose-level assessment of whether the project is doing anything fundamentally wrong, a suggested module partition, and a priority-ordered fix list.
+1. **Part 1 (F2–F18, with gaps where findings were resolved and deleted)** — architectural issues, code smells, and repo semantics that make the codebase harder to scale, extend, or maintain (duplication, dead code, god-functions, untyped boundaries, build/test hazards, packaging problems), plus a purpose-level assessment of whether the project is doing anything fundamentally wrong, a suggested module partition, and a priority-ordered fix list.
 2. **Part 2 (L1–L11)** — an LLM-behavior analysis of the runtime surfaces that talk to the model (managed llama-server config, repo-search agentic loop, multi-turn chat, conversation-context handling), flagging divergences from established LLM-integration norms that raise the chance of the model misbehaving or failing to work as intended. Each finding includes explicit "why it's an issue" reasoning.
 
 Every claim is backed by `file:line` evidence verified against the working tree on the audit date. This file is descriptive, not a change plan — no code was modified as part of the audit. Findings should be re-verified against current code before acting on them, as line numbers and behavior drift.
 
 Date: 2026-06-09. Scope: full repo scan for architectural issues, smells, and purpose-level assessment. Findings appended as discovered.
+
+Updated 2026-06-10: resolved findings (F1 `runTaskLoop` god-function, F5 shadow `.d.ts`, F8 require-cache engine loading, F9 stale committed `src/**/*.js`, F12 split-brain execution) were verified fixed and deleted from this document — finding numbers therefore have gaps. Remaining findings re-verified and anchors refreshed.
 
 ## Repo purpose (as stated)
 
@@ -19,15 +21,9 @@ Windows-first toolkit that compresses noisy shell output / repo exploration for 
 
 ## Findings
 
-### F1. God-function: `runTaskLoop` in `src/repo-search/engine.ts` (~1,350 lines)
-
-Addressed 2026-06-10: `runTaskLoop` is now a thin wrapper over the decomposed classes in `src/repo-search/engine/`; implementation plan: `docs/superpowers/plans/2026-06-09-f1-runtaskloop-decomposition.md`.
-
-`src/repo-search/engine.ts` is 2,290 lines; `runTaskLoop` spans roughly lines 888–2240 — a single function holding the entire agentic loop: turn budgeting, thinking-buffer math, tool dispatch, repetition guards, forced-finish logic, transcript building, abort handling. Per the repo's own CLAUDE.md rules ("code abstracted into re-usable classes", "succinct and straightforward"), this is the largest single maintainability liability in the codebase. Any change to loop policy (budgets, retries, tool gating) requires navigating one scope with dozens of closure-captured locals. It is also effectively untestable in units — tests must drive the whole loop (cf. 2,009-line `tests/repo-search-loop.core.test.ts`).
-
 ### F2. Root-directory litter
 
-Working tree top level contains scratch artifacts (`ctmprsxlast_repo_search.json`, `ctmprsxwf.mjs`, `tmp-confirm-web-context.ts`, `siftkit-0.1.0.tgz`) — gitignored, so cosmetic only. Tracked: `initialTurnChatIssues.md` (a session-notes dump) and `run.bat` at root; both belong under `docs/` or nowhere. Packaging note: package.json `files` ships `scripts` and `eval` (dev/benchmark harnesses) to npm consumers.
+Working tree top level contains scratch artifacts (`tmp-confirm-web-context.ts`, `siftkit-0.1.0.tgz`) — gitignored, so cosmetic only. Tracked: `initialTurnChatIssues.md` (a session-notes dump) and `run.bat` at root; both belong under `docs/` or nowhere. Packaging note: package.json `files` ships `scripts` and `eval` (dev/benchmark harnesses) to npm consumers.
 
 ### F3. Server side is effectively untyped: `Dict = Record<string, unknown>` is the dominant type
 
@@ -42,33 +38,14 @@ export const DEFAULT_LLAMA_EXECUTABLE_PATH = 'C:\\Users\\denys\\Documents\\GitHu
 ```
 Absolute paths from one developer's machine are compiled into the product as defaults. For a toolkit whose stated purpose is general Windows distribution, this is a fundamental wrong: defaults must be empty/discovered, with fail-loud validation — which the project philosophy already endorses.
 
-### F5. Committed generated `.d.ts` files shadow their `.ts` sources
-
-`src/config/paths.d.ts`, `src/lib/{fs,json,paths,time,types}.d.ts`, `src/presets.d.ts`, `src/state/{chat-sessions,runtime-db}.d.ts` are git-tracked copies of tsc-generated declarations sitting next to the real `.ts` implementations (verified: `time.d.ts` is the emitted declaration of `time.ts`). They serve no purpose for compilation (tsc resolves the `.ts`), but they are drift bombs: any consumer that resolves the `.d.ts` first (e.g. tools reading without compiling, or if the `.ts` is ever moved) silently gets stale types. They should be deleted and gitignored.
-
 ### F6. Test architecture: split-brain between `dist` and `src`, and near-zero typechecking of tests
 
 - Test files import **~94 paths from `../dist/...` and ~80 from `../src/...`** — the same suite simultaneously tests compiled output and raw TS. A test passing can mean "current source works" or "whatever was last built works", depending on the file. `build-test.js` mitigates with an mtime stamp, but the mixed convention makes every test's subject ambiguous and blocks coverage tooling from a single view (the `test:coverage` script only includes `dist/**`).
-- `tsconfig.test.json` includes only **4 of ~140 test files**. `npm run typecheck:test` is therefore a no-op for ~97% of the test suite; type errors in tests surface only at tsx runtime, or never (tsx does not typecheck).
+- `tsconfig.test.json` includes `src/**/*.ts` plus only **17 of ~140 test files** (the engine/chat suites added during the repo-search loop decomposition). `npm run typecheck:test` still skips ~88% of the test suite; type errors in those tests surface only at tsx runtime, or never (tsx does not typecheck).
 
 ### F7. Hand-rolled HTTP layer with god-route-handlers
 
 The server is raw `node:http` with four sequential mega-handlers (`routes.ts` tries dashboard → chat → llama-passthrough → core). Inside each, a single exported function string-matches `pathname`(24 branch sites) and inlines the endpoint logic: `handleChatRoute` is ~980 lines (`routes/chat.ts:395-1373`), `handleCoreRoute` ~800 lines (`routes/core.ts:624-1424`), `routes/dashboard.ts` has 16 pathname branches in 577 lines. There is no route table, no per-endpoint module, no shared request-body validation. Adding an endpoint means editing a giant function; the README's "server contract" lives nowhere in code as a checkable surface.
-
-### F8. Server→engine dynamic loading hack
-
-Addressed 2026-06-10: status-server routes now call `StatusEngineService`, which statically imports the repo-search engine. The cache-busting `loadRepoSearchExecutor()` path was deleted.
-
-`src/status-server/chat.ts:753 loadRepoSearchExecutor()` resolves `../repo-search/index.js` via `require.resolve`, **deletes it from `require.cache`**, re-`require`s it, and duck-type-checks the export. This is dynamic function passing of exactly the kind the project rules forbid, presumably to pick up rebuilt code under nodemon. The cost: no compile-time link between server and engine, cache-busting on every chat call, and a runtime-only failure mode.
-
-### F9. CRITICAL: stale compiled `.js` files committed inside `src/` — proven drift
-
-Nine compiled CommonJS files are git-tracked next to their `.ts` sources: `src/config/paths.js`, `src/lib/{fs,json,paths,time,types}.js`, `src/presets.js`, `src/state/{chat-sessions,runtime-db}.js` (the same set as the F5 `.d.ts` shadows — one in-place tsc run was committed). They are already stale and diverging:
-
-- `src/state/runtime-db.js` → `exports.CURRENT_SCHEMA_VERSION = 29` (last commit 2026-06-06)
-- `src/state/runtime-db.ts` → `export const CURRENT_SCHEMA_VERSION = 30` (last commit 2026-06-08)
-
-Because the literal `.js` file exists, any loader that resolves `./runtime-db.js` from `src/` by plain Node semantics (instead of tsx's `.js→.ts` mapping) executes schema-29 code against a schema-30 database. Even if no path currently does, this is a loaded gun sitting in the import graph. Delete all nine `.js` + nine `.d.ts` files and gitignore `src/**/*.js`, `src/**/*.d.ts` (excluding intentional ambient decls like `src/types/better-sqlite3.d.ts`).
 
 ### F10. Config is defined three-and-a-half times, and the copies have already diverged
 
@@ -86,24 +63,13 @@ Proven drift between (1) and (2): client default preset has `ModelPath: null, Ex
 - `src/config/constants.ts` exports `SIFT_LEGACY_DEFAULT_NUM_CTX`, `SIFT_LEGACY_DERIVED_NUM_CTX`, `SIFT_PREVIOUS_DEFAULT_NUM_CTX`, `SIFT_PREVIOUS_DEFAULT_MODEL`, `SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS` — named legacy-compat values still re-exported through `src/config/index.ts`, against the stated "no legacy compatibility" rule.
 - `SIFTKIT_VERSION = '0.1.0'` in `constants.ts` duplicates `package.json` `version` by hand.
 - `tsconfig.json` includes `test-full.ts`, which does not exist.
-
-### F12. Split-brain execution: the same engines run in two different processes
-
-Addressed 2026-06-10: CLI execution paths are thin HTTP clients. Summary, repo-search, preset, eval, command-output analysis, and internal engine operations execute on the status server. The CLI only parses arguments, reads input files, runs local external commands when requested, captures command output, and formats server responses.
-
-The architecture docs say "the server is the single source of truth" and summary is server-centralized. In code:
-
-- `siftkit summary` (`src/cli/run-summary.ts:60-65`): if the question looks like a pass/fail test question AND deterministic parsing succeeds, the CLI runs the **full local** `summarizeRequest` in-process; otherwise it POSTs to `/summary`. Which process executes your summary depends on a regex over the question text.
-- `run-command.ts`, `run-capture.ts`, `run-preset.ts`, `run-internal.ts` all import and run `summarizeRequest` / `executeRepoSearchRequest` directly in the client process.
-- Meanwhile the server *also* runs the same engine — loaded via the `require.cache`-busting hack (F8).
-
-Consequence: inference, artifact writing, and metrics emission have two concurrent owners. The execution-lock/lease machinery (`src/execution-lock.ts`, `src/config/execution-lease.ts`) exists largely to coordinate a problem this split creates. Pick one home (the server, per the stated architecture), make the CLI a thin HTTP client, and delete the client-side engine paths.
+- `src/execution-lock.ts` and `src/config/execution-lease.ts` existed largely to coordinate the now-removed client/server split-brain execution; with the server as sole engine owner they are intra-process-only serialization and candidates for deletion (still imported by `summary/core.ts`, `eval.ts`, `install.ts`).
 
 ### F13. Three-plus parallel agentic-loop / LLM-protocol implementations
 
 OpenAI-style chat/tool-call protocol handling is implemented independently in:
 
-- `src/repo-search/planner-protocol.ts` (989 lines: streaming, tool-call parsing, retry, runaway detection, repetition guards) feeding `engine.ts:runTaskLoop`;
+- `src/repo-search/planner-protocol.ts` (989 lines: streaming, tool-call parsing, retry, runaway detection, repetition guards) feeding the repo-search engine loop (`src/repo-search/engine/task-loop.ts`);
 - `src/summary/planner/` (`mode.ts` 793 + `tools.ts` 438 + `json-filter.ts` + `provider.ts`) — a second planner loop with its own tool definitions and invalid-action handling;
 - `src/providers/llama-cpp.ts` (655 lines) — a third request/parse layer (`generateLlamaCppChatResponse`, structured-output parsing);
 - plus fragments in `src/status-server/chat.ts` (replay tool-call reconstruction), `src/tool-call-messages.ts`, `src/lib/model-json.ts`.
@@ -113,9 +79,9 @@ OpenAI-style chat/tool-call protocol handling is implemented independently in:
 ### F14. Test architecture is inverted and self-undermining
 
 - The dominant harness is `tests/_runtime-helpers.ts` — 1,573 lines, opening with `// @ts-nocheck — Full typing deferred. Auto-generated from runtime.test.js infrastructure block`. The shared infrastructure for ~30 runtime test files is untyped and was machine-translated from JS, in a repo whose rules require strict typing and near-100% branch coverage.
-- Mixed `dist`/`src` imports (F6) plus the committed stale `src/**/*.js` (F9) mean some `../src/...js` test imports can resolve to stale compiled code depending on loader semantics.
-- Giant end-to-end tests dominate (2,142-line `dashboard-status-server.test.ts`, 2,009-line `repo-search-loop.core.test.ts`, tests that boot the real HTTP server + sqlite). Unit-testable seams barely exist because of F1/F7 god-functions, so every behavior change pays integration-test cost.
-- Test seams ship inside production modules: `src/summary/mock.ts` (`SIFTKIT_TEST_PROVIDER_BEHAVIOR`, `SIFTKIT_TEST_TOKEN`), and `src/repo-search/engine.ts` contains 39 `mock` references (`findMockResult`, mock command results) interleaved with the production loop.
+- Mixed `dist`/`src` imports (F6) make every test's subject ambiguous.
+- Giant end-to-end tests dominate (2,142-line `dashboard-status-server.test.ts`, 2,009-line `repo-search-loop.core.test.ts`, tests that boot the real HTTP server + sqlite). The repo-search loop decomposition added unit seams there; the F7 route god-functions still force integration-test cost elsewhere.
+- Test seams ship inside production modules: `src/summary/mock.ts` (`SIFTKIT_TEST_PROVIDER_BEHAVIOR`, `SIFTKIT_TEST_TOKEN`), and mock command results (`findMockResult`, `src/repo-search/engine/command-execution.ts`) live in the production execution path.
 
 ### F15. Benchmark/eval harnesses live inside the product
 
@@ -125,11 +91,10 @@ OpenAI-style chat/tool-call protocol handling is implemented independently in:
 
 `dashboard/src/App.tsx` is 1,337 lines; `styles.css` 1,486 lines alongside a parallel `styles/` directory; type mirroring per F10. The dashboard has its own `node_modules`/build but no shared contract with the server it talks to — every API change is a manual two-sided edit verified only by integration tests.
 
-### F17. God-function inventory (besides F1)
+### F17. God-function inventory
 
 | Function | File | Approx. lines |
 |---|---|---|
-| `runTaskLoop` | `src/repo-search/engine.ts:888` | ~1,350 |
 | `handleChatRoute` | `src/status-server/routes/chat.ts:395` | ~980 |
 | `handleCoreRoute` | `src/status-server/routes/core.ts:624` | ~800 |
 | `invokePlannerMode` | `src/summary/planner/mode.ts:123` | ~670 |
@@ -151,15 +116,13 @@ Small coercion/parsing helpers are redefined per file rather than shared: `getPo
 
 Fundamental concerns, in order of severity:
 
-1. **The hard server dependency contradicts the product's job.** A token-compression CLI that *fails closed* when a local daemon is down means the tool is unavailable exactly when an agent mid-task needs it — and the agent then falls back to dumping raw output anyway, silently losing the entire value proposition. There is no degraded mode ("pass through raw + warn"). For a tool whose purpose is to *reduce* friction in agent loops, "no server → command fails" is a fundamental design wrong; fail-open-to-raw would preserve both auditability and usefulness.
+1. **The hard server dependency contradicts the product's job.** A token-compression CLI that *fails closed* when a local daemon is down means the tool is unavailable exactly when an agent mid-task needs it — and the agent then falls back to dumping raw output anyway, silently losing the entire value proposition. There is no degraded mode ("pass through raw + warn"). For a tool whose purpose is to *reduce* friction in agent loops, "no server → command fails" is a fundamental design wrong; fail-open-to-raw would preserve both auditability and usefulness. Since the CLI became a thin HTTP client (2026-06-10), every command requires the server, making this strictly more load-bearing.
 
-2. **The boundary between client and server is incoherent** (F12). The stated architecture (server owns inference/state) and the actual code (engines run in both processes, chosen per-request by heuristics) disagree. This is the root architectural debt: it forces the execution-lease machinery, the require-cache hack, the duplicated config systems, and the split-brain tests. Until one process owns execution, every new feature pays the two-owners tax.
+2. **Scope has outgrown the stated purpose.** The README sells `summary` + `repo-search`. The codebase additionally contains: a chat product with sessions/replay/grounding policies, a web-search subsystem with multi-provider quota management, a React dashboard with preset editors and metric graphs, four benchmark harnesses, and an eval framework — all in one package, one version, one build. The "sift" core (policy + chunking + summarize) is well under 20% of the code. Nothing is wrong with any feature individually, but as one unpartitioned unit, every change rebuilds and retests everything, and the npm package ships dev harnesses. A workspace split (core / server / dashboard / bench-eval) is the natural partition.
 
-3. **Scope has outgrown the stated purpose.** The README sells `summary` + `repo-search`. The codebase additionally contains: a chat product with sessions/replay/grounding policies, a web-search subsystem with multi-provider quota management, a React dashboard with preset editors and metric graphs, four benchmark harnesses, and an eval framework — all in one package, one version, one build. The "sift" core (policy + chunking + summarize) is well under 20% of the code. Nothing is wrong with any feature individually, but as one unpartitioned unit, every change rebuilds and retests everything, and the npm package ships dev harnesses. A workspace split (core / server / dashboard / bench-eval) is the natural partition.
+3. **Single-developer assumptions are baked into shipped behavior** (F4): hardcoded `D:\personal\models\...` and `C:\Users\denys\...` defaults, `UNLICENSED`, version string duplicated by hand. Fine for a personal tool; wrong the moment the README's framing ("toolkit for Codex/Claude Code users") is taken seriously.
 
-4. **Single-developer assumptions are baked into shipped behavior** (F4): hardcoded `D:\personal\models\...` and `C:\Users\denys\...` defaults, `UNLICENSED`, version string duplicated by hand. Fine for a personal tool; wrong the moment the README's framing ("toolkit for Codex/Claude Code users") is taken seriously.
-
-5. **The repo systematically violates its own stated engineering rules** (CLAUDE.md: strict typing, DRY, no legacy, classes, TDD): 306 `Dict` usages, `@ts-nocheck` core test harness, duplicated config/loops/helpers, `SIFT_LEGACY_*` constants, dead modules. The rules are right; the enforcement is absent. A lint gate (`no-restricted-syntax` for `Dict` in new code, max-function-length, import-boundary rules) would stop the bleeding.
+4. **The repo systematically violates its own stated engineering rules** (CLAUDE.md: strict typing, DRY, no legacy, classes, TDD): 306 `Dict` usages, `@ts-nocheck` core test harness, duplicated config/loops/helpers, `SIFT_LEGACY_*` constants, dead modules. The rules are right; the enforcement is absent. A lint gate (`no-restricted-syntax` for `Dict` in new code, max-function-length, import-boundary rules) would stop the bleeding.
 
 ## Suggested partition (mental model for future work)
 
@@ -192,15 +155,15 @@ Scope: managed llama-server config, the repo-search agentic loop, multi-turn cha
 - Why it's an issue: the server CLI args set one profile at launch, while providers also send per-request `temperature`/`top_p`/penalties from `Runtime.LlamaCpp` config; in llama.cpp, request parameters override CLI. So the dashboard's managed-preset values and what a given request actually used can differ silently — when a model misbehaves, the operator debugs against settings that weren't in effect.
 - Why it's an issue: two writable sources with no reconciliation means a config edit in one place (e.g. lowering temperature in the managed preset) can be invisibly negated by the other, making tuning experiments draw wrong conclusions.
 
-**(d) Default context split: `NumCtx` 128,000 with `ParallelSlots` 1 on a quantized 35B model.**
+**(d) Default context split: `NumCtx` 150,000 with `ParallelSlots` 1 on a quantized 35B model.**
 - Why it's an issue: every flow (summary, repo-search, chat) serializes through one slot, so a long repo-search run blocks chat and summary requests for its full duration; callers experience timeouts that look like model failures (and the CLI's fail-closed posture turns them into hard errors).
-- Why it's an issue: small quantized models degrade measurably at long effective context even when the window nominally fits; defaulting the planner loop's budget math to the full 128k (minus a 15% thinking buffer) encourages transcripts in the quality-degradation zone instead of compacting earlier — feeding the L3/L5 loop pathologies.
+- Why it's an issue: small quantized models degrade measurably at long effective context even when the window nominally fits; defaulting the planner loop's budget math to the full 150k (minus a 15% thinking buffer) encourages transcripts in the quality-degradation zone instead of compacting earlier — feeding the L3/L5 loop pathologies.
 
 ## L2. Repo-search finish gate: prompt and code contradict each other, and the code's logic is inverted
 
 The system prompt (`src/repo-search/prompts.ts:247`) promises: *"Minimum 5 tool-call turns before finish. Early finish is rejected with: 'that was a shallow search…'"*. In code:
 
-- That rejection message exists nowhere; `minToolCallsBeforeFinish` is computed and logged (`engine.ts:912,1345`) but never enforced.
+- That rejection message exists nowhere; `minToolCallsBeforeFinish` is computed and logged (`src/repo-search/engine/task-loop.ts:126,424`) but never enforced.
 - The actual gate, `evaluateFinishAttempt` (`src/tool-loop-governor.ts:195`), **allows** a finish with *zero* evidence-bearing tool calls or no `file:line` anchors (`if (!outputHasAnchors || supportedCalls.length === 0) return { allowed: true }`), **rejects** exactly the case of an anchored answer backed by one evidence-bearing call, and its final "no evidence" rejection branch is unreachable dead code.
 
 Why it's an issue:
@@ -220,10 +183,10 @@ Why it's an issue:
 
 ## L4. Conversation history is mutated in place between turns
 
-Two mechanisms rewrite already-sent messages inside `runTaskLoop`:
+Two mechanisms rewrite already-sent messages inside the repo-search loop (and the same pattern exists in the summary planner, `src/summary/planner/mode.ts:512-526`):
 
-- On repeated duplicates, the *previous* tool-result message is overwritten: `messages[duplicateReplayToolMessageIndex] = { …, content: duplicateMessage }` (`engine.ts:1537-1543`) — earlier evidence the model saw is replaced by "duplicate command requested xN".
-- Forced-finish countdowns upsert a trailing user message in place (`upsertTrailingUserMessage`, `engine.ts:2111-2117`).
+- On repeated duplicates, the *previous* tool-result message is overwritten with "duplicate command requested xN" (`src/repo-search/engine/transcript-manager.ts:77-78`, driven by `tool-action-processor.ts`) — earlier evidence the model saw is replaced.
+- Forced-finish countdowns upsert a trailing user message in place (`upsertTrailingUserMessage`, `src/repo-search/engine/transcript-manager.ts:86`).
 
 Why it's an issue (norm is append-only transcripts):
 - Editing an early message invalidates the llama.cpp prompt-cache prefix from that point on, forcing re-evaluation of up to ~100k tokens of context on every subsequent turn — on local hardware this is the difference between sub-second and tens-of-seconds prompt processing, and it defeats `cache_prompt` entirely.
@@ -259,7 +222,7 @@ Why it's an issue:
 
 ## L8. Default chat system prompt is a five-word fragment
 
-`DEFAULT_CHAT_SYSTEM_PROMPT = 'general, coder friendly assistant'` (`src/status-server/chat.ts:19`). Not a sentence, no behavioral contract, no tool guidance, no output expectations.
+`DEFAULT_CHAT_SYSTEM_PROMPT = 'general, coder friendly assistant'` (`src/status-server/chat.ts:18`). Not a sentence, no behavioral contract, no tool guidance, no output expectations.
 
 Why it's an issue:
 - Small quantized local models are the population most dependent on explicit system-prompt steering; with a five-word fragment, output format, verbosity, tool-usage judgment, and refusal behavior are all left to sampling noise — the same question produces materially different behavior session to session, which users read as flakiness.
@@ -268,21 +231,21 @@ Why it's an issue:
 
 ## L9. Cross-turn tool replay invents a tool that doesn't exist
 
-`buildChatHistoryMessages` replays prior turns' tool activity as assistant `tool_calls` against a synthesized function named `persisted_tool_call` with `{"command": …}` arguments (`chat.ts:238-245`) — a tool name never present in the offered tool set for the current turn.
+`buildChatHistoryMessages` replays prior turns' tool activity as assistant `tool_calls` against a synthesized function named `persisted_tool_call` with `{"command": …}` arguments (`chat.ts:251`) — a tool name never present in the offered tool set for the current turn.
 
 Why it's an issue:
 - The context shows successful precedent for calling a tool that isn't declared this turn. Tool-name selection in small models is heavily primed by in-context examples, so this directly raises hallucinated-tool-call rates — and when the model does call `persisted_tool_call`, the parser rejects it as invalid, feeding the invalid-response ladder.
 - Replayed outputs silently substitute `toolCallOutputSnippet` (a truncated UI snippet) for the full output. The model believes it already holds complete evidence and answers from an ellipsized fragment instead of re-fetching — confident wrong answers grounded in text that was cut mid-result.
 - Norm: replay with the same tool names/schemas offered this turn, or compress prior tool activity into clearly-labeled user/system context.
 
-## L10. Chat "condense" is a no-op for the model — and the context meter measures the wrong window
+## L10. Chat "condense" is a no-op for the model — and the context meter is char-estimated in both directions
 
-- `condenseChatSession` (`chat.ts:493`) marks older messages `compressedIntoSummary: true` and stores a `condensedSummary`. **No prompt builder reads either field**: `buildChatHistoryMessages` iterates all `session.messages` with no `compressedIntoSummary` filter, and `condensedSummary` is never injected into any prompt (verified by repo-wide search — it is only persisted/reset).
+- `condenseChatSession` (`chat.ts:~530`) marks older messages `compressedIntoSummary: true` and stores a `condensedSummary`. **No prompt builder reads either field**: `buildChatHistoryMessages` iterates all `session.messages` with no `compressedIntoSummary` filter, and `condensedSummary` is never injected into any prompt (verified by repo-wide search — it is only persisted/reset).
   - Why it's an issue: pressing "condense" changes nothing the model sees — the full history still replays, so the overflow behavior the user tried to fix persists, now behind UI state claiming it was handled. Debugging "why is the model still confused after condensing" is unwinnable because the feature is cosmetic.
 - The "summary" itself, were it ever used, is not a summary: it is the **last 2,400 characters** of a `role: content` dump (tool outputs excluded), typically starting mid-sentence.
   - Why it's an issue: if this is ever wired in, the model's entire memory of the conversation becomes a ~1k-token arbitrary tail with no tool evidence — earlier commitments, constraints, and facts vanish without the model being told, so it contradicts its own prior answers. Ironic given that LLM summarization is the product's core competency.
-- Context accounting: `ContextUsageBuilder` defaults the window to **150,000** tokens (`chat.ts:100`) while the managed default `NumCtx` is **128,000**; usage is char-estimated (`chars/2.5`), counts thinking tokens that are *never replayed* (history drops `assistant_thinking`), and `shouldCondense` triggers at 10% remaining of the wrong denominator.
-  - Why it's an issue: the meter can show green while the real prompt already exceeds the server's window. llama.cpp then truncates or rejects: truncation typically eats the *front* of the prompt — the system prompt and earliest instructions — so the model silently loses its persona/format contract and "goes silly" in ways nothing in the UI explains.
+- Context accounting: `ContextUsageBuilder` (`chat.ts:82-145`) now follows the configured `NumCtx` (both default 150,000), but usage is still char-estimated where recorded token counts are missing, and per-message estimates include thinking tokens that are *never replayed* (history drops `assistant_thinking`); `shouldCondense` triggers at 10% remaining of that estimate.
+  - Why it's an issue: a char-based estimate can show green while the real rendered prompt already exceeds the server's window. llama.cpp then truncates or rejects: truncation typically eats the *front* of the prompt — the system prompt and earliest instructions — so the model silently loses its persona/format contract and "goes silly" in ways nothing in the UI explains.
   - Why it's an issue: counting never-replayed thinking tokens inflates usage in the other direction, so condense warnings can also fire far too early — the meter is wrong in both directions, making its one job (triggering condensation at the right time) unreliable.
 
 ## L11. Web grounding policy forbids answering from memory — for every message in a web-enabled session
@@ -300,11 +263,9 @@ The recurring pattern: the harness distrusts the model and intervenes aggressive
 
 ## Priority order (highest leverage first)
 
-1. Delete stale committed `src/**/*.js` + shadow `.d.ts` (F9/F5) — immediate correctness hazard, zero-risk fix.
-2. Decide the client/server execution boundary and collapse to one engine owner (F12, F8).
-3. Single typed config schema shared by client/server/dashboard; kill `Dict` at the boundaries (F3, F10).
-4. Unify the agentic loop + llama.cpp protocol layer (F13).
-5. Break up the five god-functions (F1, F17) — prerequisite for any unit-test pyramid recovery (F14).
-6. Repackage: move bench/eval out of `src` and out of npm `files`; fix `files` array (F15, F2).
-7. Replace machine-specific defaults with fail-loud unset values (F4).
-8. Route table + per-endpoint handlers in the server (F7).
+1. Single typed config schema shared by client/server/dashboard; kill `Dict` at the boundaries (F3, F10).
+2. Unify the agentic loop + llama.cpp protocol layer (F13).
+3. Break up the remaining god-functions (F17) — prerequisite for any unit-test pyramid recovery (F14).
+4. Repackage: move bench/eval out of `src` and out of npm `files`; fix `files` array (F15, F2).
+5. Replace machine-specific defaults with fail-loud unset values (F4).
+6. Route table + per-endpoint handlers in the server (F7).
