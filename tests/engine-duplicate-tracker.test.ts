@@ -26,6 +26,23 @@ test('classify falls back to toolName|normalizedKey when fingerprint is empty', 
   assert.equal(result.duplicateFingerprint, 'run_repo_cmd|bad cmd');
 });
 
+test('classify returns no duplicate before a success and when the prior success has no fingerprint', () => {
+  const tracker = new DuplicateTracker();
+  const fresh = tracker.classify({ toolName: 'run_repo_cmd', normalizedKey: 'rg -n foo', fingerprint: 'fp-1', rejected: false });
+  assert.equal(fresh.isExactDuplicate, false);
+  assert.equal(fresh.isSemanticDuplicate, false);
+
+  tracker.recordSuccess('rg -n foo', null);
+  const semanticWithoutPriorFingerprint = tracker.classify({
+    toolName: 'run_repo_cmd',
+    normalizedKey: 'rg -n foo --glob "!x"',
+    fingerprint: 'fp-1',
+    rejected: false,
+  });
+  assert.equal(semanticWithoutPriorFingerprint.isExactDuplicate, false);
+  assert.equal(semanticWithoutPriorFingerprint.isSemanticDuplicate, false);
+});
+
 test('registerDuplicate starts at 2 and increments only while the replay message is live', () => {
   const tracker = new DuplicateTracker();
   const first = tracker.registerDuplicate('fp-1', 10);

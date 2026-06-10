@@ -29,6 +29,14 @@ test('consumeAttempt counts down with exact engine message strings and reports e
   assert.equal(last.exhausted, true);
 });
 
+test('consumeAttempt before activation stays exhausted at zero remaining attempts', () => {
+  const controller = new ForcedFinishController();
+  const attempt = controller.consumeAttempt();
+  assert.equal(attempt.attemptsRemaining, 0);
+  assert.equal(attempt.exhausted, true);
+  assert.equal(controller.isActive(), false);
+});
+
 test('recordToolOutput counts a zero-output streak with engine warning text', () => {
   const controller = new ForcedFinishController();
   const first = controller.recordToolOutput(0);

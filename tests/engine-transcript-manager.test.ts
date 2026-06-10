@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
+import type { ChatMessage } from '../src/repo-search/planner-protocol.js';
 
 function makeTranscript(): TranscriptManager {
   return new TranscriptManager({
@@ -52,6 +53,33 @@ test('appendBatchExchange appends assistant tool_calls + tool results and return
   assert.equal(messages[5].tool_call_id, 'call_1');
 });
 
+test('appendToolExchange and explicit push helpers append transcript messages', () => {
+  const transcript = makeTranscript();
+  transcript.appendToolExchange(
+    { tool_name: 'run_repo_cmd', args: { command: 'rg -n foo' } },
+    'call_1',
+    'result-text',
+    'thinking-text',
+  );
+  transcript.pushAssistant({ role: 'assistant', content: 'assistant reply' });
+  transcript.pushUser('user reply');
+  const messages = transcript.getMessages();
+  assert.equal(messages[4].role, 'assistant');
+  assert.equal(messages[5].role, 'tool');
+  assert.equal(messages[5].tool_call_id, 'call_1');
+  assert.equal(messages[6].content, 'assistant reply');
+  assert.equal(messages[7].content, 'user reply');
+});
+
+test('replaceToolMessage on a non-tool message writes a tool message without an id', () => {
+  const transcript = makeTranscript();
+  transcript.replaceToolMessage(0, 'replacement');
+  const message = transcript.getMessages()[0];
+  assert.equal(message.role, 'tool');
+  assert.equal(message.tool_call_id, undefined);
+  assert.equal(message.content, 'replacement');
+});
+
 test('replaceToolMessage overwrites in place preserving tool_call_id', () => {
   const transcript = makeTranscript();
   transcript.appendBatchExchange(
@@ -77,6 +105,8 @@ test('upsertTrailingUser appends then updates the same trailing user message', (
 
 test('render and renderTail produce transcripts', () => {
   const transcript = makeTranscript();
+  transcript.getMessages().push({ content: 'roleless' } as ChatMessage);
   assert.ok(transcript.render().includes('QUESTION'));
+  assert.ok(transcript.messageRoles().includes('unknown'));
   assert.ok(!transcript.renderTail(2).includes('SYSTEM'));
 });

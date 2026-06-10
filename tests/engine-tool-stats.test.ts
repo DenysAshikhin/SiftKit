@@ -42,6 +42,23 @@ test('recordToolCall tolerates null lineReadStats', () => {
   assert.equal(recorder.snapshot().rg.outputTokensEstimatedCount, 0);
 });
 
+test('recordToolCall floors negative token counters and get returns existing stats', () => {
+  const recorder = new ToolStatsRecorder();
+  recorder.recordToolCall({
+    toolType: 'rg',
+    resultTextLength: 5,
+    resultTokenCount: -2,
+    resultTokenCountEstimated: false,
+    rawResultTokenCount: -3,
+    lineReadStats: {},
+  });
+  const stats = recorder.get('rg');
+  assert.ok(stats !== null);
+  assert.equal(stats.outputTokensTotal, 0);
+  assert.equal(stats.promptInsertedTokens, 0);
+  assert.equal(stats.rawToolResultTokens, 0);
+});
+
 test('recordNovelty splits new vs no-new evidence calls', () => {
   const recorder = new ToolStatsRecorder();
   recorder.recordNovelty('rg', true);

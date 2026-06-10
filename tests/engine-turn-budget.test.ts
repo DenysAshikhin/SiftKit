@@ -36,3 +36,10 @@ test('remainingToolAllowance subtracts prompt and accepted tool tokens, clamped 
   assert.equal(budget.remainingToolAllowance(10_000, 5_000), budget.usablePromptTokens - 15_000);
   assert.equal(budget.remainingToolAllowance(budget.usablePromptTokens, 1), 0);
 });
+
+test('TurnBudget clamps invalid constructor values before deriving caps', () => {
+  const budget = new TurnBudget({ totalContextTokens: -10, maxTurns: 0 });
+  assert.equal(budget.totalContextTokens, 1);
+  assert.equal(budget.usablePromptTokens, 0);
+  assert.equal(budget.perToolCapTokens(100), 1);
+});

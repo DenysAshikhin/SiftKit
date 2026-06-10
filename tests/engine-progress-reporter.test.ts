@@ -66,3 +66,20 @@ test('tokenizeStart/tokenizeDone mirror the preflight tokenize event shape', () 
   assert.equal(events[1].kind, 'preflight_tokenize_done');
   assert.equal(events[1].promptTokenCount, 40);
 });
+
+test('tokenizeDone omits optional fields when they are null or absent', () => {
+  const { events, reporter } = collect();
+  reporter.tokenizeDone(1, 100, {
+    promptTokenCount: 12,
+    tokenizeElapsedMs: null,
+    tokenizeRetryCount: null,
+    tokenizeStatus: null,
+    tokenizeErrorMessage: null,
+  });
+  const event = events[0];
+  assert.equal(event.kind, 'preflight_tokenize_done');
+  assert.equal(event.tokenizeElapsedMs, undefined);
+  assert.equal(event.tokenizeRetryCount, undefined);
+  assert.equal(event.tokenizeStatus, undefined);
+  assert.equal(event.errorMessage, undefined);
+});

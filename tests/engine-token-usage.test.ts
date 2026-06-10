@@ -29,13 +29,34 @@ test('recordModelResponse estimates completion/thinking tokens when usage is mis
   assert.ok(resolved.thinkingTokens > 0);
   const empty = tracker.recordModelResponse({ text: '', thinkingText: '' });
   assert.deepEqual(empty, { completionTokens: 0, thinkingTokens: 0 });
+  const absent = tracker.recordModelResponse({});
+  assert.deepEqual(absent, { completionTokens: 0, thinkingTokens: 0 });
 });
 
 test('negative or non-finite usage fields are ignored', () => {
   const tracker = new TokenUsageTracker(undefined);
-  tracker.recordModelResponse({ text: '', promptTokens: -5, promptCacheTokens: Number.NaN });
-  assert.equal(tracker.snapshot().promptTokens, 0);
-  assert.equal(tracker.snapshot().promptCacheTokens, 0);
+  const resolved = tracker.recordModelResponse({
+    text: '   ',
+    thinkingText: '   ',
+    promptTokens: -5,
+    completionTokens: -1,
+    usageThinkingTokens: -1,
+    promptCacheTokens: Number.NaN,
+    promptEvalTokens: -1,
+    promptEvalDurationMs: -1,
+    generationDurationMs: -1,
+  });
+  assert.deepEqual(resolved, { completionTokens: 0, thinkingTokens: 0 });
+  assert.deepEqual(tracker.snapshot(), {
+    promptTokens: 0,
+    outputTokens: 0,
+    toolTokens: 0,
+    thinkingTokens: 0,
+    promptCacheTokens: 0,
+    promptEvalTokens: 0,
+    promptEvalDurationMs: 0,
+    generationDurationMs: 0,
+  });
 });
 
 test('addOutputTokens and addToolTokens accumulate; tool tokens are ceiled and floored at zero', () => {

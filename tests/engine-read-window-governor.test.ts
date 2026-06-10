@@ -71,6 +71,72 @@ test('applyFitTruncation rolls back unique-line accounting when output was cut',
   assert.equal(summary.byFile[0].uniqueLinesRead, 40);
 });
 
+test('planAdjustment shifts a repeated overlapping read past the already-returned range', () => {
+  const governor = new ReadWindowGovernor();
+  const firstMetrics = governor.recordExecution({
+    parsedReadWindow: window(1, 100), executedReadWindow: window(1, 100), turn: 1, adjusted: false,
+  });
+  governor.applyFitTruncation({
+    parsedReadWindow: window(1, 100), executedReadWindow: window(1, 100),
+    fittedReturnedSegmentCount: null, metrics: firstMetrics,
+  });
+  const planned = governor.planAdjustment({
+    parsedReadWindow: window(1, 50),
+    perToolCapTokens: 1000,
+    currentGetContentStats: null,
+    historicalGetContentStats: null,
+  });
+  assert.ok(planned !== null);
+  assert.ok(planned.adjustment.adjustedStart >= 100);
+  assert.ok(planned.commandToRun.includes('-Skip'));
+  assert.equal(planned.adjustment.requestedStart, 1);
+  assert.equal(planned.adjustment.requestedEnd, 50);
+});
+
+test('planAdjustment returns null when the requested window needs no adjustment', () => {
+  const governor = new ReadWindowGovernor();
+  governor.recordExecution({
+    parsedReadWindow: window(1, 10), executedReadWindow: null, turn: 1, adjusted: false,
+  });
+  // No returned/executed ranges recorded -> a large aligned window stays as requested.
+  assert.equal(
+    governor.planAdjustment({
+      parsedReadWindow: window(0, 200),
+      perToolCapTokens: 8, // minLinesFromCap = 1 -> requested length wins
+      currentGetContentStats: null,
+      historicalGetContentStats: null,
+    }),
+    null,
+  );
+});
+
+test('applyFitTruncation ignores executed windows for a different file', () => {
+  const governor = new ReadWindowGovernor();
+  const metrics = governor.recordExecution({
+    parsedReadWindow: window(1, 100), executedReadWindow: window(1, 100), turn: 1, adjusted: false,
+  });
+  const otherFileWindow = { ...window(1, 100), pathKey: 'src/other.ts' };
+  governor.applyFitTruncation({
+    parsedReadWindow: window(1, 100), executedReadWindow: otherFileWindow,
+    fittedReturnedSegmentCount: 5, metrics,
+  });
+  assert.equal(metrics.newLinesCovered, 99);
+});
+
+test('applyFitTruncation records no returned range when fitting removes every line', () => {
+  const governor = new ReadWindowGovernor();
+  const metrics = governor.recordExecution({
+    parsedReadWindow: window(1, 100), executedReadWindow: window(1, 100), turn: 1, adjusted: false,
+  });
+  governor.applyFitTruncation({
+    parsedReadWindow: window(1, 100), executedReadWindow: window(1, 100),
+    fittedReturnedSegmentCount: 0, metrics,
+  });
+  const state = governor.stateMap.get('src/a.ts');
+  assert.deepEqual(state?.mergedReturnedRanges, []);
+  assert.equal(metrics.newLinesCovered, 0);
+});
+
 test('recordNativeReturnedRange merges returned ranges in the shared state map', () => {
   const governor = new ReadWindowGovernor();
   governor.recordNativeReturnedRange('src/a.ts', { start: 1, end: 20 });
