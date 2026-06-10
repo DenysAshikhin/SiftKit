@@ -62,7 +62,8 @@
       "Bash(node ./dist/scripts/run-tests.js)",
       "Bash(node ./dist/scripts/run-tests.js --concurrency=6)",
       "Bash(node ./dist/scripts/run-tests.js --help)",
-      "Bash(node ./dist/scripts/run-tests.js --test-concurrency=6)"
+      "Bash(node ./dist/scripts/run-tests.js --test-concurrency=6)",
+      "PowerShell(siftkit repo-search *)"
     ]
   }
 }
