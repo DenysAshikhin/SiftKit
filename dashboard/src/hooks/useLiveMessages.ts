@@ -13,6 +13,7 @@ export function createLiveMessage(
   role: ChatMessage['role'],
   content: string,
 ): ChatMessage {
+  const thinkingTokens = kind === 'assistant_thinking' ? Math.max(1, Math.ceil(String(content || '').length / 4)) : 0;
   return {
     id,
     role,
@@ -20,7 +21,10 @@ export function createLiveMessage(
     content,
     inputTokensEstimate: 0,
     outputTokensEstimate: 0,
-    thinkingTokens: kind === 'assistant_thinking' ? Math.max(1, Math.ceil(String(content || '').length / 4)) : 0,
+    thinkingTokens,
+    inputTokensEstimated: false,
+    outputTokensEstimated: false,
+    thinkingTokensEstimated: thinkingTokens > 0,
     associatedToolTokens: 0,
     createdAtUtc: new Date().toISOString(),
     sourceRunId: null,
@@ -42,6 +46,7 @@ export function buildAppendedLiveToolMessage(toolEvent: ChatStreamToolEvent): Ch
   return {
     ...createLiveMessage(id, 'assistant_tool_call', 'assistant', toolEvent.command),
     outputTokensEstimate: 0,
+    outputTokensEstimated: false,
     toolCallCommand: toolEvent.command,
     toolCallTurn: toolEvent.turn,
     toolCallMaxTurns: toolEvent.maxTurns,
@@ -57,6 +62,7 @@ export function buildCompletedLiveToolMessage(toolEvent: ChatStreamToolEvent): C
   return {
     ...createLiveMessage(id, 'assistant_tool_call', 'assistant', toolEvent.command),
     outputTokensEstimate: outputTokens,
+    outputTokensEstimated: outputTokens > 0 ? toolEvent.outputTokensEstimated !== false : false,
     associatedToolTokens: outputTokens,
     toolCallCommand: toolEvent.command,
     toolCallTurn: toolEvent.turn,

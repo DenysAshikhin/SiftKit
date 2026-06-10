@@ -9,6 +9,7 @@ export type ChatStreamToolEvent = {
   exitCode?: number;
   outputSnippet?: string;
   outputTokens?: number;
+  outputTokensEstimated?: boolean;
   promptTokenCount?: number;
 };
 
@@ -49,6 +50,7 @@ function buildToolEvent(kind: 'tool_start' | 'tool_result', record: Record<strin
   if (typeof record.exitCode === 'number') tool.exitCode = record.exitCode;
   if (typeof record.outputSnippet === 'string') tool.outputSnippet = record.outputSnippet;
   if (typeof record.outputTokens === 'number') tool.outputTokens = record.outputTokens;
+  if (typeof record.outputTokensEstimated === 'boolean') tool.outputTokensEstimated = record.outputTokensEstimated;
   if (typeof record.promptTokenCount === 'number') tool.promptTokenCount = record.promptTokenCount;
   return tool;
 }

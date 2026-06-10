@@ -1,7 +1,7 @@
 import { colorize } from '../../lib/text-format.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
 import type { SiftConfig } from '../../config/index.js';
-import { countTokensWithFallback, estimateTokenCount } from '../prompt-budget.js';
+import { countTokensWithFallbackDetailed, estimateTokenCount } from '../prompt-budget.js';
 import { ToolOutputFitter, type ToolOutputTruncationUnit } from '../../tool-output-fit.js';
 
 const ANSI_RED_CODE = 31;
@@ -19,6 +19,11 @@ export type FittedToolResult = {
   rawResultTokenCount: number;
 };
 
+type CountedTokenResult = {
+  tokenCount: number;
+  estimated: boolean;
+};
+
 export class ToolResultBudgeter {
   private readonly config: SiftConfig | undefined;
   private readonly useEstimatedTokensOnly: boolean;
@@ -34,10 +39,16 @@ export class ToolResultBudgeter {
     this.timingRecorder = options.timingRecorder;
   }
 
-  private async countTokens(text: string): Promise<number> {
-    return this.useEstimatedTokensOnly
-      ? estimateTokenCount(this.config, text)
-      : await countTokensWithFallback(this.config, text);
+  private async countTokens(text: string): Promise<CountedTokenResult> {
+    if (this.useEstimatedTokensOnly) {
+      return { tokenCount: estimateTokenCount(this.config, text), estimated: true };
+    }
+    const result = await countTokensWithFallbackDetailed(this.config, text);
+    return { tokenCount: result.tokenCount, estimated: result.source === 'estimate' };
+  }
+
+  private async countTokenValue(text: string): Promise<number> {
+    return (await this.countTokens(text)).tokenCount;
   }
 
   async fit(options: {
@@ -54,18 +65,20 @@ export class ToolResultBudgeter {
     const rawToolTokenSpan = this.timingRecorder?.start('repo.tool.tokenize_raw', {
       taskId: options.taskId, turn: options.turn, toolName: options.toolName, inputChars: options.rawResultText.length,
     });
-    const rawResultTokenCount = await this.countTokens(options.rawResultText);
+    const rawResultTokenResult = await this.countTokens(options.rawResultText);
+    const rawResultTokenCount = rawResultTokenResult.tokenCount;
     rawToolTokenSpan?.end({ tokenCount: rawResultTokenCount });
 
     const promptToolTokenSpan = this.timingRecorder?.start('repo.tool.tokenize_prompt', {
       taskId: options.taskId, turn: options.turn, toolName: options.toolName, inputChars: options.resultText.length,
     });
-    const candidateResultTokenCount = await this.countTokens(options.resultText);
+    const candidateResultTokenResult = await this.countTokens(options.resultText);
+    const candidateResultTokenCount = candidateResultTokenResult.tokenCount;
     promptToolTokenSpan?.end({ tokenCount: candidateResultTokenCount });
 
     let resultText = options.resultText;
     let resultTokenCount = candidateResultTokenCount;
-    let resultTokenCountEstimated = this.useEstimatedTokensOnly;
+    let resultTokenCountEstimated = candidateResultTokenResult.estimated;
     let fittedReturnedSegmentCount: number | null = null;
 
     if (candidateResultTokenCount > options.perToolCapTokens || candidateResultTokenCount > options.remainingTokenAllowance) {
@@ -74,7 +87,7 @@ export class ToolResultBudgeter {
         const budgeter = this;
         const fitter = new ToolOutputFitter({
           async countToolOutputTokens(text: string): Promise<number> {
-            return budgeter.countTokens(text);
+            return budgeter.countTokenValue(text);
           },
         });
         const fitResult = await fitter.fitSegments({
@@ -89,9 +102,10 @@ export class ToolResultBudgeter {
         const fitTokenSpan = this.timingRecorder?.start('repo.tool.tokenize_fit', {
           taskId: options.taskId, turn: options.turn, toolName: options.toolName, inputChars: resultText.length,
         });
-        resultTokenCount = await this.countTokens(resultText);
+        const resultTokenResult = await this.countTokens(resultText);
+        resultTokenCount = resultTokenResult.tokenCount;
         fitTokenSpan?.end({ tokenCount: resultTokenCount });
-        resultTokenCountEstimated = this.useEstimatedTokensOnly;
+        resultTokenCountEstimated = resultTokenResult.estimated;
       } else {
         resultText = `Error: requested output would consume ${candidateResultTokenCount} tokens, remaining token allowance: ${options.remainingTokenAllowance}, per tool call allowance: ${options.perToolCapTokens}`;
         writeRedConsoleLine(`repo_search warning: ${resultText}`);
@@ -100,9 +114,10 @@ export class ToolResultBudgeter {
           : this.timingRecorder?.start('repo.tool.tokenize_rejection', {
             taskId: options.taskId, turn: options.turn, toolName: options.toolName, inputChars: resultText.length,
           });
-        resultTokenCount = await this.countTokens(resultText);
+        const resultTokenResult = await this.countTokens(resultText);
+        resultTokenCount = resultTokenResult.tokenCount;
         rejectionToolTokenSpan?.end({ tokenCount: resultTokenCount });
-        resultTokenCountEstimated = this.useEstimatedTokensOnly;
+        resultTokenCountEstimated = resultTokenResult.estimated;
       }
     }
 

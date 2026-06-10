@@ -153,6 +153,7 @@ export type RepoSearchProgressEvent = {
   exitCode?: number | null;
   outputSnippet?: string;
   outputTokens?: number;
+  outputTokensEstimated?: boolean;
   toolCallId?: string;
 };
 

@@ -6,6 +6,8 @@ import {
   formatDate,
   formatNumber,
   formatPercent,
+  formatTokenLabel,
+  getMessageKnownTokenCount,
   getMessageTokenCount,
   getReplayDisplayTokenCount,
 } from '../lib/format';
@@ -13,7 +15,6 @@ import {
   buildDisplayedSystemPromptContent,
   buildFallbackPromptContext,
   buildLiveMessageScrollSignature,
-  estimatePromptTokens,
 } from '../lib/chatMessages';
 import { resolveContextBarVisual } from '../lib/contextBar';
 import { getToolRunningLabel } from '../lib/tool-status';
@@ -40,6 +41,31 @@ function getGroundingStatusLabel(status: ChatMessage['groundingStatus']): string
     return GROUNDING_STATUS_LABELS[status];
   }
   return null;
+}
+
+type TurnTokenDisplay = {
+  tokenCount: number | null;
+  exact: boolean;
+};
+
+function getTurnTokenDisplay(messages: ChatMessage[]): TurnTokenDisplay {
+  let total = 0;
+  let knownTotal = 0;
+  let hasUnavailableComponent = false;
+  for (const message of messages) {
+    const tokenCount = getMessageTokenCount(message);
+    if (tokenCount === null) {
+      hasUnavailableComponent = true;
+      knownTotal += getMessageKnownTokenCount(message);
+    } else {
+      total += tokenCount;
+      knownTotal += tokenCount;
+    }
+  }
+  if (!hasUnavailableComponent) {
+    return { tokenCount: total, exact: true };
+  }
+  return knownTotal > 0 ? { tokenCount: knownTotal, exact: false } : { tokenCount: null, exact: false };
 }
 
 type SessionPromptCacheStats = {
@@ -203,7 +229,7 @@ export function ChatTab({
                     <span>system | first message</span>
                     <span className="msg-meta">
                       <span className="msg-tokens">
-                        {formatNumber(estimatePromptTokens(displayedSystemPromptContent))} tokens
+                        {formatTokenLabel(null)}
                       </span>
                     </span>
                   </header>
@@ -442,31 +468,41 @@ function SettingsPopover(props: {
 }) {
   const { contextUsage, liveToolPromptTokenCount, isRepoToolMode, chatBusy, onCondense } = props;
   if (!contextUsage) return null;
+  const hasEstimatedUsage = Number(contextUsage.estimatedTokenFallbackTokens || 0) > 0;
   return (
     <div className={contextUsage.shouldCondense ? 'composer-settings-popover usage warning' : 'composer-settings-popover usage'}>
       <strong>
-        <span title="Replayable chat context tokens in this session.">
-          Context: {formatNumber(contextUsage.chatUsedTokens)} / {formatNumber(contextUsage.contextWindowTokens)} tokens
-        </span>
+        {hasEstimatedUsage ? (
+          <span title="Replayable chat context token count is unavailable because this session contains fallback estimates.">
+            Context: token count unavailable
+          </span>
+        ) : (
+          <span title="Replayable chat context tokens in this session.">
+            Context: {formatNumber(contextUsage.chatUsedTokens)} / {formatNumber(contextUsage.contextWindowTokens)} tokens
+          </span>
+        )}
       </strong>
-      <span title="Format: chat_tokens (total_tokens_including_tool_outputs).">
-        Remaining: {formatNumber(contextUsage.remainingTokens)}
-        {' | '}
-        {formatNumber(contextUsage.chatUsedTokens)} ({formatNumber(contextUsage.totalUsedTokens)} with tools)
-        {' | '}
-        Warn at: {formatNumber(contextUsage.warnThresholdTokens)}
-      </span>
-      <span title="Tokens from preserved assistant thinking/reasoning text that can be replayed into the next request.">
-        Thinking/reasoning: {formatNumber(contextUsage.thinkingUsedTokens || 0)}
-      </span>
+      {hasEstimatedUsage ? (
+        <span title="Backend tokenization was unavailable for at least one persisted context component.">
+          Token counts unavailable
+        </span>
+      ) : (
+        <>
+          <span title="Format: chat_tokens (total_tokens_including_tool_outputs).">
+            Remaining: {formatNumber(contextUsage.remainingTokens)}
+            {' | '}
+            {formatNumber(contextUsage.chatUsedTokens)} ({formatNumber(contextUsage.totalUsedTokens)} with tools)
+            {' | '}
+            Warn at: {formatNumber(contextUsage.warnThresholdTokens)}
+          </span>
+          <span title="Tokens from preserved assistant thinking/reasoning text that can be replayed into the next request.">
+            Thinking/reasoning: {formatNumber(contextUsage.thinkingUsedTokens || 0)}
+          </span>
+        </>
+      )}
       {isRepoToolMode && Number.isFinite(liveToolPromptTokenCount) ? (
         <span title="Latest backend prompt_tokens for an active plan/repo-search tool step.">
           Live Step Prompt Tokens (backend): {formatNumber(liveToolPromptTokenCount)}
-        </span>
-      ) : null}
-      {Number(contextUsage.estimatedTokenFallbackTokens || 0) > 0 ? (
-        <span title="These session totals include local fallback estimates where backend usage was unavailable.">
-          Estimated Fallback: {formatNumber(Number(contextUsage.estimatedTokenFallbackTokens || 0))} tokens
         </span>
       ) : null}
       {contextUsage.shouldCondense && (
@@ -490,8 +526,10 @@ function RepoAutoAppendButton(props: {
 }) {
   const tokenLabel = props.loading
     ? 'loading'
-    : props.available && typeof props.tokenCount === 'number'
+    : props.available && typeof props.tokenCount === 'number' && props.tokenSource === 'llama.cpp'
       ? `${formatNumber(props.tokenCount)} tokens`
+      : props.available
+        ? 'tokens unavailable'
       : 'not found';
   const title = props.enabled ? props.disableTitle : props.enableTitle;
   return (
@@ -500,7 +538,7 @@ function RepoAutoAppendButton(props: {
       className={props.enabled ? 'repo-auto-append-button on' : 'repo-auto-append-button off'}
       onClick={props.onToggle}
       aria-label={`${props.enabled ? 'Disable' : 'Enable'} ${props.label === 'File scan' ? 'file scan' : props.label} auto-append`}
-      title={`${title}. ${props.label}: ${tokenLabel}${props.available ? ` (${props.tokenSource})` : ''}.`}
+      title={`${title}. ${props.label}: ${tokenLabel}${props.available && props.tokenSource === 'llama.cpp' ? ` (${props.tokenSource})` : ''}.`}
     >
       <span className="repo-auto-append-icon" aria-hidden="true">{props.icon}</span>
       <span className="repo-auto-append-copy">
@@ -528,7 +566,7 @@ function MessageHeader({ message, isLive, chatBusy, onDeleteMessage }: {
     <header className="msg-header">
       <span>{messageLabel} | {isLive ? 'live' : formatDate(message.createdAtUtc)}</span>
       <span className="msg-meta">
-        <span className="msg-tokens">{formatNumber(getReplayDisplayTokenCount(message))} tokens</span>
+        <span className="msg-tokens">{formatTokenLabel(getReplayDisplayTokenCount(message))}</span>
         {!isLive ? (
           <button
             type="button"
@@ -614,16 +652,25 @@ function ChatTurnBubble({ turn, isDirectChatMode, chatBusy, onDeleteMessage, onD
   onDeleteMessage(messageId: string): Promise<void>;
   onDeleteTurn(messageIds: string[]): Promise<void>;
 }) {
-  const aggregateTokens = turn.messages.reduce((sum, message) => sum + getMessageTokenCount(message), 0);
-  const visibleTokens = aggregateTokens;
+  const aggregateTokens = getTurnTokenDisplay(turn.messages);
   const headerTimestamp = turn.main ? turn.main.createdAtUtc : turn.messages[0]?.createdAtUtc ?? null;
+  const tokenLabel = aggregateTokens.tokenCount === null
+    ? 'tokens unavailable'
+    : aggregateTokens.exact
+      ? formatTokenLabel(aggregateTokens.tokenCount, 'context tokens')
+      : `${formatNumber(aggregateTokens.tokenCount)} known tokens`;
+  const tokenTitle = aggregateTokens.tokenCount === null
+    ? 'tokens unavailable'
+    : aggregateTokens.exact
+      ? `${formatNumber(aggregateTokens.tokenCount)} internal run tokens`
+      : `${formatNumber(aggregateTokens.tokenCount)} known exact tokens; some token components are unavailable`;
   return (
     <article className={`msg assistant turn${turn.isLive ? ' live' : ''}`}>
       <header className="msg-header">
         <span>assistant turn | {turn.isLive ? 'live' : formatDate(headerTimestamp)}</span>
         <span className="msg-meta">
-          <span className="msg-tokens" title={`${formatNumber(aggregateTokens)} internal run tokens`}>
-            {formatNumber(visibleTokens)} context tokens
+          <span className="msg-tokens" title={tokenTitle}>
+            {tokenLabel}
           </span>
           {!turn.isLive ? (
             <button

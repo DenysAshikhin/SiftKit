@@ -305,6 +305,9 @@ const CHAT_MESSAGE = {
   inputTokensEstimate: 12,
   outputTokensEstimate: 4,
   thinkingTokens: 0,
+  inputTokensEstimated: false,
+  outputTokensEstimated: false,
+  thinkingTokensEstimated: false,
   associatedToolTokens: 0,
   thinkingContent: '',
   createdAtUtc: '2026-04-16T12:00:00.000Z',
@@ -319,6 +322,9 @@ const CHAT_THINKING_MESSAGE = {
   inputTokensEstimate: 0,
   outputTokensEstimate: 0,
   thinkingTokens: 8,
+  inputTokensEstimated: false,
+  outputTokensEstimated: false,
+  thinkingTokensEstimated: false,
   associatedToolTokens: 0,
   thinkingContent: '',
   createdAtUtc: '2026-04-16T12:00:01.000Z',
@@ -333,6 +339,9 @@ const CHAT_TOOL_MESSAGE = {
   inputTokensEstimate: 0,
   outputTokensEstimate: 12,
   thinkingTokens: 0,
+  inputTokensEstimated: false,
+  outputTokensEstimated: false,
+  thinkingTokensEstimated: false,
   associatedToolTokens: 12,
   thinkingContent: '',
   createdAtUtc: '2026-04-16T12:00:02.000Z',
@@ -1263,7 +1272,14 @@ test('chat tab renders context bar with fill width matching usage ratio', () => 
     selectedChatPreset: PRESET,
     chatMode: 'chat',
     isDirectChatMode: true,
-    contextUsage: { ...CONTEXT_USAGE, chatUsedTokens: 2500, contextWindowTokens: 10000 },
+    contextUsage: {
+      ...CONTEXT_USAGE,
+      chatUsedTokens: 2500,
+      totalUsedTokens: 2500,
+      usedTokens: 2500,
+      remainingTokens: 7500,
+      contextWindowTokens: 10000,
+    },
   });
 
   assert.match(markup, /class="context-bar"/u);
@@ -1309,7 +1325,14 @@ test('chat tab context bar ignores the live prompt token count when not generati
     selectedChatPreset: PRESET,
     chatMode: 'chat',
     isDirectChatMode: true,
-    contextUsage: { ...CONTEXT_USAGE, chatUsedTokens: 2500, contextWindowTokens: 10000 },
+    contextUsage: {
+      ...CONTEXT_USAGE,
+      chatUsedTokens: 2500,
+      totalUsedTokens: 2500,
+      usedTokens: 2500,
+      remainingTokens: 7500,
+      contextWindowTokens: 10000,
+    },
     liveToolPromptTokenCount: 9999,
     chatBusy: false,
   });
@@ -1323,14 +1346,14 @@ test('chat tab context bar color shifts toward red as ratio grows', () => {
     selectedChatPreset: PRESET,
     chatMode: 'chat',
     isDirectChatMode: true,
-    contextUsage: { ...CONTEXT_USAGE, chatUsedTokens: 10, contextWindowTokens: 100 },
+    contextUsage: { ...CONTEXT_USAGE, chatUsedTokens: 10, totalUsedTokens: 10, usedTokens: 10, remainingTokens: 90, contextWindowTokens: 100 },
   });
   const high = renderChatTab({
     webPresets: [PRESET],
     selectedChatPreset: PRESET,
     chatMode: 'chat',
     isDirectChatMode: true,
-    contextUsage: { ...CONTEXT_USAGE, chatUsedTokens: 90, contextWindowTokens: 100 },
+    contextUsage: { ...CONTEXT_USAGE, chatUsedTokens: 90, totalUsedTokens: 90, usedTokens: 90, remainingTokens: 10, contextWindowTokens: 100 },
   });
 
   assert.match(low, /hsl\(108, 70%, 45%\)/u);
@@ -1388,6 +1411,31 @@ test('chat tab gear popover shows context details only when showSettings is true
   });
   assert.doesNotMatch(closed, /composer-settings-popover/u);
   assert.doesNotMatch(closed, /Discard Tool Context/u);
+});
+
+test('chat tab gear popover does not render numeric context labels when usage includes estimates', () => {
+  const markup = renderChatTab({
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'chat',
+    isDirectChatMode: true,
+    showSettings: true,
+    contextUsage: {
+      ...CONTEXT_USAGE,
+      chatUsedTokens: 10,
+      totalUsedTokens: 60,
+      usedTokens: 60,
+      remainingTokens: 40,
+      estimatedTokenFallbackTokens: 60,
+    },
+  });
+
+  assert.match(markup, /Context: token count unavailable/u);
+  assert.match(markup, /Token counts unavailable/u);
+  assert.match(markup, /class="context-bar"/u);
+  assert.match(markup, /Context token count unavailable/u);
+  assert.doesNotMatch(markup, /Context: 10 \/ 100 tokens/u);
+  assert.doesNotMatch(markup, /60 with tools/u);
 });
 
 test('chat tab user message bubble carries the .msg.user class', () => {
@@ -1583,6 +1631,7 @@ test('ChatTab main transcript token labels do not use cumulative prompt eval tel
         kind: 'user_text',
         content: 'tiny',
         inputTokensEstimate: 161239,
+        inputTokensEstimated: true,
       } as ChatMessage,
       {
         ...CHAT_MESSAGE,
@@ -1621,6 +1670,33 @@ test('ChatTab grouped turn header shows aggregate answer and internal tokens', (
   const markup = renderChatTab({ selectedSession: session });
 
   assert.match(markup, />161,251 context tokens</u);
+});
+
+test('ChatTab tool and grouped turn token labels hide estimated counts', () => {
+  const tool = {
+    ...CHAT_TOOL_MESSAGE,
+    id: 'to',
+    sourceRunId: 'run-estimated-token-display',
+    outputTokensEstimate: 9048,
+    associatedToolTokens: 9048,
+    outputTokensEstimated: true,
+  } as ChatMessage;
+  const answer = {
+    ...CHAT_MESSAGE,
+    id: 'an',
+    sourceRunId: 'run-estimated-token-display',
+    content: 'short answer',
+    inputTokensEstimate: 0,
+    outputTokensEstimate: 3550,
+  } as ChatMessage;
+  const session = { ...CHAT_SESSION, messages: [tool, answer] } as ChatSession;
+
+  const markup = renderChatTab({ selectedSession: session });
+
+  assert.match(markup, /3,550 known tokens/u);
+  assert.match(markup, /tokens unavailable/u);
+  assert.doesNotMatch(markup, /9,048 tokens/u);
+  assert.doesNotMatch(markup, /12,598 context tokens/u);
 });
 
 test('ChatTab live turn shows latest item in the main slot, earlier steps in Internal Logic, and no delete buttons', () => {
@@ -1710,12 +1786,11 @@ test('chat tab renders fallback system context bubble when session metadata is m
   assert.doesNotMatch(markup, /max-turns-input/u);
 });
 
-test('chat tab system prompt bubble hides the agents.md block and drops its tokens when toggled off', () => {
+test('chat tab system prompt bubble hides the agents.md block without rendering estimated tokens', () => {
   const baseContent = ['## System prompt', '', 'Use strict repo evidence.'].join('\n');
   const agentsBody = 'PROJECT_RULE_MARKER repeated content '.repeat(8).trim();
   const toolSchema = ['## Tool schema', '', 'TOOL_SCHEMA_MARKER {"tools":[]}'].join('\n');
   const promptContent = [baseContent, '', AGENTS_MD_PROMPT_DELIMITER, '', agentsBody, '', toolSchema].join('\n');
-  const expectedOffContent = [baseContent, '', toolSchema].join('\n');
   const session = {
     ...CHAT_SESSION,
     messages: [],
@@ -1739,12 +1814,6 @@ test('chat tab system prompt bubble hides the agents.md block and drops its toke
       repoSearchAutoAppendSelection: { includeAgentsMd, includeRepoFileListing: false },
       contextUsage: CONTEXT_USAGE,
     });
-  const extractSystemPromptTokens = (markup: string): number => {
-    const matched = markup.match(/system \| first message<\/span>[\s\S]*?([\d,]+) tokens/u);
-    assert.notEqual(matched, null);
-    return Number((matched as RegExpMatchArray)[1].replace(/,/gu, ''));
-  };
-
   const on = renderWithSelection(true);
   const off = renderWithSelection(false);
 
@@ -1754,9 +1823,12 @@ test('chat tab system prompt bubble hides the agents.md block and drops its toke
   assert.doesNotMatch(off, /PROJECT_RULE_MARKER/u);
   assert.doesNotMatch(off, /agents\.md \(project-specific instructions\)/u);
   // disabling agents.md must NOT drop the trailing tool schema section
+  assert.match(off, /Use strict repo evidence/u);
   assert.match(off, /TOOL_SCHEMA_MARKER/u);
-  assert.equal(extractSystemPromptTokens(on) > extractSystemPromptTokens(off), true);
-  assert.equal(extractSystemPromptTokens(off), Math.max(1, Math.ceil(expectedOffContent.length / 4)));
+  assert.match(on, /tokens unavailable/u);
+  assert.match(off, /tokens unavailable/u);
+  assert.match(on, /system \| first message<\/span><span class="msg-meta"><span class="msg-tokens">tokens unavailable<\/span>/u);
+  assert.doesNotMatch(on, /system \| first message<\/span><span class="msg-meta"><span class="msg-tokens">[\d,]+ tokens<\/span>/u);
 });
 
 test('chat tab renders repo-search auto-append controls before first message', () => {
@@ -1796,11 +1868,51 @@ test('chat tab renders repo-search auto-append controls before first message', (
 
   assert.match(markup, /repo-auto-append-row/u);
   assert.match(markup, /aria-label="Disable AGENTS\.md auto-append"/u);
-  assert.match(markup, /42 tokens/u);
+  assert.match(markup, /tokens unavailable/u);
+  assert.doesNotMatch(markup, /42 tokens/u);
   assert.match(markup, /aria-label="Enable file scan auto-append"/u);
-  assert.match(markup, /314 tokens/u);
+  assert.doesNotMatch(markup, /314 tokens/u);
   assert.equal(/repo-auto-append-button on/u.test(markup), true);
   assert.equal(/repo-auto-append-button off/u.test(markup), true);
+});
+
+test('chat tab renders exact repo-search auto-append token counts from llama.cpp', () => {
+  const emptySession = {
+    ...CHAT_SESSION,
+    messages: [],
+  } as ChatSession;
+  const markup = renderChatTab({
+    selectedSession: emptySession,
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'repo-search',
+    isRepoToolMode: true,
+    repoSearchAutoAppendPreview: {
+      agentsMd: {
+        key: 'agentsMd',
+        label: 'AGENTS.md',
+        enabledDefault: true,
+        available: true,
+        tokenCount: 42,
+        tokenSource: 'llama.cpp',
+      },
+      repoFileListing: {
+        key: 'repoFileListing',
+        label: 'Files',
+        enabledDefault: true,
+        available: true,
+        tokenCount: 314,
+        tokenSource: 'llama.cpp',
+      },
+    },
+    repoSearchAutoAppendSelection: { includeAgentsMd: true, includeRepoFileListing: false },
+    isRepoSearchAutoAppendPreviewLoading: false,
+    onSetRepoSearchAutoAppendSelection: () => {},
+    contextUsage: CONTEXT_USAGE,
+  });
+
+  assert.match(markup, /42 tokens/u);
+  assert.match(markup, /314 tokens/u);
 });
 
 test('chat tab hides repo-search auto-append controls outside first empty repo-search turn', () => {

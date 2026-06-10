@@ -50,7 +50,7 @@ function appendSection(sections: ContextBarSection[], kind: ContextBarSectionKin
 
 // Resolves the bar shown beneath the composer. While a turn is generating, the most
 // truthful "context window fullness" signal is the backend prompt_tokens for the active
-// tool step (liveToolPromptTokenCount); it is preferred over the persisted chat usage so
+// tool step (liveToolPromptTokenCount); it is preferred over the persisted total usage so
 // the bar grows in realtime. A fresh session has no contextUsage until the turn completes,
 // so the session's own window is used as the denominator during that first stream.
 export function resolveContextBarVisual(
@@ -72,16 +72,23 @@ export function resolveContextBarVisual(
   if (total <= 0) {
     return null;
   }
-  const baseUsed = usage ? usage.chatUsedTokens : 0;
-  const used = liveUsed === null ? baseUsed : Math.max(baseUsed, liveUsed);
+  const hasEstimatedUsage = usage ? Number(usage.estimatedTokenFallbackTokens || 0) > 0 : false;
+  const showingEstimatedPersistedUsage = hasEstimatedUsage && liveUsed === null;
+  const baseUsed = usage ? usage.totalUsedTokens : 0;
+  const used = liveUsed === null
+    ? baseUsed
+    : hasEstimatedUsage
+      ? liveUsed
+      : Math.max(baseUsed, liveUsed);
   const visual = computeContextBarVisual(used, total);
-  const providerOverheadTokens = getNonNegativeInteger(usage?.providerOverheadTokens);
-  const warnThresholdTokens = getNonNegativeInteger(usage?.warnThresholdTokens);
+  const providerOverheadTokens = hasEstimatedUsage ? 0 : getNonNegativeInteger(usage?.providerOverheadTokens);
+  const warnThresholdTokens = hasEstimatedUsage ? 0 : getNonNegativeInteger(usage?.warnThresholdTokens);
   const providerTokens = Math.min(providerOverheadTokens, total);
   const usedTokens = Math.min(used, Math.max(total - providerTokens, 0));
   const warnTokens = Math.min(warnThresholdTokens, Math.max(total - providerTokens - usedTokens, 0));
   const freeTokens = Math.max(total - providerTokens - usedTokens - warnTokens, 0);
   const sections: ContextBarSection[] = [];
+  const unavailableTitle = 'Context token count unavailable: this session includes fallback token estimates.';
   appendSection(
     sections,
     'provider-overhead',
@@ -94,14 +101,14 @@ export function resolveContextBarVisual(
     'used',
     usedTokens,
     total,
-    visual.titleText,
+    showingEstimatedPersistedUsage ? unavailableTitle : visual.titleText,
   );
   appendSection(
     sections,
     'free',
     freeTokens,
     total,
-    `${formatNumber(freeTokens)} tokens currently free.`,
+    showingEstimatedPersistedUsage ? 'Free context token count unavailable.' : `${formatNumber(freeTokens)} tokens currently free.`,
   );
   appendSection(
     sections,
@@ -110,5 +117,5 @@ export function resolveContextBarVisual(
     total,
     `Warning zone: the last ${formatNumber(warnThresholdTokens)} tokens. When used context reaches here the session should be condensed. Chatting further risks the model's response being cut off if the context window fills up.`,
   );
-  return { ...visual, sections };
+  return { ...visual, titleText: showingEstimatedPersistedUsage ? unavailableTitle : visual.titleText, sections };
 }

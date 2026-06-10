@@ -86,7 +86,7 @@ test('appendChatMessagesWithUsage persists interleaved per-turn thinking and too
         { thinkingText: 'think one', toolMessages: [{
           id: 'tool-a', content: 'rg -n "a" src', toolCallCommand: 'rg -n "a" src',
           toolCallTurn: 1, toolCallMaxTurns: 2, toolCallExitCode: 0,
-          toolCallOutputSnippet: 'snippet', toolCallOutput: 'x'.repeat(10_000), outputTokens: 295,
+          toolCallOutputSnippet: 'snippet', toolCallOutput: 'x'.repeat(10_000), outputTokens: 295, outputTokensEstimated: false,
         }] },
         { thinkingText: 'final think', toolMessages: [] },
       ],
@@ -105,8 +105,33 @@ test('appendChatMessagesWithUsage persists interleaved per-turn thinking and too
   const toolMessage = session.messages.find((m) => m.kind === 'assistant_tool_call');
   const answerMessage = session.messages.find((m) => m.kind === 'assistant_answer' && m.content === 'Tool calls are handled in engine.ts.');
   assert.equal(toolMessage?.outputTokensEstimate, 295);
+  assert.equal(toolMessage?.outputTokensEstimated, false);
   assert.equal(toolMessage?.associatedToolTokens, 295);
   assert.equal(answerMessage?.groundingStatus, 'fetched');
+});
+
+test('appendChatMessagesWithUsage marks explicit estimated tool tokens as estimated', () => {
+  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-estimated-tool-'));
+  const session = appendChatMessagesWithUsage(
+    runtimeRoot,
+    createSession(),
+    'Find tool call handling.',
+    'Tool calls are handled in engine.ts.',
+    { promptTokens: 30, completionTokens: 9, thinkingTokens: 0, promptCacheTokens: null, promptEvalTokens: 30 },
+    {
+      turns: [
+        { thinkingText: '', toolMessages: [{
+          id: 'tool-a', content: 'repo_read_file path="src/x.ts"', toolCallCommand: 'repo_read_file path="src/x.ts"',
+          toolCallTurn: 1, toolCallMaxTurns: 1, toolCallExitCode: 0,
+          toolCallOutputSnippet: 'snippet', toolCallOutput: 'x'.repeat(10_000), outputTokens: 9048, outputTokensEstimated: true,
+        }] },
+      ],
+    }
+  );
+
+  const toolMessage = session.messages.find((m) => m.kind === 'assistant_tool_call');
+  assert.equal(toolMessage?.outputTokensEstimate, 9048);
+  assert.equal(toolMessage?.outputTokensEstimated, true);
 });
 
 test('appendChatMessagesWithUsage omits empty-thinking turns and persists single-turn chat', () => {
@@ -232,7 +257,7 @@ test('buildContextUsage estimates continuation context from session content inst
   assert.equal(usage.thinkingUsedTokens, expectedThinkingTokens);
   assert.equal(usage.toolUsedTokens, 0);
   assert.equal(usage.totalUsedTokens, expectedChatTokens);
-  assert.equal(usage.estimatedTokenFallbackTokens, 0);
+  assert.equal(usage.estimatedTokenFallbackTokens, expectedChatTokens);
   assert.equal(typeof usage.providerOverheadTokens, 'number');
   assert.equal(Number.isInteger(usage.providerOverheadTokens), true);
   assert.equal(usage.providerOverheadTokens >= 0, true);
@@ -274,6 +299,7 @@ test('buildPersistTurnsFromRepoSearchResult uses prompt output and tokens for to
           output: 'x'.repeat(10_000),
           promptOutput: 'src/repo-search/engine.ts:1613:tool_result',
           outputTokens: 295,
+          outputTokensEstimated: true,
         }],
       }],
     },
@@ -282,6 +308,7 @@ test('buildPersistTurnsFromRepoSearchResult uses prompt output and tokens for to
   assert.equal(message.toolCallOutput, 'src/repo-search/engine.ts:1613:tool_result');
   assert.equal(message.toolCallOutputSnippet, 'src/repo-search/engine.ts:1613:tool_result');
   assert.equal(message.outputTokens, 295);
+  assert.equal(message.outputTokensEstimated, true);
 });
 
 test('buildPersistTurnsFromRepoSearchResult emits no thinking bubble for a tools-only turn', () => {

@@ -43,6 +43,7 @@ test('buildAppendedLiveToolMessage marks the tool message as running with prompt
   assert.equal(built.toolCallStatus, 'running');
   assert.equal(built.toolCallPromptTokenCount, 100);
   assert.equal(built.outputTokensEstimate, 0);
+  assert.equal(built.outputTokensEstimated, false);
 });
 
 test('buildAppendedLiveToolMessage throws when toolCallId is missing', () => {
@@ -66,13 +67,30 @@ test('buildCompletedLiveToolMessage marks the tool message as done with output s
     exitCode: 0,
     outputSnippet: 'snippet',
     outputTokens: 32,
+    outputTokensEstimated: false,
   };
   const built = buildCompletedLiveToolMessage(event);
   assert.equal(built.toolCallStatus, 'done');
   assert.equal(built.toolCallExitCode, 0);
   assert.equal(built.toolCallOutputSnippet, 'snippet');
   assert.equal(built.outputTokensEstimate, 32);
+  assert.equal(built.outputTokensEstimated, false);
   assert.equal(built.associatedToolTokens, 32);
+});
+
+test('buildCompletedLiveToolMessage preserves estimated token metadata', () => {
+  const event: ChatStreamToolEvent = {
+    kind: 'tool_result',
+    toolCallId: 't1',
+    turn: 1,
+    maxTurns: 4,
+    command: 'rg foo',
+    outputTokens: 9048,
+    outputTokensEstimated: true,
+  };
+  const built = buildCompletedLiveToolMessage(event);
+  assert.equal(built.outputTokensEstimate, 9048);
+  assert.equal(built.outputTokensEstimated, true);
 });
 
 test('buildCompletedLiveToolMessage falls back to nulls when optional fields are absent', () => {

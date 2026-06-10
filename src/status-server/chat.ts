@@ -62,6 +62,13 @@ function getMessageToolTokenEstimate(message: Dict): number {
   return output ? estimateTokenCount(output) : 0;
 }
 
+function getMessageToolTokenFallbackEstimate(message: Dict): number {
+  if (message.kind !== 'assistant_tool_call') {
+    return 0;
+  }
+  return message.outputTokensEstimated === false ? 0 : getMessageToolTokenEstimate(message);
+}
+
 type ContextUsageTokenTotals = {
   contextWindowTokens: number;
   chatUsedTokens: number;
@@ -69,6 +76,7 @@ type ContextUsageTokenTotals = {
   toolUsedTokens: number;
   totalUsedTokens: number;
   remainingTokens: number;
+  estimatedTokenFallbackTokens: number;
 };
 
 class ContextUsageBuilder {
@@ -90,7 +98,7 @@ class ContextUsageBuilder {
       remainingTokens: totals.remainingTokens,
       warnThresholdTokens,
       shouldCondense: totals.remainingTokens <= warnThresholdTokens,
-      estimatedTokenFallbackTokens: 0,
+      estimatedTokenFallbackTokens: totals.estimatedTokenFallbackTokens,
       providerOverheadTokens: this.getProviderOverheadTokens(),
     };
   }
@@ -103,6 +111,7 @@ class ContextUsageBuilder {
     const toolUsedTokens = messages.reduce((sum: number, message: Dict) => sum + getMessageToolTokenEstimate(message), 0);
     const chatUsedTokens = estimateTokenCount(DEFAULT_CHAT_SYSTEM_PROMPT) + messageTokens;
     const totalUsedTokens = chatUsedTokens + toolUsedTokens;
+    const estimatedToolTokens = messages.reduce((sum: number, message: Dict) => sum + getMessageToolTokenFallbackEstimate(message), 0);
     return {
       contextWindowTokens,
       chatUsedTokens,
@@ -110,6 +119,7 @@ class ContextUsageBuilder {
       toolUsedTokens,
       totalUsedTokens,
       remainingTokens: Math.max(contextWindowTokens - totalUsedTokens, 0),
+      estimatedTokenFallbackTokens: chatUsedTokens + estimatedToolTokens,
     };
   }
 
@@ -321,6 +331,7 @@ export type PersistToolMessage = {
   toolCallOutputSnippet: string;
   toolCallOutput: string;
   outputTokens: number | null;
+  outputTokensEstimated?: boolean;
 };
 export type PersistTurn = { thinkingText: string; toolMessages: PersistToolMessage[] };
 
@@ -366,7 +377,9 @@ export function appendChatMessagesWithUsage(
   const explicitOutputTokens = getChatUsageValue(options.outputTokens);
   const explicitThinkingTokens = getChatUsageValue(options.thinkingTokens);
   const outputTokens = explicitOutputTokens ?? completionTokens ?? estimateTokenCount(assistantContent);
+  const outputTokensEstimated = explicitOutputTokens === null && completionTokens === null;
   const thinkingTokens = explicitThinkingTokens ?? usageThinkingTokens ?? 0;
+  const thinkingTokensEstimated = explicitThinkingTokens === null && usageThinkingTokens === null;
   const sourceRunId = typeof options.sourceRunId === 'string' && options.sourceRunId.trim() ? options.sourceRunId : null;
   const groundingStatus = options.groundingStatus || null;
   messages.push({
@@ -398,7 +411,7 @@ export function appendChatMessagesWithUsage(
         thinkingTokens: estimateTokenCount(thinkingText),
         inputTokensEstimated: false,
         outputTokensEstimated: false,
-        thinkingTokensEstimated: usageThinkingTokens === null,
+        thinkingTokensEstimated: true,
         createdAtUtc: now,
         sourceRunId,
       });
@@ -413,6 +426,7 @@ export function appendChatMessagesWithUsage(
           : '';
       const explicitToolOutputTokens = getChatUsageValue(toolMessage.outputTokens);
       const toolOutputTokens = explicitToolOutputTokens ?? estimateTokenCount(toolOutput);
+      const toolOutputTokensEstimated = explicitToolOutputTokens === null || toolMessage.outputTokensEstimated !== false;
       messages.push({
         id: toolMessageId,
         role: 'assistant',
@@ -422,7 +436,7 @@ export function appendChatMessagesWithUsage(
         outputTokensEstimate: toolOutputTokens,
         thinkingTokens: 0,
         inputTokensEstimated: false,
-        outputTokensEstimated: explicitToolOutputTokens === null,
+        outputTokensEstimated: toolOutputTokensEstimated,
         thinkingTokensEstimated: false,
         promptEvalTokens: Number.isFinite(Number(toolMessage.toolCallPromptTokenCount)) ? Number(toolMessage.toolCallPromptTokenCount) : null,
         associatedToolTokens: toolOutputTokens,
@@ -449,8 +463,8 @@ export function appendChatMessagesWithUsage(
     outputTokensEstimate: outputTokens,
     thinkingTokens,
     inputTokensEstimated: false,
-    outputTokensEstimated: completionTokens === null,
-    thinkingTokensEstimated: usageThinkingTokens === null,
+    outputTokensEstimated,
+    thinkingTokensEstimated,
     promptCacheTokens,
     promptEvalTokens,
     promptTokensPerSecond: Number.isFinite(Number(options.promptTokensPerSecond))
@@ -655,6 +669,7 @@ function buildToolMessageFromCommand(command: Dict, turnsUsed: number): PersistT
     : typeof command.output === 'string'
       ? command.output
       : '';
+  const outputTokens = getChatUsageValue(command.outputTokens);
   return {
     id: crypto.randomUUID(),
     content: commandText,
@@ -665,7 +680,8 @@ function buildToolMessageFromCommand(command: Dict, turnsUsed: number): PersistT
     toolCallPromptTokenCount: null,
     toolCallOutputSnippet: output.length > 200 ? `${output.slice(0, 200)}...` : output,
     toolCallOutput: output,
-    outputTokens: getChatUsageValue(command.outputTokens),
+    outputTokens,
+    outputTokensEstimated: outputTokens === null || command.outputTokensEstimated !== false,
   };
 }
 

@@ -52,7 +52,7 @@ test('timing spans are recorded for raw/prompt/fit/rejection tokenization paths'
     perToolCapTokens: 50, remainingTokenAllowance: 10_000,
     commandSucceededForFitting: true, outputUnit: 'lines',
   });
-  assert.equal(fittedOk.resultTokenCountEstimated, false);
+  assert.equal(fittedOk.resultTokenCountEstimated, true);
   assert.ok(fittedOk.fittedReturnedSegmentCount !== null);
   const fittedRejected = await budgeter.fit({
     taskId: 't1', turn: 1, toolName: 'rg',
@@ -61,7 +61,7 @@ test('timing spans are recorded for raw/prompt/fit/rejection tokenization paths'
     commandSucceededForFitting: false, outputUnit: 'lines',
   });
   assert.ok(/^Error: requested output would consume /u.test(fittedRejected.resultText));
-  assert.equal(fittedRejected.resultTokenCountEstimated, false);
+  assert.equal(fittedRejected.resultTokenCountEstimated, true);
 });
 
 test('oversized failed output is replaced by the budget-rejection error text', async () => {

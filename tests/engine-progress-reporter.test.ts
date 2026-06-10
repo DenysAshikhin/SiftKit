@@ -46,7 +46,7 @@ test('thinking/answer/toolStart/toolResult pass payloads through unchanged', () 
   reporter.toolStart('tc_0', 3, 'rg -n foo', 500);
   reporter.toolResult({
     toolCallId: 'tc_0', turn: 3, command: 'rg -n foo', exitCode: 0,
-    outputSnippet: 'snippet', outputTokens: 12, promptTokenCount: 500,
+    outputSnippet: 'snippet', outputTokens: 12, outputTokensEstimated: false, promptTokenCount: 500,
   });
   assert.deepEqual(events.map((event) => event.kind), ['thinking', 'answer', 'tool_start', 'tool_result']);
 });

@@ -166,6 +166,7 @@ function forwardRepoSearchToolEvent(
       exitCode: event.exitCode,
       outputSnippet: event.outputSnippet,
       outputTokens: Number.isFinite(event.outputTokens) ? Number(event.outputTokens) : null,
+      outputTokensEstimated: event.outputTokensEstimated === true,
       promptTokenCount: Number.isFinite(event.promptTokenCount) ? Number(event.promptTokenCount) : null,
     });
   }

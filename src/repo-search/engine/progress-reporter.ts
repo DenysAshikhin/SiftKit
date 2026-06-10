@@ -98,6 +98,7 @@ export class ProgressReporter {
     exitCode: number;
     outputSnippet: string;
     outputTokens: number;
+    outputTokensEstimated: boolean;
     promptTokenCount: number;
   }): void {
     this.emit({ kind: 'tool_result', ...options, maxTurns: this.maxTurns, elapsedMs: this.elapsedMs() });

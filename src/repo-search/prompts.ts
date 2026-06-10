@@ -341,5 +341,6 @@ export type TaskCommand = {
   output: string;
   promptOutput?: string;
   outputTokens?: number;
+  outputTokensEstimated?: boolean;
 };
 

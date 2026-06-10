@@ -804,6 +804,7 @@ export class ToolActionProcessor {
         exitCode: executed.exitCode,
         outputSnippet: snippet,
         outputTokens: resultTokenCount,
+        outputTokensEstimated: resultTokenCountEstimated,
         promptTokenCount,
       });
     }
@@ -842,6 +843,7 @@ export class ToolActionProcessor {
       output: commandOutputText,
       promptOutput: resultText,
       outputTokens: resultTokenCount,
+      outputTokensEstimated: resultTokenCountEstimated,
     });
     const commandSucceeded = Number(executed.exitCode) === 0 || searchExit.noMatch;
     if (commandSucceeded) {

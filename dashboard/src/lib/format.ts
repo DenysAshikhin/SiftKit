@@ -41,6 +41,10 @@ export function formatNumber(value: number | null): string {
   return Number(value).toLocaleString();
 }
 
+export function formatTokenLabel(value: number | null, exactLabel = 'tokens'): string {
+  return value === null ? 'tokens unavailable' : `${formatNumber(value)} ${exactLabel}`;
+}
+
 export function formatDate(value: string | null): string {
   if (!value) {
     return '-';
@@ -52,21 +56,40 @@ export function formatDate(value: string | null): string {
   return date.toLocaleString();
 }
 
-export function getMessageTokenCount(message: ChatSession['messages'][number]): number {
-  return Number(message.inputTokensEstimate || 0)
-    + Number(message.outputTokensEstimate || 0)
-    + Number(message.thinkingTokens || 0);
+function readTokenComponent(value: unknown): number {
+  const tokenCount = Number(value);
+  return Number.isFinite(tokenCount) && tokenCount >= 0 ? tokenCount : 0;
 }
 
-function estimateDisplayTokensFromContent(content: string): number {
-  return Math.max(1, Math.ceil(String(content || '').length / 4));
+function hasExactTokenComponent(tokenCount: number, estimated: boolean | undefined): boolean {
+  return tokenCount <= 0 || estimated === false;
 }
 
-export function getReplayDisplayTokenCount(message: ChatSession['messages'][number]): number {
-  const kind = message.kind ?? (message.role === 'user' ? 'user_text' : 'assistant_answer');
-  if (kind === 'user_text' || kind === 'assistant_answer') {
-    return estimateDisplayTokensFromContent(message.content);
+function getKnownTokenComponent(tokenCount: number, estimated: boolean | undefined): number {
+  return tokenCount > 0 && estimated === false ? tokenCount : 0;
+}
+
+export function getMessageTokenCount(message: ChatSession['messages'][number]): number | null {
+  const inputTokens = readTokenComponent(message.inputTokensEstimate);
+  const outputTokens = readTokenComponent(message.outputTokensEstimate);
+  const thinkingTokens = readTokenComponent(message.thinkingTokens);
+  if (
+    !hasExactTokenComponent(inputTokens, message.inputTokensEstimated)
+    || !hasExactTokenComponent(outputTokens, message.outputTokensEstimated)
+    || !hasExactTokenComponent(thinkingTokens, message.thinkingTokensEstimated)
+  ) {
+    return null;
   }
+  return inputTokens + outputTokens + thinkingTokens;
+}
+
+export function getMessageKnownTokenCount(message: ChatSession['messages'][number]): number {
+  return getKnownTokenComponent(readTokenComponent(message.inputTokensEstimate), message.inputTokensEstimated)
+    + getKnownTokenComponent(readTokenComponent(message.outputTokensEstimate), message.outputTokensEstimated)
+    + getKnownTokenComponent(readTokenComponent(message.thinkingTokens), message.thinkingTokensEstimated);
+}
+
+export function getReplayDisplayTokenCount(message: ChatSession['messages'][number]): number | null {
   return getMessageTokenCount(message);
 }
 

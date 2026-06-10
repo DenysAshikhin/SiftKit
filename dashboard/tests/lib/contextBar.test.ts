@@ -6,15 +6,16 @@ import type { ContextUsage } from '../../src/types';
 
 const USAGE: ContextUsage = {
   contextWindowTokens: 100,
-  usedTokens: 0,
+  usedTokens: 20,
   chatUsedTokens: 20,
   thinkingUsedTokens: 0,
   toolUsedTokens: 0,
-  totalUsedTokens: 0,
+  totalUsedTokens: 20,
   remainingTokens: 80,
   warnThresholdTokens: 80,
   shouldCondense: false,
   providerOverheadTokens: 5,
+  estimatedTokenFallbackTokens: 0,
 };
 
 test('computeContextBarVisual clamps used > total to 100%', () => {
@@ -50,9 +51,50 @@ test('computeContextBarVisual title text contains used/total and percent with on
   assert.match(result.titleText, /25\.0% used/);
 });
 
-test('resolveContextBarVisual uses persisted chat usage when not busy', () => {
+test('resolveContextBarVisual uses persisted total usage when not busy', () => {
   const result = resolveContextBarVisual(USAGE, 999, 80, false);
   assert.equal(result?.percent, 20);
+});
+
+test('resolveContextBarVisual includes persisted tool usage when not busy', () => {
+  const result = resolveContextBarVisual({
+    ...USAGE,
+    chatUsedTokens: 20,
+    toolUsedTokens: 40,
+    totalUsedTokens: 60,
+    usedTokens: 60,
+    remainingTokens: 40,
+  }, 999, 80, false);
+
+  assert.equal(result?.percent, 60);
+  assert.equal(result?.sections.find((section) => section.kind === 'used')?.tokenCount, 60);
+});
+
+test('resolveContextBarVisual keeps the bar visible for fallback estimates without numeric labels', () => {
+  const result = resolveContextBarVisual({
+    ...USAGE,
+    totalUsedTokens: 60,
+    usedTokens: 60,
+    estimatedTokenFallbackTokens: 60,
+  }, 999, null, false);
+
+  assert.equal(result?.percent, 60);
+  assert.match(result?.titleText || '', /token count unavailable/u);
+  assert.equal(result?.sections.find((section) => section.kind === 'used')?.tokenCount, 60);
+  assert.match(result?.sections.find((section) => section.kind === 'used')?.titleText || '', /token count unavailable/u);
+  assert.doesNotMatch(result?.titleText || '', /60 \/ 100/u);
+});
+
+test('resolveContextBarVisual can show exact live prompt tokens when persisted usage is estimated', () => {
+  const result = resolveContextBarVisual({
+    ...USAGE,
+    totalUsedTokens: 60,
+    usedTokens: 60,
+    estimatedTokenFallbackTokens: 60,
+  }, 999, 30, true);
+
+  assert.equal(result?.percent, 30);
+  assert.deepEqual(result?.sections.map((section) => section.kind), ['used', 'free']);
 });
 
 test('resolveContextBarVisual prefers the live prompt token count while busy when it exceeds persisted usage', () => {
