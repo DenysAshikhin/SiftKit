@@ -16,7 +16,6 @@ import {
   mergeToolTypeStats,
   readLatestIdleSummaryToolStats,
 } from '../line-read-guidance.js';
-import { getDynamicMaxOutputTokens } from '../lib/dynamic-output-cap.js';
 import { ModelJson } from '../lib/model-json.js';
 import type { TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
 import { listLlamaCppModels } from '../providers/llama-cpp.js';
@@ -30,7 +29,7 @@ import {
   normalizePlannerCommand,
 } from './command-safety.js';
 import { getAbortError, throwIfAborted } from './engine/abort.js';
-import { executeRepoCommand, findMockResult, normalizeToolTypeFromCommand } from './engine/command-execution.js';
+import { executeRepoCommand, normalizeToolTypeFromCommand } from './engine/command-execution.js';
 import {
   buildEffectiveTranscriptAction,
   buildNativeRepoToolRequestedCommand,
@@ -44,6 +43,7 @@ import {
 import { DuplicateTracker } from './engine/duplicate-tracker.js';
 import { FORCED_FINISH_MAX_ATTEMPTS, FORCED_FINISH_MODE_MESSAGE, ForcedFinishController } from './engine/forced-finish.js';
 import { ProgressReporter } from './engine/progress-reporter.js';
+import { PromptPreparer } from './engine/prompt-preparer.js';
 import { ReadWindowGovernor } from './engine/read-window-governor.js';
 import { TerminalSynthesizer } from './engine/terminal-synthesizer.js';
 import { ToolResultBudgeter } from './engine/tool-result-budgeter.js';
@@ -57,16 +57,11 @@ import {
   isRepoSearchNativeToolName,
   getRepoSearchToolNamesForParsing,
   resolveRepoSearchPlannerToolDefinitions,
-  buildPlannerRequestPromptReserveText,
   requestPlannerAction,
   type ChatMessage,
   type PlannerActionResponse,
 } from './planner-protocol.js';
-import {
-  compactPlannerMessagesOnce,
-  estimateTokenCount,
-  preflightPlannerPromptBudget,
-} from './prompt-budget.js';
+import { estimateTokenCount } from './prompt-budget.js';
 import {
   type LineReadAdjustment,
   mergeReadOverlapSummaries,
@@ -442,158 +437,39 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         includeRepoFileListing: options.includeRepoFileListing,
       }),
   });
+  const promptPreparer = new PromptPreparer({
+    taskId: task.id,
+    model: String(options.model || ''),
+    config: options.config,
+    useEstimatedTokensOnly,
+    budget,
+    plannerToolDefinitions,
+    thinkingEnabled: plannerThinkingEnabled,
+    reasoningContentEnabled: plannerReasoningContentEnabled,
+    preserveThinking: plannerPreserveThinkingEnabled,
+    transcript,
+    progress,
+    logger: options.logger || null,
+    timingRecorder: options.timingRecorder || null,
+  });
 
   for (let turn = 1; turn <= maxTurns; turn += 1) {
     throwIfAborted(options.abortSignal);
     turnsUsed = turn;
     const inForcedFinishMode = forcedFinish.isActive();
 
-    const promptRenderSpan = options.timingRecorder?.start('repo.prompt.render', {
-      taskId: task.id,
-      turn,
-      messageCount: transcript.length,
-    });
-    let providerPromptReserveText = buildPlannerRequestPromptReserveText({
-      stage: 'planner_action',
-      model: String(options.model || ''),
-      messageRoles: transcript.messageRoles(),
-      toolDefinitions: plannerToolDefinitions,
-      maxTokens: budget.totalContextTokens,
-      thinkingEnabled: plannerThinkingEnabled,
-      reasoningContentEnabled: plannerReasoningContentEnabled,
-      preserveThinking: plannerPreserveThinkingEnabled,
-      stream: progress.enabled,
-    });
-    let prompt = transcript.render();
-    promptRenderSpan?.end({ promptChars: prompt.length, providerPromptReserveChars: providerPromptReserveText.length });
-    const preflightSpan = options.timingRecorder?.start('repo.prompt.preflight', {
-      taskId: task.id,
-      turn,
-    });
-    progress.preflightStart(turn, prompt.length);
-    const preflightConfig = useEstimatedTokensOnly ? undefined : options.config;
-    if (preflightConfig) {
-      progress.tokenizeStart(turn, prompt.length);
-    }
-    let preflight = await preflightPlannerPromptBudget({
-      config: preflightConfig,
-      prompt,
-      providerPromptReserveText,
-      totalContextTokens: budget.totalContextTokens,
-      thinkingBufferTokens: budget.thinkingBufferTokens,
-    });
-    preflightSpan?.end({
-      promptTokenCount: preflight.promptTokenCount,
-      overflowTokens: preflight.overflowTokens,
-      ok: preflight.ok,
-    });
-    progress.preflightDone(turn, prompt.length, preflight.promptTokenCount);
-    if (preflight.tokenizationAttempted) {
-      progress.tokenizeDone(turn, prompt.length, preflight);
-    }
-    let maxOutputTokens = getDynamicMaxOutputTokens({
-      totalContextTokens: budget.totalContextTokens,
-      promptTokenCount: preflight.promptTokenCount,
-    });
-
-    options.logger?.write({
-      kind: 'turn_preflight_budget', taskId: task.id, turn,
-      promptTokenCount: preflight.promptTokenCount,
-      transcriptPromptTokenCount: preflight.transcriptPromptTokenCount,
-      providerPromptReserveTokenCount: preflight.providerPromptReserveTokenCount,
-      maxPromptBudget: preflight.maxPromptBudget,
-      overflowTokens: preflight.overflowTokens, ok: preflight.ok, compacted: false, maxOutputTokens,
-    });
-
-    if (!preflight.ok) {
-      const compactionSpan = options.timingRecorder?.start('repo.prompt.compact', {
-        taskId: task.id,
-        turn,
-        beforePromptTokenCount: preflight.promptTokenCount,
-      });
-      const compacted = await compactPlannerMessagesOnce({
-        messages: transcript.getMessages(),
-        config: useEstimatedTokensOnly ? undefined : options.config,
-        maxPromptBudget: preflight.maxPromptBudget,
-        providerPromptReserveText,
-      });
-      transcript.replaceWith(compacted.messages);
-      const beforeProviderPromptReserveTokenCount = preflight.providerPromptReserveTokenCount;
-      providerPromptReserveText = buildPlannerRequestPromptReserveText({
-        stage: 'planner_action',
-        model: String(options.model || ''),
-        messageRoles: transcript.messageRoles(),
-        toolDefinitions: plannerToolDefinitions,
-        maxTokens: budget.totalContextTokens,
-        thinkingEnabled: plannerThinkingEnabled,
-        reasoningContentEnabled: plannerReasoningContentEnabled,
-        preserveThinking: plannerPreserveThinkingEnabled,
-        stream: progress.enabled,
-      });
-      prompt = transcript.render();
-      if (preflightConfig) {
-        progress.tokenizeStart(turn, prompt.length);
-      }
-      const afterCompaction = await preflightPlannerPromptBudget({
-        config: preflightConfig, prompt, providerPromptReserveText,
-        totalContextTokens: budget.totalContextTokens, thinkingBufferTokens: budget.thinkingBufferTokens,
-      });
-      if (afterCompaction.tokenizationAttempted) {
-        progress.tokenizeDone(turn, prompt.length, afterCompaction);
-      }
-      compactionSpan?.end({
-        afterPromptTokenCount: afterCompaction.promptTokenCount,
-        droppedMessageCount: compacted.droppedMessageCount,
-      });
-      maxOutputTokens = getDynamicMaxOutputTokens({
-        totalContextTokens: budget.totalContextTokens,
-        promptTokenCount: afterCompaction.promptTokenCount,
-      });
-      options.logger?.write({
-        kind: 'turn_preflight_compaction_applied', taskId: task.id, turn,
-        beforePromptTokenCount: preflight.promptTokenCount,
-        afterPromptTokenCount: afterCompaction.promptTokenCount,
-        transcriptPromptTokenCount: afterCompaction.transcriptPromptTokenCount,
-        beforeProviderPromptReserveTokenCount,
-        providerPromptReserveTokenCount: afterCompaction.providerPromptReserveTokenCount,
-        maxPromptBudget: afterCompaction.maxPromptBudget,
-        droppedMessageCount: compacted.droppedMessageCount,
-        summaryInserted: compacted.summaryInserted,
-        maxOutputTokens,
-      });
-      preflight = afterCompaction;
-    }
-
-    if (!preflight.ok) {
-      const overflowError = new Error(
-        `planner_preflight_overflow prompt_tokens=${preflight.promptTokenCount} `
-        + `max_prompt_tokens=${preflight.maxPromptBudget} overflow_tokens=${preflight.overflowTokens} `
-        + `max_output_tokens=${maxOutputTokens} total_context_tokens=${budget.totalContextTokens} `
-        + `thinking_buffer_tokens=${budget.thinkingBufferTokens}`,
-      );
-      options.logger?.write({
-        kind: 'turn_preflight_overflow_fail', taskId: task.id, turn,
-        promptTokenCount: preflight.promptTokenCount,
-        transcriptPromptTokenCount: preflight.transcriptPromptTokenCount,
-        providerPromptReserveTokenCount: preflight.providerPromptReserveTokenCount,
-        maxPromptBudget: preflight.maxPromptBudget,
-        overflowTokens: preflight.overflowTokens, maxOutputTokens,
-        totalContextTokens: budget.totalContextTokens, thinkingBufferTokens: budget.thinkingBufferTokens,
-        error: overflowError.message,
-      });
-      throw overflowError;
-    }
+    const prepared = await promptPreparer.prepareTurn(turn);
 
     options.logger?.write({ kind: 'turn_model_request', taskId: task.id, turn, thinkingEnabled: plannerThinkingEnabled });
-    progress.llmStart(turn, preflight.promptTokenCount);
+    progress.llmStart(turn, prepared.promptTokenCount);
     const newMessages = transcript.takeNewMessagesForLogging();
-    options.logger?.write({ kind: 'turn_new_messages', taskId: task.id, turn, messages: newMessages, promptTokenCount: preflight.promptTokenCount });
+    options.logger?.write({ kind: 'turn_new_messages', taskId: task.id, turn, messages: newMessages, promptTokenCount: prepared.promptTokenCount });
 
     const providerSpan = options.timingRecorder?.start('repo.llama.request', {
       taskId: task.id,
       turn,
-      promptTokenCount: preflight.promptTokenCount,
-      maxOutputTokens,
+      promptTokenCount: prepared.promptTokenCount,
+      maxOutputTokens: prepared.maxOutputTokens,
       mock: Array.isArray(options.mockResponses),
     });
     let response: PlannerActionResponse;
@@ -604,7 +480,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
         messages: transcript.getMessages(),
         slotId,
         timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
-        maxTokens: maxOutputTokens,
+        maxTokens: prepared.maxOutputTokens,
         thinkingEnabled: plannerThinkingEnabled,
         reasoningContentEnabled: plannerReasoningContentEnabled,
         preserveThinking: plannerPreserveThinkingEnabled,
@@ -635,7 +511,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       providerSpan?.end();
     }
 
-    progress.llmEnd(turn, preflight.promptTokenCount);
+    progress.llmEnd(turn, prepared.promptTokenCount);
     if (typeof response.nextMockResponseIndex === 'number') {
       mockResponseIndex = response.nextMockResponseIndex;
     }
@@ -1039,7 +915,7 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
       continue;
     }
 
-    const promptTokenCount = preflight.promptTokenCount;
+    const promptTokenCount = prepared.promptTokenCount;
     const progressToolCallId = `tc_${progressToolCallSeq}`;
     progressToolCallSeq += 1;
     progress.toolStart(progressToolCallId, turn, requestedCommand, promptTokenCount);
