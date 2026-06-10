@@ -227,6 +227,15 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
       res.end(JSON.stringify(state.config));
       return;
     }
+    if (req.method === 'GET' && req.url === '/preset/list') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        presets: [
+          { id: 'summary', presetKind: 'summary', operationMode: 'summary', deletable: false, label: 'Summary' },
+        ],
+      }));
+      return;
+    }
     if (req.method === 'PUT' && req.url === '/config') {
       const bodyText = await readBody(req);
       const parsed = (bodyText ? JSON.parse(bodyText) : {}) as Dict;
@@ -265,6 +274,59 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
         RawReviewRequired: false,
         ModelCallSucceeded: true,
         ProviderError: null,
+      }));
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/command-output/analyze') {
+      const bodyText = await readBody(req);
+      const parsed = (bodyText ? JSON.parse(bodyText) : {}) as Dict;
+      state.chatRequests.push(parsed);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        ExitCode: Number(parsed.exitCode || 0),
+        RawLogPath: 'db://command-output/raw',
+        ReducedLogPath: null,
+        WasSummarized: false,
+        PolicyDecision: 'no-summarize',
+        Classification: 'no-summarize',
+        RawReviewRequired: false,
+        ModelCallSucceeded: false,
+        ProviderError: null,
+        Summary: 'mock command output analysis',
+      }));
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/repo-search') {
+      const bodyText = await readBody(req);
+      const parsed = (bodyText ? JSON.parse(bodyText) : {}) as Dict;
+      state.chatRequests.push(parsed);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        requestId: 'stub-repo-search',
+        transcriptPath: 'db://repo-search/transcript',
+        artifactPath: 'db://repo-search/artifact',
+        scorecard: { tasks: [{ finalOutput: 'stub repo-search output' }] },
+      }));
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/preset/run') {
+      const bodyText = await readBody(req);
+      const parsed = (bodyText ? JSON.parse(bodyText) : {}) as Dict;
+      state.chatRequests.push(parsed);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ outputText: 'mock preset output' }));
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/eval/run') {
+      const bodyText = await readBody(req);
+      const parsed = (bodyText ? JSON.parse(bodyText) : {}) as Dict;
+      state.chatRequests.push(parsed);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        Backend: 'mock',
+        Model: 'mock-model',
+        ResultPath: 'db://eval/result',
+        Results: [],
       }));
       return;
     }
