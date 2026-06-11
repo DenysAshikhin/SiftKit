@@ -1,6 +1,9 @@
 import { httpClient } from '../lib/http-client.js';
 import { sleep } from '../lib/time.js';
+import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
 import type { ConfigRecord } from './types.js';
+
+const llamaCppClient = new LlamaCppClient();
 
 export async function invokeConfigGet(configUrl: string): Promise<ConfigRecord> {
   return httpClient.requestJson<ConfigRecord>({
@@ -37,17 +40,7 @@ export function getRuntimeLlamaCppConfigValue(config: ConfigRecord, key: string)
 }
 
 export async function getLlamaModels(baseUrl: string): Promise<string[]> {
-  const response = await httpClient.requestJson<{ data?: Array<{ id?: string | null }> }>({
-    url: `${baseUrl.replace(/\/$/u, '')}/v1/models`,
-    method: 'GET',
-    timeoutMs: 10_000,
-  });
-
-  return Array.isArray(response.data)
-    ? response.data
-      .map((item) => String(item?.id ?? '').trim())
-      .filter(Boolean)
-    : [];
+  return llamaCppClient.listModelsAtBaseUrl(baseUrl, 10_000);
 }
 
 export async function waitForLlamaReadiness(

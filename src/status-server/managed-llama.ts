@@ -12,8 +12,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import type { ChildProcess, SpawnSyncReturns } from 'node:child_process';
 import { POWERSHELL_BASE_ARGS } from '../lib/powershell.js';
 import { formatTimestamp } from '../lib/text-format.js';
-import { httpClient } from '../lib/http-client.js';
 import { sleep } from '../lib/time.js';
+import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
 import {
   bufferManagedLlamaLogChunk,
   createManagedLlamaRun,
@@ -89,6 +89,7 @@ export const LLAMA_STARTUP_GRACE_DELAY_MS = 2_000;
 const DEFAULT_MANAGED_LLAMA_METRICS_LOG_TAIL_CHARACTERS = 1_000_000;
 export const MANAGED_LLAMA_LOG_ALERT_PATTERN = /\b(?:warn(?:ing)?|error|exception|fatal)\b/iu;
 const MANAGED_LLAMA_LOADING_MODEL_503_PATTERN = /"message"\s*:\s*"Loading model"[\s\S]*"type"\s*:\s*"unavailable_error"[\s\S]*"code"\s*:\s*503/iu;
+const llamaCppClient = new LlamaCppClient();
 const MANAGED_LLAMA_GPU_MEMORY_PRESSURE_PATTERN = /projected to use\s+(\d+)\s+MiB of device memory vs\.\s+(\d+)\s+MiB of free device memory/iu;
 const MANAGED_LLAMA_GPU_MEMORY_OOM_PATTERN = /cannot meet free memory target|cudaMalloc failed: out of memory|failed to allocate buffer for kv cache/iu;
 const MANAGED_LLAMA_SPECULATIVE_STATS_PATTERN = /^\s*(?:llama_decode:\s+)?statistics\s+\S+:\s+.*?#gen tokens\s*=\s*(\d+),\s+#acc tokens\s*=\s*(\d+)/iu;
@@ -993,11 +994,11 @@ async function probeLlamaServerReachability(config: SiftConfig): Promise<LlamaRe
     return 'offline';
   }
   try {
-    const response = await httpClient.requestText({ url: `${baseUrl.replace(/\/$/u, '')}/v1/models`, timeoutMs: getManagedLlamaConfig(config).HealthcheckTimeoutMs });
+    const response = await llamaCppClient.probeModelsAtBaseUrl(baseUrl, getManagedLlamaConfig(config).HealthcheckTimeoutMs);
     if (response.statusCode > 0 && response.statusCode < 400) {
       return 'ready';
     }
-    if (response.statusCode === 503 && MANAGED_LLAMA_LOADING_MODEL_503_PATTERN.test(response.body || '')) {
+    if (response.statusCode === 503 && MANAGED_LLAMA_LOADING_MODEL_503_PATTERN.test(response.rawText || '')) {
       return 'loading';
     }
     return 'offline';

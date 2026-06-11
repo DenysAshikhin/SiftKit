@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as http from 'node:http';
-import { requestPlannerAction } from '../src/repo-search/planner-protocol.js';
+import { requestRepoSearchPlannerProtocolAction } from '../src/repo-search/planner-protocol.js';
 
 const PREDICTED_MS = 4321;
 const PREDICTED_N = 7;
@@ -69,8 +69,8 @@ function startFakeLlamaServer(): Promise<FakeLlamaServer> {
   });
 }
 
-async function runStreamingPlanner(baseUrl: string): Promise<Awaited<ReturnType<typeof requestPlannerAction>>> {
-  return requestPlannerAction({
+async function runStreamingPlanner(baseUrl: string): Promise<Awaited<ReturnType<typeof requestRepoSearchPlannerProtocolAction>>> {
+  return requestRepoSearchPlannerProtocolAction({
     baseUrl,
     model: 'mock',
     messages: [{ role: 'user', content: 'hi' }],

@@ -1,36 +1,24 @@
-import { httpClient, LlamaHttpError, type SseStreamSignal } from '../lib/http-client.js';
+import type { SiftConfig } from '../config/types.js';
+import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
+import type { JsonObject, LlamaCppChatMessage, LlamaCppResponseFormat, LlamaCppToolCall } from '../llm-protocol/types.js';
 import { ModelJson } from '../lib/model-json.js';
 import {
-  buildTransientProviderHttpError,
   buildProviderErrorMessage,
-  getCompletionUsageFromResponseBody,
-  getPromptUsageFromResponseBody,
-  getTimingUsageFromResponseBody,
-  isTransientProviderHttpResponse,
-  normalizeProviderText,
   retryProviderRequest,
   serializeNetworkError,
 } from '../lib/provider-helpers.js';
-import {
-  REPO_SEARCH_PIPE_COMMANDS,
-  REPO_SEARCH_PRODUCER_COMMANDS,
-  getFirstCommandToken,
-} from './command-safety.js';
-import {
-  detectRecentTokenRepetition,
-  type TokenRepetitionDetectionOptions,
-} from './repetition-guard.js';
 import {
   buildFinishValidationJsonSchema,
   buildLlamaJsonSchemaResponseFormat,
   buildRepoSearchPlannerActionJsonSchema,
   type StructuredOutputToolDefinition,
 } from '../providers/structured-output-schema.js';
+import {
+  getFirstCommandToken,
+  REPO_SEARCH_PIPE_COMMANDS,
+  REPO_SEARCH_PRODUCER_COMMANDS,
+} from './command-safety.js';
 import type { JsonLogger } from './types.js';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export type PlannerActionResponse = {
   text: string;
@@ -83,42 +71,6 @@ export type ChatMessage = {
   }>;
   tool_call_id?: string;
 };
-
-// ---------------------------------------------------------------------------
-// Provider response content extraction
-// ---------------------------------------------------------------------------
-
-function extractChoiceContent(choice: Record<string, unknown>): {
-  text: string;
-  thinkingText: string;
-} {
-  const message = choice?.message as Record<string, unknown> | undefined;
-  const rawText = normalizeProviderText(message?.content) || normalizeProviderText(choice?.text) || '';
-  const reasoningContent = normalizeProviderText(message?.reasoning_content) || normalizeProviderText(choice?.reasoning_content) || '';
-  // If no dedicated reasoning_content, try to extract <think>...</think> from the text
-  if (!reasoningContent && rawText.includes('<think>')) {
-    const { thinkingText, text } = extractInlineThinking(rawText);
-    return { text, thinkingText };
-  }
-  return { text: rawText, thinkingText: reasoningContent };
-}
-
-/** Extract <think>...</think> blocks from inline content and return cleaned text. */
-function extractInlineThinking(raw: string): { thinkingText: string; text: string } {
-  const thinkPattern = /<think>([\s\S]*?)<\/think>/gu;
-  const thinkingParts: string[] = [];
-  let match;
-  thinkPattern.lastIndex = 0;
-  while ((match = thinkPattern.exec(raw)) !== null) {
-    thinkingParts.push(match[1]);
-  }
-  const text = raw.replace(/<think>[\s\S]*?<\/think>/gu, '').trim();
-  return { thinkingText: thinkingParts.join('\n').trim(), text };
-}
-
-// ---------------------------------------------------------------------------
-// Tool definitions exposed to the LLM
-// ---------------------------------------------------------------------------
 
 const NATIVE_REPO_SEARCH_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
   repo_read_file: {
@@ -175,9 +127,7 @@ const NATIVE_REPO_SEARCH_TOOL_REGISTRY: Record<string, StructuredOutputToolDefin
       description: 'Fetch one public HTTP(S) URL and return extracted text. Private, local, and internal URLs are blocked.',
       parameters: {
         type: 'object',
-        properties: {
-          url: { type: 'string' },
-        },
+        properties: { url: { type: 'string' } },
         required: ['url'],
       },
     },
@@ -191,6 +141,7 @@ const REPO_SEARCH_EXCLUDED_COMMAND_TOKENS = new Set<string>([
   'pwd',
   'ls',
 ]);
+
 const ACCEPTED_REPO_SEARCH_COMMAND_TOKENS: readonly string[] = [
   ...new Set<string>([
     ...REPO_SEARCH_PRODUCER_COMMANDS,
@@ -237,11 +188,9 @@ const REPO_SEARCH_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> 
 };
 
 const WEB_NATIVE_TOOL_NAMES = new Set<string>(['web_search', 'web_fetch']);
-
 const REPO_SEARCH_TOOL_NAME_BY_COMMAND_TOKEN = new Map<string, string>(
   ACCEPTED_REPO_SEARCH_COMMAND_TOKENS.map((commandToken) => [commandToken, commandTokenToToolName(commandToken)]),
 );
-
 const REPO_SEARCH_COMMAND_TOKEN_BY_TOOL_NAME = new Map<string, string>(
   ACCEPTED_REPO_SEARCH_COMMAND_TOKENS.map((commandToken) => [commandTokenToToolName(commandToken), commandToken]),
 );
@@ -251,9 +200,6 @@ export function getRepoSearchToolNames(): string[] {
 }
 
 export function getRepoSearchToolNamesForParsing(): string[] {
-  // Web tools are excluded from the default parse set so a forged web action is
-  // rejected unless web_search/web_fetch are explicitly in the active planner
-  // tool definitions (appended only when the effective web gate is enabled).
   return Array.from(new Set<string>([
     ...Object.keys(REPO_SEARCH_TOOL_REGISTRY).filter((toolName) => !WEB_NATIVE_TOOL_NAMES.has(toolName)),
     ...Array.from(REPO_SEARCH_COMMAND_TOKEN_BY_TOOL_NAME.keys()),
@@ -283,13 +229,10 @@ export function getRepoSearchToolNameForCommand(command: string): string | null 
 export function resolveRepoSearchPlannerToolDefinitions(
   allowedToolNames?: readonly string[],
 ): StructuredOutputToolDefinition[] {
-  if (Array.isArray(allowedToolNames)) {
-    const resolved = allowedToolNames
-      .map((toolName) => REPO_SEARCH_TOOL_REGISTRY[String(toolName || '').trim().toLowerCase()])
-      .filter((toolDefinition): toolDefinition is StructuredOutputToolDefinition => Boolean(toolDefinition));
-    return resolved;
-  }
-  return Object.values(REPO_SEARCH_TOOL_REGISTRY);
+  if (!Array.isArray(allowedToolNames)) return Object.values(REPO_SEARCH_TOOL_REGISTRY);
+  return allowedToolNames
+    .map((toolName) => REPO_SEARCH_TOOL_REGISTRY[String(toolName || '').trim().toLowerCase()])
+    .filter((toolDefinition): toolDefinition is StructuredOutputToolDefinition => Boolean(toolDefinition));
 }
 
 export const TOOL_DEFINITIONS = resolveRepoSearchPlannerToolDefinitions();
@@ -309,27 +252,17 @@ export function buildPlannerRequestPromptReserveText(options: {
   stream?: boolean;
 }): string {
   const stage = options.stage || 'planner_action';
-  const toolDefinitions = Array.isArray(options.toolDefinitions)
-    ? options.toolDefinitions
-    : TOOL_DEFINITIONS;
+  const toolDefinitions = Array.isArray(options.toolDefinitions) ? options.toolDefinitions : TOOL_DEFINITIONS;
   const defaultResponseSchema = stage === 'planner_action'
     ? buildRepoSearchPlannerActionJsonSchema({ toolDefinitions })
     : stage === 'finish_validation'
       ? buildFinishValidationJsonSchema()
       : null;
-  const responseSchema = options.responseSchema === undefined
-    ? defaultResponseSchema
-    : options.responseSchema;
-  const responseFormat = responseSchema === null
-    ? null
-    : buildLlamaJsonSchemaResponseFormat({
-      name: options.responseSchemaName || (stage === 'finish_validation' ? 'siftkit_finish_validation' : 'siftkit_repo_search_planner_action'),
-      schema: responseSchema,
-    });
-  const messageTemplateReserve = options.messageRoles.map((role) => ({
-    role: String(role || 'unknown'),
-    template: '<|im_start|>role\\ncontent<|im_end|>',
-  }));
+  const responseSchema = options.responseSchema === undefined ? defaultResponseSchema : options.responseSchema;
+  const responseFormat = responseSchema === null ? null : buildLlamaJsonSchemaResponseFormat({
+    name: options.responseSchemaName || (stage === 'finish_validation' ? 'siftkit_finish_validation' : 'siftkit_repo_search_planner_action'),
+    schema: responseSchema,
+  });
 
   return JSON.stringify({
     stage,
@@ -342,66 +275,13 @@ export function buildPlannerRequestPromptReserveText(options: {
     },
     ...(responseFormat ? { response_format: responseFormat } : {}),
     ...(options.stream ? { stream: true } : {}),
-    message_template_reserve: messageTemplateReserve,
+    message_template_reserve: options.messageRoles.map((role) => ({
+      role: String(role || 'unknown'),
+      template: '<|im_start|>role\\ncontent<|im_end|>',
+    })),
     ...options.extraBody,
   });
 }
-
-// ---------------------------------------------------------------------------
-// Action parsing
-// ---------------------------------------------------------------------------
-
-function parseRepoToolCallCandidate(toolCall: {
-  function?: { name?: string; arguments?: unknown };
-  name?: string;
-  arguments?: unknown;
-} | null | undefined, allowedToolNames: Set<string>): ToolAction | null {
-  const name = typeof toolCall?.function?.name === 'string' ? toolCall.function.name
-    : typeof toolCall?.name === 'string' ? toolCall.name : '';
-
-  const args = ModelJson.parseToolArguments(toolCall?.function?.arguments ?? toolCall?.arguments);
-  if (!name || !args) return null;
-  try {
-    const action = ModelJson.parseRepoSearchPlannerAction(JSON.stringify({
-      action: name,
-      ...args,
-    }), { allowedToolNames: Array.from(allowedToolNames) });
-    return action.action === 'tool' ? action : null;
-  } catch {
-    return null;
-  }
-}
-
-function actionFromToolCall(choice: Record<string, unknown>, allowedToolNames: Set<string>): string | null {
-  type ToolCallLike = { function?: { name?: string; arguments?: unknown }; name?: string; arguments?: unknown };
-  const message = choice?.message as Record<string, unknown> | undefined;
-  const toolCalls = [
-    ...(((message?.tool_calls as ToolCallLike[] | undefined) || []).map((toolCall) => parseRepoToolCallCandidate(toolCall, allowedToolNames)).filter(Boolean) as ToolAction[]),
-    ...((((choice?.tool_calls as ToolCallLike[] | undefined) || []).map((toolCall) => parseRepoToolCallCandidate(toolCall, allowedToolNames)).filter(Boolean)) as ToolAction[]),
-  ];
-  const functionCall = parseRepoToolCallCandidate(
-    (message?.function_call as ToolCallLike | undefined) ?? (choice?.function_call as ToolCallLike | undefined),
-    allowedToolNames,
-  );
-  if (functionCall) {
-    toolCalls.push(functionCall);
-  }
-  if (toolCalls.length === 0) return null;
-  if (toolCalls.length === 1) {
-    return JSON.stringify(toolCalls[0]);
-  }
-  return JSON.stringify({
-    action: 'tool_batch',
-    calls: toolCalls.map((toolCall) => ({
-      action: toolCall.tool_name,
-      ...toolCall.args,
-    })),
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Unified LLM request function (non-streaming + streaming via `stream` param)
-// ---------------------------------------------------------------------------
 
 export type PlannerRequestOptions = {
   baseUrl: string;
@@ -413,28 +293,42 @@ export type PlannerRequestOptions = {
   thinkingEnabled?: boolean;
   reasoningContentEnabled?: boolean;
   preserveThinking?: boolean;
-  /** When true, use server-sent-events streaming. */
   stream?: boolean;
-  /** Called with accumulated thinking text on each streaming delta. */
   onThinkingDelta?: (accumulatedThinking: string) => void;
-  /** Called with accumulated content text on each streaming delta. */
   onContentDelta?: (accumulatedContent: string) => void;
-  /** Mock response array for testing — bypasses the network entirely. */
   mockResponses?: string[];
   mockResponseIndex?: number;
   abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
-  /** Override stage name for logging (default: 'planner_action'). */
   stage?: string;
-  /** Override the response schema. Pass null to omit response_format. */
   responseSchema?: Record<string, unknown> | null;
-  /** Override the response-format schema name. */
   responseSchemaName?: string;
-  /** Available tools for planner_action stage. */
   toolDefinitions?: StructuredOutputToolDefinition[];
-  /** Extra fields merged into the request body. */
   extraBody?: Record<string, unknown>;
 };
+
+function extractInlineThinking(raw: string): { thinkingText: string; text: string } {
+  const thinkingParts: string[] = [];
+  const text = raw.replace(/<think>([\s\S]*?)<\/think>/gu, (_all, thinking: string) => {
+    thinkingParts.push(thinking);
+    return '';
+  }).trim();
+  return { thinkingText: thinkingParts.join('\n').trim(), text };
+}
+
+function serializePlannerMessage(message: ChatMessage, reasoningContentEnabled: boolean): ChatMessage {
+  if (
+    reasoningContentEnabled
+    && message.role === 'assistant'
+    && typeof message.reasoning_content === 'string'
+    && message.reasoning_content.trim()
+  ) {
+    return message;
+  }
+  if (!Object.prototype.hasOwnProperty.call(message, 'reasoning_content')) return message;
+  const { reasoning_content: _reasoningContent, ...rest } = message;
+  return rest;
+}
 
 function logProviderRetry(options: {
   logger?: JsonLogger | null;
@@ -460,34 +354,69 @@ function logProviderRetry(options: {
   });
 }
 
-function serializePlannerMessage(message: ChatMessage, reasoningContentEnabled: boolean): ChatMessage {
-  if (
-    reasoningContentEnabled
-    && message.role === 'assistant'
-    && typeof message.reasoning_content === 'string'
-    && message.reasoning_content.trim()
-  ) {
-    return message;
-  }
-  if (!Object.prototype.hasOwnProperty.call(message, 'reasoning_content')) {
-    return message;
-  }
-  const { reasoning_content: _reasoningContent, ...rest } = message;
-  return rest;
+function buildPlannerRequestConfig(options: PlannerRequestOptions): SiftConfig {
+  const reasoning = options.thinkingEnabled ? 'on' : 'off';
+  return {
+    Backend: 'llama.cpp',
+    Runtime: {
+      Model: options.model,
+      LlamaCpp: {
+        BaseUrl: options.baseUrl,
+        Reasoning: reasoning,
+      },
+    },
+    Server: {
+      LlamaCpp: {
+        ActivePresetId: 'planner',
+        Presets: [{
+          id: 'planner',
+          name: 'planner',
+          Reasoning: reasoning,
+          ReasoningContent: options.reasoningContentEnabled === true,
+          PreserveThinking: options.preserveThinking === true,
+        }],
+      },
+    },
+  } as unknown as SiftConfig;
 }
 
-export async function requestPlannerAction(options: PlannerRequestOptions): Promise<PlannerActionResponse> {
+function actionFromProtocolToolCalls(toolCalls: readonly LlamaCppToolCall[], allowedToolNames: readonly string[]): string | null {
+  const parsedToolCalls = toolCalls
+    .map((toolCall): ToolAction | null => {
+      const args = ModelJson.parseToolArguments(toolCall.function.arguments);
+      if (!args) return null;
+      try {
+        const action = ModelJson.parseRepoSearchPlannerAction(JSON.stringify({
+          action: toolCall.function.name,
+          ...args,
+        }), { allowedToolNames });
+        return action.action === 'tool' ? action : null;
+      } catch {
+        return null;
+      }
+    })
+    .filter((toolCall): toolCall is ToolAction => toolCall !== null);
+  if (parsedToolCalls.length === 0) return null;
+  if (parsedToolCalls.length === 1) return JSON.stringify(parsedToolCalls[0]);
+  return JSON.stringify({
+    action: 'tool_batch',
+    calls: parsedToolCalls.map((toolCall) => ({
+      action: toolCall.tool_name,
+      ...toolCall.args,
+    })),
+  });
+}
+
+export async function requestRepoSearchPlannerProtocolAction(options: PlannerRequestOptions): Promise<PlannerActionResponse> {
   if (options.abortSignal?.aborted) {
     throw options.abortSignal.reason instanceof Error
       ? options.abortSignal.reason
       : new Error(String(options.abortSignal.reason || 'Request aborted.'));
   }
-  // Mock path — bypass network entirely
+
   if (Array.isArray(options.mockResponses)) {
     const index = options.mockResponseIndex || 0;
-    if (index >= options.mockResponses.length) {
-      return { text: '', thinkingText: '', mockExhausted: true };
-    }
+    if (index >= options.mockResponses.length) return { text: '', thinkingText: '', mockExhausted: true };
     const rawMock = options.mockResponses[index];
     const { thinkingText, text } = rawMock.includes('<think>')
       ? extractInlineThinking(rawMock)
@@ -496,90 +425,46 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
   }
 
   const stage = options.stage || 'planner_action';
-  const toolDefinitions = Array.isArray(options.toolDefinitions)
-    ? options.toolDefinitions
-    : TOOL_DEFINITIONS;
-  const allowedToolNames = new Set<string>(toolDefinitions.map((toolDefinition) => toolDefinition.function.name));
+  const toolDefinitions = Array.isArray(options.toolDefinitions) ? options.toolDefinitions : TOOL_DEFINITIONS;
+  const allowedToolNames = toolDefinitions.map((toolDefinition) => toolDefinition.function.name);
   const defaultResponseSchema = stage === 'planner_action'
     ? buildRepoSearchPlannerActionJsonSchema({ toolDefinitions })
     : stage === 'finish_validation'
       ? buildFinishValidationJsonSchema()
       : null;
-  const responseSchema = options.responseSchema === undefined
-    ? defaultResponseSchema
-    : options.responseSchema;
-  const responseFormat = responseSchema === null
-    ? null
-    : buildLlamaJsonSchemaResponseFormat({
-      name: options.responseSchemaName || (stage === 'finish_validation' ? 'siftkit_finish_validation' : 'siftkit_repo_search_planner_action'),
-      schema: responseSchema,
-    });
-
-  const bodyObj: Record<string, unknown> = {
-    model: options.model,
-    messages: options.messages.map((message) => serializePlannerMessage(message, options.reasoningContentEnabled === true)),
-    cache_prompt: true,
-    ...(Number.isInteger(options.slotId) ? { id_slot: Number(options.slotId) } : {}),
-    temperature: 0.1,
-    top_p: 0.95,
-    max_tokens: options.maxTokens,
-    chat_template_kwargs: {
-      enable_thinking: Boolean(options.thinkingEnabled),
-      ...(options.thinkingEnabled && options.reasoningContentEnabled ? { reasoning_content: true } : {}),
-      ...(options.thinkingEnabled && options.reasoningContentEnabled && options.preserveThinking ? { preserve_thinking: true } : {}),
-    },
-    ...(responseFormat ? { response_format: responseFormat } : {}),
-    ...options.extraBody,
-    ...(options.stream ? { stream: true, timings_per_token: true } : {}),
-  };
-  const bodyJson = JSON.stringify(bodyObj);
-
-  // Streaming path
-  if (options.stream) {
-    return retryProviderRequest(
-      () => requestStreaming(options, bodyJson, stage),
-      {
-        maxWaitMs: options.timeoutMs,
-        onRetry(event) {
-          logProviderRetry({
-            logger: options.logger,
-            stage,
-            method: 'POST',
-            url: `${options.baseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
-            path: '/v1/chat/completions',
-            attempt: event.attempt,
-            elapsedMs: event.elapsedMs,
-            nextDelayMs: event.nextDelayMs,
-            error: event.error,
-          });
-        },
-      },
-    );
-  }
-
-  // Non-streaming path — use shared requestJsonFull
-  type CompletionBody = Record<string, unknown> & { choices?: Array<Record<string, unknown>> };
-  const requestUrl = `${options.baseUrl.replace(/\/$/u, '')}/v1/chat/completions`;
-  const urlPath = new URL(requestUrl).pathname;
+  const responseSchema = options.responseSchema === undefined ? defaultResponseSchema : options.responseSchema;
+  const responseFormat = responseSchema === null ? null : buildLlamaJsonSchemaResponseFormat({
+    name: options.responseSchemaName || (stage === 'finish_validation' ? 'siftkit_finish_validation' : 'siftkit_repo_search_planner_action'),
+    schema: responseSchema,
+  });
+  const requestUrlForLog = `${options.baseUrl.replace(/\/$/u, '')}/v1` + '/chat/completions';
+  const requestPathForLog = new URL(requestUrlForLog).pathname;
   const startedAt = Date.now();
-  options.logger?.write({ kind: 'provider_request_start', stage, method: 'POST', url: requestUrl, path: urlPath });
+  options.logger?.write({ kind: 'provider_request_start', stage, method: 'POST', url: requestUrlForLog, path: requestPathForLog });
 
   let response;
   try {
     response = await retryProviderRequest(
-      async () => {
-        const nextResponse = await httpClient.requestJsonFull<CompletionBody>({
-          url: requestUrl,
-          method: 'POST',
-          timeoutMs: options.timeoutMs,
-          body: bodyJson,
-          abortSignal: options.abortSignal,
-        });
-        if (isTransientProviderHttpResponse(nextResponse.statusCode, nextResponse.rawText)) {
-          throw buildTransientProviderHttpError(nextResponse.statusCode, nextResponse.rawText);
-        }
-        return nextResponse;
-      },
+      () => new LlamaCppClient().chat({
+        config: buildPlannerRequestConfig(options),
+        baseUrl: options.baseUrl,
+        model: options.model,
+        messages: options.messages.map((message) => serializePlannerMessage(message, options.reasoningContentEnabled === true) as LlamaCppChatMessage),
+        tools: [],
+        maxTokens: options.maxTokens,
+        temperature: 0.1,
+        slotId: options.slotId,
+        stream: options.stream === true,
+        responseFormat: responseFormat as LlamaCppResponseFormat | undefined,
+        reasoningOverride: options.thinkingEnabled ? 'on' : 'off',
+        allowedToolNames,
+        requestTimeoutSeconds: options.timeoutMs / 1000,
+        retryMaxWaitMs: 0,
+        abortSignal: options.abortSignal,
+        extraBody: { top_p: 0.95, ...(options.extraBody || {}) } as JsonObject,
+        onThinkingDelta: options.onThinkingDelta,
+        onContentDelta: options.onContentDelta,
+      }),
       {
         maxWaitMs: options.timeoutMs,
         onRetry(event) {
@@ -587,8 +472,8 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
             logger: options.logger,
             stage,
             method: 'POST',
-            url: requestUrl,
-            path: urlPath,
+            url: requestUrlForLog,
+            path: requestPathForLog,
             attempt: event.attempt,
             elapsedMs: event.elapsedMs,
             nextDelayMs: event.nextDelayMs,
@@ -600,352 +485,52 @@ export async function requestPlannerAction(options: PlannerRequestOptions): Prom
   } catch (error) {
     const serialized = serializeNetworkError(error);
     options.logger?.write({
-      kind: 'provider_request_error', stage, method: 'POST', url: requestUrl,
-      path: urlPath, elapsedMs: Date.now() - startedAt, error: serialized,
+      kind: 'provider_request_error',
+      stage,
+      method: 'POST',
+      url: requestUrlForLog,
+      path: requestPathForLog,
+      elapsedMs: Date.now() - startedAt,
+      error: serialized,
     });
-    throw new Error(buildProviderErrorMessage({ stage, method: 'POST', url: requestUrl }, serialized));
+    throw new Error(buildProviderErrorMessage({ stage, method: 'POST', url: requestUrlForLog }, serialized));
   }
+  options.logger?.write({
+    kind: 'provider_request_done',
+    stage,
+    method: 'POST',
+    url: requestUrlForLog,
+    path: requestPathForLog,
+    statusCode: 200,
+    elapsedMs: Date.now() - startedAt,
+    ...(response.earlyStopReason ? { earlyTerminationReason: response.earlyStopReason } : {}),
+  });
 
-  options.logger?.write({ kind: 'provider_request_done', stage, method: 'POST', url: requestUrl, path: urlPath, statusCode: response.statusCode, elapsedMs: Date.now() - startedAt });
-
-  if (response.statusCode < 200 || response.statusCode >= 300) {
-    const detail = response.rawText ? `: ${response.rawText.slice(0, 400)}` : '.';
-    throw new Error(`llama.cpp ${stage} request failed with HTTP ${response.statusCode}${detail}`);
-  }
-
-  const firstChoice = (response.body?.choices?.[0] || {}) as Record<string, unknown>;
-  const { text: rawChoiceText, thinkingText } = extractChoiceContent(firstChoice);
-  const synthesized = actionFromToolCall(firstChoice, allowedToolNames);
-  const promptUsage = getPromptUsageFromResponseBody(response.body);
-  const completionUsage = getCompletionUsageFromResponseBody(response.body);
-  const timingUsage = getTimingUsageFromResponseBody(response.body);
-  // Prefer raw content text (may include reasoning field); fall back to synthesized tool-call action
-  const text = rawChoiceText || synthesized || '';
+  const inlineThinking = !response.reasoningText && response.text.includes('<think>')
+    ? extractInlineThinking(response.text)
+    : null;
+  const rawChoiceText = inlineThinking ? inlineThinking.text : response.text;
+  const thinkingText = inlineThinking ? inlineThinking.thinkingText : response.reasoningText;
+  const synthesized = actionFromProtocolToolCalls(response.toolCalls, allowedToolNames);
+  const text = response.earlyStopReason === 'planner action completed in streamed reasoning'
+    ? rawChoiceText
+    : response.stoppedEarly && response.earlyStopReason
+    ? [`SiftKit stopped the planner stream early: ${response.earlyStopReason}.`, rawChoiceText.trim()].filter(Boolean).join('\n')
+    : rawChoiceText || synthesized || '';
 
   return {
-    text: (text || '').trim(),
+    text: text.trim(),
     thinkingText,
     mockExhausted: false,
-    promptTokens: promptUsage.promptTokens,
-    completionTokens: completionUsage.completionTokens,
-    usageThinkingTokens: completionUsage.thinkingTokens,
-    promptCacheTokens: promptUsage.promptCacheTokens,
-    promptEvalTokens: promptUsage.promptEvalTokens,
-    promptEvalDurationMs: timingUsage.promptEvalDurationMs,
-    generationDurationMs: timingUsage.generationDurationMs,
+    promptTokens: response.usage.promptTokens,
+    completionTokens: response.usage.completionTokens,
+    usageThinkingTokens: response.usage.thinkingTokens,
+    promptCacheTokens: response.usage.promptCacheTokens,
+    promptEvalTokens: response.usage.promptEvalTokens,
+    promptEvalDurationMs: response.usage.promptEvalDurationMs ?? null,
+    generationDurationMs: response.usage.generationDurationMs ?? null,
   };
 }
-
-// ---------------------------------------------------------------------------
-// SSE streaming implementation (internal)
-// ---------------------------------------------------------------------------
-
-const STREAM_RUNAWAY_STRUCTURAL_REPEAT_LIMIT = 96;
-const PLANNER_STREAM_REPETITION_GUARD_OPTIONS: TokenRepetitionDetectionOptions = {
-  minTotalTokens: 200,
-  windowTokens: 32,
-  minRepeats: 3,
-  minRepeatedRunTokens: 48,
-};
-
-type RunawayStructuralTail = {
-  repeatedChar: string;
-  repeatedCount: number;
-  truncatedText: string;
-};
-
-function findFirstCompleteJsonObjectText(text: string): string | null {
-  const source = String(text || '');
-  const startIndex = source.indexOf('{');
-  if (startIndex < 0) {
-    return null;
-  }
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let index = startIndex; index < source.length; index += 1) {
-    const char = source[index];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === '\\') {
-        escaped = true;
-      } else if (char === '"') {
-        inString = false;
-      }
-      continue;
-    }
-    if (char === '"') {
-      inString = true;
-      continue;
-    }
-    if (char === '{') {
-      depth += 1;
-      continue;
-    }
-    if (char === '}') {
-      depth -= 1;
-      if (depth === 0) {
-        return source.slice(startIndex, index + 1).trim();
-      }
-      if (depth < 0) {
-        return null;
-      }
-    }
-  }
-  return null;
-}
-
-function findPlannerActionText(text: string, allowedToolNames: Set<string>): string | null {
-  const jsonObjectText = findFirstCompleteJsonObjectText(text);
-  if (!jsonObjectText) {
-    return null;
-  }
-  try {
-    ModelJson.parseRepoSearchPlannerAction(jsonObjectText, { allowedToolNames: Array.from(allowedToolNames) });
-    return jsonObjectText;
-  } catch {
-    return null;
-  }
-}
-
-function getRunawayStructuralTail(text: string): RunawayStructuralTail | null {
-  const normalized = String(text || '');
-  if (!/"action"\s*:/u.test(normalized)) {
-    return null;
-  }
-  const lastChar = normalized.at(-1) || '';
-  if (lastChar !== '}' && lastChar !== ']') {
-    return null;
-  }
-
-  let repeatedCount = 0;
-  for (let index = normalized.length - 1; index >= 0 && normalized[index] === lastChar; index -= 1) {
-    repeatedCount += 1;
-  }
-  if (repeatedCount < STREAM_RUNAWAY_STRUCTURAL_REPEAT_LIMIT) {
-    return null;
-  }
-
-  return {
-    repeatedChar: lastChar,
-    repeatedCount,
-    truncatedText: normalized.slice(
-      0,
-      normalized.length - repeatedCount + STREAM_RUNAWAY_STRUCTURAL_REPEAT_LIMIT,
-    ),
-  };
-}
-
-function buildEarlyStoppedPlannerText(reasonText: string, contentText: string): string {
-  return [
-    `SiftKit stopped the planner stream early: ${reasonText}.`,
-    contentText.trim(),
-  ].filter((part) => part.length > 0).join('\n');
-}
-
-function buildRecentTokenRepetitionReason(kind: 'content' | 'reasoning', result: ReturnType<typeof detectRecentTokenRepetition>): string {
-  if (!result) {
-    return '';
-  }
-  return `recent planner ${kind} tokens repeated every ${result.periodTokens} tokens across the last ${result.windowTokens} tokens after ${result.totalTokens} tokens`;
-}
-
-async function requestStreaming(
-  options: PlannerRequestOptions,
-  bodyJson: string,
-  stage: string,
-): Promise<PlannerActionResponse> {
-  const toolDefinitions = Array.isArray(options.toolDefinitions)
-    ? options.toolDefinitions
-    : TOOL_DEFINITIONS;
-  const allowedToolNames = new Set<string>(toolDefinitions.map((toolDefinition) => toolDefinition.function.name));
-  const target = new URL(`${options.baseUrl.replace(/\/$/u, '')}/v1/chat/completions`);
-  const startedAt = Date.now();
-  const method = 'POST';
-  const urlPath = `${target.pathname}${target.search}`;
-
-  options.logger?.write({ kind: 'provider_request_start', stage, method, url: target.toString(), path: urlPath });
-
-  let contentText = '';
-  let thinkingText = '';
-  const toolCalls: Array<{ name: string; arguments: string }> = [];
-  let promptTokens: number | null = null;
-  let completionTokens: number | null = null;
-  let usageThinkingTokens: number | null = null;
-  let promptCacheTokens: number | null = null;
-  let promptEvalTokens: number | null = null;
-  let promptEvalDurationMs: number | null = null;
-  let generationDurationMs: number | null = null;
-  let generationStartedAt: number | null = null;
-  let earlyReason: string | null = null;
-  let earlyResolvedText: string | undefined;
-
-  const onData = (parsed: Record<string, unknown>): SseStreamSignal => {
-          try {
-            const parsedUsage = getPromptUsageFromResponseBody(parsed);
-            const parsedCompletionUsage = getCompletionUsageFromResponseBody(parsed);
-            const parsedTimingUsage = getTimingUsageFromResponseBody(parsed);
-            if (parsedUsage.promptTokens !== null) promptTokens = parsedUsage.promptTokens;
-            if (parsedUsage.promptCacheTokens !== null) promptCacheTokens = parsedUsage.promptCacheTokens;
-            if (parsedUsage.promptEvalTokens !== null) promptEvalTokens = parsedUsage.promptEvalTokens;
-            if (parsedCompletionUsage.completionTokens !== null) completionTokens = parsedCompletionUsage.completionTokens;
-            if (parsedCompletionUsage.thinkingTokens !== null) usageThinkingTokens = parsedCompletionUsage.thinkingTokens;
-            if (parsedTimingUsage.promptEvalDurationMs !== null) promptEvalDurationMs = parsedTimingUsage.promptEvalDurationMs;
-            if (parsedTimingUsage.generationDurationMs !== null) generationDurationMs = parsedTimingUsage.generationDurationMs;
-            const choices = parsed?.choices as Array<Record<string, unknown>> | undefined;
-            const choice = Array.isArray(choices) ? choices[0] : null;
-            const delta = choice?.delta && typeof choice.delta === 'object' ? choice.delta as Record<string, unknown> : {};
-            const message = choice?.message && typeof choice.message === 'object' ? choice.message as Record<string, unknown> : {};
-            const deltaThinking = typeof delta.reasoning_content === 'string' ? delta.reasoning_content
-              : typeof message.reasoning_content === 'string' ? message.reasoning_content : '';
-            const deltaContent = typeof delta.content === 'string' ? delta.content : '';
-            if (delta.tool_calls && Array.isArray(delta.tool_calls)) {
-              if (generationStartedAt === null) {
-                generationStartedAt = Date.now();
-              }
-              for (const tc of delta.tool_calls as Array<{ index?: number; function?: { name?: string; arguments?: string } }>) {
-                const idx = tc.index ?? 0;
-                if (!toolCalls[idx]) toolCalls[idx] = { name: '', arguments: '' };
-                if (tc.function?.name) toolCalls[idx].name += tc.function.name;
-                if (tc.function?.arguments) toolCalls[idx].arguments += tc.function.arguments;
-              }
-            }
-            if (deltaThinking) {
-              if (generationStartedAt === null) {
-                generationStartedAt = Date.now();
-              }
-              thinkingText += deltaThinking;
-              const plannerActionText = findPlannerActionText(thinkingText, allowedToolNames);
-              if (plannerActionText) {
-                thinkingText = '';
-                earlyReason = 'planner action completed in streamed reasoning';
-                earlyResolvedText = plannerActionText;
-                return 'stop';
-              }
-              const runawayThinking = getRunawayStructuralTail(thinkingText);
-              if (runawayThinking) {
-                thinkingText = runawayThinking.truncatedText;
-                earlyReason = `runaway streamed planner reasoning repeated '${runawayThinking.repeatedChar}' ${runawayThinking.repeatedCount} times`;
-                return 'stop';
-              }
-              const repeatedThinking = detectRecentTokenRepetition(thinkingText, PLANNER_STREAM_REPETITION_GUARD_OPTIONS);
-              if (repeatedThinking) {
-                thinkingText = repeatedThinking.truncatedText;
-                earlyReason = buildRecentTokenRepetitionReason('reasoning', repeatedThinking);
-                return 'stop';
-              }
-              options.onThinkingDelta?.(thinkingText);
-            }
-            if (deltaContent) {
-              if (generationStartedAt === null) {
-                generationStartedAt = Date.now();
-              }
-              contentText += deltaContent;
-              const runawayContent = getRunawayStructuralTail(contentText);
-              if (runawayContent) {
-                contentText = runawayContent.truncatedText;
-                earlyReason = `runaway streamed planner content repeated '${runawayContent.repeatedChar}' ${runawayContent.repeatedCount} times`;
-                return 'stop';
-              }
-              const repeatedContent = detectRecentTokenRepetition(contentText, PLANNER_STREAM_REPETITION_GUARD_OPTIONS);
-              if (repeatedContent) {
-                contentText = repeatedContent.truncatedText;
-                earlyReason = buildRecentTokenRepetitionReason('content', repeatedContent);
-                return 'stop';
-              }
-              options.onContentDelta?.(contentText);
-            }
-            return undefined;
-          } catch { /* ignore malformed chunks */ return undefined; }
-  };
-
-  try {
-    await httpClient.streamSse(
-      { url: target.toString(), body: bodyJson, timeoutMs: options.timeoutMs, abortSignal: options.abortSignal },
-      onData,
-    );
-  } catch (err) {
-    if (err instanceof LlamaHttpError) {
-      if (isTransientProviderHttpResponse(err.statusCode, err.rawText)) {
-        throw buildTransientProviderHttpError(err.statusCode, err.rawText);
-      }
-      const serialized = serializeNetworkError(new Error(`llama.cpp ${stage} stream failed with HTTP ${err.statusCode}${err.rawText.trim() ? `: ${err.rawText.trim().slice(0, 400)}` : '.'}`));
-      options.logger?.write({ kind: 'provider_request_error', stage, method, url: target.toString(), path: urlPath, elapsedMs: Date.now() - startedAt, error: serialized });
-      throw new Error(buildProviderErrorMessage({ stage, method, url: target.toString() }, serialized));
-    }
-    const serialized = serializeNetworkError(err instanceof Error ? err : new Error(String(err)));
-    options.logger?.write({ kind: 'provider_request_error', stage, method, url: target.toString(), path: urlPath, elapsedMs: Date.now() - startedAt, error: serialized });
-    throw new Error(buildProviderErrorMessage({ stage, method, url: target.toString() }, serialized));
-  }
-
-  const finishedAt = Date.now();
-  const promptEvalDurationMsResolved = promptEvalDurationMs ?? (generationStartedAt === null ? null : Math.max(generationStartedAt - startedAt, 0));
-  const generationDurationMsResolved = generationDurationMs ?? (generationStartedAt === null ? null : Math.max(finishedAt - generationStartedAt, 0));
-
-  if (earlyReason !== null) {
-    options.logger?.write({ kind: 'provider_request_done', stage, method, url: target.toString(), path: urlPath, statusCode: 200, elapsedMs: finishedAt - startedAt, earlyTerminationReason: earlyReason });
-    return {
-      text: earlyResolvedText ?? buildEarlyStoppedPlannerText(earlyReason, contentText),
-      thinkingText: thinkingText.trim(),
-      mockExhausted: false,
-      promptTokens,
-      completionTokens,
-      usageThinkingTokens,
-      promptCacheTokens,
-      promptEvalTokens,
-      promptEvalDurationMs: promptEvalDurationMsResolved,
-      generationDurationMs: generationDurationMsResolved,
-    };
-  }
-
-  options.logger?.write({ kind: 'provider_request_done', stage, method, url: target.toString(), path: urlPath, statusCode: 200, elapsedMs: finishedAt - startedAt });
-  let synthesized: string | null = null;
-  const parsedToolCalls = toolCalls
-    .map((toolCall) => parseRepoToolCallCandidate({
-      function: {
-        name: toolCall?.name,
-        arguments: toolCall?.arguments,
-      },
-    }, allowedToolNames))
-    .filter(Boolean) as ToolAction[];
-  if (parsedToolCalls.length === 1) {
-    synthesized = JSON.stringify(parsedToolCalls[0]);
-  } else if (parsedToolCalls.length > 1) {
-    synthesized = JSON.stringify({
-      action: 'tool_batch',
-      calls: parsedToolCalls.map((toolCall) => ({
-        action: toolCall.tool_name,
-        ...toolCall.args,
-      })),
-    });
-  }
-  // If reasoning_content didn't give us thinking, try to extract <think>...</think> from content
-  let finalThinkingText = thinkingText.trim();
-  let finalContentText = contentText.trim();
-  if (!finalThinkingText && finalContentText.includes('<think>')) {
-    const extracted = extractInlineThinking(finalContentText);
-    finalThinkingText = extracted.thinkingText;
-    finalContentText = extracted.text;
-  }
-  const text = finalContentText || synthesized || '';
-  return {
-    text: typeof text === 'string' ? text.trim() : text,
-    thinkingText: finalThinkingText,
-    mockExhausted: false,
-    promptTokens,
-    completionTokens,
-    usageThinkingTokens,
-    promptCacheTokens,
-    promptEvalTokens,
-    promptEvalDurationMs: promptEvalDurationMsResolved,
-    generationDurationMs: generationDurationMsResolved,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Finish validation
-// ---------------------------------------------------------------------------
 
 export async function requestFinishValidation(options: {
   baseUrl: string;
@@ -960,7 +545,7 @@ export async function requestFinishValidation(options: {
   mockResponseIndex?: number;
   logger?: JsonLogger | null;
 }): Promise<PlannerActionResponse> {
-  return requestPlannerAction({
+  return requestRepoSearchPlannerProtocolAction({
     baseUrl: options.baseUrl,
     model: options.model,
     messages: [{ role: 'user', content: options.prompt }],
@@ -979,10 +564,6 @@ export async function requestFinishValidation(options: {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Terminal synthesis
-// ---------------------------------------------------------------------------
-
 export async function requestTerminalSynthesis(options: {
   baseUrl: string;
   model: string;
@@ -998,7 +579,7 @@ export async function requestTerminalSynthesis(options: {
   stream?: boolean;
   onContentDelta?: (accumulatedContent: string) => void;
 }): Promise<PlannerActionResponse> {
-  return requestPlannerAction({
+  return requestRepoSearchPlannerProtocolAction({
     baseUrl: options.baseUrl,
     model: options.model,
     messages: [{ role: 'user', content: options.prompt }],
@@ -1018,19 +599,12 @@ export async function requestTerminalSynthesis(options: {
   });
 }
 
-// Re-export from shared helpers for convenience.
 export { isTransientProviderError } from '../lib/provider-helpers.js';
-
-// ---------------------------------------------------------------------------
-// Message rendering
-// ---------------------------------------------------------------------------
 
 export function renderTaskTranscript(messages: ChatMessage[]): string {
   return messages.map((message) => {
     const sections = [`[${String(message.role || 'unknown')}]`];
-    if (typeof message.content === 'string' && message.content) {
-      sections.push(message.content);
-    }
+    if (typeof message.content === 'string' && message.content) sections.push(message.content);
     if (Array.isArray(message.tool_calls)) {
       for (const toolCall of message.tool_calls) {
         sections.push(JSON.stringify({
@@ -1048,8 +622,7 @@ export function renderTaskTranscript(messages: ChatMessage[]): string {
 }
 
 export function buildRepoSearchAssistantToolMessage(command: string, toolCallId: string, toolName?: string): ChatMessage {
-  const resolvedToolName = String(toolName || '').trim().toLowerCase()
-    || getRepoSearchToolNameForCommand(command);
+  const resolvedToolName = String(toolName || '').trim().toLowerCase() || getRepoSearchToolNameForCommand(command);
   if (!resolvedToolName || !isRepoSearchCommandToolName(resolvedToolName)) {
     throw new Error(`Cannot derive repo-search tool name from command: ${command}`);
   }

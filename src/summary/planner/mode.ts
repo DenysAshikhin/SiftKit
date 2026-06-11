@@ -1,12 +1,29 @@
 import type { SiftConfig } from '../../config/index.js';
+import { AgentLoop } from '../../agent-loop/agent-loop.js';
+import type {
+  AgentLoopFinishAction,
+  AgentLoopFinishEvaluation,
+  AgentLoopInvalidResponseResult,
+  AgentLoopModelData,
+  AgentLoopModelResponse,
+  AgentLoopPreparedTurn,
+  AgentLoopResponseContext,
+  AgentLoopToolAction,
+  AgentLoopToolExecution,
+  AgentLoopToolResult,
+} from '../../agent-loop/types.js';
+import type { NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
 import {
   createEmptyToolTypeStats,
 } from '../../line-read-guidance.js';
 import {
   countLlamaCppTokens,
+  generateLlamaCppChatResponse,
   type CountLlamaCppTokensOptions,
+  type LlamaCppGenerateResult,
   type LlamaCppChatMessage,
 } from '../../providers/llama-cpp.js';
+import { getProcessedPromptTokens } from '../../lib/provider-helpers.js';
 import { getErrorMessage } from '../../lib/errors.js';
 import { ModelJson } from '../../lib/model-json.js';
 import {
@@ -38,10 +55,18 @@ import {
 } from '../chunking.js';
 import { notifyStatusBackend } from '../../config/index.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
-import { invokePlannerProviderAction } from './provider.js';
+import {
+  SummaryPlannerActionAdapter,
+  SummaryPlannerModelClient,
+  SummaryPlannerPromptAdapter,
+  SummaryPlannerResultAssembler,
+  SummaryPlannerToolAdapter,
+  type SummaryPlannerLoopController,
+} from './agent-loop-adapter.js';
 import type {
   PlannerAction,
   PlannerToolName,
+  SummaryClassification,
   StructuredModelDecision,
   SummaryRequest,
   SummarySourceKind,
@@ -120,6 +145,13 @@ function buildPlannerInvalidToolAction(providerText: string): ToolTranscriptActi
   };
 }
 
+function normalizeAgentLoopSummaryClassification(value: string | undefined): SummaryClassification {
+  if (value === 'command_failure' || value === 'unsupported_input') {
+    return value;
+  }
+  return 'summary';
+}
+
 export async function invokePlannerMode(options: {
   requestId: string;
   slotId: number | null;
@@ -194,184 +226,322 @@ export async function invokePlannerMode(options: {
   const tokenizeOptions = getPlannerTokenizeOptions(options.requestTimeoutSeconds);
   const inputLines = options.inputText.replace(/\r\n/gu, '\n').split('\n');
   const readLinesReturnedRanges: Array<{ start: number; end: number }> = [];
+  let plannerFinished = false;
+  let plannerDecision: StructuredModelDecision | null = null;
+  type SummaryPlannerProviderResponse = {
+    text: string;
+    reasoningText: string | null;
+    inputTokens: number | null;
+    outputCharacterCount: number | null;
+    outputTokens: number | null;
+    thinkingTokens: number | null;
+    promptCacheTokens: number | null;
+    promptEvalTokens: number | null;
+    requestDurationMs: number;
+    providerDurationMs: number;
+    statusRunningMs: number;
+  };
+  type SummaryPlannerModelData = AgentLoopModelData & {
+    kind: 'summary-planner';
+    providerResponse: SummaryPlannerProviderResponse;
+  };
+  type SummaryPlannerToolStatsPayload = Record<string, ReturnType<typeof createEmptyToolTypeStats>>;
 
-  while (toolResults.length <= MAX_PLANNER_TOOL_CALLS) {
-    const turn = toolResults.length + 1;
-    const promptRenderSpan = options.timingRecorder?.start('summary.planner.prompt.render', {
-      turn,
-      messageCount: messages.length,
-    });
-    const prompt = renderPlannerTranscript(messages);
-    promptRenderSpan?.end({ promptChars: prompt.length });
-    const promptTokenSpan = options.timingRecorder?.start('summary.planner.prompt.tokenize', {
-      turn,
-      promptChars: prompt.length,
-    });
-    const promptTokenCount = (
-      await countLlamaCppTokens(options.config, prompt, tokenizeOptions)
-    ) ?? estimatePromptTokenCount(options.config, prompt);
-    promptTokenSpan?.end({ promptTokenCount });
-    debugRecorder.record({
-      kind: 'planner_prompt',
-      prompt,
-      promptTokenCount,
-      toolCallCount: toolResults.length,
-      plannerBudget: promptBudget,
-    });
-    if (promptTokenCount > promptBudget.plannerStopLineTokens) {
-      debugRecorder.finish({
-        status: 'failed',
-        reason: 'planner_headroom_exceeded',
-        promptTokenCount,
+  function getSummaryPlannerModelData(context: AgentLoopResponseContext): SummaryPlannerModelData {
+    if (context.modelData?.kind !== 'summary-planner') {
+      throw new Error('Summary planner AgentLoop context is missing provider response data.');
+    }
+    return context.modelData as SummaryPlannerModelData;
+  }
+
+  class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
+    private prompt = '';
+    private promptTokenCount = 0;
+
+    async prepareTurn(turnNumber: number): Promise<AgentLoopPreparedTurn> {
+      const turn = toolResults.length + 1;
+      if (toolResults.length > MAX_PLANNER_TOOL_CALLS) {
+        return {
+          outcome: 'stop',
+          turnNumber,
+          promptTokenCount: 0,
+          maxOutputTokens: 0,
+          messages: messages as AgentLoopPreparedTurn['messages'],
+          toolDefinitions: toolDefinitions as AgentLoopPreparedTurn['toolDefinitions'],
+          inForcedFinishMode: false,
+        };
+      }
+      const promptRenderSpan = options.timingRecorder?.start('summary.planner.prompt.render', {
+        turn,
+        messageCount: messages.length,
+      });
+      this.prompt = renderPlannerTranscript(messages);
+      promptRenderSpan?.end({ promptChars: this.prompt.length });
+      const promptTokenSpan = options.timingRecorder?.start('summary.planner.prompt.tokenize', {
+        turn,
+        promptChars: this.prompt.length,
+      });
+      this.promptTokenCount = (
+        await countLlamaCppTokens(options.config, this.prompt, tokenizeOptions)
+      ) ?? estimatePromptTokenCount(options.config, this.prompt);
+      promptTokenSpan?.end({ promptTokenCount: this.promptTokenCount });
+      debugRecorder.record({
+        kind: 'planner_prompt',
+        prompt: this.prompt,
+        promptTokenCount: this.promptTokenCount,
+        toolCallCount: toolResults.length,
         plannerBudget: promptBudget,
       });
-      return null;
+      if (this.promptTokenCount > promptBudget.plannerStopLineTokens) {
+        debugRecorder.finish({
+          status: 'failed',
+          reason: 'planner_headroom_exceeded',
+          promptTokenCount: this.promptTokenCount,
+          plannerBudget: promptBudget,
+        });
+        plannerFinished = true;
+        plannerDecision = null;
+        return {
+          outcome: 'stop',
+          turnNumber: turn,
+          promptTokenCount: this.promptTokenCount,
+          maxOutputTokens: 0,
+          messages: messages as AgentLoopPreparedTurn['messages'],
+          toolDefinitions: toolDefinitions as AgentLoopPreparedTurn['toolDefinitions'],
+          inForcedFinishMode: forcedFinishAttemptsRemaining > 0,
+        };
+      }
+      return {
+        outcome: 'continue',
+        turnNumber: turn,
+        promptTokenCount: this.promptTokenCount,
+        maxOutputTokens: 0,
+        messages: messages as AgentLoopPreparedTurn['messages'],
+        toolDefinitions: toolDefinitions as AgentLoopPreparedTurn['toolDefinitions'],
+        inForcedFinishMode: forcedFinishAttemptsRemaining > 0,
+      };
     }
 
-    let providerResponse: {
-      text: string;
-      reasoningText: string | null;
-      inputTokens: number | null;
-      outputCharacterCount: number | null;
-      outputTokens: number | null;
-      thinkingTokens: number | null;
-      promptCacheTokens: number | null;
-      promptEvalTokens: number | null;
-      requestDurationMs: number;
-      providerDurationMs: number;
-      statusRunningMs: number;
-    };
-    try {
-      providerResponse = await invokePlannerProviderAction({
-        requestId: options.requestId,
-        slotId: options.slotId,
-        config: options.config,
-        model: options.model,
-        messages,
-        promptText: prompt,
-        promptTokenCount,
-        rawInputCharacterCount: options.inputText.length,
-        chunkInputCharacterCount: options.inputText.length,
-        toolDefinitions,
-        requestTimeoutSeconds: options.requestTimeoutSeconds,
-        llamaCppOverrides: options.llamaCppOverrides,
-        statusBackendUrl: options.statusBackendUrl,
-        timingRecorder: options.timingRecorder || null,
-      });
-    } catch (error) {
-      debugRecorder.finish({
-        status: 'failed',
-        reason: getErrorMessage(error),
-      });
-      return null;
-    }
-
-    let countOutputTokens = false;
-    let countToolTokens = false;
-    let toolStatsPayload: Record<string, {
-      calls: number;
-      outputCharsTotal: number;
-      outputTokensTotal: number;
-      outputTokensEstimatedCount: number;
-      lineReadCalls: number;
-      lineReadLinesTotal: number;
-      lineReadTokensTotal: number;
-      finishRejections: number;
-      semanticRepeatRejects: number;
-      stagnationWarnings: number;
-      forcedFinishFromStagnation: number;
-      promptInsertedTokens: number;
-      rawToolResultTokens: number;
-      newEvidenceCalls: number;
-      noNewEvidenceCalls: number;
-    }> | null = null;
-    try {
+    async requestModelResponse(_preparedTurn: AgentLoopPreparedTurn): Promise<AgentLoopModelResponse> {
+      let providerResponse: SummaryPlannerProviderResponse;
+      try {
+        providerResponse = await this.requestProviderAction();
+      } catch (error) {
+        debugRecorder.finish({
+          status: 'failed',
+          reason: getErrorMessage(error),
+        });
+        plannerFinished = true;
+        plannerDecision = null;
+        return { outcome: 'stop', data: null };
+      }
       debugRecorder.record({
         kind: 'planner_model_response',
         thinkingProcess: providerResponse.reasoningText,
         responseText: providerResponse.text,
       });
+      const data: SummaryPlannerModelData = {
+        kind: 'summary-planner',
+        providerResponse,
+      };
+      return {
+        outcome: 'continue',
+        response: this.toNormalizedResponse(providerResponse),
+        data,
+      };
+    }
 
-      let action: PlannerAction;
+    inspectModelResponse(_context: AgentLoopResponseContext): 'continue' | 'stop' | null {
+      return null;
+    }
+
+    private toNormalizedResponse(response: SummaryPlannerProviderResponse): NormalizedLlamaCppChatResponse {
+      return {
+        text: response.text,
+        reasoningText: response.reasoningText || '',
+        toolCalls: [],
+        usage: {
+          promptTokens: response.inputTokens,
+          completionTokens: response.outputTokens,
+          totalTokens: null,
+          outputTokens: response.outputTokens,
+          thinkingTokens: response.thinkingTokens,
+          promptCacheTokens: response.promptCacheTokens,
+          promptEvalTokens: response.promptEvalTokens,
+        },
+        raw: {
+          requestDurationMs: response.requestDurationMs,
+          providerDurationMs: response.providerDurationMs,
+          statusRunningMs: response.statusRunningMs,
+          outputCharacterCount: response.outputCharacterCount,
+        },
+        stoppedEarly: false,
+      };
+    }
+
+    private async requestProviderAction(override?: {
+      promptText: string;
+      promptTokenCount: number;
+    }): Promise<SummaryPlannerProviderResponse> {
+      const promptText = override?.promptText ?? this.prompt;
+      const promptTokenCount = override?.promptTokenCount ?? this.promptTokenCount;
+      traceSummary(
+        `notify running=true phase=planner chunk=none raw_chars=${options.inputText.length} `
+        + `chunk_chars=${options.inputText.length} prompt_chars=${promptText.length}`
+      );
+      const statusRunningStartedAt = Date.now();
+      const notifyRunningSpan = options.timingRecorder?.start('summary.planner.status.notify_running', {
+        promptChars: promptText.length,
+      });
       try {
-        const parseSpan = options.timingRecorder?.start('summary.planner.response.parse', {
-          turn,
-          responseChars: providerResponse.text.length,
+        await notifyStatusBackend({
+          running: true,
+          taskKind: 'summary',
+          statusBackendUrl: options.statusBackendUrl,
+          requestId: options.requestId,
+          promptCharacterCount: promptText.length,
+          promptTokenCount,
+          rawInputCharacterCount: options.inputText.length,
+          chunkInputCharacterCount: options.inputText.length,
+          budgetSource: options.config.Effective?.BudgetSource ?? null,
+          inputCharactersPerContextToken: options.config.Effective?.InputCharactersPerContextToken ?? null,
+          chunkThresholdCharacters: options.config.Effective?.ChunkThresholdCharacters ?? null,
+          phase: 'planner',
         });
-        try {
-          action = ModelJson.parseSummaryPlannerAction(providerResponse.text);
-          parseSpan?.end({ ok: true });
-        } catch (error) {
-          parseSpan?.end({ ok: false });
-          throw error;
-        }
-      } catch (error) {
-        const recoveredDecision = toolResults.length === 0
-          ? tryParseSummaryDecision(providerResponse.text)
-          : null;
-        if (recoveredDecision) {
-          const decision = normalizeStructuredDecision(recoveredDecision, options.format);
-          debugRecorder.finish({
-            status: 'completed',
-            command: options.debugCommand ?? null,
-            finalOutput: decision.output,
-            classification: decision.classification,
-            rawReviewRequired: decision.rawReviewRequired,
-          });
-          return decision;
-        }
-        invalidActionCount += 1;
-        const invalidResponseError = getErrorMessage(error);
-        const invalidToolResultText = buildPlannerInvalidResponseUserPrompt(invalidResponseError);
-        appendToolCallExchange(
-          messages,
-          buildPlannerInvalidToolAction(providerResponse.text),
-          `invalid_call_${invalidActionCount}`,
-          invalidToolResultText,
-          providerResponse.reasoningText || '',
-        );
-        debugRecorder.record({
-          kind: 'planner_invalid_response',
-          error: invalidResponseError,
-          toolResultText: invalidToolResultText,
-        });
-        if (invalidActionCount >= MAX_PLANNER_INVALID_RESPONSES) {
-          debugRecorder.finish({
-            status: 'failed',
-            reason: 'planner_invalid_response_limit',
-          });
-          return null;
-        }
-        continue;
+        notifyRunningSpan?.end({ ok: true });
+      } catch {
+        notifyRunningSpan?.end({ ok: false });
+        traceSummary(`notify running=true failed phase=planner chunk=none request_id=${options.requestId}`);
       }
 
-      if (action.action === 'finish') {
-        if (action.classification === 'unsupported_input' && options.sourceKind === 'command-output') {
-          const fallbackDecision = normalizeStructuredDecision(
-            buildConservativeDirectFallbackDecision({
-              inputText: options.inputText,
-              question: options.question,
-              format: options.format,
-              sourceKind: options.sourceKind,
-            }),
-            options.format,
-          );
-          debugRecorder.finish({
-            status: 'completed',
-            command: options.debugCommand ?? null,
-            finalOutput: fallbackDecision.output,
-            classification: fallbackDecision.classification,
-            rawReviewRequired: fallbackDecision.rawReviewRequired,
+      const statusRunningMs = Date.now() - statusRunningStartedAt;
+      const startedAt = Date.now();
+      let inputTokens: number | null = null;
+      let outputCharacterCount: number | null = null;
+      let outputTokens: number | null = null;
+      let thinkingTokens: number | null = null;
+      let promptCacheTokens: number | null = null;
+      let promptEvalTokens: number | null = null;
+      try {
+        const llamaSpan = options.timingRecorder?.start('summary.planner.llama.request', {
+          promptTokenCount,
+          toolDefinitionCount: toolDefinitions.length,
+        });
+        let response: LlamaCppGenerateResult;
+        try {
+          response = await generateLlamaCppChatResponse({
+            config: options.config,
+            model: options.model,
+            messages,
+            timeoutSeconds: options.requestTimeoutSeconds ?? 600,
+            slotId: options.slotId ?? undefined,
+            cachePrompt: true,
+            tools: toolDefinitions,
+            structuredOutput: {
+              kind: 'siftkit-planner-action-json',
+              tools: toolDefinitions,
+            },
+            overrides: options.llamaCppOverrides,
           });
-          return fallbackDecision;
+        } finally {
+          llamaSpan?.end();
         }
+        inputTokens = getProcessedPromptTokens(
+          response.usage?.promptTokens ?? null,
+          response.usage?.promptCacheTokens ?? null,
+          response.usage?.promptEvalTokens ?? null,
+        );
+        outputCharacterCount = response.text.length;
+        outputTokens = response.usage?.completionTokens ?? null;
+        thinkingTokens = response.usage?.thinkingTokens ?? null;
+        promptCacheTokens = response.usage?.promptCacheTokens ?? null;
+        promptEvalTokens = response.usage?.promptEvalTokens ?? null;
+        const providerDurationMs = Date.now() - startedAt;
+        return {
+          text: response.text,
+          reasoningText: response.reasoningText,
+          inputTokens,
+          outputCharacterCount,
+          outputTokens,
+          thinkingTokens,
+          promptCacheTokens,
+          promptEvalTokens,
+          requestDurationMs: providerDurationMs,
+          providerDurationMs,
+          statusRunningMs,
+        };
+      } catch (error) {
+        traceSummary(`notify running=false phase=planner chunk=none duration_ms=${Date.now() - startedAt}`);
+        const notifyFailedSpan = options.timingRecorder?.start('summary.planner.status.notify_terminal', {
+          terminalState: 'failed',
+        });
+        try {
+          await notifyStatusBackend({
+            running: false,
+            taskKind: 'summary',
+            requestId: options.requestId,
+            statusBackendUrl: options.statusBackendUrl,
+            promptCharacterCount: promptText.length,
+            inputTokens,
+            outputCharacterCount,
+            outputTokens,
+            thinkingTokens,
+            promptCacheTokens,
+            promptEvalTokens,
+            requestDurationMs: Date.now() - startedAt,
+          });
+          notifyFailedSpan?.end({ ok: true });
+        } catch {
+          notifyFailedSpan?.end({ ok: false });
+          traceSummary(`notify running=false failed phase=planner chunk=none request_id=${options.requestId}`);
+        }
+        throw error;
+      }
+    }
 
-        countOutputTokens = true;
-        const decision = normalizeStructuredDecision({
-          classification: action.classification,
-          rawReviewRequired: action.rawReviewRequired,
-          output: action.output,
-        }, options.format);
+    private async notifyIteration(optionsForNotify: {
+      providerResponse: SummaryPlannerProviderResponse;
+      countOutputTokens: boolean;
+      countToolTokens: boolean;
+      toolStatsPayload: SummaryPlannerToolStatsPayload | null;
+    }): Promise<void> {
+      const { providerResponse, countOutputTokens, countToolTokens, toolStatsPayload } = optionsForNotify;
+      traceSummary(`notify running=false phase=planner chunk=none duration_ms=${providerResponse.requestDurationMs}`);
+      const notifyTerminalSpan = options.timingRecorder?.start('summary.planner.status.notify_terminal', {
+        terminalState: 'iteration',
+      });
+      void notifyStatusBackend({
+        running: false,
+        taskKind: 'summary',
+        statusBackendUrl: options.statusBackendUrl,
+        requestId: options.requestId,
+        promptCharacterCount: this.prompt.length,
+        inputTokens: providerResponse.inputTokens,
+        outputCharacterCount: providerResponse.outputCharacterCount,
+        outputTokens: countOutputTokens ? providerResponse.outputTokens : null,
+        toolTokens: countToolTokens ? providerResponse.outputTokens : null,
+        thinkingTokens: providerResponse.thinkingTokens,
+        toolStats: toolStatsPayload,
+        promptCacheTokens: providerResponse.promptCacheTokens,
+        promptEvalTokens: providerResponse.promptEvalTokens,
+        requestDurationMs: providerResponse.requestDurationMs,
+        providerDurationMs: providerResponse.providerDurationMs,
+        statusRunningMs: providerResponse.statusRunningMs,
+      }).catch(() => {
+        notifyTerminalSpan?.end({ ok: false });
+        traceSummary(`notify running=false failed phase=planner chunk=none request_id=${options.requestId}`);
+      }).then(() => {
+        notifyTerminalSpan?.end({ ok: true });
+      });
+    }
+
+    async handleInvalidResponse(context: AgentLoopResponseContext & { error: Error }): Promise<AgentLoopInvalidResponseResult> {
+      const providerResponse = getSummaryPlannerModelData(context).providerResponse;
+      const recoveredDecision = toolResults.length === 0
+        ? tryParseSummaryDecision(providerResponse.text)
+        : null;
+      if (recoveredDecision) {
+        const decision = normalizeStructuredDecision(recoveredDecision, options.format);
         debugRecorder.finish({
           status: 'completed',
           command: options.debugCommand ?? null,
@@ -379,51 +549,167 @@ export async function invokePlannerMode(options: {
           classification: decision.classification,
           rawReviewRequired: decision.rawReviewRequired,
         });
-        return decision;
+        plannerFinished = true;
+        plannerDecision = decision;
+        await this.notifyIteration({
+          providerResponse,
+          countOutputTokens: false,
+          countToolTokens: false,
+          toolStatsPayload: null,
+        });
+        return { outcome: 'stop' };
+      }
+      invalidActionCount += 1;
+      const invalidResponseError = getErrorMessage(context.error);
+      const invalidToolResultText = buildPlannerInvalidResponseUserPrompt(invalidResponseError);
+      appendToolCallExchange(
+        messages,
+        buildPlannerInvalidToolAction(providerResponse.text),
+        `invalid_call_${invalidActionCount}`,
+        invalidToolResultText,
+        providerResponse.reasoningText || '',
+      );
+      debugRecorder.record({
+        kind: 'planner_invalid_response',
+        error: invalidResponseError,
+        toolResultText: invalidToolResultText,
+      });
+      if (invalidActionCount >= MAX_PLANNER_INVALID_RESPONSES) {
+        debugRecorder.finish({
+          status: 'failed',
+          reason: 'planner_invalid_response_limit',
+        });
+        plannerFinished = true;
+        plannerDecision = null;
+        await this.notifyIteration({
+          providerResponse,
+          countOutputTokens: false,
+          countToolTokens: false,
+          toolStatsPayload: null,
+        });
+        return { outcome: 'stop' };
+      }
+      await this.notifyIteration({
+        providerResponse,
+        countOutputTokens: false,
+        countToolTokens: false,
+        toolStatsPayload: null,
+      });
+      return { outcome: 'continue' };
+    }
+
+    async evaluateFinish(action: AgentLoopFinishAction, context: AgentLoopResponseContext): Promise<AgentLoopFinishEvaluation> {
+      const providerResponse = getSummaryPlannerModelData(context).providerResponse;
+      if (action.classification === 'unsupported_input' && options.sourceKind === 'command-output') {
+        const fallbackDecision = normalizeStructuredDecision(
+          buildConservativeDirectFallbackDecision({
+            inputText: options.inputText,
+            question: options.question,
+            format: options.format,
+            sourceKind: options.sourceKind,
+          }),
+          options.format,
+        );
+        debugRecorder.finish({
+          status: 'completed',
+          command: options.debugCommand ?? null,
+          finalOutput: fallbackDecision.output,
+          classification: fallbackDecision.classification,
+          rawReviewRequired: fallbackDecision.rawReviewRequired,
+        });
+        plannerFinished = true;
+        plannerDecision = fallbackDecision;
+        await this.notifyIteration({
+          providerResponse,
+          countOutputTokens: true,
+          countToolTokens: false,
+          toolStatsPayload: null,
+        });
+        return { accepted: true, outcome: 'stop', finishText: fallbackDecision.output };
       }
 
-      countToolTokens = true;
+      const decision = normalizeStructuredDecision({
+        classification: normalizeAgentLoopSummaryClassification(action.classification),
+        rawReviewRequired: action.rawReviewRequired === true,
+        output: action.text,
+      }, options.format);
+      debugRecorder.finish({
+        status: 'completed',
+        command: options.debugCommand ?? null,
+        finalOutput: decision.output,
+        classification: decision.classification,
+        rawReviewRequired: decision.rawReviewRequired,
+      });
+      plannerFinished = true;
+      plannerDecision = decision;
+      await this.notifyIteration({
+        providerResponse,
+        countOutputTokens: true,
+        countToolTokens: false,
+        toolStatsPayload: null,
+      });
+      return { accepted: true, outcome: 'stop', finishText: decision.output };
+    }
 
-      const toolActions = action.action === 'tool_batch'
-        ? action.tool_calls.map((toolCall) => ({
-          action: 'tool' as const,
-          tool_name: toolCall.tool_name,
-          args: toolCall.args,
-        }))
-        : [action];
+    async executeTools(actions: readonly AgentLoopToolAction[], context: AgentLoopResponseContext): Promise<AgentLoopToolExecution> {
+      const providerResponse = getSummaryPlannerModelData(context).providerResponse;
+      const beforeToolResultCount = toolResults.length;
+      const turn = toolResults.length + 1;
+      let toolStatsPayload: SummaryPlannerToolStatsPayload | null = null;
+      const toolActions = actions.map((action) => ({
+        action: 'tool' as const,
+        tool_name: action.toolName as PlannerToolName,
+        args: action.args,
+      }));
 
       if (forcedFinishAttemptsRemaining > 0) {
         forcedFinishAttemptsRemaining = Math.max(forcedFinishAttemptsRemaining - 1, 0);
         const rejectedToolAction = toolActions[0];
-        const forcedToolResultText = buildPlannerForcedFinishUserPrompt(
-          'Current evidence is already repeating and likely sufficient. Produce your final answer now.'
-        );
-        appendToolCallExchange(
-          messages,
-          rejectedToolAction,
-          `forced_finish_call_${toolResults.length + 1}`,
-          forcedToolResultText,
-          providerResponse.reasoningText || '',
-        );
-        forcedFinishCountdownUserMessageIndex = upsertTrailingUserMessage(
-          messages,
-          forcedFinishCountdownUserMessageIndex,
-          `Forced finish attempts remaining: ${forcedFinishAttemptsRemaining}. Produce your final answer now.`,
-        );
-        debugRecorder.record({
-          kind: 'planner_forced_finish_reprompt',
-          attemptsRemaining: forcedFinishAttemptsRemaining,
-          toolCall: rejectedToolAction,
-          toolResultText: forcedToolResultText,
-        });
+        if (rejectedToolAction) {
+          const forcedToolResultText = buildPlannerForcedFinishUserPrompt(
+            'Current evidence is already repeating and likely sufficient. Produce your final answer now.'
+          );
+          appendToolCallExchange(
+            messages,
+            rejectedToolAction,
+            `forced_finish_call_${toolResults.length + 1}`,
+            forcedToolResultText,
+            providerResponse.reasoningText || '',
+          );
+          forcedFinishCountdownUserMessageIndex = upsertTrailingUserMessage(
+            messages,
+            forcedFinishCountdownUserMessageIndex,
+            `Forced finish attempts remaining: ${forcedFinishAttemptsRemaining}. Produce your final answer now.`,
+          );
+          debugRecorder.record({
+            kind: 'planner_forced_finish_reprompt',
+            attemptsRemaining: forcedFinishAttemptsRemaining,
+            toolCall: rejectedToolAction,
+            toolResultText: forcedToolResultText,
+          });
+        }
         if (forcedFinishAttemptsRemaining === 0) {
           debugRecorder.finish({
             status: 'failed',
             reason: 'planner_forced_finish_attempt_limit',
           });
-          return null;
+          plannerFinished = true;
+          plannerDecision = null;
+          await this.notifyIteration({
+            providerResponse,
+            countOutputTokens: false,
+            countToolTokens: true,
+            toolStatsPayload,
+          });
+          return { outcome: 'stop', results: [] };
         }
-        continue;
+        await this.notifyIteration({
+          providerResponse,
+          countOutputTokens: false,
+          countToolTokens: true,
+          toolStatsPayload,
+        });
+        return { outcome: 'continue', results: [] };
       }
 
       if ((toolResults.length + toolActions.length) > MAX_PLANNER_TOOL_CALLS) {
@@ -433,13 +719,15 @@ export async function invokePlannerMode(options: {
           toolCallCount: toolResults.length,
         });
         const limitedToolAction = toolActions[0];
-        appendToolCallExchange(
-          messages,
-          limitedToolAction,
-          `tool_limit_call_${toolResults.length + 1}`,
-          buildPlannerForcedFinishUserPrompt(),
-          providerResponse.reasoningText || '',
-        );
+        if (limitedToolAction) {
+          appendToolCallExchange(
+            messages,
+            limitedToolAction,
+            `tool_limit_call_${toolResults.length + 1}`,
+            buildPlannerForcedFinishUserPrompt(),
+            providerResponse.reasoningText || '',
+          );
+        }
         messages.push({
           role: 'user',
           content: buildPlannerForcedFinishUserPrompt(),
@@ -454,21 +742,9 @@ export async function invokePlannerMode(options: {
             await countLlamaCppTokens(options.config, forcedPrompt, tokenizeOptions)
           ) ?? estimatePromptTokenCount(options.config, forcedPrompt);
           forcedPromptTokenSpan?.end({ promptTokenCount: forcedPromptTokenCount });
-          const forcedResponse = await invokePlannerProviderAction({
-            requestId: options.requestId,
-            slotId: options.slotId,
-            config: options.config,
-            model: options.model,
-            messages,
+          const forcedResponse = await this.requestProviderAction({
             promptText: forcedPrompt,
             promptTokenCount: forcedPromptTokenCount,
-            rawInputCharacterCount: options.inputText.length,
-            chunkInputCharacterCount: options.inputText.length,
-            toolDefinitions,
-            requestTimeoutSeconds: options.requestTimeoutSeconds,
-            llamaCppOverrides: options.llamaCppOverrides,
-            statusBackendUrl: options.statusBackendUrl,
-            timingRecorder: options.timingRecorder || null,
           });
           const forcedAction = ModelJson.parseSummaryPlannerAction(forcedResponse.text);
           if (forcedAction.action === 'finish') {
@@ -484,16 +760,32 @@ export async function invokePlannerMode(options: {
               classification: forcedDecision.classification,
               rawReviewRequired: forcedDecision.rawReviewRequired,
             });
-            return forcedDecision;
+            plannerFinished = true;
+            plannerDecision = forcedDecision;
+            await this.notifyIteration({
+              providerResponse,
+              countOutputTokens: false,
+              countToolTokens: true,
+              toolStatsPayload,
+            });
+            return { outcome: 'stop', results: [] };
           }
         } catch {
-          // forced finish failed — fall through to null
+          // forced finish failed; fall through to null
         }
         debugRecorder.finish({
           status: 'failed',
           reason: 'planner_tool_call_limit',
         });
-        return null;
+        plannerFinished = true;
+        plannerDecision = null;
+        await this.notifyIteration({
+          providerResponse,
+          countOutputTokens: false,
+          countToolTokens: true,
+          toolStatsPayload,
+        });
+        return { outcome: 'stop', results: [] };
       }
 
       const batchOutcomes: ToolBatchOutcome[] = [];
@@ -618,7 +910,15 @@ export async function invokePlannerMode(options: {
               status: 'failed',
               reason: 'planner_invalid_response_limit',
             });
-            return null;
+            plannerFinished = true;
+            plannerDecision = null;
+            await this.notifyIteration({
+              providerResponse,
+              countOutputTokens: false,
+              countToolTokens: true,
+              toolStatsPayload,
+            });
+            return { outcome: 'stop', results: [] };
           }
           continue;
         }
@@ -643,7 +943,7 @@ export async function invokePlannerMode(options: {
           rawChars: rawFormattedResultText.length,
           formattedChars: formattedResultText.length,
         });
-        const remainingPromptTokens = Math.max(promptBudget.plannerStopLineTokens - promptTokenCount, 0);
+        const remainingPromptTokens = Math.max(promptBudget.plannerStopLineTokens - this.promptTokenCount, 0);
         const rawTokenSpan = options.timingRecorder?.start('summary.planner.tool.tokenize_raw', {
           turn,
           toolName: toolAction.tool_name,
@@ -695,7 +995,7 @@ export async function invokePlannerMode(options: {
           });
           const fitTokenSpan = options.timingRecorder?.start('summary.planner.tool.tokenize_prompt', {
             turn,
-            toolName: effectiveToolAction.tool_name,
+            toolName: toolAction.tool_name,
             inputChars: promptResultText.length,
           });
           const fitTokenCountRaw = await countLlamaCppTokens(options.config, promptResultText, tokenizeOptions);
@@ -779,35 +1079,38 @@ export async function invokePlannerMode(options: {
       for (const userMessage of pendingModeChangeUserMessages) {
         messages.push({ role: 'user', content: userMessage });
       }
-    } finally {
-      traceSummary(`notify running=false phase=planner chunk=none duration_ms=${providerResponse.requestDurationMs}`);
-      const notifyTerminalSpan = options.timingRecorder?.start('summary.planner.status.notify_terminal', {
-        terminalState: 'iteration',
+
+      await this.notifyIteration({
+        providerResponse,
+        countOutputTokens: false,
+        countToolTokens: true,
+        toolStatsPayload,
       });
-      void notifyStatusBackend({
-        running: false,
-        taskKind: 'summary',
-        statusBackendUrl: options.statusBackendUrl,
-        requestId: options.requestId,
-        promptCharacterCount: prompt.length,
-        inputTokens: providerResponse.inputTokens,
-        outputCharacterCount: providerResponse.outputCharacterCount,
-        outputTokens: countOutputTokens ? providerResponse.outputTokens : null,
-        toolTokens: countToolTokens ? providerResponse.outputTokens : null,
-        thinkingTokens: providerResponse.thinkingTokens,
-        toolStats: toolStatsPayload,
-        promptCacheTokens: providerResponse.promptCacheTokens,
-        promptEvalTokens: providerResponse.promptEvalTokens,
-        requestDurationMs: providerResponse.requestDurationMs,
-        providerDurationMs: providerResponse.providerDurationMs,
-        statusRunningMs: providerResponse.statusRunningMs,
-      }).catch(() => {
-        notifyTerminalSpan?.end({ ok: false });
-        traceSummary(`notify running=false failed phase=planner chunk=none request_id=${options.requestId}`);
-      }).then(() => {
-        notifyTerminalSpan?.end({ ok: true });
-      });
+      const results = toolResults.slice(beforeToolResultCount).map((result, index): AgentLoopToolResult => ({
+        callId: `call_${beforeToolResultCount + index + 1}`,
+        toolName: result.toolName,
+        args: result.args,
+        text: result.resultText,
+        raw: result.result,
+      }));
+      return { outcome: 'continue', results };
     }
+  }
+
+  const runtime = new SummaryPlannerLoopRuntime();
+  const promptAdapter = new SummaryPlannerPromptAdapter(runtime);
+  const actionAdapter = new SummaryPlannerActionAdapter(runtime);
+  const toolAdapter = new SummaryPlannerToolAdapter(runtime);
+  await new AgentLoop({
+    maxTurns: MAX_PLANNER_TOOL_CALLS + 1,
+    promptAdapter,
+    actionAdapter,
+    toolAdapter,
+    modelClient: new SummaryPlannerModelClient(runtime),
+  }).run();
+
+  if (plannerFinished) {
+    return new SummaryPlannerResultAssembler(plannerDecision).assemble();
   }
 
   debugRecorder.finish({

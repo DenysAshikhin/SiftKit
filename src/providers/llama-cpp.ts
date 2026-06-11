@@ -1,14 +1,16 @@
-import { getActiveManagedLlamaPreset, getConfiguredLlamaBaseUrl, getConfiguredLlamaNumCtx, getConfiguredLlamaSetting, type RuntimeLlamaCppConfig, type SiftConfig } from '../config/index.js';
-import { httpClient, type FullJsonResponse } from '../lib/http-client.js';
-import {
-  buildTransientProviderHttpError,
-  isTransientProviderHttpResponse,
-  retryProviderRequest,
-} from '../lib/provider-helpers.js';
+import { getConfiguredLlamaBaseUrl, getConfiguredLlamaNumCtx, type RuntimeLlamaCppConfig, type SiftConfig } from '../config/index.js';
 import { estimatePromptTokenCountFromCharacters, getDynamicMaxOutputTokens } from '../lib/dynamic-output-cap.js';
 import { ModelJson } from '../lib/model-json.js';
-import { getNormalizedCompletionTokens } from '../lib/telemetry-metrics.js';
 import { tryRecordAccurateCharTokenObservation } from '../state/observed-budget.js';
+import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
+import type {
+  JsonObject,
+  LlamaCppChatMessage as ProtocolLlamaCppChatMessage,
+  LlamaCppResponseFormat,
+  LlamaCppToolCall,
+  LlamaCppToolDefinition,
+  NormalizedLlamaCppChatResponse,
+} from '../llm-protocol/types.js';
 import {
   buildLlamaJsonSchemaResponseFormat,
   buildSummaryDecisionJsonSchema,
@@ -17,10 +19,6 @@ import {
 } from './structured-output-schema.js';
 import { createTracer } from '../lib/trace.js';
 
-type LlamaCppModelListResponse = {
-  data?: Array<{ id?: string }>;
-};
-
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -28,13 +26,6 @@ function getErrorMessage(error: unknown): string {
 function logLlamaCppError(operation: string, message: string): void {
   console.error(`llama.cpp ${operation} error: ${message}`);
 }
-
-type LlamaCppTokenizeResponse = {
-  tokens?: unknown[];
-  count?: unknown;
-  token_count?: unknown;
-  n_tokens?: unknown;
-};
 
 export const DEFAULT_LLAMA_CPP_TOKENIZE_TIMEOUT_MS = 10_000;
 export const DEFAULT_LLAMA_CPP_TOKENIZE_RETRY_MAX_WAIT_MS = 30_000;
@@ -54,62 +45,6 @@ export type LlamaCppTokenCountResult = {
   httpStatusCode: number | null;
   errorMessage: string | null;
 };
-
-type LlamaCppChatResponse = {
-  choices?: Array<{
-    message?: {
-      role?: string;
-      content?: string | Array<{ type?: string; text?: string }>;
-      reasoning_content?: string | Array<{ type?: string; text?: string }>;
-      tool_calls?: Array<{
-        id?: string;
-        type?: string;
-        function?: {
-          name?: string;
-          arguments?: unknown;
-        };
-      }>;
-      function_call?: {
-        name?: string;
-        arguments?: unknown;
-      };
-    };
-    text?: string;
-    tool_calls?: Array<{
-      function?: {
-        name?: string;
-        arguments?: unknown;
-      };
-    }>;
-  }>;
-  usage?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    total_tokens?: number;
-    prompt_tokens_details?: {
-      cached_tokens?: number;
-    };
-    input_tokens_details?: {
-      cached_tokens?: number;
-    };
-    reasoning_tokens?: number;
-    thinking_tokens?: number;
-    completion_tokens_details?: {
-      reasoning_tokens?: number;
-      thinking_tokens?: number;
-    };
-    output_tokens_details?: {
-      reasoning_tokens?: number;
-      thinking_tokens?: number;
-    };
-  };
-  timings?: {
-    cache_n?: number;
-    prompt_n?: number;
-  };
-};
-
-type LlamaCppChatChoice = NonNullable<LlamaCppChatResponse['choices']>[number];
 
 export type LlamaCppUsage = {
   promptTokens: number | null;
@@ -139,10 +74,6 @@ export type LlamaCppChatMessage = {
     };
   }>;
   tool_call_id?: string;
-  function_call?: {
-    name?: string;
-    arguments?: unknown;
-  };
 };
 
 export type LlamaCppStructuredOutput =
@@ -156,50 +87,11 @@ type PlannerStructuredToolCall = {
 };
 
 const traceLlamaCpp = createTracer('SIFTKIT_TRACE_SUMMARY', 'llama-cpp');
-
-function getUsageValue(value: unknown): number | null {
-  return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : null;
-}
-
-function getThinkingTokenCount(usage: LlamaCppChatResponse['usage']): number | null {
-  if (!usage) {
-    return null;
-  }
-
-  const detailCandidates = [
-    usage.completion_tokens_details,
-    usage.output_tokens_details,
-  ];
-  for (const details of detailCandidates) {
-    if (!details) {
-      continue;
-    }
-
-    const reasoningTokens = getUsageValue(details.reasoning_tokens) ?? 0;
-    const thinkingTokens = getUsageValue(details.thinking_tokens) ?? 0;
-    if (
-      Object.prototype.hasOwnProperty.call(details, 'reasoning_tokens')
-      || Object.prototype.hasOwnProperty.call(details, 'thinking_tokens')
-    ) {
-      return reasoningTokens + thinkingTokens;
-    }
-  }
-
-  const topLevelReasoningTokens = getUsageValue(usage.reasoning_tokens) ?? 0;
-  const topLevelThinkingTokens = getUsageValue(usage.thinking_tokens) ?? 0;
-  if (
-    Object.prototype.hasOwnProperty.call(usage, 'reasoning_tokens')
-    || Object.prototype.hasOwnProperty.call(usage, 'thinking_tokens')
-  ) {
-    return topLevelReasoningTokens + topLevelThinkingTokens;
-  }
-
-  return null;
-}
+const llamaCppClient = new LlamaCppClient();
 
 function getStructuredOutputResponseFormat(
   structuredOutput: LlamaCppStructuredOutput | undefined
-): Record<string, unknown> | null {
+): LlamaCppResponseFormat | null {
   if (!structuredOutput || structuredOutput.kind === 'none') {
     return null;
   }
@@ -210,7 +102,7 @@ function getStructuredOutputResponseFormat(
       schema: buildSummaryDecisionJsonSchema({
         allowUnsupportedInput: structuredOutput.allowUnsupportedInput !== false,
       }),
-    });
+    }) as LlamaCppResponseFormat;
   }
 
   if (structuredOutput.kind === 'siftkit-planner-action-json') {
@@ -223,14 +115,11 @@ function getStructuredOutputResponseFormat(
         toolDefinitions,
         allowUnsupportedInput: structuredOutput.allowUnsupportedInput !== false,
       }),
-    });
+    }) as LlamaCppResponseFormat;
   }
 
   return null;
 }
-
-// All llama.cpp HTTP goes through the pooling-disabled HttpClient transport.
-type JsonResponse<T> = FullJsonResponse<T>;
 
 function getTextContent(content: string | Array<{ type?: string; text?: string }> | undefined): string {
   if (typeof content === 'string') {
@@ -246,12 +135,112 @@ function getTextContent(content: string | Array<{ type?: string; text?: string }
     .join('');
 }
 
-function parseStructuredPlannerToolCall(toolCall: {
-  function?: {
-    name?: string;
-    arguments?: unknown;
-  };
-} | null | undefined): PlannerStructuredToolCall | null {
+function toProtocolContent(
+  content: LlamaCppChatMessage['content'],
+): ProtocolLlamaCppChatMessage['content'] {
+  if (typeof content === 'string' || content === undefined) {
+    return content ?? null;
+  }
+  return content.map((part) => ({
+    type: typeof part.type === 'string' ? part.type : 'text',
+    ...(typeof part.text === 'string' ? { text: part.text } : {}),
+  }));
+}
+
+function toProtocolReasoning(
+  content: LlamaCppChatMessage['reasoning_content'],
+): ProtocolLlamaCppChatMessage['reasoning_content'] {
+  if (typeof content === 'string' || content === undefined) {
+    return content;
+  }
+  return content.map((part) => ({
+    ...(typeof part.type === 'string' ? { type: part.type } : {}),
+    ...(typeof part.text === 'string' ? { text: part.text } : {}),
+  }));
+}
+
+function toProtocolToolCalls(
+  toolCalls: LlamaCppChatMessage['tool_calls'],
+): LlamaCppToolCall[] | undefined {
+  if (!Array.isArray(toolCalls)) {
+    return undefined;
+  }
+
+  return toolCalls.flatMap((toolCall, index): LlamaCppToolCall[] => {
+    const name = typeof toolCall.function?.name === 'string' ? toolCall.function.name : '';
+    if (!name.trim()) {
+      return [];
+    }
+    const rawArguments = toolCall.function?.arguments;
+    const args = typeof rawArguments === 'string' ? rawArguments : JSON.stringify(rawArguments ?? {});
+    return [{
+      id: typeof toolCall.id === 'string' && toolCall.id.trim() ? toolCall.id : `call_${index}`,
+      type: 'function',
+      function: {
+        name,
+        arguments: args,
+      },
+    }];
+  });
+}
+
+function toProtocolMessages(messages: readonly LlamaCppChatMessage[]): ProtocolLlamaCppChatMessage[] {
+  return messages.map((message) => {
+    const reasoningContent = toProtocolReasoning(message.reasoning_content);
+    const toolCalls = toProtocolToolCalls(message.tool_calls);
+    return {
+      role: message.role,
+      content: toProtocolContent(message.content),
+      ...(reasoningContent === undefined ? {} : { reasoning_content: reasoningContent }),
+      ...(toolCalls === undefined ? {} : { tool_calls: toolCalls }),
+      ...(message.tool_call_id === undefined ? {} : { tool_call_id: message.tool_call_id }),
+    };
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function toJsonObject(value: unknown): JsonObject {
+  return isRecord(value) ? JSON.parse(JSON.stringify(value)) as JsonObject : {};
+}
+
+function toProtocolTools(tools: unknown[] | undefined): LlamaCppToolDefinition[] {
+  if (!Array.isArray(tools)) {
+    return [];
+  }
+
+  return tools.flatMap((tool): LlamaCppToolDefinition[] => {
+    if (!isRecord(tool) || tool.type !== 'function' || !isRecord(tool.function)) {
+      return [];
+    }
+    const name = typeof tool.function.name === 'string' ? tool.function.name : '';
+    const description = typeof tool.function.description === 'string' ? tool.function.description : '';
+    if (!name.trim()) {
+      return [];
+    }
+    return [{
+      type: 'function',
+      function: {
+        name,
+        description,
+        parameters: toJsonObject(tool.function.parameters),
+      },
+    }];
+  });
+}
+
+function hasUsageValue(usage: NormalizedLlamaCppChatResponse['usage']): boolean {
+  return usage.promptTokens !== null
+    || usage.completionTokens !== null
+    || usage.totalTokens !== null
+    || usage.thinkingTokens !== null
+    || usage.promptCacheTokens !== null
+    || usage.promptEvalTokens !== null;
+}
+
+function parseStructuredPlannerToolCall(toolCall: LlamaCppToolCall | null | undefined): PlannerStructuredToolCall | null {
   const toolName = typeof toolCall?.function?.name === 'string' ? toolCall.function.name.trim() : '';
   const args = ModelJson.parseToolArguments(toolCall?.function?.arguments);
   if (!toolName || !args) {
@@ -265,37 +254,30 @@ function parseStructuredPlannerToolCall(toolCall: {
 
 function getStructuredToolCallText(
   structuredOutput: LlamaCppStructuredOutput | undefined,
-  choice: LlamaCppChatChoice | undefined,
+  toolCalls: readonly LlamaCppToolCall[],
 ): string {
   if (structuredOutput?.kind !== 'siftkit-planner-action-json') {
     return '';
   }
 
-  const toolCalls = [
-    ...((choice?.message?.tool_calls || []).map((toolCall) => parseStructuredPlannerToolCall(toolCall)).filter(Boolean) as PlannerStructuredToolCall[]),
-    ...((choice?.tool_calls || []).map((toolCall) => parseStructuredPlannerToolCall(toolCall)).filter(Boolean) as PlannerStructuredToolCall[]),
-  ];
-  if (toolCalls.length === 0 && choice?.message?.function_call) {
-    const toolCall = parseStructuredPlannerToolCall({ function: choice.message.function_call });
-    if (toolCall) {
-      toolCalls.push(toolCall);
-    }
-  }
+  const parsedToolCalls = toolCalls
+    .map((toolCall) => parseStructuredPlannerToolCall(toolCall))
+    .filter((toolCall): toolCall is PlannerStructuredToolCall => toolCall !== null);
 
-  if (toolCalls.length === 0) {
+  if (parsedToolCalls.length === 0) {
     return '';
   }
 
-  if (toolCalls.length === 1) {
+  if (parsedToolCalls.length === 1) {
     return JSON.stringify({
-      action: toolCalls[0].tool_name,
-      ...toolCalls[0].args,
+      action: parsedToolCalls[0].tool_name,
+      ...parsedToolCalls[0].args,
     });
   }
 
   return JSON.stringify({
     action: 'tool_batch',
-    calls: toolCalls.map((toolCall) => ({
+    calls: parsedToolCalls.map((toolCall) => ({
       action: toolCall.tool_name,
       ...toolCall.args,
     })),
@@ -307,6 +289,20 @@ function getPositiveTimeoutMs(value: number | undefined, fallback: number): numb
   return Number.isFinite(numericValue) && numericValue > 0
     ? Math.max(1, Math.trunc(numericValue))
     : fallback;
+}
+
+function getHttpStatusCode(message: string): number | null {
+  const match = /^HTTP (\d{3})(?::|\b)/u.exec(message.trim());
+  return match ? Number(match[1]) : null;
+}
+
+function formatProviderHttpError(prefix: string, message: string): string {
+  const httpStatusCode = getHttpStatusCode(message);
+  if (httpStatusCode === null) {
+    return message;
+  }
+  const detail = message.replace(/^HTTP \d{3}:?\s*/u, '').trim();
+  return `${prefix} with HTTP ${httpStatusCode}${detail ? `: ${detail}` : '.'}`;
 }
 
 export async function countLlamaCppTokens(
@@ -338,155 +334,55 @@ export async function countLlamaCppTokensDetailed(
   }
 
   const startedAt = Date.now();
-  let retryCount = 0;
-  let lastRetryErrorMessage: string | null = null;
   traceLlamaCpp(`tokenize start chars=${content.length}`);
   try {
-    const baseUrl = getConfiguredLlamaBaseUrl(config);
-    const response = await retryProviderRequest(async () => {
-      const nextResponse = await httpClient.requestJsonFull<LlamaCppTokenizeResponse>({
-        url: `${baseUrl.replace(/\/$/u, '')}/tokenize`,
-        method: 'POST',
-        timeoutMs,
-        body: JSON.stringify({ content }),
-      });
-      if (isTransientProviderHttpResponse(nextResponse.statusCode, nextResponse.rawText)) {
-        throw buildTransientProviderHttpError(nextResponse.statusCode, nextResponse.rawText);
-      }
-      return nextResponse;
-    }, {
-      maxWaitMs: retryMaxWaitMs,
-      onRetry(event) {
-        retryCount += 1;
-        lastRetryErrorMessage = event.error.message;
-        traceLlamaCpp(
-          `tokenize retry attempt=${event.attempt} elapsed_ms=${event.elapsedMs} `
-          + `next_delay_ms=${event.nextDelayMs} code=${event.error.code || 'none'}`
-        );
-      },
+    const response = await llamaCppClient.countTokens(config, content, {
+      requestTimeoutSeconds: timeoutMs / 1000,
+      retryMaxWaitMs,
     });
-
-    if (response.statusCode >= 400) {
-      traceLlamaCpp(`tokenize http_error elapsed_ms=${Date.now() - startedAt} status=${response.statusCode}`);
-      logLlamaCppError('tokenize', `HTTP ${response.statusCode}: ${response.rawText.trim()}`);
-      return {
-        tokenCount: null,
-        elapsedMs: Date.now() - startedAt,
-        retryCount,
-        timeoutMs,
-        retryMaxWaitMs,
-        status: 'http_error',
-        httpStatusCode: response.statusCode,
-        errorMessage: `HTTP ${response.statusCode}`,
-      };
-    }
-
-    const explicitCount = getUsageValue(response.body.count)
-      ?? getUsageValue(response.body.token_count)
-      ?? getUsageValue(response.body.n_tokens);
-    if (explicitCount !== null) {
-      tryRecordAccurateCharTokenObservation({
-        chars: content.length,
-        tokens: explicitCount,
-        updatedAtUtc: new Date().toISOString(),
-      });
-      traceLlamaCpp(`tokenize done elapsed_ms=${Date.now() - startedAt} tokens=${explicitCount}`);
-      return {
-        tokenCount: explicitCount,
-        elapsedMs: Date.now() - startedAt,
-        retryCount,
-        timeoutMs,
-        retryMaxWaitMs,
-        status: 'completed',
-        httpStatusCode: response.statusCode,
-        errorMessage: null,
-      };
-    }
-
-    if (!Array.isArray(response.body.tokens)) {
-      traceLlamaCpp(`tokenize done elapsed_ms=${Date.now() - startedAt} tokens=null`);
-      return {
-        tokenCount: null,
-        elapsedMs: Date.now() - startedAt,
-        retryCount,
-        timeoutMs,
-        retryMaxWaitMs,
-        status: 'error',
-        httpStatusCode: response.statusCode,
-        errorMessage: 'Tokenize response did not include token count.',
-      };
-    }
-
     tryRecordAccurateCharTokenObservation({
       chars: content.length,
-      tokens: response.body.tokens.length,
+      tokens: response.tokenCount,
       updatedAtUtc: new Date().toISOString(),
     });
-    traceLlamaCpp(`tokenize done elapsed_ms=${Date.now() - startedAt} tokens=${response.body.tokens.length}`);
+    traceLlamaCpp(`tokenize done elapsed_ms=${Date.now() - startedAt} tokens=${response.tokenCount}`);
     return {
-      tokenCount: response.body.tokens.length,
+      tokenCount: response.tokenCount,
       elapsedMs: Date.now() - startedAt,
-      retryCount,
+      retryCount: 0,
       timeoutMs,
       retryMaxWaitMs,
       status: 'completed',
-      httpStatusCode: response.statusCode,
+      httpStatusCode: 200,
       errorMessage: null,
     };
   } catch (error) {
     const message = getErrorMessage(error);
+    const httpStatusCode = getHttpStatusCode(message);
     traceLlamaCpp(`tokenize error elapsed_ms=${Date.now() - startedAt} message=${JSON.stringify(message)}`);
     logLlamaCppError('tokenize', message);
     return {
       tokenCount: null,
       elapsedMs: Date.now() - startedAt,
-      retryCount,
+      retryCount: 0,
       timeoutMs,
       retryMaxWaitMs,
-      status: 'error',
-      httpStatusCode: null,
-      errorMessage: message || lastRetryErrorMessage,
+      status: httpStatusCode === null ? 'error' : 'http_error',
+      httpStatusCode,
+      errorMessage: httpStatusCode === null ? message : `HTTP ${httpStatusCode}`,
     };
   }
 }
 
 export async function listLlamaCppModels(config: SiftConfig): Promise<string[]> {
   const baseUrl = getConfiguredLlamaBaseUrl(config);
-  let response: JsonResponse<LlamaCppModelListResponse>;
   try {
-    response = await retryProviderRequest(async () => {
-      const nextResponse = await httpClient.requestJsonFull<LlamaCppModelListResponse>({
-        url: `${baseUrl.replace(/\/$/u, '')}/v1/models`,
-        method: 'GET',
-        timeoutMs: 5000,
-      });
-      if (isTransientProviderHttpResponse(nextResponse.statusCode, nextResponse.rawText)) {
-        throw buildTransientProviderHttpError(nextResponse.statusCode, nextResponse.rawText);
-      }
-      return nextResponse;
-    }, {
-      onRetry(event) {
-        traceLlamaCpp(
-          `model_list retry attempt=${event.attempt} elapsed_ms=${event.elapsedMs} `
-          + `next_delay_ms=${event.nextDelayMs} code=${event.error.code || 'none'}`
-        );
-      },
-    });
+    return await llamaCppClient.listModelsAtBaseUrl(baseUrl, 5000);
   } catch (error) {
-    logLlamaCppError('model_list', getErrorMessage(error));
-    throw error;
-  }
-
-  if (response.statusCode >= 400) {
-    const detail = response.rawText.trim();
-    const message = `llama.cpp model list failed with HTTP ${response.statusCode}${detail ? `: ${detail}` : '.'}`;
+    const message = formatProviderHttpError('llama.cpp model list failed', getErrorMessage(error));
     logLlamaCppError('model_list', message);
     throw new Error(message);
   }
-
-  return (response.body.data || [])
-    .map((entry) => entry.id)
-    .filter((value): value is string => Boolean(value && value.trim()));
 }
 
 export type LlamaCppProviderStatus = {
@@ -506,11 +402,7 @@ export async function getLlamaCppProviderStatus(config: SiftConfig): Promise<Lla
 
   try {
     status.BaseUrl = getConfiguredLlamaBaseUrl(config);
-    const response = await httpClient.requestJsonFull<LlamaCppModelListResponse>({
-      url: `${status.BaseUrl.replace(/\/$/u, '')}/v1/models`,
-      method: 'GET',
-      timeoutMs: 500,
-    });
+    const response = await llamaCppClient.probeModelsAtBaseUrl(status.BaseUrl, 500);
     if (response.statusCode >= 400) {
       const detail = response.rawText.trim();
       throw new Error(`llama.cpp model list failed with HTTP ${response.statusCode}${detail ? `: ${detail}` : '.'}`);
@@ -553,10 +445,6 @@ export async function generateLlamaCppResponse(options: {
   });
 }
 
-function getPromptTimingValue(value: unknown): number | null {
-  return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : null;
-}
-
 export async function generateLlamaCppChatResponse(options: {
   config: SiftConfig;
   model: string;
@@ -571,11 +459,6 @@ export async function generateLlamaCppChatResponse(options: {
   overrides?: Pick<RuntimeLlamaCppConfig, 'MaxTokens'>;
 }): Promise<LlamaCppGenerateResult> {
   const baseUrl = getConfiguredLlamaBaseUrl(options.config);
-  const resolvedReasoning = options.reasoningOverride
-    ?? getConfiguredLlamaSetting<'on' | 'off'>(options.config, 'Reasoning');
-  const activePreset = getActiveManagedLlamaPreset(options.config);
-  const reasoningContentEnabled = resolvedReasoning === 'on' && activePreset?.ReasoningContent === true;
-  const preserveThinkingEnabled = reasoningContentEnabled && activePreset?.PreserveThinking === true;
   const structuredOutputResponseFormat = getStructuredOutputResponseFormat(options.structuredOutput);
   const promptChars = options.messages.reduce((total, message) => {
     return total + getTextContent(message.content).length;
@@ -586,58 +469,32 @@ export async function generateLlamaCppChatResponse(options: {
       ? Number(options.promptTokenCount)
       : estimatePromptTokenCountFromCharacters(options.config, promptChars),
   });
-  const requestBody = JSON.stringify({
-    model: options.model,
-    messages: options.messages,
-    cache_prompt: options.cachePrompt ?? true,
-    ...(Number.isInteger(options.slotId) ? { id_slot: Number(options.slotId) } : {}),
-    ...(
-      Array.isArray(options.tools)
-      && options.tools.length > 0
-        ? { tools: options.tools }
-        : {}
-    ),
-    ...(
-      Array.isArray(options.tools) && options.tools.length > 0
-        ? { parallel_tool_calls: true }
-        : {}
-    ),
-    max_tokens: maxTokens,
-    ...(resolvedReasoning === undefined ? {} : {
-      chat_template_kwargs: {
-        enable_thinking: resolvedReasoning === 'on',
-        ...(reasoningContentEnabled ? { reasoning_content: true } : {}),
-        ...(preserveThinkingEnabled ? { preserve_thinking: true } : {}),
-      },
-    }),
-    ...(structuredOutputResponseFormat === null ? {} : { response_format: structuredOutputResponseFormat }),
-  });
 
-  let response: JsonResponse<LlamaCppChatResponse>;
+  let response: NormalizedLlamaCppChatResponse;
   const startedAt = Date.now();
   traceLlamaCpp(
     `generate start model=${options.model} timeout_s=${options.timeoutSeconds} `
     + `prompt_chars=${promptChars} base_url=${baseUrl}`
   );
   try {
-    response = await retryProviderRequest(async () => {
-      const nextResponse = await httpClient.requestJsonFull<LlamaCppChatResponse>({
-        url: `${baseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
-        method: 'POST',
-        timeoutMs: options.timeoutSeconds * 1000,
-        body: requestBody,
-      });
-      if (isTransientProviderHttpResponse(nextResponse.statusCode, nextResponse.rawText)) {
-        throw buildTransientProviderHttpError(nextResponse.statusCode, nextResponse.rawText);
-      }
-      return nextResponse;
-    }, {
-      onRetry(event) {
-        traceLlamaCpp(
-          `generate retry attempt=${event.attempt} elapsed_ms=${event.elapsedMs} `
-          + `next_delay_ms=${event.nextDelayMs} code=${event.error.code || 'none'}`
-        );
-      },
+    const structuredTools = options.structuredOutput?.kind === 'siftkit-planner-action-json'
+      ? options.structuredOutput.tools
+      : undefined;
+    const protocolTools = toProtocolTools(options.tools ?? structuredTools);
+    const tools = structuredOutputResponseFormat === null ? protocolTools : [];
+    response = await llamaCppClient.chat({
+      config: options.config,
+      model: options.model,
+      messages: toProtocolMessages(options.messages),
+      tools,
+      maxTokens,
+      stream: false,
+      responseFormat: structuredOutputResponseFormat ?? undefined,
+      reasoningOverride: options.reasoningOverride,
+      allowedToolNames: protocolTools.map((tool) => tool.function.name),
+      requestTimeoutSeconds: options.timeoutSeconds,
+      cachePrompt: options.cachePrompt ?? true,
+      slotId: options.slotId,
     });
   } catch (error) {
     const message = getErrorMessage(error);
@@ -647,33 +504,22 @@ export async function generateLlamaCppChatResponse(options: {
       logLlamaCppError('generate', timeoutMessage);
       throw new Error(timeoutMessage);
     }
-    logLlamaCppError('generate', message);
-    throw error;
+    const providerMessage = formatProviderHttpError('llama.cpp generate failed', message);
+    logLlamaCppError('generate', providerMessage);
+    throw new Error(providerMessage);
   }
 
-  if (response.statusCode >= 400) {
-    const detail = response.rawText.trim();
-    traceLlamaCpp(`generate http_error elapsed_ms=${Date.now() - startedAt} status=${response.statusCode}`);
-    const message = `llama.cpp generate failed with HTTP ${response.statusCode}${detail ? `: ${detail}` : '.'}`;
-    logLlamaCppError('generate', message);
-    throw new Error(message);
-  }
-
-  const firstChoice = response.body.choices?.[0];
-  const messageText = getTextContent(firstChoice?.message?.content);
-  const reasoningText = getTextContent(firstChoice?.message?.reasoning_content);
-  const toolCallText = getStructuredToolCallText(options.structuredOutput, firstChoice);
-  const text = (messageText || toolCallText || firstChoice?.text || '').trim();
+  const toolCallText = getStructuredToolCallText(options.structuredOutput, response.toolCalls);
+  const text = (response.text || toolCallText).trim();
   if (!text) {
-    const rawResponseText = response.rawText.trim();
+    const rawResponseText = JSON.stringify(response.raw);
     traceLlamaCpp(`generate empty_body elapsed_ms=${Date.now() - startedAt} raw=${JSON.stringify(rawResponseText.slice(0, 2000))}`);
     const message = `llama.cpp did not return a response body. Raw response: ${rawResponseText.slice(0, 2000) || '<empty>'}`;
     logLlamaCppError('generate', message);
     throw new Error(message);
   }
 
-  const rawUsage = response.body.usage;
-  const promptTokens = getUsageValue(rawUsage?.prompt_tokens);
+  const promptTokens = response.usage.promptTokens;
   if (promptTokens !== null && promptTokens > 0) {
     tryRecordAccurateCharTokenObservation({
       chars: promptChars,
@@ -681,21 +527,16 @@ export async function generateLlamaCppChatResponse(options: {
       updatedAtUtc: new Date().toISOString(),
     });
   }
-  const promptCacheTokens = getPromptTimingValue(response.body.timings?.cache_n)
-    ?? getUsageValue(rawUsage?.prompt_tokens_details?.cached_tokens)
-    ?? getUsageValue(rawUsage?.input_tokens_details?.cached_tokens);
-  const promptEvalTokens = getPromptTimingValue(response.body.timings?.prompt_n)
-    ?? (promptTokens !== null && promptCacheTokens !== null ? Math.max(promptTokens - promptCacheTokens, 0) : null);
-  const thinkingTokens = getThinkingTokenCount(rawUsage)
-    ?? (reasoningText.trim() ? await countLlamaCppTokens(options.config, reasoningText) : null);
-  const usage = (rawUsage || promptCacheTokens !== null || promptEvalTokens !== null)
+  const thinkingTokens = response.usage.thinkingTokens
+    ?? (response.reasoningText.trim() ? await countLlamaCppTokens(options.config, response.reasoningText) : null);
+  const usage = hasUsageValue(response.usage) || thinkingTokens !== null
     ? {
       promptTokens,
-      completionTokens: getNormalizedCompletionTokens(getUsageValue(rawUsage?.completion_tokens), thinkingTokens),
-      totalTokens: getUsageValue(rawUsage?.total_tokens),
+      completionTokens: response.usage.completionTokens,
+      totalTokens: response.usage.totalTokens,
       thinkingTokens,
-      promptCacheTokens,
-      promptEvalTokens,
+      promptCacheTokens: response.usage.promptCacheTokens,
+      promptEvalTokens: response.usage.promptEvalTokens,
     }
     : null;
 
@@ -709,6 +550,6 @@ export async function generateLlamaCppChatResponse(options: {
   return {
     text,
     usage,
-    reasoningText: reasoningText.trim() || null,
+    reasoningText: response.reasoningText.trim() || null,
   };
 }

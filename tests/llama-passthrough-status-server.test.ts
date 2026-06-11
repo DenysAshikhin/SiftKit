@@ -157,7 +157,7 @@ test('llama passthrough wakes managed llama when the managed process is offline'
   try {
     await server.shutdownManagedLlamaForServerExit?.();
 
-    const response = await requestJson(`${baseUrl}/v1/models`);
+    const response = await requestJson(`${baseUrl}/v1/models`, 30_000);
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual(response.body, { data: [{ id: 'managed-passthrough-model' }] });

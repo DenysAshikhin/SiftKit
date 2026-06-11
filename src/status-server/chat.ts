@@ -5,6 +5,7 @@ import type { ChatMessage as PlannerChatMessage } from '../repo-search/planner-p
 import type { ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
 import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
 import { ThinkingRetentionPolicy } from '../thinking-retention-policy.js';
+import { buildReplayToolCall } from '../llm-protocol/tool-call-parser.js';
 import {
   type ChatSession,
   estimateTokenCount,
@@ -256,38 +257,6 @@ function buildReplayToolCallId(messageId: unknown): string {
   return `chat_tool_${safe}`;
 }
 
-function buildReplayToolCall(command: string, toolCallId: string): NonNullable<PlannerChatMessage['tool_calls']>[number] {
-  const webTool = parseWebToolCommand(command);
-  if (webTool?.toolName === 'web_search') {
-    return {
-      id: toolCallId,
-      type: 'function',
-      function: {
-        name: 'web_search',
-        arguments: JSON.stringify({ query: webTool.value }),
-      },
-    };
-  }
-  if (webTool?.toolName === 'web_fetch') {
-    return {
-      id: toolCallId,
-      type: 'function',
-      function: {
-        name: 'web_fetch',
-        arguments: JSON.stringify({ url: webTool.value }),
-      },
-    };
-  }
-  return {
-    id: toolCallId,
-    type: 'function',
-    function: {
-      name: 'persisted_tool_call',
-      arguments: JSON.stringify({ command }),
-    },
-  };
-}
-
 function appendReplayToolMessages(history: PlannerChatMessage[], message: Dict, reasoningContent: string): void {
   const command = getTrimmedString(message.toolCallCommand) || getTrimmedString(message.content);
   const output = getTrimmedString(message.toolCallOutput) || getTrimmedString(message.toolCallOutputSnippet);
@@ -299,7 +268,7 @@ function appendReplayToolMessages(history: PlannerChatMessage[], message: Dict, 
     role: 'assistant',
     content: '',
     ...(reasoningContent ? { reasoning_content: reasoningContent } : {}),
-    tool_calls: [buildReplayToolCall(command, toolCallId)],
+    tool_calls: [buildReplayToolCall({ id: toolCallId, command })],
   });
   history.push({
     role: 'tool',

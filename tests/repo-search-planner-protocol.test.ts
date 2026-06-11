@@ -7,7 +7,7 @@ import { ModelJson } from '../src/lib/model-json.js';
 import {
   getRepoSearchToolNames,
   getRepoSearchToolNamesForParsing,
-  requestPlannerAction,
+  requestRepoSearchPlannerProtocolAction,
   resolveRepoSearchPlannerToolDefinitions,
 } from '../src/repo-search/planner-protocol.js';
 
@@ -108,7 +108,7 @@ test('repo-search tool registry exposes native read/list tools and drops redunda
   assert.equal(listFiles?.function?.parameters?.properties?.recurse?.type, 'boolean');
 });
 
-test('requestPlannerAction reconstructs a tool batch from non-streaming multi-tool responses', async () => {
+test('requestRepoSearchPlannerProtocolAction reconstructs a tool batch from non-streaming multi-tool responses', async () => {
   await withServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
       res.statusCode = 404;
@@ -145,7 +145,7 @@ test('requestPlannerAction reconstructs a tool batch from non-streaming multi-to
       ],
     }));
   }, async (baseUrl) => {
-    const result = await requestPlannerAction({
+    const result = await requestRepoSearchPlannerProtocolAction({
       baseUrl,
       model: 'mock-model',
       messages: [{ role: 'user', content: 'find plan and repo-search' }],
@@ -164,7 +164,7 @@ test('requestPlannerAction reconstructs a tool batch from non-streaming multi-to
   });
 });
 
-test('requestPlannerAction reconstructs a tool batch from streaming multi-tool responses', async () => {
+test('requestRepoSearchPlannerProtocolAction reconstructs a tool batch from streaming multi-tool responses', async () => {
   await withServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
       res.statusCode = 404;
@@ -180,7 +180,7 @@ test('requestPlannerAction reconstructs a tool batch from streaming multi-tool r
     res.write('data: [DONE]\n\n');
     res.end();
   }, async (baseUrl) => {
-    const result = await requestPlannerAction({
+    const result = await requestRepoSearchPlannerProtocolAction({
       baseUrl,
       model: 'mock-model',
       messages: [{ role: 'user', content: 'find plan and repo-search' }],
@@ -199,7 +199,7 @@ test('requestPlannerAction reconstructs a tool batch from streaming multi-tool r
   });
 });
 
-test('requestPlannerAction stops streamed reasoning after a complete planner action', async () => {
+test('requestRepoSearchPlannerProtocolAction stops streamed reasoning after a complete planner action', async () => {
   const actionText = '{"action":"tool_batch","calls":[{"action":"repo_rg","command":"rg -n \\"planner\\" src"}]}';
   let writeCount = 0;
 
@@ -223,7 +223,7 @@ test('requestPlannerAction stops streamed reasoning after a complete planner act
     }, 25);
     res.on('close', () => clearInterval(interval));
   }, async (baseUrl) => {
-    const result = await requestPlannerAction({
+    const result = await requestRepoSearchPlannerProtocolAction({
       baseUrl,
       model: 'mock-model',
       messages: [{ role: 'user', content: 'find planner' }],
@@ -238,7 +238,7 @@ test('requestPlannerAction stops streamed reasoning after a complete planner act
   });
 });
 
-test('requestPlannerAction stops streamed content when recent tokens repeat in long output', async () => {
+test('requestRepoSearchPlannerProtocolAction stops streamed content when recent tokens repeat in long output', async () => {
   const repeatedTail = '</arg_value>'.repeat(64);
   const longPrefix = Array.from({ length: 101 }, (_, index) => `anchor-${index}`).join(' ');
   const events: Array<Record<string, unknown> & { kind: string }> = [];
@@ -256,7 +256,7 @@ test('requestPlannerAction stops streamed content when recent tokens repeat in l
     });
     res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: `${longPrefix} ${repeatedTail}` } }] })}\n\n`);
   }, async (baseUrl) => {
-    const result = await requestPlannerAction({
+    const result = await requestRepoSearchPlannerProtocolAction({
       baseUrl,
       model: 'mock-model',
       messages: [{ role: 'user', content: 'find planner' }],
@@ -277,7 +277,7 @@ test('requestPlannerAction stops streamed content when recent tokens repeat in l
   });
 });
 
-test('requestPlannerAction does not stop streamed content for a short repeated suffix', async () => {
+test('requestRepoSearchPlannerProtocolAction does not stop streamed content for a short repeated suffix', async () => {
   const repeatedTail = '</arg_value>'.repeat(10);
   const longPrefix = Array.from({ length: 101 }, (_, index) => `anchor-${index}`).join(' ');
   const streamedText = `${longPrefix} ${repeatedTail}`;
@@ -298,7 +298,7 @@ test('requestPlannerAction does not stop streamed content for a short repeated s
     res.write('data: [DONE]\n\n');
     res.end();
   }, async (baseUrl) => {
-    const result = await requestPlannerAction({
+    const result = await requestRepoSearchPlannerProtocolAction({
       baseUrl,
       model: 'mock-model',
       messages: [{ role: 'user', content: 'find planner' }],
@@ -318,7 +318,7 @@ test('requestPlannerAction does not stop streamed content for a short repeated s
   });
 });
 
-test('requestPlannerAction uses llama timings from the final streaming chunk when usage is absent', async () => {
+test('requestRepoSearchPlannerProtocolAction uses llama timings from the final streaming chunk when usage is absent', async () => {
   await withServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
       res.statusCode = 404;
@@ -339,7 +339,7 @@ test('requestPlannerAction uses llama timings from the final streaming chunk whe
       }, 20);
     }, 20);
   }, async (baseUrl) => {
-    const result = await requestPlannerAction({
+    const result = await requestRepoSearchPlannerProtocolAction({
       baseUrl,
       model: 'mock-model',
       messages: [{ role: 'user', content: 'finish' }],
@@ -356,7 +356,7 @@ test('requestPlannerAction uses llama timings from the final streaming chunk whe
   });
 });
 
-test('requestPlannerAction aborts an in-flight streaming request', async () => {
+test('requestRepoSearchPlannerProtocolAction aborts an in-flight streaming request', async () => {
   await withServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
       res.statusCode = 404;
@@ -374,7 +374,7 @@ test('requestPlannerAction aborts an in-flight streaming request', async () => {
     const timer = setTimeout(() => controller.abort(new Error('Repo search prompt exceeded 20 ms. Please try again.')), 20);
     try {
       await assert.rejects(
-        () => requestPlannerAction({
+        () => requestRepoSearchPlannerProtocolAction({
           baseUrl,
           model: 'mock-model',
           messages: [{ role: 'user', content: 'finish slowly' }],
@@ -391,7 +391,7 @@ test('requestPlannerAction aborts an in-flight streaming request', async () => {
   });
 });
 
-test('requestPlannerAction sends json_schema response_format without native tools or grammar', async () => {
+test('requestRepoSearchPlannerProtocolAction sends json_schema response_format without native tools or grammar', async () => {
   let capturedBody: Record<string, unknown> | null = null;
   await withServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
@@ -410,7 +410,7 @@ test('requestPlannerAction sends json_schema response_format without native tool
       }));
     });
   }, async (baseUrl) => {
-    await requestPlannerAction({
+    await requestRepoSearchPlannerProtocolAction({
       baseUrl,
       model: 'mock-model',
       messages: [{ role: 'user', content: 'find plan and repo-search' }],
@@ -426,7 +426,7 @@ test('requestPlannerAction sends json_schema response_format without native tool
   });
 });
 
-test('requestPlannerAction assembles planner schema dynamically from provided tool definitions', async () => {
+test('requestRepoSearchPlannerProtocolAction assembles planner schema dynamically from provided tool definitions', async () => {
   let capturedBody: Record<string, unknown> | null = null;
   await withServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
@@ -445,7 +445,7 @@ test('requestPlannerAction assembles planner schema dynamically from provided to
       }));
     });
   }, async (baseUrl) => {
-    await requestPlannerAction({
+    await requestRepoSearchPlannerProtocolAction({
       baseUrl,
       model: 'mock-model',
       messages: [{ role: 'user', content: 'find symbol' }],
@@ -474,7 +474,7 @@ test('requestPlannerAction assembles planner schema dynamically from provided to
   });
 });
 
-test('requestPlannerAction hard-fails on json_schema rejection without fallback retry', async () => {
+test('requestRepoSearchPlannerProtocolAction hard-fails on json_schema rejection without fallback retry', async () => {
   let requestCount = 0;
   await withServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
@@ -487,7 +487,7 @@ test('requestPlannerAction hard-fails on json_schema rejection without fallback 
     res.end(JSON.stringify({ error: { message: 'response_format json_schema unsupported' } }));
   }, async (baseUrl) => {
     await assert.rejects(
-      () => requestPlannerAction({
+      () => requestRepoSearchPlannerProtocolAction({
         baseUrl,
         model: 'mock-model',
         messages: [{ role: 'user', content: 'find plan and repo-search' }],

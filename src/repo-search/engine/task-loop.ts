@@ -1,15 +1,36 @@
 import { getConfiguredLlamaNumCtx } from '../../config/index.js';
+import { AgentLoop } from '../../agent-loop/agent-loop.js';
+import type {
+  AgentLoopFinishAction,
+  AgentLoopFinishEvaluation,
+  AgentLoopInvalidResponseResult,
+  AgentLoopModelData,
+  AgentLoopModelResponse,
+  AgentLoopPreparedTurn,
+  AgentLoopResponseContext,
+  AgentLoopToolAction,
+  AgentLoopToolExecution,
+  AgentLoopToolResult,
+} from '../../agent-loop/types.js';
+import type { LlamaCppChatMessage, LlamaCppToolDefinition, NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
 import { readLatestIdleSummaryToolStats } from '../../line-read-guidance.js';
 import { ModelJson } from '../../lib/model-json.js';
 import { buildIgnorePolicy, type IgnorePolicy } from '../command-safety.js';
 import {
   getRepoSearchToolNamesForParsing,
+  requestRepoSearchPlannerProtocolAction,
   resolveRepoSearchPlannerToolDefinitions,
-  requestPlannerAction,
   type FinishAction,
   type PlannerActionResponse,
   type ToolAction,
 } from '../planner-protocol.js';
+import {
+  RepoSearchActionAdapter,
+  RepoSearchPlannerModelClient,
+  RepoSearchPromptAdapter,
+  RepoSearchResultAssembler,
+  RepoSearchToolAdapter,
+} from '../agent-loop-adapter.js';
 import {
   buildTaskInitialUserPrompt,
   buildTaskSystemPrompt,
@@ -66,6 +87,19 @@ export {
   type TaskDefinition,
   type TaskResult,
 } from './task-loop-support.js';
+
+type RepoSearchModelData = AgentLoopModelData & {
+  kind: 'repo-search';
+  plannerResponse: PlannerActionResponse;
+  resolvedTokens: ResolvedResponseTokens;
+};
+
+function getRepoSearchModelData(context: AgentLoopResponseContext): RepoSearchModelData {
+  if (context.modelData?.kind !== 'repo-search') {
+    throw new Error('Repo-search AgentLoop context is missing planner response data.');
+  }
+  return context.modelData as RepoSearchModelData;
+}
 
 // ---------------------------------------------------------------------------
 // Task loop orchestrator
@@ -254,18 +288,22 @@ export class TaskLoop {
   }
 
   async run(): Promise<TaskResult> {
-    for (let turn = 1; turn <= this.maxTurns; turn += 1) {
-      throwIfAborted(this.options.abortSignal);
-      this.turnsUsed = turn;
-      const outcome = await this.runTurn(turn);
-      if (outcome === 'stop') {
-        break;
-      }
-    }
-    return this.buildResult();
+    const promptAdapter = new RepoSearchPromptAdapter(this);
+    const actionAdapter = new RepoSearchActionAdapter(this.allowedPlannerToolNames, this);
+    const toolAdapter = new RepoSearchToolAdapter(this);
+    await new AgentLoop({
+      maxTurns: this.maxTurns,
+      promptAdapter,
+      actionAdapter,
+      toolAdapter,
+      modelClient: new RepoSearchPlannerModelClient(this),
+    }).run();
+    return new RepoSearchResultAssembler(this).assemble();
   }
 
-  private async runTurn(turn: number): Promise<TurnOutcome> {
+  async prepareTurn(turn: number): Promise<AgentLoopPreparedTurn> {
+    throwIfAborted(this.options.abortSignal);
+    this.turnsUsed = turn;
     const inForcedFinishMode = this.forcedFinish.isActive();
 
     const prepared = await this.promptPreparer.prepareTurn(turn);
@@ -275,6 +313,19 @@ export class TaskLoop {
     const newMessages = this.transcript.takeNewMessagesForLogging();
     this.options.logger?.write({ kind: 'turn_new_messages', taskId: this.task.id, turn, messages: newMessages, promptTokenCount: prepared.promptTokenCount });
 
+    return {
+      outcome: 'continue',
+      turnNumber: turn,
+      promptTokenCount: prepared.promptTokenCount,
+      maxOutputTokens: prepared.maxOutputTokens,
+      messages: this.transcript.getMessages() as LlamaCppChatMessage[],
+      toolDefinitions: this.plannerToolDefinitions as LlamaCppToolDefinition[],
+      inForcedFinishMode,
+    };
+  }
+
+  async requestModelResponse(prepared: AgentLoopPreparedTurn): Promise<AgentLoopModelResponse> {
+    const turn = prepared.turnNumber;
     const response = await this.requestPlanner(turn, prepared);
 
     this.progress.llmEnd(turn, prepared.promptTokenCount);
@@ -301,49 +352,115 @@ export class TaskLoop {
 
     const resolvedTokens = await this.tokenUsage.recordModelResponse(response);
 
-    if (response.mockExhausted) {
-      this.counters.reason = 'mock_responses_exhausted';
-      return 'stop';
-    }
-
-    let action;
-    const parseSpan = this.options.timingRecorder?.start('repo.response.parse', {
-      taskId: this.task.id,
-      turn,
-      responseChars: String(response.text || '').length,
-    });
-    try {
-      action = ModelJson.parseRepoSearchPlannerAction(response.text, { allowedToolNames: this.allowedPlannerToolNames });
-      parseSpan?.end({ ok: true });
-      this.options.logger?.write({ kind: 'turn_action_parsed', taskId: this.task.id, turn, action });
-    } catch (error) {
-      parseSpan?.end({ ok: false });
-      return this.handleInvalidParse(turn, response, error, resolvedTokens);
-    }
-
     // Emit native thinking text (from reasoning_content) to UI
     if (response.thinkingText) {
       this.progress.thinking(turn, response.thinkingText);
     }
 
-    if (action.action === 'finish') {
-      return this.handleFinishAction(turn, action, response, resolvedTokens);
-    }
+    const data: RepoSearchModelData = {
+      kind: 'repo-search',
+      plannerResponse: response,
+      resolvedTokens,
+    };
+    return {
+      outcome: 'continue',
+      response: this.toNormalizedResponse(response),
+      data,
+    };
+  }
 
-    const toolActions: ToolAction[] = action.action === 'tool_batch'
-      ? action.tool_calls.map((toolCall) => ({
-        action: 'tool' as const,
-        tool_name: toolCall.tool_name,
-        args: toolCall.args,
-      }))
-      : [action];
-    return this.toolActions.executeBatch(
-      turn,
+  inspectModelResponse(context: AgentLoopResponseContext): 'continue' | 'stop' | null {
+    if (getRepoSearchModelData(context).plannerResponse.mockExhausted) {
+      this.counters.reason = 'mock_responses_exhausted';
+      return 'stop';
+    }
+    return null;
+  }
+
+  async handleInvalidResponse(context: AgentLoopResponseContext & { error: Error }): Promise<AgentLoopInvalidResponseResult> {
+    const turn = context.turnNumber;
+    const data = getRepoSearchModelData(context);
+    this.handleInvalidParse(turn, data.plannerResponse, context.error, data.resolvedTokens);
+    return { outcome: this.counters.reason === 'invalid_response_limit' ? 'stop' : 'continue' };
+  }
+
+  async evaluateFinish(action: AgentLoopFinishAction, context: AgentLoopResponseContext): Promise<AgentLoopFinishEvaluation> {
+    const data = getRepoSearchModelData(context);
+    const outcome = this.handleFinishAction(
+      context.turnNumber,
+      { action: 'finish', output: action.text },
+      data.plannerResponse,
+      data.resolvedTokens,
+    );
+    return {
+      accepted: outcome === 'stop' && this.counters.reason === 'finish',
+      outcome,
+      finishText: this.finalOutput,
+    };
+  }
+
+  async executeTools(actions: readonly AgentLoopToolAction[], context: AgentLoopResponseContext): Promise<AgentLoopToolExecution> {
+    const beforeCommandCount = this.commands.length;
+    const response = getRepoSearchModelData(context).plannerResponse;
+    const toolActions: ToolAction[] = actions.map((action) => ({
+      action: 'tool',
+      tool_name: action.toolName,
+      args: action.args,
+    }));
+    const outcome = await this.toolActions.executeBatch(
+      context.turnNumber,
       toolActions,
       String(response.thinkingText || '').trim(),
-      prepared.promptTokenCount,
-      inForcedFinishMode,
+      context.preparedTurn.promptTokenCount,
+      context.preparedTurn.inForcedFinishMode,
     );
+    const newCommands = this.commands.slice(beforeCommandCount);
+    return {
+      outcome,
+      results: newCommands.map((command, index): AgentLoopToolResult => {
+        const sourceAction = actions[index];
+        if (!sourceAction) {
+          throw new Error(`Repo-search produced ${newCommands.length} command results for ${actions.length} tool actions.`);
+        }
+        return {
+          callId: `call_${beforeCommandCount + index + 1}`,
+          toolName: sourceAction.toolName,
+          args: sourceAction.args,
+          text: String(command.promptOutput ?? command.output ?? ''),
+          raw: {
+            command: command.command,
+            exitCode: command.exitCode,
+            safe: command.safe,
+          },
+        };
+      }),
+    };
+  }
+
+  private toNormalizedResponse(response: PlannerActionResponse): NormalizedLlamaCppChatResponse {
+    return {
+      text: response.text,
+      reasoningText: response.thinkingText || '',
+      toolCalls: [],
+      usage: {
+        promptTokens: response.promptTokens ?? null,
+        completionTokens: response.completionTokens ?? null,
+        totalTokens: null,
+        outputTokens: response.completionTokens ?? null,
+        thinkingTokens: response.usageThinkingTokens ?? null,
+        promptCacheTokens: response.promptCacheTokens ?? null,
+        promptEvalTokens: response.promptEvalTokens ?? null,
+        promptEvalDurationMs: response.promptEvalDurationMs ?? null,
+        generationDurationMs: response.generationDurationMs ?? null,
+      },
+      raw: {
+        text: response.text,
+        thinkingText: response.thinkingText,
+        mockExhausted: response.mockExhausted,
+        nextMockResponseIndex: response.nextMockResponseIndex ?? null,
+      },
+      stoppedEarly: false,
+    };
   }
 
   private async requestPlanner(turn: number, prepared: { promptTokenCount: number; maxOutputTokens: number }): Promise<PlannerActionResponse> {
@@ -355,7 +472,7 @@ export class TaskLoop {
       mock: Array.isArray(this.options.mockResponses),
     });
     try {
-      return await requestPlannerAction({
+      return await requestRepoSearchPlannerProtocolAction({
         baseUrl: this.options.baseUrl,
         model: this.options.model,
         messages: this.transcript.getMessages(),
@@ -459,7 +576,7 @@ export class TaskLoop {
     return 'stop';
   }
 
-  private async buildResult(): Promise<TaskResult> {
+  async buildAgentLoopResult(): Promise<TaskResult> {
     // Terminal synthesis if no final output — retry up to 3 times then hard-fail.
     if (!String(this.finalOutput || '').trim()) {
       const synthesizer = new TerminalSynthesizer({

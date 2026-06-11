@@ -490,7 +490,7 @@ test('buildChatHistoryMessages replays user answers and tool calls in persisted 
   ]);
 });
 
-test('buildChatHistoryMessages replays non-web tool calls through persisted_tool_call', () => {
+test('buildChatHistoryMessages replays persisted repo tool calls with real protocol names', () => {
   const session = {
     id: 's1',
     messages: [
@@ -513,7 +513,7 @@ test('buildChatHistoryMessages replays non-web tool calls through persisted_tool
         id: 'chat_tool_tool-2',
         type: 'function',
         function: {
-          name: 'persisted_tool_call',
+          name: 'repo_rg',
           arguments: JSON.stringify({ command: 'rg -n "buildChatHistoryMessages" src' }),
         },
       }],

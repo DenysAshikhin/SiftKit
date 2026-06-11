@@ -4,7 +4,7 @@
 import * as http from 'node:http';
 import * as crypto from 'node:crypto';
 import type { Dict } from '../../lib/types.js';
-import { httpClient } from '../../lib/http-client.js';
+import { LlamaCppClient } from '../../llm-protocol/llama-cpp-client.js';
 import type {
   SummaryPolicyProfile,
   SummarySourceKind,
@@ -80,6 +80,7 @@ import type {
   TerminalMetadataQueueItem,
 } from '../server-types.js';
 
+const llamaCppClient = new LlamaCppClient();
 const DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_SECONDS = 240;
 
 type RepoSearchAdmissionRecord = {
@@ -1547,7 +1548,7 @@ export async function handleCoreRoute(
       ? Math.min(Math.trunc(Number(parsedBody.HealthcheckTimeoutMs)), 30_000)
       : 2_000;
     try {
-      const response = await httpClient.requestText({ url: `${baseUrl}/v1/models`, timeoutMs });
+      const response = await llamaCppClient.probeModelsAtBaseUrl(baseUrl, timeoutMs);
       sendJson(res, 200, {
         ok: response.statusCode > 0 && response.statusCode < 400,
         statusCode: response.statusCode,
