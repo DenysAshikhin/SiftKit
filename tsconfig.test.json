@@ -21,6 +21,7 @@
     "tests/engine-terminal-synthesizer.test.ts",
     "tests/engine-prompt-preparer.test.ts",
     "tests/god-function-regression.test.ts",
-    "tests/summary-planner-runtime.test.ts"
+    "tests/summary-planner-runtime.test.ts",
+    "tests/status-route-table.test.ts"
   ]
 }

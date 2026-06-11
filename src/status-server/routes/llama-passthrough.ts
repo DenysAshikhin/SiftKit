@@ -8,6 +8,7 @@ import {
   releaseModelRequest,
 } from '../server-ops.js';
 import type { ServerContext } from '../server-types.js';
+import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.js';
 import type { SiftConfig } from '../../config/types.js';
 import { httpClient } from '../../lib/http-client.js';
 
@@ -31,15 +32,6 @@ const HOP_BY_HOP_RESPONSE_HEADERS = new Set([
 
 function isLlamaPassthroughPath(pathname: string): boolean {
   return pathname === MODELS_PATH || pathname === CHAT_COMPLETIONS_PATH || pathname === TOKENIZE_PATH;
-}
-
-function isAllowedLlamaPassthroughMethod(pathname: string, method: string | undefined): boolean {
-  const normalizedMethod = String(method || 'GET').toUpperCase();
-  if (pathname === MODELS_PATH) {
-    return normalizedMethod === 'GET';
-  }
-  // Chat completions and tokenize are both POST.
-  return normalizedMethod === 'POST';
 }
 
 function getLlamaPassthroughKind(pathname: string): string {
@@ -117,11 +109,6 @@ async function proxyLlamaRequest(
     sendJson(res, 500, { error: 'Server.LlamaCpp.BaseUrl points at the SiftKit passthrough server.' });
     return;
   }
-  // For managed llama, route the upstream call through 127.0.0.1:Port — the
-  // configured BaseUrl is what external clients (VMs, other hosts) use to
-  // reach this SiftKit's passthrough; the host itself talks to its own
-  // managed llama over loopback. For external llama, BaseUrl is the only
-  // address we know.
   const baseUrl = getManagedLlamaInternalBaseUrl(config) || configuredBaseUrl;
   const bodyText = String(req.method || 'GET').toUpperCase() === 'POST' ? await readBody(req) : '';
   const upstreamUrl = buildUpstreamUrl(baseUrl, req.url);
@@ -162,6 +149,69 @@ async function proxyLlamaRequest(
   });
 }
 
+class TokenizePassthroughEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    try {
+      await ensureManagedLlamaReadyForModelRequest(ctx);
+    } catch (error) {
+      sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+    try {
+      await proxyLlamaRequest(ctx, req, res, match.pathname, readConfig(ctx.configPath));
+    } catch (error) {
+      if (!res.headersSent && !res.destroyed) {
+        sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
+      } else {
+        res.destroy(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+  }
+}
+
+class QueuedLlamaPassthroughEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const modelRequestLock = await acquireModelRequestWithWait(ctx, getLlamaPassthroughKind(match.pathname), req, res);
+    if (!modelRequestLock) {
+      return;
+    }
+    try {
+      try {
+        await ensureManagedLlamaReadyForModelRequest(ctx);
+      } catch (error) {
+        sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
+        return;
+      }
+      await proxyLlamaRequest(ctx, req, res, match.pathname, readConfig(ctx.configPath));
+      ctx.idleSummaryPending = true;
+    } catch (error) {
+      if (!res.headersSent && !res.destroyed) {
+        sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
+      } else {
+        res.destroy(error instanceof Error ? error : new Error(String(error)));
+      }
+    } finally {
+      releaseModelRequest(ctx, modelRequestLock.token);
+    }
+  }
+}
+
+const LLAMA_PASSTHROUGH_ROUTES = new RouteTable([
+  { method: 'GET', path: MODELS_PATH, endpoint: new QueuedLlamaPassthroughEndpoint() },
+  { method: 'POST', path: CHAT_COMPLETIONS_PATH, endpoint: new QueuedLlamaPassthroughEndpoint() },
+  { method: 'POST', path: TOKENIZE_PATH, endpoint: new TokenizePassthroughEndpoint() },
+]);
+
 export async function handleLlamaPassthroughRoute(
   ctx: ServerContext,
   req: http.IncomingMessage,
@@ -171,53 +221,9 @@ export async function handleLlamaPassthroughRoute(
   if (!isLlamaPassthroughPath(pathname)) {
     return false;
   }
-  if (!isAllowedLlamaPassthroughMethod(pathname, req.method)) {
-    sendJson(res, 405, { error: 'Method not allowed.' });
+  if (await LLAMA_PASSTHROUGH_ROUTES.handle(ctx, req, res, pathname)) {
     return true;
   }
-  if (pathname === TOKENIZE_PATH) {
-    // Tokenize is a cheap, stateless call issued during preflight, before a
-    // chat slot is held. Routing it through the model-request queue would
-    // stall preflight behind an in-flight chat completion, so proxy it
-    // directly — but still wake a sleeping managed llama, which tokenize needs.
-    try {
-      await ensureManagedLlamaReadyForModelRequest(ctx);
-    } catch (error) {
-      sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
-      return true;
-    }
-    try {
-      await proxyLlamaRequest(ctx, req, res, pathname, readConfig(ctx.configPath));
-    } catch (error) {
-      if (!res.headersSent && !res.destroyed) {
-        sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
-      } else {
-        res.destroy(error instanceof Error ? error : new Error(String(error)));
-      }
-    }
-    return true;
-  }
-  const modelRequestLock = await acquireModelRequestWithWait(ctx, getLlamaPassthroughKind(pathname), req, res);
-  if (!modelRequestLock) {
-    return true;
-  }
-  try {
-    try {
-      await ensureManagedLlamaReadyForModelRequest(ctx);
-    } catch (error) {
-      sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
-      return true;
-    }
-    await proxyLlamaRequest(ctx, req, res, pathname, readConfig(ctx.configPath));
-    ctx.idleSummaryPending = true;
-  } catch (error) {
-    if (!res.headersSent && !res.destroyed) {
-      sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
-    } else {
-      res.destroy(error instanceof Error ? error : new Error(String(error)));
-    }
-  } finally {
-    releaseModelRequest(ctx, modelRequestLock.token);
-  }
+  sendJson(res, 405, { error: 'Method not allowed.' });
   return true;
 }
