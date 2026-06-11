@@ -35,7 +35,6 @@ import {
 import { writeRuntimeLaunchSnapshot } from './runtime-launch-snapshot.js';
 import { getRuntimeDatabasePath } from '../config/paths.js';
 import type { SiftConfig } from '../config/types.js';
-import type { JsonRecord } from '../lib/json-types.js';
 import type {
   ManagedLlamaLogRef,
   EnsureManagedLlamaOptions,

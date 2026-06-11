@@ -1,4 +1,4 @@
-import type { JsonRecord } from '../lib/json-types.js';
+import { JsonRecordReader } from '../lib/json-record-reader.js';
 import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
 
@@ -154,7 +154,10 @@ function normalizeMetricTotals(input: unknown): MetricTotals {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return totals;
   }
-  const record = input as JsonRecord;
+  const record = JsonRecordReader.asObject(input);
+  if (!record) {
+    return totals;
+  }
   const fields: Array<keyof MetricTotals> = [
     'inputCharactersTotal',
     'outputCharactersTotal',
@@ -188,7 +191,10 @@ function normalizeToolTypeStats(input: unknown): ToolTypeStats | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return null;
   }
-  const record = input as JsonRecord;
+  const record = JsonRecordReader.asObject(input);
+  if (!record) {
+    return null;
+  }
   const calls = normalizeNonNegativeNumber(record.calls);
   const outputCharsTotal = normalizeNonNegativeNumber(record.outputCharsTotal);
   const outputTokensTotal = normalizeNonNegativeNumber(record.outputTokensTotal);
@@ -248,7 +254,10 @@ function normalizeTaskTotals(input: unknown): TaskTotals {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return totals;
   }
-  const record = input as JsonRecord;
+  const record = JsonRecordReader.asObject(input);
+  if (!record) {
+    return totals;
+  }
   for (const taskKind of TASK_KINDS) {
     totals[taskKind] = normalizeMetricTotals(record[taskKind]);
   }
@@ -260,7 +269,10 @@ function normalizeToolStats(input: unknown): ToolStatsByTask {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return toolStats;
   }
-  const record = input as JsonRecord;
+  const record = JsonRecordReader.asObject(input);
+  if (!record) {
+    return toolStats;
+  }
   for (const taskKind of TASK_KINDS) {
     const taskRecord = record[taskKind];
     if (!taskRecord || typeof taskRecord !== 'object' || Array.isArray(taskRecord)) {
@@ -268,7 +280,12 @@ function normalizeToolStats(input: unknown): ToolStatsByTask {
       continue;
     }
     const normalized: Record<string, ToolTypeStats> = {};
-    for (const [toolType, rawStats] of Object.entries(taskRecord as JsonRecord)) {
+    const statsRecord = JsonRecordReader.asObject(taskRecord);
+    if (!statsRecord) {
+      toolStats[taskKind] = {};
+      continue;
+    }
+    for (const [toolType, rawStats] of Object.entries(statsRecord)) {
       const key = String(toolType || '').trim();
       if (!key) {
         continue;
@@ -288,7 +305,7 @@ function isCurrentSchema(input: unknown): boolean {
     input
     && typeof input === 'object'
     && !Array.isArray(input)
-    && Number((input as JsonRecord).schemaVersion) === METRICS_SCHEMA_VERSION
+    && Number(JsonRecordReader.asObject(input)?.schemaVersion) === METRICS_SCHEMA_VERSION
   );
 }
 
@@ -302,6 +319,31 @@ const TIMING_TOTAL_COLUMNS: Array<{ name: string; sql: string }> = [
   { name: 'status_running_ms_total', sql: 'ALTER TABLE runtime_metrics_totals ADD COLUMN status_running_ms_total INTEGER NOT NULL DEFAULT 0;' },
   { name: 'terminal_status_ms_total', sql: 'ALTER TABLE runtime_metrics_totals ADD COLUMN terminal_status_ms_total INTEGER NOT NULL DEFAULT 0;' },
 ];
+
+type RuntimeMetricsDbRow = {
+  schema_version: number | string | null;
+  input_characters_total: number | string | null;
+  output_characters_total: number | string | null;
+  input_tokens_total: number | string | null;
+  output_tokens_total: number | string | null;
+  thinking_tokens_total: number | string | null;
+  tool_tokens_total: number | string | null;
+  prompt_cache_tokens_total: number | string | null;
+  prompt_eval_tokens_total: number | string | null;
+  speculative_accepted_tokens_total: number | string | null;
+  speculative_generated_tokens_total: number | string | null;
+  request_duration_ms_total: number | string | null;
+  wall_duration_ms_total: number | string | null;
+  stdin_wait_ms_total: number | string | null;
+  server_preflight_ms_total: number | string | null;
+  lock_wait_ms_total: number | string | null;
+  status_running_ms_total: number | string | null;
+  terminal_status_ms_total: number | string | null;
+  completed_request_count: number | string | null;
+  task_totals_json: string | null;
+  tool_stats_json: string | null;
+  updated_at_utc: string | null;
+};
 
 function ensureRuntimeMetricsTimingColumns(database: RuntimeMetricsDatabase): void {
   const columns = (database.prepare('PRAGMA table_info(runtime_metrics_totals)').all() as Array<{ name: unknown }>)
@@ -319,7 +361,10 @@ export function normalizeMetrics(input: unknown): Metrics {
   if (!isCurrentSchema(input)) {
     return metrics;
   }
-  const record = input as JsonRecord;
+  const record = JsonRecordReader.asObject(input);
+  if (!record) {
+    return getDefaultMetrics();
+  }
   const totals = normalizeMetricTotals(record);
   metrics.inputCharactersTotal = totals.inputCharactersTotal;
   metrics.outputCharactersTotal = totals.outputCharactersTotal;
@@ -376,7 +421,7 @@ export function readMetrics(metricsPath: string): Metrics {
       updated_at_utc
     FROM runtime_metrics_totals
     WHERE id = 1
-  `).get() as JsonRecord | undefined;
+  `).get() as RuntimeMetricsDbRow | undefined;
   if (!row || typeof row !== 'object') {
     return getDefaultMetrics();
   }

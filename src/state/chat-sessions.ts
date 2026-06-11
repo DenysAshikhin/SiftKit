@@ -1,6 +1,10 @@
 import * as crypto from 'node:crypto';
 import * as path from 'node:path';
 import { mapLegacyModeToPresetId } from '../presets.js';
+import {
+  toNullableNonNegativeInteger,
+  toNullableNonNegativeNumber,
+} from '../lib/telemetry-metrics.js';
 import { getRuntimeDatabase } from './runtime-db.js';
 
 export type ChatSessionMode = 'chat' | 'plan' | 'repo-search';
@@ -215,42 +219,12 @@ function mapMessageRow(row: MessageRow): ChatMessage {
   };
 }
 
-function toNonNegativeInteger(value: unknown, fallback: number = 0): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return fallback;
-  }
-  return Math.trunc(parsed);
-}
-
-function toNullableNonNegativeInteger(value: unknown): number | null {
-  if (value === null || value === undefined || value === '') {
-    return null;
-  }
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return null;
-  }
-  return Math.trunc(parsed);
-}
-
 function toNullableInteger(value: unknown): number | null {
   if (value === null || value === undefined || value === '') {
     return null;
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
-}
-
-function toNullableNonNegativeNumber(value: unknown): number | null {
-  if (value === null || value === undefined || value === '') {
-    return null;
-  }
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return null;
-  }
-  return parsed;
 }
 
 export function estimateTokenCount(value: unknown): number {
@@ -461,7 +435,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
       sessionId,
       typeof session.title === 'string' && session.title.trim() ? session.title.trim() : 'New Session',
       typeof session.model === 'string' && session.model.trim() ? session.model.trim() : null,
-      toNonNegativeInteger(session.contextWindowTokens, 150000),
+        toNullableNonNegativeInteger(session.contextWindowTokens) ?? 150000,
       session.thinkingEnabled === false ? 0 : 1,
       session.webSearchEnabled === true ? 1 : 0,
       presetId,
@@ -528,9 +502,9 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         normalizeRole(message.role),
         normalizeMessageKind(message.kind, message.role),
         typeof message.content === 'string' ? message.content : '',
-        toNonNegativeInteger(message.inputTokensEstimate, estimateTokenCount(message.content)),
-        toNonNegativeInteger(message.outputTokensEstimate, estimateTokenCount(message.content)),
-        toNonNegativeInteger(message.thinkingTokens, 0),
+        toNullableNonNegativeInteger(message.inputTokensEstimate) ?? estimateTokenCount(message.content),
+        toNullableNonNegativeInteger(message.outputTokensEstimate) ?? estimateTokenCount(message.content),
+        toNullableNonNegativeInteger(message.thinkingTokens) ?? 0,
         message.inputTokensEstimated === false ? 0 : 1,
         message.outputTokensEstimated === false ? 0 : 1,
         message.thinkingTokensEstimated === false ? 0 : 1,

@@ -32,8 +32,7 @@ import type {
   WebSearchProviderId,
   WebSearchProviderSettings,
 } from './types.js';
-
-type JsonRecord = Record<string, unknown>;
+import type { JsonValue, MutableJsonObject } from '../lib/json-types.js';
 
 const WEB_SEARCH_PROVIDER_IDS: readonly WebSearchProviderId[] = ['tavily', 'firecrawl'];
 const MANAGED_LLAMA_SPECULATIVE_TYPES: readonly ManagedLlamaSpeculativeType[] = [
@@ -97,11 +96,11 @@ export type ManagedLlamaConfig = {
   VerboseLogging: boolean;
 };
 
-function isRecord(value: unknown): value is JsonRecord {
+function isRecord(value: unknown): value is MutableJsonObject {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-function getRecord(value: unknown): JsonRecord {
+function getRecord(value: unknown): MutableJsonObject {
   return isRecord(value) ? value : {};
 }
 
@@ -241,12 +240,12 @@ export function mergeConfig(baseValue: unknown, patchValue: unknown): unknown {
     return patchValue.slice();
   }
   if (isRecord(baseValue) && isRecord(patchValue)) {
-    const merged: JsonRecord = { ...baseValue };
+    const merged: MutableJsonObject = { ...baseValue };
     for (const [key, value] of Object.entries(patchValue)) {
       if (key === 'Paths') {
         continue;
       }
-      merged[key] = key in merged ? mergeConfig(merged[key], value) : value;
+      merged[key] = (key in merged ? mergeConfig(merged[key], value) : value) as JsonValue;
     }
     return merged;
   }
@@ -296,7 +295,7 @@ function resolveOperationModeAllowedTools(value: unknown): OperationModeAllowedT
   return normalizeOperationModeAllowedTools(value);
 }
 
-function resolveManagedLlamaSettings(input: JsonRecord): ManagedLlamaConfig {
+function resolveManagedLlamaSettings(input: MutableJsonObject): ManagedLlamaConfig {
   const defaults = getDefaultManagedLlamaPreset();
   const reasoning = getNullableTrimmedString(input.Reasoning);
   const reasoningEnabled = reasoning === 'on';
@@ -377,7 +376,7 @@ export function normalizeConfigObject(input: unknown): SiftConfig {
   merged.Runtime = runtime;
 
   if (!merged.PromptPrefix || !String(merged.PromptPrefix).trim()) {
-    merged.PromptPrefix = getDefaultConfigObject().PromptPrefix;
+    merged.PromptPrefix = getDefaultConfigObject().PromptPrefix ?? null;
   }
   merged.ExpandReads = merged.ExpandReads !== false;
 
@@ -421,7 +420,7 @@ export function getManagedLlamaConfig(config: SiftConfig): ManagedLlamaConfig {
   const preset = getActiveManagedLlamaPreset(config);
   return {
     Model: getNullableTrimmedString(preset.Model),
-    ...resolveManagedLlamaSettings(preset as JsonRecord),
+    ...resolveManagedLlamaSettings(getRecord(preset)),
   };
 }
 

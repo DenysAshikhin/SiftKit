@@ -1,8 +1,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
-import type { JsonRecord } from '../lib/json-types.js';
+import { JsonRecordReader } from '../lib/json-record-reader.js';
+import type { JsonObject } from '../lib/json-types.js';
 import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
+import { toNullableNonNegativeInteger } from '../lib/telemetry-metrics.js';
 import { getRuntimeRoot } from './paths.js';
 import { getRuntimeDatabasePath } from '../config/paths.js';
 import { formatInteger, formatElapsed } from '../lib/text-format.js';
@@ -224,10 +226,54 @@ export type RunRecord = {
   durationMs: number | null;
   providerDurationMs: number | null;
   wallDurationMs: number | null;
-  rawPaths: JsonRecord;
+  rawPaths: JsonObject;
 };
 
-function normalizeRunRecord(record: JsonRecord): RunRecord {
+type RunLogDbRow = {
+  run_id: string | null;
+  run_kind: string | null;
+  terminal_state: string | null;
+  started_at_utc: string | null;
+  finished_at_utc: string | null;
+  title: string | null;
+  model: string | null;
+  backend: string | null;
+  input_tokens: number | string | null;
+  output_tokens: number | string | null;
+  thinking_tokens: number | string | null;
+  tool_tokens: number | string | null;
+  prompt_cache_tokens: number | string | null;
+  prompt_eval_tokens: number | string | null;
+  prompt_eval_duration_ms: number | string | null;
+  generation_duration_ms: number | string | null;
+  speculative_accepted_tokens: number | string | null;
+  speculative_generated_tokens: number | string | null;
+  duration_ms: number | string | null;
+  provider_duration_ms: number | string | null;
+  wall_duration_ms: number | string | null;
+  request_json: string | null;
+  planner_debug_json: string | null;
+  failed_request_json: string | null;
+  abandoned_request_json: string | null;
+  repo_search_json: string | null;
+  repo_search_transcript_jsonl: string | null;
+};
+
+type RunLogIdRow = {
+  run_id: string | null;
+};
+
+type RunLogCountRow = {
+  count?: number | string | null;
+  match_count?: number | string | null;
+};
+
+export type RunArtifactPayload = JsonObject;
+type ScorecardTaskPayload = {
+  commands?: JsonObject[];
+};
+
+function normalizeRunRecord(record: JsonObject): RunRecord {
   return {
     id: String(record.id),
     kind: String(record.kind),
@@ -250,7 +296,7 @@ function normalizeRunRecord(record: JsonRecord): RunRecord {
     durationMs: Number.isFinite(record.durationMs) ? Number(record.durationMs) : null,
     providerDurationMs: Number.isFinite(record.providerDurationMs) ? Number(record.providerDurationMs) : null,
     wallDurationMs: Number.isFinite(record.wallDurationMs) ? Number(record.wallDurationMs) : null,
-    rawPaths: record.rawPaths && typeof record.rawPaths === 'object' ? record.rawPaths as JsonRecord : {},
+    rawPaths: JsonRecordReader.asObject(record.rawPaths) || {},
   };
 }
 
@@ -422,21 +468,6 @@ function isRunLogGroup(value: string): value is RunLogGroup {
     || value === 'other';
 }
 
-function toNonNegativeInteger(value: unknown): number | null {
-  if (!Number.isFinite(Number(value))) {
-    return null;
-  }
-  const next = Math.max(0, Math.trunc(Number(value)));
-  return Number.isFinite(next) ? next : null;
-}
-
-function toNullableNonNegativeInteger(value: unknown): number | null {
-  if (value === null || value === undefined || value === '') {
-    return null;
-  }
-  return toNonNegativeInteger(value);
-}
-
 function readPersistedRunLogSpeculativeMetrics(
   database: DatabaseInstance,
   requestId: string,
@@ -454,7 +485,7 @@ function readPersistedRunLogSpeculativeMetrics(
     FROM run_logs
     WHERE request_id = ?
     LIMIT 1
-  `).get(normalizedRequestId) as JsonRecord | undefined;
+  `).get(normalizedRequestId) as JsonObject | undefined;
   return {
     speculativeAcceptedTokens: toNullableNonNegativeInteger(row?.speculative_accepted_tokens),
     speculativeGeneratedTokens: toNullableNonNegativeInteger(row?.speculative_generated_tokens),
@@ -473,38 +504,42 @@ function getProcessedInputTokensValue(
   promptCacheTokens: unknown,
   promptEvalTokens: unknown,
 ): number | null {
-  return toNonNegativeInteger(getProcessedPromptTokens(inputTokens, promptCacheTokens, promptEvalTokens));
+  return toNullableNonNegativeInteger(getProcessedPromptTokens(inputTokens, promptCacheTokens, promptEvalTokens));
 }
 
-function parseJsonObjectText(text: string | null): JsonRecord | null {
+function parseJsonObjectText(text: string | null): JsonObject | null {
   if (typeof text !== 'string' || !text.trim()) {
     return null;
   }
   try {
-    const parsed = JSON.parse(text) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return null;
-    }
-    return parsed as JsonRecord;
+    return JsonRecordReader.parseObjectText(text);
   } catch {
     return null;
   }
+}
+
+function readJsonObjectArray(value: unknown): JsonObject[] {
+  return Array.isArray(value)
+    ? value.map((entry) => JsonRecordReader.asObject(entry)).filter((entry): entry is JsonObject => entry !== null)
+    : [];
 }
 
 function removeCommandFromScorecard(scorecard: unknown, commandText: string): boolean {
   if (!scorecard || typeof scorecard !== 'object') {
     return false;
   }
-  const tasks = Array.isArray((scorecard as JsonRecord).tasks) ? (scorecard as JsonRecord).tasks as JsonRecord[] : [];
+  const scorecardRecord = JsonRecordReader.asObject(scorecard);
+  const tasks = readJsonObjectArray(scorecardRecord?.tasks);
   let changed = false;
   for (const task of tasks) {
-    if (!task || typeof task !== 'object' || !Array.isArray(task.commands)) {
+    const taskPayload = task as ScorecardTaskPayload;
+    if (!Array.isArray(taskPayload.commands)) {
       continue;
     }
-    const originalCommands = task.commands as JsonRecord[];
+    const originalCommands = readJsonObjectArray(taskPayload.commands);
     const filteredCommands = originalCommands.filter((command) => !commandMatchesDisplayText(command, commandText));
     if (filteredCommands.length !== originalCommands.length) {
-      task.commands = filteredCommands;
+      taskPayload.commands = filteredCommands;
       changed = true;
     }
   }
@@ -521,14 +556,18 @@ function removeCommandFromTranscriptJsonl(text: string | null, commandText: stri
     if (!line.trim()) {
       continue;
     }
-    let parsed: JsonRecord | null = null;
+    let parsed: JsonObject | null = null;
     try {
-      parsed = JSON.parse(line) as JsonRecord;
+      parsed = JsonRecordReader.asObject(JSON.parse(line) as unknown);
     } catch {
       keptLines.push(line);
       continue;
     }
-    const payload = parsed.payload && typeof parsed.payload === 'object' ? parsed.payload as JsonRecord : parsed;
+    if (!parsed) {
+      keptLines.push(line);
+      continue;
+    }
+    const payload = JsonRecordReader.asObject(parsed.payload) || parsed;
     const kind = String(parsed.kind || payload.kind || '');
     if (commandMatchesDisplayText(payload, commandText) && (kind === 'turn_command_result' || kind === 'tool_start' || kind === 'tool_result')) {
       changed = true;
@@ -576,10 +615,13 @@ export function removeDashboardRunCommandFromLogs(database: DatabaseInstance, ru
         if (typeof artifactRow.content_json !== 'string' || !artifactRow.content_json.trim()) {
           continue;
         }
-        let parsed: JsonRecord;
+        let parsed: JsonObject | null;
         try {
-          parsed = JSON.parse(artifactRow.content_json) as JsonRecord;
+          parsed = JsonRecordReader.asObject(JSON.parse(artifactRow.content_json) as unknown);
         } catch {
+          continue;
+        }
+        if (!parsed) {
           continue;
         }
         const changed = removeCommandFromScorecard(parsed.scorecard ?? parsed, normalizedCommand);
@@ -607,7 +649,10 @@ function parseJsonlEventsFromText(text: string | null): JsonlEvent[] {
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
         continue;
       }
-      const payload = parsed as JsonRecord;
+      const payload = JsonRecordReader.asObject(parsed);
+      if (!payload) {
+        continue;
+      }
       events.push({
         kind: typeof payload.kind === 'string' ? payload.kind : 'event',
         at: typeof payload.at === 'string' ? payload.at : null,
@@ -641,7 +686,7 @@ function normalizeStatusForRunRecord(terminalState: string): string {
   return 'running';
 }
 
-function normalizeRunRecordFromDbRow(row: JsonRecord): RunRecord {
+function normalizeRunRecordFromDbRow(row: RunLogDbRow): RunRecord {
   return normalizeRunRecord({
     id: String(row.run_id || ''),
     kind: String(row.run_kind || 'unknown'),
@@ -651,14 +696,14 @@ function normalizeRunRecordFromDbRow(row: JsonRecord): RunRecord {
     title: String(row.title || ''),
     model: typeof row.model === 'string' ? row.model : null,
     backend: typeof row.backend === 'string' ? row.backend : null,
-    inputTokens: toNonNegativeInteger(row.input_tokens),
-    outputTokens: toNonNegativeInteger(row.output_tokens),
-    thinkingTokens: toNonNegativeInteger(row.thinking_tokens),
-    toolTokens: toNonNegativeInteger(row.tool_tokens),
-    promptCacheTokens: toNonNegativeInteger(row.prompt_cache_tokens),
-    promptEvalTokens: toNonNegativeInteger(row.prompt_eval_tokens),
-    promptEvalDurationMs: toNonNegativeInteger(row.prompt_eval_duration_ms),
-    generationDurationMs: toNonNegativeInteger(row.generation_duration_ms),
+    inputTokens: toNullableNonNegativeInteger(row.input_tokens),
+    outputTokens: toNullableNonNegativeInteger(row.output_tokens),
+    thinkingTokens: toNullableNonNegativeInteger(row.thinking_tokens),
+    toolTokens: toNullableNonNegativeInteger(row.tool_tokens),
+    promptCacheTokens: toNullableNonNegativeInteger(row.prompt_cache_tokens),
+    promptEvalTokens: toNullableNonNegativeInteger(row.prompt_eval_tokens),
+    promptEvalDurationMs: toNullableNonNegativeInteger(row.prompt_eval_duration_ms),
+    generationDurationMs: toNullableNonNegativeInteger(row.generation_duration_ms),
     speculativeAcceptedTokens: toNullableNonNegativeInteger(row.speculative_accepted_tokens),
     speculativeGeneratedTokens: toNullableNonNegativeInteger(row.speculative_generated_tokens),
     durationMs: toNullableNonNegativeInteger(row.wall_duration_ms) ?? toNullableNonNegativeInteger(row.duration_ms),
@@ -820,7 +865,7 @@ export function upsertRunArtifactPayload(options: {
   database: DatabaseInstance;
   requestId: string;
   artifactType: 'summary_request' | 'planner_debug' | 'planner_failed' | 'request_abandoned';
-  artifactPayload: JsonRecord;
+  artifactPayload: RunArtifactPayload;
 }): void {
   const requestId = String(options.requestId || '').trim();
   if (!requestId) {
@@ -889,13 +934,13 @@ export function upsertRunArtifactPayload(options: {
       options.artifactPayload?.promptCacheTokens,
       options.artifactPayload?.promptEvalTokens,
     ),
-    outputTokens: toNonNegativeInteger(options.artifactPayload?.outputTokens),
-    thinkingTokens: toNonNegativeInteger(options.artifactPayload?.thinkingTokens),
-    toolTokens: toNonNegativeInteger(options.artifactPayload?.toolTokens),
-    promptCacheTokens: toNonNegativeInteger(options.artifactPayload?.promptCacheTokens),
-    promptEvalTokens: toNonNegativeInteger(options.artifactPayload?.promptEvalTokens),
-    promptEvalDurationMs: toNonNegativeInteger(options.artifactPayload?.promptEvalDurationMs),
-    generationDurationMs: toNonNegativeInteger(options.artifactPayload?.generationDurationMs),
+    outputTokens: toNullableNonNegativeInteger(options.artifactPayload?.outputTokens),
+    thinkingTokens: toNullableNonNegativeInteger(options.artifactPayload?.thinkingTokens),
+    toolTokens: toNullableNonNegativeInteger(options.artifactPayload?.toolTokens),
+    promptCacheTokens: toNullableNonNegativeInteger(options.artifactPayload?.promptCacheTokens),
+    promptEvalTokens: toNullableNonNegativeInteger(options.artifactPayload?.promptEvalTokens),
+    promptEvalDurationMs: toNullableNonNegativeInteger(options.artifactPayload?.promptEvalDurationMs),
+    generationDurationMs: toNullableNonNegativeInteger(options.artifactPayload?.generationDurationMs),
     speculativeAcceptedTokens: canonicalSpeculativeMetrics.speculativeAcceptedTokens,
     speculativeGeneratedTokens: canonicalSpeculativeMetrics.speculativeGeneratedTokens,
     durationMs: toNullableNonNegativeInteger(options.artifactPayload?.wallDurationMs) ?? toNullableNonNegativeInteger(options.artifactPayload?.requestDurationMs),
@@ -922,7 +967,7 @@ export function upsertRepoSearchRun(options: {
   requestMaxTokens: number | null;
   maxTurns: number | null;
   transcriptText: string;
-  artifactPayload: JsonRecord;
+  artifactPayload: RunArtifactPayload;
   terminalState: 'completed' | 'failed';
   startedAtUtc: string;
   finishedAtUtc: string;
@@ -954,17 +999,17 @@ export function upsertRepoSearchRun(options: {
     backend: 'llama.cpp',
     repoRoot: options.repoRoot,
     inputTokens: getProcessedInputTokensValue(options.promptTokens, options.promptCacheTokens, options.promptEvalTokens),
-    outputTokens: toNonNegativeInteger(options.outputTokens),
-    thinkingTokens: toNonNegativeInteger(options.thinkingTokens),
-    toolTokens: toNonNegativeInteger(options.toolTokens),
-    promptCacheTokens: toNonNegativeInteger(options.promptCacheTokens),
-    promptEvalTokens: toNonNegativeInteger(options.promptEvalTokens),
-    promptEvalDurationMs: toNonNegativeInteger(options.promptEvalDurationMs),
-    generationDurationMs: toNonNegativeInteger(options.generationDurationMs),
+    outputTokens: toNullableNonNegativeInteger(options.outputTokens),
+    thinkingTokens: toNullableNonNegativeInteger(options.thinkingTokens),
+    toolTokens: toNullableNonNegativeInteger(options.toolTokens),
+    promptCacheTokens: toNullableNonNegativeInteger(options.promptCacheTokens),
+    promptEvalTokens: toNullableNonNegativeInteger(options.promptEvalTokens),
+    promptEvalDurationMs: toNullableNonNegativeInteger(options.promptEvalDurationMs),
+    generationDurationMs: toNullableNonNegativeInteger(options.generationDurationMs),
     speculativeAcceptedTokens: toNullableNonNegativeInteger(options.speculativeAcceptedTokens),
     speculativeGeneratedTokens: toNullableNonNegativeInteger(options.speculativeGeneratedTokens),
-    durationMs: toNonNegativeInteger(options.requestDurationMs),
-    providerDurationMs: toNonNegativeInteger(options.requestDurationMs),
+    durationMs: toNullableNonNegativeInteger(options.requestDurationMs),
+    providerDurationMs: toNullableNonNegativeInteger(options.requestDurationMs),
     wallDurationMs: null,
     requestJson: null,
     plannerDebugJson: null,
@@ -1017,7 +1062,7 @@ export function queryDashboardRunsFromDb(
       FROM run_logs
       ORDER BY COALESCE(finished_at_utc, started_at_utc, '1970-01-01T00:00:00.000Z') DESC, id DESC
       LIMIT ?
-    `).all(limitPerGroup) as JsonRecord[]
+    `).all(limitPerGroup) as RunLogDbRow[]
     : (() => {
       const whereClauses: string[] = [];
       const params: string[] = [];
@@ -1040,7 +1085,7 @@ export function queryDashboardRunsFromDb(
         FROM run_logs
         ${whereSql}
         ORDER BY COALESCE(started_at_utc, '1970-01-01T00:00:00.000Z') DESC, id DESC
-      `).all(...params) as JsonRecord[];
+      `).all(...params) as RunLogDbRow[];
     })();
   return rows.map((row) => normalizeRunRecordFromDbRow(row));
 }
@@ -1069,14 +1114,14 @@ function listRunLogIdsForDeletion(database: DatabaseInstance, criteria: Dashboar
       ${clause}
       ORDER BY ${buildRunLogTimestampSql()} ASC, id ASC
       LIMIT ?
-    `).all(...params, criteria.count).map((row) => String((row as JsonRecord).run_id || ''));
+    `).all(...params, criteria.count).map((row) => String((row as RunLogIdRow).run_id || ''));
   }
   return database.prepare(`
     SELECT run_id
     FROM run_logs
     ${clause ? `${clause} AND ` : 'WHERE '}${buildRunLogTimestampSql()} < ?
     ORDER BY ${buildRunLogTimestampSql()} ASC, id ASC
-  `).all(...params, `${criteria.beforeDate}T00:00:00.000Z`).map((row) => String((row as JsonRecord).run_id || ''));
+  `).all(...params, `${criteria.beforeDate}T00:00:00.000Z`).map((row) => String((row as RunLogIdRow).run_id || ''));
 }
 
 function tableExists(database: DatabaseInstance, name: string): boolean {
@@ -1128,7 +1173,7 @@ function countLinkedRuntimeArtifacts(database: DatabaseInstance, runLogIds: stri
   const placeholders = runLogIds.map(() => '?').join(', ');
   const row = database.prepare(`
     SELECT COUNT(*) AS count FROM runtime_artifacts WHERE request_id IN (${placeholders})
-  `).get(...runLogIds) as JsonRecord;
+  `).get(...runLogIds) as RunLogCountRow;
   return Number(row.count || 0);
 }
 
@@ -1190,7 +1235,7 @@ export function previewDashboardRunLogDeletion(
       if (!tableExists(database, table)) {
         continue;
       }
-      const row = database.prepare(countSql).get(cutoff) as JsonRecord;
+      const row = database.prepare(countSql).get(cutoff) as RunLogCountRow;
       matchCount += Number(row.count || 0);
     }
     return { matchCount };
@@ -1248,7 +1293,7 @@ export function queryDashboardRunDetailFromDb(
     FROM run_logs
     WHERE run_id = ?
     LIMIT 1
-  `).get(runId) as JsonRecord | undefined;
+  `).get(runId) as RunLogDbRow | undefined;
   if (!row || typeof row !== 'object') {
     return null;
   }
@@ -1329,11 +1374,11 @@ function parseOptionalIsoDate(value: unknown): string | null {
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
 }
 
-function parseRepoSearchTotals(payload: JsonRecord | null): JsonRecord | null {
+function parseRepoSearchTotals(payload: JsonObject | null): JsonObject | null {
   if (!payload || !payload.totals || typeof payload.totals !== 'object' || Array.isArray(payload.totals)) {
     return null;
   }
-  return payload.totals as JsonRecord;
+  return JsonRecordReader.asObject(payload.totals);
 }
 
 function resolveRunKindAndGroup(
@@ -1371,10 +1416,10 @@ function resolveRunKindAndGroup(
 
 function resolveTerminalState(
   explicitTerminalState: RunLogTerminalState | null,
-  requestPayload: JsonRecord | null,
-  failedRequestPayload: JsonRecord | null,
-  abandonedPayload: JsonRecord | null,
-  repoSearchPayload: JsonRecord | null,
+  requestPayload: JsonObject | null,
+  failedRequestPayload: JsonObject | null,
+  abandonedPayload: JsonObject | null,
+  repoSearchPayload: JsonObject | null,
 ): RunLogTerminalState {
   if (explicitTerminalState && explicitTerminalState !== 'unknown') {
     return explicitTerminalState;
@@ -1397,10 +1442,10 @@ function resolveTerminalState(
 function resolveTitle(
   requestId: string,
   runKind: RunLogKind,
-  requestPayload: JsonRecord | null,
-  failedRequestPayload: JsonRecord | null,
-  abandonedPayload: JsonRecord | null,
-  repoSearchPayload: JsonRecord | null,
+  requestPayload: JsonObject | null,
+  failedRequestPayload: JsonObject | null,
+  abandonedPayload: JsonObject | null,
+  repoSearchPayload: JsonObject | null,
 ): string {
   if (requestPayload) {
     const question = typeof requestPayload.question === 'string' && requestPayload.question.trim()
@@ -1535,13 +1580,13 @@ function buildRunLogRow(options: {
       requestPayload?.promptCacheTokens ?? failedRequestPayload?.promptCacheTokens ?? repoTotals?.promptCacheTokens ?? null,
       requestPayload?.promptEvalTokens ?? failedRequestPayload?.promptEvalTokens ?? repoTotals?.promptEvalTokens ?? null,
     ),
-    outputTokens: toNonNegativeInteger(requestPayload?.outputTokens ?? failedRequestPayload?.outputTokens ?? abandonedPayload?.outputTokensTotal ?? repoTotals?.outputTokens ?? null),
-    thinkingTokens: toNonNegativeInteger(requestPayload?.thinkingTokens ?? failedRequestPayload?.thinkingTokens ?? repoTotals?.thinkingTokens ?? null),
-    toolTokens: toNonNegativeInteger(repoTotals?.toolTokens ?? null),
-    promptCacheTokens: toNonNegativeInteger(requestPayload?.promptCacheTokens ?? failedRequestPayload?.promptCacheTokens ?? repoTotals?.promptCacheTokens ?? null),
-    promptEvalTokens: toNonNegativeInteger(requestPayload?.promptEvalTokens ?? failedRequestPayload?.promptEvalTokens ?? repoTotals?.promptEvalTokens ?? null),
-    promptEvalDurationMs: toNonNegativeInteger(repoTotals?.promptEvalDurationMs ?? null),
-    generationDurationMs: toNonNegativeInteger(repoTotals?.generationDurationMs ?? null),
+    outputTokens: toNullableNonNegativeInteger(requestPayload?.outputTokens ?? failedRequestPayload?.outputTokens ?? abandonedPayload?.outputTokensTotal ?? repoTotals?.outputTokens ?? null),
+    thinkingTokens: toNullableNonNegativeInteger(requestPayload?.thinkingTokens ?? failedRequestPayload?.thinkingTokens ?? repoTotals?.thinkingTokens ?? null),
+    toolTokens: toNullableNonNegativeInteger(repoTotals?.toolTokens ?? null),
+    promptCacheTokens: toNullableNonNegativeInteger(requestPayload?.promptCacheTokens ?? failedRequestPayload?.promptCacheTokens ?? repoTotals?.promptCacheTokens ?? null),
+    promptEvalTokens: toNullableNonNegativeInteger(requestPayload?.promptEvalTokens ?? failedRequestPayload?.promptEvalTokens ?? repoTotals?.promptEvalTokens ?? null),
+    promptEvalDurationMs: toNullableNonNegativeInteger(repoTotals?.promptEvalDurationMs ?? null),
+    generationDurationMs: toNullableNonNegativeInteger(repoTotals?.generationDurationMs ?? null),
     speculativeAcceptedTokens: canonicalSpeculativeMetrics.speculativeAcceptedTokens,
     speculativeGeneratedTokens: canonicalSpeculativeMetrics.speculativeGeneratedTokens,
     durationMs: toNullableNonNegativeInteger(
@@ -1763,7 +1808,39 @@ export function buildDashboardDailyMetrics(runtimeRoot: string, idleSummaryDatab
 
 export type IdleSummarySnapshotRow = IdleSummarySnapshot & { summaryText: string };
 
-export function normalizeIdleSummarySnapshotRow(row: JsonRecord | null): IdleSummarySnapshotRow | null {
+export type IdleSummarySnapshotDbRow = {
+  emitted_at_utc: string | null;
+  completed_request_count: number | string | null;
+  input_characters_total: number | string | null;
+  output_characters_total: number | string | null;
+  compression_ratio: number | string | null;
+  input_tokens_total: number | string | null;
+  output_tokens_total: number | string | null;
+  thinking_tokens_total: number | string | null;
+  tool_tokens_total: number | string | null;
+  prompt_cache_tokens_total: number | string | null;
+  prompt_eval_tokens_total: number | string | null;
+  speculative_accepted_tokens_total: number | string | null;
+  speculative_generated_tokens_total: number | string | null;
+  saved_tokens: number | string | null;
+  saved_percent: number | string | null;
+  request_duration_ms_total: number | string | null;
+  wall_duration_ms_total: number | string | null;
+  stdin_wait_ms_total: number | string | null;
+  server_preflight_ms_total: number | string | null;
+  lock_wait_ms_total: number | string | null;
+  status_running_ms_total: number | string | null;
+  terminal_status_ms_total: number | string | null;
+  avg_request_ms: number | string | null;
+  avg_tokens_per_second: number | string | null;
+  prompt_cache_hit_rate: number | string | null;
+  acceptance_rate: number | string | null;
+  task_totals_json: string | null;
+  tool_stats_json: string | null;
+  summary_text: string | null;
+};
+
+export function normalizeIdleSummarySnapshotRow(row: IdleSummarySnapshotDbRow | null): IdleSummarySnapshotRow | null {
   if (!row || typeof row !== 'object') {
     return null;
   }

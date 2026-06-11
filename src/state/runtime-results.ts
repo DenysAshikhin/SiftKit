@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import type { JsonRecord } from '../lib/json-types.js';
+import { JsonRecordReader } from '../lib/json-record-reader.js';
+import type { JsonObject } from '../lib/json-types.js';
 import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.js';
 
 export type StoredRuntimeResult = {
   id: string;
-  payload: JsonRecord;
+  payload: JsonObject;
   createdAtUtc: string;
 };
 
@@ -14,15 +15,18 @@ function getDatabase(databasePath?: string): RuntimeDatabase {
   return getRuntimeDatabase(databasePath);
 }
 
-function parsePayload(value: unknown): JsonRecord {
+type RuntimeResultRow = {
+  id: string | null;
+  payload_json: string | null;
+  created_at_utc: string | null;
+};
+
+function parsePayload(value: unknown): JsonObject {
   if (typeof value !== 'string' || !value.trim()) {
     return {};
   }
   try {
-    const parsed = JSON.parse(value) as unknown;
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed as JsonRecord;
-    }
+    return JsonRecordReader.asObject(JSON.parse(value) as unknown) || {};
   } catch {
     // Ignore malformed payload text.
   }
@@ -33,7 +37,7 @@ function buildResultUri(prefix: 'benchmark-runs' | 'eval-results', id: string): 
   return `db://${prefix}/${id}`;
 }
 
-function parseResultRow(row: { id?: unknown; payload_json?: unknown; created_at_utc?: unknown } | undefined): StoredRuntimeResult | null {
+function parseResultRow(row: RuntimeResultRow | undefined): StoredRuntimeResult | null {
   if (!row || typeof row.id !== 'string') {
     return null;
   }
@@ -55,7 +59,7 @@ export function listBenchmarkRuns(options: {
     FROM benchmark_runs
     ORDER BY created_at_utc DESC, id DESC
     LIMIT ?
-  `).all(limit) as Array<{ id?: unknown; payload_json?: unknown; created_at_utc?: unknown }>;
+  `).all(limit) as RuntimeResultRow[];
   return rows.map((row) => parseResultRow(row)).filter((row): row is StoredRuntimeResult => row !== null);
 }
 
@@ -70,7 +74,7 @@ export function listEvalResults(options: {
     FROM eval_results
     ORDER BY created_at_utc DESC, id DESC
     LIMIT ?
-  `).all(limit) as Array<{ id?: unknown; payload_json?: unknown; created_at_utc?: unknown }>;
+  `).all(limit) as RuntimeResultRow[];
   return rows.map((row) => parseResultRow(row)).filter((row): row is StoredRuntimeResult => row !== null);
 }
 
@@ -96,7 +100,7 @@ export function deleteEvalResult(id: string, databasePath?: string): boolean {
 
 export function persistBenchmarkRun(options: {
   id?: string;
-  payload: JsonRecord;
+  payload: JsonObject;
   databasePath?: string;
 }): { id: string; uri: string } {
   const id = String(options.id || '').trim() || randomUUID();
@@ -120,7 +124,7 @@ export function persistBenchmarkRun(options: {
 
 export function persistEvalResult(options: {
   id?: string;
-  payload: JsonRecord;
+  payload: JsonObject;
   databasePath?: string;
 }): { id: string; uri: string } {
   const id = String(options.id || '').trim() || randomUUID();
@@ -152,7 +156,7 @@ export function readBenchmarkRun(id: string, databasePath?: string): StoredRunti
     SELECT id, payload_json, created_at_utc
     FROM benchmark_runs
     WHERE id = ?
-  `).get(normalizedId) as { id?: unknown; payload_json?: unknown; created_at_utc?: unknown } | undefined;
+  `).get(normalizedId) as RuntimeResultRow | undefined;
   return parseResultRow(row);
 }
 
@@ -166,6 +170,6 @@ export function readEvalResult(id: string, databasePath?: string): StoredRuntime
     SELECT id, payload_json, created_at_utc
     FROM eval_results
     WHERE id = ?
-  `).get(normalizedId) as { id?: unknown; payload_json?: unknown; created_at_utc?: unknown } | undefined;
+  `).get(normalizedId) as RuntimeResultRow | undefined;
   return parseResultRow(row);
 }

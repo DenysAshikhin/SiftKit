@@ -18,6 +18,7 @@ const TARGETS = [
   'src/status-server/managed-llama.ts',
   'src/status-server/metrics.ts',
   'src/status-server/preset-runner.ts',
+  'src/status-server/repo-search-request-normalizers.ts',
   'src/status-server/routes/chat.ts',
   'src/status-server/routes/core.ts',
   'src/status-server/routes/dashboard.ts',
@@ -35,19 +36,25 @@ const DICT_PATTERNS = [
   /\bas\s+Dict\b/u,
   /\bDict\[\]/u,
   /\bRecord<string,\s*unknown>/u,
+  /\bJsonRecord\b/u,
+  /\[\s*key\s*:\s*string\s*\]\s*:\s*unknown/u,
 ] as const;
 
 const DUPLICATE_HELPERS = [
   /\bfunction\s+getPositiveNumber\b/u,
   /\bfunction\s+getOptionalNumber\b/u,
   /\bfunction\s+getTrimmedString\b/u,
+  /\bfunction\s+getOptionalString\b/u,
   /\bfunction\s+getNonNegativeNumber\b/u,
+  /\bfunction\s+toNonNegativeInteger\b/u,
+  /\bfunction\s+toNullableNonNegativeInteger\b/u,
+  /\bfunction\s+toNullableNonNegativeNumber\b/u,
   /\bfunction\s+getFiniteInteger\b/u,
   /\bfunction\s+getFiniteNumber\b/u,
   /\bfunction\s+isRecord\b/u,
 ] as const;
 
-test('server boundary target files do not use Dict or Record<string, unknown>', () => {
+test('server boundary target files do not use untyped map aliases', () => {
   for (const target of TARGETS) {
     const source = fs.readFileSync(target, 'utf8');
     for (const pattern of DICT_PATTERNS) {
@@ -65,8 +72,10 @@ test('server boundary target files use shared JSON reader instead of local coerc
   }
 });
 
-test('contract catches Record<string, unknown> syntax at punctuation and whitespace boundaries', () => {
+test('contract catches untyped map syntax at punctuation and whitespace boundaries', () => {
   const recordPattern = DICT_PATTERNS[6];
   assert.match('type X = Record<string, unknown>;', recordPattern);
   assert.match('let x: Record<string, unknown> = {};', recordPattern);
+  assert.match('type X = JsonRecord;', DICT_PATTERNS[7]);
+  assert.match('type X = { [key: string]: unknown };', DICT_PATTERNS[8]);
 });

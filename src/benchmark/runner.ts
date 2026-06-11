@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getConfiguredModel, loadConfig } from '../config/index.js';
+import type { JsonObject } from '../lib/json-types.js';
 import { summarizeRequest } from '../summary/core.js';
 import { formatElapsed } from '../lib/time.js';
 import {
@@ -129,13 +130,13 @@ export async function runBenchmarkSuite(options: BenchmarkRunnerOptions = {}): P
   fs.writeFileSync(outputPath, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
 
   const persistedBenchmarkRun = persistBenchmarkRun({
-    payload: artifact as unknown as Record<string, unknown>,
+    payload: artifact as JsonObject,
   });
   upsertRuntimeJsonArtifact({
     artifactKind: 'benchmark_run',
     id: persistedBenchmarkRun.id,
     title: outputPath,
-    payload: artifact as unknown as Record<string, unknown>,
+    payload: artifact as JsonObject,
   });
   if (fatalException !== null) {
     throw new FatalBenchmarkError(fatalError ?? (fatalException instanceof Error ? fatalException.message : String(fatalException)));

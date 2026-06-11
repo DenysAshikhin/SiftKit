@@ -4,6 +4,7 @@
  */
 import * as http from 'node:http';
 import * as fs from 'node:fs';
+import { JsonRecordReader } from '../../lib/json-record-reader.js';
 import { parseJsonBody, readBody, sendJson } from '../http-utils.js';
 import {
   queryDashboardRunsFromDb,
@@ -77,8 +78,9 @@ import {
 } from '../file-picker.js';
 import type { ServerContext } from '../server-types.js';
 import type { SiftConfig } from '../../config/index.js';
-import type { JsonRecord } from '../../lib/json-types.js';
+import type { JsonObject } from '../../lib/json-types.js';
 import type { WebSearchConfig } from '../../web-search/types.js';
+import { parseDashboardRunLogDeleteRequest } from '../route-request-normalizers.js';
 
 const webSearchQuotaCache = new WebSearchQuotaCache();
 
@@ -116,22 +118,36 @@ function readSpecOverrides(value: unknown): BenchmarkSpecOverrideInput[] {
     return [{ label: 'Current spec settings' }];
   }
   return value
-    .filter((entry): entry is JsonRecord => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry))
-    .map((entry) => ({
-      label: typeof entry.label === 'string' ? entry.label : undefined,
-      SpeculativeEnabled: typeof entry.SpeculativeEnabled === 'boolean' ? entry.SpeculativeEnabled : undefined,
-      SpeculativeType: typeof entry.SpeculativeType === 'string' ? entry.SpeculativeType : undefined,
-      SpeculativeNgramSizeN: Number.isFinite(entry.SpeculativeNgramSizeN) ? Number(entry.SpeculativeNgramSizeN) : undefined,
-      SpeculativeNgramSizeM: Number.isFinite(entry.SpeculativeNgramSizeM) ? Number(entry.SpeculativeNgramSizeM) : undefined,
-      SpeculativeNgramMinHits: Number.isFinite(entry.SpeculativeNgramMinHits) ? Number(entry.SpeculativeNgramMinHits) : undefined,
-      SpeculativeDraftMax: Number.isFinite(entry.SpeculativeDraftMax) ? Number(entry.SpeculativeDraftMax) : undefined,
-      SpeculativeDraftMin: Number.isFinite(entry.SpeculativeDraftMin) ? Number(entry.SpeculativeDraftMin) : undefined,
-    }));
+    .map((entry) => JsonRecordReader.asObject(entry))
+    .filter((entry): entry is JsonObject => entry !== null)
+    .map((entry) => {
+      const reader = new JsonRecordReader(entry);
+      return {
+        label: reader.optionalString('label'),
+        SpeculativeEnabled: typeof reader.value('SpeculativeEnabled') === 'boolean' ? Boolean(reader.value('SpeculativeEnabled')) : undefined,
+        SpeculativeType: reader.optionalString('SpeculativeType'),
+        SpeculativeNgramSizeN: reader.number('SpeculativeNgramSizeN') ?? undefined,
+        SpeculativeNgramSizeM: reader.number('SpeculativeNgramSizeM') ?? undefined,
+        SpeculativeNgramMinHits: reader.number('SpeculativeNgramMinHits') ?? undefined,
+        SpeculativeDraftMax: reader.number('SpeculativeDraftMax') ?? undefined,
+        SpeculativeDraftMin: reader.number('SpeculativeDraftMin') ?? undefined,
+      };
+    });
 }
 
-function parseDashboardRunLogDeleteCriteria(body: JsonRecord): { criteria: DashboardRunLogDeleteCriteria | null; error: string | null } {
-  const mode = String(body.mode || '').trim().toLowerCase();
-  const type = String(body.type || '').trim().toLowerCase() as DashboardRunLogType;
+function parseDashboardRunLogDeleteCriteria(body: JsonObject): { criteria: DashboardRunLogDeleteCriteria | null; error: string | null } {
+  const request = parseDashboardRunLogDeleteRequest(body);
+  if (request) {
+    return {
+      criteria: request.mode === 'count'
+        ? request
+        : { mode: 'before_date', type: request.type, beforeDate: request.beforeDate },
+      error: null,
+    };
+  }
+  const reader = new JsonRecordReader(body);
+  const mode = reader.string('mode').toLowerCase();
+  const type = reader.string('type').toLowerCase();
   const validType = type === 'all'
     || type === 'summary'
     || type === 'repo_search'
@@ -142,22 +158,10 @@ function parseDashboardRunLogDeleteCriteria(body: JsonRecord): { criteria: Dashb
     return { criteria: null, error: 'Expected a valid run-log type.' };
   }
   if (mode === 'count') {
-    const count = Number(body.count);
-    if (!Number.isInteger(count) || count < 1) {
-      return { criteria: null, error: 'Expected count to be a positive integer.' };
-    }
-    return { criteria: { mode, type, count }, error: null };
+    return { criteria: null, error: 'Expected count to be a positive integer.' };
   }
-  if (mode === 'before_date') {
-    const beforeDate = String(body.beforeDate || '').trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/u.test(beforeDate)) {
-      return { criteria: null, error: 'Expected beforeDate in YYYY-MM-DD format.' };
-    }
-    const parsed = Date.parse(`${beforeDate}T00:00:00.000Z`);
-    if (!Number.isFinite(parsed)) {
-      return { criteria: null, error: 'Expected a valid beforeDate.' };
-    }
-    return { criteria: { mode, type, beforeDate }, error: null };
+  if (mode === 'beforedate' || mode === 'before_date') {
+    return { criteria: null, error: 'Expected beforeDate in YYYY-MM-DD format.' };
   }
   return { criteria: null, error: 'Expected mode to be count or before_date.' };
 }
@@ -252,7 +256,7 @@ export async function handleDashboardRoute(
   }
 
   if (req.method === 'POST' && pathname === '/dashboard/benchmark/question-presets') {
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -279,7 +283,7 @@ export async function handleDashboardRoute(
       sendJson(res, 200, { ok: true, deleted: deleteBenchmarkQuestionPreset(presetId), id: presetId });
       return true;
     }
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -318,7 +322,7 @@ export async function handleDashboardRoute(
       sendJson(res, 409, { error: 'A benchmark session is already running.' });
       return true;
     }
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -382,7 +386,7 @@ export async function handleDashboardRoute(
 
   if (req.method === 'PUT' && /^\/dashboard\/benchmark\/attempts\/[^/]+\/grade$/u.test(pathname)) {
     const attemptId = decodeURIComponent(pathname.replace(/^\/dashboard\/benchmark\/attempts\//u, '').replace(/\/grade$/u, ''));
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -409,7 +413,7 @@ export async function handleDashboardRoute(
   }
 
   if (req.method === 'POST' && pathname === '/dashboard/admin/run-logs/preview') {
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -429,7 +433,7 @@ export async function handleDashboardRoute(
   }
 
   if (req.method === 'DELETE' && pathname === '/dashboard/admin/run-logs') {
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -586,7 +590,7 @@ export async function handleDashboardRoute(
   }
 
   if (req.method === 'POST' && pathname === '/dashboard/system/pick-file') {
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {

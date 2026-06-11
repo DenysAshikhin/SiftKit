@@ -13,6 +13,7 @@ import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../state/runtime-db.js';
 import { upsertRepoSearchRun } from '../status-server/dashboard-runs.js';
 import { logLine } from '../status-server/managed-llama.js';
+import type { JsonObject } from '../lib/json-types.js';
 import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
 import {
   createTemporaryTimingRecorderFromEnv,
@@ -283,7 +284,7 @@ export async function executeRepoSearchRequest(
       artifactKind: 'repo_search_artifact',
       requestId,
       title: artifactPathHint,
-      payload: artifact,
+      payload: artifact as JsonObject,
     }).uri;
     artifactSpan?.end();
     logRepoSearchProgress(
@@ -364,7 +365,7 @@ export async function executeRepoSearchRequest(
       requestMaxTokens: null,
       maxTurns: request.maxTurns ?? null,
       transcriptText,
-      artifactPayload: artifact as unknown as Record<string, unknown>,
+      artifactPayload: artifact as JsonObject,
       terminalState: 'completed',
       startedAtUtc: new Date(startedAt).toISOString(),
       finishedAtUtc,
@@ -428,7 +429,7 @@ export async function executeRepoSearchRequest(
       artifactKind: 'repo_search_artifact',
       requestId,
       title: artifactPathHint,
-      payload: artifact,
+      payload: artifact as JsonObject,
     }).uri;
     artifactSpan?.end();
     logRepoSearchProgress(
@@ -464,7 +465,7 @@ export async function executeRepoSearchRequest(
       requestMaxTokens: null,
       maxTurns: request.maxTurns ?? null,
       transcriptText,
-      artifactPayload: artifact as unknown as Record<string, unknown>,
+      artifactPayload: artifact as JsonObject,
       terminalState: 'failed',
       startedAtUtc: new Date(startedAt).toISOString(),
       finishedAtUtc: failedFinishedAtUtc,

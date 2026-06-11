@@ -27,9 +27,9 @@ Windows-first toolkit that compresses noisy shell output / repo exploration for 
 
 Working tree top level contains scratch artifacts (`tmp-confirm-web-context.ts`, `siftkit-0.1.0.tgz`) — gitignored, so cosmetic only. Tracked: `initialTurnChatIssues.md` (a session-notes dump) and `run.bat` at root; both belong under `docs/` or nowhere. Packaging note: package.json `files` ships `scripts` and `eval` (dev/benchmark harnesses) to npm consumers.
 
-### F3. Server boundary `Dict` usage is resolved
+### F3. Server boundary untyped map usage is resolved
 
-Resolved 2026-06-11: server boundary `Dict` usage was removed from chat sessions, thinking retention, chat runtime, dashboard runs, presets, status metadata, idle summaries, metrics, runtime result/artifact stores, benchmark persistence, HTTP JSON parsing, and all status-server routes. Shared JSON parsing now flows through `JsonRecordReader`; boundary request bodies normalize into named DTOs or typed JSON records; persisted rows normalize through named row types. Remaining `Dict` usage outside this server-boundary scope belongs to web-search providers, eval payloads, non-server CLI helpers, and test helpers.
+Resolved 2026-06-11: server-boundary `Dict`/`JsonRecord` usage was removed from chat sessions, thinking retention, chat runtime, dashboard runs, presets, status metadata, idle summaries, metrics, runtime result/artifact stores, benchmark persistence, HTTP JSON parsing, and all status-server routes. Shared JSON parsing now flows through `JsonRecordReader`; boundary request bodies normalize into named DTOs, open JSON payloads use `JsonObject`, and persisted rows normalize through named row types. Remaining `Dict` usage outside this server-boundary scope belongs to web-search providers, eval payloads, non-server CLI helpers, and test helpers.
 
 ### F6. Test architecture: split-brain between `dist` and `src`, and near-zero typechecking of tests
 

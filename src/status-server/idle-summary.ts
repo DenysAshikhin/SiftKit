@@ -10,7 +10,8 @@ import {
   formatTokensPerSecond,
 } from '../lib/text-format.js';
 
-import type { JsonRecord } from '../lib/json-types.js';
+import { JsonRecordReader } from '../lib/json-record-reader.js';
+import type { JsonObject } from '../lib/json-types.js';
 import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 import {
   TASK_KINDS,
@@ -152,13 +153,19 @@ function normalizeTaskTotals(input: unknown): SnapshotTaskTotals {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return totals;
   }
-  const record = input as JsonRecord;
+  const record = JsonRecordReader.asObject(input);
+  if (!record) {
+    return totals;
+  }
   for (const taskKind of TASK_KINDS) {
     const taskTotals = record[taskKind];
     if (!taskTotals || typeof taskTotals !== 'object' || Array.isArray(taskTotals)) {
       continue;
     }
-    const taskRecord = taskTotals as JsonRecord;
+    const taskRecord = JsonRecordReader.asObject(taskTotals);
+    if (!taskRecord) {
+      continue;
+    }
     totals[taskKind] = {
       inputCharactersTotal: toNonNegativeNumber(taskRecord.inputCharactersTotal),
       outputCharactersTotal: toNonNegativeNumber(taskRecord.outputCharactersTotal),
@@ -197,19 +204,29 @@ function normalizeToolStats(input: unknown): SnapshotToolStats {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return stats;
   }
-  const record = input as JsonRecord;
+  const record = JsonRecordReader.asObject(input);
+  if (!record) {
+    return stats;
+  }
   for (const taskKind of TASK_KINDS) {
     const taskStats = record[taskKind];
     if (!taskStats || typeof taskStats !== 'object' || Array.isArray(taskStats)) {
       continue;
     }
     const normalizedByType: Record<string, ToolTypeStats> = {};
-    for (const [toolTypeRaw, rawStats] of Object.entries(taskStats as JsonRecord)) {
+    const taskStatsRecord = JsonRecordReader.asObject(taskStats);
+    if (!taskStatsRecord) {
+      continue;
+    }
+    for (const [toolTypeRaw, rawStats] of Object.entries(taskStatsRecord)) {
       const toolType = String(toolTypeRaw || '').trim();
       if (!toolType || !rawStats || typeof rawStats !== 'object' || Array.isArray(rawStats)) {
         continue;
       }
-      const statRecord = rawStats as JsonRecord;
+      const statRecord = JsonRecordReader.asObject(rawStats);
+      if (!statRecord) {
+        continue;
+      }
       normalizedByType[toolType] = {
         ...createEmptyToolTypeStats(),
         calls: toNonNegativeNumber(statRecord.calls),
@@ -234,26 +251,26 @@ function normalizeToolStats(input: unknown): SnapshotToolStats {
   return stats;
 }
 
-function parseJsonRecord(value: unknown): unknown {
+function parseJsonObject(value: unknown): JsonObject | null {
   if (typeof value !== 'string' || !value.trim()) {
     return null;
   }
   try {
-    return JSON.parse(value);
+    return JsonRecordReader.asObject(JSON.parse(value) as unknown);
   } catch {
     return null;
   }
 }
 
 export function parseSnapshotTaskTotalsJson(value: unknown): SnapshotTaskTotals {
-  return normalizeTaskTotals(parseJsonRecord(value));
+  return normalizeTaskTotals(parseJsonObject(value));
 }
 
 export function parseSnapshotToolStatsJson(value: unknown): SnapshotToolStats {
-  return normalizeToolStats(parseJsonRecord(value));
+  return normalizeToolStats(parseJsonObject(value));
 }
 
-export function buildIdleSummarySnapshot(metrics: JsonRecord, emittedAt: Date = new Date()): IdleSummarySnapshot {
+export function buildIdleSummarySnapshot(metrics: JsonObject, emittedAt: Date = new Date()): IdleSummarySnapshot {
   const inputTokensTotal = Number(metrics.inputTokensTotal) || 0;
   const outputTokensTotal = Number(metrics.outputTokensTotal) || 0;
   const inputOutputRatio = outputTokensTotal > 0 ? inputTokensTotal / outputTokensTotal : Number.NaN;
@@ -354,7 +371,7 @@ export function buildIdleSummarySnapshotMessage(snapshot: IdleSummarySnapshot, c
   return lines.join('\n');
 }
 
-export function buildIdleMetricsLogMessage(metrics: JsonRecord, colorOptions: ColorOptions = {}): string {
+export function buildIdleMetricsLogMessage(metrics: JsonObject, colorOptions: ColorOptions = {}): string {
   return buildIdleSummarySnapshotMessage(buildIdleSummarySnapshot(metrics), colorOptions);
 }
 
@@ -488,6 +505,68 @@ export type SnapshotTotals = {
   taskTotals: SnapshotTaskTotals;
 };
 
+type SnapshotTotalsRow = {
+  completed_request_count: number | string | null;
+  input_tokens_total: number | string | null;
+  output_tokens_total: number | string | null;
+  thinking_tokens_total: number | string | null;
+  tool_tokens_total: number | string | null;
+  prompt_cache_tokens_total: number | string | null;
+  prompt_eval_tokens_total: number | string | null;
+  speculative_accepted_tokens_total: number | string | null;
+  speculative_generated_tokens_total: number | string | null;
+  request_duration_ms_total: number | string | null;
+  task_totals_json: string | null;
+};
+
+export type SnapshotTimeseriesRow = {
+  emitted_at_utc: string | null;
+  completed_request_count: number | string | null;
+  input_tokens_total: number | string | null;
+  output_tokens_total: number | string | null;
+  thinking_tokens_total: number | string | null;
+  tool_tokens_total: number | string | null;
+  prompt_cache_tokens_total: number | string | null;
+  prompt_eval_tokens_total: number | string | null;
+  speculative_accepted_tokens_total: number | string | null;
+  speculative_generated_tokens_total: number | string | null;
+  request_duration_ms_total: number | string | null;
+  task_totals_json: string | null;
+  tool_stats_json: string | null;
+};
+
+export type RecentSnapshotRow = {
+  emitted_at_utc: string | null;
+  completed_request_count: number | string | null;
+  input_characters_total: number | string | null;
+  output_characters_total: number | string | null;
+  input_tokens_total: number | string | null;
+  output_tokens_total: number | string | null;
+  thinking_tokens_total: number | string | null;
+  tool_tokens_total: number | string | null;
+  prompt_cache_tokens_total: number | string | null;
+  prompt_eval_tokens_total: number | string | null;
+  speculative_accepted_tokens_total: number | string | null;
+  speculative_generated_tokens_total: number | string | null;
+  task_totals_json: string | null;
+  tool_stats_json: string | null;
+  saved_tokens: number | string | null;
+  saved_percent: number | string | null;
+  compression_ratio: number | string | null;
+  request_duration_ms_total: number | string | null;
+  wall_duration_ms_total: number | string | null;
+  stdin_wait_ms_total: number | string | null;
+  server_preflight_ms_total: number | string | null;
+  lock_wait_ms_total: number | string | null;
+  status_running_ms_total: number | string | null;
+  terminal_status_ms_total: number | string | null;
+  avg_request_ms: number | string | null;
+  avg_tokens_per_second: number | string | null;
+  prompt_cache_hit_rate: number | string | null;
+  acceptance_rate: number | string | null;
+  summary_text: string | null;
+};
+
 export function querySnapshotTotalsBeforeDate(database: DatabaseInstance | null, dateKey: string): SnapshotTotals | null {
   if (!database) {
     return null;
@@ -511,7 +590,7 @@ export function querySnapshotTotalsBeforeDate(database: DatabaseInstance | null,
       ORDER BY emitted_at_utc DESC, id DESC
       LIMIT 1
     `)
-    .get(`${dateKey}T00:00:00.000Z`) as JsonRecord | undefined;
+    .get(`${dateKey}T00:00:00.000Z`) as SnapshotTotalsRow | undefined;
   if (!row || typeof row !== 'object') {
     return null;
   }
@@ -529,8 +608,6 @@ export function querySnapshotTotalsBeforeDate(database: DatabaseInstance | null,
     taskTotals: parseSnapshotTaskTotalsJson(row.task_totals_json),
   };
 }
-
-export type SnapshotTimeseriesRow = JsonRecord;
 
 export function querySnapshotTimeseries(database: DatabaseInstance | null): SnapshotTimeseriesRow[] {
   if (!database) {
@@ -555,10 +632,10 @@ export function querySnapshotTimeseries(database: DatabaseInstance | null): Snap
       FROM idle_summary_snapshots
       ORDER BY emitted_at_utc ASC, id ASC
     `)
-    .all() as JsonRecord[];
+    .all() as SnapshotTimeseriesRow[];
 }
 
-export function queryRecentSnapshots(database: DatabaseInstance, limit: number): JsonRecord[] {
+export function queryRecentSnapshots(database: DatabaseInstance, limit: number): RecentSnapshotRow[] {
   return database
     .prepare(`
       SELECT emitted_at_utc, completed_request_count, input_characters_total, output_characters_total,
@@ -568,5 +645,5 @@ export function queryRecentSnapshots(database: DatabaseInstance, limit: number):
              request_duration_ms_total, avg_request_ms, avg_tokens_per_second
       FROM idle_summary_snapshots ORDER BY id DESC LIMIT ?
     `)
-    .all(limit) as JsonRecord[];
+    .all(limit) as RecentSnapshotRow[];
 }

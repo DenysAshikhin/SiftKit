@@ -1,4 +1,4 @@
-import type { JsonRecord } from '../lib/json-types.js';
+import { JsonRecordReader } from '../lib/json-record-reader.js';
 import type { JsonObject } from '../lib/json-types.js';
 import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 import type { TaskKind, ToolTypeStats } from './metrics.js';
@@ -71,7 +71,10 @@ export function parseRunning(bodyText: string): boolean | null {
     return null;
   };
   try {
-    const parsed = JSON.parse(bodyText) as JsonRecord;
+    const parsed = JsonRecordReader.asObject(JSON.parse(bodyText) as unknown);
+    if (!parsed) {
+      return null;
+    }
     const running = parseBooleanLikeStatus(parsed.running);
     if (running !== null) {
       return running;
@@ -176,7 +179,7 @@ function createEmptyStatusMetadata(): StatusMetadata {
   };
 }
 
-export function parseStatusMetadataRecord(parsed: JsonRecord): StatusMetadata {
+export function parseStatusMetadataRecord(parsed: JsonObject): StatusMetadata {
   const metadata = createEmptyStatusMetadata();
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     return metadata;
@@ -248,12 +251,15 @@ export function parseStatusMetadataRecord(parsed: JsonRecord): StatusMetadata {
     }
     if (parsed.toolStats && typeof parsed.toolStats === 'object' && !Array.isArray(parsed.toolStats)) {
       const normalizedToolStats: Record<string, ToolTypeStats> = {};
-      for (const [toolTypeRaw, rawStats] of Object.entries(parsed.toolStats as JsonRecord)) {
+      for (const [toolTypeRaw, rawStats] of Object.entries(JsonRecordReader.asObject(parsed.toolStats) || {})) {
         const toolType = String(toolTypeRaw || '').trim();
         if (!toolType || !rawStats || typeof rawStats !== 'object' || Array.isArray(rawStats)) {
           continue;
         }
-        const statsRecord = rawStats as JsonRecord;
+        const statsRecord = JsonRecordReader.asObject(rawStats);
+        if (!statsRecord) {
+          continue;
+        }
         const calls = Number.isFinite(statsRecord.calls) && Number(statsRecord.calls) >= 0
           ? Number(statsRecord.calls)
           : 0;
@@ -398,7 +404,10 @@ export function parseStatusMetadataRecord(parsed: JsonRecord): StatusMetadata {
         if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
           return [];
         }
-        const record = entry as JsonRecord;
+        const record = JsonRecordReader.asObject(entry);
+        if (!record) {
+          return [];
+        }
         if (
           record.artifactType !== 'summary_request'
           && record.artifactType !== 'planner_debug'
@@ -432,7 +441,8 @@ export function parseStatusMetadata(bodyText: string): StatusMetadata {
     return metadata;
   }
   try {
-    return parseStatusMetadataRecord(JSON.parse(bodyText) as JsonRecord);
+    const parsed = JsonRecordReader.asObject(JSON.parse(bodyText) as unknown);
+    return parsed ? parseStatusMetadataRecord(parsed) : metadata;
   } catch {
     return metadata;
   }

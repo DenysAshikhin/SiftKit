@@ -1,3 +1,4 @@
+import { JsonRecordReader } from '../lib/json-record-reader.js';
 import type { RepoSearchMockCommandResult } from '../repo-search/types.js';
 
 function normalizeOptionalNumber(value: unknown): number | undefined {
@@ -16,16 +17,17 @@ export function normalizeRepoSearchMockCommandResults(
   }
 
   const result: Record<string, RepoSearchMockCommandResult> = {};
-  for (const [command, rawResult] of Object.entries(value as Record<string, unknown>)) {
-    if (!rawResult || typeof rawResult !== 'object' || Array.isArray(rawResult)) {
+  for (const [command, rawResult] of Object.entries(JsonRecordReader.asObject(value) || {})) {
+    const record = JsonRecordReader.asObject(rawResult);
+    if (!record) {
       continue;
     }
-    const record = rawResult as Record<string, unknown>;
+    const reader = new JsonRecordReader(record);
     result[command] = {
-      exitCode: normalizeOptionalNumber(record.exitCode),
-      stdout: normalizeOptionalString(record.stdout),
-      stderr: normalizeOptionalString(record.stderr),
-      delayMs: normalizeOptionalNumber(record.delayMs),
+      exitCode: normalizeOptionalNumber(reader.value('exitCode')),
+      stdout: normalizeOptionalString(reader.value('stdout')),
+      stderr: normalizeOptionalString(reader.value('stderr')),
+      delayMs: normalizeOptionalNumber(reader.value('delayMs')),
     };
   }
 

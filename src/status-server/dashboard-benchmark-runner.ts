@@ -1,7 +1,7 @@
 import type { ServerContext } from './server-types.js';
 import { normalizeConfig, readConfig, writeConfig } from './config-store.js';
 import { buildDashboardRunDetail, type RunRecord } from './dashboard-runs.js';
-import type { JsonRecord } from '../lib/json-types.js';
+import type { JsonObject } from '../lib/json-types.js';
 import type { SiftConfig } from '../config/types.js';
 import {
   getAcceptanceRate,
@@ -20,7 +20,7 @@ import { httpClient } from '../lib/http-client.js';
 
 export type BenchmarkSseEvent = {
   event: 'log' | 'attempt' | 'session' | 'done' | 'error';
-  payload: JsonRecord;
+  payload: JsonObject;
 };
 
 type ActiveBenchmarkJob = {
@@ -62,19 +62,15 @@ function log(job: ActiveBenchmarkJob, sessionId: string, attemptId: string | nul
   emit(job, { event: 'log', payload: { sessionId, attemptId, text } });
 }
 
-function cloneDict(value: unknown): JsonRecord {
-  return JSON.parse(JSON.stringify(value || {})) as JsonRecord;
-}
-
 function applyCaseConfig(originalConfig: SiftConfig, attempt: BenchmarkAttemptRecord, detail: BenchmarkSessionDetail): SiftConfig {
   const benchmarkCase = detail.cases.find((entry) => entry.id === attempt.caseId);
   if (!benchmarkCase) {
     throw new Error(`Benchmark case not found for attempt ${attempt.id}.`);
   }
-  const config = cloneDict(originalConfig);
-  const server = (config.Server && typeof config.Server === 'object' && !Array.isArray(config.Server)) ? config.Server as JsonRecord : {};
-  const llama = (server.LlamaCpp && typeof server.LlamaCpp === 'object' && !Array.isArray(server.LlamaCpp)) ? server.LlamaCpp as JsonRecord : {};
-  const presets = Array.isArray(llama.Presets) ? llama.Presets.map((entry) => cloneDict(entry)) : [];
+  const config = JSON.parse(JSON.stringify(originalConfig)) as SiftConfig;
+  const server = config.Server;
+  const llama = server.LlamaCpp;
+  const presets = llama.Presets.map((entry) => ({ ...entry }));
   const selectedPreset = presets.find((entry) => String(entry.id || '') === benchmarkCase.managedPresetId) || benchmarkCase.managedPreset;
   const merged = { ...llama, ...selectedPreset, ...benchmarkCase.specOverride };
   merged.Presets = presets.map((entry) => (
@@ -114,12 +110,12 @@ async function invokeAttempt(ctx: ServerContext, attempt: BenchmarkAttemptRecord
   const baseUrl = ctx.getServiceBaseUrl();
   const started = Date.now();
   const response = attempt.taskKind === 'repo-search'
-    ? await httpClient.requestJsonFull<JsonRecord>({
+    ? await httpClient.requestJsonFull<JsonObject>({
       url: `${baseUrl}/repo-search`,
       method: 'POST',
       body: JSON.stringify({ prompt: attempt.prompt }),
     })
-    : await httpClient.requestJsonFull<JsonRecord>({
+    : await httpClient.requestJsonFull<JsonObject>({
       url: `${baseUrl}/summary`,
       method: 'POST',
       body: JSON.stringify({

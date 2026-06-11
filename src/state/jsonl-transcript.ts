@@ -1,7 +1,8 @@
 import * as fs from 'node:fs';
-import type { JsonRecord } from '../lib/json-types.js';
+import { JsonRecordReader } from '../lib/json-record-reader.js';
+import type { JsonObject } from '../lib/json-types.js';
 
-export type JsonlEvent = { kind: string; at: string | null; payload: JsonRecord };
+export type JsonlEvent = { kind: string; at: string | null; payload: JsonObject };
 
 export function readJsonlEvents(transcriptPath: string | null): JsonlEvent[] {
   if (!transcriptPath || typeof transcriptPath !== 'string' || !fs.existsSync(transcriptPath)) {
@@ -13,7 +14,10 @@ export function readJsonlEvents(transcriptPath: string | null): JsonlEvent[] {
     const line = raw.trim();
     if (!line) continue;
     try {
-      const parsed = JSON.parse(line) as JsonRecord;
+      const parsed = JsonRecordReader.asObject(JSON.parse(line) as unknown);
+      if (!parsed) {
+        continue;
+      }
       results.push({
         kind: typeof parsed.kind === 'string' ? parsed.kind : 'event',
         at: typeof parsed.at === 'string' ? parsed.at : null,

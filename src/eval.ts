@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Dict } from './lib/types.js';
+import type { JsonObject } from './lib/json-types.js';
 import { getConfiguredModel, initializeRuntime, loadConfig } from './config/index.js';
 import { summarizeRequest } from './summary/core.js';
 import { withExecutionLock } from './execution-lock.js';
@@ -146,11 +146,11 @@ export async function runEvaluation(request: EvalRequest): Promise<EvaluationRes
     }
 
     void initializeRuntime();
-    const evalResultPayload: Dict = {
+    const evalResultPayload = {
       backend,
       model,
       results,
-    };
+    } as JsonObject;
     const persistedEvalResult = persistEvalResult({
       payload: evalResultPayload,
     });

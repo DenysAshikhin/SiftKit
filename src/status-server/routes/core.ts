@@ -3,7 +3,7 @@
  */
 import * as http from 'node:http';
 import * as crypto from 'node:crypto';
-import type { JsonRecord } from '../../lib/json-types.js';
+import { JsonRecordReader } from '../../lib/json-record-reader.js';
 import { LlamaCppClient } from '../../llm-protocol/llama-cpp-client.js';
 import type {
   SummaryPolicyProfile,
@@ -46,6 +46,12 @@ import {
 import { RepoSearchResponseSanityChecker } from '../../repo-search/response-sanity.js';
 import { StatusPresetRunner } from '../preset-runner.js';
 import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.js';
+import {
+  parseExecutionTokenRequest,
+  parseRepoSearchRequest,
+  parseSummaryRequest,
+  type RepoSearchRouteRequest,
+} from '../route-request-normalizers.js';
 import {
   captureManagedLlamaSpeculativeMetricsSnapshot,
   getManagedLlamaSpeculativeMetricsDelta,
@@ -98,22 +104,14 @@ function normalizeTaskKind(value: unknown): TaskKind | null {
     : null;
 }
 
-function normalizeSummaryFormat(value: unknown): 'text' | 'json' {
-  return value === 'json' ? 'json' : 'text';
-}
-
-function createRepoSearchAdmissionRecord(parsedBody: JsonRecord): RepoSearchAdmissionRecord {
+function createRepoSearchAdmissionRecord(parsedBody: RepoSearchRouteRequest): RepoSearchAdmissionRecord {
   return {
     requestId: crypto.randomUUID(),
     startedAtUtc: new Date().toISOString(),
-    prompt: String(parsedBody.prompt || '').trim(),
-    repoRoot: typeof parsedBody.repoRoot === 'string' && (parsedBody.repoRoot as string).trim()
-      ? (parsedBody.repoRoot as string).trim()
-      : process.cwd(),
-    model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim()
-      ? (parsedBody.model as string).trim()
-      : null,
-    maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : null,
+    prompt: parsedBody.prompt,
+    repoRoot: parsedBody.repoRoot,
+    model: parsedBody.model,
+    maxTurns: parsedBody.maxTurns,
   };
 }
 
@@ -232,37 +230,9 @@ function normalizeCommandOutputReducerProfile(value: unknown): 'smart' | 'errors
   return value === 'smart' || value === 'errors' || value === 'tail' || value === 'diff' || value === 'none' ? value : undefined;
 }
 
-function getOptionalString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-}
-
-function readOptionalNumber(value: unknown): number | undefined {
-  const numberValue = Number(value);
-  return Number.isFinite(numberValue) ? numberValue : undefined;
-}
-
-function readPositiveNumber(value: unknown, fallback: number): number {
-  const numberValue = Number(value);
-  return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : fallback;
-}
-
-function isJsonRecord(value: unknown): value is JsonRecord {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-function getSummaryTiming(value: unknown): { processStartedAtMs?: number | null; stdinWaitMs?: number | null; serverPreflightMs?: number | null } | undefined {
-  if (!isJsonRecord(value)) {
-    return undefined;
-  }
-  return {
-    processStartedAtMs: readOptionalNumber(value.processStartedAtMs) ?? null,
-    stdinWaitMs: readOptionalNumber(value.stdinWaitMs) ?? null,
-    serverPreflightMs: readOptionalNumber(value.serverPreflightMs) ?? null,
-  };
-}
-
 function isStrictConfigPayload(value: unknown): boolean {
-  if (!isJsonRecord(value)) {
+  const record = JsonRecordReader.asObject(value);
+  if (!record) {
     return false;
   }
   const topLevelRequired = [
@@ -279,15 +249,15 @@ function isStrictConfigPayload(value: unknown): boolean {
     'Server',
   ];
   for (const key of topLevelRequired) {
-    if (!Object.prototype.hasOwnProperty.call(value, key)) {
+    if (!Object.prototype.hasOwnProperty.call(record, key)) {
       return false;
     }
   }
-  const runtime = value.Runtime;
-  const thresholds = value.Thresholds;
-  const interactive = value.Interactive;
-  const server = value.Server;
-  if (!isJsonRecord(runtime) || !isJsonRecord(thresholds) || !isJsonRecord(interactive) || !isJsonRecord(server)) {
+  const runtime = JsonRecordReader.asObject(record.Runtime);
+  const thresholds = JsonRecordReader.asObject(record.Thresholds);
+  const interactive = JsonRecordReader.asObject(record.Interactive);
+  const server = JsonRecordReader.asObject(record.Server);
+  if (!runtime || !thresholds || !interactive || !server) {
     return false;
   }
   return Object.prototype.hasOwnProperty.call(runtime, 'Model')
@@ -695,19 +665,20 @@ export async function handleCoreRoute(
   }
 
   if (req.method === 'POST' && req.url === '/execution/heartbeat') {
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
-    if (typeof parsedBody.token !== 'string' || !(parsedBody.token as string).trim()) {
+    const tokenRequest = parseExecutionTokenRequest(parsedBody);
+    if (!tokenRequest) {
       sendJson(res, 400, { error: 'Expected token.' });
       return true;
     }
     const lease = getActiveExecutionLease(ctx);
-    if (!lease || lease.token !== parsedBody.token) {
+    if (!lease || lease.token !== tokenRequest.token) {
       sendJson(res, 409, { error: 'Execution lease is not active.' });
       return true;
     }
@@ -717,18 +688,19 @@ export async function handleCoreRoute(
   }
 
   if (req.method === 'POST' && req.url === '/execution/release') {
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
-    if (typeof parsedBody.token !== 'string' || !(parsedBody.token as string).trim()) {
+    const tokenRequest = parseExecutionTokenRequest(parsedBody);
+    if (!tokenRequest) {
       sendJson(res, 400, { error: 'Expected token.' });
       return true;
     }
-    const released = releaseExecutionLease(ctx, parsedBody.token as string);
+    const released = releaseExecutionLease(ctx, tokenRequest.token);
     sendJson(res, released ? 200 : 409, { ok: released, released, busy: Boolean(getActiveExecutionLease(ctx)) });
     return true;
   }
@@ -738,15 +710,16 @@ export async function handleCoreRoute(
   // -------------------------------------------------------------------------
 
   if (req.method === 'POST' && req.url === '/command-output/analyze') {
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
+    const reader = new JsonRecordReader(parsedBody);
     const combinedText = typeof parsedBody.combinedText === 'string' ? parsedBody.combinedText : '';
-    const exitCode = Number.isFinite(Number(parsedBody.exitCode)) ? Number(parsedBody.exitCode) : 1;
+    const exitCode = reader.number('exitCode') ?? 1;
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'summary', req, res);
     if (!modelRequestLock) {
       if (!res.destroyed && !res.writableEnded) {
@@ -765,14 +738,14 @@ export async function handleCoreRoute(
         outputKind: normalizeCommandOutputKind(parsedBody.outputKind),
         exitCode,
         combinedText,
-        commandText: getOptionalString(parsedBody.commandText),
-        question: getOptionalString(parsedBody.question),
+        commandText: reader.optionalString('commandText'),
+        question: reader.optionalString('question'),
         riskLevel: normalizeCommandOutputRiskLevel(parsedBody.riskLevel),
         reducerProfile: normalizeCommandOutputReducerProfile(parsedBody.reducerProfile),
-        format: normalizeSummaryFormat(parsedBody.format),
+        format: parsedBody.format === 'json' ? 'json' : 'text',
         policyProfile: normalizeSummaryPolicyProfile(parsedBody.policyProfile),
-        backend: getOptionalString(parsedBody.backend),
-        model: getOptionalString(parsedBody.model),
+        backend: reader.optionalString('backend'),
+        model: reader.optionalString('model'),
         noSummarize: parsedBody.noSummarize === true,
         config: readConfig(configPath),
       });
@@ -800,13 +773,14 @@ export async function handleCoreRoute(
   }
 
   if (req.method === 'POST' && req.url === '/preset/run') {
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
+    const reader = new JsonRecordReader(parsedBody);
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'summary', req, res);
     if (!modelRequestLock) {
       if (!res.destroyed && !res.writableEnded) {
@@ -823,18 +797,18 @@ export async function handleCoreRoute(
       }
       const result = await new StatusPresetRunner(ctx.engineService).run({
         presetId: String(parsedBody.presetId || ''),
-        prompt: getOptionalString(parsedBody.prompt),
-        question: getOptionalString(parsedBody.question),
+        prompt: reader.optionalString('prompt'),
+        question: reader.optionalString('question'),
         inputText: typeof parsedBody.inputText === 'string' ? parsedBody.inputText : undefined,
-        format: normalizeSummaryFormat(parsedBody.format),
-        backend: getOptionalString(parsedBody.backend),
-        model: getOptionalString(parsedBody.model),
-        profile: getOptionalString(parsedBody.profile),
+        format: parsedBody.format === 'json' ? 'json' : 'text',
+        backend: reader.optionalString('backend'),
+        model: reader.optionalString('model'),
+        profile: reader.optionalString('profile'),
         sourceKind: normalizeSummarySourceKind(parsedBody.sourceKind),
-        commandExitCode: readOptionalNumber(parsedBody.commandExitCode),
-        repoRoot: getOptionalString(parsedBody.repoRoot),
-        maxTurns: readOptionalNumber(parsedBody.maxTurns),
-        logFile: getOptionalString(parsedBody.logFile),
+        commandExitCode: reader.number('commandExitCode') ?? undefined,
+        repoRoot: reader.optionalString('repoRoot'),
+        maxTurns: reader.number('maxTurns') ?? undefined,
+        logFile: reader.optionalString('logFile'),
       }, {
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
       });
@@ -852,13 +826,14 @@ export async function handleCoreRoute(
   // -------------------------------------------------------------------------
 
   if (req.method === 'POST' && req.url === '/eval/run') {
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
+    const reader = new JsonRecordReader(parsedBody);
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'summary', req, res);
     if (!modelRequestLock) {
       if (!res.destroyed && !res.writableEnded) {
@@ -874,10 +849,10 @@ export async function handleCoreRoute(
         return true;
       }
       const result = await ctx.engineService.runEvaluation({
-        FixtureRoot: getOptionalString(parsedBody.FixtureRoot),
+        FixtureRoot: reader.optionalString('FixtureRoot'),
         RealLogPath: Array.isArray(parsedBody.RealLogPath) ? (parsedBody.RealLogPath as unknown[]).map((value) => String(value)) : [],
-        Backend: getOptionalString(parsedBody.Backend),
-        Model: getOptionalString(parsedBody.Model),
+        Backend: reader.optionalString('Backend'),
+        Model: reader.optionalString('Model'),
       });
       sendJson(res, 200, result);
     } catch (error) {
@@ -893,18 +868,20 @@ export async function handleCoreRoute(
   // -------------------------------------------------------------------------
 
   if (req.method === 'POST' && req.url === '/repo-search') {
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
-    if (typeof parsedBody.prompt !== 'string' || !(parsedBody.prompt as string).trim()) {
+    const repoSearchRequest = parseRepoSearchRequest(parsedBody);
+    if (!repoSearchRequest) {
       sendJson(res, 400, { error: 'Expected prompt.' });
       return true;
     }
-    const admission = createRepoSearchAdmissionRecord(parsedBody);
+    const reader = new JsonRecordReader(parsedBody);
+    const admission = createRepoSearchAdmissionRecord(repoSearchRequest);
     upsertRepoSearchAdmission(admission);
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'repo_search', req, res);
     if (!modelRequestLock) {
@@ -929,19 +906,19 @@ export async function handleCoreRoute(
       const config = readConfig(configPath);
       const result = await ctx.engineService.executeRepoSearch({
         taskKind: 'repo-search',
-        prompt: parsedBody.prompt,
+        prompt: repoSearchRequest.prompt,
         requestId: admission.requestId,
         startedAtUtc: admission.startedAtUtc,
-        promptPrefix: typeof parsedBody.promptPrefix === 'string' ? (parsedBody.promptPrefix as string) : undefined,
+        promptPrefix: reader.optionalString('promptPrefix'),
         repoRoot: admission.repoRoot,
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
         config,
         allowedTools: Array.isArray(parsedBody.allowedTools) ? (parsedBody.allowedTools as unknown[]).map((value) => String(value)) : undefined,
         includeAgentsMd: resolveEffectiveAgentsMd(config, null),
         includeRepoFileListing: resolveEffectiveRepoFileListing(config, null),
-        model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
-        maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
-        logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,
+        model: reader.optionalString('model'),
+        maxTurns: reader.number('maxTurns') ?? undefined,
+        logFile: reader.optionalString('logFile'),
         availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,
         mockResponses: Array.isArray(parsedBody.mockResponses) ? (parsedBody.mockResponses as unknown[]).map((v) => String(v)) : undefined,
         mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
@@ -967,21 +944,16 @@ export async function handleCoreRoute(
   // -------------------------------------------------------------------------
 
   if (req.method === 'POST' && req.url === '/summary') {
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
-    const question = getOptionalString(parsedBody.question);
-    if (!question) {
-      sendJson(res, 400, { error: 'Expected question.' });
-      return true;
-    }
-    const inputText = typeof parsedBody.inputText === 'string' ? parsedBody.inputText : '';
-    if (!inputText.trim()) {
-      sendJson(res, 400, { error: 'Expected inputText.' });
+    const summaryRequest = parseSummaryRequest(parsedBody);
+    if (!summaryRequest) {
+      sendJson(res, 400, { error: 'Expected question and inputText.' });
       return true;
     }
 
@@ -1001,16 +973,16 @@ export async function handleCoreRoute(
         return true;
       }
       const result = await ctx.engineService.summarize({
-        question,
-        inputText,
-        format: normalizeSummaryFormat(parsedBody.format),
-        policyProfile: normalizeSummaryPolicyProfile(parsedBody.policyProfile),
-        backend: getOptionalString(parsedBody.backend),
-        model: getOptionalString(parsedBody.model),
-        sourceKind: normalizeSummarySourceKind(parsedBody.sourceKind),
-        commandExitCode: readOptionalNumber(parsedBody.commandExitCode),
-        requestTimeoutSeconds: readPositiveNumber(parsedBody.requestTimeoutSeconds, DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_SECONDS),
-        timing: getSummaryTiming(parsedBody.timing),
+        question: summaryRequest.question,
+        inputText: summaryRequest.inputText,
+        format: summaryRequest.format,
+        policyProfile: summaryRequest.policyProfile,
+        backend: summaryRequest.backend,
+        model: summaryRequest.model,
+        sourceKind: summaryRequest.sourceKind,
+        commandExitCode: summaryRequest.commandExitCode,
+        requestTimeoutSeconds: summaryRequest.requestTimeoutSeconds,
+        timing: summaryRequest.timing,
         statusBackendUrl: `${serviceBaseUrl}/status`,
         skipExecutionLock: true,
         config: readConfig(configPath),
@@ -1026,7 +998,7 @@ export async function handleCoreRoute(
 
   if (req.method === 'POST' && requestUrl.pathname === '/status/complete') {
     const routeStartedAt = Date.now();
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -1523,7 +1495,7 @@ export async function handleCoreRoute(
   // -------------------------------------------------------------------------
 
   if (req.method === 'POST' && requestUrl.pathname === '/config/llama-cpp/test') {
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {

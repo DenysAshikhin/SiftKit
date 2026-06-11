@@ -6,7 +6,7 @@ import * as http from 'node:http';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
-import type { JsonRecord } from '../../lib/json-types.js';
+import { JsonRecordReader } from '../../lib/json-record-reader.js';
 import { getProcessedPromptTokens } from '../../lib/provider-helpers.js';
 import type { ChatGroundingStatus } from '../../repo-search/chat-grounding-policy.js';
 import { getRuntimeRoot } from '../paths.js';
@@ -50,6 +50,14 @@ import {
 import { buildChatPromptContext } from '../chat-prompt-context.js';
 import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.js';
 import {
+  parseChatMessageRequest,
+  parseChatRepoAppendPreviewRequest,
+  parseChatRepoRequest,
+  parseChatSessionCreateRequest,
+  parseChatSessionUpdateRequest,
+} from '../chat-route-request-normalizers.js';
+import { normalizeRepoSearchScorecard } from '../repo-search-scorecard-types.js';
+import {
   type ChatSession,
   readChatSessionFromPath,
   readChatSessions,
@@ -91,11 +99,6 @@ async function readEffectiveChatRouteConfig(configPath: string): Promise<SiftCon
   return await applyHostLlamaRuntimeSettings(localConfig);
 }
 
-function readPositiveNumber(value: unknown, fallback: number): number {
-  const numberValue = Number(value);
-  return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : fallback;
-}
-
 function normalizeChatGroundingStatus(value: unknown): ChatGroundingStatus | null {
   if (value === 'ungrounded' || value === 'snippet_only' || value === 'fetched') {
     return value;
@@ -104,8 +107,7 @@ function normalizeChatGroundingStatus(value: unknown): ChatGroundingStatus | nul
 }
 
 function getChatGroundingStatus(scorecard: unknown): ChatGroundingStatus | null {
-  const scorecardTasks = ((scorecard as JsonRecord)?.tasks as JsonRecord[]) || [];
-  return normalizeChatGroundingStatus(scorecardTasks[0]?.groundingStatus);
+  return normalizeChatGroundingStatus(normalizeRepoSearchScorecard(scorecard).tasks[0]?.groundingStatus);
 }
 
 function getEffectivePresetAllowedTools(config: SiftConfig, preset: SiftPreset | null): SiftPreset['allowedTools'] | undefined {
@@ -329,6 +331,25 @@ async function countPersistedInputTokens(config: SiftConfig, content: string): P
   };
 }
 
+function readRouteStringArray(reader: JsonRecordReader, key: string): string[] | undefined {
+  const value = reader.value(key);
+  return Array.isArray(value) ? value.map((entry) => String(entry)) : undefined;
+}
+
+function readRouteNumber(reader: JsonRecordReader, key: string): number | undefined {
+  return reader.number(key) ?? undefined;
+}
+
+function readSessionRepoRoot(session: ChatSession): string {
+  return typeof session.planRepoRoot === 'string' && session.planRepoRoot.trim()
+    ? session.planRepoRoot.trim()
+    : process.cwd();
+}
+
+function resolveChatRepoRoot(request: { repoRoot?: string }, session: ChatSession): string {
+  return path.resolve(request.repoRoot || readSessionRepoRoot(session));
+}
+
 async function notifyChatStatus(options: {
   ctx: ServerContext;
   requestId: string;
@@ -487,36 +508,36 @@ export async function handleChatRoute(
       sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
+    const updateRequest = parseChatSessionUpdateRequest(parsedBody);
     const updated: ChatSession = { ...session, updatedAtUtc: new Date().toISOString() };
-    if (typeof parsedBody.title === 'string' && parsedBody.title.trim()) {
-      updated.title = parsedBody.title.trim();
+    if (updateRequest.title) {
+      updated.title = updateRequest.title;
     }
-    if (typeof parsedBody.thinkingEnabled === 'boolean') {
-      updated.thinkingEnabled = parsedBody.thinkingEnabled;
+    if (updateRequest.thinkingEnabled !== undefined) {
+      updated.thinkingEnabled = updateRequest.thinkingEnabled;
     }
-    if (typeof parsedBody.webSearchEnabled === 'boolean') {
-      updated.webSearchEnabled = parsedBody.webSearchEnabled;
+    if (updateRequest.webSearchEnabled !== undefined) {
+      updated.webSearchEnabled = updateRequest.webSearchEnabled;
     }
     const currentConfig = readConfig(configPath);
     const presets = normalizePresets(currentConfig.Presets);
-    if (typeof parsedBody.presetId === 'string' && (parsedBody.presetId as string).trim()) {
-      const presetId = (parsedBody.presetId as string).trim();
-      updated.presetId = findPresetById(presets, presetId)?.id || presetId;
+    if (updateRequest.presetId) {
+      updated.presetId = findPresetById(presets, updateRequest.presetId)?.id || updateRequest.presetId;
       updated.mode = mapPresetIdToLegacyMode(updated.presetId, presets);
     }
-    if (typeof parsedBody.mode === 'string' && (parsedBody.mode === 'chat' || parsedBody.mode === 'plan' || parsedBody.mode === 'repo-search')) {
-      updated.mode = parsedBody.mode;
-      updated.presetId = mapLegacyModeToPresetId(parsedBody.mode);
+    if (updateRequest.mode) {
+      updated.mode = updateRequest.mode;
+      updated.presetId = mapLegacyModeToPresetId(updateRequest.mode);
     }
-    if (typeof parsedBody.planRepoRoot === 'string' && (parsedBody.planRepoRoot as string).trim()) {
-      updated.planRepoRoot = path.resolve((parsedBody.planRepoRoot as string).trim());
+    if (updateRequest.planRepoRoot) {
+      updated.planRepoRoot = path.resolve(updateRequest.planRepoRoot);
     }
     saveChatSession(runtimeRoot, updated);
     sendJson(res, 200, buildChatSessionResponse(currentConfig, updated));
@@ -547,7 +568,7 @@ export async function handleChatRoute(
       sendJson(res, 404, { error: 'Message not found.' });
       return true;
     }
-    const deletedMessage = result.deletedMessage as JsonRecord;
+    const deletedMessage = result.deletedMessage;
     const runId = typeof deletedMessage.sourceRunId === 'string' ? deletedMessage.sourceRunId.trim() : '';
     const commandText = typeof deletedMessage.toolCallCommand === 'string'
       ? deletedMessage.toolCallCommand.trim()
@@ -565,27 +586,23 @@ export async function handleChatRoute(
   // -------------------------------------------------------------------------
 
   if (req.method === 'POST' && pathname === '/dashboard/chat/sessions') {
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
+    const createRequest = parseChatSessionCreateRequest(parsedBody);
     const now = new Date().toISOString();
     const currentConfig = await readEffectiveChatRouteConfig(configPath);
     const presets = normalizePresets(currentConfig.Presets);
     const runtimeLlamaCfg = currentConfig.Runtime.LlamaCpp;
-    const requestedPresetId = typeof parsedBody.presetId === 'string' && (parsedBody.presetId as string).trim()
-      ? (parsedBody.presetId as string).trim()
-      : 'chat';
-    const presetId = findPresetById(presets, requestedPresetId)?.id || 'chat';
+    const presetId = findPresetById(presets, createRequest.presetId)?.id || 'chat';
     const session: ChatSession = {
       id: crypto.randomUUID(),
-      title: typeof parsedBody.title === 'string' && parsedBody.title.trim() ? parsedBody.title.trim() : 'New Session',
-      model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim()
-        ? (parsedBody.model as string).trim()
-        : currentConfig.Runtime.Model || null,
+      title: createRequest.title || 'New Session',
+      model: createRequest.model || currentConfig.Runtime.Model || null,
       contextWindowTokens: Number(runtimeLlamaCfg.NumCtx || 150000),
       thinkingEnabled: runtimeLlamaCfg.Reasoning !== 'off',
       webSearchEnabled: currentConfig.WebSearch.EnabledDefault === true,
@@ -614,18 +631,19 @@ export async function handleChatRoute(
       sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
-    if (typeof parsedBody.content !== 'string' || !(parsedBody.content as string).trim()) {
+    const messageRequest = parseChatMessageRequest(parsedBody);
+    if (!messageRequest) {
       sendJson(res, 400, { error: 'Expected content.' });
       return true;
     }
-    const usesProvidedAssistantContent = typeof parsedBody.assistantContent === 'string' && (parsedBody.assistantContent as string).trim();
+    const usesProvidedAssistantContent = Boolean(messageRequest.assistantContent);
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat', req, res);
     if (!modelRequestLock) {
       return true;
@@ -645,7 +663,7 @@ export async function handleChatRoute(
         return true;
       }
     }
-    const userContent = (parsedBody.content as string).trim();
+    const userContent = messageRequest.content;
     const requestId = crypto.randomUUID();
     const startedAt = Date.now();
     const requestStartedAtUtc = new Date(startedAt).toISOString();
@@ -667,7 +685,7 @@ export async function handleChatRoute(
       let groundingStatus: ChatGroundingStatus | null = null;
       const config = readConfig(configPath);
       if (usesProvidedAssistantContent) {
-        assistantContent = (parsedBody.assistantContent as string).trim();
+        assistantContent = messageRequest.assistantContent || '';
         usage = {};
       } else {
         const presets = normalizePresets(config.Presets);
@@ -683,7 +701,7 @@ export async function handleChatRoute(
           thinkingEnabled: activeSession.thinkingEnabled !== false,
           allowedTools: [],
         });
-        const scorecardTasks = ((result.scorecard as JsonRecord)?.tasks as JsonRecord[]) || [];
+        const scorecardTasks = normalizeRepoSearchScorecard(result.scorecard).tasks;
         assistantContent = String(scorecardTasks[0]?.finalOutput || '').trim();
         groundingStatus = null;
         usage = {
@@ -768,14 +786,15 @@ export async function handleChatRoute(
       sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
-    if (typeof parsedBody.content !== 'string' || !(parsedBody.content as string).trim()) {
+    const messageRequest = parseChatMessageRequest(parsedBody);
+    if (!messageRequest) {
       sendJson(res, 400, { error: 'Expected content.' });
       return true;
     }
@@ -807,7 +826,7 @@ export async function handleChatRoute(
     };
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     res.write('\n');
-    const userContent = (parsedBody.content as string).trim();
+    const userContent = messageRequest.content;
     const requestId = crypto.randomUUID();
     const startedAt = Date.now();
     const requestStartedAtUtc = new Date(startedAt).toISOString();
@@ -827,15 +846,14 @@ export async function handleChatRoute(
       const config = readConfig(configPath);
       const presets = normalizePresets(config.Presets);
       const chatPreset = findPresetById(presets, activeSession.presetId);
-      const webOverrideRaw = typeof parsedBody.webSearchOverride === 'string' ? (parsedBody.webSearchOverride as string) : undefined;
+      const reader = new JsonRecordReader(parsedBody);
+      const webOverrideRaw = reader.optionalString('webSearchOverride');
       const webEnabled = webOverrideRaw === 'on'
         ? true
         : webOverrideRaw === 'off'
           ? false
           : activeSession.webSearchEnabled === true;
-      const mockResponses = Array.isArray(parsedBody.mockResponses)
-        ? (parsedBody.mockResponses as unknown[]).map((value) => String(value))
-        : undefined;
+      const mockResponses = readRouteStringArray(reader, 'mockResponses');
       const result = await ctx.engineService.executeRepoSearch({
         taskKind: 'chat',
         prompt: userContent,
@@ -847,9 +865,9 @@ export async function handleChatRoute(
         thinkingEnabled: activeSession.thinkingEnabled !== false,
         allowedTools: webEnabled ? ['web_search', 'web_fetch'] : [],
         retainedWebToolCalls: webEnabled ? buildRetainedWebToolCalls(activeSession) : [],
-        model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
-        maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
-        availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,
+        model: reader.optionalString('model'),
+        maxTurns: readRouteNumber(reader, 'maxTurns'),
+        availableModels: readRouteStringArray(reader, 'availableModels'),
         mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
         ...(mockResponses ? { mockResponses } : {}),
         onProgress(event: RepoSearchProgressEvent) {
@@ -866,7 +884,7 @@ export async function handleChatRoute(
           forwardRepoSearchToolEvent(writeSse, event, 'planner', logLine);
         },
       });
-      const scorecardTasks = ((result.scorecard as JsonRecord)?.tasks as JsonRecord[]) || [];
+      const scorecardTasks = normalizeRepoSearchScorecard(result.scorecard).tasks;
       const assistantContent = String(scorecardTasks[0]?.finalOutput || '').trim();
       const usage: ChatUsage = {
         promptTokens: getScorecardTotal(result?.scorecard, 'promptTokens'),
@@ -960,21 +978,19 @@ export async function handleChatRoute(
       sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
-    if (typeof parsedBody.content !== 'string' || !(parsedBody.content as string).trim()) {
+    const repoRequest = parseChatRepoRequest(parsedBody);
+    if (!repoRequest) {
       sendJson(res, 400, { error: 'Expected content.' });
       return true;
     }
-    const requestedRepoRoot = typeof parsedBody.repoRoot === 'string' && (parsedBody.repoRoot as string).trim()
-      ? (parsedBody.repoRoot as string).trim()
-      : (typeof session.planRepoRoot === 'string' && (session.planRepoRoot as string).trim() ? (session.planRepoRoot as string).trim() : process.cwd());
-    const resolvedRepoRoot = path.resolve(requestedRepoRoot);
+    const resolvedRepoRoot = resolveChatRepoRoot(repoRequest, session);
     if (!fs.existsSync(resolvedRepoRoot) || !fs.statSync(resolvedRepoRoot).isDirectory()) {
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
       return true;
@@ -998,7 +1014,8 @@ export async function handleChatRoute(
       }
       const startedAt = Date.now();
       const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
-      const content = (parsedBody.content as string).trim();
+      const content = repoRequest.content;
+      const reader = new JsonRecordReader(parsedBody);
       const config = readConfig(configPath);
       const presets = normalizePresets(config.Presets);
       const preset = resolveRepoSearchRoutePreset(
@@ -1020,11 +1037,11 @@ export async function handleChatRoute(
         ),
         includeAgentsMd: autoAppend.includeAgentsMd,
         includeRepoFileListing: autoAppend.includeRepoFileListing,
-        model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
-        maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
-        logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,
-        availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,
-        mockResponses: Array.isArray(parsedBody.mockResponses) ? (parsedBody.mockResponses as unknown[]).map((v) => String(v)) : undefined,
+        model: reader.optionalString('model'),
+        maxTurns: readRouteNumber(reader, 'maxTurns'),
+        logFile: reader.optionalString('logFile'),
+        availableModels: readRouteStringArray(reader, 'availableModels'),
+        mockResponses: readRouteStringArray(reader, 'mockResponses'),
         mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
         onProgress(event: RepoSearchProgressEvent) {
           if (event.kind === 'tool_start') {
@@ -1106,21 +1123,19 @@ export async function handleChatRoute(
       sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
-    if (typeof parsedBody.content !== 'string' || !(parsedBody.content as string).trim()) {
+    const repoRequest = parseChatRepoRequest(parsedBody);
+    if (!repoRequest) {
       sendJson(res, 400, { error: 'Expected content.' });
       return true;
     }
-    const requestedRepoRoot = typeof parsedBody.repoRoot === 'string' && (parsedBody.repoRoot as string).trim()
-      ? (parsedBody.repoRoot as string).trim()
-      : (typeof session.planRepoRoot === 'string' && (session.planRepoRoot as string).trim() ? (session.planRepoRoot as string).trim() : process.cwd());
-    const resolvedRepoRoot = path.resolve(requestedRepoRoot);
+    const resolvedRepoRoot = resolveChatRepoRoot(repoRequest, session);
     if (!fs.existsSync(resolvedRepoRoot) || !fs.statSync(resolvedRepoRoot).isDirectory()) {
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
       return true;
@@ -1158,7 +1173,8 @@ export async function handleChatRoute(
       const requestStartedAtUtc = new Date(startedAt).toISOString();
       const phaseTracker = createChatTurnPhaseTracker(requestStartedAtUtc);
       const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
-      const content = (parsedBody.content as string).trim();
+      const content = repoRequest.content;
+      const reader = new JsonRecordReader(parsedBody);
       const config = readConfig(configPath);
       const presets = normalizePresets(config.Presets);
       const preset = resolveRepoSearchRoutePreset(
@@ -1180,11 +1196,11 @@ export async function handleChatRoute(
         ),
         includeAgentsMd: autoAppend.includeAgentsMd,
         includeRepoFileListing: autoAppend.includeRepoFileListing,
-        model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
-        maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
-        logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,
-        availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,
-        mockResponses: Array.isArray(parsedBody.mockResponses) ? (parsedBody.mockResponses as unknown[]).map((v) => String(v)) : undefined,
+        model: reader.optionalString('model'),
+        maxTurns: readRouteNumber(reader, 'maxTurns'),
+        logFile: reader.optionalString('logFile'),
+        availableModels: readRouteStringArray(reader, 'availableModels'),
+        mockResponses: readRouteStringArray(reader, 'mockResponses'),
         mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
         onProgress(event: RepoSearchProgressEvent) {
           if (event.kind === 'thinking') {
@@ -1271,17 +1287,15 @@ export async function handleChatRoute(
       sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
-    const requestedRepoRoot = typeof parsedBody.repoRoot === 'string' && (parsedBody.repoRoot as string).trim()
-      ? (parsedBody.repoRoot as string).trim()
-      : (typeof session.planRepoRoot === 'string' && (session.planRepoRoot as string).trim() ? (session.planRepoRoot as string).trim() : process.cwd());
-    const resolvedRepoRoot = path.resolve(requestedRepoRoot);
+    const appendPreviewRequest = parseChatRepoAppendPreviewRequest(parsedBody);
+    const resolvedRepoRoot = resolveChatRepoRoot(appendPreviewRequest, session);
     if (!fs.existsSync(resolvedRepoRoot) || !fs.statSync(resolvedRepoRoot).isDirectory()) {
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
       return true;
@@ -1327,21 +1341,19 @@ export async function handleChatRoute(
       sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
-    let parsedBody: JsonRecord;
+    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return true;
     }
-    if (typeof parsedBody.content !== 'string' || !(parsedBody.content as string).trim()) {
+    const repoRequest = parseChatRepoRequest(parsedBody);
+    if (!repoRequest) {
       sendJson(res, 400, { error: 'Expected content.' });
       return true;
     }
-    const requestedRepoRoot = typeof parsedBody.repoRoot === 'string' && (parsedBody.repoRoot as string).trim()
-      ? (parsedBody.repoRoot as string).trim()
-      : (typeof session.planRepoRoot === 'string' && (session.planRepoRoot as string).trim() ? (session.planRepoRoot as string).trim() : process.cwd());
-    const resolvedRepoRoot = path.resolve(requestedRepoRoot);
+    const resolvedRepoRoot = resolveChatRepoRoot(repoRequest, session);
     if (!fs.existsSync(resolvedRepoRoot) || !fs.statSync(resolvedRepoRoot).isDirectory()) {
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
       return true;
@@ -1379,7 +1391,8 @@ export async function handleChatRoute(
       const requestStartedAtUtc = new Date(startedAt).toISOString();
       const phaseTracker = createChatTurnPhaseTracker(requestStartedAtUtc);
       const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
-      const content = (parsedBody.content as string).trim();
+      const content = repoRequest.content;
+      const reader = new JsonRecordReader(parsedBody);
       const config = readConfig(configPath);
       const presets = normalizePresets(config.Presets);
       const preset = resolveRepoSearchRoutePreset(
@@ -1401,11 +1414,11 @@ export async function handleChatRoute(
         ),
         includeAgentsMd: autoAppend.includeAgentsMd,
         includeRepoFileListing: autoAppend.includeRepoFileListing,
-        model: typeof parsedBody.model === 'string' && (parsedBody.model as string).trim() ? (parsedBody.model as string).trim() : undefined,
-        maxTurns: Number.isFinite(Number(parsedBody.maxTurns)) ? Number(parsedBody.maxTurns) : undefined,
-        logFile: typeof parsedBody.logFile === 'string' && (parsedBody.logFile as string).trim() ? (parsedBody.logFile as string).trim() : undefined,
-        availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,
-        mockResponses: Array.isArray(parsedBody.mockResponses) ? (parsedBody.mockResponses as unknown[]).map((v) => String(v)) : undefined,
+        model: reader.optionalString('model'),
+        maxTurns: readRouteNumber(reader, 'maxTurns'),
+        logFile: reader.optionalString('logFile'),
+        availableModels: readRouteStringArray(reader, 'availableModels'),
+        mockResponses: readRouteStringArray(reader, 'mockResponses'),
         mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
         onProgress(event: RepoSearchProgressEvent) {
           if (event.kind === 'thinking') {

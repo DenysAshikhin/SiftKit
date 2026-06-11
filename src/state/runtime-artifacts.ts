@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import type { JsonRecord } from '../lib/json-types.js';
+import { JsonRecordReader } from '../lib/json-record-reader.js';
+import type { JsonObject } from '../lib/json-types.js';
 import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.js';
 
 export type RuntimeArtifactRecord = {
@@ -8,9 +9,24 @@ export type RuntimeArtifactRecord = {
   requestId: string | null;
   title: string | null;
   contentText: string | null;
-  contentJson: JsonRecord | null;
+  contentJson: JsonObject | null;
   createdAtUtc: string;
   updatedAtUtc: string;
+};
+
+type RuntimeArtifactDbRow = {
+  id: string | null;
+  artifact_kind: string | null;
+  request_id: string | null;
+  title: string | null;
+  content_text: string | null;
+  content_json: string | null;
+  created_at_utc: string | null;
+  updated_at_utc: string | null;
+};
+
+type RuntimeArtifactIdRow = {
+  id: string | null;
 };
 
 export function listRuntimeArtifacts(options: {
@@ -40,7 +56,7 @@ export function listRuntimeArtifacts(options: {
         ORDER BY updated_at_utc DESC, id DESC
         LIMIT ?
       `).all(requestId, requestId, limit)
-  ) as Array<JsonRecord>;
+  ) as RuntimeArtifactIdRow[];
   return rows
     .map((row) => {
       const id = typeof row.id === 'string' ? row.id : '';
@@ -140,7 +156,7 @@ export function upsertRuntimeJsonArtifact(options: {
   artifactKind: string;
   requestId?: string | null;
   title?: string | null;
-  payload: JsonRecord;
+  payload: JsonObject;
   databasePath?: string;
 }): { id: string; uri: string } {
   const id = options.id && options.id.trim() ? options.id.trim() : randomUUID();
@@ -178,17 +194,14 @@ export function readRuntimeArtifact(id: string, databasePath?: string): RuntimeA
     SELECT id, artifact_kind, request_id, title, content_text, content_json, created_at_utc, updated_at_utc
     FROM runtime_artifacts
     WHERE id = ?
-  `).get(artifactId) as JsonRecord | undefined;
+  `).get(artifactId) as RuntimeArtifactDbRow | undefined;
   if (!row) {
     return null;
   }
-  let contentJson: JsonRecord | null = null;
+  let contentJson: JsonObject | null = null;
   if (typeof row.content_json === 'string' && row.content_json.trim()) {
     try {
-      const parsed = JSON.parse(row.content_json) as unknown;
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        contentJson = parsed as JsonRecord;
-      }
+      contentJson = JsonRecordReader.asObject(JSON.parse(row.content_json) as unknown);
     } catch {
       contentJson = null;
     }
