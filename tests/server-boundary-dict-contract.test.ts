@@ -2,7 +2,10 @@ import * as fs from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const TARGETS: readonly string[] = [];
+const TARGETS = [
+  'src/status-server/http-utils.ts',
+  'src/status-server/server-types.ts',
+] as const;
 
 const DICT_PATTERNS = [
   /import type \{ Dict \} from/u,

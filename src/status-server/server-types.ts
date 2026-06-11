@@ -2,14 +2,13 @@ import type * as http from 'node:http';
 import type { ChildProcess } from 'node:child_process';
 import type Database from 'better-sqlite3';
 import type { Metrics } from './metrics.js';
-import type { Dict } from '../lib/types.js';
+import type { JsonObject } from '../lib/json-types.js';
 import type { ManagedLlamaSpeculativeMetricsSnapshot } from './managed-llama.js';
 import type { ManagedLlamaStreamKind } from '../state/managed-llama-runs.js';
 import type { ManagedLlamaFlushQueue } from './managed-llama-flush-queue.js';
 import type { StatusEngineService } from './engine-service.js';
 import type { SiftConfig } from '../config/types.js';
 
-export type { Dict };
 export type DatabaseInstance = InstanceType<typeof Database>;
 
 export type ActiveRunState = {
@@ -67,7 +66,7 @@ export type ManagedLlamaLogRef = {
 export type DeferredArtifact = {
   artifactType: 'summary_request' | 'planner_debug' | 'planner_failed';
   artifactRequestId: string;
-  artifactPayload: Dict;
+  artifactPayload: JsonObject;
 };
 
 export type TerminalMetadataQueueItem = {

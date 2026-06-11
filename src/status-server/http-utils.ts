@@ -5,7 +5,8 @@
  * in `lib/http.ts`.  Filesystem utilities live in `lib/fs.ts`.
  */
 import * as http from 'node:http';
-import type { Dict } from '../lib/types.js';
+import { JsonRecordReader } from '../lib/json-record-reader.js';
+import type { JsonObject } from '../lib/json-types.js';
 
 export function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve) => {
@@ -15,11 +16,16 @@ export function readBody(req: http.IncomingMessage): Promise<string> {
   });
 }
 
-export function parseJsonBody(bodyText: string): Dict {
+export function parseJsonBody(bodyText: string): JsonObject {
   if (!bodyText || !bodyText.trim()) {
     return {};
   }
-  return JSON.parse(bodyText) as Dict;
+  const parsed = JSON.parse(bodyText) as unknown;
+  const record = JsonRecordReader.asObject(parsed);
+  if (!record) {
+    throw new Error('Expected valid JSON object.');
+  }
+  return record;
 }
 
 export function sendJson(res: http.ServerResponse, statusCode: number, payload: unknown): void {

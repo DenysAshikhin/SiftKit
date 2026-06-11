@@ -1,4 +1,5 @@
 import type { Dict } from '../lib/types.js';
+import type { JsonObject } from '../lib/json-types.js';
 import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 import type { TaskKind, ToolTypeStats } from './metrics.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
@@ -123,12 +124,12 @@ export type StatusMetadata = {
   terminalStatusMs: number | null;
   artifactType: string | null;
   artifactRequestId: string | null;
-  artifactPayload: Dict | null;
-  deferredMetadata: Dict | null;
+  artifactPayload: JsonObject | null;
+  deferredMetadata: JsonObject | null;
   deferredArtifacts: Array<{
     artifactType: 'summary_request' | 'planner_debug' | 'planner_failed';
     artifactRequestId: string;
-    artifactPayload: Dict;
+    artifactPayload: JsonObject;
   }> | null;
   totalOutputTokens?: number | null;
 };
@@ -379,20 +380,20 @@ export function parseStatusMetadataRecord(parsed: Dict): StatusMetadata {
       && typeof parsed.artifactPayload === 'object'
       && !Array.isArray(parsed.artifactPayload)
     ) {
-      metadata.artifactPayload = parsed.artifactPayload as Dict;
+      metadata.artifactPayload = parsed.artifactPayload as JsonObject;
     }
     if (
       parsed.deferredMetadata
       && typeof parsed.deferredMetadata === 'object'
       && !Array.isArray(parsed.deferredMetadata)
     ) {
-      metadata.deferredMetadata = parsed.deferredMetadata as Dict;
+      metadata.deferredMetadata = parsed.deferredMetadata as JsonObject;
     }
     if (Array.isArray(parsed.deferredArtifacts)) {
       const deferredArtifacts = parsed.deferredArtifacts.flatMap((entry): Array<{
         artifactType: 'summary_request' | 'planner_debug' | 'planner_failed';
         artifactRequestId: string;
-        artifactPayload: Dict;
+        artifactPayload: JsonObject;
       }> => {
         if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
           return [];
@@ -414,7 +415,7 @@ export function parseStatusMetadataRecord(parsed: Dict): StatusMetadata {
         return [{
           artifactType: record.artifactType,
           artifactRequestId: record.artifactRequestId.trim(),
-          artifactPayload: record.artifactPayload as Dict,
+          artifactPayload: record.artifactPayload as JsonObject,
         }];
       });
       metadata.deferredArtifacts = deferredArtifacts.length > 0 ? deferredArtifacts : null;

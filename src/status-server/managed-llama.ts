@@ -35,8 +35,8 @@ import {
 import { writeRuntimeLaunchSnapshot } from './runtime-launch-snapshot.js';
 import { getRuntimeDatabasePath } from '../config/paths.js';
 import type { SiftConfig } from '../config/types.js';
+import type { Dict } from '../lib/types.js';
 import type {
-  Dict,
   ManagedLlamaLogRef,
   EnsureManagedLlamaOptions,
   ShutdownManagedLlamaOptions,
