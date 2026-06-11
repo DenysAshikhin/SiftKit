@@ -1,4 +1,5 @@
-import type { Dict } from './lib/types.js';
+import { JsonRecordReader } from './lib/json-record-reader.js';
+import type { JsonObject } from './lib/json-types.js';
 
 export type PresetKind = 'summary' | 'chat' | 'plan' | 'repo-search';
 export type PresetExecutionFamily = PresetKind;
@@ -147,18 +148,18 @@ function normalizeNullableInteger(value: unknown, fallback: number | null): numb
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function getLegacyExecutionFamily(record: Dict): PresetExecutionFamily | null {
+function getLegacyExecutionFamily(record: JsonObject): PresetExecutionFamily | null {
   return isExecutionFamily(record.executionFamily) ? record.executionFamily : null;
 }
 
-function getPresetKindFromRecord(record: Dict, fallback: PresetKind): PresetKind {
+function getPresetKindFromRecord(record: JsonObject, fallback: PresetKind): PresetKind {
   if (isPresetKind(record.presetKind)) {
     return record.presetKind;
   }
   return getLegacyExecutionFamily(record) || fallback;
 }
 
-function getOperationModeFromRecord(record: Dict, fallback: PresetOperationMode, presetKind: PresetKind): PresetOperationMode {
+function getOperationModeFromRecord(record: JsonObject, fallback: PresetOperationMode, presetKind: PresetKind): PresetOperationMode {
   if (isPresetOperationMode(record.operationMode)) {
     return record.operationMode;
   }
@@ -286,34 +287,36 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
 const BUILTIN_PRESET_IDS = new Set(BUILTIN_PRESETS.map((preset) => preset.id));
 
 function normalizePresetRecord(input: unknown, fallback: SiftPreset): SiftPreset {
-  const record = (input && typeof input === 'object' && !Array.isArray(input) ? input : {}) as Dict;
+  const record = JsonRecordReader.asObject(input) || {};
+  const reader = new JsonRecordReader(record);
   const presetKind = getPresetKindFromRecord(record, fallback.presetKind);
   const operationMode = getOperationModeFromRecord(record, fallback.operationMode, presetKind);
   return buildPreset({
     id: fallback.id,
-    label: typeof record.label === 'string' && record.label.trim() ? record.label.trim() : fallback.label,
-    description: typeof record.description === 'string' && record.description.trim() ? record.description.trim() : fallback.description,
+    label: reader.optionalString('label') || fallback.label,
+    description: reader.optionalString('description') || fallback.description,
     presetKind,
     operationMode,
-    promptPrefix: normalizePromptPrefix(record.promptPrefix ?? fallback.promptPrefix),
-    allowedTools: normalizeToolList(record.allowedTools, fallback.allowedTools),
-    surfaces: normalizeSurfaceList(record.surfaces, fallback.surfaces),
-    useForSummary: record.useForSummary === undefined ? fallback.useForSummary : Boolean(record.useForSummary),
+    promptPrefix: normalizePromptPrefix(reader.value('promptPrefix') ?? fallback.promptPrefix),
+    allowedTools: normalizeToolList(reader.value('allowedTools'), fallback.allowedTools),
+    surfaces: normalizeSurfaceList(reader.value('surfaces'), fallback.surfaces),
+    useForSummary: reader.value('useForSummary') === undefined ? fallback.useForSummary : Boolean(reader.value('useForSummary')),
     builtin: fallback.builtin,
     deletable: false,
-    includeAgentsMd: record.includeAgentsMd === undefined ? fallback.includeAgentsMd : Boolean(record.includeAgentsMd),
-    includeRepoFileListing: record.includeRepoFileListing === undefined ? fallback.includeRepoFileListing : Boolean(record.includeRepoFileListing),
-    repoRootRequired: record.repoRootRequired === undefined ? fallback.repoRootRequired : Boolean(record.repoRootRequired),
-    maxTurns: normalizeNullableInteger(record.maxTurns, fallback.maxTurns),
+    includeAgentsMd: reader.value('includeAgentsMd') === undefined ? fallback.includeAgentsMd : Boolean(reader.value('includeAgentsMd')),
+    includeRepoFileListing: reader.value('includeRepoFileListing') === undefined ? fallback.includeRepoFileListing : Boolean(reader.value('includeRepoFileListing')),
+    repoRootRequired: reader.value('repoRootRequired') === undefined ? fallback.repoRootRequired : Boolean(reader.value('repoRootRequired')),
+    maxTurns: normalizeNullableInteger(reader.value('maxTurns'), fallback.maxTurns),
   });
 }
 
 function normalizeUserPreset(input: unknown): SiftPreset | null {
-  const record = (input && typeof input === 'object' && !Array.isArray(input) ? input : null) as Dict | null;
+  const record = JsonRecordReader.asObject(input);
   if (!record) {
     return null;
   }
-  const id = normalizePresetId(record.id);
+  const reader = new JsonRecordReader(record);
+  const id = normalizePresetId(reader.value('id'));
   if (!id || BUILTIN_PRESET_IDS.has(id)) {
     return null;
   }
@@ -322,20 +325,20 @@ function normalizeUserPreset(input: unknown): SiftPreset | null {
   const defaultAllowedTools = getDefaultAllowedToolsForOperationMode(operationMode);
   return buildPreset({
     id,
-    label: typeof record.label === 'string' && record.label.trim() ? record.label.trim() : id,
-    description: typeof record.description === 'string' ? record.description.trim() : '',
+    label: reader.optionalString('label') || id,
+    description: reader.string('description'),
     presetKind,
     operationMode,
-    promptPrefix: normalizePromptPrefix(record.promptPrefix),
-    allowedTools: normalizeToolList(record.allowedTools, defaultAllowedTools),
-    surfaces: normalizeSurfaceList(record.surfaces, presetKind === 'summary' ? ['cli'] : ['web']),
-    useForSummary: Boolean(record.useForSummary),
+    promptPrefix: normalizePromptPrefix(reader.value('promptPrefix')),
+    allowedTools: normalizeToolList(reader.value('allowedTools'), defaultAllowedTools),
+    surfaces: normalizeSurfaceList(reader.value('surfaces'), presetKind === 'summary' ? ['cli'] : ['web']),
+    useForSummary: Boolean(reader.value('useForSummary')),
     builtin: false,
     deletable: true,
-    includeAgentsMd: record.includeAgentsMd === undefined ? true : Boolean(record.includeAgentsMd),
-    includeRepoFileListing: record.includeRepoFileListing === undefined ? true : Boolean(record.includeRepoFileListing),
-    repoRootRequired: record.repoRootRequired === undefined ? (presetKind === 'plan' || presetKind === 'repo-search') : Boolean(record.repoRootRequired),
-    maxTurns: normalizeNullableInteger(record.maxTurns, presetKind === 'plan' || presetKind === 'repo-search' ? 45 : null),
+    includeAgentsMd: reader.value('includeAgentsMd') === undefined ? true : Boolean(reader.value('includeAgentsMd')),
+    includeRepoFileListing: reader.value('includeRepoFileListing') === undefined ? true : Boolean(reader.value('includeRepoFileListing')),
+    repoRootRequired: reader.value('repoRootRequired') === undefined ? (presetKind === 'plan' || presetKind === 'repo-search') : Boolean(reader.value('repoRootRequired')),
+    maxTurns: normalizeNullableInteger(reader.value('maxTurns'), presetKind === 'plan' || presetKind === 'repo-search' ? 45 : null),
   });
 }
 
@@ -348,8 +351,8 @@ export function getDefaultOperationModeAllowedTools(): OperationModeAllowedTools
 }
 
 export function normalizeOperationModeAllowedTools(input: unknown): OperationModeAllowedTools {
-  const record = (input && typeof input === 'object' && !Array.isArray(input) ? input : {}) as Dict;
-  const summaryTools = normalizeToolList(record.summary, DEFAULT_OPERATION_MODE_ALLOWED_TOOLS.summary);
+  const reader = JsonRecordReader.fromUnknown(input);
+  const summaryTools = normalizeToolList(reader.value('summary'), DEFAULT_OPERATION_MODE_ALLOWED_TOOLS.summary);
   if (
     summaryTools.includes('find_text')
     && summaryTools.includes('read_lines')
@@ -360,8 +363,8 @@ export function normalizeOperationModeAllowedTools(input: unknown): OperationMod
   }
   return {
     summary: summaryTools,
-    'read-only': normalizeToolList(record['read-only'], DEFAULT_OPERATION_MODE_ALLOWED_TOOLS['read-only']),
-    full: normalizeToolList(record.full, DEFAULT_OPERATION_MODE_ALLOWED_TOOLS.full),
+    'read-only': normalizeToolList(reader.value('read-only'), DEFAULT_OPERATION_MODE_ALLOWED_TOOLS['read-only']),
+    full: normalizeToolList(reader.value('full'), DEFAULT_OPERATION_MODE_ALLOWED_TOOLS.full),
   };
 }
 
@@ -382,7 +385,7 @@ export function normalizePresets(input: unknown): SiftPreset[] {
   const overlays = Array.isArray(input) ? input : [];
   const overlayById = new Map<string, unknown>();
   for (const item of overlays) {
-    const record = (item && typeof item === 'object' && !Array.isArray(item) ? item : null) as Dict | null;
+    const record = JsonRecordReader.asObject(item);
     if (!record) {
       continue;
     }
@@ -422,8 +425,8 @@ export function findPresetById(presets: readonly SiftPreset[], presetId: unknown
 }
 
 export function getConfigPresets(config: unknown): SiftPreset[] {
-  const record = (config && typeof config === 'object' && !Array.isArray(config) ? config : {}) as Dict;
-  return normalizePresets(record.Presets);
+  const reader = JsonRecordReader.fromUnknown(config);
+  return normalizePresets(reader.value('Presets'));
 }
 
 export function getPresetsForSurface(presets: readonly SiftPreset[], surface: PresetSurface): SiftPreset[] {

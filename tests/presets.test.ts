@@ -93,6 +93,19 @@ test('normalizePresets keeps builtin presets even when overlay omits them and pr
   assert.equal(findPresetById(presets, 'summary')?.includeRepoFileListing, true);
 });
 
+test('normalizePresets accepts only typed object overlays', () => {
+  const presets = normalizePresets([
+    null,
+    ['bad'],
+    { id: 'custom', label: ' Custom ', presetKind: 'repo-search', operationMode: 'read-only', allowedTools: ['repo_rg'] },
+    { id: 'bad-tools', presetKind: 'repo-search', allowedTools: ['missing-tool'] },
+  ]);
+
+  assert.equal(findPresetById(presets, 'custom')?.label, 'Custom');
+  assert.deepEqual(findPresetById(presets, 'custom')?.allowedTools, ['repo_rg']);
+  assert.deepEqual(findPresetById(presets, 'bad-tools')?.allowedTools, REPO_SEARCH_TOOLS);
+});
+
 test('preset surface filtering separates cli and web visibility', () => {
   const presets = normalizePresets([
     { id: 'dual-surface', label: 'Dual', presetKind: 'summary', operationMode: 'summary', surfaces: ['cli', 'web'] },
