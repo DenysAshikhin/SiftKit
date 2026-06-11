@@ -1,5 +1,4 @@
 import * as crypto from 'node:crypto';
-import type { Dict } from '../lib/types.js';
 import type { ServerManagedLlamaPreset, SiftConfig } from '../config/types.js';
 import type { ChatMessage as PlannerChatMessage } from '../repo-search/planner-protocol.js';
 import type { ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
@@ -13,60 +12,65 @@ import {
   saveChatSession,
 } from '../state/chat-sessions.js';
 import { DEFAULT_LLAMA_MODEL } from './config-store.js';
-import { getDisplayToolCommand } from './tool-command-display.js';
 import {
   parseWebToolCommand,
   type RetainedWebToolCall,
 } from '../web-search/web-tool-command.js';
+import {
+  normalizeRepoSearchResult,
+  normalizeRepoSearchScorecard,
+  type RepoSearchCommandResult,
+  type RepoSearchScorecard,
+} from './repo-search-scorecard-types.js';
 
 const DEFAULT_CHAT_SYSTEM_PROMPT = 'general, coder friendly assistant';
 
-function getTrimmedString(value: unknown): string {
+function trimText(value: string | null | undefined): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function getNonNegativeNumber(value: unknown): number | null {
+function nonNegativeNumber(value: unknown): number | null {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) && numberValue >= 0 ? numberValue : null;
 }
 
-function getMessageContextTokenEstimate(message: Dict): number {
+function getMessageContextTokenEstimate(message: PersistedChatMessage): number {
   if (message.kind === 'assistant_thinking') {
     return estimateTokenCount(message.content);
   }
   return estimateTokenCount(formatChatMessageForPrompt(message)) + getMessageThinkingTokenEstimate(message);
 }
 
-function getMessageThinkingTokenEstimate(message: Dict): number {
+function getMessageThinkingTokenEstimate(message: PersistedChatMessage): number {
   if (message.kind === 'assistant_thinking') {
     return estimateTokenCount(message.content);
   }
-  return estimateTokenCount(getTrimmedString(message.thinkingContent));
+  return estimateTokenCount(trimText(message.thinkingContent));
 }
 
-function formatChatMessageForPrompt(message: Dict): string {
+function formatChatMessageForPrompt(message: PersistedChatMessage): string {
   if (message.kind === 'assistant_tool_call') {
-    const command = getTrimmedString(message.toolCallCommand) || getTrimmedString(message.content);
-    return command || getTrimmedString(message.content);
+    const command = trimText(message.toolCallCommand) || trimText(message.content);
+    return command || trimText(message.content);
   }
   return String(message.content || '');
 }
 
-function getMessageToolTokenEstimate(message: Dict): number {
+function getMessageToolTokenEstimate(message: PersistedChatMessage): number {
   if (message.kind !== 'assistant_tool_call') {
     return 0;
   }
-  const outputTokens = getNonNegativeNumber(message.outputTokensEstimate);
-  const associatedToolTokens = getNonNegativeNumber(message.associatedToolTokens);
+  const outputTokens = nonNegativeNumber(message.outputTokensEstimate);
+  const associatedToolTokens = nonNegativeNumber(message.associatedToolTokens);
   const explicitTokens = Math.max(outputTokens ?? 0, associatedToolTokens ?? 0);
   if (explicitTokens > 0 || outputTokens !== null || associatedToolTokens !== null) {
     return explicitTokens;
   }
-  const output = getTrimmedString(message.toolCallOutput) || getTrimmedString(message.toolCallOutputSnippet);
+  const output = trimText(message.toolCallOutput) || trimText(message.toolCallOutputSnippet);
   return output ? estimateTokenCount(output) : 0;
 }
 
-function getMessageToolTokenFallbackEstimate(message: Dict): number {
+function getMessageToolTokenFallbackEstimate(message: PersistedChatMessage): number {
   if (message.kind !== 'assistant_tool_call') {
     return 0;
   }
@@ -144,7 +148,7 @@ class ContextUsageBuilder {
   private getProviderOverheadTokens(): number {
     const thinkingEnabled = this.session.thinkingEnabled !== false;
     const config = this.config;
-    const reserveShape: Dict = {
+    const reserveShape = {
       model: resolveActiveChatModel(this.config, this.session),
       stream: false,
       cache_prompt: true,
@@ -226,7 +230,7 @@ export function buildChatHistoryMessages(
         : 'assistant_answer';
     if (kind === 'assistant_thinking') {
       if (replayThinking) {
-        pendingThinking = getTrimmedString(message.content);
+        pendingThinking = trimText(message.content);
       }
       continue;
     }
@@ -235,7 +239,7 @@ export function buildChatHistoryMessages(
       pendingThinking = '';
       continue;
     }
-    const content = typeof message.content === 'string' ? message.content.trim() : '';
+    const content = trimText(message.content);
     if (!content) {
       continue;
     }
@@ -259,8 +263,8 @@ function buildReplayToolCallId(messageId: unknown): string {
 }
 
 function appendReplayToolMessages(history: PlannerChatMessage[], message: PersistedChatMessage, reasoningContent: string): void {
-  const command = getTrimmedString(message.toolCallCommand) || getTrimmedString(message.content);
-  const output = getTrimmedString(message.toolCallOutput) || getTrimmedString(message.toolCallOutputSnippet);
+  const command = trimText(message.toolCallCommand) || trimText(message.content);
+  const output = trimText(message.toolCallOutput) || trimText(message.toolCallOutputSnippet);
   if (!command && !output) {
     return;
   }
@@ -296,7 +300,7 @@ export function buildRetainedWebToolCalls(session: ChatSession): RetainedWebTool
         ...parsed,
         command,
         exitCode: Number.isFinite(Number(message.toolCallExitCode)) ? Number(message.toolCallExitCode) : null,
-        output: getTrimmedString(message.toolCallOutput) || getTrimmedString(message.toolCallOutputSnippet),
+        output: trimText(message.toolCallOutput) || trimText(message.toolCallOutputSnippet),
       });
     }
   }
@@ -598,28 +602,21 @@ function truncatePlanEvidence(value: unknown, maxLength: number = 700): string {
   return `${text.slice(0, maxLength)}\n... (truncated)`;
 }
 
-export function buildPlanMarkdownFromRepoSearch(userPrompt: string, repoRoot: string, result: Dict | null | undefined): string {
-  const scorecard = result && typeof result.scorecard === 'object' ? result.scorecard as Dict : {};
-  const tasks = Array.isArray(scorecard.tasks) ? scorecard.tasks as Dict[] : [];
-  const primaryTask = tasks[0] && typeof tasks[0] === 'object' ? tasks[0] : null;
-  const modelOutput = typeof primaryTask?.finalOutput === 'string' && (primaryTask.finalOutput as string).trim()
-    ? RepoSearchOutputFormatter.collapseRepeatedWholeOutput(primaryTask.finalOutput as string)
+export function buildPlanMarkdownFromRepoSearch(userPrompt: string, repoRoot: string, result: unknown): string {
+  const normalized = result ? normalizeRepoSearchResult(result) : null;
+  const tasks = normalized?.scorecard.tasks || [];
+  const primaryTask = tasks[0] || null;
+  const modelOutput = primaryTask?.finalOutput
+    ? RepoSearchOutputFormatter.collapseRepeatedWholeOutput(primaryTask.finalOutput)
     : 'No final planner output was produced.';
   const commandEvidence: Array<{ command: string; output: string }> = [];
   for (let taskIndex = tasks.length - 1; taskIndex >= 0; taskIndex -= 1) {
     const task = tasks[taskIndex];
-    if (!task || typeof task !== 'object' || !Array.isArray(task.commands)) {
-      continue;
-    }
-    const commands = task.commands as Dict[];
-    for (let commandIndex = commands.length - 1; commandIndex >= 0; commandIndex -= 1) {
-      const command = commands[commandIndex];
-      if (!command || typeof command !== 'object') {
-        continue;
-      }
-      const commandText = typeof command.command === 'string' ? (command.command as string).trim() : '';
-      const outputText = truncatePlanEvidence(command.output);
-      if (!commandText || !outputText) {
+    for (let commandIndex = task.commands.length - 1; commandIndex >= 0; commandIndex -= 1) {
+      const command = task.commands[commandIndex];
+      const commandText = command.displayCommand || command.command;
+      const outputText = truncatePlanEvidence(command.output || command.outputSnippet);
+      if (!commandText && !outputText) {
         continue;
       }
       commandEvidence.push({ command: commandText, output: outputText });
@@ -656,7 +653,7 @@ export function buildPlanMarkdownFromRepoSearch(userPrompt: string, repoRoot: st
     }
   }
   lines.push('', '## Critical Review');
-  const missingSignals = Array.isArray(primaryTask?.missingSignals) ? primaryTask.missingSignals as unknown[] : [];
+  const missingSignals = primaryTask?.missingSignals || [];
   if (missingSignals.length > 0) {
     lines.push(`- Missing expected evidence signals: ${missingSignals.join(', ')}`);
   } else {
@@ -665,41 +662,28 @@ export function buildPlanMarkdownFromRepoSearch(userPrompt: string, repoRoot: st
   lines.push('- Check for hidden coupling between chat flow state, session persistence, and model-request locking.');
   lines.push('- Validate repo-root input carefully to avoid running searches outside intended workspace.');
   lines.push('', '## Artifacts');
-  lines.push(`- Transcript: \`${String(result?.transcriptPath || '')}\``);
-  lines.push(`- Artifact: \`${String(result?.artifactPath || '')}\``);
+  lines.push(`- Transcript: \`${normalized?.transcriptPath || ''}\``);
+  lines.push(`- Artifact: \`${normalized?.artifactPath || ''}\``);
   return lines.join('\n');
 }
 
-export function getScorecardTotal(scorecard: unknown, key: string): number | null {
-  if (!scorecard || typeof scorecard !== 'object') {
-    return null;
-  }
-  const totals = (scorecard as Dict).totals;
-  if (!totals || typeof totals !== 'object') {
-    return null;
-  }
-  const value = (totals as Dict)[key];
+export function getScorecardTotal(scorecard: unknown, key: keyof RepoSearchScorecard['totals'] | string): number | null {
+  const normalized = normalizeRepoSearchScorecard(scorecard);
+  const value = normalized.totals[key as keyof RepoSearchScorecard['totals']];
   return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : null;
 }
 
-function buildToolMessageFromCommand(command: Dict, turnsUsed: number): PersistToolMessage | null {
-  if (!command || typeof command !== 'object') {
-    return null;
-  }
-  const commandText = getDisplayToolCommand(command);
+function buildToolMessageFromCommand(command: RepoSearchCommandResult, turnsUsed: number): PersistToolMessage | null {
+  const commandText = command.displayCommand || command.command;
   if (!commandText) {
     return null;
   }
-  const turn = Number(command.turn);
-  if (!Number.isInteger(turn) || turn < 1) {
+  const turn = command.turn;
+  if (turn === null || !Number.isInteger(turn) || turn < 1) {
     // No legacy fallback: a persisted command must carry its real planner turn.
     throw new Error(`TaskCommand for "${commandText}" has an invalid turn: ${String(command.turn)}`);
   }
-  const output = typeof command.promptOutput === 'string'
-    ? command.promptOutput
-    : typeof command.output === 'string'
-      ? command.output
-      : '';
+  const output = command.output || command.outputSnippet;
   const outputTokens = getChatUsageValue(command.outputTokens);
   return {
     id: crypto.randomUUID(),
@@ -707,7 +691,7 @@ function buildToolMessageFromCommand(command: Dict, turnsUsed: number): PersistT
     toolCallCommand: commandText,
     toolCallTurn: turn,
     toolCallMaxTurns: turnsUsed,
-    toolCallExitCode: Number.isFinite(Number(command.exitCode)) ? Number(command.exitCode) : null,
+    toolCallExitCode: command.exitCode,
     toolCallPromptTokenCount: null,
     toolCallOutputSnippet: output.length > 200 ? `${output.slice(0, 200)}...` : output,
     toolCallOutput: output,
@@ -716,31 +700,24 @@ function buildToolMessageFromCommand(command: Dict, turnsUsed: number): PersistT
   };
 }
 
-export function buildPersistTurnsFromRepoSearchResult(result: Dict | null | undefined): PersistTurn[] {
-  const scorecard = result && typeof result.scorecard === 'object' ? result.scorecard as Dict : {};
-  const tasks = Array.isArray(scorecard.tasks) ? scorecard.tasks as Dict[] : [];
+export function buildPersistTurnsFromRepoSearchResult(result: unknown): PersistTurn[] {
+  const normalized = result ? normalizeRepoSearchResult(result) : null;
+  const tasks = normalized?.scorecard.tasks || [];
   const turns: PersistTurn[] = [];
   for (const task of tasks) {
-    if (!task || typeof task !== 'object') {
-      continue;
-    }
-    const commands = Array.isArray(task.commands) ? task.commands as Dict[] : [];
     // Resolve a sane "of Y" for tool bubbles. turnsUsed must be a positive integer
     // no smaller than the largest command turn; otherwise fall back to that max
     // (never the raw command count, and never a value that would render "3 of 2").
-    const commandTurns = commands
-      .map((command) => Number((command as Dict).turn))
-      .filter((turn) => Number.isInteger(turn) && turn >= 1);
+    const commandTurns = task.commands
+      .map((command) => command.turn)
+      .filter((turn): turn is number => Number.isInteger(turn) && turn !== null && turn >= 1);
     const maxCommandTurn = commandTurns.length ? Math.max(...commandTurns) : 0;
-    const rawTurnsUsed = Number(task.turnsUsed);
-    const turnsUsed = Number.isInteger(rawTurnsUsed) && rawTurnsUsed >= maxCommandTurn
+    const rawTurnsUsed = task.turnsUsed;
+    const turnsUsed = rawTurnsUsed && rawTurnsUsed >= maxCommandTurn
       ? rawTurnsUsed
-      : maxCommandTurn;
-    const turnThinking = task.turnThinking && typeof task.turnThinking === 'object'
-      ? task.turnThinking as Dict
-      : {};
+      : Math.max(maxCommandTurn, 1);
     const toolsByTurn = new Map<number, PersistToolMessage[]>();
-    for (const command of commands) {
+    for (const command of task.commands) {
       const message = buildToolMessageFromCommand(command, turnsUsed);
       if (!message) {
         continue;
@@ -752,12 +729,13 @@ export function buildPersistTurnsFromRepoSearchResult(result: Dict | null | unde
         toolsByTurn.set(message.toolCallTurn, [message]);
       }
     }
-    const thinkingTurns = Object.keys(turnThinking)
+    const thinkingTurns = Object.keys(task.turnThinking)
       .map((key) => Number(key))
       .filter((turn) => Number.isFinite(turn));
     const orderedTurns = [...new Set([...toolsByTurn.keys(), ...thinkingTurns])].sort((a, b) => a - b);
     for (const turn of orderedTurns) {
-      const thinkingText = String(turnThinking[String(turn)] || '').trim();
+      const rawThinking = task.turnThinking[String(turn)];
+      const thinkingText = typeof rawThinking === 'string' ? rawThinking.trim() : '';
       const toolMessages = toolsByTurn.get(turn) || [];
       if (!thinkingText && toolMessages.length === 0) {
         continue;
@@ -768,12 +746,11 @@ export function buildPersistTurnsFromRepoSearchResult(result: Dict | null | unde
   return turns;
 }
 
-export function buildRepoSearchMarkdown(userPrompt: string, repoRoot: string, result: Dict | null | undefined): string {
-  const scorecard = result && typeof result.scorecard === 'object' ? result.scorecard as Dict : {};
-  const tasks = Array.isArray(scorecard.tasks) ? scorecard.tasks as Dict[] : [];
-  const primaryTask = tasks[0] && typeof tasks[0] === 'object' ? tasks[0] : null;
-  const modelOutput = typeof primaryTask?.finalOutput === 'string' && (primaryTask.finalOutput as string).trim()
-    ? RepoSearchOutputFormatter.collapseRepeatedWholeOutput(primaryTask.finalOutput as string)
+export function buildRepoSearchMarkdown(userPrompt: string, repoRoot: string, result: unknown): string {
+  const normalized = result ? normalizeRepoSearchResult(result) : null;
+  const primaryTask = normalized?.scorecard.tasks[0] || null;
+  const modelOutput = primaryTask?.finalOutput
+    ? RepoSearchOutputFormatter.collapseRepeatedWholeOutput(primaryTask.finalOutput)
     : 'No repo-search output was produced.';
   const lines = [
     '# Repo Search Results',
@@ -789,8 +766,8 @@ export function buildRepoSearchMarkdown(userPrompt: string, repoRoot: string, re
     '',
     '## Artifacts',
   ];
-  lines.push(`- Transcript: \`${String(result?.transcriptPath || '')}\``);
-  lines.push(`- Artifact: \`${String(result?.artifactPath || '')}\``);
+  lines.push(`- Transcript: \`${normalized?.transcriptPath || ''}\``);
+  lines.push(`- Artifact: \`${normalized?.artifactPath || ''}\``);
   return lines.join('\n');
 }
 
