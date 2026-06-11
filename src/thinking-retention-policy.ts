@@ -1,10 +1,10 @@
-import type { Dict } from './lib/types.js';
-import type { ChatMessage } from './repo-search/planner-protocol.js';
+import type { ChatMessage as PlannerChatMessage } from './repo-search/planner-protocol.js';
+import type { ChatMessage as PersistedChatMessage } from './state/chat-sessions.js';
 
 export class ThinkingRetentionPolicy {
   constructor(private readonly maintainPerStepThinking: boolean) {}
 
-  prunePersistedMessages(messages: Dict[]): Dict[] {
+  prunePersistedMessages(messages: PersistedChatMessage[]): PersistedChatMessage[] {
     if (this.maintainPerStepThinking) {
       return messages;
     }
@@ -15,7 +15,7 @@ export class ThinkingRetentionPolicy {
     return messages.filter((message, index) => message.kind !== 'assistant_thinking' || index === latestThinkingIndex);
   }
 
-  prunePlannerMessages(messages: ChatMessage[]): void {
+  prunePlannerMessages(messages: PlannerChatMessage[]): void {
     if (this.maintainPerStepThinking) {
       return;
     }
@@ -39,7 +39,7 @@ export class ThinkingRetentionPolicy {
     turnThinking[turn] = thinkingText;
   }
 
-  private findLatestPersistedThinkingIndex(messages: Dict[]): number {
+  private findLatestPersistedThinkingIndex(messages: PersistedChatMessage[]): number {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       if (messages[index].kind === 'assistant_thinking') {
         return index;
@@ -48,7 +48,7 @@ export class ThinkingRetentionPolicy {
     return -1;
   }
 
-  private findLatestPlannerThinkingIndex(messages: ChatMessage[]): number {
+  private findLatestPlannerThinkingIndex(messages: PlannerChatMessage[]): number {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const reasoningContent = messages[index].reasoning_content;
       if (typeof reasoningContent === 'string' && reasoningContent.trim()) {

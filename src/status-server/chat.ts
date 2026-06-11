@@ -8,6 +8,7 @@ import { ThinkingRetentionPolicy } from '../thinking-retention-policy.js';
 import { buildReplayToolCall } from '../llm-protocol/tool-call-parser.js';
 import {
   type ChatSession,
+  type ChatMessage as PersistedChatMessage,
   estimateTokenCount,
   saveChatSession,
 } from '../state/chat-sessions.js';
@@ -123,12 +124,12 @@ class ContextUsageBuilder {
   private buildTokenTotals(): ContextUsageTokenTotals {
     const contextWindowTokens = Math.max(1, Number(this.session.contextWindowTokens || 150000));
     const messages = Array.isArray(this.session.messages) ? this.session.messages : [];
-    const messageTokens = messages.reduce((sum: number, message: Dict) => sum + getMessageContextTokenEstimate(message), 0);
-    const thinkingUsedTokens = messages.reduce((sum: number, message: Dict) => sum + getMessageThinkingTokenEstimate(message), 0);
-    const toolUsedTokens = messages.reduce((sum: number, message: Dict) => sum + getMessageToolTokenEstimate(message), 0);
+    const messageTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + getMessageContextTokenEstimate(message), 0);
+    const thinkingUsedTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + getMessageThinkingTokenEstimate(message), 0);
+    const toolUsedTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + getMessageToolTokenEstimate(message), 0);
     const chatUsedTokens = estimateTokenCount(DEFAULT_CHAT_SYSTEM_PROMPT) + messageTokens;
     const totalUsedTokens = chatUsedTokens + toolUsedTokens;
-    const estimatedToolTokens = messages.reduce((sum: number, message: Dict) => sum + getMessageToolTokenFallbackEstimate(message), 0);
+    const estimatedToolTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + getMessageToolTokenFallbackEstimate(message), 0);
     return {
       contextWindowTokens,
       chatUsedTokens,
@@ -213,7 +214,7 @@ export function buildChatHistoryMessages(
   config: SiftConfig,
   session: ChatSession,
 ): PlannerChatMessage[] {
-  const messages = Array.isArray(session.messages) ? session.messages as Dict[] : [];
+  const messages = Array.isArray(session.messages) ? session.messages : [];
   const history: PlannerChatMessage[] = [];
   const replayThinking = shouldPreserveThinking(config, session.thinkingEnabled !== false);
   let pendingThinking = '';
@@ -257,7 +258,7 @@ function buildReplayToolCallId(messageId: unknown): string {
   return `chat_tool_${safe}`;
 }
 
-function appendReplayToolMessages(history: PlannerChatMessage[], message: Dict, reasoningContent: string): void {
+function appendReplayToolMessages(history: PlannerChatMessage[], message: PersistedChatMessage, reasoningContent: string): void {
   const command = getTrimmedString(message.toolCallCommand) || getTrimmedString(message.content);
   const output = getTrimmedString(message.toolCallOutput) || getTrimmedString(message.toolCallOutputSnippet);
   if (!command && !output) {
@@ -278,7 +279,7 @@ function appendReplayToolMessages(history: PlannerChatMessage[], message: Dict, 
 }
 
 export function buildRetainedWebToolCalls(session: ChatSession): RetainedWebToolCall[] {
-  const messages = Array.isArray(session.messages) ? session.messages as Dict[] : [];
+  const messages = Array.isArray(session.messages) ? session.messages : [];
   const retained: RetainedWebToolCall[] = [];
   for (const message of messages) {
     if (message.kind !== 'assistant_tool_call') {
@@ -522,7 +523,7 @@ export function appendChatMessagesWithUsage(
     groundingStatus,
   });
   const retainedMessages = new ThinkingRetentionPolicy(options.maintainPerStepThinking !== false)
-    .prunePersistedMessages(messages as Dict[]);
+    .prunePersistedMessages(messages);
   const updated: ChatSession = {
     ...session,
     updatedAtUtc: now,
@@ -540,10 +541,10 @@ export function condenseChatSession(runtimeRoot: string, session: ChatSession): 
   const startIndex = Math.max(messages.length - keptCount, 0);
   const sourceMessages = startIndex > 0 ? messages.slice(0, startIndex) : messages;
   const condensedText = sourceMessages
-    .map((message: Dict) => `${message.role}: ${String(message.content || '')}`)
+    .map((message: PersistedChatMessage) => `${message.role}: ${String(message.content || '')}`)
     .join('\n');
   const condensedTail = condensedText.length > 2400 ? condensedText.slice(condensedText.length - 2400) : condensedText;
-  const nextMessages = messages.map((message: Dict, index: number) => ({
+  const nextMessages = messages.map((message: PersistedChatMessage, index: number) => ({
     ...message,
     compressedIntoSummary: index < startIndex,
   }));

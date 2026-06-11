@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 
 const TARGETS = [
   'src/presets.ts',
+  'src/state/chat-sessions.ts',
+  'src/thinking-retention-policy.ts',
   'src/status-server/http-utils.ts',
   'src/status-server/server-types.ts',
 ] as const;

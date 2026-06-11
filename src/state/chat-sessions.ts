@@ -1,12 +1,69 @@
 import * as crypto from 'node:crypto';
 import * as path from 'node:path';
-import type { Dict } from '../lib/types.js';
 import { mapLegacyModeToPresetId } from '../presets.js';
 import { getRuntimeDatabase } from './runtime-db.js';
 
-export type ChatMessage = Dict;
-export type ChatSession = Dict & { id: string; messages?: ChatMessage[] };
-type ChatGroundingStatus = 'ungrounded' | 'snippet_only' | 'fetched';
+export type ChatSessionMode = 'chat' | 'plan' | 'repo-search';
+export type ChatMessageRole = 'user' | 'assistant';
+export type ChatMessageKind = 'user_text' | 'assistant_answer' | 'assistant_thinking' | 'assistant_tool_call';
+export type ChatGroundingStatus = 'ungrounded' | 'snippet_only' | 'fetched';
+
+export type ChatMessage = {
+  id: string;
+  role: ChatMessageRole;
+  kind?: ChatMessageKind;
+  content: string;
+  inputTokensEstimate: number;
+  outputTokensEstimate: number;
+  thinkingTokens: number;
+  inputTokensEstimated?: boolean;
+  outputTokensEstimated?: boolean;
+  thinkingTokensEstimated?: boolean;
+  promptCacheTokens?: number | null;
+  promptEvalTokens?: number | null;
+  promptTokensPerSecond?: number | null;
+  generationTokensPerSecond?: number | null;
+  requestDurationMs?: number | null;
+  promptEvalDurationMs?: number | null;
+  generationDurationMs?: number | null;
+  requestStartedAtUtc?: string | null;
+  thinkingStartedAtUtc?: string | null;
+  thinkingEndedAtUtc?: string | null;
+  answerStartedAtUtc?: string | null;
+  answerEndedAtUtc?: string | null;
+  speculativeAcceptedTokens?: number | null;
+  speculativeGeneratedTokens?: number | null;
+  associatedToolTokens?: number | null;
+  thinkingContent?: string | null;
+  toolCallCommand?: string | null;
+  toolCallTurn?: number | null;
+  toolCallMaxTurns?: number | null;
+  toolCallExitCode?: number | null;
+  toolCallPromptTokenCount?: number | null;
+  toolCallOutputSnippet?: string | null;
+  toolCallOutput?: string | null;
+  createdAtUtc: string;
+  sourceRunId?: string | null;
+  compressedIntoSummary?: boolean;
+  groundingStatus?: ChatGroundingStatus | null;
+};
+
+export type ChatSession = {
+  id: string;
+  title?: string;
+  model?: string | null;
+  contextWindowTokens?: number;
+  thinkingEnabled?: boolean;
+  webSearchEnabled?: boolean;
+  presetId?: string;
+  mode?: ChatSessionMode;
+  planRepoRoot?: string;
+  condensedSummary?: string;
+  promptContext?: unknown;
+  createdAtUtc?: string;
+  updatedAtUtc?: string;
+  messages?: ChatMessage[];
+};
 
 type SessionRow = {
   id: string;
@@ -84,7 +141,7 @@ function parseSessionId(targetPath: string): string | null {
   return null;
 }
 
-function normalizeMode(value: unknown): 'chat' | 'plan' | 'repo-search' {
+function normalizeMode(value: unknown): ChatSessionMode {
   return value === 'plan' || value === 'repo-search' ? value : 'chat';
 }
 
@@ -93,7 +150,11 @@ function normalizePresetId(value: unknown, modeValue?: unknown): string {
   return normalized || mapLegacyModeToPresetId(modeValue);
 }
 
-function normalizeMessageKind(value: unknown, roleValue: unknown): 'user_text' | 'assistant_answer' | 'assistant_thinking' | 'assistant_tool_call' {
+function normalizeRole(value: unknown): ChatMessageRole {
+  return value === 'user' ? 'user' : 'assistant';
+}
+
+function normalizeMessageKind(value: unknown, roleValue: unknown): ChatMessageKind {
   if (
     value === 'user_text'
     || value === 'assistant_answer'
@@ -110,6 +171,48 @@ function normalizeGroundingStatus(value: unknown): ChatGroundingStatus | null {
     return value;
   }
   return null;
+}
+
+function mapMessageRow(row: MessageRow): ChatMessage {
+  return {
+    id: row.id,
+    role: normalizeRole(row.role),
+    kind: normalizeMessageKind(row.kind, row.role),
+    content: row.content,
+    inputTokensEstimate: row.input_tokens_estimate,
+    outputTokensEstimate: row.output_tokens_estimate,
+    thinkingTokens: row.thinking_tokens,
+    inputTokensEstimated: row.input_tokens_estimated === 1,
+    outputTokensEstimated: row.output_tokens_estimated === 1,
+    thinkingTokensEstimated: row.thinking_tokens_estimated === 1,
+    promptCacheTokens: row.prompt_cache_tokens,
+    promptEvalTokens: row.prompt_eval_tokens,
+    promptTokensPerSecond: row.prompt_tokens_per_second,
+    generationTokensPerSecond: row.output_tokens_per_second,
+    requestDurationMs: row.request_duration_ms,
+    promptEvalDurationMs: row.prompt_eval_duration_ms,
+    generationDurationMs: row.generation_duration_ms,
+    requestStartedAtUtc: row.request_started_at_utc,
+    thinkingStartedAtUtc: row.thinking_started_at_utc,
+    thinkingEndedAtUtc: row.thinking_ended_at_utc,
+    answerStartedAtUtc: row.answer_started_at_utc,
+    answerEndedAtUtc: row.answer_ended_at_utc,
+    speculativeAcceptedTokens: row.speculative_accepted_tokens,
+    speculativeGeneratedTokens: row.speculative_generated_tokens,
+    associatedToolTokens: row.associated_tool_tokens,
+    thinkingContent: row.thinking_content,
+    toolCallCommand: row.tool_call_command,
+    toolCallTurn: row.tool_call_turn,
+    toolCallMaxTurns: row.tool_call_max_turns,
+    toolCallExitCode: row.tool_call_exit_code,
+    toolCallPromptTokenCount: row.tool_call_prompt_token_count,
+    toolCallOutputSnippet: row.tool_call_output_snippet,
+    toolCallOutput: row.tool_call_output,
+    createdAtUtc: row.created_at_utc,
+    sourceRunId: row.source_run_id,
+    compressedIntoSummary: row.compressed_into_summary === 1,
+    groundingStatus: normalizeGroundingStatus(row.grounding_status),
+  };
 }
 
 function toNonNegativeInteger(value: unknown, fallback: number = 0): number {
@@ -129,6 +232,14 @@ function toNullableNonNegativeInteger(value: unknown): number | null {
     return null;
   }
   return Math.trunc(parsed);
+}
+
+function toNullableInteger(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
 }
 
 function toNullableNonNegativeNumber(value: unknown): number | null {
@@ -244,45 +355,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
     condensedSummary: row.condensed_summary,
     createdAtUtc: row.created_at_utc,
     updatedAtUtc: row.updated_at_utc,
-    messages: messageRows.map((message) => ({
-      id: message.id,
-      role: message.role,
-      kind: normalizeMessageKind(message.kind, message.role),
-      content: message.content,
-      inputTokensEstimate: message.input_tokens_estimate,
-      outputTokensEstimate: message.output_tokens_estimate,
-      thinkingTokens: message.thinking_tokens,
-      inputTokensEstimated: message.input_tokens_estimated === 1,
-      outputTokensEstimated: message.output_tokens_estimated === 1,
-      thinkingTokensEstimated: message.thinking_tokens_estimated === 1,
-      promptCacheTokens: message.prompt_cache_tokens,
-      promptEvalTokens: message.prompt_eval_tokens,
-      promptTokensPerSecond: message.prompt_tokens_per_second,
-      generationTokensPerSecond: message.output_tokens_per_second,
-      requestDurationMs: message.request_duration_ms,
-      promptEvalDurationMs: message.prompt_eval_duration_ms,
-      generationDurationMs: message.generation_duration_ms,
-      requestStartedAtUtc: message.request_started_at_utc,
-      thinkingStartedAtUtc: message.thinking_started_at_utc,
-      thinkingEndedAtUtc: message.thinking_ended_at_utc,
-      answerStartedAtUtc: message.answer_started_at_utc,
-      answerEndedAtUtc: message.answer_ended_at_utc,
-      speculativeAcceptedTokens: message.speculative_accepted_tokens,
-      speculativeGeneratedTokens: message.speculative_generated_tokens,
-      associatedToolTokens: message.associated_tool_tokens,
-      thinkingContent: message.thinking_content,
-      toolCallCommand: message.tool_call_command,
-      toolCallTurn: message.tool_call_turn,
-      toolCallMaxTurns: message.tool_call_max_turns,
-      toolCallExitCode: message.tool_call_exit_code,
-      toolCallPromptTokenCount: message.tool_call_prompt_token_count,
-      toolCallOutputSnippet: message.tool_call_output_snippet,
-      toolCallOutput: message.tool_call_output,
-      createdAtUtc: message.created_at_utc,
-      sourceRunId: message.source_run_id,
-      compressedIntoSummary: message.compressed_into_summary === 1,
-      groundingStatus: normalizeGroundingStatus(message.grounding_status),
-    })),
+    messages: messageRows.map((message) => mapMessageRow(message)),
   };
 }
 
@@ -448,11 +521,11 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
     `);
 
     for (let index = 0; index < messages.length; index += 1) {
-      const message = messages[index] as Dict;
+      const message = messages[index];
       insertMessage.run(
         sessionId,
         typeof message.id === 'string' && message.id.trim() ? message.id.trim() : crypto.randomUUID(),
-        typeof message.role === 'string' && message.role.trim() ? message.role.trim() : 'assistant',
+        normalizeRole(message.role),
         normalizeMessageKind(message.kind, message.role),
         typeof message.content === 'string' ? message.content : '',
         toNonNegativeInteger(message.inputTokensEstimate, estimateTokenCount(message.content)),
@@ -480,7 +553,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         typeof message.toolCallCommand === 'string' ? message.toolCallCommand : null,
         toNullableNonNegativeInteger(message.toolCallTurn),
         toNullableNonNegativeInteger(message.toolCallMaxTurns),
-        toNullableNonNegativeInteger(message.toolCallExitCode),
+        toNullableInteger(message.toolCallExitCode),
         toNullableNonNegativeInteger(message.toolCallPromptTokenCount),
         typeof message.toolCallOutputSnippet === 'string' ? message.toolCallOutputSnippet : null,
         typeof message.toolCallOutput === 'string' ? message.toolCallOutput : null,

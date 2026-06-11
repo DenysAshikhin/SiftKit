@@ -10,6 +10,7 @@ import {
   getChatSessionPath,
   deleteChatSession,
 } from '../dist/state/chat-sessions.js';
+import type { ChatSession } from '../src/state/chat-sessions.js';
 import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
 
 function withTempRepo(fn: (repoRoot: string) => void): void {
@@ -176,6 +177,74 @@ test('chat timeline bubbles persist typed tool payload fields', () => {
     assert.equal(message?.toolCallPromptTokenCount, 44);
     assert.equal(message?.toolCallOutputSnippet, 'src/chat.ts:1:timeline');
     assert.equal(message?.toolCallOutput, 'src/chat.ts:1:timeline\nsrc/ui.tsx:2:bubble');
+  });
+});
+
+test('chat session persistence keeps typed tool and timing fields', () => {
+  withTempRepo((repoRoot) => {
+    const runtimeRoot = path.join(repoRoot, '.siftkit');
+    const session: ChatSession = {
+      id: 'typed-session',
+      title: 'Typed Session',
+      model: 'model-a',
+      contextWindowTokens: 4096,
+      thinkingEnabled: true,
+      webSearchEnabled: false,
+      presetId: 'repo-search',
+      mode: 'repo-search',
+      planRepoRoot: runtimeRoot,
+      condensedSummary: '',
+      createdAtUtc: '2026-01-01T00:00:00.000Z',
+      updatedAtUtc: '2026-01-01T00:00:00.000Z',
+      messages: [{
+        id: 'm1',
+        role: 'assistant',
+        kind: 'assistant_tool_call',
+        content: 'rg -n Dict src',
+        inputTokensEstimate: 3,
+        outputTokensEstimate: 5,
+        thinkingTokens: 7,
+        inputTokensEstimated: false,
+        outputTokensEstimated: false,
+        thinkingTokensEstimated: false,
+        promptCacheTokens: 1,
+        promptEvalTokens: 2,
+        promptTokensPerSecond: 10,
+        generationTokensPerSecond: 20,
+        requestDurationMs: 30,
+        promptEvalDurationMs: 40,
+        generationDurationMs: 50,
+        requestStartedAtUtc: '2026-01-01T00:00:01.000Z',
+        thinkingStartedAtUtc: '2026-01-01T00:00:02.000Z',
+        thinkingEndedAtUtc: '2026-01-01T00:00:03.000Z',
+        answerStartedAtUtc: '2026-01-01T00:00:04.000Z',
+        answerEndedAtUtc: '2026-01-01T00:00:05.000Z',
+        speculativeAcceptedTokens: 6,
+        speculativeGeneratedTokens: 8,
+        associatedToolTokens: 9,
+        thinkingContent: 'thinking',
+        toolCallCommand: 'rg -n Dict src',
+        toolCallTurn: 1,
+        toolCallMaxTurns: 2,
+        toolCallExitCode: 0,
+        toolCallPromptTokenCount: 11,
+        toolCallOutputSnippet: 'snippet',
+        toolCallOutput: 'full output',
+        createdAtUtc: '2026-01-01T00:00:06.000Z',
+        sourceRunId: 'run-1',
+        compressedIntoSummary: false,
+        groundingStatus: 'fetched',
+      }],
+    };
+
+    saveChatSession(runtimeRoot, session);
+
+    const reloaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, 'typed-session'));
+    assert.equal(reloaded?.messages?.[0]?.kind, 'assistant_tool_call');
+    assert.equal(reloaded?.messages?.[0]?.toolCallCommand, 'rg -n Dict src');
+    assert.equal(reloaded?.messages?.[0]?.groundingStatus, 'fetched');
+    assert.equal(reloaded?.messages?.[0]?.promptEvalDurationMs, 40);
+    assert.equal(reloaded?.messages?.[0]?.generationTokensPerSecond, 20);
   });
 });
 
