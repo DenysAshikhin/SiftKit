@@ -1,4 +1,4 @@
-import type { Dict } from '../lib/types.js';
+import type { JsonRecord } from '../lib/json-types.js';
 import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
 
@@ -154,7 +154,7 @@ function normalizeMetricTotals(input: unknown): MetricTotals {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return totals;
   }
-  const record = input as Dict;
+  const record = input as JsonRecord;
   const fields: Array<keyof MetricTotals> = [
     'inputCharactersTotal',
     'outputCharactersTotal',
@@ -188,7 +188,7 @@ function normalizeToolTypeStats(input: unknown): ToolTypeStats | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return null;
   }
-  const record = input as Dict;
+  const record = input as JsonRecord;
   const calls = normalizeNonNegativeNumber(record.calls);
   const outputCharsTotal = normalizeNonNegativeNumber(record.outputCharsTotal);
   const outputTokensTotal = normalizeNonNegativeNumber(record.outputTokensTotal);
@@ -248,7 +248,7 @@ function normalizeTaskTotals(input: unknown): TaskTotals {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return totals;
   }
-  const record = input as Dict;
+  const record = input as JsonRecord;
   for (const taskKind of TASK_KINDS) {
     totals[taskKind] = normalizeMetricTotals(record[taskKind]);
   }
@@ -260,7 +260,7 @@ function normalizeToolStats(input: unknown): ToolStatsByTask {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return toolStats;
   }
-  const record = input as Dict;
+  const record = input as JsonRecord;
   for (const taskKind of TASK_KINDS) {
     const taskRecord = record[taskKind];
     if (!taskRecord || typeof taskRecord !== 'object' || Array.isArray(taskRecord)) {
@@ -268,7 +268,7 @@ function normalizeToolStats(input: unknown): ToolStatsByTask {
       continue;
     }
     const normalized: Record<string, ToolTypeStats> = {};
-    for (const [toolType, rawStats] of Object.entries(taskRecord as Dict)) {
+    for (const [toolType, rawStats] of Object.entries(taskRecord as JsonRecord)) {
       const key = String(toolType || '').trim();
       if (!key) {
         continue;
@@ -288,7 +288,7 @@ function isCurrentSchema(input: unknown): boolean {
     input
     && typeof input === 'object'
     && !Array.isArray(input)
-    && Number((input as Dict).schemaVersion) === METRICS_SCHEMA_VERSION
+    && Number((input as JsonRecord).schemaVersion) === METRICS_SCHEMA_VERSION
   );
 }
 
@@ -319,7 +319,7 @@ export function normalizeMetrics(input: unknown): Metrics {
   if (!isCurrentSchema(input)) {
     return metrics;
   }
-  const record = input as Dict;
+  const record = input as JsonRecord;
   const totals = normalizeMetricTotals(record);
   metrics.inputCharactersTotal = totals.inputCharactersTotal;
   metrics.outputCharactersTotal = totals.outputCharactersTotal;
@@ -376,7 +376,7 @@ export function readMetrics(metricsPath: string): Metrics {
       updated_at_utc
     FROM runtime_metrics_totals
     WHERE id = 1
-  `).get() as Dict | undefined;
+  `).get() as JsonRecord | undefined;
   if (!row || typeof row !== 'object') {
     return getDefaultMetrics();
   }

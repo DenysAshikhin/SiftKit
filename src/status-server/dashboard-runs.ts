@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
-import type { Dict } from '../lib/types.js';
+import type { JsonRecord } from '../lib/json-types.js';
 import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
 import { getRuntimeRoot } from './paths.js';
 import { getRuntimeDatabasePath } from '../config/paths.js';
@@ -224,10 +224,10 @@ export type RunRecord = {
   durationMs: number | null;
   providerDurationMs: number | null;
   wallDurationMs: number | null;
-  rawPaths: Dict;
+  rawPaths: JsonRecord;
 };
 
-function normalizeRunRecord(record: Dict): RunRecord {
+function normalizeRunRecord(record: JsonRecord): RunRecord {
   return {
     id: String(record.id),
     kind: String(record.kind),
@@ -250,7 +250,7 @@ function normalizeRunRecord(record: Dict): RunRecord {
     durationMs: Number.isFinite(record.durationMs) ? Number(record.durationMs) : null,
     providerDurationMs: Number.isFinite(record.providerDurationMs) ? Number(record.providerDurationMs) : null,
     wallDurationMs: Number.isFinite(record.wallDurationMs) ? Number(record.wallDurationMs) : null,
-    rawPaths: record.rawPaths && typeof record.rawPaths === 'object' ? record.rawPaths as Dict : {},
+    rawPaths: record.rawPaths && typeof record.rawPaths === 'object' ? record.rawPaths as JsonRecord : {},
   };
 }
 
@@ -454,7 +454,7 @@ function readPersistedRunLogSpeculativeMetrics(
     FROM run_logs
     WHERE request_id = ?
     LIMIT 1
-  `).get(normalizedRequestId) as Dict | undefined;
+  `).get(normalizedRequestId) as JsonRecord | undefined;
   return {
     speculativeAcceptedTokens: toNullableNonNegativeInteger(row?.speculative_accepted_tokens),
     speculativeGeneratedTokens: toNullableNonNegativeInteger(row?.speculative_generated_tokens),
@@ -476,7 +476,7 @@ function getProcessedInputTokensValue(
   return toNonNegativeInteger(getProcessedPromptTokens(inputTokens, promptCacheTokens, promptEvalTokens));
 }
 
-function parseJsonObjectText(text: string | null): Dict | null {
+function parseJsonObjectText(text: string | null): JsonRecord | null {
   if (typeof text !== 'string' || !text.trim()) {
     return null;
   }
@@ -485,7 +485,7 @@ function parseJsonObjectText(text: string | null): Dict | null {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       return null;
     }
-    return parsed as Dict;
+    return parsed as JsonRecord;
   } catch {
     return null;
   }
@@ -495,13 +495,13 @@ function removeCommandFromScorecard(scorecard: unknown, commandText: string): bo
   if (!scorecard || typeof scorecard !== 'object') {
     return false;
   }
-  const tasks = Array.isArray((scorecard as Dict).tasks) ? (scorecard as Dict).tasks as Dict[] : [];
+  const tasks = Array.isArray((scorecard as JsonRecord).tasks) ? (scorecard as JsonRecord).tasks as JsonRecord[] : [];
   let changed = false;
   for (const task of tasks) {
     if (!task || typeof task !== 'object' || !Array.isArray(task.commands)) {
       continue;
     }
-    const originalCommands = task.commands as Dict[];
+    const originalCommands = task.commands as JsonRecord[];
     const filteredCommands = originalCommands.filter((command) => !commandMatchesDisplayText(command, commandText));
     if (filteredCommands.length !== originalCommands.length) {
       task.commands = filteredCommands;
@@ -521,14 +521,14 @@ function removeCommandFromTranscriptJsonl(text: string | null, commandText: stri
     if (!line.trim()) {
       continue;
     }
-    let parsed: Dict | null = null;
+    let parsed: JsonRecord | null = null;
     try {
-      parsed = JSON.parse(line) as Dict;
+      parsed = JSON.parse(line) as JsonRecord;
     } catch {
       keptLines.push(line);
       continue;
     }
-    const payload = parsed.payload && typeof parsed.payload === 'object' ? parsed.payload as Dict : parsed;
+    const payload = parsed.payload && typeof parsed.payload === 'object' ? parsed.payload as JsonRecord : parsed;
     const kind = String(parsed.kind || payload.kind || '');
     if (commandMatchesDisplayText(payload, commandText) && (kind === 'turn_command_result' || kind === 'tool_start' || kind === 'tool_result')) {
       changed = true;
@@ -576,9 +576,9 @@ export function removeDashboardRunCommandFromLogs(database: DatabaseInstance, ru
         if (typeof artifactRow.content_json !== 'string' || !artifactRow.content_json.trim()) {
           continue;
         }
-        let parsed: Dict;
+        let parsed: JsonRecord;
         try {
-          parsed = JSON.parse(artifactRow.content_json) as Dict;
+          parsed = JSON.parse(artifactRow.content_json) as JsonRecord;
         } catch {
           continue;
         }
@@ -607,7 +607,7 @@ function parseJsonlEventsFromText(text: string | null): JsonlEvent[] {
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
         continue;
       }
-      const payload = parsed as Dict;
+      const payload = parsed as JsonRecord;
       events.push({
         kind: typeof payload.kind === 'string' ? payload.kind : 'event',
         at: typeof payload.at === 'string' ? payload.at : null,
@@ -641,7 +641,7 @@ function normalizeStatusForRunRecord(terminalState: string): string {
   return 'running';
 }
 
-function normalizeRunRecordFromDbRow(row: Dict): RunRecord {
+function normalizeRunRecordFromDbRow(row: JsonRecord): RunRecord {
   return normalizeRunRecord({
     id: String(row.run_id || ''),
     kind: String(row.run_kind || 'unknown'),
@@ -820,7 +820,7 @@ export function upsertRunArtifactPayload(options: {
   database: DatabaseInstance;
   requestId: string;
   artifactType: 'summary_request' | 'planner_debug' | 'planner_failed' | 'request_abandoned';
-  artifactPayload: Dict;
+  artifactPayload: JsonRecord;
 }): void {
   const requestId = String(options.requestId || '').trim();
   if (!requestId) {
@@ -922,7 +922,7 @@ export function upsertRepoSearchRun(options: {
   requestMaxTokens: number | null;
   maxTurns: number | null;
   transcriptText: string;
-  artifactPayload: Dict;
+  artifactPayload: JsonRecord;
   terminalState: 'completed' | 'failed';
   startedAtUtc: string;
   finishedAtUtc: string;
@@ -1017,7 +1017,7 @@ export function queryDashboardRunsFromDb(
       FROM run_logs
       ORDER BY COALESCE(finished_at_utc, started_at_utc, '1970-01-01T00:00:00.000Z') DESC, id DESC
       LIMIT ?
-    `).all(limitPerGroup) as Dict[]
+    `).all(limitPerGroup) as JsonRecord[]
     : (() => {
       const whereClauses: string[] = [];
       const params: string[] = [];
@@ -1040,7 +1040,7 @@ export function queryDashboardRunsFromDb(
         FROM run_logs
         ${whereSql}
         ORDER BY COALESCE(started_at_utc, '1970-01-01T00:00:00.000Z') DESC, id DESC
-      `).all(...params) as Dict[];
+      `).all(...params) as JsonRecord[];
     })();
   return rows.map((row) => normalizeRunRecordFromDbRow(row));
 }
@@ -1069,14 +1069,14 @@ function listRunLogIdsForDeletion(database: DatabaseInstance, criteria: Dashboar
       ${clause}
       ORDER BY ${buildRunLogTimestampSql()} ASC, id ASC
       LIMIT ?
-    `).all(...params, criteria.count).map((row) => String((row as Dict).run_id || ''));
+    `).all(...params, criteria.count).map((row) => String((row as JsonRecord).run_id || ''));
   }
   return database.prepare(`
     SELECT run_id
     FROM run_logs
     ${clause ? `${clause} AND ` : 'WHERE '}${buildRunLogTimestampSql()} < ?
     ORDER BY ${buildRunLogTimestampSql()} ASC, id ASC
-  `).all(...params, `${criteria.beforeDate}T00:00:00.000Z`).map((row) => String((row as Dict).run_id || ''));
+  `).all(...params, `${criteria.beforeDate}T00:00:00.000Z`).map((row) => String((row as JsonRecord).run_id || ''));
 }
 
 function tableExists(database: DatabaseInstance, name: string): boolean {
@@ -1128,7 +1128,7 @@ function countLinkedRuntimeArtifacts(database: DatabaseInstance, runLogIds: stri
   const placeholders = runLogIds.map(() => '?').join(', ');
   const row = database.prepare(`
     SELECT COUNT(*) AS count FROM runtime_artifacts WHERE request_id IN (${placeholders})
-  `).get(...runLogIds) as Dict;
+  `).get(...runLogIds) as JsonRecord;
   return Number(row.count || 0);
 }
 
@@ -1190,7 +1190,7 @@ export function previewDashboardRunLogDeletion(
       if (!tableExists(database, table)) {
         continue;
       }
-      const row = database.prepare(countSql).get(cutoff) as Dict;
+      const row = database.prepare(countSql).get(cutoff) as JsonRecord;
       matchCount += Number(row.count || 0);
     }
     return { matchCount };
@@ -1248,7 +1248,7 @@ export function queryDashboardRunDetailFromDb(
     FROM run_logs
     WHERE run_id = ?
     LIMIT 1
-  `).get(runId) as Dict | undefined;
+  `).get(runId) as JsonRecord | undefined;
   if (!row || typeof row !== 'object') {
     return null;
   }
@@ -1329,11 +1329,11 @@ function parseOptionalIsoDate(value: unknown): string | null {
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
 }
 
-function parseRepoSearchTotals(payload: Dict | null): Dict | null {
+function parseRepoSearchTotals(payload: JsonRecord | null): JsonRecord | null {
   if (!payload || !payload.totals || typeof payload.totals !== 'object' || Array.isArray(payload.totals)) {
     return null;
   }
-  return payload.totals as Dict;
+  return payload.totals as JsonRecord;
 }
 
 function resolveRunKindAndGroup(
@@ -1371,10 +1371,10 @@ function resolveRunKindAndGroup(
 
 function resolveTerminalState(
   explicitTerminalState: RunLogTerminalState | null,
-  requestPayload: Dict | null,
-  failedRequestPayload: Dict | null,
-  abandonedPayload: Dict | null,
-  repoSearchPayload: Dict | null,
+  requestPayload: JsonRecord | null,
+  failedRequestPayload: JsonRecord | null,
+  abandonedPayload: JsonRecord | null,
+  repoSearchPayload: JsonRecord | null,
 ): RunLogTerminalState {
   if (explicitTerminalState && explicitTerminalState !== 'unknown') {
     return explicitTerminalState;
@@ -1397,10 +1397,10 @@ function resolveTerminalState(
 function resolveTitle(
   requestId: string,
   runKind: RunLogKind,
-  requestPayload: Dict | null,
-  failedRequestPayload: Dict | null,
-  abandonedPayload: Dict | null,
-  repoSearchPayload: Dict | null,
+  requestPayload: JsonRecord | null,
+  failedRequestPayload: JsonRecord | null,
+  abandonedPayload: JsonRecord | null,
+  repoSearchPayload: JsonRecord | null,
 ): string {
   if (requestPayload) {
     const question = typeof requestPayload.question === 'string' && requestPayload.question.trim()
@@ -1763,7 +1763,7 @@ export function buildDashboardDailyMetrics(runtimeRoot: string, idleSummaryDatab
 
 export type IdleSummarySnapshotRow = IdleSummarySnapshot & { summaryText: string };
 
-export function normalizeIdleSummarySnapshotRow(row: Dict | null): IdleSummarySnapshotRow | null {
+export function normalizeIdleSummarySnapshotRow(row: JsonRecord | null): IdleSummarySnapshotRow | null {
   if (!row || typeof row !== 'object') {
     return null;
   }

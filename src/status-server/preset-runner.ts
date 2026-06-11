@@ -5,7 +5,6 @@ import type {
   PresetRunRequest,
   PresetRunResult,
 } from '../command-output/types.js';
-import type { Dict } from '../lib/types.js';
 import {
   findPresetById,
   getPresetsForSurface,
@@ -26,6 +25,7 @@ import {
 } from './chat.js';
 import { readConfig } from './config-store.js';
 import type { StatusEngineService } from './engine-service.js';
+import { normalizeRepoSearchResult } from './repo-search-scorecard-types.js';
 
 type PresetRunOptions = {
   statusBackendUrl: string;
@@ -89,10 +89,9 @@ function resolveEffectiveRepoFileListing(config: Pick<SiftConfig, 'IncludeRepoFi
 }
 
 function getFinalOutput(result: RepoSearchExecutionResult): string {
-  const scorecard = result.scorecard && typeof result.scorecard === 'object' ? result.scorecard as Dict : {};
-  const tasks = Array.isArray(scorecard.tasks) ? scorecard.tasks as Dict[] : [];
-  const finalOutput = tasks
-    .map((task) => (typeof task.finalOutput === 'string' ? task.finalOutput.trim() : ''))
+  const repoSearchResult = normalizeRepoSearchResult(result);
+  const finalOutput = repoSearchResult.scorecard.tasks
+    .map((task) => task.finalOutput.trim())
     .find((value) => value.length > 0);
   return finalOutput || '';
 }

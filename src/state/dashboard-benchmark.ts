@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.js';
-import type { Dict } from '../lib/types.js';
+import type { JsonRecord } from '../lib/json-types.js';
 
 export type BenchmarkTaskKind = 'repo-search' | 'summary';
 export type BenchmarkSessionStatus = 'running' | 'completed' | 'failed' | 'cancelled';
@@ -43,8 +43,8 @@ export type BenchmarkCaseRecord = {
   label: string;
   managedPresetId: string;
   managedPresetLabel: string;
-  managedPreset: Dict;
-  specOverride: Dict;
+  managedPreset: JsonRecord;
+  specOverride: JsonRecord;
   createdAtUtc: string;
 };
 
@@ -94,7 +94,7 @@ export type BenchmarkSessionDetail = {
 export type BenchmarkManagedPresetInput = {
   id: string;
   label: string;
-} & Dict;
+} & JsonRecord;
 
 export type BenchmarkSpecOverrideInput = {
   label?: string;
@@ -245,19 +245,19 @@ function readNullableText(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
 }
 
-function parseJsonDict(value: unknown): Dict {
+function parseJsonDict(value: unknown): JsonRecord {
   if (typeof value !== 'string' || !value.trim()) {
     return {};
   }
   try {
     const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Dict : {};
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as JsonRecord : {};
   } catch {
     return {};
   }
 }
 
-function normalizeQuestionPreset(row: Record<string, unknown> | undefined): BenchmarkQuestionPresetRecord | null {
+function normalizeQuestionPreset(row: JsonRecord | undefined): BenchmarkQuestionPresetRecord | null {
   if (!row || typeof row.id !== 'string') {
     return null;
   }
@@ -273,7 +273,7 @@ function normalizeQuestionPreset(row: Record<string, unknown> | undefined): Benc
   };
 }
 
-function normalizeSession(row: Record<string, unknown> | undefined): BenchmarkSessionRecord | null {
+function normalizeSession(row: JsonRecord | undefined): BenchmarkSessionRecord | null {
   if (!row || typeof row.id !== 'string') {
     return null;
   }
@@ -295,7 +295,7 @@ function normalizeSession(row: Record<string, unknown> | undefined): BenchmarkSe
   };
 }
 
-function normalizeCase(row: Record<string, unknown> | undefined): BenchmarkCaseRecord | null {
+function normalizeCase(row: JsonRecord | undefined): BenchmarkCaseRecord | null {
   if (!row || typeof row.id !== 'string') {
     return null;
   }
@@ -312,7 +312,7 @@ function normalizeCase(row: Record<string, unknown> | undefined): BenchmarkCaseR
   };
 }
 
-function normalizeAttempt(row: Record<string, unknown> | undefined): BenchmarkAttemptRecord | null {
+function normalizeAttempt(row: JsonRecord | undefined): BenchmarkAttemptRecord | null {
   if (!row || typeof row.id !== 'string') {
     return null;
   }
@@ -414,7 +414,7 @@ export function readBenchmarkQuestionPreset(id: string, databasePath?: string): 
     SELECT id, title, task_kind, prompt, enabled, seeded_key, created_at_utc, updated_at_utc
     FROM benchmark_question_presets
     WHERE id = ?
-  `).get(presetId) as Record<string, unknown> | undefined;
+  `).get(presetId) as JsonRecord | undefined;
   return normalizeQuestionPreset(row);
 }
 
@@ -439,7 +439,7 @@ export function listBenchmarkQuestionPresets(options: {
     FROM benchmark_question_presets
     ${where}
     ORDER BY task_kind ASC, title COLLATE NOCASE ASC, id ASC
-  `).all(...params) as Array<Record<string, unknown>>;
+  `).all(...params) as Array<JsonRecord>;
   return rows.map((row) => normalizeQuestionPreset(row)).filter((row): row is BenchmarkQuestionPresetRecord => row !== null);
 }
 
@@ -476,8 +476,8 @@ export function deleteBenchmarkQuestionPreset(id: string, databasePath?: string)
   return Number(result.changes) > 0;
 }
 
-function normalizeSpecOverride(input: BenchmarkSpecOverrideInput): Dict {
-  const output: Dict = {};
+function normalizeSpecOverride(input: BenchmarkSpecOverrideInput): JsonRecord {
+  const output: JsonRecord = {};
   for (const key of SPEC_OVERRIDE_KEYS) {
     const value = input[key];
     if (value !== undefined) {
@@ -621,12 +621,12 @@ export function listBenchmarkSessions(options: {
       WHERE status = ?
       ORDER BY started_at_utc DESC, id DESC
       LIMIT ?
-    `).all(status, limit) as Array<Record<string, unknown>>
+    `).all(status, limit) as Array<JsonRecord>
     : database.prepare(`
       SELECT * FROM benchmark_sessions
       ORDER BY started_at_utc DESC, id DESC
       LIMIT ?
-    `).all(limit) as Array<Record<string, unknown>>;
+    `).all(limit) as Array<JsonRecord>;
   return rows.map((row) => normalizeSession(row)).filter((row): row is BenchmarkSessionRecord => row !== null);
 }
 
@@ -636,7 +636,7 @@ export function readBenchmarkSessionDetail(id: string, databasePath?: string): B
     return null;
   }
   const database = getDatabase(databasePath);
-  const session = normalizeSession(database.prepare('SELECT * FROM benchmark_sessions WHERE id = ?').get(sessionId) as Record<string, unknown> | undefined);
+  const session = normalizeSession(database.prepare('SELECT * FROM benchmark_sessions WHERE id = ?').get(sessionId) as JsonRecord | undefined);
   if (!session) {
     return null;
   }
@@ -644,7 +644,7 @@ export function readBenchmarkSessionDetail(id: string, databasePath?: string): B
     SELECT * FROM benchmark_cases
     WHERE session_id = ?
     ORDER BY case_index ASC
-  `).all(sessionId) as Array<Record<string, unknown>>)
+  `).all(sessionId) as Array<JsonRecord>)
     .map((row) => normalizeCase(row))
     .filter((row): row is BenchmarkCaseRecord => row !== null);
   const attempts = listBenchmarkAttemptsForSession(sessionId, databasePath);
@@ -660,7 +660,7 @@ export function listBenchmarkAttemptsForSession(sessionId: string, databasePath?
     SELECT * FROM benchmark_attempts
     WHERE session_id = ?
     ORDER BY case_index ASC, prompt_index ASC, repeat_index ASC
-  `).all(normalizedSessionId) as Array<Record<string, unknown>>;
+  `).all(normalizedSessionId) as Array<JsonRecord>;
   return rows.map((row) => normalizeAttempt(row)).filter((row): row is BenchmarkAttemptRecord => row !== null);
 }
 
@@ -774,7 +774,7 @@ export function readBenchmarkAttempt(id: string, databasePath?: string): Benchma
   if (!attemptId) {
     return null;
   }
-  const row = getDatabase(databasePath).prepare('SELECT * FROM benchmark_attempts WHERE id = ?').get(attemptId) as Record<string, unknown> | undefined;
+  const row = getDatabase(databasePath).prepare('SELECT * FROM benchmark_attempts WHERE id = ?').get(attemptId) as JsonRecord | undefined;
   return normalizeAttempt(row);
 }
 
@@ -883,7 +883,7 @@ export function readBenchmarkLogTextByStream(options: {
     WHERE session_id = ?
       AND ((attempt_id IS NULL AND ? IS NULL) OR attempt_id = ?)
     ORDER BY stream_kind ASC, sequence ASC, id ASC
-  `).all(sessionId, attemptId, attemptId) as Array<Record<string, unknown>>;
+  `).all(sessionId, attemptId, attemptId) as Array<JsonRecord>;
   for (const row of rows) {
     const streamKind = normalizeLogStream(row.stream_kind);
     output[streamKind] = `${output[streamKind]}${String(row.chunk_text || '')}`;

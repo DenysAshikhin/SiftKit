@@ -3,7 +3,7 @@
  */
 import * as http from 'node:http';
 import * as crypto from 'node:crypto';
-import type { Dict } from '../../lib/types.js';
+import type { JsonRecord } from '../../lib/json-types.js';
 import { LlamaCppClient } from '../../llm-protocol/llama-cpp-client.js';
 import type {
   SummaryPolicyProfile,
@@ -102,7 +102,7 @@ function normalizeSummaryFormat(value: unknown): 'text' | 'json' {
   return value === 'json' ? 'json' : 'text';
 }
 
-function createRepoSearchAdmissionRecord(parsedBody: Dict): RepoSearchAdmissionRecord {
+function createRepoSearchAdmissionRecord(parsedBody: JsonRecord): RepoSearchAdmissionRecord {
   return {
     requestId: crypto.randomUUID(),
     startedAtUtc: new Date().toISOString(),
@@ -236,33 +236,33 @@ function getOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
-function getOptionalNumber(value: unknown): number | undefined {
+function readOptionalNumber(value: unknown): number | undefined {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? numberValue : undefined;
 }
 
-function getPositiveNumber(value: unknown, fallback: number): number {
+function readPositiveNumber(value: unknown, fallback: number): number {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : fallback;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isJsonRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function getSummaryTiming(value: unknown): { processStartedAtMs?: number | null; stdinWaitMs?: number | null; serverPreflightMs?: number | null } | undefined {
-  if (!isRecord(value)) {
+  if (!isJsonRecord(value)) {
     return undefined;
   }
   return {
-    processStartedAtMs: getOptionalNumber(value.processStartedAtMs) ?? null,
-    stdinWaitMs: getOptionalNumber(value.stdinWaitMs) ?? null,
-    serverPreflightMs: getOptionalNumber(value.serverPreflightMs) ?? null,
+    processStartedAtMs: readOptionalNumber(value.processStartedAtMs) ?? null,
+    stdinWaitMs: readOptionalNumber(value.stdinWaitMs) ?? null,
+    serverPreflightMs: readOptionalNumber(value.serverPreflightMs) ?? null,
   };
 }
 
 function isStrictConfigPayload(value: unknown): boolean {
-  if (!isRecord(value)) {
+  if (!isJsonRecord(value)) {
     return false;
   }
   const topLevelRequired = [
@@ -287,7 +287,7 @@ function isStrictConfigPayload(value: unknown): boolean {
   const thresholds = value.Thresholds;
   const interactive = value.Interactive;
   const server = value.Server;
-  if (!isRecord(runtime) || !isRecord(thresholds) || !isRecord(interactive) || !isRecord(server)) {
+  if (!isJsonRecord(runtime) || !isJsonRecord(thresholds) || !isJsonRecord(interactive) || !isJsonRecord(server)) {
     return false;
   }
   return Object.prototype.hasOwnProperty.call(runtime, 'Model')
@@ -695,7 +695,7 @@ export async function handleCoreRoute(
   }
 
   if (req.method === 'POST' && req.url === '/execution/heartbeat') {
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -717,7 +717,7 @@ export async function handleCoreRoute(
   }
 
   if (req.method === 'POST' && req.url === '/execution/release') {
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -738,7 +738,7 @@ export async function handleCoreRoute(
   // -------------------------------------------------------------------------
 
   if (req.method === 'POST' && req.url === '/command-output/analyze') {
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -800,7 +800,7 @@ export async function handleCoreRoute(
   }
 
   if (req.method === 'POST' && req.url === '/preset/run') {
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -831,9 +831,9 @@ export async function handleCoreRoute(
         model: getOptionalString(parsedBody.model),
         profile: getOptionalString(parsedBody.profile),
         sourceKind: normalizeSummarySourceKind(parsedBody.sourceKind),
-        commandExitCode: getOptionalNumber(parsedBody.commandExitCode),
+        commandExitCode: readOptionalNumber(parsedBody.commandExitCode),
         repoRoot: getOptionalString(parsedBody.repoRoot),
-        maxTurns: getOptionalNumber(parsedBody.maxTurns),
+        maxTurns: readOptionalNumber(parsedBody.maxTurns),
         logFile: getOptionalString(parsedBody.logFile),
       }, {
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
@@ -852,7 +852,7 @@ export async function handleCoreRoute(
   // -------------------------------------------------------------------------
 
   if (req.method === 'POST' && req.url === '/eval/run') {
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -893,7 +893,7 @@ export async function handleCoreRoute(
   // -------------------------------------------------------------------------
 
   if (req.method === 'POST' && req.url === '/repo-search') {
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -967,7 +967,7 @@ export async function handleCoreRoute(
   // -------------------------------------------------------------------------
 
   if (req.method === 'POST' && req.url === '/summary') {
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -1008,8 +1008,8 @@ export async function handleCoreRoute(
         backend: getOptionalString(parsedBody.backend),
         model: getOptionalString(parsedBody.model),
         sourceKind: normalizeSummarySourceKind(parsedBody.sourceKind),
-        commandExitCode: getOptionalNumber(parsedBody.commandExitCode),
-        requestTimeoutSeconds: getPositiveNumber(parsedBody.requestTimeoutSeconds, DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_SECONDS),
+        commandExitCode: readOptionalNumber(parsedBody.commandExitCode),
+        requestTimeoutSeconds: readPositiveNumber(parsedBody.requestTimeoutSeconds, DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_SECONDS),
         timing: getSummaryTiming(parsedBody.timing),
         statusBackendUrl: `${serviceBaseUrl}/status`,
         skipExecutionLock: true,
@@ -1026,7 +1026,7 @@ export async function handleCoreRoute(
 
   if (req.method === 'POST' && requestUrl.pathname === '/status/complete') {
     const routeStartedAt = Date.now();
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -1523,7 +1523,7 @@ export async function handleCoreRoute(
   // -------------------------------------------------------------------------
 
   if (req.method === 'POST' && requestUrl.pathname === '/config/llama-cpp/test') {
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {

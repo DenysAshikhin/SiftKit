@@ -77,7 +77,7 @@ import {
 } from '../file-picker.js';
 import type { ServerContext } from '../server-types.js';
 import type { SiftConfig } from '../../config/index.js';
-import type { Dict } from '../../lib/types.js';
+import type { JsonRecord } from '../../lib/json-types.js';
 import type { WebSearchConfig } from '../../web-search/types.js';
 
 const webSearchQuotaCache = new WebSearchQuotaCache();
@@ -116,7 +116,7 @@ function readSpecOverrides(value: unknown): BenchmarkSpecOverrideInput[] {
     return [{ label: 'Current spec settings' }];
   }
   return value
-    .filter((entry): entry is Dict => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry))
+    .filter((entry): entry is JsonRecord => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry))
     .map((entry) => ({
       label: typeof entry.label === 'string' ? entry.label : undefined,
       SpeculativeEnabled: typeof entry.SpeculativeEnabled === 'boolean' ? entry.SpeculativeEnabled : undefined,
@@ -129,7 +129,7 @@ function readSpecOverrides(value: unknown): BenchmarkSpecOverrideInput[] {
     }));
 }
 
-function parseDashboardRunLogDeleteCriteria(body: Dict): { criteria: DashboardRunLogDeleteCriteria | null; error: string | null } {
+function parseDashboardRunLogDeleteCriteria(body: JsonRecord): { criteria: DashboardRunLogDeleteCriteria | null; error: string | null } {
   const mode = String(body.mode || '').trim().toLowerCase();
   const type = String(body.type || '').trim().toLowerCase() as DashboardRunLogType;
   const validType = type === 'all'
@@ -252,7 +252,7 @@ export async function handleDashboardRoute(
   }
 
   if (req.method === 'POST' && pathname === '/dashboard/benchmark/question-presets') {
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -279,7 +279,7 @@ export async function handleDashboardRoute(
       sendJson(res, 200, { ok: true, deleted: deleteBenchmarkQuestionPreset(presetId), id: presetId });
       return true;
     }
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -318,7 +318,7 @@ export async function handleDashboardRoute(
       sendJson(res, 409, { error: 'A benchmark session is already running.' });
       return true;
     }
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -382,7 +382,7 @@ export async function handleDashboardRoute(
 
   if (req.method === 'PUT' && /^\/dashboard\/benchmark\/attempts\/[^/]+\/grade$/u.test(pathname)) {
     const attemptId = decodeURIComponent(pathname.replace(/^\/dashboard\/benchmark\/attempts\//u, '').replace(/\/grade$/u, ''));
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -409,7 +409,7 @@ export async function handleDashboardRoute(
   }
 
   if (req.method === 'POST' && pathname === '/dashboard/admin/run-logs/preview') {
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -429,7 +429,7 @@ export async function handleDashboardRoute(
   }
 
   if (req.method === 'DELETE' && pathname === '/dashboard/admin/run-logs') {
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -586,7 +586,7 @@ export async function handleDashboardRoute(
   }
 
   if (req.method === 'POST' && pathname === '/dashboard/system/pick-file') {
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {

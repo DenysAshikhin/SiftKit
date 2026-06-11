@@ -1,4 +1,4 @@
-import type { Dict } from '../lib/types.js';
+import type { JsonRecord } from '../lib/json-types.js';
 import type { JsonObject } from '../lib/json-types.js';
 import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 import type { TaskKind, ToolTypeStats } from './metrics.js';
@@ -71,7 +71,7 @@ export function parseRunning(bodyText: string): boolean | null {
     return null;
   };
   try {
-    const parsed = JSON.parse(bodyText) as Dict;
+    const parsed = JSON.parse(bodyText) as JsonRecord;
     const running = parseBooleanLikeStatus(parsed.running);
     if (running !== null) {
       return running;
@@ -176,7 +176,7 @@ function createEmptyStatusMetadata(): StatusMetadata {
   };
 }
 
-export function parseStatusMetadataRecord(parsed: Dict): StatusMetadata {
+export function parseStatusMetadataRecord(parsed: JsonRecord): StatusMetadata {
   const metadata = createEmptyStatusMetadata();
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     return metadata;
@@ -248,12 +248,12 @@ export function parseStatusMetadataRecord(parsed: Dict): StatusMetadata {
     }
     if (parsed.toolStats && typeof parsed.toolStats === 'object' && !Array.isArray(parsed.toolStats)) {
       const normalizedToolStats: Record<string, ToolTypeStats> = {};
-      for (const [toolTypeRaw, rawStats] of Object.entries(parsed.toolStats as Dict)) {
+      for (const [toolTypeRaw, rawStats] of Object.entries(parsed.toolStats as JsonRecord)) {
         const toolType = String(toolTypeRaw || '').trim();
         if (!toolType || !rawStats || typeof rawStats !== 'object' || Array.isArray(rawStats)) {
           continue;
         }
-        const statsRecord = rawStats as Dict;
+        const statsRecord = rawStats as JsonRecord;
         const calls = Number.isFinite(statsRecord.calls) && Number(statsRecord.calls) >= 0
           ? Number(statsRecord.calls)
           : 0;
@@ -398,7 +398,7 @@ export function parseStatusMetadataRecord(parsed: Dict): StatusMetadata {
         if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
           return [];
         }
-        const record = entry as Dict;
+        const record = entry as JsonRecord;
         if (
           record.artifactType !== 'summary_request'
           && record.artifactType !== 'planner_debug'
@@ -432,7 +432,7 @@ export function parseStatusMetadata(bodyText: string): StatusMetadata {
     return metadata;
   }
   try {
-    return parseStatusMetadataRecord(JSON.parse(bodyText) as Dict);
+    return parseStatusMetadataRecord(JSON.parse(bodyText) as JsonRecord);
   } catch {
     return metadata;
   }

@@ -1,15 +1,21 @@
-import type { Dict } from '../lib/types.js';
+export type DisplayToolCommand = {
+  command?: string | null;
+  displayCommand?: string | null;
+  modelVisibleCommand?: string | null;
+  content?: string | null;
+};
 
-export function getDisplayToolCommand(command: Dict): string {
-  const modelVisibleCommand = typeof command.modelVisibleCommand === 'string' ? command.modelVisibleCommand.trim() : '';
+export function getDisplayToolCommand(command: DisplayToolCommand): string {
+  const modelVisibleCommand = command.modelVisibleCommand?.trim() || '';
   if (modelVisibleCommand) return modelVisibleCommand;
-  return typeof command.command === 'string' ? command.command.trim() : '';
+  return command.displayCommand?.trim()
+    || command.command?.trim()
+    || command.content?.trim()
+    || '';
 }
 
-export function commandMatchesDisplayText(command: Dict, text: string): boolean {
+export function commandMatchesDisplayText(command: DisplayToolCommand, text: string): boolean {
   const target = text.trim();
   if (!target) return false;
-  const visible = typeof command.modelVisibleCommand === 'string' ? command.modelVisibleCommand.trim() : '';
-  const raw = typeof command.command === 'string' ? command.command.trim() : '';
-  return visible === target || raw === target;
+  return getDisplayToolCommand(command) === target || command.command?.trim() === target;
 }

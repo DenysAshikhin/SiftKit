@@ -5,10 +5,26 @@ import assert from 'node:assert/strict';
 const TARGETS = [
   'src/presets.ts',
   'src/state/chat-sessions.ts',
+  'src/state/dashboard-benchmark.ts',
+  'src/state/jsonl-transcript.ts',
+  'src/state/runtime-artifacts.ts',
+  'src/state/runtime-results.ts',
   'src/thinking-retention-policy.ts',
   'src/status-server/chat.ts',
+  'src/status-server/dashboard-benchmark-runner.ts',
+  'src/status-server/dashboard-runs.ts',
   'src/status-server/http-utils.ts',
+  'src/status-server/idle-summary.ts',
+  'src/status-server/managed-llama.ts',
+  'src/status-server/metrics.ts',
+  'src/status-server/preset-runner.ts',
+  'src/status-server/routes/chat.ts',
+  'src/status-server/routes/core.ts',
+  'src/status-server/routes/dashboard.ts',
+  'src/status-server/routes/llama-passthrough.ts',
   'src/status-server/server-types.ts',
+  'src/status-server/status-file.ts',
+  'src/status-server/tool-command-display.ts',
 ] as const;
 
 const DICT_PATTERNS = [

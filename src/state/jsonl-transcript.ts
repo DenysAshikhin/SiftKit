@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
-import type { Dict } from '../lib/types.js';
+import type { JsonRecord } from '../lib/json-types.js';
 
-export type JsonlEvent = { kind: string; at: string | null; payload: Dict };
+export type JsonlEvent = { kind: string; at: string | null; payload: JsonRecord };
 
 export function readJsonlEvents(transcriptPath: string | null): JsonlEvent[] {
   if (!transcriptPath || typeof transcriptPath !== 'string' || !fs.existsSync(transcriptPath)) {
@@ -13,7 +13,7 @@ export function readJsonlEvents(transcriptPath: string | null): JsonlEvent[] {
     const line = raw.trim();
     if (!line) continue;
     try {
-      const parsed = JSON.parse(line) as Dict;
+      const parsed = JSON.parse(line) as JsonRecord;
       results.push({
         kind: typeof parsed.kind === 'string' ? parsed.kind : 'event',
         at: typeof parsed.at === 'string' ? parsed.at : null,

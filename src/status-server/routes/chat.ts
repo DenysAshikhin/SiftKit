@@ -6,7 +6,7 @@ import * as http from 'node:http';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
-import type { Dict } from '../../lib/types.js';
+import type { JsonRecord } from '../../lib/json-types.js';
 import { getProcessedPromptTokens } from '../../lib/provider-helpers.js';
 import type { ChatGroundingStatus } from '../../repo-search/chat-grounding-policy.js';
 import { getRuntimeRoot } from '../paths.js';
@@ -91,7 +91,7 @@ async function readEffectiveChatRouteConfig(configPath: string): Promise<SiftCon
   return await applyHostLlamaRuntimeSettings(localConfig);
 }
 
-function getPositiveNumber(value: unknown, fallback: number): number {
+function readPositiveNumber(value: unknown, fallback: number): number {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : fallback;
 }
@@ -104,7 +104,7 @@ function normalizeChatGroundingStatus(value: unknown): ChatGroundingStatus | nul
 }
 
 function getChatGroundingStatus(scorecard: unknown): ChatGroundingStatus | null {
-  const scorecardTasks = ((scorecard as Dict)?.tasks as Dict[]) || [];
+  const scorecardTasks = ((scorecard as JsonRecord)?.tasks as JsonRecord[]) || [];
   return normalizeChatGroundingStatus(scorecardTasks[0]?.groundingStatus);
 }
 
@@ -487,7 +487,7 @@ export async function handleChatRoute(
       sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -547,7 +547,7 @@ export async function handleChatRoute(
       sendJson(res, 404, { error: 'Message not found.' });
       return true;
     }
-    const deletedMessage = result.deletedMessage as Dict;
+    const deletedMessage = result.deletedMessage as JsonRecord;
     const runId = typeof deletedMessage.sourceRunId === 'string' ? deletedMessage.sourceRunId.trim() : '';
     const commandText = typeof deletedMessage.toolCallCommand === 'string'
       ? deletedMessage.toolCallCommand.trim()
@@ -565,7 +565,7 @@ export async function handleChatRoute(
   // -------------------------------------------------------------------------
 
   if (req.method === 'POST' && pathname === '/dashboard/chat/sessions') {
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -614,7 +614,7 @@ export async function handleChatRoute(
       sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -683,7 +683,7 @@ export async function handleChatRoute(
           thinkingEnabled: activeSession.thinkingEnabled !== false,
           allowedTools: [],
         });
-        const scorecardTasks = ((result.scorecard as Dict)?.tasks as Dict[]) || [];
+        const scorecardTasks = ((result.scorecard as JsonRecord)?.tasks as JsonRecord[]) || [];
         assistantContent = String(scorecardTasks[0]?.finalOutput || '').trim();
         groundingStatus = null;
         usage = {
@@ -768,7 +768,7 @@ export async function handleChatRoute(
       sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -866,7 +866,7 @@ export async function handleChatRoute(
           forwardRepoSearchToolEvent(writeSse, event, 'planner', logLine);
         },
       });
-      const scorecardTasks = ((result.scorecard as Dict)?.tasks as Dict[]) || [];
+      const scorecardTasks = ((result.scorecard as JsonRecord)?.tasks as JsonRecord[]) || [];
       const assistantContent = String(scorecardTasks[0]?.finalOutput || '').trim();
       const usage: ChatUsage = {
         promptTokens: getScorecardTotal(result?.scorecard, 'promptTokens'),
@@ -960,7 +960,7 @@ export async function handleChatRoute(
       sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -1106,7 +1106,7 @@ export async function handleChatRoute(
       sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -1271,7 +1271,7 @@ export async function handleChatRoute(
       sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
@@ -1327,7 +1327,7 @@ export async function handleChatRoute(
       sendJson(res, 404, { error: 'Session not found.' });
       return true;
     }
-    let parsedBody: Dict;
+    let parsedBody: JsonRecord;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {

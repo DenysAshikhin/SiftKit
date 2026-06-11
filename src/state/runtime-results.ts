@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import type { Dict } from '../lib/types.js';
+import type { JsonRecord } from '../lib/json-types.js';
 import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.js';
 
 export type StoredRuntimeResult = {
   id: string;
-  payload: Dict;
+  payload: JsonRecord;
   createdAtUtc: string;
 };
 
@@ -14,14 +14,14 @@ function getDatabase(databasePath?: string): RuntimeDatabase {
   return getRuntimeDatabase(databasePath);
 }
 
-function parsePayload(value: unknown): Dict {
+function parsePayload(value: unknown): JsonRecord {
   if (typeof value !== 'string' || !value.trim()) {
     return {};
   }
   try {
     const parsed = JSON.parse(value) as unknown;
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed as Dict;
+      return parsed as JsonRecord;
     }
   } catch {
     // Ignore malformed payload text.
@@ -96,7 +96,7 @@ export function deleteEvalResult(id: string, databasePath?: string): boolean {
 
 export function persistBenchmarkRun(options: {
   id?: string;
-  payload: Dict;
+  payload: JsonRecord;
   databasePath?: string;
 }): { id: string; uri: string } {
   const id = String(options.id || '').trim() || randomUUID();
@@ -120,7 +120,7 @@ export function persistBenchmarkRun(options: {
 
 export function persistEvalResult(options: {
   id?: string;
-  payload: Dict;
+  payload: JsonRecord;
   databasePath?: string;
 }): { id: string; uri: string } {
   const id = String(options.id || '').trim() || randomUUID();

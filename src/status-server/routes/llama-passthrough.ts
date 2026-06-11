@@ -8,7 +8,7 @@ import {
   releaseModelRequest,
 } from '../server-ops.js';
 import type { ServerContext } from '../server-types.js';
-import type { Dict } from '../../lib/types.js';
+import type { JsonRecord } from '../../lib/json-types.js';
 import type { SiftConfig } from '../../config/types.js';
 import { httpClient } from '../../lib/http-client.js';
 

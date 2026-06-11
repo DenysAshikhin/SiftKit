@@ -1,7 +1,7 @@
 import type { ServerContext } from './server-types.js';
 import { normalizeConfig, readConfig, writeConfig } from './config-store.js';
 import { buildDashboardRunDetail, type RunRecord } from './dashboard-runs.js';
-import type { Dict } from '../lib/types.js';
+import type { JsonRecord } from '../lib/json-types.js';
 import type { SiftConfig } from '../config/types.js';
 import {
   getAcceptanceRate,
@@ -20,7 +20,7 @@ import { httpClient } from '../lib/http-client.js';
 
 export type BenchmarkSseEvent = {
   event: 'log' | 'attempt' | 'session' | 'done' | 'error';
-  payload: Dict;
+  payload: JsonRecord;
 };
 
 type ActiveBenchmarkJob = {
@@ -62,8 +62,8 @@ function log(job: ActiveBenchmarkJob, sessionId: string, attemptId: string | nul
   emit(job, { event: 'log', payload: { sessionId, attemptId, text } });
 }
 
-function cloneDict(value: unknown): Dict {
-  return JSON.parse(JSON.stringify(value || {})) as Dict;
+function cloneDict(value: unknown): JsonRecord {
+  return JSON.parse(JSON.stringify(value || {})) as JsonRecord;
 }
 
 function applyCaseConfig(originalConfig: SiftConfig, attempt: BenchmarkAttemptRecord, detail: BenchmarkSessionDetail): SiftConfig {
@@ -72,8 +72,8 @@ function applyCaseConfig(originalConfig: SiftConfig, attempt: BenchmarkAttemptRe
     throw new Error(`Benchmark case not found for attempt ${attempt.id}.`);
   }
   const config = cloneDict(originalConfig);
-  const server = (config.Server && typeof config.Server === 'object' && !Array.isArray(config.Server)) ? config.Server as Dict : {};
-  const llama = (server.LlamaCpp && typeof server.LlamaCpp === 'object' && !Array.isArray(server.LlamaCpp)) ? server.LlamaCpp as Dict : {};
+  const server = (config.Server && typeof config.Server === 'object' && !Array.isArray(config.Server)) ? config.Server as JsonRecord : {};
+  const llama = (server.LlamaCpp && typeof server.LlamaCpp === 'object' && !Array.isArray(server.LlamaCpp)) ? server.LlamaCpp as JsonRecord : {};
   const presets = Array.isArray(llama.Presets) ? llama.Presets.map((entry) => cloneDict(entry)) : [];
   const selectedPreset = presets.find((entry) => String(entry.id || '') === benchmarkCase.managedPresetId) || benchmarkCase.managedPreset;
   const merged = { ...llama, ...selectedPreset, ...benchmarkCase.specOverride };
@@ -114,12 +114,12 @@ async function invokeAttempt(ctx: ServerContext, attempt: BenchmarkAttemptRecord
   const baseUrl = ctx.getServiceBaseUrl();
   const started = Date.now();
   const response = attempt.taskKind === 'repo-search'
-    ? await httpClient.requestJsonFull<Dict>({
+    ? await httpClient.requestJsonFull<JsonRecord>({
       url: `${baseUrl}/repo-search`,
       method: 'POST',
       body: JSON.stringify({ prompt: attempt.prompt }),
     })
-    : await httpClient.requestJsonFull<Dict>({
+    : await httpClient.requestJsonFull<JsonRecord>({
       url: `${baseUrl}/summary`,
       method: 'POST',
       body: JSON.stringify({

@@ -10,7 +10,7 @@ import {
   formatTokensPerSecond,
 } from '../lib/text-format.js';
 
-import type { Dict } from '../lib/types.js';
+import type { JsonRecord } from '../lib/json-types.js';
 import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 import {
   TASK_KINDS,
@@ -152,13 +152,13 @@ function normalizeTaskTotals(input: unknown): SnapshotTaskTotals {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return totals;
   }
-  const record = input as Dict;
+  const record = input as JsonRecord;
   for (const taskKind of TASK_KINDS) {
     const taskTotals = record[taskKind];
     if (!taskTotals || typeof taskTotals !== 'object' || Array.isArray(taskTotals)) {
       continue;
     }
-    const taskRecord = taskTotals as Dict;
+    const taskRecord = taskTotals as JsonRecord;
     totals[taskKind] = {
       inputCharactersTotal: toNonNegativeNumber(taskRecord.inputCharactersTotal),
       outputCharactersTotal: toNonNegativeNumber(taskRecord.outputCharactersTotal),
@@ -197,19 +197,19 @@ function normalizeToolStats(input: unknown): SnapshotToolStats {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return stats;
   }
-  const record = input as Dict;
+  const record = input as JsonRecord;
   for (const taskKind of TASK_KINDS) {
     const taskStats = record[taskKind];
     if (!taskStats || typeof taskStats !== 'object' || Array.isArray(taskStats)) {
       continue;
     }
     const normalizedByType: Record<string, ToolTypeStats> = {};
-    for (const [toolTypeRaw, rawStats] of Object.entries(taskStats as Dict)) {
+    for (const [toolTypeRaw, rawStats] of Object.entries(taskStats as JsonRecord)) {
       const toolType = String(toolTypeRaw || '').trim();
       if (!toolType || !rawStats || typeof rawStats !== 'object' || Array.isArray(rawStats)) {
         continue;
       }
-      const statRecord = rawStats as Dict;
+      const statRecord = rawStats as JsonRecord;
       normalizedByType[toolType] = {
         ...createEmptyToolTypeStats(),
         calls: toNonNegativeNumber(statRecord.calls),
@@ -253,7 +253,7 @@ export function parseSnapshotToolStatsJson(value: unknown): SnapshotToolStats {
   return normalizeToolStats(parseJsonRecord(value));
 }
 
-export function buildIdleSummarySnapshot(metrics: Dict, emittedAt: Date = new Date()): IdleSummarySnapshot {
+export function buildIdleSummarySnapshot(metrics: JsonRecord, emittedAt: Date = new Date()): IdleSummarySnapshot {
   const inputTokensTotal = Number(metrics.inputTokensTotal) || 0;
   const outputTokensTotal = Number(metrics.outputTokensTotal) || 0;
   const inputOutputRatio = outputTokensTotal > 0 ? inputTokensTotal / outputTokensTotal : Number.NaN;
@@ -354,7 +354,7 @@ export function buildIdleSummarySnapshotMessage(snapshot: IdleSummarySnapshot, c
   return lines.join('\n');
 }
 
-export function buildIdleMetricsLogMessage(metrics: Dict, colorOptions: ColorOptions = {}): string {
+export function buildIdleMetricsLogMessage(metrics: JsonRecord, colorOptions: ColorOptions = {}): string {
   return buildIdleSummarySnapshotMessage(buildIdleSummarySnapshot(metrics), colorOptions);
 }
 
@@ -511,7 +511,7 @@ export function querySnapshotTotalsBeforeDate(database: DatabaseInstance | null,
       ORDER BY emitted_at_utc DESC, id DESC
       LIMIT 1
     `)
-    .get(`${dateKey}T00:00:00.000Z`) as Dict | undefined;
+    .get(`${dateKey}T00:00:00.000Z`) as JsonRecord | undefined;
   if (!row || typeof row !== 'object') {
     return null;
   }
@@ -530,7 +530,7 @@ export function querySnapshotTotalsBeforeDate(database: DatabaseInstance | null,
   };
 }
 
-export type SnapshotTimeseriesRow = Dict;
+export type SnapshotTimeseriesRow = JsonRecord;
 
 export function querySnapshotTimeseries(database: DatabaseInstance | null): SnapshotTimeseriesRow[] {
   if (!database) {
@@ -555,10 +555,10 @@ export function querySnapshotTimeseries(database: DatabaseInstance | null): Snap
       FROM idle_summary_snapshots
       ORDER BY emitted_at_utc ASC, id ASC
     `)
-    .all() as Dict[];
+    .all() as JsonRecord[];
 }
 
-export function queryRecentSnapshots(database: DatabaseInstance, limit: number): Dict[] {
+export function queryRecentSnapshots(database: DatabaseInstance, limit: number): JsonRecord[] {
   return database
     .prepare(`
       SELECT emitted_at_utc, completed_request_count, input_characters_total, output_characters_total,
@@ -568,5 +568,5 @@ export function queryRecentSnapshots(database: DatabaseInstance, limit: number):
              request_duration_ms_total, avg_request_ms, avg_tokens_per_second
       FROM idle_summary_snapshots ORDER BY id DESC LIMIT ?
     `)
-    .all(limit) as Dict[];
+    .all(limit) as JsonRecord[];
 }
