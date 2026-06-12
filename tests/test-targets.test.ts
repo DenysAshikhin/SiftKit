@@ -9,6 +9,14 @@ test('resolveTestTargets maps bare test basenames into the tests directory', () 
   assert.deepEqual(resolved, [path.join('tests', 'mock-repo-search-loop.test.ts')]);
 });
 
+test('resolveTestTargets maps bare prefixes to matching test files', () => {
+  const resolved = resolveTestTargets(process.cwd(), ['dashboard']);
+
+  assert.equal(resolved.includes(path.join('tests', 'dashboard-status-server.run-logs.test.ts')), true);
+  assert.equal(resolved.includes(path.join('tests', 'dashboard-status-server.test.ts')), true);
+  assert.equal(resolved.includes('dashboard'), false);
+});
+
 test('resolveTestTargets preserves explicit test paths', () => {
   const resolved = resolveTestTargets(process.cwd(), ['.\\tests\\mock-repo-search-loop.test.ts']);
   assert.deepEqual(resolved, ['.\\tests\\mock-repo-search-loop.test.ts']);

@@ -18,18 +18,30 @@ function hasPathSeparator(value: string): boolean {
   return value.includes('/') || value.includes('\\');
 }
 
-function resolveSingleTestTarget(repoRoot: string, rawValue: string): string {
+function getMatchingTestTargets(repoRoot: string, rawValue: string): string[] {
+  const testsPath = path.resolve(repoRoot, TESTS_DIRECTORY);
+  if (!rawValue || hasPathSeparator(rawValue) || !fs.existsSync(testsPath)) {
+    return [];
+  }
+  return fs.readdirSync(testsPath)
+    .filter((entry) => entry.endsWith(TEST_FILE_SUFFIX) && entry.includes(rawValue))
+    .sort((left, right) => left.localeCompare(right))
+    .map((entry) => path.join(TESTS_DIRECTORY, entry));
+}
+
+function resolveSingleTestTarget(repoRoot: string, rawValue: string): string[] {
   if (!rawValue) {
-    return rawValue;
+    return [rawValue];
   }
   if (hasPathSeparator(rawValue) && fs.existsSync(path.resolve(repoRoot, rawValue))) {
-    return rawValue;
+    return [rawValue];
   }
   const testsRelativePath = path.join(TESTS_DIRECTORY, rawValue);
   if (fs.existsSync(path.resolve(repoRoot, testsRelativePath))) {
-    return testsRelativePath;
+    return [testsRelativePath];
   }
-  return rawValue;
+  const matchingTargets = getMatchingTestTargets(repoRoot, rawValue);
+  return matchingTargets.length > 0 ? matchingTargets : [rawValue];
 }
 
 function getDefaultTestTargets(repoRoot: string): string[] {
@@ -61,7 +73,7 @@ export function resolveTestTargets(repoRoot: string, rawArgs: string[]): string[
       resolvedArgs.push(rawArg);
       continue;
     }
-    resolvedArgs.push(resolveSingleTestTarget(repoRoot, rawArg));
+    resolvedArgs.push(...resolveSingleTestTarget(repoRoot, rawArg));
   }
   return resolvedArgs;
 }

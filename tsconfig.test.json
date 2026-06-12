@@ -24,6 +24,7 @@
     "tests/summary-planner-runtime.test.ts",
     "tests/summary-core-runner.test.ts",
     "tests/summary-request-runner.test.ts",
+    "tests/dashboard-runs-partition.test.ts",
     "tests/status-route-table.test.ts"
   ]
 }
