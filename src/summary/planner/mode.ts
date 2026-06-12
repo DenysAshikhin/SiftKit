@@ -281,6 +281,27 @@ type SummaryPlannerModelData = AgentLoopModelData & {
   providerResponse: SummaryPlannerProviderResponse;
 };
 type SummaryPlannerToolStatsPayload = Record<string, ReturnType<typeof createEmptyToolTypeStats>>;
+type SummaryPlannerToolAction = Extract<PlannerAction, { action: 'tool' }>;
+type SummaryPlannerEffectiveToolAction = {
+  toolAction: SummaryPlannerToolAction;
+  effectiveToolAction: SummaryPlannerToolAction;
+  readLinesNoUnread: boolean;
+};
+type SummaryPlannerToolBatchContext = {
+  turn: number;
+  providerResponse: SummaryPlannerProviderResponse;
+  batchOutcomes: ToolBatchOutcome[];
+  pendingModeChangeUserMessages: string[];
+  batchDuplicateAnchorIndex: number | null;
+  toolStatsPayload: SummaryPlannerToolStatsPayload | null;
+};
+type SummaryPlannerFormattedToolResult = {
+  result: Record<string, unknown>;
+  promptResultText: string;
+  rawResultTokenCount: number;
+  resolvedToolResultTokenCount: number;
+  toolResultTokenEstimated: boolean;
+};
 
 function getSummaryPlannerModelData(context: AgentLoopResponseContext): SummaryPlannerModelData {
   if (context.modelData?.kind !== 'summary-planner') {
@@ -712,442 +733,554 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     return { accepted: true, outcome: 'stop', finishText: decision.output };
   }
 
-  async executeTools(actions: readonly AgentLoopToolAction[], context: AgentLoopResponseContext): Promise<AgentLoopToolExecution> {
-    const providerResponse = getSummaryPlannerModelData(context).providerResponse;
-    const beforeToolResultCount = this.toolResults.length;
-    const turn = this.toolResults.length + 1;
-    let toolStatsPayload: SummaryPlannerToolStatsPayload | null = null;
-    const toolActions = actions.map((action) => ({
+  private buildToolActions(actions: readonly AgentLoopToolAction[]): SummaryPlannerToolAction[] {
+    return actions.map((action) => ({
       action: 'tool' as const,
       tool_name: action.toolName as PlannerToolName,
       args: action.args,
     }));
+  }
 
-    if (this.transcriptState.forcedFinishAttemptsRemaining > 0) {
-      this.transcriptState.forcedFinishAttemptsRemaining = Math.max(this.transcriptState.forcedFinishAttemptsRemaining - 1, 0);
-      const rejectedToolAction = toolActions[0];
-      if (rejectedToolAction) {
-        const forcedToolResultText = buildPlannerForcedFinishUserPrompt(
-          'Current evidence is already repeating and likely sufficient. Produce your final answer now.'
-        );
-        appendToolCallExchange(
-          this.messages,
-          rejectedToolAction,
-          `forced_finish_call_${this.toolResults.length + 1}`,
-          forcedToolResultText,
-          providerResponse.reasoningText || '',
-        );
-        this.transcriptState.forcedFinishCountdownUserMessageIndex = upsertTrailingUserMessage(
-          this.messages,
-          this.transcriptState.forcedFinishCountdownUserMessageIndex,
-          `Forced finish attempts remaining: ${this.transcriptState.forcedFinishAttemptsRemaining}. Produce your final answer now.`,
-        );
-        this.debugRecorder.record({
-          kind: 'planner_forced_finish_reprompt',
-          attemptsRemaining: this.transcriptState.forcedFinishAttemptsRemaining,
-          toolCall: rejectedToolAction,
-          toolResultText: forcedToolResultText,
-        });
-      }
-      if (this.transcriptState.forcedFinishAttemptsRemaining === 0) {
-        this.debugRecorder.finish({
-          status: 'failed',
-          reason: 'planner_forced_finish_attempt_limit',
-        });
-        this.completionState.fail();
-        await this.notifyIteration({
-          providerResponse,
-          countOutputTokens: false,
-          countToolTokens: true,
-          toolStatsPayload,
-        });
-        return { outcome: 'stop', results: [] };
-      }
-      await this.notifyIteration({
-        providerResponse,
-        countOutputTokens: false,
-        countToolTokens: true,
-        toolStatsPayload,
-      });
-      return { outcome: 'continue', results: [] };
-    }
-
-    if ((this.toolResults.length + toolActions.length) > MAX_PLANNER_TOOL_CALLS) {
-      this.debugRecorder.record({
-        kind: 'planner_forced_finish',
-        reason: 'planner_tool_call_limit',
-        toolCallCount: this.toolResults.length,
-      });
-      const limitedToolAction = toolActions[0];
-      if (limitedToolAction) {
-        appendToolCallExchange(
-          this.messages,
-          limitedToolAction,
-          `tool_limit_call_${this.toolResults.length + 1}`,
-          buildPlannerForcedFinishUserPrompt(),
-          providerResponse.reasoningText || '',
-        );
-      }
-      this.messages.push({
-        role: 'user',
-        content: buildPlannerForcedFinishUserPrompt(),
-      });
-      try {
-        const forcedPrompt = renderPlannerTranscript(this.messages);
-        const forcedPromptTokenSpan = this.options.timingRecorder?.start('summary.planner.prompt.tokenize_forced', {
-          turn,
-          promptChars: forcedPrompt.length,
-        });
-        const forcedPromptTokenCount = (
-          await countLlamaCppTokens(this.options.config, forcedPrompt, this.tokenizeOptions)
-        ) ?? estimatePromptTokenCount(this.options.config, forcedPrompt);
-        forcedPromptTokenSpan?.end({ promptTokenCount: forcedPromptTokenCount });
-        const forcedResponse = await this.requestProviderAction({
-          promptText: forcedPrompt,
-          promptTokenCount: forcedPromptTokenCount,
-        });
-        const forcedAction = ModelJson.parseSummaryPlannerAction(forcedResponse.text);
-        if (forcedAction.action === 'finish') {
-          const forcedDecision = normalizeStructuredDecision({
-            classification: forcedAction.classification,
-            rawReviewRequired: forcedAction.rawReviewRequired,
-            output: forcedAction.output,
-          }, this.options.format);
-          this.debugRecorder.finish({
-            status: 'completed',
-            command: this.options.debugCommand ?? null,
-            finalOutput: forcedDecision.output,
-            classification: forcedDecision.classification,
-            rawReviewRequired: forcedDecision.rawReviewRequired,
-          });
-          this.completionState.complete(forcedDecision);
-          await this.notifyIteration({
-            providerResponse,
-            countOutputTokens: false,
-            countToolTokens: true,
-            toolStatsPayload,
-          });
-          return { outcome: 'stop', results: [] };
-        }
-      } catch {
-        // forced finish failed; fall through to null
-      }
-      this.debugRecorder.finish({
-        status: 'failed',
-        reason: 'planner_tool_call_limit',
-      });
-      this.completionState.fail();
-      await this.notifyIteration({
-        providerResponse,
-        countOutputTokens: false,
-        countToolTokens: true,
-        toolStatsPayload,
-      });
-      return { outcome: 'stop', results: [] };
-    }
-
-    const batchOutcomes: ToolBatchOutcome[] = [];
-    const pendingModeChangeUserMessages: string[] = [];
-    let batchDuplicateAnchorIndex: number | null = null;
-
-    for (const toolAction of toolActions) {
-      const fingerprint = fingerprintToolCall({
-        toolName: toolAction.tool_name,
-        args: toolAction.args,
-      });
-      const readLinesExactRepeat = toolAction.tool_name === 'read_lines'
-        && this.transcriptState.lastSuccessfulReadLinesArgsText === JSON.stringify(toolAction.args);
-      if (!readLinesExactRepeat && this.transcriptState.lastSuccessfulFingerprint && this.transcriptState.lastSuccessfulFingerprint === fingerprint) {
-        const isActiveDuplicate = this.transcriptState.duplicateReplayFingerprint === fingerprint
-          && this.transcriptState.duplicateReplayToolMessageIndex >= 0
-          && this.transcriptState.duplicateReplayToolMessageIndex < this.messages.length;
-        this.transcriptState.duplicateReplayFingerprint = fingerprint;
-        this.transcriptState.duplicateReplayCount = isActiveDuplicate ? (this.transcriptState.duplicateReplayCount + 1) : 2;
-        const duplicateSummary = buildRepeatedToolCallSummary(toolAction.tool_name, this.transcriptState.duplicateReplayCount);
-        if (isActiveDuplicate) {
-          const previousToolMessage = this.messages[this.transcriptState.duplicateReplayToolMessageIndex];
-          this.messages[this.transcriptState.duplicateReplayToolMessageIndex] = {
-            role: 'tool',
-            tool_call_id: previousToolMessage?.tool_call_id,
-            content: duplicateSummary,
-          };
-        } else {
-          const duplicateToolCallId = `duplicate_call_${this.toolResults.length + 1}`;
-          batchOutcomes.push({
-            action: toolAction,
-            toolCallId: duplicateToolCallId,
-            toolContent: duplicateSummary,
-          });
-          batchDuplicateAnchorIndex = batchOutcomes.length - 1;
-        }
-        toolStatsPayload ||= {};
-        const duplicateToolStats = toolStatsPayload[toolAction.tool_name] || createEmptyToolTypeStats();
-        toolStatsPayload[toolAction.tool_name] = {
-          ...duplicateToolStats,
-          semanticRepeatRejects: duplicateToolStats.semanticRepeatRejects + 1,
-        };
-        this.debugRecorder.record({
-          kind: 'planner_semantic_repeat',
-          toolCall: toolAction,
-          fingerprint,
-          repeats: this.transcriptState.duplicateReplayCount,
-        });
-        if (this.transcriptState.duplicateReplayCount >= PLANNER_DUPLICATE_FORCE_THRESHOLD && this.transcriptState.forcedFinishAttemptsRemaining === 0) {
-          this.transcriptState.forcedFinishAttemptsRemaining = PLANNER_FORCED_FINISH_MAX_ATTEMPTS;
-          pendingModeChangeUserMessages.push(
-            buildPlannerForcedFinishUserPrompt(
-              'You repeated the same tool call too many times. Produce your final answer now.'
-            ),
-          );
-          toolStatsPayload[toolAction.tool_name] = {
-            ...toolStatsPayload[toolAction.tool_name],
-            forcedFinishFromStagnation: toolStatsPayload[toolAction.tool_name].forcedFinishFromStagnation + 1,
-          };
-        }
-        continue;
-      }
-
-      let effectiveToolAction = toolAction;
-      let readLinesNoUnread = false;
-      if (toolAction.tool_name === 'read_lines') {
-        const requestedStart = Math.max(1, Math.trunc(Number(toolAction.args.startLine) || 1));
-        const requestedEnd = Math.max(requestedStart, Math.trunc(Number(toolAction.args.endLine) || requestedStart));
-        const requestedEndExclusive = Math.min(requestedEnd + 1, this.inputLines.length + 1);
-        const hasReturnedRanges = this.readLinesReturnedRanges.length > 0;
-        const unreadRange = findContiguousUnreadRange({
-          requestedStart: Math.min(requestedStart, this.inputLines.length || 1),
-          totalEnd: hasReturnedRanges ? this.inputLines.length + 1 : requestedEndExclusive,
-          returnedRanges: this.readLinesReturnedRanges,
-        });
-        readLinesNoUnread = !unreadRange.hasUnread;
-        effectiveToolAction = {
-          ...toolAction,
-          args: unreadRange.hasUnread
-            ? { ...toolAction.args, startLine: unreadRange.start, endLine: unreadRange.end - 1 }
-            : { ...toolAction.args, startLine: unreadRange.start, endLine: unreadRange.end },
-        };
-      }
-
-      let result: Record<string, unknown>;
-      const toolExecutionSpan = this.options.timingRecorder?.start('summary.planner.tool.execute', {
-        turn,
-        toolName: effectiveToolAction.tool_name,
-      });
-      try {
-        if (effectiveToolAction.tool_name === 'read_lines' && readLinesNoUnread) {
-          result = {
-            tool: 'read_lines',
-            startLine: effectiveToolAction.args.startLine,
-            endLine: effectiveToolAction.args.endLine,
-            lineCount: 0,
-            text: 'No unread lines remain for input text.',
-          };
-        } else {
-          result = executePlannerTool(this.options.inputText, effectiveToolAction, this.allowedTools);
-        }
-        toolExecutionSpan?.end({ ok: true });
-      } catch (error) {
-        toolExecutionSpan?.end({ ok: false });
-        this.transcriptState.invalidActionCount += 1;
-        const invalidResponseError = getErrorMessage(error);
-        const invalidToolResultText = buildPlannerInvalidResponseUserPrompt(invalidResponseError);
-        batchOutcomes.push({
-          action: toolAction,
-          toolCallId: `invalid_call_${this.transcriptState.invalidActionCount}`,
-          toolContent: invalidToolResultText,
-        });
-        this.debugRecorder.record({
-          kind: 'planner_invalid_response',
-          error: invalidResponseError,
-          toolCall: toolAction,
-          toolResultText: invalidToolResultText,
-        });
-        if (this.transcriptState.invalidActionCount >= MAX_PLANNER_INVALID_RESPONSES) {
-          appendToolBatchExchange(this.messages, batchOutcomes, providerResponse.reasoningText || '');
-          this.debugRecorder.finish({
-            status: 'failed',
-            reason: 'planner_invalid_response_limit',
-          });
-          this.completionState.fail();
-          await this.notifyIteration({
-            providerResponse,
-            countOutputTokens: false,
-            countToolTokens: true,
-            toolStatsPayload,
-          });
-          return { outcome: 'stop', results: [] };
-        }
-        continue;
-      }
-
-      this.debugRecorder.record({
-        kind: 'planner_tool',
-        command: `${toolAction.tool_name} ${JSON.stringify(toolAction.args)}`,
-        toolName: toolAction.tool_name,
-        args: toolAction.args,
-        output: result,
-      });
-      const formatSpan = this.options.timingRecorder?.start('summary.planner.tool.format', {
-        turn,
-        toolName: toolAction.tool_name,
-      });
-      const rawFormattedResultText = formatPlannerResult(result);
-      const formattedResultText = buildPromptToolResult({
-        toolName: effectiveToolAction.tool_name,
-        rawOutput: rawFormattedResultText,
-      });
-      formatSpan?.end({
-        rawChars: rawFormattedResultText.length,
-        formattedChars: formattedResultText.length,
-      });
-      const remainingPromptTokens = Math.max(this.promptBudget.plannerStopLineTokens - this.promptTokenCount, 0);
-      const rawTokenSpan = this.options.timingRecorder?.start('summary.planner.tool.tokenize_raw', {
-        turn,
-        toolName: toolAction.tool_name,
-        inputChars: rawFormattedResultText.length,
-      });
-      const rawResultTokenCount = (
-        await countLlamaCppTokens(this.options.config, rawFormattedResultText, this.tokenizeOptions)
-      ) ?? estimatePromptTokenCount(this.options.config, rawFormattedResultText);
-      rawTokenSpan?.end({ tokenCount: rawResultTokenCount });
-      const normalizedRawResultTokenCount = Math.max(0, Math.ceil(rawResultTokenCount));
-      const formattedTokenSpan = this.options.timingRecorder?.start('summary.planner.tool.tokenize_formatted', {
-        turn,
-        toolName: toolAction.tool_name,
-        inputChars: formattedResultText.length,
-      });
-      const formattedTokenCountRaw = await countLlamaCppTokens(this.options.config, formattedResultText, this.tokenizeOptions);
-      const formattedTokenCountEstimated = formattedTokenCountRaw === null;
-      const resultTokenCount = formattedTokenCountRaw ?? estimatePromptTokenCount(this.options.config, formattedResultText);
-      formattedTokenSpan?.end({ tokenCount: resultTokenCount });
-      const normalizedResultTokenCount = Math.max(0, Math.ceil(resultTokenCount));
-
-      let promptResultText: string;
-      let resolvedToolResultTokenCount: number;
-      let toolResultTokenEstimated: boolean;
-      if (normalizedResultTokenCount > (remainingPromptTokens * 0.7)) {
-        const headerText = formatPlannerToolResultHeader(result);
-        const resultBodyText = typeof result.text === 'string' ? result.text : formattedResultText;
-        const unit: ToolOutputTruncationUnit = effectiveToolAction.tool_name === 'find_text' ? 'results' : 'lines';
-        const separator = effectiveToolAction.tool_name === 'find_text' ? '\n\n' : '\n';
-        const segments = effectiveToolAction.tool_name === 'find_text'
-          ? resultBodyText.split(/\n\s*\n/u).filter((segment) => segment.trim().length > 0)
-          : resultBodyText.split(/\r?\n/u).filter((line) => line.length > 0);
-        const fitter = new ToolOutputFitter(
-          new SummaryPlannerToolOutputTokenCounter(this.options.config, this.tokenizeOptions),
-        );
-        const fitResult = await fitter.fitSegments({
-          headerText: headerText || undefined,
-          segments,
-          separator,
-          maxTokens: Math.max(1, Math.floor(remainingPromptTokens * 0.7)),
-          unit,
-        });
-        promptResultText = buildPromptToolResult({
-          toolName: effectiveToolAction.tool_name,
-          rawOutput: fitResult.visibleText,
-        });
-        const fitTokenSpan = this.options.timingRecorder?.start('summary.planner.tool.tokenize_prompt', {
-          turn,
-          toolName: toolAction.tool_name,
-          inputChars: promptResultText.length,
-        });
-        const fitTokenCountRaw = await countLlamaCppTokens(this.options.config, promptResultText, this.tokenizeOptions);
-        fitTokenSpan?.end({ tokenCount: fitTokenCountRaw ?? -1 });
-        toolResultTokenEstimated = fitTokenCountRaw === null;
-        resolvedToolResultTokenCount = fitTokenCountRaw ?? estimatePromptTokenCount(this.options.config, promptResultText);
-      } else {
-        promptResultText = formattedResultText;
-        toolResultTokenEstimated = formattedTokenCountEstimated;
-        resolvedToolResultTokenCount = resultTokenCount;
-      }
-      const readLineCount = toolAction.tool_name === 'read_lines' && Number.isFinite((result as { lineCount?: unknown }).lineCount)
-        ? Number((result as { lineCount?: unknown }).lineCount)
-        : 0;
-      toolStatsPayload ||= {};
-      const currentToolStats = toolStatsPayload[toolAction.tool_name] || createEmptyToolTypeStats();
-      toolStatsPayload[toolAction.tool_name] = {
-        ...currentToolStats,
-        calls: currentToolStats.calls + 1,
-        outputCharsTotal: currentToolStats.outputCharsTotal + promptResultText.length,
-        outputTokensTotal: currentToolStats.outputTokensTotal + Math.max(0, Math.ceil(resolvedToolResultTokenCount)),
-        outputTokensEstimatedCount: currentToolStats.outputTokensEstimatedCount + (toolResultTokenEstimated ? 1 : 0),
-        lineReadCalls: currentToolStats.lineReadCalls + (readLineCount > 0 ? 1 : 0),
-        lineReadLinesTotal: currentToolStats.lineReadLinesTotal + readLineCount,
-        lineReadTokensTotal: currentToolStats.lineReadTokensTotal + (readLineCount > 0 ? normalizedRawResultTokenCount : 0),
-        promptInsertedTokens: currentToolStats.promptInsertedTokens + Math.max(0, Math.ceil(resolvedToolResultTokenCount)),
-        rawToolResultTokens: currentToolStats.rawToolResultTokens + normalizedRawResultTokenCount,
-      };
-      const novelty = classifyToolResultNovelty({
-        promptResultText,
-        recentEvidenceKeys: this.recentEvidenceKeys,
-      });
-      for (const evidenceKey of novelty.evidenceKeys) {
-        this.recentEvidenceKeys.add(evidenceKey);
-      }
-      if (effectiveToolAction.tool_name === 'read_lines') {
-        const returnedLineCount = promptResultText.split(/\r?\n/u).filter((line) => /^\d+:/u.test(line)).length;
-        const returnedStartLine = Math.max(1, Math.trunc(Number(result.startLine) || 1));
-        if (returnedLineCount > 0) {
-          this.readLinesReturnedRanges.push({
-            start: returnedStartLine,
-            end: returnedStartLine + returnedLineCount,
-          });
-        }
-      }
-      toolStatsPayload[toolAction.tool_name].newEvidenceCalls += novelty.hasNewEvidence ? 1 : 0;
-      toolStatsPayload[toolAction.tool_name].noNewEvidenceCalls += novelty.hasNewEvidence ? 0 : 1;
-      this.transcriptState.duplicateReplayFingerprint = null;
-      this.transcriptState.duplicateReplayCount = 0;
-      this.transcriptState.duplicateReplayToolMessageIndex = -1;
-      this.transcriptState.lastSuccessfulFingerprint = fingerprint;
-      this.transcriptState.lastSuccessfulReadLinesArgsText = effectiveToolAction.tool_name === 'read_lines'
-        ? JSON.stringify(toolAction.args)
-        : null;
-      this.transcriptState.consecutiveNoNewEvidence = novelty.hasNewEvidence ? 0 : (this.transcriptState.consecutiveNoNewEvidence + 1);
-      const toolCallId = `call_${this.toolResults.length + 1}`;
-      batchOutcomes.push({
-        action: effectiveToolAction,
-        toolCallId,
-        toolContent: promptResultText,
-      });
-      this.toolResults.push({
-        toolName: effectiveToolAction.tool_name,
-        args: effectiveToolAction.args,
-        result,
-        resultText: promptResultText,
-      });
-    }
-
-    const preAppendMessagesLength = this.messages.length;
-    const appendSpan = this.options.timingRecorder?.start('summary.planner.tool.append', {
-      turn,
-      outcomeCount: batchOutcomes.length,
-      beforeMessageCount: this.messages.length,
-    });
-    appendToolBatchExchange(this.messages, batchOutcomes, providerResponse.reasoningText || '');
-    appendSpan?.end({ afterMessageCount: this.messages.length });
-    if (batchDuplicateAnchorIndex !== null && batchOutcomes.length > 0) {
-      this.transcriptState.duplicateReplayToolMessageIndex = preAppendMessagesLength + 1 + batchDuplicateAnchorIndex;
-    }
-    for (const userMessage of pendingModeChangeUserMessages) {
-      this.messages.push({ role: 'user', content: userMessage });
-    }
-
+  private async notifyToolExecution(
+    providerResponse: SummaryPlannerProviderResponse,
+    toolStatsPayload: SummaryPlannerToolStatsPayload | null,
+  ): Promise<void> {
     await this.notifyIteration({
       providerResponse,
       countOutputTokens: false,
       countToolTokens: true,
       toolStatsPayload,
     });
-    const results = this.toolResults.slice(beforeToolResultCount).map((result, index): AgentLoopToolResult => ({
+  }
+
+  private async handleForcedFinishAttempt(
+    toolActions: readonly SummaryPlannerToolAction[],
+    providerResponse: SummaryPlannerProviderResponse,
+  ): Promise<AgentLoopToolExecution | null> {
+    if (this.transcriptState.forcedFinishAttemptsRemaining <= 0) {
+      return null;
+    }
+    this.transcriptState.forcedFinishAttemptsRemaining = Math.max(this.transcriptState.forcedFinishAttemptsRemaining - 1, 0);
+    const rejectedToolAction = toolActions[0];
+    if (rejectedToolAction) {
+      const forcedToolResultText = buildPlannerForcedFinishUserPrompt(
+        'Current evidence is already repeating and likely sufficient. Produce your final answer now.'
+      );
+      appendToolCallExchange(
+        this.messages,
+        rejectedToolAction,
+        `forced_finish_call_${this.toolResults.length + 1}`,
+        forcedToolResultText,
+        providerResponse.reasoningText || '',
+      );
+      this.transcriptState.forcedFinishCountdownUserMessageIndex = upsertTrailingUserMessage(
+        this.messages,
+        this.transcriptState.forcedFinishCountdownUserMessageIndex,
+        `Forced finish attempts remaining: ${this.transcriptState.forcedFinishAttemptsRemaining}. Produce your final answer now.`,
+      );
+      this.debugRecorder.record({
+        kind: 'planner_forced_finish_reprompt',
+        attemptsRemaining: this.transcriptState.forcedFinishAttemptsRemaining,
+        toolCall: rejectedToolAction,
+        toolResultText: forcedToolResultText,
+      });
+    }
+    if (this.transcriptState.forcedFinishAttemptsRemaining === 0) {
+      this.debugRecorder.finish({ status: 'failed', reason: 'planner_forced_finish_attempt_limit' });
+      this.completionState.fail();
+      await this.notifyToolExecution(providerResponse, null);
+      return { outcome: 'stop', results: [] };
+    }
+    await this.notifyToolExecution(providerResponse, null);
+    return { outcome: 'continue', results: [] };
+  }
+
+  private async handleToolCallLimit(
+    toolActions: readonly SummaryPlannerToolAction[],
+    turn: number,
+    providerResponse: SummaryPlannerProviderResponse,
+  ): Promise<AgentLoopToolExecution | null> {
+    if ((this.toolResults.length + toolActions.length) <= MAX_PLANNER_TOOL_CALLS) {
+      return null;
+    }
+    this.debugRecorder.record({
+      kind: 'planner_forced_finish',
+      reason: 'planner_tool_call_limit',
+      toolCallCount: this.toolResults.length,
+    });
+    const limitedToolAction = toolActions[0];
+    if (limitedToolAction) {
+      appendToolCallExchange(
+        this.messages,
+        limitedToolAction,
+        `tool_limit_call_${this.toolResults.length + 1}`,
+        buildPlannerForcedFinishUserPrompt(),
+        providerResponse.reasoningText || '',
+      );
+    }
+    this.messages.push({ role: 'user', content: buildPlannerForcedFinishUserPrompt() });
+    if (await this.tryCompleteForcedToolLimit(turn)) {
+      await this.notifyToolExecution(providerResponse, null);
+      return { outcome: 'stop', results: [] };
+    }
+    this.debugRecorder.finish({ status: 'failed', reason: 'planner_tool_call_limit' });
+    this.completionState.fail();
+    await this.notifyToolExecution(providerResponse, null);
+    return { outcome: 'stop', results: [] };
+  }
+
+  private async tryCompleteForcedToolLimit(turn: number): Promise<boolean> {
+    try {
+      const forcedPrompt = renderPlannerTranscript(this.messages);
+      const forcedPromptTokenSpan = this.options.timingRecorder?.start('summary.planner.prompt.tokenize_forced', {
+        turn,
+        promptChars: forcedPrompt.length,
+      });
+      const forcedPromptTokenCount = (
+        await countLlamaCppTokens(this.options.config, forcedPrompt, this.tokenizeOptions)
+      ) ?? estimatePromptTokenCount(this.options.config, forcedPrompt);
+      forcedPromptTokenSpan?.end({ promptTokenCount: forcedPromptTokenCount });
+      const forcedResponse = await this.requestProviderAction({
+        promptText: forcedPrompt,
+        promptTokenCount: forcedPromptTokenCount,
+      });
+      const forcedAction = ModelJson.parseSummaryPlannerAction(forcedResponse.text);
+      if (forcedAction.action !== 'finish') {
+        return false;
+      }
+      const forcedDecision = normalizeStructuredDecision({
+        classification: forcedAction.classification,
+        rawReviewRequired: forcedAction.rawReviewRequired,
+        output: forcedAction.output,
+      }, this.options.format);
+      this.debugRecorder.finish({
+        status: 'completed',
+        command: this.options.debugCommand ?? null,
+        finalOutput: forcedDecision.output,
+        classification: forcedDecision.classification,
+        rawReviewRequired: forcedDecision.rawReviewRequired,
+      });
+      this.completionState.complete(forcedDecision);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private createToolBatchContext(turn: number, providerResponse: SummaryPlannerProviderResponse): SummaryPlannerToolBatchContext {
+    return {
+      turn,
+      providerResponse,
+      batchOutcomes: [],
+      pendingModeChangeUserMessages: [],
+      batchDuplicateAnchorIndex: null,
+      toolStatsPayload: null,
+    };
+  }
+
+  private getToolStats(ctx: SummaryPlannerToolBatchContext, toolName: PlannerToolName): ReturnType<typeof createEmptyToolTypeStats> {
+    ctx.toolStatsPayload ||= {};
+    const currentToolStats = ctx.toolStatsPayload[toolName] || createEmptyToolTypeStats();
+    ctx.toolStatsPayload[toolName] = currentToolStats;
+    return currentToolStats;
+  }
+
+  private handleDuplicateToolAction(ctx: SummaryPlannerToolBatchContext, toolAction: SummaryPlannerToolAction): boolean {
+    const fingerprint = fingerprintToolCall({ toolName: toolAction.tool_name, args: toolAction.args });
+    const readLinesExactRepeat = toolAction.tool_name === 'read_lines'
+      && this.transcriptState.lastSuccessfulReadLinesArgsText === JSON.stringify(toolAction.args);
+    if (readLinesExactRepeat || this.transcriptState.lastSuccessfulFingerprint !== fingerprint) {
+      return false;
+    }
+    const isActiveDuplicate = this.transcriptState.duplicateReplayFingerprint === fingerprint
+      && this.transcriptState.duplicateReplayToolMessageIndex >= 0
+      && this.transcriptState.duplicateReplayToolMessageIndex < this.messages.length;
+    this.transcriptState.duplicateReplayFingerprint = fingerprint;
+    this.transcriptState.duplicateReplayCount = isActiveDuplicate ? (this.transcriptState.duplicateReplayCount + 1) : 2;
+    this.recordDuplicateToolMessage(ctx, toolAction, isActiveDuplicate);
+    this.recordDuplicateToolStats(ctx, toolAction, fingerprint);
+    return true;
+  }
+
+  private recordDuplicateToolMessage(
+    ctx: SummaryPlannerToolBatchContext,
+    toolAction: SummaryPlannerToolAction,
+    isActiveDuplicate: boolean,
+  ): void {
+    const duplicateSummary = buildRepeatedToolCallSummary(toolAction.tool_name, this.transcriptState.duplicateReplayCount);
+    if (isActiveDuplicate) {
+      const previousToolMessage = this.messages[this.transcriptState.duplicateReplayToolMessageIndex];
+      this.messages[this.transcriptState.duplicateReplayToolMessageIndex] = {
+        role: 'tool',
+        tool_call_id: previousToolMessage?.tool_call_id,
+        content: duplicateSummary,
+      };
+      return;
+    }
+    ctx.batchOutcomes.push({
+      action: toolAction,
+      toolCallId: `duplicate_call_${this.toolResults.length + 1}`,
+      toolContent: duplicateSummary,
+    });
+    ctx.batchDuplicateAnchorIndex = ctx.batchOutcomes.length - 1;
+  }
+
+  private recordDuplicateToolStats(
+    ctx: SummaryPlannerToolBatchContext,
+    toolAction: SummaryPlannerToolAction,
+    fingerprint: string,
+  ): void {
+    const duplicateToolStats = this.getToolStats(ctx, toolAction.tool_name);
+    ctx.toolStatsPayload![toolAction.tool_name] = {
+      ...duplicateToolStats,
+      semanticRepeatRejects: duplicateToolStats.semanticRepeatRejects + 1,
+    };
+    this.debugRecorder.record({
+      kind: 'planner_semantic_repeat',
+      toolCall: toolAction,
+      fingerprint,
+      repeats: this.transcriptState.duplicateReplayCount,
+    });
+    if (this.transcriptState.duplicateReplayCount < PLANNER_DUPLICATE_FORCE_THRESHOLD || this.transcriptState.forcedFinishAttemptsRemaining !== 0) {
+      return;
+    }
+    this.transcriptState.forcedFinishAttemptsRemaining = PLANNER_FORCED_FINISH_MAX_ATTEMPTS;
+    ctx.pendingModeChangeUserMessages.push(
+      buildPlannerForcedFinishUserPrompt('You repeated the same tool call too many times. Produce your final answer now.'),
+    );
+    const currentToolStats = ctx.toolStatsPayload![toolAction.tool_name];
+    ctx.toolStatsPayload![toolAction.tool_name] = {
+      ...currentToolStats,
+      forcedFinishFromStagnation: currentToolStats.forcedFinishFromStagnation + 1,
+    };
+  }
+
+  private resolveEffectiveToolAction(toolAction: SummaryPlannerToolAction): SummaryPlannerEffectiveToolAction {
+    if (toolAction.tool_name !== 'read_lines') {
+      return { toolAction, effectiveToolAction: toolAction, readLinesNoUnread: false };
+    }
+    const requestedStart = Math.max(1, Math.trunc(Number(toolAction.args.startLine) || 1));
+    const requestedEnd = Math.max(requestedStart, Math.trunc(Number(toolAction.args.endLine) || requestedStart));
+    const requestedEndExclusive = Math.min(requestedEnd + 1, this.inputLines.length + 1);
+    const hasReturnedRanges = this.readLinesReturnedRanges.length > 0;
+    const unreadRange = findContiguousUnreadRange({
+      requestedStart: Math.min(requestedStart, this.inputLines.length || 1),
+      totalEnd: hasReturnedRanges ? this.inputLines.length + 1 : requestedEndExclusive,
+      returnedRanges: this.readLinesReturnedRanges,
+    });
+    return {
+      toolAction,
+      readLinesNoUnread: !unreadRange.hasUnread,
+      effectiveToolAction: {
+        ...toolAction,
+        args: unreadRange.hasUnread
+          ? { ...toolAction.args, startLine: unreadRange.start, endLine: unreadRange.end - 1 }
+          : { ...toolAction.args, startLine: unreadRange.start, endLine: unreadRange.end },
+      },
+    };
+  }
+
+  private executeEffectivePlannerTool(input: SummaryPlannerEffectiveToolAction): Record<string, unknown> {
+    if (input.effectiveToolAction.tool_name === 'read_lines' && input.readLinesNoUnread) {
+      return {
+        tool: 'read_lines',
+        startLine: input.effectiveToolAction.args.startLine,
+        endLine: input.effectiveToolAction.args.endLine,
+        lineCount: 0,
+        text: 'No unread lines remain for input text.',
+      };
+    }
+    return executePlannerTool(this.options.inputText, input.effectiveToolAction, this.allowedTools);
+  }
+
+  private async handleInvalidToolExecution(
+    ctx: SummaryPlannerToolBatchContext,
+    toolAction: SummaryPlannerToolAction,
+    error: unknown,
+  ): Promise<AgentLoopToolExecution | null> {
+    this.transcriptState.invalidActionCount += 1;
+    const invalidResponseError = getErrorMessage(error);
+    const invalidToolResultText = buildPlannerInvalidResponseUserPrompt(invalidResponseError);
+    ctx.batchOutcomes.push({
+      action: toolAction,
+      toolCallId: `invalid_call_${this.transcriptState.invalidActionCount}`,
+      toolContent: invalidToolResultText,
+    });
+    this.debugRecorder.record({
+      kind: 'planner_invalid_response',
+      error: invalidResponseError,
+      toolCall: toolAction,
+      toolResultText: invalidToolResultText,
+    });
+    if (this.transcriptState.invalidActionCount < MAX_PLANNER_INVALID_RESPONSES) {
+      return null;
+    }
+    appendToolBatchExchange(this.messages, ctx.batchOutcomes, ctx.providerResponse.reasoningText || '');
+    this.debugRecorder.finish({ status: 'failed', reason: 'planner_invalid_response_limit' });
+    this.completionState.fail();
+    await this.notifyToolExecution(ctx.providerResponse, ctx.toolStatsPayload);
+    return { outcome: 'stop', results: [] };
+  }
+
+  private async formatToolResultForPrompt(
+    ctx: SummaryPlannerToolBatchContext,
+    effectiveToolAction: SummaryPlannerToolAction,
+    toolAction: SummaryPlannerToolAction,
+    result: Record<string, unknown>,
+  ): Promise<SummaryPlannerFormattedToolResult> {
+    const formatSpan = this.options.timingRecorder?.start('summary.planner.tool.format', { turn: ctx.turn, toolName: toolAction.tool_name });
+    const rawFormattedResultText = formatPlannerResult(result);
+    const formattedResultText = buildPromptToolResult({ toolName: effectiveToolAction.tool_name, rawOutput: rawFormattedResultText });
+    formatSpan?.end({ rawChars: rawFormattedResultText.length, formattedChars: formattedResultText.length });
+    const rawResultTokenCount = await this.countRawToolResultTokens(ctx, toolAction, rawFormattedResultText);
+    const formattedTokenCountRaw = await this.countFormattedToolResultTokens(ctx, toolAction, formattedResultText);
+    const formattedTokenCountEstimated = formattedTokenCountRaw === null;
+    const resultTokenCount = formattedTokenCountRaw ?? estimatePromptTokenCount(this.options.config, formattedResultText);
+    if (Math.max(0, Math.ceil(resultTokenCount)) <= Math.max(this.promptBudget.plannerStopLineTokens - this.promptTokenCount, 0) * 0.7) {
+      return {
+        result,
+        promptResultText: formattedResultText,
+        rawResultTokenCount: Math.max(0, Math.ceil(rawResultTokenCount)),
+        resolvedToolResultTokenCount: resultTokenCount,
+        toolResultTokenEstimated: formattedTokenCountEstimated,
+      };
+    }
+    const fitResult = await this.fitToolResultForPrompt(ctx, effectiveToolAction, result, formattedResultText);
+    return {
+      result,
+      promptResultText: fitResult.promptResultText,
+      rawResultTokenCount: Math.max(0, Math.ceil(rawResultTokenCount)),
+      resolvedToolResultTokenCount: fitResult.tokenCount,
+      toolResultTokenEstimated: fitResult.estimated,
+    };
+  }
+
+  private async countRawToolResultTokens(
+    ctx: SummaryPlannerToolBatchContext,
+    toolAction: SummaryPlannerToolAction,
+    rawFormattedResultText: string,
+  ): Promise<number> {
+    const rawTokenSpan = this.options.timingRecorder?.start('summary.planner.tool.tokenize_raw', {
+      turn: ctx.turn,
+      toolName: toolAction.tool_name,
+      inputChars: rawFormattedResultText.length,
+    });
+    const rawResultTokenCount = (
+      await countLlamaCppTokens(this.options.config, rawFormattedResultText, this.tokenizeOptions)
+    ) ?? estimatePromptTokenCount(this.options.config, rawFormattedResultText);
+    rawTokenSpan?.end({ tokenCount: rawResultTokenCount });
+    return rawResultTokenCount;
+  }
+
+  private async countFormattedToolResultTokens(
+    ctx: SummaryPlannerToolBatchContext,
+    toolAction: SummaryPlannerToolAction,
+    formattedResultText: string,
+  ): Promise<number | null> {
+    const formattedTokenSpan = this.options.timingRecorder?.start('summary.planner.tool.tokenize_formatted', {
+      turn: ctx.turn,
+      toolName: toolAction.tool_name,
+      inputChars: formattedResultText.length,
+    });
+    const formattedTokenCountRaw = await countLlamaCppTokens(this.options.config, formattedResultText, this.tokenizeOptions);
+    formattedTokenSpan?.end({ tokenCount: formattedTokenCountRaw ?? estimatePromptTokenCount(this.options.config, formattedResultText) });
+    return formattedTokenCountRaw;
+  }
+
+  private async fitToolResultForPrompt(
+    ctx: SummaryPlannerToolBatchContext,
+    effectiveToolAction: SummaryPlannerToolAction,
+    result: Record<string, unknown>,
+    formattedResultText: string,
+  ): Promise<{ promptResultText: string; tokenCount: number; estimated: boolean }> {
+    const remainingPromptTokens = Math.max(this.promptBudget.plannerStopLineTokens - this.promptTokenCount, 0);
+    const headerText = formatPlannerToolResultHeader(result);
+    const resultBodyText = typeof result.text === 'string' ? result.text : formattedResultText;
+    const unit: ToolOutputTruncationUnit = effectiveToolAction.tool_name === 'find_text' ? 'results' : 'lines';
+    const separator = effectiveToolAction.tool_name === 'find_text' ? '\n\n' : '\n';
+    const segments = effectiveToolAction.tool_name === 'find_text'
+      ? resultBodyText.split(/\n\s*\n/u).filter((segment) => segment.trim().length > 0)
+      : resultBodyText.split(/\r?\n/u).filter((line) => line.length > 0);
+    const fitter = new ToolOutputFitter(new SummaryPlannerToolOutputTokenCounter(this.options.config, this.tokenizeOptions));
+    const fitResult = await fitter.fitSegments({
+      headerText: headerText || undefined,
+      segments,
+      separator,
+      maxTokens: Math.max(1, Math.floor(remainingPromptTokens * 0.7)),
+      unit,
+    });
+    const promptResultText = buildPromptToolResult({ toolName: effectiveToolAction.tool_name, rawOutput: fitResult.visibleText });
+    const fitTokenSpan = this.options.timingRecorder?.start('summary.planner.tool.tokenize_prompt', {
+      turn: ctx.turn,
+      toolName: effectiveToolAction.tool_name,
+      inputChars: promptResultText.length,
+    });
+    const fitTokenCountRaw = await countLlamaCppTokens(this.options.config, promptResultText, this.tokenizeOptions);
+    fitTokenSpan?.end({ tokenCount: fitTokenCountRaw ?? -1 });
+    return {
+      promptResultText,
+      estimated: fitTokenCountRaw === null,
+      tokenCount: fitTokenCountRaw ?? estimatePromptTokenCount(this.options.config, promptResultText),
+    };
+  }
+
+  private recordSuccessfulToolResult(
+    ctx: SummaryPlannerToolBatchContext,
+    toolAction: SummaryPlannerToolAction,
+    effectiveToolAction: SummaryPlannerToolAction,
+    formatted: SummaryPlannerFormattedToolResult,
+  ): void {
+    this.recordSuccessfulToolStats(ctx, toolAction, formatted);
+    this.recordReadLinesRange(effectiveToolAction, formatted.result, formatted.promptResultText);
+    const fingerprint = fingerprintToolCall({ toolName: toolAction.tool_name, args: toolAction.args });
+    const novelty = classifyToolResultNovelty({ promptResultText: formatted.promptResultText, recentEvidenceKeys: this.recentEvidenceKeys });
+    for (const evidenceKey of novelty.evidenceKeys) this.recentEvidenceKeys.add(evidenceKey);
+    ctx.toolStatsPayload![toolAction.tool_name].newEvidenceCalls += novelty.hasNewEvidence ? 1 : 0;
+    ctx.toolStatsPayload![toolAction.tool_name].noNewEvidenceCalls += novelty.hasNewEvidence ? 0 : 1;
+    this.transcriptState.duplicateReplayFingerprint = null;
+    this.transcriptState.duplicateReplayCount = 0;
+    this.transcriptState.duplicateReplayToolMessageIndex = -1;
+    this.transcriptState.lastSuccessfulFingerprint = fingerprint;
+    this.transcriptState.lastSuccessfulReadLinesArgsText = effectiveToolAction.tool_name === 'read_lines' ? JSON.stringify(toolAction.args) : null;
+    this.transcriptState.consecutiveNoNewEvidence = novelty.hasNewEvidence ? 0 : (this.transcriptState.consecutiveNoNewEvidence + 1);
+    ctx.batchOutcomes.push({
+      action: effectiveToolAction,
+      toolCallId: `call_${this.toolResults.length + 1}`,
+      toolContent: formatted.promptResultText,
+    });
+    this.toolResults.push({
+      toolName: effectiveToolAction.tool_name,
+      args: effectiveToolAction.args,
+      result: formatted.result,
+      resultText: formatted.promptResultText,
+    });
+  }
+
+  private recordSuccessfulToolStats(
+    ctx: SummaryPlannerToolBatchContext,
+    toolAction: SummaryPlannerToolAction,
+    formatted: SummaryPlannerFormattedToolResult,
+  ): void {
+    const readLineCount = toolAction.tool_name === 'read_lines' && Number.isFinite((formatted.result as { lineCount?: unknown }).lineCount)
+      ? Number((formatted.result as { lineCount?: unknown }).lineCount)
+      : 0;
+    const currentToolStats = this.getToolStats(ctx, toolAction.tool_name);
+    ctx.toolStatsPayload![toolAction.tool_name] = {
+      ...currentToolStats,
+      calls: currentToolStats.calls + 1,
+      outputCharsTotal: currentToolStats.outputCharsTotal + formatted.promptResultText.length,
+      outputTokensTotal: currentToolStats.outputTokensTotal + Math.max(0, Math.ceil(formatted.resolvedToolResultTokenCount)),
+      outputTokensEstimatedCount: currentToolStats.outputTokensEstimatedCount + (formatted.toolResultTokenEstimated ? 1 : 0),
+      lineReadCalls: currentToolStats.lineReadCalls + (readLineCount > 0 ? 1 : 0),
+      lineReadLinesTotal: currentToolStats.lineReadLinesTotal + readLineCount,
+      lineReadTokensTotal: currentToolStats.lineReadTokensTotal + (readLineCount > 0 ? formatted.rawResultTokenCount : 0),
+      promptInsertedTokens: currentToolStats.promptInsertedTokens + Math.max(0, Math.ceil(formatted.resolvedToolResultTokenCount)),
+      rawToolResultTokens: currentToolStats.rawToolResultTokens + formatted.rawResultTokenCount,
+    };
+  }
+
+  private recordReadLinesRange(
+    effectiveToolAction: SummaryPlannerToolAction,
+    result: Record<string, unknown>,
+    promptResultText: string,
+  ): void {
+    if (effectiveToolAction.tool_name !== 'read_lines') {
+      return;
+    }
+    const returnedLineCount = promptResultText.split(/\r?\n/u).filter((line) => /^\d+:/u.test(line)).length;
+    const returnedStartLine = Math.max(1, Math.trunc(Number(result.startLine) || 1));
+    if (returnedLineCount > 0) {
+      this.readLinesReturnedRanges.push({ start: returnedStartLine, end: returnedStartLine + returnedLineCount });
+    }
+  }
+
+  private async executeSingleToolAction(
+    ctx: SummaryPlannerToolBatchContext,
+    toolAction: SummaryPlannerToolAction,
+  ): Promise<AgentLoopToolExecution | null> {
+    if (this.handleDuplicateToolAction(ctx, toolAction)) {
+      return null;
+    }
+    const effective = this.resolveEffectiveToolAction(toolAction);
+    const toolExecutionSpan = this.options.timingRecorder?.start('summary.planner.tool.execute', {
+      turn: ctx.turn,
+      toolName: effective.effectiveToolAction.tool_name,
+    });
+    let result: Record<string, unknown>;
+    try {
+      result = this.executeEffectivePlannerTool(effective);
+      toolExecutionSpan?.end({ ok: true });
+    } catch (error) {
+      toolExecutionSpan?.end({ ok: false });
+      return this.handleInvalidToolExecution(ctx, toolAction, error);
+    }
+    this.debugRecorder.record({
+      kind: 'planner_tool',
+      command: `${toolAction.tool_name} ${JSON.stringify(toolAction.args)}`,
+      toolName: toolAction.tool_name,
+      args: toolAction.args,
+      output: result,
+    });
+    const formatted = await this.formatToolResultForPrompt(ctx, effective.effectiveToolAction, toolAction, result);
+    this.recordSuccessfulToolResult(ctx, toolAction, effective.effectiveToolAction, formatted);
+    return null;
+  }
+
+  private async executeToolBatch(
+    ctx: SummaryPlannerToolBatchContext,
+    toolActions: readonly SummaryPlannerToolAction[],
+  ): Promise<AgentLoopToolExecution | null> {
+    for (const toolAction of toolActions) {
+      const stopResult = await this.executeSingleToolAction(ctx, toolAction);
+      if (stopResult) {
+        return stopResult;
+      }
+    }
+    return null;
+  }
+
+  private appendToolBatchToTranscript(ctx: SummaryPlannerToolBatchContext): void {
+    const preAppendMessagesLength = this.messages.length;
+    const appendSpan = this.options.timingRecorder?.start('summary.planner.tool.append', {
+      turn: ctx.turn,
+      outcomeCount: ctx.batchOutcomes.length,
+      beforeMessageCount: this.messages.length,
+    });
+    appendToolBatchExchange(this.messages, ctx.batchOutcomes, ctx.providerResponse.reasoningText || '');
+    appendSpan?.end({ afterMessageCount: this.messages.length });
+    if (ctx.batchDuplicateAnchorIndex !== null && ctx.batchOutcomes.length > 0) {
+      this.transcriptState.duplicateReplayToolMessageIndex = preAppendMessagesLength + 1 + ctx.batchDuplicateAnchorIndex;
+    }
+    for (const userMessage of ctx.pendingModeChangeUserMessages) {
+      this.messages.push({ role: 'user', content: userMessage });
+    }
+  }
+
+  private buildAgentLoopToolResults(beforeToolResultCount: number): AgentLoopToolResult[] {
+    return this.toolResults.slice(beforeToolResultCount).map((result, index): AgentLoopToolResult => ({
       callId: `call_${beforeToolResultCount + index + 1}`,
       toolName: result.toolName,
       args: result.args,
       text: result.resultText,
       raw: result.result,
     }));
-    return { outcome: 'continue', results };
+  }
+
+  async executeTools(actions: readonly AgentLoopToolAction[], context: AgentLoopResponseContext): Promise<AgentLoopToolExecution> {
+    const providerResponse = getSummaryPlannerModelData(context).providerResponse;
+    const beforeToolResultCount = this.toolResults.length;
+    const turn = this.toolResults.length + 1;
+    const toolActions = this.buildToolActions(actions);
+    const forcedFinishResult = await this.handleForcedFinishAttempt(toolActions, providerResponse);
+    if (forcedFinishResult) return forcedFinishResult;
+    const limitResult = await this.handleToolCallLimit(toolActions, turn, providerResponse);
+    if (limitResult) return limitResult;
+    const batchContext = this.createToolBatchContext(turn, providerResponse);
+    const batchStopResult = await this.executeToolBatch(batchContext, toolActions);
+    if (batchStopResult) return batchStopResult;
+    this.appendToolBatchToTranscript(batchContext);
+    await this.notifyToolExecution(providerResponse, batchContext.toolStatsPayload);
+    return { outcome: 'continue', results: this.buildAgentLoopToolResults(beforeToolResultCount) };
   }
 }
 
