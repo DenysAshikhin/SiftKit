@@ -76,6 +76,7 @@ import {
   pickManagedFilePath,
   type ManagedFilePickerTarget,
 } from '../file-picker.js';
+import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.js';
 import type { ServerContext } from '../server-types.js';
 import type { SiftConfig } from '../../config/index.js';
 import type { JsonObject } from '../../lib/json-types.js';
@@ -166,18 +167,18 @@ function parseDashboardRunLogDeleteCriteria(body: JsonObject): { criteria: Dashb
   return { criteria: null, error: 'Expected mode to be count or before_date.' };
 }
 
-export async function handleDashboardRoute(
-  ctx: ServerContext,
-  req: http.IncomingMessage,
-  res: http.ServerResponse,
-  pathname: string,
-  requestUrl: URL,
-): Promise<boolean> {
-  const runtimeRoot = getRuntimeRoot();
-  const { idleSummarySnapshotsPath } = ctx;
-  const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
-
-  if (req.method === 'GET' && pathname === '/dashboard/runs') {
+class DashboardRunsEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const query = requestUrl.searchParams;
     const search = (query.get('search') || '').trim().toLowerCase();
     const kind = (query.get('kind') || '').trim().toLowerCase();
@@ -195,21 +196,45 @@ export async function handleDashboardRoute(
       })
       : [];
     sendJson(res, 200, { runs, total: runs.length });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'GET' && /^\/dashboard\/runs\/[^/]+$/u.test(pathname)) {
+class DashboardRunDetailEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const runId = decodeURIComponent(pathname.replace(/^\/dashboard\/runs\//u, ''));
     const detail = idleSummaryDatabase ? queryDashboardRunDetailFromDb(idleSummaryDatabase, runId) : null;
     if (!detail) {
       sendJson(res, 404, { error: 'Run not found.' });
-      return true;
+      return;
     }
     sendJson(res, 200, detail);
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'GET' && pathname === '/dashboard/metrics/timeseries') {
+class DashboardMetricsTimeseriesEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const config = readConfig(ctx.configPath);
     const days = buildDashboardDailyMetrics(
       runtimeRoot,
@@ -220,10 +245,22 @@ export async function handleDashboardRoute(
     const toolStats = buildDashboardToolStats(idleSummaryDatabase, ctx.metrics, config);
     const webSearchUsage = readWebSearchUsage(getMetricsPath(), new Date());
     sendJson(res, 200, { days, taskDays, toolStats, webSearchUsage });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'GET' && pathname === '/dashboard/web-search-quota') {
+class DashboardWebSearchQuotaEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const config = readConfig(ctx.configPath);
     const webSearchConfig = config.WebSearch ?? {
       ...DEFAULT_WEB_SEARCH_CONFIG,
@@ -231,13 +268,25 @@ export async function handleDashboardRoute(
     } as WebSearchConfig;
     const quotas = await webSearchQuotaCache.read(webSearchConfig);
     sendJson(res, 200, { quotas });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'GET' && pathname === '/dashboard/metrics/idle-summary') {
+class DashboardIdleSummaryEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     if (!fs.existsSync(idleSummarySnapshotsPath)) {
       sendJson(res, 200, { latest: null, snapshots: [] });
-      return true;
+      return;
     }
     const limitValue = Number(requestUrl.searchParams.get('limit') || 30);
     const limit = Math.max(1, Math.min(200, Number.isFinite(limitValue) ? Math.floor(limitValue) : 30));
@@ -246,22 +295,46 @@ export async function handleDashboardRoute(
       .map(normalizeIdleSummarySnapshotRow)
       .filter((entry): entry is IdleSummarySnapshotRow => entry !== null);
     sendJson(res, 200, { latest: snapshots[0] || null, snapshots });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'GET' && pathname === '/dashboard/benchmark/question-presets') {
+class BenchmarkQuestionPresetListEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     seedBenchmarkQuestionPresets();
     sendJson(res, 200, { presets: listBenchmarkQuestionPresets({ includeDisabled: true }) });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'POST' && pathname === '/dashboard/benchmark/question-presets') {
+class BenchmarkQuestionPresetCreateEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     try {
       const preset = createBenchmarkQuestionPreset({
@@ -274,21 +347,33 @@ export async function handleDashboardRoute(
     } catch (error) {
       sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
     }
-    return true;
+    return;
   }
+}
 
-  if ((req.method === 'PUT' || req.method === 'DELETE') && /^\/dashboard\/benchmark\/question-presets\/[^/]+$/u.test(pathname)) {
+class BenchmarkQuestionPresetMutationEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const presetId = decodeURIComponent(pathname.replace(/^\/dashboard\/benchmark\/question-presets\//u, ''));
     if (req.method === 'DELETE') {
       sendJson(res, 200, { ok: true, deleted: deleteBenchmarkQuestionPreset(presetId), id: presetId });
-      return true;
+      return;
     }
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     try {
       const preset = updateBenchmarkQuestionPreset({
@@ -306,28 +391,52 @@ export async function handleDashboardRoute(
     } catch (error) {
       sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
     }
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'GET' && pathname === '/dashboard/benchmark/sessions') {
+class BenchmarkSessionListEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const limitValue = Number(requestUrl.searchParams.get('limit') || 50);
     const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(500, Math.trunc(limitValue))) : 50;
     const status = String(requestUrl.searchParams.get('status') || '').trim() as BenchmarkSessionStatus | '';
     sendJson(res, 200, { sessions: listBenchmarkSessions({ limit, status }) });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'POST' && pathname === '/dashboard/benchmark/sessions') {
+class BenchmarkSessionCreateEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     if (hasActiveBenchmarkJob()) {
       sendJson(res, 409, { error: 'A benchmark session is already running.' });
-      return true;
+      return;
     }
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     try {
       const config = readConfig(ctx.configPath);
@@ -344,10 +453,22 @@ export async function handleDashboardRoute(
     } catch (error) {
       sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
     }
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'GET' && /^\/dashboard\/benchmark\/sessions\/[^/]+\/events$/u.test(pathname)) {
+class BenchmarkSessionEventsEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/benchmark\/sessions\//u, '').replace(/\/events$/u, ''));
     let disconnected = false;
     req.on('close', () => { disconnected = true; });
@@ -361,37 +482,73 @@ export async function handleDashboardRoute(
       }
       writeDashboardSse(res, event.event, event.payload);
     });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'GET' && /^\/dashboard\/benchmark\/sessions\/[^/]+$/u.test(pathname)) {
+class BenchmarkSessionDetailEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/benchmark\/sessions\//u, ''));
     const detail = readBenchmarkSessionDetail(sessionId);
     if (!detail) {
       sendJson(res, 404, { error: 'Benchmark session not found.' });
-      return true;
+      return;
     }
     sendJson(res, 200, {
       ...detail,
       logTextByStream: readBenchmarkLogTextByStream({ sessionId }),
     });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'POST' && /^\/dashboard\/benchmark\/sessions\/[^/]+\/cancel$/u.test(pathname)) {
+class BenchmarkSessionCancelEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/benchmark\/sessions\//u, '').replace(/\/cancel$/u, ''));
     sendJson(res, 200, { ok: true, cancelled: cancelBenchmarkJob(sessionId), id: sessionId });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'PUT' && /^\/dashboard\/benchmark\/attempts\/[^/]+\/grade$/u.test(pathname)) {
+class BenchmarkAttemptGradeEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const attemptId = decodeURIComponent(pathname.replace(/^\/dashboard\/benchmark\/attempts\//u, '').replace(/\/grade$/u, ''));
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     try {
       const attempt = updateBenchmarkAttemptGrade({
@@ -409,155 +566,335 @@ export async function handleDashboardRoute(
     } catch (error) {
       sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
     }
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'POST' && pathname === '/dashboard/admin/run-logs/preview') {
+class RunLogsPreviewEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     const { criteria, error } = parseDashboardRunLogDeleteCriteria(parsedBody);
     if (!criteria) {
       sendJson(res, 400, { error: error || 'Expected valid run-log delete criteria.' });
-      return true;
+      return;
     }
     const preview = idleSummaryDatabase
       ? previewDashboardRunLogDeletion(idleSummaryDatabase, criteria)
       : { matchCount: 0 };
     sendJson(res, 200, { ok: true, ...preview });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'DELETE' && pathname === '/dashboard/admin/run-logs') {
+class RunLogsDeleteEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     const { criteria, error } = parseDashboardRunLogDeleteCriteria(parsedBody);
     if (!criteria) {
       sendJson(res, 400, { error: error || 'Expected valid run-log delete criteria.' });
-      return true;
+      return;
     }
     const deletion = idleSummaryDatabase
       ? deleteDashboardRunLogs(idleSummaryDatabase, criteria)
       : { deletedCount: 0, deletedRunIds: [] };
     sendJson(res, 200, { ok: true, ...deletion });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'GET' && pathname === '/dashboard/admin/managed-llama/runs') {
+class ManagedLlamaRunsEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const limitValue = Number(requestUrl.searchParams.get('limit') || 100);
     const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(500, Math.trunc(limitValue))) : 100;
     const status = String(requestUrl.searchParams.get('status') || '').trim();
     const runs = listManagedLlamaRuns({ limit, status: status as '' | 'running' | 'ready' | 'failed' | 'stopped' | 'sync_completed' });
     sendJson(res, 200, { runs });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'GET' && /^\/dashboard\/admin\/managed-llama\/runs\/[^/]+$/u.test(pathname)) {
+class ManagedLlamaRunDetailEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const runId = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/managed-llama\/runs\//u, ''));
     const run = readManagedLlamaRun(runId);
     if (!run) {
       sendJson(res, 404, { error: 'Managed llama run not found.' });
-      return true;
+      return;
     }
     const logTextByStream = readManagedLlamaLogTextByStream(runId);
     sendJson(res, 200, { run, logTextByStream });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'DELETE' && /^\/dashboard\/admin\/managed-llama\/runs\/[^/]+$/u.test(pathname)) {
+class ManagedLlamaRunDeleteEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const runId = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/managed-llama\/runs\//u, ''));
     sendJson(res, 200, { ok: true, deleted: deleteManagedLlamaRun(runId), id: runId });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'GET' && pathname === '/dashboard/admin/benchmark-matrix/sessions') {
+class BenchmarkMatrixSessionsEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const limitValue = Number(requestUrl.searchParams.get('limit') || 100);
     const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(500, Math.trunc(limitValue))) : 100;
     const status = String(requestUrl.searchParams.get('status') || '').trim();
     const sessions = listBenchmarkMatrixSessions({ limit, status: status as '' | 'running' | 'completed' | 'failed' });
     sendJson(res, 200, { sessions });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'GET' && /^\/dashboard\/admin\/benchmark-matrix\/sessions\/[^/]+$/u.test(pathname)) {
+class BenchmarkMatrixSessionDetailEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/benchmark-matrix\/sessions\//u, ''));
     const session = readBenchmarkMatrixSession(sessionId);
     if (!session) {
       sendJson(res, 404, { error: 'Benchmark matrix session not found.' });
-      return true;
+      return;
     }
     const runs = listBenchmarkMatrixRunsForSession(sessionId).map((run) => ({
       ...run,
       logTextByStream: readBenchmarkMatrixRunLogTextByStream(run.id),
     }));
     sendJson(res, 200, { session, runs });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'DELETE' && /^\/dashboard\/admin\/benchmark-matrix\/sessions\/[^/]+$/u.test(pathname)) {
+class BenchmarkMatrixSessionDeleteEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/benchmark-matrix\/sessions\//u, ''));
     sendJson(res, 200, { ok: true, deleted: deleteBenchmarkMatrixSession(sessionId), id: sessionId });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'GET' && pathname === '/dashboard/admin/benchmark-runs') {
+class BenchmarkRunsEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const limitValue = Number(requestUrl.searchParams.get('limit') || 100);
     const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(500, Math.trunc(limitValue))) : 100;
     sendJson(res, 200, { rows: listBenchmarkRuns({ limit }) });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'GET' && /^\/dashboard\/admin\/benchmark-runs\/[^/]+$/u.test(pathname)) {
+class BenchmarkRunDetailEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const id = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/benchmark-runs\//u, ''));
     const row = readBenchmarkRun(id);
     if (!row) {
       sendJson(res, 404, { error: 'Benchmark run not found.' });
-      return true;
+      return;
     }
     sendJson(res, 200, { row });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'DELETE' && /^\/dashboard\/admin\/benchmark-runs\/[^/]+$/u.test(pathname)) {
+class BenchmarkRunDeleteEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const id = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/benchmark-runs\//u, ''));
     sendJson(res, 200, { ok: true, deleted: deleteBenchmarkRun(id), id });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'GET' && pathname === '/dashboard/admin/eval-results') {
+class EvalResultsEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const limitValue = Number(requestUrl.searchParams.get('limit') || 100);
     const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(500, Math.trunc(limitValue))) : 100;
     sendJson(res, 200, { rows: listEvalResults({ limit }) });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'GET' && /^\/dashboard\/admin\/eval-results\/[^/]+$/u.test(pathname)) {
+class EvalResultDetailEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const id = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/eval-results\//u, ''));
     const row = readEvalResult(id);
     if (!row) {
       sendJson(res, 404, { error: 'Eval result not found.' });
-      return true;
+      return;
     }
     sendJson(res, 200, { row });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'DELETE' && /^\/dashboard\/admin\/eval-results\/[^/]+$/u.test(pathname)) {
+class EvalResultDeleteEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const id = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/eval-results\//u, ''));
     sendJson(res, 200, { ok: true, deleted: deleteEvalResult(id), id });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'GET' && pathname === '/dashboard/admin/runtime-artifacts') {
+class RuntimeArtifactsEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const limitValue = Number(requestUrl.searchParams.get('limit') || 200);
     const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(1000, Math.trunc(limitValue))) : 200;
     const artifactKind = String(requestUrl.searchParams.get('kind') || '').trim();
@@ -569,38 +906,74 @@ export async function handleDashboardRoute(
         limit,
       }),
     });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'GET' && /^\/dashboard\/admin\/runtime-artifacts\/[^/]+$/u.test(pathname)) {
+class RuntimeArtifactDetailEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const id = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/runtime-artifacts\//u, ''));
     const row = readRuntimeArtifact(id);
     if (!row) {
       sendJson(res, 404, { error: 'Runtime artifact not found.' });
-      return true;
+      return;
     }
     sendJson(res, 200, { row });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'DELETE' && /^\/dashboard\/admin\/runtime-artifacts\/[^/]+$/u.test(pathname)) {
+class RuntimeArtifactDeleteEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const id = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/runtime-artifacts\//u, ''));
     sendJson(res, 200, { ok: true, deleted: deleteRuntimeArtifact(id), id });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'POST' && pathname === '/dashboard/system/pick-file') {
+class SystemPickFileEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    match: RouteMatch,
+  ): Promise<void> {
+    const pathname = match.pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const runtimeRoot = getRuntimeRoot();
+    const { idleSummarySnapshotsPath } = ctx;
+    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     const target = String(parsedBody.target || '').trim() as ManagedFilePickerTarget;
     if (target !== 'managed-llama-executable' && target !== 'managed-llama-model') {
       sendJson(res, 400, { error: 'Expected a valid file picker target.' });
-      return true;
+      return;
     }
     const initialPath = typeof parsedBody.initialPath === 'string' && parsedBody.initialPath.trim()
       ? parsedBody.initialPath.trim()
@@ -613,8 +986,53 @@ export async function handleDashboardRoute(
       const statusCode = /only supported on Windows/iu.test(message) ? 501 : 500;
       sendJson(res, statusCode, { error: message });
     }
-    return true;
+    return;
   }
+}
+const BENCHMARK_QUESTION_PRESET_MUTATION_ENDPOINT = new BenchmarkQuestionPresetMutationEndpoint();
 
-  return false;
+const DASHBOARD_ROUTES = new RouteTable([
+  { method: 'GET', path: '/dashboard/runs', endpoint: new DashboardRunsEndpoint() },
+  { method: 'GET', path: /^\/dashboard\/runs\/([^/]+)$/u, endpoint: new DashboardRunDetailEndpoint() },
+  { method: 'GET', path: '/dashboard/metrics/timeseries', endpoint: new DashboardMetricsTimeseriesEndpoint() },
+  { method: 'GET', path: '/dashboard/web-search-quota', endpoint: new DashboardWebSearchQuotaEndpoint() },
+  { method: 'GET', path: '/dashboard/metrics/idle-summary', endpoint: new DashboardIdleSummaryEndpoint() },
+  { method: 'GET', path: '/dashboard/benchmark/question-presets', endpoint: new BenchmarkQuestionPresetListEndpoint() },
+  { method: 'POST', path: '/dashboard/benchmark/question-presets', endpoint: new BenchmarkQuestionPresetCreateEndpoint() },
+  { method: 'PUT', path: /^\/dashboard\/benchmark\/question-presets\/([^/]+)$/u, endpoint: BENCHMARK_QUESTION_PRESET_MUTATION_ENDPOINT },
+  { method: 'DELETE', path: /^\/dashboard\/benchmark\/question-presets\/([^/]+)$/u, endpoint: BENCHMARK_QUESTION_PRESET_MUTATION_ENDPOINT },
+  { method: 'GET', path: '/dashboard/benchmark/sessions', endpoint: new BenchmarkSessionListEndpoint() },
+  { method: 'POST', path: '/dashboard/benchmark/sessions', endpoint: new BenchmarkSessionCreateEndpoint() },
+  { method: 'GET', path: /^\/dashboard\/benchmark\/sessions\/([^/]+)\/events$/u, endpoint: new BenchmarkSessionEventsEndpoint() },
+  { method: 'GET', path: /^\/dashboard\/benchmark\/sessions\/([^/]+)$/u, endpoint: new BenchmarkSessionDetailEndpoint() },
+  { method: 'POST', path: /^\/dashboard\/benchmark\/sessions\/([^/]+)\/cancel$/u, endpoint: new BenchmarkSessionCancelEndpoint() },
+  { method: 'PUT', path: /^\/dashboard\/benchmark\/attempts\/([^/]+)\/grade$/u, endpoint: new BenchmarkAttemptGradeEndpoint() },
+  { method: 'POST', path: '/dashboard/admin/run-logs/preview', endpoint: new RunLogsPreviewEndpoint() },
+  { method: 'DELETE', path: '/dashboard/admin/run-logs', endpoint: new RunLogsDeleteEndpoint() },
+  { method: 'GET', path: '/dashboard/admin/managed-llama/runs', endpoint: new ManagedLlamaRunsEndpoint() },
+  { method: 'GET', path: /^\/dashboard\/admin\/managed-llama\/runs\/([^/]+)$/u, endpoint: new ManagedLlamaRunDetailEndpoint() },
+  { method: 'DELETE', path: /^\/dashboard\/admin\/managed-llama\/runs\/([^/]+)$/u, endpoint: new ManagedLlamaRunDeleteEndpoint() },
+  { method: 'GET', path: '/dashboard/admin/benchmark-matrix/sessions', endpoint: new BenchmarkMatrixSessionsEndpoint() },
+  { method: 'GET', path: /^\/dashboard\/admin\/benchmark-matrix\/sessions\/([^/]+)$/u, endpoint: new BenchmarkMatrixSessionDetailEndpoint() },
+  { method: 'DELETE', path: /^\/dashboard\/admin\/benchmark-matrix\/sessions\/([^/]+)$/u, endpoint: new BenchmarkMatrixSessionDeleteEndpoint() },
+  { method: 'GET', path: '/dashboard/admin/benchmark-runs', endpoint: new BenchmarkRunsEndpoint() },
+  { method: 'GET', path: /^\/dashboard\/admin\/benchmark-runs\/([^/]+)$/u, endpoint: new BenchmarkRunDetailEndpoint() },
+  { method: 'DELETE', path: /^\/dashboard\/admin\/benchmark-runs\/([^/]+)$/u, endpoint: new BenchmarkRunDeleteEndpoint() },
+  { method: 'GET', path: '/dashboard/admin/eval-results', endpoint: new EvalResultsEndpoint() },
+  { method: 'GET', path: /^\/dashboard\/admin\/eval-results\/([^/]+)$/u, endpoint: new EvalResultDetailEndpoint() },
+  { method: 'DELETE', path: /^\/dashboard\/admin\/eval-results\/([^/]+)$/u, endpoint: new EvalResultDeleteEndpoint() },
+  { method: 'GET', path: '/dashboard/admin/runtime-artifacts', endpoint: new RuntimeArtifactsEndpoint() },
+  { method: 'GET', path: /^\/dashboard\/admin\/runtime-artifacts\/([^/]+)$/u, endpoint: new RuntimeArtifactDetailEndpoint() },
+  { method: 'DELETE', path: /^\/dashboard\/admin\/runtime-artifacts\/([^/]+)$/u, endpoint: new RuntimeArtifactDeleteEndpoint() },
+  { method: 'POST', path: '/dashboard/system/pick-file', endpoint: new SystemPickFileEndpoint() },
+]);
+
+export async function handleDashboardRoute(
+  ctx: ServerContext,
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  pathname: string,
+  _requestUrl: URL,
+): Promise<boolean> {
+  return await DASHBOARD_ROUTES.handle(ctx, req, res, pathname);
 }
