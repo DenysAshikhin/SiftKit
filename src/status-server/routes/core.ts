@@ -79,6 +79,7 @@ import {
   rememberCompletedStatusRequestId,
   getModelRequestQueueDiagnostics,
 } from '../server-ops.js';
+import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.js';
 import { getRuntimeDatabase } from '../../state/runtime-db.js';
 import type {
   ActiveRunState,
@@ -596,19 +597,15 @@ function drainTerminalMetadataQueue(ctx: ServerContext): void {
   }
 }
 
-export async function handleCoreRoute(
-  ctx: ServerContext,
-  req: http.IncomingMessage,
-  res: http.ServerResponse,
-): Promise<boolean> {
-  const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
-  const requestUrl = new URL(req.url || '/', 'http://localhost');
-
-  // -------------------------------------------------------------------------
-  // Health
-  // -------------------------------------------------------------------------
-
-  if (req.method === 'GET' && req.url === '/health') {
+class HealthEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    _match: RouteMatch,
+  ): Promise<void> {
+    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
     const startupPending = Boolean(ctx.bootstrapManagedLlamaStartup || ctx.managedLlamaStarting || ctx.managedLlamaStartupPromise);
     sendJson(res, startupPending ? 503 : 200, {
       ok: !startupPending,
@@ -620,14 +617,19 @@ export async function handleCoreRoute(
       idleSummarySnapshotsPath: ctx.idleSummarySnapshotsPath,
       runtimeRoot: getRuntimeRoot(),
     });
-    return true;
+    return;
   }
+}
 
-  // -------------------------------------------------------------------------
-  // Status (GET)
-  // -------------------------------------------------------------------------
-
-  if (req.method === 'GET' && req.url === '/status') {
+class StatusReadEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    _match: RouteMatch,
+  ): Promise<void> {
+    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
     const currentStatus = getPublishedStatusText(ctx);
     sendJson(res, 200, {
       running: currentStatus === STATUS_TRUE,
@@ -638,84 +640,121 @@ export async function handleCoreRoute(
       idleSummarySnapshotsPath: ctx.idleSummarySnapshotsPath,
       modelRequests: getModelRequestQueueDiagnostics(ctx),
     });
-    return true;
+    return;
   }
+}
 
-  // -------------------------------------------------------------------------
-  // Execution lease
-  // -------------------------------------------------------------------------
-
-  if (req.method === 'GET' && req.url === '/execution') {
+class ExecutionReadEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    _match: RouteMatch,
+  ): Promise<void> {
+    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
     const lease = getActiveExecutionLease(ctx);
     sendJson(res, 200, { busy: Boolean(lease), statusPath, configPath });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'POST' && req.url === '/execution/acquire') {
+class ExecutionAcquireEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    _match: RouteMatch,
+  ): Promise<void> {
+    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
     clearIdleSummaryTimer(ctx);
     const lease = getActiveExecutionLease(ctx);
     if (lease) {
       sendJson(res, 200, { ok: true, acquired: false, busy: true });
-      return true;
+      return;
     }
     const token = crypto.randomUUID();
     ctx.activeExecutionLease = { token, heartbeatAt: Date.now() };
     sendJson(res, 200, { ok: true, acquired: true, busy: true, token });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'POST' && req.url === '/execution/heartbeat') {
+class ExecutionHeartbeatEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    _match: RouteMatch,
+  ): Promise<void> {
+    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     const tokenRequest = parseExecutionTokenRequest(parsedBody);
     if (!tokenRequest) {
       sendJson(res, 400, { error: 'Expected token.' });
-      return true;
+      return;
     }
     const lease = getActiveExecutionLease(ctx);
     if (!lease || lease.token !== tokenRequest.token) {
       sendJson(res, 409, { error: 'Execution lease is not active.' });
-      return true;
+      return;
     }
     lease.heartbeatAt = Date.now();
     sendJson(res, 200, { ok: true, busy: true });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'POST' && req.url === '/execution/release') {
+class ExecutionReleaseEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    _match: RouteMatch,
+  ): Promise<void> {
+    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     const tokenRequest = parseExecutionTokenRequest(parsedBody);
     if (!tokenRequest) {
       sendJson(res, 400, { error: 'Expected token.' });
-      return true;
+      return;
     }
     const released = releaseExecutionLease(ctx, tokenRequest.token);
     sendJson(res, released ? 200 : 409, { ok: released, released, busy: Boolean(getActiveExecutionLease(ctx)) });
-    return true;
+    return;
   }
+}
 
-  // -------------------------------------------------------------------------
-  // Command output analysis
-  // -------------------------------------------------------------------------
-
-  if (req.method === 'POST' && req.url === '/command-output/analyze') {
+class CommandOutputAnalyzeEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    _match: RouteMatch,
+  ): Promise<void> {
+    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     const reader = new JsonRecordReader(parsedBody);
     const combinedText = typeof parsedBody.combinedText === 'string' ? parsedBody.combinedText : '';
@@ -725,14 +764,14 @@ export async function handleCoreRoute(
       if (!res.destroyed && !res.writableEnded) {
         sendJson(res, 503, { error: 'Timed out waiting for model request queue.', modelRequests: getModelRequestQueueDiagnostics(ctx) });
       }
-      return true;
+      return;
     }
     try {
       try {
         await ensureManagedLlamaReadyForModelRequest(ctx);
       } catch (error) {
         sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
-        return true;
+        return;
       }
       const result = await ctx.engineService.analyzeCommandOutput({
         outputKind: normalizeCommandOutputKind(parsedBody.outputKind),
@@ -755,30 +794,44 @@ export async function handleCoreRoute(
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
     }
-    return true;
+    return;
   }
+}
 
-  // -------------------------------------------------------------------------
-  // Presets
-  // -------------------------------------------------------------------------
-
-  if (req.method === 'GET' && req.url === '/preset/list') {
+class PresetListEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    _match: RouteMatch,
+  ): Promise<void> {
+    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
     try {
       const result = new StatusPresetRunner(ctx.engineService).listPresets();
       sendJson(res, 200, result);
     } catch (error) {
       sendServerErrorJson(req, res, 500, error, { taskKind: 'summary' });
     }
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'POST' && req.url === '/preset/run') {
+class PresetRunEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    _match: RouteMatch,
+  ): Promise<void> {
+    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     const reader = new JsonRecordReader(parsedBody);
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'summary', req, res);
@@ -786,14 +839,14 @@ export async function handleCoreRoute(
       if (!res.destroyed && !res.writableEnded) {
         sendJson(res, 503, { error: 'Timed out waiting for model request queue.', modelRequests: getModelRequestQueueDiagnostics(ctx) });
       }
-      return true;
+      return;
     }
     try {
       try {
         await ensureManagedLlamaReadyForModelRequest(ctx);
       } catch (error) {
         sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
-        return true;
+        return;
       }
       const result = await new StatusPresetRunner(ctx.engineService).run({
         presetId: String(parsedBody.presetId || ''),
@@ -818,20 +871,25 @@ export async function handleCoreRoute(
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
     }
-    return true;
+    return;
   }
+}
 
-  // -------------------------------------------------------------------------
-  // Eval
-  // -------------------------------------------------------------------------
-
-  if (req.method === 'POST' && req.url === '/eval/run') {
+class EvalRunEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    _match: RouteMatch,
+  ): Promise<void> {
+    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     const reader = new JsonRecordReader(parsedBody);
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'summary', req, res);
@@ -839,14 +897,14 @@ export async function handleCoreRoute(
       if (!res.destroyed && !res.writableEnded) {
         sendJson(res, 503, { error: 'Timed out waiting for model request queue.', modelRequests: getModelRequestQueueDiagnostics(ctx) });
       }
-      return true;
+      return;
     }
     try {
       try {
         await ensureManagedLlamaReadyForModelRequest(ctx);
       } catch (error) {
         sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
-        return true;
+        return;
       }
       const result = await ctx.engineService.runEvaluation({
         FixtureRoot: reader.optionalString('FixtureRoot'),
@@ -860,25 +918,30 @@ export async function handleCoreRoute(
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
     }
-    return true;
+    return;
   }
+}
 
-  // -------------------------------------------------------------------------
-  // Repo search (top-level, non-session)
-  // -------------------------------------------------------------------------
-
-  if (req.method === 'POST' && req.url === '/repo-search') {
+class RepoSearchEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    _match: RouteMatch,
+  ): Promise<void> {
+    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     const repoSearchRequest = parseRepoSearchRequest(parsedBody);
     if (!repoSearchRequest) {
       sendJson(res, 400, { error: 'Expected prompt.' });
-      return true;
+      return;
     }
     const reader = new JsonRecordReader(parsedBody);
     const admission = createRepoSearchAdmissionRecord(repoSearchRequest);
@@ -890,7 +953,7 @@ export async function handleCoreRoute(
         markRepoSearchAdmissionFailed(admission, message);
         sendJson(res, 503, { error: message, requestId: admission.requestId, modelRequests: getModelRequestQueueDiagnostics(ctx) });
       }
-      return true;
+      return;
     }
     try {
       try {
@@ -898,7 +961,7 @@ export async function handleCoreRoute(
       } catch (error) {
         markRepoSearchAdmissionFailed(admission, error instanceof Error ? error.message : String(error));
         sendServerErrorJson(req, res, 503, error, { taskKind: 'repo-search' });
-        return true;
+        return;
       }
       if (Number.isFinite(Number(parsedBody.simulateWorkMs)) && Number(parsedBody.simulateWorkMs) > 0) {
         await sleep(Math.max(1, Math.trunc(Number(parsedBody.simulateWorkMs))));
@@ -936,25 +999,30 @@ export async function handleCoreRoute(
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
     }
-    return true;
+    return;
   }
+}
 
-  // -------------------------------------------------------------------------
-  // Summary (top-level)
-  // -------------------------------------------------------------------------
-
-  if (req.method === 'POST' && req.url === '/summary') {
+class SummaryEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    _match: RouteMatch,
+  ): Promise<void> {
+    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     const summaryRequest = parseSummaryRequest(parsedBody);
     if (!summaryRequest) {
       sendJson(res, 400, { error: 'Expected question and inputText.' });
-      return true;
+      return;
     }
 
     const serviceBaseUrl = ctx.getServiceBaseUrl();
@@ -963,14 +1031,14 @@ export async function handleCoreRoute(
       if (!res.destroyed && !res.writableEnded) {
         sendJson(res, 503, { error: 'Timed out waiting for model request queue.', modelRequests: getModelRequestQueueDiagnostics(ctx) });
       }
-      return true;
+      return;
     }
     try {
       try {
         await ensureManagedLlamaReadyForModelRequest(ctx);
       } catch (error) {
         sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
-        return true;
+        return;
       }
       const result = await ctx.engineService.summarize({
         question: summaryRequest.question,
@@ -993,28 +1061,37 @@ export async function handleCoreRoute(
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
     }
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'POST' && requestUrl.pathname === '/status/complete') {
+class StatusCompleteEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    _match: RouteMatch,
+  ): Promise<void> {
+    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
     const routeStartedAt = Date.now();
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     const requestId = typeof parsedBody.requestId === 'string' ? parsedBody.requestId.trim() : '';
     const terminalState = typeof parsedBody.terminalState === 'string' ? parsedBody.terminalState.trim() : '';
     const completedStatusPath = statusPath;
     if (!requestId) {
       sendJson(res, 400, { error: 'Expected requestId.' });
-      return true;
+      return;
     }
     if (terminalState !== 'completed' && terminalState !== 'failed') {
       sendJson(res, 400, { error: 'Expected terminalState=completed|failed.' });
-      return true;
+      return;
     }
     logLine(`status complete_start request_id=${requestId} state=${terminalState}`);
     rememberCompletedStatusRequestId(ctx, completedStatusPath, requestId);
@@ -1027,32 +1104,34 @@ export async function handleCoreRoute(
       + `duration_ms=${Date.now() - routeStartedAt}`,
     );
     sendJson(res, 200, { ok: true, requestId, terminalState, statusPath: completedStatusPath });
-    return true;
+    return;
   }
+}
 
-  // -------------------------------------------------------------------------
-  // Status (POST)
-  // -------------------------------------------------------------------------
-
-  if (
-    req.method === 'POST'
-    && (req.url === '/status' || requestUrl.pathname === '/status/terminal-metadata')
-  ) {
+class StatusPostEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    _match: RouteMatch,
+  ): Promise<void> {
+    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
     const terminalMetadataPost = requestUrl.pathname === '/status/terminal-metadata';
     const bodyText = await readBody(req);
     const running = parseRunning(bodyText);
     if (running === null) {
       sendJson(res, 400, { error: 'Expected running=true|false or status=true|false.' });
-      return true;
+      return;
     }
     const metadata = parseStatusMetadata(bodyText);
     if (!terminalMetadataPost && !running && metadata.terminalState !== null) {
       sendJson(res, 400, { error: 'Terminal status must use /status/complete and /status/terminal-metadata.' });
-      return true;
+      return;
     }
     if (terminalMetadataPost && running) {
       sendJson(res, 400, { error: 'Terminal metadata requires running=false.' });
-      return true;
+      return;
     }
     if (
       terminalMetadataPost
@@ -1060,7 +1139,7 @@ export async function handleCoreRoute(
       && metadata.terminalState !== 'failed'
     ) {
       sendJson(res, 400, { error: 'Terminal metadata requires terminalState=completed|failed.' });
-      return true;
+      return;
     }
     const deferredMetadata = metadata.deferredMetadata
       ? parseStatusMetadataRecord(metadata.deferredMetadata)
@@ -1073,11 +1152,11 @@ export async function handleCoreRoute(
     }
     if (deferredMetadata && (running || metadata.terminalState === null)) {
       sendJson(res, 400, { error: 'deferredMetadata is only accepted on terminal running=false posts.' });
-      return true;
+      return;
     }
     if (metadata.deferredArtifacts && (running || metadata.terminalState === null)) {
       sendJson(res, 400, { error: 'deferredArtifacts are only accepted on terminal running=false posts.' });
-      return true;
+      return;
     }
     if (terminalMetadataPost) {
       const requestId = getResolvedRequestId(metadata, statusPath);
@@ -1089,21 +1168,21 @@ export async function handleCoreRoute(
       });
       const publishedStatus = getPublishedStatusText(ctx);
       sendJson(res, 200, { ok: true, queued: true, running: publishedStatus === STATUS_TRUE, status: publishedStatus, statusPath, configPath });
-      return true;
+      return;
     }
     if (metadata.artifactType !== null) {
       if (!metadata.artifactRequestId) {
         sendJson(res, 400, { error: 'Expected artifactRequestId when artifactType is provided.' });
-        return true;
+        return;
       }
       if (!metadata.artifactPayload) {
         sendJson(res, 400, { error: 'Expected artifactPayload object when artifactType is provided.' });
-        return true;
+        return;
       }
       const artifactPath = getStatusArtifactPath(metadata);
       if (!artifactPath) {
         sendJson(res, 400, { error: 'Unsupported artifactType.' });
-        return true;
+        return;
       }
       try {
         upsertRuntimeJsonArtifact({
@@ -1124,7 +1203,7 @@ export async function handleCoreRoute(
           taskKind: metadata.taskKind ?? null,
           requestId: metadata.requestId ?? null,
         });
-        return true;
+        return;
       }
     }
     const isArtifactOnlyPost = metadata.artifactType !== null
@@ -1154,7 +1233,7 @@ export async function handleCoreRoute(
     if (isArtifactOnlyPost) {
       const publishedStatus = getPublishedStatusText(ctx);
       sendJson(res, 200, { ok: true, running: publishedStatus === STATUS_TRUE, status: publishedStatus, statusPath, configPath });
-      return true;
+      return;
     }
     const requestId = getResolvedRequestId(metadata, statusPath);
     clearCompletedStatusRequestIdForDifferentRequest(ctx, statusPath, requestId);
@@ -1162,7 +1241,7 @@ export async function handleCoreRoute(
       logLine(`request late_running_ignored request_id=${requestId} task=${metadata.taskKind ?? 'unknown'}`);
       const publishedStatus = getPublishedStatusText(ctx);
       sendJson(res, 200, { ok: true, running: publishedStatus === STATUS_TRUE, status: publishedStatus, statusPath, configPath });
-      return true;
+      return;
     }
     if (running && normalizeTaskKind(metadata.taskKind) !== null && !ctx.activeModelRequest) {
       wakeManagedLlamaForIncomingModelRequest(ctx);
@@ -1487,20 +1566,25 @@ export async function handleCoreRoute(
       enqueueDeferredArtifacts(ctx, metadata.deferredArtifacts);
     }
     sendJson(res, 200, { ok: true, running: publishedStatus === STATUS_TRUE, status: publishedStatus, statusPath, configPath });
-    return true;
+    return;
   }
+}
 
-  // -------------------------------------------------------------------------
-  // Config
-  // -------------------------------------------------------------------------
-
-  if (req.method === 'POST' && requestUrl.pathname === '/config/llama-cpp/test') {
+class LlamaCppConfigTestEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    _match: RouteMatch,
+  ): Promise<void> {
+    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { ok: false, statusCode: 0, error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     const baseUrl = typeof parsedBody.BaseUrl === 'string' && parsedBody.BaseUrl.trim()
       ? parsedBody.BaseUrl.trim().replace(/\/$/u, '')
@@ -1510,11 +1594,11 @@ export async function handleCoreRoute(
       parsedUrl = new URL(baseUrl);
     } catch {
       sendJson(res, 400, { ok: false, statusCode: 0, error: 'BaseUrl must be an http(s) URL.' });
-      return true;
+      return;
     }
     if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
       sendJson(res, 400, { ok: false, statusCode: 0, error: 'BaseUrl must be an http(s) URL.' });
-      return true;
+      return;
     }
     const timeoutMs = Number.isFinite(Number(parsedBody.HealthcheckTimeoutMs)) && Number(parsedBody.HealthcheckTimeoutMs) > 0
       ? Math.min(Math.trunc(Number(parsedBody.HealthcheckTimeoutMs)), 30_000)
@@ -1534,34 +1618,52 @@ export async function handleCoreRoute(
         error: error instanceof Error ? error.message : String(error),
       });
     }
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'GET' && requestUrl.pathname === '/config') {
+class ConfigReadEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    _match: RouteMatch,
+  ): Promise<void> {
+    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
     const skipReady = requestUrl.searchParams.get('skip_ready') === '1';
     try {
       if (skipReady || disableManagedLlamaStartup) {
         sendJson(res, 200, readConfig(configPath));
-        return true;
+        return;
       }
       if (ctx.bootstrapManagedLlamaStartup && (ctx.managedLlamaStarting || ctx.managedLlamaStartupPromise)) {
         sendJson(res, 200, readConfig(configPath));
-        return true;
+        return;
       }
       sendJson(res, 200, await ctx.ensureManagedLlamaReady({ allowUnconfigured: true }));
     } catch (error) {
       sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
     }
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'PUT' && requestUrl.pathname === '/config') {
+class ConfigUpdateEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    _match: RouteMatch,
+  ): Promise<void> {
+    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
     let parsedBody: unknown;
     try {
       parsedBody = JSON.parse(await readBody(req) || '{}') as unknown;
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     const baseConfig = readConfig(configPath);
     const nextConfig = isStrictConfigPayload(parsedBody)
@@ -1569,18 +1671,27 @@ export async function handleCoreRoute(
       : normalizeConfig(mergeConfig(baseConfig, parsedBody));
     writeConfig(configPath, nextConfig);
     sendJson(res, 200, nextConfig);
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'POST' && req.url === '/status/restart') {
+class StatusRestartEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    _match: RouteMatch,
+  ): Promise<void> {
+    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
     if (disableManagedLlamaStartup) {
       sendJson(res, 400, { ok: false, restarted: false, error: 'Managed backend restart is disabled for this server.' });
-      return true;
+      return;
     }
     const currentConfig = readConfig(configPath);
     if (String(currentConfig.Backend || '').trim().toLowerCase() !== 'llama.cpp') {
       sendJson(res, 400, { ok: false, restarted: false, error: 'Backend restart is only supported for llama.cpp.' });
-      return true;
+      return;
     }
     try {
       await ctx.shutdownManagedLlamaIfNeeded({ force: true, timeoutMs: 10_000 });
@@ -1595,8 +1706,37 @@ export async function handleCoreRoute(
         startupFailure,
       });
     }
-    return true;
+    return;
   }
+}
+const STATUS_POST_ENDPOINT = new StatusPostEndpoint();
 
-  return false;
+const CORE_ROUTES = new RouteTable([
+  { method: 'GET', path: '/health', endpoint: new HealthEndpoint() },
+  { method: 'GET', path: '/status', endpoint: new StatusReadEndpoint() },
+  { method: 'GET', path: '/execution', endpoint: new ExecutionReadEndpoint() },
+  { method: 'POST', path: '/execution/acquire', endpoint: new ExecutionAcquireEndpoint() },
+  { method: 'POST', path: '/execution/heartbeat', endpoint: new ExecutionHeartbeatEndpoint() },
+  { method: 'POST', path: '/execution/release', endpoint: new ExecutionReleaseEndpoint() },
+  { method: 'POST', path: '/command-output/analyze', endpoint: new CommandOutputAnalyzeEndpoint() },
+  { method: 'GET', path: '/preset/list', endpoint: new PresetListEndpoint() },
+  { method: 'POST', path: '/preset/run', endpoint: new PresetRunEndpoint() },
+  { method: 'POST', path: '/eval/run', endpoint: new EvalRunEndpoint() },
+  { method: 'POST', path: '/repo-search', endpoint: new RepoSearchEndpoint() },
+  { method: 'POST', path: '/summary', endpoint: new SummaryEndpoint() },
+  { method: 'POST', path: /^\/status\/complete(?:\?.*)?$/u, endpoint: new StatusCompleteEndpoint() },
+  { method: 'POST', path: '/status', endpoint: STATUS_POST_ENDPOINT },
+  { method: 'POST', path: /^\/status\/terminal-metadata(?:\?.*)?$/u, endpoint: STATUS_POST_ENDPOINT },
+  { method: 'POST', path: /^\/config\/llama-cpp\/test(?:\?.*)?$/u, endpoint: new LlamaCppConfigTestEndpoint() },
+  { method: 'GET', path: /^\/config(?:\?.*)?$/u, endpoint: new ConfigReadEndpoint() },
+  { method: 'PUT', path: /^\/config(?:\?.*)?$/u, endpoint: new ConfigUpdateEndpoint() },
+  { method: 'POST', path: '/status/restart', endpoint: new StatusRestartEndpoint() },
+]);
+
+export async function handleCoreRoute(
+  ctx: ServerContext,
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): Promise<boolean> {
+  return await CORE_ROUTES.handle(ctx, req, res, req.url || '/');
 }

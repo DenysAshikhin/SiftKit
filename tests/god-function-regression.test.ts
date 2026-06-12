@@ -12,6 +12,7 @@ type FunctionLimit = {
 const limits: FunctionLimit[] = [
   { filePath: 'src/summary/planner/mode.ts', symbol: 'invokePlannerMode', maxLines: 180 },
   { filePath: 'src/status-server/routes/chat.ts', symbol: 'handleChatRoute', maxLines: 60 },
+  { filePath: 'src/status-server/routes/core.ts', symbol: 'handleCoreRoute', maxLines: 60 },
 ];
 
 function findFunctionBodyStart(sourceText: string, symbol: string): number {
