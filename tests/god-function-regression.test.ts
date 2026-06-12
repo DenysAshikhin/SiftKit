@@ -15,11 +15,15 @@ const limits: FunctionLimit[] = [
   { filePath: 'src/status-server/routes/core.ts', symbol: 'handleCoreRoute', maxLines: 60 },
   { filePath: 'src/status-server/routes/dashboard.ts', symbol: 'handleDashboardRoute', maxLines: 70 },
   { filePath: 'src/status-server/routes/llama-passthrough.ts', symbol: 'handleLlamaPassthroughRoute', maxLines: 60 },
+  { filePath: 'src/summary/core-runner.ts', symbol: 'invokeSummaryCore', maxLines: 10 },
+  { filePath: 'src/summary/core-runner.ts', symbol: 'run', maxLines: 35 },
 ];
 
 function findFunctionBodyStart(sourceText: string, symbol: string): number {
   const startPattern = new RegExp(
-    `(?:export\\s+)?(?:async\\s+)?function\\s+${symbol}\\b|(?:export\\s+)?(?:const|let)\\s+${symbol}\\b`,
+    `(?:export\\s+)?(?:async\\s+)?function\\s+${symbol}\\b`
+      + `|(?:export\\s+)?(?:const|let)\\s+${symbol}\\b`
+      + `|(?:private\\s+|public\\s+|protected\\s+)?(?:async\\s+)?${symbol}\\s*\\(`,
     'u',
   );
   const startMatch = startPattern.exec(sourceText);
