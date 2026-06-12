@@ -90,6 +90,7 @@ import {
   releaseModelRequest,
   ensureManagedLlamaReadyForModelRequest,
 } from '../server-ops.js';
+import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.js';
 import type { ServerContext } from '../server-types.js';
 
 const DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_MS = 30_000;
@@ -462,58 +463,66 @@ function readManagedLlamaSessionSpeculativeMetrics(
   };
 }
 
-export async function handleChatRoute(
-  ctx: ServerContext,
-  req: http.IncomingMessage,
-  res: http.ServerResponse,
-  pathname: string,
-): Promise<boolean> {
-  const runtimeRoot = getRuntimeRoot();
-  const { configPath } = ctx;
-
-  // -------------------------------------------------------------------------
-  // List sessions
-  // -------------------------------------------------------------------------
-
-  if (req.method === 'GET' && pathname === '/dashboard/chat/sessions') {
+class ListChatSessionsEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    routeMatch: RouteMatch,
+  ): Promise<void> {
+    const pathname = routeMatch.pathname;
+    const { configPath } = ctx;
+    const runtimeRoot = getRuntimeRoot();
     const config = readConfig(configPath);
     sendJson(res, 200, { sessions: readChatSessions(runtimeRoot).map((session) => withPromptContext(config, session)) });
-    return true;
+    return;
   }
+}
 
-  // -------------------------------------------------------------------------
-  // Get single session
-  // -------------------------------------------------------------------------
-
-  if (req.method === 'GET' && /^\/dashboard\/chat\/sessions\/[^/]+$/u.test(pathname)) {
+class GetChatSessionEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    routeMatch: RouteMatch,
+  ): Promise<void> {
+    const pathname = routeMatch.pathname;
+    const { configPath } = ctx;
+    const runtimeRoot = getRuntimeRoot();
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, ''));
     const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
     if (!session) {
       sendJson(res, 404, { error: 'Session not found.' });
-      return true;
+      return;
     }
     sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), session));
-    return true;
+    return;
   }
+}
 
-  // -------------------------------------------------------------------------
-  // Update session
-  // -------------------------------------------------------------------------
-
-  if (req.method === 'PUT' && /^\/dashboard\/chat\/sessions\/[^/]+$/u.test(pathname)) {
+class UpdateChatSessionEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    routeMatch: RouteMatch,
+  ): Promise<void> {
+    const pathname = routeMatch.pathname;
+    const { configPath } = ctx;
+    const runtimeRoot = getRuntimeRoot();
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, ''));
     const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
     const session = readChatSessionFromPath(sessionPath);
     if (!session) {
       sendJson(res, 404, { error: 'Session not found.' });
-      return true;
+      return;
     }
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     const updateRequest = parseChatSessionUpdateRequest(parsedBody);
     const updated: ChatSession = { ...session, updatedAtUtc: new Date().toISOString() };
@@ -541,32 +550,48 @@ export async function handleChatRoute(
     }
     saveChatSession(runtimeRoot, updated);
     sendJson(res, 200, buildChatSessionResponse(currentConfig, updated));
-    return true;
+    return;
   }
+}
 
-  // -------------------------------------------------------------------------
-  // Delete session
-  // -------------------------------------------------------------------------
-
-  if (req.method === 'DELETE' && /^\/dashboard\/chat\/sessions\/[^/]+$/u.test(pathname)) {
+class DeleteChatSessionEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    routeMatch: RouteMatch,
+  ): Promise<void> {
+    const pathname = routeMatch.pathname;
+    const { configPath } = ctx;
+    const runtimeRoot = getRuntimeRoot();
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, ''));
     const deleted = deleteChatSession(runtimeRoot, sessionId);
     if (!deleted) {
       sendJson(res, 404, { error: 'Session not found.' });
-      return true;
+      return;
     }
     sendJson(res, 200, { ok: true, deleted: true, id: sessionId });
-    return true;
+    return;
   }
+}
 
-  if (req.method === 'DELETE' && /^\/dashboard\/chat\/sessions\/[^/]+\/messages\/[^/]+$/u.test(pathname)) {
+class DeleteChatMessageEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    routeMatch: RouteMatch,
+  ): Promise<void> {
+    const pathname = routeMatch.pathname;
+    const { configPath } = ctx;
+    const runtimeRoot = getRuntimeRoot();
     const match = /^\/dashboard\/chat\/sessions\/([^/]+)\/messages\/([^/]+)$/u.exec(pathname);
     const sessionId = decodeURIComponent(match?.[1] || '');
     const messageId = decodeURIComponent(match?.[2] || '');
     const result = deleteChatMessage(runtimeRoot, sessionId, messageId);
     if (!result) {
       sendJson(res, 404, { error: 'Message not found.' });
-      return true;
+      return;
     }
     const deletedMessage = result.deletedMessage;
     const runId = typeof deletedMessage.sourceRunId === 'string' ? deletedMessage.sourceRunId.trim() : '';
@@ -578,20 +603,26 @@ export async function handleChatRoute(
     }
     const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId)) || result.session;
     sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), session));
-    return true;
+    return;
   }
+}
 
-  // -------------------------------------------------------------------------
-  // Create session
-  // -------------------------------------------------------------------------
-
-  if (req.method === 'POST' && pathname === '/dashboard/chat/sessions') {
+class CreateChatSessionEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    routeMatch: RouteMatch,
+  ): Promise<void> {
+    const pathname = routeMatch.pathname;
+    const { configPath } = ctx;
+    const runtimeRoot = getRuntimeRoot();
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     const createRequest = parseChatSessionCreateRequest(parsedBody);
     const now = new Date().toISOString();
@@ -616,43 +647,49 @@ export async function handleChatRoute(
     };
     saveChatSession(runtimeRoot, session);
     sendJson(res, 200, buildChatSessionResponse(currentConfig, session));
-    return true;
+    return;
   }
+}
 
-  // -------------------------------------------------------------------------
-  // Post message (non-streaming)
-  // -------------------------------------------------------------------------
-
-  if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/messages$/u.test(pathname)) {
+class CreateChatMessageEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    routeMatch: RouteMatch,
+  ): Promise<void> {
+    const pathname = routeMatch.pathname;
+    const { configPath } = ctx;
+    const runtimeRoot = getRuntimeRoot();
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/messages$/u, ''));
     const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
     const session = readChatSessionFromPath(sessionPath);
     if (!session) {
       sendJson(res, 404, { error: 'Session not found.' });
-      return true;
+      return;
     }
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     const messageRequest = parseChatMessageRequest(parsedBody);
     if (!messageRequest) {
       sendJson(res, 400, { error: 'Expected content.' });
-      return true;
+      return;
     }
     const usesProvidedAssistantContent = Boolean(messageRequest.assistantContent);
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat', req, res);
     if (!modelRequestLock) {
-      return true;
+      return;
     }
     const activeSession = readChatSessionFromPath(sessionPath);
     if (!activeSession) {
       releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 404, { error: 'Session not found.' });
-      return true;
+      return;
     }
     if (!usesProvidedAssistantContent) {
       try {
@@ -660,7 +697,7 @@ export async function handleChatRoute(
       } catch (error) {
         releaseModelRequest(ctx, modelRequestLock.token);
         sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
-        return true;
+        return;
       }
     }
     const userContent = messageRequest.content;
@@ -771,49 +808,55 @@ export async function handleChatRoute(
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
     }
-    return true;
+    return;
   }
+}
 
-  // -------------------------------------------------------------------------
-  // Post message (streaming)
-  // -------------------------------------------------------------------------
-
-  if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/messages\/stream$/u.test(pathname)) {
+class StreamChatMessageEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    routeMatch: RouteMatch,
+  ): Promise<void> {
+    const pathname = routeMatch.pathname;
+    const { configPath } = ctx;
+    const runtimeRoot = getRuntimeRoot();
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/messages\/stream$/u, ''));
     const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
     const session = readChatSessionFromPath(sessionPath);
     if (!session) {
       sendJson(res, 404, { error: 'Session not found.' });
-      return true;
+      return;
     }
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     const messageRequest = parseChatMessageRequest(parsedBody);
     if (!messageRequest) {
       sendJson(res, 400, { error: 'Expected content.' });
-      return true;
+      return;
     }
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat_stream', req, res);
     if (!modelRequestLock) {
-      return true;
+      return;
     }
     const activeSession = readChatSessionFromPath(sessionPath);
     if (!activeSession) {
       releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 404, { error: 'Session not found.' });
-      return true;
+      return;
     }
     try {
       await ensureManagedLlamaReadyForModelRequest(ctx);
     } catch (error) {
       releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
-      return true;
+      return;
     }
     let clientDisconnected = false;
     req.on('close', () => { clientDisconnected = true; });
@@ -963,54 +1006,60 @@ export async function handleChatRoute(
       releaseModelRequest(ctx, modelRequestLock.token);
       res.end();
     }
-    return true;
+    return;
   }
+}
 
-  // -------------------------------------------------------------------------
-  // Plan (non-streaming)
-  // -------------------------------------------------------------------------
-
-  if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/plan$/u.test(pathname)) {
+class CreateChatPlanEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    routeMatch: RouteMatch,
+  ): Promise<void> {
+    const pathname = routeMatch.pathname;
+    const { configPath } = ctx;
+    const runtimeRoot = getRuntimeRoot();
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/plan$/u, ''));
     const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
     const session = readChatSessionFromPath(sessionPath);
     if (!session) {
       sendJson(res, 404, { error: 'Session not found.' });
-      return true;
+      return;
     }
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     const repoRequest = parseChatRepoRequest(parsedBody);
     if (!repoRequest) {
       sendJson(res, 400, { error: 'Expected content.' });
-      return true;
+      return;
     }
     const resolvedRepoRoot = resolveChatRepoRoot(repoRequest, session);
     if (!fs.existsSync(resolvedRepoRoot) || !fs.statSync(resolvedRepoRoot).isDirectory()) {
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
-      return true;
+      return;
     }
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_plan', req, res);
     if (!modelRequestLock) {
-      return true;
+      return;
     }
     const activeSession = readChatSessionFromPath(sessionPath);
     if (!activeSession) {
       releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 404, { error: 'Session not found.' });
-      return true;
+      return;
     }
     try {
       try {
         await ensureManagedLlamaReadyForModelRequest(ctx);
       } catch (error) {
         sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
-        return true;
+        return;
       }
       const startedAt = Date.now();
       const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
@@ -1108,54 +1157,60 @@ export async function handleChatRoute(
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
     }
-    return true;
+    return;
   }
+}
 
-  // -------------------------------------------------------------------------
-  // Plan (streaming)
-  // -------------------------------------------------------------------------
-
-  if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/plan\/stream$/u.test(pathname)) {
+class StreamChatPlanEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    routeMatch: RouteMatch,
+  ): Promise<void> {
+    const pathname = routeMatch.pathname;
+    const { configPath } = ctx;
+    const runtimeRoot = getRuntimeRoot();
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/plan\/stream$/u, ''));
     const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
     const session = readChatSessionFromPath(sessionPath);
     if (!session) {
       sendJson(res, 404, { error: 'Session not found.' });
-      return true;
+      return;
     }
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     const repoRequest = parseChatRepoRequest(parsedBody);
     if (!repoRequest) {
       sendJson(res, 400, { error: 'Expected content.' });
-      return true;
+      return;
     }
     const resolvedRepoRoot = resolveChatRepoRoot(repoRequest, session);
     if (!fs.existsSync(resolvedRepoRoot) || !fs.statSync(resolvedRepoRoot).isDirectory()) {
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
-      return true;
+      return;
     }
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_plan_stream', req, res);
     if (!modelRequestLock) {
-      return true;
+      return;
     }
     const activeSession = readChatSessionFromPath(sessionPath);
     if (!activeSession) {
       releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 404, { error: 'Session not found.' });
-      return true;
+      return;
     }
     try {
       await ensureManagedLlamaReadyForModelRequest(ctx);
     } catch (error) {
       releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
-      return true;
+      return;
     }
     let clientDisconnected = false;
     req.on('close', () => { clientDisconnected = true; });
@@ -1272,33 +1327,39 @@ export async function handleChatRoute(
       releaseModelRequest(ctx, modelRequestLock.token);
       res.end();
     }
-    return true;
+    return;
   }
+}
 
-  // -------------------------------------------------------------------------
-  // Repo-search auto-append preview
-  // -------------------------------------------------------------------------
-
-  if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/repo-search\/append-preview$/u.test(pathname)) {
+class PreviewRepoSearchAppendEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    routeMatch: RouteMatch,
+  ): Promise<void> {
+    const pathname = routeMatch.pathname;
+    const { configPath } = ctx;
+    const runtimeRoot = getRuntimeRoot();
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/repo-search\/append-preview$/u, ''));
     const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
     const session = readChatSessionFromPath(sessionPath);
     if (!session) {
       sendJson(res, 404, { error: 'Session not found.' });
-      return true;
+      return;
     }
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     const appendPreviewRequest = parseChatRepoAppendPreviewRequest(parsedBody);
     const resolvedRepoRoot = resolveChatRepoRoot(appendPreviewRequest, session);
     if (!fs.existsSync(resolvedRepoRoot) || !fs.statSync(resolvedRepoRoot).isDirectory()) {
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
-      return true;
+      return;
     }
     const config = readConfig(configPath);
     const presets = normalizePresets(config.Presets);
@@ -1326,54 +1387,60 @@ export async function handleChatRoute(
         config,
       }),
     });
-    return true;
+    return;
   }
+}
 
-  // -------------------------------------------------------------------------
-  // Repo-search (streaming, session-scoped)
-  // -------------------------------------------------------------------------
-
-  if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/repo-search\/stream$/u.test(pathname)) {
+class StreamRepoSearchEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    routeMatch: RouteMatch,
+  ): Promise<void> {
+    const pathname = routeMatch.pathname;
+    const { configPath } = ctx;
+    const runtimeRoot = getRuntimeRoot();
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/repo-search\/stream$/u, ''));
     const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
     const session = readChatSessionFromPath(sessionPath);
     if (!session) {
       sendJson(res, 404, { error: 'Session not found.' });
-      return true;
+      return;
     }
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return true;
+      return;
     }
     const repoRequest = parseChatRepoRequest(parsedBody);
     if (!repoRequest) {
       sendJson(res, 400, { error: 'Expected content.' });
-      return true;
+      return;
     }
     const resolvedRepoRoot = resolveChatRepoRoot(repoRequest, session);
     if (!fs.existsSync(resolvedRepoRoot) || !fs.statSync(resolvedRepoRoot).isDirectory()) {
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
-      return true;
+      return;
     }
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_repo_search_stream', req, res);
     if (!modelRequestLock) {
-      return true;
+      return;
     }
     const activeSession = readChatSessionFromPath(sessionPath);
     if (!activeSession) {
       releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 404, { error: 'Session not found.' });
-      return true;
+      return;
     }
     try {
       await ensureManagedLlamaReadyForModelRequest(ctx);
     } catch (error) {
       releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
-      return true;
+      return;
     }
     let clientDisconnected = false;
     req.on('close', () => { clientDisconnected = true; });
@@ -1490,24 +1557,52 @@ export async function handleChatRoute(
       releaseModelRequest(ctx, modelRequestLock.token);
       res.end();
     }
-    return true;
+    return;
   }
+}
 
-  // -------------------------------------------------------------------------
-  // Condense session
-  // -------------------------------------------------------------------------
-
-  if (req.method === 'POST' && /^\/dashboard\/chat\/sessions\/[^/]+\/condense$/u.test(pathname)) {
+class CondenseChatSessionEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    routeMatch: RouteMatch,
+  ): Promise<void> {
+    const pathname = routeMatch.pathname;
+    const { configPath } = ctx;
+    const runtimeRoot = getRuntimeRoot();
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/condense$/u, ''));
     const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
     if (!session) {
       sendJson(res, 404, { error: 'Session not found.' });
-      return true;
+      return;
     }
     const updatedSession = condenseChatSession(runtimeRoot, session);
     sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), updatedSession));
-    return true;
+    return;
   }
+}
+const CHAT_ROUTES = new RouteTable([
+  { method: 'GET', path: '/dashboard/chat/sessions', endpoint: new ListChatSessionsEndpoint() },
+  { method: 'GET', path: /^\/dashboard\/chat\/sessions\/([^/]+)$/u, endpoint: new GetChatSessionEndpoint() },
+  { method: 'PUT', path: /^\/dashboard\/chat\/sessions\/([^/]+)$/u, endpoint: new UpdateChatSessionEndpoint() },
+  { method: 'DELETE', path: /^\/dashboard\/chat\/sessions\/([^/]+)$/u, endpoint: new DeleteChatSessionEndpoint() },
+  { method: 'DELETE', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/messages\/([^/]+)$/u, endpoint: new DeleteChatMessageEndpoint() },
+  { method: 'POST', path: '/dashboard/chat/sessions', endpoint: new CreateChatSessionEndpoint() },
+  { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/messages$/u, endpoint: new CreateChatMessageEndpoint() },
+  { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/messages\/stream$/u, endpoint: new StreamChatMessageEndpoint() },
+  { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/plan$/u, endpoint: new CreateChatPlanEndpoint() },
+  { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/plan\/stream$/u, endpoint: new StreamChatPlanEndpoint() },
+  { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-search\/append-preview$/u, endpoint: new PreviewRepoSearchAppendEndpoint() },
+  { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-search\/stream$/u, endpoint: new StreamRepoSearchEndpoint() },
+  { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/condense$/u, endpoint: new CondenseChatSessionEndpoint() },
+]);
 
-  return false;
+export async function handleChatRoute(
+  ctx: ServerContext,
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  pathname: string,
+): Promise<boolean> {
+  return await CHAT_ROUTES.handle(ctx, req, res, pathname);
 }

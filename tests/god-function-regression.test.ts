@@ -11,6 +11,7 @@ type FunctionLimit = {
 
 const limits: FunctionLimit[] = [
   { filePath: 'src/summary/planner/mode.ts', symbol: 'invokePlannerMode', maxLines: 180 },
+  { filePath: 'src/status-server/routes/chat.ts', symbol: 'handleChatRoute', maxLines: 60 },
 ];
 
 function findFunctionBodyStart(sourceText: string, symbol: string): number {
@@ -39,7 +40,7 @@ function countFunctionLines(sourceText: string, symbol: string): number {
   throw new Error(`Could not find end of ${symbol}`);
 }
 
-test('touched planner entrypoint stays below god-function limit', () => {
+test('touched planner and route entrypoints stay below god-function limits', () => {
   for (const limit of limits) {
     const absolutePath = path.join(process.cwd(), limit.filePath);
     const lineCount = countFunctionLines(fs.readFileSync(absolutePath, 'utf8'), limit.symbol);
