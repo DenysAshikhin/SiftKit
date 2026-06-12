@@ -15,8 +15,10 @@ const limits: FunctionLimit[] = [
   { filePath: 'src/status-server/routes/core.ts', symbol: 'handleCoreRoute', maxLines: 60 },
   { filePath: 'src/status-server/routes/dashboard.ts', symbol: 'handleDashboardRoute', maxLines: 70 },
   { filePath: 'src/status-server/routes/llama-passthrough.ts', symbol: 'handleLlamaPassthroughRoute', maxLines: 60 },
+  { filePath: 'src/summary/core.ts', symbol: 'summarizeRequest', maxLines: 10 },
   { filePath: 'src/summary/core-runner.ts', symbol: 'invokeSummaryCore', maxLines: 10 },
   { filePath: 'src/summary/core-runner.ts', symbol: 'run', maxLines: 35 },
+  { filePath: 'src/summary/request-runner.ts', symbol: 'run', maxLines: 35 },
 ];
 
 function findFunctionBodyStart(sourceText: string, symbol: string): number {

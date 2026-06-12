@@ -23,6 +23,7 @@
     "tests/god-function-regression.test.ts",
     "tests/summary-planner-runtime.test.ts",
     "tests/summary-core-runner.test.ts",
+    "tests/summary-request-runner.test.ts",
     "tests/status-route-table.test.ts"
   ]
 }
