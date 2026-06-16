@@ -12,13 +12,14 @@ $ErrorActionPreference = 'Stop'
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $scriptRoot
 $nodeExe = (Get-Command node.exe -CommandType Application).Source
-$entrypoint = Join-Path $repoRoot 'dist\benchmark-matrix.js'
+$tsxCli = Join-Path $repoRoot 'node_modules\tsx\dist\cli.mjs'
+$entrypoint = Join-Path $repoRoot 'bench\benchmark-matrix\index.ts'
 
 if (-not (Test-Path -LiteralPath $entrypoint)) {
-    throw "Benchmark matrix entrypoint not found: $entrypoint. Run 'npm run build' first."
+    throw "Benchmark matrix entrypoint not found: $entrypoint."
 }
 
-$arguments = @($entrypoint)
+$arguments = @($tsxCli, $entrypoint)
 if (-not [string]::IsNullOrWhiteSpace($ManifestPath)) {
     $arguments += @('--manifest-path', $ManifestPath)
 }

@@ -10,7 +10,7 @@ import {
   buildLauncherArgs,
   buildBenchmarkArgs,
   pruneOldLauncherLogs,
-} from '../dist/benchmark-matrix/index.js';
+} from '../bench/benchmark-matrix/index.js';
 
 type MatrixTarget = Parameters<typeof buildLaunchSignature>[0];
 type MatrixManifest = Parameters<typeof buildLauncherArgs>[0];

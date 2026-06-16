@@ -623,13 +623,14 @@ test('package test command runs the test TypeScript typecheck', () => {
   assert.match(String(pkg.scripts?.test || ''), /npm run typecheck:test/u);
 });
 
-test('package typecheck command is available for repo, scripts, dashboard, and tests', () => {
+test('package typecheck command is available for repo, scripts, dashboard, bench, and tests', () => {
   const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { scripts?: Record<string, string> };
 
   assert.equal(
     String(pkg.scripts?.typecheck),
-    'tsc -p .\\tsconfig.json --noEmit && tsc -p .\\tsconfig.scripts.json --noEmit && tsc -p .\\dashboard\\tsconfig.json --noEmit && npm run typecheck:test',
+    'tsc -p .\\tsconfig.json --noEmit && tsc -p .\\tsconfig.scripts.json --noEmit && tsc -p .\\dashboard\\tsconfig.json --noEmit && npm run typecheck:bench && npm run typecheck:test',
   );
+  assert.equal(String(pkg.scripts?.['typecheck:bench']), 'tsc -p .\\tsconfig.bench.json --noEmit');
 });
 
 test('syncDistRuntime copies fresh compiled files from dist/src into runtime dist paths', () => {

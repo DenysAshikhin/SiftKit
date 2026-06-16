@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
-import { appendBenchmarkMatrixLogChunk } from '../state/benchmark-matrix.js';
-import { sleep } from '../lib/time.js';
+import { appendBenchmarkMatrixLogChunk } from '../../src/state/benchmark-matrix.js';
+import { sleep } from '../../src/lib/time.js';
 import { getRequiredString } from './args.js';
 import { invokeConfigGet, getRuntimeLlamaCppConfigValue, waitForLlamaReadiness } from './config-rpc.js';
 import { spawnAndWait } from './process.js';

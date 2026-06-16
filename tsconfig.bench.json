@@ -5,6 +5,7 @@
     "rootDir": "."
   },
   "include": [
-    "bench/**/*.ts"
+    "bench/**/*.ts",
+    "src/types/**/*.d.ts"
   ]
 }

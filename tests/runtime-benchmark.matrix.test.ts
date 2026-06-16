@@ -191,7 +191,7 @@ test('benchmark matrix defaults request timeout to 30 minutes when omitted', asy
   });
 });
 
-test('benchmark matrix marks interrupted runs failed, preserves benchmark logs, and restores baseline', async () => {
+test('benchmark matrix marks interrupted runs failed, preserves benchmark logs, and restores baseline', { timeout: 60000 }, async () => {
   await withTempEnv(async (tempRoot) => {
     await withStubServer(async (server) => {
       const fixtureRoot = path.join(tempRoot, 'bench-fixtures');
@@ -201,9 +201,6 @@ test('benchmark matrix marks interrupted runs failed, preserves benchmark logs, 
       const stopScriptPath = path.join(scriptsRoot, 'stop.ps1');
       const modelPath = path.join(scriptsRoot, `${server.state.config.Runtime.Model}.gguf`);
       const manifestPath = path.join(tempRoot, 'matrix.json');
-      const benchmarkEntrypointPath = path.join(process.cwd(), 'dist', 'benchmark.js');
-      const benchmarkIndexPath = path.join(process.cwd(), 'dist', 'benchmark', 'index.js');
-      const createdBenchmarkEntrypoint = !fs.existsSync(benchmarkEntrypointPath) && fs.existsSync(benchmarkIndexPath);
 
       fs.mkdirSync(fixtureRoot, { recursive: true });
       fs.mkdirSync(scriptsRoot, { recursive: true });
@@ -220,9 +217,6 @@ test('benchmark matrix marks interrupted runs failed, preserves benchmark logs, 
       fs.writeFileSync(modelPath, '', 'utf8');
       fs.writeFileSync(startScriptPath, 'Start-Sleep -Seconds 2\n', 'utf8');
       fs.writeFileSync(stopScriptPath, 'exit 0\n', 'utf8');
-      if (createdBenchmarkEntrypoint) {
-        fs.writeFileSync(benchmarkEntrypointPath, "require('./benchmark/index.js');\n", 'utf8');
-      }
       fs.writeFileSync(manifestPath, JSON.stringify({
         fixtureRoot,
         configUrl: server.configUrl,
@@ -260,51 +254,47 @@ test('benchmark matrix marks interrupted runs failed, preserves benchmark logs, 
         ],
       }, null, 2), 'utf8');
 
-      try {
-        let rejectInterrupted;
-        const interrupted = new Promise((_, reject) => {
-          rejectInterrupted = reject;
-        });
-        const runPromise = runMatrixWithInterrupt(
-          {
-            manifestPath,
-            runIds: [],
-            promptPrefixFile: null,
-            requestTimeoutSeconds: null,
-            validateOnly: false,
-          },
-          {
-            interrupted,
-            dispose: () => {},
-          },
-        );
+      let rejectInterrupted;
+      const interrupted = new Promise((_, reject) => {
+        rejectInterrupted = reject;
+      });
+      const runPromise = runMatrixWithInterrupt(
+        {
+          manifestPath,
+          runIds: [],
+          promptPrefixFile: null,
+          requestTimeoutSeconds: null,
+          validateOnly: false,
+        },
+        {
+          interrupted,
+          dispose: () => {},
+        },
+      );
 
-        const waitForPersistedRun = async () => {
-          const [session] = listBenchmarkMatrixSessions({ limit: 1 });
-          assert.ok(session);
-          const runs = listBenchmarkMatrixRunsForSession(session.id);
-          assert.ok(runs.length >= 1);
-        };
-        await waitForAsyncExpectation(waitForPersistedRun, 8000);
-        rejectInterrupted(new Error('Benchmark matrix interrupted by SIGINT.'));
-
-        await assert.rejects(() => runPromise, /Benchmark matrix interrupted by SIGINT/u);
-        await sleep(300);
-
+      const waitForBenchmarkStart = async () => {
         const [session] = listBenchmarkMatrixSessions({ limit: 1 });
-        const [run] = listBenchmarkMatrixRunsForSession(session.id);
-        const logs = readBenchmarkMatrixRunLogTextByStream(run.id);
-        assert.equal(session.status, 'failed');
-        assert.equal(session.baselineRestoreStatus, 'completed');
-        assert.equal(run.status, 'failed');
-        assert.match(run.errorMessage, /SIGINT/u);
+        assert.ok(session);
+        const runs = listBenchmarkMatrixRunsForSession(session.id);
+        assert.ok(runs.length >= 1);
+        const logs = readBenchmarkMatrixRunLogTextByStream(runs[0].id);
         assert.match(logs.benchmark_stdout, /Fixture 1\/1 \[interrupt-case\] start/u);
-        assert.equal(typeof logs.benchmark_stderr, 'string');
-      } finally {
-        if (createdBenchmarkEntrypoint) {
-          fs.rmSync(benchmarkEntrypointPath, { force: true });
-        }
-      }
+      };
+      await waitForAsyncExpectation(waitForBenchmarkStart, 25000);
+      rejectInterrupted(new Error('Benchmark matrix interrupted by SIGINT.'));
+
+      await assert.rejects(() => runPromise, /Benchmark matrix interrupted by SIGINT/u);
+      await sleep(300);
+
+      const [session] = listBenchmarkMatrixSessions({ limit: 1 });
+      const [run] = listBenchmarkMatrixRunsForSession(session.id);
+      const logs = readBenchmarkMatrixRunLogTextByStream(run.id);
+      assert.equal(session.status, 'failed');
+      assert.equal(session.baselineRestoreStatus, 'completed');
+      assert.equal(run.status, 'failed');
+      assert.match(run.errorMessage, /SIGINT/u);
+      assert.match(logs.benchmark_stdout, /Fixture 1\/1 \[interrupt-case\] start/u);
+      assert.equal(typeof logs.benchmark_stderr, 'string');
     }, {
       chatDelayMs: 250,
     });

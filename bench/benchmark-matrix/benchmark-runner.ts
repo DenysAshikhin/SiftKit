@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { appendBenchmarkMatrixLogChunk } from '../state/benchmark-matrix.js';
+import { appendBenchmarkMatrixLogChunk } from '../../src/state/benchmark-matrix.js';
 import { buildBenchmarkArgs } from './launcher.js';
 import { spawnAndWait } from './process.js';
 import {
@@ -29,18 +29,21 @@ export async function invokeBenchmarkProcess(
   run: ResolvedMatrixTarget,
   promptPrefixFile: string | null,
   matrixRunRecordId: string,
+  interrupted?: Promise<never>,
 ): Promise<BenchmarkProcessResult> {
-  const benchmarkScriptPath = path.join(repoRoot, 'dist', 'benchmark.js');
-  if (!fs.existsSync(benchmarkScriptPath)) {
-    throw new Error(`Benchmark entrypoint not found: ${benchmarkScriptPath}. Run 'npm run build' first.`);
+  const benchmarkEntrypoint = path.join(repoRoot, 'bench', 'benchmark', 'index.ts');
+  if (!fs.existsSync(benchmarkEntrypoint)) {
+    throw new Error(`Benchmark entrypoint not found: ${benchmarkEntrypoint}.`);
   }
 
-  const args = [benchmarkScriptPath, ...buildBenchmarkArgs(manifest, run, promptPrefixFile)];
+  const tsxCliPath = path.join(repoRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+  const args = [tsxCliPath, benchmarkEntrypoint, ...buildBenchmarkArgs(manifest, run, promptPrefixFile)];
   const result = await spawnAndWait({
     filePath: nodeExe,
     args,
     cwd: repoRoot,
     env: process.env,
+    interrupted,
     onStdoutChunk(chunk: string) {
       appendBenchmarkMatrixLogChunk({
         runId: matrixRunRecordId,

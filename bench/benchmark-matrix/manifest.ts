@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { ensureDirectory, readJsonFile } from '../lib/fs.js';
-import { resolveOptionalPathFromBase, resolvePathFromBase } from '../lib/paths.js';
+import { ensureDirectory, readJsonFile } from '../../src/lib/fs.js';
+import { resolveOptionalPathFromBase, resolvePathFromBase } from '../../src/lib/paths.js';
 import {
   getOptionalBoolean,
   getOptionalInt,

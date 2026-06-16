@@ -1,5 +1,5 @@
 import * as fs from 'node:fs';
-import { resolvePathFromBase } from '../lib/paths.js';
+import { resolvePathFromBase } from '../../src/lib/paths.js';
 import {
   createBenchmarkMatrixRun,
   createBenchmarkMatrixSession,
@@ -7,7 +7,7 @@ import {
   getBenchmarkMatrixSessionUri,
   updateBenchmarkMatrixRun,
   updateBenchmarkMatrixSession,
-} from '../state/benchmark-matrix.js';
+} from '../../src/state/benchmark-matrix.js';
 import { parseArguments } from './args.js';
 import { invokeBenchmarkProcess } from './benchmark-runner.js';
 import { createMatrixInterruptSignal, withMatrixInterrupt } from './interrupt.js';
@@ -176,6 +176,7 @@ export async function runMatrixWithInterrupt(
             run,
             run.promptPrefixFile ?? resolvedPromptPrefixFile,
             runRecord.id,
+            interruptSignal.interrupted,
           ),
           interruptSignal.interrupted,
         );

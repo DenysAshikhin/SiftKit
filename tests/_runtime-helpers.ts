@@ -56,7 +56,7 @@ import {
   pruneOldLauncherLogs,
   runMatrix,
   runMatrixWithInterrupt,
-} from '../dist/benchmark-matrix/index.js';
+} from '../bench/benchmark-matrix/index.ts';
 import {
   countLlamaCppTokens,
   listLlamaCppModels,

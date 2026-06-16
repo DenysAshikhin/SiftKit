@@ -1,6 +1,6 @@
-import { httpClient } from '../lib/http-client.js';
-import { sleep } from '../lib/time.js';
-import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
+import { httpClient } from '../../src/lib/http-client.js';
+import { sleep } from '../../src/lib/time.js';
+import { LlamaCppClient } from '../../src/llm-protocol/llama-cpp-client.js';
 import type { ConfigRecord } from './types.js';
 
 const llamaCppClient = new LlamaCppClient();
