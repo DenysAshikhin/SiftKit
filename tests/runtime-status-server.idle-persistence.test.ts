@@ -11,15 +11,15 @@ const Database = require('better-sqlite3');
 const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage } = require('../dist/config/index.js');
 const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../dist/summary.js');
 const { runCommand } = require('./helpers/run-command-for-test.cjs');
-const { runBenchmarkSuite } = require('../dist/benchmark/index.js');
+const { runBenchmarkSuite } = require('../bench/benchmark/index.ts');
 const { readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs, pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt } = require('../dist/benchmark-matrix/index.js');
 const { countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse } = require('../dist/providers/llama-cpp.js');
 const { withExecutionLock } = require('../dist/execution-lock.js');
 const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../dist/status-server/index.js');
 const { writeConfig } = require('../dist/status-server/config-store.js');
 const { readStatusText } = require('../dist/status-server/status-file.js');
-const { runDebugRequest } = require('../dist/scripts/run-benchmark-fixture-debug.js');
-const { runFixture60MalformedJsonRepro } = require('../dist/scripts/repro-fixture60-malformed-json.js');
+const { runDebugRequest } = require('../bench/repro/run-benchmark-fixture-debug.ts');
+const { runFixture60MalformedJsonRepro } = require('../bench/repro/repro-fixture60-malformed-json.ts');
 
 const {
   TEST_USE_EXISTING_SERVER,
