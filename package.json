@@ -42,9 +42,8 @@
   "files": [
     "bin",
     "SiftKit",
-    "eval",
-    "scripts",
     "dist",
+    "scripts/postinstall.js",
     "README.md",
     "docs"
   ],
