@@ -14,7 +14,7 @@ const { runCommand } = require('./helpers/run-command-for-test.cjs');
 const { runBenchmarkSuite } = require('../bench/benchmark/index.ts');
 const { withExecutionLock } = require('../dist/execution-lock.js');
 const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../dist/status-server/index.js');
-const { runDebugRequest } = require('../dist/scripts/run-benchmark-fixture-debug.js');
+const { runDebugRequest } = require('../bench/repro/run-benchmark-fixture-debug.ts');
 
 const {
   TEST_USE_EXISTING_SERVER,

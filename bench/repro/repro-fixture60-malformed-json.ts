@@ -3,9 +3,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const distRoot = path.resolve(__dirname, '..', 'dist');
+const distRoot = path.resolve(__dirname, '..', '..', 'dist');
 const distExists = fs.existsSync(path.join(distRoot, 'config', 'index.js'));
-const base = distExists ? distRoot : path.resolve(__dirname, '..');
+const base = distExists ? distRoot : path.resolve(__dirname, '..', '..');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const {
   loadConfig,
@@ -235,7 +235,7 @@ export async function runFixture60MalformedJsonRepro(
 }> {
   const args = parseArgs(argv);
   const { fixtureStartIndex, fixtureEndIndex } = getFixtureBounds(args);
-  const repoRoot = path.resolve(__dirname, '..');
+  const repoRoot = path.resolve(__dirname, '..', '..');
   const fixtureRoot = options.fixtureRoot || path.join(repoRoot, 'eval', 'fixtures', 'ai_core_60_tests');
   const outputRoot = args.outputRoot || path.join(repoRoot, 'tmp-find', `fixture60_malformed_json_${getTimestamp()}`);
   const logPath = path.join(outputRoot, 'debug.log');

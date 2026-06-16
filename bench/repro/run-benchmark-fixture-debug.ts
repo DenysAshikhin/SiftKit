@@ -6,8 +6,8 @@ function requireCompiledSummary(): {
   summarizeRequest: (request: Record<string, unknown>) => Promise<Record<string, unknown>>;
 } {
   const candidates = [
-    path.resolve(__dirname, '..', 'dist', 'summary.js'),
     path.resolve(__dirname, '..', '..', 'dist', 'summary.js'),
+    path.resolve(__dirname, '..', '..', '..', 'dist', 'summary.js'),
   ];
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {
@@ -195,7 +195,7 @@ export async function runDebugRequest(
   artifact: Record<string, unknown>;
 }> {
   const args = parseArgs(argv);
-  const repoRoot = path.resolve(__dirname, '..');
+  const repoRoot = path.resolve(__dirname, '..', '..');
   const outputRoot = args.outputRoot || path.join(repoRoot, 'tmp-find', `fixture_debug_${getTimestamp()}`);
   const logPath = path.join(outputRoot, 'debug.log');
   const artifactPath = path.join(outputRoot, 'result.json');

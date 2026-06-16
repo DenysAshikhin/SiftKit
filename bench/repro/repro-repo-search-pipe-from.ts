@@ -40,11 +40,7 @@ const FIXTURES: Record<string, string> = {
 };
 
 function loadCommandSafety(): CommandSafetyModule {
-  const runningFromDist = path.basename(__dirname).toLowerCase() === 'scripts'
-    && path.basename(path.dirname(__dirname)).toLowerCase() === 'dist';
-  const base = runningFromDist
-    ? path.resolve(__dirname, '..')
-    : path.resolve(__dirname, '..', 'src');
+  const base = path.resolve(__dirname, '..', '..', 'src');
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   return require(path.join(base, 'repo-search', 'command-safety.js')) as CommandSafetyModule;
 }

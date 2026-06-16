@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 
 test('repro-repo-search-pipe-from recreates from pipe safety rejection', () => {
-  const scriptPath = path.resolve(process.cwd(), 'scripts', 'repro-repo-search-pipe-from.ts');
+  const scriptPath = path.resolve(process.cwd(), 'bench', 'repro', 'repro-repo-search-pipe-from.ts');
   const result = spawnSync(
     process.execPath,
     ['node_modules/tsx/dist/cli.mjs', scriptPath, '--json'],
@@ -31,7 +31,7 @@ test('repro-repo-search-pipe-from recreates from pipe safety rejection', () => {
 });
 
 test('repro-repo-search-pipe-from recreates saved audit command splitting', () => {
-  const scriptPath = path.resolve(process.cwd(), 'scripts', 'repro-repo-search-pipe-from.ts');
+  const scriptPath = path.resolve(process.cwd(), 'bench', 'repro', 'repro-repo-search-pipe-from.ts');
   const result = spawnSync(
     process.execPath,
     ['node_modules/tsx/dist/cli.mjs', scriptPath, '--fixture', 'audit-command-4', '--json'],

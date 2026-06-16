@@ -72,8 +72,8 @@ import {
 } from '../dist/status-server/index.js';
 import { writeConfig } from '../dist/status-server/config-store.js';
 import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
-import { runDebugRequest } from '../dist/scripts/run-benchmark-fixture-debug.js';
-import { runFixture60MalformedJsonRepro } from '../dist/scripts/repro-fixture60-malformed-json.js';
+import { runDebugRequest } from '../bench/repro/run-benchmark-fixture-debug.ts';
+import { runFixture60MalformedJsonRepro } from '../bench/repro/repro-fixture60-malformed-json.ts';
 
 const TEST_USE_EXISTING_SERVER = process.env.SIFTKIT_TEST_USE_EXISTING_SERVER === '1';
 const EXISTING_SERVER_STATUS_URL = process.env.SIFTKIT_STATUS_BACKEND_URL;
