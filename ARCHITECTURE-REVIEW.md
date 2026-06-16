@@ -4,7 +4,7 @@
 
 This document is a point-in-time audit of the SiftKit repository, intended as a working reference for prioritizing refactors and fixes. It records:
 
-1. **Part 1 (F2–F18, with gaps where findings were resolved and deleted)** — architectural issues, code smells, and repo semantics that make the codebase harder to scale, extend, or maintain (duplication, dead code, god-functions, untyped boundaries, build/test hazards, packaging problems), plus a purpose-level assessment of whether the project is doing anything fundamentally wrong, a suggested module partition, and a priority-ordered fix list.
+1. **Part 1 (F2–F17, with gaps where findings were resolved and deleted)** — architectural issues, code smells, and repo semantics that make the codebase harder to scale, extend, or maintain (duplication, dead code, god-functions, untyped boundaries, build/test hazards, packaging problems), plus a purpose-level assessment of whether the project is doing anything fundamentally wrong, a suggested module partition, and a priority-ordered fix list.
 2. **Part 2 (L1–L11, with gaps where findings were resolved and deleted)** — an LLM-behavior analysis of the runtime surfaces that talk to the model (managed llama-server config, repo-search agentic loop, multi-turn chat, conversation-context handling), flagging divergences from established LLM-integration norms that raise the chance of the model misbehaving or failing to work as intended. Each finding includes explicit "why it's an issue" reasoning.
 
 Every claim is backed by `file:line` evidence verified against the working tree on the audit date. This file is descriptive, not a change plan — no code was modified as part of the audit. Findings should be re-verified against current code before acting on them, as line numbers and behavior drift.
@@ -14,6 +14,8 @@ Date: 2026-06-09. Scope: full repo scan for architectural issues, smells, and pu
 Updated 2026-06-10: resolved findings (F1 `runTaskLoop` god-function, F5 shadow `.d.ts`, F8 require-cache engine loading, F9 stale committed `src/**/*.js`, F12 split-brain execution) were verified fixed and deleted from this document — finding numbers therefore have gaps.
 
 Updated 2026-06-11: F4 (hardcoded developer-path defaults), F10 (config defined three-and-a-half times), and F13 (parallel agentic-loop/protocol implementations) verified fixed and deleted. F13's residual test-coverage gap moved into F14. L9 trimmed to its remaining half (fictitious `persisted_tool_call` replay tool is gone; snippet substitution remains). Remaining findings re-verified and anchors/counts refreshed.
+
+Updated 2026-06-12: F7 (god-route-handlers) and F17 (god-function inventory) verified fixed and deleted — all four route surfaces now dispatch through a declarative `RouteTable` with per-endpoint `RouteEndpoint` classes; `invokePlannerMode` is a 77-line composer over a top-level `SummaryPlannerLoopRuntime` with explicit constructor dependencies; `summarizeRequest`/`invokeSummaryCore` delegate to `SummaryRequestRunner`/`SummaryCoreRunner`; `dashboard-runs.ts` is partitioned into `dashboard-runs/`. `tests/god-function-regression.test.ts` enforces per-symbol line limits. F17 trimmed to one residual method. The previously-resolved F3/F18 placeholder entries were also removed.
 
 ## Repo purpose (as stated)
 
@@ -27,18 +29,10 @@ Windows-first toolkit that compresses noisy shell output / repo exploration for 
 
 Working tree top level contains scratch artifacts (`tmp-confirm-web-context.ts`, `siftkit-0.1.0.tgz`) — gitignored, so cosmetic only. Tracked: `initialTurnChatIssues.md` (a session-notes dump) and `run.bat` at root; both belong under `docs/` or nowhere. Packaging note: package.json `files` ships `scripts` and `eval` (dev/benchmark harnesses) to npm consumers.
 
-### F3. Server boundary untyped map usage is resolved
-
-Resolved 2026-06-11: server-boundary `Dict`/`JsonRecord` usage was removed from chat sessions, thinking retention, chat runtime, dashboard runs, presets, status metadata, idle summaries, metrics, runtime result/artifact stores, benchmark persistence, HTTP JSON parsing, and all status-server routes. Shared JSON parsing now flows through `JsonRecordReader`; boundary request bodies normalize into named DTOs, open JSON payloads use `JsonObject`, and persisted rows normalize through named row types. Remaining `Dict` usage outside this server-boundary scope belongs to web-search providers, eval payloads, non-server CLI helpers, and test helpers.
-
 ### F6. Test architecture: split-brain between `dist` and `src`, and near-zero typechecking of tests
 
 - Test files import **~94 paths from `../dist/...` and ~80 from `../src/...`** — the same suite simultaneously tests compiled output and raw TS. A test passing can mean "current source works" or "whatever was last built works", depending on the file. `build-test.js` mitigates with an mtime stamp, but the mixed convention makes every test's subject ambiguous and blocks coverage tooling from a single view (the `test:coverage` script only includes `dist/**`).
 - `tsconfig.test.json` includes `src/**/*.ts` plus only **17 of ~140 test files** (the engine/chat suites added during the repo-search loop decomposition). `npm run typecheck:test` still skips ~88% of the test suite; type errors in those tests surface only at tsx runtime, or never (tsx does not typecheck).
-
-### F7. Hand-rolled HTTP layer with god-route-handlers
-
-The server is raw `node:http` with four sequential mega-handlers (`routes.ts` tries dashboard → chat → llama-passthrough → core). Inside each, a single exported function string-matches `pathname` (24 branch sites) and inlines the endpoint logic: `handleChatRoute` is ~1,000 lines (`src/status-server/routes/chat.ts:444`), `handleCoreRoute` ~800 lines (`src/status-server/routes/core.ts:629`), `routes/dashboard.ts` has 16 pathname branches. There is no route table, no per-endpoint module, no shared request-body validation. Adding an endpoint means editing a giant function; the README's "server contract" lives nowhere in code as a checkable surface.
 
 ### F11. Dead code and "legacy" constants that violate the project's no-legacy rule
 
@@ -52,9 +46,9 @@ The server is raw `node:http` with four sequential mega-handlers (`routes.ts` tr
 
 - The dominant harness is `tests/_runtime-helpers.ts` — 1,573 lines, opening with `// @ts-nocheck — Shared runtime test infrastructure. Full typing deferred.` The shared infrastructure for ~30 runtime test files is untyped, in a repo whose rules require strict typing and near-100% branch coverage.
 - Mixed `dist`/`src` imports (F6) make every test's subject ambiguous.
-- Giant end-to-end tests dominate (2,000+-line `dashboard-status-server.test.ts` and `repo-search-loop.core.test.ts`, tests that boot the real HTTP server + sqlite). The repo-search loop decomposition added unit seams there; the F7 route god-functions still force integration-test cost elsewhere.
+- Giant end-to-end tests dominate (2,000+-line `dashboard-status-server.test.ts` and `repo-search-loop.core.test.ts`, tests that boot the real HTTP server + sqlite). The repo-search loop decomposition and the 2026-06-12 route/endpoint split added unit seams; the giant E2E suites have not yet been rebalanced onto them.
 - Test seams ship inside production modules: `src/summary/mock.ts` (`SIFTKIT_TEST_PROVIDER_BEHAVIOR`, `SIFTKIT_TEST_TOKEN`), and mock command results (`findMockResult`, `src/repo-search/engine/command-execution.ts`) live in the production execution path.
-- F13 residual: the unified protocol/loop modules are below the repo's branch-coverage goal — `dist/llm-protocol/llama-cpp-client.js` 69.8% stmts / 77.6% branch (uncovered streaming/error paths ~lines 169-211, 311-380), `tool-call-parser.js` 50% branch, `dist/agent-loop/action-parser.js` 50% functions. Plan `docs/superpowers/plans/2026-06-10-unify-agentic-loop-llama-protocol.md` Task 11 Step 4 (targeted branch tests) is the last open item of that plan.
+- F13 residual coverage backfill completed 2026-06-12: `src/llm-protocol/` and `src/agent-loop/` now have focused branch tests for protocol normalization, streaming assembly, parser variants, loop stop/continue paths, and error branches. Because the shipping `test:coverage` gate instruments `dist/**/*.js` only (the F6 dist/src split), these src-importing tests are invisible to it; a dedicated `npm run test:coverage:llm` gate instruments `src/llm-protocol/**` + `src/agent-loop/**` over the full suite. Verified 2026-06-16: `agent-loop.ts` 96.66% branch / 100% func, `llama-cpp-client.ts` 96.66% / 100%, `streaming-response-assembler.ts` 95.91% / 100%, `tool-call-parser.ts` 97.36% / 100%; `action-parser.ts` 100% func with genuine executable branches fully covered (the residual 92.59% is two phantom boundary branches at the import/closing-brace lines, same c8/tsx noise class as `types.ts`). Keep future protocol/loop edits covered by `tests/llm-protocol.test.ts`, `tests/llm-protocol-streaming.test.ts`, and `tests/agent-loop.test.ts`, and re-run `test:coverage:llm`.
 - Timing-sensitive tests flake under load: `tests/model-request-queue.test.ts` asserts ~30ms queue-timeout windows and intermittently fails in full-suite runs while passing in isolation; the managed-llama startup/idle tests have similarly flaked under c8 instrumentation.
 
 ### F15. Benchmark/eval harnesses live inside the product
@@ -65,21 +59,9 @@ The server is raw `node:http` with four sequential mega-handlers (`routes.ts` tr
 
 `dashboard/src/App.tsx` is 1,341 lines; `styles.css` 1,486 lines alongside a parallel `styles/` directory. `dashboard/src/types.ts` (429 lines) still hand-mirrors server payload shapes (the stale `types.d.ts` copy is gone, and config types are now shared, but session/run/preset payloads remain duplicated). The dashboard has its own `node_modules`/build but no shared contract with the server it talks to — every API change is a manual two-sided edit verified only by integration tests.
 
-### F17. God-function inventory
+### F17. God-function residual
 
-| Function | File | Approx. lines |
-|---|---|---|
-| `handleChatRoute` | `src/status-server/routes/chat.ts:444` | ~1,000 |
-| `handleCoreRoute` | `src/status-server/routes/core.ts:629` | ~800 |
-| `invokePlannerMode` | `src/summary/planner/mode.ts:155` | ~930 (incl. the ~840-line `SummaryPlannerLoopRuntime` class nested at `mode.ts:257`, closing over function locals) |
-| `summarizeRequest` + `invokeSummaryCore` | `src/summary/core.ts` | ~380 each |
-| `dashboard-runs.ts` (module) | `src/status-server/` | 1,732 |
-
-The repo rule "abstract into re-usable classes" is inverted in practice: the codebase is mostly free functions, with the largest ones owning a dozen responsibilities each. Note: the F13 unification removed `planner-protocol.ts` from this list (989 → 595 lines) but relocated the summary planner's loop body into the nested class inside `invokePlannerMode` — extracting `SummaryPlannerLoopRuntime` to a top-level class with explicit dependencies is the remaining piece.
-
-### F18. Server-boundary helper re-implementation is resolved
-
-Resolved 2026-06-11: the server-boundary duplicate coercion helpers tracked with F3 are covered by `tests/server-boundary-dict-contract.test.ts` and the shared JSON reader. Broader helper extraction outside the server boundary remains a normal refactor concern, not the F3/F18 blocker.
+Trimmed 2026-06-12: the full inventory (`handleChatRoute`, `handleCoreRoute`, `invokePlannerMode` + nested runtime class, `summarizeRequest`/`invokeSummaryCore`, the `dashboard-runs.ts` module) was verified broken up and is guarded by `tests/god-function-regression.test.ts`. One residual: `SummaryPlannerLoopRuntime.requestProviderAction` (`src/summary/planner/mode.ts:468`) is ~120 lines — above the 90-line bar the regression test holds its sibling methods to, and absent from the guard's limit list.
 
 ---
 
@@ -99,7 +81,7 @@ Fundamental concerns, in order of severity:
 
 - **core/** — policy, chunking, summary decision, prompt building, token measurement (pure, no I/O).
 - **llm/** — `src/llm-protocol/` + `src/agent-loop/` (now exists; one implementation used by summary-planner and repo-search — extend to chat).
-- **server/** — HTTP surface (route table), config store (done: typed, single schema), runtime DB, managed-llama supervision, quotas.
+- **server/** — HTTP surface (done: route table + per-endpoint classes), config store (done: typed, single schema), runtime DB, managed-llama supervision, quotas.
 - **cli/** — thin argument parsing + HTTP calls to server; local-only commands (`find-files`) stay self-contained.
 - **dashboard/** — UI consuming a shared generated/imported type contract from server/.
 - **bench-eval/** — benchmarks, eval, repro scripts; not shipped, not imported by src or tests-of-src.
@@ -174,7 +156,7 @@ Why it's an issue:
 
 ## L6. Dual action protocol with permissive parsing (repo-search loop)
 
-The repo-search system prompt orders "Return ONE valid JSON object — no markdown fences" (JSON-in-content protocol) while the same request registers native tool definitions; the parser then accepts native `tool_calls`, raw JSON in content, the first balanced `{…}` found anywhere in prose, and `jsonrepair`'d fragments. The summary planner now requests grammar-constrained decoding (`structuredOutput: { kind: 'siftkit-planner-action-json' }`, `src/summary/planner/mode.ts:441`); the repo-search planner request (`src/repo-search/planner-protocol.ts:410`) still does not.
+The repo-search system prompt orders "Return ONE valid JSON object — no markdown fences" (JSON-in-content protocol) while the same request registers native tool definitions; the parser then accepts native `tool_calls`, raw JSON in content, the first balanced `{…}` found anywhere in prose, and `jsonrepair`'d fragments. The summary planner now requests grammar-constrained decoding (`structuredOutput: { kind: 'siftkit-planner-action-json' }`, `src/summary/planner/mode.ts:526`); the repo-search planner request (`src/repo-search/planner-protocol.ts:410`) still does not.
 
 Why it's an issue:
 - The two protocols conflict at the template level: with native tool definitions registered, the chat template formats the conversation the way the model was *trained* to emit `tool_calls`; instructing it to instead write raw JSON into `content` fights that training distribution and raises malformed-output rates on its own.
@@ -235,8 +217,7 @@ The recurring pattern: the harness distrusts the model and intervenes aggressive
 
 ## Priority order (highest leverage first)
 
-1. Break up the remaining god-functions (F17) — prerequisite for any unit-test pyramid recovery (F14); includes extracting `SummaryPlannerLoopRuntime` out of `invokePlannerMode`.
-2. Close the F13 residual: branch coverage for `src/llm-protocol/` and `src/agent-loop/` (F14).
-3. Repackage: move bench/eval out of `src` and out of npm `files`; fix `files` array (F15, F2).
-4. Route table + per-endpoint handlers in the server (F7).
-5. Dead-code sweep: `llama-cpp-bridge.ts`, `SIFT_LEGACY_*`, `execution-lock`/`execution-lease`, `test-full.ts` include (F11).
+1. Repackage: move bench/eval out of `src` and out of npm `files`; fix `files` array (F15, F2).
+2. Dead-code sweep: `llama-cpp-bridge.ts`, `SIFT_LEGACY_*`, `execution-lock`/`execution-lease`, `test-full.ts` include (F11).
+3. Unit-test pyramid recovery on the new endpoint/runner seams; type the `@ts-nocheck` runtime harness (F6, F14).
+4. F17 residual: split `SummaryPlannerLoopRuntime.requestProviderAction` and add it to the regression guard.

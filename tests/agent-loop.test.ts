@@ -19,7 +19,12 @@ import type {
   AgentLoopToolResult,
   AgentLoopTurn,
 } from '../src/agent-loop/types.js';
-import type { LlamaCppChatMessage, LlamaCppToolDefinition, NormalizedLlamaCppChatResponse } from '../src/llm-protocol/types.js';
+import type {
+  LlamaCppChatMessage,
+  LlamaCppToolDefinition,
+  LlamaCppUsage,
+  NormalizedLlamaCppChatResponse,
+} from '../src/llm-protocol/types.js';
 
 test('agent loop action parser parses repo-search and summary planner actions explicitly', () => {
   const parser = new AgentLoopActionParser();
@@ -43,8 +48,15 @@ test('agent loop action parser expands tool batches into explicit tool actions',
   );
 
   assert.deepEqual(actions.map((action) => action.kind), ['tool', 'tool']);
-  assert.equal(actions[0]?.toolName, 'repo_rg');
-  assert.equal(actions[1]?.args.path, 'src/x.ts');
+  const firstAction = actions[0];
+  const secondAction = actions[1];
+  assert.equal(firstAction?.kind, 'tool');
+  assert.equal(secondAction?.kind, 'tool');
+  if (firstAction?.kind !== 'tool' || secondAction?.kind !== 'tool') {
+    throw new Error('expected tool actions');
+  }
+  assert.equal(firstAction.toolName, 'repo_rg');
+  assert.equal(secondAction.args.path, 'src/x.ts');
 });
 
 class StubPromptAdapter implements AgentLoopPromptAdapter {
@@ -106,10 +118,22 @@ class StubToolAdapter implements AgentLoopToolAdapter {
   }
 }
 
+function stubUsage(promptTokens: number | null): LlamaCppUsage {
+  return {
+    promptTokens,
+    completionTokens: 1,
+    totalTokens: promptTokens === null ? null : promptTokens + 1,
+    outputTokens: 1,
+    thinkingTokens: 0,
+    promptCacheTokens: null,
+    promptEvalTokens: promptTokens,
+  };
+}
+
 test('agent loop executes tool turns before accepting finish', async () => {
   const responses: NormalizedLlamaCppChatResponse[] = [
-    { text: 'tool', reasoningText: '', toolCalls: [], usage: { promptTokens: 1, completionTokens: 1, outputTokens: 1, thinkingTokens: 0, promptCacheTokens: null, promptEvalTokens: 1 }, raw: {}, stoppedEarly: false },
-    { text: 'finish', reasoningText: '', toolCalls: [], usage: { promptTokens: 2, completionTokens: 1, outputTokens: 1, thinkingTokens: 0, promptCacheTokens: null, promptEvalTokens: 2 }, raw: {}, stoppedEarly: false },
+    { text: 'tool', reasoningText: '', toolCalls: [], usage: stubUsage(1), raw: {}, stoppedEarly: false },
+    { text: 'finish', reasoningText: '', toolCalls: [], usage: stubUsage(2), raw: {}, stoppedEarly: false },
   ];
   const loop = new AgentLoop({
     maxTurns: 4,
@@ -137,8 +161,8 @@ test('agent loop executes tool turns before accepting finish', async () => {
 test('agent loop delegates invalid responses to the action adapter', async () => {
   const actionAdapter = new StubActionAdapter();
   const responses: NormalizedLlamaCppChatResponse[] = [
-    { text: 'invalid', reasoningText: '', toolCalls: [], usage: { promptTokens: 1, completionTokens: 1, outputTokens: 1, thinkingTokens: 0, promptCacheTokens: null, promptEvalTokens: 1 }, raw: {}, stoppedEarly: false },
-    { text: 'finish', reasoningText: '', toolCalls: [], usage: { promptTokens: 2, completionTokens: 1, outputTokens: 1, thinkingTokens: 0, promptCacheTokens: null, promptEvalTokens: 2 }, raw: {}, stoppedEarly: false },
+    { text: 'invalid', reasoningText: '', toolCalls: [], usage: stubUsage(1), raw: {}, stoppedEarly: false },
+    { text: 'finish', reasoningText: '', toolCalls: [], usage: stubUsage(2), raw: {}, stoppedEarly: false },
   ];
   const loop = new AgentLoop({
     maxTurns: 3,
@@ -220,7 +244,7 @@ test('agent loop carries model data through response contexts', async () => {
           text: 'finish',
           reasoningText: '',
           toolCalls: [],
-          usage: { promptTokens: 1, completionTokens: 1, outputTokens: 1, thinkingTokens: 0, promptCacheTokens: null, promptEvalTokens: 1 },
+          usage: stubUsage(1),
           raw: {},
           stoppedEarly: false,
         },
@@ -231,4 +255,220 @@ test('agent loop carries model data through response contexts', async () => {
 
   assert.equal(seenData, modelData);
   assert.equal(result.finishText, 'done');
+});
+
+test('agent loop action parser covers single-tool repo and summary batches', () => {
+  const parser = new AgentLoopActionParser();
+
+  const repoTool = parser.parseRepoSearchAction(
+    '{"action":"repo_read_file","path":"src/agent-loop/agent-loop.ts"}',
+    ['repo_read_file'],
+  );
+  const summaryTool = parser.parseSummaryPlannerAction('{"action":"find_text","query":"needle"}');
+  const summaryBatch = parser.parseSummaryPlannerActions(
+    '{"action":"tool_batch","calls":[{"action":"find_text","query":"needle"},{"action":"read_lines","start_line":1,"end_line":2}]}',
+  );
+
+  assert.equal(repoTool.kind, 'tool');
+  assert.equal(repoTool.callId, 'call_1');
+  assert.equal(repoTool.toolName, 'repo_read_file');
+  assert.equal(repoTool.args.path, 'src/agent-loop/agent-loop.ts');
+  if (summaryTool.kind !== 'tool') {
+    throw new Error('expected summary action to be a tool');
+  }
+  assert.equal(summaryTool.toolName, 'find_text');
+  assert.equal(summaryTool.args.query, 'needle');
+  const summaryToolNames = summaryBatch.map((action) => {
+    assert.equal(action.kind, 'tool');
+    return action.kind === 'tool' ? action.toolName : '';
+  });
+  assert.deepEqual(summaryToolNames, ['find_text', 'read_lines']);
+  assert.equal(summaryBatch[1]?.kind, 'tool');
+  if (summaryBatch[1]?.kind !== 'tool') {
+    throw new Error('expected second summary batch action to be a tool');
+  }
+  assert.equal(summaryBatch[1].callId, 'call_2');
+});
+
+test('agent loop fails loud when required adapters are missing', async () => {
+  await assert.rejects(
+    () => new AgentLoop({ maxTurns: 1 }).run(),
+    /requires prompt\/action\/tool\/model adapters/u,
+  );
+});
+
+test('agent loop stops when model client requests stop', async () => {
+  const result = await new AgentLoop({
+    maxTurns: 1,
+    promptAdapter: new StubPromptAdapter(),
+    actionAdapter: new StubActionAdapter(),
+    toolAdapter: new StubToolAdapter(),
+    modelClient: {
+      chat: async () => ({ outcome: 'stop', data: { kind: 'model-stop' } }),
+    },
+  }).run();
+
+  assert.equal(result.reason, 'aborted');
+  assert.equal(result.turns.length, 0);
+});
+
+test('agent loop honors inspect continue and inspect stop without parsing actions', async () => {
+  const responses: NormalizedLlamaCppChatResponse[] = [
+    { text: 'ignored', reasoningText: '', toolCalls: [], usage: stubUsage(1), raw: {}, stoppedEarly: false },
+    { text: 'ignored', reasoningText: '', toolCalls: [], usage: stubUsage(2), raw: {}, stoppedEarly: false },
+  ];
+  let inspectCount = 0;
+  const actionAdapter: AgentLoopActionAdapter = {
+    parseActions: () => {
+      throw new Error('parseActions should not run');
+    },
+    inspectResponse: () => {
+      inspectCount += 1;
+      return inspectCount === 1 ? 'continue' : 'stop';
+    },
+    handleInvalidResponse: async () => ({ outcome: 'stop' }),
+    evaluateFinish: async () => ({ accepted: false, outcome: 'stop' }),
+  };
+
+  const result = await new AgentLoop({
+    maxTurns: 3,
+    promptAdapter: new StubPromptAdapter(),
+    actionAdapter,
+    toolAdapter: new StubToolAdapter(),
+    modelClient: {
+      chat: async () => {
+        const response = responses.shift();
+        assert.ok(response);
+        return { outcome: 'continue', response, data: null };
+      },
+    },
+  }).run();
+
+  assert.equal(inspectCount, 2);
+  assert.equal(result.reason, 'aborted');
+  assert.equal(result.turns.length, 0);
+});
+
+test('agent loop stops on invalid-response handler stop', async () => {
+  const actionAdapter: AgentLoopActionAdapter = {
+    parseActions: () => {
+      throw new Error('bad json');
+    },
+    inspectResponse: () => null,
+    handleInvalidResponse: async () => ({ outcome: 'stop' }),
+    evaluateFinish: async () => ({ accepted: false, outcome: 'stop' }),
+  };
+
+  const result = await new AgentLoop({
+    maxTurns: 1,
+    promptAdapter: new StubPromptAdapter(),
+    actionAdapter,
+    toolAdapter: new StubToolAdapter(),
+    modelClient: {
+      chat: async () => ({
+        outcome: 'continue',
+        response: { text: 'invalid', reasoningText: '', toolCalls: [], usage: stubUsage(null), raw: {}, stoppedEarly: false },
+        data: null,
+      }),
+    },
+  }).run();
+
+  assert.equal(result.reason, 'aborted');
+});
+
+test('agent loop wraps non-error parse failures before invalid-response handling', async () => {
+  let handledMessage = '';
+  const actionAdapter: AgentLoopActionAdapter = {
+    parseActions: () => {
+      throw 'bad json';
+    },
+    inspectResponse: () => null,
+    handleInvalidResponse: async (context) => {
+      handledMessage = context.error.message;
+      return { outcome: 'stop' };
+    },
+    evaluateFinish: async () => ({ accepted: false, outcome: 'stop' }),
+  };
+
+  const result = await new AgentLoop({
+    maxTurns: 1,
+    promptAdapter: new StubPromptAdapter(),
+    actionAdapter,
+    toolAdapter: new StubToolAdapter(),
+    modelClient: {
+      chat: async () => ({
+        outcome: 'continue',
+        response: { text: 'invalid', reasoningText: '', toolCalls: [], usage: stubUsage(null), raw: {}, stoppedEarly: false },
+        data: null,
+      }),
+    },
+  }).run();
+
+  assert.equal(handledMessage, 'bad json');
+  assert.equal(result.reason, 'aborted');
+});
+
+test('agent loop covers rejected finish stop, no-tool continue, tool stop, and max turns', async () => {
+  const finishStopAdapter: AgentLoopActionAdapter = {
+    parseActions: () => [{ kind: 'finish', text: 'nope' }],
+    inspectResponse: () => null,
+    handleInvalidResponse: async () => ({ outcome: 'continue' }),
+    evaluateFinish: async () => ({ accepted: false, outcome: 'stop' }),
+  };
+  const emptyToolAdapter = new StubToolAdapter();
+  const baseResponse: NormalizedLlamaCppChatResponse = {
+    text: 'finish',
+    reasoningText: '',
+    toolCalls: [],
+    usage: stubUsage(null),
+    raw: {},
+    stoppedEarly: false,
+  };
+
+  const rejected = await new AgentLoop({
+    maxTurns: 1,
+    promptAdapter: new StubPromptAdapter(),
+    actionAdapter: finishStopAdapter,
+    toolAdapter: emptyToolAdapter,
+    modelClient: { chat: async () => ({ outcome: 'continue', response: baseResponse, data: null }) },
+  }).run();
+  assert.equal(rejected.reason, 'aborted');
+
+  const noTool = await new AgentLoop({
+    maxTurns: 1,
+    promptAdapter: new StubPromptAdapter(),
+    actionAdapter: {
+      parseActions: () => [],
+      inspectResponse: () => null,
+      handleInvalidResponse: async () => ({ outcome: 'continue' }),
+      evaluateFinish: async () => ({ accepted: false, outcome: 'continue' }),
+    },
+    toolAdapter: emptyToolAdapter,
+    modelClient: { chat: async () => ({ outcome: 'continue', response: baseResponse, data: null }) },
+  }).run();
+  assert.equal(noTool.reason, 'max_turns');
+
+  const toolStop = await new AgentLoop({
+    maxTurns: 1,
+    promptAdapter: new StubPromptAdapter(),
+    actionAdapter: new StubActionAdapter(),
+    toolAdapter: {
+      executeTools: async (actions, context) => {
+        assert.equal(context.turns.length, 1);
+        return {
+          outcome: 'stop',
+          results: actions.map((action): AgentLoopToolResult => ({
+            callId: action.callId,
+            toolName: action.toolName,
+            args: action.args,
+            text: 'stopped',
+            raw: null,
+          })),
+        };
+      },
+    },
+    modelClient: { chat: async () => ({ outcome: 'continue', response: { ...baseResponse, text: 'tool' }, data: null }) },
+  }).run();
+  assert.equal(toolStop.reason, 'aborted');
+  assert.equal(toolStop.turns[0]?.toolResults[0]?.text, 'stopped');
 });
