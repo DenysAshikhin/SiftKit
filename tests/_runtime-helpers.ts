@@ -47,7 +47,7 @@ import { getSummaryDecision } from '../dist/summary/decision.js';
 import { planTokenAwareLlamaCppChunks, getPlannerPromptBudget } from '../dist/summary/chunking.js';
 import { buildPlannerToolDefinitions } from '../dist/summary/planner/tools.js';
 import { runCommand } from './helpers/run-command-for-test.cjs';
-import { runBenchmarkSuite } from '../dist/benchmark/index.js';
+import { runBenchmarkSuite } from '../bench/benchmark/index.ts';
 import {
   readMatrixManifest,
   buildLaunchSignature,

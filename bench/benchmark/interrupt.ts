@@ -1,4 +1,4 @@
-import { formatElapsed } from '../lib/time.js';
+import { formatElapsed } from '../../dist/lib/time.js';
 import { BENCHMARK_HEARTBEAT_MS, FatalBenchmarkError } from './types.js';
 
 export function createInterruptSignal(): {

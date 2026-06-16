@@ -1,9 +1,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { getConfiguredModel, loadConfig } from '../config/index.js';
-import type { JsonObject } from '../lib/json-types.js';
-import { summarizeRequest } from '../summary/core.js';
-import { formatElapsed } from '../lib/time.js';
+import { getConfiguredModel, loadConfig } from '../../dist/config/index.js';
+import type { JsonObject } from '../../dist/lib/json-types.js';
+import { summarizeRequest } from '../../dist/summary/core.js';
+import { formatElapsed } from '../../dist/lib/time.js';
 import {
   getDefaultOutputPath,
   getPromptLabel,
@@ -26,8 +26,8 @@ import {
   type BenchmarkRunResult,
   type BenchmarkRunnerOptions,
 } from './types.js';
-import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
-import { persistBenchmarkRun } from '../state/runtime-results.js';
+import { upsertRuntimeJsonArtifact } from '../../dist/state/runtime-artifacts.js';
+import { persistBenchmarkRun } from '../../dist/state/runtime-results.js';
 
 export async function runBenchmarkSuite(options: BenchmarkRunnerOptions = {}): Promise<BenchmarkRunResult> {
   const fixtureRoot = path.resolve(options.fixtureRoot || path.join(getRepoRoot(), 'eval', 'fixtures'));
