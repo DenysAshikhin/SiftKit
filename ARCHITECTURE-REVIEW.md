@@ -9,13 +9,7 @@ This document is a point-in-time audit of the SiftKit repository, intended as a 
 
 Every claim is backed by `file:line` evidence verified against the working tree on the audit date. This file is descriptive, not a change plan — no code was modified as part of the audit. Findings should be re-verified against current code before acting on them, as line numbers and behavior drift.
 
-Date: 2026-06-09. Scope: full repo scan for architectural issues, smells, and purpose-level assessment. Findings appended as discovered.
-
-Updated 2026-06-10: resolved findings (F1 `runTaskLoop` god-function, F5 shadow `.d.ts`, F8 require-cache engine loading, F9 stale committed `src/**/*.js`, F12 split-brain execution) were verified fixed and deleted from this document — finding numbers therefore have gaps.
-
-Updated 2026-06-11: F4 (hardcoded developer-path defaults), F10 (config defined three-and-a-half times), and F13 (parallel agentic-loop/protocol implementations) verified fixed and deleted. F13's residual test-coverage gap moved into F14. L9 trimmed to its remaining half (fictitious `persisted_tool_call` replay tool is gone; snippet substitution remains). Remaining findings re-verified and anchors/counts refreshed.
-
-Updated 2026-06-12: F7 (god-route-handlers) and F17 (god-function inventory) verified fixed and deleted — all four route surfaces now dispatch through a declarative `RouteTable` with per-endpoint `RouteEndpoint` classes; `invokePlannerMode` is a 77-line composer over a top-level `SummaryPlannerLoopRuntime` with explicit constructor dependencies; `summarizeRequest`/`invokeSummaryCore` delegate to `SummaryRequestRunner`/`SummaryCoreRunner`; `dashboard-runs.ts` is partitioned into `dashboard-runs/`. `tests/god-function-regression.test.ts` enforces per-symbol line limits. F17 trimmed to one residual method. The previously-resolved F3/F18 placeholder entries were also removed.
+Date: 2026-06-09. Scope: full repo scan for architectural issues, smells, and purpose-level assessment. Findings appended as discovered. Resolved findings are deleted as they are fixed, so finding numbers have gaps.
 
 ## Repo purpose (as stated)
 
@@ -48,7 +42,6 @@ Working tree top level contains scratch artifacts (`tmp-confirm-web-context.ts`,
 - Mixed `dist`/`src` imports (F6) make every test's subject ambiguous.
 - Giant end-to-end tests dominate (2,000+-line `dashboard-status-server.test.ts` and `repo-search-loop.core.test.ts`, tests that boot the real HTTP server + sqlite). The repo-search loop decomposition and the 2026-06-12 route/endpoint split added unit seams; the giant E2E suites have not yet been rebalanced onto them.
 - Test seams ship inside production modules: `src/summary/mock.ts` (`SIFTKIT_TEST_PROVIDER_BEHAVIOR`, `SIFTKIT_TEST_TOKEN`), and mock command results (`findMockResult`, `src/repo-search/engine/command-execution.ts`) live in the production execution path.
-- F13 residual coverage backfill completed 2026-06-12: `src/llm-protocol/` and `src/agent-loop/` now have focused branch tests for protocol normalization, streaming assembly, parser variants, loop stop/continue paths, and error branches. Because the shipping `test:coverage` gate instruments `dist/**/*.js` only (the F6 dist/src split), these src-importing tests are invisible to it; a dedicated `npm run test:coverage:llm` gate instruments `src/llm-protocol/**` + `src/agent-loop/**` over the full suite. Verified 2026-06-16: `agent-loop.ts` 96.66% branch / 100% func, `llama-cpp-client.ts` 96.66% / 100%, `streaming-response-assembler.ts` 95.91% / 100%, `tool-call-parser.ts` 97.36% / 100%; `action-parser.ts` 100% func with genuine executable branches fully covered (the residual 92.59% is two phantom boundary branches at the import/closing-brace lines, same c8/tsx noise class as `types.ts`). Keep future protocol/loop edits covered by `tests/llm-protocol.test.ts`, `tests/llm-protocol-streaming.test.ts`, and `tests/agent-loop.test.ts`, and re-run `test:coverage:llm`.
 - Timing-sensitive tests flake under load: `tests/model-request-queue.test.ts` asserts ~30ms queue-timeout windows and intermittently fails in full-suite runs while passing in isolation; the managed-llama startup/idle tests have similarly flaked under c8 instrumentation.
 
 ### F15. Benchmark/eval harnesses live inside the product
@@ -61,7 +54,7 @@ Working tree top level contains scratch artifacts (`tmp-confirm-web-context.ts`,
 
 ### F17. God-function residual
 
-Trimmed 2026-06-12: the full inventory (`handleChatRoute`, `handleCoreRoute`, `invokePlannerMode` + nested runtime class, `summarizeRequest`/`invokeSummaryCore`, the `dashboard-runs.ts` module) was verified broken up and is guarded by `tests/god-function-regression.test.ts`. One residual: `SummaryPlannerLoopRuntime.requestProviderAction` (`src/summary/planner/mode.ts:468`) is ~120 lines — above the 90-line bar the regression test holds its sibling methods to, and absent from the guard's limit list.
+`SummaryPlannerLoopRuntime.requestProviderAction` (`src/summary/planner/mode.ts:468`) is ~120 lines — above the 90-line bar `tests/god-function-regression.test.ts` holds its sibling methods to, and absent from the guard's limit list. Split it and add it to the regression guard.
 
 ---
 
@@ -220,4 +213,5 @@ The recurring pattern: the harness distrusts the model and intervenes aggressive
 1. Repackage: move bench/eval out of `src` and out of npm `files`; fix `files` array (F15, F2).
 2. Dead-code sweep: `llama-cpp-bridge.ts`, `SIFT_LEGACY_*`, `execution-lock`/`execution-lease`, `test-full.ts` include (F11).
 3. Unit-test pyramid recovery on the new endpoint/runner seams; type the `@ts-nocheck` runtime harness (F6, F14).
-4. F17 residual: split `SummaryPlannerLoopRuntime.requestProviderAction` and add it to the regression guard.
+4. Dashboard de-monolith: split `App.tsx`/`styles.css` and replace the hand-mirrored `dashboard/src/types.ts` with a shared server type contract (F16).
+5. F17 residual: split `SummaryPlannerLoopRuntime.requestProviderAction` and add it to the regression guard.
