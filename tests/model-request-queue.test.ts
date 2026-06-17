@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getDefaultMetrics } from '../dist/status-server/metrics.js';
-import { ManagedLlamaFlushQueue } from '../dist/status-server/managed-llama-flush-queue.js';
+import { getDefaultMetrics } from '../src/status-server/metrics.js';
+import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
 import {
   DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS,
   acquireModelRequestWithWait,
@@ -12,8 +12,8 @@ import {
   MAX_COMPLETED_STATUS_PATH_ENTRIES,
   rememberCompletedStatusRequestId,
   releaseModelRequest,
-} from '../dist/status-server/server-ops.js';
-import type { ServerContext } from '../dist/status-server/server-types.js';
+} from '../src/status-server/server-ops.js';
+import type { ServerContext } from '../src/status-server/server-types.js';
 
 type StdoutLine = string;
 

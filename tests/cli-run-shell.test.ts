@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { runCli } from '../dist/cli/index.js';
+import { runCli } from '../src/cli/index.js';
 import { makeCaptureStream, withTestEnvAndServer } from './_test-helpers.js';
 
 test('siftkit run --shell auto executes a shell script and sends output to the server', async () => {

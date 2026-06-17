@@ -4,8 +4,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { executeRepoSearchRequest } from '../dist/repo-search/index.js';
-import { summarizeRequest } from '../dist/summary.js';
+import { executeRepoSearchRequest } from '../src/repo-search/index.js';
+import { summarizeRequest } from '../src/summary.js';
 import { createTemporaryTimingRecorderFromEnv } from '../src/lib/temporary-timing-recorder.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
 import {

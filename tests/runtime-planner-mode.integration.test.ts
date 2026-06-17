@@ -7,8 +7,8 @@ const path = require('node:path');
 const {
   loadConfig,
   getChunkThresholdCharacters,
-} = require('../dist/config/index.js');
-const { summarizeRequest } = require('../dist/summary.js');
+} = require('../src/config/index.js');
+const { summarizeRequest } = require('../src/summary.js');
 const {
   buildOversizedTransitionsInput,
   getPlannerLogsPath,

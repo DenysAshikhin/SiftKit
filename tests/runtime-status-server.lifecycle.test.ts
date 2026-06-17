@@ -5,9 +5,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 
-const { summarizeRequest } = require('../dist/summary.js');
-const { writeConfig } = require('../dist/status-server/config-store.js');
-const { readStatusText } = require('../dist/status-server/status-file.js');
+const { summarizeRequest } = require('../src/summary.js');
+const { writeConfig } = require('../src/status-server/config-store.js');
+const { readStatusText } = require('../src/status-server/status-file.js');
 
 const {
   FAST_LEASE_STALE_MS,

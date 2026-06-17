@@ -20,7 +20,7 @@ const {
   listBenchmarkMatrixSessions,
   listBenchmarkMatrixRunsForSession,
   readBenchmarkMatrixRunLogTextByStream,
-} = require('../dist/state/benchmark-matrix.js');
+} = require('../src/state/benchmark-matrix.js');
 
 test('benchmark matrix respects per-run launcher overrides and script-owned reasoning', async () => {
   await withTempEnv(async (tempRoot) => {

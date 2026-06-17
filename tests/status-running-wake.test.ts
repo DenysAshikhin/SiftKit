@@ -6,10 +6,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { AddressInfo } from 'node:net';
 
-import { getDefaultMetrics } from '../dist/status-server/metrics.js';
-import { ManagedLlamaFlushQueue } from '../dist/status-server/managed-llama-flush-queue.js';
-import { createRequestHandler } from '../dist/status-server/routes.js';
-import type { ServerContext } from '../dist/status-server/server-types.js';
+import { getDefaultMetrics } from '../src/status-server/metrics.js';
+import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
+import { createRequestHandler } from '../src/status-server/routes.js';
+import type { ServerContext } from '../src/status-server/server-types.js';
 
 type JsonResponse = { statusCode: number; body: Record<string, unknown> };
 

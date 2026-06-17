@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { CommandOutputAnalyzer } from '../dist/command-output/analyzer.js';
-import { invokeProcess, invokeShellProcess } from '../dist/capture/process.js';
+import { CommandOutputAnalyzer } from '../src/command-output/analyzer.js';
+import { invokeProcess, invokeShellProcess } from '../src/capture/process.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
 
 function createAnalyzer(): CommandOutputAnalyzer {

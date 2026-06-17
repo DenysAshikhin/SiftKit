@@ -9,8 +9,8 @@ import {
   getConfiguredModel,
   resetHostLlamaSettingsCacheForTests,
   type SiftConfig,
-} from '../dist/config/index.js';
-import { getPlannerPromptBudget } from '../dist/summary.js';
+} from '../src/config/index.js';
+import { getPlannerPromptBudget } from '../src/summary.js';
 
 function makeClientConfig(options: {
   externalServer: boolean;

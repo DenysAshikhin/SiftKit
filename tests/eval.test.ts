@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { runEvaluation } from '../dist/eval.js';
+import { runEvaluation } from '../src/eval.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
 
 test('runEvaluation runs a fixture manifest and produces scored results', async () => {

@@ -4,10 +4,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { loadConfig, getConfigPath } = require('../dist/config/index.js');
-const { startStatusServer } = require('../dist/status-server/index.js');
-const { writeConfig } = require('../dist/status-server/config-store.js');
-const { readStatusText } = require('../dist/status-server/status-file.js');
+const { loadConfig, getConfigPath } = require('../src/config/index.js');
+const { startStatusServer } = require('../src/status-server/index.js');
+const { writeConfig } = require('../src/status-server/config-store.js');
+const { readStatusText } = require('../src/status-server/status-file.js');
 
 const {
   getDefaultConfig,

@@ -1,8 +1,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { initializeRuntime } from '../../dist/config/index.js';
-import { buildPrompt } from '../../dist/summary/prompt.js';
-import { getLocalTimestamp } from '../../dist/lib/time.js';
+import { initializeRuntime } from '../../src/config/index.js';
+import { buildPrompt } from '../../src/summary/prompt.js';
+import { getLocalTimestamp } from '../../src/lib/time.js';
 import {
   DEFAULT_REQUEST_TIMEOUT_SECONDS,
   type BenchmarkFixture,

@@ -6,12 +6,12 @@ import * as path from 'node:path';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 
-import { executeRepoSearchRequest } from '../dist/repo-search/index.js';
+import { executeRepoSearchRequest } from '../src/repo-search/index.js';
 import {
   listRuntimeArtifacts,
   parseRuntimeArtifactUri,
   readRuntimeArtifact,
-} from '../dist/state/runtime-artifacts.js';
+} from '../src/state/runtime-artifacts.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
 
 const requireFromHere = createRequire(__filename);

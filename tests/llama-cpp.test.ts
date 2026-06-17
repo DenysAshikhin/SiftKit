@@ -8,8 +8,8 @@ import {
   listLlamaCppModels,
   generateLlamaCppResponse,
   getLlamaCppProviderStatus,
-} from '../dist/providers/llama-cpp.js';
-import { loadConfig } from '../dist/config/index.js';
+} from '../src/providers/llama-cpp.js';
+import { loadConfig } from '../src/config/index.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
 
 test('listLlamaCppModels returns model list from server', async () => {

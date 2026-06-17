@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { summarizeRequest } = require('../dist/summary.js');
+const { summarizeRequest } = require('../src/summary.js');
 const {
   captureStdout,
   withStubServer,

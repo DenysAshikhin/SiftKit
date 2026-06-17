@@ -6,12 +6,12 @@ import * as path from 'node:path';
 import * as http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import type { SiftConfig } from '../dist/config/index.js';
-import { summarizeRequest } from '../dist/summary.js';
-import { getDefaultConfig, buildRuntimeLaunchSnapshot } from '../dist/status-server/config-store.js';
-import { startStatusServer } from '../dist/status-server/index.js';
-import { ManagedLlamaFlushQueue } from '../dist/status-server/managed-llama-flush-queue.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../dist/state/runtime-db.js';
+import type { SiftConfig } from '../src/config/index.js';
+import { summarizeRequest } from '../src/summary.js';
+import { getDefaultConfig, buildRuntimeLaunchSnapshot } from '../src/status-server/config-store.js';
+import { startStatusServer } from '../src/status-server/index.js';
+import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
+import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
 
 type JsonResponse = { statusCode: number; body: Record<string, unknown> };
 

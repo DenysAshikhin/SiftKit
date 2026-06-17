@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolvePresetAllowedTools } from '../dist/presets.js';
-import { buildPlannerToolDefinitions, executePlannerTool } from '../dist/summary/planner/tools.js';
-import { runRepoSearch } from '../dist/repo-search/engine.js';
-import { getDefaultConfig } from '../dist/status-server/config-store.js';
+import { resolvePresetAllowedTools } from '../src/presets.js';
+import { buildPlannerToolDefinitions, executePlannerTool } from '../src/summary/planner/tools.js';
+import { runRepoSearch } from '../src/repo-search/engine.js';
+import { getDefaultConfig } from '../src/status-server/config-store.js';
 
 test('summary planner tool definitions respect the preset allowlist', () => {
   const definitions = buildPlannerToolDefinitions(['find_text']);

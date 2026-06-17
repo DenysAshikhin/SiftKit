@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { UNSUPPORTED_INPUT_MESSAGE } from '../../dist/summary/measure.js';
+import { UNSUPPORTED_INPUT_MESSAGE } from '../../src/summary/measure.js';
 
 type JsonObject = Record<string, unknown>;
 

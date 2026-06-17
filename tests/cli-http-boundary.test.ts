@@ -6,8 +6,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { AddressInfo } from 'node:net';
 
-import { runCli } from '../dist/cli/index.js';
-import { getDefaultConfig } from '../dist/status-server/config-store.js';
+import { runCli } from '../src/cli/index.js';
+import { getDefaultConfig } from '../src/status-server/config-store.js';
 import { makeCaptureStream } from './_test-helpers.js';
 
 type CapturedRequest = {

@@ -5,9 +5,9 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
-const { getConfigPath } = require('../dist/config/index.js');
-const { getDefaultConfig, writeConfig } = require('../dist/status-server/config-store.js');
-const { readStatusText } = require('../dist/status-server/status-file.js');
+const { getConfigPath } = require('../src/config/index.js');
+const { getDefaultConfig, writeConfig } = require('../src/status-server/config-store.js');
+const { readStatusText } = require('../src/status-server/status-file.js');
 const {
   getFreePort,
   requestJson,

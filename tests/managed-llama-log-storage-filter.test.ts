@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ManagedLlamaLogStorageFilter } from '../dist/status-server/managed-llama-log-storage-filter.js';
+import { ManagedLlamaLogStorageFilter } from '../src/status-server/managed-llama-log-storage-filter.js';
 
 test('managed llama log storage filter omits verbose request bodies across chunks', () => {
   const filter = new ManagedLlamaLogStorageFilter();

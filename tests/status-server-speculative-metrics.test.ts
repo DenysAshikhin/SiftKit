@@ -4,26 +4,26 @@ const fs = require('node:fs');
 const path = require('node:path');
 const Database = require('better-sqlite3');
 
-const { writeConfig } = require('../dist/status-server/config-store.js');
+const { writeConfig } = require('../src/status-server/config-store.js');
 const {
   flushRunArtifactsToDbAndDelete,
   queryDashboardRunDetailFromDb,
   queryDashboardRunsFromDb,
   upsertRepoSearchRun,
-} = require('../dist/status-server/dashboard-runs.js');
+} = require('../src/status-server/dashboard-runs.js');
 const {
   captureManagedLlamaSpeculativeMetricsSnapshot,
   getManagedLlamaSpeculativeMetricsDelta,
-} = require('../dist/status-server/managed-llama.js');
+} = require('../src/status-server/managed-llama.js');
 const {
   bufferManagedLlamaLogChunk,
   createManagedLlamaRun,
   readManagedLlamaLogTextByStream,
   flushManagedLlamaLogChunks,
-} = require('../dist/state/managed-llama-runs.js');
+} = require('../src/state/managed-llama-runs.js');
 const {
   appendManagedLlamaSpeculativeMetricsChunk,
-} = require('../dist/status-server/managed-llama-speculative-tracker.js');
+} = require('../src/status-server/managed-llama-speculative-tracker.js');
 
 const {
   getDefaultConfig,

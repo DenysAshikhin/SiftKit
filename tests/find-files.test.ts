@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { findFiles } from '../dist/find-files.js';
+import { findFiles } from '../src/find-files.js';
 
 test('findFiles returns matching files in a directory tree', () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-findfiles-'));

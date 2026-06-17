@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveExternalCommand } from '../dist/capture/command-path.js';
-import { captureWithTranscript } from '../dist/capture/process.js';
-import { CommandOutputAnalyzer } from '../dist/command-output/analyzer.js';
+import { resolveExternalCommand } from '../src/capture/command-path.js';
+import { captureWithTranscript } from '../src/capture/process.js';
+import { CommandOutputAnalyzer } from '../src/command-output/analyzer.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
 
 type InteractiveCaptureTestRequest = {

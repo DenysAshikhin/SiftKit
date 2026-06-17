@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const { writeConfig, getDefaultConfig } = require('../dist/status-server/config-store.js');
+const { writeConfig, getDefaultConfig } = require('../src/status-server/config-store.js');
 const {
   requestJson,
   withRealStatusServer,

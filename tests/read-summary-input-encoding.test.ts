@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { readSummaryInput } = require('../dist/summary.js');
+const { readSummaryInput } = require('../src/summary.js');
 
 function toUtf16BeBuffer(text, withBom = true) {
   const le = Buffer.from(text, 'utf16le');

@@ -5,7 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { installCodexPolicy, installShellIntegration, installSiftKit } from '../dist/install.js';
+import { installCodexPolicy, installShellIntegration, installSiftKit } from '../src/install.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
 
 void installShellIntegration;

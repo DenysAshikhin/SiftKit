@@ -8,15 +8,15 @@ const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const Database = require('better-sqlite3');
 
-const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage } = require('../dist/config/index.js');
-const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../dist/summary.js');
-const { runCommand } = require('./helpers/run-command-for-test.cjs');
+const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage } = require('../src/config/index.js');
+const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../src/summary.js');
+const { runCommand } = require('./helpers/run-command-for-test.js');
 const { runBenchmarkSuite } = require('../bench/benchmark/index.ts');
 const { readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs, pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt } = require('../bench/benchmark-matrix/index.ts');
-const { countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse } = require('../dist/providers/llama-cpp.js');
-const { withExecutionLock } = require('../dist/execution-lock.js');
-const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../dist/status-server/index.js');
-const { readStatusText } = require('../dist/status-server/status-file.js');
+const { countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse } = require('../src/providers/llama-cpp.js');
+const { withExecutionLock } = require('../src/execution-lock.js');
+const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../src/status-server/index.js');
+const { readStatusText } = require('../src/status-server/status-file.js');
 const { runDebugRequest } = require('../bench/repro/run-benchmark-fixture-debug.ts');
 const { runFixture60MalformedJsonRepro } = require('../bench/repro/repro-fixture60-malformed-json.ts');
 

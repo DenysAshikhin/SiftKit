@@ -8,13 +8,13 @@ const {
   getChunkThresholdCharacters,
   getConfiguredLlamaNumCtx,
   getEffectiveInputCharactersPerContextToken,
-} = require('../dist/config/index.js');
+} = require('../src/config/index.js');
 const {
   summarizeRequest,
   buildPlannerToolDefinitions,
-} = require('../dist/summary.js');
-const { generateLlamaCppResponse } = require('../dist/providers/llama-cpp.js');
-const { executePlannerTool } = require('../dist/summary/planner/tools.js');
+} = require('../src/summary.js');
+const { generateLlamaCppResponse } = require('../src/providers/llama-cpp.js');
+const { executePlannerTool } = require('../src/summary/planner/tools.js');
 
 const {
   getChatRequestText,

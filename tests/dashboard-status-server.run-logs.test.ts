@@ -6,8 +6,8 @@ import * as path from 'node:path';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 
-import { startStatusServer } from '../dist/status-server/index.js';
-import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
+import { startStatusServer } from '../src/status-server/index.js';
+import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import {
   removeDirectoryWithRetries,
   requestJson,

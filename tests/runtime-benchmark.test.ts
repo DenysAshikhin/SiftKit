@@ -8,12 +8,12 @@ const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const Database = require('better-sqlite3');
 
-const { loadConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage } = require('../dist/config/index.js');
-const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../dist/summary.js');
-const { runCommand } = require('./helpers/run-command-for-test.cjs');
+const { loadConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage } = require('../src/config/index.js');
+const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../src/summary.js');
+const { runCommand } = require('./helpers/run-command-for-test.js');
 const { runBenchmarkSuite } = require('../bench/benchmark/index.ts');
-const { withExecutionLock } = require('../dist/execution-lock.js');
-const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../dist/status-server/index.js');
+const { withExecutionLock } = require('../src/execution-lock.js');
+const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../src/status-server/index.js');
 const { runDebugRequest } = require('../bench/repro/run-benchmark-fixture-debug.ts');
 
 const {

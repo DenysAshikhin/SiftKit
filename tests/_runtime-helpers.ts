@@ -47,13 +47,13 @@ import {
   getEffectiveInputCharactersPerContextToken,
   initializeRuntime,
   getStatusServerUnavailableMessage,
-} from '../dist/config/index.js';
-import { summarizeRequest } from '../dist/summary/core.js';
-import { buildPrompt } from '../dist/summary/prompt.js';
-import { getSummaryDecision } from '../dist/summary/decision.js';
-import { planTokenAwareLlamaCppChunks, getPlannerPromptBudget } from '../dist/summary/chunking.js';
-import { buildPlannerToolDefinitions } from '../dist/summary/planner/tools.js';
-import { runCommand } from './helpers/run-command-for-test.cjs';
+} from '../src/config/index.js';
+import { summarizeRequest } from '../src/summary/core.js';
+import { buildPrompt } from '../src/summary/prompt.js';
+import { getSummaryDecision } from '../src/summary/decision.js';
+import { planTokenAwareLlamaCppChunks, getPlannerPromptBudget } from '../src/summary/chunking.js';
+import { buildPlannerToolDefinitions } from '../src/summary/planner/tools.js';
+import { runCommand } from './helpers/run-command-for-test.js';
 import { runBenchmarkSuite } from '../bench/benchmark/index.js';
 import {
   readMatrixManifest,
@@ -68,17 +68,17 @@ import {
   countLlamaCppTokens,
   listLlamaCppModels,
   generateLlamaCppResponse,
-} from '../dist/providers/llama-cpp.js';
-import { withExecutionLock } from '../dist/execution-lock.js';
+} from '../src/providers/llama-cpp.js';
+import { withExecutionLock } from '../src/execution-lock.js';
 import {
   buildIdleMetricsLogMessage,
   buildStatusRequestLogMessage,
   formatElapsed,
   getIdleSummarySnapshotsPath,
   startStatusServer,
-} from '../dist/status-server/index.js';
-import { writeConfig } from '../dist/status-server/config-store.js';
-import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
+} from '../src/status-server/index.js';
+import { writeConfig } from '../src/status-server/config-store.js';
+import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { runDebugRequest } from '../bench/repro/run-benchmark-fixture-debug.js';
 import { runFixture60MalformedJsonRepro } from '../bench/repro/repro-fixture60-malformed-json.js';
 import type { SiftConfig, ServerManagedLlamaPreset } from '../src/config/types.js';
@@ -910,6 +910,7 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
     configUrl: `http://127.0.0.1:${port}/config`,
     state,
     async close() {
+      server.closeAllConnections();
       await new Promise<void>((resolve, reject) => { server.close((error) => (error ? reject(error) : resolve())); });
     },
   };
@@ -1177,6 +1178,7 @@ async function withRealStatusServer<R>(fn: (context: RealStatusServerContext) =>
       idleSummaryDbPath: options.idleSummaryDbPath || getIdleSummarySnapshotsPath(),
     });
   } finally {
+    server.closeAllConnections();
     await new Promise<void>((resolve, reject) => { server.close((error) => (error ? reject(error) : resolve())); });
     closeRuntimeDatabase();
     for (const [key, value] of Object.entries(previous)) {

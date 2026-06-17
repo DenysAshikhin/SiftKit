@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   getStatusServerBindHost,
   getStatusServerConnectHost,
-} from '../dist/lib/status-host.js';
+} from '../src/lib/status-host.js';
 
 function withStatusHost(value: string | undefined, run: () => void): void {
   const previous = process.env.SIFTKIT_STATUS_HOST;

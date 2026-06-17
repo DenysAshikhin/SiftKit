@@ -1,15 +1,5 @@
 #!/usr/bin/env node
-import path from 'node:path';
-
-type SafetyResult = {
-  safe: boolean;
-  reason: string | null;
-};
-
-type CommandSafetyModule = {
-  evaluateCommandSafety(command: string, repoRoot?: string): SafetyResult;
-  parseDirectRgCommand(command: string): unknown | null;
-};
+import { evaluateCommandSafety, parseDirectRgCommand } from '../../src/repo-search/command-safety.js';
 
 type ReproSegment = {
   index: number;
@@ -22,7 +12,7 @@ type ReproReport = {
   command: string;
   segments: ReproSegment[];
   directRgSegments: ReproSegment[];
-  safety: SafetyResult;
+  safety: ReturnType<typeof evaluateCommandSafety>;
   directRgParsed: boolean;
   reproduced: boolean;
   legacyFromSplit: boolean;
@@ -38,12 +28,6 @@ const FIXTURES: Record<string, string> = {
   'audit-command-4': AUDIT_COMMAND_4,
   'likely-intended': 'rg -n "from [\'\\"].*\\.internal|import.*\\/internal\\/" --glob "*.test.ts" apps/runner/src/__tests__',
 };
-
-function loadCommandSafety(): CommandSafetyModule {
-  const base = path.resolve(__dirname, '..', '..', 'src');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return require(path.join(base, 'repo-search', 'command-safety.js')) as CommandSafetyModule;
-}
 
 function splitTopLevelPipesForReport(
   command: string,
@@ -101,8 +85,7 @@ export function buildPipeFromReproReport(
   command: string = DEFAULT_COMMAND,
   fixture = 'custom',
 ): ReproReport {
-  const commandSafety = loadCommandSafety();
-  const safety = commandSafety.evaluateCommandSafety(command, process.cwd());
+  const safety = evaluateCommandSafety(command, process.cwd());
   const legacySplit = splitTopLevelPipesForReport(command, { backslashEscapesQuotes: false });
   const directSplit = splitTopLevelPipesForReport(command, { backslashEscapesQuotes: true });
   const segments = toReproSegments(legacySplit.segments);
@@ -114,7 +97,7 @@ export function buildPipeFromReproReport(
     segments,
     directRgSegments,
     safety,
-    directRgParsed: commandSafety.parseDirectRgCommand(command) !== null,
+    directRgParsed: parseDirectRgCommand(command) !== null,
     reproduced: safety.safe === false && safety.reason === "command 'from' is not in the allow-list",
     legacyFromSplit,
     parserMismatch: segments.length !== directRgSegments.length,

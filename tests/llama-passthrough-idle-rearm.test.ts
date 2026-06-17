@@ -6,12 +6,12 @@ import * as path from 'node:path';
 import * as http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import { getDefaultMetrics } from '../dist/status-server/metrics.js';
-import { ManagedLlamaFlushQueue } from '../dist/status-server/managed-llama-flush-queue.js';
-import { handleLlamaPassthroughRoute } from '../dist/status-server/routes/llama-passthrough.js';
-import { writeConfig } from '../dist/status-server/config-store.js';
-import type { ServerContext } from '../dist/status-server/server-types.js';
-import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
+import { getDefaultMetrics } from '../src/status-server/metrics.js';
+import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
+import { handleLlamaPassthroughRoute } from '../src/status-server/routes/llama-passthrough.js';
+import { writeConfig } from '../src/status-server/config-store.js';
+import type { ServerContext } from '../src/status-server/server-types.js';
+import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 
 type TestHarness = {
   ctx: ServerContext;

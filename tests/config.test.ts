@@ -38,8 +38,8 @@ import {
   SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN,
   StatusServerUnavailableError,
   MissingObservedBudgetError,
-} from '../dist/config/index.js';
-import { ensureDirectory, saveContentAtomically } from '../dist/lib/fs.js';
+} from '../src/config/index.js';
+import { ensureDirectory, saveContentAtomically } from '../src/lib/fs.js';
 import { withTestEnvAndServer, type Dict } from './_test-helpers.js';
 
 type ConfigArg = Parameters<typeof getConfiguredModel>[0];
