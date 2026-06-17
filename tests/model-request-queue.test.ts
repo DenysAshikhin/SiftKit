@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { getDefaultMetrics } from '../src/status-server/metrics.js';
+import { getDefaultConfig } from '../src/status-server/config-store.js';
 import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
+import { StatusEngineService } from '../src/status-server/engine-service.js';
 import {
   DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS,
   acquireModelRequestWithWait,
@@ -25,6 +27,13 @@ function createQueueContext(): ServerContext {
     metricsPath: 'metrics.sqlite',
     idleSummarySnapshotsPath: 'idle.sqlite',
     disableManagedLlamaStartup: false,
+    engineService: new StatusEngineService(),
+    terminalMetadataQueue: [],
+    terminalMetadataDrainScheduled: false,
+    terminalMetadataDrainRunning: false,
+    terminalMetadataLastModelRequestFinishedAtMs: null,
+    terminalMetadataIdleDelayMs: 0,
+    runtimeHistoryPruneTimer: null,
     server: null,
     getServiceBaseUrl(): string {
       return 'http://127.0.0.1:0';
@@ -57,9 +66,9 @@ function createQueueContext(): ServerContext {
     managedLlamaLogCleanupTimer: null,
     managedLlamaFlushQueue: new ManagedLlamaFlushQueue(),
     async shutdownManagedLlamaIfNeeded(): Promise<void> {},
-    async ensureManagedLlamaReady(): Promise<Record<string, never>> {
+    async ensureManagedLlamaReady() {
       wakeCount += 1;
-      return {};
+      return getDefaultConfig();
     },
     get wakeCount(): number {
       return wakeCount;
