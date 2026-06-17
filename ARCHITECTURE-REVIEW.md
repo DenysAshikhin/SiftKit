@@ -13,13 +13,11 @@ Original audit date: 2026-06-09.
 - Test files import **~94 paths from `../dist/...` and ~80 from `../src/...`** — the same suite simultaneously tests compiled output and raw TS. A test passing can mean "current source works" or "whatever was last built works", depending on the file. `build-test.js` mitigates with an mtime stamp, but the mixed convention makes every test's subject ambiguous and blocks coverage tooling from a single view (the `test:coverage` script only includes `dist/**`).
 - `tsconfig.test.json` includes `src/**/*.ts` plus only **17 of ~140 test files** (the engine/chat suites added during the repo-search loop decomposition). `npm run typecheck:test` still skips ~88% of the test suite; type errors in those tests surface only at tsx runtime, or never (tsx does not typecheck).
 
-### F11. Dead code and "legacy" constants that violate the project's no-legacy rule
+### F11. `execution-lock`/`execution-lease` re-evaluation (dead-code items resolved)
 
-- `src/llama-cpp-bridge.ts` (107 lines) has **zero importers** in `src/`, `tests/`, or `scripts/`.
-- `src/config/constants.ts` exports `SIFT_LEGACY_DEFAULT_NUM_CTX`, `SIFT_LEGACY_DERIVED_NUM_CTX`, `SIFT_PREVIOUS_DEFAULT_NUM_CTX`, `SIFT_PREVIOUS_DEFAULT_MODEL`, `SIFT_LEGACY_DEFAULT_MAX_INPUT_CHARACTERS` — named legacy-compat values still re-exported through `src/config/index.ts`, against the stated "no legacy compatibility" rule.
-- `SIFTKIT_VERSION = '0.1.0'` (`src/config/constants.ts:1`) duplicates `package.json` `version` by hand.
-- `tsconfig.json:18` includes `test-full.ts`, which does not exist.
-- `src/execution-lock.ts` and `src/config/execution-lease.ts` existed largely to coordinate the now-removed client/server split-brain execution; with the server as sole engine owner they are intra-process-only serialization and candidates for deletion (still imported by `summary/core.ts`, `eval.ts`, `install.ts`).
+The dead-code half is done: `src/llama-cpp-bridge.ts` deleted (zero importers), the `SIFT_LEGACY_*`/`SIFT_PREVIOUS_*` constants removed, `SIFTKIT_VERSION` now sourced from `package.json`, and the phantom `test-full.ts` `tsconfig` include dropped. Remaining:
+
+- `src/execution-lock.ts` + `src/config/execution-lease.ts` were re-verified and are **not** dead or intra-process-only. The client (`execution-lock`) acquires a lease from the status server over HTTP (`tryAcquireExecutionLease` -> `routes/core.ts` acquire/release/heartbeat endpoints; `server-ops.ts`; `ExecutionLease` type in `server-types.ts`), heartbeats it on a 3s timer, and a `skipExecutionLock` flag is threaded through `summary/types.ts` + callers (`command-output/analyzer.ts`, `status-server/preset-runner.ts`, `routes/core.ts:1055`). Live consumers: `install.ts`, `eval.ts`, `summary/request-runner.ts`. This is real cross-process serialization of the single-slot managed `llama-server`. Removing it is a behavioral refactor (it would let two concurrent CLI invocations both drive one slot) and belongs to the server/workspace split, not a dead-code sweep.
 
 ### F14. Test architecture is inverted and self-undermining
 
@@ -171,7 +169,7 @@ Why it's an issue:
 
 ## Priority order (highest leverage first)
 
-1. Dead-code sweep: `llama-cpp-bridge.ts`, `SIFT_LEGACY_*`, `execution-lock`/`execution-lease`, `test-full.ts` include (F11).
+1. ~~Dead-code sweep~~ **(done):** `llama-cpp-bridge.ts`, `SIFT_LEGACY_*`, `SIFTKIT_VERSION` dedupe, `test-full.ts` include removed. `execution-lock`/`execution-lease` reclassified as live cross-process code — its removal is deferred to the server/workspace split (see F11), not a dead-code item.
 2. Unit-test pyramid recovery on the new endpoint/runner seams; type the `@ts-nocheck` runtime harness (F6, F14).
 3. Dashboard de-monolith: split `App.tsx`/`styles.css` and replace the hand-mirrored `dashboard/src/types.ts` with a shared server type contract (F16).
 4. Split `SummaryPlannerLoopRuntime.requestProviderAction` and add it to the regression guard (F17).

@@ -10,7 +10,6 @@ This document inventories all **public** paths in SiftKit that can send prompts 
 | F2 | `siftkit run ...` and internal `command-analyze` | `src/command.ts` -> `analyzeCommandOutput` -> `summarizeRequest` | Same as F1, but `sourceKind=command-output` |
 | F3 | Internal `interactive-capture` (exposed by status/internal ops) | `src/interactive.ts` -> `summarizeRequest` | Same as F1, but transcript-driven `command-output` |
 | F4 | `siftkit repo-search ...` and status `/repo-search` and dashboard plan/repo-search endpoints | `src/repo-search.ts` -> `scripts/mock-repo-search-loop.js` | Multi-turn planner chat loop with tool calls; optional streaming planner request |
-| F5 | Direct bridge utility (`llama-cpp-bridge generate`) | `src/llama-cpp-bridge.ts` -> `generateLlamaCppResponse` | Direct single prompt wrapper (no splitting/planner) |
 | F6 | Dashboard chat POST `/dashboard/chat/sessions/:id/messages` | `siftKitStatus/index.js` -> `generateChatAssistantMessage` | Stateful chat completion (non-stream) |
 | F7 | Dashboard chat streaming POST `/dashboard/chat/sessions/:id/messages/stream` | `siftKitStatus/index.js` -> `streamChatAssistantMessage` | Stateful chat completion (stream=true SSE) |
 
@@ -20,8 +19,8 @@ Notes:
 
 ## 2. Send/Split Modes
 
-### Mode A: One-shot structured summary (F1/F2/F3/F5)
-- Prompt built by `buildPrompt(...)` (summary pipeline) or direct prompt text (bridge).
+### Mode A: One-shot structured summary (F1/F2/F3)
+- Prompt built by `buildPrompt(...)` (summary pipeline).
 - Sent as `/v1/chat/completions` with `messages=[{ role:"user", content: prompt }]`.
 - Summary path enforces decision grammar (`siftkit-decision-json`) unless mock backend.
 
@@ -85,7 +84,7 @@ Notes:
 All send to `/v1/chat/completions`.
 
 ### 4.1 Messages only
-- Summary one-shot and bridge path use user-only message payload.
+- Summary one-shot uses user-only message payload.
 
 ### 4.2 With tools + response_format
 - Summary planner:
