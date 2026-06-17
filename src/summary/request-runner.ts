@@ -76,6 +76,11 @@ function getSummaryWallDurationMs(request: SummaryRequest, fallbackStartedAtMs: 
   return Math.max(0, Date.now() - startedAt);
 }
 
+/** Non-llama backends cannot chunk, so input above `maxInputCharacters` is rejected; llama.cpp is exempt. */
+export function isOversizedNonLlamaInput(backend: string, inputLength: number, maxInputCharacters: number): boolean {
+  return backend !== 'llama.cpp' && inputLength > maxInputCharacters;
+}
+
 export class SummaryRequestRunner {
   private readonly request: SummaryRequest;
   private readonly inputText: string;
@@ -240,7 +245,7 @@ export class SummaryRequestRunner {
 
   private rejectOversizedNonLlamaInput(config: SiftConfig, backend: string): void {
     const maxInputCharacters = getChunkThresholdCharacters(config) * 4;
-    if (backend !== 'llama.cpp' && this.inputText.length > maxInputCharacters) {
+    if (isOversizedNonLlamaInput(backend, this.inputText.length, maxInputCharacters)) {
       throw new Error(`Error: recieved input of ${this.inputText.length} characters, current maximum is ${maxInputCharacters} chars`);
     }
   }
