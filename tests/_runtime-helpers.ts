@@ -85,6 +85,15 @@ import { runFixture60MalformedJsonRepro } from '../bench/repro/repro-fixture60-m
 import type { SiftConfig, ServerManagedLlamaPreset } from '../src/config/types.js';
 import type { TaskKind, ToolTypeStats } from '../src/status-server/metrics.js';
 
+// Deliberately-partial SiftConfig fixtures: the input is structurally checked
+// against SiftConfig (catching typos / wrong nesting) while the cast supplies the
+// fields a given test does not exercise. Behaviour-exact for the runtime paths
+// under test — completing the object would alter what the provider reads.
+type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
+function mockConfig(partial: DeepPartial<SiftConfig>): SiftConfig {
+  return partial as unknown as SiftConfig;
+}
+
 
 const TEST_USE_EXISTING_SERVER = process.env.SIFTKIT_TEST_USE_EXISTING_SERVER === '1';
 const EXISTING_SERVER_STATUS_URL = process.env.SIFTKIT_STATUS_BACKEND_URL;
@@ -1502,7 +1511,7 @@ export {
   buildStructuredStubDecision, resolveAssistantContent, readBody,
   resolveArtifactLogPathFromStatusPost, requestJson, sleep,
   removeDirectoryWithRetries, spawnProcess, waitForTextMatch,
-  startStubStatusServer, withTempEnv, withStubServer, withSummaryTestServer,
+  startStubStatusServer, withTempEnv, withStubServer, withSummaryTestServer, mockConfig,
   getStatusRouteUrl, postStatusTerminalMetadata, postStatusComplete, postCompletedStatus,
   withRealStatusServer, startStatusServerProcess, stripAnsi, captureStdout,
   readIdleSummarySnapshots, getIdleSummaryBlock, getFreePort,
