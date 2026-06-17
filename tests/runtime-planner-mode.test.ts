@@ -1,74 +1,42 @@
-// @ts-nocheck — Split from runtime.test.js. Full TS typing deferred.
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const http = require('node:http');
-const os = require('node:os');
-const path = require('node:path');
-const { spawn, spawnSync } = require('node:child_process');
-const Database = require('better-sqlite3');
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
-const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage } = require('../src/config/index.js');
-const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../src/summary.js');
-const { runCommand } = require('./helpers/run-command-for-test.js');
-const { runBenchmarkSuite } = require('../bench/benchmark/index.ts');
-const { readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs, pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt } = require('../bench/benchmark-matrix/index.ts');
-const { countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse } = require('../src/providers/llama-cpp.js');
-const { withExecutionLock } = require('../src/execution-lock.js');
-const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../src/status-server/index.js');
-const { runDebugRequest } = require('../bench/repro/run-benchmark-fixture-debug.ts');
-const { runFixture60MalformedJsonRepro } = require('../bench/repro/repro-fixture60-malformed-json.ts');
-
-const {
-  TEST_USE_EXISTING_SERVER,
-  EXISTING_SERVER_STATUS_URL,
-  EXISTING_SERVER_CONFIG_URL,
-  RUN_LIVE_LLAMA_TOKENIZE_TESTS,
-  LIVE_LLAMA_BASE_URL,
-  LIVE_CONFIG_SERVICE_URL,
-  FAST_LEASE_STALE_MS,
-  FAST_LEASE_WAIT_MS,
-  deriveServiceUrl,
-  getDefaultConfig,
-  clone,
+import {
+  fs,
+  path,
+  loadConfig,
+  saveConfig,
+  getChunkThresholdCharacters,
+  getConfiguredLlamaNumCtx,
+  getEffectiveInputCharactersPerContextToken,
+  summarizeRequest,
+  getPlannerPromptBudget,
   getChatRequestText,
-  setManagedLlamaBaseUrl,
-  mergeConfig,
-  extractPromptSection,
   buildOversizedTransitionsInput,
   buildOversizedRunnerStateHistoryInput,
-  getRuntimeRootFromStatusPath,
   getPlannerLogsPath,
   getFailedLogsPath,
-  getRequestLogsPath,
-  buildStructuredStubDecision,
-  resolveAssistantContent,
-  readBody,
-  resolveArtifactLogPathFromStatusPost,
-  requestJson,
-  sleep,
-  removeDirectoryWithRetries,
   spawnProcess,
-  waitForTextMatch,
-  startStubStatusServer,
   withTempEnv,
   withStubServer,
-  withSummaryTestServer,
-  withRealStatusServer,
-  startStatusServerProcess,
-  stripAnsi,
-  captureStdout,
-  readIdleSummarySnapshots,
-  getIdleSummaryBlock,
-  getFreePort,
-  toSingleQuotedPowerShellLiteral,
-  writeManagedLlamaScripts,
   waitForAsyncExpectation,
-  runPowerShellScript,
-} = require('./_runtime-helpers.js');
+} from './_runtime-helpers.js';
 
-function buildOversizedAmbiguousCollectionInput(minCharacters) {
-  const document = {
+interface PlannerDebugEvent {
+  kind?: string;
+  toolName?: string;
+  command?: string;
+  error?: unknown;
+  thinkingProcess?: unknown;
+  toolCall?: { tool_name?: string };
+  output?: { text?: string; matchedCount?: number };
+}
+
+function buildOversizedAmbiguousCollectionInput(minCharacters: number): string {
+  const document: {
+    usersA: Array<{ id: number; name: string; note: string }>;
+    usersB: Array<{ id: number; name: string; note: string }>;
+  } = {
     usersA: [],
     usersB: [],
   };
@@ -89,8 +57,24 @@ function buildOversizedAmbiguousCollectionInput(minCharacters) {
   return JSON.stringify(document);
 }
 
-function buildOversizedWidgetPayloadInput(minCharacters) {
-  const document = {
+function buildOversizedWidgetPayloadInput(minCharacters: number): string {
+  const document: {
+    widgetRootCount: number;
+    widgetRoots: Array<{
+      id: number;
+      groupId: number;
+      childIndex: number;
+      text: string;
+      name: string;
+      isHidden: boolean;
+      hasBounds: boolean;
+      childCount: number;
+      dynamicChildCount: number;
+    }>;
+    bankGroupDirectLookup: Record<string, unknown>;
+    textSearchResults: unknown[];
+    currentBankDetection: null;
+  } = {
     widgetRootCount: 0,
     widgetRoots: [],
     bankGroupDirectLookup: {},
@@ -164,7 +148,7 @@ test('planner json_filter accepts combined gte and lte bounds in one filter valu
     assert.equal(added.length, 1);
 
     const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
-    const jsonFilterEvent = debugDump.events.find((event) => event.kind === 'planner_tool' && event.toolName === 'json_filter');
+    const jsonFilterEvent = debugDump.events.find((event: PlannerDebugEvent) => event.kind === 'planner_tool' && event.toolName === 'json_filter');
     assert.equal(jsonFilterEvent.output.matchedCount, 2);
     assert.match(jsonFilterEvent.output.text, /Lumbridge Castle Staircase/u);
     assert.match(jsonFilterEvent.output.text, /Lumbridge Castle Courtyard Gate/u);
@@ -271,11 +255,11 @@ test('planner retries malformed json_filter schema-placeholder args once and the
 
     const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
     assert.equal(
-      debugDump.events.some((event) => event.kind === 'planner_invalid_response' && /json_filter gte requires a scalar value\./u.test(String(event.error || ''))),
+      debugDump.events.some((event: PlannerDebugEvent) => event.kind === 'planner_invalid_response' && /json_filter gte requires a scalar value\./u.test(String(event.error || ''))),
       true,
     );
     assert.equal(
-      debugDump.events.some((event) => event.kind === 'planner_tool' && event.toolName === 'json_filter' && /"value":3228/u.test(String(event.command || ''))),
+      debugDump.events.some((event: PlannerDebugEvent) => event.kind === 'planner_tool' && event.toolName === 'json_filter' && /"value":3228/u.test(String(event.command || ''))),
       true,
     );
     assert.equal(debugDump.final.finalOutput, 'recovered malformed planner tool args');
@@ -328,11 +312,11 @@ test('planner accepts exact nested value scalar wrappers in json_filter args', a
     assert.equal(added.length, 1);
 
     const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
-    const jsonFilterEvent = debugDump.events.find((event) => event.kind === 'planner_tool' && event.toolName === 'json_filter');
+    const jsonFilterEvent = debugDump.events.find((event: PlannerDebugEvent) => event.kind === 'planner_tool' && event.toolName === 'json_filter');
     assert.equal(jsonFilterEvent.output.matchedCount > 0, true);
     assert.match(jsonFilterEvent.output.text, /"groupId":12/u);
     assert.equal(
-      debugDump.events.some((event) => event.kind === 'planner_invalid_response'),
+      debugDump.events.some((event: PlannerDebugEvent) => event.kind === 'planner_invalid_response'),
       false,
     );
   });
@@ -379,7 +363,7 @@ test('planner malformed json_filter schema-placeholder args fail on invalid resp
     const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
     assert.equal(debugDump.final.reason, 'planner_invalid_response_limit');
     assert.equal(
-      debugDump.events.filter((event) => event.kind === 'planner_invalid_response').length,
+      debugDump.events.filter((event: PlannerDebugEvent) => event.kind === 'planner_invalid_response').length,
       4,
     );
   });
@@ -437,7 +421,7 @@ test('planner json_filter supports scalar timestamp ranges on object-root array 
     assert.equal(added.length, 1);
 
     const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
-    const jsonFilterEvent = debugDump.events.find((event) => event.kind === 'planner_tool' && event.toolName === 'json_filter');
+    const jsonFilterEvent = debugDump.events.find((event: PlannerDebugEvent) => event.kind === 'planner_tool' && event.toolName === 'json_filter');
     assert.equal(jsonFilterEvent.output.collectionPath, 'states');
     assert.equal(jsonFilterEvent.output.matchedCount, 2);
     assert.match(jsonFilterEvent.output.text, /2026-03-30T18:42:57Z/u);
@@ -496,10 +480,10 @@ test('planner returns recoverable json_filter collectionPath guidance without co
 
     const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
     assert.equal(
-      debugDump.events.filter((event) => event.kind === 'planner_invalid_response').length,
+      debugDump.events.filter((event: PlannerDebugEvent) => event.kind === 'planner_invalid_response').length,
       0,
     );
-    const jsonFilterEvent = debugDump.events.find((event) => event.kind === 'planner_tool' && event.toolName === 'json_filter');
+    const jsonFilterEvent = debugDump.events.find((event: PlannerDebugEvent) => event.kind === 'planner_tool' && event.toolName === 'json_filter');
     assert.match(String(jsonFilterEvent?.output?.error || ''), /Candidate collectionPath values: usersA, usersB/u);
   });
 });
@@ -578,7 +562,7 @@ test('planner json_filter falls back to embedded JSON in command-output text and
     assert.equal(added.length, 1);
 
     const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
-    const jsonFilterEvent = debugDump.events.find((event) => event.kind === 'planner_tool' && event.toolName === 'json_filter');
+    const jsonFilterEvent = debugDump.events.find((event: PlannerDebugEvent) => event.kind === 'planner_tool' && event.toolName === 'json_filter');
     assert.equal(Boolean(jsonFilterEvent?.output?.usedFallback), true);
     assert.match(String(jsonFilterEvent?.output?.ignoredPrefixPreview || ''), /A worker process has failed to exit gracefully/u);
     assert.match(String(jsonFilterEvent?.output?.parsedSectionPreview || ''), /"testResults"/u);
@@ -645,7 +629,7 @@ test('planner surfaces explicit invalid-json message when json_filter fallback c
     assert.equal(added.length, 1);
 
     const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
-    const invalidEvent = debugDump.events.find((event) => event.kind === 'planner_invalid_response');
+    const invalidEvent = debugDump.events.find((event: PlannerDebugEvent) => event.kind === 'planner_invalid_response');
     assert.match(String(invalidEvent?.error || ''), /json_filter input is not valid JSON to parse\./u);
   });
 });
@@ -655,7 +639,7 @@ test('planner failures write failed artifacts through status posts', async () =>
     const failedLogsPath = getFailedLogsPath();
     fs.mkdirSync(failedLogsPath, { recursive: true });
     const before = new Set(fs.readdirSync(failedLogsPath));
-    let statusPosts = [];
+    let statusPosts: Record<string, unknown>[] = [];
 
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -860,7 +844,7 @@ test('planner read_lines tool results use a compact numbered text block', async 
     assert.equal(added.length, 1);
 
     const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
-    const toolEvent = debugDump.events.find((event) => event.kind === 'planner_tool' && event.toolName === 'read_lines');
+    const toolEvent = debugDump.events.find((event: PlannerDebugEvent) => event.kind === 'planner_tool' && event.toolName === 'read_lines');
     assert.equal(Array.isArray(toolEvent?.output?.lines), false);
     assert.equal(typeof toolEvent?.output?.text, 'string');
     assert.match(toolEvent.output.text, /^\d+: /u);
@@ -917,7 +901,7 @@ test('planner rejects semantically repeated nearby read_lines calls and reprompt
 
     const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
     assert.equal(
-      debugDump.events.some((event) => event.kind === 'planner_semantic_repeat' && event.toolCall?.tool_name === 'read_lines'),
+      debugDump.events.some((event: PlannerDebugEvent) => event.kind === 'planner_semantic_repeat' && event.toolCall?.tool_name === 'read_lines'),
       true,
     );
   });
@@ -929,12 +913,8 @@ test('planner keeps the first real tool output and rewrites one duplicate warnin
       const config = await loadConfig({ ensure: true });
       const threshold = getChunkThresholdCharacters(config);
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
-      config.Runtime ??= {};
-      config.Runtime.LlamaCpp ??= {};
       config.Runtime.LlamaCpp.Reasoning = 'on';
-      config.Server ??= {};
-      config.Server.LlamaCpp ??= {};
-      config.Server.LlamaCpp.Reasoning = 'on';
+      (config.Server.LlamaCpp as { Reasoning?: 'on' | 'off' }).Reasoning = 'on';
       if (Array.isArray(config.Server.LlamaCpp.Presets) && config.Server.LlamaCpp.Presets[0]) {
         config.Server.LlamaCpp.Presets[0].Reasoning = 'on';
       }
@@ -1067,19 +1047,19 @@ test('planner find_text and json_filter results use compact text blocks in promp
     assert.equal(added.length, 1);
 
     const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
-    const findTextEvent = debugDump.events.find((event) => event.kind === 'planner_tool' && event.toolName === 'find_text');
+    const findTextEvent = debugDump.events.find((event: PlannerDebugEvent) => event.kind === 'planner_tool' && event.toolName === 'find_text');
     assert.equal(Array.isArray(findTextEvent?.output?.hits), false);
     assert.equal(typeof findTextEvent?.output?.text, 'string');
     assert.match(findTextEvent.output.text, /^\d+: /u);
-    const jsonFilterEvent = debugDump.events.find((event) => event.kind === 'planner_tool' && event.toolName === 'json_filter');
+    const jsonFilterEvent = debugDump.events.find((event: PlannerDebugEvent) => event.kind === 'planner_tool' && event.toolName === 'json_filter');
     assert.equal(Array.isArray(jsonFilterEvent?.output?.results), false);
     assert.equal(typeof jsonFilterEvent?.output?.text, 'string');
     assert.match(jsonFilterEvent.output.text, /"id"/u);
   });
 });
 
-function buildOversizedMultilinePlannerInput(targetCharacters) {
-  const lines = [];
+function buildOversizedMultilinePlannerInput(targetCharacters: number): string {
+  const lines: string[] = [];
   let totalCharacters = 0;
   while (totalCharacters < targetCharacters) {
     const line = `line ${lines.length + 1} ${'x'.repeat(120)}`;

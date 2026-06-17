@@ -75,6 +75,15 @@ export type StructuredModelDecision = {
 
 export type PlannerToolName = 'find_text' | 'read_lines' | 'json_filter' | 'json_get';
 
+export type PlannerToolParameterSchema = {
+  type?: string;
+  description?: string;
+  enum?: readonly string[];
+  items?: PlannerToolParameterSchema;
+  properties?: Record<string, PlannerToolParameterSchema>;
+  required?: readonly string[];
+};
+
 export type PlannerToolDefinition = {
   type: 'function';
   function: {
@@ -82,7 +91,7 @@ export type PlannerToolDefinition = {
     description: string;
     parameters: {
       type: 'object';
-      properties: Record<string, unknown>;
+      properties: Record<string, PlannerToolParameterSchema>;
       required: string[];
     };
   };

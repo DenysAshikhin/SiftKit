@@ -1,71 +1,50 @@
-// @ts-nocheck — Split from runtime.test.js. Full TS typing deferred.
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const http = require('node:http');
-const os = require('node:os');
-const path = require('node:path');
-const { spawn, spawnSync } = require('node:child_process');
-const Database = require('better-sqlite3');
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
-const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage } = require('../src/config/index.js');
-const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../src/summary.js');
-const { runCommand } = require('./helpers/run-command-for-test.js');
-const { runBenchmarkSuite } = require('../bench/benchmark/index.ts');
-const { readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs, pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt } = require('../bench/benchmark-matrix/index.ts');
-const { countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse } = require('../src/providers/llama-cpp.js');
-const { withExecutionLock } = require('../src/execution-lock.js');
-const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../src/status-server/index.js');
-const { runDebugRequest } = require('../bench/repro/run-benchmark-fixture-debug.ts');
-const { runFixture60MalformedJsonRepro } = require('../bench/repro/repro-fixture60-malformed-json.ts');
-
-const {
-  TEST_USE_EXISTING_SERVER,
-  EXISTING_SERVER_STATUS_URL,
-  EXISTING_SERVER_CONFIG_URL,
+import {
+  fs,
+  path,
+  loadConfig,
+  getChunkThresholdCharacters,
+  getConfiguredLlamaNumCtx,
+  getEffectiveInputCharactersPerContextToken,
+  summarizeRequest,
+  buildPrompt,
+  getSummaryDecision,
+  planTokenAwareLlamaCppChunks,
+  getPlannerPromptBudget,
+  countLlamaCppTokens,
   RUN_LIVE_LLAMA_TOKENIZE_TESTS,
   LIVE_LLAMA_BASE_URL,
   LIVE_CONFIG_SERVICE_URL,
-  FAST_LEASE_STALE_MS,
-  FAST_LEASE_WAIT_MS,
-  deriveServiceUrl,
   getDefaultConfig,
   clone,
-  getChatRequestText,
   setManagedLlamaBaseUrl,
-  mergeConfig,
-  extractPromptSection,
-  buildOversizedTransitionsInput,
-  buildOversizedRunnerStateHistoryInput,
-  getRuntimeRootFromStatusPath,
-  getPlannerLogsPath,
-  getFailedLogsPath,
-  getRequestLogsPath,
-  buildStructuredStubDecision,
-  resolveAssistantContent,
-  readBody,
-  resolveArtifactLogPathFromStatusPost,
   requestJson,
-  sleep,
-  removeDirectoryWithRetries,
-  spawnProcess,
-  waitForTextMatch,
-  startStubStatusServer,
   withTempEnv,
   withStubServer,
-  withSummaryTestServer,
-  withRealStatusServer,
-  startStatusServerProcess,
-  stripAnsi,
-  captureStdout,
-  readIdleSummarySnapshots,
-  getIdleSummaryBlock,
-  getFreePort,
-  toSingleQuotedPowerShellLiteral,
-  writeManagedLlamaScripts,
-  waitForAsyncExpectation,
-  runPowerShellScript,
-} = require('./_runtime-helpers.js');
+} from './_runtime-helpers.js';
+import type { SiftConfig } from '../src/config/types.js';
+import type { SummaryPolicyProfile } from '../src/summary/types.js';
+
+interface FixtureManifestEntry {
+  File: string;
+  Question: string;
+  Format: 'text' | 'json';
+  PolicyProfile: SummaryPolicyProfile;
+}
+
+function requireConfigServiceUrl(): string {
+  const url = process.env.SIFTKIT_CONFIG_SERVICE_URL;
+  if (!url) {
+    throw new Error('SIFTKIT_CONFIG_SERVICE_URL is not set');
+  }
+  return url;
+}
+
+interface LiveConfigResponse {
+  Runtime?: { LlamaCpp?: { BaseUrl?: string | null; NumCtx?: number | null } };
+}
 
 test('oversized llama.cpp summaries stay on planner status path without leaf chunk markers', async () => {
   await withTempEnv(async () => {
@@ -118,10 +97,10 @@ test('token-aware llama.cpp chunk planning grows upward when prompt tokens leave
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const config = getDefaultConfig();
-      setManagedLlamaBaseUrl(config, process.env.SIFTKIT_CONFIG_SERVICE_URL.replace(/\/config$/u, ''));
+      setManagedLlamaBaseUrl(config, requireConfigServiceUrl().replace(/\/config$/u, ''));
       config.Runtime.LlamaCpp = {
         ...(config.Runtime.LlamaCpp || {}),
-        BaseUrl: process.env.SIFTKIT_CONFIG_SERVICE_URL.replace(/\/config$/u, ''),
+        BaseUrl: requireConfigServiceUrl().replace(/\/config$/u, ''),
         NumCtx: 20_000,
         Reasoning: 'off',
       };
@@ -161,7 +140,7 @@ test('token-aware llama.cpp chunk planning starts from the char-threshold guess 
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = getDefaultConfig();
-      const baseUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL.replace(/\/config$/u, '');
+      const baseUrl = requireConfigServiceUrl().replace(/\/config$/u, '');
       setManagedLlamaBaseUrl(config, baseUrl);
       config.Runtime.LlamaCpp = {
         ...(config.Runtime.LlamaCpp || {}),
@@ -227,7 +206,7 @@ test('token-aware llama.cpp chunk planning shrinks after an overshooting growth 
     }).length;
     await withStubServer(async () => {
       const config = getDefaultConfig();
-      const baseUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL.replace(/\/config$/u, '');
+      const baseUrl = requireConfigServiceUrl().replace(/\/config$/u, '');
       setManagedLlamaBaseUrl(config, baseUrl);
       config.Runtime.LlamaCpp = {
         ...(config.Runtime.LlamaCpp || {}),
@@ -294,7 +273,7 @@ test('token-aware llama.cpp chunk planning keeps adjusting until accepted chunks
     });
     await withStubServer(async () => {
       const config = getDefaultConfig();
-      const baseUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL.replace(/\/config$/u, '');
+      const baseUrl = requireConfigServiceUrl().replace(/\/config$/u, '');
       setManagedLlamaBaseUrl(config, baseUrl);
       config.Runtime.LlamaCpp = {
         ...(config.Runtime.LlamaCpp || {}),
@@ -330,9 +309,11 @@ test('token-aware llama.cpp chunk planning keeps adjusting until accepted chunks
         phase: 'leaf',
       });
       const promptTokenCount = await countLlamaCppTokens(config, prompt);
-      const effectivePromptLimit = config.Runtime.LlamaCpp.NumCtx - 10000;
+      const numCtx = config.Runtime.LlamaCpp.NumCtx;
+      assert.ok(numCtx != null);
+      const effectivePromptLimit = numCtx - 10000;
 
-      assert.notEqual(promptTokenCount, null);
+      assert.ok(promptTokenCount != null);
       assert.ok(promptTokenCount <= effectivePromptLimit);
       assert.ok(promptTokenCount >= effectivePromptLimit - 2000);
     }, {
@@ -371,7 +352,7 @@ test('token-aware llama.cpp chunk planning leaves a 15k token reserve when reaso
     });
     await withStubServer(async () => {
       const config = getDefaultConfig();
-      const baseUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL.replace(/\/config$/u, '');
+      const baseUrl = requireConfigServiceUrl().replace(/\/config$/u, '');
       setManagedLlamaBaseUrl(config, baseUrl);
       config.Runtime.LlamaCpp = {
         ...(config.Runtime.LlamaCpp || {}),
@@ -407,9 +388,11 @@ test('token-aware llama.cpp chunk planning leaves a 15k token reserve when reaso
         phase: 'leaf',
       });
       const promptTokenCount = await countLlamaCppTokens(config, prompt);
-      const effectivePromptLimit = config.Runtime.LlamaCpp.NumCtx - 15000;
+      const numCtx = config.Runtime.LlamaCpp.NumCtx;
+      assert.ok(numCtx != null);
+      const effectivePromptLimit = numCtx - 15000;
 
-      assert.notEqual(promptTokenCount, null);
+      assert.ok(promptTokenCount != null);
       assert.ok(promptTokenCount <= effectivePromptLimit);
       assert.ok(promptTokenCount >= effectivePromptLimit - 2000);
     }, {
@@ -440,9 +423,9 @@ const aiCore60FixtureManifestPresent = fs.existsSync(
 test('live llama token-aware chunk planning preserves the 5m benchmark fixture without chat completion', {
   skip: aiCore60FixtureManifestPresent ? false : 'eval/fixtures/ai_core_60_tests is gitignored and not present locally',
 }, async () => {
-  const runFixtureCheck = async (config) => {
+  const runFixtureCheck = async (config: SiftConfig) => {
   const fixtureRoot = path.resolve(__dirname, '..', 'eval', 'fixtures', 'ai_core_60_tests');
-  const manifest = JSON.parse(fs.readFileSync(path.join(fixtureRoot, 'fixtures.json'), 'utf8'));
+  const manifest: FixtureManifestEntry[] = JSON.parse(fs.readFileSync(path.join(fixtureRoot, 'fixtures.json'), 'utf8'));
   const fixture = manifest.find((entry) => entry.File === 'raw/19_script_error_and_crash_marker_scan.txt');
   assert.ok(fixture, 'Fixture 19 must exist in eval/fixtures/ai_core_60_tests/fixtures.json.');
 
@@ -472,7 +455,9 @@ test('live llama token-aware chunk planning preserves the 5m benchmark fixture w
   assert.ok(chunks.some((chunk) => chunk.length > chunkThreshold));
 
   const promptReserve = config.Runtime.LlamaCpp.Reasoning === 'off' ? 10000 : 15000;
-  const effectivePromptLimit = config.Runtime.LlamaCpp.NumCtx - promptReserve;
+  const numCtx = config.Runtime.LlamaCpp.NumCtx;
+  assert.ok(numCtx != null);
+  const effectivePromptLimit = numCtx - promptReserve;
   for (const chunk of chunks) {
     const prompt = buildPrompt({
       question: fixture.Question,
@@ -484,20 +469,20 @@ test('live llama token-aware chunk planning preserves the 5m benchmark fixture w
       phase: 'leaf',
     });
     const promptTokenCount = await countLlamaCppTokens(config, prompt);
-    assert.notEqual(promptTokenCount, null, 'Each chunk prompt must be token-countable.');
+    assert.ok(promptTokenCount != null, 'Each chunk prompt must be token-countable.');
     assert.ok(promptTokenCount <= effectivePromptLimit, `Chunk prompt token count ${promptTokenCount} exceeded ${effectivePromptLimit}.`);
   }
   };
 
   if (RUN_LIVE_LLAMA_TOKENIZE_TESTS) {
-    let liveConfig = null;
+    let liveConfig: LiveConfigResponse | null = null;
     try {
-      liveConfig = await requestJson(LIVE_CONFIG_SERVICE_URL);
+      liveConfig = (await requestJson(LIVE_CONFIG_SERVICE_URL)) as LiveConfigResponse;
     } catch {
       liveConfig = null;
     }
     const liveBaseUrl = liveConfig?.Runtime?.LlamaCpp?.BaseUrl || LIVE_LLAMA_BASE_URL;
-    const liveNumCtx = Number(liveConfig?.Runtime?.LlamaCpp?.NumCtx) || getDefaultConfig().LlamaCpp.NumCtx;
+    const liveNumCtx = Number(liveConfig?.Runtime?.LlamaCpp?.NumCtx) || getDefaultConfig().Runtime.LlamaCpp.NumCtx;
     const config = getDefaultConfig();
     setManagedLlamaBaseUrl(config, liveBaseUrl);
     config.Runtime.LlamaCpp = {

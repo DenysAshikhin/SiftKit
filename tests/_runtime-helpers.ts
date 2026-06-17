@@ -14,6 +14,7 @@ import {
   getDefaultConfig,
   clone,
   getChatRequestText,
+  type ChatRequest,
   setManagedLlamaBaseUrl,
   mergeConfig,
   extractPromptSection,
@@ -142,7 +143,7 @@ interface StubServerState {
   config: SiftConfig;
   statusPosts: JsonObject[];
   artifactPosts: StubArtifactPost[];
-  chatRequests: JsonObject[];
+  chatRequests: ChatRequest[];
   tokenizeRequests: JsonObject[];
   healthChecks: number;
   running: boolean;
