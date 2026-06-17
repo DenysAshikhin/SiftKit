@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ChatGroundingPolicy } from '../src/repo-search/chat-grounding-policy.ts';
+import { ChatGroundingPolicy } from '../src/repo-search/chat-grounding-policy.js';
 
 test('ChatGroundingPolicy rejects finish before any web search when enabled', () => {
   const policy = new ChatGroundingPolicy({ enabled: true });

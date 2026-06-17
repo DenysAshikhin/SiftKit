@@ -34,12 +34,26 @@ export type LlamaCppChatMessage = {
   tool_calls?: LlamaCppToolCall[];
 };
 
+// JSON-schema fragment describing a single tool parameter (or the parameters object
+// itself). The `[key: string]: unknown` index keeps it both precisely typed (callers
+// and tests read `.enum`/`.properties.x.type` directly) and a structural supertype of a
+// plain JsonObject, so dynamically-built tool schemas assign to it without a cast.
+export type LlamaCppToolParameterSchema = {
+  type?: string;
+  description?: string;
+  enum?: readonly string[];
+  items?: LlamaCppToolParameterSchema;
+  properties?: Record<string, LlamaCppToolParameterSchema>;
+  required?: readonly string[];
+  [key: string]: unknown;
+};
+
 export type LlamaCppToolDefinition = {
   type: 'function';
   function: {
     name: string;
     description: string;
-    parameters: JsonObject;
+    parameters: LlamaCppToolParameterSchema;
   };
 };
 

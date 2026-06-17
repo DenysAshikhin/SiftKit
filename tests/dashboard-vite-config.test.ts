@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import viteConfig from '../dashboard/vite.config.ts';
+import viteConfig from '../dashboard/vite.config.js';
 
 type ProxyEntry = {
   target: string;

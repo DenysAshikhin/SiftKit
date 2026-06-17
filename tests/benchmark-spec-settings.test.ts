@@ -33,7 +33,7 @@ const DEFAULT_SPEC_BENCHMARK_PROMPTS = [
 ] as const;
 const DEFAULT_SPEC_BENCHMARK_PROMPT = DEFAULT_SPEC_BENCHMARK_PROMPTS[0];
 
-const require = createRequire(import.meta.url);
+const require = createRequire(__filename);
 const { normalizeForwardedArgs } = require('../scripts/run-benchmark-spec-settings.js') as {
   normalizeForwardedArgs: (argv: string[]) => string[];
 };

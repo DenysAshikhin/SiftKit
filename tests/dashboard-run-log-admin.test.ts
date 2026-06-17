@@ -6,11 +6,11 @@ import {
   describeRunLogDeleteCriteria,
   normalizeRunLogTypeFilter,
   toggleRunLogTypeFilter,
-} from '../dashboard/src/run-log-admin.ts';
+} from '../dashboard/src/run-log-admin.js';
 import {
   deleteRunLogs,
   previewRunLogDelete,
-} from '../dashboard/src/api.ts';
+} from '../dashboard/src/api.js';
 
 type MockFetchCall = {
   input: string;

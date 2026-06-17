@@ -12,11 +12,11 @@ import {
   buildRetainedWebToolCalls,
   buildRepoSearchMarkdown,
   buildPersistTurnsFromRepoSearchResult,
-} from '../src/status-server/chat.ts';
-import { buildChatPromptContext } from '../src/status-server/chat-prompt-context.ts';
-import { normalizeConfig } from '../src/status-server/config-store.ts';
-import { estimateTokenCount, type ChatSession } from '../src/state/chat-sessions.ts';
-import type { SiftConfig } from '../src/config/types.ts';
+} from '../src/status-server/chat.js';
+import { buildChatPromptContext } from '../src/status-server/chat-prompt-context.js';
+import { normalizeConfig } from '../src/status-server/config-store.js';
+import { estimateTokenCount, type ChatSession } from '../src/state/chat-sessions.js';
+import type { SiftConfig } from '../src/config/types.js';
 
 function createConfig(overrides: Record<string, unknown> = {}): SiftConfig {
   return normalizeConfig({

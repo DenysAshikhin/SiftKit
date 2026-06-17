@@ -7,10 +7,10 @@ import {
   mergeConfig,
   getRuntimeRootFromStatusPath,
   getPlannerLogsPath,
-} from './helpers/runtime-config.ts';
+} from './helpers/runtime-config.js';
 import {
   resolveArtifactLogPathFromStatusPost,
-} from './helpers/runtime-http.ts';
+} from './helpers/runtime-http.js';
 
 test('runtime config helpers merge nested overrides and strip derived fields', () => {
   const config = getDefaultConfig();

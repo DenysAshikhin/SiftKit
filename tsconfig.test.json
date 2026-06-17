@@ -4,5 +4,9 @@
   "include": [
     "src/**/*.ts",
     "tests/**/*.ts"
+  ],
+  "//exclude": "dashboard-app-refresh is a React SSR test (react-dom/server + jsx + DOM, pulling dashboard/src/App.tsx and its react-markdown tree). It cannot resolve react under the node NodeNext project; it is fully typechecked by dashboard/tsconfig.test.json (Bundler resolution, react from dashboard/node_modules) instead. Excluded here to avoid double-coverage, NOT untyped.",
+  "exclude": [
+    "tests/dashboard-app-refresh.test.ts"
   ]
 }

@@ -1,4 +1,4 @@
-import type { ChatSession, DashboardConfig, DashboardPreset, DashboardPresetKind, DashboardPresetSurface } from './types';
+import type { ChatSession, DashboardConfig, DashboardPreset, DashboardPresetKind, DashboardPresetSurface } from './types.js';
 
 function normalizePresetId(value: unknown): string {
   return String(value || '')

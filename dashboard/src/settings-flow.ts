@@ -1,4 +1,4 @@
-import type { SettingsSectionId } from './settings-sections';
+import type { SettingsSectionId } from './settings-sections.js';
 
 export type DirtyContinuation =
   | { kind: 'switch-section'; nextSection: SettingsSectionId }

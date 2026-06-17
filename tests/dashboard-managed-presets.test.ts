@@ -7,9 +7,9 @@ import {
   deleteManagedLlamaPreset,
   getActiveManagedLlamaPreset,
   type DashboardManagedLlamaPreset,
-} from '../dashboard/src/managed-llama-presets.ts';
-import type { DashboardConfig, DashboardLlamaCppConfig } from '../dashboard/src/types.ts';
-import { normalizeConfigObject } from '../src/config/normalization.ts';
+} from '../dashboard/src/managed-llama-presets.js';
+import type { DashboardConfig, DashboardLlamaCppConfig } from '../dashboard/src/types.js';
+import { normalizeConfigObject } from '../src/config/normalization.js';
 
 function createPreset(overrides: Partial<DashboardManagedLlamaPreset> = {}): DashboardManagedLlamaPreset {
   return {

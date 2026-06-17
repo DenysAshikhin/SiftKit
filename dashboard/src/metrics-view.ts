@@ -1,4 +1,4 @@
-import type { TaskMetricDay, ToolStatsByTask } from './types';
+import type { TaskMetricDay, ToolStatsByTask } from './types.js';
 
 export type ToolMetricRow = {
   toolType: string;

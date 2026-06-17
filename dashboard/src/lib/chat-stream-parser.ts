@@ -1,4 +1,4 @@
-import type { ChatSessionResponse } from '../types';
+import type { ChatSessionResponse } from '../types.js';
 
 export type ChatStreamToolEvent = {
   kind: 'tool_start' | 'tool_result';

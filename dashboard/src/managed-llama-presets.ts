@@ -1,4 +1,4 @@
-import type { DashboardConfig, DashboardManagedLlamaPreset } from './types';
+import type { DashboardConfig, DashboardManagedLlamaPreset } from './types.js';
 
 function createPresetIdFromLabel(label: string): string {
   const normalized = String(label || '')

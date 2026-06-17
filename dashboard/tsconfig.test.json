@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["vite/client", "node"],
+    "baseUrl": ".",
+    "paths": {
+      "react": ["./node_modules/@types/react"],
+      "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime"],
+      "react-dom": ["./node_modules/@types/react-dom"],
+      "react-dom/server": ["./node_modules/@types/react-dom/server"]
+    }
+  },
+  "include": [
+    "src",
+    "../src/config/types.ts",
+    "../src/web-search/types.ts",
+    "../src/presets.ts",
+    "../tests/dashboard-app-refresh.test.ts"
+  ]
+}

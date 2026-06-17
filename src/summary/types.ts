@@ -1,4 +1,5 @@
 import type { RuntimeLlamaCppConfig, SiftConfig } from '../config/index.js';
+import type { LlamaCppToolParameterSchema } from '../llm-protocol/types.js';
 
 export type SummaryPolicyProfile =
   | 'general'
@@ -75,14 +76,9 @@ export type StructuredModelDecision = {
 
 export type PlannerToolName = 'find_text' | 'read_lines' | 'json_filter' | 'json_get';
 
-export type PlannerToolParameterSchema = {
-  type?: string;
-  description?: string;
-  enum?: readonly string[];
-  items?: PlannerToolParameterSchema;
-  properties?: Record<string, PlannerToolParameterSchema>;
-  required?: readonly string[];
-};
+// Planner tool parameters reuse the canonical wire schema type, so a PlannerToolDefinition
+// is structurally a LlamaCppToolDefinition and forwards into the agent loop with no cast.
+export type PlannerToolParameterSchema = LlamaCppToolParameterSchema;
 
 export type PlannerToolDefinition = {
   type: 'function';

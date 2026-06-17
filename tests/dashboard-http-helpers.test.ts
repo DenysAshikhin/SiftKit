@@ -11,7 +11,7 @@ import {
   requestSse,
   writeJson,
   removeDirectoryWithRetries,
-} from './helpers/dashboard-http.ts';
+} from './helpers/dashboard-http.js';
 
 test('dashboard HTTP helpers read JSON and SSE payloads', async () => {
   const server = http.createServer((req, res) => {

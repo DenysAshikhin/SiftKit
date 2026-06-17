@@ -13,7 +13,7 @@ import {
   requestJson,
   type Dict,
   writeJson,
-} from './helpers/dashboard-http.ts';
+} from './helpers/dashboard-http.js';
 
 const requireFromHere = createRequire(__filename);
 type SqliteStatement = {

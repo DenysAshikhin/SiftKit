@@ -1,72 +1,27 @@
-// @ts-nocheck — Split from runtime.test.js. Full TS typing deferred.
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const http = require('node:http');
-const os = require('node:os');
-const path = require('node:path');
-const { spawn, spawnSync } = require('node:child_process');
-const Database = require('better-sqlite3');
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
-const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage } = require('../src/config/index.js');
-const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../src/summary.js');
-const { runCommand } = require('./helpers/run-command-for-test.js');
-const { runBenchmarkSuite } = require('../bench/benchmark/index.ts');
-const { readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs, pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt } = require('../bench/benchmark-matrix/index.ts');
-const { countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse } = require('../src/providers/llama-cpp.js');
-const { withExecutionLock } = require('../src/execution-lock.js');
-const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../src/status-server/index.js');
-const { readStatusText } = require('../src/status-server/status-file.js');
-const { runDebugRequest } = require('../bench/repro/run-benchmark-fixture-debug.ts');
-const { runFixture60MalformedJsonRepro } = require('../bench/repro/repro-fixture60-malformed-json.ts');
-
-const {
-  TEST_USE_EXISTING_SERVER,
-  EXISTING_SERVER_STATUS_URL,
-  EXISTING_SERVER_CONFIG_URL,
-  RUN_LIVE_LLAMA_TOKENIZE_TESTS,
-  LIVE_LLAMA_BASE_URL,
-  LIVE_CONFIG_SERVICE_URL,
-  FAST_LEASE_STALE_MS,
-  FAST_LEASE_WAIT_MS,
-  deriveServiceUrl,
+import { readStatusText } from '../src/status-server/status-file.js';
+import {
+  fs,
+  http,
+  path,
+  Database,
+  loadConfig,
+  saveConfig,
+  getConfigPath,
+  getChunkThresholdCharacters,
+  initializeRuntime,
   getDefaultConfig,
-  clone,
-  getChatRequestText,
   setManagedLlamaBaseUrl,
-  mergeConfig,
-  extractPromptSection,
-  buildOversizedTransitionsInput,
-  buildOversizedRunnerStateHistoryInput,
-  getRuntimeRootFromStatusPath,
-  getPlannerLogsPath,
-  getFailedLogsPath,
-  getRequestLogsPath,
-  buildStructuredStubDecision,
-  resolveAssistantContent,
-  readBody,
-  resolveArtifactLogPathFromStatusPost,
   requestJson,
-  sleep,
-  removeDirectoryWithRetries,
-  spawnProcess,
-  waitForTextMatch,
-  startStubStatusServer,
   withTempEnv,
   withStubServer,
-  withSummaryTestServer,
   withRealStatusServer,
-  startStatusServerProcess,
-  stripAnsi,
-  captureStdout,
-  readIdleSummarySnapshots,
-  getIdleSummaryBlock,
   getFreePort,
-  toSingleQuotedPowerShellLiteral,
   writeManagedLlamaScripts,
   waitForAsyncExpectation,
-  runPowerShellScript,
-} = require('./_runtime-helpers.js');
+} from './_runtime-helpers.js';
 
 test('getConfigPath prefers a repo-local .siftkit runtime when running inside the siftkit repo', async () => {
   await withTempEnv(async (tempRoot) => {

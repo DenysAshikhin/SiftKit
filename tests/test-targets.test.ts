@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as path from 'node:path';
 
-import { buildNodeTestArgs, resolveTestTargets } from '../scripts/test-targets.ts';
+import { buildNodeTestArgs, resolveTestTargets } from '../scripts/test-targets.js';
 
 test('resolveTestTargets maps bare test basenames into the tests directory', () => {
   const resolved = resolveTestTargets(process.cwd(), ['mock-repo-search-loop.test.ts']);

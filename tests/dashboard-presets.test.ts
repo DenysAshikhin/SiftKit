@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { getPresetById, getPresetFamily } from '../dashboard/src/dashboard-presets.ts';
-import type { ChatSession, DashboardConfig, DashboardPreset } from '../dashboard/src/types.ts';
-import { normalizeConfigObject } from '../src/config/normalization.ts';
+import { getPresetById, getPresetFamily } from '../dashboard/src/dashboard-presets.js';
+import type { ChatSession, DashboardConfig, DashboardPreset } from '../dashboard/src/types.js';
+import { normalizeConfigObject } from '../src/config/normalization.js';
 
 function createPreset(id: string, overrides: Partial<DashboardPreset> = {}): DashboardPreset {
   return {

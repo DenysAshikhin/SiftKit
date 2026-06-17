@@ -6,7 +6,7 @@ import {
   SETTINGS_SECTION_ORDER,
   SETTINGS_SECTIONS,
   SETTINGS_TOOLTIP_LABELS,
-} from '../dashboard/src/settings-sections.ts';
+} from '../dashboard/src/settings-sections.js';
 
 test('settings section order matches the integrated layout', () => {
   assert.deepEqual(

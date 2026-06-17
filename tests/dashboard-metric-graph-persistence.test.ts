@@ -7,7 +7,7 @@ import {
   sanitizeHiddenSeriesState,
   writeHiddenSeriesState,
   type KeyValueStore,
-} from '../dashboard/src/metric-graph-persistence.ts';
+} from '../dashboard/src/metric-graph-persistence.js';
 
 class MemoryStore implements KeyValueStore {
   private readonly values = new Map<string, string>();

@@ -45,7 +45,7 @@ import { withTestEnvAndServer, type Dict } from './_test-helpers.js';
 type ConfigArg = Parameters<typeof getConfiguredModel>[0];
 
 test('SIFTKIT_VERSION matches package.json version', () => {
-  const requireFromTest = createRequire(import.meta.url);
+  const requireFromTest = createRequire(__filename);
   const packageJson = requireFromTest('../package.json') as { version: string };
   assert.equal(typeof SIFTKIT_VERSION, 'string');
   assert.match(SIFTKIT_VERSION, /^\d+\.\d+\.\d+$/u);

@@ -1,9 +1,11 @@
+import type { LlamaCppToolParameterSchema } from '../llm-protocol/types.js';
+
 export type StructuredOutputToolDefinition = {
   type: 'function';
   function: {
     name: string;
     description?: string;
-    parameters?: Record<string, unknown>;
+    parameters?: LlamaCppToolParameterSchema;
   };
 };
 
