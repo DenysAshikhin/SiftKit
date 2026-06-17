@@ -1,31 +1,31 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const Database = require('better-sqlite3');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import Database from 'better-sqlite3';
 
-const { writeConfig } = require('../src/status-server/config-store.js');
-const {
+import { writeConfig } from '../src/status-server/config-store.js';
+import {
   flushRunArtifactsToDbAndDelete,
   queryDashboardRunDetailFromDb,
   queryDashboardRunsFromDb,
   upsertRepoSearchRun,
-} = require('../src/status-server/dashboard-runs.js');
-const {
+} from '../src/status-server/dashboard-runs.js';
+import {
   captureManagedLlamaSpeculativeMetricsSnapshot,
   getManagedLlamaSpeculativeMetricsDelta,
-} = require('../src/status-server/managed-llama.js');
-const {
+} from '../src/status-server/managed-llama.js';
+import {
   bufferManagedLlamaLogChunk,
   createManagedLlamaRun,
   readManagedLlamaLogTextByStream,
   flushManagedLlamaLogChunks,
-} = require('../src/state/managed-llama-runs.js');
-const {
+} from '../src/state/managed-llama-runs.js';
+import {
   appendManagedLlamaSpeculativeMetricsChunk,
-} = require('../src/status-server/managed-llama-speculative-tracker.js');
+} from '../src/status-server/managed-llama-speculative-tracker.js';
 
-const {
+import {
   getDefaultConfig,
   setManagedLlamaBaseUrl,
   requestJson,
@@ -35,7 +35,7 @@ const {
   getFreePort,
   waitForAsyncExpectation,
   postCompletedStatus,
-} = require('./_runtime-helpers.js');
+} from './_runtime-helpers.js';
 
 test('managed llama speculative delta prefers cumulative token stats over rate lines in the same slice', async () => {
   await withTempEnv(async () => {
@@ -134,7 +134,7 @@ test('real status server uses managed llama cumulative speculative delta for rep
 
     await withRealStatusServer(async ({ statusUrl }) => {
       await waitForAsyncExpectation(async () => {
-        const models = await requestJson(`${managed.baseUrl}/v1/models`);
+        const models = await requestJson<{ data: Array<{ id: string }> }>(`${managed.baseUrl}/v1/models`);
         assert.equal(models.data[0].id, 'managed-test-model');
       }, 5000);
 
@@ -147,7 +147,7 @@ test('real status server uses managed llama cumulative speculative delta for rep
           FROM managed_llama_runs
           ORDER BY started_at_utc DESC, id DESC
           LIMIT 1
-        `).get();
+        `).get() as { id?: string | number | null } | undefined;
         startupRunId = String(startupRun?.id || '');
         assert.ok(startupRunId);
         await waitForAsyncExpectation(async () => {
@@ -183,6 +183,8 @@ test('real status server uses managed llama cumulative speculative delta for rep
           toolTokens: 1,
           promptCacheTokens: 3,
           promptEvalTokens: 7,
+          promptEvalDurationMs: null,
+          generationDurationMs: null,
           speculativeAcceptedTokens: null,
           speculativeGeneratedTokens: null,
         });
@@ -251,7 +253,8 @@ test('real status server uses managed llama cumulative speculative delta for rep
             SELECT speculative_accepted_tokens, speculative_generated_tokens
             FROM run_logs
             WHERE request_id = ?
-          `).get(requestId);
+          `).get(requestId) as { speculative_accepted_tokens: number; speculative_generated_tokens: number } | undefined;
+          assert.ok(row);
           assert.equal(row.speculative_accepted_tokens, 58);
           assert.equal(row.speculative_generated_tokens, 258);
         }, 1000);
@@ -301,6 +304,8 @@ test('dashboard runs keep persisted speculative totals when artifact payloads di
         toolTokens: 1,
         promptCacheTokens: 3,
         promptEvalTokens: 7,
+        promptEvalDurationMs: null,
+        generationDurationMs: null,
         speculativeAcceptedTokens: 58,
         speculativeGeneratedTokens: 258,
       });
@@ -392,6 +397,8 @@ test('dashboard runs keep speculative totals null when only artifact payloads pr
         toolTokens: 1,
         promptCacheTokens: 3,
         promptEvalTokens: 7,
+        promptEvalDurationMs: null,
+        generationDurationMs: null,
         speculativeAcceptedTokens: null,
         speculativeGeneratedTokens: null,
       });
