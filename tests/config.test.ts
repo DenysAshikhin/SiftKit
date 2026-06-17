@@ -37,8 +37,6 @@ import {
   SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN,
   StatusServerUnavailableError,
   MissingObservedBudgetError,
-  SIFT_PREVIOUS_DEFAULT_MODEL,
-  SIFT_LEGACY_DEFAULT_NUM_CTX,
 } from '../dist/config/index.js';
 import { ensureDirectory, saveContentAtomically } from '../dist/lib/fs.js';
 import { withTestEnvAndServer, type Dict } from './_test-helpers.js';
