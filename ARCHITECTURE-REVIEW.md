@@ -1,27 +1,12 @@
 # SiftKit Architecture Review
 
-## Purpose of this file
+Outstanding work items only. Resolved findings are deleted as they are fixed, so finding numbers (F-series) and LLM-behavior items (L-series) have gaps. Every claim is `file:line`-backed and should be re-verified against current code before acting, as line numbers and behavior drift.
 
-This document is a point-in-time audit of the SiftKit repository, intended as a working reference for prioritizing refactors and fixes. It records:
-
-1. **Part 1 (F2–F17, with gaps where findings were resolved and deleted)** — architectural issues, code smells, and repo semantics that make the codebase harder to scale, extend, or maintain (duplication, dead code, god-functions, untyped boundaries, build/test hazards, packaging problems), plus a purpose-level assessment of whether the project is doing anything fundamentally wrong, a suggested module partition, and a priority-ordered fix list.
-2. **Part 2 (L1–L11, with gaps where findings were resolved and deleted)** — an LLM-behavior analysis of the runtime surfaces that talk to the model (managed llama-server config, repo-search agentic loop, multi-turn chat, conversation-context handling), flagging divergences from established LLM-integration norms that raise the chance of the model misbehaving or failing to work as intended. Each finding includes explicit "why it's an issue" reasoning.
-
-Every claim is backed by `file:line` evidence verified against the working tree on the audit date. This file is descriptive, not a change plan — no code was modified as part of the audit. Findings should be re-verified against current code before acting on them, as line numbers and behavior drift.
-
-Date: 2026-06-09. Scope: full repo scan for architectural issues, smells, and purpose-level assessment. Findings appended as discovered. Resolved findings are deleted as they are fixed, so finding numbers have gaps.
-
-## Repo purpose (as stated)
-
-Windows-first toolkit that compresses noisy shell output / repo exploration for AI coding agents using a local `llama.cpp` model. Two processes: TS CLI client + long-running status/config server (owns config, runs DB, llama.cpp lifecycle, dashboard).
+Original audit date: 2026-06-09.
 
 ---
 
 ## Findings
-
-### F2. Root-directory litter
-
-Working tree top level contains scratch artifacts (`tmp-confirm-web-context.ts`, `siftkit-0.1.0.tgz`) — gitignored, so cosmetic only. Tracked: `initialTurnChatIssues.md` (a session-notes dump) and `run.bat` at root; both belong under `docs/` or nowhere. Packaging note: package.json `files` ships `scripts` and `eval` (dev/benchmark harnesses) to npm consumers.
 
 ### F6. Test architecture: split-brain between `dist` and `src`, and near-zero typechecking of tests
 
@@ -44,11 +29,12 @@ Working tree top level contains scratch artifacts (`tmp-confirm-web-context.ts`,
 - Test seams ship inside production modules: `src/summary/mock.ts` (`SIFTKIT_TEST_PROVIDER_BEHAVIOR`, `SIFTKIT_TEST_TOKEN`), and mock command results (`findMockResult`, `src/repo-search/engine/command-execution.ts`) live in the production execution path.
 - Timing-sensitive tests flake under load: `tests/model-request-queue.test.ts` asserts ~30ms queue-timeout windows and intermittently fails in full-suite runs while passing in isolation; the managed-llama startup/idle tests have similarly flaked under c8 instrumentation.
 
-### F15. Benchmark/eval harnesses live inside the product
+### F15. Benchmark/eval residual in `src` and harness duplication
 
-`src/benchmark/`, `src/benchmark-matrix/`, `src/benchmark-spec-settings.ts`, `src/eval.ts`, plus repro scripts (`scripts/repro-fixture60-malformed-json.ts`, `run-benchmark-fixture-debug.ts`) are part of the shipping module graph — `tests/_runtime-helpers.ts` even imports repro scripts from `dist/scripts/`. `benchmark/` and `benchmark-matrix/` duplicate each other's args/interrupt/runner/types modules (`args.ts`, `interrupt.ts`, `runner.ts`, `types.ts` exist in both with parallel roles). The npm `files` array ships `eval` (untracked locally — whatever happens to be there gets packed) and `scripts`. Dev harnesses should be out of `src/` and out of the package.
+The packaging half is done: `src/benchmark/`, the repro scripts, and `src/benchmark-matrix/` are relocated to the non-shipped `bench/` tree and the npm `files` whitelist is corrected. Remaining:
 
-**Resolved (F2 + F15 packaging half):** npm `files` whitelist corrected (drops `eval/` and the broad `scripts/` tree). `src/benchmark/`, the three repro scripts, and now `src/benchmark-matrix/` are relocated to the non-shipped `bench/` tree (`bench/benchmark/`, `bench/repro/`, `bench/benchmark-matrix/`), excluded from the product build/package and type-checked via `tsconfig.bench.json` (chained into `npm run typecheck`). `benchmark-matrix` runs its benchmark via `tsx bench/benchmark/index.ts` instead of a built `dist/benchmark.js`, and now kills the spawned benchmark process on interrupt. The dashboard-facing `src/state/benchmark-matrix.ts` (state layer) and `src/eval.ts`/`src/benchmark-spec-settings.ts` (server/dashboard-wired) remain in `src/`.
+- `src/eval.ts` and `src/benchmark-spec-settings.ts` are still in the shipping `src/` graph (server/dashboard-wired). Relocating them belongs to the full server/workspace split, not the standalone bench move.
+- `bench/benchmark/` and `bench/benchmark-matrix/` still duplicate each other's `args.ts`/`interrupt.ts`/`runner.ts`/`types.ts` modules (parallel roles). Factor the shared pieces into common bench utilities.
 
 ### F16. Dashboard monolith and styling sprawl
 
@@ -60,32 +46,7 @@ Working tree top level contains scratch artifacts (`tmp-confirm-web-context.ts`,
 
 ---
 
-## Purpose-level review: is the repo doing anything fundamentally wrong?
-
-**The core idea is sound and differentiated**: a deterministic raw-first policy + cheap local model to compress agent-facing output, with raw logs always preserved. The conservative policy (short stays raw, error-dense stays raw-first) is the right product instinct, and the two-process split (CLI + supervising server) is a defensible shape for owning a llama.cpp lifecycle.
-
-Fundamental concerns, in order of severity:
-
-1. **The hard server dependency contradicts the product's job.** A token-compression CLI that *fails closed* when a local daemon is down means the tool is unavailable exactly when an agent mid-task needs it — and the agent then falls back to dumping raw output anyway, silently losing the entire value proposition. There is no degraded mode ("pass through raw + warn"). For a tool whose purpose is to *reduce* friction in agent loops, "no server → command fails" is a fundamental design wrong; fail-open-to-raw would preserve both auditability and usefulness. Since the CLI became a thin HTTP client (2026-06-10), every command requires the server, making this strictly more load-bearing.
-
-2. **Scope has outgrown the stated purpose.** The README sells `summary` + `repo-search`. The codebase additionally contains: a chat product with sessions/replay/grounding policies, a web-search subsystem with multi-provider quota management, a React dashboard with preset editors and metric graphs, four benchmark harnesses, and an eval framework — all in one package, one version, one build. The "sift" core (policy + chunking + summarize) is well under 20% of the code. Nothing is wrong with any feature individually, but as one unpartitioned unit, every change rebuilds and retests everything, and the npm package ships dev harnesses. A workspace split (core / server / dashboard / bench-eval) is the natural partition.
-
-3. **The repo still violates several of its own stated engineering rules** (CLAUDE.md: strict typing, DRY, no legacy, classes, TDD): `@ts-nocheck` core test harness, duplicated non-server helpers, `SIFT_LEGACY_*` constants, dead modules, and remaining non-server `Dict` usage. (The config, server-boundary, and agentic-loop duplication classes have been fixed.) The rules are right; the enforcement is incomplete. A lint gate (`no-restricted-syntax` for `Dict` in new code, max-function-length, import-boundary rules) would stop the bleeding.
-
-## Suggested partition (mental model for future work)
-
-- **core/** — policy, chunking, summary decision, prompt building, token measurement (pure, no I/O).
-- **llm/** — `src/llm-protocol/` + `src/agent-loop/` (now exists; one implementation used by summary-planner and repo-search — extend to chat).
-- **server/** — HTTP surface (done: route table + per-endpoint classes), config store (done: typed, single schema), runtime DB, managed-llama supervision, quotas.
-- **cli/** — thin argument parsing + HTTP calls to server; local-only commands (`find-files`) stay self-contained.
-- **dashboard/** — UI consuming a shared generated/imported type contract from server/.
-- **bench-eval/** — benchmarks, eval, repro scripts; not shipped, not imported by src or tests-of-src.
-
----
-
 # Part 2 — LLM-behavior analysis
-
-Scope: managed llama-server config, the repo-search agentic loop, multi-turn chat, and conversation-context handling — specifically divergences from established LLM-integration norms that raise the chance of the model doing something silly or failing to work as intended.
 
 ## L1. Managed llama-server configuration issues
 
@@ -206,14 +167,13 @@ Why it's an issue:
 - The forced search collides with the duplicate-query rejection: a conversational turn has no natural query, so the model improvises one close to a previous search, gets rejected, retries, and can burn all 3 finish rejections on a message that needed zero evidence — surfacing to the user as the model refusing or stalling on a trivial request.
 - The anti-hallucination intent is right; norm is conditioning grounding requirements on whether the answer makes factual claims.
 
-## Summary of Part 2
-
-The recurring pattern: the harness distrusts the model and intervenes aggressively (count-based finish gates, duplicate punishment, in-place history rewrites, stream truncation, format repair), but several interventions are themselves out-of-norm (assistant-role injection, truncated replay evidence, mutated transcripts, inverted gate logic, dead condense path) and actively create the confusion they defend against. The highest-leverage fixes: extend grammar-constrained decoding to the repo-search loop (L6), make all harness messages append-only and non-assistant-role (L4, L5, L7), fix the finish gate to match the prompt (L2), wire condense/compaction into what the model actually sees with pair-preserving selection (L5, L10), and split sampling profiles by request class (L1).
+---
 
 ## Priority order (highest leverage first)
 
-1. Repackage: move bench/eval out of `src` and out of npm `files`; fix `files` array (F15, F2).
-2. Dead-code sweep: `llama-cpp-bridge.ts`, `SIFT_LEGACY_*`, `execution-lock`/`execution-lease`, `test-full.ts` include (F11).
-3. Unit-test pyramid recovery on the new endpoint/runner seams; type the `@ts-nocheck` runtime harness (F6, F14).
-4. Dashboard de-monolith: split `App.tsx`/`styles.css` and replace the hand-mirrored `dashboard/src/types.ts` with a shared server type contract (F16).
-5. F17 residual: split `SummaryPlannerLoopRuntime.requestProviderAction` and add it to the regression guard.
+1. Dead-code sweep: `llama-cpp-bridge.ts`, `SIFT_LEGACY_*`, `execution-lock`/`execution-lease`, `test-full.ts` include (F11).
+2. Unit-test pyramid recovery on the new endpoint/runner seams; type the `@ts-nocheck` runtime harness (F6, F14).
+3. Dashboard de-monolith: split `App.tsx`/`styles.css` and replace the hand-mirrored `dashboard/src/types.ts` with a shared server type contract (F16).
+4. Split `SummaryPlannerLoopRuntime.requestProviderAction` and add it to the regression guard (F17).
+5. Bench/eval residual: relocate `eval.ts`/`benchmark-spec-settings.ts` in the server/workspace split; dedupe `bench/benchmark` vs `bench/benchmark-matrix` harness modules (F15).
+6. LLM-behavior fixes (Part 2), highest leverage first: extend grammar-constrained decoding to the repo-search loop (L6); make all harness messages append-only and non-assistant-role (L4, L5, L7); fix the finish gate to match the prompt (L2); wire condense/compaction into what the model actually sees with pair-preserving selection (L5, L10); split sampling profiles by request class (L1).
