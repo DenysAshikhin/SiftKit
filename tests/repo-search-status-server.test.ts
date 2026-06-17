@@ -54,10 +54,10 @@ function writeManagedLlamaReadinessTestConfig(managed: {
   modelPath: string;
   startupScriptPath: string;
 }, startupTimeoutMs: number): void {
-  const config = getDefaultConfig() as Record<string, unknown>;
-  const server = config.Server as { LlamaCpp: { Presets: Array<Record<string, unknown>>; ActivePresetId: string } };
+  const config = getDefaultConfig();
+  const server = config.Server;
   server.LlamaCpp.Presets = [{
-    ...(server.LlamaCpp.Presets[0] || {}),
+    ...server.LlamaCpp.Presets[0],
     id: 'default',
     label: 'Managed Test',
     Model: 'managed-test-model',

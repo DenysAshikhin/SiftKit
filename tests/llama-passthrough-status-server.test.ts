@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as http from 'node:http';
-import { createRequire } from 'node:module';
+import * as runtimeHelpers from './_runtime-helpers.js';
 import type { AddressInfo } from 'node:net';
 
 import { startStatusServer } from '../src/status-server/index.js';
@@ -17,9 +17,8 @@ function writeManagedConfig(
   managed: { baseUrl: string; modelPath: string; startupScriptPath: string },
   timeouts: { StartupTimeoutMs: number; HealthcheckTimeoutMs: number; HealthcheckIntervalMs: number },
 ): void {
-  const config = getDefaultConfig() as Record<string, unknown>;
-  const serverLlama = (config.Server as { LlamaCpp: { Presets: Record<string, unknown>[] } }).LlamaCpp;
-  const preset = serverLlama.Presets[0];
+  const config = getDefaultConfig();
+  const preset = config.Server.LlamaCpp.Presets[0];
   preset.Model = model;
   preset.BaseUrl = managed.baseUrl;
   preset.NumCtx = 32000;
@@ -30,17 +29,6 @@ function writeManagedConfig(
   preset.HealthcheckIntervalMs = timeouts.HealthcheckIntervalMs;
   writeConfig(getConfigPath(), config);
 }
-
-const requireFromHere = createRequire(__filename);
-const runtimeHelpers = requireFromHere('./_runtime-helpers.js') as {
-  writeManagedLlamaScripts: (tempRoot: string, port: number, modelId?: string) => {
-    baseUrl: string;
-    modelPath: string;
-    startupScriptPath: string;
-    shutdownScriptPath: string;
-  };
-  getFreePort: () => Promise<number>;
-};
 
 type JsonResponse = { statusCode: number; body: Record<string, unknown> };
 
