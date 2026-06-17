@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as http from 'node:http';
+import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 
 import {
@@ -43,9 +44,12 @@ import { withTestEnvAndServer, type Dict } from './_test-helpers.js';
 
 type ConfigArg = Parameters<typeof getConfiguredModel>[0];
 
-test('SIFTKIT_VERSION is a string', () => {
+test('SIFTKIT_VERSION matches package.json version', () => {
+  const requireFromTest = createRequire(import.meta.url);
+  const packageJson = requireFromTest('../package.json') as { version: string };
   assert.equal(typeof SIFTKIT_VERSION, 'string');
   assert.match(SIFTKIT_VERSION, /^\d+\.\d+\.\d+$/u);
+  assert.equal(SIFTKIT_VERSION, packageJson.version);
 });
 
 test('getDefaultNumCtx returns the default context window', () => {

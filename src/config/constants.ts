@@ -1,4 +1,11 @@
-export const SIFTKIT_VERSION = '0.1.0';
+import { readFileSync } from 'node:fs';
+import * as path from 'node:path';
+
+const packageJson = JSON.parse(
+  readFileSync(path.resolve(__dirname, '..', '..', 'package.json'), 'utf8'),
+) as { version: string };
+
+export const SIFTKIT_VERSION = packageJson.version;
 export const SIFT_DEFAULT_NUM_CTX = 128_000;
 export const SIFT_DEFAULT_LLAMA_MODEL = 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
 export const SIFT_DEFAULT_LLAMA_BASE_URL = 'http://127.0.0.1:8097';
