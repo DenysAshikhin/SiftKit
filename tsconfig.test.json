@@ -35,6 +35,7 @@
     "tests/package-files.test.ts",
     "tests/routes-chat-helpers.test.ts",
     "tests/repo-search-request-normalizers.test.ts",
-    "tests/routes-core-lease.test.ts"
+    "tests/routes-core-lease.test.ts",
+    "tests/preset-runner.test.ts"
   ]
 }
