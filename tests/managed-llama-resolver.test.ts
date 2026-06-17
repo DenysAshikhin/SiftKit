@@ -4,9 +4,11 @@ import {
   getActiveManagedLlamaPreset,
   getManagedLlamaConfig,
 } from '../src/status-server/config-store.js';
+import { mockConfig } from './_runtime-helpers.js';
+import type { SiftConfig } from '../src/config/index.js';
 
-function configWithPresets() {
-  return {
+function configWithPresets(): SiftConfig {
+  return mockConfig({
     Server: {
       LlamaCpp: {
         ActivePresetId: 'b',
@@ -16,7 +18,7 @@ function configWithPresets() {
         ],
       },
     },
-  };
+  });
 }
 
 test('getActiveManagedLlamaPreset returns the preset matching ActivePresetId', () => {

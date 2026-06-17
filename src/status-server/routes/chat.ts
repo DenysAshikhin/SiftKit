@@ -223,11 +223,11 @@ function resolveRepoSearchRoutePreset(
   return presets.find((preset) => preset.presetKind === 'plan' || preset.presetKind === 'repo-search') || null;
 }
 
-export function resolveEffectiveRepoFileListing(config: Pick<SiftConfig, 'IncludeRepoFileListing'>, preset: Pick<SiftPreset, 'includeRepoFileListing'> | null): boolean {
+export function resolveEffectiveRepoFileListing(config: Partial<Pick<SiftConfig, 'IncludeRepoFileListing'>>, preset: Pick<SiftPreset, 'includeRepoFileListing'> | null): boolean {
   return config.IncludeRepoFileListing !== false && preset?.includeRepoFileListing !== false;
 }
 
-export function resolveEffectiveAgentsMd(config: Pick<SiftConfig, 'IncludeAgentsMd'>, preset: Pick<SiftPreset, 'includeAgentsMd'> | null): boolean {
+export function resolveEffectiveAgentsMd(config: Partial<Pick<SiftConfig, 'IncludeAgentsMd'>>, preset: Pick<SiftPreset, 'includeAgentsMd'> | null): boolean {
   return config.IncludeAgentsMd !== false && preset?.includeAgentsMd !== false;
 }
 

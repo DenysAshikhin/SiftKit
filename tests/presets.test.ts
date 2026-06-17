@@ -178,7 +178,7 @@ test('config persistence stores normalized presets in sqlite', () => {
 test('config persistence stores global agents.md auto-append setting in sqlite', () => {
   withTempRepo((repoRoot) => {
     const configPath = path.join(repoRoot, '.siftkit', 'runtime.sqlite');
-    const defaultConfig = getDefaultConfig() as { IncludeAgentsMd?: boolean };
+    const defaultConfig = getDefaultConfig();
 
     assert.equal(defaultConfig.IncludeAgentsMd, true);
 

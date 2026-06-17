@@ -77,7 +77,7 @@ test('temporary timing recorder writes event details and label summaries to a te
       requestId: 'req-enabled',
       metadata: { promptChars: 12 },
     });
-    assert.notEqual(recorder, null);
+    assert.ok(recorder);
 
     const firstSpan = recorder.start('repo.prompt.render', { turn: 1 });
     firstSpan.end({ promptChars: 99 });
