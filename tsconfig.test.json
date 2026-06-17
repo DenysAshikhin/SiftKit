@@ -34,6 +34,7 @@
     "tests/status-route-table.test.ts",
     "tests/package-files.test.ts",
     "tests/routes-chat-helpers.test.ts",
-    "tests/repo-search-request-normalizers.test.ts"
+    "tests/repo-search-request-normalizers.test.ts",
+    "tests/routes-core-lease.test.ts"
   ]
 }

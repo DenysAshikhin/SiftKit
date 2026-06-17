@@ -57,7 +57,9 @@ import {
   getManagedLlamaSpeculativeMetricsDelta,
   getManagedLlamaStartupFailure,
   logLine,
+  EXECUTION_LEASE_STALE_MS,
 } from '../managed-llama.js';
+import { acquireLease, heartbeatLease } from '../core/lease-handlers.js';
 import {
   getPublishedStatusText,
   writePublishedStatus,
@@ -669,14 +671,13 @@ class ExecutionAcquireEndpoint implements RouteEndpoint {
     const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
     const requestUrl = new URL(req.url || '/', 'http://localhost');
     clearIdleSummaryTimer(ctx);
-    const lease = getActiveExecutionLease(ctx);
-    if (lease) {
+    const result = acquireLease(ctx.activeExecutionLease, crypto.randomUUID(), Date.now(), EXECUTION_LEASE_STALE_MS);
+    ctx.activeExecutionLease = result.lease;
+    if (!result.acquired) {
       sendJson(res, 200, { ok: true, acquired: false, busy: true });
       return;
     }
-    const token = crypto.randomUUID();
-    ctx.activeExecutionLease = { token, heartbeatAt: Date.now() };
-    sendJson(res, 200, { ok: true, acquired: true, busy: true, token });
+    sendJson(res, 200, { ok: true, acquired: true, busy: true, token: result.lease.token });
     return;
   }
 }
@@ -702,12 +703,12 @@ class ExecutionHeartbeatEndpoint implements RouteEndpoint {
       sendJson(res, 400, { error: 'Expected token.' });
       return;
     }
-    const lease = getActiveExecutionLease(ctx);
-    if (!lease || lease.token !== tokenRequest.token) {
+    const refreshed = heartbeatLease(ctx.activeExecutionLease, tokenRequest.token, Date.now(), EXECUTION_LEASE_STALE_MS);
+    if (!refreshed) {
       sendJson(res, 409, { error: 'Execution lease is not active.' });
       return;
     }
-    lease.heartbeatAt = Date.now();
+    ctx.activeExecutionLease = refreshed;
     sendJson(res, 200, { ok: true, busy: true });
     return;
   }
