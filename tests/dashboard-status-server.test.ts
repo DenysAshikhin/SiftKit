@@ -22,8 +22,8 @@ import {
   type SseEvent,
   type SseResponse,
   writeJson,
-} from './helpers/dashboard-http.ts';
-import { buildRepoSearchChatSteps } from '../dashboard/src/lib/chat-steps.ts';
+} from './helpers/dashboard-http.js';
+import { buildRepoSearchChatSteps } from '../dashboard/src/lib/chat-steps.js';
 import { normalizeWebSearchConfig } from '../src/status-server/config-store.js';
 
 test('normalizeWebSearchConfig produces provider defaults and clamps ResultCount to 20', () => {
@@ -502,7 +502,9 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     assert.equal(idleSummaryResponse.statusCode, 200);
     assert.equal(Array.isArray(idleSummaryResponse.body.snapshots), true);
     assert.equal(Object.prototype.hasOwnProperty.call(idleSummaryResponse.body, 'latest'), true);
-    const idleSummarySample = idleSummaryResponse.body.latest || idleSummaryResponse.body.snapshots[0] || {};
+    const idleSummarySample: Dict = (idleSummaryResponse.body.latest as Dict | undefined)
+      || (idleSummaryResponse.body.snapshots as Dict[] | undefined)?.[0]
+      || {};
     if (Object.keys(idleSummarySample).length > 0) {
       assert.equal(Object.prototype.hasOwnProperty.call(idleSummarySample, 'inputOutputRatio'), true);
     }
@@ -692,19 +694,16 @@ test('dashboard chat message route stores exact user tokens from llama tokenizer
   await new Promise<void>((resolve) => tokenizerServer.listen(0, '127.0.0.1', resolve));
   const tokenizerAddress = tokenizerServer.address() as AddressInfo;
   const tokenizerBaseUrl = `http://127.0.0.1:${tokenizerAddress.port}`;
-  const config = getDefaultConfig() as Dict;
-  const serverConfig = d(config.Server);
-  const serverLlama = d(serverConfig.LlamaCpp);
+  const config = getDefaultConfig();
+  const serverLlama = config.Server.LlamaCpp;
   serverLlama.Presets = [{
-    ...d((serverLlama.Presets as Dict[] | undefined)?.[0]),
+    ...serverLlama.Presets[0],
     id: 'default',
     label: 'Default',
     ExternalServerEnabled: true,
     BaseUrl: tokenizerBaseUrl,
   }];
   serverLlama.ActivePresetId = 'default';
-  serverConfig.LlamaCpp = serverLlama;
-  config.Server = serverConfig;
   writeConfig(configPath, config);
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
@@ -1650,19 +1649,16 @@ test('repo-search auto-append preview prefers llama tokenizer when available', a
   await new Promise<void>((resolve) => tokenizerServer.listen(0, '127.0.0.1', resolve));
   const tokenizerAddress = tokenizerServer.address() as AddressInfo;
   const tokenizerBaseUrl = `http://127.0.0.1:${tokenizerAddress.port}`;
-  const config = getDefaultConfig() as Dict;
-  const serverConfig = d(config.Server);
-  const serverLlama = d(serverConfig.LlamaCpp);
+  const config = getDefaultConfig();
+  const serverLlama = config.Server.LlamaCpp;
   serverLlama.Presets = [{
-    ...d((serverLlama.Presets as Dict[] | undefined)?.[0]),
+    ...serverLlama.Presets[0],
     id: 'default',
     label: 'Default',
     ExternalServerEnabled: true,
     BaseUrl: tokenizerBaseUrl,
   }];
   serverLlama.ActivePresetId = 'default';
-  serverConfig.LlamaCpp = serverLlama;
-  config.Server = serverConfig;
   writeConfig(getConfigPath(), config);
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
@@ -2134,8 +2130,8 @@ test('chat completion replays prior tool evidence without hidden system context'
   const llamaAddress = llamaServer.address() as AddressInfo;
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const chatConfig = getDefaultConfig() as Dict;
-  const chatPreset = ((chatConfig.Server as Dict).LlamaCpp as Dict).Presets as Dict[];
+  const chatConfig = getDefaultConfig();
+  const chatPreset = chatConfig.Server.LlamaCpp.Presets;
   chatPreset[0].Model = 'Qwen3.5-9B-Q8_0.gguf';
   chatPreset[0].BaseUrl = `http://127.0.0.1:${llamaAddress.port}`;
   chatPreset[0].NumCtx = 85000;
@@ -2206,8 +2202,8 @@ test('chat completion replays prior tool evidence without hidden system context'
     }, 5000);
     assert.equal(Number(statusMetrics.inputTokensTotal) >= 20, true);
     assert.equal(Number(statusMetrics.outputTokensTotal) >= 4, true);
-    assert.equal(Number(d(statusMetrics.taskTotals).chat.inputTokensTotal) >= 20, true);
-    assert.equal(Number(d(statusMetrics.taskTotals).chat.outputTokensTotal) >= 4, true);
+    assert.equal(Number(d(d(statusMetrics.taskTotals).chat).inputTokensTotal) >= 20, true);
+    assert.equal(Number(d(d(statusMetrics.taskTotals).chat).outputTokensTotal) >= 4, true);
     assert.equal(capturedChatRequest !== null, true);
     const captured = capturedChatRequest as Dict | null;
     assert.equal(Array.isArray(captured?.messages), true);
@@ -2278,8 +2274,8 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
   const llamaAddress = llamaServer.address() as AddressInfo;
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const chatConfig = getDefaultConfig() as Dict;
-  const chatPreset = ((chatConfig.Server as Dict).LlamaCpp as Dict).Presets as Dict[];
+  const chatConfig = getDefaultConfig();
+  const chatPreset = chatConfig.Server.LlamaCpp.Presets;
   chatPreset[0].Model = 'Qwen3.5-9B-Q8_0.gguf';
   chatPreset[0].BaseUrl = `http://127.0.0.1:${llamaAddress.port}`;
   chatPreset[0].NumCtx = 85000;
