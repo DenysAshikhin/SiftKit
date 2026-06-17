@@ -152,6 +152,8 @@ interface StubServerState {
 
 type StubChatResponder = (promptText: string, parsed: JsonObject, requestIndex: number) => JsonObject | null;
 type StubTokenizeTokenCount = (content: string, parsed: JsonObject) => number;
+type StubAssistantResponderFn = (promptText: string, parsed: JsonObject, requestIndex: number) => string;
+type StubAssistantResponder = string | StubAssistantResponderFn | Array<string | StubAssistantResponderFn>;
 
 interface StubServerOptions {
   config?: JsonObject;
@@ -162,8 +164,8 @@ interface StubServerOptions {
   tokenizeCharsPerToken?: number;
   chatDelayMs?: number;
   rejectPromptCharsOver?: number;
-  assistantContent?: unknown;
-  assistantReasoningContent?: unknown;
+  assistantContent?: StubAssistantResponder;
+  assistantReasoningContent?: StubAssistantResponder;
   omitUsage?: boolean;
   reasoningTokens?: number;
   chatResponse?: StubChatResponder;

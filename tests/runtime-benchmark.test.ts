@@ -1,68 +1,19 @@
-// @ts-nocheck — Split from runtime.test.js. Full TS typing deferred.
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const http = require('node:http');
-const os = require('node:os');
-const path = require('node:path');
-const { spawn, spawnSync } = require('node:child_process');
-const Database = require('better-sqlite3');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
-const { loadConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage } = require('../src/config/index.js');
-const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../src/summary.js');
-const { runCommand } = require('./helpers/run-command-for-test.js');
-const { runBenchmarkSuite } = require('../bench/benchmark/index.ts');
-const { withExecutionLock } = require('../src/execution-lock.js');
-const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../src/status-server/index.js');
-const { runDebugRequest } = require('../bench/repro/run-benchmark-fixture-debug.ts');
+import { summarizeRequest } from '../src/summary.js';
+import { runBenchmarkSuite } from '../bench/benchmark/index.js';
+import { runDebugRequest } from '../bench/repro/run-benchmark-fixture-debug.js';
 
-const {
-  TEST_USE_EXISTING_SERVER,
-  EXISTING_SERVER_STATUS_URL,
-  EXISTING_SERVER_CONFIG_URL,
-  RUN_LIVE_LLAMA_TOKENIZE_TESTS,
-  LIVE_LLAMA_BASE_URL,
-  LIVE_CONFIG_SERVICE_URL,
-  FAST_LEASE_STALE_MS,
-  FAST_LEASE_WAIT_MS,
-  deriveServiceUrl,
-  getDefaultConfig,
-  clone,
-  getChatRequestText,
-  setManagedLlamaBaseUrl,
-  mergeConfig,
-  extractPromptSection,
-  buildOversizedTransitionsInput,
-  buildOversizedRunnerStateHistoryInput,
-  getRuntimeRootFromStatusPath,
-  getPlannerLogsPath,
-  getFailedLogsPath,
-  getRequestLogsPath,
-  buildStructuredStubDecision,
-  resolveAssistantContent,
-  readBody,
-  resolveArtifactLogPathFromStatusPost,
-  requestJson,
-  sleep,
-  removeDirectoryWithRetries,
-  spawnProcess,
-  waitForTextMatch,
-  startStubStatusServer,
+import {
+  loadConfig,
+  getChunkThresholdCharacters,
   withTempEnv,
   withStubServer,
-  withSummaryTestServer,
-  withRealStatusServer,
-  startStatusServerProcess,
-  stripAnsi,
-  captureStdout,
-  readIdleSummarySnapshots,
-  getIdleSummaryBlock,
-  getFreePort,
-  toSingleQuotedPowerShellLiteral,
-  writeManagedLlamaScripts,
   waitForAsyncExpectation,
-  runPowerShellScript,
-} = require('./_runtime-helpers.js');
+} from './_runtime-helpers.js';
 
 test('benchmark runner writes prompt, output, classification metadata, per-case duration, and total duration', async () => {
   await withTempEnv(async (tempRoot) => {
@@ -179,7 +130,7 @@ test('benchmark runner uses a 30 minute default request timeout when omitted', a
     await withStubServer(async () => {
       const fixtureRoot = path.join(tempRoot, 'bench-fixtures');
       const outputPath = path.join(tempRoot, 'bench-output.json');
-      const observedTimeouts = [];
+      const observedTimeouts: number[] = [];
       const originalSetTimeout = global.setTimeout;
       fs.mkdirSync(fixtureRoot, { recursive: true });
       fs.writeFileSync(path.join(fixtureRoot, 'case1.txt'), 'A'.repeat(600), 'utf8');
@@ -193,10 +144,10 @@ test('benchmark runner uses a 30 minute default request timeout when omitted', a
         },
       ], null, 2), 'utf8');
 
-      global.setTimeout = (...args) => {
-        observedTimeouts.push(args[1]);
+      global.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
+        observedTimeouts.push(args[1] as number);
         return originalSetTimeout(...args);
-      };
+      }) as typeof setTimeout;
 
       try {
         const result = await runBenchmarkSuite({

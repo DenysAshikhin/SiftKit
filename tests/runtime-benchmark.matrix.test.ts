@@ -1,8 +1,7 @@
-// @ts-nocheck
-const test = require('node:test');
-const assert = require('node:assert/strict');
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
-const {
+import {
   fs,
   path,
   readMatrixManifest,
@@ -15,12 +14,12 @@ const {
   withTempEnv,
   withStubServer,
   waitForAsyncExpectation,
-} = require('./_runtime-helpers.js');
-const {
+} from './_runtime-helpers.js';
+import {
   listBenchmarkMatrixSessions,
   listBenchmarkMatrixRunsForSession,
   readBenchmarkMatrixRunLogTextByStream,
-} = require('../src/state/benchmark-matrix.js');
+} from '../src/state/benchmark-matrix.js';
 
 test('benchmark matrix respects per-run launcher overrides and script-owned reasoning', async () => {
   await withTempEnv(async (tempRoot) => {
@@ -103,6 +102,7 @@ test('benchmark matrix respects per-run launcher overrides and script-owned reas
       manifestPath,
       runIds: [],
       promptPrefixFile: null,
+      requestTimeoutSeconds: null,
       validateOnly: false,
     });
     const [run9b, run35b] = manifest.selectedRuns;
@@ -122,7 +122,7 @@ test('benchmark matrix respects per-run launcher overrides and script-owned reas
       '-MaxTokens', '9000',
     ].slice(-6));
 
-    const benchmarkArgs = buildBenchmarkArgs(manifest, run35b, path.join(tempRoot, 'out.json'), promptPrefixPath);
+    const benchmarkArgs = buildBenchmarkArgs(manifest, run35b, promptPrefixPath);
     assert.equal(benchmarkArgs.includes('--prompt-prefix-file'), true);
     assert.equal(benchmarkArgs.includes('--request-timeout-seconds'), true);
     assert.equal(benchmarkArgs[benchmarkArgs.indexOf('--request-timeout-seconds') + 1], '45');
@@ -254,8 +254,8 @@ test('benchmark matrix marks interrupted runs failed, preserves benchmark logs, 
         ],
       }, null, 2), 'utf8');
 
-      let rejectInterrupted;
-      const interrupted = new Promise((_, reject) => {
+      let rejectInterrupted!: (reason: Error) => void;
+      const interrupted = new Promise<never>((_, reject) => {
         rejectInterrupted = reject;
       });
       const runPromise = runMatrixWithInterrupt(
@@ -292,7 +292,7 @@ test('benchmark matrix marks interrupted runs failed, preserves benchmark logs, 
       assert.equal(session.status, 'failed');
       assert.equal(session.baselineRestoreStatus, 'completed');
       assert.equal(run.status, 'failed');
-      assert.match(run.errorMessage, /SIGINT/u);
+      assert.match(String(run.errorMessage), /SIGINT/u);
       assert.match(logs.benchmark_stdout, /Fixture 1\/1 \[interrupt-case\] start/u);
       assert.equal(typeof logs.benchmark_stderr, 'string');
     }, {
@@ -354,10 +354,11 @@ test('benchmark matrix launch signature changes for script and context changes b
       manifestPath,
       runIds: [],
       promptPrefixFile: null,
+      requestTimeoutSeconds: null,
       validateOnly: false,
     });
     const run = manifest.selectedRuns[0];
-    const sameScriptDifferentReasoning = { ...run, reasoning: 'on' };
+    const sameScriptDifferentReasoning = { ...run, reasoning: 'on' as const };
     const differentScript = { ...run, startScript: start35bPath };
     const differentContext = { ...run, contextSize: 150000 };
 
@@ -417,6 +418,7 @@ test('benchmark matrix passes reasoning by default when the launcher supports it
       manifestPath,
       runIds: [],
       promptPrefixFile: null,
+      requestTimeoutSeconds: null,
       validateOnly: false,
     });
     const launcherArgs = buildLauncherArgs(manifest, manifest.selectedRuns[0]);
