@@ -12,7 +12,7 @@ const {
 const {
   STABLE_CHUNK_BUDGET_METRICS,
   saveFixture60ChunkingConfig,
-} = require('./helpers/runtime-benchmark-repro.js');
+} = require('./helpers/runtime-benchmark-repro.ts');
 
 test('repro-fixture60-malformed-json writes a completed manifest for valid chunk responses', async () => {
   await withTempEnv(async (tempRoot) => {

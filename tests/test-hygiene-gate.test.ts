@@ -2,9 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const TESTS_DIR = path.dirname(fileURLToPath(import.meta.url));
+const TESTS_DIR = __dirname;
 
 function listTestSources(): string[] {
   const out: string[] = [];

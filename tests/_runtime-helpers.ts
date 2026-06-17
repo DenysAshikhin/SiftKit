@@ -1,11 +1,13 @@
-// @ts-nocheck — Shared runtime test infrastructure. Full typing deferred.
-// Auto-generated from runtime.test.js infrastructure block.
+// Shared runtime test infrastructure barrel. Typed re-export surface for the
+// ~30 runtime test files. Server-harness primitives live here; managed-llama
+// fixture writers live in ./helpers/managed-llama-fixtures.ts.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import type { AddressInfo } from 'node:net';
 import Database from 'better-sqlite3';
 import {
   deriveServiceUrl,
@@ -23,12 +25,17 @@ import {
   getRequestLogsPath,
   buildStructuredStubDecision,
   resolveAssistantContent,
-} from './helpers/runtime-config.ts';
+} from './helpers/runtime-config.js';
 import {
   readBody,
   resolveArtifactLogPathFromStatusPost,
   requestJson,
-} from './helpers/runtime-http.ts';
+} from './helpers/runtime-http.js';
+import {
+  toSingleQuotedPowerShellLiteral,
+  writeManagedLlamaScripts,
+  writeManagedLlamaLauncher,
+} from './helpers/managed-llama-fixtures.js';
 
 import {
   loadConfig,
@@ -41,13 +48,13 @@ import {
   initializeRuntime,
   getStatusServerUnavailableMessage,
 } from '../dist/config/index.js';
-import { summarizeRequest, readSummaryInput } from '../dist/summary/core.js';
+import { summarizeRequest } from '../dist/summary/core.js';
 import { buildPrompt } from '../dist/summary/prompt.js';
 import { getSummaryDecision } from '../dist/summary/decision.js';
 import { planTokenAwareLlamaCppChunks, getPlannerPromptBudget } from '../dist/summary/chunking.js';
 import { buildPlannerToolDefinitions } from '../dist/summary/planner/tools.js';
 import { runCommand } from './helpers/run-command-for-test.cjs';
-import { runBenchmarkSuite } from '../bench/benchmark/index.ts';
+import { runBenchmarkSuite } from '../bench/benchmark/index.js';
 import {
   readMatrixManifest,
   buildLaunchSignature,
@@ -56,7 +63,7 @@ import {
   pruneOldLauncherLogs,
   runMatrix,
   runMatrixWithInterrupt,
-} from '../bench/benchmark-matrix/index.ts';
+} from '../bench/benchmark-matrix/index.js';
 import {
   countLlamaCppTokens,
   listLlamaCppModels,
@@ -72,8 +79,11 @@ import {
 } from '../dist/status-server/index.js';
 import { writeConfig } from '../dist/status-server/config-store.js';
 import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
-import { runDebugRequest } from '../bench/repro/run-benchmark-fixture-debug.ts';
-import { runFixture60MalformedJsonRepro } from '../bench/repro/repro-fixture60-malformed-json.ts';
+import { runDebugRequest } from '../bench/repro/run-benchmark-fixture-debug.js';
+import { runFixture60MalformedJsonRepro } from '../bench/repro/repro-fixture60-malformed-json.js';
+import type { SiftConfig, ServerManagedLlamaPreset } from '../src/config/types.js';
+import type { TaskKind, ToolTypeStats } from '../src/status-server/metrics.js';
+
 
 const TEST_USE_EXISTING_SERVER = process.env.SIFTKIT_TEST_USE_EXISTING_SERVER === '1';
 const EXISTING_SERVER_STATUS_URL = process.env.SIFTKIT_STATUS_BACKEND_URL;
@@ -84,13 +94,169 @@ const LIVE_CONFIG_SERVICE_URL = process.env.SIFTKIT_CONFIG_SERVICE_URL?.trim() |
 const FAST_LEASE_STALE_MS = 200;
 const FAST_LEASE_WAIT_MS = 350;
 
+type JsonObject = Record<string, unknown>;
 
-function sleep(milliseconds) {
+interface StubMetricTotals {
+  inputCharactersTotal: number;
+  outputCharactersTotal: number;
+  inputTokensTotal: number;
+  outputTokensTotal: number;
+  thinkingTokensTotal: number;
+  toolTokensTotal: number;
+  promptCacheTokensTotal: number;
+  promptEvalTokensTotal: number;
+  requestDurationMsTotal: number;
+  completedRequestCount: number;
+}
+
+interface StubMetrics {
+  schemaVersion: number;
+  inputCharactersTotal: number;
+  outputCharactersTotal: number;
+  inputTokensTotal: number;
+  outputTokensTotal: number;
+  thinkingTokensTotal: number;
+  toolTokensTotal: number;
+  requestDurationMsTotal: number;
+  completedRequestCount: number;
+  taskTotals: Record<TaskKind, StubMetricTotals>;
+  toolStats: Record<TaskKind, Record<string, ToolTypeStats>>;
+  updatedAtUtc: string | null;
+}
+
+interface StubArtifactPost {
+  type: unknown;
+  requestId: unknown;
+  path: string;
+}
+
+interface DeferredArtifactEntry {
+  running: boolean;
+  statusPath: unknown;
+  artifactType: unknown;
+  artifactRequestId: unknown;
+  artifactPayload: unknown;
+}
+
+interface StubServerState {
+  config: SiftConfig;
+  statusPosts: JsonObject[];
+  artifactPosts: StubArtifactPost[];
+  chatRequests: JsonObject[];
+  tokenizeRequests: JsonObject[];
+  healthChecks: number;
+  running: boolean;
+  executionLeaseToken: string | null;
+  metrics: StubMetrics;
+}
+
+type StubChatResponder = (promptText: string, parsed: JsonObject, requestIndex: number) => JsonObject | null;
+type StubTokenizeTokenCount = (content: string, parsed: JsonObject) => number;
+
+interface StubServerOptions {
+  config?: JsonObject;
+  running?: boolean;
+  metrics?: Partial<StubMetrics>;
+  healthFailuresBeforeOk?: number;
+  tokenizeTokenCount?: StubTokenizeTokenCount;
+  tokenizeCharsPerToken?: number;
+  chatDelayMs?: number;
+  rejectPromptCharsOver?: number;
+  assistantContent?: unknown;
+  assistantReasoningContent?: unknown;
+  omitUsage?: boolean;
+  reasoningTokens?: number;
+  chatResponse?: StubChatResponder;
+  failStatusPosts?: boolean;
+  failArtifactPosts?: boolean;
+  busyStatusPostCount?: number;
+  delayNonTerminalStatusFalseMs?: number;
+}
+
+interface StubServer {
+  port: number;
+  healthUrl: string;
+  statusUrl: string;
+  configUrl: string;
+  state: StubServerState;
+  close(): Promise<void>;
+}
+
+interface SpawnProcessResult {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+}
+
+interface RealStatusServerOptions {
+  statusPath: string;
+  configPath: string;
+  idleSummaryDbPath?: string;
+  executionLeaseStaleMs?: number;
+  terminalMetadataIdleDelayMs?: number;
+  managedLlamaFlushIdleDelayMs?: number;
+  disableManagedLlamaStartup?: boolean;
+  awaitStartup?: boolean;
+}
+
+interface RealStatusServerContext {
+  server: ReturnType<typeof startStatusServer>;
+  port: number;
+  statusUrl: string;
+  healthUrl: string;
+  configUrl: string;
+  statusPath: string;
+  configPath: string;
+  idleSummaryDbPath: string;
+}
+
+interface StatusServerProcessOptions {
+  statusPath: string;
+  configPath: string;
+  workingDirectory?: string;
+  idleSummaryDbPath?: string;
+  idleSummaryDelayMs?: number;
+  terminalMetadataIdleDelayMs?: number;
+  managedLlamaFlushIdleDelayMs?: number;
+  executionLeaseStaleMs?: number;
+  disableManagedLlamaStartup?: boolean;
+  startupTimeoutMs?: number;
+}
+
+interface StatusServerProcessStartupInfo {
+  ok?: boolean;
+  port: number;
+  startupWarning?: string | null;
+}
+
+interface StatusServerProcessCloseInfo {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+}
+
+interface IdleSummarySnapshotRow {
+  emitted_at_utc: string;
+  completed_request_count: number;
+  input_characters_total: number;
+  output_characters_total: number;
+  input_tokens_total: number;
+  output_tokens_total: number;
+  thinking_tokens_total: number;
+  saved_tokens: number;
+  saved_percent: number;
+  compression_ratio: number;
+  request_duration_ms_total: number;
+  avg_request_ms: number;
+  avg_tokens_per_second: number;
+}
+
+function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-async function removeDirectoryWithRetries(targetPath, attempts = 300, delayMs = 100) {
-  let lastError = null;
+async function removeDirectoryWithRetries(targetPath: string, attempts = 300, delayMs = 100): Promise<void> {
+  let lastError: unknown = null;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
       fs.rmSync(targetPath, { recursive: true, force: true });
@@ -108,7 +274,7 @@ async function removeDirectoryWithRetries(targetPath, attempts = 300, delayMs = 
   void lastError;
 }
 
-function spawnProcess(command, args, options = {}) {
+function spawnProcess(command: string, args: string[], options: Record<string, unknown> = {}): Promise<SpawnProcessResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       ...options,
@@ -117,10 +283,10 @@ function spawnProcess(command, args, options = {}) {
 
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (chunk) => {
+    child.stdout?.on('data', (chunk: Buffer) => {
       stdout += chunk.toString();
     });
-    child.stderr.on('data', (chunk) => {
+    child.stderr?.on('data', (chunk: Buffer) => {
       stderr += chunk.toString();
     });
     child.on('error', reject);
@@ -135,12 +301,13 @@ function spawnProcess(command, args, options = {}) {
   });
 }
 
-function scheduleDeferredArtifactWrite(state, parsed, options) {
-  if (!Array.isArray(parsed?.deferredArtifacts) || parsed.deferredArtifacts.length === 0) {
+function scheduleDeferredArtifactWrite(state: StubServerState, parsed: JsonObject, options: StubServerOptions): void {
+  const rawDeferredArtifacts = parsed.deferredArtifacts;
+  if (!Array.isArray(rawDeferredArtifacts) || rawDeferredArtifacts.length === 0) {
     return;
   }
-  const deferredArtifacts = parsed.deferredArtifacts
-    .filter((entry) => entry && typeof entry === 'object' && !Array.isArray(entry))
+  const deferredArtifacts: DeferredArtifactEntry[] = rawDeferredArtifacts
+    .filter((entry): entry is JsonObject => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry))
     .map((entry) => ({
       running: false,
       statusPath: parsed.statusPath,
@@ -151,7 +318,7 @@ function scheduleDeferredArtifactWrite(state, parsed, options) {
   if (deferredArtifacts.length === 0) {
     return;
   }
-  const writeArtifacts = (artifacts) => {
+  const writeArtifacts = (artifacts: DeferredArtifactEntry[]): void => {
     for (const artifactPost of artifacts) {
       const artifactPath = resolveArtifactLogPathFromStatusPost(artifactPost);
       if (!artifactPath) {
@@ -179,11 +346,11 @@ function scheduleDeferredArtifactWrite(state, parsed, options) {
   }
 }
 
-function applyDeferredStatusMetrics(state, parsed) {
-  if (!parsed?.deferredMetadata || typeof parsed.deferredMetadata !== 'object' || Array.isArray(parsed.deferredMetadata)) {
+function applyDeferredStatusMetrics(state: StubServerState, parsed: JsonObject): void {
+  if (!parsed.deferredMetadata || typeof parsed.deferredMetadata !== 'object' || Array.isArray(parsed.deferredMetadata)) {
     return;
   }
-  const metadata = parsed.deferredMetadata;
+  const metadata = parsed.deferredMetadata as JsonObject;
   state.metrics.inputCharactersTotal += Number.isFinite(metadata.promptCharacterCount) ? Number(metadata.promptCharacterCount) : 0;
   state.metrics.outputCharactersTotal += Number.isFinite(metadata.outputCharacterCount) ? Number(metadata.outputCharacterCount) : 0;
   state.metrics.inputTokensTotal += Number.isFinite(metadata.inputTokens) ? Number(metadata.inputTokens) : 0;
@@ -205,11 +372,11 @@ function applyDeferredStatusMetrics(state, parsed) {
     taskTotals.completedRequestCount += 1;
     if (metadata.toolStats && typeof metadata.toolStats === 'object' && !Array.isArray(metadata.toolStats)) {
       const existing = state.metrics.toolStats[taskKind];
-      for (const [toolType, rawStats] of Object.entries(metadata.toolStats)) {
+      for (const [toolType, rawStats] of Object.entries(metadata.toolStats as JsonObject)) {
         if (!rawStats || typeof rawStats !== 'object' || Array.isArray(rawStats)) {
           continue;
         }
-        const current = existing[toolType] || {
+        const current: ToolTypeStats = existing[toolType] || {
           calls: 0,
           outputCharsTotal: 0,
           outputTokensTotal: 0,
@@ -226,7 +393,7 @@ function applyDeferredStatusMetrics(state, parsed) {
           newEvidenceCalls: 0,
           noNewEvidenceCalls: 0,
         };
-        const stats = rawStats;
+        const stats = rawStats as JsonObject;
         existing[toolType] = {
           calls: current.calls + (Number.isFinite(stats.calls) ? Number(stats.calls) : 0),
           outputCharsTotal: current.outputCharsTotal + (Number.isFinite(stats.outputCharsTotal) ? Number(stats.outputCharsTotal) : 0),
@@ -259,8 +426,8 @@ function applyDeferredStatusMetrics(state, parsed) {
   }
 }
 
-function scheduleDeferredStatusMetrics(state, parsed) {
-  if (!parsed?.deferredMetadata || typeof parsed.deferredMetadata !== 'object' || Array.isArray(parsed.deferredMetadata)) {
+function scheduleDeferredStatusMetrics(state: StubServerState, parsed: JsonObject): void {
+  if (!parsed.deferredMetadata || typeof parsed.deferredMetadata !== 'object' || Array.isArray(parsed.deferredMetadata)) {
     return;
   }
   setTimeout(() => {
@@ -268,7 +435,7 @@ function scheduleDeferredStatusMetrics(state, parsed) {
   }, 25);
 }
 
-async function waitForTextMatch(getText, pattern, timeoutMs = 2000) {
+async function waitForTextMatch(getText: () => string, pattern: RegExp, timeoutMs = 2000): Promise<string> {
   const startedAt = Date.now();
   for (;;) {
     const text = getText();
@@ -284,9 +451,9 @@ async function waitForTextMatch(getText, pattern, timeoutMs = 2000) {
   }
 }
 
-async function startStubStatusServer(options = {}) {
-  const state = {
-    config: mergeConfig(getDefaultConfig(), options.config || {}),
+async function startStubStatusServer(options: StubServerOptions = {}): Promise<StubServer> {
+  const state: StubServerState = {
+    config: mergeConfig(getDefaultConfig(), options.config || {}) as SiftConfig,
     statusPosts: [],
     artifactPosts: [],
     chatRequests: [],
@@ -532,7 +699,7 @@ async function startStubStatusServer(options = {}) {
     if (req.method === 'PUT' && req.url === '/config') {
       const bodyText = await readBody(req);
       const parsed = bodyText ? JSON.parse(bodyText) : {};
-      state.config = mergeConfig(getDefaultConfig(), parsed);
+      state.config = mergeConfig(getDefaultConfig(), parsed) as SiftConfig;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(state.config));
       return;
@@ -601,7 +768,7 @@ async function startStubStatusServer(options = {}) {
         state.metrics.toolTokensTotal += Number.isFinite(parsed.toolTokens) ? Number(parsed.toolTokens) : 0;
         state.metrics.requestDurationMsTotal += Number.isFinite(parsed.requestDurationMs) ? Number(parsed.requestDurationMs) : 0;
         state.metrics.completedRequestCount += 1;
-        const taskKind = parsed.taskKind;
+        const taskKind = parsed.taskKind as TaskKind | undefined;
         if (taskKind === 'summary' || taskKind === 'plan' || taskKind === 'repo-search' || taskKind === 'chat') {
           const taskTotals = state.metrics.taskTotals[taskKind];
           taskTotals.inputCharactersTotal += Number.isFinite(parsed.promptCharacterCount) ? Number(parsed.promptCharacterCount) : 0;
@@ -723,28 +890,13 @@ async function startStubStatusServer(options = {}) {
     res.end(JSON.stringify({ error: 'not found' }));
   });
 
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', () => resolve()); });
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
   const stubBaseUrl = `http://127.0.0.1:${port}`;
-  if (!state.config.Runtime || typeof state.config.Runtime !== 'object') {
-    state.config.Runtime = {};
-  }
-  if (!state.config.Runtime.LlamaCpp || typeof state.config.Runtime.LlamaCpp !== 'object') {
-    state.config.Runtime.LlamaCpp = {};
-  }
   state.config.Runtime.LlamaCpp.BaseUrl = stubBaseUrl;
-  if (!state.config.Server || typeof state.config.Server !== 'object') {
-    state.config.Server = {};
-  }
-  if (!state.config.Server.LlamaCpp || typeof state.config.Server.LlamaCpp !== 'object') {
-    state.config.Server.LlamaCpp = { Presets: [], ActivePresetId: 'default' };
-  }
-  if (!Array.isArray(state.config.Server.LlamaCpp.Presets)) {
-    state.config.Server.LlamaCpp.Presets = [];
-  }
   if (state.config.Server.LlamaCpp.Presets.length === 0) {
-    state.config.Server.LlamaCpp.Presets.push({ id: 'default', label: 'Default' });
+    state.config.Server.LlamaCpp.Presets.push({ id: 'default', label: 'Default' } as ServerManagedLlamaPreset);
     state.config.Server.LlamaCpp.ActivePresetId = 'default';
   }
   for (const preset of state.config.Server.LlamaCpp.Presets) {
@@ -758,14 +910,14 @@ async function startStubStatusServer(options = {}) {
     configUrl: `http://127.0.0.1:${port}/config`,
     state,
     async close() {
-      await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+      await new Promise<void>((resolve, reject) => { server.close((error) => (error ? reject(error) : resolve())); });
     },
   };
 }
 
-let tempEnvQueue = Promise.resolve();
+let tempEnvQueue: Promise<unknown> = Promise.resolve();
 
-function runWithTempEnv(fn) {
+function runWithTempEnv<R>(fn: (tempRoot: string) => R | Promise<R>): Promise<R> {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-node-test-'));
   const previousCwd = process.cwd();
   const previous = {
@@ -824,13 +976,13 @@ function runWithTempEnv(fn) {
     .finally(cleanup);
 }
 
-function withTempEnv(fn) {
+function withTempEnv<R>(fn: (tempRoot: string) => R | Promise<R>): Promise<R> {
   const queued = tempEnvQueue.then(() => runWithTempEnv(fn), () => runWithTempEnv(fn));
   tempEnvQueue = queued.catch(() => undefined);
   return queued;
 }
 
-function seedRuntimeConfigFromJson(configPath) {
+function seedRuntimeConfigFromJson(configPath: string): void {
   if (!configPath || !fs.existsSync(configPath) || path.extname(configPath).toLowerCase() !== '.json') {
     return;
   }
@@ -860,7 +1012,7 @@ function seedRuntimeConfigFromJson(configPath) {
   writeConfig(getConfigPath(), config);
 }
 
-async function withStubServer(fn, options = {}) {
+async function withStubServer<R>(fn: (server: StubServer) => R | Promise<R>, options: StubServerOptions = {}): Promise<R> {
   const previous = {
     SIFTKIT_STATUS_BACKEND_URL: process.env.SIFTKIT_STATUS_BACKEND_URL,
     SIFTKIT_CONFIG_SERVICE_URL: process.env.SIFTKIT_CONFIG_SERVICE_URL,
@@ -885,7 +1037,7 @@ async function withStubServer(fn, options = {}) {
   }
 }
 
-async function withSummaryTestServer(fn, options = {}) {
+async function withSummaryTestServer<R>(fn: (server: StubServer) => R | Promise<R>, options: StubServerOptions = {}): Promise<R> {
   if (!TEST_USE_EXISTING_SERVER) {
     return withStubServer(fn, options);
   }
@@ -900,14 +1052,14 @@ async function withSummaryTestServer(fn, options = {}) {
     statusUrl: EXISTING_SERVER_STATUS_URL,
     configUrl: EXISTING_SERVER_CONFIG_URL,
     usingExistingServer: true,
-  });
+  } as unknown as StubServer);
 }
 
-function getStatusRouteUrl(statusUrl, routePath) {
+function getStatusRouteUrl(statusUrl: string, routePath: string): string {
   return deriveServiceUrl(statusUrl, routePath);
 }
 
-async function postStatusTerminalMetadata(statusUrl, metadata) {
+async function postStatusTerminalMetadata(statusUrl: string, metadata: JsonObject): Promise<unknown> {
   return requestJson(getStatusRouteUrl(statusUrl, '/status/terminal-metadata'), {
     method: 'POST',
     body: JSON.stringify({
@@ -917,14 +1069,14 @@ async function postStatusTerminalMetadata(statusUrl, metadata) {
   });
 }
 
-async function postStatusComplete(statusUrl, completion) {
+async function postStatusComplete(statusUrl: string, completion: JsonObject): Promise<unknown> {
   return requestJson(getStatusRouteUrl(statusUrl, '/status/complete'), {
     method: 'POST',
     body: JSON.stringify(completion),
   });
 }
 
-async function postCompletedStatus(statusUrl, metadata) {
+async function postCompletedStatus(statusUrl: string, metadata: JsonObject): Promise<{ metadataResponse: unknown; completeResponse: unknown }> {
   const requestId = typeof metadata?.requestId === 'string' ? metadata.requestId.trim() : '';
   const terminalState = typeof metadata?.terminalState === 'string' ? metadata.terminalState.trim() : '';
   if (!requestId) {
@@ -942,14 +1094,14 @@ async function postCompletedStatus(statusUrl, metadata) {
   return { metadataResponse, completeResponse };
 }
 
-function getOptionalNonNegativeInteger(value) {
+function getOptionalNonNegativeInteger(value: unknown): number | null {
   if (!Number.isFinite(Number(value))) {
     return null;
   }
   return Math.max(0, Math.trunc(Number(value)));
 }
 
-async function withRealStatusServer(fn, options = {}) {
+async function withRealStatusServer<R>(fn: (context: RealStatusServerContext) => R | Promise<R>, options: RealStatusServerOptions): Promise<R> {
   const previous = {
     SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
     SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
@@ -1001,7 +1153,7 @@ async function withRealStatusServer(fn, options = {}) {
     managedLlamaFlushIdleDelayMs: managedLlamaFlushIdleDelayMs ?? undefined,
   });
   try {
-    const address = await new Promise((resolve) => {
+    const address = await new Promise<AddressInfo | string | null>((resolve) => {
       if (server.listening) {
         resolve(server.address());
         return;
@@ -1025,7 +1177,7 @@ async function withRealStatusServer(fn, options = {}) {
       idleSummaryDbPath: options.idleSummaryDbPath || getIdleSummarySnapshotsPath(),
     });
   } finally {
-    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    await new Promise<void>((resolve, reject) => { server.close((error) => (error ? reject(error) : resolve())); });
     closeRuntimeDatabase();
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) {
@@ -1037,7 +1189,7 @@ async function withRealStatusServer(fn, options = {}) {
   }
 }
 
-async function startStatusServerProcess(options) {
+async function startStatusServerProcess(options: StatusServerProcessOptions) {
   seedRuntimeConfigFromJson(options.configPath);
   const childEnv = {
     ...process.env,
@@ -1065,23 +1217,23 @@ async function startStatusServerProcess(options) {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  const stdoutLines = [];
-  const stderrLines = [];
+  const stdoutLines: string[] = [];
+  const stderrLines: string[] = [];
   let stdoutBuffer = '';
   let startupResolved = false;
   let closeResolved = false;
-  let resolveStartup;
-  let rejectStartup;
-  let resolveClose;
-  const startup = new Promise((resolve, reject) => {
+  let resolveStartup!: (value: StatusServerProcessStartupInfo) => void;
+  let rejectStartup!: (reason?: unknown) => void;
+  let resolveClose!: (value: StatusServerProcessCloseInfo) => void;
+  const startup = new Promise<StatusServerProcessStartupInfo>((resolve, reject) => {
     resolveStartup = resolve;
     rejectStartup = reject;
   });
-  const closePromise = new Promise((resolve) => {
+  const closePromise = new Promise<StatusServerProcessCloseInfo>((resolve) => {
     resolveClose = resolve;
   });
 
-  function handleStdoutChunk(chunk) {
+  function handleStdoutChunk(chunk: Buffer): void {
     stdoutBuffer += chunk.toString();
     const lines = stdoutBuffer.split(/\r?\n/u);
     stdoutBuffer = lines.pop() || '';
@@ -1105,8 +1257,8 @@ async function startStatusServerProcess(options) {
     }
   }
 
-  child.stdout.on('data', handleStdoutChunk);
-  child.stderr.on('data', (chunk) => {
+  child.stdout?.on('data', handleStdoutChunk);
+  child.stderr?.on('data', (chunk: Buffer) => {
     stderrLines.push(chunk.toString());
   });
   child.on('error', (error) => {
@@ -1133,7 +1285,7 @@ async function startStatusServerProcess(options) {
   const startupTimeoutMs = options.startupTimeoutMs || 10_000;
   const startupInfo = await Promise.race([
     startup,
-    new Promise((_, reject) => setTimeout(() => reject(new Error([
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error([
       `Timed out waiting for status server startup after ${startupTimeoutMs} ms.`,
       `stdout:\n${stdoutLines.join('\n')}`,
       `stderr:\n${stderrLines.join('\n')}`,
@@ -1159,7 +1311,7 @@ async function startStatusServerProcess(options) {
     stdoutLines,
     stderrLines,
     idleSummaryDbPath: options.idleSummaryDbPath || path.join(path.dirname(options.statusPath), 'idle-summary.sqlite'),
-    async waitForStdoutMatch(pattern, timeoutMs = 2000) {
+    async waitForStdoutMatch(pattern: RegExp, timeoutMs = 2000): Promise<string> {
       const startedAt = Date.now();
       for (;;) {
         const matchedLine = stdoutLines.find((line) => pattern.test(line));
@@ -1174,10 +1326,10 @@ async function startStatusServerProcess(options) {
         await sleep(10);
       }
     },
-    async waitForExit(timeoutMs = 5000) {
+    async waitForExit(timeoutMs = 5000): Promise<StatusServerProcessCloseInfo> {
       return await Promise.race([
         closePromise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error(`Timed out waiting for status server exit after ${timeoutMs} ms.`)), timeoutMs)),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`Timed out waiting for status server exit after ${timeoutMs} ms.`)), timeoutMs)),
       ]);
     },
     async close() {
@@ -1203,15 +1355,15 @@ async function startStatusServerProcess(options) {
   };
 }
 
-function stripAnsi(text) {
+function stripAnsi(text: string): string {
   return String(text).replace(/\u001b\[[0-9;]*m/gu, '');
 }
 
-async function captureStdout(fn) {
+async function captureStdout(fn: (lines: string[]) => unknown): Promise<string[]> {
   const originalWrite = process.stdout.write.bind(process.stdout);
-  const lines = [];
+  const lines: string[] = [];
   let buffer = '';
-  process.stdout.write = (chunk, encoding, callback) => {
+  const patchedWrite = (chunk: string | Uint8Array, encoding?: BufferEncoding, callback?: (error?: Error | null) => void): boolean => {
     const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
     buffer += text;
     const parts = buffer.split(/\r?\n/u);
@@ -1221,8 +1373,9 @@ async function captureStdout(fn) {
         lines.push(line);
       }
     }
-    return originalWrite(chunk, encoding, callback);
+    return originalWrite(chunk, encoding as BufferEncoding, callback);
   };
+  process.stdout.write = patchedWrite as typeof process.stdout.write;
 
   try {
     await fn(lines);
@@ -1236,7 +1389,7 @@ async function captureStdout(fn) {
   return lines;
 }
 
-function readIdleSummarySnapshots(dbPath) {
+function readIdleSummarySnapshots(dbPath: string): IdleSummarySnapshotRow[] {
   const database = new Database(dbPath, { readonly: true });
   try {
     return database.prepare(`
@@ -1256,13 +1409,13 @@ function readIdleSummarySnapshots(dbPath) {
         avg_tokens_per_second
       FROM idle_summary_snapshots
       ORDER BY id ASC
-    `).all();
+    `).all() as IdleSummarySnapshotRow[];
   } finally {
     database.close();
   }
 }
 
-function getIdleSummaryBlock(stdoutLines, requestsPattern) {
+function getIdleSummaryBlock(stdoutLines: string[], requestsPattern: RegExp): string[] {
   const strippedLines = stdoutLines.map(stripAnsi);
   const startIndex = strippedLines.findIndex((line) => requestsPattern.test(line));
   assert.notEqual(startIndex, -1, `missing idle summary line matching ${String(requestsPattern)}\n${stdoutLines.join('\n')}`);
@@ -1278,348 +1431,16 @@ function getIdleSummaryBlock(stdoutLines, requestsPattern) {
 
 async function getFreePort() {
   const server = http.createServer(() => {});
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', () => resolve()); });
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
-  await new Promise((resolve) => server.close(resolve));
+  await new Promise<void>((resolve) => { server.close(() => resolve()); });
   return port;
 }
 
-function toSingleQuotedPowerShellLiteral(value) {
-  return `'${String(value).replace(/'/gu, "''")}'`;
-}
-
-function writeManagedLlamaScripts(tempRoot, port, modelId = 'managed-test-model', options = {}) {
-  const fakeServerPath = path.join(tempRoot, 'fake-llama-server.js');
-  const modelPath = path.join(tempRoot, `${modelId}.gguf`);
-  const startupScriptPath = path.join(tempRoot, 'start-llama.ps1');
-  const shutdownScriptPath = path.join(tempRoot, 'stop-llama.ps1');
-  const pidFilePath = path.join(tempRoot, 'fake-llama.pid');
-  const readyFilePath = path.join(tempRoot, 'fake-llama.ready');
-  const deferredLogMarkerPath = path.join(tempRoot, 'fake-llama.deferred-log');
-  const invocationLogPath = path.join(tempRoot, 'fake-llama.invocation.json');
-
-  fs.writeFileSync(modelPath, 'fake model', 'utf8');
-  fs.writeFileSync(fakeServerPath, `
-const http = require('node:http');
-const fs = require('node:fs');
-const port = ${JSON.stringify(port)};
-const modelId = ${JSON.stringify(modelId)};
-const readyFilePath = ${JSON.stringify(readyFilePath)};
-const pidFilePath = ${JSON.stringify(pidFilePath)};
-let loadingModelResponses = ${JSON.stringify(Number.isFinite(options.initial503LoadingModelCount) ? Number(options.initial503LoadingModelCount) : 0)};
-const tokenizeCharsPerToken = ${JSON.stringify(Number.isFinite(options.tokenizeCharsPerToken) && Number(options.tokenizeCharsPerToken) > 0 ? Number(options.tokenizeCharsPerToken) : 4)};
-
-const server = http.createServer((req, res) => {
-  if (req.method === 'POST' && req.url === '/tokenize') {
-    let bodyText = '';
-    req.on('data', (chunk) => { bodyText += chunk; });
-    req.on('end', () => {
-      let content = '';
-      try { content = String((JSON.parse(bodyText || '{}') || {}).content || ''); }
-      catch (parseError) { content = ''; }
-      const count = content.trim() ? Math.max(1, Math.ceil(content.length / tokenizeCharsPerToken)) : 0;
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ count }));
-    });
-    return;
-  }
-
-  if (req.method === 'GET' && req.url === '/v1/models') {
-    if (loadingModelResponses > 0) {
-      loadingModelResponses -= 1;
-      res.writeHead(503, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: { message: 'Loading model', type: 'unavailable_error', code: 503 } }));
-      return;
-    }
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: [{ id: modelId }] }));
-    return;
-  }
-
-  if (req.method === 'GET' && req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true }));
-    return;
-  }
-
-  res.writeHead(404, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ error: 'not found' }));
-});
-
-server.listen(port, '127.0.0.1', () => {
-  fs.writeFileSync(readyFilePath, String(process.pid), 'utf8');
-});
-
-function shutdown() {
-  server.close(() => process.exit(0));
-}
-
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
-`, 'utf8');
-
-  fs.writeFileSync(startupScriptPath, `
-[string]$ConfigPath = ''
-[string]$ConfigUrl = $env:SIFTKIT_CONFIG_SERVICE_URL
-[string]$StatusPath = ''
-[string]$StatusUrl = ''
-[string]$HealthUrl = $env:SIFTKIT_HEALTH_URL
-[string]$RuntimeRoot = ''
-[string]$ScriptPath = ''
-$RemainingArgs = $args
-
-$pidFile = ${toSingleQuotedPowerShellLiteral(pidFilePath)}
-$nodePath = ${toSingleQuotedPowerShellLiteral(process.execPath)}
-$serverScript = ${toSingleQuotedPowerShellLiteral(fakeServerPath)}
-$startupLogLine = ${toSingleQuotedPowerShellLiteral(options.startupLogLine || '')}
-$llamaLogLine = ${toSingleQuotedPowerShellLiteral(options.llamaLogLine || '')}
-$deferredLogLine = ${toSingleQuotedPowerShellLiteral(options.deferredLogLine || '')}
-$deferredLogMarkerPath = ${toSingleQuotedPowerShellLiteral(deferredLogMarkerPath)}
-$launchHangingProcess = ${options.launchHangingProcess ? '$true' : '$false'}
-$preflightConfigGet = ${options.preflightConfigGet ? '$true' : '$false'}
-$emitManagedStartupFlag = ${options.emitManagedStartupFlag ? '$true' : '$false'}
-$emitVerboseEnvFlags = ${options.emitVerboseEnvFlags ? '$true' : '$false'}
-$captureInvocation = ${options.captureInvocation ? '$true' : '$false'}
-$invocationLogPath = ${toSingleQuotedPowerShellLiteral(invocationLogPath)}
-
-if (Test-Path -LiteralPath $pidFile) {
-  try {
-    $existingPid = [int]((Get-Content -LiteralPath $pidFile -Raw).Trim())
-    $existing = Get-Process -Id $existingPid -ErrorAction SilentlyContinue
-    if ($existing) {
-      exit 0
-    }
-  }
-  catch {
-  }
-}
-
-if ($startupLogLine) {
-  Write-Output $startupLogLine
-}
-if ($emitManagedStartupFlag) {
-  Write-Output \"managed_startup=$($env:SIFTKIT_MANAGED_LLAMA_STARTUP)\"
-}
-if ($emitVerboseEnvFlags) {
-  Write-Output \"verbose_logging_env=$($env:SIFTKIT_LLAMA_VERBOSE_LOGGING)\"
-  Write-Output \"verbose_args_env=$($env:SIFTKIT_LLAMA_VERBOSE_ARGS_JSON)\"
-}
-if ($llamaLogLine) {
-  Write-Output $llamaLogLine
-}
-if ($preflightConfigGet -and $ConfigUrl) {
-  try {
-    Invoke-RestMethod -Uri $ConfigUrl -Method Get -TimeoutSec 10 | Out-Null
-  }
-  catch {
-  }
-}
-
-if ($captureInvocation) {
-  @{
-    ConfigPath = $ConfigPath
-    ConfigUrl = $ConfigUrl
-    StatusPath = $StatusPath
-    StatusUrl = $StatusUrl
-    HealthUrl = $HealthUrl
-    RuntimeRoot = $RuntimeRoot
-    ScriptPath = $ScriptPath
-    ServerConfigPathEnv = $env:SIFTKIT_SERVER_CONFIG_PATH
-    ServerConfigUrlEnv = $env:SIFTKIT_SERVER_CONFIG_URL
-    ServerStatusPathEnv = $env:SIFTKIT_SERVER_STATUS_PATH
-    ServerStatusUrlEnv = $env:SIFTKIT_SERVER_STATUS_URL
-    ServerHealthUrlEnv = $env:SIFTKIT_SERVER_HEALTH_URL
-    ServerRuntimeRootEnv = $env:SIFTKIT_SERVER_RUNTIME_ROOT
-  } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $invocationLogPath -Encoding utf8
-}
-
-$child = if ($launchHangingProcess) {
-  Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 60') -PassThru -WindowStyle Hidden
-} else {
-  Start-Process -FilePath $nodePath -ArgumentList @($serverScript) -PassThru -WindowStyle Hidden
-}
-Set-Content -LiteralPath $pidFile -Value ([string]$child.Id) -Encoding utf8 -NoNewline
-if ($deferredLogLine) {
-  $deadline = (Get-Date).AddSeconds(10)
-  while (-not (Test-Path -LiteralPath $deferredLogMarkerPath) -and (Get-Date) -lt $deadline) {
-    Start-Sleep -Milliseconds 25
-  }
-  if (Test-Path -LiteralPath $deferredLogMarkerPath) {
-    Write-Error $deferredLogLine
-  }
-}
-Wait-Process -Id $child.Id
-Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
-exit 0
-`, 'utf8');
-
-  fs.writeFileSync(shutdownScriptPath, `
-param(
-  [string]$ConfigPath,
-  [string]$ConfigUrl,
-  [string]$StatusPath,
-  [string]$StatusUrl,
-  [string]$HealthUrl,
-  [string]$RuntimeRoot,
-  [string]$ScriptPath
-)
-
-$pidFile = ${toSingleQuotedPowerShellLiteral(pidFilePath)}
-if (Test-Path -LiteralPath $pidFile) {
-  try {
-    $pidValue = [int]((Get-Content -LiteralPath $pidFile -Raw).Trim())
-    Stop-Process -Id $pidValue -Force -ErrorAction SilentlyContinue
-  }
-  catch {
-  }
-  Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
-}
-exit 0
-`, 'utf8');
-
-  return {
-    baseUrl: `http://127.0.0.1:${port}`,
-    fakeServerPath,
-    modelPath,
-    startupScriptPath,
-    shutdownScriptPath,
-    pidFilePath,
-    readyFilePath,
-    deferredLogMarkerPath,
-    invocationLogPath,
-  };
-}
-
-function writeManagedLlamaLauncher(tempRoot, port, modelId = 'managed-test-model', options = {}) {
-  const fakeServerPath = path.join(tempRoot, 'fake-llama-server-cli.js');
-  const executablePath = path.join(tempRoot, 'fake-llama-launcher.cmd');
-  const modelPath = path.join(tempRoot, `${modelId}.gguf`);
-  const readyFilePath = path.join(tempRoot, 'fake-llama-cli.ready');
-  const launchMarkerPath = path.join(tempRoot, 'fake-llama-cli.launch');
-  const invocationLogPath = path.join(tempRoot, 'fake-llama-cli.invocation.json');
-
-  fs.writeFileSync(modelPath, 'fake model', 'utf8');
-  fs.writeFileSync(fakeServerPath, `
-const http = require('node:http');
-const fs = require('node:fs');
-
-const argv = process.argv.slice(2);
-const getArg = (flag, fallback = '') => {
-  const index = argv.indexOf(flag);
-  return index >= 0 && index + 1 < argv.length ? String(argv[index + 1] || '') : fallback;
-};
-
-const port = Number.parseInt(getArg('--port', ${JSON.stringify(String(port))}), 10);
-const host = getArg('--host', '127.0.0.1') || '127.0.0.1';
-const readyFilePath = process.env.SIFTKIT_FAKE_READY_FILE || '';
-const modelId = process.env.SIFTKIT_FAKE_MODEL_ID || 'managed-test-model';
-const llamaLogLine = process.env.SIFTKIT_FAKE_LLAMA_LOG_LINE || '';
-const invocationLogPath = process.env.SIFTKIT_FAKE_INVOCATION_LOG || '';
-const startupLogLine = process.env.SIFTKIT_FAKE_STARTUP_LOG_LINE || '';
-const emitVerboseEnvFlags = process.env.SIFTKIT_FAKE_EMIT_VERBOSE_ENV_FLAGS === '1';
-const writeLaunchMarker = process.env.SIFTKIT_FAKE_WRITE_LAUNCH_MARKER === '1';
-const launchMarkerPath = process.env.SIFTKIT_FAKE_LAUNCH_MARKER || '';
-const launchHangingProcess = process.env.SIFTKIT_FAKE_LAUNCH_HANGING_PROCESS === '1';
-const exitAfterLog = process.env.SIFTKIT_FAKE_EXIT_AFTER_LOG === '1';
-const exitCode = Number.parseInt(process.env.SIFTKIT_FAKE_EXIT_CODE || '0', 10) || 0;
-
-if (startupLogLine) {
-  process.stdout.write(startupLogLine + '\\n');
-}
-if (emitVerboseEnvFlags) {
-  process.stdout.write('verbose_logging_env=' + String(process.env.SIFTKIT_LLAMA_VERBOSE_LOGGING || '') + '\\n');
-}
-if (writeLaunchMarker && launchMarkerPath) {
-  fs.writeFileSync(launchMarkerPath, '1', 'utf8');
-}
-if (invocationLogPath) {
-  fs.writeFileSync(invocationLogPath, JSON.stringify({
-    argv,
-    host,
-    port,
-    verboseLoggingEnv: process.env.SIFTKIT_LLAMA_VERBOSE_LOGGING || '',
-  }, null, 2), 'utf8');
-}
-if (exitAfterLog) {
-  if (llamaLogLine) {
-    process.stdout.write(String(llamaLogLine) + '\\n');
-  }
-  process.exit(exitCode);
-}
-if (launchHangingProcess) {
-  setInterval(() => {}, 1000);
-  return;
-}
-
-const server = http.createServer((req, res) => {
-  if (req.method === 'GET' && req.url === '/v1/models') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: [{ id: modelId }] }));
-    return;
-  }
-
-  if (req.method === 'GET' && req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true }));
-    return;
-  }
-
-  res.writeHead(404, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ error: 'not found' }));
-});
-
-server.listen(port, host, () => {
-  if (readyFilePath) {
-    fs.writeFileSync(readyFilePath, String(process.pid), 'utf8');
-  }
-  if (llamaLogLine) {
-    process.stdout.write(String(llamaLogLine) + '\\n');
-  }
-});
-
-function shutdown() {
-  try { fs.rmSync(readyFilePath, { force: true }); } catch {}
-  try { fs.rmSync(pidFilePath, { force: true }); } catch {}
-  server.close(() => process.exit(0));
-}
-
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
-`, 'utf8');
-
-  fs.writeFileSync(executablePath, `
-@echo off
-set "NODE_PATH=${String(process.execPath).replace(/"/gu, '""')}"
-set "FAKE_SERVER=${String(fakeServerPath).replace(/"/gu, '""')}"
-set "SIFTKIT_FAKE_MODEL_ID=${String(modelId).replace(/"/gu, '""')}"
-set "SIFTKIT_FAKE_READY_FILE=${String(readyFilePath).replace(/"/gu, '""')}"
-set "SIFTKIT_FAKE_LAUNCH_MARKER=${String(launchMarkerPath).replace(/"/gu, '""')}"
-set "SIFTKIT_FAKE_INVOCATION_LOG=${String(invocationLogPath).replace(/"/gu, '""')}"
-set "SIFTKIT_FAKE_STARTUP_LOG_LINE=${String(options.startupLogLine || '').replace(/"/gu, '""')}"
-set "SIFTKIT_FAKE_LLAMA_LOG_LINE=${String(options.llamaLogLine || '').replace(/"/gu, '""')}"
-set "SIFTKIT_FAKE_EMIT_VERBOSE_ENV_FLAGS=${options.emitVerboseEnvFlags ? '1' : '0'}"
-set "SIFTKIT_FAKE_WRITE_LAUNCH_MARKER=${options.writeLaunchMarker ? '1' : '0'}"
-set "SIFTKIT_FAKE_LAUNCH_HANGING_PROCESS=${options.launchHangingProcess ? '1' : '0'}"
-set "SIFTKIT_FAKE_EXIT_AFTER_LOG=${options.exitAfterLog ? '1' : '0'}"
-set "SIFTKIT_FAKE_EXIT_CODE=${Number.isFinite(Number(options.exitCode)) ? String(Math.trunc(Number(options.exitCode))) : '0'}"
-"%NODE_PATH%" "%FAKE_SERVER%" %*
-`, 'utf8');
-
-  return {
-    baseUrl: `http://127.0.0.1:${port}`,
-    executablePath,
-    fakeServerPath,
-    modelPath,
-    readyFilePath,
-    launchMarkerPath,
-    invocationLogPath,
-  };
-}
-
-async function waitForAsyncExpectation(expectation, timeoutMs = 2000) {
+async function waitForAsyncExpectation(expectation: () => unknown | Promise<unknown>, timeoutMs = 2000): Promise<void> {
   const startedAt = Date.now();
-  let lastError = null;
+  let lastError: unknown = null;
   for (;;) {
     try {
       await expectation();
@@ -1636,7 +1457,7 @@ async function waitForAsyncExpectation(expectation, timeoutMs = 2000) {
   }
 }
 
-function runPowerShellScript(scriptPath) {
+function runPowerShellScript(scriptPath: string): void {
   const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
     encoding: 'utf8',
     windowsHide: true,
@@ -1656,7 +1477,7 @@ export {
   getEffectiveInputCharactersPerContextToken, initializeRuntime,
   getStatusServerUnavailableMessage,
   summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks,
-  getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE,
+  getPlannerPromptBudget, buildPlannerToolDefinitions,
   runCommand, runBenchmarkSuite,
   readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs,
   pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt,

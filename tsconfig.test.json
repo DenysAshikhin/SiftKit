@@ -3,6 +3,9 @@
   "compilerOptions": { "noEmit": true },
   "include": [
     "src/**/*.ts",
+    "tests/_runtime-helpers.ts",
+    "tests/helpers/**/*.ts",
+    "tests/test-hygiene-gate.test.ts",
     "tests/repo-search-chat-execute.test.ts",
     "tests/repo-search-chat-loop.test.ts",
     "tests/repo-search-chat-types.test.ts",

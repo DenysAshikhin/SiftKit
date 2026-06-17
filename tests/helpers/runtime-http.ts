@@ -1,7 +1,7 @@
 import http from 'node:http';
 import path from 'node:path';
 
-import { getRuntimeRootFromStatusPath } from './runtime-config.ts';
+import { getRuntimeRootFromStatusPath } from './runtime-config.js';
 
 type JsonObject = Record<string, unknown>;
 

@@ -1,13 +1,19 @@
-// @ts-nocheck
+// Fixture60 chunking-config repro helper (typed port of runtime-benchmark-repro.js).
+import { loadConfig, saveConfig } from '../_runtime-helpers.js';
+import type { ServerLlamaCppConfig, ServerManagedLlamaPreset } from '../../src/config/types.js';
 
-const { loadConfig, saveConfig } = require('../_runtime-helpers.ts');
-
-const STABLE_CHUNK_BUDGET_METRICS = {
+export const STABLE_CHUNK_BUDGET_METRICS = {
   inputCharactersTotal: 2500,
   inputTokensTotal: 1000,
 };
 
-function getStubLlamaBaseUrl() {
+interface StubLlamaTarget {
+  baseUrl: string;
+  host: string;
+  port: number;
+}
+
+function getStubLlamaBaseUrl(): StubLlamaTarget {
   const configuredUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL || process.env.SIFTKIT_STATUS_BACKEND_URL;
   if (!configuredUrl || !configuredUrl.trim()) {
     throw new Error('Fixture60 repro tests require SIFTKIT_CONFIG_SERVICE_URL or SIFTKIT_STATUS_BACKEND_URL.');
@@ -21,35 +27,28 @@ function getStubLlamaBaseUrl() {
   };
 }
 
-async function saveFixture60ChunkingConfig() {
+export async function saveFixture60ChunkingConfig(): Promise<void> {
   const config = await loadConfig({ ensure: true });
   const stubLlama = getStubLlamaBaseUrl();
   config.Backend = 'llama.cpp';
-  config.Runtime ??= {};
   config.Runtime.LlamaCpp = {
     ...(config.Runtime.LlamaCpp || {}),
     BaseUrl: stubLlama.baseUrl,
     NumCtx: 12_000,
   };
-  config.Server ??= {};
-  config.Server.LlamaCpp ??= {};
-  config.Server.LlamaCpp.BaseUrl = stubLlama.baseUrl;
-  config.Server.LlamaCpp.BindHost = stubLlama.host;
-  config.Server.LlamaCpp.Port = stubLlama.port;
-  config.Server.LlamaCpp.NumCtx = 12_000;
-  config.Server.LlamaCpp.ActivePresetId = 'default';
-  config.Server.LlamaCpp.Presets = [{
+  const serverLlama = config.Server.LlamaCpp as ServerLlamaCppConfig & Record<string, unknown>;
+  serverLlama.BaseUrl = stubLlama.baseUrl;
+  serverLlama.BindHost = stubLlama.host;
+  serverLlama.Port = stubLlama.port;
+  serverLlama.NumCtx = 12_000;
+  serverLlama.ActivePresetId = 'default';
+  serverLlama.Presets = [{
     id: 'default',
     label: 'Default',
     BaseUrl: stubLlama.baseUrl,
     BindHost: stubLlama.host,
     Port: stubLlama.port,
     NumCtx: 12_000,
-  }];
+  } as ServerManagedLlamaPreset];
   await saveConfig(config);
 }
-
-module.exports = {
-  STABLE_CHUNK_BUDGET_METRICS,
-  saveFixture60ChunkingConfig,
-};
