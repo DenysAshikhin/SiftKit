@@ -6,17 +6,14 @@ import {
   buildManagedLlamaArgs,
   parseManagedLlamaSpeculativeMetricsText,
 } from '../src/status-server/managed-llama';
+import type { ServerManagedLlamaPreset, SiftConfig } from '../src/config/index.js';
 
-type ManagedPresetRecord = Record<string, unknown>;
-
-function activePreset(config: unknown): ManagedPresetRecord {
-  const llama = (config as {
-    Server: { LlamaCpp: { Presets: ManagedPresetRecord[]; ActivePresetId: string } };
-  }).Server.LlamaCpp;
+function activePreset(config: SiftConfig): ServerManagedLlamaPreset {
+  const llama = config.Server.LlamaCpp;
   return llama.Presets.find((preset) => preset.id === llama.ActivePresetId) ?? llama.Presets[0];
 }
 
-function createConfig(ncpuMoe: number): unknown {
+function createConfig(ncpuMoe: number): SiftConfig {
   const config = getDefaultConfig();
   const preset = activePreset(config);
   preset.ModelPath = 'D:\\models\\qwen-27b.gguf';
@@ -24,7 +21,7 @@ function createConfig(ncpuMoe: number): unknown {
   return config;
 }
 
-function createSpeculativeConfig(overrides: Record<string, unknown>): unknown {
+function createSpeculativeConfig(overrides: Record<string, unknown>): SiftConfig {
   const config = createConfig(0);
   Object.assign(activePreset(config), { SpeculativeEnabled: true }, overrides);
   return config;
