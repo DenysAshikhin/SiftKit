@@ -7,6 +7,7 @@ import * as path from 'node:path';
 import { createRequire } from 'node:module';
 
 import type { DashboardConfig } from '../dashboard/src/types';
+import { mockConfig } from './_runtime-helpers.js';
 import {
   DEFAULT_SPEC_BENCHMARK_CASES,
   FOCUSED3_SPEC_BENCHMARK_CASES,
@@ -320,16 +321,9 @@ test('applySpeculativeCaseToConfig updates only the approved speculative setting
 });
 
 test('applySpeculativeCaseToConfig updates the active managed llama preset used on restart', () => {
-  const config = {
+  const config = mockConfig({
     Server: {
       LlamaCpp: {
-        SpeculativeEnabled: true,
-        SpeculativeType: 'ngram-mod',
-        SpeculativeNgramSizeN: 24,
-        SpeculativeNgramSizeM: 64,
-        SpeculativeNgramMinHits: 2,
-        SpeculativeDraftMax: 48,
-        SpeculativeDraftMin: 4,
         ActivePresetId: 'active',
         Presets: [
           {
@@ -345,7 +339,7 @@ test('applySpeculativeCaseToConfig updates the active managed llama preset used 
         ],
       },
     },
-  } as DashboardConfig;
+  });
 
   const updated = applySpeculativeCaseToConfig(config, {
     speculativeNgramSizeN: 16,
@@ -399,7 +393,7 @@ test('sortBenchmarkResults orders by generation tokens per second descending', (
   const sorted = sortBenchmarkResults([
     { caseId: 'slow', runMetrics: { generationTokensPerSecond: 60 } },
     { caseId: 'fast', runMetrics: { generationTokensPerSecond: 90 } },
-  ] as never);
+  ]);
 
   assert.deepEqual(sorted.map((entry) => entry.caseId), ['fast', 'slow']);
 });
