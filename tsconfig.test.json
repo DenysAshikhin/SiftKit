@@ -40,6 +40,7 @@
     "tests/summary-request-runner-units.test.ts",
     "tests/routes-dashboard-metrics.test.ts",
     "tests/dashboard-status-server.test.ts",
-    "tests/repo-search-loop.core.test.ts"
+    "tests/repo-search-loop.core.test.ts",
+    "tests/summary-mock-provider.test.ts"
   ]
 }
