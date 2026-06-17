@@ -37,6 +37,7 @@
     "tests/repo-search-request-normalizers.test.ts",
     "tests/routes-core-lease.test.ts",
     "tests/preset-runner.test.ts",
-    "tests/summary-request-runner-units.test.ts"
+    "tests/summary-request-runner-units.test.ts",
+    "tests/routes-dashboard-metrics.test.ts"
   ]
 }
