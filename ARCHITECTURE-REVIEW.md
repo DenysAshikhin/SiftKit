@@ -15,12 +15,6 @@ Last pruned: 2026-06-18.
 
 Remaining work: when the server/workspace split lands, replace this cross-process single-slot lease with the new ownership model. Do not delete it as dead code before that split.
 
-### F14. Rebalance the test pyramid onto existing seams
-
-The giant E2E suites still dominate: `tests/dashboard-status-server.test.ts` is 2,380 lines and `tests/repo-search-loop.core.test.ts` is 2,215 lines. The repo-search decomposition and route/endpoint split added focused seams, but the large suites have not been reduced into targeted endpoint/runner/unit tests.
-
-Remaining work: move behavioral coverage out of the largest E2E files into focused seam tests, then delete only cases whose branch and behavior coverage is proven redundant. The 2026-06-18 coverage-diff attempt did not identify safe deletions by itself; treat the retained harness as a maintenance aid, not as completed pyramid recovery.
-
 ### F15. Repackage benchmark/eval code and dedupe bench harness modules
 
 `src/eval.ts:6` and `src/benchmark-spec-settings.ts:1` remain in the shipping `src/` graph. `bench/benchmark/` and `bench/benchmark-matrix/` still carry parallel `args.ts`, `interrupt.ts`, `runner.ts`, and `types.ts` roles.
@@ -113,8 +107,7 @@ Remaining work: require web grounding only when the answer makes external/curren
 
 ## Priority order
 
-1. Rebalance the test pyramid by moving coverage out of the giant E2E suites and deleting only proven-redundant cases (F14).
-2. Split the dashboard monolith and replace dashboard-local server payload mirrors with shared contracts (F16).
-3. Split `SummaryPlannerLoopRuntime.requestProviderAction` and add it to the god-function regression guard (F17).
-4. Repackage eval/benchmark code and dedupe bench harness modules during the server/workspace split (F15).
-5. Fix repo-search/chat LLM behavior in this order: append-only/non-assistant harness messages (L4, L5, L7), finish policy and duplicate pressure (L2, L3), parser repair boundaries (L6), real chat condense and prompt accounting (L10), sampling ownership by request class (L1), default prompt and web-grounding scope (L8, L11), tool replay truncation labeling (L9).
+1. Split the dashboard monolith and replace dashboard-local server payload mirrors with shared contracts (F16).
+2. Split `SummaryPlannerLoopRuntime.requestProviderAction` and add it to the god-function regression guard (F17).
+3. Repackage eval/benchmark code and dedupe bench harness modules during the server/workspace split (F15).
+4. Fix repo-search/chat LLM behavior in this order: append-only/non-assistant harness messages (L4, L5, L7), finish policy and duplicate pressure (L2, L3), parser repair boundaries (L6), real chat condense and prompt accounting (L10), sampling ownership by request class (L1), default prompt and web-grounding scope (L8, L11), tool replay truncation labeling (L9).
