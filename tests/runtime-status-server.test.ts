@@ -1,96 +1,45 @@
-// @ts-nocheck — Split from runtime.test.js. Full TS typing deferred.
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const http = require('node:http');
-const os = require('node:os');
-const path = require('node:path');
-const { spawn, spawnSync } = require('node:child_process');
-const Database = require('better-sqlite3');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import Database from 'better-sqlite3';
 
-const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage } = require('../src/config/index.js');
-const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../src/summary.js');
-const { runCommand } = require('./helpers/run-command-for-test.js');
-const { runBenchmarkSuite } = require('../bench/benchmark/index.ts');
-const { readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs, pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt } = require('../bench/benchmark-matrix/index.ts');
-const { countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse } = require('../src/providers/llama-cpp.js');
-const { withExecutionLock } = require('../src/execution-lock.js');
-const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../src/status-server/index.js');
-const { writeConfig } = require('../src/status-server/config-store.js');
-const { readStatusText } = require('../src/status-server/status-file.js');
-const { upsertRepoSearchRun } = require('../src/status-server/dashboard-runs.js');
-const { runDebugRequest } = require('../bench/repro/run-benchmark-fixture-debug.ts');
-const { runFixture60MalformedJsonRepro } = require('../bench/repro/repro-fixture60-malformed-json.ts');
+import { loadConfig, getConfigPath } from '../src/config/index.js';
+import { startStatusServer } from '../src/status-server/index.js';
+import { writeConfig } from '../src/status-server/config-store.js';
+import { readStatusText } from '../src/status-server/status-file.js';
+import { upsertRepoSearchRun } from '../src/status-server/dashboard-runs.js';
+import type { SiftConfig } from '../src/config/types.js';
 
-const {
-  TEST_USE_EXISTING_SERVER,
-  EXISTING_SERVER_STATUS_URL,
-  EXISTING_SERVER_CONFIG_URL,
-  RUN_LIVE_LLAMA_TOKENIZE_TESTS,
-  LIVE_LLAMA_BASE_URL,
-  LIVE_CONFIG_SERVICE_URL,
+import {
+  applyManagedScriptConfig,
   FAST_LEASE_STALE_MS,
   FAST_LEASE_WAIT_MS,
-  deriveServiceUrl,
   getDefaultConfig,
-  clone,
-  getChatRequestText,
-  setManagedLlamaBaseUrl,
-  mergeConfig,
-  extractPromptSection,
-  buildOversizedTransitionsInput,
-  buildOversizedRunnerStateHistoryInput,
-  getRuntimeRootFromStatusPath,
-  getPlannerLogsPath,
-  getFailedLogsPath,
-  getRequestLogsPath,
-  buildStructuredStubDecision,
-  resolveAssistantContent,
-  readBody,
-  resolveArtifactLogPathFromStatusPost,
   requestJson,
   sleep,
-  removeDirectoryWithRetries,
-  spawnProcess,
-  waitForTextMatch,
-  startStubStatusServer,
   withTempEnv,
-  withStubServer,
-  withSummaryTestServer,
   withRealStatusServer,
   startStatusServerProcess,
-  stripAnsi,
   captureStdout,
   readIdleSummarySnapshots,
-  getIdleSummaryBlock,
   getFreePort,
-  toSingleQuotedPowerShellLiteral,
   writeManagedLlamaScripts,
   waitForAsyncExpectation,
-  runPowerShellScript,
   postStatusTerminalMetadata,
   postStatusComplete,
   postCompletedStatus,
-} = require('./_runtime-helpers.js');
+  type RuntimeStatusResponse,
+  type LlamaModelsResponse,
+  type HealthCheckResponse,
+} from './_runtime-helpers.js';
 
-function applyManagedScriptConfig(config, managed, overrides = {}) {
-  setManagedLlamaBaseUrl(config, managed.baseUrl);
-  config.Server = {
-    LlamaCpp: {
-      ActivePresetId: 'default',
-      Presets: [{
-        id: 'default',
-        label: 'Default',
-        BaseUrl: managed.baseUrl,
-        ModelPath: managed.modelPath,
-        ExecutablePath: managed.startupScriptPath,
-        StartupTimeoutMs: 5000,
-        HealthcheckTimeoutMs: 100,
-        HealthcheckIntervalMs: 10,
-        ...overrides,
-      }],
-    },
-  };
+interface StatusPostResponse {
+  ok?: boolean;
+  running?: boolean;
+  status?: string;
+  busy?: boolean;
 }
 
 test('real status server normalizes legacy non-boolean status text to false', async () => {
@@ -107,7 +56,7 @@ test('real status server normalizes legacy non-boolean status text to false', as
       await waitForAsyncExpectation(async () => {
         assert.equal(readStatusText(getConfigPath()), 'false');
       }, 2000);
-      const status = await requestJson(statusUrl);
+      const status = await requestJson<RuntimeStatusResponse>(statusUrl);
       assert.equal(status.running, false);
       assert.equal(status.status, 'false');
     }, {
@@ -127,7 +76,7 @@ test('real status server normalizes non-boolean statuses in POST /status payload
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ statusUrl }) => {
-      const status = await requestJson(statusUrl, {
+      const status = await requestJson<StatusPostResponse>(statusUrl, {
         method: 'POST',
         body: JSON.stringify({ status: 'foreign_lock' }),
       });
@@ -149,7 +98,7 @@ test('real status server accepts boolean-like running payload variants', async (
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ statusUrl }) => {
-      const stopped = await requestJson(statusUrl, {
+      const stopped = await requestJson<StatusPostResponse>(statusUrl, {
         method: 'POST',
         body: JSON.stringify({ status: false }),
       });
@@ -157,7 +106,7 @@ test('real status server accepts boolean-like running payload variants', async (
       assert.equal(stopped.status, 'false');
       assert.equal(readStatusText(getConfigPath()), 'false');
 
-      const running = await requestJson(statusUrl, {
+      const running = await requestJson<StatusPostResponse>(statusUrl, {
         method: 'POST',
         body: JSON.stringify({ running: 'true' }),
       });
@@ -226,7 +175,7 @@ test('real status server persists aggregate metrics and exposes them from GET /s
         }),
       });
 
-      const status = await requestJson(statusUrl);
+      const status = await requestJson<RuntimeStatusResponse>(statusUrl);
       assert.equal(status.metrics.inputCharactersTotal, 410);
       assert.equal(status.metrics.outputCharactersTotal, 120);
       assert.equal(status.metrics.inputTokensTotal, 100);
@@ -252,7 +201,7 @@ test('real status server persists aggregate metrics and exposes them from GET /s
     });
 
     await withRealStatusServer(async ({ statusUrl }) => {
-      const status = await requestJson(statusUrl);
+      const status = await requestJson<RuntimeStatusResponse>(statusUrl);
       assert.equal(status.metrics.inputCharactersTotal, 410);
       assert.equal(status.metrics.outputCharactersTotal, 120);
       assert.equal(status.metrics.inputTokensTotal, 100);
@@ -289,11 +238,11 @@ test('real status server starts managed llama.cpp during server startup before s
     await withRealStatusServer(async ({ port, statusUrl }) => {
       assert.equal(readStatusText(getConfigPath()), 'false');
       await waitForAsyncExpectation(async () => {
-        const models = await requestJson(`${managed.baseUrl}/v1/models`);
+        const models = await requestJson<LlamaModelsResponse>(`${managed.baseUrl}/v1/models`);
         assert.equal(models.data[0].id, 'managed-test-model');
       }, 5000);
       await waitForAsyncExpectation(async () => {
-        const status = await requestJson(statusUrl);
+        const status = await requestJson<RuntimeStatusResponse>(statusUrl);
         assert.equal(status.running, false);
         assert.equal(status.status, 'false');
         assert.equal(readStatusText(getConfigPath()), 'false');
@@ -371,7 +320,7 @@ test('managed llama live stream logs flush after idle without model request rele
             SELECT GROUP_CONCAT(chunk_text, '') AS text
             FROM managed_llama_log_chunks
             WHERE stream_kind = 'startup_script_stderr'
-          `).get();
+          `).get() as { text?: string | null } | undefined;
           assert.ok(String(row?.text || '').includes(deferredLogLine));
         } finally {
           database.close();
@@ -398,7 +347,7 @@ test('real status server abandons stale running request instead of returning bus
           rawInputCharacterCount: 100,
         }),
       });
-      const response = await requestJson(statusUrl, {
+      const response = await requestJson<StatusPostResponse>(statusUrl, {
         method: 'POST',
         body: JSON.stringify({
           running: true,
@@ -467,7 +416,7 @@ test('real status server accepts deferred summary artifacts on terminal posts an
       });
 
       assert.equal(terminalResponse.ok, true);
-      const immediateStatus = await requestJson(statusUrl);
+      const immediateStatus = await requestJson<RuntimeStatusResponse>(statusUrl);
       assert.equal(immediateStatus.metrics.inputTokensTotal, 0);
       assert.equal(immediateStatus.metrics.outputTokensTotal, 0);
 
@@ -491,7 +440,7 @@ test('real status server accepts deferred summary artifacts on terminal posts an
       assert.equal(completeResponse.ok, true);
 
       await waitForAsyncExpectation(async () => {
-        const eventualStatus = await requestJson(statusUrl);
+        const eventualStatus = await requestJson<RuntimeStatusResponse>(statusUrl);
         assert.equal(eventualStatus.metrics.inputTokensTotal, 100);
         assert.equal(eventualStatus.metrics.outputTokensTotal, 25);
         const verifyDb = new Database(runtimeDbPath, { readonly: true });
@@ -566,7 +515,7 @@ test('real status server ignores legacy non-boolean status text when starting ma
     await withRealStatusServer(async ({ statusUrl }) => {
       await waitForAsyncExpectation(async () => {
         assert.equal(fs.existsSync(managed.readyFilePath), true);
-        const status = await requestJson(statusUrl);
+        const status = await requestJson<RuntimeStatusResponse>(statusUrl);
         assert.equal(status.running, false);
         assert.equal(status.status, 'false');
       }, 5000);
@@ -590,14 +539,14 @@ test('real status server reports idle false while managed llama stays ready', as
 
     await withRealStatusServer(async ({ statusUrl }) => {
       await waitForAsyncExpectation(async () => {
-        const models = await requestJson(`${managed.baseUrl}/v1/models`);
+        const models = await requestJson<LlamaModelsResponse>(`${managed.baseUrl}/v1/models`);
         assert.equal(models.data[0].id, 'managed-test-model');
       }, 5000);
 
       assert.equal(readStatusText(getConfigPath()), 'false');
       await sleep(FAST_LEASE_WAIT_MS);
 
-      const status = await requestJson(statusUrl);
+      const status = await requestJson<RuntimeStatusResponse>(statusUrl);
       assert.equal(status.running, false);
       assert.equal(status.status, 'false');
       assert.equal(readStatusText(getConfigPath()), 'false');
@@ -659,7 +608,7 @@ test('real status server ignores transient Loading model 503 startup log lines',
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ healthUrl }) => {
-      const health = await requestJson(healthUrl);
+      const health = await requestJson<HealthCheckResponse>(healthUrl);
       assert.equal(health.ok, true);
     }, {
       statusPath,
@@ -686,7 +635,7 @@ test('real status server keeps running in degraded mode when managed llama start
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ healthUrl }) => {
-      const health = await requestJson(healthUrl);
+      const health = await requestJson<HealthCheckResponse>(healthUrl);
       assert.equal(health.ok, true);
       assert.equal('managedLlamaReady' in health, false);
       assert.equal('managedLlamaStarting' in health, false);
@@ -715,7 +664,7 @@ test('real status server clears a stale managed llama process during startup bef
     fs.writeFileSync(managed.pidFilePath, String(staleChild.pid || ''), 'utf8');
     try {
       await waitForAsyncExpectation(async () => {
-        const models = await requestJson(`${managed.baseUrl}/v1/models`);
+        const models = await requestJson<LlamaModelsResponse>(`${managed.baseUrl}/v1/models`);
         assert.equal(models.data[0].id, 'managed-test-model');
       }, 5000);
 
@@ -728,7 +677,7 @@ test('real status server clears a stale managed llama process during startup bef
           const loadedConfig = await loadConfig({ ensure: true });
           assert.equal(loadedConfig.Runtime.LlamaCpp.BaseUrl, managed.baseUrl);
           await waitForAsyncExpectation(async () => {
-            const models = await requestJson(`${managed.baseUrl}/v1/models`);
+            const models = await requestJson<LlamaModelsResponse>(`${managed.baseUrl}/v1/models`);
             assert.equal(models.data[0].id, 'managed-test-model');
           }, 5000);
         } finally {
@@ -768,7 +717,7 @@ test('real status server falls back to zeroed metrics when the metrics cache is 
     fs.writeFileSync(metricsPath, '{invalid-json', 'utf8');
 
     await withRealStatusServer(async ({ statusUrl }) => {
-      const status = await requestJson(statusUrl);
+      const status = await requestJson<RuntimeStatusResponse>(statusUrl);
       assert.equal(status.metrics.inputCharactersTotal, 0);
       assert.equal(status.metrics.outputCharactersTotal, 0);
       assert.equal(status.metrics.inputTokensTotal, 0);
@@ -855,7 +804,7 @@ test('real status server resets metrics when metrics schema is outdated', async 
     }
 
     await withRealStatusServer(async ({ statusUrl }) => {
-      const status = await requestJson(statusUrl);
+      const status = await requestJson<RuntimeStatusResponse>(statusUrl);
       assert.equal(status.metrics.schemaVersion, 2);
       assert.equal(status.metrics.inputCharactersTotal, 0);
       assert.equal(status.metrics.inputTokensTotal, 0);
@@ -912,9 +861,9 @@ test('real status server accumulates provider payload totals across a chunked re
         rawInputCharacterCount: 1000,
       });
 
-      let status = await requestJson(statusUrl);
+      let status = await requestJson<RuntimeStatusResponse>(statusUrl);
       await waitForAsyncExpectation(async () => {
-        status = await requestJson(statusUrl);
+        status = await requestJson<RuntimeStatusResponse>(statusUrl);
         assert.equal(status.metrics.completedRequestCount, 1);
       }, 1000);
       assert.equal(status.metrics.inputCharactersTotal, 1610);
@@ -974,7 +923,7 @@ test('real status server aggregates task-scoped tool stats and tool tokens', asy
       // Terminal metadata is drained asynchronously; poll until the metrics
       // aggregation lands rather than racing the first read.
       await waitForAsyncExpectation(async () => {
-        const status = await requestJson(statusUrl);
+        const status = await requestJson<RuntimeStatusResponse>(statusUrl);
         assert.equal(status.metrics.outputTokensTotal, 12);
         assert.equal(status.metrics.toolTokensTotal, 9);
         assert.equal(status.metrics.taskTotals['repo-search'].outputTokensTotal, 12);
@@ -1024,6 +973,8 @@ test('real status server patches speculative acceptance onto an existing repo-se
           toolTokens: 1,
           promptCacheTokens: 3,
           promptEvalTokens: 7,
+          promptEvalDurationMs: null,
+          generationDurationMs: null,
           speculativeAcceptedTokens: null,
           speculativeGeneratedTokens: null,
         });
@@ -1054,9 +1005,9 @@ test('real status server patches speculative acceptance onto an existing repo-se
             SELECT speculative_accepted_tokens, speculative_generated_tokens
             FROM run_logs
             WHERE request_id = ?
-          `).get(requestId);
-          assert.equal(row.speculative_accepted_tokens, 12);
-          assert.equal(row.speculative_generated_tokens, 18);
+          `).get(requestId) as { speculative_accepted_tokens: number; speculative_generated_tokens: number } | undefined;
+          assert.equal(row?.speculative_accepted_tokens, 12);
+          assert.equal(row?.speculative_generated_tokens, 18);
         } finally {
           verifyDb.close();
         }
@@ -1103,7 +1054,7 @@ test('real status server suppresses intermediate false log for single-step compl
           rawInputCharacterCount: 426,
         });
         await waitForAsyncExpectation(async () => {
-          const status = await requestJson(statusUrl);
+          const status = await requestJson<RuntimeStatusResponse>(statusUrl);
           assert.equal(status.metrics.completedRequestCount, 1);
         }, 1000);
       });
@@ -1228,7 +1179,7 @@ test('real status server logs explicit chunk failures and clears them before the
           rawInputCharacterCount: 281_469,
         });
         await waitForAsyncExpectation(async () => {
-          const status = await requestJson(statusUrl);
+          const status = await requestJson<RuntimeStatusResponse>(statusUrl);
           assert.equal(status.metrics.completedRequestCount, 1);
         }, 1000);
       });
@@ -1237,7 +1188,7 @@ test('real status server logs explicit chunk failures and clears them before the
       assert.ok(lines.some((line) => /request true raw_chars=281,469 prompt=283,752 \(99,240\)/u.test(line)), lines.join('\n'));
       assert.ok(lines.some((line) => /request false (?:task=summary )?total_elapsed=0s output_tokens=154/u.test(line)), lines.join('\n'));
 
-      const status = await requestJson(statusUrl);
+      const status = await requestJson<RuntimeStatusResponse>(statusUrl);
       assert.equal(status.metrics.completedRequestCount, 1);
     }, {
       statusPath,

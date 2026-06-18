@@ -8,10 +8,10 @@ Original audit date: 2026-06-09.
 
 ## Findings
 
-### F6. Test architecture: split-brain between `dist` and `src`, and near-zero typechecking of tests
+### F6. Test architecture: split-brain between `dist` and `src`, and near-zero typechecking of tests — **(resolved)**
 
-- Test files import **~94 paths from `../dist/...` and ~80 from `../src/...`** — the same suite simultaneously tests compiled output and raw TS. A test passing can mean "current source works" or "whatever was last built works", depending on the file. `build-test.js` mitigates with an mtime stamp, but the mixed convention makes every test's subject ambiguous and blocks coverage tooling from a single view (the `test:coverage` script only includes `dist/**`).
-- `tsconfig.test.json` includes `src/**/*.ts` plus only **17 of ~140 test files** (the engine/chat suites added during the repo-search loop decomposition). `npm run typecheck:test` still skips ~88% of the test suite; type errors in those tests surface only at tsx runtime, or never (tsx does not typecheck).
+- ~~Test files import ~94 paths from `../dist/...`.~~ **(resolved)** Zero test files import from `../dist` (all subjects are raw `src`/`dashboard` TS, run via `tsx`); the `test:coverage` script now includes `src/**/*.ts`. `tests/test-hygiene-gate.test.ts` enforces the no-`../dist` rule as a standing gate.
+- ~~`tsconfig.test.json` includes only 17 of ~140 test files; `npm run typecheck:test` skips ~88% of the suite.~~ **(resolved)** `tsconfig.test.json` now includes the full `tests/**` tree (the React SSR test is covered by `dashboard/tsconfig.test.json` instead), and every test file typechecks to 0 errors. The last 12 `@ts-nocheck` E2E files were converted to typed `src` imports (`require()` → `import`), the shared harness `tests/_runtime-helpers.ts` is fully typed, and the hygiene gate enforces that no test file carries `@ts-nocheck`.
 
 ### F11. `execution-lock`/`execution-lease` re-evaluation (dead-code items resolved)
 
@@ -21,8 +21,8 @@ The dead-code half is done: `src/llama-cpp-bridge.ts` deleted (zero importers), 
 
 ### F14. Test architecture is inverted and self-undermining
 
-- The dominant harness is `tests/_runtime-helpers.ts` — 1,573 lines, opening with `// @ts-nocheck — Shared runtime test infrastructure. Full typing deferred.` The shared infrastructure for ~30 runtime test files is untyped, in a repo whose rules require strict typing and near-100% branch coverage.
-- Mixed `dist`/`src` imports (F6) make every test's subject ambiguous.
+- ~~The dominant harness `tests/_runtime-helpers.ts` is `@ts-nocheck`; the shared infrastructure for ~30 runtime test files is untyped.~~ **(resolved)** `tests/_runtime-helpers.ts` is fully typed (typed stub/server state, `requestJson<T>` generics, shared `RuntimeStatusResponse`/`LlamaModelsResponse`/`StatusPostAck` response views and the `applyManagedScriptConfig` preset builder), and all runtime test files import it typed. No test file carries `@ts-nocheck` (enforced by the hygiene gate).
+- ~~Mixed `dist`/`src` imports (F6) make every test's subject ambiguous.~~ **(resolved with F6)** All tests import `src`/`dashboard` TS directly.
 - Giant end-to-end tests dominate (2,000+-line `dashboard-status-server.test.ts` and `repo-search-loop.core.test.ts`, tests that boot the real HTTP server + sqlite). The repo-search loop decomposition and the 2026-06-12 route/endpoint split added unit seams; the giant E2E suites have not yet been rebalanced onto them.
 - ~~Test seams ship inside production modules.~~ **(resolved)** The env-var mock seam (`SIFTKIT_TEST_PROVIDER_BEHAVIOR`/`SIFTKIT_TEST_TOKEN`/`SIFTKIT_TEST_PROVIDER_SLEEP_MS`) is now isolated in `src/summary/providers/mock-provider.ts`, reached only via `backend === 'mock'`; the non-mock production path no longer references `SIFTKIT_TEST_*`. `findMockResult`/`mockCommandResults` (`src/repo-search/engine/command-execution.ts`) is **not** a test backdoor — it is request-driven mocking exposed through the public HTTP API (`routes/chat.ts`, `routes/core.ts`), the CLI (`run-internal.ts`), and the request types — a runtime capability that stays.
 - Timing-sensitive tests flake under load: `tests/model-request-queue.test.ts` asserts ~30ms queue-timeout windows and intermittently fails in full-suite runs while passing in isolation; the managed-llama startup/idle tests have similarly flaked under c8 instrumentation.
@@ -170,7 +170,7 @@ Why it's an issue:
 ## Priority order (highest leverage first)
 
 1. ~~Dead-code sweep~~ **(done):** `llama-cpp-bridge.ts`, `SIFT_LEGACY_*`, `SIFTKIT_VERSION` dedupe, `test-full.ts` include removed. `execution-lock`/`execution-lease` reclassified as live cross-process code — its removal is deferred to the server/workspace split (see F11), not a dead-code item.
-2. Unit-test pyramid recovery on the new endpoint/runner seams; type the `@ts-nocheck` runtime harness (F6, F14).
+2. ~~Type the `@ts-nocheck` runtime harness; full `tests/**` typecheck; drop `../dist` imports (F6, F14).~~ **(done):** harness and all test files typed to 0 errors, no `@ts-nocheck`/`../dist` (hygiene-gate enforced). **Remaining:** unit-test pyramid recovery — rebalance the giant E2E suites onto the new endpoint/runner unit seams (F14).
 3. Dashboard de-monolith: split `App.tsx`/`styles.css` and replace the hand-mirrored `dashboard/src/types.ts` with a shared server type contract (F16).
 4. Split `SummaryPlannerLoopRuntime.requestProviderAction` and add it to the regression guard (F17).
 5. Bench/eval residual: relocate `eval.ts`/`benchmark-spec-settings.ts` in the server/workspace split; dedupe `bench/benchmark` vs `bench/benchmark-matrix` harness modules (F15).

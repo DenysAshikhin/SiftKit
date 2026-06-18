@@ -1,21 +1,26 @@
-// @ts-nocheck
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const http = require('node:http');
-const path = require('node:path');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
 
-const { getConfigPath } = require('../src/config/index.js');
-const { getDefaultConfig, writeConfig } = require('../src/status-server/config-store.js');
-const { readStatusText } = require('../src/status-server/status-file.js');
-const {
+import { getConfigPath } from '../src/config/index.js';
+import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
+import { readStatusText } from '../src/status-server/status-file.js';
+import type { SiftConfig, ServerManagedLlamaPreset } from '../src/config/types.js';
+import {
   getFreePort,
   requestJson,
   withRealStatusServer,
   withTempEnv,
-} = require('./_runtime-helpers.js');
+} from './_runtime-helpers.js';
 
-function activePreset(config) {
+interface StatusResponse {
+  running: boolean;
+  status: string;
+}
+
+function activePreset(config: SiftConfig): ServerManagedLlamaPreset {
   const serverLlama = config.Server.LlamaCpp;
   return serverLlama.Presets.find((preset) => preset.id === serverLlama.ActivePresetId)
     || serverLlama.Presets[0];
@@ -43,12 +48,12 @@ test('real status server boots with blank managed llama configuration and waits 
     fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 
     await withRealStatusServer(async ({ configUrl, statusUrl }) => {
-      const loadedConfig = await requestJson(configUrl);
+      const loadedConfig = await requestJson<SiftConfig>(configUrl);
       const loadedPreset = activePreset(loadedConfig);
       assert.equal(loadedPreset.ExecutablePath, null);
       assert.equal(loadedPreset.ModelPath, null);
 
-      const status = await requestJson(statusUrl);
+      const status = await requestJson<StatusResponse>(statusUrl);
       assert.equal(status.running, false);
       assert.equal(status.status, 'false');
       assert.equal(readStatusText(getConfigPath()), 'false');
@@ -72,7 +77,7 @@ test('external llama server mode uses reachable base url without executable or m
       response.writeHead(404);
       response.end();
     });
-    await new Promise((resolve) => remoteServer.listen(remotePort, '127.0.0.1', resolve));
+    await new Promise<void>((resolve) => remoteServer.listen(remotePort, '127.0.0.1', resolve));
     try {
       const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
       const configPath = getConfigPath();
@@ -86,20 +91,20 @@ test('external llama server mode uses reachable base url without executable or m
       writeConfig(configPath, config);
 
       await withRealStatusServer(async ({ configUrl, statusUrl }) => {
-        const loadedConfig = await requestJson(configUrl);
+        const loadedConfig = await requestJson<SiftConfig>(configUrl);
         const loadedPreset = activePreset(loadedConfig);
         assert.equal(loadedPreset.ExternalServerEnabled, true);
         assert.equal(loadedPreset.ExecutablePath, null);
         assert.equal(loadedPreset.ModelPath, null);
 
-        const status = await requestJson(statusUrl);
+        const status = await requestJson<StatusResponse>(statusUrl);
         assert.equal(status.running, false);
       }, {
         statusPath,
         configPath,
       });
     } finally {
-      await new Promise((resolve) => remoteServer.close(resolve));
+      await new Promise<void>((resolve) => remoteServer.close(() => resolve()));
     }
   });
 });
@@ -141,9 +146,13 @@ test('missing local llama files log degraded startup instead of crashing', async
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
     writeConfig(configPath, config);
 
-    const stderrWrites = [];
+    const stderrWrites: string[] = [];
     const originalWrite = process.stderr.write;
-    process.stderr.write = (chunk, encoding, callback) => {
+    const patchedWrite = (
+      chunk: string | Uint8Array,
+      encoding?: BufferEncoding | ((error?: Error | null) => void),
+      callback?: (error?: Error | null) => void,
+    ): boolean => {
       stderrWrites.push(String(chunk));
       if (typeof encoding === 'function') {
         encoding();
@@ -152,11 +161,12 @@ test('missing local llama files log degraded startup instead of crashing', async
       }
       return true;
     };
+    process.stderr.write = patchedWrite as typeof process.stderr.write;
     try {
       await withRealStatusServer(async ({ configUrl, statusUrl }) => {
-        const loadedConfig = await requestJson(configUrl);
+        const loadedConfig = await requestJson<SiftConfig>(configUrl);
         assert.equal(activePreset(loadedConfig).ExternalServerEnabled, false);
-        const status = await requestJson(statusUrl);
+        const status = await requestJson<StatusResponse>(statusUrl);
         assert.equal(status.running, false);
       }, { statusPath, configPath });
     } finally {

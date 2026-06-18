@@ -1,48 +1,30 @@
-// @ts-nocheck
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const { spawn } = require('node:child_process');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
 
-const { summarizeRequest } = require('../src/summary.js');
-const { writeConfig } = require('../src/status-server/config-store.js');
-const { readStatusText } = require('../src/status-server/status-file.js');
+import { summarizeRequest } from '../src/summary.js';
+import { writeConfig } from '../src/status-server/config-store.js';
+import { readStatusText } from '../src/status-server/status-file.js';
+import type { SiftConfig } from '../src/config/types.js';
 
-const {
-  FAST_LEASE_STALE_MS,
+import {
+  applyManagedScriptConfig,
   getConfigPath,
   getDefaultConfig,
   getFreePort,
   requestJson,
-  setManagedLlamaBaseUrl,
   sleep,
   waitForAsyncExpectation,
   withRealStatusServer,
   withStubServer,
   withTempEnv,
   writeManagedLlamaScripts,
-} = require('./_runtime-helpers.js');
-
-function applyManagedScriptConfig(config, managed, overrides = {}) {
-  setManagedLlamaBaseUrl(config, managed.baseUrl);
-  config.Server = {
-    LlamaCpp: {
-      ActivePresetId: 'default',
-      Presets: [{
-        id: 'default',
-        label: 'Default',
-        BaseUrl: managed.baseUrl,
-        ModelPath: managed.modelPath,
-        ExecutablePath: managed.startupScriptPath,
-        StartupTimeoutMs: 5000,
-        HealthcheckTimeoutMs: 100,
-        HealthcheckIntervalMs: 10,
-        ...overrides,
-      }],
-    },
-  };
-}
+  type RuntimeStatusResponse,
+  type HealthCheckResponse,
+  type LlamaModelsResponse,
+} from './_runtime-helpers.js';
 
 test('summary status notification failures do not abort provider work', async () => {
   await withTempEnv(async () => {
@@ -75,11 +57,11 @@ test('real status server clears stale true status once during startup', async ()
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ statusUrl }) => {
-      const status = await requestJson(statusUrl);
+      const status = await requestJson<RuntimeStatusResponse>(statusUrl);
       assert.equal(status.running, false);
       assert.equal(status.status, 'false');
       await sleep(50);
-      const laterStatus = await requestJson(statusUrl);
+      const laterStatus = await requestJson<RuntimeStatusResponse>(statusUrl);
       assert.equal(laterStatus.running, false);
       assert.equal(laterStatus.status, 'false');
     }, {
@@ -98,7 +80,7 @@ test('real status server initializes a missing status file to false', async () =
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ statusUrl }) => {
-      const status = await requestJson(statusUrl);
+      const status = await requestJson<RuntimeStatusResponse>(statusUrl);
       assert.equal(status.running, false);
       assert.equal(status.status, 'false');
     }, {
@@ -117,7 +99,7 @@ test('real status server health reports disableManagedLlamaStartup mode when fla
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ healthUrl }) => {
-      const health = await requestJson(healthUrl);
+      const health = await requestJson<HealthCheckResponse>(healthUrl);
       assert.equal(health.ok, true);
       assert.equal(health.disableManagedLlamaStartup, true);
     }, {
@@ -141,7 +123,7 @@ test('real status server with disableManagedLlamaStartup skips managed llama boo
     await withRealStatusServer(async ({ statusUrl }) => {
       await sleep(50);
       assert.equal(fs.existsSync(managed.readyFilePath), false);
-      const status = await requestJson(statusUrl);
+      const status = await requestJson<RuntimeStatusResponse>(statusUrl);
       assert.equal(status.running, false);
       assert.equal(status.status, 'false');
       assert.equal(readStatusText(getConfigPath()), 'false');
@@ -164,7 +146,7 @@ test('real status server with disableManagedLlamaStartup does not trigger manage
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ configUrl }) => {
-      const loadedConfig = await requestJson(configUrl);
+      const loadedConfig = await requestJson<SiftConfig>(configUrl);
       assert.equal(loadedConfig.Server.LlamaCpp.Presets[0].BaseUrl, managed.baseUrl);
       await sleep(50);
       assert.equal(fs.existsSync(managed.readyFilePath), false);
@@ -185,8 +167,8 @@ test('real status server accepts partial PUT /config updates and preserves unspe
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ configUrl }) => {
-      const before = await requestJson(configUrl);
-      const updated = await requestJson(configUrl, {
+      const before = await requestJson<SiftConfig>(configUrl);
+      const updated = await requestJson<SiftConfig>(configUrl, {
         method: 'PUT',
         body: JSON.stringify({
           Backend: 'llama.cpp',
@@ -202,7 +184,7 @@ test('real status server accepts partial PUT /config updates and preserves unspe
       assert.equal(updated.Backend, 'llama.cpp');
       assert.equal(updated.Thresholds.MinCharactersForSummary, before.Thresholds.MinCharactersForSummary);
       assert.equal(updated.Interactive.IdleTimeoutMs, before.Interactive.IdleTimeoutMs);
-      assert.equal(updated.Server.LlamaCpp.HealthcheckTimeoutMs, before.Server.LlamaCpp.HealthcheckTimeoutMs);
+      assert.equal(updated.Server.LlamaCpp.Presets[0].HealthcheckTimeoutMs, before.Server.LlamaCpp.Presets[0].HealthcheckTimeoutMs);
     }, {
       statusPath,
       configPath,
@@ -228,13 +210,13 @@ test('real status server with disableManagedLlamaStartup leaves an externally st
 
     try {
       await waitForAsyncExpectation(async () => {
-        const models = await requestJson(`${managed.baseUrl}/v1/models`);
+        const models = await requestJson<LlamaModelsResponse>(`${managed.baseUrl}/v1/models`);
         assert.equal(models.data[0].id, 'managed-test-model');
       }, 5000);
 
       await withRealStatusServer(async () => {
         await waitForAsyncExpectation(async () => {
-          const models = await requestJson(`${managed.baseUrl}/v1/models`);
+          const models = await requestJson<LlamaModelsResponse>(`${managed.baseUrl}/v1/models`);
           assert.equal(models.data[0].id, 'managed-test-model');
         }, 1000);
       }, {
@@ -244,12 +226,12 @@ test('real status server with disableManagedLlamaStartup leaves an externally st
       });
 
       await waitForAsyncExpectation(async () => {
-        const models = await requestJson(`${managed.baseUrl}/v1/models`);
+        const models = await requestJson<LlamaModelsResponse>(`${managed.baseUrl}/v1/models`);
         assert.equal(models.data[0].id, 'managed-test-model');
       }, 1000);
     } finally {
       externalLlama.kill('SIGTERM');
-      await new Promise((resolve) => externalLlama.once('close', resolve));
+      await new Promise<void>((resolve) => externalLlama.once('close', () => resolve()));
     }
   });
 });

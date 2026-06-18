@@ -83,7 +83,7 @@ import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { runDebugRequest } from '../bench/repro/run-benchmark-fixture-debug.js';
 import { runFixture60MalformedJsonRepro } from '../bench/repro/repro-fixture60-malformed-json.js';
 import type { SiftConfig, ServerManagedLlamaPreset } from '../src/config/types.js';
-import type { TaskKind, ToolTypeStats } from '../src/status-server/metrics.js';
+import type { TaskKind, ToolTypeStats, Metrics } from '../src/status-server/metrics.js';
 
 // Deliberately-partial SiftConfig fixtures: the input is structurally checked
 // against SiftConfig (catching typos / wrong nesting) while the cast supplies the
@@ -92,6 +92,57 @@ import type { TaskKind, ToolTypeStats } from '../src/status-server/metrics.js';
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
 function mockConfig(partial: DeepPartial<SiftConfig>): SiftConfig {
   return partial as unknown as SiftConfig;
+}
+
+// Shared view types for the runtime status-server HTTP responses these tests read.
+interface RuntimeStatusResponse {
+  running: boolean;
+  status: string;
+  metrics: Metrics;
+}
+
+interface LlamaModelsResponse {
+  data: { id: string }[];
+}
+
+interface HealthCheckResponse {
+  ok: boolean;
+  disableManagedLlamaStartup: boolean;
+}
+
+interface StatusPostAck {
+  ok: boolean;
+  running?: boolean;
+  busy?: boolean;
+}
+
+// Rewrites a default config to launch the managed-llama test scripts. Spreads the
+// default preset so every required ManagedLlamaSettings field is present, then
+// applies the script paths and any per-test overrides.
+function applyManagedScriptConfig(
+  config: SiftConfig,
+  managed: ReturnType<typeof writeManagedLlamaScripts>,
+  overrides: Partial<ServerManagedLlamaPreset> = {},
+): void {
+  const defaultPreset = config.Server.LlamaCpp.Presets[0];
+  setManagedLlamaBaseUrl(config, managed.baseUrl);
+  config.Server = {
+    LlamaCpp: {
+      ActivePresetId: 'default',
+      Presets: [{
+        ...defaultPreset,
+        id: 'default',
+        label: 'Default',
+        BaseUrl: managed.baseUrl,
+        ModelPath: managed.modelPath,
+        ExecutablePath: managed.startupScriptPath,
+        StartupTimeoutMs: 5000,
+        HealthcheckTimeoutMs: 100,
+        HealthcheckIntervalMs: 10,
+        ...overrides,
+      }],
+    },
+  };
 }
 
 
@@ -908,7 +959,8 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
   const stubBaseUrl = `http://127.0.0.1:${port}`;
   state.config.Runtime.LlamaCpp.BaseUrl = stubBaseUrl;
   if (state.config.Server.LlamaCpp.Presets.length === 0) {
-    state.config.Server.LlamaCpp.Presets.push({ id: 'default', label: 'Default' } as ServerManagedLlamaPreset);
+    const defaultPreset = getDefaultConfig().Server.LlamaCpp.Presets[0];
+    state.config.Server.LlamaCpp.Presets.push({ ...defaultPreset, id: 'default', label: 'Default' });
     state.config.Server.LlamaCpp.ActivePresetId = 'default';
   }
   for (const preset of state.config.Server.LlamaCpp.Presets) {
@@ -1061,6 +1113,10 @@ async function withSummaryTestServer<R>(fn: (server: StubServer) => R | Promise<
 
   process.env.SIFTKIT_STATUS_BACKEND_URL = EXISTING_SERVER_STATUS_URL;
   process.env.SIFTKIT_CONFIG_SERVICE_URL = EXISTING_SERVER_CONFIG_URL;
+  // Existing-server mode (SIFTKIT_TEST_USE_EXISTING_SERVER=1) substitutes a live
+  // external server for the in-process stub: only the URL fields are meaningful, and
+  // port/state/close have no in-process counterpart. Tests that opt into this mode
+  // touch URLs only, so we present the external endpoints as a StubServer surface.
   return fn({
     statusUrl: EXISTING_SERVER_STATUS_URL,
     configUrl: EXISTING_SERVER_CONFIG_URL,
@@ -1072,8 +1128,8 @@ function getStatusRouteUrl(statusUrl: string, routePath: string): string {
   return deriveServiceUrl(statusUrl, routePath);
 }
 
-async function postStatusTerminalMetadata(statusUrl: string, metadata: JsonObject): Promise<unknown> {
-  return requestJson(getStatusRouteUrl(statusUrl, '/status/terminal-metadata'), {
+async function postStatusTerminalMetadata(statusUrl: string, metadata: JsonObject): Promise<StatusPostAck> {
+  return requestJson<StatusPostAck>(getStatusRouteUrl(statusUrl, '/status/terminal-metadata'), {
     method: 'POST',
     body: JSON.stringify({
       running: false,
@@ -1082,14 +1138,14 @@ async function postStatusTerminalMetadata(statusUrl: string, metadata: JsonObjec
   });
 }
 
-async function postStatusComplete(statusUrl: string, completion: JsonObject): Promise<unknown> {
-  return requestJson(getStatusRouteUrl(statusUrl, '/status/complete'), {
+async function postStatusComplete(statusUrl: string, completion: JsonObject): Promise<StatusPostAck> {
+  return requestJson<StatusPostAck>(getStatusRouteUrl(statusUrl, '/status/complete'), {
     method: 'POST',
     body: JSON.stringify(completion),
   });
 }
 
-async function postCompletedStatus(statusUrl: string, metadata: JsonObject): Promise<{ metadataResponse: unknown; completeResponse: unknown }> {
+async function postCompletedStatus(statusUrl: string, metadata: JsonObject): Promise<{ metadataResponse: StatusPostAck; completeResponse: StatusPostAck }> {
   const requestId = typeof metadata?.requestId === 'string' ? metadata.requestId.trim() : '';
   const terminalState = typeof metadata?.terminalState === 'string' ? metadata.terminalState.trim() : '';
   if (!requestId) {
@@ -1516,5 +1572,7 @@ export {
   withRealStatusServer, startStatusServerProcess, stripAnsi, captureStdout,
   readIdleSummarySnapshots, getIdleSummaryBlock, getFreePort,
   toSingleQuotedPowerShellLiteral, writeManagedLlamaScripts, writeManagedLlamaLauncher,
-  waitForAsyncExpectation, runPowerShellScript,
+  waitForAsyncExpectation, runPowerShellScript, applyManagedScriptConfig,
 };
+
+export type { RuntimeStatusResponse, LlamaModelsResponse, HealthCheckResponse, StatusPostAck };
