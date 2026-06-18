@@ -26,11 +26,11 @@ test('hygiene: there is at least one test source to scan', () => {
   assert.ok(listTestSources().length > 0);
 });
 
-// Enabled in Phase 6 (flip skip -> active).
-test('hygiene: no test imports from ../dist', { skip: true }, () => {
+test('hygiene: no test imports from ../dist', () => {
   assert.deepEqual(filesMatching(/from ['"]\.\.\/dist/), []);
 });
 
-test('hygiene: no test file uses @ts-nocheck', { skip: true }, () => {
-  assert.deepEqual(filesMatching(/@ts-nocheck/), []);
+// The needle is built from fragments so this gate file does not match itself.
+test('hygiene: no test file disables type checking', () => {
+  assert.deepEqual(filesMatching(new RegExp('@ts' + '-nocheck')), []);
 });
