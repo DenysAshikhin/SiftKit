@@ -3,6 +3,8 @@ import test from 'node:test';
 
 import {
   collectCoveredBranchKeys,
+  extractTestNames,
+  escapeForNamePattern,
   type CoverageFinal,
 } from './coverage-attribution-core.js';
 
@@ -33,5 +35,31 @@ test('collectCoveredBranchKeys keeps only taken edges of src files, normalized t
     [...keys].sort(),
     ['src/foo/bar.ts|0|0'],
     'only the taken edge (count>0) of the src file survives; node_modules excluded',
+  );
+});
+
+test('extractTestNames pulls literal names from test()/it() with options arg and mixed quotes', () => {
+  const source = [
+    `test('plain name', async () => {});`,
+    `test("double quoted", () => {});`,
+    `test('with "inner" double quotes', () => {});`,
+    `test('with timeout opts', { timeout: 5000 }, async () => {});`,
+    `  it('indented it block', () => {});`,
+    `notTest('should be ignored');`,
+  ].join('\n');
+
+  assert.deepEqual(extractTestNames(source), [
+    'plain name',
+    'double quoted',
+    'with "inner" double quotes',
+    'with timeout opts',
+    'indented it block',
+  ]);
+});
+
+test('escapeForNamePattern anchors and escapes regex metacharacters', () => {
+  assert.equal(
+    escapeForNamePattern('finish (a) needs 90% of remaining + 1'),
+    '^finish \\(a\\) needs 90% of remaining \\+ 1$',
   );
 });

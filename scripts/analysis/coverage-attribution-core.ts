@@ -32,3 +32,18 @@ export function collectCoveredBranchKeys(coverage: CoverageFinal, repoRoot: stri
   }
   return keys;
 }
+
+export function extractTestNames(source: string): string[] {
+  const names: string[] = [];
+  const pattern = /^\s*(?:test|it)\(\s*(['"`])((?:\\.|(?!\1).)*)\1/gm;
+  let match: RegExpExecArray | null = pattern.exec(source);
+  while (match !== null) {
+    names.push(match[2].replace(/\\(['"`\\])/g, '$1'));
+    match = pattern.exec(source);
+  }
+  return names;
+}
+
+export function escapeForNamePattern(name: string): string {
+  return `^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
+}
