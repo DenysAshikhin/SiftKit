@@ -106,6 +106,11 @@ export function runOneTestInIsolation(
       const coverage = JSON.parse(fs.readFileSync(jsonPath, 'utf8')) as CoverageFinal;
       const result: IsolationResult = { index, name, branchKeys: [...collectCoveredBranchKeys(coverage, repoRoot)], ok: true, exitCode: 0 };
       writeCache(key, result);
+      // Per-test c8 output (full istanbul coverage-final.json + temp dir) is large and now
+      // redundant with the cached branch keys. Leaving it accumulates GBs under .coverage-attr,
+      // which scanRepoFiles enumerates (it honors its own ignore names, not .gitignore) and
+      // overflows repo-scanning tests. Drop it on success; failures keep run.log for debugging.
+      fs.rmSync(outDir, { recursive: true, force: true });
       resolve(result);
     });
   });

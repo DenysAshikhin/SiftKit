@@ -622,10 +622,11 @@ test('package typecheck command is available for repo, scripts, dashboard, bench
 
   assert.equal(
     String(pkg.scripts?.typecheck),
-    'tsc -p .\\tsconfig.json --noEmit && tsc -p .\\tsconfig.scripts.json --noEmit && tsc -p .\\dashboard\\tsconfig.json --noEmit && npm run typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test',
+    'tsc -p .\\tsconfig.json --noEmit && tsc -p .\\tsconfig.scripts.json --noEmit && tsc -p .\\dashboard\\tsconfig.json --noEmit && npm run typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test && npm run typecheck:analysis',
   );
   assert.equal(String(pkg.scripts?.['typecheck:bench']), 'tsc -p .\\tsconfig.bench.json --noEmit');
   assert.equal(String(pkg.scripts?.['typecheck:dashboard-test']), 'tsc -p .\\dashboard\\tsconfig.test.json --noEmit');
+  assert.equal(String(pkg.scripts?.['typecheck:analysis']), 'tsc -p .\\tsconfig.analysis.json --noEmit');
 });
 
 test('syncDistRuntime copies fresh compiled files from dist/src into runtime dist paths', () => {
