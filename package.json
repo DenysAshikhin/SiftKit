@@ -13,7 +13,7 @@
     "start:dashboard": "npm --prefix .\\dashboard run dev",
     "build": "tsc -p .\\tsconfig.json && tsc -p .\\tsconfig.scripts.json && npm --prefix .\\dashboard run build && node .\\scripts\\sync-dist-runtime.js",
     "build:test": "node .\\scripts\\build-test.js",
-    "typecheck": "tsc -p .\\tsconfig.json --noEmit && tsc -p .\\tsconfig.scripts.json --noEmit && tsc -p .\\dashboard\\tsconfig.json --noEmit && npm run typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test && npm run typecheck:analysis",
+    "typecheck": "tsc -p .\\tsconfig.json --noEmit && tsc -p .\\tsconfig.scripts.json --noEmit && tsc -p .\\dashboard\\tsconfig.json --noEmit && npm run typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test && npm run typecheck:analysis && npm run lint",
     "typecheck:analysis": "tsc -p .\\tsconfig.analysis.json --noEmit",
     "typecheck:test": "tsc -p .\\tsconfig.test.json --noEmit",
     "typecheck:dashboard-test": "tsc -p .\\dashboard\\tsconfig.test.json --noEmit",
@@ -32,7 +32,9 @@
     "verify:llama-live": "powershell -ExecutionPolicy Bypass -File .\\scripts\\verify-llama-live.ps1",
     "postinstall": "node scripts/postinstall.js",
     "refresh-global": "npm run build && powershell -ExecutionPolicy Bypass -File .\\scripts\\refresh-global.ps1",
-    "delete_logs": "tsx .\\scripts\\delete-logs.ts"
+    "delete_logs": "tsx .\\scripts\\delete-logs.ts",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
