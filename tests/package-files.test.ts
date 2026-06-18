@@ -27,3 +27,11 @@ test('postinstall hook references the packed postinstall script', () => {
   const { scripts } = readManifest();
   assert.equal(scripts.postinstall, 'node scripts/postinstall.js');
 });
+
+test('coverage test scripts reuse the project test runner instead of raw discovery', () => {
+  const { scripts } = readManifest();
+  assert.match(scripts['test:coverage'], /\bdist[\\/]scripts[\\/]run-tests\.js\b/u);
+  assert.doesNotMatch(scripts['test:coverage'], /\btsx --test\b/u);
+  assert.match(scripts['test:coverage:llm'], /\bdist[\\/]scripts[\\/]run-tests\.js\b/u);
+  assert.doesNotMatch(scripts['test:coverage:llm'], /\btsx --test\b/u);
+});

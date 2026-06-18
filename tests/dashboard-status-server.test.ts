@@ -1099,19 +1099,31 @@ test('no-web direct chat persists a single answer with scorecard output tokens',
     });
     const sessionId = String(d(created.body.session).id);
 
-    const sse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
-      method: 'POST',
-      timeoutMs: 5000,
-      body: JSON.stringify({
-        content: 'What is 2+2?',
-        webSearchOverride: 'off',
-        availableModels: ['mock'],
-        model: 'mock',
-        mockResponses: ['{"action":"finish","output":"4"}'],
-      }),
-    });
+    const errorLines: string[] = [];
+    const originalConsoleError = console.error;
+    console.error = (...args: unknown[]) => {
+      errorLines.push(args.map((arg) => String(arg)).join(' '));
+      originalConsoleError(...args);
+    };
+    let sse: SseResponse;
+    try {
+      sse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
+        method: 'POST',
+        timeoutMs: 5000,
+        body: JSON.stringify({
+          content: 'What is 2+2?',
+          webSearchOverride: 'off',
+          availableModels: ['mock'],
+          model: 'mock',
+          mockResponses: ['{"action":"finish","output":"4"}'],
+        }),
+      });
+    } finally {
+      console.error = originalConsoleError;
+    }
 
     assert.equal(sse.statusCode, 200);
+    assert.equal(errorLines.some((line) => line.includes('127.0.0.1:8097')), false);
     assert.equal(sse.events.some((event) => event.event === 'error'), false, JSON.stringify(sse.events));
     assert.equal(sse.events.some((event) => event.event === 'answer'), true, JSON.stringify(sse.events));
     const doneSession = d(sse.events.find((event) => event.event === 'done')?.payload).session as Dict;

@@ -23,6 +23,7 @@ import {
   applyHostLlamaRuntimeSettings,
   getActiveManagedLlamaPreset,
   notifyStatusBackend,
+  SIFT_DEFAULT_LLAMA_BASE_URL,
   type SiftConfig,
 } from '../../config/index.js';
 import {
@@ -273,7 +274,7 @@ async function buildRepoSearchAutoAppendPreviewItem(options: {
       tokenSource: 'estimate',
     };
   }
-  const count = await countTokensWithFallbackDetailed(options.config, content, {
+  const count = await countTokensWithFallbackDetailed(getLocalTokenConfig(options.config), content, {
     timeoutMs: 150,
     retryMaxWaitMs: 150,
   });
@@ -300,7 +301,7 @@ function hasEstimatedScorecardTokens(scorecard: unknown, key: string): boolean {
   return count !== null && count > 0;
 }
 
-async function countPersistTurnThinkingTokens(config: SiftConfig, turns: PersistTurn[]): Promise<PersistTurn[]> {
+async function countPersistTurnThinkingTokens(config: SiftConfig | undefined, turns: PersistTurn[]): Promise<PersistTurn[]> {
   const countedTurns: PersistTurn[] = [];
   for (const turn of turns) {
     const thinkingText = String(turn.thinkingText || '').trim();
@@ -321,7 +322,10 @@ async function countPersistTurnThinkingTokens(config: SiftConfig, turns: Persist
   return countedTurns;
 }
 
-async function countPersistedInputTokens(config: SiftConfig, content: string): Promise<{ tokenCount: number; estimated: boolean }> {
+async function countPersistedInputTokens(
+  config: SiftConfig | undefined,
+  content: string,
+): Promise<{ tokenCount: number; estimated: boolean }> {
   const count = await countTokensWithFallbackDetailed(config, content, {
     timeoutMs: 1000,
     retryMaxWaitMs: 1000,
@@ -330,6 +334,15 @@ async function countPersistedInputTokens(config: SiftConfig, content: string): P
     tokenCount: count.tokenCount,
     estimated: count.source !== 'llama.cpp',
   };
+}
+
+function getMockTokenConfig(config: SiftConfig, mockResponses: string[] | undefined): SiftConfig | undefined {
+  return Array.isArray(mockResponses) ? undefined : config;
+}
+
+function getLocalTokenConfig(config: SiftConfig): SiftConfig | undefined {
+  const baseUrl = getActiveManagedLlamaPreset(config)?.BaseUrl ?? config.Runtime?.LlamaCpp?.BaseUrl ?? null;
+  return baseUrl === SIFT_DEFAULT_LLAMA_BASE_URL ? undefined : config;
 }
 
 function readRouteStringArray(reader: JsonRecordReader, key: string): string[] | undefined {
@@ -721,6 +734,7 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
       let persistTurns: { thinkingText: string; toolMessages: PersistToolMessage[] }[] = [{ thinkingText: '', toolMessages: [] }];
       let groundingStatus: ChatGroundingStatus | null = null;
       const config = readConfig(configPath);
+      const tokenConfig = usesProvidedAssistantContent ? getLocalTokenConfig(config) : config;
       if (usesProvidedAssistantContent) {
         assistantContent = messageRequest.assistantContent || '';
         usage = {};
@@ -750,7 +764,7 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
           promptCacheTokens: getScorecardTotal(result?.scorecard, 'promptCacheTokens'),
           promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
         };
-        persistTurns = await countPersistTurnThinkingTokens(config, buildPersistTurnsFromRepoSearchResult(result));
+        persistTurns = await countPersistTurnThinkingTokens(tokenConfig, buildPersistTurnsFromRepoSearchResult(result));
       }
       try {
         await notifyChatStatus({
@@ -775,7 +789,7 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
         // Best-effort metrics notification.
       }
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
-      const inputTokenCount = await countPersistedInputTokens(config, userContent);
+      const inputTokenCount = await countPersistedInputTokens(tokenConfig, userContent);
       const sessionWithTelemetry = appendChatMessagesWithUsage(runtimeRoot, activeSession, userContent, assistantContent, usage, {
         turns: persistTurns,
         maintainPerStepThinking: shouldMaintainPerStepThinking(config, activeSession),
@@ -897,6 +911,7 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
           ? false
           : activeSession.webSearchEnabled === true;
       const mockResponses = readRouteStringArray(reader, 'mockResponses');
+      const mockTokenConfig = getMockTokenConfig(config, mockResponses);
       const result = await ctx.engineService.executeRepoSearch({
         taskKind: 'chat',
         prompt: userContent,
@@ -942,7 +957,7 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
         promptTokensPerSecond: null,
         generationTokensPerSecond: null,
       };
-      const persistTurns = await countPersistTurnThinkingTokens(config, buildPersistTurnsFromRepoSearchResult(result));
+      const persistTurns = await countPersistTurnThinkingTokens(mockTokenConfig, buildPersistTurnsFromRepoSearchResult(result));
       try {
         await notifyChatStatus({
           ctx,
@@ -968,7 +983,7 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
       phaseTracker.observeAnswer(assistantContent);
       const phaseTimestamps = phaseTracker.snapshot();
-      const inputTokenCount = await countPersistedInputTokens(config, userContent);
+      const inputTokenCount = await countPersistedInputTokens(mockTokenConfig, userContent);
       const updatedSession = appendChatMessagesWithUsage(runtimeRoot, activeSession, userContent, assistantContent, usage, {
         turns: persistTurns,
         maintainPerStepThinking: shouldMaintainPerStepThinking(config, activeSession),
@@ -1066,6 +1081,8 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
       const content = repoRequest.content;
       const reader = new JsonRecordReader(parsedBody);
       const config = readConfig(configPath);
+      const mockResponses = readRouteStringArray(reader, 'mockResponses');
+      const mockTokenConfig = getMockTokenConfig(config, mockResponses);
       const presets = normalizePresets(config.Presets);
       const preset = resolveRepoSearchRoutePreset(
         presets,
@@ -1090,7 +1107,7 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
         maxTurns: readRouteNumber(reader, 'maxTurns'),
         logFile: reader.optionalString('logFile'),
         availableModels: readRouteStringArray(reader, 'availableModels'),
-        mockResponses: readRouteStringArray(reader, 'mockResponses'),
+        mockResponses,
         mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
         onProgress(event: RepoSearchProgressEvent) {
           if (event.kind === 'tool_start') {
@@ -1101,7 +1118,7 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
       });
       const assistantContent = buildPlanMarkdownFromRepoSearch(content, resolvedRepoRoot, result);
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
-      const inputTokenCount = await countPersistedInputTokens(config, content);
+      const inputTokenCount = await countPersistedInputTokens(mockTokenConfig, content);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
         { ...activeSession, presetId: preset?.id || activeSession.presetId || 'plan', mode: 'plan', planRepoRoot: resolvedRepoRoot },
@@ -1113,7 +1130,7 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
           promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
         },
         {
-          turns: await countPersistTurnThinkingTokens(config, buildPersistTurnsFromRepoSearchResult(result).map((turn) => ({
+          turns: await countPersistTurnThinkingTokens(mockTokenConfig, buildPersistTurnsFromRepoSearchResult(result).map((turn) => ({
             thinkingText: turn.thinkingText,
             toolMessages: turn.toolMessages.map((message) => ({
               ...message,
@@ -1231,6 +1248,8 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
       const content = repoRequest.content;
       const reader = new JsonRecordReader(parsedBody);
       const config = readConfig(configPath);
+      const mockResponses = readRouteStringArray(reader, 'mockResponses');
+      const mockTokenConfig = getMockTokenConfig(config, mockResponses);
       const presets = normalizePresets(config.Presets);
       const preset = resolveRepoSearchRoutePreset(
         presets,
@@ -1255,7 +1274,7 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
         maxTurns: readRouteNumber(reader, 'maxTurns'),
         logFile: reader.optionalString('logFile'),
         availableModels: readRouteStringArray(reader, 'availableModels'),
-        mockResponses: readRouteStringArray(reader, 'mockResponses'),
+        mockResponses,
         mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
         onProgress(event: RepoSearchProgressEvent) {
           if (event.kind === 'thinking') {
@@ -1269,7 +1288,7 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
       const assistantContent = buildPlanMarkdownFromRepoSearch(content, resolvedRepoRoot, result);
       phaseTracker.observeAnswer(assistantContent);
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
-      const inputTokenCount = await countPersistedInputTokens(config, content);
+      const inputTokenCount = await countPersistedInputTokens(mockTokenConfig, content);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
         { ...activeSession, presetId: preset?.id || activeSession.presetId || 'plan', mode: 'plan', planRepoRoot: resolvedRepoRoot },
@@ -1281,7 +1300,7 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
           promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
         },
         {
-          turns: await countPersistTurnThinkingTokens(config, buildPersistTurnsFromRepoSearchResult(result).map((turn) => ({
+          turns: await countPersistTurnThinkingTokens(mockTokenConfig, buildPersistTurnsFromRepoSearchResult(result).map((turn) => ({
             thinkingText: turn.thinkingText,
             toolMessages: turn.toolMessages.map((message) => ({
               ...message,
@@ -1461,6 +1480,8 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
       const content = repoRequest.content;
       const reader = new JsonRecordReader(parsedBody);
       const config = readConfig(configPath);
+      const mockResponses = readRouteStringArray(reader, 'mockResponses');
+      const mockTokenConfig = getMockTokenConfig(config, mockResponses);
       const presets = normalizePresets(config.Presets);
       const preset = resolveRepoSearchRoutePreset(
         presets,
@@ -1485,7 +1506,7 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
         maxTurns: readRouteNumber(reader, 'maxTurns'),
         logFile: reader.optionalString('logFile'),
         availableModels: readRouteStringArray(reader, 'availableModels'),
-        mockResponses: readRouteStringArray(reader, 'mockResponses'),
+        mockResponses,
         mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
         onProgress(event: RepoSearchProgressEvent) {
           if (event.kind === 'thinking') {
@@ -1499,7 +1520,7 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
       const assistantContent = buildRepoSearchMarkdown(content, resolvedRepoRoot, result);
       phaseTracker.observeAnswer(assistantContent);
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
-      const inputTokenCount = await countPersistedInputTokens(config, content);
+      const inputTokenCount = await countPersistedInputTokens(mockTokenConfig, content);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
         { ...activeSession, presetId: preset?.id || activeSession.presetId || 'repo-search', mode: 'repo-search', planRepoRoot: resolvedRepoRoot },
@@ -1511,7 +1532,7 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
           promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
         },
         {
-          turns: await countPersistTurnThinkingTokens(config, buildPersistTurnsFromRepoSearchResult(result).map((turn) => ({
+          turns: await countPersistTurnThinkingTokens(mockTokenConfig, buildPersistTurnsFromRepoSearchResult(result).map((turn) => ({
             thinkingText: turn.thinkingText,
             toolMessages: turn.toolMessages.map((message) => ({
               ...message,
