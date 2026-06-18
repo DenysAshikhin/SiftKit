@@ -288,6 +288,8 @@ test('runTaskLoop counts rg syntax failures and gives planner guidance', async (
   assert.match(result.commands[0]?.output || '', /Command syntax failure; use a simpler rg command/u);
 });
 
+// F14: retained E2E — branches subset another case, but this uniquely asserts tool_start/
+// tool_result progress-event token/elapsed plumbing and original-command preservation.
 test('runTaskLoop reports prompt tokens and elapsed time on command progress events', async () => {
   const progressEvents: RepoSearchProgressEvent[] = [];
   const result = await runTaskLoop(
@@ -1081,78 +1083,6 @@ test('runTaskLoop prompt omits visible tool-call budget counters', async () => {
   assert.equal(result.reason, 'finish');
 });
 
-test('runTaskLoop prompt includes anti-loop and larger single-file read guidance', async () => {
-  const events: Record<string, unknown>[] = [];
-  const result = await runTaskLoop(
-    {
-      id: 'task-prompt-single-file-guidance',
-      question: 'Find planner text.',
-      signals: [],
-    },
-    {
-      ...MOCK_LOOP_DEFAULTS,
-      maxTurns: 1,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      mockResponses: ['{"action":"finish","output":"done"}'],
-      mockCommandResults: {},
-      logger: {
-        path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
-        },
-      },
-    }
-  );
-
-  const systemMessage = (events.find((event) => event.kind === 'turn_new_messages' && event.turn === 1)?.messages as Array<{ role?: string; content?: unknown }> | undefined)?.find((m) => m.role === 'system')?.content || '';
-  const prompt = String(systemMessage);
-  // Substance: anchor-first read flow, larger windows over tiny slices, recovery on token-budget errors.
-  assert.match(prompt, /Anchor-before-read/u);
-  assert.match(prompt, /rg.*anchor|anchor.*rg/iu);
-  assert.match(prompt, /repo_read_file/u);
-  assert.match(prompt, /one large window per anchor|larger window/u);
-  assert.match(prompt, /never tiny|tiny-slice/u);
-  assert.match(prompt, /Two reads of the same file must have an `rg` search between them/u);
-  assert.match(prompt, /strengthen the anchor/u);
-  assert.equal(result.reason, 'finish');
-});
-
-test('runTaskLoop prompt examples use larger reads and anchor-first flow', async () => {
-  const events: Record<string, unknown>[] = [];
-  const result = await runTaskLoop(
-    {
-      id: 'task-prompt-example-guidance',
-      question: 'Find planner text.',
-      signals: [],
-    },
-    {
-      ...MOCK_LOOP_DEFAULTS,
-      maxTurns: 1,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      mockResponses: ['{"action":"finish","output":"done"}'],
-      mockCommandResults: {},
-      logger: {
-        path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
-        },
-      },
-    }
-  );
-
-  const systemMessage2 = (events.find((event) => event.kind === 'turn_new_messages' && event.turn === 1)?.messages as Array<{ role?: string; content?: unknown }> | undefined)?.find((m) => m.role === 'system')?.content || '';
-  const prompt = String(systemMessage2);
-  assert.doesNotMatch(prompt, /Get-Content src\\\\summary\.ts/u);
-  assert.match(prompt, /repo_list_files/u);
-  assert.match(prompt, /rg -n \\"invokePlannerMode\\"/u);
-  assert.match(prompt, /repo_read_file/u);
-  assert.match(prompt, /"path":"dir\\\\foo\.ts","startLine":861,"endLine":1100/u);
-  assert.match(prompt, /tiny-slice/u);
-  assert.equal(result.reason, 'finish');
-});
-
 test('runTaskLoop records line-read stats for Get-Content windows', async () => {
   const result = await runTaskLoop(
     {
@@ -1183,35 +1113,6 @@ test('runTaskLoop records line-read stats for Get-Content windows', async () => 
   assert.equal(result.toolStats['get-content'].lineReadCalls, 1);
   assert.equal(result.toolStats['get-content'].lineReadLinesTotal, 6);
   assert.ok(Number(result.toolStats['get-content'].lineReadTokensTotal) > 0);
-});
-
-test('runTaskLoop prompt states ignored paths are auto-filtered by runtime policy', async () => {
-  const events: Record<string, unknown>[] = [];
-  const result = await runTaskLoop(
-    {
-      id: 'task-prompt-ignore-policy',
-      question: 'Find planner text.',
-      signals: [],
-    },
-    {
-      ...MOCK_LOOP_DEFAULTS,
-      maxTurns: 1,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      mockResponses: ['{"action":"finish","output":"done"}'],
-      mockCommandResults: {},
-      logger: {
-        path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
-        },
-      },
-    }
-  );
-
-  const systemMessage3 = (events.find((event) => event.kind === 'turn_new_messages' && event.turn === 1)?.messages as Array<{ role?: string; content?: unknown }> | undefined)?.find((m) => m.role === 'system')?.content || '';
-  assert.match(String(systemMessage3), /Ignored paths are auto-filtered by runtime policy/u);
-  assert.equal(result.reason, 'finish');
 });
 
 test('runTaskLoop rewrites Get-ChildItem recurse command to include ignore excludes', async () => {

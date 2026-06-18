@@ -147,3 +147,36 @@ test('buildTaskSystemPrompt illustrative examples do not bias toward "src/" path
     assert.match(prompt, /:120-135 — call site/u);
   });
 });
+
+// F14 (A10): prompt-text guidance assertions extracted from runTaskLoop loop cases.
+test('buildTaskSystemPrompt includes anti-loop and larger single-file read guidance', () => {
+  withTempRepo((repoRoot) => {
+    const prompt = buildTaskSystemPrompt(repoRoot);
+    assert.match(prompt, /Anchor-before-read/u);
+    assert.match(prompt, /rg.*anchor|anchor.*rg/iu);
+    assert.match(prompt, /repo_read_file/u);
+    assert.match(prompt, /one large window per anchor|larger window/u);
+    assert.match(prompt, /never tiny|tiny-slice/u);
+    assert.match(prompt, /Two reads of the same file must have an `rg` search between them/u);
+    assert.match(prompt, /strengthen the anchor/u);
+  });
+});
+
+test('buildTaskSystemPrompt examples use larger reads and anchor-first flow', () => {
+  withTempRepo((repoRoot) => {
+    const prompt = buildTaskSystemPrompt(repoRoot);
+    assert.doesNotMatch(prompt, /Get-Content src\\\\summary\.ts/u);
+    assert.match(prompt, /repo_list_files/u);
+    assert.match(prompt, /rg -n \\"invokePlannerMode\\"/u);
+    assert.match(prompt, /repo_read_file/u);
+    assert.match(prompt, /"path":"dir\\\\foo\.ts","startLine":861,"endLine":1100/u);
+    assert.match(prompt, /tiny-slice/u);
+  });
+});
+
+test('buildTaskSystemPrompt states ignored paths are auto-filtered by runtime policy', () => {
+  withTempRepo((repoRoot) => {
+    const prompt = buildTaskSystemPrompt(repoRoot);
+    assert.match(prompt, /Ignored paths are auto-filtered by runtime policy/u);
+  });
+});
