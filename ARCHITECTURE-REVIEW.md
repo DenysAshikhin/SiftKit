@@ -8,28 +8,16 @@ Original audit date: 2026-06-09.
 
 ## Findings
 
-### F6. Test architecture: split-brain between `dist` and `src`, and near-zero typechecking of tests — **(resolved)**
+### F11. `execution-lock`/`execution-lease` removal deferred to the server/workspace split
 
-- ~~Test files import ~94 paths from `../dist/...`.~~ **(resolved)** Zero test files import from `../dist` (all subjects are raw `src`/`dashboard` TS, run via `tsx`); the `test:coverage` script now includes `src/**/*.ts`. `tests/test-hygiene-gate.test.ts` enforces the no-`../dist` rule as a standing gate.
-- ~~`tsconfig.test.json` includes only 17 of ~140 test files; `npm run typecheck:test` skips ~88% of the suite.~~ **(resolved)** `tsconfig.test.json` now includes the full `tests/**` tree (the React SSR test is covered by `dashboard/tsconfig.test.json` instead), and every test file typechecks to 0 errors. The last 12 `@ts-nocheck` E2E files were converted to typed `src` imports (`require()` → `import`), the shared harness `tests/_runtime-helpers.ts` is fully typed, and the hygiene gate enforces that no test file carries `@ts-nocheck`.
-
-### F11. `execution-lock`/`execution-lease` re-evaluation (dead-code items resolved)
-
-The dead-code half is done: `src/llama-cpp-bridge.ts` deleted (zero importers), the `SIFT_LEGACY_*`/`SIFT_PREVIOUS_*` constants removed, `SIFTKIT_VERSION` now sourced from `package.json`, and the phantom `test-full.ts` `tsconfig` include dropped. Remaining:
-
-- `src/execution-lock.ts` + `src/config/execution-lease.ts` were re-verified and are **not** dead or intra-process-only. The client (`execution-lock`) acquires a lease from the status server over HTTP (`tryAcquireExecutionLease` -> `routes/core.ts` acquire/release/heartbeat endpoints; `server-ops.ts`; `ExecutionLease` type in `server-types.ts`), heartbeats it on a 3s timer, and a `skipExecutionLock` flag is threaded through `summary/types.ts` + callers (`command-output/analyzer.ts`, `status-server/preset-runner.ts`, `routes/core.ts:1055`). Live consumers: `install.ts`, `eval.ts`, `summary/request-runner.ts`. This is real cross-process serialization of the single-slot managed `llama-server`. Removing it is a behavioral refactor (it would let two concurrent CLI invocations both drive one slot) and belongs to the server/workspace split, not a dead-code sweep.
+`src/execution-lock.ts` + `src/config/execution-lease.ts` are **not** dead or intra-process-only. The client (`execution-lock`) acquires a lease from the status server over HTTP (`tryAcquireExecutionLease` -> `routes/core.ts` acquire/release/heartbeat endpoints; `server-ops.ts`; `ExecutionLease` type in `server-types.ts`), heartbeats it on a 3s timer, and a `skipExecutionLock` flag is threaded through `summary/types.ts` + callers (`command-output/analyzer.ts`, `status-server/preset-runner.ts`, `routes/core.ts:1055`). Live consumers: `install.ts`, `eval.ts`, `summary/request-runner.ts`. This is real cross-process serialization of the single-slot managed `llama-server`. Removing it is a behavioral refactor (it would let two concurrent CLI invocations both drive one slot) and belongs to the server/workspace split, not a dead-code sweep.
 
 ### F14. Test architecture is inverted and self-undermining
 
-- ~~The dominant harness `tests/_runtime-helpers.ts` is `@ts-nocheck`; the shared infrastructure for ~30 runtime test files is untyped.~~ **(resolved)** `tests/_runtime-helpers.ts` is fully typed (typed stub/server state, `requestJson<T>` generics, shared `RuntimeStatusResponse`/`LlamaModelsResponse`/`StatusPostAck` response views and the `applyManagedScriptConfig` preset builder), and all runtime test files import it typed. No test file carries `@ts-nocheck` (enforced by the hygiene gate).
-- ~~Mixed `dist`/`src` imports (F6) make every test's subject ambiguous.~~ **(resolved with F6)** All tests import `src`/`dashboard` TS directly.
 - Giant end-to-end tests dominate (2,000+-line `dashboard-status-server.test.ts` and `repo-search-loop.core.test.ts`, tests that boot the real HTTP server + sqlite). The repo-search loop decomposition and the 2026-06-12 route/endpoint split added unit seams; the giant E2E suites have not yet been rebalanced onto them.
-- ~~Test seams ship inside production modules.~~ **(resolved)** The env-var mock seam (`SIFTKIT_TEST_PROVIDER_BEHAVIOR`/`SIFTKIT_TEST_TOKEN`/`SIFTKIT_TEST_PROVIDER_SLEEP_MS`) is now isolated in `src/summary/providers/mock-provider.ts`, reached only via `backend === 'mock'`; the non-mock production path no longer references `SIFTKIT_TEST_*`. `findMockResult`/`mockCommandResults` (`src/repo-search/engine/command-execution.ts`) is **not** a test backdoor — it is request-driven mocking exposed through the public HTTP API (`routes/chat.ts`, `routes/core.ts`), the CLI (`run-internal.ts`), and the request types — a runtime capability that stays.
 - Timing-sensitive tests flake under load: `tests/model-request-queue.test.ts` asserts ~30ms queue-timeout windows and intermittently fails in full-suite runs while passing in isolation; the managed-llama startup/idle tests have similarly flaked under c8 instrumentation.
 
 ### F15. Benchmark/eval residual in `src` and harness duplication
-
-The packaging half is done: `src/benchmark/`, the repro scripts, and `src/benchmark-matrix/` are relocated to the non-shipped `bench/` tree and the npm `files` whitelist is corrected. Remaining:
 
 - `src/eval.ts` and `src/benchmark-spec-settings.ts` are still in the shipping `src/` graph (server/dashboard-wired). Relocating them belongs to the full server/workspace split, not the standalone bench move.
 - `bench/benchmark/` and `bench/benchmark-matrix/` still duplicate each other's `args.ts`/`interrupt.ts`/`runner.ts`/`types.ts` modules (parallel roles). Factor the shared pieces into common bench utilities.
@@ -169,9 +157,8 @@ Why it's an issue:
 
 ## Priority order (highest leverage first)
 
-1. ~~Dead-code sweep~~ **(done):** `llama-cpp-bridge.ts`, `SIFT_LEGACY_*`, `SIFTKIT_VERSION` dedupe, `test-full.ts` include removed. `execution-lock`/`execution-lease` reclassified as live cross-process code — its removal is deferred to the server/workspace split (see F11), not a dead-code item.
-2. ~~Type the `@ts-nocheck` runtime harness; full `tests/**` typecheck; drop `../dist` imports (F6, F14).~~ **(done):** harness and all test files typed to 0 errors, no `@ts-nocheck`/`../dist` (hygiene-gate enforced). **Remaining:** unit-test pyramid recovery — rebalance the giant E2E suites onto the new endpoint/runner unit seams (F14).
-3. Dashboard de-monolith: split `App.tsx`/`styles.css` and replace the hand-mirrored `dashboard/src/types.ts` with a shared server type contract (F16).
-4. Split `SummaryPlannerLoopRuntime.requestProviderAction` and add it to the regression guard (F17).
-5. Bench/eval residual: relocate `eval.ts`/`benchmark-spec-settings.ts` in the server/workspace split; dedupe `bench/benchmark` vs `bench/benchmark-matrix` harness modules (F15).
-6. LLM-behavior fixes (Part 2), highest leverage first: extend grammar-constrained decoding to the repo-search loop (L6); make all harness messages append-only and non-assistant-role (L4, L5, L7); fix the finish gate to match the prompt (L2); wire condense/compaction into what the model actually sees with pair-preserving selection (L5, L10); split sampling profiles by request class (L1).
+1. Unit-test pyramid recovery — rebalance the giant E2E suites onto the endpoint/runner unit seams added by the repo-search decomposition and the route/endpoint split (F14).
+2. Dashboard de-monolith: split `App.tsx`/`styles.css` and replace the hand-mirrored `dashboard/src/types.ts` with a shared server type contract (F16).
+3. Split `SummaryPlannerLoopRuntime.requestProviderAction` and add it to the regression guard (F17).
+4. Bench/eval residual: relocate `eval.ts`/`benchmark-spec-settings.ts` in the server/workspace split; dedupe `bench/benchmark` vs `bench/benchmark-matrix` harness modules (F15).
+5. LLM-behavior fixes (Part 2), highest leverage first: extend grammar-constrained decoding to the repo-search loop (L6); make all harness messages append-only and non-assistant-role (L4, L5, L7); fix the finish gate to match the prompt (L2); wire condense/compaction into what the model actually sees with pair-preserving selection (L5, L10); split sampling profiles by request class (L1).
