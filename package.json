@@ -13,7 +13,8 @@
     "start:dashboard": "npm --prefix .\\dashboard run dev",
     "build": "tsc -p .\\tsconfig.json && tsc -p .\\tsconfig.scripts.json && npm --prefix .\\dashboard run build && node .\\scripts\\sync-dist-runtime.js",
     "build:test": "node .\\scripts\\build-test.js",
-    "typecheck": "tsc -p .\\tsconfig.json --noEmit && tsc -p .\\tsconfig.scripts.json --noEmit && tsc -p .\\dashboard\\tsconfig.json --noEmit && npm run typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test",
+    "typecheck": "tsc -p .\\tsconfig.json --noEmit && tsc -p .\\tsconfig.scripts.json --noEmit && tsc -p .\\dashboard\\tsconfig.json --noEmit && npm run typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test && npm run typecheck:analysis",
+    "typecheck:analysis": "tsc -p .\\tsconfig.analysis.json --noEmit",
     "typecheck:test": "tsc -p .\\tsconfig.test.json --noEmit",
     "typecheck:dashboard-test": "tsc -p .\\dashboard\\tsconfig.test.json --noEmit",
     "typecheck:bench": "tsc -p .\\tsconfig.bench.json --noEmit",
@@ -37,6 +38,7 @@
     "@types/jsdom": "^28.0.3",
     "@types/node": "^24.5.2",
     "@types/turndown": "^5.0.6",
+    "c8": "^11.0.0",
     "nodemon": "^3.1.10",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"
