@@ -245,6 +245,16 @@ interface StubServer {
   close(): Promise<void>;
 }
 
+// Surface guaranteed by withSummaryTestServer. In-process stub mode supplies a full
+// StubServer (StubServer is assignable here, so no cast). Existing-server mode
+// (SIFTKIT_TEST_USE_EXISTING_SERVER=1) substitutes a live external server and exposes
+// URLs only, so stub-only `state` is genuinely optional and the type says so.
+interface SummaryTestServer {
+  statusUrl: string;
+  configUrl: string;
+  state?: StubServerState;
+}
+
 interface SpawnProcessResult {
   code: number | null;
   signal: NodeJS.Signals | null;
@@ -1102,7 +1112,7 @@ async function withStubServer<R>(fn: (server: StubServer) => R | Promise<R>, opt
   }
 }
 
-async function withSummaryTestServer<R>(fn: (server: StubServer) => R | Promise<R>, options: StubServerOptions = {}): Promise<R> {
+async function withSummaryTestServer<R>(fn: (server: SummaryTestServer) => R | Promise<R>, options: StubServerOptions = {}): Promise<R> {
   if (!TEST_USE_EXISTING_SERVER) {
     return withStubServer(fn, options);
   }
@@ -1113,15 +1123,10 @@ async function withSummaryTestServer<R>(fn: (server: StubServer) => R | Promise<
 
   process.env.SIFTKIT_STATUS_BACKEND_URL = EXISTING_SERVER_STATUS_URL;
   process.env.SIFTKIT_CONFIG_SERVICE_URL = EXISTING_SERVER_CONFIG_URL;
-  // Existing-server mode (SIFTKIT_TEST_USE_EXISTING_SERVER=1) substitutes a live
-  // external server for the in-process stub: only the URL fields are meaningful, and
-  // port/state/close have no in-process counterpart. Tests that opt into this mode
-  // touch URLs only, so we present the external endpoints as a StubServer surface.
   return fn({
     statusUrl: EXISTING_SERVER_STATUS_URL,
     configUrl: EXISTING_SERVER_CONFIG_URL,
-    usingExistingServer: true,
-  } as unknown as StubServer);
+  });
 }
 
 function getStatusRouteUrl(statusUrl: string, routePath: string): string {
