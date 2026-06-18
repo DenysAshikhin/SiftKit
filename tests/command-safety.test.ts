@@ -158,3 +158,72 @@ test('normalizePlannerCommand appends rg ignore flags after regex alternation in
   assert.doesNotMatch(normalized.command, /--no-ignore\s+\|\s+import/u);
   assert.match(normalized.command, /apps\/runner\/src\/__tests__ --no-ignore/u);
 });
+
+// F14 (A5): rg/PowerShell rewrite decisions extracted from runTaskLoop loop cases.
+const EMPTY_IGNORE_POLICY = { names: [] as string[], namesLower: new Set<string>(), paths: [] as string[] };
+
+test('normalizePlannerCommand rewrites unsupported rg --type tsx to --type ts', () => {
+  const normalized = normalizePlannerCommand('rg -n "foo" --type tsx src', { ignorePolicy: EMPTY_IGNORE_POLICY });
+  assert.equal(normalized.command, 'rg -n "foo" src --type ts --no-ignore --ignore-case');
+  assert.match(normalized.note, /rewrote unsupported --type tsx to valid types/u);
+});
+
+test('normalizePlannerCommand rewrites unsupported rg --type jsx to --type js', () => {
+  const normalized = normalizePlannerCommand('rg -n "foo" --type jsx src', { ignorePolicy: EMPTY_IGNORE_POLICY });
+  assert.equal(normalized.command, 'rg -n "foo" src --type js --no-ignore --ignore-case');
+  assert.match(normalized.note, /rewrote unsupported --type jsx to valid types/u);
+});
+
+test('normalizePlannerCommand collapses mixed rg --type ts and --type tsx to --type ts', () => {
+  const normalized = normalizePlannerCommand('rg -n "foo" --type ts --type tsx src', { ignorePolicy: EMPTY_IGNORE_POLICY });
+  assert.equal(normalized.command, 'rg -n "foo" src --type ts --no-ignore --ignore-case');
+  assert.match(normalized.note, /rewrote unsupported --type tsx to valid types/u);
+});
+
+test('normalizePlannerCommand rewrites mixed --type jsx and --type tsx to --type js and --type ts', () => {
+  const normalized = normalizePlannerCommand('rg -n "foo" --type jsx --type tsx src', { ignorePolicy: EMPTY_IGNORE_POLICY });
+  assert.equal(normalized.command, 'rg -n "foo" src --type js --type ts --no-ignore --ignore-case');
+  assert.match(normalized.note, /rewrote unsupported --type jsx, tsx to valid types/u);
+});
+
+test('normalizePlannerCommand keeps --glob while rewriting unsupported --type tsx', () => {
+  const normalized = normalizePlannerCommand('rg -n "foo" --type tsx --glob "*.tsx" src', { ignorePolicy: EMPTY_IGNORE_POLICY });
+  assert.equal(normalized.command, 'rg -n "foo" --glob "*.tsx" src --type ts --no-ignore --ignore-case');
+  assert.match(normalized.note, /rewrote unsupported --type tsx to valid types/u);
+});
+
+test('normalizePlannerCommand does not double-add --no-ignore when rg already passes it', () => {
+  const normalized = normalizePlannerCommand('rg -n "planner" src --no-ignore', { ignorePolicy: EMPTY_IGNORE_POLICY });
+  assert.match(normalized.command, /rg -n "planner" src --no-ignore/u);
+  assert.doesNotMatch(normalized.command, /--no-ignore --no-ignore/u);
+});
+
+test('normalizePlannerCommand does not add --no-ignore when rg already passes -u', () => {
+  const normalized = normalizePlannerCommand('rg -n "planner" src -u', { ignorePolicy: EMPTY_IGNORE_POLICY });
+  assert.match(normalized.command, /rg -n "planner" src -u/u);
+  assert.doesNotMatch(normalized.command, /src -u --no-ignore/u);
+});
+
+test('normalizePlannerCommand adds -Exclude ignore names to Get-ChildItem recurse', () => {
+  const normalized = normalizePlannerCommand('Get-ChildItem src -Recurse -Filter *.ts', {
+    ignorePolicy: { names: ['node_modules'], namesLower: new Set(['node_modules']), paths: [] },
+  });
+  assert.ok(normalized.command.startsWith('Get-ChildItem src -Recurse -Filter *.ts -Exclude '));
+  assert.match(normalized.command, /node_modules/u);
+  assert.match(normalized.note, /added -Exclude from ignore policy/u);
+});
+
+test('normalizePlannerCommand adds -Exclude ignore names to Select-String path scan', () => {
+  const normalized = normalizePlannerCommand('Select-String -Path "src\\*.ts" -Pattern "planner"', {
+    ignorePolicy: { names: ['node_modules'], namesLower: new Set(['node_modules']), paths: [] },
+  });
+  assert.ok(normalized.command.startsWith('Select-String -Path "src\\*.ts" -Pattern "planner" -Exclude '));
+  assert.match(normalized.command, /node_modules/u);
+  assert.match(normalized.note, /added -Exclude from ignore policy/u);
+});
+
+test('normalizePlannerCommand rejects Get-Content reads under ignored directories', () => {
+  const normalized = normalizePlannerCommand('Get-Content node_modules\\leftpad\\index.js', { repoRoot: process.cwd() });
+  assert.equal(normalized.rejected, true);
+  assert.equal(normalized.rejectedReason, 'command targets a path ignored by policy');
+});

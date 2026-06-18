@@ -18,6 +18,7 @@ import {
   compactPlannerMessagesOnce,
 } from '../src/repo-search/prompt-budget.js';
 import { getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
+import { getDefaultConfigObject } from '../src/config/defaults.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import type { SiftConfig } from '../src/config/types.js';
 
@@ -31,10 +32,20 @@ const MOCK_LOOP_DEFAULTS = {
   baseUrl: 'http://127.0.0.1:1',
 };
 
-// These mock-mode loops read only Runtime.{Model,LlamaCpp}; the rest of the SiftConfig
-// surface is irrelevant, so a deliberately partial literal is cast here (one place).
-function mockConfig(config: { Runtime: { Model: string; LlamaCpp: Record<string, unknown> } }): SiftConfig {
-  return config as unknown as SiftConfig;
+// These mock-mode loops read only Runtime.{Model,LlamaCpp}. Build a real default config
+// and override just those fields so the value is fully typed (no casts).
+function mockConfig(overrides: {
+  Runtime: { Model: string; LlamaCpp: Partial<SiftConfig['Runtime']['LlamaCpp']> };
+}): SiftConfig {
+  const base = getDefaultConfigObject();
+  return {
+    ...base,
+    Runtime: {
+      ...base.Runtime,
+      Model: overrides.Runtime.Model,
+      LlamaCpp: { ...base.Runtime.LlamaCpp, ...overrides.Runtime.LlamaCpp },
+    },
+  };
 }
 
 function createTempRepoRoot(gitignoreText = '') {
@@ -133,44 +144,6 @@ test('repo-search executes a native web_search tool when allowed', async () => {
   assert.equal(toolStart?.command, 'web_search query="siftkit"');
   assert.match(String(toolResult?.outputSnippet || ''), /web result snippet|example\.com/);
   assert.equal(Object.keys(scorecard.toolStats).includes('web_search'), true);
-});
-
-test('runTaskLoop rewrites unsupported rg --type tsx and annotates output', async () => {
-  const events: Record<string, unknown>[] = [];
-  const result = await runTaskLoop(
-    {
-      id: 'task-rewrite-tsx',
-      question: 'Find tsx hits.',
-      signals: ['tsx hit'],
-    },
-    {
-      ...MOCK_LOOP_DEFAULTS,
-      maxTurns: 2,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"foo\\\" --type tsx src\"}",
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
-      ],
-      mockCommandResults: {
-        'rg -n "foo" src --type ts': { exitCode: 0, stdout: 'tsx hit', stderr: '' },
-      },
-      logger: {
-        path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
-        },
-      },
-    }
-  );
-
-  const commandResult = events.find((event) => event.kind === 'turn_command_result');
-  assert.ok(String(commandResult?.command).startsWith('rg -n "foo" src --type ts'));
-  assert.match(String(commandResult?.output || ''), /rewrote unsupported --type tsx to valid types/u);
-  assert.equal(result.reason, 'finish');
-  assert.equal(result.commandFailures, 0);
-  assert.equal(result.passed, true);
 });
 
 test('runTaskLoop rewrites mixed rg --type ts and --type tsx flags', async () => {
@@ -771,81 +744,6 @@ test('runTaskLoop logs provider request error details and surfaces enriched netw
   assert.equal(typeof (errorEvent?.error as { message?: unknown } | undefined)?.message, 'string');
 });
 
-test('runTaskLoop rewrites unsupported rg --type tsx even when --glob is present', async () => {
-  const events: Record<string, unknown>[] = [];
-  const result = await runTaskLoop(
-    {
-      id: 'task-rewrite-with-glob',
-      question: 'Find tsx hits.',
-      signals: ['tsx glob hit'],
-    },
-    {
-      ...MOCK_LOOP_DEFAULTS,
-      maxTurns: 2,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"foo\\\" --type tsx --glob \\\"*.tsx\\\" src\"}",
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
-      ],
-      mockCommandResults: {
-        'rg -n "foo" --glob "*.tsx" src --type ts': { exitCode: 0, stdout: 'tsx glob hit', stderr: '' },
-      },
-      logger: {
-        path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
-        },
-      },
-    }
-  );
-
-  const commandResult = events.find((event) => event.kind === 'turn_command_result');
-  assert.ok(String(commandResult?.command).startsWith('rg -n "foo" --glob "*.tsx" src --type ts'));
-  assert.match(String(commandResult?.output || ''), /rewrote unsupported --type tsx to valid types/u);
-  assert.equal(result.reason, 'finish');
-  assert.equal(result.commandFailures, 0);
-});
-
-test('runTaskLoop rewrites unsupported rg --type jsx to --type js', async () => {
-  const events: Record<string, unknown>[] = [];
-  const result = await runTaskLoop(
-    {
-      id: 'task-rewrite-jsx',
-      question: 'Find jsx hits.',
-      signals: ['jsx hit'],
-    },
-    {
-      ...MOCK_LOOP_DEFAULTS,
-      maxTurns: 2,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"foo\\\" --type jsx src\"}",
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
-      ],
-      mockCommandResults: {
-        'rg -n "foo" src --type js': { exitCode: 0, stdout: 'jsx hit', stderr: '' },
-      },
-      logger: {
-        path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
-        },
-      },
-    }
-  );
-
-  const commandResult = events.find((event) => event.kind === 'turn_command_result');
-  assert.ok(String(commandResult?.command).startsWith('rg -n "foo" src --type js'));
-  assert.match(String(commandResult?.output || ''), /rewrote unsupported --type jsx to valid types/u);
-  assert.equal(result.reason, 'finish');
-  assert.equal(result.commandFailures, 0);
-  assert.equal(result.passed, true);
-});
-
 test('runTaskLoop rewrites mixed --type jsx and --type tsx to --type js and --type ts', async () => {
   const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
@@ -1414,64 +1312,6 @@ test('runTaskLoop rewrites Select-String path scan to include ignore excludes', 
   } finally {
     fs.rmSync(repoRoot, { recursive: true, force: true });
   }
-});
-
-test('runTaskLoop allows rg commands that include --no-ignore explicitly', async () => {
-  const result = await runTaskLoop(
-    {
-      id: 'task-ignore-rg-no-ignore',
-      question: 'Find planner text.',
-      signals: [],
-    },
-    {
-      ...MOCK_LOOP_DEFAULTS,
-      maxTurns: 2,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src --no-ignore\"}",
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
-      ],
-      mockCommandResults: {},
-    }
-  );
-
-  assert.equal(result.reason, 'finish');
-  assert.equal(result.commands.length, 1);
-  assert.equal(result.commands[0].safe, true);
-  assert.equal(result.commands[0].reason, null);
-  assert.match(String(result.commands[0].output || ''), /ran 'rg -n "planner" src --no-ignore/u);
-  assert.doesNotMatch(String(result.commands[0].output || ''), /--no-ignore --no-ignore/u);
-});
-
-test('runTaskLoop allows rg commands that include -u explicitly', async () => {
-  const result = await runTaskLoop(
-    {
-      id: 'task-ignore-rg-u',
-      question: 'Find planner text.',
-      signals: [],
-    },
-    {
-      ...MOCK_LOOP_DEFAULTS,
-      maxTurns: 2,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      mockResponses: [
-        '{"action":"repo_rg","command":"rg -n \\"planner\\" src -u"}',
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
-      ],
-      mockCommandResults: {},
-    }
-  );
-
-  assert.equal(result.reason, 'finish');
-  assert.equal(result.commands.length, 1);
-  assert.equal(result.commands[0].safe, true);
-  assert.equal(result.commands[0].reason, null);
-  assert.match(String(result.commands[0].output || ''), /ran 'rg -n "planner" src -u/u);
-  assert.doesNotMatch(String(result.commands[0].output || ''), /src -u --no-ignore/u);
 });
 
 test('runTaskLoop rejects Get-Content reads under ignored directories', async () => {
