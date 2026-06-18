@@ -24,6 +24,18 @@ import {
   writeJson,
 } from './helpers/dashboard-http.js';
 import { buildRepoSearchChatSteps } from '../dashboard/src/lib/chat-steps.js';
+
+// F14 (test-pyramid rebalance): the pure normalizeWebSearchConfig decisions previously
+// co-located here were relocated to the config-normalization seam. Every remaining case is
+// intentionally retained as E2E integration coverage: each drives a live status server over
+// real HTTP and exercises route↔store↔queue↔chat wiring (endpoint payload contracts, model
+// request queue serialization/FIFO/drop-on-disconnect, chat persistence + tool-evidence replay,
+// repo-search auto-append previews, llama-cpp reachability probing, start-script packaging) that
+// the coverage-attribution harness proved is not redundant with any sibling case (residual > 0
+// for all 25 — `candidates (residual <= 0): 0`). The unit-level decisions underneath are covered
+// directly in the config-store, model-request-queue, status-server-chat, route-request-normalizers,
+// chat-route-file-listing, and web-search-quota seams; deleting any case here would drop unique
+// integration branches, so they stay.
 test('GET /dashboard/web-search-quota returns a quotas array', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-quota-'));
   const previousCwd = enterDashboardTestRepo(tempRoot);
@@ -482,8 +494,8 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     assert.equal(idleSummaryResponse.statusCode, 200);
     assert.equal(Array.isArray(idleSummaryResponse.body.snapshots), true);
     assert.equal(Object.prototype.hasOwnProperty.call(idleSummaryResponse.body, 'latest'), true);
-    const idleSummarySample: Dict = (idleSummaryResponse.body.latest as Dict | undefined)
-      || (idleSummaryResponse.body.snapshots as Dict[] | undefined)?.[0]
+    const idleSummarySample: Dict = (idleSummaryResponse.body.latest as Dict)
+      || (idleSummaryResponse.body.snapshots as Dict[])?.[0]
       || {};
     if (Object.keys(idleSummarySample).length > 0) {
       assert.equal(Object.prototype.hasOwnProperty.call(idleSummarySample, 'inputOutputRatio'), true);
@@ -1241,13 +1253,13 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
       message.kind === 'assistant_tool_call'
       && String(message.toolCallCommand || '') === 'web_search query="iron bar GE price"'
       && /already searched/u.test(String(message.toolCallOutput || ''))
-    ) as Dict | undefined;
+    );
     assert.ok(duplicateSearchStep, JSON.stringify(repeatedMessages));
     const duplicateFetchStep = repeatedMessages.find((message) =>
       message.kind === 'assistant_tool_call'
       && String(message.toolCallCommand || '') === 'web_fetch url="https://prices.runescape.wiki/iron-bar"'
       && /already fetched/u.test(String(message.toolCallOutput || ''))
-    ) as Dict | undefined;
+    );
     assert.ok(duplicateFetchStep, JSON.stringify(repeatedMessages));
   } finally {
     await new Promise<void>((resolve, reject) => {
@@ -1330,7 +1342,7 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
     const fetchStep = firstMessages.find((message) =>
       message.kind === 'assistant_tool_call'
       && String(message.toolCallCommand || '') === 'web_fetch url="https://oldschool.runescape.wiki/w/Iron_bar"'
-    ) as Dict | undefined;
+    );
     assert.ok(fetchStep, JSON.stringify(firstMessages));
     assert.match(String(fetchStep.toolCallOutput || ''), /Iron bars are used in Smithing and quests/u);
     assert.equal(fetchStep.toolCallExitCode, 0);
@@ -1472,7 +1484,7 @@ test('deleting retained web tool step allows the same web call in a later chat t
     const repeatedSearchStep = secondMessages.find((message) =>
       message.kind === 'assistant_tool_call'
       && String(message.toolCallCommand || '') === 'web_search query="iron bar GE price"'
-    ) as Dict | undefined;
+    );
     assert.equal(Number(repeatedSearchStep?.toolCallExitCode), 0);
   } finally {
     await new Promise<void>((resolve, reject) => {
@@ -2077,7 +2089,7 @@ test('chat completion replays prior tool evidence without hidden system context'
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
-  let capturedChatRequest: Dict | null = null;
+  let capturedChatRawBody = '';
   const llamaServer = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/v1/models') {
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -2095,7 +2107,7 @@ test('chat completion replays prior tool evidence without hidden system context'
       raw += chunk;
     });
     req.on('end', () => {
-      capturedChatRequest = JSON.parse(raw) as Dict;
+      capturedChatRawBody = raw;
       res.statusCode = 200;
       res.setHeader('Content-Type', 'text/event-stream');
       res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"finish\\",\\"output\\":\\"ack\\"}"}}]}\n\n');
@@ -2184,10 +2196,10 @@ test('chat completion replays prior tool evidence without hidden system context'
     assert.equal(Number(statusMetrics.outputTokensTotal) >= 4, true);
     assert.equal(Number(d(d(statusMetrics.taskTotals).chat).inputTokensTotal) >= 20, true);
     assert.equal(Number(d(d(statusMetrics.taskTotals).chat).outputTokensTotal) >= 4, true);
-    assert.equal(capturedChatRequest !== null, true);
-    const captured = capturedChatRequest as Dict | null;
-    assert.equal(Array.isArray(captured?.messages), true);
-    const systemMessages = (captured?.messages as Dict[]).filter((message) => message && message.role === 'system');
+    assert.notEqual(capturedChatRawBody, '');
+    const captured = JSON.parse(capturedChatRawBody) as Dict;
+    assert.equal(Array.isArray(captured.messages), true);
+    const systemMessages = (captured.messages as Dict[]).filter((message) => message && message.role === 'system');
     assert.equal(systemMessages.some((message) => String(message.content || '').includes('Internal tool-call context from prior session steps.')), false);
     assert.equal((captured?.messages as Dict[]).some((message) =>
       message.role === 'assistant'
@@ -2222,7 +2234,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
-  let capturedChatRequest: Dict | null = null;
+  let capturedChatRawBody = '';
   const llamaServer = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/v1/models') {
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -2240,7 +2252,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
       raw += chunk;
     });
     req.on('end', () => {
-      capturedChatRequest = JSON.parse(raw) as Dict;
+      capturedChatRawBody = raw;
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"finish\\",\\"output\\":\\"ack\\"}"}}]}\n\n');
       res.write('data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":30,"completion_tokens":4}}\n\n');
@@ -2333,9 +2345,10 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
       }),
     });
     assert.equal(chatReply.statusCode, 200);
-    const captured = capturedChatRequest as Dict | null;
-    assert.equal(Array.isArray(captured?.messages), true);
-    const capturedText = ((captured?.messages || []) as Dict[]).map((message) => String(message.content || '')).join('\n');
+    assert.notEqual(capturedChatRawBody, '');
+    const captured = JSON.parse(capturedChatRawBody) as Dict;
+    assert.equal(Array.isArray(captured.messages), true);
+    const capturedText = ((captured.messages || []) as Dict[]).map((message) => String(message.content || '')).join('\n');
     assert.equal(capturedText.includes('rg -n "name" package.json'), false);
     assert.equal(capturedText.includes('"name": "siftkit"'), false);
   } finally {

@@ -1,233 +1,158 @@
 {
   "file": "tests/dashboard-status-server.test.ts",
-  "threshold": 8,
+  "threshold": 0,
   "failedIsolations": [],
   "tests": [
     {
       "index": 0,
-      "name": "normalizeWebSearchConfig produces provider defaults and clamps ResultCount to 20",
-      "ok": true,
-      "branchCount": 1154
-    },
-    {
-      "index": 1,
-      "name": "normalizeWebSearchConfig defaults empty provider records",
-      "ok": true,
-      "branchCount": 1149
-    },
-    {
-      "index": 2,
       "name": "GET /dashboard/web-search-quota returns a quotas array",
       "ok": true,
       "branchCount": 1464
     },
     {
-      "index": 3,
+      "index": 1,
       "name": "config llama cpp test endpoint reports reachable external server",
       "ok": true,
       "branchCount": 1472
     },
     {
-      "index": 4,
+      "index": 2,
       "name": "config llama cpp test endpoint reports unreachable external server",
       "ok": true,
       "branchCount": 1468
     },
     {
-      "index": 5,
+      "index": 3,
       "name": "chat session creation uses pass-through host context window",
       "ok": true,
       "branchCount": 1531
     },
     {
-      "index": 6,
+      "index": 4,
       "name": "dashboard endpoints expose runs, details, metrics, and chat sessions",
       "ok": true,
       "branchCount": 2886
     },
     {
-      "index": 7,
+      "index": 5,
       "name": "dashboard chat message route stores exact user tokens from llama tokenizer",
       "ok": true,
       "branchCount": 1817
     },
     {
-      "index": 8,
+      "index": 6,
       "name": "dashboard metrics expose line-read stats and prompt-baseline recommendations",
       "ok": true,
       "branchCount": 1596
     },
     {
-      "index": 9,
+      "index": 7,
       "name": "web_search tool calls increment web search usage",
       "ok": true,
       "branchCount": 1594
     },
     {
-      "index": 10,
+      "index": 8,
       "name": "plan/repo-search stream events include backend promptTokenCount",
       "ok": true,
       "branchCount": 2461
     },
     {
-      "index": 11,
+      "index": 9,
       "name": "chat session web search defaults on and update persists webSearchEnabled",
       "ok": true,
       "branchCount": 1535
     },
     {
-      "index": 12,
+      "index": 10,
       "name": "no-web direct chat persists a single answer with scorecard output tokens",
       "ok": true,
       "branchCount": 2215
     },
     {
-      "index": 13,
+      "index": 11,
       "name": "web-on direct chat streams tool events, persists tool step + answer, splits tokens",
       "ok": true,
       "branchCount": 2486
     },
     {
-      "index": 14,
+      "index": 12,
       "name": "web-on direct chat can answer later turn from retained successful fetch evidence",
       "ok": true,
       "branchCount": 2440
     },
     {
-      "index": 15,
+      "index": 13,
       "name": "deleting retained web tool step allows the same web call in a later chat turn",
       "ok": true,
       "branchCount": 2516
     },
     {
-      "index": 16,
+      "index": 14,
       "name": "repo-search auto-append preview reports agents.md and file listing token counts",
       "ok": true,
       "branchCount": 1605
     },
     {
-      "index": 17,
+      "index": 15,
       "name": "repo-search auto-append preview reports disabled defaults and missing agents.md",
       "ok": true,
       "branchCount": 1606
     },
     {
-      "index": 18,
+      "index": 16,
       "name": "repo-search auto-append preview prefers llama tokenizer when available",
       "ok": true,
       "branchCount": 1624
     },
     {
-      "index": 19,
+      "index": 17,
       "name": "package start script launches the dedicated dual-server start runner",
       "ok": true,
       "branchCount": 1133
     },
     {
-      "index": 20,
+      "index": 18,
       "name": "repo-search and dashboard chat messages serialize by waiting",
       "ok": true,
       "branchCount": 2383
     },
     {
-      "index": 21,
+      "index": 19,
       "name": "model routes execute in FIFO order across mixed request kinds",
       "ok": true,
       "branchCount": 2393
     },
     {
-      "index": 22,
+      "index": 20,
       "name": "queued model request is dropped when client disconnects before lock grant",
       "ok": true,
       "branchCount": 2412
     },
     {
-      "index": 23,
+      "index": 21,
       "name": "invalid model request is rejected without waiting for active model work",
       "ok": true,
       "branchCount": 2254
     },
     {
-      "index": 24,
+      "index": 22,
       "name": "plan endpoint rejects missing or invalid repo root",
       "ok": true,
       "branchCount": 1529
     },
     {
-      "index": 25,
+      "index": 23,
       "name": "chat completion replays prior tool evidence without hidden system context",
       "ok": true,
       "branchCount": 2766
     },
     {
-      "index": 26,
+      "index": 24,
       "name": "deleting a tool bubble removes chat context and rewrites run detail",
       "ok": true,
       "branchCount": 2812
     }
   ],
-  "candidates": [
-    {
-      "deleteIndex": 1,
-      "deleteName": "normalizeWebSearchConfig defaults empty provider records",
-      "keepIndex": 0,
-      "keepName": "normalizeWebSearchConfig produces provider defaults and clamps ResultCount to 20",
-      "residualCount": 0,
-      "residualKeys": []
-    },
-    {
-      "deleteIndex": 19,
-      "deleteName": "package start script launches the dedicated dual-server start runner",
-      "keepIndex": 0,
-      "keepName": "normalizeWebSearchConfig produces provider defaults and clamps ResultCount to 20",
-      "residualCount": 0,
-      "residualKeys": []
-    },
-    {
-      "deleteIndex": 19,
-      "deleteName": "package start script launches the dedicated dual-server start runner",
-      "keepIndex": 1,
-      "keepName": "normalizeWebSearchConfig defaults empty provider records",
-      "residualCount": 0,
-      "residualKeys": []
-    },
-    {
-      "deleteIndex": 4,
-      "deleteName": "config llama cpp test endpoint reports unreachable external server",
-      "keepIndex": 3,
-      "keepName": "config llama cpp test endpoint reports reachable external server",
-      "residualCount": 1,
-      "residualKeys": [
-        "src/status-server/routes/core.ts|41|0"
-      ]
-    },
-    {
-      "deleteIndex": 0,
-      "deleteName": "normalizeWebSearchConfig produces provider defaults and clamps ResultCount to 20",
-      "keepIndex": 1,
-      "keepName": "normalizeWebSearchConfig defaults empty provider records",
-      "residualCount": 5,
-      "residualKeys": [
-        "src/config/normalization.ts|17|0",
-        "src/config/normalization.ts|19|0",
-        "src/config/normalization.ts|22|0",
-        "src/config/normalization.ts|26|0",
-        "src/config/normalization.ts|27|0"
-      ]
-    },
-    {
-      "deleteIndex": 3,
-      "deleteName": "config llama cpp test endpoint reports reachable external server",
-      "keepIndex": 4,
-      "keepName": "config llama cpp test endpoint reports unreachable external server",
-      "residualCount": 5,
-      "residualKeys": [
-        "src/lib/http-client.ts|33|0",
-        "src/lib/http-client.ts|34|0",
-        "src/llm-protocol/llama-cpp-client.ts|13|0",
-        "src/llm-protocol/llama-cpp-client.ts|15|0",
-        "src/status-server/routes/core.ts|37|0"
-      ]
-    }
-  ]
+  "candidates": []
 }

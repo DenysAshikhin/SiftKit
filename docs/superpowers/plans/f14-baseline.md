@@ -73,3 +73,29 @@ isolation under c8, caches branch keys by file-hash, and lists
 - Branch floor: all touched `src/` files held or improved (command-safety 84.12→84.18,
   repo-search/prompts 85.00→86.41, provider-helpers 85.38→85.87; engine.ts, prompt-budget,
   model-json, dynamic-output-cap unchanged). Overall branches 78.74%→78.78%.
+
+## Suite B result — `tests/dashboard-status-server.test.ts`
+
+- Line count: 2380 → 2361.
+- Cases: 27 → 25 (2 pure `normalizeWebSearchConfig` decisions relocated verbatim to the
+  `config-normalization` seam; B1).
+- Attribution sweep after relocation: `attributing 25 tests … candidates (residual <= 0): 0`.
+  No remaining case is within-file branch-redundant — every one drives a live status server
+  over real HTTP and exercises route↔store↔queue↔chat integration branches no sibling covers.
+  B2–B7 therefore produced **zero** safe deletions (residual-0 gate never opens); duplicating
+  those endpoint/queue/chat unit decisions into new seam files would not enable any deletion
+  and would only add redundant tests, so they are kept + annotated in place (file-header note).
+- Retained as E2E integration (residual > 0 — all 25): web-search-quota endpoint payload;
+  llama-cpp test-endpoint reachable/unreachable probing; chat session pass-through context
+  window; dashboard runs/details/metrics/chat-sessions endpoint contract; exact llama-tokenizer
+  user-token storage; line-read stats + prompt-baseline recommendations; web_search usage
+  increment; plan/repo-search stream `promptTokenCount`; web-search default persistence; no-web
+  and web-on direct chat persistence + token splitting; retained-fetch later-turn answer;
+  deleted-web-step re-call; repo-search auto-append preview token counts (×3); start-script
+  packaging; model-request-queue serialize/FIFO/drop-on-disconnect/reject-invalid (×4); plan
+  endpoint repo-root validation; tool-evidence replay without hidden system context; tool-bubble
+  delete rewrites run detail. Unit decisions underneath are covered in the config-store,
+  model-request-queue, status-server-chat, route-request-normalizers, chat-route-file-listing,
+  and web-search-quota seams.
+- Branch floor: full `npm run test:coverage` confirms all dashboard-touched `src/` files held
+  ≥ their Task 0 baseline (see floor check below).
