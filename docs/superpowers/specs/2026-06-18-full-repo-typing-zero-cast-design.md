@@ -13,8 +13,13 @@ Make the entire SiftKit repo (backend `src`, frontend `dashboard`, plus
 - No `<T>x` angle-bracket assertions.
 - No multi/chained casts (`x as unknown as T`, `x as A as B`).
 - No "escape" casts (`as any`, `as unknown` used to launder types).
+- No explicit `unknown` types in cleaned production/test scopes.
+- No broad catch-all records such as `Record<string, unknown>` / `Dict` at
+  cleaned boundaries.
 - No namespace imports (`import * as fs from 'node:fs'`).
 - No `var as String | Json`-style union-laundering casts.
+- No broad mixed input unions such as `SiftConfig | Record<string, unknown>` or
+  `string | JsonValue`; validate at the boundary and pass a concrete typed DTO.
 - All types **auto-inferred** — from values (`satisfies`, `as const`) and from
   runtime schemas (`z.infer`), never hand-asserted.
 
@@ -23,6 +28,9 @@ Make the entire SiftKit repo (backend `src`, frontend `dashboard`, plus
 - `satisfies T` (validates a value against a type while keeping its narrow
   inferred type).
 - Type-only import renames: `import { a as b }` (a rename, not a cast).
+- Domain-specific literal unions such as `'on' | 'off'`, provider IDs, route
+  method names, and schema-derived `null` / optionality. These are not
+  catch-all input laundering.
 
 **Out of scope:** non-null assertions (`foo!`) and definite-assignment (`x!`)
 — left as-is for this effort; behavior changes; unrelated refactors.
@@ -63,6 +71,12 @@ in-scope dirs. Rules:
   `as const`.
 - `no-restricted-syntax` → selector `ImportNamespaceSpecifier` — bans
   `import * as`.
+- `no-restricted-syntax` selector `TSUnknownKeyword` bans explicit `unknown`.
+- `TSUnknownKeyword` also catches `Record<string, unknown>`-style broad records;
+  use a named schema-derived DTO instead.
+- `no-restricted-syntax` selector
+  `TSUnionType > TSTypeReference[typeName.name="JsonValue"]` bans broad
+  `string | JsonValue` / `JsonValue | undefined` input laundering.
 - `@typescript-eslint/no-explicit-any` — bans `any`.
 - `@typescript-eslint/no-unnecessary-type-assertion` — catches redundant casts
   (type-aware; requires `parserOptions.project`).
@@ -81,7 +95,11 @@ repo-wide.
 Add `zod` to `dependencies`. For every boundary that ingests untrusted/untyped
 data, define a zod schema **co-located with its domain**, export the inferred
 type via `z.infer`, and reuse one schema across all readers/writers of that
-shape (DRY). Replace `JSON.parse(raw) as T` with `Schema.parse(JSON.parse(raw))`.
+shape (DRY). Replace `JSON.parse(raw) as T`, explicit `unknown` normalizer
+helpers, `Record<string, unknown>` plumbing, and `string | JsonValue`-style
+unions with `Schema.parse(JSON.parse(raw))` or a schema-backed DTO parser at
+the boundary. Inside the cleaned module, only the schema-derived concrete type
+flows.
 
 Boundary inventory:
 

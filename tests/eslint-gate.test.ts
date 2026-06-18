@@ -57,6 +57,18 @@ test('eslint gate flags explicit any', () => {
   assert.equal(result.messages[0]?.ruleId, '@typescript-eslint/no-explicit-any');
 });
 
+test('eslint gate flags explicit unknown', () => {
+  const result = lintFixtureAllowingFailure('explicit-unknown.ts');
+  assert.equal(result.errorCount, 1);
+  assert.equal(result.messages[0]?.ruleId, 'no-restricted-syntax');
+});
+
+test('eslint gate flags broad JsonValue unions', () => {
+  const result = lintFixtureAllowingFailure('broad-json-union.ts');
+  assert.equal(result.errorCount, 1);
+  assert.equal(result.messages[0]?.ruleId, 'no-restricted-syntax');
+});
+
 test('eslint gate lints project declaration files', () => {
   const result = lintFixtureAllowingFailure('declaration.d.ts');
   assert.equal(result.errorCount, 1);

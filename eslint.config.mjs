@@ -29,6 +29,14 @@ const TYPING_RULES = {
       selector: 'ImportNamespaceSpecifier',
       message: 'Namespace imports (import * as) are banned; use named imports.',
     },
+    {
+      selector: 'TSUnknownKeyword',
+      message: 'Explicit unknown is banned; validate at the boundary with a schema-derived DTO.',
+    },
+    {
+      selector: 'TSUnionType > TSTypeReference[typeName.name="JsonValue"]',
+      message: 'Broad JsonValue unions are banned; parse boundary input into a schema-derived DTO.',
+    },
   ],
 };
 
@@ -45,6 +53,8 @@ export default tseslint.config(
       'tests/fixtures/eslint-gate/cast.ts',
       'tests/fixtures/eslint-gate/namespace.ts',
       'tests/fixtures/eslint-gate/explicit-any.ts',
+      'tests/fixtures/eslint-gate/explicit-unknown.ts',
+      'tests/fixtures/eslint-gate/broad-json-union.ts',
       'tests/fixtures/eslint-gate/declaration.d.ts',
     ],
   },
