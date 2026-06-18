@@ -25,6 +25,9 @@ E2E the dominant coverage source.
 
 ## In-scope files
 
+Line counts verified via `wc -l` on 2026-06-18 (clean tree); re-verify at execution time as
+they drift.
+
 | File | Lines |
 | --- | --- |
 | `tests/dashboard-status-server.test.ts` | 2380 |
@@ -39,10 +42,19 @@ E2E the dominant coverage source.
 
 Per-test branch attribution drives every deletion. No deletion is made on judgment alone.
 
-### Attribution harness — `scripts/coverage-attribution.ts`
+### Attribution harness — `scripts/analysis/`
 
-Analysis-only tool. Typed, lives under `scripts/`, gitignored output dir, removed (or left
-unshipped) after the pass. Not part of the test suite.
+Analysis-only tool. Typed, lives under `scripts/analysis/`, which is **excluded from the
+shipped `dist` build** (`tsconfig.scripts.json` excludes it) and typechecked via a dedicated
+`tsconfig.analysis.json`. Its output dir (`.coverage-attr/`) is gitignored. The harness's own
+unit test lives beside it (`scripts/analysis/*.test.ts`), **not** under `tests/`, so the repo's
+default runner (which globs every `tests/*.test.ts`) never picks it up. It is run manually with
+`npx tsx --test scripts/analysis/<name>.test.ts`. The tool is kept (unshipped) as a reusable
+maintenance utility rather than deleted.
+
+`c8` is added as a pinned `devDependency` (the repo previously relied on `npx` fetching it
+on the fly; it is not installed locally), so `node_modules/c8/bin/c8.js` resolves
+deterministically.
 
 1. Enumerate every test name in an in-scope file (parse `test('...'`/`it('...'` declarations;
    names are escaped for use as a `--test-name-pattern` regex anchored `^...$`).
@@ -121,7 +133,10 @@ attribute -> build overlap matrix -> review candidates
 - **Branch attribution gaps:** if a residual branch is reachable only through live server state,
   it is *not* unit-coverable — such pairs are excluded from deletion (kept as-is).
 - **Threshold miscalibration:** the 8-branch bar is tuned on the first file's matrix before
-  bulk deletion; if it produces unsafe candidates, raise it.
+  bulk deletion. Because a pair is a candidate when `residual <= threshold`, a *higher*
+  threshold admits *more* (less-similar) pairs; if the candidate set contains unsafe pairs,
+  **lower** the threshold to tighten it. The per-deletion subset gate is the real safety net —
+  the threshold only controls how many pairs surface for review.
 - **Coverage instrumentation drift:** c8 line/branch ids can shift between runs if `src/**`
   changes — `src/**` is frozen for this pass (non-goal), removing that variable.
 
