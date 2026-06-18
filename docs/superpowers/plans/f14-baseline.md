@@ -47,3 +47,29 @@ no touched `src/` file's `% Branch` may drop below these values.
 isolation under c8, caches branch keys by file-hash, and lists
 `DELETE [i] <name> (residual N) <= KEEP [j] <name>`. A case is safe to delete only at
 `residual 0` against a retained test. Editing a giant suite invalidates its cache.
+
+## Suite A result — `tests/repo-search-loop.core.test.ts`
+
+- Line count: 2215 → 1696.
+- Cases: 69 → 37 (24 relocated verbatim to seams; 8 extracted-and-deleted).
+- Attribution sweep after extraction: zero failed isolations; the only remaining
+  residual-0 candidate (`reports prompt tokens and elapsed time` ⊆ `tool_result
+  outputTokens`) is **retained** because its progress-event token/elapsed/command-
+  preservation behavior is not asserted by the superset case (branch-redundant, not
+  behavior-redundant). Annotated in-file.
+- Relocated (A1–A4): 15 command-safety, 5 ModelJson planner-parse, 3 provider
+  retry/transient, 1 getDynamicMaxOutputTokens.
+- Extracted to seams then deleted (A5, A10): rg `--type` tsx/jsx/tsx+glob trio and the
+  explicit `--no-ignore`/`-u` pair → `command-safety.test.ts`; the anti-loop / examples /
+  ignored-paths prompt trio → `repo-search-prompts.test.ts`.
+- Retained as E2E integration (residual > 0 — unique engine-orchestration branches):
+  native-tool dispatch (`repo_list_files`/`repo_read_file` x3), in-loop tool-result
+  budgeting/truncation/dedupe, finish-depth / corroborated-finish / max-turns / exit-code
+  classification, duplicate-warning + forced-finish, terminal synthesis, live max_tokens
+  injection (planner + synthesis), append-only cache transcript, progress-event token
+  plumbing, native web_search, model-inventory mismatch, GCI/Select-String/Get-Content
+  ignore handling, mixed-type rewrite end-to-end. The unit decisions under these are
+  covered in the engine-* seams.
+- Branch floor: all touched `src/` files held or improved (command-safety 84.12→84.18,
+  repo-search/prompts 85.00→86.41, provider-helpers 85.38→85.87; engine.ts, prompt-budget,
+  model-json, dynamic-output-cap unchanged). Overall branches 78.74%→78.78%.

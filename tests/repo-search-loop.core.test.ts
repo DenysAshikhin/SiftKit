@@ -72,6 +72,17 @@ async function getFreePort(): Promise<number> {
   });
 }
 
+// F14 (test-pyramid rebalance): pure-function decisions previously co-located here were
+// relocated to their seams (command-safety, model-json, provider-helpers, dynamic-output-cap,
+// repo-search-prompts). The remaining runTaskLoop cases are intentionally retained as E2E
+// integration coverage: each exercises engine orchestration branches (native-tool dispatch,
+// in-loop tool-result budgeting, finish-depth/duplicate/forced-finish governance, live
+// max_tokens injection, append-only transcript wiring, progress-event plumbing) that the
+// coverage-attribution harness proved are not redundant with any sibling case (residual > 0).
+// The unit-level decisions they build on are covered directly in engine-native-tools,
+// engine-tool-result-budgeter, tool-loop-governor, engine-forced-finish, engine-duplicate-tracker,
+// engine-token-usage, and engine-transcript-manager seams.
+
 test('assertConfiguredModelPresent hard-fails when configured model is missing', () => {
   assert.throws(
     () => assertConfiguredModelPresent('Qwen3.5-9B-Q8_0.gguf', ['Qwen3.5-27B-Q4_K_M.gguf']),
