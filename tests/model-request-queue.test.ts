@@ -154,15 +154,14 @@ test('queued model request logs its FIFO position without probing llama while wa
     const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
     assert.ok(activeLock);
     let queuedLockPromise: Promise<Awaited<ReturnType<typeof acquireModelRequestWithWait>>> | null = null;
-    let capturedLines: StdoutLine[] = [];
 
     const lines = await captureStdoutLines(async (currentLines) => {
-      capturedLines = currentLines;
+      // Enqueueing is synchronous: the FIFO position is logged the moment the queued
+      // acquire is called, before it awaits — no wall-clock wait is needed to observe it.
       queuedLockPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat');
       try {
-        await new Promise<void>((resolve) => setTimeout(resolve, 30));
         assert.equal((ctx as ServerContext & { readonly wakeCount: number }).wakeCount, 0);
-        assert.ok(capturedLines.some((line) => /request incoming task=dashboard_chat queue_position=2/u.test(line)), capturedLines.join('\n'));
+        assert.ok(currentLines.some((line) => /request incoming task=dashboard_chat queue_position=2/u.test(line)), currentLines.join('\n'));
       } finally {
         assert.equal(releaseModelRequest(ctx, activeLock.token), true);
         const queuedLock = await queuedLockPromise;
@@ -179,15 +178,20 @@ test('queued model request logs its FIFO position without probing llama while wa
   }
 });
 
-test('queued model request times out, cancels, and logs the dropped request', async () => {
+test('queued model request times out, cancels, and logs the dropped request', async (t) => {
+  // Virtual time: the queue timeout is driven by tick(), so the relative ordering is
+  // exact and load-independent — no real ~25ms window that event-loop jitter can break.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const ctx = createQueueContext();
   try {
     const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
     assert.ok(activeLock);
 
     const lines = await captureStdoutLines(async () => {
-      const queuedLock = await acquireModelRequestWithWait(ctx, 'summary', undefined, undefined, { timeoutMs: 25 });
-      assert.equal(queuedLock, null);
+      const queuedPromise = acquireModelRequestWithWait(ctx, 'summary', undefined, undefined, { timeoutMs: 25 });
+      assert.equal(ctx.modelRequestQueue.length, 1);
+      t.mock.timers.tick(25);
+      assert.equal(await queuedPromise, null);
     });
 
     assert.equal(ctx.modelRequestQueue.length, 0);
@@ -196,11 +200,13 @@ test('queued model request times out, cancels, and logs the dropped request', as
 
     assert.equal(releaseModelRequest(ctx, activeLock.token), true);
   } finally {
+    t.mock.timers.reset();
     await ctx.managedLlamaFlushQueue.close();
   }
 });
 
-test('queued model request timeout resets when an earlier queued request drops', async () => {
+test('queued model request timeout resets when an earlier queued request drops', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const ctx = createQueueContext();
   try {
     const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
@@ -208,24 +214,34 @@ test('queued model request timeout resets when an earlier queued request drops',
 
     const firstQueuedLockPromise = acquireModelRequestWithWait(ctx, 'summary', undefined, undefined, { timeoutMs: 30 });
     const secondQueuedLockPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat', undefined, undefined, { timeoutMs: 60 });
+    assert.equal(ctx.modelRequestQueue.length, 2);
 
+    // At t=30 the summary waiter times out; dashboard_chat's position improves (3 -> 2),
+    // which restarts its 60ms window from t=30 (so it would now fire at t=90).
+    t.mock.timers.tick(30);
     assert.equal(await firstQueuedLockPromise, null);
-    await new Promise<void>((resolve) => setTimeout(resolve, 40));
-
     assert.equal(ctx.modelRequestQueue.length, 1);
     assert.equal(ctx.modelRequestQueue[0]?.kind, 'dashboard_chat');
-    assert.equal(releaseModelRequest(ctx, activeLock.token), true);
 
+    // Advance to t=70. Without the reset, dashboard_chat's original window would have
+    // fired at t=60 and dropped it; because the window reset, it is still queued.
+    t.mock.timers.tick(40);
+    assert.equal(ctx.modelRequestQueue.length, 1);
+    assert.equal(ctx.modelRequestQueue[0]?.kind, 'dashboard_chat');
+
+    assert.equal(releaseModelRequest(ctx, activeLock.token), true);
     const secondQueuedLock = await secondQueuedLockPromise;
     assert.ok(secondQueuedLock);
     assert.equal(secondQueuedLock.kind, 'dashboard_chat');
     assert.equal(releaseModelRequest(ctx, secondQueuedLock.token), true);
   } finally {
+    t.mock.timers.reset();
     await ctx.managedLlamaFlushQueue.close();
   }
 });
 
-test('queued model request still times out after its reset window expires', async () => {
+test('queued model request still times out after its reset window expires', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const ctx = createQueueContext();
   try {
     const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
@@ -234,13 +250,20 @@ test('queued model request still times out after its reset window expires', asyn
     const firstQueuedLockPromise = acquireModelRequestWithWait(ctx, 'summary', undefined, undefined, { timeoutMs: 25 });
     const secondQueuedLockPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat', undefined, undefined, { timeoutMs: 35 });
 
+    // summary drops at t=25, resetting dashboard_chat's 35ms window from t=25 (fires at t=60).
+    t.mock.timers.tick(25);
     assert.equal(await firstQueuedLockPromise, null);
+    assert.equal(ctx.modelRequestQueue.length, 1);
+
+    // Advance past the reset window to t=60: dashboard_chat times out even after the reset.
+    t.mock.timers.tick(35);
     assert.equal(await secondQueuedLockPromise, null);
     assert.equal(ctx.modelRequestQueue.length, 0);
     assert.equal(ctx.activeModelRequest?.token, activeLock.token);
 
     assert.equal(releaseModelRequest(ctx, activeLock.token), true);
   } finally {
+    t.mock.timers.reset();
     await ctx.managedLlamaFlushQueue.close();
   }
 });
@@ -250,8 +273,8 @@ test('model request diagnostics expose the active lock and queued requests', asy
   try {
     const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
     assert.ok(activeLock);
+    // Enqueueing is synchronous, so the diagnostics reflect the queued request immediately.
     const queuedLockPromise = acquireModelRequestWithWait(ctx, 'summary');
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
 
     const diagnostics = getModelRequestQueueDiagnostics(ctx);
     assert.equal(diagnostics.active, true);
@@ -275,8 +298,9 @@ test('release grants the next queued model request without waiting for polling t
   try {
     const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
     assert.ok(activeLock);
+    // Enqueueing is synchronous; releasing the active lock grants the queued request
+    // immediately, without waiting on any polling timer.
     const queuedLockPromise = acquireModelRequestWithWait(ctx, 'summary');
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
 
     assert.equal(releaseModelRequest(ctx, activeLock.token), true);
     assert.equal(ctx.modelRequestQueue.length, 0);
@@ -300,7 +324,6 @@ test('active and queued model requests keep the server out of idle state', async
     assert.equal(isIdle(ctx), false);
 
     const queuedLockPromise = acquireModelRequestWithWait(ctx, 'summary');
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
     assert.equal(isIdle(ctx), false);
 
     assert.equal(releaseModelRequest(ctx, activeLock.token), true);

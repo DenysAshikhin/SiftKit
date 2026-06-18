@@ -135,6 +135,9 @@ test('real status server preserves true status while an active request is tracke
       });
 
       assert.equal(readStatusText(getConfigPath()), 'true');
+      // Stability assertion (a non-event): the status must stay 'true' across the whole
+      // lease window. This is a fixed wait by necessity — you cannot poll for the absence
+      // of a change. Load only lengthens the window, which keeps the assertion valid.
       await sleep(FAST_LEASE_WAIT_MS);
       assert.equal(readStatusText(getConfigPath()), 'true');
     }, {
@@ -544,6 +547,9 @@ test('real status server reports idle false while managed llama stays ready', as
       }, 5000);
 
       assert.equal(readStatusText(getConfigPath()), 'false');
+      // Stability assertion (a non-event): idle stays false and the status stays 'false'
+      // across the lease window while managed llama remains ready. A fixed wait is required
+      // because there is no positive event to poll for; load only lengthens it harmlessly.
       await sleep(FAST_LEASE_WAIT_MS);
 
       const status = await requestJson<RuntimeStatusResponse>(statusUrl);
