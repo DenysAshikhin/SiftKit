@@ -1,0 +1,30 @@
+attributing 25 tests in tests/runtime-status-server.test.ts (concurrency 4)
+  [1/25] real status server normalizes legacy non-boolean status text to false
+  [2/25] real status server normalizes non-boolean statuses in POST /status payloads
+  [3/25] real status server accepts boolean-like running payload variants
+  [4/25] real status server preserves true status while an active request is tracked
+  [5/25] real status server persists aggregate metrics and exposes them from GET /status
+  [6/25] real status server starts managed llama.cpp during server startup before serving requests and reports idle after ready
+  [7/25] managed llama live stream logs flush after idle without model request release
+  [8/25] real status server abandons stale running request instead of returning busy
+  [9/25] real status server accepts deferred summary artifacts on terminal posts and drains them after responding
+  [10/25] managed llama scripts no longer receive status-path coordination args or env vars
+  [11/25] real status server ignores legacy non-boolean status text when starting managed llama.cpp
+  [12/25] real status server reports idle false while managed llama stays ready
+  [13/25] real status server fails closed during startup when managed llama logs contain warnings
+  [14/25] real status server ignores transient Loading model 503 startup log lines
+  [15/25] real status server keeps running in degraded mode when managed llama startup is broken
+  [16/25] real status server clears a stale managed llama process during startup before serving requests
+  [17/25] real status server falls back to zeroed metrics when the metrics cache is invalid
+  [18/25] real status server resets metrics when metrics schema is outdated
+  [19/25] real status server accumulates provider payload totals across a chunked request while counting one completed request
+  [20/25] real status server aggregates task-scoped tool stats and tool tokens
+  [21/25] real status server patches speculative acceptance onto an existing repo-search run log row
+  [22/25] real status server suppresses intermediate false log for single-step completed requests
+  [23/25] real status server logs intermediate false line for first chunked leaf step
+  [24/25] real status server logs explicit chunk failures and clears them before the next request
+  [25/25] real status server marks a stale active request as abandoned when a new request id starts
+report: C:\Users\denys\Documents\GitHub\SiftKit\.coverage-attr\report.runtime-status-server.json
+candidates (residual <= 8): 2
+  DELETE [10] "real status server ignores legacy non-boolean status text when starting managed llama.cpp" (residual 3) <= KEEP [11] "real status server reports idle false while managed llama stays ready"
+  DELETE [11] "real status server reports idle false while managed llama stays ready" (residual 5) <= KEEP [10] "real status server ignores legacy non-boolean status text when starting managed llama.cpp"

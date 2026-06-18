@@ -1,0 +1,9 @@
+Global coverage baseline (npm run test:coverage) captured 2026-06-18 on f6-f14-test-pyramid-typing
+before any E2E dedup deletions.
+
+Statements   : 89.46% ( 37386/41788 )
+Branches     : 78.76% ( 9758/12389 )
+Functions    : 88.54% ( 3449/3895 )
+Lines        : 89.46% ( 37386/41788 )
+
+Gate: post-pass Branches % >= 78.76%.

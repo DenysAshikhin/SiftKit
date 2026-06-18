@@ -1,0 +1,1396 @@
+{
+  "file": "tests/runtime-summarize.test.ts",
+  "threshold": 8,
+  "failedIsolations": [],
+  "tests": [
+    {
+      "index": 0,
+      "name": "summarizeRequest uses a single oversized mock summary pass when the external server is available",
+      "ok": true,
+      "branchCount": 1535
+    },
+    {
+      "index": 1,
+      "name": "summary command-output pass/fail with Jest pass output is deterministic and skips provider calls",
+      "ok": true,
+      "branchCount": 1242
+    },
+    {
+      "index": 2,
+      "name": "summarizeRequest does not wait for terminal metadata notification response",
+      "ok": true,
+      "branchCount": 1234
+    },
+    {
+      "index": 3,
+      "name": "summary command-output pass/fail with Jest failure output is deterministic and lists failing tests",
+      "ok": true,
+      "branchCount": 1260
+    },
+    {
+      "index": 4,
+      "name": "summary timing metadata records lock wait separately from provider duration",
+      "ok": true,
+      "branchCount": 1544
+    },
+    {
+      "index": 5,
+      "name": "summary ignores legacy busy running status without retrying",
+      "ok": true,
+      "branchCount": 1531
+    },
+    {
+      "index": 6,
+      "name": "summarizeRequest does not split mock summaries when aggregate status totals are large but no exact observations exist",
+      "ok": true,
+      "branchCount": 1539
+    },
+    {
+      "index": 7,
+      "name": "summarizeRequest does not recurse forever when token-aware planning returns a single full-size chunk",
+      "ok": true,
+      "branchCount": 1609
+    },
+    {
+      "index": 8,
+      "name": "summarizeRequest keeps oversized llama.cpp requests on the planner path without chunk leaf markers",
+      "ok": true,
+      "branchCount": 1627
+    },
+    {
+      "index": 9,
+      "name": "summarizeRequest keeps using bootstrap calibration when only a legacy observed-budget ratio exists and status metrics later become unusable",
+      "ok": true,
+      "branchCount": 1535
+    },
+    {
+      "index": 10,
+      "name": "runCommand saves a raw log and respects no-summarize mode when the external server is available",
+      "ok": true,
+      "branchCount": 1357
+    },
+    {
+      "index": 11,
+      "name": "saveConfig reports operation-specific context when the external server is unreachable",
+      "ok": true,
+      "branchCount": 1179
+    },
+    {
+      "index": 12,
+      "name": "summary keeps oversized llama.cpp requests on planner mode when direct prompt limits would reject chunking",
+      "ok": true,
+      "branchCount": 1781
+    },
+    {
+      "index": 13,
+      "name": "summary hands oversized llama.cpp requests to planner mode before tokenization-based chunking would start",
+      "ok": true,
+      "branchCount": 1750
+    },
+    {
+      "index": 14,
+      "name": "summary posts the preflight prompt token count in running status updates",
+      "ok": true,
+      "branchCount": 1618
+    },
+    {
+      "index": 15,
+      "name": "summarizeRequest recovers malformed structured llama.cpp JSON when the expected fields are present",
+      "ok": true,
+      "branchCount": 1619
+    },
+    {
+      "index": 16,
+      "name": "summarizeRequest enables per-request response_format json_schema for structured llama.cpp decisions",
+      "ok": true,
+      "branchCount": 1619
+    },
+    {
+      "index": 17,
+      "name": "buildPrompt prepends promptPrefix when provided",
+      "ok": true,
+      "branchCount": 1139
+    },
+    {
+      "index": 18,
+      "name": "buildPrompt wraps generated chunk slices as inert literal input",
+      "ok": true,
+      "branchCount": 1139
+    },
+    {
+      "index": 19,
+      "name": "pass markers with zero failed still use the model summary path",
+      "ok": true,
+      "branchCount": 1532
+    },
+    {
+      "index": 20,
+      "name": "getSummaryDecision keeps command-output raw review false for sparse error-like text with zero exit code",
+      "ok": true,
+      "branchCount": 1163
+    },
+    {
+      "index": 21,
+      "name": "getSummaryDecision requires raw review for command-output with non-zero exit code",
+      "ok": true,
+      "branchCount": 1163
+    },
+    {
+      "index": 22,
+      "name": "getSummaryDecision requires raw review for command-output with dense error signals",
+      "ok": true,
+      "branchCount": 1165
+    },
+    {
+      "index": 23,
+      "name": "runCommand classifies missing executables as command failures with raw review required",
+      "ok": true,
+      "branchCount": 1562
+    },
+    {
+      "index": 24,
+      "name": "summarizeRequest queues request artifacts on the terminal status post and persists them asynchronously for successful calls",
+      "ok": true,
+      "branchCount": 1532
+    },
+    {
+      "index": 25,
+      "name": "summary succeeds when deferred artifact persistence is unavailable",
+      "ok": true,
+      "branchCount": 1532
+    },
+    {
+      "index": 26,
+      "name": "command-output never surfaces unsupported_input for non-empty input",
+      "ok": true,
+      "branchCount": 1543
+    },
+    {
+      "index": 27,
+      "name": "provider failures hard fail instead of falling back to a deterministic raw excerpt",
+      "ok": true,
+      "branchCount": 1506
+    },
+    {
+      "index": 28,
+      "name": "empty structured output retries once then fails, and subsequent requests still run",
+      "ok": true,
+      "branchCount": 1654
+    }
+  ],
+  "candidates": [
+    {
+      "deleteIndex": 15,
+      "deleteName": "summarizeRequest recovers malformed structured llama.cpp JSON when the expected fields are present",
+      "keepIndex": 16,
+      "keepName": "summarizeRequest enables per-request response_format json_schema for structured llama.cpp decisions",
+      "residualCount": 0,
+      "residualKeys": []
+    },
+    {
+      "deleteIndex": 16,
+      "deleteName": "summarizeRequest enables per-request response_format json_schema for structured llama.cpp decisions",
+      "keepIndex": 15,
+      "keepName": "summarizeRequest recovers malformed structured llama.cpp JSON when the expected fields are present",
+      "residualCount": 0,
+      "residualKeys": []
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 18,
+      "keepName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "residualCount": 0,
+      "residualKeys": []
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 17,
+      "keepName": "buildPrompt prepends promptPrefix when provided",
+      "residualCount": 0,
+      "residualKeys": []
+    },
+    {
+      "deleteIndex": 19,
+      "deleteName": "pass markers with zero failed still use the model summary path",
+      "keepIndex": 25,
+      "keepName": "summary succeeds when deferred artifact persistence is unavailable",
+      "residualCount": 0,
+      "residualKeys": []
+    },
+    {
+      "deleteIndex": 20,
+      "deleteName": "getSummaryDecision keeps command-output raw review false for sparse error-like text with zero exit code",
+      "keepIndex": 22,
+      "keepName": "getSummaryDecision requires raw review for command-output with dense error signals",
+      "residualCount": 0,
+      "residualKeys": []
+    },
+    {
+      "deleteIndex": 25,
+      "deleteName": "summary succeeds when deferred artifact persistence is unavailable",
+      "keepIndex": 19,
+      "keepName": "pass markers with zero failed still use the model summary path",
+      "residualCount": 0,
+      "residualKeys": []
+    },
+    {
+      "deleteIndex": 5,
+      "deleteName": "summary ignores legacy busy running status without retrying",
+      "keepIndex": 19,
+      "keepName": "pass markers with zero failed still use the model summary path",
+      "residualCount": 1,
+      "residualKeys": [
+        "src/summary/decision.ts|19|0"
+      ]
+    },
+    {
+      "deleteIndex": 5,
+      "deleteName": "summary ignores legacy busy running status without retrying",
+      "keepIndex": 25,
+      "keepName": "summary succeeds when deferred artifact persistence is unavailable",
+      "residualCount": 1,
+      "residualKeys": [
+        "src/summary/decision.ts|19|0"
+      ]
+    },
+    {
+      "deleteIndex": 20,
+      "deleteName": "getSummaryDecision keeps command-output raw review false for sparse error-like text with zero exit code",
+      "keepIndex": 21,
+      "keepName": "getSummaryDecision requires raw review for command-output with non-zero exit code",
+      "residualCount": 1,
+      "residualKeys": [
+        "src/summary/decision.ts|15|0"
+      ]
+    },
+    {
+      "deleteIndex": 21,
+      "deleteName": "getSummaryDecision requires raw review for command-output with non-zero exit code",
+      "keepIndex": 20,
+      "keepName": "getSummaryDecision keeps command-output raw review false for sparse error-like text with zero exit code",
+      "residualCount": 1,
+      "residualKeys": [
+        "src/summary/decision.ts|13|0"
+      ]
+    },
+    {
+      "deleteIndex": 21,
+      "deleteName": "getSummaryDecision requires raw review for command-output with non-zero exit code",
+      "keepIndex": 22,
+      "keepName": "getSummaryDecision requires raw review for command-output with dense error signals",
+      "residualCount": 1,
+      "residualKeys": [
+        "src/summary/decision.ts|13|0"
+      ]
+    },
+    {
+      "deleteIndex": 0,
+      "deleteName": "summarizeRequest uses a single oversized mock summary pass when the external server is available",
+      "keepIndex": 6,
+      "keepName": "summarizeRequest does not split mock summaries when aggregate status totals are large but no exact observations exist",
+      "residualCount": 2,
+      "residualKeys": [
+        "src/summary/prompt.ts|12|0",
+        "src/summary/providers/mock-provider.ts|13|0"
+      ]
+    },
+    {
+      "deleteIndex": 5,
+      "deleteName": "summary ignores legacy busy running status without retrying",
+      "keepIndex": 4,
+      "keepName": "summary timing metadata records lock wait separately from provider duration",
+      "residualCount": 2,
+      "residualKeys": [
+        "src/summary/request-runner.ts|70|0",
+        "src/summary/request-runner.ts|71|0"
+      ]
+    },
+    {
+      "deleteIndex": 5,
+      "deleteName": "summary ignores legacy busy running status without retrying",
+      "keepIndex": 9,
+      "keepName": "summarizeRequest keeps using bootstrap calibration when only a legacy observed-budget ratio exists and status metrics later become unusable",
+      "residualCount": 2,
+      "residualKeys": [
+        "src/state/runtime-db.ts|57|0",
+        "src/state/runtime-db.ts|59|0"
+      ]
+    },
+    {
+      "deleteIndex": 19,
+      "deleteName": "pass markers with zero failed still use the model summary path",
+      "keepIndex": 5,
+      "keepName": "summary ignores legacy busy running status without retrying",
+      "residualCount": 2,
+      "residualKeys": [
+        "src/summary/decision.ts|17|0",
+        "src/summary/measure.ts|18|0"
+      ]
+    },
+    {
+      "deleteIndex": 22,
+      "deleteName": "getSummaryDecision requires raw review for command-output with dense error signals",
+      "keepIndex": 20,
+      "keepName": "getSummaryDecision keeps command-output raw review false for sparse error-like text with zero exit code",
+      "residualCount": 2,
+      "residualKeys": [
+        "src/summary/measure.ts|14|0",
+        "src/summary/measure.ts|18|0"
+      ]
+    },
+    {
+      "deleteIndex": 25,
+      "deleteName": "summary succeeds when deferred artifact persistence is unavailable",
+      "keepIndex": 5,
+      "keepName": "summary ignores legacy busy running status without retrying",
+      "residualCount": 2,
+      "residualKeys": [
+        "src/summary/decision.ts|17|0",
+        "src/summary/measure.ts|18|0"
+      ]
+    },
+    {
+      "deleteIndex": 19,
+      "deleteName": "pass markers with zero failed still use the model summary path",
+      "keepIndex": 24,
+      "keepName": "summarizeRequest queues request artifacts on the terminal status post and persists them asynchronously for successful calls",
+      "residualCount": 3,
+      "residualKeys": [
+        "src/summary/artifacts.ts|26|0",
+        "src/summary/artifacts.ts|29|0",
+        "src/summary/request-runner.ts|67|0"
+      ]
+    },
+    {
+      "deleteIndex": 22,
+      "deleteName": "getSummaryDecision requires raw review for command-output with dense error signals",
+      "keepIndex": 21,
+      "keepName": "getSummaryDecision requires raw review for command-output with non-zero exit code",
+      "residualCount": 3,
+      "residualKeys": [
+        "src/summary/decision.ts|15|0",
+        "src/summary/measure.ts|14|0",
+        "src/summary/measure.ts|18|0"
+      ]
+    },
+    {
+      "deleteIndex": 24,
+      "deleteName": "summarizeRequest queues request artifacts on the terminal status post and persists them asynchronously for successful calls",
+      "keepIndex": 19,
+      "keepName": "pass markers with zero failed still use the model summary path",
+      "residualCount": 3,
+      "residualKeys": [
+        "src/summary/artifacts.ts|27|0",
+        "src/summary/artifacts.ts|30|0",
+        "src/summary/request-runner.ts|72|0"
+      ]
+    },
+    {
+      "deleteIndex": 24,
+      "deleteName": "summarizeRequest queues request artifacts on the terminal status post and persists them asynchronously for successful calls",
+      "keepIndex": 25,
+      "keepName": "summary succeeds when deferred artifact persistence is unavailable",
+      "residualCount": 3,
+      "residualKeys": [
+        "src/summary/artifacts.ts|27|0",
+        "src/summary/artifacts.ts|30|0",
+        "src/summary/request-runner.ts|72|0"
+      ]
+    },
+    {
+      "deleteIndex": 25,
+      "deleteName": "summary succeeds when deferred artifact persistence is unavailable",
+      "keepIndex": 24,
+      "keepName": "summarizeRequest queues request artifacts on the terminal status post and persists them asynchronously for successful calls",
+      "residualCount": 3,
+      "residualKeys": [
+        "src/summary/artifacts.ts|26|0",
+        "src/summary/artifacts.ts|29|0",
+        "src/summary/request-runner.ts|67|0"
+      ]
+    },
+    {
+      "deleteIndex": 5,
+      "deleteName": "summary ignores legacy busy running status without retrying",
+      "keepIndex": 24,
+      "keepName": "summarizeRequest queues request artifacts on the terminal status post and persists them asynchronously for successful calls",
+      "residualCount": 4,
+      "residualKeys": [
+        "src/summary/artifacts.ts|26|0",
+        "src/summary/artifacts.ts|29|0",
+        "src/summary/decision.ts|19|0",
+        "src/summary/request-runner.ts|67|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 20,
+      "keepName": "getSummaryDecision keeps command-output raw review false for sparse error-like text with zero exit code",
+      "residualCount": 4,
+      "residualKeys": [
+        "src/summary/prompt.ts|8|0",
+        "src/summary/prompt.ts|9|0",
+        "src/summary/prompt.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 21,
+      "keepName": "getSummaryDecision requires raw review for command-output with non-zero exit code",
+      "residualCount": 4,
+      "residualKeys": [
+        "src/summary/prompt.ts|8|0",
+        "src/summary/prompt.ts|9|0",
+        "src/summary/prompt.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 22,
+      "keepName": "getSummaryDecision requires raw review for command-output with dense error signals",
+      "residualCount": 4,
+      "residualKeys": [
+        "src/summary/prompt.ts|8|0",
+        "src/summary/prompt.ts|9|0",
+        "src/summary/prompt.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 20,
+      "keepName": "getSummaryDecision keeps command-output raw review false for sparse error-like text with zero exit code",
+      "residualCount": 4,
+      "residualKeys": [
+        "src/summary/prompt.ts|8|0",
+        "src/summary/prompt.ts|9|0",
+        "src/summary/prompt.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 21,
+      "keepName": "getSummaryDecision requires raw review for command-output with non-zero exit code",
+      "residualCount": 4,
+      "residualKeys": [
+        "src/summary/prompt.ts|8|0",
+        "src/summary/prompt.ts|9|0",
+        "src/summary/prompt.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 22,
+      "keepName": "getSummaryDecision requires raw review for command-output with dense error signals",
+      "residualCount": 4,
+      "residualKeys": [
+        "src/summary/prompt.ts|8|0",
+        "src/summary/prompt.ts|9|0",
+        "src/summary/prompt.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 19,
+      "deleteName": "pass markers with zero failed still use the model summary path",
+      "keepIndex": 4,
+      "keepName": "summary timing metadata records lock wait separately from provider duration",
+      "residualCount": 4,
+      "residualKeys": [
+        "src/summary/decision.ts|17|0",
+        "src/summary/measure.ts|18|0",
+        "src/summary/request-runner.ts|70|0",
+        "src/summary/request-runner.ts|71|0"
+      ]
+    },
+    {
+      "deleteIndex": 19,
+      "deleteName": "pass markers with zero failed still use the model summary path",
+      "keepIndex": 9,
+      "keepName": "summarizeRequest keeps using bootstrap calibration when only a legacy observed-budget ratio exists and status metrics later become unusable",
+      "residualCount": 4,
+      "residualKeys": [
+        "src/state/runtime-db.ts|57|0",
+        "src/state/runtime-db.ts|59|0",
+        "src/summary/decision.ts|17|0",
+        "src/summary/measure.ts|18|0"
+      ]
+    },
+    {
+      "deleteIndex": 25,
+      "deleteName": "summary succeeds when deferred artifact persistence is unavailable",
+      "keepIndex": 4,
+      "keepName": "summary timing metadata records lock wait separately from provider duration",
+      "residualCount": 4,
+      "residualKeys": [
+        "src/summary/decision.ts|17|0",
+        "src/summary/measure.ts|18|0",
+        "src/summary/request-runner.ts|70|0",
+        "src/summary/request-runner.ts|71|0"
+      ]
+    },
+    {
+      "deleteIndex": 25,
+      "deleteName": "summary succeeds when deferred artifact persistence is unavailable",
+      "keepIndex": 9,
+      "keepName": "summarizeRequest keeps using bootstrap calibration when only a legacy observed-budget ratio exists and status metrics later become unusable",
+      "residualCount": 4,
+      "residualKeys": [
+        "src/state/runtime-db.ts|57|0",
+        "src/state/runtime-db.ts|59|0",
+        "src/summary/decision.ts|17|0",
+        "src/summary/measure.ts|18|0"
+      ]
+    },
+    {
+      "deleteIndex": 2,
+      "deleteName": "summarizeRequest does not wait for terminal metadata notification response",
+      "keepIndex": 3,
+      "keepName": "summary command-output pass/fail with Jest failure output is deterministic and lists failing tests",
+      "residualCount": 5,
+      "residualKeys": [
+        "src/config/status-backend.ts|18|0",
+        "src/config/status-backend.ts|66|0",
+        "src/config/status-backend.ts|74|0",
+        "src/config/status-backend.ts|82|0",
+        "src/summary/test-output.ts|32|0"
+      ]
+    },
+    {
+      "deleteIndex": 24,
+      "deleteName": "summarizeRequest queues request artifacts on the terminal status post and persists them asynchronously for successful calls",
+      "keepIndex": 5,
+      "keepName": "summary ignores legacy busy running status without retrying",
+      "residualCount": 5,
+      "residualKeys": [
+        "src/summary/artifacts.ts|27|0",
+        "src/summary/artifacts.ts|30|0",
+        "src/summary/decision.ts|17|0",
+        "src/summary/measure.ts|18|0",
+        "src/summary/request-runner.ts|72|0"
+      ]
+    },
+    {
+      "deleteIndex": 6,
+      "deleteName": "summarizeRequest does not split mock summaries when aggregate status totals are large but no exact observations exist",
+      "keepIndex": 0,
+      "keepName": "summarizeRequest uses a single oversized mock summary pass when the external server is available",
+      "residualCount": 6,
+      "residualKeys": [
+        "src/summary/mock.ts|11|0",
+        "src/summary/mock.ts|12|0",
+        "src/summary/prompt.ts|11|0",
+        "src/summary/prompt.ts|13|0",
+        "src/summary/prompt.ts|15|0",
+        "src/summary/providers/mock-provider.ts|14|0"
+      ]
+    },
+    {
+      "deleteIndex": 9,
+      "deleteName": "summarizeRequest keeps using bootstrap calibration when only a legacy observed-budget ratio exists and status metrics later become unusable",
+      "keepIndex": 5,
+      "keepName": "summary ignores legacy busy running status without retrying",
+      "residualCount": 6,
+      "residualKeys": [
+        "src/config/index.ts|16|0",
+        "src/state/observed-budget.ts|19|0",
+        "src/state/observed-budget.ts|20|0",
+        "src/state/runtime-db.ts|56|0",
+        "src/state/runtime-db.ts|58|0",
+        "src/state/runtime-db.ts|61|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 0,
+      "keepName": "summarizeRequest uses a single oversized mock summary pass when the external server is available",
+      "residualCount": 6,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 7,
+      "keepName": "summarizeRequest does not recurse forever when token-aware planning returns a single full-size chunk",
+      "residualCount": 6,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 27,
+      "keepName": "provider failures hard fail instead of falling back to a deterministic raw excerpt",
+      "residualCount": 6,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 0,
+      "keepName": "summarizeRequest uses a single oversized mock summary pass when the external server is available",
+      "residualCount": 6,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 7,
+      "keepName": "summarizeRequest does not recurse forever when token-aware planning returns a single full-size chunk",
+      "residualCount": 6,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 27,
+      "keepName": "provider failures hard fail instead of falling back to a deterministic raw excerpt",
+      "residualCount": 6,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0"
+      ]
+    },
+    {
+      "deleteIndex": 9,
+      "deleteName": "summarizeRequest keeps using bootstrap calibration when only a legacy observed-budget ratio exists and status metrics later become unusable",
+      "keepIndex": 4,
+      "keepName": "summary timing metadata records lock wait separately from provider duration",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/state/observed-budget.ts|19|0",
+        "src/state/observed-budget.ts|20|0",
+        "src/state/runtime-db.ts|56|0",
+        "src/state/runtime-db.ts|58|0",
+        "src/state/runtime-db.ts|61|0",
+        "src/summary/request-runner.ts|70|0",
+        "src/summary/request-runner.ts|71|0"
+      ]
+    },
+    {
+      "deleteIndex": 9,
+      "deleteName": "summarizeRequest keeps using bootstrap calibration when only a legacy observed-budget ratio exists and status metrics later become unusable",
+      "keepIndex": 19,
+      "keepName": "pass markers with zero failed still use the model summary path",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/config/index.ts|16|0",
+        "src/state/observed-budget.ts|19|0",
+        "src/state/observed-budget.ts|20|0",
+        "src/state/runtime-db.ts|56|0",
+        "src/state/runtime-db.ts|58|0",
+        "src/state/runtime-db.ts|61|0",
+        "src/summary/decision.ts|19|0"
+      ]
+    },
+    {
+      "deleteIndex": 9,
+      "deleteName": "summarizeRequest keeps using bootstrap calibration when only a legacy observed-budget ratio exists and status metrics later become unusable",
+      "keepIndex": 25,
+      "keepName": "summary succeeds when deferred artifact persistence is unavailable",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/config/index.ts|16|0",
+        "src/state/observed-budget.ts|19|0",
+        "src/state/observed-budget.ts|20|0",
+        "src/state/runtime-db.ts|56|0",
+        "src/state/runtime-db.ts|58|0",
+        "src/state/runtime-db.ts|61|0",
+        "src/summary/decision.ts|19|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 1,
+      "keepName": "summary command-output pass/fail with Jest pass output is deterministic and skips provider calls",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|8|0",
+        "src/summary/prompt.ts|9|0",
+        "src/summary/prompt.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 2,
+      "keepName": "summarizeRequest does not wait for terminal metadata notification response",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|8|0",
+        "src/summary/prompt.ts|9|0",
+        "src/summary/prompt.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 3,
+      "keepName": "summary command-output pass/fail with Jest failure output is deterministic and lists failing tests",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|8|0",
+        "src/summary/prompt.ts|9|0",
+        "src/summary/prompt.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 4,
+      "keepName": "summary timing metadata records lock wait separately from provider duration",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 5,
+      "keepName": "summary ignores legacy busy running status without retrying",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 6,
+      "keepName": "summarizeRequest does not split mock summaries when aggregate status totals are large but no exact observations exist",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 8,
+      "keepName": "summarizeRequest keeps oversized llama.cpp requests on the planner path without chunk leaf markers",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 9,
+      "keepName": "summarizeRequest keeps using bootstrap calibration when only a legacy observed-budget ratio exists and status metrics later become unusable",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 14,
+      "keepName": "summary posts the preflight prompt token count in running status updates",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 15,
+      "keepName": "summarizeRequest recovers malformed structured llama.cpp JSON when the expected fields are present",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 16,
+      "keepName": "summarizeRequest enables per-request response_format json_schema for structured llama.cpp decisions",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 19,
+      "keepName": "pass markers with zero failed still use the model summary path",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 24,
+      "keepName": "summarizeRequest queues request artifacts on the terminal status post and persists them asynchronously for successful calls",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 25,
+      "keepName": "summary succeeds when deferred artifact persistence is unavailable",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 26,
+      "keepName": "command-output never surfaces unsupported_input for non-empty input",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 28,
+      "keepName": "empty structured output retries once then fails, and subsequent requests still run",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 1,
+      "keepName": "summary command-output pass/fail with Jest pass output is deterministic and skips provider calls",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|8|0",
+        "src/summary/prompt.ts|9|0",
+        "src/summary/prompt.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 2,
+      "keepName": "summarizeRequest does not wait for terminal metadata notification response",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|8|0",
+        "src/summary/prompt.ts|9|0",
+        "src/summary/prompt.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 3,
+      "keepName": "summary command-output pass/fail with Jest failure output is deterministic and lists failing tests",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|8|0",
+        "src/summary/prompt.ts|9|0",
+        "src/summary/prompt.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 4,
+      "keepName": "summary timing metadata records lock wait separately from provider duration",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 5,
+      "keepName": "summary ignores legacy busy running status without retrying",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 6,
+      "keepName": "summarizeRequest does not split mock summaries when aggregate status totals are large but no exact observations exist",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 8,
+      "keepName": "summarizeRequest keeps oversized llama.cpp requests on the planner path without chunk leaf markers",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 9,
+      "keepName": "summarizeRequest keeps using bootstrap calibration when only a legacy observed-budget ratio exists and status metrics later become unusable",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 14,
+      "keepName": "summary posts the preflight prompt token count in running status updates",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 15,
+      "keepName": "summarizeRequest recovers malformed structured llama.cpp JSON when the expected fields are present",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 16,
+      "keepName": "summarizeRequest enables per-request response_format json_schema for structured llama.cpp decisions",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 19,
+      "keepName": "pass markers with zero failed still use the model summary path",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 24,
+      "keepName": "summarizeRequest queues request artifacts on the terminal status post and persists them asynchronously for successful calls",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 25,
+      "keepName": "summary succeeds when deferred artifact persistence is unavailable",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 26,
+      "keepName": "command-output never surfaces unsupported_input for non-empty input",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 28,
+      "keepName": "empty structured output retries once then fails, and subsequent requests still run",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/presets.ts|13|0",
+        "src/presets.ts|23|0",
+        "src/presets.ts|35|0",
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 20,
+      "deleteName": "getSummaryDecision keeps command-output raw review false for sparse error-like text with zero exit code",
+      "keepIndex": 1,
+      "keepName": "summary command-output pass/fail with Jest pass output is deterministic and skips provider calls",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/decision.ts|8|0",
+        "src/summary/decision.ts|9|0",
+        "src/summary/decision.ts|10|0",
+        "src/summary/decision.ts|15|0"
+      ]
+    },
+    {
+      "deleteIndex": 20,
+      "deleteName": "getSummaryDecision keeps command-output raw review false for sparse error-like text with zero exit code",
+      "keepIndex": 3,
+      "keepName": "summary command-output pass/fail with Jest failure output is deterministic and lists failing tests",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/decision.ts|8|0",
+        "src/summary/decision.ts|9|0",
+        "src/summary/decision.ts|10|0",
+        "src/summary/decision.ts|15|0"
+      ]
+    },
+    {
+      "deleteIndex": 21,
+      "deleteName": "getSummaryDecision requires raw review for command-output with non-zero exit code",
+      "keepIndex": 1,
+      "keepName": "summary command-output pass/fail with Jest pass output is deterministic and skips provider calls",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/decision.ts|8|0",
+        "src/summary/decision.ts|9|0",
+        "src/summary/decision.ts|10|0",
+        "src/summary/decision.ts|13|0"
+      ]
+    },
+    {
+      "deleteIndex": 21,
+      "deleteName": "getSummaryDecision requires raw review for command-output with non-zero exit code",
+      "keepIndex": 3,
+      "keepName": "summary command-output pass/fail with Jest failure output is deterministic and lists failing tests",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/lib/temporary-timing-recorder.ts|10|0",
+        "src/summary/artifacts.ts|10|0",
+        "src/summary/core.ts|10|0",
+        "src/summary/decision.ts|8|0",
+        "src/summary/decision.ts|9|0",
+        "src/summary/decision.ts|10|0",
+        "src/summary/decision.ts|13|0"
+      ]
+    },
+    {
+      "deleteIndex": 24,
+      "deleteName": "summarizeRequest queues request artifacts on the terminal status post and persists them asynchronously for successful calls",
+      "keepIndex": 4,
+      "keepName": "summary timing metadata records lock wait separately from provider duration",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/summary/artifacts.ts|27|0",
+        "src/summary/artifacts.ts|30|0",
+        "src/summary/decision.ts|17|0",
+        "src/summary/measure.ts|18|0",
+        "src/summary/request-runner.ts|70|0",
+        "src/summary/request-runner.ts|71|0",
+        "src/summary/request-runner.ts|72|0"
+      ]
+    },
+    {
+      "deleteIndex": 24,
+      "deleteName": "summarizeRequest queues request artifacts on the terminal status post and persists them asynchronously for successful calls",
+      "keepIndex": 9,
+      "keepName": "summarizeRequest keeps using bootstrap calibration when only a legacy observed-budget ratio exists and status metrics later become unusable",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/state/runtime-db.ts|57|0",
+        "src/state/runtime-db.ts|59|0",
+        "src/summary/artifacts.ts|27|0",
+        "src/summary/artifacts.ts|30|0",
+        "src/summary/decision.ts|17|0",
+        "src/summary/measure.ts|18|0",
+        "src/summary/request-runner.ts|72|0"
+      ]
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "buildPrompt prepends promptPrefix when provided",
+      "keepIndex": 11,
+      "keepName": "saveConfig reports operation-specific context when the external server is unreachable",
+      "residualCount": 8,
+      "residualKeys": [
+        "src/summary.ts|7|0",
+        "src/summary.ts|8|0",
+        "src/summary/measure.ts|8|0",
+        "src/summary/measure.ts|9|0",
+        "src/summary/prompt.ts|8|0",
+        "src/summary/prompt.ts|9|0",
+        "src/summary/prompt.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "buildPrompt wraps generated chunk slices as inert literal input",
+      "keepIndex": 11,
+      "keepName": "saveConfig reports operation-specific context when the external server is unreachable",
+      "residualCount": 8,
+      "residualKeys": [
+        "src/summary.ts|7|0",
+        "src/summary.ts|8|0",
+        "src/summary/measure.ts|8|0",
+        "src/summary/measure.ts|9|0",
+        "src/summary/prompt.ts|8|0",
+        "src/summary/prompt.ts|9|0",
+        "src/summary/prompt.ts|10|0",
+        "src/summary/prompt.ts|12|0"
+      ]
+    }
+  ]
+}

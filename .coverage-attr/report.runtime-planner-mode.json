@@ -1,0 +1,241 @@
+{
+  "file": "tests/runtime-planner-mode.test.ts",
+  "threshold": 8,
+  "failedIsolations": [],
+  "tests": [
+    {
+      "index": 0,
+      "name": "planner json_filter accepts combined gte and lte bounds in one filter value",
+      "ok": true,
+      "branchCount": 1870
+    },
+    {
+      "index": 1,
+      "name": "planner iteration running=false notification is fire-and-forget",
+      "ok": true,
+      "branchCount": 1870
+    },
+    {
+      "index": 2,
+      "name": "planner retries malformed json_filter schema-placeholder args once and then succeeds",
+      "ok": true,
+      "branchCount": 1881
+    },
+    {
+      "index": 3,
+      "name": "planner accepts exact nested value scalar wrappers in json_filter args",
+      "ok": true,
+      "branchCount": 1877
+    },
+    {
+      "index": 4,
+      "name": "planner malformed json_filter schema-placeholder args fail on invalid response limit after retry",
+      "ok": true,
+      "branchCount": 1813
+    },
+    {
+      "index": 5,
+      "name": "planner json_filter supports scalar timestamp ranges on object-root array collections",
+      "ok": true,
+      "branchCount": 1869
+    },
+    {
+      "index": 6,
+      "name": "planner returns recoverable json_filter collectionPath guidance without counting an invalid response",
+      "ok": true,
+      "branchCount": 1856
+    },
+    {
+      "index": 7,
+      "name": "planner json_filter falls back to embedded JSON in command-output text and reports ignored prefix",
+      "ok": true,
+      "branchCount": 1888
+    },
+    {
+      "index": 8,
+      "name": "planner surfaces explicit invalid-json message when json_filter fallback cannot parse any valid section",
+      "ok": true,
+      "branchCount": 1809
+    },
+    {
+      "index": 9,
+      "name": "planner failures write failed artifacts through status posts",
+      "ok": true,
+      "branchCount": 1764
+    },
+    {
+      "index": 10,
+      "name": "powershell shim preserves pipeline order for oversized planner input",
+      "ok": true,
+      "branchCount": 1743
+    },
+    {
+      "index": 11,
+      "name": "planner debug dumps always write to the repo-local logs directory",
+      "ok": true,
+      "branchCount": 1738
+    },
+    {
+      "index": 12,
+      "name": "planner read_lines tool results use a compact numbered text block",
+      "ok": true,
+      "branchCount": 1842
+    },
+    {
+      "index": 13,
+      "name": "planner rejects semantically repeated nearby read_lines calls and reprompts for finish",
+      "ok": true,
+      "branchCount": 1861
+    },
+    {
+      "index": 14,
+      "name": "planner keeps the first real tool output and rewrites one duplicate warning tool turn through x5",
+      "ok": true,
+      "branchCount": 1863
+    },
+    {
+      "index": 15,
+      "name": "planner find_text and json_filter results use compact text blocks in prompts and debug dumps",
+      "ok": true,
+      "branchCount": 1885
+    },
+    {
+      "index": 16,
+      "name": "planner keeps short read_lines output when reported token count is high",
+      "ok": true,
+      "branchCount": 1842
+    },
+    {
+      "index": 17,
+      "name": "planner keeps tool results when they stay within 70 percent of remaining stop-line tokens",
+      "ok": true,
+      "branchCount": 1842
+    },
+    {
+      "index": 18,
+      "name": "planner keeps read_lines output when tokenize is unavailable",
+      "ok": true,
+      "branchCount": 1852
+    },
+    {
+      "index": 19,
+      "name": "planner fits oversized read_lines output and reports omitted lines",
+      "ok": true,
+      "branchCount": 1858
+    },
+    {
+      "index": 20,
+      "name": "planner advances repeated read_lines calls to one unread span",
+      "ok": true,
+      "branchCount": 1857
+    },
+    {
+      "index": 21,
+      "name": "planner advances repeated read_lines calls from fitted returned lines only",
+      "ok": true,
+      "branchCount": 1872
+    },
+    {
+      "index": 22,
+      "name": "planner forced finish rejects read_lines before unread expansion",
+      "ok": true,
+      "branchCount": 1875
+    },
+    {
+      "index": 23,
+      "name": "planner fits oversized find_text output and reports omitted results",
+      "ok": true,
+      "branchCount": 1855
+    },
+    {
+      "index": 24,
+      "name": "planner activates once input exceeds 75 percent of context length even before chunking would start",
+      "ok": true,
+      "branchCount": 1738
+    },
+    {
+      "index": 25,
+      "name": "planner allows up to thirty tool calls while prompt headroom remains without visible budget counters",
+      "ok": true,
+      "branchCount": 1888
+    },
+    {
+      "index": 26,
+      "name": "planner reuses one slot within a request and assigns a new slot to the next request",
+      "ok": true,
+      "branchCount": 1858
+    },
+    {
+      "index": 27,
+      "name": "planner fails fast when the next planner turn would exceed non-thinking headroom",
+      "ok": true,
+      "branchCount": 1857
+    },
+    {
+      "index": 28,
+      "name": "planner fails fast when the next planner turn would exceed thinking headroom",
+      "ok": true,
+      "branchCount": 1857
+    }
+  ],
+  "candidates": [
+    {
+      "deleteIndex": 11,
+      "deleteName": "planner debug dumps always write to the repo-local logs directory",
+      "keepIndex": 24,
+      "keepName": "planner activates once input exceeds 75 percent of context length even before chunking would start",
+      "residualCount": 0,
+      "residualKeys": []
+    },
+    {
+      "deleteIndex": 16,
+      "deleteName": "planner keeps short read_lines output when reported token count is high",
+      "keepIndex": 17,
+      "keepName": "planner keeps tool results when they stay within 70 percent of remaining stop-line tokens",
+      "residualCount": 0,
+      "residualKeys": []
+    },
+    {
+      "deleteIndex": 17,
+      "deleteName": "planner keeps tool results when they stay within 70 percent of remaining stop-line tokens",
+      "keepIndex": 16,
+      "keepName": "planner keeps short read_lines output when reported token count is high",
+      "residualCount": 0,
+      "residualKeys": []
+    },
+    {
+      "deleteIndex": 24,
+      "deleteName": "planner activates once input exceeds 75 percent of context length even before chunking would start",
+      "keepIndex": 11,
+      "keepName": "planner debug dumps always write to the repo-local logs directory",
+      "residualCount": 0,
+      "residualKeys": []
+    },
+    {
+      "deleteIndex": 27,
+      "deleteName": "planner fails fast when the next planner turn would exceed non-thinking headroom",
+      "keepIndex": 28,
+      "keepName": "planner fails fast when the next planner turn would exceed thinking headroom",
+      "residualCount": 4,
+      "residualKeys": [
+        "src/llm-protocol/llama-cpp-client.ts|37|0",
+        "src/llm-protocol/llama-cpp-client.ts|46|0",
+        "src/llm-protocol/llama-cpp-client.ts|52|0",
+        "src/llm-protocol/llama-cpp-client.ts|57|0"
+      ]
+    },
+    {
+      "deleteIndex": 28,
+      "deleteName": "planner fails fast when the next planner turn would exceed thinking headroom",
+      "keepIndex": 27,
+      "keepName": "planner fails fast when the next planner turn would exceed non-thinking headroom",
+      "residualCount": 4,
+      "residualKeys": [
+        "src/llm-protocol/llama-cpp-client.ts|36|0",
+        "src/llm-protocol/llama-cpp-client.ts|44|0",
+        "src/llm-protocol/llama-cpp-client.ts|47|0",
+        "src/llm-protocol/llama-cpp-client.ts|56|0"
+      ]
+    }
+  ]
+}

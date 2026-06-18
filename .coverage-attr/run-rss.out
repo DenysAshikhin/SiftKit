@@ -1,0 +1,17 @@
+attributing 12 tests in tests/repo-search-status-server.test.ts (concurrency 4)
+  [1/12] status server stays responsive while repo-search is running
+  [2/12] repo-search abandons stale running status after acquiring the model lock
+  [3/12] repo-search registers before queue wait, exposes queue diagnostics, and fails queued timeouts loudly
+  [4/12] managed llama readiness wait is serialized by the model request queue
+  [5/12] health reports unavailable while managed llama bootstrap is still starting
+  [6/12] status completion flushing does not block health responses
+  [7/12] repo-search endpoint logs one model-requested command line per tool call
+  [8/12] buildRepoSearchProgressLogMessage formats planner and repo-search command progress lines
+  [9/12] repo-search transcript artifact keeps routine normalized flags out of tool replay
+  [10/12] repo-search transcript artifact replays fitted repo_read_file range using per-tool context limits
+  [11/12] repo-search endpoint reloads executor module per request
+  [12/12] repo-search endpoint rejects duplicated final output before sending success response
+report: C:\Users\denys\Documents\GitHub\SiftKit\.coverage-attr\report.repo-search-status-server.json
+candidates (residual <= 8): 2
+  DELETE [6] "repo-search endpoint logs one model-requested command line per tool call" (residual 6) <= KEEP [8] "repo-search transcript artifact keeps routine normalized flags out of tool replay"
+  DELETE [8] "repo-search transcript artifact keeps routine normalized flags out of tool replay" (residual 6) <= KEEP [6] "repo-search endpoint logs one model-requested command line per tool call"

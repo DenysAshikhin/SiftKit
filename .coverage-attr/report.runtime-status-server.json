@@ -1,0 +1,185 @@
+{
+  "file": "tests/runtime-status-server.test.ts",
+  "threshold": 8,
+  "failedIsolations": [],
+  "tests": [
+    {
+      "index": 0,
+      "name": "real status server normalizes legacy non-boolean status text to false",
+      "ok": true,
+      "branchCount": 1494
+    },
+    {
+      "index": 1,
+      "name": "real status server normalizes non-boolean statuses in POST /status payloads",
+      "ok": true,
+      "branchCount": 1541
+    },
+    {
+      "index": 2,
+      "name": "real status server accepts boolean-like running payload variants",
+      "ok": true,
+      "branchCount": 1560
+    },
+    {
+      "index": 3,
+      "name": "real status server preserves true status while an active request is tracked",
+      "ok": true,
+      "branchCount": 1536
+    },
+    {
+      "index": 4,
+      "name": "real status server persists aggregate metrics and exposes them from GET /status",
+      "ok": true,
+      "branchCount": 1634
+    },
+    {
+      "index": 5,
+      "name": "real status server starts managed llama.cpp during server startup before serving requests and reports idle after ready",
+      "ok": true,
+      "branchCount": 1697
+    },
+    {
+      "index": 6,
+      "name": "managed llama live stream logs flush after idle without model request release",
+      "ok": true,
+      "branchCount": 1657
+    },
+    {
+      "index": 7,
+      "name": "real status server abandons stale running request instead of returning busy",
+      "ok": true,
+      "branchCount": 1538
+    },
+    {
+      "index": 8,
+      "name": "real status server accepts deferred summary artifacts on terminal posts and drains them after responding",
+      "ok": true,
+      "branchCount": 1623
+    },
+    {
+      "index": 9,
+      "name": "managed llama scripts no longer receive status-path coordination args or env vars",
+      "ok": true,
+      "branchCount": 1610
+    },
+    {
+      "index": 10,
+      "name": "real status server ignores legacy non-boolean status text when starting managed llama.cpp",
+      "ok": true,
+      "branchCount": 1647
+    },
+    {
+      "index": 11,
+      "name": "real status server reports idle false while managed llama stays ready",
+      "ok": true,
+      "branchCount": 1649
+    },
+    {
+      "index": 12,
+      "name": "real status server fails closed during startup when managed llama logs contain warnings",
+      "ok": true,
+      "branchCount": 1299
+    },
+    {
+      "index": 13,
+      "name": "real status server ignores transient Loading model 503 startup log lines",
+      "ok": true,
+      "branchCount": 1667
+    },
+    {
+      "index": 14,
+      "name": "real status server keeps running in degraded mode when managed llama startup is broken",
+      "ok": true,
+      "branchCount": 1525
+    },
+    {
+      "index": 15,
+      "name": "real status server clears a stale managed llama process during startup before serving requests",
+      "ok": true,
+      "branchCount": 1696
+    },
+    {
+      "index": 16,
+      "name": "real status server falls back to zeroed metrics when the metrics cache is invalid",
+      "ok": true,
+      "branchCount": 1490
+    },
+    {
+      "index": 17,
+      "name": "real status server resets metrics when metrics schema is outdated",
+      "ok": true,
+      "branchCount": 1451
+    },
+    {
+      "index": 18,
+      "name": "real status server accumulates provider payload totals across a chunked request while counting one completed request",
+      "ok": true,
+      "branchCount": 1616
+    },
+    {
+      "index": 19,
+      "name": "real status server aggregates task-scoped tool stats and tool tokens",
+      "ok": true,
+      "branchCount": 1575
+    },
+    {
+      "index": 20,
+      "name": "real status server patches speculative acceptance onto an existing repo-search run log row",
+      "ok": true,
+      "branchCount": 1524
+    },
+    {
+      "index": 21,
+      "name": "real status server suppresses intermediate false log for single-step completed requests",
+      "ok": true,
+      "branchCount": 1590
+    },
+    {
+      "index": 22,
+      "name": "real status server logs intermediate false line for first chunked leaf step",
+      "ok": true,
+      "branchCount": 1537
+    },
+    {
+      "index": 23,
+      "name": "real status server logs explicit chunk failures and clears them before the next request",
+      "ok": true,
+      "branchCount": 1630
+    },
+    {
+      "index": 24,
+      "name": "real status server marks a stale active request as abandoned when a new request id starts",
+      "ok": true,
+      "branchCount": 1574
+    }
+  ],
+  "candidates": [
+    {
+      "deleteIndex": 10,
+      "deleteName": "real status server ignores legacy non-boolean status text when starting managed llama.cpp",
+      "keepIndex": 11,
+      "keepName": "real status server reports idle false while managed llama stays ready",
+      "residualCount": 3,
+      "residualKeys": [
+        "src/status-server/status-file.ts|15|0",
+        "src/status-server/status-file.ts|17|0",
+        "src/status-server/status-file.ts|19|0"
+      ]
+    },
+    {
+      "deleteIndex": 11,
+      "deleteName": "real status server reports idle false while managed llama stays ready",
+      "keepIndex": 10,
+      "keepName": "real status server ignores legacy non-boolean status text when starting managed llama.cpp",
+      "residualCount": 5,
+      "residualKeys": [
+        "src/status-server/status-file.ts|14|0",
+        "src/status-server/status-file.ts|16|0",
+        "src/status-server/status-file.ts|18|0",
+        "src/status-server/status-file.ts|20|0",
+        "src/status-server/status-file.ts|23|0"
+      ]
+    }
+  ]
+}

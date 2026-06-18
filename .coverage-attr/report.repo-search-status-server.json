@@ -1,0 +1,111 @@
+{
+  "file": "tests/repo-search-status-server.test.ts",
+  "threshold": 8,
+  "failedIsolations": [],
+  "tests": [
+    {
+      "index": 0,
+      "name": "status server stays responsive while repo-search is running",
+      "ok": true,
+      "branchCount": 2263
+    },
+    {
+      "index": 1,
+      "name": "repo-search abandons stale running status after acquiring the model lock",
+      "ok": true,
+      "branchCount": 2065
+    },
+    {
+      "index": 2,
+      "name": "repo-search registers before queue wait, exposes queue diagnostics, and fails queued timeouts loudly",
+      "ok": true,
+      "branchCount": 2233
+    },
+    {
+      "index": 3,
+      "name": "managed llama readiness wait is serialized by the model request queue",
+      "ok": true,
+      "branchCount": 1688
+    },
+    {
+      "index": 4,
+      "name": "health reports unavailable while managed llama bootstrap is still starting",
+      "ok": true,
+      "branchCount": 1598
+    },
+    {
+      "index": 5,
+      "name": "status completion flushing does not block health responses",
+      "ok": true,
+      "branchCount": 1540
+    },
+    {
+      "index": 6,
+      "name": "repo-search endpoint logs one model-requested command line per tool call",
+      "ok": true,
+      "branchCount": 2198
+    },
+    {
+      "index": 7,
+      "name": "buildRepoSearchProgressLogMessage formats planner and repo-search command progress lines",
+      "ok": true,
+      "branchCount": 1148
+    },
+    {
+      "index": 8,
+      "name": "repo-search transcript artifact keeps routine normalized flags out of tool replay",
+      "ok": true,
+      "branchCount": 2198
+    },
+    {
+      "index": 9,
+      "name": "repo-search transcript artifact replays fitted repo_read_file range using per-tool context limits",
+      "ok": true,
+      "branchCount": 2277
+    },
+    {
+      "index": 10,
+      "name": "repo-search endpoint reloads executor module per request",
+      "ok": true,
+      "branchCount": 2194
+    },
+    {
+      "index": 11,
+      "name": "repo-search endpoint rejects duplicated final output before sending success response",
+      "ok": true,
+      "branchCount": 2231
+    }
+  ],
+  "candidates": [
+    {
+      "deleteIndex": 6,
+      "deleteName": "repo-search endpoint logs one model-requested command line per tool call",
+      "keepIndex": 8,
+      "keepName": "repo-search transcript artifact keeps routine normalized flags out of tool replay",
+      "residualCount": 6,
+      "residualKeys": [
+        "src/status-server/index.ts|27|0",
+        "src/status-server/index.ts|30|0",
+        "src/status-server/index.ts|35|0",
+        "src/status-server/index.ts|38|0",
+        "src/status-server/index.ts|42|0",
+        "src/status-server/index.ts|47|0"
+      ]
+    },
+    {
+      "deleteIndex": 8,
+      "deleteName": "repo-search transcript artifact keeps routine normalized flags out of tool replay",
+      "keepIndex": 6,
+      "keepName": "repo-search endpoint logs one model-requested command line per tool call",
+      "residualCount": 6,
+      "residualKeys": [
+        "src/status-server/index.ts|26|0",
+        "src/status-server/index.ts|28|0",
+        "src/status-server/index.ts|33|0",
+        "src/status-server/index.ts|36|0",
+        "src/status-server/index.ts|40|0",
+        "src/status-server/index.ts|45|0"
+      ]
+    }
+  ]
+}

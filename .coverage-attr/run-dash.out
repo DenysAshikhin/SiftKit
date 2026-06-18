@@ -1,0 +1,36 @@
+attributing 27 tests in tests/dashboard-status-server.test.ts (concurrency 4)
+  [1/27] normalizeWebSearchConfig produces provider defaults and clamps ResultCount to 20
+  [2/27] normalizeWebSearchConfig defaults empty provider records
+  [3/27] GET /dashboard/web-search-quota returns a quotas array
+  [4/27] config llama cpp test endpoint reports reachable external server
+  [5/27] config llama cpp test endpoint reports unreachable external server
+  [6/27] chat session creation uses pass-through host context window
+  [7/27] dashboard endpoints expose runs, details, metrics, and chat sessions
+  [8/27] dashboard chat message route stores exact user tokens from llama tokenizer
+  [9/27] dashboard metrics expose line-read stats and prompt-baseline recommendations
+  [10/27] web_search tool calls increment web search usage
+  [11/27] plan/repo-search stream events include backend promptTokenCount
+  [12/27] chat session web search defaults on and update persists webSearchEnabled
+  [13/27] no-web direct chat persists a single answer with scorecard output tokens
+  [14/27] web-on direct chat streams tool events, persists tool step + answer, splits tokens
+  [15/27] web-on direct chat can answer later turn from retained successful fetch evidence
+  [16/27] deleting retained web tool step allows the same web call in a later chat turn
+  [17/27] repo-search auto-append preview reports agents.md and file listing token counts
+  [18/27] repo-search auto-append preview reports disabled defaults and missing agents.md
+  [19/27] repo-search auto-append preview prefers llama tokenizer when available
+  [20/27] package start script launches the dedicated dual-server start runner
+  [21/27] repo-search and dashboard chat messages serialize by waiting
+  [22/27] model routes execute in FIFO order across mixed request kinds
+  [23/27] queued model request is dropped when client disconnects before lock grant
+  [24/27] invalid model request is rejected without waiting for active model work
+  [25/27] plan endpoint rejects missing or invalid repo root
+  [26/27] chat completion replays prior tool evidence without hidden system context
+  [27/27] deleting a tool bubble removes chat context and rewrites run detail
+report: C:\Users\denys\Documents\GitHub\SiftKit\.coverage-attr\report.dashboard-status-server.json
+candidates (residual <= 8): 6
+  DELETE [1] "normalizeWebSearchConfig defaults empty provider records" (residual 0) <= KEEP [0] "normalizeWebSearchConfig produces provider defaults and clamps ResultCount to 20"
+  DELETE [19] "package start script launches the dedicated dual-server start runner" (residual 0) <= KEEP [0] "normalizeWebSearchConfig produces provider defaults and clamps ResultCount to 20"
+  DELETE [19] "package start script launches the dedicated dual-server start runner" (residual 0) <= KEEP [1] "normalizeWebSearchConfig defaults empty provider records"
+  DELETE [4] "config llama cpp test endpoint reports unreachable external server" (residual 1) <= KEEP [3] "config llama cpp test endpoint reports reachable external server"
+  DELETE [0] "normalizeWebSearchConfig produces provider defaults and clamps ResultCount to 20" (residual 5) <= KEEP [1] "normalizeWebSearchConfig defaults empty provider records"
+  DELETE [3] "config llama cpp test endpoint reports reachable external server" (residual 5) <= KEEP [4] "config llama cpp test endpoint reports unreachable external server"

@@ -1,0 +1,715 @@
+{
+  "file": "tests/mock-repo-search-loop.test.ts",
+  "threshold": 8,
+  "failedIsolations": [],
+  "tests": [
+    {
+      "index": 0,
+      "name": "runTaskLoop stops on invalid response limit",
+      "ok": true,
+      "branchCount": 778
+    },
+    {
+      "index": 1,
+      "name": "runTaskLoop repairs malformed planner payloads before executing tool calls",
+      "ok": true,
+      "branchCount": 929
+    },
+    {
+      "index": 2,
+      "name": "runTaskLoop replays unrecoverable invalid planner payloads through invalid_tool_call",
+      "ok": true,
+      "branchCount": 786
+    },
+    {
+      "index": 3,
+      "name": "runTaskLoop cuts off runaway streamed tool JSON and reprompts once",
+      "ok": true,
+      "branchCount": 863
+    },
+    {
+      "index": 4,
+      "name": "runTaskLoop truncates oversized rg output to the largest fitting prefix",
+      "ok": true,
+      "branchCount": 945
+    },
+    {
+      "index": 5,
+      "name": "runTaskLoop advances overlapping repo_read_file calls to the next unread span",
+      "ok": true,
+      "branchCount": 920
+    },
+    {
+      "index": 6,
+      "name": "runTaskLoop replays effective repo_read_file range after native unread expansion",
+      "ok": true,
+      "branchCount": 931
+    },
+    {
+      "index": 7,
+      "name": "runTaskLoop replays only returned repo_read_file range after fitting oversized read",
+      "ok": true,
+      "branchCount": 1052
+    },
+    {
+      "index": 8,
+      "name": "runTaskLoop bounds repo_read_file unread span at the next returned range",
+      "ok": true,
+      "branchCount": 921
+    },
+    {
+      "index": 9,
+      "name": "runTaskLoop reports when repo_read_file has no unread lines left",
+      "ok": true,
+      "branchCount": 925
+    },
+    {
+      "index": 10,
+      "name": "runTaskLoop truncates oversized repo_list_files output with omitted file count",
+      "ok": true,
+      "branchCount": 891
+    },
+    {
+      "index": 11,
+      "name": "runTaskLoop preserves raw line-read stats when oversized Get-Content output is replaced",
+      "ok": true,
+      "branchCount": 955
+    },
+    {
+      "index": 12,
+      "name": "runTaskLoop does not print a red console warning when successful output is fitted",
+      "ok": true,
+      "branchCount": 939
+    },
+    {
+      "index": 13,
+      "name": "preflightPlannerPromptBudget reports overflow against context budget",
+      "ok": true,
+      "branchCount": 516
+    },
+    {
+      "index": 14,
+      "name": "preflightPlannerPromptBudget reserves provider prompt overhead against context budget",
+      "ok": true,
+      "branchCount": 520
+    },
+    {
+      "index": 15,
+      "name": "compactPlannerMessagesOnce preserves system and latest user intent",
+      "ok": true,
+      "branchCount": 534
+    },
+    {
+      "index": 16,
+      "name": "compactPlannerMessagesOnce budgets provider prompt overhead while selecting history",
+      "ok": true,
+      "branchCount": 528
+    },
+    {
+      "index": 17,
+      "name": "runTaskLoop fails with planner_preflight_overflow before provider request when compaction cannot fit",
+      "ok": true,
+      "branchCount": 707
+    },
+    {
+      "index": 18,
+      "name": "runTaskLoop includes planner provider reserve in dynamic output budget",
+      "ok": true,
+      "branchCount": 758
+    },
+    {
+      "index": 19,
+      "name": "runTaskLoop applies one-pass compaction and continues when compacted prompt fits",
+      "ok": true,
+      "branchCount": 990
+    },
+    {
+      "index": 20,
+      "name": "runTaskLoop increases per-tool cap as tool-call progress grows",
+      "ok": true,
+      "branchCount": 937
+    },
+    {
+      "index": 21,
+      "name": "runTaskLoop fits tool output that exceeds remaining token allowance",
+      "ok": true,
+      "branchCount": 942
+    },
+    {
+      "index": 22,
+      "name": "runTaskLoop subtracts accepted same-turn tool results from remaining allowance",
+      "ok": true,
+      "branchCount": 940
+    },
+    {
+      "index": 23,
+      "name": "runTaskLoop accepts first finish immediately when runtime reasoning is off",
+      "ok": true,
+      "branchCount": 772
+    },
+    {
+      "index": 24,
+      "name": "runTaskLoop accepts first finish immediately when runtime reasoning is on",
+      "ok": true,
+      "branchCount": 781
+    },
+    {
+      "index": 25,
+      "name": "runTaskLoop does not emit follow-up finish events after many reasoning-off tool calls",
+      "ok": true,
+      "branchCount": 951
+    },
+    {
+      "index": 26,
+      "name": "runTaskLoop keeps reasoning disabled across max-turn exhaustion when runtime reasoning is off",
+      "ok": true,
+      "branchCount": 941
+    },
+    {
+      "index": 27,
+      "name": "runTaskLoop retries transient provider network failures via shared retry helper",
+      "ok": true,
+      "branchCount": 994
+    },
+    {
+      "index": 28,
+      "name": "runTaskLoop waits for planner endpoint warm-up when initial connections are refused",
+      "ok": true,
+      "branchCount": 817
+    },
+    {
+      "index": 29,
+      "name": "runTaskLoop retries planner calls when endpoint returns HTTP 503 Loading model",
+      "ok": true,
+      "branchCount": 817
+    },
+    {
+      "index": 30,
+      "name": "runTaskLoop blocks exact duplicate commands with explicit error message",
+      "ok": true,
+      "branchCount": 948
+    },
+    {
+      "index": 31,
+      "name": "runTaskLoop blocks semantic duplicate repo-search commands with explicit error message",
+      "ok": true,
+      "branchCount": 1033
+    },
+    {
+      "index": 32,
+      "name": "runTaskLoop keeps raw rewrite notes in logs but inserts compact repo-search results into the prompt",
+      "ok": true,
+      "branchCount": 928
+    },
+    {
+      "index": 33,
+      "name": "runTaskLoop keeps routine normalized repo_rg flags out of model replay while audit keeps effective command",
+      "ok": true,
+      "branchCount": 916
+    },
+    {
+      "index": 34,
+      "name": "runTaskLoop widens repeated Get-Content reads on the same file and logs requested vs adjusted window",
+      "ok": true,
+      "branchCount": 1011
+    },
+    {
+      "index": 35,
+      "name": "runTaskLoop records adjusted Get-Content coverage from fitted returned lines only",
+      "ok": true,
+      "branchCount": 1012
+    },
+    {
+      "index": 36,
+      "name": "runTaskLoop clamps adjusted repeated Get-Content skip to non-negative values",
+      "ok": true,
+      "branchCount": 1003
+    },
+    {
+      "index": 37,
+      "name": "runTaskLoop forces repeated backward same-file reads to non-overlapping forward windows",
+      "ok": true,
+      "branchCount": 996
+    },
+    {
+      "index": 38,
+      "name": "runTaskLoop tracks per-file overlap telemetry and isolates histories across files",
+      "ok": true,
+      "branchCount": 1006
+    },
+    {
+      "index": 39,
+      "name": "runTaskLoop does not compact different commands that happen to return the same evidence",
+      "ok": true,
+      "branchCount": 941
+    },
+    {
+      "index": 40,
+      "name": "runTaskLoop forces finish mode after ten zero-output commands",
+      "ok": true,
+      "branchCount": 949
+    },
+    {
+      "index": 41,
+      "name": "runTaskLoop enables thinking on every tool-call turn when runtime reasoning is on",
+      "ok": true,
+      "branchCount": 958
+    },
+    {
+      "index": 42,
+      "name": "runTaskLoop disables thinking on every tool-call turn when runtime reasoning is off",
+      "ok": true,
+      "branchCount": 949
+    },
+    {
+      "index": 43,
+      "name": "buildScorecard aggregates totals and verdict",
+      "ok": true,
+      "branchCount": 536
+    },
+    {
+      "index": 44,
+      "name": "mock planner strips think block from response text",
+      "ok": true,
+      "branchCount": 762
+    },
+    {
+      "index": 45,
+      "name": "runTaskLoop records real planner turn per command and per-turn thinking",
+      "ok": true,
+      "branchCount": 936
+    },
+    {
+      "index": 46,
+      "name": "runTaskLoop keeps only latest planner thinking when per-step thinking is disabled",
+      "ok": true,
+      "branchCount": 969
+    },
+    {
+      "index": 47,
+      "name": "runTaskLoop sets turn on a duplicate-rejected command push",
+      "ok": true,
+      "branchCount": 946
+    },
+    {
+      "index": 48,
+      "name": "runTaskLoop records turn thinking for an invalid-parse turn",
+      "ok": true,
+      "branchCount": 787
+    }
+  ],
+  "candidates": [
+    {
+      "deleteIndex": 13,
+      "deleteName": "preflightPlannerPromptBudget reports overflow against context budget",
+      "keepIndex": 14,
+      "keepName": "preflightPlannerPromptBudget reserves provider prompt overhead against context budget",
+      "residualCount": 0,
+      "residualKeys": []
+    },
+    {
+      "deleteIndex": 20,
+      "deleteName": "runTaskLoop increases per-tool cap as tool-call progress grows",
+      "keepIndex": 39,
+      "keepName": "runTaskLoop does not compact different commands that happen to return the same evidence",
+      "residualCount": 0,
+      "residualKeys": []
+    },
+    {
+      "deleteIndex": 32,
+      "deleteName": "runTaskLoop keeps raw rewrite notes in logs but inserts compact repo-search results into the prompt",
+      "keepIndex": 4,
+      "keepName": "runTaskLoop truncates oversized rg output to the largest fitting prefix",
+      "residualCount": 0,
+      "residualKeys": []
+    },
+    {
+      "deleteIndex": 47,
+      "deleteName": "runTaskLoop sets turn on a duplicate-rejected command push",
+      "keepIndex": 30,
+      "keepName": "runTaskLoop blocks exact duplicate commands with explicit error message",
+      "residualCount": 0,
+      "residualKeys": []
+    },
+    {
+      "deleteIndex": 5,
+      "deleteName": "runTaskLoop advances overlapping repo_read_file calls to the next unread span",
+      "keepIndex": 8,
+      "keepName": "runTaskLoop bounds repo_read_file unread span at the next returned range",
+      "residualCount": 2,
+      "residualKeys": [
+        "src/tool-output-fit.ts|19|0",
+        "src/repo-search/engine/duplicate-tracker.ts|17|0"
+      ]
+    },
+    {
+      "deleteIndex": 30,
+      "deleteName": "runTaskLoop blocks exact duplicate commands with explicit error message",
+      "keepIndex": 47,
+      "keepName": "runTaskLoop sets turn on a duplicate-rejected command push",
+      "residualCount": 2,
+      "residualKeys": [
+        "src/repo-search/repetition-guard.ts|11|0",
+        "src/repo-search/repetition-guard.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 42,
+      "deleteName": "runTaskLoop disables thinking on every tool-call turn when runtime reasoning is off",
+      "keepIndex": 25,
+      "keepName": "runTaskLoop does not emit follow-up finish events after many reasoning-off tool calls",
+      "residualCount": 2,
+      "residualKeys": [
+        "src/repo-search/engine/task-loop-support.ts|21|0",
+        "src/repo-search/engine/task-loop.ts|74|0"
+      ]
+    },
+    {
+      "deleteIndex": 8,
+      "deleteName": "runTaskLoop bounds repo_read_file unread span at the next returned range",
+      "keepIndex": 5,
+      "keepName": "runTaskLoop advances overlapping repo_read_file calls to the next unread span",
+      "residualCount": 3,
+      "residualKeys": [
+        "src/tool-output-fit.ts|18|0",
+        "src/tool-output-fit.ts|22|0",
+        "src/repo-search/engine/duplicate-tracker.ts|16|0"
+      ]
+    },
+    {
+      "deleteIndex": 13,
+      "deleteName": "preflightPlannerPromptBudget reports overflow against context budget",
+      "keepIndex": 15,
+      "keepName": "compactPlannerMessagesOnce preserves system and latest user intent",
+      "residualCount": 3,
+      "residualKeys": [
+        "src/providers/llama-cpp.ts|8|0",
+        "src/providers/llama-cpp.ts|9|0",
+        "src/providers/llama-cpp.ts|10|0"
+      ]
+    },
+    {
+      "deleteIndex": 13,
+      "deleteName": "preflightPlannerPromptBudget reports overflow against context budget",
+      "keepIndex": 16,
+      "keepName": "compactPlannerMessagesOnce budgets provider prompt overhead while selecting history",
+      "residualCount": 3,
+      "residualKeys": [
+        "src/providers/llama-cpp.ts|8|0",
+        "src/providers/llama-cpp.ts|9|0",
+        "src/providers/llama-cpp.ts|10|0"
+      ]
+    },
+    {
+      "deleteIndex": 14,
+      "deleteName": "preflightPlannerPromptBudget reserves provider prompt overhead against context budget",
+      "keepIndex": 13,
+      "keepName": "preflightPlannerPromptBudget reports overflow against context budget",
+      "residualCount": 4,
+      "residualKeys": [
+        "src/repo-search/prompt-budget.ts|20|0",
+        "src/repo-search/prompt-budget.ts|21|0",
+        "src/repo-search/prompt-budget.ts|22|0",
+        "src/repo-search/prompt-budget.ts|23|0"
+      ]
+    },
+    {
+      "deleteIndex": 25,
+      "deleteName": "runTaskLoop does not emit follow-up finish events after many reasoning-off tool calls",
+      "keepIndex": 42,
+      "keepName": "runTaskLoop disables thinking on every tool-call turn when runtime reasoning is off",
+      "residualCount": 4,
+      "residualKeys": [
+        "src/repo-search/repetition-guard.ts|11|0",
+        "src/repo-search/repetition-guard.ts|12|0",
+        "src/repo-search/engine/task-loop-support.ts|20|0",
+        "src/repo-search/engine/task-loop.ts|75|0"
+      ]
+    },
+    {
+      "deleteIndex": 39,
+      "deleteName": "runTaskLoop does not compact different commands that happen to return the same evidence",
+      "keepIndex": 20,
+      "keepName": "runTaskLoop increases per-tool cap as tool-call progress grows",
+      "residualCount": 4,
+      "residualKeys": [
+        "src/repo-search/engine/tool-stats.ts|18|0",
+        "src/repo-search/engine/tool-stats.ts|19|0",
+        "src/repo-search/engine/tool-stats.ts|21|0",
+        "src/repo-search/engine/tool-stats.ts|22|0"
+      ]
+    },
+    {
+      "deleteIndex": 14,
+      "deleteName": "preflightPlannerPromptBudget reserves provider prompt overhead against context budget",
+      "keepIndex": 15,
+      "keepName": "compactPlannerMessagesOnce preserves system and latest user intent",
+      "residualCount": 5,
+      "residualKeys": [
+        "src/providers/llama-cpp.ts|8|0",
+        "src/providers/llama-cpp.ts|9|0",
+        "src/providers/llama-cpp.ts|10|0",
+        "src/repo-search/prompt-budget.ts|22|0",
+        "src/repo-search/prompt-budget.ts|23|0"
+      ]
+    },
+    {
+      "deleteIndex": 16,
+      "deleteName": "compactPlannerMessagesOnce budgets provider prompt overhead while selecting history",
+      "keepIndex": 15,
+      "keepName": "compactPlannerMessagesOnce preserves system and latest user intent",
+      "residualCount": 5,
+      "residualKeys": [
+        "src/repo-search/prompt-budget.ts|23|0",
+        "src/repo-search/prompt-budget.ts|28|0",
+        "src/repo-search/prompt-budget.ts|32|0",
+        "src/repo-search/prompt-budget.ts|33|0",
+        "src/repo-search/prompt-budget.ts|45|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "runTaskLoop includes planner provider reserve in dynamic output budget",
+      "keepIndex": 28,
+      "keepName": "runTaskLoop waits for planner endpoint warm-up when initial connections are refused",
+      "residualCount": 5,
+      "residualKeys": [
+        "src/config/getters.ts|12|0",
+        "src/repo-search/planner-protocol.ts|58|0",
+        "src/repo-search/planner-protocol.ts|59|0",
+        "src/repo-search/engine/task-loop.ts|51|0",
+        "src/repo-search/engine/task-loop.ts|53|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "runTaskLoop includes planner provider reserve in dynamic output budget",
+      "keepIndex": 29,
+      "keepName": "runTaskLoop retries planner calls when endpoint returns HTTP 503 Loading model",
+      "residualCount": 5,
+      "residualKeys": [
+        "src/config/getters.ts|12|0",
+        "src/repo-search/planner-protocol.ts|58|0",
+        "src/repo-search/planner-protocol.ts|59|0",
+        "src/repo-search/engine/task-loop.ts|51|0",
+        "src/repo-search/engine/task-loop.ts|53|0"
+      ]
+    },
+    {
+      "deleteIndex": 14,
+      "deleteName": "preflightPlannerPromptBudget reserves provider prompt overhead against context budget",
+      "keepIndex": 16,
+      "keepName": "compactPlannerMessagesOnce budgets provider prompt overhead while selecting history",
+      "residualCount": 6,
+      "residualKeys": [
+        "src/providers/llama-cpp.ts|8|0",
+        "src/providers/llama-cpp.ts|9|0",
+        "src/providers/llama-cpp.ts|10|0",
+        "src/repo-search/prompt-budget.ts|20|0",
+        "src/repo-search/prompt-budget.ts|21|0",
+        "src/repo-search/prompt-budget.ts|22|0"
+      ]
+    },
+    {
+      "deleteIndex": 5,
+      "deleteName": "runTaskLoop advances overlapping repo_read_file calls to the next unread span",
+      "keepIndex": 6,
+      "keepName": "runTaskLoop replays effective repo_read_file range after native unread expansion",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/repo-search/prompts.ts|31|0",
+        "src/repo-search/prompts.ts|34|0",
+        "src/repo-search/prompts.ts|35|0",
+        "src/repo-search/prompts.ts|39|0",
+        "src/repo-search/prompts.ts|45|0",
+        "src/repo-search/prompts.ts|49|0",
+        "src/repo-search/engine/duplicate-tracker.ts|17|0"
+      ]
+    },
+    {
+      "deleteIndex": 33,
+      "deleteName": "runTaskLoop keeps routine normalized repo_rg flags out of model replay while audit keeps effective command",
+      "keepIndex": 4,
+      "keepName": "runTaskLoop truncates oversized rg output to the largest fitting prefix",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/tool-loop-governor.ts|16|0",
+        "src/tool-loop-governor.ts|27|0",
+        "src/tool-loop-governor.ts|28|0",
+        "src/repo-search/command-safety.ts|129|0",
+        "src/repo-search/engine/command-execution.ts|28|0",
+        "src/repo-search/engine/tool-action-processor.ts|74|0",
+        "src/repo-search/engine/tool-action-processor.ts|84|0"
+      ]
+    },
+    {
+      "deleteIndex": 33,
+      "deleteName": "runTaskLoop keeps routine normalized repo_rg flags out of model replay while audit keeps effective command",
+      "keepIndex": 32,
+      "keepName": "runTaskLoop keeps raw rewrite notes in logs but inserts compact repo-search results into the prompt",
+      "residualCount": 7,
+      "residualKeys": [
+        "src/tool-loop-governor.ts|16|0",
+        "src/tool-loop-governor.ts|27|0",
+        "src/tool-loop-governor.ts|28|0",
+        "src/repo-search/command-safety.ts|129|0",
+        "src/repo-search/engine/command-execution.ts|28|0",
+        "src/repo-search/engine/tool-action-processor.ts|74|0",
+        "src/repo-search/engine/tool-action-processor.ts|84|0"
+      ]
+    },
+    {
+      "deleteIndex": 1,
+      "deleteName": "runTaskLoop repairs malformed planner payloads before executing tool calls",
+      "keepIndex": 20,
+      "keepName": "runTaskLoop increases per-tool cap as tool-call progress grows",
+      "residualCount": 8,
+      "residualKeys": [
+        "src/agent-loop/action-parser.ts|12|0",
+        "src/agent-loop/agent-loop.ts|23|0",
+        "src/agent-loop/agent-loop.ts|25|0",
+        "src/lib/model-json.ts|14|0",
+        "src/lib/model-json.ts|16|0",
+        "src/lib/model-json.ts|19|0",
+        "src/repo-search/engine/command-execution.ts|15|0",
+        "src/repo-search/engine/command-execution.ts|23|0"
+      ]
+    },
+    {
+      "deleteIndex": 1,
+      "deleteName": "runTaskLoop repairs malformed planner payloads before executing tool calls",
+      "keepIndex": 39,
+      "keepName": "runTaskLoop does not compact different commands that happen to return the same evidence",
+      "residualCount": 8,
+      "residualKeys": [
+        "src/agent-loop/action-parser.ts|12|0",
+        "src/agent-loop/agent-loop.ts|23|0",
+        "src/agent-loop/agent-loop.ts|25|0",
+        "src/lib/model-json.ts|14|0",
+        "src/lib/model-json.ts|16|0",
+        "src/lib/model-json.ts|19|0",
+        "src/repo-search/engine/command-execution.ts|15|0",
+        "src/repo-search/engine/command-execution.ts|23|0"
+      ]
+    },
+    {
+      "deleteIndex": 8,
+      "deleteName": "runTaskLoop bounds repo_read_file unread span at the next returned range",
+      "keepIndex": 6,
+      "keepName": "runTaskLoop replays effective repo_read_file range after native unread expansion",
+      "residualCount": 8,
+      "residualKeys": [
+        "src/tool-output-fit.ts|18|0",
+        "src/tool-output-fit.ts|22|0",
+        "src/repo-search/prompts.ts|31|0",
+        "src/repo-search/prompts.ts|34|0",
+        "src/repo-search/prompts.ts|35|0",
+        "src/repo-search/prompts.ts|39|0",
+        "src/repo-search/prompts.ts|45|0",
+        "src/repo-search/prompts.ts|49|0"
+      ]
+    },
+    {
+      "deleteIndex": 13,
+      "deleteName": "preflightPlannerPromptBudget reports overflow against context budget",
+      "keepIndex": 0,
+      "keepName": "runTaskLoop stops on invalid response limit",
+      "residualCount": 8,
+      "residualKeys": [
+        "src/line-read-guidance.ts|10|0",
+        "src/config/paths.ts|10|0",
+        "src/lib/paths.ts|10|0",
+        "src/repo-search/planner-protocol.ts|18|0",
+        "src/repo-search/prompt-budget.ts|13|0",
+        "src/repo-search/prompts.ts|10|0",
+        "src/state/runtime-db.ts|10|0",
+        "src/web-search/web-fetch-service.ts|9|0"
+      ]
+    },
+    {
+      "deleteIndex": 13,
+      "deleteName": "preflightPlannerPromptBudget reports overflow against context budget",
+      "keepIndex": 26,
+      "keepName": "runTaskLoop keeps reasoning disabled across max-turn exhaustion when runtime reasoning is off",
+      "residualCount": 8,
+      "residualKeys": [
+        "src/line-read-guidance.ts|10|0",
+        "src/config/paths.ts|10|0",
+        "src/lib/paths.ts|10|0",
+        "src/repo-search/planner-protocol.ts|21|0",
+        "src/repo-search/prompts.ts|10|0",
+        "src/repo-search/engine/native-tools.ts|10|0",
+        "src/state/runtime-db.ts|10|0",
+        "src/web-search/web-fetch-service.ts|9|0"
+      ]
+    },
+    {
+      "deleteIndex": 18,
+      "deleteName": "runTaskLoop includes planner provider reserve in dynamic output budget",
+      "keepIndex": 24,
+      "keepName": "runTaskLoop accepts first finish immediately when runtime reasoning is on",
+      "residualCount": 8,
+      "residualKeys": [
+        "src/repo-search/engine/task-loop.ts|38|0",
+        "src/repo-search/engine/task-loop.ts|42|0",
+        "src/repo-search/engine/task-loop.ts|43|0",
+        "src/repo-search/engine/task-loop.ts|53|0",
+        "src/repo-search/engine/task-loop.ts|56|0",
+        "src/repo-search/engine/task-loop.ts|62|0",
+        "src/repo-search/engine/task-loop.ts|66|0",
+        "src/repo-search/engine/token-usage.ts|32|0"
+      ]
+    },
+    {
+      "deleteIndex": 20,
+      "deleteName": "runTaskLoop increases per-tool cap as tool-call progress grows",
+      "keepIndex": 19,
+      "keepName": "runTaskLoop applies one-pass compaction and continues when compacted prompt fits",
+      "residualCount": 8,
+      "residualKeys": [
+        "src/repo-search/planner-protocol.ts|47|0",
+        "src/repo-search/planner-protocol.ts|49|0",
+        "src/repo-search/planner-protocol.ts|69|0",
+        "src/repo-search/planner-protocol.ts|70|0",
+        "src/repo-search/planner-protocol.ts|78|0",
+        "src/repo-search/planner-protocol.ts|79|0",
+        "src/repo-search/prompt-budget.ts|14|0",
+        "src/repo-search/prompt-budget.ts|16|0"
+      ]
+    },
+    {
+      "deleteIndex": 32,
+      "deleteName": "runTaskLoop keeps raw rewrite notes in logs but inserts compact repo-search results into the prompt",
+      "keepIndex": 21,
+      "keepName": "runTaskLoop fits tool output that exceeds remaining token allowance",
+      "residualCount": 8,
+      "residualKeys": [
+        "src/repo-search/planner-protocol.ts|47|0",
+        "src/repo-search/planner-protocol.ts|49|0",
+        "src/repo-search/planner-protocol.ts|69|0",
+        "src/repo-search/planner-protocol.ts|70|0",
+        "src/repo-search/planner-protocol.ts|78|0",
+        "src/repo-search/planner-protocol.ts|79|0",
+        "src/repo-search/repetition-guard.ts|11|0",
+        "src/repo-search/repetition-guard.ts|12|0"
+      ]
+    },
+    {
+      "deleteIndex": 39,
+      "deleteName": "runTaskLoop does not compact different commands that happen to return the same evidence",
+      "keepIndex": 19,
+      "keepName": "runTaskLoop applies one-pass compaction and continues when compacted prompt fits",
+      "residualCount": 8,
+      "residualKeys": [
+        "src/repo-search/planner-protocol.ts|47|0",
+        "src/repo-search/planner-protocol.ts|49|0",
+        "src/repo-search/planner-protocol.ts|69|0",
+        "src/repo-search/planner-protocol.ts|70|0",
+        "src/repo-search/planner-protocol.ts|78|0",
+        "src/repo-search/planner-protocol.ts|79|0",
+        "src/repo-search/prompt-budget.ts|14|0",
+        "src/repo-search/prompt-budget.ts|16|0"
+      ]
+    }
+  ]
+}

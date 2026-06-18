@@ -1,0 +1,38 @@
+attributing 29 tests in tests/runtime-planner-mode.test.ts (concurrency 4)
+  [1/29] planner json_filter accepts combined gte and lte bounds in one filter value
+  [2/29] planner iteration running=false notification is fire-and-forget
+  [3/29] planner retries malformed json_filter schema-placeholder args once and then succeeds
+  [4/29] planner accepts exact nested value scalar wrappers in json_filter args
+  [5/29] planner malformed json_filter schema-placeholder args fail on invalid response limit after retry
+  [6/29] planner json_filter supports scalar timestamp ranges on object-root array collections
+  [7/29] planner returns recoverable json_filter collectionPath guidance without counting an invalid response
+  [8/29] planner json_filter falls back to embedded JSON in command-output text and reports ignored prefix
+  [9/29] planner surfaces explicit invalid-json message when json_filter fallback cannot parse any valid section
+  [10/29] planner failures write failed artifacts through status posts
+  [11/29] powershell shim preserves pipeline order for oversized planner input
+  [12/29] planner debug dumps always write to the repo-local logs directory
+  [13/29] planner read_lines tool results use a compact numbered text block
+  [14/29] planner rejects semantically repeated nearby read_lines calls and reprompts for finish
+  [15/29] planner keeps the first real tool output and rewrites one duplicate warning tool turn through x5
+  [16/29] planner find_text and json_filter results use compact text blocks in prompts and debug dumps
+  [17/29] planner keeps short read_lines output when reported token count is high
+  [18/29] planner keeps tool results when they stay within 70 percent of remaining stop-line tokens
+  [19/29] planner keeps read_lines output when tokenize is unavailable
+  [20/29] planner fits oversized read_lines output and reports omitted lines
+  [21/29] planner advances repeated read_lines calls to one unread span
+  [22/29] planner advances repeated read_lines calls from fitted returned lines only
+  [23/29] planner forced finish rejects read_lines before unread expansion
+  [24/29] planner fits oversized find_text output and reports omitted results
+  [25/29] planner activates once input exceeds 75 percent of context length even before chunking would start
+  [26/29] planner allows up to thirty tool calls while prompt headroom remains without visible budget counters
+  [27/29] planner reuses one slot within a request and assigns a new slot to the next request
+  [28/29] planner fails fast when the next planner turn would exceed non-thinking headroom
+  [29/29] planner fails fast when the next planner turn would exceed thinking headroom
+report: C:\Users\denys\Documents\GitHub\SiftKit\.coverage-attr\report.runtime-planner-mode.json
+candidates (residual <= 8): 6
+  DELETE [11] "planner debug dumps always write to the repo-local logs directory" (residual 0) <= KEEP [24] "planner activates once input exceeds 75 percent of context length even before chunking would start"
+  DELETE [16] "planner keeps short read_lines output when reported token count is high" (residual 0) <= KEEP [17] "planner keeps tool results when they stay within 70 percent of remaining stop-line tokens"
+  DELETE [17] "planner keeps tool results when they stay within 70 percent of remaining stop-line tokens" (residual 0) <= KEEP [16] "planner keeps short read_lines output when reported token count is high"
+  DELETE [24] "planner activates once input exceeds 75 percent of context length even before chunking would start" (residual 0) <= KEEP [11] "planner debug dumps always write to the repo-local logs directory"
+  DELETE [27] "planner fails fast when the next planner turn would exceed non-thinking headroom" (residual 4) <= KEEP [28] "planner fails fast when the next planner turn would exceed thinking headroom"
+  DELETE [28] "planner fails fast when the next planner turn would exceed thinking headroom" (residual 4) <= KEEP [27] "planner fails fast when the next planner turn would exceed non-thinking headroom"

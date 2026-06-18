@@ -1,0 +1,82 @@
+attributing 49 tests in tests/mock-repo-search-loop.test.ts (concurrency 4)
+  [1/49] runTaskLoop stops on invalid response limit
+  [2/49] runTaskLoop repairs malformed planner payloads before executing tool calls
+  [3/49] runTaskLoop replays unrecoverable invalid planner payloads through invalid_tool_call
+  [4/49] runTaskLoop cuts off runaway streamed tool JSON and reprompts once
+  [5/49] runTaskLoop truncates oversized rg output to the largest fitting prefix
+  [6/49] runTaskLoop advances overlapping repo_read_file calls to the next unread span
+  [7/49] runTaskLoop replays effective repo_read_file range after native unread expansion
+  [8/49] runTaskLoop replays only returned repo_read_file range after fitting oversized read
+  [9/49] runTaskLoop bounds repo_read_file unread span at the next returned range
+  [10/49] runTaskLoop reports when repo_read_file has no unread lines left
+  [11/49] runTaskLoop truncates oversized repo_list_files output with omitted file count
+  [12/49] runTaskLoop preserves raw line-read stats when oversized Get-Content output is replaced
+  [13/49] runTaskLoop does not print a red console warning when successful output is fitted
+  [14/49] preflightPlannerPromptBudget reports overflow against context budget
+  [15/49] preflightPlannerPromptBudget reserves provider prompt overhead against context budget
+  [16/49] compactPlannerMessagesOnce preserves system and latest user intent
+  [17/49] compactPlannerMessagesOnce budgets provider prompt overhead while selecting history
+  [18/49] runTaskLoop fails with planner_preflight_overflow before provider request when compaction cannot fit
+  [19/49] runTaskLoop includes planner provider reserve in dynamic output budget
+  [20/49] runTaskLoop applies one-pass compaction and continues when compacted prompt fits
+  [21/49] runTaskLoop increases per-tool cap as tool-call progress grows
+  [22/49] runTaskLoop fits tool output that exceeds remaining token allowance
+  [23/49] runTaskLoop subtracts accepted same-turn tool results from remaining allowance
+  [24/49] runTaskLoop accepts first finish immediately when runtime reasoning is off
+  [25/49] runTaskLoop accepts first finish immediately when runtime reasoning is on
+  [26/49] runTaskLoop does not emit follow-up finish events after many reasoning-off tool calls
+  [27/49] runTaskLoop keeps reasoning disabled across max-turn exhaustion when runtime reasoning is off
+  [28/49] runTaskLoop retries transient provider network failures via shared retry helper
+  [29/49] runTaskLoop waits for planner endpoint warm-up when initial connections are refused
+  [30/49] runTaskLoop retries planner calls when endpoint returns HTTP 503 Loading model
+  [31/49] runTaskLoop blocks exact duplicate commands with explicit error message
+  [32/49] runTaskLoop blocks semantic duplicate repo-search commands with explicit error message
+  [33/49] runTaskLoop keeps raw rewrite notes in logs but inserts compact repo-search results into the prompt
+  [34/49] runTaskLoop keeps routine normalized repo_rg flags out of model replay while audit keeps effective command
+  [35/49] runTaskLoop widens repeated Get-Content reads on the same file and logs requested vs adjusted window
+  [36/49] runTaskLoop records adjusted Get-Content coverage from fitted returned lines only
+  [37/49] runTaskLoop clamps adjusted repeated Get-Content skip to non-negative values
+  [38/49] runTaskLoop forces repeated backward same-file reads to non-overlapping forward windows
+  [39/49] runTaskLoop tracks per-file overlap telemetry and isolates histories across files
+  [40/49] runTaskLoop does not compact different commands that happen to return the same evidence
+  [41/49] runTaskLoop forces finish mode after ten zero-output commands
+  [42/49] runTaskLoop enables thinking on every tool-call turn when runtime reasoning is on
+  [43/49] runTaskLoop disables thinking on every tool-call turn when runtime reasoning is off
+  [44/49] buildScorecard aggregates totals and verdict
+  [45/49] mock planner strips think block from response text
+  [46/49] runTaskLoop records real planner turn per command and per-turn thinking
+  [47/49] runTaskLoop keeps only latest planner thinking when per-step thinking is disabled
+  [48/49] runTaskLoop sets turn on a duplicate-rejected command push
+  [49/49] runTaskLoop records turn thinking for an invalid-parse turn
+report: C:\Users\denys\Documents\GitHub\SiftKit\.coverage-attr\report.mock-repo-search-loop.json
+candidates (residual <= 8): 30
+  DELETE [13] "preflightPlannerPromptBudget reports overflow against context budget" (residual 0) <= KEEP [14] "preflightPlannerPromptBudget reserves provider prompt overhead against context budget"
+  DELETE [20] "runTaskLoop increases per-tool cap as tool-call progress grows" (residual 0) <= KEEP [39] "runTaskLoop does not compact different commands that happen to return the same evidence"
+  DELETE [32] "runTaskLoop keeps raw rewrite notes in logs but inserts compact repo-search results into the prompt" (residual 0) <= KEEP [4] "runTaskLoop truncates oversized rg output to the largest fitting prefix"
+  DELETE [47] "runTaskLoop sets turn on a duplicate-rejected command push" (residual 0) <= KEEP [30] "runTaskLoop blocks exact duplicate commands with explicit error message"
+  DELETE [5] "runTaskLoop advances overlapping repo_read_file calls to the next unread span" (residual 2) <= KEEP [8] "runTaskLoop bounds repo_read_file unread span at the next returned range"
+  DELETE [30] "runTaskLoop blocks exact duplicate commands with explicit error message" (residual 2) <= KEEP [47] "runTaskLoop sets turn on a duplicate-rejected command push"
+  DELETE [42] "runTaskLoop disables thinking on every tool-call turn when runtime reasoning is off" (residual 2) <= KEEP [25] "runTaskLoop does not emit follow-up finish events after many reasoning-off tool calls"
+  DELETE [8] "runTaskLoop bounds repo_read_file unread span at the next returned range" (residual 3) <= KEEP [5] "runTaskLoop advances overlapping repo_read_file calls to the next unread span"
+  DELETE [13] "preflightPlannerPromptBudget reports overflow against context budget" (residual 3) <= KEEP [15] "compactPlannerMessagesOnce preserves system and latest user intent"
+  DELETE [13] "preflightPlannerPromptBudget reports overflow against context budget" (residual 3) <= KEEP [16] "compactPlannerMessagesOnce budgets provider prompt overhead while selecting history"
+  DELETE [14] "preflightPlannerPromptBudget reserves provider prompt overhead against context budget" (residual 4) <= KEEP [13] "preflightPlannerPromptBudget reports overflow against context budget"
+  DELETE [25] "runTaskLoop does not emit follow-up finish events after many reasoning-off tool calls" (residual 4) <= KEEP [42] "runTaskLoop disables thinking on every tool-call turn when runtime reasoning is off"
+  DELETE [39] "runTaskLoop does not compact different commands that happen to return the same evidence" (residual 4) <= KEEP [20] "runTaskLoop increases per-tool cap as tool-call progress grows"
+  DELETE [14] "preflightPlannerPromptBudget reserves provider prompt overhead against context budget" (residual 5) <= KEEP [15] "compactPlannerMessagesOnce preserves system and latest user intent"
+  DELETE [16] "compactPlannerMessagesOnce budgets provider prompt overhead while selecting history" (residual 5) <= KEEP [15] "compactPlannerMessagesOnce preserves system and latest user intent"
+  DELETE [18] "runTaskLoop includes planner provider reserve in dynamic output budget" (residual 5) <= KEEP [28] "runTaskLoop waits for planner endpoint warm-up when initial connections are refused"
+  DELETE [18] "runTaskLoop includes planner provider reserve in dynamic output budget" (residual 5) <= KEEP [29] "runTaskLoop retries planner calls when endpoint returns HTTP 503 Loading model"
+  DELETE [14] "preflightPlannerPromptBudget reserves provider prompt overhead against context budget" (residual 6) <= KEEP [16] "compactPlannerMessagesOnce budgets provider prompt overhead while selecting history"
+  DELETE [5] "runTaskLoop advances overlapping repo_read_file calls to the next unread span" (residual 7) <= KEEP [6] "runTaskLoop replays effective repo_read_file range after native unread expansion"
+  DELETE [33] "runTaskLoop keeps routine normalized repo_rg flags out of model replay while audit keeps effective command" (residual 7) <= KEEP [4] "runTaskLoop truncates oversized rg output to the largest fitting prefix"
+  DELETE [33] "runTaskLoop keeps routine normalized repo_rg flags out of model replay while audit keeps effective command" (residual 7) <= KEEP [32] "runTaskLoop keeps raw rewrite notes in logs but inserts compact repo-search results into the prompt"
+  DELETE [1] "runTaskLoop repairs malformed planner payloads before executing tool calls" (residual 8) <= KEEP [20] "runTaskLoop increases per-tool cap as tool-call progress grows"
+  DELETE [1] "runTaskLoop repairs malformed planner payloads before executing tool calls" (residual 8) <= KEEP [39] "runTaskLoop does not compact different commands that happen to return the same evidence"
+  DELETE [8] "runTaskLoop bounds repo_read_file unread span at the next returned range" (residual 8) <= KEEP [6] "runTaskLoop replays effective repo_read_file range after native unread expansion"
+  DELETE [13] "preflightPlannerPromptBudget reports overflow against context budget" (residual 8) <= KEEP [0] "runTaskLoop stops on invalid response limit"
+  DELETE [13] "preflightPlannerPromptBudget reports overflow against context budget" (residual 8) <= KEEP [26] "runTaskLoop keeps reasoning disabled across max-turn exhaustion when runtime reasoning is off"
+  DELETE [18] "runTaskLoop includes planner provider reserve in dynamic output budget" (residual 8) <= KEEP [24] "runTaskLoop accepts first finish immediately when runtime reasoning is on"
+  DELETE [20] "runTaskLoop increases per-tool cap as tool-call progress grows" (residual 8) <= KEEP [19] "runTaskLoop applies one-pass compaction and continues when compacted prompt fits"
+  DELETE [32] "runTaskLoop keeps raw rewrite notes in logs but inserts compact repo-search results into the prompt" (residual 8) <= KEEP [21] "runTaskLoop fits tool output that exceeds remaining token allowance"
+  DELETE [39] "runTaskLoop does not compact different commands that happen to return the same evidence" (residual 8) <= KEEP [19] "runTaskLoop applies one-pass compaction and continues when compacted prompt fits"
