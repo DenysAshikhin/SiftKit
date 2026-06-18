@@ -18,6 +18,7 @@ src/**/*.d.ts
 !src/types/better-sqlite3.d.ts
 
 # Test artifacts
+/.coverage-attr
 /tests/.test-modules
 /tests/.test-home
 /tests/.test-codex
