@@ -24,26 +24,6 @@ import {
   writeJson,
 } from './helpers/dashboard-http.js';
 import { buildRepoSearchChatSteps } from '../dashboard/src/lib/chat-steps.js';
-import { normalizeWebSearchConfig } from '../src/status-server/config-store.js';
-
-test('normalizeWebSearchConfig produces provider defaults and clamps ResultCount to 20', () => {
-  const normalized = normalizeWebSearchConfig({ ResultCount: 999, Providers: { tavily: { Enabled: true, ApiKey: '  abc  ' } } });
-  assert.deepEqual(normalized.ProviderOrder, ['tavily', 'firecrawl']);
-  assert.equal(normalized.ResultCount, 20);
-  assert.deepEqual(normalized.Providers, {
-    tavily: { Enabled: true, ApiKey: 'abc' },
-    firecrawl: { Enabled: false, ApiKey: '' },
-  });
-});
-
-test('normalizeWebSearchConfig defaults empty provider records', () => {
-  const normalized = normalizeWebSearchConfig({});
-  assert.deepEqual(normalized.Providers, {
-    tavily: { Enabled: false, ApiKey: '' },
-    firecrawl: { Enabled: false, ApiKey: '' },
-  });
-});
-
 test('GET /dashboard/web-search-quota returns a quotas array', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-quota-'));
   const previousCwd = enterDashboardTestRepo(tempRoot);

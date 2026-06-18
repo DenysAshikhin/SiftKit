@@ -1,7 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getDefaultConfig, normalizeConfig } from '../src/status-server/config-store';
+import { getDefaultConfig, normalizeConfig, normalizeWebSearchConfig } from '../src/status-server/config-store';
+
+test('normalizeWebSearchConfig produces provider defaults and clamps ResultCount to 20', () => {
+  const normalized = normalizeWebSearchConfig({ ResultCount: 999, Providers: { tavily: { Enabled: true, ApiKey: '  abc  ' } } });
+  assert.deepEqual(normalized.ProviderOrder, ['tavily', 'firecrawl']);
+  assert.equal(normalized.ResultCount, 20);
+  assert.deepEqual(normalized.Providers, {
+    tavily: { Enabled: true, ApiKey: 'abc' },
+    firecrawl: { Enabled: false, ApiKey: '' },
+  });
+});
+
+test('normalizeWebSearchConfig defaults empty provider records', () => {
+  const normalized = normalizeWebSearchConfig({});
+  assert.deepEqual(normalized.Providers, {
+    tavily: { Enabled: false, ApiKey: '' },
+    firecrawl: { Enabled: false, ApiKey: '' },
+  });
+});
 
 type Dict = Record<string, unknown>;
 
