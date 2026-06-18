@@ -1,18 +1,17 @@
-// @ts-nocheck
-const test = require('node:test');
-const assert = require('node:assert/strict');
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
-const {
+import {
   fs,
   path,
   runFixture60MalformedJsonRepro,
   withTempEnv,
   withStubServer,
-} = require('./_runtime-helpers.js');
-const {
+} from './_runtime-helpers.js';
+import {
   STABLE_CHUNK_BUDGET_METRICS,
   saveFixture60ChunkingConfig,
-} = require('./helpers/runtime-benchmark-repro.js');
+} from './helpers/runtime-benchmark-repro.js';
 
 test('repro-fixture60-malformed-json writes a completed manifest for valid chunk responses', async () => {
   await withTempEnv(async (tempRoot) => {
@@ -47,7 +46,7 @@ test('repro-fixture60-malformed-json writes a completed manifest for valid chunk
       assert.equal(artifact.malformedChunk, null);
       assert.equal(artifact.chunkCount, 3);
       assert.equal(artifact.chunks.length, 3);
-      assert.equal(artifact.chunks.every((chunk) => chunk.parsed === true), true);
+      assert.equal(artifact.chunks.every((chunk: { parsed: boolean }) => chunk.parsed === true), true);
       assert.match(
         fs.readFileSync(path.join(outputRoot, 'fixtures', 'fixture-01', 'chunks', 'chunk-03', 'response.txt'), 'utf8'),
         /chunk 3 summary/u,

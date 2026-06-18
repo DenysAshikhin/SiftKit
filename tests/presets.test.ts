@@ -16,13 +16,13 @@ import {
   normalizeOperationModeAllowedTools,
   REPO_SEARCH_TOOLS,
   resolveSummaryPreset,
-} from '../dist/presets.js';
+} from '../src/presets.js';
 import {
   getDefaultConfig,
   readConfig,
   writeConfig,
-} from '../dist/status-server/config-store.js';
-import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
+} from '../src/status-server/config-store.js';
+import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 
 function withTempRepo(fn: (repoRoot: string) => void): void {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-preset-test-'));
@@ -178,7 +178,7 @@ test('config persistence stores normalized presets in sqlite', () => {
 test('config persistence stores global agents.md auto-append setting in sqlite', () => {
   withTempRepo((repoRoot) => {
     const configPath = path.join(repoRoot, '.siftkit', 'runtime.sqlite');
-    const defaultConfig = getDefaultConfig() as { IncludeAgentsMd?: boolean };
+    const defaultConfig = getDefaultConfig();
 
     assert.equal(defaultConfig.IncludeAgentsMd, true);
 

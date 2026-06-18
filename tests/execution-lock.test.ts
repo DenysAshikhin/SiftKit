@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { withExecutionLock, getExecutionLockTimeoutMilliseconds } from '../dist/execution-lock.js';
+import { withExecutionLock, getExecutionLockTimeoutMilliseconds } from '../src/execution-lock.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
 
 test('getExecutionLockTimeoutMilliseconds returns default when env not set', () => {

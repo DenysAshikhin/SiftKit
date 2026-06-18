@@ -1,72 +1,20 @@
-// @ts-nocheck — Split from runtime.test.js. Full TS typing deferred.
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const http = require('node:http');
-const os = require('node:os');
-const path = require('node:path');
-const { spawn, spawnSync } = require('node:child_process');
-const Database = require('better-sqlite3');
-const repoRoot = path.resolve(__dirname, '..');
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
-const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage } = require('../dist/config/index.js');
-const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../dist/summary.js');
-const { runCommand } = require('./helpers/run-command-for-test.cjs');
-const { runBenchmarkSuite } = require('../bench/benchmark/index.ts');
-const { readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs, pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt } = require('../bench/benchmark-matrix/index.ts');
-const { countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse } = require('../dist/providers/llama-cpp.js');
-const { withExecutionLock } = require('../dist/execution-lock.js');
-const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../dist/status-server/index.js');
-const { runDebugRequest } = require('../bench/repro/run-benchmark-fixture-debug.ts');
-const { runFixture60MalformedJsonRepro } = require('../bench/repro/repro-fixture60-malformed-json.ts');
-
-const {
-  TEST_USE_EXISTING_SERVER,
-  EXISTING_SERVER_STATUS_URL,
-  EXISTING_SERVER_CONFIG_URL,
-  RUN_LIVE_LLAMA_TOKENIZE_TESTS,
-  LIVE_LLAMA_BASE_URL,
-  LIVE_CONFIG_SERVICE_URL,
-  FAST_LEASE_STALE_MS,
-  FAST_LEASE_WAIT_MS,
-  deriveServiceUrl,
-  getDefaultConfig,
-  clone,
-  getChatRequestText,
-  setManagedLlamaBaseUrl,
-  mergeConfig,
-  extractPromptSection,
-  buildOversizedTransitionsInput,
-  buildOversizedRunnerStateHistoryInput,
-  getRuntimeRootFromStatusPath,
-  getPlannerLogsPath,
-  getFailedLogsPath,
-  getRequestLogsPath,
-  buildStructuredStubDecision,
-  resolveAssistantContent,
-  readBody,
-  resolveArtifactLogPathFromStatusPost,
-  requestJson,
-  sleep,
-  removeDirectoryWithRetries,
+import { UNSUPPORTED_INPUT_MESSAGE } from '../src/summary/measure.js';
+import {
+  fs,
+  http,
+  path,
+  spawnSync,
+  summarizeRequest,
   spawnProcess,
-  waitForTextMatch,
-  startStubStatusServer,
   withTempEnv,
   withStubServer,
   withSummaryTestServer,
-  withRealStatusServer,
-  startStatusServerProcess,
-  stripAnsi,
-  captureStdout,
-  readIdleSummarySnapshots,
-  getIdleSummaryBlock,
-  getFreePort,
-  toSingleQuotedPowerShellLiteral,
-  writeManagedLlamaScripts,
-  waitForAsyncExpectation,
-  runPowerShellScript,
-} = require('./_runtime-helpers.js');
+} from './_runtime-helpers.js';
+
+const repoRoot = path.resolve(__dirname, '..');
 
 test('concurrent oversized CLI summary requests are serialized until the first request fully completes', async () => {
   await withTempEnv(async (tempRoot) => {
@@ -130,8 +78,8 @@ test('concurrent oversized CLI summary requests are serialized until the first r
       const questions = events.map((event) => event.question);
       const firstQuestion = 'summarize oversized request A';
       const secondQuestion = 'summarize oversized request B';
-      const referencesFirstRequest = (question) => String(question).includes(firstQuestion);
-      const referencesSecondRequest = (question) => String(question).includes(secondQuestion);
+      const referencesFirstRequest = (question: unknown) => String(question).includes(firstQuestion);
+      const referencesSecondRequest = (question: unknown) => String(question).includes(secondQuestion);
       const transitions = questions.filter((question, index) => index === 0 || question !== questions[index - 1]);
 
       assert.equal(firstResult.code, 0);
@@ -201,7 +149,7 @@ test('CLI summary preserves HTTP 500 diagnostic response bodies containing timeo
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
     });
-    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
     const address = server.address();
     const port = address && typeof address === 'object' ? address.port : 0;
     try {
@@ -225,7 +173,7 @@ test('CLI summary preserves HTTP 500 diagnostic response bodies containing timeo
       assert.match(result.stderr, /Request timed out after 130000 ms/u);
       assert.doesNotMatch(result.stderr, /^SiftKit status\/config server is not reachable at http:\/\/127\.0\.0\.1:\d+\/health/u);
     } finally {
-      await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     }
   });
 });

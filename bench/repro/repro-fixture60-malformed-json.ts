@@ -2,12 +2,7 @@
 // @ts-nocheck
 import fs from 'node:fs';
 import path from 'node:path';
-
-const distRoot = path.resolve(__dirname, '..', '..', 'dist');
-const distExists = fs.existsSync(path.join(distRoot, 'config', 'index.js'));
-const base = distExists ? distRoot : path.resolve(__dirname, '..', '..');
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const {
+import {
   loadConfig,
   getChunkThresholdCharacters,
   getConfiguredLlamaNumCtx,
@@ -15,15 +10,11 @@ const {
   getConfiguredModel,
   getConfiguredPromptPrefix,
   getEffectiveInputCharactersPerContextToken,
-} = require(path.join(base, 'config', 'index.js'));
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { acquireExecutionLock, releaseExecutionLock } = require(path.join(base, 'execution-lock.js'));
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks } = require(path.join(base, 'summary.js'));
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { countLlamaCppTokens, generateLlamaCppResponse } = require(path.join(base, 'providers', 'llama-cpp.js'));
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { ModelJson } = require(path.join(base, 'lib', 'model-json.js'));
+} from '../../src/config/index.js';
+import { acquireExecutionLock, releaseExecutionLock } from '../../src/execution-lock.js';
+import { buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks } from '../../src/summary.js';
+import { countLlamaCppTokens, generateLlamaCppResponse } from '../../src/providers/llama-cpp.js';
+import { ModelJson } from '../../src/lib/model-json.js';
 
 const LLAMA_CPP_NON_THINKING_PROMPT_TOKEN_RESERVE = 10_000;
 const LLAMA_CPP_THINKING_PROMPT_TOKEN_RESERVE = 15_000;

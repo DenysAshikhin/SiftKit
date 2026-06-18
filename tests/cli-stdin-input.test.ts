@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 
-import { commandReadsStdin, readStdinToEnd } from '../dist/cli/stdin-input.js';
+import { commandReadsStdin, readStdinToEnd } from '../src/cli/stdin-input.js';
 
 test('commandReadsStdin: stdin-consuming commands without inline input', () => {
   assert.equal(commandReadsStdin(['summary', '--question', 'q']), true);

@@ -197,9 +197,12 @@ test('HttpClient.requestText returns status and body without throwing on >= 400'
 
 test('HttpClient.localAgent returns shared keepAlive false agents selected by protocol', () => {
   const client = new HttpClient();
-  const httpAgent = client.localAgent('http://127.0.0.1:8080');
+  // http.Agent stores its constructor options at runtime, but @types/node does not expose
+  // `.options` on the public Agent type; read it through the runtime-accurate shape.
+  type AgentWithOptions = http.Agent & { options: { keepAlive: boolean } };
+  const httpAgent = client.localAgent('http://127.0.0.1:8080') as AgentWithOptions;
   const secondHttpAgent = client.localAgent(new URL('http://127.0.0.1:8081'));
-  const httpsAgent = client.localAgent('https://127.0.0.1:8443');
+  const httpsAgent = client.localAgent('https://127.0.0.1:8443') as AgentWithOptions;
 
   assert.equal(httpAgent, secondHttpAgent);
   assert.equal(httpAgent.options.keepAlive, false);

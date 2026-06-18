@@ -1,27 +1,38 @@
-// @ts-nocheck — Split from runtime.test.js. Full TS typing deferred.
-const test = require('node:test');
-const assert = require('node:assert/strict');
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
-const {
+import {
   loadConfig,
   saveConfig,
   getChunkThresholdCharacters,
   getConfiguredLlamaNumCtx,
   getEffectiveInputCharactersPerContextToken,
-} = require('../dist/config/index.js');
-const {
+} from '../src/config/index.js';
+import {
   summarizeRequest,
   buildPlannerToolDefinitions,
-} = require('../dist/summary.js');
-const { generateLlamaCppResponse } = require('../dist/providers/llama-cpp.js');
-const { executePlannerTool } = require('../dist/summary/planner/tools.js');
+} from '../src/summary.js';
+import { generateLlamaCppResponse } from '../src/providers/llama-cpp.js';
+import { executePlannerTool } from '../src/summary/planner/tools.js';
+import type { PlannerToolDefinition, PlannerToolName } from '../src/summary/types.js';
 
-const {
+function getToolDefinition(
+  definitions: readonly PlannerToolDefinition[],
+  name: PlannerToolName,
+): PlannerToolDefinition {
+  const found = definitions.find((entry) => entry.function.name === name);
+  if (!found) {
+    throw new Error(`missing planner tool definition: ${name}`);
+  }
+  return found;
+}
+
+import {
   getChatRequestText,
   buildOversizedTransitionsInput,
   withTempEnv,
   withStubServer,
-} = require('./_runtime-helpers.js');
+} from './_runtime-helpers.js';
 
 test('json_filter auto-selects sole top-level array when collectionPath is omitted', () => {
   const inputText = JSON.stringify({
@@ -273,7 +284,7 @@ test('llama.cpp provider reconstructs planner tool actions from empty-content to
 
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model,
+        model: config.Runtime.Model as string,
         prompt: 'test prompt body',
         timeoutSeconds: 5,
         structuredOutput: {
@@ -325,7 +336,7 @@ test('llama.cpp provider reconstructs planner tool batches from empty-content to
 
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model,
+        model: config.Runtime.Model as string,
         prompt: 'test prompt body',
         timeoutSeconds: 5,
         structuredOutput: {
@@ -577,12 +588,8 @@ test('summary below planner threshold disables thinking for fully ingested one-s
       );
       const inputText = 'A'.repeat(Math.max(plannerThreshold - 10, 1));
 
-      config.Runtime ??= {};
-      config.Runtime.LlamaCpp ??= {};
       config.Runtime.LlamaCpp.Reasoning = 'on';
-      config.Server ??= {};
-      config.Server.LlamaCpp ??= {};
-      config.Server.LlamaCpp.Reasoning = 'on';
+      (config.Server.LlamaCpp as { Reasoning?: 'on' | 'off' }).Reasoning = 'on';
       if (Array.isArray(config.Server.LlamaCpp.Presets) && config.Server.LlamaCpp.Presets[0]) {
         config.Server.LlamaCpp.Presets[0].Reasoning = 'on';
       }
@@ -620,12 +627,8 @@ test('summary above planner threshold respects runtime reasoning for planner req
       );
       const inputText = buildOversizedTransitionsInput(plannerThreshold + 100);
 
-      config.Runtime ??= {};
-      config.Runtime.LlamaCpp ??= {};
       config.Runtime.LlamaCpp.Reasoning = 'on';
-      config.Server ??= {};
-      config.Server.LlamaCpp ??= {};
-      config.Server.LlamaCpp.Reasoning = 'on';
+      (config.Server.LlamaCpp as { Reasoning?: 'on' | 'off' }).Reasoning = 'on';
       if (Array.isArray(config.Server.LlamaCpp.Presets) && config.Server.LlamaCpp.Presets[0]) {
         config.Server.LlamaCpp.Presets[0].Reasoning = 'on';
       }
@@ -684,7 +687,7 @@ test('buildPlannerToolDefinitions returns qwen-friendly function schemas', () =>
     assert.equal(Array.isArray(entry.function?.parameters?.required), true);
   }
 
-  const findText = toolDefinitions.find((entry) => entry.function.name === 'find_text');
+  const findText = getToolDefinition(toolDefinitions, 'find_text');
   assert.deepEqual(findText.function.parameters.required, ['query', 'mode']);
   assert.deepEqual(findText.function.parameters.properties.mode.enum, ['literal', 'regex']);
   assert.match(findText.function.description, /valid javascript regex/i);
@@ -692,12 +695,12 @@ test('buildPlannerToolDefinitions returns qwen-friendly function schemas', () =>
   assert.match(findText.function.description, /example:/i);
   assert.match(findText.function.description, /\"query\":\"Lumbridge\"/i);
 
-  const readLines = toolDefinitions.find((entry) => entry.function.name === 'read_lines');
+  const readLines = getToolDefinition(toolDefinitions, 'read_lines');
   assert.deepEqual(readLines.function.parameters.required, ['startLine', 'endLine']);
   assert.match(readLines.function.description, /example:/i);
   assert.match(readLines.function.description, /\"startLine\":1340/i);
 
-  const jsonFilter = toolDefinitions.find((entry) => entry.function.name === 'json_filter');
+  const jsonFilter = getToolDefinition(toolDefinitions, 'json_filter');
   assert.deepEqual(jsonFilter.function.parameters.required, ['filters']);
   assert.equal(jsonFilter.function.parameters.properties.filters.type, 'array');
   assert.match(jsonFilter.function.description, /use separate filters/i);
@@ -713,7 +716,7 @@ test('buildPlannerToolDefinitions returns qwen-friendly function schemas', () =>
   assert.match(jsonFilter.function.description, /do not use/i);
   assert.match(jsonFilter.function.description, /\"value\":\{\"gte\":3200,\"lte\":3215\}/i);
 
-  const jsonGet = toolDefinitions.find((entry) => entry.function.name === 'json_get');
+  const jsonGet = getToolDefinition(toolDefinitions, 'json_get');
   assert.deepEqual(jsonGet.function.parameters.required, ['path']);
   assert.equal(jsonGet.function.parameters.properties.path.type, 'string');
   assert.match(jsonGet.function.description, /dot-path/i);

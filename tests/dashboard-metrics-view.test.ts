@@ -8,8 +8,8 @@ import {
   getGraphHoverIndex,
   sortToolMetricsByCalls,
   type ToolMetricRow,
-} from '../dashboard/src/metrics-view.ts';
-import type { TaskMetricDay, ToolStatsByTask } from '../dashboard/src/types.ts';
+} from '../dashboard/src/metrics-view.js';
+import type { TaskMetricDay, ToolStatsByTask } from '../dashboard/src/types.js';
 
 test('buildToolMetricRows merges task kinds into one row per tool', () => {
   const stats: ToolStatsByTask = {
@@ -121,7 +121,7 @@ test('buildToolMetricRows merges task kinds into one row per tool', () => {
 });
 
 test('sortToolMetricsByCalls sorts by calls descending then tool name', () => {
-  const rows: ToolMetricRow[] = [
+  const rows = [
     { toolType: 'get-content', calls: 38 },
     { toolType: 'rg', calls: 2196 },
     { toolType: 'get-childitem', calls: 38 },

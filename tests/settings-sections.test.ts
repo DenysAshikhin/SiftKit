@@ -6,7 +6,7 @@ import {
   SETTINGS_SECTION_ORDER,
   SETTINGS_SECTIONS,
   SETTINGS_TOOLTIP_LABELS,
-} from '../dashboard/src/settings-sections.ts';
+} from '../dashboard/src/settings-sections.js';
 
 test('settings section order matches the integrated layout', () => {
   assert.deepEqual(
@@ -102,7 +102,7 @@ test('settings tooltip labels include the documented fields', () => {
 test('every integrated settings field includes help text', () => {
   for (const sectionId of SETTINGS_SECTION_ORDER) {
     for (const field of SETTINGS_SECTIONS[sectionId].fields) {
-      assert.equal(typeof field.helpText, 'string', `${sectionId}:${field.label} is missing help text`);
+      assert.ok(typeof field.helpText === 'string', `${sectionId}:${field.label} is missing help text`);
       assert.ok(field.helpText.trim().length > 0, `${sectionId}:${field.label} help text is empty`);
     }
   }

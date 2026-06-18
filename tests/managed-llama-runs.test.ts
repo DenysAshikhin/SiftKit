@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 
-import { ManagedLlamaFlushQueue } from '../dist/status-server/managed-llama-flush-queue.js';
+import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
 import {
   bufferManagedLlamaLogChunk,
   createManagedLlamaRun,
@@ -10,20 +10,20 @@ import {
   flushManagedLlamaLogChunks,
   readManagedLlamaLogTextByStream,
   readManagedLlamaLogTextStatsByStream,
-} from '../dist/state/managed-llama-runs.js';
-import { getRuntimeDatabase, getRuntimeDatabasePath } from '../dist/state/runtime-db.js';
+} from '../src/state/managed-llama-runs.js';
+import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
 import {
   captureManagedLlamaSpeculativeMetricsSnapshot,
   getManagedLlamaLogCursor,
   getManagedLlamaSpeculativeMetricsDelta,
   getManagedLlamaSpeculativeMetricsSince,
-} from '../dist/status-server/managed-llama.js';
+} from '../src/status-server/managed-llama.js';
 import {
   appendManagedLlamaSpeculativeMetricsChunk,
   flushManagedLlamaSpeculativeMetricsTracker,
   ManagedLlamaSpeculativeMetricsTracker,
-} from '../dist/status-server/managed-llama-speculative-tracker.js';
-import { releaseModelRequest } from '../dist/status-server/server-ops.js';
+} from '../src/status-server/managed-llama-speculative-tracker.js';
+import { releaseModelRequest } from '../src/status-server/server-ops.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
 
 async function captureStdoutLines(fn: () => Promise<void> | void): Promise<string[]> {

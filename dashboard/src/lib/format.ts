@@ -1,4 +1,4 @@
-import { syncDerivedSettingsFields } from '../settings-runtime';
+import { syncDerivedSettingsFields } from '../settings-runtime.js';
 import telemetryMetrics from '../../../src/lib/telemetry-metrics.js';
 import type {
   ChatSession,
@@ -6,7 +6,7 @@ import type {
   RunDetailResponse,
   RunGroupFilter,
   RunRecord,
-} from '../types';
+} from '../types.js';
 
 const {
   getAcceptanceRate,

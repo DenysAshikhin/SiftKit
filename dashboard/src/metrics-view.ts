@@ -1,4 +1,4 @@
-import type { TaskMetricDay, ToolStatsByTask } from './types';
+import type { TaskMetricDay, ToolStatsByTask } from './types.js';
 
 export type ToolMetricRow = {
   toolType: string;
@@ -58,7 +58,7 @@ function toNumber(value: unknown): number {
   return Number(value || 0);
 }
 
-export function sortToolMetricsByCalls<TRow extends ToolMetricRow>(rows: TRow[]): TRow[] {
+export function sortToolMetricsByCalls<TRow extends Pick<ToolMetricRow, 'toolType' | 'calls'>>(rows: TRow[]): TRow[] {
   return rows.slice().sort((left, right) => {
     if (right.calls !== left.calls) {
       return right.calls - left.calls;

@@ -4,7 +4,7 @@ import type {
   DashboardPresetKind,
   DashboardPresetOperationMode,
   DashboardPresetToolName,
-} from './types';
+} from './types.js';
 
 export const PRESET_TOOL_OPTIONS: DashboardPresetToolName[] = [
   'find_text',

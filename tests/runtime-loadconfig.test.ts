@@ -1,72 +1,28 @@
-// @ts-nocheck — Split from runtime.test.js. Full TS typing deferred.
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const http = require('node:http');
-const os = require('node:os');
-const path = require('node:path');
-const { spawn, spawnSync } = require('node:child_process');
-const Database = require('better-sqlite3');
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
-const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage } = require('../dist/config/index.js');
-const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../dist/summary.js');
-const { runCommand } = require('./helpers/run-command-for-test.cjs');
-const { runBenchmarkSuite } = require('../bench/benchmark/index.ts');
-const { readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs, pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt } = require('../bench/benchmark-matrix/index.ts');
-const { countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse } = require('../dist/providers/llama-cpp.js');
-const { withExecutionLock } = require('../dist/execution-lock.js');
-const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../dist/status-server/index.js');
-const { readStatusText } = require('../dist/status-server/status-file.js');
-const { runDebugRequest } = require('../bench/repro/run-benchmark-fixture-debug.ts');
-const { runFixture60MalformedJsonRepro } = require('../bench/repro/repro-fixture60-malformed-json.ts');
-
-const {
-  TEST_USE_EXISTING_SERVER,
-  EXISTING_SERVER_STATUS_URL,
-  EXISTING_SERVER_CONFIG_URL,
-  RUN_LIVE_LLAMA_TOKENIZE_TESTS,
-  LIVE_LLAMA_BASE_URL,
-  LIVE_CONFIG_SERVICE_URL,
-  FAST_LEASE_STALE_MS,
-  FAST_LEASE_WAIT_MS,
-  deriveServiceUrl,
+import { readStatusText } from '../src/status-server/status-file.js';
+import type { SiftConfig } from '../src/config/index.js';
+import {
+  fs,
+  http,
+  path,
+  Database,
+  loadConfig,
+  saveConfig,
+  getConfigPath,
+  getChunkThresholdCharacters,
+  initializeRuntime,
   getDefaultConfig,
-  clone,
-  getChatRequestText,
   setManagedLlamaBaseUrl,
-  mergeConfig,
-  extractPromptSection,
-  buildOversizedTransitionsInput,
-  buildOversizedRunnerStateHistoryInput,
-  getRuntimeRootFromStatusPath,
-  getPlannerLogsPath,
-  getFailedLogsPath,
-  getRequestLogsPath,
-  buildStructuredStubDecision,
-  resolveAssistantContent,
-  readBody,
-  resolveArtifactLogPathFromStatusPost,
   requestJson,
-  sleep,
-  removeDirectoryWithRetries,
-  spawnProcess,
-  waitForTextMatch,
-  startStubStatusServer,
   withTempEnv,
   withStubServer,
-  withSummaryTestServer,
   withRealStatusServer,
-  startStatusServerProcess,
-  stripAnsi,
-  captureStdout,
-  readIdleSummarySnapshots,
-  getIdleSummaryBlock,
   getFreePort,
-  toSingleQuotedPowerShellLiteral,
   writeManagedLlamaScripts,
   waitForAsyncExpectation,
-  runPowerShellScript,
-} = require('./_runtime-helpers.js');
+} from './_runtime-helpers.js';
 
 test('getConfigPath prefers a repo-local .siftkit runtime when running inside the siftkit repo', async () => {
   await withTempEnv(async (tempRoot) => {
@@ -90,6 +46,7 @@ test('loadConfig uses the fixed bootstrap chars-per-token budget before observed
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
+      assert.ok(config.Effective);
 
       assert.equal(config.Effective.BudgetSource, 'ColdStartFixedCharsPerToken');
       assert.equal(config.Effective.InputCharactersPerContextToken, 2.5);
@@ -115,6 +72,7 @@ test('loadConfig stays on bootstrap fallback when only status totals appear with
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const coldStartConfig = await loadConfig({ ensure: true });
+      assert.ok(coldStartConfig.Effective);
       assert.equal(coldStartConfig.Effective.BudgetSource, 'ColdStartFixedCharsPerToken');
       assert.equal(coldStartConfig.Effective.InputCharactersPerContextToken, 2.5);
     }, {
@@ -131,6 +89,7 @@ test('loadConfig stays on bootstrap fallback when only status totals appear with
 
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
+      assert.ok(config.Effective);
       assert.equal(config.Effective.BudgetSource, 'ColdStartFixedCharsPerToken');
       assert.equal(config.Effective.InputCharactersPerContextToken, 2.5);
       assert.equal(config.Effective.ObservedTelemetrySeen, false);
@@ -169,6 +128,7 @@ test('loadConfig uses weighted observed-budget totals instead of status snapshot
       }
 
       const config = await loadConfig({ ensure: true });
+      assert.ok(config.Effective);
       assert.equal(config.Effective.BudgetSource, 'ObservedCharsPerToken');
       assert.equal(config.Effective.InputCharactersPerContextToken, 2.75);
       assert.equal(config.Effective.ObservedTelemetrySeen, true);
@@ -207,6 +167,7 @@ test('loadConfig ignores legacy observed-budget rows without weighted totals and
       }
 
       const config = await loadConfig({ ensure: true });
+      assert.ok(config.Effective);
       assert.equal(config.Effective.BudgetSource, 'ColdStartFixedCharsPerToken');
       assert.equal(config.Effective.InputCharactersPerContextToken, 2.5);
       assert.equal(config.Effective.ObservedTelemetrySeen, false);
@@ -228,6 +189,7 @@ test('loadConfig keeps bootstrap effective budgets until exact observations exis
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
+      assert.ok(config.Effective);
 
       assert.equal(config.Runtime.LlamaCpp.NumCtx, 128000);
       assert.equal(config.Runtime.LlamaCpp.Threads, -1);
@@ -259,6 +221,7 @@ test('loadConfig falls back to bootstrap when only a legacy observed-budget rati
       }
 
       const config = await loadConfig({ ensure: true });
+      assert.ok(config.Effective);
       assert.equal(config.Effective.BudgetSource, 'ColdStartFixedCharsPerToken');
       assert.equal(config.Effective.InputCharactersPerContextToken, 2.5);
     }, {
@@ -299,6 +262,7 @@ test('loadConfig falls back to bootstrap when only a legacy observed-budget rati
       process.env.SIFTKIT_CONFIG_SERVICE_URL = server.configUrl;
       process.env.SIFTKIT_STATUS_BACKEND_URL = 'http://127.0.0.1:4779/status';
       const config = await loadConfig({ ensure: true });
+      assert.ok(config.Effective);
       assert.equal(config.Effective.BudgetSource, 'ColdStartFixedCharsPerToken');
       assert.equal(config.Effective.InputCharactersPerContextToken, 2.5);
     }, {
@@ -319,6 +283,7 @@ test('loadConfig ignores aggregate prompt character and token totals for chars-p
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
+      assert.ok(config.Effective);
 
       assert.equal(config.Effective.BudgetSource, 'ColdStartFixedCharsPerToken');
       assert.equal(config.Effective.InputCharactersPerContextToken, 2.5);
@@ -338,10 +303,11 @@ test('saveConfig preserves explicit llama.cpp thread settings through the extern
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
+      assert.ok(config.Effective);
       config.Runtime.LlamaCpp.Threads = 8;
 
       const saved = await saveConfig(config);
-      const persisted = await requestJson(server.configUrl);
+      const persisted = await requestJson<SiftConfig>(server.configUrl);
 
       assert.equal(saved.Runtime.LlamaCpp.Threads, 8);
       assert.equal(persisted.Runtime.LlamaCpp.Threads, 8);
@@ -359,15 +325,17 @@ test('real status server passes managed startup env flag to startup scripts', as
     });
     const config = getDefaultConfig();
     setManagedLlamaBaseUrl(config, managed.baseUrl);
-    config.Server = {
-      LlamaCpp: {
-        ExecutablePath: managed.startupScriptPath,
-        StartupTimeoutMs: 5000,
-        HealthcheckTimeoutMs: 100,
-        HealthcheckIntervalMs: 10,
+    fs.writeFileSync(configPath, JSON.stringify({
+      ...config,
+      Server: {
+        LlamaCpp: {
+          ExecutablePath: managed.startupScriptPath,
+          StartupTimeoutMs: 5000,
+          HealthcheckTimeoutMs: 100,
+          HealthcheckIntervalMs: 10,
+        },
       },
-    };
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+    }, null, 2), 'utf8');
 
     await withRealStatusServer(async () => {
       const startupDumpPath = path.join(tempRoot, '.siftkit', 'logs', 'managed-llama', 'latest-startup.log');
@@ -392,16 +360,18 @@ test('real status server passes managed verbose env settings to startup scripts'
     });
     const config = getDefaultConfig();
     setManagedLlamaBaseUrl(config, managed.baseUrl);
-    config.Server = {
-      LlamaCpp: {
-        ExecutablePath: managed.startupScriptPath,
-        StartupTimeoutMs: 5000,
-        HealthcheckTimeoutMs: 100,
-        HealthcheckIntervalMs: 10,
-        VerboseLogging: true,
+    fs.writeFileSync(configPath, JSON.stringify({
+      ...config,
+      Server: {
+        LlamaCpp: {
+          ExecutablePath: managed.startupScriptPath,
+          StartupTimeoutMs: 5000,
+          HealthcheckTimeoutMs: 100,
+          HealthcheckIntervalMs: 10,
+          VerboseLogging: true,
+        },
       },
-    };
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+    }, null, 2), 'utf8');
 
     await withRealStatusServer(async () => {
       const startupDumpPath = path.join(tempRoot, '.siftkit', 'logs', 'managed-llama', 'latest-startup.log');
@@ -423,7 +393,7 @@ test('real status server defaults new config to no managed ExecutablePath', asyn
     const configPath = path.join(tempRoot, 'config.json');
 
     await withRealStatusServer(async ({ configUrl }) => {
-      const loadedConfig = await requestJson(configUrl);
+      const loadedConfig = await requestJson<SiftConfig>(configUrl);
 
       assert.equal(loadedConfig.Server.LlamaCpp.Presets[0].ExecutablePath, null);
     }, {
@@ -449,14 +419,14 @@ test('real status server PUT /config persists managed ExecutablePath/ModelPath a
       dashboardPayload.Server.LlamaCpp.Presets[0].ExecutablePath = dashboardExecutablePath;
       dashboardPayload.Server.LlamaCpp.Presets[0].ModelPath = dashboardModelPath;
 
-      const putResponse = await requestJson(configUrl, {
+      const putResponse = await requestJson<SiftConfig>(configUrl, {
         method: 'PUT',
         body: JSON.stringify(dashboardPayload),
       });
       assert.equal(putResponse.Server.LlamaCpp.Presets[0].ExecutablePath, dashboardExecutablePath);
       assert.equal(putResponse.Server.LlamaCpp.Presets[0].ModelPath, dashboardModelPath);
 
-      const reloaded = await requestJson(configUrl);
+      const reloaded = await requestJson<SiftConfig>(configUrl);
       assert.ok(Array.isArray(reloaded.Server.LlamaCpp.Presets));
       assert.equal(reloaded.Server.LlamaCpp.Presets[0].ExecutablePath, dashboardExecutablePath);
       assert.equal(reloaded.Server.LlamaCpp.Presets[0].ModelPath, dashboardModelPath);
@@ -464,8 +434,8 @@ test('real status server PUT /config persists managed ExecutablePath/ModelPath a
       const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
       const database = new Database(runtimeDbPath);
       try {
-        const row = database.prepare('SELECT server_llama_presets_json FROM app_config WHERE id = 1').get();
-        const presets = JSON.parse(row.server_llama_presets_json || '[]');
+        const row = database.prepare('SELECT server_llama_presets_json FROM app_config WHERE id = 1').get() as { server_llama_presets_json?: string } | undefined;
+        const presets = JSON.parse(row?.server_llama_presets_json || '[]');
         assert.ok(Array.isArray(presets) && presets.length > 0, 'expected non-empty presets in row');
         assert.equal(presets[0].ExecutablePath, dashboardExecutablePath);
         assert.equal(presets[0].ModelPath, dashboardModelPath);
@@ -490,24 +460,26 @@ test('real status server allows startup scripts to call config before launch and
     });
     const config = getDefaultConfig();
     setManagedLlamaBaseUrl(config, managed.baseUrl);
-    config.Server = {
-      LlamaCpp: {
-        ExecutablePath: managed.startupScriptPath,
-        StartupTimeoutMs: 5000,
-        HealthcheckTimeoutMs: 100,
-        HealthcheckIntervalMs: 10,
+    fs.writeFileSync(configPath, JSON.stringify({
+      ...config,
+      Server: {
+        LlamaCpp: {
+          ExecutablePath: managed.startupScriptPath,
+          StartupTimeoutMs: 5000,
+          HealthcheckTimeoutMs: 100,
+          HealthcheckIntervalMs: 10,
+        },
       },
-    };
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+    }, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ statusUrl }) => {
       assert.equal(readStatusText(getConfigPath()), 'false');
       await waitForAsyncExpectation(async () => {
-        const models = await requestJson(`${managed.baseUrl}/v1/models`);
+        const models = await requestJson<{ data: Array<{ id: string }> }>(`${managed.baseUrl}/v1/models`);
         assert.equal(models.data[0].id, 'managed-test-model');
       }, 5000);
 
-      const status = await requestJson(statusUrl);
+      const status = await requestJson<{ running: boolean; status: string }>(statusUrl);
       assert.equal(status.running, false);
       assert.equal(status.status, 'false');
       assert.equal(readStatusText(getConfigPath()), 'false');

@@ -1,9 +1,11 @@
+import type { LlamaCppToolParameterSchema } from '../llm-protocol/types.js';
+
 export type StructuredOutputToolDefinition = {
   type: 'function';
   function: {
     name: string;
     description?: string;
-    parameters?: Record<string, unknown>;
+    parameters?: LlamaCppToolParameterSchema;
   };
 };
 
@@ -190,7 +192,7 @@ export function buildFinishValidationJsonSchema(): JsonSchemaObject {
 export function buildLlamaJsonSchemaResponseFormat(options: {
   name: string;
   schema: JsonSchema;
-}): Record<string, unknown> {
+}): { type: 'json_schema'; json_schema: { name: string; strict: boolean; schema: JsonSchema } } {
   return {
     type: 'json_schema',
     json_schema: {

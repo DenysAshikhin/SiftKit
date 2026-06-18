@@ -1,11 +1,10 @@
 import type { SiftConfig } from '../config/index.js';
 import { notifyStatusBackend } from '../config/index.js';
 import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
-import { sleep } from '../lib/time.js';
 import { generateLlamaCppResponse, type LlamaCppGenerateResult } from '../providers/llama-cpp.js';
 import type { TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
-import { getMockSummary } from './mock.js';
-import { appendTestProviderEvent, traceSummary } from './artifacts.js';
+import { runMockProvider } from './providers/mock-provider.js';
+import { traceSummary } from './artifacts.js';
 import type {
   SummaryPhase,
   SummaryRequest,
@@ -95,45 +94,21 @@ export async function invokeProviderSummary(options: {
   let promptEvalTokens: number | null = null;
   try {
     if (options.backend === 'mock') {
-      const mockSpan = options.timingRecorder?.start('summary.provider.mock', {
-        phase: options.phase,
-        chunk: chunkLabel,
-      });
-      const rawSleep = process.env.SIFTKIT_TEST_PROVIDER_SLEEP_MS;
-      const sleepMs = rawSleep ? Number.parseInt(rawSleep, 10) : 0;
-      if (Number.isFinite(sleepMs) && sleepMs > 0) {
-        await sleep(sleepMs);
-      }
-      appendTestProviderEvent({
+      return await runMockProvider({
         backend: options.backend,
         model: options.model,
-        phase: options.phase,
+        prompt: options.prompt,
         question: options.question,
+        phase: options.phase,
+        promptCharacterCount: options.promptCharacterCount,
+        promptTokenCount: options.promptTokenCount,
         rawInputCharacterCount: options.rawInputCharacterCount,
         chunkInputCharacterCount: options.chunkInputCharacterCount,
+        statusRunningMs,
+        startedAt,
+        chunkLabel,
+        timingRecorder: options.timingRecorder,
       });
-      const mockSummary = getMockSummary(options.prompt, options.question, options.phase);
-      mockSpan?.end({ outputChars: mockSummary.length });
-      outputCharacterCount = mockSummary.length;
-      const providerDurationMs = Date.now() - startedAt;
-      return {
-        text: mockSummary,
-        metrics: {
-          promptCharacterCount: options.promptCharacterCount,
-          promptTokenCount: options.promptTokenCount,
-          rawInputCharacterCount: options.rawInputCharacterCount,
-          chunkInputCharacterCount: options.chunkInputCharacterCount,
-          inputTokens,
-          outputCharacterCount,
-          outputTokens,
-          thinkingTokens,
-          promptCacheTokens,
-          promptEvalTokens,
-          requestDurationMs: providerDurationMs,
-          providerDurationMs,
-          statusRunningMs,
-        },
-      };
     }
 
     traceSummary(

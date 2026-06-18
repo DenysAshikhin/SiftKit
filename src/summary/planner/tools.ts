@@ -33,6 +33,20 @@ export {
   truncatePlannerText,
 };
 
+// Planner tool executors always return a `text` rendering plus tool-specific
+// metadata fields. The index signature keeps the type assignable to the
+// `Record<string, unknown>` surfaces the planner mode passes results through.
+export interface PlannerToolResult {
+  text: string;
+  collectionPath?: string;
+  matchedCount?: number;
+  hitCount?: number;
+  returnedHits?: number;
+  truncated?: boolean;
+  found?: boolean;
+  [key: string]: unknown;
+}
+
 export function getPlannerToolName(value: unknown): PlannerToolName | null {
   return value === 'find_text' || value === 'read_lines' || value === 'json_filter' || value === 'json_get'
     ? value
@@ -231,7 +245,7 @@ function buildJsonFilterCollectionPathGuidanceResult(options: {
   collectionPath: string;
   candidates: JsonFilterCollectionCandidate[];
   error: string;
-}): Record<string, unknown> {
+}): PlannerToolResult {
   const candidatePaths = options.candidates.map((candidate) => candidate.path);
   const guidance = candidatePaths.length > 0
     ? `Candidate collectionPath values: ${candidatePaths.join(', ')}.`
@@ -249,7 +263,7 @@ function buildJsonFilterCollectionPathGuidanceResult(options: {
 function resolveJsonFilterCollection(
   parsed: unknown,
   args: Record<string, unknown>,
-): { collectionPath: string; collection: unknown[] } | { recoverableResult: Record<string, unknown> } {
+): { collectionPath: string; collection: unknown[] } | { recoverableResult: PlannerToolResult } {
   const collectionPath = typeof args.collectionPath === 'string' ? args.collectionPath.trim() : '';
   if (collectionPath) {
     const collection = getValueByPath(parsed, collectionPath);
@@ -297,7 +311,7 @@ function resolveJsonFilterCollection(
   throw new Error('json_filter collection is not an array.');
 }
 
-function executeFindTextTool(inputText: string, args: Record<string, unknown>): Record<string, unknown> {
+function executeFindTextTool(inputText: string, args: Record<string, unknown>): PlannerToolResult {
   const query = typeof args.query === 'string' ? args.query : '';
   const mode = args.mode === 'regex' ? 'regex' : args.mode === 'literal' ? 'literal' : null;
   if (!query.trim() || !mode) {
@@ -368,7 +382,7 @@ function executeFindTextTool(inputText: string, args: Record<string, unknown>): 
   };
 }
 
-function executeReadLinesTool(inputText: string, args: Record<string, unknown>): Record<string, unknown> {
+function executeReadLinesTool(inputText: string, args: Record<string, unknown>): PlannerToolResult {
   const startLine = Math.max(getFiniteInteger(args.startLine) ?? 1, 1);
   const endLine = Math.max(getFiniteInteger(args.endLine) ?? startLine, startLine);
   const lines = inputText.replace(/\r\n/gu, '\n').split('\n');
@@ -384,7 +398,7 @@ function executeReadLinesTool(inputText: string, args: Record<string, unknown>):
   };
 }
 
-function executeJsonFilterTool(inputText: string, args: Record<string, unknown>): Record<string, unknown> {
+function executeJsonFilterTool(inputText: string, args: Record<string, unknown>): PlannerToolResult {
   const parsedContext = parseJsonForJsonFilter(inputText);
   const parsed = parsedContext.parsed;
   const filters = Array.isArray(args.filters)
@@ -432,7 +446,7 @@ function executeJsonFilterTool(inputText: string, args: Record<string, unknown>)
   };
 }
 
-function executeJsonGetTool(inputText: string, args: Record<string, unknown>): Record<string, unknown> {
+function executeJsonGetTool(inputText: string, args: Record<string, unknown>): PlannerToolResult {
   const path = typeof args.path === 'string' ? args.path.trim() : '';
   if (!path) {
     throw new Error('json_get requires path.');
@@ -457,7 +471,7 @@ export function executePlannerTool(
   inputText: string,
   action: PlannerToolCall,
   allowedTools: readonly PlannerToolName[] = ['find_text', 'read_lines', 'json_filter', 'json_get'],
-): Record<string, unknown> {
+): PlannerToolResult {
   if (!allowedTools.includes(action.tool_name)) {
     throw new Error(`Planner tool is not allowed by the active preset: ${action.tool_name}`);
   }

@@ -269,7 +269,17 @@ export class ManagedLlamaFlushQueue {
     if (this.worker) {
       return this.worker;
     }
-    this.worker = new Worker(path.join(__dirname, 'managed-llama-flush-worker.js'));
+    // A Worker thread needs a loadable module. Compiled production runs from
+    // dist where the sibling .js exists. When the status server runs from source
+    // via tsx (the typed test harness), __dirname is src/ where only the .ts
+    // exists; loading it would require a per-worker tsx subprocess, which does
+    // not scale across many short-lived servers. The worker is internal
+    // log-flush plumbing (not code under test), so load the compiled artifact
+    // from dist in that case — a lightweight Worker thread, no tsx subprocess.
+    const workerPath = path.extname(__filename) === '.ts'
+      ? path.resolve(__dirname, '..', '..', 'dist', 'status-server', 'managed-llama-flush-worker.js')
+      : path.join(__dirname, 'managed-llama-flush-worker.js');
+    this.worker = new Worker(workerPath);
     this.worker.unref();
     this.worker.on('exit', () => {
       this.worker = null;

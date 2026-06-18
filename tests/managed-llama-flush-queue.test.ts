@@ -2,13 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 
-import { ManagedLlamaFlushQueue } from '../dist/status-server/managed-llama-flush-queue.js';
+import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
 import {
   bufferManagedLlamaLogChunk,
   createManagedLlamaRun,
   readManagedLlamaLogTextByStream,
-} from '../dist/state/managed-llama-runs.js';
-import { getRuntimeDatabase, getRuntimeDatabasePath } from '../dist/state/runtime-db.js';
+} from '../src/state/managed-llama-runs.js';
+import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
 
 function createStdoutCapture(): { lines: string[]; restore: () => void } {

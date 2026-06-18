@@ -1,72 +1,18 @@
-// @ts-nocheck — Split from runtime.test.js. Full TS typing deferred.
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const http = require('node:http');
-const os = require('node:os');
-const path = require('node:path');
-const { spawn, spawnSync } = require('node:child_process');
-const Database = require('better-sqlite3');
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
-const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage } = require('../dist/config/index.js');
-const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../dist/summary.js');
-const { executeRepoSearchRequest } = require('../dist/repo-search/index.js');
-const { runCommand } = require('./helpers/run-command-for-test.cjs');
-const { runBenchmarkSuite } = require('../bench/benchmark/index.ts');
-const { readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs, pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt } = require('../bench/benchmark-matrix/index.ts');
-const { countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse } = require('../dist/providers/llama-cpp.js');
-const { withExecutionLock } = require('../dist/execution-lock.js');
-const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../dist/status-server/index.js');
-const { runDebugRequest } = require('../bench/repro/run-benchmark-fixture-debug.ts');
-const { runFixture60MalformedJsonRepro } = require('../bench/repro/repro-fixture60-malformed-json.ts');
-
-const {
-  TEST_USE_EXISTING_SERVER,
-  EXISTING_SERVER_STATUS_URL,
-  EXISTING_SERVER_CONFIG_URL,
-  RUN_LIVE_LLAMA_TOKENIZE_TESTS,
-  LIVE_LLAMA_BASE_URL,
-  LIVE_CONFIG_SERVICE_URL,
-  FAST_LEASE_STALE_MS,
-  FAST_LEASE_WAIT_MS,
-  deriveServiceUrl,
-  getDefaultConfig,
-  clone,
-  getChatRequestText,
-  setManagedLlamaBaseUrl,
-  mergeConfig,
-  extractPromptSection,
-  buildOversizedTransitionsInput,
-  buildOversizedRunnerStateHistoryInput,
-  getRuntimeRootFromStatusPath,
-  getPlannerLogsPath,
-  getFailedLogsPath,
-  getRequestLogsPath,
+import { executeRepoSearchRequest } from '../src/repo-search/index.js';
+import {
+  http,
+  summarizeRequest,
+  buildIdleMetricsLogMessage,
+  buildStatusRequestLogMessage,
+  formatElapsed,
   buildStructuredStubDecision,
-  resolveAssistantContent,
-  readBody,
-  resolveArtifactLogPathFromStatusPost,
-  requestJson,
-  sleep,
-  removeDirectoryWithRetries,
-  spawnProcess,
-  waitForTextMatch,
-  startStubStatusServer,
   withTempEnv,
   withStubServer,
-  withSummaryTestServer,
-  withRealStatusServer,
-  startStatusServerProcess,
-  stripAnsi,
-  captureStdout,
-  readIdleSummarySnapshots,
-  getIdleSummaryBlock,
-  getFreePort,
-  toSingleQuotedPowerShellLiteral,
-  writeManagedLlamaScripts,
   waitForAsyncExpectation,
-  runPowerShellScript,
-} = require('./_runtime-helpers.js');
+} from './_runtime-helpers.js';
 
 test('summary aggregation accumulates provider usage and duration in status metrics', async () => {
   await withTempEnv(async () => {
@@ -214,19 +160,26 @@ test('summary aggregation counts only processed prompt tokens when cache metadat
         assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 23);
         assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 45);
       }, 2000);
-      const completionPost = server.state.statusPosts.findLast(
+      const completionPost = server.state.statusPosts.slice().reverse().find(
         (post) => post.running === false
           && post.taskKind === 'summary'
           && post.terminalState === 'completed',
       );
+      assert.ok(completionPost);
+      const deferredMetadata = completionPost.deferredMetadata as {
+        inputTokens?: number;
+        outputTokens?: number;
+        promptCacheTokens?: number;
+        promptEvalTokens?: number;
+      };
       assert.equal(completionPost.inputTokens, undefined);
       assert.equal(completionPost.outputTokens, undefined);
       assert.equal(completionPost.promptCacheTokens, undefined);
       assert.equal(completionPost.promptEvalTokens, undefined);
-      assert.equal(completionPost.deferredMetadata.inputTokens, 23);
-      assert.equal(completionPost.deferredMetadata.outputTokens, 45);
-      assert.equal(completionPost.deferredMetadata.promptCacheTokens, 100);
-      assert.equal(completionPost.deferredMetadata.promptEvalTokens, 23);
+      assert.equal(deferredMetadata.inputTokens, 23);
+      assert.equal(deferredMetadata.outputTokens, 45);
+      assert.equal(deferredMetadata.promptCacheTokens, 100);
+      assert.equal(deferredMetadata.promptEvalTokens, 23);
     }, {
       chatResponse(promptText) {
         return {
@@ -280,11 +233,6 @@ test('repo-search reports only processed prompt tokens to the status backend whe
               NumCtx: 128000,
             },
           },
-          LlamaCpp: {
-            ...server.state.config.LlamaCpp,
-            BaseUrl: `http://127.0.0.1:${server.port}`,
-            NumCtx: 128000,
-          },
         },
         model: 'mock-model',
         maxTurns: 1,
@@ -295,6 +243,7 @@ test('repo-search reports only processed prompt tokens to the status backend whe
         assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 23);
       }, 1000);
       const completionPost = server.state.statusPosts.filter((post) => post.running === false && post.taskKind === 'repo-search').at(-1);
+      assert.ok(completionPost);
       assert.equal(completionPost.inputTokens, 23);
       assert.equal(completionPost.promptCacheTokens, 100);
       assert.equal(completionPost.promptEvalTokens, 23);

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getDirtyActionRequirement, type DirtyContinuation } from '../dashboard/src/settings-flow.ts';
+import { getDirtyActionRequirement, type DirtyContinuation } from '../dashboard/src/settings-flow.js';
 
 test('section switch requires confirmation when settings are dirty', () => {
   assert.equal(getDirtyActionRequirement(true, 'switch-section'), 'confirm');

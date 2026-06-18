@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { runCli } from '../dist/cli/index.js';
+import { runCli } from '../src/cli/index.js';
 import { makeCaptureStream } from './_test-helpers.js';
 
 test('blocked public commands are not accessible', async () => {

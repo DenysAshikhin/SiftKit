@@ -7,10 +7,18 @@ import {
   mergeConfig,
   getRuntimeRootFromStatusPath,
   getPlannerLogsPath,
-} from './helpers/runtime-config.ts';
+} from './helpers/runtime-config.js';
 import {
   resolveArtifactLogPathFromStatusPost,
-} from './helpers/runtime-http.ts';
+} from './helpers/runtime-http.js';
+
+// mergeConfig is a heterogeneous deep-merge that returns `unknown`; for the config-merge
+// case the test exercises, the result carries the merged Runtime plus a Thresholds bag
+// (with derived keys stripped). Name that shape at the boundary instead of reading unknown.
+type MergedRuntimeConfig = {
+  Runtime: { LlamaCpp: { BaseUrl: string } };
+  Thresholds: Record<string, unknown>;
+};
 
 test('runtime config helpers merge nested overrides and strip derived fields', () => {
   const config = getDefaultConfig();
@@ -29,7 +37,7 @@ test('runtime config helpers merge nested overrides and strip derived fields', (
     Thresholds: {
       MaxInputCharacters: 123,
     },
-  });
+  }) as MergedRuntimeConfig;
 
   assert.equal(merged.Runtime.LlamaCpp.BaseUrl, 'http://127.0.0.1:9999');
   assert.equal('Paths' in merged, false);

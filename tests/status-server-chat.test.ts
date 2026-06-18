@@ -12,11 +12,11 @@ import {
   buildRetainedWebToolCalls,
   buildRepoSearchMarkdown,
   buildPersistTurnsFromRepoSearchResult,
-} from '../src/status-server/chat.ts';
-import { buildChatPromptContext } from '../src/status-server/chat-prompt-context.ts';
-import { normalizeConfig } from '../src/status-server/config-store.ts';
-import { estimateTokenCount, type ChatSession } from '../src/state/chat-sessions.ts';
-import type { SiftConfig } from '../src/config/types.ts';
+} from '../src/status-server/chat.js';
+import { buildChatPromptContext } from '../src/status-server/chat-prompt-context.js';
+import { normalizeConfig } from '../src/status-server/config-store.js';
+import { estimateTokenCount, type ChatSession } from '../src/state/chat-sessions.js';
+import type { SiftConfig } from '../src/config/types.js';
 
 function createConfig(overrides: Record<string, unknown> = {}): SiftConfig {
   return normalizeConfig({
@@ -221,9 +221,6 @@ test('buildChatSystemContent contains only system prompt and explicit web instru
   const systemContent = buildChatSystemContent(createConfig(), session, { promptPrefix: 'custom system prompt' });
   const promptContext = buildChatPromptContext(createConfig(), session, {
     promptPrefix: 'custom system prompt',
-    isRepoToolMode: false,
-    planRepoRoot: '',
-    allowedTools: [],
   });
 
   assert.equal(systemContent, 'custom system prompt');
@@ -286,7 +283,7 @@ test('buildRepoSearchMarkdown collapses exact repeated final output blocks for d
 
 
 test('buildContextUsage estimates continuation context from session content instead of provider prompt telemetry', () => {
-  const session = {
+  const session: ChatSession = {
     id: 'session-usage',
     contextWindowTokens: 75000,
     messages: [
@@ -296,19 +293,24 @@ test('buildContextUsage estimates continuation context from session content inst
         content: 'How are tool calls handled?',
         inputTokensEstimate: 52403,
         inputTokensEstimated: false,
+        outputTokensEstimate: 0,
+        thinkingTokens: 0,
+        createdAtUtc: '2026-01-01T00:00:00.000Z',
       },
       {
         id: 'assistant-1',
         role: 'assistant',
         content: '# Repo Search Results\n\nTool calls are parsed and executed through the loop.',
+        inputTokensEstimate: 0,
         outputTokensEstimate: 2288,
         outputTokensEstimated: true,
         thinkingTokens: 3405,
         thinkingTokensEstimated: true,
         thinkingContent: 'Prior reasoning that can be replayed.',
+        createdAtUtc: '2026-01-01T00:00:00.000Z',
       },
     ],
-  } as ChatSession;
+  };
 
   const expectedThinkingTokens = estimateTokenCount('Prior reasoning that can be replayed.');
   const expectedChatTokens = estimateTokenCount('general, coder friendly assistant')
@@ -527,15 +529,15 @@ test('buildChatHistoryMessages replays persisted repo tool calls with real proto
 });
 
 test('buildContextUsage counts replay-visible context, not internal tool telemetry', () => {
-  const session = {
+  const session: ChatSession = {
     id: 'session-replay-usage',
     contextWindowTokens: 62000,
     messages: [
-      { id: 'u1', role: 'user', kind: 'user_text', content: 'tiny', inputTokensEstimate: 161239 },
-      { id: 't1', role: 'assistant', kind: 'assistant_tool_call', content: 'web_fetch url="https://example.test"', outputTokensEstimate: 42073 },
-      { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'short answer', outputTokensEstimate: 2048, associatedToolTokens: 42073 },
+      { id: 'u1', role: 'user', kind: 'user_text', content: 'tiny', inputTokensEstimate: 161239, outputTokensEstimate: 0, thinkingTokens: 0, createdAtUtc: '2026-01-01T00:00:00.000Z' },
+      { id: 't1', role: 'assistant', kind: 'assistant_tool_call', content: 'web_fetch url="https://example.test"', inputTokensEstimate: 0, outputTokensEstimate: 42073, thinkingTokens: 0, createdAtUtc: '2026-01-01T00:00:00.000Z' },
+      { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'short answer', inputTokensEstimate: 0, outputTokensEstimate: 2048, thinkingTokens: 0, associatedToolTokens: 42073, createdAtUtc: '2026-01-01T00:00:00.000Z' },
     ],
-  } as ChatSession;
+  };
 
   const usage = buildContextUsage(createConfig(), session);
 

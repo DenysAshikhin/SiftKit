@@ -355,7 +355,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
         promptTokenCount: 0,
         maxOutputTokens: 0,
         messages: this.messages as AgentLoopPreparedTurn['messages'],
-        toolDefinitions: this.toolDefinitions as AgentLoopPreparedTurn['toolDefinitions'],
+        toolDefinitions: this.toolDefinitions,
         inForcedFinishMode: false,
       };
     }
@@ -394,7 +394,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
         promptTokenCount: this.promptTokenCount,
         maxOutputTokens: 0,
         messages: this.messages as AgentLoopPreparedTurn['messages'],
-        toolDefinitions: this.toolDefinitions as AgentLoopPreparedTurn['toolDefinitions'],
+        toolDefinitions: this.toolDefinitions,
         inForcedFinishMode: this.transcriptState.forcedFinishAttemptsRemaining > 0,
       };
     }
@@ -404,7 +404,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       promptTokenCount: this.promptTokenCount,
       maxOutputTokens: 0,
       messages: this.messages as AgentLoopPreparedTurn['messages'],
-      toolDefinitions: this.toolDefinitions as AgentLoopPreparedTurn['toolDefinitions'],
+      toolDefinitions: this.toolDefinitions,
       inForcedFinishMode: this.transcriptState.forcedFinishAttemptsRemaining > 0,
     };
   }

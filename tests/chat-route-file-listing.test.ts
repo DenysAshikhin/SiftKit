@@ -5,7 +5,7 @@ import {
   resolveEffectiveRepoFileListing,
   resolveEffectiveAgentsMd,
   resolveRepoSearchAutoAppendOverrides,
-} from '../dist/status-server/routes/chat.js';
+} from '../src/status-server/routes/chat.js';
 
 test('resolveEffectiveRepoFileListing disables initial repo file scan from global config', () => {
   assert.equal(

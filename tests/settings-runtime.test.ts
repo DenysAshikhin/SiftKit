@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { deriveRuntimeModelId, syncDerivedSettingsFields } from '../dashboard/src/settings-runtime.ts';
-import type { DashboardConfig } from '../dashboard/src/types.ts';
+import { deriveRuntimeModelId, syncDerivedSettingsFields } from '../dashboard/src/settings-runtime.js';
+import type { DashboardConfig } from '../dashboard/src/types.js';
 
 test('deriveRuntimeModelId returns the gguf filename from a Windows path', () => {
   assert.equal(

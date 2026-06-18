@@ -7,9 +7,9 @@ import {
   deleteManagedLlamaPreset,
   getActiveManagedLlamaPreset,
   type DashboardManagedLlamaPreset,
-} from '../dashboard/src/managed-llama-presets.ts';
-import type { DashboardConfig, DashboardLlamaCppConfig } from '../dashboard/src/types.ts';
-import { normalizeConfigObject } from '../src/config/normalization.ts';
+} from '../dashboard/src/managed-llama-presets.js';
+import type { DashboardConfig, DashboardLlamaCppConfig } from '../dashboard/src/types.js';
+import { normalizeConfigObject } from '../src/config/normalization.js';
 
 function createPreset(overrides: Partial<DashboardManagedLlamaPreset> = {}): DashboardManagedLlamaPreset {
   return {
@@ -83,8 +83,6 @@ function presetToLlamaCpp(preset: DashboardManagedLlamaPreset): DashboardLlamaCp
     FlashAttention: preset.FlashAttention,
     ParallelSlots: preset.ParallelSlots,
     Reasoning: preset.Reasoning,
-    ReasoningContent: preset.ReasoningContent,
-    PreserveThinking: preset.PreserveThinking,
   };
 }
 
@@ -114,8 +112,6 @@ function createConfig(): DashboardConfig {
       full: [],
     },
     Presets: [],
-    Model: '',
-    LlamaCpp: presetToLlamaCpp(defaultPreset),
     Runtime: {
       Model: '',
       LlamaCpp: presetToLlamaCpp(defaultPreset),
@@ -130,6 +126,18 @@ function createConfig(): DashboardConfig {
       IdleTimeoutMs: 900000,
       MaxTranscriptCharacters: 60000,
       TranscriptRetention: true,
+    },
+    WebSearch: {
+      EnabledDefault: true,
+      Providers: {
+        tavily: { Enabled: false, ApiKey: '' },
+        firecrawl: { Enabled: false, ApiKey: '' },
+      },
+      ProviderOrder: ['tavily', 'firecrawl'],
+      ResultCount: 5,
+      FetchMaxPages: 3,
+      TimeoutMs: 15000,
+      FetchMaxCharacters: 12000,
     },
     Server: {
       LlamaCpp: {

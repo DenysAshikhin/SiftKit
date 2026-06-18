@@ -6,12 +6,14 @@ import * as path from 'node:path';
 import * as http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import { getDefaultMetrics } from '../dist/status-server/metrics.js';
-import { ManagedLlamaFlushQueue } from '../dist/status-server/managed-llama-flush-queue.js';
-import { handleLlamaPassthroughRoute } from '../dist/status-server/routes/llama-passthrough.js';
-import { writeConfig } from '../dist/status-server/config-store.js';
-import type { ServerContext } from '../dist/status-server/server-types.js';
-import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
+import { getDefaultMetrics } from '../src/status-server/metrics.js';
+import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
+import { StatusEngineService } from '../src/status-server/engine-service.js';
+import { handleLlamaPassthroughRoute } from '../src/status-server/routes/llama-passthrough.js';
+import { writeConfig, getDefaultConfig } from '../src/status-server/config-store.js';
+import { mockConfig } from './_runtime-helpers.js';
+import type { ServerContext } from '../src/status-server/server-types.js';
+import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 
 type TestHarness = {
   ctx: ServerContext;
@@ -46,7 +48,7 @@ function createPassthroughHarness(tempRoot: string): Promise<TestHarness> {
 
       const configPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
       fs.mkdirSync(path.dirname(configPath), { recursive: true });
-      writeConfig(configPath, {
+      writeConfig(configPath, mockConfig({
         Backend: 'llama.cpp',
         Runtime: {
           Model: 'test-model',
@@ -72,7 +74,7 @@ function createPassthroughHarness(tempRoot: string): Promise<TestHarness> {
             }],
           },
         },
-      });
+      }));
 
       const flushQueue = new ManagedLlamaFlushQueue();
       const ctx: ServerContext = {
@@ -81,6 +83,7 @@ function createPassthroughHarness(tempRoot: string): Promise<TestHarness> {
         metricsPath: path.join(tempRoot, 'metrics.sqlite'),
         idleSummarySnapshotsPath: path.join(tempRoot, 'idle.sqlite'),
         disableManagedLlamaStartup: true,
+        engineService: new StatusEngineService(),
         server: null,
         getServiceBaseUrl(): string {
           return 'http://127.0.0.1:0';
@@ -119,8 +122,8 @@ function createPassthroughHarness(tempRoot: string): Promise<TestHarness> {
         runtimeHistoryPruneTimer: null,
         managedLlamaFlushQueue: flushQueue,
         async shutdownManagedLlamaIfNeeded(): Promise<void> {},
-        async ensureManagedLlamaReady(): Promise<Record<string, never>> {
-          return {};
+        async ensureManagedLlamaReady() {
+          return getDefaultConfig();
         },
       };
 

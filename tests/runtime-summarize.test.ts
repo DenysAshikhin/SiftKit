@@ -1,74 +1,52 @@
-// @ts-nocheck — Split from runtime.test.js. Full TS typing deferred.
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const http = require('node:http');
-const os = require('node:os');
-const path = require('node:path');
-const { spawn, spawnSync } = require('node:child_process');
-const Database = require('better-sqlite3');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
+import type { AddressInfo } from 'node:net';
+import Database from 'better-sqlite3';
 
-const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime } = require('../dist/config/index.js');
-const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../dist/summary.js');
-const { runCommand } = require('./helpers/run-command-for-test.cjs');
-const { runBenchmarkSuite } = require('../bench/benchmark/index.ts');
-const { readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs, pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt } = require('../bench/benchmark-matrix/index.ts');
-const { countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse } = require('../dist/providers/llama-cpp.js');
-const { withExecutionLock } = require('../dist/execution-lock.js');
-const { parseRuntimeArtifactUri, readRuntimeArtifact } = require('../dist/state/runtime-artifacts.js');
-const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../dist/status-server/index.js');
-const { runDebugRequest } = require('../bench/repro/run-benchmark-fixture-debug.ts');
-const { runFixture60MalformedJsonRepro } = require('../bench/repro/repro-fixture60-malformed-json.ts');
+import { loadConfig, saveConfig, getChunkThresholdCharacters, initializeRuntime } from '../src/config/index.js';
+import { summarizeRequest, buildPrompt, getSummaryDecision } from '../src/summary.js';
+import { runCommand } from './helpers/run-command-for-test.js';
+import { parseRuntimeArtifactUri, readRuntimeArtifact } from '../src/state/runtime-artifacts.js';
 
-const {
-  TEST_USE_EXISTING_SERVER,
-  EXISTING_SERVER_STATUS_URL,
-  EXISTING_SERVER_CONFIG_URL,
-  RUN_LIVE_LLAMA_TOKENIZE_TESTS,
-  LIVE_LLAMA_BASE_URL,
-  LIVE_CONFIG_SERVICE_URL,
-  FAST_LEASE_STALE_MS,
-  FAST_LEASE_WAIT_MS,
-  deriveServiceUrl,
+import {
   getDefaultConfig,
-  clone,
   getChatRequestText,
-  setManagedLlamaBaseUrl,
-  mergeConfig,
   extractPromptSection,
-  buildOversizedTransitionsInput,
-  buildOversizedRunnerStateHistoryInput,
-  getRuntimeRootFromStatusPath,
-  getPlannerLogsPath,
-  getFailedLogsPath,
   getRequestLogsPath,
-  buildStructuredStubDecision,
-  resolveAssistantContent,
   readBody,
-  resolveArtifactLogPathFromStatusPost,
-  requestJson,
   sleep,
-  removeDirectoryWithRetries,
-  spawnProcess,
-  waitForTextMatch,
-  startStubStatusServer,
   withTempEnv,
   withStubServer,
-  withSummaryTestServer,
-  withRealStatusServer,
-  startStatusServerProcess,
-  stripAnsi,
-  captureStdout,
-  readIdleSummarySnapshots,
-  getIdleSummaryBlock,
-  getFreePort,
-  toSingleQuotedPowerShellLiteral,
-  writeManagedLlamaScripts,
   waitForAsyncExpectation,
-  runPowerShellScript,
-} = require('./_runtime-helpers.js');
+} from './_runtime-helpers.js';
 
-async function startDelayedTerminalSummaryStatusServer(delayMs) {
+// Index-signature view of the dynamic JsonObject status posts these tests read:
+// named optional fields stay precisely typed while the index keeps it a
+// structural supertype of JsonObject, so findLast guards narrow cast-free.
+interface TerminalStatusPost {
+  [key: string]: unknown;
+  deferredMetadata: {
+    providerDurationMs: number;
+    wallDurationMs: number;
+    stdinWaitMs: number;
+    serverPreflightMs: number;
+    lockWaitMs: number;
+    requestDurationMs: number;
+    outputCharacterCount: number;
+  };
+  deferredArtifacts: { artifactType: string }[];
+}
+
+interface DelayedTerminalSummaryStatusServer {
+  statusUrl: string;
+  terminalPostCount(): number;
+  close(): Promise<void>;
+}
+
+async function startDelayedTerminalSummaryStatusServer(delayMs: number): Promise<DelayedTerminalSummaryStatusServer> {
   let terminalPosts = 0;
   const server = http.createServer(async (req, res) => {
     if (req.method !== 'POST') {
@@ -96,15 +74,15 @@ async function startDelayedTerminalSummaryStatusServer(delayMs) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
   });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const address = server.address() as AddressInfo;
   return {
     statusUrl: `http://127.0.0.1:${address.port}/status`,
     terminalPostCount() {
       return terminalPosts;
     },
     close() {
-      return new Promise((resolve, reject) => {
+      return new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
         server.closeAllConnections();
       });
@@ -175,9 +153,9 @@ test('summary command-output pass/fail with Jest pass output is deterministic an
       assert.match(result.Summary, /Test Suites: 1 passed, 1 total/u);
       assert.equal(fs.existsSync(logPath), false);
       assert.equal(server.state.statusPosts.some((post) => post.running === true), false);
-      let terminalPost;
+      let terminalPost: TerminalStatusPost | undefined;
       await waitForAsyncExpectation(async () => {
-        terminalPost = server.state.statusPosts.findLast((post) => post.terminalState === 'completed');
+        terminalPost = server.state.statusPosts.findLast((post): post is TerminalStatusPost => post.terminalState === 'completed');
         assert.ok(terminalPost);
       }, 1000);
       assert.ok(terminalPost);
@@ -277,9 +255,9 @@ test('summary timing metadata records lock wait separately from provider duratio
       });
 
       assert.equal(result.WasSummarized, true);
-      let terminalPost;
+      let terminalPost: TerminalStatusPost | undefined;
       await waitForAsyncExpectation(async () => {
-        terminalPost = server.state.statusPosts.findLast((post) => post.terminalState === 'completed');
+        terminalPost = server.state.statusPosts.findLast((post): post is TerminalStatusPost => post.terminalState === 'completed');
         assert.ok(terminalPost);
         assert.ok(terminalPost.deferredMetadata.lockWaitMs >= 50);
       }, 1000);
@@ -539,7 +517,8 @@ test('saveConfig reports operation-specific context when the external server is 
     const config = getDefaultConfig();
     await assert.rejects(
       () => saveConfig(config),
-      (error) => {
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
         assert.equal(error.name, 'StatusServerUnavailableError');
         assert.match(error.message, /SiftKit status\/config server is not reachable at http:\/\/127\.0\.0\.1:4779\/health\./u);
         assert.match(error.message, /Operation: config:set\./u);
@@ -656,7 +635,7 @@ test('summary posts the preflight prompt token count in running status updates',
       assert.equal(result.WasSummarized, true);
       const runningStatusPosts = server.state.statusPosts.filter((post) => post.running === true && Number.isFinite(post.promptCharacterCount));
       assert.ok(runningStatusPosts.length >= 1);
-      assert.equal(runningStatusPosts[0].promptTokenCount, Math.max(1, Math.ceil(runningStatusPosts[0].promptCharacterCount / 10)));
+      assert.equal(runningStatusPosts[0].promptTokenCount, Math.max(1, Math.ceil(Number(runningStatusPosts[0].promptCharacterCount) / 10)));
     }, {
       tokenizeCharsPerToken: 10,
       metrics: {
@@ -867,6 +846,7 @@ test('runCommand classifies missing executables as command failures with raw rev
       assert.equal(result.Classification, 'command_failure');
       assert.equal(result.RawReviewRequired, true);
       assert.equal(result.ModelCallSucceeded, true);
+      assert.ok(result.Summary !== null);
       assert.match(result.Summary, /command failed before producing a usable result/i);
     });
   });
@@ -890,9 +870,9 @@ test('summarizeRequest queues request artifacts on the terminal status post and 
       });
 
       assert.equal(result.Classification, 'summary');
-      let terminalPost;
+      let terminalPost: TerminalStatusPost | undefined;
       await waitForAsyncExpectation(async () => {
-        terminalPost = server.state.statusPosts.findLast((post) => (
+        terminalPost = server.state.statusPosts.findLast((post): post is TerminalStatusPost => (
           post.running === false
           && post.taskKind === 'summary'
           && post.terminalState === 'completed'
@@ -952,9 +932,9 @@ test('summary succeeds when deferred artifact persistence is unavailable', async
       });
 
       assert.equal(result.Classification, 'summary');
-      let terminalPost;
+      let terminalPost: TerminalStatusPost | undefined;
       await waitForAsyncExpectation(async () => {
-        terminalPost = server.state.statusPosts.findLast((post) => (
+        terminalPost = server.state.statusPosts.findLast((post): post is TerminalStatusPost => (
           post.running === false
           && post.taskKind === 'summary'
           && post.terminalState === 'completed'

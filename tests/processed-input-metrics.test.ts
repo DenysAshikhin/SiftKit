@@ -8,6 +8,7 @@ import Database from 'better-sqlite3';
 import {
   ensureRunLogsTable,
   normalizeIdleSummarySnapshotRow,
+  type IdleSummarySnapshotDbRow,
 } from '../src/status-server/dashboard-runs.js';
 import {
   ensureIdleSummarySnapshotsTable,
@@ -308,7 +309,7 @@ test('ensureIdleSummarySnapshotsTable preserves existing token totals and expose
 
     ensureIdleSummarySnapshotsTable(database);
 
-    const row = database.prepare('SELECT * FROM idle_summary_snapshots').get() as Record<string, unknown>;
+    const row = database.prepare('SELECT * FROM idle_summary_snapshots').get() as IdleSummarySnapshotDbRow;
     assert.equal(Number(row.input_tokens_total), 123);
     assert.equal(Number(row.prompt_eval_tokens_total), 0);
     const snapshot = normalizeIdleSummarySnapshotRow(row);

@@ -1,7 +1,7 @@
 import http from 'node:http';
 import path from 'node:path';
 
-import { getRuntimeRootFromStatusPath } from './runtime-config.ts';
+import { getRuntimeRootFromStatusPath } from './runtime-config.js';
 
 type JsonObject = Record<string, unknown>;
 
@@ -55,8 +55,8 @@ export function resolveArtifactLogPathFromStatusPost(parsedBody: unknown): strin
   return null;
 }
 
-export function requestJson(url: string, options: RequestJsonOptions = {}): Promise<unknown> {
-  return new Promise((resolve, reject) => {
+export function requestJson<T = unknown>(url: string, options: RequestJsonOptions = {}): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
     const target = new URL(url);
     const request = http.request(
       {
@@ -82,7 +82,7 @@ export function requestJson(url: string, options: RequestJsonOptions = {}): Prom
             return;
           }
 
-          resolve(responseText ? JSON.parse(responseText) : {});
+          resolve((responseText ? JSON.parse(responseText) : {}) as T);
         });
       },
     );

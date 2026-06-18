@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createJsonLogger, resolveRepoSearchLogUri } from '../dist/repo-search/logging.js';
+import { createJsonLogger, resolveRepoSearchLogUri } from '../src/repo-search/logging.js';
 import {
   listRuntimeArtifacts,
   parseRuntimeArtifactUri,
   readRuntimeArtifact,
-} from '../dist/state/runtime-artifacts.js';
+} from '../src/state/runtime-artifacts.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
 
 test('createJsonLogger buffers transcript events until persist', async () => {

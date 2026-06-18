@@ -1,74 +1,32 @@
-// @ts-nocheck — Split from runtime.test.js. Full TS typing deferred.
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const http = require('node:http');
-const os = require('node:os');
-const path = require('node:path');
-const { spawn, spawnSync } = require('node:child_process');
-const Database = require('better-sqlite3');
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
-const { loadConfig, saveConfig, getConfigPath, getExecutionServerState, getChunkThresholdCharacters, getConfiguredLlamaNumCtx, getEffectiveInputCharactersPerContextToken, initializeRuntime, getStatusServerUnavailableMessage } = require('../dist/config/index.js');
-const { summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks, getPlannerPromptBudget, buildPlannerToolDefinitions, UNSUPPORTED_INPUT_MESSAGE } = require('../dist/summary.js');
-const { runCommand } = require('./helpers/run-command-for-test.cjs');
-const { runBenchmarkSuite } = require('../bench/benchmark/index.ts');
-const { readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs, pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt } = require('../bench/benchmark-matrix/index.ts');
-const { countLlamaCppTokens, getLlamaCppProviderStatus, listLlamaCppModels, generateLlamaCppResponse } = require('../dist/providers/llama-cpp.js');
-const { withExecutionLock } = require('../dist/execution-lock.js');
-const { buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed, getIdleSummarySnapshotsPath, startStatusServer } = require('../dist/status-server/index.js');
-const { runDebugRequest } = require('../bench/repro/run-benchmark-fixture-debug.ts');
-const { runFixture60MalformedJsonRepro } = require('../bench/repro/repro-fixture60-malformed-json.ts');
-
-const {
-  TEST_USE_EXISTING_SERVER,
-  EXISTING_SERVER_STATUS_URL,
-  EXISTING_SERVER_CONFIG_URL,
-  RUN_LIVE_LLAMA_TOKENIZE_TESTS,
-  LIVE_LLAMA_BASE_URL,
-  LIVE_CONFIG_SERVICE_URL,
-  FAST_LEASE_STALE_MS,
-  FAST_LEASE_WAIT_MS,
-  deriveServiceUrl,
-  getDefaultConfig,
-  clone,
-  getChatRequestText,
-  setManagedLlamaBaseUrl,
-  mergeConfig,
-  extractPromptSection,
-  buildOversizedTransitionsInput,
-  buildOversizedRunnerStateHistoryInput,
-  getRuntimeRootFromStatusPath,
-  getPlannerLogsPath,
-  getFailedLogsPath,
-  getRequestLogsPath,
-  buildStructuredStubDecision,
-  resolveAssistantContent,
-  readBody,
-  resolveArtifactLogPathFromStatusPost,
-  requestJson,
-  sleep,
-  removeDirectoryWithRetries,
-  spawnProcess,
-  waitForTextMatch,
-  startStubStatusServer,
+import { getLlamaCppProviderStatus } from '../src/providers/llama-cpp.js';
+import type { SiftConfig } from '../src/config/types.js';
+import {
+  http,
+  path,
+  Database,
+  loadConfig,
+  buildPlannerToolDefinitions,
+  countLlamaCppTokens,
+  listLlamaCppModels,
+  generateLlamaCppResponse,
   withTempEnv,
   withStubServer,
-  withSummaryTestServer,
-  withRealStatusServer,
-  startStatusServerProcess,
-  stripAnsi,
-  captureStdout,
-  readIdleSummarySnapshots,
-  getIdleSummaryBlock,
   getFreePort,
-  toSingleQuotedPowerShellLiteral,
-  writeManagedLlamaScripts,
-  waitForAsyncExpectation,
-  runPowerShellScript,
-} = require('./_runtime-helpers.js');
+  mockConfig,
+} from './_runtime-helpers.js';
 
-function buildStubLlamaConfig(port) {
-  return {
+interface ObservedBudgetRow {
+  observed_telemetry_seen?: number;
+  observed_chars_total?: number;
+  observed_tokens_total?: number;
+  last_known_chars_per_token?: number;
+}
+
+function buildStubLlamaConfig(port: number): SiftConfig {
+  return mockConfig({
     Backend: 'llama.cpp',
     Runtime: {
       Model: 'warmup-model',
@@ -76,9 +34,6 @@ function buildStubLlamaConfig(port) {
         BaseUrl: `http://127.0.0.1:${port}`,
         NumCtx: 10000,
       },
-    },
-    LlamaCpp: {
-      BaseUrl: `http://127.0.0.1:${port}`,
     },
     Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },
     Interactive: {
@@ -88,17 +43,20 @@ function buildStubLlamaConfig(port) {
       MaxTranscriptCharacters: 60000,
       TranscriptRetention: true,
     },
-  };
+  });
 }
 
 class ConsoleErrorCapture {
+  originalError: typeof console.error;
+  calls: string[];
+
   constructor() {
     this.originalError = console.error;
     this.calls = [];
   }
 
   start() {
-    console.error = (...args) => {
+    console.error = (...args: unknown[]) => {
       this.calls.push(args.map((arg) => String(arg)).join(' '));
     };
   }
@@ -115,7 +73,7 @@ test('llama.cpp provider lists models and parses chat completions from the stub 
       const models = await listLlamaCppModels(config);
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model,
+        model: config.Runtime.Model as string,
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -140,7 +98,7 @@ test('llama.cpp provider returns null usage when the server omits token usage', 
       const config = await loadConfig({ ensure: true });
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model,
+        model: config.Runtime.Model as string,
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -159,7 +117,7 @@ test('llama.cpp provider records thinking tokens separately from completion usag
       const config = await loadConfig({ ensure: true });
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model,
+        model: config.Runtime.Model as string,
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -183,13 +141,11 @@ test('llama.cpp provider forwards reasoning mode to chat template kwargs', async
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
-      config.Runtime ??= {};
-      config.Runtime.LlamaCpp ??= {};
       config.Runtime.LlamaCpp.Reasoning = 'off';
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model,
+        model: config.Runtime.Model as string,
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -207,8 +163,6 @@ test('llama.cpp provider forwards thinking preservation flags when enabled', asy
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
-      config.Runtime ??= {};
-      config.Runtime.LlamaCpp ??= {};
       config.Runtime.LlamaCpp.Reasoning = 'on';
       const thinkingPreset = config.Server.LlamaCpp.Presets.find(
         (preset) => preset.id === config.Server.LlamaCpp.ActivePresetId,
@@ -218,7 +172,7 @@ test('llama.cpp provider forwards thinking preservation flags when enabled', asy
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model,
+        model: config.Runtime.Model as string,
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -238,13 +192,11 @@ test('llama.cpp provider per-call reasoning override takes precedence over confi
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
-      config.Runtime ??= {};
-      config.Runtime.LlamaCpp ??= {};
       config.Runtime.LlamaCpp.Reasoning = 'on';
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model,
+        model: config.Runtime.Model as string,
         prompt: 'test prompt body',
         timeoutSeconds: 5,
         reasoningOverride: 'off',
@@ -263,8 +215,6 @@ test('llama.cpp provider omits sampling knobs from the chat request body', async
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
-      config.Runtime ??= {};
-      config.Runtime.LlamaCpp ??= {};
       config.Runtime.LlamaCpp.Temperature = 0.8;
       config.Runtime.LlamaCpp.TopP = 0.9;
       config.Runtime.LlamaCpp.TopK = 25;
@@ -274,7 +224,7 @@ test('llama.cpp provider omits sampling knobs from the chat request body', async
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model,
+        model: config.Runtime.Model as string,
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -299,7 +249,7 @@ test('llama.cpp provider enables explicit prompt caching on a supplied slot', as
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model,
+        model: config.Runtime.Model as string,
         prompt: 'test prompt body',
         timeoutSeconds: 5,
         slotId: 7,
@@ -319,7 +269,7 @@ test('llama.cpp provider includes per-request response_format json_schema when s
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model,
+        model: config.Runtime.Model as string,
         prompt: 'test prompt body',
         timeoutSeconds: 5,
         structuredOutput: { kind: 'siftkit-decision-json' },
@@ -343,7 +293,7 @@ test('llama.cpp provider omits native tools for structured planner JSON', async 
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model,
+        model: config.Runtime.Model as string,
         prompt: 'test prompt body',
         timeoutSeconds: 5,
         structuredOutput: {
@@ -366,7 +316,7 @@ test('llama.cpp provider does not enable parallel tool calls when no tools are s
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model,
+        model: config.Runtime.Model as string,
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -381,13 +331,11 @@ test('llama.cpp provider gets answer content from qwen-style servers when reason
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
-      config.Runtime ??= {};
-      config.Runtime.LlamaCpp ??= {};
       config.Runtime.LlamaCpp.Reasoning = 'off';
 
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model,
+        model: config.Runtime.Model as string,
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -395,7 +343,7 @@ test('llama.cpp provider gets answer content from qwen-style servers when reason
       assert.equal(summary.text, '{"classification":"summary","raw_review_required":false,"output":"ok"}');
     }, {
       assistantContent(promptText, parsed) {
-        if (parsed?.chat_template_kwargs?.enable_thinking === false) {
+        if ((parsed?.chat_template_kwargs as { enable_thinking?: unknown } | undefined)?.enable_thinking === false) {
           return '{"classification":"summary","raw_review_required":false,"output":"ok"}';
         }
 
@@ -431,7 +379,7 @@ test('llama.cpp tokenize updates observed-budget weighted totals from exact char
           SELECT observed_telemetry_seen, last_known_chars_per_token, observed_chars_total, observed_tokens_total
           FROM observed_budget_state
           WHERE id = 1
-        `).get();
+        `).get() as ObservedBudgetRow;
         assert.equal(row.observed_telemetry_seen, 1);
         assert.equal(row.observed_chars_total, 1234);
         assert.equal(row.observed_tokens_total, 1234);
@@ -452,7 +400,7 @@ test('llama.cpp chat responses update observed-budget weighted totals from exact
       const prompt = 'B'.repeat(500);
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model,
+        model: config.Runtime.Model as string,
         prompt,
         timeoutSeconds: 5,
       });
@@ -463,19 +411,13 @@ test('llama.cpp chat responses update observed-budget weighted totals from exact
           SELECT observed_chars_total, observed_tokens_total, last_known_chars_per_token
           FROM observed_budget_state
           WHERE id = 1
-        `).get();
+        `).get() as ObservedBudgetRow;
         assert.equal(row.observed_chars_total, 500);
         assert.equal(row.observed_tokens_total, 123);
         assert.equal(row.last_known_chars_per_token, 500 / 123);
       } finally {
         database.close();
       }
-    }, {
-      usage: {
-        prompt_tokens: 123,
-        completion_tokens: 45,
-        total_tokens: 168,
-      },
     });
   });
 });
@@ -486,7 +428,7 @@ test('estimated token fallback does not mutate observed-budget state', async () 
       const config = await loadConfig({ ensure: true });
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model,
+        model: config.Runtime.Model as string,
         prompt: 'C'.repeat(500),
         timeoutSeconds: 5,
       });
@@ -498,7 +440,7 @@ test('estimated token fallback does not mutate observed-budget state', async () 
           SELECT observed_telemetry_seen, observed_chars_total, observed_tokens_total
           FROM observed_budget_state
           WHERE id = 1
-        `).get();
+        `).get() as ObservedBudgetRow;
         assert.equal(row?.observed_telemetry_seen ?? 0, 0);
         assert.equal(row?.observed_chars_total ?? null, null);
         assert.equal(row?.observed_tokens_total ?? null, null);
@@ -518,7 +460,7 @@ test('exact char-token observations accumulate as a weighted average', async () 
       await countLlamaCppTokens(config, 'A'.repeat(100));
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model,
+        model: config.Runtime.Model as string,
         prompt: 'B'.repeat(500),
         timeoutSeconds: 5,
       });
@@ -529,7 +471,7 @@ test('exact char-token observations accumulate as a weighted average', async () 
           SELECT observed_chars_total, observed_tokens_total, last_known_chars_per_token
           FROM observed_budget_state
           WHERE id = 1
-        `).get();
+        `).get() as ObservedBudgetRow;
         assert.equal(row.observed_chars_total, 600);
         assert.equal(row.observed_tokens_total, 223);
         assert.equal(row.last_known_chars_per_token, 600 / 223);
@@ -553,7 +495,7 @@ test('llama.cpp provider surfaces HTTP 400 errors when json-schema constrained r
         await assert.rejects(
           () => generateLlamaCppResponse({
             config,
-            model: config.Runtime.Model,
+            model: config.Runtime.Model as string,
             prompt: 'test prompt body',
             timeoutSeconds: 5,
             structuredOutput: { kind: 'siftkit-decision-json' },
@@ -588,7 +530,7 @@ test('llama.cpp provider prints model-list HTTP errors to console', async () => 
       res.end();
     });
     await new Promise<void>((resolve, reject) => {
-      server.listen(port, '127.0.0.1', (error) => (error ? reject(error) : resolve()));
+      server.listen(port, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
     });
 
     try {
@@ -623,7 +565,7 @@ test('llama.cpp provider prints status probe errors to console', async () => {
       res.end();
     });
     await new Promise<void>((resolve, reject) => {
-      server.listen(port, '127.0.0.1', (error) => (error ? reject(error) : resolve()));
+      server.listen(port, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
     });
 
     try {
@@ -656,7 +598,7 @@ test('llama.cpp provider prints tokenize HTTP errors to console', async () => {
       res.end();
     });
     await new Promise<void>((resolve, reject) => {
-      server.listen(port, '127.0.0.1', (error) => (error ? reject(error) : resolve()));
+      server.listen(port, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
     });
 
     try {
@@ -688,7 +630,7 @@ test('llama.cpp provider prints chat completion HTTP errors to console', async (
       res.end();
     });
     await new Promise<void>((resolve, reject) => {
-      server.listen(port, '127.0.0.1', (error) => (error ? reject(error) : resolve()));
+      server.listen(port, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
     });
 
     try {
@@ -718,7 +660,7 @@ test('llama.cpp provider waits for warm-up and retries model-list requests after
   await withTempEnv(async () => {
     const port = await getFreePort();
     let modelsRequestCount = 0;
-    let delayedServer = null;
+    let delayedServer: http.Server | null = null;
     const startTimer = setTimeout(() => {
       delayedServer = http.createServer((req, res) => {
         if (req.method === 'GET' && req.url === '/v1/models') {
@@ -734,21 +676,7 @@ test('llama.cpp provider waits for warm-up and retries model-list requests after
     }, 300);
 
     try {
-      const config = {
-        Backend: 'llama.cpp',
-        Runtime: {
-          Model: 'warmup-model',
-          LlamaCpp: {
-            BaseUrl: `http://127.0.0.1:${port}`,
-            NumCtx: 10000,
-          },
-        },
-        LlamaCpp: {
-          BaseUrl: `http://127.0.0.1:${port}`,
-        },
-        Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },
-        Interactive: { Enabled: true, WrappedCommands: [], IdleTimeoutMs: 900000, MaxTranscriptCharacters: 60000, TranscriptRetention: true },
-      };
+      const config = buildStubLlamaConfig(port);
 
       const models = await listLlamaCppModels(config);
       assert.deepEqual(models, ['warmup-model']);
@@ -756,7 +684,7 @@ test('llama.cpp provider waits for warm-up and retries model-list requests after
     } finally {
       clearTimeout(startTimer);
       if (delayedServer) {
-        await new Promise((resolve) => delayedServer.close(resolve));
+        await new Promise<void>((resolve) => delayedServer?.close(() => resolve()));
       }
     }
   });
@@ -766,7 +694,7 @@ test('llama.cpp provider waits for warm-up and retries chat-completions after EC
   await withTempEnv(async () => {
     const port = await getFreePort();
     let chatRequestCount = 0;
-    let delayedServer = null;
+    let delayedServer: http.Server | null = null;
     const startTimer = setTimeout(() => {
       delayedServer = http.createServer((req, res) => {
         if (req.method === 'POST' && req.url === '/v1/chat/completions') {
@@ -790,21 +718,7 @@ test('llama.cpp provider waits for warm-up and retries chat-completions after EC
     }, 300);
 
     try {
-      const config = {
-        Backend: 'llama.cpp',
-        Runtime: {
-          Model: 'warmup-model',
-          LlamaCpp: {
-            BaseUrl: `http://127.0.0.1:${port}`,
-            NumCtx: 10000,
-          },
-        },
-        LlamaCpp: {
-          BaseUrl: `http://127.0.0.1:${port}`,
-        },
-        Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },
-        Interactive: { Enabled: true, WrappedCommands: [], IdleTimeoutMs: 900000, MaxTranscriptCharacters: 60000, TranscriptRetention: true },
-      };
+      const config = buildStubLlamaConfig(port);
 
       const response = await generateLlamaCppResponse({
         config,
@@ -817,7 +731,7 @@ test('llama.cpp provider waits for warm-up and retries chat-completions after EC
     } finally {
       clearTimeout(startTimer);
       if (delayedServer) {
-        await new Promise((resolve) => delayedServer.close(resolve));
+        await new Promise<void>((resolve) => delayedServer?.close(() => resolve()));
       }
     }
   });
@@ -856,25 +770,11 @@ test('llama.cpp provider retries HTTP 503 Loading model responses for chat-compl
       res.end();
     });
     await new Promise<void>((resolve, reject) => {
-      loadingServer.listen(port, '127.0.0.1', (error) => (error ? reject(error) : resolve()));
+      loadingServer.listen(port, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
     });
 
     try {
-      const config = {
-        Backend: 'llama.cpp',
-        Runtime: {
-          Model: 'warmup-model',
-          LlamaCpp: {
-            BaseUrl: `http://127.0.0.1:${port}`,
-            NumCtx: 10000,
-          },
-        },
-        LlamaCpp: {
-          BaseUrl: `http://127.0.0.1:${port}`,
-        },
-        Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },
-        Interactive: { Enabled: true, WrappedCommands: [], IdleTimeoutMs: 900000, MaxTranscriptCharacters: 60000, TranscriptRetention: true },
-      };
+      const config = buildStubLlamaConfig(port);
 
       const response = await generateLlamaCppResponse({
         config,

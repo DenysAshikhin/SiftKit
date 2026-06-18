@@ -1,20 +1,26 @@
-// @ts-nocheck — Split from runtime.test.js. Full TS typing deferred.
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
-const {
+import {
   loadConfig,
   getChunkThresholdCharacters,
-} = require('../dist/config/index.js');
-const { summarizeRequest } = require('../dist/summary.js');
-const {
+} from '../src/config/index.js';
+import { summarizeRequest } from '../src/summary.js';
+import {
   buildOversizedTransitionsInput,
   getPlannerLogsPath,
   withTempEnv,
   withStubServer,
-} = require('./_runtime-helpers.js');
+} from './_runtime-helpers.js';
+
+interface PlannerDebugEvent {
+  kind?: string;
+  command?: string;
+  thinkingProcess?: unknown;
+  output?: { text?: string };
+}
 
 test('planner writes a debug dump with input, thinking, tool calls, tool output, and final output', async () => {
   await withTempEnv(async () => {
@@ -72,9 +78,9 @@ test('planner writes a debug dump with input, thinking, tool calls, tool output,
     assert.equal(typeof debugDump.inputText, 'string');
     assert.match(debugDump.inputText, /Lumbridge Castle Staircase/u);
     assert.equal(Array.isArray(debugDump.events), true);
-    assert.equal(debugDump.events.some((event) => event.kind === 'planner_model_response' && /json_filter/u.test(String(event.thinkingProcess || ''))), true);
-    assert.equal(debugDump.events.some((event) => event.kind === 'planner_tool' && event.command === 'json_filter {"filters":[{"path":"from.worldX","op":"gte","value":3200},{"path":"from.worldX","op":"lte","value":3215}],"select":["id","label","from","to","bidirectional"],"limit":20}'), true);
-    assert.equal(debugDump.events.some((event) => event.kind === 'planner_tool' && typeof event.output?.text === 'string' && /Lumbridge Castle Staircase/u.test(event.output.text)), true);
+    assert.equal(debugDump.events.some((event: PlannerDebugEvent) => event.kind === 'planner_model_response' && /json_filter/u.test(String(event.thinkingProcess || ''))), true);
+    assert.equal(debugDump.events.some((event: PlannerDebugEvent) => event.kind === 'planner_tool' && event.command === 'json_filter {"filters":[{"path":"from.worldX","op":"gte","value":3200},{"path":"from.worldX","op":"lte","value":3215}],"select":["id","label","from","to","bidirectional"],"limit":20}'), true);
+    assert.equal(debugDump.events.some((event: PlannerDebugEvent) => event.kind === 'planner_tool' && typeof event.output?.text === 'string' && /Lumbridge Castle Staircase/u.test(event.output.text)), true);
     assert.equal(debugDump.final.finalOutput, 'debug dump summary');
   });
 });

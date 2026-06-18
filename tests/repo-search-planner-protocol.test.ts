@@ -241,7 +241,7 @@ test('requestRepoSearchPlannerProtocolAction stops streamed reasoning after a co
 test('requestRepoSearchPlannerProtocolAction stops streamed content when recent tokens repeat in long output', async () => {
   const repeatedTail = '</arg_value>'.repeat(64);
   const longPrefix = Array.from({ length: 101 }, (_, index) => `anchor-${index}`).join(' ');
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
 
   await withServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
@@ -264,7 +264,8 @@ test('requestRepoSearchPlannerProtocolAction stops streamed content when recent 
       maxTokens: 512,
       stream: true,
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -281,7 +282,7 @@ test('requestRepoSearchPlannerProtocolAction does not stop streamed content for 
   const repeatedTail = '</arg_value>'.repeat(10);
   const longPrefix = Array.from({ length: 101 }, (_, index) => `anchor-${index}`).join(' ');
   const streamedText = `${longPrefix} ${repeatedTail}`;
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
 
   await withServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
@@ -306,7 +307,8 @@ test('requestRepoSearchPlannerProtocolAction does not stop streamed content for 
       maxTokens: 512,
       stream: true,
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },

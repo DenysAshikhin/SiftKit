@@ -1,21 +1,24 @@
-// @ts-nocheck
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
 
-const { writeConfig, getDefaultConfig } = require('../dist/status-server/config-store.js');
-const {
+import { writeConfig, getDefaultConfig } from '../src/status-server/config-store.js';
+import {
   requestJson,
   withRealStatusServer,
   withTempEnv,
-} = require('./_runtime-helpers.js');
+} from './_runtime-helpers.js';
+
+interface MetricsTimeseriesResponse {
+  days: unknown[];
+  taskDays: unknown[];
+  toolStats: Record<string, unknown>;
+}
 
 test('dashboard metrics timeseries loads when managed llama is unconfigured', async () => {
   await withTempEnv(async (tempRoot) => {
     const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
     const config = getDefaultConfig();
-    config.Runtime ??= {};
-    config.Runtime.LlamaCpp ??= {};
     config.Runtime.LlamaCpp.BaseUrl = null;
     config.Runtime.LlamaCpp.NumCtx = 0;
     config.Runtime.LlamaCpp.ModelPath = null;
@@ -31,35 +34,10 @@ test('dashboard metrics timeseries loads when managed llama is unconfigured', as
     config.Runtime.LlamaCpp.FlashAttention = null;
     config.Runtime.LlamaCpp.ParallelSlots = 0;
     config.Runtime.LlamaCpp.Reasoning = null;
-    config.Server ??= {};
-    config.Server.LlamaCpp ??= {};
-    config.Server.LlamaCpp.ExecutablePath = null;
-    config.Server.LlamaCpp.BaseUrl = null;
-    config.Server.LlamaCpp.BindHost = null;
-    config.Server.LlamaCpp.Port = 0;
-    config.Server.LlamaCpp.ModelPath = null;
-    config.Server.LlamaCpp.NumCtx = 0;
-    config.Server.LlamaCpp.GpuLayers = 0;
-    config.Server.LlamaCpp.Threads = 0;
-    config.Server.LlamaCpp.FlashAttention = null;
-    config.Server.LlamaCpp.ParallelSlots = 0;
-    config.Server.LlamaCpp.BatchSize = 0;
-    config.Server.LlamaCpp.UBatchSize = 0;
-    config.Server.LlamaCpp.CacheRam = 0;
-    config.Server.LlamaCpp.MaxTokens = 0;
-    config.Server.LlamaCpp.Temperature = 0;
-    config.Server.LlamaCpp.TopP = 0;
-    config.Server.LlamaCpp.TopK = 0;
-    config.Server.LlamaCpp.MinP = 0;
-    config.Server.LlamaCpp.PresencePenalty = 0;
-    config.Server.LlamaCpp.RepetitionPenalty = 0;
-    config.Server.LlamaCpp.Reasoning = null;
-    config.Server.LlamaCpp.ReasoningBudget = 0;
-    config.Server.LlamaCpp.VerboseLogging = true;
     writeConfig(runtimeDbPath, config);
 
     await withRealStatusServer(async ({ port }) => {
-      const metricsResponse = await requestJson(`http://127.0.0.1:${port}/dashboard/metrics/timeseries`);
+      const metricsResponse = await requestJson<MetricsTimeseriesResponse>(`http://127.0.0.1:${port}/dashboard/metrics/timeseries`);
       assert.equal(Array.isArray(metricsResponse.days), true);
       assert.equal(Array.isArray(metricsResponse.taskDays), true);
       assert.equal(typeof metricsResponse.toolStats, 'object');

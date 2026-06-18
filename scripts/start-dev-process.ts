@@ -8,7 +8,9 @@ type KillableChild = {
 
 type StopChildProcessTreeOptions = {
   platform?: NodeJS.Platform;
-  spawnSync?: typeof spawnSync;
+  // Only the taskkill invocation's `.status` is read, so accept any spawnSync-shaped impl
+  // (the real spawnSync and narrow test stubs both satisfy this).
+  spawnSync?: (command: string, args: string[], options: { stdio: 'ignore'; windowsHide: boolean }) => { status: number | null };
 };
 
 export function stopChildProcessTree(

@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildRuntimeLaunchSnapshot } from '../src/status-server/config-store.js';
+import { mockConfig } from './_runtime-helpers.js';
 
 test('buildRuntimeLaunchSnapshot copies runtime-relevant fields from the active preset', () => {
-  const config = {
+  const config = mockConfig({
     Server: {
       LlamaCpp: {
         ActivePresetId: 'p',
@@ -16,7 +17,7 @@ test('buildRuntimeLaunchSnapshot copies runtime-relevant fields from the active 
         }],
       },
     },
-  };
+  });
   const snapshot = buildRuntimeLaunchSnapshot(config);
   assert.equal(snapshot.Model, 'm.gguf');
   assert.equal(snapshot.LlamaCpp.NumCtx, 85000);

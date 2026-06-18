@@ -1,10 +1,10 @@
-// @ts-nocheck — Full type-checking deferred; script uses @ts-nocheck internally.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as http from 'node:http';
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
+import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import type { AddressInfo } from 'node:net';
 
 import { evaluateCommandSafety } from '../src/repo-search/command-safety.js';
 import { isTransientProviderError, retryProviderRequest } from '../src/lib/provider-helpers.js';
@@ -13,6 +13,7 @@ import {
   buildScorecard,
   assertConfiguredModelPresent,
   runRepoSearch,
+  type TaskResult,
 } from '../src/repo-search/engine.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 import { buildTaskSystemPrompt } from '../src/repo-search/prompts.js';
@@ -20,6 +21,34 @@ import {
   preflightPlannerPromptBudget,
   compactPlannerMessagesOnce,
 } from '../src/repo-search/prompt-budget.js';
+import type { SiftConfig } from '../src/config/types.js';
+
+// Mock-mode runTaskLoop calls never reach a real provider or repo; these defaults
+// satisfy the required RunTaskLoopOptions fields. Per-test options override them.
+const MOCK_LOOP_REPO_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-mock-loop-'));
+const MOCK_LOOP_DEFAULTS = {
+  repoRoot: MOCK_LOOP_REPO_ROOT,
+  model: 'mock-model',
+  baseUrl: 'http://127.0.0.1:1',
+};
+
+// Mock-mode loops read only a few config fields; the rest of SiftConfig is
+// irrelevant, so deliberately partial literals are structurally checked against a
+// DeepPartial view and cast to SiftConfig here in one place.
+type DeepPartial<T> = T extends (infer U)[]
+  ? DeepPartial<U>[]
+  : T extends object
+    ? { [K in keyof T]?: DeepPartial<T[K]> }
+    : T;
+function mockLoopConfig(config: DeepPartial<SiftConfig>): SiftConfig {
+  return config as unknown as SiftConfig;
+}
+
+// buildScorecard reads only the tallying fields of each TaskResult; the rest are
+// irrelevant, so partial literals are structurally checked and cast in one place.
+function mockTaskResult(task: DeepPartial<TaskResult>): TaskResult {
+  return task as unknown as TaskResult;
+}
 
 function createTempRepoRoot(gitignoreText = '') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-ignore-'));
@@ -53,6 +82,7 @@ test('runTaskLoop stops on invalid response limit', async () => {
       signals: ['unused'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 10,
       maxInvalidResponses: 2,
       mockResponses: ['oops', 'still bad', 'Synthesized best-effort answer.'],
@@ -67,7 +97,7 @@ test('runTaskLoop stops on invalid response limit', async () => {
 });
 
 test('runTaskLoop repairs malformed planner payloads before executing tool calls', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-invalid-recoverable-tool-replay',
@@ -75,6 +105,7 @@ test('runTaskLoop repairs malformed planner payloads before executing tool calls
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 3,
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
@@ -90,7 +121,8 @@ test('runTaskLoop repairs malformed planner payloads before executing tool calls
         },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -113,7 +145,7 @@ test('runTaskLoop repairs malformed planner payloads before executing tool calls
 });
 
 test('runTaskLoop replays unrecoverable invalid planner payloads through invalid_tool_call', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-invalid-fallback-tool-replay',
@@ -121,6 +153,7 @@ test('runTaskLoop replays unrecoverable invalid planner payloads through invalid
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 3,
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
@@ -131,7 +164,8 @@ test('runTaskLoop replays unrecoverable invalid planner payloads through invalid
       ],
       mockCommandResults: {},
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -154,7 +188,7 @@ test('runTaskLoop replays unrecoverable invalid planner payloads through invalid
 });
 
 test('runTaskLoop cuts off runaway streamed tool JSON and reprompts once', { timeout: 5000 }, async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const progressEvents: Array<{ kind: string; thinkingText?: string }> = [];
   const controller = new AbortController();
   let requestCount = 0;
@@ -204,7 +238,7 @@ test('runTaskLoop cuts off runaway streamed tool JSON and reprompts once', { tim
   });
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address() as { port: number };
+  const address = server.address() as AddressInfo;
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -215,6 +249,7 @@ test('runTaskLoop cuts off runaway streamed tool JSON and reprompts once', { tim
         signals: ['done'],
       },
       {
+        ...MOCK_LOOP_DEFAULTS,
         baseUrl,
         model: 'mock-model',
         maxTurns: 3,
@@ -222,7 +257,8 @@ test('runTaskLoop cuts off runaway streamed tool JSON and reprompts once', { tim
         minToolCallsBeforeFinish: 0,
         abortSignal: controller.signal,
         logger: {
-          write(event: Record<string, unknown> & { kind: string }) {
+          path: 'memory',
+          write(event: Record<string, unknown>) {
             events.push(event);
           },
         },
@@ -259,7 +295,7 @@ test('runTaskLoop cuts off runaway streamed tool JSON and reprompts once', { tim
 });
 
 test('runTaskLoop truncates oversized rg output to the largest fitting prefix', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const totalContextTokens = 20000;
   const thinkingBufferTokens = Math.max(Math.ceil(totalContextTokens * 0.15), 4000);
   const usablePromptTokens = Math.max(totalContextTokens - thinkingBufferTokens, 0);
@@ -275,6 +311,7 @@ test('runTaskLoop truncates oversized rg output to the largest fitting prefix', 
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 3,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -292,7 +329,8 @@ test('runTaskLoop truncates oversized rg output to the largest fitting prefix', 
         },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -317,7 +355,7 @@ test('runTaskLoop advances overlapping repo_read_file calls to the next unread s
     Array.from({ length: 14 }, (_, index) => `line-${index + 1}`).join('\n'),
     'utf8'
   );
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-native-read-unread-span',
@@ -325,6 +363,7 @@ test('runTaskLoop advances overlapping repo_read_file calls to the next unread s
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       repoRoot,
       maxTurns: 4,
       maxInvalidResponses: 2,
@@ -339,7 +378,8 @@ test('runTaskLoop advances overlapping repo_read_file calls to the next unread s
       ],
       mockCommandResults: {},
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -362,7 +402,7 @@ test('runTaskLoop replays effective repo_read_file range after native unread exp
     Array.from({ length: 260 }, (_, index) => `line-${index + 1}`).join('\n'),
     'utf8'
   );
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-native-read-effective-replay',
@@ -370,6 +410,7 @@ test('runTaskLoop replays effective repo_read_file range after native unread exp
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       repoRoot,
       maxTurns: 4,
       maxInvalidResponses: 2,
@@ -384,7 +425,8 @@ test('runTaskLoop replays effective repo_read_file range after native unread exp
       ],
       mockCommandResults: {},
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -416,7 +458,7 @@ test('runTaskLoop replays only returned repo_read_file range after fitting overs
     Array.from({ length: 900 }, (_, index) => `line-${index + 1} ${'x'.repeat(80)}`).join('\n'),
     'utf8',
   );
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-budget-bounded-read',
@@ -424,6 +466,7 @@ test('runTaskLoop replays only returned repo_read_file range after fitting overs
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       repoRoot,
       maxTurns: 4,
       maxInvalidResponses: 2,
@@ -440,7 +483,8 @@ test('runTaskLoop replays only returned repo_read_file range after fitting overs
         'rg -n "needle" src': { exitCode: 0, stdout: 'src/big.ts:300:needle', stderr: '', delayMs: 5 },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -475,7 +519,7 @@ test('runTaskLoop bounds repo_read_file unread span at the next returned range',
     Array.from({ length: 20 }, (_, index) => `line-${index + 1}`).join('\n'),
     'utf8'
   );
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   await runTaskLoop(
     {
       id: 'task-native-read-next-range-bound',
@@ -483,6 +527,7 @@ test('runTaskLoop bounds repo_read_file unread span at the next returned range',
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       repoRoot,
       maxTurns: 4,
       maxInvalidResponses: 2,
@@ -497,7 +542,8 @@ test('runTaskLoop bounds repo_read_file unread span at the next returned range',
       ],
       mockCommandResults: {},
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -513,7 +559,7 @@ test('runTaskLoop bounds repo_read_file unread span at the next returned range',
 test('runTaskLoop reports when repo_read_file has no unread lines left', async () => {
   const repoRoot = createTempRepoRoot();
   fs.writeFileSync(path.join(repoRoot, 'target.ts'), ['line-1', 'line-2', 'line-3'].join('\n'), 'utf8');
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   await runTaskLoop(
     {
       id: 'task-native-read-exhausted',
@@ -521,6 +567,7 @@ test('runTaskLoop reports when repo_read_file has no unread lines left', async (
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       repoRoot,
       maxTurns: 4,
       maxInvalidResponses: 2,
@@ -535,7 +582,8 @@ test('runTaskLoop reports when repo_read_file has no unread lines left', async (
       ],
       mockCommandResults: {},
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -551,7 +599,7 @@ test('runTaskLoop truncates oversized repo_list_files output with omitted file c
   for (let index = 1; index <= 160; index += 1) {
     fs.writeFileSync(path.join(repoRoot, `file-${String(index).padStart(3, '0')}.ts`), 'export {};\n', 'utf8');
   }
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   await runTaskLoop(
     {
       id: 'task-native-list-truncate',
@@ -559,6 +607,7 @@ test('runTaskLoop truncates oversized repo_list_files output with omitted file c
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       repoRoot,
       maxTurns: 3,
       maxInvalidResponses: 2,
@@ -573,7 +622,8 @@ test('runTaskLoop truncates oversized repo_list_files output with omitted file c
       ],
       mockCommandResults: {},
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -594,6 +644,7 @@ test('runTaskLoop preserves raw line-read stats when oversized Get-Content outpu
       signals: [],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -621,9 +672,13 @@ test('runTaskLoop preserves raw line-read stats when oversized Get-Content outpu
 });
 
 test('runTaskLoop does not print a red console warning when successful output is fitted', async () => {
-  const writes = [];
+  const writes: string[] = [];
   const originalWrite = process.stderr.write;
-  process.stderr.write = ((chunk, encoding, callback) => {
+  const patchedWrite = (
+    chunk: string | Uint8Array,
+    encoding?: BufferEncoding | ((error?: Error | null) => void),
+    callback?: (error?: Error | null) => void,
+  ): boolean => {
     writes.push(Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk));
     if (typeof callback === 'function') {
       callback();
@@ -631,7 +686,8 @@ test('runTaskLoop does not print a red console warning when successful output is
       encoding();
     }
     return true;
-  });
+  };
+  process.stderr.write = patchedWrite as typeof process.stderr.write;
   try {
     const totalContextTokens = 20000;
     await runTaskLoop(
@@ -641,6 +697,7 @@ test('runTaskLoop does not print a red console warning when successful output is
         signals: ['done'],
       },
       {
+        ...MOCK_LOOP_DEFAULTS,
         maxTurns: 2,
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
@@ -752,7 +809,7 @@ test('compactPlannerMessagesOnce budgets provider prompt overhead while selectin
 });
 
 test('runTaskLoop fails with planner_preflight_overflow before provider request when compaction cannot fit', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   await assert.rejects(
     () => runTaskLoop(
       {
@@ -761,6 +818,7 @@ test('runTaskLoop fails with planner_preflight_overflow before provider request 
         signals: [],
       },
       {
+        ...MOCK_LOOP_DEFAULTS,
         baseUrl: 'http://127.0.0.1:1',
         model: 'mock-model',
         maxTurns: 1,
@@ -768,7 +826,8 @@ test('runTaskLoop fails with planner_preflight_overflow before provider request 
         minToolCallsBeforeFinish: 0,
         totalContextTokens: 7000,
         logger: {
-          write(event: Record<string, unknown> & { kind: string }) {
+          path: 'memory',
+          write(event: Record<string, unknown>) {
             events.push(event);
           },
         },
@@ -780,12 +839,12 @@ test('runTaskLoop fails with planner_preflight_overflow before provider request 
   const providerStart = events.find((event) => event.kind === 'provider_request_start');
   assert.equal(Boolean(providerStart), false);
   const overflowEvent = events.find((event) => event.kind === 'turn_preflight_overflow_fail');
-  assert.equal(Boolean(overflowEvent), true);
+  assert.ok(overflowEvent);
   assert.equal(Number(overflowEvent.overflowTokens) > 0, true);
 });
 
 test('runTaskLoop includes planner provider reserve in dynamic output budget', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-provider-reserve-budget',
@@ -793,6 +852,7 @@ test('runTaskLoop includes planner provider reserve in dynamic output budget', a
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 1,
       maxInvalidResponses: 1,
       minToolCallsBeforeFinish: 0,
@@ -803,7 +863,8 @@ test('runTaskLoop includes planner provider reserve in dynamic output budget', a
       ],
       mockCommandResults: {},
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -821,7 +882,7 @@ test('runTaskLoop includes planner provider reserve in dynamic output budget', a
 });
 
 test('runTaskLoop applies one-pass compaction and continues when compacted prompt fits', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-preflight-compaction-success',
@@ -829,6 +890,7 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 10,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -855,7 +917,8 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
         'rg -n "planner" fixtures': { exitCode: 0, stdout: Array.from({ length: 320 }, (_, index) => `g-${index}`).join(' '), stderr: '' },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -864,7 +927,7 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
 
   const compactionEvents = events.filter((event) => event.kind === 'turn_preflight_compaction_applied');
   assert.equal(compactionEvents.length >= 1, true);
-  assert.equal(compactionEvents[0].droppedMessageCount > 0, true);
+  assert.equal(Number(compactionEvents[0].droppedMessageCount) > 0, true);
   assert.equal(Number(compactionEvents[0].beforeProviderPromptReserveTokenCount) > 0, true);
   assert.equal(Number(compactionEvents[0].providerPromptReserveTokenCount) > 0, true);
   const newMessagesEvents = events.filter((event) => event.kind === 'turn_new_messages');
@@ -877,7 +940,7 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
 });
 
 test('runTaskLoop increases per-tool cap as tool-call progress grows', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const totalContextTokens = 20000;
   const thinkingBufferTokens = Math.max(Math.ceil(totalContextTokens * 0.15), 4000);
   const usablePromptTokens = Math.max(totalContextTokens - thinkingBufferTokens, 0);
@@ -890,6 +953,7 @@ test('runTaskLoop increases per-tool cap as tool-call progress grows', async () 
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 10,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -907,7 +971,8 @@ test('runTaskLoop increases per-tool cap as tool-call progress grows', async () 
         'rg -n "repo" src': { exitCode: 0, stdout: 'repo hit', stderr: '' },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -923,7 +988,7 @@ test('runTaskLoop increases per-tool cap as tool-call progress grows', async () 
 });
 
 test('runTaskLoop fits tool output that exceeds remaining token allowance', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const totalContextTokens = 30000;
   // Sized to pin the regime where remainingTokenAllowance < perToolCapTokens after
   // the system prompt + question consume most of totalContextTokens. The prior
@@ -937,6 +1002,7 @@ test('runTaskLoop fits tool output that exceeds remaining token allowance', asyn
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 10,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -955,7 +1021,8 @@ test('runTaskLoop fits tool output that exceeds remaining token allowance', asyn
         },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -964,14 +1031,14 @@ test('runTaskLoop fits tool output that exceeds remaining token allowance', asyn
 
   const commandEvent = events.find((event) => event.kind === 'turn_command_result');
   assert.equal(typeof commandEvent?.insertedResultText, 'string');
-  assert.equal(commandEvent?.perToolCapTokens > commandEvent?.remainingTokenAllowance, true);
+  assert.equal(Number(commandEvent?.perToolCapTokens) > Number(commandEvent?.remainingTokenAllowance), true);
   assert.doesNotMatch(String(commandEvent?.insertedResultText || ''), /^Error: requested output would consume/u);
   assert.match(String(commandEvent?.insertedResultText || ''), /\d+ lines truncated due to per-tool context limit\./u);
   assert.equal(result.reason, 'finish');
 });
 
 test('runTaskLoop subtracts accepted same-turn tool results from remaining allowance', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-same-turn-token-guard',
@@ -979,6 +1046,7 @@ test('runTaskLoop subtracts accepted same-turn tool results from remaining allow
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 10,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1007,7 +1075,8 @@ test('runTaskLoop subtracts accepted same-turn tool results from remaining allow
         },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -1018,13 +1087,13 @@ test('runTaskLoop subtracts accepted same-turn tool results from remaining allow
   assert.equal(commandEvents.length, 2);
   assert.equal(
     commandEvents[1].remainingTokenAllowance,
-    commandEvents[0].remainingTokenAllowance - commandEvents[0].resultTokenCount
+    Number(commandEvents[0].remainingTokenAllowance) - Number(commandEvents[0].resultTokenCount)
   );
   assert.equal(result.reason, 'finish');
 });
 
 test('runTaskLoop accepts first finish immediately when runtime reasoning is off', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-finish-no-reasoning',
@@ -1032,14 +1101,15 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is off
       signals: ['done'],
     },
     {
-      config: {
+      ...MOCK_LOOP_DEFAULTS,
+      config: mockLoopConfig({
         Runtime: {
           LlamaCpp: {
             NumCtx: 32000,
             Reasoning: 'off',
           },
         },
-      },
+      }),
       maxTurns: 3,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1048,7 +1118,8 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is off
       ],
       mockCommandResults: {},
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -1066,7 +1137,7 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is off
 });
 
 test('runTaskLoop accepts first finish immediately when runtime reasoning is on', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-finish-with-reasoning',
@@ -1074,14 +1145,15 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is on'
       signals: ['final answer'],
     },
     {
-      config: {
+      ...MOCK_LOOP_DEFAULTS,
+      config: mockLoopConfig({
         Runtime: {
           LlamaCpp: {
             NumCtx: 32000,
             Reasoning: 'on',
           },
         },
-      },
+      }),
       maxTurns: 3,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1090,7 +1162,8 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is on'
       ],
       mockCommandResults: {},
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -1107,7 +1180,7 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is on'
 });
 
 test('runTaskLoop does not emit follow-up finish events after many reasoning-off tool calls', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const mockResponses = [
     "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"hit-1\\\" src\"}",
     "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"hit-2\\\" src\"}",
@@ -1140,21 +1213,23 @@ test('runTaskLoop does not emit follow-up finish events after many reasoning-off
       signals: ['src\\target.ts:10'],
     },
     {
-      config: {
+      ...MOCK_LOOP_DEFAULTS,
+      config: mockLoopConfig({
         Runtime: {
           LlamaCpp: {
             NumCtx: 32000,
             Reasoning: 'off',
           },
         },
-      },
+      }),
       maxTurns: 11,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses,
       mockCommandResults,
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -1172,7 +1247,7 @@ test('runTaskLoop does not emit follow-up finish events after many reasoning-off
 });
 
 test('runTaskLoop keeps reasoning disabled across max-turn exhaustion when runtime reasoning is off', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-max-turns-no-reasoning',
@@ -1180,14 +1255,15 @@ test('runTaskLoop keeps reasoning disabled across max-turn exhaustion when runti
       signals: ['never-hits'],
     },
     {
-      config: {
+      ...MOCK_LOOP_DEFAULTS,
+      config: mockLoopConfig({
         Runtime: {
           LlamaCpp: {
             NumCtx: 32000,
             Reasoning: 'off',
           },
         },
-      },
+      }),
       maxTurns: 3,
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
@@ -1203,7 +1279,8 @@ test('runTaskLoop keeps reasoning disabled across max-turn exhaustion when runti
         'rg -n "planner3" src': { exitCode: 0, stdout: 'planner3', stderr: '' },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -1219,7 +1296,7 @@ test('runTaskLoop keeps reasoning disabled across max-turn exhaustion when runti
 });
 
 test('runTaskLoop retries transient provider network failures via shared retry helper', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const requestBodies = [];
   let requestCount = 0;
   const server = http.createServer((req, res) => {
@@ -1260,8 +1337,8 @@ test('runTaskLoop retries transient provider network failures via shared retry h
     });
   });
 
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const address = server.address() as AddressInfo;
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -1272,6 +1349,7 @@ test('runTaskLoop retries transient provider network failures via shared retry h
         signals: ['done'],
       },
       {
+        ...MOCK_LOOP_DEFAULTS,
         baseUrl,
         model: 'mock-model',
         maxTurns: 6,
@@ -1284,7 +1362,8 @@ test('runTaskLoop retries transient provider network failures via shared retry h
           'rg -n "q4" src': { exitCode: 0, stdout: 'q4', stderr: '' },
         },
         logger: {
-          write(event: Record<string, unknown> & { kind: string }) {
+          path: 'memory',
+          write(event: Record<string, unknown>) {
             events.push(event);
           },
         },
@@ -1302,7 +1381,7 @@ test('runTaskLoop retries transient provider network failures via shared retry h
     assert.equal(Boolean(turnRequests[3]?.thinkingEnabled), false);
     assert.equal(Boolean(turnRequests[4]?.thinkingEnabled), false);
     const retryEvent = events.find((event) => event.kind === 'provider_request_retry');
-    assert.equal(Boolean(retryEvent), true);
+    assert.ok(retryEvent);
     assert.equal(retryEvent.stage, 'planner_action');
     assert.equal(retryEvent.attempt, 1);
     assert.equal(Number(retryEvent.nextDelayMs) > 0, true);
@@ -1312,7 +1391,7 @@ test('runTaskLoop retries transient provider network failures via shared retry h
 });
 
 test('runTaskLoop waits for planner endpoint warm-up when initial connections are refused', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const port = await getFreePort();
   let delayedServer: http.Server | null = null;
   let plannerRequestCount = 0;
@@ -1340,13 +1419,15 @@ test('runTaskLoop waits for planner endpoint warm-up when initial connections ar
         signals: ['done'],
       },
       {
+        ...MOCK_LOOP_DEFAULTS,
         baseUrl: `http://127.0.0.1:${port}`,
         model: 'mock-model',
         maxTurns: 1,
         maxInvalidResponses: 1,
         minToolCallsBeforeFinish: 0,
         logger: {
-          write(event: Record<string, unknown> & { kind: string }) {
+          path: 'memory',
+          write(event: Record<string, unknown>) {
             events.push(event);
           },
         },
@@ -1357,7 +1438,7 @@ test('runTaskLoop waits for planner endpoint warm-up when initial connections ar
     assert.equal(plannerRequestCount >= 1, true);
     const retryEvents = events.filter((event) => event.kind === 'provider_request_retry');
     assert.equal(retryEvents.length >= 1, true);
-    assert.match(String(retryEvents[0]?.error?.message || ''), /ECONNREFUSED/u);
+    assert.match(String((retryEvents[0]?.error as { message?: string } | undefined)?.message || ''), /ECONNREFUSED/u);
   } finally {
     clearTimeout(delayedStart);
     if (delayedServer) {
@@ -1367,7 +1448,7 @@ test('runTaskLoop waits for planner endpoint warm-up when initial connections ar
 });
 
 test('runTaskLoop retries planner calls when endpoint returns HTTP 503 Loading model', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const port = await getFreePort();
   let plannerRequestCount = 0;
   const server = http.createServer((req, res) => {
@@ -1397,13 +1478,15 @@ test('runTaskLoop retries planner calls when endpoint returns HTTP 503 Loading m
         signals: ['done'],
       },
       {
+        ...MOCK_LOOP_DEFAULTS,
         baseUrl: `http://127.0.0.1:${port}`,
         model: 'mock-model',
         maxTurns: 1,
         maxInvalidResponses: 1,
         minToolCallsBeforeFinish: 0,
         logger: {
-          write(event: Record<string, unknown> & { kind: string }) {
+          path: 'memory',
+          write(event: Record<string, unknown>) {
             events.push(event);
           },
         },
@@ -1414,7 +1497,7 @@ test('runTaskLoop retries planner calls when endpoint returns HTTP 503 Loading m
     assert.equal(plannerRequestCount, 2);
     const retryEvents = events.filter((event) => event.kind === 'provider_request_retry');
     assert.equal(retryEvents.length >= 1, true);
-    assert.match(String(retryEvents[0]?.error?.message || ''), /Loading model/u);
+    assert.match(String((retryEvents[0]?.error as { message?: string } | undefined)?.message || ''), /Loading model/u);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
@@ -1428,6 +1511,7 @@ test('runTaskLoop blocks exact duplicate commands with explicit error message', 
       signals: [],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 5,
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
@@ -1460,6 +1544,7 @@ test('runTaskLoop blocks semantic duplicate repo-search commands with explicit e
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 5,
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
@@ -1493,7 +1578,7 @@ test('runTaskLoop blocks semantic duplicate repo-search commands with explicit e
 });
 
 test('runTaskLoop keeps raw rewrite notes in logs but inserts compact repo-search results into the prompt', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-compact-repo-search-result',
@@ -1501,6 +1586,7 @@ test('runTaskLoop keeps raw rewrite notes in logs but inserts compact repo-searc
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1517,7 +1603,8 @@ test('runTaskLoop keeps raw rewrite notes in logs but inserts compact repo-searc
         },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -1533,7 +1620,7 @@ test('runTaskLoop keeps raw rewrite notes in logs but inserts compact repo-searc
 });
 
 test('runTaskLoop keeps routine normalized repo_rg flags out of model replay while audit keeps effective command', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-hide-normalized-rg-command-from-model',
@@ -1541,6 +1628,7 @@ test('runTaskLoop keeps routine normalized repo_rg flags out of model replay whi
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1557,7 +1645,8 @@ test('runTaskLoop keeps routine normalized repo_rg flags out of model replay whi
         },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -1584,7 +1673,7 @@ test('runTaskLoop keeps routine normalized repo_rg flags out of model replay whi
 });
 
 test('runTaskLoop widens repeated Get-Content reads on the same file and logs requested vs adjusted window', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-widen-repeated-get-content',
@@ -1592,6 +1681,7 @@ test('runTaskLoop widens repeated Get-Content reads on the same file and logs re
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 5,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1620,7 +1710,8 @@ test('runTaskLoop widens repeated Get-Content reads on the same file and logs re
         },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -1665,7 +1756,7 @@ test('runTaskLoop widens repeated Get-Content reads on the same file and logs re
 });
 
 test('runTaskLoop records adjusted Get-Content coverage from fitted returned lines only', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-fit-adjusted-get-content',
@@ -1673,6 +1764,7 @@ test('runTaskLoop records adjusted Get-Content coverage from fitted returned lin
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 4,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1696,7 +1788,8 @@ test('runTaskLoop records adjusted Get-Content coverage from fitted returned lin
         },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -1715,7 +1808,7 @@ test('runTaskLoop records adjusted Get-Content coverage from fitted returned lin
 });
 
 test('runTaskLoop clamps adjusted repeated Get-Content skip to non-negative values', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-widen-repeated-negative-skip',
@@ -1723,6 +1816,7 @@ test('runTaskLoop clamps adjusted repeated Get-Content skip to non-negative valu
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 4,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1745,7 +1839,8 @@ test('runTaskLoop clamps adjusted repeated Get-Content skip to non-negative valu
         },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -1767,7 +1862,7 @@ test('runTaskLoop clamps adjusted repeated Get-Content skip to non-negative valu
 });
 
 test('runTaskLoop forces repeated backward same-file reads to non-overlapping forward windows', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-widen-repeated-backward-window',
@@ -1775,6 +1870,7 @@ test('runTaskLoop forces repeated backward same-file reads to non-overlapping fo
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 4,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1797,7 +1893,8 @@ test('runTaskLoop forces repeated backward same-file reads to non-overlapping fo
         },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -1813,7 +1910,7 @@ test('runTaskLoop forces repeated backward same-file reads to non-overlapping fo
 });
 
 test('runTaskLoop tracks per-file overlap telemetry and isolates histories across files', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-line-read-overlap-metrics',
@@ -1821,6 +1918,7 @@ test('runTaskLoop tracks per-file overlap telemetry and isolates histories acros
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 6,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1849,7 +1947,8 @@ test('runTaskLoop tracks per-file overlap telemetry and isolates histories acros
         },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -1886,7 +1985,7 @@ test('runTaskLoop tracks per-file overlap telemetry and isolates histories acros
 });
 
 test('runTaskLoop does not compact different commands that happen to return the same evidence', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-collapse-repeat-replay',
@@ -1894,6 +1993,7 @@ test('runTaskLoop does not compact different commands that happen to return the 
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 6,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1912,7 +2012,8 @@ test('runTaskLoop does not compact different commands that happen to return the 
         'rg -n "delta" src': { exitCode: 0, stdout: 'src\\app.ts:10: same evidence', stderr: '' },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -1930,9 +2031,9 @@ test('runTaskLoop does not compact different commands that happen to return the 
 });
 
 test('runTaskLoop forces finish mode after ten zero-output commands', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
-  const mockResponses = [];
-  const mockCommandResults = {};
+  const events: Record<string, unknown>[] = [];
+  const mockResponses: string[] = [];
+  const mockCommandResults: Record<string, { exitCode: number; stdout: string; stderr: string }> = {};
   for (let index = 1; index <= 10; index += 1) {
     const command = `rg -n q${index} src`;
     mockResponses.push(`{"action":"repo_rg","command":"${command}"}`);
@@ -1947,13 +2048,15 @@ test('runTaskLoop forces finish mode after ten zero-output commands', async () =
       signals: [],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 12,
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
       mockResponses,
       mockCommandResults,
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -1963,13 +2066,14 @@ test('runTaskLoop forces finish mode after ten zero-output commands', async () =
   const forcedStart = events.find((event) => event.kind === 'turn_forced_finish_mode_started');
   assert.ok(forcedStart);
   const turn11Request = events.find((event) => event.kind === 'turn_model_request' && event.turn === 11);
+  assert.ok(turn11Request);
   assert.equal(turn11Request.thinkingEnabled, false);
   assert.equal(result.reason, 'finish');
   assert.equal(result.finalOutput, 'forced conclusion');
 });
 
 test('runTaskLoop enables thinking on every tool-call turn when runtime reasoning is on', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-third-cadence',
@@ -1977,14 +2081,15 @@ test('runTaskLoop enables thinking on every tool-call turn when runtime reasonin
       signals: ['done'],
     },
     {
-      config: {
+      ...MOCK_LOOP_DEFAULTS,
+      config: mockLoopConfig({
         Runtime: {
           LlamaCpp: {
             NumCtx: 32000,
             Reasoning: 'on',
           },
         },
-      },
+      }),
       maxTurns: 6,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -2005,7 +2110,8 @@ test('runTaskLoop enables thinking on every tool-call turn when runtime reasonin
         'rg -n "e" src': { exitCode: 0, stdout: 'e', stderr: '' },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -2024,7 +2130,7 @@ test('runTaskLoop enables thinking on every tool-call turn when runtime reasonin
 });
 
 test('runTaskLoop disables thinking on every tool-call turn when runtime reasoning is off', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-no-thinking',
@@ -2032,14 +2138,15 @@ test('runTaskLoop disables thinking on every tool-call turn when runtime reasoni
       signals: ['done'],
     },
     {
-      config: {
+      ...MOCK_LOOP_DEFAULTS,
+      config: mockLoopConfig({
         Runtime: {
           LlamaCpp: {
             NumCtx: 32000,
             Reasoning: 'off',
           },
         },
-      },
+      }),
       maxTurns: 3,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -2053,7 +2160,8 @@ test('runTaskLoop disables thinking on every tool-call turn when runtime reasoni
         'rg -n "b" src': { exitCode: 0, stdout: 'b', stderr: '' },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -2073,24 +2181,27 @@ test('buildScorecard aggregates totals and verdict', () => {
     runId: 'run-1',
     model: 'model-x',
     tasks: [
-      {
+      mockTaskResult({
         id: 'a',
         passed: true,
         safetyRejects: 1,
         invalidResponses: 0,
         commandFailures: 0,
-        commands: [{ command: 'rg x', safe: true }],
+        commands: [{ command: 'rg x', turn: 1, safe: true, reason: null, exitCode: 0, output: '' }],
         missingSignals: [],
-      },
-      {
+      }),
+      mockTaskResult({
         id: 'b',
         passed: false,
         safetyRejects: 2,
         invalidResponses: 1,
         commandFailures: 1,
-        commands: [{ command: 'rg y', safe: true }, { command: 'rg z', safe: false }],
+        commands: [
+          { command: 'rg y', turn: 1, safe: true, reason: null, exitCode: 0, output: '' },
+          { command: 'rg z', turn: 2, safe: false, reason: null, exitCode: 0, output: '' },
+        ],
         missingSignals: ['signal-1'],
-      },
+      }),
     ],
   });
 
@@ -2106,14 +2217,15 @@ test('buildScorecard aggregates totals and verdict', () => {
 });
 
 test('mock planner strips think block from response text', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   await runTaskLoop(
     { id: 'task-strip', question: 'q', signals: ['done'] },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 1, maxInvalidResponses: 2, minToolCallsBeforeFinish: 0,
       mockResponses: ['<think>hidden</think>{"action":"finish","output":"done"}'],
       mockCommandResults: {},
-      logger: { write(event) { events.push(event); } },
+      logger: { path: 'memory', write(event: Record<string, unknown>) { events.push(event); } },
     }
   );
   const response = events.find((e) => e.kind === 'turn_model_response');
@@ -2125,6 +2237,7 @@ test('runTaskLoop records real planner turn per command and per-turn thinking', 
   const result = await runTaskLoop(
     { id: 'task-turns', question: 'Find planner text.', signals: ['done'] },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 6,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -2151,10 +2264,11 @@ test('runTaskLoop keeps only latest planner thinking when per-step thinking is d
   const result = await runTaskLoop(
     { id: 'task-turns-pruned', question: 'Find planner text.', signals: ['done'] },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 6,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
-      config: {
+      config: mockLoopConfig({
         Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000, Reasoning: 'on' } },
         Server: {
           LlamaCpp: {
@@ -2168,7 +2282,7 @@ test('runTaskLoop keeps only latest planner thinking when per-step thinking is d
             }],
           },
         },
-      },
+      }),
       mockResponses: [
         '<think>plan step a</think>{"action":"repo_rg","command":"rg -n \\"a\\" src"}',
         '<think>plan step b</think>{"action":"repo_rg","command":"rg -n \\"b\\" src"}',
@@ -2188,6 +2302,7 @@ test('runTaskLoop sets turn on a duplicate-rejected command push', async () => {
   const result = await runTaskLoop(
     { id: 'task-dup-turn', question: 'Find planner text.', signals: [] },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 5,
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
@@ -2212,6 +2327,7 @@ test('runTaskLoop records turn thinking for an invalid-parse turn', async () => 
   const result = await runTaskLoop(
     { id: 'task-invalid-think', question: 'q', signals: ['done'] },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 5,
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,

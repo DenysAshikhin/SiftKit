@@ -4,9 +4,9 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { isBackendReadyStatusCode } from '../scripts/start-dev-health.ts';
-import { buildStartupPortChecks } from '../scripts/start-dev-ports.ts';
-import { stopChildProcessTree } from '../scripts/start-dev-process.ts';
+import { isBackendReadyStatusCode } from '../scripts/start-dev-health.js';
+import { buildStartupPortChecks } from '../scripts/start-dev-ports.js';
+import { stopChildProcessTree } from '../scripts/start-dev-process.js';
 
 test('start-dev preflights both status and dashboard ports before spawning services', () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-start-dev-'));

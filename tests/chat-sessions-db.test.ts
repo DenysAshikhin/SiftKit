@@ -9,9 +9,9 @@ import {
   readChatSessionFromPath,
   getChatSessionPath,
   deleteChatSession,
-} from '../dist/state/chat-sessions.js';
+} from '../src/state/chat-sessions.js';
 import type { ChatSession } from '../src/state/chat-sessions.js';
-import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
+import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 
 function withTempRepo(fn: (repoRoot: string) => void): void {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-db-'));

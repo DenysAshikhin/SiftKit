@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildManagedLlamaRestartFailureModal } from '../dashboard/src/managed-llama-restart.ts';
+import { buildManagedLlamaRestartFailureModal } from '../dashboard/src/managed-llama-restart.js';
 
 test('buildManagedLlamaRestartFailureModal formats GPU OOM memory details', () => {
   assert.deepEqual(

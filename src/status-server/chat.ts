@@ -383,7 +383,7 @@ export function appendChatMessagesWithUsage(
   assistantContent: string,
   usage: Partial<ChatUsage> = {},
   options: AppendChatOptions = { turns: [] }
-): ChatSession {
+): ChatSession & { messages: PersistedChatMessage[] } {
   const now = new Date().toISOString();
   const messages = Array.isArray(session.messages) ? session.messages.slice() : [];
   const promptCacheTokens = getChatUsageValue(usage.promptCacheTokens);
@@ -528,7 +528,7 @@ export function appendChatMessagesWithUsage(
   });
   const retainedMessages = new ThinkingRetentionPolicy(options.maintainPerStepThinking !== false)
     .prunePersistedMessages(messages);
-  const updated: ChatSession = {
+  const updated: ChatSession & { messages: PersistedChatMessage[] } = {
     ...session,
     updatedAtUtc: now,
     messages: retainedMessages,

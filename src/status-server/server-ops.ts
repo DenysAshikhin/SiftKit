@@ -50,6 +50,7 @@ import {
   EXECUTION_LEASE_STALE_MS,
   logLine,
 } from './managed-llama.js';
+import { releaseLease, resolveActiveLease } from './core/lease-handlers.js';
 
 export const MAX_COMPLETED_STATUS_PATH_ENTRIES = 1000;
 export const DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS = 900_000;
@@ -371,19 +372,13 @@ export function scheduleIdleSummaryIfNeeded(ctx: ServerContext): void {
 // ---------------------------------------------------------------------------
 
 export function getActiveExecutionLease(ctx: ServerContext): ExecutionLease | null {
-  if (!ctx.activeExecutionLease) {
-    return null;
-  }
-  if ((Date.now() - ctx.activeExecutionLease.heartbeatAt) >= EXECUTION_LEASE_STALE_MS) {
-    ctx.activeExecutionLease = null;
-    return null;
-  }
-  return ctx.activeExecutionLease;
+  const active = resolveActiveLease(ctx.activeExecutionLease, Date.now(), EXECUTION_LEASE_STALE_MS);
+  ctx.activeExecutionLease = active;
+  return active;
 }
 
 export function releaseExecutionLease(ctx: ServerContext, token: string): boolean {
-  const lease = getActiveExecutionLease(ctx);
-  if (!lease || lease.token !== token) {
+  if (!releaseLease(ctx.activeExecutionLease, token, Date.now(), EXECUTION_LEASE_STALE_MS)) {
     return false;
   }
   ctx.activeExecutionLease = null;

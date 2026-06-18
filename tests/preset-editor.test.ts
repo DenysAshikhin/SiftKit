@@ -5,7 +5,7 @@ import type {
   DashboardOperationModeAllowedTools,
   DashboardPreset,
   DashboardPresetToolName,
-} from '../dashboard/src/types.ts';
+} from '../dashboard/src/types.js';
 import {
   applyOperationModeDefaults,
   applyPresetKindDefaults,
@@ -17,7 +17,7 @@ import {
   getNextPresetIdAfterDelete,
   getPresetToolsSummary,
   togglePresetTool,
-} from '../dashboard/src/preset-editor.ts';
+} from '../dashboard/src/preset-editor.js';
 
 function createPreset(id: string, overrides: Partial<DashboardPreset> = {}): DashboardPreset {
   return {

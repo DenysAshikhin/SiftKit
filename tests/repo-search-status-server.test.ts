@@ -7,10 +7,10 @@ import * as http from 'node:http';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 
-import { startStatusServer, buildRepoSearchProgressLogMessage } from '../dist/status-server/index.js';
-import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
-import { getConfigPath } from '../dist/config/index.js';
-import { getDefaultConfig, writeConfig } from '../dist/status-server/config-store.js';
+import { startStatusServer, buildRepoSearchProgressLogMessage } from '../src/status-server/index.js';
+import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { getConfigPath } from '../src/config/index.js';
+import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
 
 const requireFromHere = createRequire(__filename);
 const Database = requireFromHere('better-sqlite3') as new (path: string, options?: { readonly?: boolean }) => {
@@ -54,10 +54,10 @@ function writeManagedLlamaReadinessTestConfig(managed: {
   modelPath: string;
   startupScriptPath: string;
 }, startupTimeoutMs: number): void {
-  const config = getDefaultConfig() as Record<string, unknown>;
-  const server = config.Server as { LlamaCpp: { Presets: Array<Record<string, unknown>>; ActivePresetId: string } };
+  const config = getDefaultConfig();
+  const server = config.Server;
   server.LlamaCpp.Presets = [{
-    ...(server.LlamaCpp.Presets[0] || {}),
+    ...server.LlamaCpp.Presets[0],
     id: 'default',
     label: 'Managed Test',
     Model: 'managed-test-model',

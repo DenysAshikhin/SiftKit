@@ -7,19 +7,19 @@ import * as path from 'node:path';
 import {
   StatusServerUnavailableError,
   getStatusServerHealthUrl,
-} from '../dist/config/index.js';
+} from '../src/config/index.js';
 import {
   serializeErrorDiagnostic,
   getPrimaryCauseDiagnostic,
-} from '../dist/lib/error-diagnostics.js';
+} from '../src/lib/error-diagnostics.js';
 import {
   insertRuntimeErrorEvent,
   ensureRuntimeErrorEventsTable,
-} from '../dist/state/runtime-error-events.js';
+} from '../src/state/runtime-error-events.js';
 import {
   closeRuntimeDatabase,
   getRuntimeDatabase,
-} from '../dist/state/runtime-db.js';
+} from '../src/state/runtime-db.js';
 
 test('StatusServerUnavailableError preserves diagnostic cause and service context', () => {
   const cause = new Error('Request timed out after 130000 ms.');

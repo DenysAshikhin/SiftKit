@@ -8,6 +8,7 @@
     "scripts/**/*.ts"
   ],
   "exclude": [
-    "scripts/delete-logs.ts"
+    "scripts/delete-logs.ts",
+    "scripts/analysis/**"
   ]
 }

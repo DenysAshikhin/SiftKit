@@ -23,8 +23,8 @@ import type {
   DashboardBenchmarkStartRequest,
   RepoSearchAutoAppendPreview,
   WebSearchQuotaResponse,
-} from './types';
-import { ChatStreamReader, type ChatStreamToolEvent } from './lib/chat-stream-parser';
+} from './types.js';
+import { ChatStreamReader, type ChatStreamToolEvent } from './lib/chat-stream-parser.js';
 
 async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, init);

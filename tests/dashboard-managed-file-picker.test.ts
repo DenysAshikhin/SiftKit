@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   getManagedFilePickerDialogOptions,
   pickManagedFilePath,
-} from '../dist/status-server/file-picker.js';
+} from '../src/status-server/file-picker.js';
 
 test('getManagedFilePickerDialogOptions configures executable picker filters', () => {
   const options = getManagedFilePickerDialogOptions(

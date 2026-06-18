@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import { runCli } from '../dist/cli/index.js';
+import { runCli } from '../src/cli/index.js';
 import { makeCaptureStream } from './_test-helpers.js';
 
 test('summary delegates non-deterministic execution to status server', async () => {

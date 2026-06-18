@@ -160,7 +160,7 @@ export type SiftConfig = {
 
 export type DashboardConfig = SiftConfig;
 export type DashboardManagedLlamaPreset = ServerManagedLlamaPreset;
-export type DashboardLlamaCppConfig = ServerLlamaCppConfig;
+export type DashboardLlamaCppConfig = RuntimeLlamaCppConfig;
 export type DashboardOperationModeAllowedTools = OperationModeAllowedTools;
 export type DashboardPreset = SiftPreset;
 

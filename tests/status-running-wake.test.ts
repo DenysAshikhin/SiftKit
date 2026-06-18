@@ -6,10 +6,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { AddressInfo } from 'node:net';
 
-import { getDefaultMetrics } from '../dist/status-server/metrics.js';
-import { ManagedLlamaFlushQueue } from '../dist/status-server/managed-llama-flush-queue.js';
-import { createRequestHandler } from '../dist/status-server/routes.js';
-import type { ServerContext } from '../dist/status-server/server-types.js';
+import { getDefaultMetrics } from '../src/status-server/metrics.js';
+import { getDefaultConfig } from '../src/status-server/config-store.js';
+import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
+import { StatusEngineService } from '../src/status-server/engine-service.js';
+import { createRequestHandler } from '../src/status-server/routes.js';
+import type { ServerContext } from '../src/status-server/server-types.js';
 
 type JsonResponse = { statusCode: number; body: Record<string, unknown> };
 
@@ -57,6 +59,13 @@ function createStatusContext(tempRoot: string): ServerContext & { readonly wakeC
     metricsPath: path.join(tempRoot, 'metrics.json'),
     idleSummarySnapshotsPath: path.join(tempRoot, 'idle.sqlite'),
     disableManagedLlamaStartup: false,
+    engineService: new StatusEngineService(),
+    terminalMetadataQueue: [],
+    terminalMetadataDrainScheduled: false,
+    terminalMetadataDrainRunning: false,
+    terminalMetadataLastModelRequestFinishedAtMs: null,
+    terminalMetadataIdleDelayMs: 0,
+    runtimeHistoryPruneTimer: null,
     server: null,
     getServiceBaseUrl(): string {
       return 'http://127.0.0.1:0';
@@ -89,9 +98,9 @@ function createStatusContext(tempRoot: string): ServerContext & { readonly wakeC
     managedLlamaLogCleanupTimer: null,
     managedLlamaFlushQueue: new ManagedLlamaFlushQueue(),
     async shutdownManagedLlamaIfNeeded(): Promise<void> {},
-    async ensureManagedLlamaReady(): Promise<Record<string, never>> {
+    async ensureManagedLlamaReady() {
       wakeCount += 1;
-      return {};
+      return getDefaultConfig();
     },
     get wakeCount(): number {
       return wakeCount;

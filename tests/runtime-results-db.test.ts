@@ -6,13 +6,13 @@ import * as path from 'node:path';
 
 import {
   closeRuntimeDatabase,
-} from '../dist/state/runtime-db.js';
+} from '../src/state/runtime-db.js';
 import {
   persistBenchmarkRun,
   persistEvalResult,
   readBenchmarkRun,
   readEvalResult,
-} from '../dist/state/runtime-results.js';
+} from '../src/state/runtime-results.js';
 
 function withTempRepo(fn: (repoRoot: string) => void): void {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-runtime-results-'));

@@ -1,13 +1,12 @@
-// @ts-nocheck -- runtime-style tests against dist exports
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
-const { readSummaryInput } = require('../dist/summary.js');
+import { readSummaryInput } from '../src/summary.js';
 
-function toUtf16BeBuffer(text, withBom = true) {
+function toUtf16BeBuffer(text: string, withBom = true): Buffer {
   const le = Buffer.from(text, 'utf16le');
   const be = Buffer.alloc(le.length);
   for (let index = 0; index < le.length - 1; index += 2) {
@@ -102,6 +101,6 @@ test('readSummaryInput decodes UTF-16 stdin buffers', () => {
 test('readSummaryInput keeps ambiguous binary-like buffers as UTF-8 fallback', () => {
   const binaryLike = Buffer.from([0x61, 0x00, 0x62, 0x00, 0xff, 0xff, 0x63, 0x00, 0x00, 0x64]);
   const result = readSummaryInput({ stdinText: binaryLike });
-  assert.equal(typeof result, 'string');
+  assert.ok(typeof result === 'string');
   assert.equal(result.includes('\u0000'), true);
 });

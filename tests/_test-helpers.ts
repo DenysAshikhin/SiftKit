@@ -4,8 +4,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { Writable } from 'node:stream';
 import type { AddressInfo } from 'node:net';
-import { getPresetsForSurface, normalizePresets } from '../dist/presets.js';
-import { closeRuntimeDatabase } from '../dist/state/runtime-db.js';
+import { getPresetsForSurface, normalizePresets } from '../src/presets.js';
+import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 
 export type Dict = Record<string, unknown>;
 

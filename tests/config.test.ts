@@ -38,14 +38,14 @@ import {
   SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN,
   StatusServerUnavailableError,
   MissingObservedBudgetError,
-} from '../dist/config/index.js';
-import { ensureDirectory, saveContentAtomically } from '../dist/lib/fs.js';
+} from '../src/config/index.js';
+import { ensureDirectory, saveContentAtomically } from '../src/lib/fs.js';
 import { withTestEnvAndServer, type Dict } from './_test-helpers.js';
 
 type ConfigArg = Parameters<typeof getConfiguredModel>[0];
 
 test('SIFTKIT_VERSION matches package.json version', () => {
-  const requireFromTest = createRequire(import.meta.url);
+  const requireFromTest = createRequire(__filename);
   const packageJson = requireFromTest('../package.json') as { version: string };
   assert.equal(typeof SIFTKIT_VERSION, 'string');
   assert.match(SIFTKIT_VERSION, /^\d+\.\d+\.\d+$/u);
@@ -591,7 +591,9 @@ test('notifyStatusBackend ignores legacy busy responses without retrying', async
 test('notifyStatusBackend splits terminal completion and metadata routes', async () => {
   let completionCount = 0;
   let metadataCount = 0;
-  let metadataBody: Record<string, unknown> | null = null;
+  // Hold the parsed body on an object so reads aren't narrowed to null by control-flow
+  // analysis (it is only ever assigned inside the request 'end' callback below).
+  const captured: { metadataBody: Record<string, unknown> | null } = { metadataBody: null };
   const routeOrder: string[] = [];
   let resolveMetadataReceived: (() => void) | null = null;
   const metadataReceived = new Promise<void>((resolve) => {
@@ -616,7 +618,7 @@ test('notifyStatusBackend splits terminal completion and metadata routes', async
         });
         req.on('end', () => {
           metadataCount += 1;
-          metadataBody = bodyText ? JSON.parse(bodyText) : {};
+          captured.metadataBody = bodyText ? JSON.parse(bodyText) : {};
           resolveMetadataReceived?.();
           setTimeout(() => {
             res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -646,8 +648,8 @@ test('notifyStatusBackend splits terminal completion and metadata routes', async
     assert.equal(completionCount, 1);
     assert.equal(metadataCount, 1);
     assert.deepEqual(routeOrder, ['complete', 'metadata']);
-    assert.equal(metadataBody?.requestId, 'split-terminal-request');
-    assert.equal(metadataBody?.terminalState, 'completed');
+    assert.equal(captured.metadataBody?.requestId, 'split-terminal-request');
+    assert.equal(captured.metadataBody?.terminalState, 'completed');
     assert.ok(elapsedMs < 100, `terminal metadata route was awaited, elapsed=${elapsedMs}`);
   } finally {
     await new Promise<void>((resolve, reject) => {

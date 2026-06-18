@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { SpawnSyncReturns } from 'node:child_process';
 
-import { terminateProcessTree, type TerminateProcessTreeOptions } from '../dist/status-server/index.js';
+import { terminateProcessTree, type TerminateProcessTreeOptions } from '../src/status-server/index.js';
 
 type SpawnSyncImpl = TerminateProcessTreeOptions['spawnSyncImpl'];
 type ProcessObject = TerminateProcessTreeOptions['processObject'];

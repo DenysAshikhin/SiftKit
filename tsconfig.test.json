@@ -1,34 +1,12 @@
 {
   "extends": "./tsconfig.json",
-  "compilerOptions": { "noEmit": true },
+  "compilerOptions": { "noEmit": true, "lib": ["ES2023", "DOM", "DOM.Iterable"] },
   "include": [
     "src/**/*.ts",
-    "tests/repo-search-chat-execute.test.ts",
-    "tests/repo-search-chat-loop.test.ts",
-    "tests/repo-search-chat-types.test.ts",
-    "tests/tool-loop-governor-chat.test.ts",
-    "tests/engine-command-execution.test.ts",
-    "tests/engine-native-tools.test.ts",
-    "tests/engine-turn-budget.test.ts",
-    "tests/engine-token-usage.test.ts",
-    "tests/engine-tool-stats.test.ts",
-    "tests/engine-duplicate-tracker.test.ts",
-    "tests/engine-forced-finish.test.ts",
-    "tests/engine-progress-reporter.test.ts",
-    "tests/engine-transcript-manager.test.ts",
-    "tests/engine-tool-result-budgeter.test.ts",
-    "tests/engine-read-window-governor.test.ts",
-    "tests/engine-terminal-synthesizer.test.ts",
-    "tests/agent-loop.test.ts",
-    "tests/llm-protocol.test.ts",
-    "tests/llm-protocol-streaming.test.ts",
-    "tests/engine-prompt-preparer.test.ts",
-    "tests/god-function-regression.test.ts",
-    "tests/summary-planner-runtime.test.ts",
-    "tests/summary-core-runner.test.ts",
-    "tests/summary-request-runner.test.ts",
-    "tests/dashboard-runs-partition.test.ts",
-    "tests/status-route-table.test.ts",
-    "tests/package-files.test.ts"
+    "tests/**/*.ts"
+  ],
+  "//exclude": "dashboard-app-refresh is a React SSR test (react-dom/server + jsx + DOM, pulling dashboard/src/App.tsx and its react-markdown tree). It cannot resolve react under the node NodeNext project; it is fully typechecked by dashboard/tsconfig.test.json (Bundler resolution, react from dashboard/node_modules) instead. Excluded here to avoid double-coverage, NOT untyped.",
+  "exclude": [
+    "tests/dashboard-app-refresh.test.ts"
   ]
 }

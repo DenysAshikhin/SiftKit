@@ -5,6 +5,7 @@ export type JsonLogger = {
 
 import type { RetainedWebToolCall } from '../web-search/web-tool-command.js';
 import type { ChatMessage } from './planner-protocol.js';
+import type { Scorecard } from './engine.js';
 
 export type { RetainedWebToolCall } from '../web-search/web-tool-command.js';
 
@@ -70,5 +71,5 @@ export type RepoSearchExecutionResult = {
   requestId: string;
   transcriptPath: string;
   artifactPath: string;
-  scorecard: Record<string, unknown>;
+  scorecard: Scorecard;
 };

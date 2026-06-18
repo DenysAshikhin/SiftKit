@@ -1,13 +1,12 @@
-// @ts-nocheck - Uses shared CommonJS runtime test helpers.
-const test = require('node:test');
-const assert = require('node:assert/strict');
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
-const { summarizeRequest } = require('../dist/summary.js');
-const {
+import { summarizeRequest } from '../src/summary.js';
+import {
   captureStdout,
   withStubServer,
   withTempEnv,
-} = require('./_runtime-helpers.js');
+} from './_runtime-helpers.js';
 
 test('summary logs preflight tokenization timing source and retry count', async () => {
   await withTempEnv(async () => {

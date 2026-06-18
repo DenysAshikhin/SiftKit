@@ -12,6 +12,7 @@ import {
   normalizePresets,
   resolvePresetAllowedTools,
   type PresetToolName,
+  type PresetKind,
   type SiftPreset,
 } from '../presets.js';
 import type { RepoSearchExecutionResult } from '../repo-search/types.js';
@@ -88,6 +89,17 @@ function resolveEffectiveRepoFileListing(config: Pick<SiftConfig, 'IncludeRepoFi
   return config.IncludeRepoFileListing !== false && preset.includeRepoFileListing !== false;
 }
 
+/** Which runner branch a preset kind dispatches to; `plan` and `repo-search` share the repo-search runner. */
+export function selectPresetRunKind(presetKind: PresetKind): 'summary' | 'chat' | 'repo-search' {
+  if (presetKind === 'summary') {
+    return 'summary';
+  }
+  if (presetKind === 'chat') {
+    return 'chat';
+  }
+  return 'repo-search';
+}
+
 function getFinalOutput(result: RepoSearchExecutionResult): string {
   const repoSearchResult = normalizeRepoSearchResult(result);
   const finalOutput = repoSearchResult.scorecard.tasks
@@ -119,10 +131,11 @@ export class StatusPresetRunner {
       normalizeOperationModeAllowedTools(config.OperationModeAllowedTools),
     );
 
-    if (preset.presetKind === 'summary') {
+    const runKind = selectPresetRunKind(preset.presetKind);
+    if (runKind === 'summary') {
       return this.runSummaryPreset(request, config, preset, effectiveAllowedTools, options);
     }
-    if (preset.presetKind === 'chat') {
+    if (runKind === 'chat') {
       return this.runChatPreset(request, config, preset, options);
     }
     return this.runRepoSearchPreset(request, config, preset, effectiveAllowedTools, options);

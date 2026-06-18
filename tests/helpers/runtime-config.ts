@@ -1,24 +1,33 @@
 import path from 'node:path';
 
-import { UNSUPPORTED_INPUT_MESSAGE } from '../../dist/summary/measure.js';
+import { UNSUPPORTED_INPUT_MESSAGE } from '../../src/summary/measure.js';
+import { getDefaultOperationModeAllowedTools, normalizePresets } from '../../src/presets.js';
+import { normalizeManagedLlamaPresetArray } from '../../src/config/normalization.js';
+import type { SiftConfig } from '../../src/config/types.js';
 
 type JsonObject = Record<string, unknown>;
 
-export type ChatRequest = {
-  messages?: Array<{
-    content?: string | Array<{ text?: string }>;
-    tool_calls?: Array<{
-      function?: {
-        name?: string;
-        arguments?: string;
-      };
-    }>;
-    function_call?: {
+export type ChatRequestMessage = {
+  role?: string;
+  content?: string | Array<{ text?: string }>;
+  tool_calls?: Array<{
+    function?: {
       name?: string;
       arguments?: string;
     };
-    tool_call_id?: string;
   }>;
+  function_call?: {
+    name?: string;
+    arguments?: string;
+  };
+  tool_call_id?: string;
+};
+
+export type ChatRequest = {
+  messages: ChatRequestMessage[];
+  response_format?: { type?: string; [key: string]: unknown };
+  chat_template_kwargs?: Record<string, unknown>;
+  [key: string]: unknown;
 };
 
 export function deriveServiceUrl(configuredUrl: string, nextPath: string): string {
@@ -29,12 +38,15 @@ export function deriveServiceUrl(configuredUrl: string, nextPath: string): strin
   return target.toString();
 }
 
-export function getDefaultConfig(): JsonObject {
+export function getDefaultConfig(): SiftConfig {
   return {
     Version: '0.1.0',
     Backend: 'llama.cpp',
     PolicyMode: 'conservative',
     RawLogRetention: true,
+    IncludeAgentsMd: true,
+    IncludeRepoFileListing: true,
+    ExpandReads: true,
     Runtime: {
       Model: 'qwen3.5-9b-instruct-q4_k_m',
       LlamaCpp: {
@@ -57,13 +69,13 @@ export function getDefaultConfig(): JsonObject {
     Server: {
       LlamaCpp: {
         ActivePresetId: 'default',
-        Presets: [{
+        Presets: normalizeManagedLlamaPresetArray([{
           id: 'default',
           label: 'Default',
           Model: 'qwen3.5-9b-instruct-q4_k_m',
           BaseUrl: 'http://127.0.0.1:8080',
           NumCtx: 128000,
-        }],
+        }], {}),
       },
     },
     Thresholds: {
@@ -76,6 +88,20 @@ export function getDefaultConfig(): JsonObject {
       IdleTimeoutMs: 900000,
       MaxTranscriptCharacters: 60000,
       TranscriptRetention: true,
+    },
+    OperationModeAllowedTools: getDefaultOperationModeAllowedTools(),
+    Presets: normalizePresets([]),
+    WebSearch: {
+      EnabledDefault: true,
+      Providers: {
+        tavily: { Enabled: false, ApiKey: '' },
+        firecrawl: { Enabled: false, ApiKey: '' },
+      },
+      ProviderOrder: ['tavily', 'firecrawl'],
+      ResultCount: 5,
+      FetchMaxPages: 3,
+      TimeoutMs: 15000,
+      FetchMaxCharacters: 12000,
     },
   };
 }

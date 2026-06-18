@@ -2,6 +2,9 @@ import { UNSUPPORTED_INPUT_MESSAGE } from './measure.js';
 import { extractPromptSection } from './prompt.js';
 import type { StructuredModelDecision, SummaryPhase } from './types.js';
 
+// SIFTKIT_TEST_PROVIDER_* env reads live in ./providers/mock-provider.ts; this module
+// holds only the pure decision builders.
+
 export function toMockDecision(decision: StructuredModelDecision): string {
   return JSON.stringify({
     classification: decision.classification,
@@ -136,25 +139,4 @@ export function buildMockDecision(prompt: string, question: string, phase: Summa
     rawReviewRequired: false,
     output: 'mock summary',
   };
-}
-
-export function getMockSummary(prompt: string, question: string, phase: SummaryPhase): string {
-  const behavior = process.env.SIFTKIT_TEST_PROVIDER_BEHAVIOR?.trim() || '';
-  if (behavior === 'throw') {
-    throw new Error('mock provider failure');
-  }
-  if (behavior === 'recursive-merge') {
-    return toMockDecision({
-      classification: 'summary',
-      rawReviewRequired: false,
-      output: 'merge summary',
-    });
-  }
-
-  const token = process.env.SIFTKIT_TEST_TOKEN;
-  const decision = buildMockDecision(prompt, question, phase);
-  if (token && decision.output === 'mock summary') {
-    decision.output = `mock summary ${token}`;
-  }
-  return toMockDecision(decision);
 }

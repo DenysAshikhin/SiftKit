@@ -1,7 +1,7 @@
-// @ts-nocheck — Full type-checking deferred; script uses @ts-nocheck internally.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -27,6 +27,24 @@ import {
   compactPlannerMessagesOnce,
 } from '../src/repo-search/prompt-budget.js';
 import { getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
+import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
+import type { SiftConfig } from '../src/config/types.js';
+
+// Mock-mode runTaskLoop calls do not reach a real provider or repo; these defaults
+// satisfy the required RunTaskLoopOptions fields with an empty repo root (behaviour-
+// equivalent to the values previously omitted while the file was untyped).
+const MOCK_LOOP_REPO_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-mock-loop-'));
+const MOCK_LOOP_DEFAULTS = {
+  repoRoot: MOCK_LOOP_REPO_ROOT,
+  model: 'mock-model',
+  baseUrl: 'http://127.0.0.1:1',
+};
+
+// These mock-mode loops read only Runtime.{Model,LlamaCpp}; the rest of the SiftConfig
+// surface is irrelevant, so a deliberately partial literal is cast here (one place).
+function mockConfig(config: { Runtime: { Model: string; LlamaCpp: Record<string, unknown> } }): SiftConfig {
+  return config as unknown as SiftConfig;
+}
 
 function createTempRepoRoot(gitignoreText = '') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-ignore-'));
@@ -35,7 +53,7 @@ function createTempRepoRoot(gitignoreText = '') {
 }
 
 async function getFreePort(): Promise<number> {
-  return await new Promise((resolve, reject) => {
+  return await new Promise<number>((resolve, reject) => {
     const probe = http.createServer();
     probe.once('error', reject);
     probe.listen(0, '127.0.0.1', () => {
@@ -85,7 +103,7 @@ test('runRepoSearch does not fail on model inventory mismatch', async () => {
 });
 
 test('repo-search executes a native web_search tool when allowed', async () => {
-  const events = [];
+  const events: Record<string, unknown>[] = [];
   const scorecard = await runRepoSearch({
     config: {
       Runtime: { Model: 'Qwen3.5-9B-Q8_0.gguf', LlamaCpp: { BaseUrl: 'http://127.0.0.1:8097', NumCtx: 70000 } },
@@ -121,8 +139,8 @@ test('repo-search executes a native web_search tool when allowed', async () => {
   assert.equal(scorecard.verdict, 'pass');
   const toolStart = events.find((event) => event.kind === 'tool_start');
   const toolResult = events.find((event) => event.kind === 'tool_result');
-  assert.equal(toolStart.command, 'web_search query="siftkit"');
-  assert.match(String(toolResult.outputSnippet || ''), /web result snippet|example\.com/);
+  assert.equal(toolStart?.command, 'web_search query="siftkit"');
+  assert.match(String(toolResult?.outputSnippet || ''), /web result snippet|example\.com/);
   assert.equal(Object.keys(scorecard.toolStats).includes('web_search'), true);
 });
 
@@ -254,7 +272,7 @@ test('evaluateCommandSafety allows allowlisted read-only commands', () => {
 
 test('normalizePlannerCommand adds ignore-case to rg searches by default', () => {
   const normalized = normalizePlannerCommand('rg -n "SKILL" src', {
-    ignorePolicy: { names: [], namesLower: new Set(), paths: [] },
+    ignorePolicy: { names: [] as string[], namesLower: new Set<string>(), paths: [] as string[] },
   });
 
   assert.equal(normalized.command, 'rg -n "SKILL" src --no-ignore --ignore-case');
@@ -262,7 +280,7 @@ test('normalizePlannerCommand adds ignore-case to rg searches by default', () =>
 });
 
 test('normalizePlannerCommand does not add ignore-case when rg case behavior is explicit', () => {
-  const ignorePolicy = { names: [], namesLower: new Set(), paths: [] };
+  const ignorePolicy = { names: [] as string[], namesLower: new Set<string>(), paths: [] as string[] };
 
   assert.equal(
     normalizePlannerCommand('rg -n --case-sensitive "SKILL" src', { ignorePolicy }).command,
@@ -276,7 +294,7 @@ test('normalizePlannerCommand does not add ignore-case when rg case behavior is 
 
 test('normalizePlannerCommand does not add ignore-case to rg file listing', () => {
   const normalized = normalizePlannerCommand('rg --files src', {
-    ignorePolicy: { names: [], namesLower: new Set(), paths: [] },
+    ignorePolicy: { names: [] as string[], namesLower: new Set<string>(), paths: [] as string[] },
   });
 
   assert.equal(normalized.command, 'rg --files src --no-ignore');
@@ -284,7 +302,7 @@ test('normalizePlannerCommand does not add ignore-case to rg file listing', () =
 
 test('normalizePlannerCommand rewrites rg --include to --glob', () => {
   const normalized = normalizePlannerCommand('rg -n "from " apps/runner/src --include "*.ts"', {
-    ignorePolicy: { names: [], namesLower: new Set(), paths: [] },
+    ignorePolicy: { names: [] as string[], namesLower: new Set<string>(), paths: [] as string[] },
   });
 
   assert.equal(normalized.command, 'rg -n "from " apps/runner/src --glob "*.ts" --no-ignore --ignore-case');
@@ -377,7 +395,7 @@ test('evaluateCommandSafety rejects destructive, network, and chained commands',
 });
 
 test('runTaskLoop rewrites unsupported rg --type tsx and annotates output', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-rewrite-tsx',
@@ -385,6 +403,7 @@ test('runTaskLoop rewrites unsupported rg --type tsx and annotates output', asyn
       signals: ['tsx hit'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -397,7 +416,8 @@ test('runTaskLoop rewrites unsupported rg --type tsx and annotates output', asyn
         'rg -n "foo" src --type ts': { exitCode: 0, stdout: 'tsx hit', stderr: '' },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -405,8 +425,8 @@ test('runTaskLoop rewrites unsupported rg --type tsx and annotates output', asyn
   );
 
   const commandResult = events.find((event) => event.kind === 'turn_command_result');
-  assert.ok(String(commandResult.command).startsWith('rg -n "foo" src --type ts'));
-  assert.match(String(commandResult.output || ''), /rewrote unsupported --type tsx to valid types/u);
+  assert.ok(String(commandResult?.command).startsWith('rg -n "foo" src --type ts'));
+  assert.match(String(commandResult?.output || ''), /rewrote unsupported --type tsx to valid types/u);
   assert.equal(result.reason, 'finish');
   assert.equal(result.commandFailures, 0);
   assert.equal(result.passed, true);
@@ -425,7 +445,7 @@ test('normalizePlannerCommand appends rg ignore flags after regex alternation in
 });
 
 test('runTaskLoop rewrites mixed rg --type ts and --type tsx flags', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-rewrite-mixed-types',
@@ -433,6 +453,7 @@ test('runTaskLoop rewrites mixed rg --type ts and --type tsx flags', async () =>
       signals: ['mixed hit'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -445,7 +466,8 @@ test('runTaskLoop rewrites mixed rg --type ts and --type tsx flags', async () =>
         'rg -n "foo" src --type ts': { exitCode: 0, stdout: 'mixed hit', stderr: '' },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -453,8 +475,8 @@ test('runTaskLoop rewrites mixed rg --type ts and --type tsx flags', async () =>
   );
 
   const commandResult = events.find((event) => event.kind === 'turn_command_result');
-  assert.ok(String(commandResult.command).startsWith('rg -n "foo" src --type ts'));
-  assert.match(String(commandResult.output || ''), /rewrote unsupported --type tsx to valid types/u);
+  assert.ok(String(commandResult?.command).startsWith('rg -n "foo" src --type ts'));
+  assert.match(String(commandResult?.output || ''), /rewrote unsupported --type tsx to valid types/u);
   assert.equal(result.reason, 'finish');
   assert.equal(result.commandFailures, 0);
   assert.equal(result.passed, true);
@@ -497,7 +519,7 @@ test('runTaskLoop executes simple rg directly and preserves mixed quote regex', 
 });
 
 test('runTaskLoop rewrites rg --include and annotates output', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-rewrite-include',
@@ -520,7 +542,8 @@ test('runTaskLoop rewrites rg --include and annotates output', async () => {
         'rg -n "from " src --glob "*.ts"': { exitCode: 0, stdout: 'import hit', stderr: '' },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -564,7 +587,7 @@ test('runTaskLoop counts rg syntax failures and gives planner guidance', async (
 });
 
 test('runTaskLoop reports prompt tokens and elapsed time on command progress events', async () => {
-  const progressEvents: Array<Record<string, unknown> & { kind: string }> = [];
+  const progressEvents: RepoSearchProgressEvent[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-progress-metadata',
@@ -572,6 +595,7 @@ test('runTaskLoop reports prompt tokens and elapsed time on command progress eve
       signals: ['planner'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -583,7 +607,7 @@ test('runTaskLoop reports prompt tokens and elapsed time on command progress eve
       mockCommandResults: {
         'rg -n "planner" src': { exitCode: 0, stdout: 'planner hit', stderr: '' },
       },
-      onProgress(event: Record<string, unknown> & { kind: string }) {
+      onProgress(event: RepoSearchProgressEvent) {
         progressEvents.push(event);
       },
     }
@@ -605,7 +629,7 @@ test('runTaskLoop reports prompt tokens and elapsed time on command progress eve
 
 test('runTaskLoop tool_result outputTokens reflects the fitted bubble output', async () => {
   const longStdout = Array.from({ length: 400 }, (_, index) => `planner hit ${index}`).join('\n');
-  const progressEvents: Array<Record<string, unknown> & { kind: string }> = [];
+  const progressEvents: RepoSearchProgressEvent[] = [];
   await runTaskLoop(
     {
       id: 'task-output-tokens-full',
@@ -613,6 +637,7 @@ test('runTaskLoop tool_result outputTokens reflects the fitted bubble output', a
       signals: ['planner'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -625,7 +650,7 @@ test('runTaskLoop tool_result outputTokens reflects the fitted bubble output', a
       mockCommandResults: {
         'rg -n "planner" src': { exitCode: 0, stdout: longStdout, stderr: '' },
       },
-      onProgress(event: Record<string, unknown> & { kind: string }) {
+      onProgress(event: RepoSearchProgressEvent) {
         progressEvents.push(event);
       },
     }
@@ -636,7 +661,7 @@ test('runTaskLoop tool_result outputTokens reflects the fitted bubble output', a
 
 test('runTaskLoop logs fitted tool result truncation in the full inserted output', async () => {
   const longStdout = Array.from({ length: 400 }, (_, index) => `planner hit ${index}`).join('\n');
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   await runTaskLoop(
     {
       id: 'task-output-tokens-full-log',
@@ -644,6 +669,7 @@ test('runTaskLoop logs fitted tool result truncation in the full inserted output
       signals: ['planner'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -657,7 +683,8 @@ test('runTaskLoop logs fitted tool result truncation in the full inserted output
         'rg -n "planner" src': { exitCode: 0, stdout: longStdout, stderr: '' },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -670,8 +697,8 @@ test('runTaskLoop logs fitted tool result truncation in the full inserted output
 test('runTaskLoop replaces long repeated tool output before inserting it into context', async () => {
   const repeatedTail = '</arg_value>'.repeat(10);
   const longStdout = `${Array.from({ length: 101 }, (_, index) => `src/example.ts:${index + 1}: anchor-${index}`).join('\n')}\n${repeatedTail}`;
-  const progressEvents: Array<Record<string, unknown> & { kind: string }> = [];
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const progressEvents: RepoSearchProgressEvent[] = [];
+  const events: Record<string, unknown>[] = [];
 
   await runTaskLoop(
     {
@@ -680,6 +707,7 @@ test('runTaskLoop replaces long repeated tool output before inserting it into co
       signals: ['planner'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -693,11 +721,12 @@ test('runTaskLoop replaces long repeated tool output before inserting it into co
         'rg -n "planner" src': { exitCode: 0, stdout: longStdout, stderr: '' },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
-      onProgress(event: Record<string, unknown> & { kind: string }) {
+      onProgress(event: RepoSearchProgressEvent) {
         progressEvents.push(event);
       },
     }
@@ -712,7 +741,7 @@ test('runTaskLoop replaces long repeated tool output before inserting it into co
 });
 
 test('runTaskLoop does not replay final output as thinking progress', async () => {
-  const progressEvents: Array<Record<string, unknown> & { kind: string }> = [];
+  const progressEvents: RepoSearchProgressEvent[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-final-output-progress',
@@ -720,6 +749,7 @@ test('runTaskLoop does not replay final output as thinking progress', async () =
       signals: ['planner'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 1,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -728,7 +758,7 @@ test('runTaskLoop does not replay final output as thinking progress', async () =
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {},
-      onProgress(event: Record<string, unknown> & { kind: string }) {
+      onProgress(event: RepoSearchProgressEvent) {
         progressEvents.push(event);
       },
     }
@@ -793,13 +823,12 @@ test('runTaskLoop reuses preflight prompt token count for tool progress and allo
         repoRoot: process.cwd(),
         baseUrl,
         model: 'mock-model',
-        config: {
+        config: mockConfig({
           Runtime: {
             Model: 'mock-model',
             LlamaCpp: { BaseUrl: baseUrl, NumCtx: 128000 },
           },
-          LlamaCpp: { BaseUrl: baseUrl, NumCtx: 128000 },
-        },
+        }),
         totalContextTokens: 128000,
         maxTurns: 2,
         minToolCallsBeforeFinish: 0,
@@ -818,12 +847,12 @@ test('runTaskLoop reuses preflight prompt token count for tool progress and allo
     );
     assert.equal(formattedResultTokenizations.length, 1);
   } finally {
-    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
 
 test('runTaskLoop executes repo_list_files and repo_read_file natively', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const repoRoot = createTempRepoRoot();
   try {
     fs.mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
@@ -837,6 +866,7 @@ test('runTaskLoop executes repo_list_files and repo_read_file natively', async (
         signals: ['done'],
       },
       {
+        ...MOCK_LOOP_DEFAULTS,
         repoRoot,
         maxTurns: 3,
         maxInvalidResponses: 2,
@@ -849,7 +879,8 @@ test('runTaskLoop executes repo_list_files and repo_read_file natively', async (
         ],
         mockCommandResults: {},
         logger: {
-          write(event: Record<string, unknown> & { kind: string }) {
+          path: 'memory',
+          write(event: Record<string, unknown>) {
             events.push(event);
           },
         },
@@ -872,7 +903,7 @@ test('runTaskLoop executes repo_list_files and repo_read_file natively', async (
 });
 
 test('runTaskLoop executes repo_list_files at repository root natively', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const repoRoot = createTempRepoRoot();
   try {
     fs.mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
@@ -886,6 +917,7 @@ test('runTaskLoop executes repo_list_files at repository root natively', async (
         signals: ['done'],
       },
       {
+        ...MOCK_LOOP_DEFAULTS,
         repoRoot,
         maxTurns: 2,
         maxInvalidResponses: 2,
@@ -897,7 +929,8 @@ test('runTaskLoop executes repo_list_files at repository root natively', async (
         ],
         mockCommandResults: {},
         logger: {
-          write(event: Record<string, unknown> & { kind: string }) {
+          path: 'memory',
+          write(event: Record<string, unknown>) {
             events.push(event);
           },
         },
@@ -917,7 +950,7 @@ test('runTaskLoop executes repo_list_files at repository root natively', async (
 });
 
 test('runTaskLoop executes repo_list_files with runner-* glob natively', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const repoRoot = createTempRepoRoot();
   try {
     fs.mkdirSync(path.join(repoRoot, 'logs'), { recursive: true });
@@ -932,6 +965,7 @@ test('runTaskLoop executes repo_list_files with runner-* glob natively', async (
         signals: ['done'],
       },
       {
+        ...MOCK_LOOP_DEFAULTS,
         repoRoot,
         maxTurns: 2,
         maxInvalidResponses: 2,
@@ -943,7 +977,8 @@ test('runTaskLoop executes repo_list_files with runner-* glob natively', async (
         ],
         mockCommandResults: {},
         logger: {
-          write(event: Record<string, unknown> & { kind: string }) {
+          path: 'memory',
+          write(event: Record<string, unknown>) {
             events.push(event);
           },
         },
@@ -965,7 +1000,7 @@ test('runTaskLoop executes repo_list_files with runner-* glob natively', async (
 });
 
 test('runTaskLoop logs provider request error details and surfaces enriched network failures', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const startedAt = Date.now();
   await assert.rejects(
     () => runTaskLoop(
@@ -975,6 +1010,7 @@ test('runTaskLoop logs provider request error details and surfaces enriched netw
         signals: [],
       },
       {
+        ...MOCK_LOOP_DEFAULTS,
         baseUrl: 'http://127.0.0.1:1',
         model: 'mock-model',
         timeoutMs: 500,
@@ -982,7 +1018,8 @@ test('runTaskLoop logs provider request error details and surfaces enriched netw
         maxInvalidResponses: 1,
         minToolCallsBeforeFinish: 0,
         logger: {
-          write(event: Record<string, unknown> & { kind: string }) {
+          path: 'memory',
+          write(event: Record<string, unknown>) {
             events.push(event);
           },
         },
@@ -1000,13 +1037,13 @@ test('runTaskLoop logs provider request error details and surfaces enriched netw
   const errorEvent = events.find((event) => event.kind === 'provider_request_error');
   assert.equal(errorEvent?.stage, 'planner_action');
   assert.equal(typeof errorEvent?.elapsedMs, 'number');
-  assert.equal(errorEvent?.elapsedMs >= 0, true);
+  assert.equal(Number(errorEvent?.elapsedMs) >= 0, true);
   assert.equal(typeof errorEvent?.error, 'object');
-  assert.equal(typeof errorEvent?.error?.message, 'string');
+  assert.equal(typeof (errorEvent?.error as { message?: unknown } | undefined)?.message, 'string');
 });
 
 test('runTaskLoop rewrites unsupported rg --type tsx even when --glob is present', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-rewrite-with-glob',
@@ -1014,6 +1051,7 @@ test('runTaskLoop rewrites unsupported rg --type tsx even when --glob is present
       signals: ['tsx glob hit'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1026,7 +1064,8 @@ test('runTaskLoop rewrites unsupported rg --type tsx even when --glob is present
         'rg -n "foo" --glob "*.tsx" src --type ts': { exitCode: 0, stdout: 'tsx glob hit', stderr: '' },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -1034,14 +1073,14 @@ test('runTaskLoop rewrites unsupported rg --type tsx even when --glob is present
   );
 
   const commandResult = events.find((event) => event.kind === 'turn_command_result');
-  assert.ok(String(commandResult.command).startsWith('rg -n "foo" --glob "*.tsx" src --type ts'));
-  assert.match(String(commandResult.output || ''), /rewrote unsupported --type tsx to valid types/u);
+  assert.ok(String(commandResult?.command).startsWith('rg -n "foo" --glob "*.tsx" src --type ts'));
+  assert.match(String(commandResult?.output || ''), /rewrote unsupported --type tsx to valid types/u);
   assert.equal(result.reason, 'finish');
   assert.equal(result.commandFailures, 0);
 });
 
 test('runTaskLoop rewrites unsupported rg --type jsx to --type js', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-rewrite-jsx',
@@ -1049,6 +1088,7 @@ test('runTaskLoop rewrites unsupported rg --type jsx to --type js', async () => 
       signals: ['jsx hit'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1061,7 +1101,8 @@ test('runTaskLoop rewrites unsupported rg --type jsx to --type js', async () => 
         'rg -n "foo" src --type js': { exitCode: 0, stdout: 'jsx hit', stderr: '' },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -1069,15 +1110,15 @@ test('runTaskLoop rewrites unsupported rg --type jsx to --type js', async () => 
   );
 
   const commandResult = events.find((event) => event.kind === 'turn_command_result');
-  assert.ok(String(commandResult.command).startsWith('rg -n "foo" src --type js'));
-  assert.match(String(commandResult.output || ''), /rewrote unsupported --type jsx to valid types/u);
+  assert.ok(String(commandResult?.command).startsWith('rg -n "foo" src --type js'));
+  assert.match(String(commandResult?.output || ''), /rewrote unsupported --type jsx to valid types/u);
   assert.equal(result.reason, 'finish');
   assert.equal(result.commandFailures, 0);
   assert.equal(result.passed, true);
 });
 
 test('runTaskLoop rewrites mixed --type jsx and --type tsx to --type js and --type ts', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-rewrite-jsx-tsx',
@@ -1085,6 +1126,7 @@ test('runTaskLoop rewrites mixed --type jsx and --type tsx to --type js and --ty
       signals: ['both hit'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1097,7 +1139,8 @@ test('runTaskLoop rewrites mixed --type jsx and --type tsx to --type js and --ty
         'rg -n "foo" src --type js --type ts': { exitCode: 0, stdout: 'both hit', stderr: '' },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -1105,8 +1148,8 @@ test('runTaskLoop rewrites mixed --type jsx and --type tsx to --type js and --ty
   );
 
   const commandResult = events.find((event) => event.kind === 'turn_command_result');
-  assert.ok(String(commandResult.command).startsWith('rg -n "foo" src --type js --type ts'));
-  assert.match(String(commandResult.output || ''), /rewrote unsupported --type jsx, tsx to valid types/u);
+  assert.ok(String(commandResult?.command).startsWith('rg -n "foo" src --type js --type ts'));
+  assert.match(String(commandResult?.output || ''), /rewrote unsupported --type jsx, tsx to valid types/u);
   assert.equal(result.reason, 'finish');
   assert.equal(result.commandFailures, 0);
   assert.equal(result.passed, true);
@@ -1120,6 +1163,7 @@ test('runTaskLoop counts non-zero command exits as command failures but not inva
       signals: [],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1155,6 +1199,7 @@ test('runTaskLoop does not count rg exit code 1 (no matches) as a command failur
       signals: [],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1181,6 +1226,7 @@ test('runTaskLoop does not count grep exit code 1 (no matches) as a command fail
       signals: [],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1207,6 +1253,7 @@ test('runTaskLoop still counts exit code 1 from non-search commands as a command
       signals: [],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1233,6 +1280,7 @@ test('runTaskLoop stops on finish action', async () => {
       signals: ['find_text', 'read_lines', 'json_filter'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 10,
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
@@ -1258,6 +1306,7 @@ test('runTaskLoop executes tool batches sequentially and counts each tool call t
       signals: ['planner prompt', 'prompt budget'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 3,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 2,
@@ -1295,7 +1344,7 @@ test('runTaskLoop executes tool batches sequentially and counts each tool call t
 });
 
 test('runTaskLoop accepts corroborated finish before minimum tool-call depth', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-min-depth',
@@ -1303,6 +1352,7 @@ test('runTaskLoop accepts corroborated finish before minimum tool-call depth', a
       signals: ['done'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 4,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 2,
@@ -1317,7 +1367,8 @@ test('runTaskLoop accepts corroborated finish before minimum tool-call depth', a
         'Get-Content src\\summary.ts | Select-Object -First 20': { exitCode: 0, stdout: '10: planner hit', stderr: '' },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -1338,6 +1389,7 @@ test('runTaskLoop stops at max turns when model keeps asking for tools', async (
       signals: ['summary.ts'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 3,
       mockResponses: [
@@ -1362,7 +1414,7 @@ test('runTaskLoop stops at max turns when model keeps asking for tools', async (
 });
 
 test('runTaskLoop prompt omits visible tool-call budget counters', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-budget-hidden',
@@ -1370,6 +1422,7 @@ test('runTaskLoop prompt omits visible tool-call budget counters', async () => {
       signals: [],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 3,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1383,7 +1436,8 @@ test('runTaskLoop prompt omits visible tool-call budget counters', async () => {
         'rg -n "summary" src': { exitCode: 0, stdout: 'summary hit', stderr: '' },
       },
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -1401,7 +1455,7 @@ test('runTaskLoop prompt omits visible tool-call budget counters', async () => {
 });
 
 test('runTaskLoop prompt includes anti-loop and larger single-file read guidance', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-prompt-single-file-guidance',
@@ -1409,13 +1463,15 @@ test('runTaskLoop prompt includes anti-loop and larger single-file read guidance
       signals: [],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 1,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: ['{"action":"finish","output":"done"}'],
       mockCommandResults: {},
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -1436,7 +1492,7 @@ test('runTaskLoop prompt includes anti-loop and larger single-file read guidance
 });
 
 test('runTaskLoop prompt examples use larger reads and anchor-first flow', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-prompt-example-guidance',
@@ -1444,13 +1500,15 @@ test('runTaskLoop prompt examples use larger reads and anchor-first flow', async
       signals: [],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 1,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: ['{"action":"finish","output":"done"}'],
       mockCommandResults: {},
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -1476,6 +1534,7 @@ test('runTaskLoop records line-read stats for Get-Content windows', async () => 
       signals: [],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1500,7 +1559,7 @@ test('runTaskLoop records line-read stats for Get-Content windows', async () => 
 });
 
 test('runTaskLoop prompt states ignored paths are auto-filtered by runtime policy', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-prompt-ignore-policy',
@@ -1508,13 +1567,15 @@ test('runTaskLoop prompt states ignored paths are auto-filtered by runtime polic
       signals: [],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 1,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: ['{"action":"finish","output":"done"}'],
       mockCommandResults: {},
       logger: {
-        write(event: Record<string, unknown> & { kind: string }) {
+        path: 'memory',
+        write(event: Record<string, unknown>) {
           events.push(event);
         },
       },
@@ -1527,7 +1588,7 @@ test('runTaskLoop prompt states ignored paths are auto-filtered by runtime polic
 });
 
 test('runTaskLoop rewrites Get-ChildItem recurse command to include ignore excludes', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const repoRoot = createTempRepoRoot('/custom_ignored\n');
   try {
     const result = await runTaskLoop(
@@ -1537,6 +1598,7 @@ test('runTaskLoop rewrites Get-ChildItem recurse command to include ignore exclu
         signals: ['listed'],
       },
       {
+        ...MOCK_LOOP_DEFAULTS,
         repoRoot,
         maxTurns: 2,
         maxInvalidResponses: 2,
@@ -1554,7 +1616,8 @@ test('runTaskLoop rewrites Get-ChildItem recurse command to include ignore exclu
           },
         },
         logger: {
-          write(event: Record<string, unknown> & { kind: string }) {
+          path: 'memory',
+          write(event: Record<string, unknown>) {
             events.push(event);
           },
         },
@@ -1563,10 +1626,10 @@ test('runTaskLoop rewrites Get-ChildItem recurse command to include ignore exclu
 
     const commandResult = events.find((event) => event.kind === 'turn_command_result');
     assert.ok(
-      String(commandResult.command).startsWith('Get-ChildItem src -Recurse -Filter *.ts -Exclude ')
+      String(commandResult?.command).startsWith('Get-ChildItem src -Recurse -Filter *.ts -Exclude ')
     );
-    assert.match(String(commandResult.command), /node_modules/u);
-    assert.match(String(commandResult.output || ''), /added -Exclude from ignore policy/u);
+    assert.match(String(commandResult?.command), /node_modules/u);
+    assert.match(String(commandResult?.output || ''), /added -Exclude from ignore policy/u);
     assert.equal(result.reason, 'finish');
     assert.equal(result.passed, true);
   } finally {
@@ -1575,7 +1638,7 @@ test('runTaskLoop rewrites Get-ChildItem recurse command to include ignore exclu
 });
 
 test('runTaskLoop rewrites Select-String path scan to include ignore excludes', async () => {
-  const events: Array<Record<string, unknown> & { kind: string }> = [];
+  const events: Record<string, unknown>[] = [];
   const repoRoot = createTempRepoRoot('/custom_ignored\n');
   try {
     const result = await runTaskLoop(
@@ -1585,6 +1648,7 @@ test('runTaskLoop rewrites Select-String path scan to include ignore excludes', 
         signals: ['hit'],
       },
       {
+        ...MOCK_LOOP_DEFAULTS,
         repoRoot,
         maxTurns: 2,
         maxInvalidResponses: 2,
@@ -1602,7 +1666,8 @@ test('runTaskLoop rewrites Select-String path scan to include ignore excludes', 
           },
         },
         logger: {
-          write(event: Record<string, unknown> & { kind: string }) {
+          path: 'memory',
+          write(event: Record<string, unknown>) {
             events.push(event);
           },
         },
@@ -1611,10 +1676,10 @@ test('runTaskLoop rewrites Select-String path scan to include ignore excludes', 
 
     const commandResult = events.find((event) => event.kind === 'turn_command_result');
     assert.ok(
-      String(commandResult.command).startsWith('Select-String -Path "src\\*.ts" -Pattern "planner" -Exclude ')
+      String(commandResult?.command).startsWith('Select-String -Path "src\\*.ts" -Pattern "planner" -Exclude ')
     );
-    assert.match(String(commandResult.command), /node_modules/u);
-    assert.match(String(commandResult.output || ''), /added -Exclude from ignore policy/u);
+    assert.match(String(commandResult?.command), /node_modules/u);
+    assert.match(String(commandResult?.output || ''), /added -Exclude from ignore policy/u);
     assert.equal(result.reason, 'finish');
     assert.equal(result.passed, true);
   } finally {
@@ -1630,6 +1695,7 @@ test('runTaskLoop allows rg commands that include --no-ignore explicitly', async
       signals: [],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1658,6 +1724,7 @@ test('runTaskLoop allows rg commands that include -u explicitly', async () => {
       signals: [],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -1688,6 +1755,7 @@ test('runTaskLoop rejects Get-Content reads under ignored directories', async ()
         signals: [],
       },
       {
+        ...MOCK_LOOP_DEFAULTS,
         repoRoot,
         maxTurns: 2,
         maxInvalidResponses: 2,
@@ -1711,7 +1779,7 @@ test('runTaskLoop rejects Get-Content reads under ignored directories', async ()
 });
 
 test('runTaskLoop sends append-only chat requests with explicit cache_prompt and a pinned slot', async () => {
-  const chatRequests = [];
+  const chatRequests: Record<string, unknown>[] = [];
   let requestCount = 0;
   const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && req.url === '/tokenize') {
@@ -1775,9 +1843,9 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
     res.end(JSON.stringify({ error: 'not found' }));
   });
 
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
-  const baseUrl = `http://127.0.0.1:${Number(address.port)}`;
+  const baseUrl = `http://127.0.0.1:${Number((address as AddressInfo).port)}`;
 
   try {
     const result = await runTaskLoop(
@@ -1790,8 +1858,9 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
         repoRoot: process.cwd(),
         baseUrl,
         model: 'mock-model',
-        config: {
+        config: mockConfig({
           Runtime: {
+            Model: 'mock-model',
             LlamaCpp: {
               BaseUrl: baseUrl,
               NumCtx: 70000,
@@ -1799,13 +1868,7 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
               Reasoning: 'off',
             },
           },
-          LlamaCpp: {
-            BaseUrl: baseUrl,
-            NumCtx: 70000,
-            ParallelSlots: 4,
-            Reasoning: 'off',
-          },
-        },
+        }),
         maxTurns: 2,
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
@@ -1821,19 +1884,19 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
     assert.equal(chatRequests[1].cache_prompt, true);
     assert.equal(Number.isInteger(chatRequests[0].id_slot), true);
     assert.equal(chatRequests[0].id_slot, chatRequests[1].id_slot);
-    assert.equal(chatRequests[0]?.response_format?.type, 'json_schema');
+    assert.equal((chatRequests[0]?.response_format as { type?: unknown } | undefined)?.type, 'json_schema');
     assert.equal('tools' in chatRequests[0], false);
     assert.equal('parallel_tool_calls' in chatRequests[0], false);
-    assert.equal(chatRequests[1].messages.length > chatRequests[0].messages.length, true);
+    assert.equal((chatRequests[1].messages as unknown[]).length > (chatRequests[0].messages as unknown[]).length, true);
     assert.doesNotMatch(JSON.stringify(chatRequests[0].messages), /Tool-call budget remaining:/u);
     assert.doesNotMatch(JSON.stringify(chatRequests[1].messages), /Tool-call budget remaining:/u);
   } finally {
-    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
 
 test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the fifth duplicate', async () => {
-  const chatRequests = [];
+  const chatRequests: Record<string, unknown>[] = [];
   let requestCount = 0;
   const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && req.url === '/tokenize') {
@@ -1897,9 +1960,9 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
     res.end(JSON.stringify({ error: 'not found' }));
   });
 
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
-  const baseUrl = `http://127.0.0.1:${Number(address.port)}`;
+  const baseUrl = `http://127.0.0.1:${Number((address as AddressInfo).port)}`;
 
   try {
     const result = await runTaskLoop(
@@ -1912,8 +1975,9 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
         repoRoot: process.cwd(),
         baseUrl,
         model: 'mock-model',
-        config: {
+        config: mockConfig({
           Runtime: {
+            Model: 'mock-model',
             LlamaCpp: {
               BaseUrl: baseUrl,
               NumCtx: 70000,
@@ -1921,13 +1985,7 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
               Reasoning: 'off',
             },
           },
-          LlamaCpp: {
-            BaseUrl: baseUrl,
-            NumCtx: 70000,
-            ParallelSlots: 4,
-            Reasoning: 'off',
-          },
-        },
+        }),
         maxTurns: 6,
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
@@ -1950,7 +2008,7 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
     assert.equal(duplicateUserMessages.length, 0);
     assert.match(String(duplicateToolMessages[0]?.content || ''), /duplicate command requested x5\. Issue a different\/unique tool call/u);
   } finally {
-    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
 
@@ -1962,6 +2020,7 @@ test('runTaskLoop synthesizes final output on terminal max_turns', async () => {
       signals: [],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 1,
       maxInvalidResponses: 3,
       mockResponses: [
@@ -2042,7 +2101,7 @@ test('runTaskLoop uses dynamic max_tokens for planner requests from live prompt 
       getDynamicMaxOutputTokens({ totalContextTokens: 20000, promptTokenCount: loggedPromptTokenCounts[0] })
     );
   } finally {
-    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
 
@@ -2109,12 +2168,12 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
       })
     );
   } finally {
-    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
 
 test('runTaskLoop assigns a unique toolCallId pairing tool_start with tool_result', async () => {
-  const progressEvents: Array<Record<string, unknown> & { kind: string }> = [];
+  const progressEvents: RepoSearchProgressEvent[] = [];
   await runTaskLoop(
     {
       id: 'task-tool-call-id',
@@ -2122,6 +2181,7 @@ test('runTaskLoop assigns a unique toolCallId pairing tool_start with tool_resul
       signals: ['planner'],
     },
     {
+      ...MOCK_LOOP_DEFAULTS,
       maxTurns: 3,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -2135,7 +2195,7 @@ test('runTaskLoop assigns a unique toolCallId pairing tool_start with tool_resul
         'rg -n "planner" src': { exitCode: 0, stdout: 'planner hit', stderr: '' },
         'rg -n "prompt" src': { exitCode: 0, stdout: 'prompt hit', stderr: '' },
       },
-      onProgress(event: Record<string, unknown> & { kind: string }) {
+      onProgress(event: RepoSearchProgressEvent) {
         progressEvents.push(event);
       },
     }

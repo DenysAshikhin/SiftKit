@@ -1,4 +1,4 @@
-import type { RestartBackendResponse } from './types';
+import type { RestartBackendResponse } from './types.js';
 
 export type ManagedLlamaRestartFailureModal = {
   title: string;

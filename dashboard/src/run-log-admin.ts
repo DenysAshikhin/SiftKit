@@ -2,7 +2,7 @@ import type {
   RunGroupFilter,
   RunLogDeleteCriteria,
   RunLogDeleteType,
-} from './types';
+} from './types.js';
 
 export type RunLogDeleteFormState = {
   mode: 'count' | 'before_date';

@@ -1,24 +1,7 @@
 // @ts-nocheck
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-
-function requireCompiledSummary(): {
-  summarizeRequest: (request: Record<string, unknown>) => Promise<Record<string, unknown>>;
-} {
-  const candidates = [
-    path.resolve(__dirname, '..', '..', 'dist', 'summary.js'),
-    path.resolve(__dirname, '..', '..', '..', 'dist', 'summary.js'),
-  ];
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      return require(candidate) as { summarizeRequest: (request: Record<string, unknown>) => Promise<Record<string, unknown>> };
-    }
-  }
-  throw new Error('Unable to locate dist/summary.js. Run npm run build first.');
-}
-
-const { summarizeRequest } = requireCompiledSummary();
+import { summarizeRequest } from '../../src/summary.js';
 
 export function parseArgs(argv: string[]): {
   fixtureIndex: number;

@@ -1,18 +1,17 @@
-// @ts-nocheck
-const test = require('node:test');
-const assert = require('node:assert/strict');
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
-const {
+import {
   fs,
   path,
   runFixture60MalformedJsonRepro,
   withTempEnv,
   withStubServer,
-} = require('./_runtime-helpers.js');
-const {
+} from './_runtime-helpers.js';
+import {
   STABLE_CHUNK_BUDGET_METRICS,
   saveFixture60ChunkingConfig,
-} = require('./helpers/runtime-benchmark-repro.js');
+} from './helpers/runtime-benchmark-repro.js';
 
 test('repro-fixture60-malformed-json can run a fixture range and repair later malformed fixture output', async () => {
   await withTempEnv(async (tempRoot) => {

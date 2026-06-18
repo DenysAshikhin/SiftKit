@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { getPresetById, getPresetFamily } from '../dashboard/src/dashboard-presets.ts';
-import type { ChatSession, DashboardConfig, DashboardPreset } from '../dashboard/src/types.ts';
-import { normalizeConfigObject } from '../src/config/normalization.ts';
+import { getPresetById, getPresetFamily } from '../dashboard/src/dashboard-presets.js';
+import type { ChatSession, DashboardConfig, DashboardPreset } from '../dashboard/src/types.js';
+import { normalizeConfigObject } from '../src/config/normalization.js';
 
 function createPreset(id: string, overrides: Partial<DashboardPreset> = {}): DashboardPreset {
   return {
@@ -60,29 +60,7 @@ function createConfig(presets: DashboardPreset[]): DashboardConfig {
         FlashAttention: true,
         ParallelSlots: 1,
         Reasoning: 'off',
-        ReasoningContent: false,
-        PreserveThinking: false,
-        MaintainPerStepThinking: false,
       },
-    },
-    LlamaCpp: {
-      BaseUrl: 'http://127.0.0.1:8097',
-      NumCtx: 150000,
-      ModelPath: null,
-      Temperature: 0.7,
-      TopP: 0.8,
-      TopK: 20,
-      MinP: 0,
-      PresencePenalty: 1.5,
-      RepetitionPenalty: 1,
-      MaxTokens: 15000,
-      Threads: 0,
-      FlashAttention: true,
-      ParallelSlots: 1,
-      Reasoning: 'off',
-      ReasoningContent: false,
-      PreserveThinking: false,
-      MaintainPerStepThinking: false,
     },
     Thresholds: {
       MinCharactersForSummary: 500,
@@ -95,40 +73,20 @@ function createConfig(presets: DashboardPreset[]): DashboardConfig {
       MaxTranscriptCharacters: 1000,
       TranscriptRetention: true,
     },
+    WebSearch: {
+      EnabledDefault: true,
+      Providers: {
+        tavily: { Enabled: false, ApiKey: '' },
+        firecrawl: { Enabled: false, ApiKey: '' },
+      },
+      ProviderOrder: ['tavily', 'firecrawl'],
+      ResultCount: 5,
+      FetchMaxPages: 3,
+      TimeoutMs: 15000,
+      FetchMaxCharacters: 12000,
+    },
     Server: {
       LlamaCpp: {
-        Model: 'mock-model',
-        ExecutablePath: null,
-        BaseUrl: 'http://127.0.0.1:8097',
-        BindHost: '127.0.0.1',
-        Port: 8097,
-        ModelPath: null,
-        NumCtx: 150000,
-        GpuLayers: 0,
-        Threads: 0,
-        NcpuMoe: 0,
-        FlashAttention: true,
-        ParallelSlots: 1,
-        BatchSize: 512,
-        UBatchSize: 512,
-        CacheRam: 2048,
-        KvCacheQuantization: 'f16',
-        MaxTokens: 15000,
-        Temperature: 0.7,
-        TopP: 0.8,
-        TopK: 20,
-        MinP: 0,
-        PresencePenalty: 1.5,
-        RepetitionPenalty: 1,
-        Reasoning: 'off',
-        ReasoningContent: false,
-        PreserveThinking: false,
-        ReasoningBudget: 1000,
-        ReasoningBudgetMessage: '',
-        StartupTimeoutMs: 1000,
-        HealthcheckTimeoutMs: 1000,
-        HealthcheckIntervalMs: 1000,
-        VerboseLogging: false,
         Presets: [],
         ActivePresetId: 'default',
       },

@@ -18,10 +18,12 @@ const { renderToStaticMarkup } = dashboardRequire('react-dom/server') as {
 function withDashboardWindow<T>(callback: () => T): T {
   const globalWithWindow = globalThis as typeof globalThis & { window: Window & typeof globalThis };
   const previousWindow = globalWithWindow.window;
+  // Minimal SSR window double: App only reads location.pathname/search and history.replaceState.
+  // The real Window has 200+ members, so a full literal is impossible — stub exactly what is used.
   globalWithWindow.window = {
     location: { pathname: '/', search: '' },
     history: { replaceState: () => {} },
-  } as Window & typeof globalThis;
+  } as unknown as Window & typeof globalThis;
   try {
     return callback();
   } finally {

@@ -7,6 +7,7 @@ import * as path from 'node:path';
 import { createRequire } from 'node:module';
 
 import type { DashboardConfig } from '../dashboard/src/types';
+import { mockConfig } from './_runtime-helpers.js';
 import {
   DEFAULT_SPEC_BENCHMARK_CASES,
   FOCUSED3_SPEC_BENCHMARK_CASES,
@@ -33,7 +34,7 @@ const DEFAULT_SPEC_BENCHMARK_PROMPTS = [
 ] as const;
 const DEFAULT_SPEC_BENCHMARK_PROMPT = DEFAULT_SPEC_BENCHMARK_PROMPTS[0];
 
-const require = createRequire(import.meta.url);
+const require = createRequire(__filename);
 const { normalizeForwardedArgs } = require('../scripts/run-benchmark-spec-settings.js') as {
   normalizeForwardedArgs: (argv: string[]) => string[];
 };
@@ -320,16 +321,9 @@ test('applySpeculativeCaseToConfig updates only the approved speculative setting
 });
 
 test('applySpeculativeCaseToConfig updates the active managed llama preset used on restart', () => {
-  const config = {
+  const config = mockConfig({
     Server: {
       LlamaCpp: {
-        SpeculativeEnabled: true,
-        SpeculativeType: 'ngram-mod',
-        SpeculativeNgramSizeN: 24,
-        SpeculativeNgramSizeM: 64,
-        SpeculativeNgramMinHits: 2,
-        SpeculativeDraftMax: 48,
-        SpeculativeDraftMin: 4,
         ActivePresetId: 'active',
         Presets: [
           {
@@ -345,7 +339,7 @@ test('applySpeculativeCaseToConfig updates the active managed llama preset used 
         ],
       },
     },
-  } as DashboardConfig;
+  });
 
   const updated = applySpeculativeCaseToConfig(config, {
     speculativeNgramSizeN: 16,
@@ -399,7 +393,7 @@ test('sortBenchmarkResults orders by generation tokens per second descending', (
   const sorted = sortBenchmarkResults([
     { caseId: 'slow', runMetrics: { generationTokensPerSecond: 60 } },
     { caseId: 'fast', runMetrics: { generationTokensPerSecond: 90 } },
-  ] as never);
+  ]);
 
   assert.deepEqual(sorted.map((entry) => entry.caseId), ['fast', 'slow']);
 });
@@ -623,14 +617,16 @@ test('package test command runs the test TypeScript typecheck', () => {
   assert.match(String(pkg.scripts?.test || ''), /npm run typecheck:test/u);
 });
 
-test('package typecheck command is available for repo, scripts, dashboard, bench, and tests', () => {
+test('package typecheck command is available for repo, scripts, dashboard, bench, tests, and dashboard-test', () => {
   const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { scripts?: Record<string, string> };
 
   assert.equal(
     String(pkg.scripts?.typecheck),
-    'tsc -p .\\tsconfig.json --noEmit && tsc -p .\\tsconfig.scripts.json --noEmit && tsc -p .\\dashboard\\tsconfig.json --noEmit && npm run typecheck:bench && npm run typecheck:test',
+    'tsc -p .\\tsconfig.json --noEmit && tsc -p .\\tsconfig.scripts.json --noEmit && tsc -p .\\dashboard\\tsconfig.json --noEmit && npm run typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test && npm run typecheck:analysis',
   );
   assert.equal(String(pkg.scripts?.['typecheck:bench']), 'tsc -p .\\tsconfig.bench.json --noEmit');
+  assert.equal(String(pkg.scripts?.['typecheck:dashboard-test']), 'tsc -p .\\dashboard\\tsconfig.test.json --noEmit');
+  assert.equal(String(pkg.scripts?.['typecheck:analysis']), 'tsc -p .\\tsconfig.analysis.json --noEmit');
 });
 
 test('syncDistRuntime copies fresh compiled files from dist/src into runtime dist paths', () => {

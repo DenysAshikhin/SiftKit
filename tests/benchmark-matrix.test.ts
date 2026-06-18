@@ -99,7 +99,7 @@ test('buildBenchmarkArgs produces correct node arguments', () => {
     modelId: 'test-model',
     maxTokens: 4096,
   } as unknown as MatrixRun;
-  const args = buildBenchmarkArgs(manifest, run, 'C:\\output\\result.json', null);
+  const args = buildBenchmarkArgs(manifest, run, null);
   assert.ok(Array.isArray(args));
   assert.ok(args.includes('--fixture-root'));
   assert.ok(args.includes('--model'));
