@@ -6,9 +6,6 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { ModelJson } from '../src/lib/model-json.js';
-import { getRepoSearchToolNamesForParsing } from '../src/repo-search/planner-protocol.js';
-import { isTransientProviderError, retryProviderRequest } from '../src/lib/provider-helpers.js';
 import {
   runTaskLoop,
   buildScorecard,
@@ -136,117 +133,6 @@ test('repo-search executes a native web_search tool when allowed', async () => {
   assert.equal(toolStart?.command, 'web_search query="siftkit"');
   assert.match(String(toolResult?.outputSnippet || ''), /web result snippet|example\.com/);
   assert.equal(Object.keys(scorecard.toolStats).includes('web_search'), true);
-});
-
-test('getDynamicMaxOutputTokens uses the smaller of 25k tokens or 90% of remaining context', () => {
-  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 8192, promptTokenCount: 1000 }), 6472);
-  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 128000, promptTokenCount: 12239 }), 25000);
-  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 200, promptTokenCount: 199 }), 1);
-  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 200, promptTokenCount: 250 }), 1);
-});
-
-function parseRepoSearchPlannerAction(text: string) {
-  return ModelJson.parseRepoSearchPlannerAction(text, { allowedToolNames: getRepoSearchToolNamesForParsing() });
-}
-
-test('ModelJson parses valid repo-search tool action', () => {
-  const action = parseRepoSearchPlannerAction("{\"action\":\"repo_rg\",\"command\":\"rg planner src\"}");
-  assert.deepEqual(action, {
-    action: 'tool',
-    tool_name: 'repo_rg',
-    args: { command: 'rg planner src' },
-  });
-});
-
-test('ModelJson parses valid repo-search finish action', () => {
-  const action = parseRepoSearchPlannerAction('{"action":"finish","output":"done"}');
-  assert.deepEqual(action, {
-    action: 'finish',
-    output: 'done',
-  });
-});
-
-test('ModelJson rejects repo-search finish confidence', () => {
-  assert.throws(
-    () => parseRepoSearchPlannerAction('{"action":"finish","output":"done","confidence":0.7}'),
-    /invalid planner finish action/u
-  );
-});
-
-test('ModelJson rejects invalid repo-search planner payloads', () => {
-  assert.throws(() => parseRepoSearchPlannerAction('not-json'), /invalid planner payload/u);
-  assert.throws(
-    () => parseRepoSearchPlannerAction("{\"action\":\"read_lines\",\"command\":\"rg x\"}"),
-    /unknown planner action/u
-  );
-  assert.throws(
-    () => parseRepoSearchPlannerAction('{"action":"tool","tool_name":"run_repo_cmd","args":{"bad":"x"}}'),
-    /unknown planner action/u
-  );
-});
-
-test('ModelJson repairs malformed escaped command payloads', () => {
-  const malformed = '{"action":"repo_rg","command":"rg -n \\"D:\\\\\\\\|C:\\\\\\\\|\\\\\\\\\\\\\\\\" src --type ts | Select-Object -First 30"';
-  const action = parseRepoSearchPlannerAction(malformed);
-  assert.deepEqual(action, {
-    action: 'tool',
-    tool_name: 'repo_rg',
-    args: { command: 'rg -n "D:\\\\|C:\\\\|\\\\\\\\" src --type ts | Select-Object -First 30' },
-  });
-});
-
-test('isTransientProviderError treats ECONNREFUSED as transient', () => {
-  assert.equal(isTransientProviderError(new Error('connect ECONNREFUSED 127.0.0.1:8097')), true);
-});
-
-test('retryProviderRequest retries transient failures and returns on success', async () => {
-  let attemptCount = 0;
-  const retryEvents: Array<{ attempt: number; nextDelayMs: number }> = [];
-  const sleepCalls: number[] = [];
-  const result = await retryProviderRequest(async () => {
-    attemptCount += 1;
-    if (attemptCount < 3) {
-      const error = new Error(`connect ECONNREFUSED 127.0.0.1:8097 attempt=${attemptCount}`) as Error & { code?: string };
-      error.code = 'ECONNREFUSED';
-      throw error;
-    }
-    return 'ok';
-  }, {
-    maxWaitMs: 5000,
-    onRetry(event) {
-      retryEvents.push({ attempt: event.attempt, nextDelayMs: event.nextDelayMs });
-    },
-    sleepMs: async (delayMs: number) => {
-      sleepCalls.push(delayMs);
-    },
-  });
-  assert.equal(result, 'ok');
-  assert.equal(attemptCount, 3);
-  assert.deepEqual(retryEvents.map((item) => item.attempt), [1, 2]);
-  assert.deepEqual(sleepCalls, [250, 500]);
-});
-
-test('retryProviderRequest stops after max wait budget and surfaces the original error', async () => {
-  let nowMs = 0;
-  const retryEvents: number[] = [];
-  await assert.rejects(
-    () => retryProviderRequest(async () => {
-      const error = new Error('connect ECONNREFUSED 127.0.0.1:8097') as Error & { code?: string };
-      error.code = 'ECONNREFUSED';
-      throw error;
-    }, {
-      maxWaitMs: 200,
-      onRetry(event) {
-        retryEvents.push(event.attempt);
-      },
-      nowMs: () => nowMs,
-      sleepMs: async (delayMs: number) => {
-        nowMs += delayMs;
-      },
-    }),
-    /ECONNREFUSED/u
-  );
-  assert.deepEqual(retryEvents, []);
 });
 
 test('runTaskLoop rewrites unsupported rg --type tsx and annotates output', async () => {

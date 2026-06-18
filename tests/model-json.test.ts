@@ -2,6 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { ModelJson } from '../src/lib/model-json.js';
+import { getRepoSearchToolNamesForParsing } from '../src/repo-search/planner-protocol.js';
+
+function parseRepoSearchPlannerAction(text: string) {
+  return ModelJson.parseRepoSearchPlannerAction(text, { allowedToolNames: getRepoSearchToolNamesForParsing() });
+}
 
 test('ModelJson parses valid summary decisions without repair', () => {
   const decision = ModelJson.parseSummaryDecision(JSON.stringify({
@@ -182,4 +187,50 @@ test('ModelJson rejects unrecoverable model JSON', () => {
     () => ModelJson.parseSummaryDecision('this is not json'),
     /Provider returned an invalid SiftKit decision payload/u,
   );
+});
+
+test('ModelJson parses valid repo-search tool action', () => {
+  const action = parseRepoSearchPlannerAction("{\"action\":\"repo_rg\",\"command\":\"rg planner src\"}");
+  assert.deepEqual(action, {
+    action: 'tool',
+    tool_name: 'repo_rg',
+    args: { command: 'rg planner src' },
+  });
+});
+
+test('ModelJson parses valid repo-search finish action', () => {
+  const action = parseRepoSearchPlannerAction('{"action":"finish","output":"done"}');
+  assert.deepEqual(action, {
+    action: 'finish',
+    output: 'done',
+  });
+});
+
+test('ModelJson rejects repo-search finish confidence', () => {
+  assert.throws(
+    () => parseRepoSearchPlannerAction('{"action":"finish","output":"done","confidence":0.7}'),
+    /invalid planner finish action/u
+  );
+});
+
+test('ModelJson rejects invalid repo-search planner payloads', () => {
+  assert.throws(() => parseRepoSearchPlannerAction('not-json'), /invalid planner payload/u);
+  assert.throws(
+    () => parseRepoSearchPlannerAction("{\"action\":\"read_lines\",\"command\":\"rg x\"}"),
+    /unknown planner action/u
+  );
+  assert.throws(
+    () => parseRepoSearchPlannerAction('{"action":"tool","tool_name":"run_repo_cmd","args":{"bad":"x"}}'),
+    /unknown planner action/u
+  );
+});
+
+test('ModelJson repairs malformed escaped command payloads', () => {
+  const malformed = '{"action":"repo_rg","command":"rg -n \\"D:\\\\\\\\|C:\\\\\\\\|\\\\\\\\\\\\\\\\" src --type ts | Select-Object -First 30"';
+  const action = parseRepoSearchPlannerAction(malformed);
+  assert.deepEqual(action, {
+    action: 'tool',
+    tool_name: 'repo_rg',
+    args: { command: 'rg -n "D:\\\\|C:\\\\|\\\\\\\\" src --type ts | Select-Object -First 30' },
+  });
 });

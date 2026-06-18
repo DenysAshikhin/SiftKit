@@ -4,6 +4,7 @@ import * as http from 'node:http';
 
 import type { SiftConfig } from '../src/config/index.js';
 import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
+import { getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
 
 async function closeServer(server: http.Server): Promise<void> {
   await new Promise<void>((resolve, reject) => {
@@ -153,4 +154,11 @@ test('addOutputTokens and addToolTokens accumulate; tool tokens are ceiled and f
   assert.equal(tracker.snapshot().outputTokens, 15);
   assert.equal(tracker.snapshot().outputTokensEstimatedCount, 1);
   assert.equal(tracker.snapshot().toolTokens, 4);
+});
+
+test('getDynamicMaxOutputTokens uses the smaller of 25k tokens or 90% of remaining context', () => {
+  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 8192, promptTokenCount: 1000 }), 6472);
+  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 128000, promptTokenCount: 12239 }), 25000);
+  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 200, promptTokenCount: 199 }), 1);
+  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 200, promptTokenCount: 250 }), 1);
 });
